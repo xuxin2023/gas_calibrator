@@ -12,6 +12,59 @@ if str(SUPPORT_DIR) not in sys.path:
 from ui_v2_support import build_fake_facade
 
 
+def _write_offline_diagnostic_bundles(run_dir: Path) -> None:
+    room_temp_dir = run_dir / "room_temp_diagnostic"
+    room_temp_dir.mkdir(parents=True, exist_ok=True)
+    (room_temp_dir / "diagnostic_plot.png").write_text("png", encoding="utf-8")
+    (room_temp_dir / "readable_report.md").write_text("# room temp\n", encoding="utf-8")
+    (room_temp_dir / "diagnostic_workbook.xlsx").write_text("", encoding="utf-8")
+    (room_temp_dir / "diagnostic_summary.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-04-04T10:00:00",
+                "classification": "warn",
+                "recommended_variant": "ambient_open",
+                "dominant_error": "pressure_bias",
+                "next_check": "verify ambient chain",
+                "summary": "Room-temp diagnostic summary",
+                "plot_files": ["diagnostic_plot.png"],
+                "evidence_source": "diagnostic",
+                "not_real_acceptance_evidence": True,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    analyzer_dir = run_dir / "analyzer_chain_isolation"
+    analyzer_dir.mkdir(parents=True, exist_ok=True)
+    (analyzer_dir / "isolation_plot.png").write_text("png", encoding="utf-8")
+    (analyzer_dir / "summary.json").write_text("{}", encoding="utf-8")
+    (analyzer_dir / "readable_report.md").write_text("# analyzer chain\n", encoding="utf-8")
+    (analyzer_dir / "diagnostic_workbook.xlsx").write_text("", encoding="utf-8")
+    (analyzer_dir / "operator_checklist.md").write_text("checklist\n", encoding="utf-8")
+    (analyzer_dir / "compare_vs_8ch.md").write_text("8ch\n", encoding="utf-8")
+    (analyzer_dir / "compare_vs_baseline.md").write_text("baseline\n", encoding="utf-8")
+    (analyzer_dir / "isolation_comparison_summary.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-04-04T11:00:00",
+                "should_continue_s1": False,
+                "dominant_conclusion": "chain mismatch",
+                "recommendation": "inspect analyzer chain",
+                "summary": "Analyzer-chain isolation summary",
+                "plot_files": ["isolation_plot.png"],
+                "evidence_source": "diagnostic",
+                "not_real_acceptance_evidence": True,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> None:
     facade = build_fake_facade(tmp_path)
     gateway = ResultsGateway(
@@ -332,3 +385,39 @@ def test_results_gateway_reads_config_safety_from_analytics_summary_when_summary
     assert results_payload["config_governance_handoff"]["execution_gate"]["status"] == "analytics_override"
     assert reports_payload["config_safety_review"]["execution_gate"]["status"] == "analytics_override"
     assert reports_payload["config_governance_handoff"]["execution_gate"]["status"] == "analytics_override"
+
+
+def test_results_gateway_surfaces_offline_diagnostic_adapter_artifacts(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    _write_offline_diagnostic_bundles(run_dir)
+
+    gateway = ResultsGateway(
+        run_dir,
+        output_files_provider=facade.service.get_output_files,
+    )
+    results_payload = gateway.read_results_payload()
+    reports_payload = gateway.read_reports_payload()
+    rows_by_path = {
+        str(row.get("path") or ""): dict(row)
+        for row in reports_payload["files"]
+    }
+
+    summary = dict(results_payload.get("offline_diagnostic_adapter_summary", {}) or {})
+
+    assert summary["found"] is True
+    assert summary["room_temp_count"] == 1
+    assert summary["analyzer_chain_count"] == 1
+    assert any("Room-temp diagnostic summary" in str(line) for line in list(summary.get("review_lines") or []))
+    assert rows_by_path[str((run_dir / "room_temp_diagnostic" / "diagnostic_summary.json").resolve())]["artifact_role"] == (
+        "diagnostic_analysis"
+    )
+    assert rows_by_path[str((run_dir / "room_temp_diagnostic" / "diagnostic_summary.json").resolve())]["artifact_key"] == (
+        "room_temp_diagnostic_summary"
+    )
+    assert rows_by_path[str((run_dir / "analyzer_chain_isolation" / "isolation_comparison_summary.json").resolve())][
+        "artifact_key"
+    ] == "analyzer_chain_isolation_comparison"
+    assert rows_by_path[str((run_dir / "analyzer_chain_isolation" / "operator_checklist.md").resolve())]["artifact_key"] == (
+        "analyzer_chain_operator_checklist"
+    )

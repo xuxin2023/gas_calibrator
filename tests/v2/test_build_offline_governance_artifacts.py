@@ -6,6 +6,58 @@ from pathlib import Path
 from gas_calibrator.v2.scripts.build_offline_governance_artifacts import main, rebuild_run, rebuild_suite
 
 
+def _write_offline_diagnostic_bundles(run_dir: Path) -> None:
+    room_temp_dir = run_dir / "room_temp_diagnostic"
+    room_temp_dir.mkdir(parents=True, exist_ok=True)
+    (room_temp_dir / "diagnostic_plot.png").write_text("png", encoding="utf-8")
+    (room_temp_dir / "readable_report.md").write_text("# room temp\n", encoding="utf-8")
+    (room_temp_dir / "diagnostic_workbook.xlsx").write_text("", encoding="utf-8")
+    (room_temp_dir / "diagnostic_summary.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-04-04T10:00:00",
+                "classification": "warn",
+                "recommended_variant": "ambient_open",
+                "dominant_error": "pressure_bias",
+                "next_check": "verify ambient chain",
+                "summary": "Room-temp diagnostic summary",
+                "plot_files": ["diagnostic_plot.png"],
+                "evidence_source": "diagnostic",
+                "not_real_acceptance_evidence": True,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    analyzer_dir = run_dir / "analyzer_chain_isolation"
+    analyzer_dir.mkdir(parents=True, exist_ok=True)
+    (analyzer_dir / "isolation_plot.png").write_text("png", encoding="utf-8")
+    (analyzer_dir / "summary.json").write_text("{}", encoding="utf-8")
+    (analyzer_dir / "readable_report.md").write_text("# analyzer chain\n", encoding="utf-8")
+    (analyzer_dir / "diagnostic_workbook.xlsx").write_text("", encoding="utf-8")
+    (analyzer_dir / "operator_checklist.md").write_text("checklist\n", encoding="utf-8")
+    (analyzer_dir / "compare_vs_8ch.md").write_text("8ch\n", encoding="utf-8")
+    (analyzer_dir / "compare_vs_baseline.md").write_text("baseline\n", encoding="utf-8")
+    (analyzer_dir / "isolation_comparison_summary.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-04-04T11:00:00",
+                "should_continue_s1": False,
+                "dominant_conclusion": "chain mismatch",
+                "recommendation": "inspect analyzer chain",
+                "summary": "Analyzer-chain isolation summary",
+                "plot_files": ["isolation_plot.png"],
+                "evidence_source": "diagnostic",
+                "not_real_acceptance_evidence": True,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     run_dir = tmp_path / "run_001"
     run_dir.mkdir()

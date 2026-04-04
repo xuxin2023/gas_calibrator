@@ -39,6 +39,10 @@ def test_result_store_exports_artifacts(tmp_path: Path) -> None:
             "valid": True,
             "recommendation": "use",
             "reason": "passed",
+            "dewpoint_gate_result": "pass",
+            "dewpoint_rebound_detected": True,
+            "rebound_rise_c": 1.25,
+            "rebound_note": "late rebound observed",
         },
     )
 
@@ -52,8 +56,13 @@ def test_result_store_exports_artifacts(tmp_path: Path) -> None:
     assert json_path.exists()
     assert readable_path is not None
     assert readable_path.exists()
-    assert "AnalyzerCoverage" in readable_path.read_text(encoding="utf-8")
-    assert "reference_quality" in readable_path.read_text(encoding="utf-8")
+    readable_text = readable_path.read_text(encoding="utf-8")
+    assert "AnalyzerCoverage" in readable_text
+    assert "reference_quality" in readable_text
+    assert "dewpoint_gate_result" in readable_text
+    assert "dewpoint_rebound_detected" in readable_text
+    assert "rebound_rise_c" in readable_text
+    assert "late rebound observed" in readable_text
     assert len(store.get_samples()) == 1
 
 

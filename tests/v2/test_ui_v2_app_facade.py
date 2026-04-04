@@ -32,6 +32,59 @@ def _execution_signature(payload) -> list[tuple[float, str, float | None, float 
     ]
 
 
+def _write_offline_diagnostic_bundles(run_dir: Path) -> None:
+    room_temp_dir = run_dir / "room_temp_diagnostic"
+    room_temp_dir.mkdir(parents=True, exist_ok=True)
+    (room_temp_dir / "diagnostic_plot.png").write_text("png", encoding="utf-8")
+    (room_temp_dir / "readable_report.md").write_text("# room temp\n", encoding="utf-8")
+    (room_temp_dir / "diagnostic_workbook.xlsx").write_text("", encoding="utf-8")
+    (room_temp_dir / "diagnostic_summary.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-04-04T10:00:00",
+                "classification": "warn",
+                "recommended_variant": "ambient_open",
+                "dominant_error": "pressure_bias",
+                "next_check": "verify ambient chain",
+                "summary": "Room-temp diagnostic summary",
+                "plot_files": ["diagnostic_plot.png"],
+                "evidence_source": "diagnostic",
+                "not_real_acceptance_evidence": True,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    analyzer_dir = run_dir / "analyzer_chain_isolation"
+    analyzer_dir.mkdir(parents=True, exist_ok=True)
+    (analyzer_dir / "isolation_plot.png").write_text("png", encoding="utf-8")
+    (analyzer_dir / "summary.json").write_text("{}", encoding="utf-8")
+    (analyzer_dir / "readable_report.md").write_text("# analyzer chain\n", encoding="utf-8")
+    (analyzer_dir / "diagnostic_workbook.xlsx").write_text("", encoding="utf-8")
+    (analyzer_dir / "operator_checklist.md").write_text("checklist\n", encoding="utf-8")
+    (analyzer_dir / "compare_vs_8ch.md").write_text("8ch\n", encoding="utf-8")
+    (analyzer_dir / "compare_vs_baseline.md").write_text("baseline\n", encoding="utf-8")
+    (analyzer_dir / "isolation_comparison_summary.json").write_text(
+        json.dumps(
+            {
+                "generated_at": "2026-04-04T11:00:00",
+                "should_continue_s1": False,
+                "dominant_conclusion": "chain mismatch",
+                "recommendation": "inspect analyzer chain",
+                "summary": "Analyzer-chain isolation summary",
+                "plot_files": ["isolation_plot.png"],
+                "evidence_source": "diagnostic",
+                "not_real_acceptance_evidence": True,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_app_facade_builds_run_qc_and_results_snapshots(tmp_path: Path) -> None:
     facade = build_fake_facade(tmp_path)
 
@@ -297,6 +350,42 @@ def test_app_facade_surfaces_spectral_quality_summary_as_sidecar_review_data(tmp
     assert analytics_item["detail_spectral_summary"]
     assert any("GA01.co2_signal" in str(line) for line in list(analytics_item["detail_spectral_summary"]))
     assert report_rows["spectral_quality_summary.json"]["artifact_role"] == "diagnostic_analysis"
+
+
+def test_app_facade_surfaces_offline_diagnostic_adapter_review_items(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    _write_offline_diagnostic_bundles(run_dir)
+
+    results_snapshot = facade.build_results_snapshot()
+    reports_snapshot = facade.get_reports_snapshot(results_snapshot=results_snapshot)
+    offline_summary = dict(results_snapshot.get("offline_diagnostic_adapter_summary", {}) or {})
+    offline_items = [
+        dict(item)
+        for item in list(results_snapshot["review_center"]["evidence_items"] or [])
+        if item["type"] == "offline_diagnostic"
+    ]
+    report_rows = {
+        str(row.get("path") or ""): dict(row)
+        for row in reports_snapshot["files"]
+    }
+
+    assert offline_summary["found"] is True
+    assert offline_summary["room_temp_count"] == 1
+    assert offline_summary["analyzer_chain_count"] == 1
+    assert "离线诊断" in results_snapshot["result_summary_text"]
+    assert len(offline_items) == 2
+    assert all(item["type_display"] for item in offline_items)
+    assert all(item["detail_analytics_summary"] for item in offline_items)
+    assert all(item["detail_lineage_summary"] for item in offline_items)
+    assert any(item["path"].endswith("diagnostic_summary.json") for item in offline_items)
+    assert any(item["path"].endswith("isolation_comparison_summary.json") for item in offline_items)
+    assert report_rows[str((run_dir / "room_temp_diagnostic" / "diagnostic_summary.json").resolve())]["artifact_key"] == (
+        "room_temp_diagnostic_summary"
+    )
+    assert report_rows[str((run_dir / "analyzer_chain_isolation" / "operator_checklist.md").resolve())]["artifact_key"] == (
+        "analyzer_chain_operator_checklist"
+    )
 
 
 def test_app_facade_preferences_recent_runs_and_app_info(tmp_path: Path) -> None:
