@@ -9,6 +9,49 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+$gitCommand = Get-Command git -ErrorAction SilentlyContinue
+if (-not $gitCommand) {
+    throw "'git' was not found in PATH."
+}
+
+function Invoke-GitCommand {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments
+    )
+
+    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $gitCommand.Source
+    $escapedArguments = foreach ($argument in $Arguments) {
+        if ($argument -match '[\s"]') {
+            '"' + ($argument -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"'
+        }
+        else {
+            $argument
+        }
+    }
+    $startInfo.Arguments = ($escapedArguments -join " ")
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.WorkingDirectory = (Get-Location).Path
+
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $startInfo
+    [void]$process.Start()
+
+    $stdout = $process.StandardOutput.ReadToEnd()
+    $stderr = $process.StandardError.ReadToEnd()
+    $process.WaitForExit()
+
+    return [pscustomobject]@{
+        ExitCode = $process.ExitCode
+        StdOut = ($stdout.Trim())
+        StdErr = ($stderr.Trim())
+    }
+}
+
 function Get-GitText {
     param(
         [Parameter(Mandatory = $true)]
@@ -16,13 +59,16 @@ function Get-GitText {
         [switch]$AllowFailure
     )
 
-    $output = & git @Arguments 2>&1
-    $exitCode = $LASTEXITCODE
-    if (-not $AllowFailure -and $exitCode -ne 0) {
-        throw "git $($Arguments -join ' ') failed.`n$output"
+    $result = Invoke-GitCommand -Arguments $Arguments
+    if (-not $AllowFailure -and $result.ExitCode -ne 0) {
+        throw "git $($Arguments -join ' ') failed.`n$($result.StdErr)`n$($result.StdOut)"
     }
 
-    return (($output | Out-String).Trim())
+    if ($result.StdOut) {
+        return $result.StdOut
+    }
+
+    return $result.StdErr
 }
 
 function Invoke-GitWrite {
@@ -36,14 +82,17 @@ function Invoke-GitWrite {
         return
     }
 
-    $output = & git @Arguments 2>&1
-    $exitCode = $LASTEXITCODE
-    if ($exitCode -ne 0) {
-        throw "git $($Arguments -join ' ') failed.`n$output"
+    $result = Invoke-GitCommand -Arguments $Arguments
+    if ($result.ExitCode -ne 0) {
+        throw "git $($Arguments -join ' ') failed.`n$($result.StdErr)`n$($result.StdOut)"
     }
 
-    if ($output) {
-        $output | ForEach-Object { Write-Host $_ }
+    if ($result.StdErr) {
+        $result.StdErr -split "`r?`n" | Where-Object { $_ } | ForEach-Object { Write-Host $_ }
+    }
+
+    if ($result.StdOut) {
+        $result.StdOut -split "`r?`n" | Where-Object { $_ } | ForEach-Object { Write-Host $_ }
     }
 }
 
