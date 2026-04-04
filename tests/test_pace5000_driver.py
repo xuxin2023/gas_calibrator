@@ -185,6 +185,43 @@ def test_legacy_ge_druck_identity_accepts_completed_vent_status_for_control(monk
     assert not any(":SOUR:PRES:LEV:IMM:AMPL:VENT:AFT:VVAL:STAT?" in cmd for cmd in dev.ser.queries)
 
 
+def test_legacy_ge_druck_identity_accepts_trapped_vent_status_for_control(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.queries = []
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.last_write = data
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            self.queries.append(cmd)
+            if cmd == "*IDN?":
+                return "GE Druck,Pace5000 User Interface,3213201,02.00.07"
+            if cmd.startswith(":SOUR:PRES:LEV:IMM:AMPL:VENT?"):
+                return ":SOUR:PRES:LEV:IMM:AMPL:VENT 3"
+            raise AssertionError(f"unexpected query: {data}")
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    assert dev.vent_status_allows_control(dev.get_vent_status()) is True
+    assert dev.vent_terminal_statuses() == [
+        pace5000.Pace5000.VENT_STATUS_IDLE,
+        pace5000.Pace5000.VENT_STATUS_COMPLETED,
+        pace5000.Pace5000.VENT_STATUS_TRAPPED_PRESSURE,
+    ]
+
+
 def test_set_vent_after_valve_open_writes_scpi(monkeypatch) -> None:
     class FakeSerialDevice:
         def __init__(self, *args, **kwargs):

@@ -296,12 +296,23 @@ class Pace5000:
         if value is None:
             return False
         if self.has_legacy_vent_status_model():
-            return value in {self.VENT_STATUS_IDLE, self.VENT_STATUS_COMPLETED}
+            # Older GE Druck PACE5000 firmware can report trapped pressure as the
+            # terminal vent state immediately before control resumes on sealed
+            # routes. Historical V1 real runs show 3/0/1 progressing to output-on.
+            return value in {
+                self.VENT_STATUS_IDLE,
+                self.VENT_STATUS_COMPLETED,
+                self.VENT_STATUS_TRAPPED_PRESSURE,
+            }
         return value == self.VENT_STATUS_IDLE
 
     def vent_terminal_statuses(self) -> List[int]:
         if self.has_legacy_vent_status_model():
-            return [self.VENT_STATUS_IDLE, self.VENT_STATUS_COMPLETED]
+            return [
+                self.VENT_STATUS_IDLE,
+                self.VENT_STATUS_COMPLETED,
+                self.VENT_STATUS_TRAPPED_PRESSURE,
+            ]
         return [
             self.VENT_STATUS_IDLE,
             self.VENT_STATUS_TIMED_OUT,

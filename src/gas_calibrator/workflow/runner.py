@@ -8000,6 +8000,13 @@ class CalibrationRunner:
                 pass
         return status_value == 0
 
+    def _pace_trapped_pressure_allows_control(self, pace: Any, vent_status: Any) -> bool:
+        status_value = self._as_int(vent_status)
+        trapped_pressure_status = self._as_int(getattr(pace, "VENT_STATUS_TRAPPED_PRESSURE", 3))
+        if status_value is None or trapped_pressure_status is None or status_value != trapped_pressure_status:
+            return False
+        return self._pace_vent_status_allows_control(pace, status_value)
+
     def _pressure_controller_ready_failures(self, snapshot: Dict[str, Any], pace: Any = None) -> List[str]:
         failures: List[str] = []
         vent_status = self._as_int(snapshot.get("pace_vent_status"))
@@ -8017,7 +8024,11 @@ class CalibrationRunner:
             failures.append("vent_after_valve_open")
         if vent_status is None:
             failures.append("vent_status_unavailable")
-        elif trapped_pressure_status is not None and vent_status == trapped_pressure_status:
+        elif (
+            trapped_pressure_status is not None
+            and vent_status == trapped_pressure_status
+            and not self._pace_trapped_pressure_allows_control(pace, vent_status)
+        ):
             failures.append(f"vent_status={vent_status}(trapped_pressure)")
         elif not self._pace_vent_status_allows_control(pace, vent_status):
             failures.append(f"vent_status={vent_status}")
@@ -8436,7 +8447,11 @@ class CalibrationRunner:
         trapped_pressure_status = self._as_int(getattr(pace, "VENT_STATUS_TRAPPED_PRESSURE", 3))
         if vent_status is None:
             failures.append("vent_status_unavailable")
-        elif trapped_pressure_status is not None and vent_status == trapped_pressure_status:
+        elif (
+            trapped_pressure_status is not None
+            and vent_status == trapped_pressure_status
+            and not self._pace_trapped_pressure_allows_control(pace, vent_status)
+        ):
             failures.append(f"vent_status={vent_status}(trapped_pressure)")
         elif not self._pace_vent_status_allows_control(pace, vent_status):
             failures.append(f"vent_status={vent_status}")
@@ -8478,11 +8493,17 @@ class CalibrationRunner:
             if output_state == 1 and isolation_state == 1 and vent_ready_for_control:
                 return True
             trapped_pressure_active = trapped_pressure_status is not None and vent_status == trapped_pressure_status
-            if trapped_pressure_active:
+            trapped_ready_for_control = trapped_pressure_active and self._pace_trapped_pressure_allows_control(
+                pace,
+                vent_status,
+            )
+            if trapped_pressure_active and not trapped_ready_for_control:
                 return False
             if self._pressure_output_on_recovery_requires_trapped():
-                if not vent_ready_for_control or isolation_state != 1:
+                if not trapped_ready_for_control or isolation_state != 1:
                     return False
+            elif not vent_ready_for_control or isolation_state != 1:
+                return False
             self.log(
                 "Pressure controller output-on recovery attempt "
                 f"{attempt_idx + 1}/{retries}: vent_status={vent_status} "
