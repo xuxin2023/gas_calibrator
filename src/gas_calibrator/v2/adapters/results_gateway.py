@@ -99,10 +99,11 @@ class ResultsGateway:
             return self.run_dir / candidate
 
         candidate_paths = [self.run_dir / item for item in KNOWN_REPORT_ARTIFACTS]
-        candidate_paths.extend(_artifact_path(item) for item in payload["output_files"])
+        candidate_paths.extend(_artifact_path(item) for item in payload["output_files"] if str(item or "").strip())
         candidate_paths.extend(
             _artifact_path(item)
             for item in list(offline_diagnostic_adapter_summary.get("artifact_paths") or [])
+            if str(item or "").strip()
         )
         for path in candidate_paths:
             key = str(path)

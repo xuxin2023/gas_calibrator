@@ -128,6 +128,7 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     (run_dir / "calibration_coefficients.xlsx").write_text("", encoding="utf-8")
+    _write_offline_diagnostic_bundles(run_dir)
 
     payload = rebuild_run(run_dir)
 
@@ -143,6 +144,8 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert analytics_summary["config_safety_review"]["status"] == "blocked"
     assert analytics_summary["config_safety_review"]["warnings"] == ["top-level warning"]
     assert analytics_summary["config_governance_handoff"]["execution_gate"]["status"] == "blocked"
+    assert analytics_summary["offline_diagnostic_adapter_summary"]["found"] is True
+    assert analytics_summary["offline_diagnostic_adapter_summary"]["bundle_count"] == 2
     assert analytics_summary["qc_evidence_section"]["cards"]
     assert analytics_summary["qc_review_cards"]
     assert analytics_summary["run_kpis"]["point_count"] == 1
@@ -165,6 +168,7 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert evidence_registry["config_safety"]["classification"] == "simulation_real_port_inventory_risk"
     assert evidence_registry["config_safety_review"]["status"] == "blocked"
     assert evidence_registry["config_safety_review"]["warnings"] == ["top-level warning"]
+    assert payload["summary_stats"]["offline_diagnostic_adapter_summary"]["found"] is True
 
 
 def test_rebuild_suite_generates_governance_artifacts(tmp_path: Path) -> None:
