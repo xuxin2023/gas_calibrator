@@ -107,3 +107,13 @@ The sync script stages the current branch changes, creates a commit, and pushes
 to `origin`. Use `-DryRun` to preview the actions first. If `origin/<branch>`
 is ahead of your local branch, the script stops and asks you to sync the branch
 history first.
+
+### Auto sync
+
+You can register a Windows Scheduled Task that runs every 5 minutes and calls:
+
+```powershell
+.\scripts\run_auto_sync.ps1
+```
+
+This wrapper writes each unattended run to `logs/auto_sync/`.
