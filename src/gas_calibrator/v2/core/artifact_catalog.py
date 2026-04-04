@@ -52,6 +52,18 @@ DEFAULT_ROLE_CATALOG: dict[str, list[str]] = {
         "workbench_action_report_json",
         "workbench_action_report_markdown",
         "workbench_action_snapshot",
+        "room_temp_diagnostic_summary",
+        "room_temp_diagnostic_report",
+        "room_temp_diagnostic_workbook",
+        "room_temp_diagnostic_plot",
+        "analyzer_chain_isolation_comparison",
+        "analyzer_chain_isolation_rollup",
+        "analyzer_chain_diagnostic_report",
+        "analyzer_chain_diagnostic_workbook",
+        "analyzer_chain_diagnostic_plot",
+        "analyzer_chain_compare_vs_8ch_report",
+        "analyzer_chain_compare_vs_baseline_report",
+        "analyzer_chain_operator_checklist",
     ],
     "formal_analysis": [
         "coefficient_report",
@@ -191,10 +203,77 @@ def infer_artifact_identity(
     role_catalog: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     text = str(path_or_name or "").strip()
-    filename = Path(text).name.lower()
-    artifact_key = KNOWN_ARTIFACT_KEYS_BY_FILENAME.get(filename, "")
+    path = Path(text) if text else Path()
+    filename = path.name.lower()
+    artifact_key = _infer_diagnostic_artifact_key(path, text=text)
+    if not artifact_key:
+        artifact_key = KNOWN_ARTIFACT_KEYS_BY_FILENAME.get(filename, "")
     artifact_role = normalize_artifact_role(build_role_by_key(role_catalog).get(artifact_key))
     return {
         "artifact_key": artifact_key,
         "artifact_role": artifact_role,
     }
+
+
+def _infer_diagnostic_artifact_key(path: Path, *, text: str) -> str:
+    filename = path.name.lower()
+    bundle_kind = _diagnostic_bundle_kind(path, text=text)
+    if bundle_kind == "room_temp":
+        if filename == "diagnostic_summary.json":
+            return "room_temp_diagnostic_summary"
+        if filename == "readable_report.md":
+            return "room_temp_diagnostic_report"
+        if filename == "diagnostic_workbook.xlsx":
+            return "room_temp_diagnostic_workbook"
+        if filename.endswith(".png"):
+            return "room_temp_diagnostic_plot"
+    if bundle_kind == "analyzer_chain":
+        if filename == "isolation_comparison_summary.json":
+            return "analyzer_chain_isolation_comparison"
+        if filename == "summary.json":
+            return "analyzer_chain_isolation_rollup"
+        if filename == "readable_report.md":
+            return "analyzer_chain_diagnostic_report"
+        if filename == "diagnostic_workbook.xlsx":
+            return "analyzer_chain_diagnostic_workbook"
+        if filename == "compare_vs_8ch.md":
+            return "analyzer_chain_compare_vs_8ch_report"
+        if filename == "compare_vs_baseline.md":
+            return "analyzer_chain_compare_vs_baseline_report"
+        if filename == "operator_checklist.md":
+            return "analyzer_chain_operator_checklist"
+        if filename.endswith(".png"):
+            return "analyzer_chain_diagnostic_plot"
+    if filename == "diagnostic_summary.json":
+        return "room_temp_diagnostic_summary"
+    if filename == "isolation_comparison_summary.json":
+        return "analyzer_chain_isolation_comparison"
+    if filename == "compare_vs_8ch.md":
+        return "analyzer_chain_compare_vs_8ch_report"
+    if filename == "compare_vs_baseline.md":
+        return "analyzer_chain_compare_vs_baseline_report"
+    if filename == "operator_checklist.md":
+        return "analyzer_chain_operator_checklist"
+    return ""
+
+
+def _diagnostic_bundle_kind(path: Path, *, text: str) -> str:
+    normalized = text.replace("\\", "/").strip().lower()
+    filename = path.name.lower()
+    parent = path.parent if str(path) else Path()
+    try:
+        if parent and (parent / "diagnostic_summary.json").exists():
+            return "room_temp"
+        if parent and (parent / "isolation_comparison_summary.json").exists():
+            return "analyzer_chain"
+    except Exception:
+        pass
+    if "analyzer_chain" in normalized or "chain_isolation" in normalized:
+        return "analyzer_chain"
+    if "room_temp" in normalized or "pressure_diagnostic" in normalized:
+        return "room_temp"
+    if filename == "diagnostic_summary.json":
+        return "room_temp"
+    if filename == "isolation_comparison_summary.json":
+        return "analyzer_chain"
+    return ""

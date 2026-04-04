@@ -36,6 +36,8 @@ COEFFICIENT_REGISTRY_FILENAME = "coefficient_registry.json"
 SUITE_ANALYTICS_SUMMARY_FILENAME = "suite_analytics_summary.json"
 SUITE_ACCEPTANCE_PLAN_FILENAME = "suite_acceptance_plan.json"
 SUITE_EVIDENCE_REGISTRY_FILENAME = "suite_evidence_registry.json"
+ROOM_TEMP_DIAGNOSTIC_SUMMARY_FILENAME = "diagnostic_summary.json"
+ANALYZER_CHAIN_ISOLATION_SUMMARY_FILENAME = "isolation_comparison_summary.json"
 
 
 def write_json(path: str | Path, payload: dict[str, Any]) -> Path:
@@ -43,6 +45,64 @@ def write_json(path: str | Path, payload: dict[str, Any]) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return target
+
+
+def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
+    root = Path(run_dir)
+    if not root.exists():
+        return {}
+
+    room_temp_bundles = _discover_room_temp_diagnostic_bundles(root)
+    analyzer_chain_bundles = _discover_analyzer_chain_isolation_bundles(root)
+    bundles = sorted(
+        [*room_temp_bundles, *analyzer_chain_bundles],
+        key=lambda item: str(item.get("generated_at") or ""),
+        reverse=True,
+    )
+    if not bundles:
+        return {}
+
+    artifact_paths = _unique_existing_paths(
+        path
+        for bundle in bundles
+        for path in list(bundle.get("artifact_paths") or [])
+    )
+    primary_artifact_paths = _unique_existing_paths(
+        bundle.get("primary_artifact_path")
+        for bundle in bundles
+    )
+    latest_bundle = dict(bundles[0] or {})
+    summary = (
+        f"room-temp {len(room_temp_bundles)} | "
+        f"analyzer-chain {len(analyzer_chain_bundles)} | "
+        f"latest {str(latest_bundle.get('summary_text') or '--')}"
+    )
+    review_lines = _unique_review_lines(
+        [
+            summary,
+            *[
+                str(bundle.get("summary_text") or "").strip()
+                for bundle in bundles[:4]
+            ],
+            "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。",
+        ]
+    )
+    return {
+        "found": True,
+        "bundle_count": len(bundles),
+        "room_temp_count": len(room_temp_bundles),
+        "analyzer_chain_count": len(analyzer_chain_bundles),
+        "summary": summary,
+        "review_lines": review_lines,
+        "artifact_paths": artifact_paths,
+        "primary_artifact_paths": primary_artifact_paths,
+        "bundles": bundles,
+        "evidence_source": "diagnostic",
+        "evidence_state": "collected",
+        "acceptance_level": "diagnostic",
+        "promotion_state": "dry_run_only",
+        "not_real_acceptance_evidence": True,
+    }
 
 
 def _normalize_review_evidence_source(value: Any, *, default: str = "--") -> str:
