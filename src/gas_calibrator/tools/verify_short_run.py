@@ -39,6 +39,8 @@ def build_short_verification_config(
     workflow_cfg["skip_h2o"] = False
     workflow_cfg["selected_temps_c"] = [] if points_excel_override else [float(temp_c)]
     workflow_cfg["skip_co2_ppm"] = list(sorted({int(item) for item in skip_co2_ppm}))
+    if points_excel_override:
+        workflow_cfg["preserve_explicit_point_matrix"] = True
 
     paths_cfg = runtime_cfg.setdefault("paths", {})
     if points_excel_override:
@@ -110,7 +112,7 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--skip-co2-ppm",
-        default="100,200,300,500,600,700,800,900",
+        default="",
         help="Comma-separated CO2 ppm values to skip for the short run.",
     )
     parser.add_argument(

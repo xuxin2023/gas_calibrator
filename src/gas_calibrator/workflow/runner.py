@@ -4572,6 +4572,8 @@ class CalibrationRunner:
                 1 if _normalized_co2_group(getattr(point, "co2_group", "")) == "B" else 0,
             )
         )
+        if self._preserve_explicit_point_matrix():
+            return out
         if not self._should_expand_co2_sources(points):
             return out
 
@@ -4615,6 +4617,8 @@ class CalibrationRunner:
         )
 
     def _should_expand_co2_sources(self, points: List[CalibrationPoint]) -> bool:
+        if self._preserve_explicit_point_matrix():
+            return False
         if not points:
             return False
         temp_c = self._as_float(points[0].temp_chamber_c)
@@ -4673,6 +4677,9 @@ class CalibrationRunner:
             if iv is not None:
                 out.add(iv)
         return out
+
+    def _preserve_explicit_point_matrix(self) -> bool:
+        return bool(self._wf("workflow.preserve_explicit_point_matrix", False))
 
     @staticmethod
     def _normalized_pressure_hpa_value(value: Optional[float]) -> Optional[float]:
@@ -4857,6 +4864,15 @@ class CalibrationRunner:
         )
 
     def _pressure_reference_points(self, points: List[CalibrationPoint]) -> List[CalibrationPoint]:
+        if self._preserve_explicit_point_matrix():
+            out: List[CalibrationPoint] = []
+            for point in points:
+                normalized_point = self._normalize_pressure_point(point)
+                pressure = self._as_float(normalized_point.target_pressure_hpa)
+                if pressure is None:
+                    continue
+                out.append(normalized_point)
+            return out
         out: List[CalibrationPoint] = []
         seen: set[float] = set()
         for point in points:
@@ -10128,7 +10144,14 @@ class CalibrationRunner:
             return
 
         if self._gas_route_dewpoint_gate_enabled():
-            self.log("CO2 preseal dewpoint gate passed")
+            runtime_state = self._point_runtime_state(point, phase="co2") or {}
+            gate_status = str(runtime_state.get("flush_gate_status") or "").strip().lower()
+            if gate_status == "pass":
+                self.log("CO2 preseal dewpoint gate passed")
+            elif gate_status == "timeout":
+                self.log("CO2 preseal dewpoint gate timed out; continue due to engineering policy")
+            else:
+                self.log("CO2 preseal dewpoint gate completed")
         else:
             self.log("CO2 preseal analyzer stability check skipped")
 
@@ -10300,12 +10323,20 @@ class CalibrationRunner:
     def _gas_route_dewpoint_gate_enabled(self) -> bool:
         return bool(self._wf("workflow.stability.gas_route_dewpoint_gate_enabled", False))
 
+    def _gas_route_dewpoint_gate_policy(self) -> str:
+        policy = str(self._wf("workflow.stability.gas_route_dewpoint_gate_policy", "reject") or "reject")
+        normalized = policy.strip().lower()
+        if normalized not in {"reject", "warn", "pass"}:
+            return "reject"
+        return normalized
+
     def _water_route_dewpoint_gate_enabled(self) -> bool:
         return bool(self._wf("workflow.stability.water_route_dewpoint_gate_enabled", False))
 
     def _gas_route_dewpoint_gate_cfg(self) -> Dict[str, Any]:
         return {
             "enabled": self._gas_route_dewpoint_gate_enabled(),
+            "policy": self._gas_route_dewpoint_gate_policy(),
             "window_s": max(5.0, float(self._wf("workflow.stability.gas_route_dewpoint_gate_window_s", 60.0) or 60.0)),
             "max_total_wait_s": max(
                 0.0,
@@ -10399,13 +10430,6 @@ class CalibrationRunner:
         gate_begin_ts = time.time()
         gate_rows: List[Dict[str, Any]] = []
         last_log_ts = 0.0
-        # Give the gate at least one full tail window after the fixed preseal soak.
-        # Without this floor, a config that enables a longer first-point soak can
-        # timeout on the first gate read before span/slope are even observable.
-        effective_max_total_wait_s = max(
-            float(cfg["max_total_wait_s"]),
-            max(0.0, float(base_soak_s)) + float(cfg["window_s"]),
-        )
         self._append_pressure_trace_row(
             point=point,
             route="co2",
@@ -10416,8 +10440,8 @@ class CalibrationRunner:
             note=(
                 f"base_soak_s={float(base_soak_s):.3f} "
                 f"window_s={float(cfg['window_s']):.3f} "
-                f"max_total_wait_s={float(cfg['max_total_wait_s']):.3f} "
-                f"effective_max_total_wait_s={effective_max_total_wait_s:.3f}"
+                f"max_gate_wait_after_soak_s={float(cfg['max_total_wait_s']):.3f} "
+                f"policy={cfg['policy']}"
             ),
         )
         while True:
@@ -10457,7 +10481,8 @@ class CalibrationRunner:
                 )
                 return False
 
-            total_elapsed_s = float(base_soak_s) + max(0.0, time.time() - gate_begin_ts)
+            gate_elapsed_after_soak_s = max(0.0, time.time() - gate_begin_ts)
+            total_elapsed_s = float(base_soak_s) + gate_elapsed_after_soak_s
             gate_rows.append(
                 self._build_co2_route_dewpoint_gate_row(
                     total_elapsed_s=total_elapsed_s,
@@ -10516,7 +10541,7 @@ class CalibrationRunner:
                 )
                 return True
 
-            if effective_max_total_wait_s > 0 and total_elapsed_s >= effective_max_total_wait_s:
+            if float(cfg["max_total_wait_s"]) > 0 and gate_elapsed_after_soak_s >= float(cfg["max_total_wait_s"]):
                 reason = str(gate_eval.get("gate_reason") or "dewpoint_gate_timeout")
                 if "max_total_wait_exceeded" not in reason:
                     reason = f"{reason};max_total_wait_exceeded" if reason else "max_total_wait_exceeded"
@@ -10546,11 +10571,20 @@ class CalibrationRunner:
                     dewpoint_rebound_detected=dewpoint_rebound_detected,
                     flush_gate_status="timeout",
                     flush_gate_reason=reason,
-                    note=f"context={log_context} result=timeout",
+                    note=f"context={log_context} result=timeout policy={cfg['policy']}",
                 )
+                if str(cfg["policy"]) in {"warn", "pass"}:
+                    self.log(
+                        "CO2 route precondition dewpoint gate timed out after fixed purge; "
+                        f"continue due to policy={cfg['policy']} row={point.index} "
+                        f"gate_wait_after_soak_s={gate_elapsed_after_soak_s:.1f} "
+                        f"total_wait_s={total_elapsed_s:.1f} reason={reason}"
+                    )
+                    return True
                 self.log(
                     "CO2 route precondition failed: dewpoint gate timeout after fixed purge; "
-                    f"row={point.index} total_wait_s={total_elapsed_s:.1f} reason={reason}"
+                    f"row={point.index} gate_wait_after_soak_s={gate_elapsed_after_soak_s:.1f} "
+                    f"total_wait_s={total_elapsed_s:.1f} reason={reason}"
                 )
                 return False
 
