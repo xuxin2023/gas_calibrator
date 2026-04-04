@@ -15,7 +15,7 @@ $logPath = Join-Path $logDir "auto_sync_$timestamp.log"
 
 Push-Location $repoRoot
 try {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "sync.ps1") *>&1 |
+    & (Join-Path $PSScriptRoot "sync.ps1") *>&1 |
         Tee-Object -FilePath $logPath
 }
 finally {
