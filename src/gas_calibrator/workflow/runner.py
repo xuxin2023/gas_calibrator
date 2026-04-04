@@ -10378,6 +10378,13 @@ class CalibrationRunner:
         gate_begin_ts = time.time()
         gate_rows: List[Dict[str, Any]] = []
         last_log_ts = 0.0
+        # Give the gate at least one full tail window after the fixed preseal soak.
+        # Without this floor, a config that enables a longer first-point soak can
+        # timeout on the first gate read before span/slope are even observable.
+        effective_max_total_wait_s = max(
+            float(cfg["max_total_wait_s"]),
+            max(0.0, float(base_soak_s)) + float(cfg["window_s"]),
+        )
         self._append_pressure_trace_row(
             point=point,
             route="co2",
@@ -10388,7 +10395,8 @@ class CalibrationRunner:
             note=(
                 f"base_soak_s={float(base_soak_s):.3f} "
                 f"window_s={float(cfg['window_s']):.3f} "
-                f"max_total_wait_s={float(cfg['max_total_wait_s']):.3f}"
+                f"max_total_wait_s={float(cfg['max_total_wait_s']):.3f} "
+                f"effective_max_total_wait_s={effective_max_total_wait_s:.3f}"
             ),
         )
         while True:
@@ -10487,8 +10495,7 @@ class CalibrationRunner:
                 )
                 return True
 
-            max_total_wait_s = float(cfg["max_total_wait_s"])
-            if max_total_wait_s > 0 and total_elapsed_s >= max_total_wait_s:
+            if effective_max_total_wait_s > 0 and total_elapsed_s >= effective_max_total_wait_s:
                 reason = str(gate_eval.get("gate_reason") or "dewpoint_gate_timeout")
                 if "max_total_wait_exceeded" not in reason:
                     reason = f"{reason};max_total_wait_exceeded" if reason else "max_total_wait_exceeded"
