@@ -1,0 +1,89 @@
+name: Bug Report
+description: Report a defect or regression within the current project phase.
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please keep reports aligned with the current project boundary:
+
+        - Do not treat simulation, replay, suite, parity, or resilience evidence as real acceptance.
+        - Do not propose direct V2 replacement of V1 in this phase.
+        - Do not request real-device bring-up unless explicitly authorized.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Briefly describe the problem and the expected behavior.
+      placeholder: A short summary of the issue.
+    validations:
+      required: true
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      description: Select the affected area.
+      options:
+        - V1 baseline behavior
+        - V2 simulation or replay
+        - V2 parity or resilience
+        - V2 UI / i18n / 1080p layout
+        - Artifact / acceptance / analytics governance
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: evidence_type
+    attributes:
+      label: Evidence Type
+      description: What type of evidence is this report based on?
+      options:
+        - simulation
+        - replay
+        - suite regression
+        - parity
+        - resilience
+        - offline review
+        - real smoke (explicitly authorized V1 only)
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction Steps
+      description: Provide the exact commands, config paths, or UI steps.
+      placeholder: |
+        1. Run ...
+        2. Open ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed Behavior
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What should have happened?
+    validations:
+      required: true
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: Related Artifacts
+      description: Reference logs, screenshots, reports, or output folders if available.
+      placeholder: logs/... , output/... , screenshots, report paths, commit ids
+  - type: textarea
+    id: risk
+    attributes:
+      label: Risk Boundary
+      description: Note if this could affect V1, parity, artifact roles, or simulation-only boundaries.
+      placeholder: Example: Possible parity regression, but no impact on V1 runtime.
+

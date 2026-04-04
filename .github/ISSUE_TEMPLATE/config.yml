@@ -1,0 +1,6 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Project Scope and Guardrails
+    url: https://github.com/xuxin2023/gas_calibrator/blob/main/AGENTS.md
+    about: Review the current project phase, constraints, and validation rules before opening an issue.
+

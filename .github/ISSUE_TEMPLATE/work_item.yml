@@ -1,0 +1,63 @@
+name: Step 2 Work Item
+description: Propose a scoped improvement that stays within the current phase.
+title: "[Work Item] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for work that fits the current phase. Good examples:
+
+        - simulation / replay / suite / parity improvements
+        - UI Chinese-default improvements and 1920x1080 layout refinements
+        - simulation-only device workbench enhancements
+        - artifact governance, acceptance governance, analytics, lineage, registry
+
+        Out of scope by default:
+
+        - changing the V1 default path
+        - reconnecting features to the V1 UI
+        - real compare / real verify
+        - claiming V2 can replace V1
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What outcome do we want?
+      placeholder: State the concrete target.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and Affected Area
+      description: Which modules, screens, or suites are expected to change?
+      placeholder: configs / src / tests / docs / UI page / suite name
+    validations:
+      required: true
+  - type: textarea
+    id: risk_boundary
+    attributes:
+      label: Risk Boundary
+      description: Explain how the work avoids impacting V1 or crossing phase boundaries.
+      placeholder: No V1 production changes; simulation-only path; parity must stay green.
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation Plan
+      description: Which tests, suites, or checks should prove the work is done?
+      placeholder: smoke / regression / parity / resilience / UI tests
+    validations:
+      required: true
+  - type: textarea
+    id: done_when
+    attributes:
+      label: Done When
+      description: Define clear completion criteria.
+      placeholder: Feature landed, suites green, no V1 impact, risk documented.
+    validations:
+      required: true
+
