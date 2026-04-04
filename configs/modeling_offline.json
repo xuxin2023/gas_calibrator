@@ -1,0 +1,50 @@
+{
+  "modeling": {
+    "enabled": false,
+    "description": "离线建模分析功能，默认不参与当前自动校准运行流程。",
+    "data_source": {
+      "enabled": true,
+      "path": "",
+      "sheet_name": 0,
+      "format": "auto",
+      "file_type": "auto",
+      "gas": "co2",
+      "target_key": "ppm_CO2_Tank",
+      "ratio_keys": ["R_CO2"],
+      "temp_keys": ["T1"],
+      "pressure_keys": ["BAR"],
+      "humidity_keys": ["ppm_H2O_Dew", "H2O", "h2o_mmol"]
+    },
+    "candidate_models": {
+      "Model_A": ["intercept", "R", "R2", "T", "P"],
+      "Model_B": ["intercept", "R", "R2", "R3", "T", "T2", "RT", "P"],
+      "Model_C": ["intercept", "R", "R2", "R3", "T", "T2", "RT", "P", "RTP"]
+    },
+    "fit_method": "ordinary_least_squares",
+    "ridge_lambda": 1e-06,
+    "dataset_split": {
+      "train_ratio": 0.7,
+      "val_ratio": 0.15,
+      "random_seed": 42,
+      "shuffle": true
+    },
+    "outlier_filter": {
+      "enabled": false,
+      "method": "iqr",
+      "threshold": 1.5
+    },
+    "simplification": {
+      "enabled": true,
+      "method": "column_norm",
+      "auto_digits": true,
+      "target_digits": 6,
+      "rmse_tolerance": 0.0,
+      "digit_candidates": [8, 7, 6, 5, 4]
+    },
+    "export": {
+      "enabled": true,
+      "formats": ["json", "csv"],
+      "output_dir": "logs/modeling_offline"
+    }
+  }
+}

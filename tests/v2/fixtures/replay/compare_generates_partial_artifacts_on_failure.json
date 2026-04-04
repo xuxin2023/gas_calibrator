@@ -1,0 +1,21 @@
+{
+  "kind": "compare",
+  "validation_profile": "skip0_co2_only_replacement",
+  "route_mode": "co2_only",
+  "temp_c": 20.0,
+  "skip_co2_ppm": [0],
+  "v1": {
+    "ok": false,
+    "status_phase": "output.route_trace_missing",
+    "status_error": "route trace file was not produced",
+    "error_category": "startup.sensor_precheck.mode2_verify"
+  },
+  "v2": {
+    "ok": false,
+    "status_phase": "error",
+    "status_error": "Device precheck failed [failed_devices=['gas_analyzer_4']]",
+    "trace_lines": [
+      "{\"route\":\"\",\"action\":\"route_baseline\",\"point_tag\":\"\",\"result\":\"ok\"}"
+    ]
+  }
+}

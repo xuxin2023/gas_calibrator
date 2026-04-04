@@ -1,0 +1,33 @@
+{
+  "kind": "compare",
+  "validation_profile": "replacement_full_route_simulated_diagnostic",
+  "route_mode": "h2o_only",
+  "bench_context": {
+    "co2_0ppm_available": true,
+    "other_gases_available": true,
+    "h2o_route_available": true,
+    "humidity_generator_humidity_feedback_valid": false,
+    "validation_role": "simulated_diagnostic",
+    "target_route": "h2o",
+    "diagnostic_only": true,
+    "acceptance_evidence": false
+  },
+  "v1": {
+    "ok": false,
+    "status_phase": "h2o.wait_humidity.timeout",
+    "status_error": "humidity generator timeout",
+    "trace_lines": [
+      "{\"route\":\"h2o\",\"action\":\"set_h2o_path\",\"point_tag\":\"h2o_20c_70rh_500hpa\",\"result\":\"ok\"}",
+      "{\"route\":\"h2o\",\"action\":\"wait_humidity\",\"point_tag\":\"h2o_20c_70rh_500hpa\",\"result\":\"timeout\"}"
+    ]
+  },
+  "v2": {
+    "ok": false,
+    "status_phase": "h2o.wait_humidity.timeout",
+    "status_error": "humidity generator timeout",
+    "trace_lines": [
+      "{\"route\":\"h2o\",\"action\":\"set_h2o_path\",\"point_tag\":\"h2o_20c_70rh_500hpa\",\"result\":\"ok\"}",
+      "{\"route\":\"h2o\",\"action\":\"wait_humidity\",\"point_tag\":\"h2o_20c_70rh_500hpa\",\"result\":\"timeout\"}"
+    ]
+  }
+}

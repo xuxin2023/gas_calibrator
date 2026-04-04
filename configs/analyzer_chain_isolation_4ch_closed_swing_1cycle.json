@@ -1,0 +1,21 @@
+{
+  "base_config": "analyzer_chain_isolation_4ch.json",
+  "diagnostics": {
+    "analyzer_chain_isolation": {
+      "compare_vs_baseline_reference_dir": "results/diagnostics/analyzer_chain_isolation_4ch/20260403_005607"
+    },
+    "precondition": {
+      "closed_pressure_swing": {
+        "enabled": true,
+        "cycles": 1,
+        "high_pressure_hpa": 1105,
+        "low_pressure_hpa": 500,
+        "low_hold_s": 10,
+        "settle_after_repressurize_s": 5,
+        "linear_slew_hpa_per_s": 20,
+        "require_vent_closed_verified": true,
+        "max_total_extra_s": 240
+      }
+    }
+  }
+}

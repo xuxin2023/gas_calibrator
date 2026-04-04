@@ -1,0 +1,1969 @@
+{
+  "app": {
+    "description": "气体分析仪 V2 中文驾驶舱",
+    "arg": {
+      "config": "V2 JSON 配置路径",
+      "simulation": "强制启用仿真模式"
+    },
+    "startup": {
+      "preparing_runtime": "正在准备运行环境...",
+      "loading_config": "正在加载驾驶舱配置...",
+      "connecting_feed": "正在连接实时状态流...",
+      "ready": "已就绪"
+    }
+  },
+  "app_info": {
+    "product_name": "气体校准 V2 驾驶舱"
+  },
+  "common": {
+    "ready": "就绪",
+    "working": "处理中...",
+    "none": "无",
+    "present": "已生成",
+    "missing": "缺失",
+    "yes": "是",
+    "no": "否"
+  },
+  "terms": {
+    "coverage": "覆盖",
+    "reference": "参考质量",
+    "exports": "导出",
+    "error": "错误",
+    "warning": "告警",
+    "parity": "一致性",
+    "stable": "稳定",
+    "missing_gates": "缺少 {count} 项条件"
+  },
+  "shell": {
+    "title": "气体校准 V2 驾驶舱",
+    "license_fallback": "未附带许可证文本。",
+    "nav": {
+      "title": "V2 驾驶舱",
+      "run": "运行",
+      "qc": "质控",
+      "results": "结果",
+      "devices": "设备",
+      "algorithms": "算法",
+      "reports": "报告",
+      "plans": "计划"
+    },
+    "metric": {
+      "run_id": "运行 ID",
+      "phase": "阶段",
+      "point": "点位",
+      "progress": "进度",
+      "route": "路由",
+      "message": "消息"
+    },
+    "menu": {
+      "file": "文件",
+      "capture_screenshot": "保存截图",
+      "recent_runs": "最近运行",
+      "no_recent_runs": "暂无最近运行",
+      "exit": "退出",
+      "edit": "编辑",
+      "preferences": "偏好设置...",
+      "view": "视图",
+      "help": "帮助",
+      "about": "关于",
+      "release_notes": "版本说明",
+      "licenses": "许可证",
+      "export_diagnostics": "导出诊断包"
+    },
+    "recovery": {
+      "title": "恢复上次会话",
+      "previous_run": "上一次运行",
+      "prompt": "检测到 {when} 的未完成 UI 会话。\n\n运行：{run_id}\n阶段：{phase}\n页面：{page}\n\n是否恢复上次的页面上下文？"
+    },
+    "log": {
+      "diagnostic_bundle_exported": "诊断包已导出：{path}",
+      "diagnostic_bundle_export_failed": "诊断包导出失败：{message}",
+      "recent_run_selected": "最近运行：{path}",
+      "screenshot_exported": "截图已导出：{path}",
+      "previous_session_restored": "已恢复上次 UI 会话",
+      "previous_session_recovery_skipped": "已跳过上次 UI 会话恢复"
+    }
+  },
+  "run_control": {
+    "source": "运行来源",
+    "points_file": "点表文件",
+    "default_profile": "默认配置档",
+    "mode": "模式",
+    "points": "点表",
+    "preview": "预览",
+    "edit_points": "编辑点表",
+    "start": "开始",
+    "pause": "暂停",
+    "resume": "继续",
+    "stop": "停止",
+    "current_point": "当前点位",
+    "retry": "重试",
+    "command": "指令",
+    "validation_title": "替代验证",
+    "validation_profile": "验证档案",
+    "compare_status": "对比状态",
+    "first_failure": "首个失败阶段",
+    "evidence": "证据",
+    "gate_state": "门禁状态",
+    "readiness": "就绪度",
+    "analytics": "分析摘要",
+    "lineage": "追溯",
+    "device_status": "设备状态",
+    "route_state": "路由状态",
+    "execution_preview": "执行预览",
+    "points_preview_waiting": "点表预览：等待中",
+    "points_preview_failed": "点表预览失败",
+    "points_preview_refreshed": "点表预览已刷新",
+    "no_device_data": "暂无设备数据。",
+    "disabled_analyzers": "已禁用分析仪：",
+    "no_validation": "尚未加载替代验证状态。",
+    "primary_missing": "主证据缺失",
+    "single_temp": "单温度",
+    "multi_temp": "多温度",
+    "tree": {
+      "seq": "序号",
+      "row": "原行",
+      "temp": "温度",
+      "route": "路由",
+      "h2o_target": "湿度目标",
+      "co2": "CO2",
+      "pressure": "压力",
+      "group": "组别",
+      "status": "状态"
+    },
+    "command_status": {
+      "start": "已开始",
+      "start_failed": "启动失败",
+      "edit": "正在编辑点表",
+      "edit_failed": "编辑失败",
+      "paused": "已暂停",
+      "pause_failed": "暂停失败",
+      "resumed": "已继续",
+      "resume_failed": "继续失败",
+      "stopped": "已停止",
+      "stop_failed": "停止失败"
+    },
+    "detail": {
+      "route": "当前路由",
+      "phase": "当前阶段",
+      "source_point": "源点位",
+      "active_point": "活动点位",
+      "point_tag": "点位标签",
+      "retry": "重试次数",
+      "route_state": "路由状态明细",
+      "profile": "验证档案",
+      "compare_status": "对比状态",
+      "evidence_source": "证据来源",
+      "evidence_state": "证据状态",
+      "acceptance_level": "验收级别",
+      "acceptance_scope": "验收范围",
+      "promotion_state": "晋升状态",
+      "review_state": "审阅状态",
+      "approval_state": "批准状态",
+      "ready_for_promotion": "可晋升",
+      "first_failure_phase": "首个失败阶段",
+      "missing_conditions": "缺失条件",
+      "reference_quality": "参考质量",
+      "thermometer_reference": "温度参考",
+      "pressure_reference": "压力参考",
+      "route_physical_match": "路由物理一致",
+      "relay_physical_mismatch": "继电器物理不一致",
+      "evidence_layers": "证据层",
+      "fallback_candidates": "回退候选",
+      "artifact_bundle": "工件包",
+      "report_dir": "报告目录",
+      "gate": "门禁状态",
+      "layer_line": "{tier} | 档案={profile} | 状态={status} | 来源={evidence_source} | 证据={evidence_state}",
+      "fallback_line": "{profile} | 状态={status} | 证据={evidence_state}"
+    },
+    "route_state_key": {
+      "source_point_index": "源点序号",
+      "source_point_tag": "源点标签",
+      "pressure_indices": "压力点序号",
+      "sample_point_index": "采样点序号",
+      "pressure_point_index": "压力参考点序号",
+      "pressure_target_hpa": "目标压力",
+      "temperature_c": "温度",
+      "point_indices": "点位序号",
+      "h2o_indices": "水路点位序号",
+      "co2_indices": "气路点位序号",
+      "active_subroute": "活动子路由",
+      "lead_point_index": "主点序号",
+      "retry": "重试次数",
+      "pressure_ready": "压力就绪",
+      "soak": "浸泡状态"
+    }
+  },
+  "widgets": {
+    "notification": {
+      "title": "通知",
+      "empty_title": "暂无通知",
+      "empty_message": "系统提醒和导出提示会显示在这里。"
+    },
+    "empty_state": {
+      "title": "暂无数据",
+      "message": "有数据后此面板会自动填充。"
+    },
+    "qc_overview": {
+      "title": "质控概览",
+      "score": "质控评分",
+      "valid": "有效",
+      "invalid": "无效",
+      "total": "总数",
+      "empty": "暂无质控数据。",
+      "grade": "等级 {grade}",
+      "summary": "有效 {valid} / {total} | 无效 {invalid}",
+      "no_totals": "暂无质控总数",
+      "bar_valid": "{valid}/{total} 有效"
+    },
+    "startup": {
+      "title": "正在启动气体校准 V2",
+      "heading": "气体校准 V2",
+      "starting": "正在启动...",
+      "loading": "正在加载..."
+    },
+    "log_panel": {
+      "title": "事件 / 日志"
+    },
+    "route_progress": {
+      "title": "路由进度",
+      "no_active": "当前无活动路由。",
+      "detail": "路由={route} 阶段={phase} 进度={completed}/{total}",
+      "no_steps": "暂无路由步骤",
+      "step_h2o": "水路",
+      "step_co2": "气路",
+      "step_finalize": "收尾"
+    },
+    "winner": {
+      "title": "推荐算法",
+      "pending": "待推荐",
+      "no_recommendation": "当前还没有推荐结果。"
+    },
+    "timeseries": {
+      "title": "实时趋势",
+      "no_data": "暂无实时数据"
+    },
+    "ai_summary": {
+      "title": "AI 摘要"
+    },
+    "artifact_list": {
+      "artifact": "工件",
+      "present": "已生成",
+      "origin": "来源语义",
+      "role_status": "角色 / 状态",
+      "unclassified": "未分类",
+      "origin_current_run": "当前运行",
+      "origin_review_reference": "审阅引用",
+      "origin_source_scan": "来源扫描",
+      "origin_missing_reference": "缺失引用",
+      "export_status_ok": "ok",
+      "export_status_skipped": "skipped",
+      "export_status_missing": "missing",
+      "export_status_error": "error",
+      "export_status_unregistered": "未登记",
+      "exportability_current_run": "当前运行可导出",
+      "exportability_current_run_missing": "当前运行缺失",
+      "exportability_review_reference": "仅审阅引用",
+      "exportability_source_scan": "来源扫描补充",
+      "exportability_missing_reference": "引用缺失",
+      "path": "路径"
+    },
+    "algorithm_compare": {
+      "algorithm": "算法",
+      "source": "来源",
+      "status": "状态",
+      "note": "备注"
+    },
+    "export_bar": {
+      "title": "当前运行工件导出",
+      "export_all": "全部导出",
+      "review_manifest": "审阅清单",
+      "formats": "当前运行导出格式：{formats}",
+      "ready": "就绪",
+      "unavailable": "当前不可导出",
+      "failed": "导出失败：{message}",
+      "done": "已完成",
+      "failed_short": "失败：{message}"
+    },
+    "device_status": {
+      "device": "设备",
+      "status": "状态",
+      "port": "端口"
+    },
+    "analyzer_health": {
+      "title": "分析仪健康度",
+      "analyzer": "分析仪",
+      "status": "状态",
+      "health": "健康度",
+      "note": "备注"
+    },
+    "qc_reject_reason": {
+      "title": "质控剔除原因",
+      "no_data": "暂无剔除原因"
+    },
+    "residual_chart": {
+      "title": "残差对比",
+      "distribution_title": "残差分布",
+      "no_data": "暂无残差数据"
+    }
+  },
+  "pages": {
+    "results": {
+      "overview": "运行概览",
+      "algorithm_compare": "算法对比",
+      "result_summary": "结果摘要",
+      "coefficient_summary": "系数摘要",
+      "ai_summary": "AI 摘要",
+      "residual_distribution": "残差分布",
+      "no_overview": "暂无运行概览。",
+      "no_algorithm_summary": "暂无算法摘要。",
+      "no_result_summary": "暂无结果摘要。",
+      "no_coefficient_summary": "暂无系数摘要。",
+      "no_ai_summary": "暂无 AI 摘要。",
+      "review_center": "审阅中心"
+    },
+    "devices": {
+      "enabled_devices": "启用设备",
+      "listed_rows": "列表行数",
+      "disabled_analyzers": "已禁用分析仪",
+      "warnings_errors": "告警 / 错误",
+      "workbench": {
+        "title": "设备操作工作台",
+        "banner": {
+          "simulation_mode": "仿真模式",
+          "offline_only": "当前工作台只驱动 simulation / fake。",
+          "no_real_hardware": "不触碰真实设备，不打开真实串口/COM。",
+          "validation_only": "仅用于离线验证、诊断与未来安全门禁设计。"
+        },
+        "common": {
+          "unmapped": "未映射"
+        },
+        "device": {
+          "analyzer": "分析仪",
+          "pace": "压力控制器（PACE）",
+          "grz": "湿度发生器（GRZ5013）",
+          "chamber": "温度箱",
+          "relay": "继电器 16 路",
+          "relay_8": "继电器 8 路",
+          "thermometer": "数字测温仪",
+          "pressure_gauge": "数字压力计 / 参考压力仪"
+        },
+        "field": {
+          "analyzer_index": "分析仪编号",
+          "view_mode": "视图",
+          "quick_scenario": "快捷场景",
+          "sequence": "序号",
+          "time": "时间",
+          "device": "设备",
+          "action_name": "动作",
+          "result": "结果",
+          "fault_injection": "故障注入",
+          "channel": "通道",
+          "expected": "期望",
+          "actual": "实际",
+          "input_status": "输入状态",
+          "valve_mapping": "阀路映射",
+          "preset": "常用预置",
+          "layout_mode": "布局模式",
+          "display_profile": "显示档位"
+        },
+        "action": {
+          "workbench": {
+            "set_view_mode": "切换视图",
+            "set_layout_mode": "切换布局",
+            "set_display_profile": "切换显示档位",
+            "run_quick_scenario": "执行快捷场景",
+            "generate_diagnostic_evidence": "生成诊断证据"
+          },
+          "analyzer": {
+            "select": "切换分析仪",
+            "set_mode": "设置模式",
+            "set_active_state": "设置 active/passive",
+            "set_frequency": "设置发送频率",
+            "read_frame": "读一帧",
+            "broadcast": "广播 FFF",
+            "inject_fault": "注入故障"
+          },
+          "pace": {
+            "set_vent": "切换排空",
+            "set_output": "切换输出",
+            "set_isolation": "切换隔离",
+            "set_pressure": "设置目标压力",
+            "set_unit": "设置单位",
+            "read_pressure": "读取压力",
+            "query_error": "查询错误",
+            "inject_fault": "注入故障"
+          },
+          "grz": {
+            "set_target_temp": "设置目标温度",
+            "set_target_rh": "设置目标湿度",
+            "set_target_flow": "设置目标流量",
+            "set_cool": "切换 COOL",
+            "set_heat": "切换 HEAT",
+            "set_control": "切换 CTRL",
+            "fetch_all": "读取 FETC?(@All)",
+            "inject_fault": "注入故障"
+          },
+          "chamber": {
+            "set_temperature": "设置温度",
+            "set_humidity": "设置湿度",
+            "run": "运行",
+            "stop": "停止",
+            "set_mode": "切换模式"
+          },
+          "relay": {
+            "write_channel": "单路写线圈",
+            "all_off": "全部关闭",
+            "batch_write": "批量写线圈",
+            "inject_fault": "注入故障"
+          },
+          "thermometer": {
+            "set_mode": "切换测温状态"
+          },
+          "pressure_gauge": {
+            "set_measurement_mode": "切换输出模式",
+            "set_unit": "切换单位",
+            "inject_fault": "注入故障"
+          }
+        },
+        "button": {
+          "run_quick_scenario": "执行快捷场景",
+          "generate_evidence": "生成诊断证据",
+          "apply_display_profile": "应用档位",
+          "inject_fault": "注入故障",
+          "analyzer": {
+            "mode1": "设为 MODE1",
+            "mode2": "设为 MODE2",
+            "mode3": "设为 MODE3",
+            "active": "设为 Active",
+            "passive": "设为 Passive",
+            "read_frame": "读一帧",
+            "broadcast": "广播 FFF",
+            "set_frequency": "设置频率"
+          },
+          "pace": {
+            "vent_on": "排空开",
+            "vent_off": "排空关",
+            "output_on": "输出开",
+            "output_off": "输出关",
+            "isolation_on": "隔离开",
+            "isolation_off": "隔离关",
+            "set_pressure": "设置压力",
+            "set_unit": "设置单位",
+            "read_pressure": "读当前压力",
+            "query_error": "查询错误"
+          },
+          "grz": {
+            "set_temp": "设置目标温度",
+            "set_rh": "设置目标湿度",
+            "set_flow": "设置目标流量",
+            "cool_on": "COOL 开",
+            "cool_off": "COOL 关",
+            "heat_on": "HEAT 开",
+            "heat_off": "HEAT 关",
+            "ctrl_on": "CTRL 开",
+            "ctrl_off": "CTRL 关",
+            "fetch_all": "FETC?(@All)"
+          },
+          "chamber": {
+            "set_temp": "设置温度",
+            "set_rh": "设置湿度",
+            "run": "运行",
+            "stop": "停止",
+            "set_mode": "切换模式"
+          },
+          "relay": {
+            "channel_on": "单路打开",
+            "channel_off": "单路关闭",
+            "all_off": "全部关闭",
+            "batch_write": "批量写线圈"
+          },
+          "thermometer": {
+            "set_mode": "应用状态"
+          },
+          "pressure": {
+            "set_mode": "应用输出模式",
+            "set_unit": "应用单位"
+          },
+          "run_preset": "执行预置"
+        },
+        "summary": {
+          "description": "设备页已升级为 simulation-only 设备操作工作台。",
+          "evidence": "参考质量：{reference} | 路由物理一致性：{route}",
+          "health": "{status}",
+          "health_stable": "设备健康稳定",
+          "health_attention": "设备健康需要关注",
+          "fault_item": "{device}：{fault}",
+          "route_mismatch_active": "当前存在路由物理不一致证据",
+          "reference_fault_item": "参考质量已降级：{quality}",
+          "no_faults": "当前没有故障注入",
+          "reference": "总体={quality} | 测温仪={thermometer} | 压力参考={pressure}",
+          "route": "路由={status} | {detail}",
+          "history": "最近动作 {count} 条：{detail}",
+          "history_item": "#{seq} {device} {action} {result}",
+          "risk_attention": "当前存在故障注入，仅用于离线诊断，不可视为真实验收证据。",
+          "risk_safe": "当前为仿真工作台，可用于离线验证与演练。",
+          "no_evidence": "尚未生成工作台诊断证据。",
+          "last_evidence": "生成时间={generated_at} | 角色={role} | 状态={state}",
+          "health_label": "健康摘要",
+          "faults_label": "故障摘要",
+          "reference_label": "参考摘要",
+          "route_label": "路由摘要",
+          "history_label": "动作历史",
+          "risk_label": "风险提示",
+          "last_evidence_label": "最近证据",
+          "evidence_label": "证据状态",
+          "operator_hint_label": "当前动作",
+          "engineer_hint_label": "安全提示",
+          "engineer": "场景={context} | 动作数={actions} | 当前视图={view}",
+          "engineer_label": "仿真上下文",
+          "diagnostic_history": "诊断细节 / 历史",
+          "recent_frames": "最近帧：{frames}",
+          "analyzer": "设备 ID={device_id} | 当前模式={mode} | active/passive={state} | 发送频率={frequency} Hz | 状态位={status_bits}",
+          "pace": "当前压力={pressure} | 目标压力={target} | vent={vent} | output={output} | isolation={isolation} | unit={unit} | slew={slew} hPa/s | error queue={errors}",
+          "grz": "目标温度={target_temp} | 目标湿度={target_rh}% | 目标流量={target_flow} L/min | 当前温度={current_temp} | 当前湿度={current_rh}% | 露点={dewpoint} | 最近快照={snapshot}",
+          "chamber": "当前温度={temperature} | 当前湿度={humidity}% | run/stop={running} | setpoint 温度={target_temp} | setpoint 湿度={target_rh}% | soak 状态={soak}",
+          "thermometer": "当前解析温度={temperature} | 参考质量={status} | ASCII 预览={preview}",
+          "pressure": "当前压力={pressure} | 当前单位={unit} | 参考质量={status} | 输出模式={mode} | 流预览={preview}"
+        },
+        "relay": {
+          "route_match": "期望打开={target} | 实际打开={actual} | 当前路由物理状态一致。",
+          "route_mismatch": "期望打开={target} | 实际打开={actual} | 检测到 route physical mismatch / relay stuck 直接证据。"
+        },
+        "message": {
+          "view_mode_set": "工作台视图已切换为 {view}。",
+          "layout_mode_set": "工作台布局已切换为 {mode}。",
+          "display_profile_set": "显示档位已切换为 {profile}。",
+          "quick_scenario_done": "已执行快捷场景：{scenario}。",
+          "evidence_generated": "已生成工作台仿真诊断证据。",
+          "custom_preset_saved": "自定义预置 {preset} 已保存。",
+          "custom_preset_deleted": "自定义预置 {preset} 已删除。",
+          "display_profile_context_refreshed": "显示档位上下文已刷新：{profile}。",
+          "selected_analyzer": "已切换到分析仪 {index}。",
+          "analyzer_mode_set": "分析仪 {index} 已切到 MODE{mode}。",
+          "analyzer_active_set": "分析仪 {index} 已切换为 {state}。",
+          "analyzer_frequency_set": "分析仪 {index} 发送频率已设置为 {frequency} Hz。",
+          "analyzer_frame_read": "已读取分析仪 {index} 最近一帧。",
+          "analyzer_broadcast": "已向分析仪 {index} 发送广播 FFF。",
+          "analyzer_fault_set": "分析仪 {index} 已注入故障：{fault}。",
+          "pace_vent_set": "PACE 排空状态已切换为 {state}。",
+          "pace_output_set": "PACE 输出状态已切换为 {state}。",
+          "pace_isolation_set": "PACE 隔离状态已切换为 {state}。",
+          "pace_pressure_set": "PACE 目标压力已设置为 {pressure}。",
+          "pace_unit_set": "PACE 单位已切换为 {unit}。",
+          "pace_pressure_read": "已读取 PACE 当前压力。",
+          "pace_error_queried": "PACE 错误队列返回：{error}",
+          "pace_fault_set": "PACE 已注入故障：{fault}。",
+          "grz_target_temp_set": "GRZ5013 目标温度已设置为 {temperature}。",
+          "grz_target_rh_set": "GRZ5013 目标湿度已设置为 {humidity}。",
+          "grz_target_flow_set": "GRZ5013 目标流量已设置为 {flow}。",
+          "grz_cool_set": "GRZ5013 COOL 已切换为 {state}。",
+          "grz_heat_set": "GRZ5013 HEAT 已切换为 {state}。",
+          "grz_control_set": "GRZ5013 CTRL 已切换为 {state}。",
+          "grz_snapshot_read": "已读取 GRZ5013 FETC?(@All) 快照。",
+          "grz_fault_set": "GRZ5013 已注入状态：{fault}。",
+          "chamber_temperature_set": "温度箱目标温度已设置为 {temperature}。",
+          "chamber_humidity_set": "温度箱目标湿度已设置为 {humidity}。",
+          "chamber_run": "温度箱已切换到运行状态。",
+          "chamber_stop": "温度箱已切换到停止状态。",
+          "chamber_mode_set": "温度箱模式已切换为 {mode}。",
+          "relay_channel_set": "{relay} 通道 {channel} 已设置为 {state}。",
+          "relay_all_off": "{relay} 已执行全部关闭。",
+          "relay_batch_set": "{relay} 已执行批量写线圈。",
+          "relay_fault_set": "继电器已注入故障：{fault}。",
+          "thermometer_mode_set": "数字测温仪模式已切换为 {mode}。",
+          "pressure_mode_set": "数字压力计输出模式已切换为 {mode}。",
+          "pressure_unit_set": "数字压力计单位已切换为 {unit}。",
+          "pressure_fault_set": "数字压力计已注入故障：{fault}。",
+          "action_failed": "{device} 操作失败：{error}",
+          "history_filter_set": "已更新历史筛选",
+          "history_detail_selected": "已切换动作详情",
+          "snapshot_compare_set": "已更新快照对比",
+          "preset_done": "已执行预置：{preset}",
+          "preset_favorite_set": "预置 {preset} 已更新为 {state}。",
+          "preset_pin_set": "预置 {preset} 已更新为 {state}。"
+        },
+        "view": {
+          "operator_view": "操作视图",
+          "engineer_view": "诊断视图"
+        },
+        "quick_scenario": {
+          "analyzer_partial_frame": {
+            "label": "分析仪半帧故障",
+            "description": "为分析仪注入半帧故障并立即读一帧。"
+          },
+          "pace_cleanup_no_response": {
+            "label": "PACE cleanup 无响应",
+            "description": "为 PACE 注入 cleanup_no_response 并查询错误队列。"
+          },
+          "relay_stuck": {
+            "label": "继电器卡住",
+            "description": "为继电器注入 stuck_channel 并制造路由物理不一致。"
+          },
+          "thermometer_stale": {
+            "label": "测温仪 stale",
+            "description": "将数字测温仪切到 stale 参考状态。"
+          },
+          "pressure_wrong_unit": {
+            "label": "压力参考错误单位",
+            "description": "为数字压力计注入 wrong_unit_configuration。"
+          }
+        },
+        "report": {
+          "title": "工作台诊断证据",
+          "generated_at": "生成时间",
+          "evidence_source": "证据来源",
+          "evidence_state": "证据状态",
+          "acceptance_guard": "非真实验收证据",
+          "current_view": "当前视图",
+          "current_device": "当前设备",
+          "current_action": "当前动作",
+          "operator_summary": "操作员摘要",
+          "action_history": "动作历史",
+          "reference_quality": "参考质量详情",
+          "route_validation": "路由验证详情",
+          "simulation_context": "仿真上下文",
+          "risk_level": "风险等级",
+          "device_category": "设备类别",
+          "fault_injection": "故障注入",
+          "reference_quality_summary": "参考质量摘要",
+          "route_relay_summary": "路由/继电器摘要",
+          "snapshot_compare": "快照对比"
+        },
+        "enum": {
+          "action_result": {
+            "ok": "成功",
+            "failed": "失败"
+          },
+          "analyzer_mode": {
+            "mode_1": "MODE1",
+            "mode_2": "MODE2",
+            "mode_3": "MODE3"
+          },
+          "active_state": {
+            "active": "Active",
+            "passive": "Passive"
+          },
+          "analyzer_fault": {
+            "stable": "稳定",
+            "partial_frame": "部分帧",
+            "truncated_frame": "截断帧",
+            "corrupted_frame": "损坏帧",
+            "no_response": "无响应",
+            "sensor_precheck_fail": "传感器预检失败"
+          },
+          "pace_fault": {
+            "stable": "稳定",
+            "no_response": "无响应",
+            "unsupported_header": "不支持的头部",
+            "cleanup_no_response": "清理阶段无响应",
+            "wrong_unit_configuration": "错误单位配置"
+          },
+          "grz_fault": {
+            "stable": "稳定",
+            "temperature_only_progress": "仅温度前进",
+            "humidity_static_fault": "湿度静止故障",
+            "timeout": "超时"
+          },
+          "chamber_mode": {
+            "stable": "稳定",
+            "ramp_to_target": "升降到目标",
+            "soak_pending": "浸泡等待中",
+            "on_target": "已到目标",
+            "stalled": "卡滞",
+            "alarm": "告警"
+          },
+          "relay_fault": {
+            "stable": "稳定",
+            "stuck_channel": "通道卡住",
+            "read_fail": "读取失败",
+            "write_fail": "写入失败"
+          },
+          "thermometer_mode": {
+            "stable": "稳定",
+            "drift": "漂移",
+            "stale": "陈旧值",
+            "no_response": "无响应",
+            "warmup_unstable": "预热不稳定",
+            "plus_200_mode": "+200 模式",
+            "corrupted_ascii": "ASCII 损坏",
+            "truncated_ascii": "ASCII 截断"
+          },
+          "pressure_output_mode": {
+            "single": "单次",
+            "continuous": "连续",
+            "sample_hold": "采样保持"
+          },
+          "pressure_fault": {
+            "stable": "稳定",
+            "continuous_stream": "连续输出",
+            "sample_hold": "采样保持",
+            "unit_switch": "单位切换",
+            "no_response": "无响应",
+            "unsupported_command": "不支持的命令",
+            "wrong_unit_configuration": "错误单位配置"
+          },
+          "reference_status": {
+            "healthy": "健康",
+            "degraded": "降级",
+            "failed": "失败",
+            "stale": "陈旧值",
+            "drift": "漂移",
+            "warmup_unstable": "预热不稳定",
+            "wrong_unit_configuration": "错误单位配置",
+            "no_response": "无响应",
+            "unsupported_command": "不支持的命令",
+            "display_interrupted": "显示中断",
+            "corrupted_ascii": "ASCII 损坏",
+            "truncated_ascii": "ASCII 截断",
+            "not_assessed": "未评估",
+            "skipped_by_profile": "按 profile 跳过"
+          },
+          "on_off": {
+            "on": "开",
+            "off": "关"
+          },
+          "route_match": {
+            "match": "一致",
+            "mismatch": "不一致"
+          }
+        },
+        "history": {
+          "filter": {
+            "device": "设备筛选",
+            "result": "结果筛选",
+            "all_devices": "全部设备",
+            "all_results": "全部结果",
+            "success": "成功",
+            "failed": "失败",
+            "fault_injection": "故障注入"
+          },
+          "no_detail": "暂无动作详情",
+          "detail_line": "#{seq} {device} {action} | 结果={result} | 参数={params} | 消息={message}",
+          "jump_snapshot": "打开快照",
+          "jump_evidence": "打开证据",
+          "no_related_snapshot": "无关联快照",
+          "no_related_evidence": "无关联证据",
+          "related_snapshot": {
+            "detail": "关联快照：{label} -> 对比 {compare}"
+          },
+          "related_evidence": {
+            "detail": "关联证据：{summary} | {path}"
+          }
+        },
+        "snapshot": {
+          "left": "快照一",
+          "right": "快照二",
+          "compare_button": "对比快照",
+          "title": "快照对比",
+          "no_compare": "暂无可对比快照",
+          "item_label": "#{seq} {device} {action}",
+          "compare_summary": "快照 #{left} 与 #{right} 对比",
+          "no_change": "未发现关键状态变化",
+          "compare": {
+            "reference": "参考质量",
+            "route": "路由/继电器",
+            "analyzer": "分析仪",
+            "pace": "PACE 错误队列",
+            "thermometer": "测温仪输出",
+            "pressure": "压力计输出"
+          }
+        },
+        "preset": {
+          "analyzer": {
+            "mode2_active_read": {
+              "label": "MODE2 主动读帧",
+              "description": "切到 MODE2，启用主动发送，并读取一帧。"
+            },
+            "partial_frame": {
+              "label": "分析仪半帧故障",
+              "description": "切到 MODE2 主动发送并注入半帧故障。"
+            }
+          },
+          "pace": {
+            "vent_on": {
+              "label": "打开排空",
+              "description": "将 PACE 切到排空开启。"
+            },
+            "vent_off": {
+              "label": "关闭排空",
+              "description": "将 PACE 切到排空关闭。"
+            },
+            "set_pressure": {
+              "label": "设置压力",
+              "description": "按当前输入框设置 PACE 目标压力。"
+            },
+            "unsupported_header": {
+              "label": "Unsupported Header 故障",
+              "description": "注入协议头不支持故障。"
+            }
+          },
+          "grz": {
+            "stable": {
+              "label": "GRZ 稳定",
+              "description": "恢复到稳定输出状态。"
+            },
+            "humidity_static_fault": {
+              "label": "湿度不变故障",
+              "description": "注入湿度反馈静止故障。"
+            },
+            "timeout": {
+              "label": "GRZ Timeout",
+              "description": "注入超时故障。"
+            }
+          },
+          "chamber": {
+            "reach_target": {
+              "label": "到温稳定",
+              "description": "切到到温稳定状态。"
+            },
+            "stalled": {
+              "label": "温箱停滞",
+              "description": "注入 stalled 模式。"
+            },
+            "alarm": {
+              "label": "温箱报警",
+              "description": "注入 alarm 模式。"
+            }
+          },
+          "relay": {
+            "all_off": {
+              "label": "全部关断",
+              "description": "将目标继电器全部关闭。"
+            },
+            "route_h2o": {
+              "label": "切到 H2O 路",
+              "description": "将继电器切到 H2O 路由状态。"
+            },
+            "route_co2": {
+              "label": "切到 CO2 路",
+              "description": "将继电器切到 CO2 路由状态。"
+            },
+            "stuck_channel": {
+              "label": "继电器卡路",
+              "description": "注入 stuck channel 故障。"
+            }
+          },
+          "thermometer": {
+            "stable": {
+              "label": "测温稳定",
+              "description": "恢复稳定测温输出。"
+            },
+            "stale": {
+              "label": "测温陈旧",
+              "description": "注入 stale 状态。"
+            },
+            "drift": {
+              "label": "测温漂移",
+              "description": "注入 drift 状态。"
+            }
+          },
+          "pressure_gauge": {
+            "stable": {
+              "label": "压力计稳定",
+              "description": "恢复稳定压力参考输出。"
+            },
+            "wrong_unit": {
+              "label": "单位错误",
+              "description": "注入 wrong unit configuration 故障。"
+            },
+            "no_response": {
+              "label": "压力计无响应",
+              "description": "注入 no response 故障。"
+            }
+          }
+        },
+        "layout": {
+          "compact": "紧凑模式",
+          "standard": "标准模式"
+        },
+        "display_profile": {
+          "auto": "自动",
+          "dense_1080p": "1080p 高密",
+          "standard_display": "标准显示"
+        },
+        "display_profile_profile": {
+          "1080p_compact": "1080p 紧凑档",
+          "1080p_standard": "1080p 标准档",
+          "1440p_compact": "1440p 紧凑档",
+          "1440p_standard": "1440p 标准档",
+          "4k_compact": "4K 紧凑档",
+          "4k_standard": "4K 标准档",
+          "ultrawide_compact": "超宽屏紧凑档",
+          "ultrawide_standard": "超宽屏标准档"
+        },
+        "display_profile_family": {
+          "1080p": "1080p 档位族",
+          "1440p": "1440p 档位族",
+          "4k": "4K 档位族",
+          "ultrawide": "超宽屏档位族"
+        },
+        "display_profile_monitor": {
+          "compact_monitor": "紧凑显示器",
+          "standard_monitor": "标准显示器",
+          "wide_monitor": "宽屏显示器"
+        },
+        "display_profile_resolution": {
+          "dense_1080p": "1080p 高密",
+          "wide_1440p": "144宽屏",
+          "ultra_hd": "超高清",
+          "full_hd": "Full HD",
+          "wide_resolution": "宽屏高分辨率",
+          "ultrawide_resolution": "超宽屏分辨率"
+        },
+        "display_profile_window": {
+          "compact_window": "紧凑窗口",
+          "comfort_window": "舒适窗口",
+          "wide_window": "宽屏窗口",
+          "standard_window": "标准窗口"
+        },
+        "display_profile_reason": {
+          "manual_dense_1080p": "手动选择高密档",
+          "manual_standard_display": "手动选择标准档",
+          "wide_or_large_window": "大窗口或宽屏优先",
+          "default_1080p": "默认 1080p 策略",
+          "balanced_default": "平衡默认策略",
+          "wide_resolution": "宽分辨率优先",
+          "simulated_1440p_canvas": "仿真 1440p 画布",
+          "simulated_4k_canvas": "仿真 4K 画布",
+          "simulated_ultrawide_canvas": "仿真超宽屏画布"
+        },
+        "display_profile_multi_monitor": {
+          "single_monitor_baseline": "单屏基线",
+          "future_multi_monitor_ready": "预留多屏扩展合同"
+        },
+        "display_profile_hint": "{profile} | {family} | {resolution} | {layout} | {monitor}",
+        "preset_center": {
+          "title": "预置中心",
+          "group": "预置组",
+          "preset": "预置",
+          "recent": "最近使用",
+          "run_recent": "执行最近",
+          "summary": "{groups} 个预置组 / 置顶 {pinned} / 收藏 {favorites} / 最近使用 {recent} 条 / 自定义 {custom}",
+          "recent_item": "{group} / {preset}",
+          "favorite_button": "收藏",
+          "pin_button": "置顶",
+          "favorite_enabled": "已收藏",
+          "favorite_disabled": "未收藏",
+          "pin_enabled": "已置顶",
+          "pin_disabled": "未置顶",
+          "source_builtin": "内置",
+          "source_custom": "自定义",
+          "detail": "{source} | {description} | {pinned} | {favorite} | {steps} 步 | 使用 {usage} 次",
+          "custom_summary": "当前共有 {count} 个 simulation-only 自定义预置。",
+          "no_custom_presets": "当前分组暂无自定义预置。",
+          "custom_picker_label": "{label} · {source} {steps} 步",
+          "detail_with_metadata": "{source} | {description} | {pinned} | {favorite} | {steps} 步 | 使用 {usage} 次 | {metadata}",
+          "detail_origin": "来源 {origin} | 导入自 {imported_from} | 源引用 {source_ref}",
+          "detail_capabilities": "Fake 能力：{capabilities}",
+          "detail_parameters": "参数：{parameters}",
+          "metadata_line": "v{version} | {schema} | {origin} | 创建 {created} | 更新 {updated}",
+          "capability": {
+            "summary": "{capabilities}",
+            "analyzer": "分析仪帧链路",
+            "pace": "压力控制链路",
+            "grz": "湿度发生器链路",
+            "chamber": "腔体链路",
+            "relay": "继电器路由链路",
+            "thermometer": "温度参考链路",
+            "pressure_gauge": "压力参考链路",
+            "fault_injection": "故障注入",
+            "multi_step": "多步编排"
+          },
+          "origin": {
+            "local_editor": "本地编辑",
+            "import_bundle": "导入预置",
+            "duplicated": "复制预置",
+            "builtin_export": "内置导出"
+          },
+          "manager": {
+            "title": "预置管理器",
+            "summary": "自定义 {custom} / 最近 {recent} | 冲突策略 {policy}",
+            "bundle_format_summary": "导出包格式 | schema {schema} v{schema_version} | 预置 schema {preset_schema} | 仅限 simulation",
+            "conflict_policy_summary": "冲突策略 | 当前 {policy}",
+            "conflict_strategy_summary": "冲突策略 | 当前 {policy} | 支持 {supported}",
+            "sharing_reserved_fields_summary": "共享预留字段 | {fields}",
+            "bundle_profile_summary": "导出档案 | {profile}",
+            "sharing_ready_summary": "共享准备 | 当前仅限本地 JSON | 预留字段 {fields}",
+            "import_conflict_summary": "导入冲突摘要 | 策略 {policy} | 新建 {created} | 重命名 {renamed} | 覆盖 {overwritten}",
+            "directory": {
+              "builtin": "内置预置",
+              "local_custom": "本地自定义预置",
+              "imported": "导入预置",
+              "entry": "{label} {count}",
+              "summary": "目录索引 | 内置 {builtin} / 本地自定义 {local_custom} / 导入 {imported}"
+            },
+            "duplicate_button": "复制当前",
+            "duplicate_label": "{label} 副本",
+            "export_selected_button": "导出当前",
+            "export_group_button": "导出分组",
+            "export_all_button": "导出全部",
+            "import_button": "导入 JSON",
+            "conflict_policy_label": "冲突处理",
+            "conflict_policy": {
+              "rename": "重命名导入",
+              "overwrite": "覆盖已有"
+            },
+            "future_sharing_hint": "当前仅支持本地 JSON 协作；第二步仍不引入共享预置服务。",
+            "import_source_timestamp": "{scope} 包 @ {exported_at}",
+            "import_source_scope": "{scope} 包",
+            "import_renamed_label": "{label} 导入副本 {index}",
+            "export_summary": "已导出 {count} 个 simulation-only 预置。",
+            "import_summary": "已导入 {count} 个 simulation-only 预置 | 重命名 {renamed} | 覆盖 {overwritten} | 策略 {policy}。",
+            "error": {
+              "schema_invalid": "预置包 schema 不匹配：期望 {expected}，实际 {actual}。",
+              "simulation_only_required": "预置包必须保持 simulation-only。",
+              "bundle_empty": "预置包为空。",
+              "item_invalid": "第 {index} 个预置条目不符合 simulation preset schema。",
+              "bundle_no_valid_presets": "预置包内没有有效的 simulation 预置。",
+              "json_required": "必须提供预置包 JSON。",
+              "json_invalid": "预置包 JSON 无效：{error}",
+              "object_required": "预置包必须是 JSON 对象。"
+            }
+          },
+          "editor": {
+            "title": "自定义预置编辑器",
+            "summary": "仅组合 simulation / fake 动作，不触碰真实设备。",
+            "new_button": "新建",
+            "load_button": "载入当前",
+            "save_button": "保存",
+            "delete_button": "删除",
+            "group": "归属组",
+            "name": "名称",
+            "description": "说明",
+            "analyzer_index": "分析仪编号",
+            "pressure_hpa": "目标压力(hPa)",
+            "relay_name": "继电器",
+            "channel": "通道",
+            "step": "步骤 {index}",
+            "loaded_id": "预置 ID: {preset_id}",
+            "unsaved": "未保存"
+          }
+        },
+        "preset_group": {
+          "analyzer": "分析仪",
+          "pace": "PACE",
+          "grz": "GRZ",
+          "chamber": "腔体",
+          "relay": "继电器",
+          "thermometer": "温度计",
+          "pressure": "压力计"
+        },
+        "engineer_overview": "工程视图总览",
+        "engineer_evidence": "诊断证据",
+        "engineer_data_state": {
+          "no_data": "未生成",
+          "diagnostic_only": "仅诊断信息",
+          "failed": "失败",
+          "ready": "已生成"
+        },
+        "engineer_card": {
+          "reference": "参考量",
+          "route": "路由状态",
+          "history": "动作历史",
+          "evidence": "证据摘要",
+          "statistics": "关键统计",
+          "statistics_summary": "最近成功 {success} / 失败 {failed} / 设备覆盖 {devices}",
+          "suite_analytics": "套件 / 分析",
+          "suite_analytics_summary": "{suite} | {status} | {analytics} | 血缘 {lineage}",
+          "artifact_lineage": "工件 / 血缘",
+          "artifact_lineage_summary": "角色 {role} | 来源 {source} | 状态 {state}"
+        },
+        "engineer_block": {
+          "route": "路由健康",
+          "reference": "参考量状态",
+          "reference_note": "温度参考 {thermometer} | 压力参考 {pressure}",
+          "faults": "异常注入",
+          "evidence": "证据状态"
+        },
+        "engineer_trend": {
+          "actions": "最近动作",
+          "actions_value": "成功 {success} / 失败 {failed}",
+          "faults": "异常窗口",
+          "faults_value": "最近故障动作 {count}",
+          "faults_note": "统计窗口 {recent} 条动作",
+          "snapshots": "快照覆盖",
+          "snapshots_value": "快照 {count}",
+          "presets": "预置使用",
+          "presets_value": "最近 {recent} / 收藏 {favorites}",
+          "evidence": "证据趋势",
+          "evidence_value": "{state} / 变更 {changes}",
+          "devices": "设备覆盖",
+          "devices_value": "设备 {count}",
+          "devices_note": "覆盖最近 {recent} 条动作",
+          "reference_quality": "参考质量趋势",
+          "reference_quality_value": "{quality} / {trend}",
+          "reference_quality_note": "最近原因：{reasons}",
+          "suite_analytics": "套件 / 分析趋势",
+          "suite_analytics_value": "{suite} {passed}/{total} | {analytics}",
+          "suite_analytics_note": "血缘 {lineage} | 覆盖 {coverage}",
+          "artifact_lineage": "工件 / 血缘趋势",
+          "artifact_lineage_value": "{role} / {source} / {state}",
+          "artifact_lineage_note": "报告 {report} | 快照 {snapshot}"
+        },
+        "engineer_section": {
+          "field": {
+            "reference": "参考量",
+            "route": "路由",
+            "history": "历史",
+            "compare": "快照对比",
+            "artifact_role": "工件角色",
+            "evidence_source": "证据来源",
+            "evidence_state": "证据状态",
+            "report_path": "报告路径",
+            "snapshot_path": "快照路径",
+            "lineage": "血缘摘要"
+          },
+          "hot_state": {
+            "title": "高频状态",
+            "summary": "{count} 个高频字段"
+          },
+          "device_groups": {
+            "title": "设备分组卡片",
+            "summary": "{count} 个设备摘要"
+          },
+          "injection_state": {
+            "title": "注入状态",
+            "summary": "{count} 个已注入状态",
+            "empty": "当前没有可展开的注入状态。"
+          },
+          "trend_focus": {
+            "title": "趋势聚焦",
+            "summary": "{count} 个趋势块"
+          },
+          "exception_focus": {
+            "title": "异常聚焦",
+            "summary": "{count} 条重点异常",
+            "empty": "当前仿真窗口没有重点异常。"
+          },
+          "history_detail": {
+            "title": "历史详情",
+            "summary": "高频字段保持前置显示"
+          },
+          "simulation_context": {
+            "title": "仿真上下文",
+            "summary": "低频字段默认折叠"
+          },
+          "raw_diagnostics": {
+            "title": "原始诊断",
+            "summary": "原始低频结构默认折叠"
+          },
+          "artifact_lineage": {
+            "title": "工件 / 血缘详情",
+            "summary": "证据血缘与生成路径"
+          },
+          "suite_analytics": {
+            "title": "套件 / 分析详情",
+            "summary": "最近 suite、analytics 与 lineage 摘要"
+          }
+        },
+        "engineer_severity": {
+          "ok": "稳定",
+          "warning": "需关注",
+          "info": "诊断"
+        }
+      }
+    },
+    "algorithms": {
+      "default_algorithm": "默认算法",
+      "candidates": "候选算法",
+      "coefficient_model": "系数模型",
+      "auto_select": "自动选择"
+    },
+    "reports": {
+      "run_dir": "运行目录",
+      "artifacts": "工件数",
+      "present": "已生成",
+      "artifact_list_title": "工件列表",
+      "artifact_scope": {
+        "summary_all": "全部工件 | 当前 scope {visible} 项 | 磁盘存在 {present}/{total} | external {external} | 缺失 {missing} | current-run 基线 {catalog_present}/{catalog_total}",
+        "summary_source": "来源工件 | {source} | 当前 scope {visible} 项 | 磁盘存在 {present}/{total} | external {external} | 缺失 {missing} | current-run 基线 {catalog_present}/{catalog_total}",
+        "summary_evidence": "证据工件 | {source} / {evidence} | 当前 scope {visible} 项 | 磁盘存在 {present}/{total} | external {external} | 缺失 {missing} | current-run 基线 {catalog_present}/{catalog_total}",
+        "label_all": "全部工件",
+        "label_source": "来源工件",
+        "label_evidence": "证据工件",
+        "clear": "返回全部工件",
+        "empty": "{scope}下暂无相关工件；当前仅为 offline/simulated/diagnostic 审阅视角，非真实 acceptance。",
+        "disclaimer": "以下工件视角仅用于 offline/simulated/replay/diagnostic 审阅，不代表真实 acceptance。",
+        "run_dir_note": "当前审阅视角：{scope} | current-run 基线 {catalog_present}/{catalog_total}",
+        "catalog_note": "current-run catalog 基线 {present}/{total}",
+        "scope_note": "{scope} | 当前 scope 总量 {visible} | external {external} | 缺失 {missing} | current-run 基线 {catalog_total}",
+        "present_note": "{scope} | 当前 scope 磁盘存在 {present}/{total} | 缺失 {missing} | current-run 基线 {catalog_present}/{catalog_total}",
+        "export_scope_warning": "导出栏仍只导出当前运行工件，不等于上方{scope}审阅视角。"
+      },
+      "review_scope_manifest": {
+        "title": "审阅清单",
+        "generated_at": "生成时间",
+        "scope": "审阅范围",
+        "selection": "当前选择",
+        "counts": "计数摘要",
+        "rows": "工件行",
+        "note": "说明",
+        "disclaimer_label": "声明",
+        "disclaimer": "此清单仅用于 offline/simulated/replay/diagnostic 审阅交接，不代表真实 acceptance evidence。",
+        "selection_line": "scope={scope} | source={source} | evidence={evidence}",
+        "counts_line": "scope 可见 {visible} | scope 存在 {present} | external {external} | missing {missing} | current-run 基线 {catalog_present}/{catalog_total}",
+        "note_current_run_status": "当前运行工件；导出状态 {status}",
+        "note_current_run_unregistered": "当前运行工件；当前 exporter 可导出，但治理状态未登记",
+        "note_current_run_missing": "当前运行 catalog 工件；磁盘缺失，当前 exporter 不可交接",
+        "note_review_reference": "外部审阅引用；不属于当前运行 exporter 对象",
+        "note_source_scan": "source_dir 受限扫描补充；仅用于审阅上下文，不属于当前运行 exporter",
+        "note_missing_reference": "选中审阅引用缺失；磁盘未找到"
+      },
+      "ai_report_summary": "AI 报告摘要",
+      "no_ai_report_summary": "暂无 AI 报告摘要。",
+      "review_digest": "离线证据审阅摘要",
+      "review_center": "审阅中心"
+    },
+    "qc": {
+      "score": "质控评分",
+      "grade": "等级",
+      "valid": "有效",
+      "invalid": "无效",
+      "total": "总数",
+      "table_point": "点位",
+      "table_route": "路由",
+      "table_temp": "温度",
+      "table_co2": "CO2",
+      "table_score": "评分",
+      "table_valid": "有效性",
+      "table_reason": "原因",
+      "table_title": "质控点明细",
+      "details_title": "无效原因 / 建议",
+      "invalid_reasons": "无效原因：",
+      "recommendations": "建议：",
+      "no_detail": "暂无质控细节。"
+    },
+    "plan_editor": {
+      "sidebar": {
+        "profiles": "配置档案"
+      },
+      "actions": {
+        "load": "加载",
+        "save": "保存",
+        "save_as": "另存为",
+        "delete": "删除",
+        "set_default": "设为默认",
+        "new": "新建",
+        "duplicate": "复制",
+        "rename": "重命名",
+        "import": "导入",
+        "export": "导出",
+        "add": "新增",
+        "update": "更新",
+        "remove": "移除",
+        "copy": "复制行",
+        "up": "上移",
+        "down": "下移",
+        "toggle": "切换启用"
+      },
+      "meta": {
+        "title": "计划编辑器",
+        "name": "名称",
+        "version": "版本",
+        "description": "说明",
+        "run_mode": "运行模式"
+      },
+      "options": {
+        "title": "计划选项",
+        "selected_temps": "选定温度",
+        "skip_co2": "跳过 CO2 ppm",
+        "water_first": "水路优先",
+        "water_first_temp_gte": "水路优先温度阈值",
+        "temperature_descending": "温度降序"
+      },
+      "analyzer": {
+        "title": "分析仪设置",
+        "software_version": "软件版本",
+        "id_assignment": "ID 分配方式",
+        "start_id": "起始 ID",
+        "manual_ids": "手动 ID"
+      },
+      "preview": {
+        "title": "编译预览",
+        "compile": "编译预览",
+        "not_generated": "编译预览：尚未生成",
+        "ready": "编译预览已就绪"
+      },
+      "preview_columns": {
+        "seq": "序号",
+        "row": "原行",
+        "temp": "温度",
+        "route": "路由",
+        "h2o_target": "H2O 目标",
+        "co2": "CO2",
+        "pressure": "压力",
+        "group": "组别",
+        "cylinder": "标气",
+        "status": "状态"
+      },
+      "temperature": {
+        "title": "温度区段",
+        "value": "温度 C"
+      },
+      "humidity": {
+        "title": "湿度区段",
+        "hgen_temp": "湿度发生器温度",
+        "rh_pct": "相对湿度 %",
+        "dew_point": "露点",
+        "dew_short": "露点"
+      },
+      "gas": {
+        "title": "气体 / CO2 区段",
+        "group": "组别",
+        "cylinder_ppm": "标气 ppm",
+        "co2_ppm": "CO2 ppm",
+        "cylinder": "标气"
+      },
+      "pressure": {
+        "title": "压力区段",
+        "value": "压力 hPa"
+      },
+      "common": {
+        "enabled": "启用",
+        "order": "#"
+      },
+      "dialog": {
+        "save_as_title": "计划另存为",
+        "profile_name": "档案名称",
+        "duplicate_title": "复制计划",
+        "rename_title": "重命名计划",
+        "new_profile_name": "新档案名称",
+        "delete_title": "删除计划",
+        "delete_prompt": "确定删除档案“{name}”吗？",
+        "import_title": "导入计划档案",
+        "export_title": "导出计划档案",
+        "json_files": "JSON 文件",
+        "all_files": "所有文件"
+      },
+      "status": {
+        "ready": "就绪",
+        "draft_profile": "草稿档案",
+        "selected_profile": "已选档案：{name}",
+        "select_profile_first": "请先选择档案",
+        "profile_not_found": "未找到档案：{name}",
+        "loaded_profile": "已加载档案：{name}",
+        "new_profile_draft": "已创建新档案草稿",
+        "invalid_plan_options": "计划选项无效：{error}",
+        "profile_name_required": "档案名称不能为空",
+        "profile_name_no_path_separators": "档案名称不能包含路径分隔符",
+        "profile_version_required": "档案版本不能为空",
+        "profile_version_no_whitespace": "档案版本不能包含空白字符",
+        "profile_version_too_long": "档案版本长度不能超过 32 个字符",
+        "manual_ids_unique": "手动设备 ID 必须唯一",
+        "manual_ids_required": "手动 ID 分配至少需要一个设备 ID",
+        "selected_temps_need_enabled_rows": "选定温度至少需要一条已启用的温度行",
+        "selected_temps_missing": "以下选定温度未出现在已启用温度行中：{values}",
+        "compile_need_temperature": "编译预览前至少要启用一个温度点",
+        "compile_need_co2_point": "CO2 测量模式在编译预览前至少要启用一个气体点",
+        "compile_need_h2o_point": "H2O 测量模式在编译预览前至少要启用一个湿度点",
+        "compile_need_humidity_or_gas": "编译预览前至少要启用一个湿度点或气体点",
+        "save_failed": "保存失败：{error}",
+        "saved_profile": "已保存档案：{name}",
+        "saved_as": "已另存为：{name}",
+        "load_profile_before_duplicate": "复制前请先加载档案",
+        "duplicate_failed": "复制失败：{error}",
+        "duplicated_profile": "已复制档案：{name}",
+        "load_profile_before_rename": "重命名前请先加载档案",
+        "rename_failed": "重命名失败：{error}",
+        "renamed_profile": "已重命名档案：{name}",
+        "select_profile_to_delete": "请选择要删除的档案",
+        "deleted_profile": "已删除档案：{name}",
+        "save_or_load_first": "请先保存或加载档案",
+        "set_default_failed": "设为默认失败：{error}",
+        "default_profile": "默认档案：{name}",
+        "import_failed": "导入失败：{error}",
+        "imported_profile": "已导入档案：{name}",
+        "load_profile_before_export": "导出前请先加载档案",
+        "export_failed": "导出失败：{error}",
+        "exported_profile": "已导出档案：{path}",
+        "compile_failed": "编译失败：{error}",
+        "compiled_preview_for": "已完成编译预览：{name}",
+        "default_profile_flag": "默认档案：{value}",
+        "select_row_first": "请先选择一行",
+        "order_updated": "顺序已更新",
+        "enabled_flag_updated": "启用状态已更新",
+        "row_copied": "已复制当前行",
+        "invalid_temperature": "温度无效：{error}",
+        "enter_temperature": "请至少输入一个温度值",
+        "temperature_rows_added": "已新增温度行：{count}",
+        "select_temperature_row_first": "请先选择温度行",
+        "temperature_updated": "温度行已更新",
+        "humidity_error": "{error}",
+        "humidity_need_target": "湿度行至少需要一个目标值",
+        "humidity_rh_range": "湿度目标必须在 0 到 100 %RH 之间",
+        "humidity_added": "湿度点已新增",
+        "select_humidity_row_first": "请先选择湿度行",
+        "humidity_updated": "湿度点已更新",
+        "invalid_gas_point": "气体点无效：{error}",
+        "enter_co2_value": "请至少输入一个 CO2 ppm 值",
+        "co2_non_negative": "CO2 ppm 必须大于等于 0",
+        "cylinder_non_negative": "标气标称 ppm 必须大于等于 0",
+        "gas_rows_added": "已新增气体行：{count}",
+        "select_gas_row_first": "请先选择气体行",
+        "gas_updated": "气体点已更新",
+        "invalid_pressure": "压力无效：{error}",
+        "enter_pressure": "请至少输入一个压力值",
+        "pressure_positive": "压力必须大于 0 hPa",
+        "pressure_rows_added": "已新增压力行：{count}",
+        "select_pressure_row_first": "请先选择压力行",
+        "pressure_updated": "压力点已更新",
+        "row_removed": "已移除当前行"
+      },
+      "validation": {
+        "start_device_id": "起始设备 ID",
+        "device_id": "设备 ID",
+        "temperature": "温度",
+        "hgen_temp": "湿度发生器温度",
+        "humidity_target": "湿度目标",
+        "dew_point": "露点",
+        "cylinder_nominal_ppm": "标气标称 ppm",
+        "co2_ppm": "CO2 ppm",
+        "pressure": "压力",
+        "invalid_number": "{field} 无效：{error}",
+        "finite_number": "{field} 必须是有限数字",
+        "invalid_value": "{field} 无效：{value}"
+      }
+    }
+  },
+  "dialogs": {
+    "common": {
+      "close": "关闭",
+      "save": "保存",
+      "cancel": "取消"
+    },
+    "about": {
+      "title": "关于",
+      "product": "产品",
+      "version": "版本",
+      "build": "构建",
+      "vendor": "供应方",
+      "product_id": "产品 ID"
+    },
+    "preferences": {
+      "title": "偏好设置",
+      "last_config": "上次配置",
+      "simulation_default": "默认仿真模式",
+      "auto_start_feed": "自动启动状态流",
+      "screenshot_format": "截图格式",
+      "status": {
+        "ready": "就绪",
+        "saved": "已保存"
+      }
+    },
+    "release_notes": {
+      "title": "版本说明",
+      "empty": "暂无版本说明。"
+    },
+    "licenses": {
+      "title": "许可证",
+      "empty": "暂无附带许可证文本。"
+    }
+  },
+  "facade": {
+    "ui_attached": "UI 门面已连接",
+    "start_failed": "启动失败：{error}",
+    "start_requested": "已请求启动（{source_label}: {display_path}）模式={mode}",
+    "preview_failed": "点表预览失败：{error}",
+    "default_profile_summary": "默认配置档 {profile} | {summary}",
+    "points_preview_summary": "点表 {point_count} 行 | 按真实执行顺序预览 | 预览执行 {row_count} 点",
+    "default_profile_no_points": "默认配置档模式不使用点表文件；请在“计划”中编辑默认配置档。",
+    "edit_points_failed": "编辑点表失败：{error}",
+    "editing_points_file": "正在编辑点表：{path}",
+    "stop_failed": "停止失败：{error}",
+    "stop_requested": "已请求停止",
+    "pause_failed": "暂停失败：{error}",
+    "pause_requested": "已请求暂停",
+    "resume_failed": "继续失败：{error}",
+    "resume_requested": "已请求继续",
+    "winner_auto_select_reason": "已启用自动选择；在对比工件就绪前，当前高亮默认算法。",
+    "winner_configured_reason": "当前高亮已配置的默认算法。",
+    "unsupported_export_format": "不支持的导出格式：{format}",
+    "exporting": "正在导出 {format} 工件...",
+    "export_review_manifesting": "正在生成审阅清单...",
+    "export_failed": "导出失败：{error}",
+    "exported": "已导出 {count} 个文件到 {destination}",
+    "review_scope_manifest_export_failed": "审阅清单导出失败：{error}",
+    "review_scope_manifest_exported": "已导出 {scope} 审阅清单批次 {batch_id}：{destination}",
+    "preferences_saved": "偏好设置已保存",
+    "run_in_progress": "运行中...",
+    "validation_primary_missing_reason": "当前验收档案缺少主 latest 索引",
+    "source_label": {
+      "points_file": "点表文件",
+      "default_profile": "默认配置档"
+    },
+    "role_summary_item": "{name} {count} 项",
+    "results": {
+      "overview": {
+        "run_id": "运行 ID：{value}",
+        "phase": "阶段：{value}",
+        "output_dir": "输出目录：{value}",
+        "samples": "采样数：{value}",
+        "point_summaries": "点位摘要数：{value}",
+        "warnings": "告警数：{value}",
+        "errors": "错误数：{value}",
+        "report_mode": "报告模式：{value}",
+        "include_fleet_stats": "包含 fleet 统计：{value}",
+        "readiness": "验收就绪度：{value}",
+        "analytics": "分析摘要：{value}"
+      },
+      "algorithm": {
+        "default": "默认算法：{value}",
+        "candidates": "候选算法：{value}",
+        "auto_select": "自动选择：{value}",
+        "coefficient_model": "系数模型：{value}"
+      },
+      "result_summary": {
+        "results_file": "结果文件：{value}",
+        "summary_file": "摘要文件：{value}",
+        "manifest_file": "清单文件：{value}",
+        "readable_points": "可读点表：{value}",
+        "sample_count": "采样条数：{value}",
+        "point_summary_count": "点位摘要条数：{value}",
+        "export_status_count": "导出状态项：{value}",
+        "artifact_roles": "工件角色：{value}",
+        "lineage_config_version": "追溯配置版本：{value}",
+        "suite_summary": "套件摘要：{value}",
+        "spectral_quality": "谱分析质量：{value}",
+        "workbench_evidence": "工作台诊断证据：{value}"
+      }
+    },
+    "route_status": {
+      "h2o_execution": "执行：水路",
+      "co2_execution": "执行：气路",
+      "co2_subzero_execution": "执行：低温气路"
+    }
+  },
+  "compare": {
+    "cli_description": "运行离线 simulated/replay 对比，不打开真实设备。",
+    "arg": {
+      "profile": "仿真验证档案（configs/validation/simulated 下）。",
+      "scenario": "仿真场景名称。",
+      "fixture": "显式 replay fixture JSON 路径。",
+      "report_root": "对比工件输出根目录。",
+      "run_name": "可选固定 run 名。",
+      "publish_latest": "刷新仿真 latest 索引，除非显式关闭。",
+      "no_publish_latest": "只在本次 run 目录内写 latest。",
+      "list_scenarios": "列出内置仿真场景。",
+      "list_profiles": "列出内置仿真档案。"
+    },
+    "profile": "档案：{value}",
+    "scenario": "场景：{value}",
+    "report_dir": "报告目录：{value}",
+    "report_json": "JSON 报告：{value}",
+    "report_markdown": "Markdown 报告：{value}",
+    "latest_index": "{index_name}: {value}",
+    "evidence_source": "证据来源：{value}",
+    "compare_status": "对比状态：{value}"
+  },
+  "suite": {
+    "cli_description": "运行离线 simulation/replay/parity 套件。",
+    "summary_title": "仿真套件摘要",
+    "suite": "套件",
+    "description": "说明",
+    "report_dir": "报告目录",
+    "total_cases": "总用例数",
+    "passed": "通过",
+    "failed": "失败",
+    "acceptance_readiness": "验收就绪度",
+    "analytics_digest": "分析摘要",
+    "operator_view": "操作员视角",
+    "reviewer_view": "审阅人视角",
+    "approver_view": "批准人视角",
+    "evidence_artifacts": "证据工件",
+    "suite_summary_json": "套件摘要 JSON",
+    "suite_analytics_summary": "套件分析摘要",
+    "suite_acceptance_plan": "套件验收计划",
+    "suite_evidence_registry": "套件证据索引",
+    "failed_cases": "失败用例",
+    "failure_review": "失败复盘",
+    "no_failed_cases": "本套件无失败用例。",
+    "case_results": "用例结果",
+    "none": "无",
+    "failure_type": "失败类型 {name}: {count}",
+    "failure_phase": "失败阶段 {name}: {count}",
+    "case_line": "{name}: {status}（期望 {expected}）[工件: {artifact_dir}]",
+    "case_detail": "证据={evidence_source} 状态={evidence_state} 风险={risk_level} 失败类型={failure_type} 失败阶段={failure_phase}",
+    "review_artifacts": "审阅工件=json:{json_path} md:{markdown_path}",
+    "cli_suite": "套件：{value}",
+    "cli_report_dir": "报告目录：{value}",
+    "cli_passed": "通过：{passed}/{total}",
+    "cli_summary_markdown": "摘要 Markdown：{value}",
+    "cli_case": "用例 {name}：{status}（期望 {expected}）",
+    "arg": {
+      "suite": "套件名：smoke/regression/nightly/parity。",
+      "report_root": "套件工件输出根目录。",
+      "run_name": "可选固定 suite 名。",
+      "list_suites": "列出内置 suite。"
+    }
+  },
+  "parity": {
+    "title": "摘要口径一致性",
+    "status": "状态",
+    "evidence_source": "证据来源",
+    "acceptance_level": "验收级别",
+    "risk_level": "风险等级",
+    "float_tolerance": "浮点容差",
+    "float_fields": "浮点字段",
+    "exact_fields": "精确字段",
+    "failed_cases": "失败用例",
+    "none": "无",
+    "comparison_summary": "对比摘要：浮点 {float_ok} 个在容差内 / {float_failed} 个失败，精确字段 {exact_ok} 个一致 / {exact_failed} 个失败",
+    "expected_divergence": "允许偏差：{value}",
+    "comparison_line": "{field}: v1={v1} v2={v2} 一致={matched}{suffix}"
+  },
+  "resilience": {
+    "title": "导出韧性",
+    "status": "状态",
+    "evidence_source": "证据来源",
+    "acceptance_level": "验收级别",
+    "risk_level": "风险等级",
+    "details": "详情"
+  },
+  "enum": {
+    "phase": {
+      "idle": "空闲",
+      "initializing": "初始化",
+      "co2_route": "气路执行",
+      "h2o_route": "水路执行",
+      "paused": "已暂停",
+      "stopped": "已停止"
+    },
+    "page": {
+      "run": "运行",
+      "qc": "质控",
+      "results": "结果",
+      "devices": "设备",
+      "algorithms": "算法",
+      "reports": "报告",
+      "plan": "计划"
+    },
+    "route": {
+      "co2": "气路",
+      "h2o": "水路",
+      "finalize": "收尾",
+      "co2_only": "仅气路",
+      "h2o_only": "仅水路",
+      "h2o_then_co2": "先水后气"
+    },
+    "run_mode": {
+      "auto_calibration": "自动校准",
+      "co2_measurement": "CO2 测量",
+      "h2o_measurement": "H2O 测量",
+      "experiment_measurement": "实验测量"
+    },
+    "notification_level": {
+      "info": "提示",
+      "warning": "警告",
+      "error": "错误",
+      "success": "成功"
+    },
+    "risk_level": {
+      "low": "低",
+      "medium": "中",
+      "high": "高"
+    },
+    "compare_status": {
+      "match": "一致",
+      "mismatch": "不一致",
+      "not_executed": "未执行",
+      "snapshot_only": "仅快照",
+      "primary_real_validation_latest_missing": "主真实 latest 缺失",
+      "primary_validation_latest_missing": "主验证 latest 缺失"
+    },
+    "evidence_source": {
+      "real": "真实",
+      "simulated": "仿真",
+      "simulated_protocol": "协议仿真",
+      "diagnostic": "诊断",
+      "replay": "回放",
+      "real_probe": "真实探测",
+      "real_acceptance": "真实验收"
+    },
+    "evidence_state": {
+      "collected": "已收集",
+      "replay": "回放",
+      "simulated_protocol": "协议仿真",
+      "simulated_fixture": "回放式仿真",
+      "simulated_validation": "仿真验证",
+      "simulated_workbench": "工作台仿真证据",
+      "simulated_acceptance_like_coverage": "仿真验收近似覆盖",
+      "route_unblock_diagnostic": "路由解阻诊断",
+      "stale": "陈旧",
+      "superseded": "已被替代",
+      "stale_diagnostic_only": "陈旧诊断",
+      "primary_validation_latest_missing": "主验证 latest 缺失"
+    },
+    "acceptance": {
+      "offline_regression": "离线回归",
+      "validation_latest": "latest 验证",
+      "dry_run_only": "仅 dry-run",
+      "pending": "待处理",
+      "blocked": "已阻塞",
+      "approved": "已批准",
+      "rejected": "已拒绝",
+      "primary": "主验收",
+      "diagnostic": "诊断",
+      "stale": "陈旧",
+      "simulated": "仿真",
+      "replay": "回放",
+      "acceptance": "验收",
+      "promotion": "晋升",
+      "review": "审阅",
+      "approval": "批准",
+      "reference_quality": "参考质量",
+      "degraded": "降级",
+      "failed": "失败",
+      "ready_for_promotion": "可晋升"
+    },
+    "artifact_role": {
+      "execution_rows": "执行明细",
+      "execution_summary": "执行摘要",
+      "diagnostic_analysis": "诊断分析",
+      "formal_analysis": "正式分析",
+      "unclassified": "未分类"
+    },
+    "device_status": {
+      "online": "在线",
+      "unknown": "未知",
+      "disabled": "已禁用",
+      "skipped_by_profile": "按配置跳过"
+    },
+    "reference_quality": {
+      "healthy": "健康",
+      "degraded": "降级",
+      "failed": "失败",
+      "missing": "缺失",
+      "stale": "陈旧",
+      "drift": "漂移",
+      "warmup_unstable": "预热不稳定",
+      "no_response": "无响应",
+      "wrong_unit_configuration": "单位配置错误",
+      "corrupted_ascii": "ASCII 损坏",
+      "truncated_ascii": "ASCII 截断",
+      "display_interrupted": "显示中断",
+      "unsupported_command": "不支持的指令",
+      "skipped_by_profile": "按档案跳过",
+      "unknown": "未知"
+    },
+    "suite_failure_type": {
+      "none": "无",
+      "route_physical_mismatch": "路由物理不一致",
+      "reference_quality": "参考质量",
+      "summary_parity": "摘要口径一致性",
+      "export_resilience": "导出韧性",
+      "mismatch": "不一致",
+      "not_executed": "未执行",
+      "snapshot_only": "仅快照"
+    },
+    "analyzer_software_version": {
+      "pre_v5": "V5 前",
+      "v5_plus": "V5 及以后"
+    },
+    "device_id_assignment": {
+      "automatic": "自动分配",
+      "manual": "手动指定"
+    },
+    "winner_status": {
+      "recommended": "推荐",
+      "configured": "已配置",
+      "pending": "待推荐"
+    }
+  },
+  "results": {
+    "review_digest": {
+      "suite": "最新套件",
+      "parity": "最新一致性",
+      "resilience": "最新导出韧性",
+      "workbench": "最新工作台证据",
+      "readiness": "当前验收就绪度",
+      "disclaimer": "以上均为离线仿真/回放审阅证据，不代表真实 acceptance。",
+      "suite_summary_line": "{suite} {passed}/{total} 通过",
+      "parity_summary_line": "{matched}/{total} 匹配，失败：{failed}",
+      "resilience_summary_line": "{matched}/{total} 项通过",
+      "none": "暂无",
+      "unreadable": "已找到但无法读取"
+    },
+    "spectral_quality": {
+      "title": "谱质量分析",
+      "none": "暂无",
+      "summary_line": "{status} | 通道 {ok}/{total} | 评分 {score} | 标记 {flags}",
+      "channel_line": "{name} | {status} | 稳定性 {score} | 低频占比 {low_freq} | 主频 {dominant} Hz | 标记 {flags}",
+      "detail": {
+        "status_line": "状态：{status}",
+        "channel_count_line": "通道覆盖：{ok}/{total}",
+        "score_line": "总体稳定性评分：{score}",
+        "flags_line": "异常标签：{flags}",
+        "skipped_line": "已跳过：{error}"
+      },
+      "status": {
+        "ok": "正常",
+        "insufficient_data": "数据不足",
+        "invalid_series": "序列无效",
+        "skipped": "跳过"
+      },
+      "flag": {
+        "missing_values_dropped": "缺测已剔除",
+        "invalid_timestamps": "时间戳异常",
+        "irregular_sampling": "采样间隔不规则",
+        "low_sample_count": "样本数不足",
+        "insufficient_duration": "持续时间不足",
+        "constant_series": "常量序列",
+        "low_frequency_drift": "低频漂移",
+        "oscillatory_peak": "振荡峰值",
+        "insufficient_frequency_bins": "频谱分辨率不足"
+      }
+    },
+    "review_center": {
+      "title": "审阅中心",
+      "filter": {
+        "type": "类型",
+        "status": "状态",
+        "time": "时间",
+        "source": "来源",
+      "count": "显示 {visible}/{total} 条",
+      "all_types": "全部类型",
+      "all_statuses": "全部状态",
+      "all_sources": "全部来源",
+      "active_source": "当前来源：{source}",
+      "clear_source_drilldown": "返回全部来源",
+      "all_time": "全部时间",
+      "time_24h": "最近 24 小时",
+      "time_7d": "最近 7 天",
+      "time_30d": "最近 30 天"
+      },
+      "role": {
+        "operator": "操作员",
+        "reviewer": "审阅者",
+        "approver": "审批者"
+      },
+      "section": {
+        "readiness": "验收就绪度",
+        "analytics": "分析摘要",
+        "lineage": "血缘摘要",
+        "run_index": "跨 run 审阅索引",
+        "evidence_list": "最近证据",
+        "evidence_detail": "证据详情",
+        "risk": "风险等级"
+      },
+      "column": {
+        "time": "时间",
+        "type": "类型",
+        "status": "状态",
+        "summary": "摘要",
+        "source": "来源",
+        "latest": "最近时间",
+        "coverage": "覆盖",
+        "gaps": "缺口"
+      },
+      "detail": {
+        "summary": "摘要",
+        "status": "状态",
+        "source": "证据来源",
+        "state": "证据状态",
+        "path": "路径",
+        "failed_cases": "失败用例",
+        "source_hint": "{kind} / {source}",
+        "current_device": "当前设备",
+        "current_action": "当前动作",
+        "risk_line": "单项风险 {item} | 总体 {overall} | 状态 {status}",
+        "acceptance_hint": "{readiness} | 覆盖 {coverage} | 来源 {source} | 状态 {state}",
+        "acceptance_level": "验收层级",
+        "promotion_state": "晋升状态",
+        "qc_summary": "质控摘要",
+        "qc_run_gate": "运行门禁",
+        "qc_gate_reason": "门禁原因",
+        "qc_point_gate": "点级门禁",
+        "qc_flagged_routes": "关注路由",
+        "qc_decision_breakdown": "结果分级",
+        "qc_top_reject_reason": "主要拒绝原因",
+        "qc_top_failed_check": "失败检查",
+        "qc_route_breakdown": "路由分布",
+        "qc_reject_taxonomy": "拒绝原因分类",
+        "qc_failed_check_taxonomy": "失败检查分类",
+        "workbench_qc_note": "当前工作台证据未生成独立质控门禁，仅提供仿真/离线诊断摘要。",
+        "analytics_reference_quality": "参考质量",
+        "analytics_reference_trend": "参考趋势",
+        "analytics_export_status": "导出状态",
+        "analytics_drift": "漂移趋势",
+        "analytics_control_chart": "控制图状态",
+        "analytics_health": "分析仪健康",
+        "analytics_fault": "主故障归因",
+        "analytics_lineage": "血缘摘要",
+        "spectral_status": "谱分析状态"
+      },
+      "detail_panel": {
+        "summary": "证据摘要",
+        "risk": "风险等级",
+        "key_fields": "关键字段",
+        "artifacts": "关联工件路径",
+        "acceptance": "Acceptance Readiness 提示",
+        "qc": "质控摘要",
+        "analytics": "分析摘要",
+        "spectral_quality": "谱质量分析",
+        "lineage": "Lineage 摘要"
+      },
+      "detail_hint": "选择证据以查看详情",
+      "empty": "当前筛选条件下暂无证据。",
+      "disclaimer": "此处均为第二阶段平台建设中的离线仿真/回放/诊断证据，不代表真实 acceptance。",
+      "type": {
+        "suite": "套件",
+        "parity": "口径对比",
+        "resilience": "导出韧性",
+        "workbench": "工作台",
+        "analytics": "分析"
+      },
+    "source_kind": {
+      "run": "Run 证据",
+      "suite": "Suite 证据",
+      "workbench": "工作台证据",
+      "mixed": "混合来源"
+    },
+      "status": {
+        "passed": "通过",
+        "failed": "失败",
+        "degraded": "降级",
+        "diagnostic_only": "仅诊断"
+      },
+      "index": {
+        "summary": "最近来源 {runs} | suite {suites} | parity {parity} | resilience {resilience} | workbench {workbench} | analytics {analytics}",
+        "source_kind_summary": "来源类型 | run {run} | suite {suite} | workbench {workbench}",
+        "coverage_summary": "覆盖情况 | 完整 {complete} | 有缺口 {gapped} | {gaps}",
+        "diagnostics_summary": "诊断 | 缓存 {cache_hit} | 扫描根 {roots} | 候选 {candidates} | 耗时 {elapsed_ms} ms | 预算 {budget}",
+        "coverage_line": "{count}/{total} | {types}",
+        "source_scope_count": "{coverage} | 当前筛选 {visible}/{total}",
+        "source_disambiguation": "{source} ({hint})",
+        "gaps_none": "缺口已补齐",
+        "gaps_line": "缺 {missing}",
+        "missing_type_count": "{type} 缺 {count}",
+        "source_drilldown_summary": "当前来源 {source} | 最近 {latest} | 覆盖 {coverage} | 缺口 {gaps} | 范围 {scope} | 当前筛选 {visible}/{total}"
+      },
+    "scope": {
+      "readiness_summary": "离线来源 {source} | 覆盖 {coverage} | 缺口 {gaps} | 当前筛选 {visible}/{total} | 仅供 simulated/offline 审阅，非真实 acceptance",
+      "analytics_summary": "来源 {source} | {summary}",
+      "lineage_summary": "来源 {source} | {summary}",
+      "no_detail": "当前来源与筛选条件下暂无更多详情。"
+    },
+    "lineage": {
+      "summary_line": "配置 {config} | 点位 {points} | 配置档 {profile}"
+    },
+    "focus": {
+      "operator_summary": "执行健康：{health}\n最近 suite：{suite}\n最近工作台证据：{workbench}\n最近 analytics：{analytics}\n当前风险：{risk}\n跨 run 来源：{runs}，完整证据束 {complete}",
+      "reviewer_summary": "证据完整度：{completeness}\n最近 parity：{parity}\n最近 resilience：{resilience}\n最近 analytics：{analytics}\n待补说明：{notes}\n覆盖缺口：{coverage}\n风险等级：{risk}",
+      "approver_summary": "验收就绪度：{readiness}\n推进状态：{promotion}\n未闭环条件：{missing}\n完整 cross-run 证据束：{complete}\n当前缺口：{coverage}\n当前风险：{risk}",
+      "operator_source_summary": "离线来源：{source}\n最近时间：{latest}\n覆盖：{coverage}\n缺口：{gaps}\n仅供 simulated/replay/diagnostic 审阅，非真实 acceptance",
+      "reviewer_source_summary": "来源：{source}\n当前筛选证据：{visible}/{total}\n来源范围：{scope}\n当前风险：{risk}\n缺口：{gaps}",
+      "approver_source_summary": "来源：{source}\n离线就绪提示：{readiness}\n当前筛选证据：{visible}/{total}\n当前风险：{risk}\n该视角仅供 offline/simulated 审阅，不代表真实 acceptance"
+    },
+      "analytics": {
+        "summary_line": "覆盖 {coverage} | 参考 {reference} | 导出 {exports} | 血缘 {lineage}"
+      },
+      "risk": {
+        "high": "高",
+        "medium": "中",
+        "low": "低",
+        "summary": "{level} | 失败 {failed} | 降级 {degraded} | 仅诊断 {diagnostic} | 缺口 {missing} | 覆盖 {coverage}"
+      }
+    }
+  }
+}

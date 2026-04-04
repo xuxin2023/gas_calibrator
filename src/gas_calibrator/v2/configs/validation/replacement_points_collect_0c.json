@@ -1,0 +1,56 @@
+{
+  "points": [
+    {
+      "index": 9,
+      "temperature_c": 0.0,
+      "co2_ppm": null,
+      "humidity_pct": 50.0,
+      "pressure_hpa": 1100.0,
+      "route": "h2o",
+      "humidity_generator_temp_c": 0.0,
+      "dewpoint_c": -9.16,
+      "h2o_mmol": 3.0233,
+      "raw_h2o": "0℃（湿度发生器） 50%（湿度发生器） -9.16℃（露点温度） 3.0233mmol/mol（气体分析仪）",
+      "co2_group": null
+    },
+    {
+      "index": 10,
+      "temperature_c": 0.0,
+      "co2_ppm": 400.0,
+      "humidity_pct": null,
+      "pressure_hpa": 800.0,
+      "route": "co2",
+      "humidity_generator_temp_c": null,
+      "dewpoint_c": null,
+      "h2o_mmol": null,
+      "raw_h2o": "--",
+      "co2_group": null
+    },
+    {
+      "index": 11,
+      "temperature_c": 0.0,
+      "co2_ppm": 1000.0,
+      "humidity_pct": null,
+      "pressure_hpa": 500.0,
+      "route": "co2",
+      "humidity_generator_temp_c": null,
+      "dewpoint_c": null,
+      "h2o_mmol": null,
+      "raw_h2o": "--",
+      "co2_group": null
+    },
+    {
+      "index": 12,
+      "temperature_c": 0.0,
+      "co2_ppm": 0.0,
+      "humidity_pct": null,
+      "pressure_hpa": 1100.0,
+      "route": "co2",
+      "humidity_generator_temp_c": null,
+      "dewpoint_c": null,
+      "h2o_mmol": null,
+      "raw_h2o": "--",
+      "co2_group": null
+    }
+  ]
+}

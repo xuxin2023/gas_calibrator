@@ -1,0 +1,16 @@
+[
+  {
+    "index": 1,
+    "temperature": 25.0,
+    "co2_ppm": 400.0,
+    "pressure_hpa": 1000.0,
+    "route": "co2"
+  },
+  {
+    "index": 2,
+    "temperature": 25.0,
+    "humidity_pct": 45.0,
+    "pressure_hpa": 1000.0,
+    "route": "h2o"
+  }
+]

@@ -1,0 +1,14 @@
+{
+  "storage": {
+    "backend": "postgresql",
+    "host": "localhost",
+    "port": 5432,
+    "database": "gas_calibrator",
+    "user": "postgres",
+    "password": "",
+    "pool_size": 10,
+    "echo": false,
+    "timescaledb": false,
+    "auto_import": true
+  }
+}

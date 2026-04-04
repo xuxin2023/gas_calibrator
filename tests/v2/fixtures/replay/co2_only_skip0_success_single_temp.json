@@ -1,0 +1,48 @@
+{
+  "kind": "compare",
+  "validation_profile": "skip0_co2_only_replacement",
+  "route_mode": "co2_only",
+  "temp_c": 20.0,
+  "skip_co2_ppm": [0],
+  "bench_context": {
+    "co2_0ppm_available": false,
+    "other_gases_available": true,
+    "h2o_route_available": false,
+    "humidity_generator_humidity_feedback_valid": false,
+    "primary_replacement_route": "skip0_co2_only_replacement",
+    "validation_role": "primary",
+    "target_route": "co2",
+    "diagnostic_only": false,
+    "acceptance_evidence": true
+  },
+  "v1_runtime_policy": {
+    "route_mode": "co2_only",
+    "collect_only": true,
+    "collect_only_fast_path": false,
+    "expected_disabled_devices": ["dewpoint_meter", "humidity_generator"]
+  },
+  "v2_runtime_policy": {
+    "route_mode": "co2_only",
+    "collect_only": true,
+    "collect_only_fast_path": false,
+    "expected_disabled_devices": ["dewpoint_meter", "humidity_generator"]
+  },
+  "v1": {
+    "ok": true,
+    "status_phase": "completed",
+    "trace_lines": [
+      "{\"route\":\"co2\",\"action\":\"route_baseline\",\"point_tag\":\"co2_groupa_400ppm_1000hpa\",\"result\":\"ok\"}",
+      "{\"route\":\"co2\",\"action\":\"set_pressure\",\"point_tag\":\"co2_groupa_400ppm_1000hpa\",\"result\":\"ok\"}",
+      "{\"route\":\"co2\",\"action\":\"sample_end\",\"point_tag\":\"co2_groupa_400ppm_1000hpa\",\"result\":\"ok\",\"actual\":{\"sample_count\":3}}"
+    ]
+  },
+  "v2": {
+    "ok": true,
+    "status_phase": "completed",
+    "trace_lines": [
+      "{\"route\":\"co2\",\"action\":\"route_baseline\",\"point_tag\":\"co2_groupa_400ppm_1000hpa\",\"result\":\"ok\"}",
+      "{\"route\":\"co2\",\"action\":\"set_pressure\",\"point_tag\":\"co2_groupa_400ppm_1000hpa\",\"result\":\"ok\"}",
+      "{\"route\":\"co2\",\"action\":\"sample_end\",\"point_tag\":\"co2_groupa_400ppm_1000hpa\",\"result\":\"ok\",\"actual\":{\"sample_count\":3}}"
+    ]
+  }
+}

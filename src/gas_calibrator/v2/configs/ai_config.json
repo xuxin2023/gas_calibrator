@@ -1,0 +1,20 @@
+{
+  "ai": {
+    "enabled": true,
+    "provider": "openai",
+    "model": "gpt-4o-mini",
+    "api_key": "",
+    "base_url": "",
+    "timeout_s": 30,
+    "max_retries": 3,
+    "max_tokens": 1200,
+    "temperature": 0.2,
+    "fallback_to_mock": true,
+    "features": {
+      "run_summary": true,
+      "qc_explanation": true,
+      "anomaly_diagnosis": true,
+      "algorithm_recommendation": true
+    }
+  }
+}

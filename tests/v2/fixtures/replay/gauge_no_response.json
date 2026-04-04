@@ -1,0 +1,27 @@
+{
+  "kind": "compare",
+  "validation_profile": "replacement_full_route_simulated_diagnostic",
+  "route_mode": "co2_only",
+  "bench_context": {
+    "co2_0ppm_available": true,
+    "other_gases_available": true,
+    "h2o_route_available": true,
+    "humidity_generator_humidity_feedback_valid": true,
+    "validation_role": "simulated_diagnostic",
+    "target_route": "co2",
+    "diagnostic_only": true,
+    "acceptance_evidence": false
+  },
+  "v1": {
+    "ok": false,
+    "status_phase": "pressure_gauge.no_response",
+    "status_error": "pressure gauge read timeout",
+    "trace_lines": []
+  },
+  "v2": {
+    "ok": false,
+    "status_phase": "pressure_gauge.no_response",
+    "status_error": "pressure gauge read timeout",
+    "trace_lines": []
+  }
+}

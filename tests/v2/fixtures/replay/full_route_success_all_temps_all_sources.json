@@ -1,0 +1,64 @@
+{
+  "kind": "compare",
+  "validation_profile": "replacement_full_route_simulated",
+  "route_mode": "h2o_then_co2",
+  "skip_co2_ppm": [],
+  "bench_context": {
+    "co2_0ppm_available": true,
+    "other_gases_available": true,
+    "h2o_route_available": true,
+    "humidity_generator_humidity_feedback_valid": true,
+    "validation_role": "simulated_acceptance_like_coverage",
+    "target_route": "h2o_then_co2",
+    "diagnostic_only": false,
+    "acceptance_evidence": false
+  },
+  "v1_runtime_policy": {
+    "route_mode": "h2o_then_co2",
+    "collect_only": true,
+    "collect_only_fast_path": false,
+    "expected_disabled_devices": []
+  },
+  "v2_runtime_policy": {
+    "route_mode": "h2o_then_co2",
+    "collect_only": true,
+    "collect_only_fast_path": false,
+    "expected_disabled_devices": []
+  },
+  "v1": {
+    "ok": true,
+    "status_phase": "completed",
+    "trace_lines": [
+      "{\"route\":\"h2o\",\"action\":\"set_h2o_path\",\"point_tag\":\"h2o_0c_50rh_1100hpa\",\"result\":\"ok\"}",
+      "{\"route\":\"h2o\",\"action\":\"sample_end\",\"point_tag\":\"h2o_0c_50rh_1100hpa\",\"result\":\"ok\",\"actual\":{\"sample_count\":3}}",
+      "{\"route\":\"co2\",\"action\":\"route_baseline\",\"point_tag\":\"co2_groupa_0ppm_1100hpa\",\"result\":\"ok\"}",
+      "{\"route\":\"co2\",\"action\":\"sample_end\",\"point_tag\":\"co2_groupa_0ppm_1100hpa\",\"result\":\"ok\",\"actual\":{\"sample_count\":3}}",
+      "{\"route\":\"h2o\",\"action\":\"set_h2o_path\",\"point_tag\":\"h2o_20c_70rh_500hpa\",\"result\":\"ok\"}",
+      "{\"route\":\"h2o\",\"action\":\"sample_end\",\"point_tag\":\"h2o_20c_70rh_500hpa\",\"result\":\"ok\",\"actual\":{\"sample_count\":3}}",
+      "{\"route\":\"co2\",\"action\":\"route_baseline\",\"point_tag\":\"co2_groupa_400ppm_900hpa\",\"result\":\"ok\"}",
+      "{\"route\":\"co2\",\"action\":\"sample_end\",\"point_tag\":\"co2_groupa_400ppm_900hpa\",\"result\":\"ok\",\"actual\":{\"sample_count\":3}}",
+      "{\"route\":\"h2o\",\"action\":\"set_h2o_path\",\"point_tag\":\"h2o_40c_50rh_1100hpa\",\"result\":\"ok\"}",
+      "{\"route\":\"h2o\",\"action\":\"sample_end\",\"point_tag\":\"h2o_40c_50rh_1100hpa\",\"result\":\"ok\",\"actual\":{\"sample_count\":3}}",
+      "{\"route\":\"co2\",\"action\":\"route_baseline\",\"point_tag\":\"co2_groupa_1000ppm_500hpa\",\"result\":\"ok\"}",
+      "{\"route\":\"co2\",\"action\":\"sample_end\",\"point_tag\":\"co2_groupa_1000ppm_500hpa\",\"result\":\"ok\",\"actual\":{\"sample_count\":3}}"
+    ]
+  },
+  "v2": {
+    "ok": true,
+    "status_phase": "completed",
+    "trace_lines": [
+      "{\"route\":\"h2o\",\"action\":\"set_h2o_path\",\"point_tag\":\"h2o_0c_50rh_1100hpa\",\"result\":\"ok\"}",
+      "{\"route\":\"h2o\",\"action\":\"sample_end\",\"point_tag\":\"h2o_0c_50rh_1100hpa\",\"result\":\"ok\",\"actual\":{\"sample_count\":3}}",
+      "{\"route\":\"co2\",\"action\":\"route_baseline\",\"point_tag\":\"co2_groupa_0ppm_1100hpa\",\"result\":\"ok\"}",
+      "{\"route\":\"co2\",\"action\":\"sample_end\",\"point_tag\":\"co2_groupa_0ppm_1100hpa\",\"result\":\"ok\",\"actual\":{\"sample_count\":3}}",
+      "{\"route\":\"h2o\",\"action\":\"set_h2o_path\",\"point_tag\":\"h2o_20c_70rh_500hpa\",\"result\":\"ok\"}",
+      "{\"route\":\"h2o\",\"action\":\"sample_end\",\"point_tag\":\"h2o_20c_70rh_500hpa\",\"result\":\"ok\",\"actual\":{\"sample_count\":3}}",
+      "{\"route\":\"co2\",\"action\":\"route_baseline\",\"point_tag\":\"co2_groupa_400ppm_900hpa\",\"result\":\"ok\"}",
+      "{\"route\":\"co2\",\"action\":\"sample_end\",\"point_tag\":\"co2_groupa_400ppm_900hpa\",\"result\":\"ok\",\"actual\":{\"sample_count\":3}}",
+      "{\"route\":\"h2o\",\"action\":\"set_h2o_path\",\"point_tag\":\"h2o_40c_50rh_1100hpa\",\"result\":\"ok\"}",
+      "{\"route\":\"h2o\",\"action\":\"sample_end\",\"point_tag\":\"h2o_40c_50rh_1100hpa\",\"result\":\"ok\",\"actual\":{\"sample_count\":3}}",
+      "{\"route\":\"co2\",\"action\":\"route_baseline\",\"point_tag\":\"co2_groupa_1000ppm_500hpa\",\"result\":\"ok\"}",
+      "{\"route\":\"co2\",\"action\":\"sample_end\",\"point_tag\":\"co2_groupa_1000ppm_500hpa\",\"result\":\"ok\",\"actual\":{\"sample_count\":3}}"
+    ]
+  }
+}

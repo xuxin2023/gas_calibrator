@@ -1,0 +1,1727 @@
+from __future__ import annotations
+
+from collections import Counter, defaultdict
+from datetime import datetime
+import json
+from pathlib import Path
+from typing import Any, Optional
+
+from ..config import (
+    build_step2_config_governance_handoff,
+    build_step2_config_safety_review,
+    summarize_step2_config_safety,
+)
+from ..domain.services import build_run_spectral_quality_summary
+from ..qc.qc_report import build_qc_evidence_section, build_qc_review_payload
+from .acceptance_model import (
+    build_run_acceptance_plan,
+    build_suite_acceptance_plan,
+    build_user_visible_evidence_boundary,
+    build_version_snapshot,
+    gate_display_name,
+    normalize_evidence_source,
+    reference_quality_ok,
+    relay_mismatch_present,
+)
+
+
+OFFLINE_ARTIFACT_SCHEMA_VERSION = "1.0"
+ACCEPTANCE_PLAN_FILENAME = "acceptance_plan.json"
+ANALYTICS_SUMMARY_FILENAME = "analytics_summary.json"
+SPECTRAL_QUALITY_SUMMARY_FILENAME = "spectral_quality_summary.json"
+TREND_REGISTRY_FILENAME = "trend_registry.json"
+LINEAGE_SUMMARY_FILENAME = "lineage_summary.json"
+EVIDENCE_REGISTRY_FILENAME = "evidence_registry.json"
+COEFFICIENT_REGISTRY_FILENAME = "coefficient_registry.json"
+SUITE_ANALYTICS_SUMMARY_FILENAME = "suite_analytics_summary.json"
+SUITE_ACCEPTANCE_PLAN_FILENAME = "suite_acceptance_plan.json"
+SUITE_EVIDENCE_REGISTRY_FILENAME = "suite_evidence_registry.json"
+
+
+def write_json(path: str | Path, payload: dict[str, Any]) -> Path:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return target
+
+
+def _normalize_review_evidence_source(value: Any, *, default: str = "--") -> str:
+    text = str(value or "").strip()
+    if not text:
+        return default
+    return normalize_evidence_source(text)
+
+
+def _normalized_review_evidence_sources(values: list[Any]) -> list[str]:
+    normalized: list[str] = []
+    for value in list(values or []):
+        source = _normalize_review_evidence_source(value)
+        if source not in normalized:
+            normalized.append(source)
+    return normalized
+
+
+def _unique_review_lines(lines: list[Any]) -> list[str]:
+    normalized: list[str] = []
+    for value in list(lines or []):
+        text = str(value or "").strip()
+        if text and text not in normalized:
+            normalized.append(text)
+    return normalized
+
+
+def export_run_offline_artifacts(
+    *,
+    run_dir: Path,
+    output_dir: Path,
+    run_id: str,
+    session: Any,
+    samples: list[Any],
+    point_summaries: list[dict[str, Any]],
+    output_files: list[str],
+    export_statuses: dict[str, dict[str, Any]],
+    source_points_file: Optional[str | Path],
+    software_build_id: Optional[str],
+    config_safety: Optional[dict[str, Any]] = None,
+    config_safety_review: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    workflow = getattr(getattr(session, "config", None), "workflow", None)
+    features = getattr(getattr(session, "config", None), "features", None)
+    step2_config_safety = dict(config_safety or {})
+    if not step2_config_safety and getattr(session, "config", None) is not None:
+        step2_config_safety = summarize_step2_config_safety(getattr(session, "config"))
+    step2_config_safety_review = dict(config_safety_review or {})
+    if step2_config_safety and not step2_config_safety_review:
+        step2_config_safety_review = build_step2_config_safety_review(step2_config_safety)
+    versions = build_version_snapshot(
+        config_snapshot=getattr(session, "config", None),
+        source_points_file=source_points_file,
+        profile_name=getattr(workflow, "profile_name", None) if workflow is not None else None,
+        profile_version=getattr(workflow, "profile_version", None) if workflow is not None else None,
+        software_build_id=software_build_id,
+    )
+    analytics_summary = build_run_analytics_summary(
+        run_id=run_id,
+        run_dir=run_dir,
+        session=session,
+        samples=samples,
+        point_summaries=point_summaries,
+        export_statuses=export_statuses,
+        config_safety=step2_config_safety,
+        config_safety_review=step2_config_safety_review,
+    )
+    acceptance_plan = build_run_acceptance_plan(
+        run_id=run_id,
+        simulation_mode=bool(getattr(features, "simulation_mode", False)),
+        reference_quality_ok_flag=reference_quality_ok(analytics_summary.get("reference_quality_statistics")),
+        export_error_count=sum(1 for payload in export_statuses.values() if str((payload or {}).get("status", "")) == "error"),
+        parity_status=str(analytics_summary.get("summary_parity_status") or "missing"),
+    )
+    lineage_summary = build_lineage_summary(
+        run_id=run_id,
+        run_dir=run_dir,
+        output_files=output_files,
+        export_statuses=export_statuses,
+        versions=versions,
+    )
+    coefficient_registry = build_coefficient_registry(
+        run_id=run_id,
+        run_dir=run_dir,
+        samples=samples,
+        export_statuses=export_statuses,
+        versions=versions,
+        acceptance_plan=acceptance_plan,
+        analytics_summary=analytics_summary,
+    )
+    trend_registry = build_trend_registry(
+        run_id=run_id,
+        run_dir=run_dir,
+        output_dir=output_dir,
+        samples=samples,
+        analytics_summary=analytics_summary,
+    )
+    evidence_registry = build_run_evidence_registry(
+        run_id=run_id,
+        run_dir=run_dir,
+        export_statuses=export_statuses,
+        versions=versions,
+        acceptance_plan=acceptance_plan,
+        analytics_summary=analytics_summary,
+        coefficient_registry=coefficient_registry,
+        trend_registry=trend_registry,
+        config_safety=step2_config_safety,
+        config_safety_review=step2_config_safety_review,
+    )
+    spectral_quality_summary: dict[str, Any] = {}
+    spectral_quality_path: Optional[Path] = None
+    if bool(getattr(features, "enable_spectral_quality_analysis", False)):
+        spectral_min_samples = int(getattr(features, "spectral_min_samples", 64) or 64)
+        spectral_min_duration_s = float(getattr(features, "spectral_min_duration_s", 30.0) or 30.0)
+        spectral_low_freq_max_hz = float(getattr(features, "spectral_low_freq_max_hz", 0.01) or 0.01)
+        try:
+            spectral_quality_summary = build_run_spectral_quality_summary(
+                run_id=run_id,
+                samples=samples,
+                simulation_mode=bool(getattr(features, "simulation_mode", False)),
+                min_samples=spectral_min_samples,
+                min_duration_s=spectral_min_duration_s,
+                low_freq_max_hz=spectral_low_freq_max_hz,
+            )
+        except Exception as exc:
+            spectral_quality_summary = _build_skipped_spectral_quality_summary(
+                run_id=run_id,
+                simulation_mode=bool(getattr(features, "simulation_mode", False)),
+                min_samples=spectral_min_samples,
+                min_duration_s=spectral_min_duration_s,
+                low_freq_max_hz=spectral_low_freq_max_hz,
+                error=str(exc),
+            )
+        spectral_quality_path = write_json(run_dir / SPECTRAL_QUALITY_SUMMARY_FILENAME, spectral_quality_summary)
+
+    acceptance_path = write_json(run_dir / ACCEPTANCE_PLAN_FILENAME, acceptance_plan)
+    analytics_path = write_json(run_dir / ANALYTICS_SUMMARY_FILENAME, analytics_summary)
+    lineage_path = write_json(run_dir / LINEAGE_SUMMARY_FILENAME, lineage_summary)
+    trend_path = write_json(run_dir / TREND_REGISTRY_FILENAME, trend_registry)
+    evidence_path = write_json(run_dir / EVIDENCE_REGISTRY_FILENAME, evidence_registry)
+    coefficient_path = write_json(run_dir / COEFFICIENT_REGISTRY_FILENAME, coefficient_registry)
+
+    statuses = {
+        "acceptance_plan": _artifact_status_payload("execution_summary", acceptance_path),
+        "analytics_summary": _artifact_status_payload("diagnostic_analysis", analytics_path),
+        "lineage_summary": _artifact_status_payload("execution_summary", lineage_path),
+        "trend_registry": _artifact_status_payload("diagnostic_analysis", trend_path),
+        "evidence_registry": _artifact_status_payload("execution_summary", evidence_path),
+        "coefficient_registry": _artifact_status_payload("formal_analysis", coefficient_path),
+    }
+    if spectral_quality_path is not None:
+        statuses["spectral_quality_summary"] = _artifact_status_payload("diagnostic_analysis", spectral_quality_path)
+    summary_stats = {
+        "acceptance_plan": acceptance_plan,
+        "acceptance_readiness_summary": acceptance_plan.get("readiness_summary", {}),
+        "analytics_summary": analytics_summary,
+        "analytics_summary_digest": analytics_summary.get("digest", {}),
+        "lineage_summary": lineage_summary,
+        "evidence_governance": {
+            "evidence_source": acceptance_plan.get("evidence_source"),
+            "evidence_state": acceptance_plan.get("evidence_state"),
+            "acceptance_level": acceptance_plan.get("acceptance_level"),
+            "promotion_state": acceptance_plan.get("promotion_state"),
+            "review_state": acceptance_plan.get("review_state"),
+            "approval_state": acceptance_plan.get("approval_state"),
+            "ready_for_promotion": acceptance_plan.get("ready_for_promotion"),
+        },
+        "role_views": acceptance_plan.get("role_views", {}),
+        "versions": versions,
+        "coefficient_registry": coefficient_registry,
+        "trend_registry": trend_registry,
+        "evidence_registry_path": str(evidence_path),
+    }
+    if spectral_quality_summary:
+        summary_stats["spectral_quality_summary"] = spectral_quality_summary
+        summary_stats["spectral_quality_digest"] = _spectral_quality_digest(spectral_quality_summary)
+    manifest_sections = {
+        "versions": versions,
+        "evidence_governance": summary_stats["evidence_governance"],
+        "acceptance_plan_digest": acceptance_plan.get("readiness_summary", {}),
+        "role_views": acceptance_plan.get("role_views", {}),
+        "lineage_summary": {
+            "parent_run_id": lineage_summary.get("parent_run_id"),
+            "config_version": lineage_summary.get("config_version"),
+            "points_version": lineage_summary.get("points_version"),
+            "profile_version": lineage_summary.get("profile_version"),
+            "software_build_id": lineage_summary.get("software_build_id"),
+        },
+    }
+    if spectral_quality_summary:
+        manifest_sections["spectral_quality"] = _spectral_quality_digest(spectral_quality_summary)
+        manifest_sections["spectral_quality"]["not_real_acceptance_evidence"] = bool(
+            spectral_quality_summary.get("not_real_acceptance_evidence", True)
+        )
+        manifest_sections["spectral_quality"]["evidence_source"] = spectral_quality_summary.get("evidence_source")
+    return {
+        "artifact_statuses": statuses,
+        "summary_stats": summary_stats,
+        "manifest_sections": manifest_sections,
+        "remembered_files": [
+            str(acceptance_path),
+            str(analytics_path),
+            str(lineage_path),
+            str(trend_path),
+            str(evidence_path),
+            str(coefficient_path),
+            *([str(spectral_quality_path)] if spectral_quality_path is not None else []),
+        ],
+    }
+
+
+def export_suite_offline_artifacts(*, suite_dir: Path, summary: dict[str, Any]) -> dict[str, Any]:
+    analytics_summary = build_suite_analytics_summary(summary)
+    acceptance_plan = build_suite_acceptance_plan(
+        suite_name=str(summary.get("suite") or "--"),
+        offline_green=bool(summary.get("all_passed", False)),
+        parity_green=any(str(item.get("kind") or "") == "parity" and bool(item.get("ok", False)) for item in list(summary.get("cases") or [])),
+        resilience_green=any(str(item.get("kind") or "") == "resilience" and bool(item.get("ok", False)) for item in list(summary.get("cases") or [])),
+        evidence_sources_present=_normalized_review_evidence_sources(
+            [item.get("evidence_source") for item in list(summary.get("cases") or [])]
+        ),
+    )
+    evidence_registry = build_suite_evidence_registry(summary, analytics_summary=analytics_summary, acceptance_plan=acceptance_plan)
+    analytics_path = write_json(suite_dir / SUITE_ANALYTICS_SUMMARY_FILENAME, analytics_summary)
+    acceptance_path = write_json(suite_dir / SUITE_ACCEPTANCE_PLAN_FILENAME, acceptance_plan)
+    evidence_path = write_json(suite_dir / SUITE_EVIDENCE_REGISTRY_FILENAME, evidence_registry)
+    return {
+        "suite_analytics_summary": analytics_summary,
+        "suite_acceptance_plan": acceptance_plan,
+        "suite_evidence_registry": evidence_registry,
+        "remembered_files": [str(analytics_path), str(acceptance_path), str(evidence_path)],
+    }
+
+
+def build_run_analytics_summary(
+    *,
+    run_id: str,
+    run_dir: Path,
+    session: Any,
+    samples: list[Any],
+    point_summaries: list[dict[str, Any]],
+    export_statuses: dict[str, dict[str, Any]],
+    config_safety: Optional[dict[str, Any]] = None,
+    config_safety_review: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    features = getattr(getattr(session, "config", None), "features", None)
+    simulation_mode = bool(getattr(features, "simulation_mode", False))
+    expected_analyzers = _expected_analyzers(session)
+    present_analyzers = sorted(
+        {
+            str(getattr(sample, "analyzer_id", "") or "").strip().upper()
+            for sample in samples
+            if str(getattr(sample, "analyzer_id", "") or "").strip()
+        }
+    )
+    usable_analyzers = sorted(
+        {
+            str(getattr(sample, "analyzer_id", "") or "").strip().upper()
+            for sample in samples
+            if str(getattr(sample, "analyzer_id", "") or "").strip() and bool(getattr(sample, "frame_usable", True))
+        }
+    )
+    unusable_analyzers = sorted(set(present_analyzers) - set(usable_analyzers))
+    frame_status_counts = Counter(
+        str(getattr(sample, "frame_status", "") or "").strip() or "unspecified"
+        for sample in samples
+    )
+    total_frames = len(samples)
+    frames_with_data = sum(1 for sample in samples if bool(getattr(sample, "frame_has_data", False)))
+    usable_frames = sum(1 for sample in samples if bool(getattr(sample, "frame_usable", True)))
+    reference_quality = build_reference_quality_statistics(samples)
+    export_status_counts = Counter(
+        str((payload or {}).get("status", "unknown") or "unknown")
+        for payload in export_statuses.values()
+    )
+    parity_status = _load_named_status(run_dir / "summary_parity_report.json", key="status", default="missing")
+    routes = sorted(
+        {
+            str(getattr(getattr(sample, "point", None), "route", "") or "").strip().lower()
+            for sample in samples
+            if str(getattr(getattr(sample, "point", None), "route", "") or "").strip()
+        }
+    )
+    point_failure_reasons = Counter(
+        str(dict(item.get("stats") or {}).get("reason") or "").strip() or "unspecified"
+        for item in point_summaries
+        if item
+    )
+    boundary = build_user_visible_evidence_boundary(simulation_mode=simulation_mode)
+    run_kpis = _build_run_kpis(
+        samples=samples,
+        point_summaries=point_summaries,
+        expected_analyzers=expected_analyzers,
+        present_analyzers=present_analyzers,
+        usable_analyzers=usable_analyzers,
+        total_frames=total_frames,
+        usable_frames=usable_frames,
+        export_status_counts=export_status_counts,
+        parity_status=parity_status,
+    )
+    point_kpis = _build_point_kpis(point_summaries=point_summaries, samples=samples)
+    qc_overview = _build_qc_overview(run_id=run_id, point_summaries=point_summaries)
+    drift_summary = _build_drift_summary(samples)
+    control_chart_summary = _build_control_chart_summary(samples=samples)
+    analyzer_health_digest = _build_analyzer_health_digest(
+        samples=samples,
+        expected_analyzers=expected_analyzers,
+    )
+    fault_attribution_summary = _build_fault_attribution_summary(
+        point_failure_reasons=point_failure_reasons,
+        frame_status_counts=frame_status_counts,
+        reference_quality=reference_quality,
+    )
+    measurement_analytics_summary = _build_measurement_analytics_summary(samples, point_summaries=point_summaries)
+    unified_review_summary = _build_unified_review_summary(
+        run_kpis=run_kpis,
+        point_kpis=point_kpis,
+        qc_overview=qc_overview,
+        drift_summary=drift_summary,
+        control_chart_summary=control_chart_summary,
+        analyzer_health_digest=analyzer_health_digest,
+        fault_attribution_summary=fault_attribution_summary,
+        measurement_analytics_summary=measurement_analytics_summary,
+        boundary=boundary,
+    )
+    qc_evidence_section = build_qc_evidence_section(
+        reviewer_digest=dict(qc_overview.get("reviewer_digest") or {}),
+        reviewer_card=dict(qc_overview.get("reviewer_card") or {}),
+        run_gate=dict(qc_overview.get("run_gate") or {}),
+        point_gate_summary=dict(qc_overview.get("point_gate_summary") or {}),
+        decision_counts=dict(qc_overview.get("decision_counts") or {}),
+        route_decision_breakdown=dict(qc_overview.get("route_decision_breakdown") or {}),
+        reject_reason_taxonomy=list(qc_overview.get("reject_reason_taxonomy") or []),
+        failed_check_taxonomy=list(qc_overview.get("failed_check_taxonomy") or []),
+        review_sections=[dict(item) for item in list(qc_overview.get("review_sections") or []) if isinstance(item, dict)],
+        summary_override=str(dict(unified_review_summary.get("qc_summary") or {}).get("summary") or "").strip() or None,
+        lines_override=[
+            str(item).strip()
+            for item in list(dict(unified_review_summary.get("qc_summary") or {}).get("lines") or [])
+            if str(item).strip()
+        ],
+        evidence_source=str(boundary.get("evidence_source") or "simulated_protocol"),
+        evidence_state=str(boundary.get("evidence_state") or "collected"),
+        not_real_acceptance_evidence=bool(boundary.get("not_real_acceptance_evidence", True)),
+        acceptance_level=str(boundary.get("acceptance_level") or "offline_regression"),
+        promotion_state=str(boundary.get("promotion_state") or "dry_run_only"),
+    )
+    config_governance_handoff = (
+        build_step2_config_governance_handoff(config_safety_review or config_safety)
+        if (config_safety_review or config_safety)
+        else {}
+    )
+    digest = {
+        "summary": (
+            f"coverage {len(usable_analyzers)}/{len(expected_analyzers) or len(present_analyzers)} | "
+            f"reference {reference_quality['reference_quality']} | "
+            f"exports {export_status_counts.get('error', 0)} error | parity {parity_status} | "
+            f"质控 {str(dict(qc_overview.get('run_gate') or {}).get('status') or '--')} | "
+            f"drift {drift_summary.get('overall_trend', '--')} | "
+            f"faults {fault_attribution_summary.get('primary_fault', '--')}"
+        ),
+        "health": str(analyzer_health_digest.get("overall_status") or "attention"),
+        "reviewer_summary": str(unified_review_summary.get("summary") or ""),
+    }
+    return {
+        "schema_version": OFFLINE_ARTIFACT_SCHEMA_VERSION,
+        "artifact_type": "run_analytics_summary",
+        "run_id": run_id,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        **boundary,
+        "evidence_state": "collected",
+        "config_safety": dict(config_safety or {}),
+        "config_safety_review": dict(config_safety_review or {}),
+        "config_governance_handoff": config_governance_handoff,
+        "analyzer_coverage": {
+            "expected_analyzers": expected_analyzers,
+            "present_analyzers": present_analyzers,
+            "usable_analyzers": usable_analyzers,
+            "unusable_analyzers": unusable_analyzers,
+            "coverage_text": f"{len(usable_analyzers)}/{len(expected_analyzers) or len(present_analyzers)}",
+        },
+        "frame_quality_statistics": {
+            "total_frames": total_frames,
+            "frames_with_data": frames_with_data,
+            "usable_frames": usable_frames,
+            "unusable_frames": max(total_frames - usable_frames, 0),
+            "usable_frame_ratio": _safe_ratio(usable_frames, total_frames),
+            "frame_status_counts": dict(frame_status_counts),
+        },
+        "reference_quality_statistics": reference_quality,
+        "route_physical_mismatch_counts": {"total": 0, "mismatched": 0},
+        "export_resilience_status": {
+            "status_counts": dict(export_status_counts),
+            "overall_status": "degraded" if export_status_counts.get("error", 0) else "ok",
+            "failing_exports": sorted(
+                name for name, payload in export_statuses.items() if str((payload or {}).get("status", "")) == "error"
+            ),
+        },
+        "summary_parity_status": parity_status,
+        "routes": routes,
+        "point_failure_reasons": dict(point_failure_reasons),
+        "run_kpis": run_kpis,
+        "point_kpis": point_kpis,
+        "qc_overview": qc_overview,
+        "drift_summary": drift_summary,
+        "control_chart_summary": control_chart_summary,
+        "analyzer_health_digest": analyzer_health_digest,
+        "fault_attribution_summary": fault_attribution_summary,
+        "measurement_analytics_summary": measurement_analytics_summary,
+        "unified_review_summary": unified_review_summary,
+        "qc_reviewer_card": dict(qc_evidence_section.get("reviewer_card") or {}),
+        "qc_evidence_section": qc_evidence_section,
+        "qc_review_cards": [dict(item) for item in list(qc_evidence_section.get("cards") or []) if isinstance(item, dict)],
+        "digest": digest,
+    }
+
+
+def build_reference_quality_statistics(samples: list[Any]) -> dict[str, Any]:
+    total = len(samples)
+    thermometer_count = sum(1 for sample in samples if getattr(sample, "thermometer_temp_c", None) is not None)
+    pressure_count = sum(1 for sample in samples if getattr(sample, "pressure_gauge_hpa", None) is not None)
+    thermometer_status_counts = _status_counts(samples, "thermometer_reference_status")
+    pressure_status_counts = _status_counts(samples, "pressure_reference_status")
+    thermometer_status = _dominant_status(thermometer_status_counts)
+    pressure_status = _dominant_status(pressure_status_counts)
+    failed_statuses = {"no_response", "corrupted_ascii", "truncated_ascii", "display_interrupted", "unsupported_command"}
+    degraded_statuses = {"stale", "drift", "warmup_unstable", "wrong_unit_configuration"}
+    statuses = {item for item in (thermometer_status, pressure_status) if item}
+    reference_quality = "missing"
+    if total == 0:
+        reference_quality = "missing"
+    elif any(item in failed_statuses for item in statuses):
+        reference_quality = "failed"
+    elif any(item in degraded_statuses for item in statuses):
+        reference_quality = "degraded"
+    elif _safe_ratio(thermometer_count, total) >= 0.9 and _safe_ratio(pressure_count, total) >= 0.9:
+        reference_quality = "healthy"
+    elif thermometer_count > 0 or pressure_count > 0:
+        reference_quality = "degraded"
+    return {
+        "reference_quality": reference_quality,
+        "thermometer_reference_count": thermometer_count,
+        "pressure_reference_count": pressure_count,
+        "thermometer_reference_ratio": _safe_ratio(thermometer_count, total),
+        "pressure_reference_ratio": _safe_ratio(pressure_count, total),
+        "thermometer_reference_status": thermometer_status or ("healthy" if thermometer_count else "missing"),
+        "pressure_reference_status": pressure_status or ("healthy" if pressure_count else "missing"),
+        "thermometer_status_counts": thermometer_status_counts,
+        "pressure_status_counts": pressure_status_counts,
+        "reference_quality_trend": reference_quality,
+    }
+
+
+def _build_run_kpis(
+    *,
+    samples: list[Any],
+    point_summaries: list[dict[str, Any]],
+    expected_analyzers: list[str],
+    present_analyzers: list[str],
+    usable_analyzers: list[str],
+    total_frames: int,
+    usable_frames: int,
+    export_status_counts: Counter[str],
+    parity_status: str,
+) -> dict[str, Any]:
+    failure_count = sum(
+        1
+        for item in list(point_summaries or [])
+        if str(dict(item.get("stats") or {}).get("reason") or "").strip().lower() not in {"", "passed"}
+    )
+    point_count = len(list(point_summaries or []))
+    return {
+        "sample_count": len(samples),
+        "point_count": point_count,
+        "completed_points": max(point_count - failure_count, 0),
+        "flagged_points": failure_count,
+        "expected_analyzer_count": len(expected_analyzers),
+        "present_analyzer_count": len(present_analyzers),
+        "usable_analyzer_count": len(usable_analyzers),
+        "coverage_ratio": _safe_ratio(len(usable_analyzers), len(expected_analyzers) or len(present_analyzers) or 1),
+        "usable_frame_ratio": _safe_ratio(usable_frames, total_frames),
+        "export_error_count": int(export_status_counts.get("error", 0) or 0),
+        "parity_status": str(parity_status or "missing"),
+    }
+
+
+def _build_point_kpis(*, point_summaries: list[dict[str, Any]], samples: list[Any]) -> dict[str, Any]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for sample in list(samples or []):
+        point = getattr(sample, "point", None)
+        point_index = str(getattr(point, "index", "unknown"))
+        row = grouped.setdefault(
+            point_index,
+            {
+                "point_index": getattr(point, "index", None),
+                "route": str(getattr(point, "route", "") or "--"),
+                "temperature_c": getattr(point, "temperature_c", None),
+                "co2_ppm": getattr(point, "co2_ppm", None),
+                "sample_count": 0,
+                "usable_sample_count": 0,
+            },
+        )
+        row["sample_count"] += 1
+        if bool(getattr(sample, "frame_usable", True)):
+            row["usable_sample_count"] += 1
+    status_counts = Counter()
+    route_breakdown = Counter()
+    rows: list[dict[str, Any]] = []
+    summary_by_index: dict[int, dict[str, Any]] = {}
+    for item in list(point_summaries or []):
+        try:
+            point_index = int(item.get("point_index"))
+        except Exception:
+            continue
+        summary_by_index[point_index] = dict(item)
+    for key in sorted(grouped, key=lambda value: (float(value) if str(value).isdigit() else float("inf"), value)):
+        row = dict(grouped[key])
+        point_index = row.get("point_index")
+        stats = dict(summary_by_index.get(int(point_index)) or {}).get("stats", {}) if point_index is not None else {}
+        reason = str(dict(stats or {}).get("reason") or "passed").strip() or "passed"
+        row["reason"] = reason
+        row["usable_ratio"] = _safe_ratio(int(row.get("usable_sample_count", 0) or 0), int(row.get("sample_count", 0) or 0))
+        row["status"] = "flagged" if reason != "passed" else "ok"
+        rows.append(row)
+        status_counts[str(row["status"])] += 1
+        route_breakdown[str(row.get("route") or "--")] += 1
+    return {
+        "rows": rows,
+        "status_counts": dict(status_counts),
+        "route_breakdown": dict(route_breakdown),
+        "point_count": len(rows),
+    }
+
+
+def _split_guard_flags(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [item for item in str(value or "").split(",") if item.strip()]
+
+
+def _postseal_guard_status_review(point_summaries: list[dict[str, Any]]) -> dict[str, Any]:
+    rows: list[dict[str, Any]] = []
+    status_counts = Counter()
+    active_points = 0
+    rebound_veto_count = 0
+    physical_flagged_count = 0
+    late_rebound_flagged_count = 0
+    stale_flagged_count = 0
+
+    for item in list(point_summaries or []):
+        point = dict(item.get("point") or {})
+        stats = dict(item.get("stats") or {})
+        guard_enabled = bool(stats.get("co2_postseal_quality_guards_enabled", False))
+        guard_status = str(stats.get("postseal_guard_status") or "skipped").strip().lower() or "skipped"
+        guard_flags = _split_guard_flags(stats.get("postseal_guard_flags"))
+        if guard_enabled:
+            active_points += 1
+        if bool(stats.get("postseal_rebound_veto")):
+            rebound_veto_count += 1
+        if str(stats.get("postseal_physical_qc_status") or "").strip().lower() == "fail":
+            physical_flagged_count += 1
+        if str(stats.get("postsample_late_rebound_status") or "").strip().lower() in {"warn", "fail"}:
+            late_rebound_flagged_count += 1
+        if "pressure_gauge_stale_ratio" in guard_flags:
+            stale_flagged_count += 1
+        status_counts[guard_status] += 1
+        rows.append(
+            {
+                "point_index": point.get("index"),
+                "route": str(point.get("route") or "--"),
+                "temperature_c": point.get("temperature_c"),
+                "co2_ppm": point.get("co2_ppm"),
+                "pressure_target_label": str(point.get("pressure_target_label") or point.get("pressure_hpa") or "--"),
+                "guard_enabled": guard_enabled,
+                "guard_status": guard_status,
+                "guard_flags": guard_flags,
+                "guard_reason": str(stats.get("postseal_guard_reason") or "").strip(),
+                "postseal_rebound_veto": bool(stats.get("postseal_rebound_veto")),
+                "postseal_physical_qc_status": str(stats.get("postseal_physical_qc_status") or "skipped"),
+                "postsample_late_rebound_status": str(stats.get("postsample_late_rebound_status") or "skipped"),
+                "pressure_gauge_stale_ratio": stats.get("pressure_gauge_stale_ratio"),
+            }
+        )
+
+    if active_points == 0:
+        summary = "CO2 post-seal 守卫未启用或当前运行未命中低压密封点"
+        lines = [
+            summary,
+            "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。",
+        ]
+    else:
+        summary = (
+            f"CO2 post-seal 守卫 {active_points} 点 | rebound veto {rebound_veto_count} | "
+            f"physical {physical_flagged_count} | late rebound {late_rebound_flagged_count} | stale gauge {stale_flagged_count}"
+        )
+        top_rows = [
+            row
+            for row in rows
+            if row["guard_enabled"] and (row["guard_status"] != "pass" or row["guard_flags"])
+        ][:3]
+        lines = [summary]
+        for row in top_rows:
+            flags = ", ".join(row["guard_flags"]) or "--"
+            lines.append(
+                f"点 {row['point_index']} | 路由 {row['route']} | 压力 {row['pressure_target_label']} | "
+                f"状态 {row['guard_status']} | flags {flags}"
+            )
+        lines.append("证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。")
+    return {
+        "rows": rows,
+        "status_counts": dict(status_counts),
+        "active_point_count": active_points,
+        "rebound_veto_count": rebound_veto_count,
+        "physical_flagged_count": physical_flagged_count,
+        "late_rebound_flagged_count": late_rebound_flagged_count,
+        "stale_flagged_count": stale_flagged_count,
+        "summary": summary,
+        "lines": _unique_review_lines(lines),
+        "section": {
+            "id": "co2_postseal_quality",
+            "title": "CO2 post-seal 守卫",
+            "summary": summary,
+            "lines": _unique_review_lines(lines),
+        },
+    }
+
+
+def _build_qc_overview(*, run_id: str, point_summaries: list[dict[str, Any]]) -> dict[str, Any]:
+    point_rows: list[dict[str, Any]] = []
+    for item in list(point_summaries or []):
+        point = dict(item.get("point") or {})
+        stats = dict(item.get("stats") or {})
+        point_rows.append(
+            {
+                "point_index": point.get("index"),
+                "route": str(point.get("route") or "--"),
+                "temperature_c": point.get("temperature_c"),
+                "co2_ppm": point.get("co2_ppm"),
+                "pressure_target_label": point.get("pressure_target_label"),
+                "quality_score": stats.get("quality_score"),
+                "valid": stats.get("valid"),
+                "recommendation": stats.get("recommendation"),
+                "reason": str(stats.get("reason") or "passed").strip() or "passed",
+                "failed_checks": list(stats.get("failed_checks") or []),
+                "postseal_guard_status": stats.get("postseal_guard_status"),
+                "postseal_guard_flags": _split_guard_flags(stats.get("postseal_guard_flags")),
+                "pressure_gauge_stale_ratio": stats.get("pressure_gauge_stale_ratio"),
+            }
+        )
+    payload = build_qc_review_payload(point_rows=point_rows, run_id=run_id)
+    guard_review = _postseal_guard_status_review(point_summaries)
+    sections = [dict(item) for item in list(payload.get("review_sections") or []) if isinstance(item, dict)]
+    sections.append(dict(guard_review.get("section") or {}))
+    reviewer_card = dict(payload.get("reviewer_card") or {})
+    reviewer_card["sections"] = sections
+    reviewer_card["summary"] = str(reviewer_card.get("summary") or "").strip() or str(guard_review.get("summary") or "")
+    reviewer_card_lines = _unique_review_lines(
+        list(reviewer_card.get("lines") or []) + [str(guard_review.get("summary") or "")] + list(guard_review.get("lines") or [])
+    )
+    reviewer_card["lines"] = reviewer_card_lines
+    payload["reviewer_card"] = reviewer_card
+    payload["review_sections"] = sections
+    payload["review_card_lines"] = reviewer_card_lines
+    payload["postseal_guard_review"] = guard_review
+    payload["evidence_section"] = build_qc_evidence_section(
+        reviewer_digest=dict(payload.get("reviewer_digest") or {}),
+        reviewer_card=reviewer_card,
+        run_gate=dict(payload.get("run_gate") or {}),
+        point_gate_summary=dict(payload.get("point_gate_summary") or {}),
+        decision_counts=dict(payload.get("decision_counts") or {}),
+        route_decision_breakdown=dict(payload.get("route_decision_breakdown") or {}),
+        reject_reason_taxonomy=list(payload.get("reject_reason_taxonomy") or []),
+        failed_check_taxonomy=list(payload.get("failed_check_taxonomy") or []),
+        review_sections=sections,
+        summary_override=str(reviewer_card.get("summary") or "").strip() or None,
+        lines_override=reviewer_card_lines,
+    )
+    return payload
+
+
+def _build_drift_summary(samples: list[Any]) -> dict[str, Any]:
+    by_analyzer: dict[str, list[float]] = defaultdict(list)
+    for sample in list(samples or []):
+        analyzer = str(getattr(sample, "analyzer_id", "") or "").strip().upper() or "UNSPECIFIED"
+        value = getattr(sample, "co2_ppm", None)
+        if value is None:
+            value = getattr(sample, "h2o_mmol", None)
+        if value is None:
+            value = getattr(sample, "pressure_hpa", None)
+        if value is None:
+            continue
+        by_analyzer[analyzer].append(float(value))
+    analyzer_rows = []
+    deltas = []
+    for analyzer, values in sorted(by_analyzer.items()):
+        delta = 0.0 if len(values) < 2 else round(values[-1] - values[0], 6)
+        deltas.append(delta)
+        analyzer_rows.append(
+            {
+                "analyzer_id": analyzer,
+                "start_value": values[0],
+                "end_value": values[-1],
+                "delta": delta,
+                "trend": "stable" if abs(delta) < 1e-6 else ("increasing" if delta > 0 else "decreasing"),
+            }
+        )
+    max_abs_delta = max((abs(value) for value in deltas), default=0.0)
+    if max_abs_delta < 1e-6:
+        overall_trend = "stable"
+    elif sum(deltas) >= 0.0:
+        overall_trend = "increasing"
+    else:
+        overall_trend = "decreasing"
+    return {
+        "overall_trend": overall_trend,
+        "max_abs_delta": round(max_abs_delta, 6),
+        "analyzers": analyzer_rows,
+        "summary": f"drift {overall_trend} | max_delta {round(max_abs_delta, 3):g}",
+    }
+
+
+def _build_control_chart_summary(*, samples: list[Any]) -> dict[str, Any]:
+    usable_series = [1.0 if bool(getattr(sample, "frame_usable", True)) else 0.0 for sample in list(samples or [])]
+    metric = _spc_metric("usable_frame_ratio", usable_series)
+    return {
+        "metric": metric,
+        "status": _control_limit_status(usable_series),
+        "sample_count": len(usable_series),
+        "summary": (
+            f"control {str(_control_limit_status(usable_series) or '--')} | "
+            f"latest {metric.get('latest') if metric.get('latest') is not None else '--'}"
+        ),
+    }
+
+
+def _build_analyzer_health_digest(*, samples: list[Any], expected_analyzers: list[str]) -> dict[str, Any]:
+    grouped: dict[str, dict[str, int]] = {}
+    for sample in list(samples or []):
+        analyzer = str(getattr(sample, "analyzer_id", "") or "").strip().upper() or "UNSPECIFIED"
+        counters = grouped.setdefault(analyzer, {"total": 0, "usable": 0, "missing_data": 0})
+        counters["total"] += 1
+        if bool(getattr(sample, "frame_usable", True)):
+            counters["usable"] += 1
+        if not bool(getattr(sample, "frame_has_data", True)):
+            counters["missing_data"] += 1
+    rows = []
+    statuses = []
+    for analyzer in sorted(set(expected_analyzers) | set(grouped.keys())):
+        counters = grouped.get(analyzer, {"total": 0, "usable": 0, "missing_data": 0})
+        usable_ratio = _safe_ratio(counters["usable"], counters["total"] or 1)
+        if counters["total"] == 0:
+            status = "missing"
+        elif usable_ratio >= 0.95 and counters["missing_data"] == 0:
+            status = "healthy"
+        elif usable_ratio >= 0.7:
+            status = "attention"
+        else:
+            status = "failed"
+        statuses.append(status)
+        rows.append(
+            {
+                "analyzer_id": analyzer,
+                "status": status,
+                "frame_count": counters["total"],
+                "usable_frame_ratio": usable_ratio,
+                "missing_data_count": counters["missing_data"],
+            }
+        )
+    if "failed" in statuses:
+        overall_status = "failed"
+    elif "attention" in statuses or "missing" in statuses:
+        overall_status = "attention"
+    else:
+        overall_status = "healthy"
+    return {
+        "overall_status": overall_status,
+        "rows": rows,
+        "summary": f"analyzers {len(rows)} | overall {overall_status}",
+    }
+
+
+def _build_fault_attribution_summary(
+    *,
+    point_failure_reasons: Counter[str],
+    frame_status_counts: Counter[str],
+    reference_quality: dict[str, Any],
+) -> dict[str, Any]:
+    rows: list[dict[str, Any]] = []
+    for code, count in point_failure_reasons.items():
+        if str(code or "").strip().lower() == "passed":
+            continue
+        rows.append({"source": "point_qc", "code": str(code), "count": int(count), "impact": "point_quality"})
+    for code, count in frame_status_counts.items():
+        normalized = str(code or "").strip().lower()
+        if normalized in {"", "ok", "unspecified"}:
+            continue
+        rows.append({"source": "frame_status", "code": str(code), "count": int(count), "impact": "frame_quality"})
+    reference_state = str(reference_quality.get("reference_quality") or "").strip().lower()
+    if reference_state and reference_state not in {"healthy", "missing"}:
+        rows.append({"source": "reference_quality", "code": reference_state, "count": 1, "impact": "reference_quality"})
+    rows.sort(key=lambda item: (-int(item["count"]), str(item["source"]), str(item["code"])))
+    primary_fault = str(rows[0]["code"]) if rows else "none"
+    return {
+        "primary_fault": primary_fault,
+        "rows": rows,
+        "summary": f"faults {primary_fault} | categories {len(rows)}",
+    }
+
+
+def _build_measurement_analytics_summary(
+    samples: list[Any],
+    *,
+    point_summaries: list[dict[str, Any]],
+) -> dict[str, Any]:
+    route_counts = Counter(
+        str(getattr(getattr(sample, "point", None), "route", "") or "").strip().lower() or "--"
+        for sample in list(samples or [])
+    )
+    usable_frames = sum(1 for sample in list(samples or []) if bool(getattr(sample, "frame_usable", True)))
+    total_frames = len(list(samples or []))
+    guard_review = _postseal_guard_status_review(point_summaries)
+    return {
+        "frame_count": total_frames,
+        "usable_frame_count": usable_frames,
+        "usable_frame_ratio": _safe_ratio(usable_frames, total_frames),
+        "route_counts": dict(route_counts),
+        "postseal_guard_review": guard_review,
+        "summary": (
+            f"frames {usable_frames}/{total_frames} usable | "
+            f"routes {', '.join(sorted(route_counts)) or '--'} | "
+            f"{str(guard_review.get('summary') or '--')}"
+        ),
+    }
+
+
+def _build_unified_review_summary(
+    *,
+    run_kpis: dict[str, Any],
+    point_kpis: dict[str, Any],
+    qc_overview: dict[str, Any],
+    drift_summary: dict[str, Any],
+    control_chart_summary: dict[str, Any],
+    analyzer_health_digest: dict[str, Any],
+    fault_attribution_summary: dict[str, Any],
+    measurement_analytics_summary: dict[str, Any],
+    boundary: dict[str, Any],
+) -> dict[str, Any]:
+    qc_digest = dict(qc_overview.get("reviewer_digest") or {})
+    qc_gate = dict(qc_overview.get("run_gate") or {})
+    point_gate = dict(qc_overview.get("point_gate_summary") or {})
+    decision_counts = dict(qc_overview.get("decision_counts") or {})
+    reject_reason_taxonomy = list(qc_overview.get("reject_reason_taxonomy") or [])
+    failed_check_taxonomy = list(qc_overview.get("failed_check_taxonomy") or [])
+    flagged_routes = ", ".join(
+        str(item) for item in list(point_gate.get("flagged_routes") or []) if str(item).strip()
+    ) or "--"
+    top_reject_reason = str((reject_reason_taxonomy[0] or {}).get("code") or "--") if reject_reason_taxonomy else "--"
+    top_failed_check = str((failed_check_taxonomy[0] or {}).get("code") or "--") if failed_check_taxonomy else "--"
+    qc_summary = {
+        "summary": str(
+            qc_digest.get("summary")
+            or (
+                f"质控门禁 {str(qc_gate.get('status') or '--')} | "
+                f"点级门禁 {str(point_gate.get('status') or '--')} | "
+                f"结果分级 通过 {int(decision_counts.get('pass', 0) or 0)} / "
+                f"预警 {int(decision_counts.get('warn', 0) or 0)} / "
+                f"拒绝 {int(decision_counts.get('reject', 0) or 0)} / "
+                f"跳过 {int(decision_counts.get('skipped', 0) or 0)}"
+            )
+        ),
+        "lines": _unique_review_lines(
+            [
+                qc_digest.get("summary"),
+                f"运行门禁: {str(qc_gate.get('status') or '--')} | 原因: {str(qc_gate.get('reason') or '--')}",
+                (
+                    f"点级门禁: {str(point_gate.get('status') or '--')} | "
+                    f"关注路由: {flagged_routes} | "
+                    f"非通过点数: {int(point_gate.get('flagged_point_count', 0) or 0)}"
+                ),
+                (
+                    f"结果分级: 通过 {int(decision_counts.get('pass', 0) or 0)} / "
+                    f"预警 {int(decision_counts.get('warn', 0) or 0)} / "
+                    f"拒绝 {int(decision_counts.get('reject', 0) or 0)} / "
+                    f"跳过 {int(decision_counts.get('skipped', 0) or 0)}"
+                ),
+                f"主要拒绝原因: {top_reject_reason} | 失败检查: {top_failed_check}",
+                *list(qc_digest.get("lines") or []),
+            ]
+        ),
+        "reviewer_card": dict(qc_overview.get("reviewer_card") or {}),
+        "reviewer_card_lines": list(dict(qc_overview.get("reviewer_card") or {}).get("lines") or []),
+        "review_sections": [dict(item) for item in list(qc_overview.get("review_sections") or []) if isinstance(item, dict)],
+    }
+    analytics_summary = {
+        "summary": (
+            f"离线分析覆盖 {int(run_kpis.get('usable_analyzer_count', 0) or 0)}/"
+            f"{int(run_kpis.get('expected_analyzer_count', 0) or 0)} | "
+            f"点位 {int(point_kpis.get('point_count', 0) or 0)} | "
+            f"漂移 {str(drift_summary.get('overall_trend') or '--')} | "
+            f"控制图 {str(control_chart_summary.get('status') or '--')} | "
+            f"健康 {str(analyzer_health_digest.get('overall_status') or '--')} | "
+            f"主故障 {str(fault_attribution_summary.get('primary_fault') or '--')}"
+        ),
+        "lines": _unique_review_lines(
+            [
+                measurement_analytics_summary.get("summary"),
+                (
+                    f"离线分析覆盖: {int(run_kpis.get('usable_analyzer_count', 0) or 0)}/"
+                    f"{int(run_kpis.get('expected_analyzer_count', 0) or 0)} | "
+                    f"点位 {int(point_kpis.get('point_count', 0) or 0)}"
+                ),
+                f"漂移趋势: {str(drift_summary.get('overall_trend') or '--')}",
+                f"控制图状态: {str(control_chart_summary.get('status') or '--')}",
+                f"分析仪健康: {str(analyzer_health_digest.get('overall_status') or '--')}",
+                f"主故障归因: {str(fault_attribution_summary.get('primary_fault') or '--')}",
+            ]
+        ),
+    }
+    boundary_note = (
+        f"证据边界: evidence_source={str(boundary.get('evidence_source') or '--')} | "
+        "仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。"
+    )
+    summary = (
+        f"离线分析摘要：点位 {int(point_kpis.get('point_count', 0) or 0)}，"
+        f"覆盖 {int(run_kpis.get('usable_analyzer_count', 0) or 0)}/{int(run_kpis.get('expected_analyzer_count', 0) or 0)}，"
+        f"质控 {str(qc_gate.get('status') or '--')}，"
+        f"漂移 {str(drift_summary.get('overall_trend') or '--')}，"
+        f"控制图 {str(control_chart_summary.get('status') or '--')}，"
+        f"健康 {str(analyzer_health_digest.get('overall_status') or '--')}，"
+        f"主故障 {str(fault_attribution_summary.get('primary_fault') or '--')}。"
+    )
+    reviewer_notes = _unique_review_lines(
+        [
+            summary,
+            *list(qc_summary.get("lines") or []),
+            *list(analytics_summary.get("lines") or []),
+            boundary_note,
+        ]
+    )
+    return {
+        **boundary,
+        "reviewer_title": "离线审阅摘要",
+        "summary": summary,
+        "reviewer_notes": reviewer_notes,
+        "qc_summary": qc_summary,
+        "analytics_summary": analytics_summary,
+        "boundary_note": boundary_note,
+        "reviewer_sections": [
+            {"id": "qc", "title": "质控审阅", "summary": qc_summary["summary"], "lines": list(qc_summary["lines"])},
+            {
+                "id": "analytics",
+                "title": "离线分析审阅",
+                "summary": analytics_summary["summary"],
+                "lines": list(analytics_summary["lines"]),
+            },
+            {"id": "boundary", "title": "证据边界", "summary": boundary_note, "lines": [boundary_note]},
+        ],
+    }
+
+
+def _status_counts(samples: list[Any], field: str) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for sample in samples:
+        value = getattr(sample, field, None)
+        text = str(value or "").strip()
+        if not text:
+            continue
+        counts[text] += 1
+    return dict(counts)
+
+
+def _dominant_status(counts: dict[str, int]) -> str:
+    if not counts:
+        return ""
+    return sorted(counts.items(), key=lambda item: (-int(item[1]), item[0]))[0][0]
+
+
+def build_lineage_summary(
+    *,
+    run_id: str,
+    run_dir: Path,
+    output_files: list[str],
+    export_statuses: dict[str, dict[str, Any]],
+    versions: dict[str, Any],
+) -> dict[str, Any]:
+    artifacts = []
+    for name, payload in sorted(export_statuses.items()):
+        artifacts.append(
+            {
+                "artifact_id": f"{run_id}:{name}",
+                "artifact_name": str(name),
+                "role": str((payload or {}).get("role", "") or "unclassified"),
+                "path": str((payload or {}).get("path", "") or ""),
+                "present": bool((payload or {}).get("path")),
+                "parent_run_id": None,
+                "source_artifact_ids": [f"{run_id}:source_points"],
+            }
+        )
+    return {
+        "schema_version": OFFLINE_ARTIFACT_SCHEMA_VERSION,
+        "artifact_type": "lineage_summary",
+        "run_id": run_id,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "parent_run_id": None,
+        "source_artifact_ids": [f"{run_id}:source_points"],
+        "config_version": versions.get("config_version"),
+        "points_version": versions.get("points_version"),
+        "profile_version": versions.get("profile_version"),
+        "software_build_id": versions.get("software_build_id"),
+        "artifacts": artifacts,
+        "known_output_files": sorted({str(item) for item in output_files if str(item).strip()}),
+        "expected_artifacts": [
+            str(run_dir / ACCEPTANCE_PLAN_FILENAME),
+            str(run_dir / ANALYTICS_SUMMARY_FILENAME),
+            str(run_dir / TREND_REGISTRY_FILENAME),
+            str(run_dir / LINEAGE_SUMMARY_FILENAME),
+            str(run_dir / EVIDENCE_REGISTRY_FILENAME),
+            str(run_dir / COEFFICIENT_REGISTRY_FILENAME),
+        ],
+    }
+
+
+def build_coefficient_registry(
+    *,
+    run_id: str,
+    run_dir: Path,
+    samples: list[Any],
+    export_statuses: dict[str, dict[str, Any]],
+    versions: dict[str, Any],
+    acceptance_plan: dict[str, Any],
+    analytics_summary: dict[str, Any],
+) -> dict[str, Any]:
+    coeff_payload = dict(export_statuses.get("coefficient_report") or {})
+    coeff_path = str(coeff_payload.get("path") or "")
+    analyzer_ids = sorted(
+        {
+            str(getattr(sample, "analyzer_id", "") or "").strip().upper()
+            for sample in samples
+            if str(getattr(sample, "analyzer_id", "") or "").strip()
+        }
+    )
+    routes = sorted(
+        {
+            str(getattr(getattr(sample, "point", None), "route", "") or "").strip().lower()
+            for sample in samples
+            if str(getattr(getattr(sample, "point", None), "route", "") or "").strip()
+        }
+    )
+    temps = [
+        float(getattr(getattr(sample, "point", None), "temperature_c"))
+        for sample in samples
+        if getattr(getattr(sample, "point", None), "temperature_c", None) is not None
+    ]
+    co2_values = [
+        float(getattr(getattr(sample, "point", None), "co2_ppm"))
+        for sample in samples
+        if getattr(getattr(sample, "point", None), "co2_ppm", None) is not None
+    ]
+    entries = [
+        {
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "analyzer_id": analyzer_id,
+            "coefficient_version": _path_version(coeff_path or (run_dir / "calibration_coefficients.xlsx"), prefix="coef"),
+            "source_run": run_id,
+            "source_artifact_ids": [f"{run_id}:coefficient_report", f"{run_id}:run_summary", f"{run_id}:results_json"],
+            "route_range": routes,
+            "temperature_range_c": {"min": min(temps) if temps else None, "max": max(temps) if temps else None},
+            "source_range": {"co2_ppm_min": min(co2_values) if co2_values else None, "co2_ppm_max": max(co2_values) if co2_values else None},
+            "parity_status": analytics_summary.get("summary_parity_status"),
+            "quality_status": analytics_summary.get("reference_quality_statistics", {}).get("reference_quality"),
+            "config_version": versions.get("config_version"),
+            "points_version": versions.get("points_version"),
+            "profile_version": versions.get("profile_version"),
+            "software_build_id": versions.get("software_build_id"),
+            "not_real_acceptance_evidence": acceptance_plan.get("not_real_acceptance_evidence", True),
+        }
+        for analyzer_id in (analyzer_ids or ["UNSPECIFIED"])
+    ]
+    return {
+        "schema_version": OFFLINE_ARTIFACT_SCHEMA_VERSION,
+        "artifact_type": "coefficient_registry",
+        "run_id": run_id,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "available": bool(coeff_path),
+        "report_path": coeff_path,
+        "status": str(coeff_payload.get("status") or "missing"),
+        "not_real_acceptance_evidence": acceptance_plan.get("not_real_acceptance_evidence", True),
+        "entries": entries,
+    }
+
+
+def build_trend_registry(
+    *,
+    run_id: str,
+    run_dir: Path,
+    output_dir: Path,
+    samples: list[Any],
+    analytics_summary: dict[str, Any],
+) -> dict[str, Any]:
+    current_entry = _current_history_entry(run_id=run_id, samples=samples, analytics_summary=analytics_summary)
+    sibling_entries = []
+    if output_dir.exists():
+        for child in sorted(output_dir.iterdir()):
+            if not child.is_dir() or child == run_dir:
+                continue
+            analytics_path = child / ANALYTICS_SUMMARY_FILENAME
+            if not analytics_path.exists():
+                continue
+            try:
+                payload = json.loads(analytics_path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            sibling_entries.append(
+                {
+                    "run_id": str(payload.get("run_id") or child.name),
+                    "start_time": str(payload.get("generated_at") or ""),
+                    "coverage_ratio": float(_text_ratio_to_float(((payload.get("analyzer_coverage") or {}).get("coverage_text"))) or 0.0),
+                    "usable_frame_ratio": float(((payload.get("frame_quality_statistics") or {}).get("usable_frame_ratio")) or 0.0),
+                    "reference_quality_score": _reference_quality_score((payload.get("reference_quality_statistics") or {}).get("reference_quality")),
+                }
+            )
+    history = sibling_entries + [current_entry]
+    analyzers = sorted(
+        {
+            str(getattr(sample, "analyzer_id", "") or "").strip().upper()
+            for sample in samples
+            if str(getattr(sample, "analyzer_id", "") or "").strip()
+        }
+    )
+    analyzer_entries = []
+    for analyzer_id in analyzers or ["UNSPECIFIED"]:
+        coverage_series = [float(item.get("coverage_ratio") or 0.0) for item in history]
+        usable_series = [float(item.get("usable_frame_ratio") or 0.0) for item in history]
+        reference_series = [float(item.get("reference_quality_score") or 0.0) for item in history]
+        analyzer_entries.append(
+            {
+                "analyzer_id": analyzer_id,
+                "history": history,
+                "drift_indicator": _drift_indicator(usable_series),
+                "spc_metric": _spc_metric("usable_frame_ratio", usable_series),
+                "control_limit_status": _control_limit_status(usable_series),
+                "reference_quality_trend": _trend_label(reference_series),
+                "coverage_trend": _trend_label(coverage_series),
+            }
+        )
+    route_groups = []
+    grouped = defaultdict(list)
+    for sample in samples:
+        point = getattr(sample, "point", None)
+        route = str(getattr(point, "route", "") or "").strip().lower()
+        temp = getattr(point, "temperature_c", None)
+        source = (
+            f"co2:{float(getattr(point, 'co2_ppm')):g}"
+            if getattr(point, "co2_ppm", None) is not None
+            else f"h2o:{float(getattr(point, 'humidity_pct')):g}"
+            if getattr(point, "humidity_pct", None) is not None
+            else "unspecified"
+        )
+        grouped[(route, temp, source)].append(sample)
+    for (route, temp, source), group_samples in sorted(grouped.items(), key=lambda item: (item[0][0], item[0][1] or 0.0, item[0][2])):
+        usable_series = [1.0 if bool(getattr(item, "frame_usable", True)) else 0.0 for item in group_samples]
+        reference_series = [
+            1.0
+            if getattr(item, "thermometer_temp_c", None) is not None and getattr(item, "pressure_gauge_hpa", None) is not None
+            else 0.0
+            for item in group_samples
+        ]
+        route_groups.append(
+            {
+                "route": route,
+                "temperature_c": temp,
+                "source": source,
+                "history": [
+                    {
+                        "run_id": run_id,
+                        "start_time": current_entry["start_time"],
+                        "usable_frame_ratio": _safe_ratio(sum(usable_series), len(usable_series)),
+                        "reference_quality_score": _safe_ratio(sum(reference_series), len(reference_series)),
+                    }
+                ],
+                "drift_indicator": _drift_indicator(usable_series),
+                "spc_metric": _spc_metric("usable_frame_ratio", usable_series),
+                "control_limit_status": _control_limit_status(usable_series),
+                "reference_quality_trend": _trend_label(reference_series),
+                "coverage_trend": _trend_label(usable_series),
+            }
+        )
+    return {
+        "schema_version": OFFLINE_ARTIFACT_SCHEMA_VERSION,
+        "artifact_type": "trend_registry",
+        "run_id": run_id,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "history_window": {"run_count": len(history)},
+        "analyzers": analyzer_entries,
+        "route_temp_source_groups": route_groups,
+    }
+
+
+def build_run_evidence_registry(
+    *,
+    run_id: str,
+    run_dir: Path,
+    export_statuses: dict[str, dict[str, Any]],
+    versions: dict[str, Any],
+    acceptance_plan: dict[str, Any],
+    analytics_summary: dict[str, Any],
+    coefficient_registry: dict[str, Any],
+    trend_registry: dict[str, Any],
+    config_safety: dict[str, Any] | None = None,
+    config_safety_review: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    boundary = build_user_visible_evidence_boundary(
+        evidence_source=acceptance_plan.get("evidence_source"),
+        not_real_acceptance_evidence=acceptance_plan.get("not_real_acceptance_evidence"),
+        acceptance_level=acceptance_plan.get("acceptance_level"),
+        promotion_state=acceptance_plan.get("promotion_state"),
+    )
+    entries = []
+    for name, payload in sorted(export_statuses.items()):
+        entries.append(
+            _registry_entry(
+                artifact_id=f"{run_id}:{name}",
+                artifact_name=str(name),
+                role=str((payload or {}).get("role", "") or "unclassified"),
+                path=str((payload or {}).get("path", "") or ""),
+                run_id=run_id,
+                versions=versions,
+                acceptance_plan=acceptance_plan,
+                dimensions={
+                    "suite": "",
+                    "scenario": "",
+                    "analyzer": [],
+                    "route": list(analytics_summary.get("routes") or []),
+                    "temp": [],
+                },
+                source_artifact_ids=[f"{run_id}:source_points"],
+            )
+        )
+    entries.extend(
+        [
+            _registry_entry(
+                artifact_id=f"{run_id}:acceptance_plan",
+                artifact_name="acceptance_plan",
+                role="execution_summary",
+                path=str(run_dir / ACCEPTANCE_PLAN_FILENAME),
+                run_id=run_id,
+                versions=versions,
+                acceptance_plan=acceptance_plan,
+                dimensions={"suite": "", "scenario": "", "analyzer": [], "route": list(analytics_summary.get("routes") or []), "temp": []},
+                source_artifact_ids=[f"{run_id}:run_summary", f"{run_id}:manifest"],
+            ),
+            _registry_entry(
+                artifact_id=f"{run_id}:analytics_summary",
+                artifact_name="analytics_summary",
+                role="diagnostic_analysis",
+                path=str(run_dir / ANALYTICS_SUMMARY_FILENAME),
+                run_id=run_id,
+                versions=versions,
+                acceptance_plan=acceptance_plan,
+                dimensions={"suite": "", "scenario": "", "analyzer": list((analytics_summary.get("analyzer_coverage") or {}).get("usable_analyzers") or []), "route": list(analytics_summary.get("routes") or []), "temp": []},
+                source_artifact_ids=[f"{run_id}:results_json", f"{run_id}:points_readable"],
+            ),
+            _registry_entry(
+                artifact_id=f"{run_id}:trend_registry",
+                artifact_name="trend_registry",
+                role="diagnostic_analysis",
+                path=str(run_dir / TREND_REGISTRY_FILENAME),
+                run_id=run_id,
+                versions=versions,
+                acceptance_plan=acceptance_plan,
+                dimensions={"suite": "", "scenario": "", "analyzer": [item.get("analyzer_id") for item in trend_registry.get("analyzers", [])], "route": [item.get("route") for item in trend_registry.get("route_temp_source_groups", [])], "temp": [item.get("temperature_c") for item in trend_registry.get("route_temp_source_groups", [])]},
+                source_artifact_ids=[f"{run_id}:analytics_summary"],
+            ),
+            _registry_entry(
+                artifact_id=f"{run_id}:coefficient_registry",
+                artifact_name="coefficient_registry",
+                role="formal_analysis",
+                path=str(run_dir / COEFFICIENT_REGISTRY_FILENAME),
+                run_id=run_id,
+                versions=versions,
+                acceptance_plan=acceptance_plan,
+                dimensions={"suite": "", "scenario": "", "analyzer": [item.get("analyzer_id") for item in coefficient_registry.get("entries", [])], "route": list({route for item in coefficient_registry.get("entries", []) for route in list(item.get("route_range") or [])}), "temp": []},
+                source_artifact_ids=[f"{run_id}:coefficient_report", f"{run_id}:run_summary"],
+            ),
+        ]
+    )
+    payload = {
+        "schema_version": OFFLINE_ARTIFACT_SCHEMA_VERSION,
+        "artifact_type": "evidence_registry",
+        "run_id": run_id,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        **boundary,
+        "acceptance_scope": acceptance_plan.get("acceptance_scope"),
+        "review_state": acceptance_plan.get("review_state"),
+        "approval_state": acceptance_plan.get("approval_state"),
+        "ready_for_promotion": acceptance_plan.get("ready_for_promotion"),
+        "entries": entries,
+        "indexes": build_registry_indexes(entries),
+    }
+    if isinstance(config_safety, dict) and config_safety:
+        payload["config_safety"] = dict(config_safety)
+    if isinstance(config_safety_review, dict) and config_safety_review:
+        payload["config_safety_review"] = dict(config_safety_review)
+    return payload
+
+
+def build_suite_analytics_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    cases = [dict(item) for item in list(summary.get("cases") or [])]
+    failure_types = Counter(str(item.get("failure_type") or "none") for item in cases if not bool(item.get("ok", False)))
+    failure_phases = Counter(str(item.get("failure_phase") or "--") for item in cases if not bool(item.get("ok", False)))
+    total = len(cases)
+    passed = sum(1 for item in cases if bool(item.get("ok", False)))
+    return {
+        "schema_version": OFFLINE_ARTIFACT_SCHEMA_VERSION,
+        "artifact_type": "suite_analytics_summary",
+        "suite": str(summary.get("suite") or "--"),
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "pass_rates": {"suite_pass_rate": _safe_ratio(passed, total), "passed": passed, "failed": max(total - passed, 0), "total": total},
+        "case_status_counts": dict(Counter(str(item.get("status") or "--") for item in cases)),
+        "case_kind_counts": dict(Counter(str(item.get("kind") or "--") for item in cases)),
+        "common_failure_types": dict(failure_types),
+        "top_failure_phases": dict(failure_phases),
+        "evidence_sources_present": _normalized_review_evidence_sources(
+            [item.get("evidence_source") for item in cases]
+        ),
+        "digest": {
+            "summary": f"{passed}/{total} passed | top failures {', '.join(list(failure_types)[:3]) or 'none'}",
+            "health": "healthy" if passed == total else "attention",
+        },
+    }
+
+
+def build_suite_evidence_registry(
+    summary: dict[str, Any],
+    *,
+    analytics_summary: dict[str, Any],
+    acceptance_plan: dict[str, Any],
+) -> dict[str, Any]:
+    suite = str(summary.get("suite") or "--")
+    boundary = build_user_visible_evidence_boundary(
+        evidence_source=acceptance_plan.get("evidence_source"),
+        not_real_acceptance_evidence=acceptance_plan.get("not_real_acceptance_evidence"),
+        acceptance_level=acceptance_plan.get("acceptance_level"),
+        promotion_state=acceptance_plan.get("promotion_state"),
+    )
+    entries = []
+    for case in list(summary.get("cases") or []):
+        entries.append(
+            {
+                "artifact_id": f"{suite}:{case.get('name')}",
+                "artifact_name": str(case.get("name") or "--"),
+                "role": "diagnostic_analysis",
+                "path": str(case.get("artifact_dir") or ""),
+                "present": bool(case.get("artifact_dir")),
+                "run_id": str(case.get("parent_run_id") or suite),
+                "parent_run_id": str(case.get("parent_run_id") or ""),
+                "evidence_source": _normalize_review_evidence_source(case.get("evidence_source")),
+                "evidence_state": str(case.get("evidence_state") or "--"),
+                "acceptance_level": "offline_regression",
+                "acceptance_scope": "suite_case",
+                "promotion_state": "dry_run_only",
+                "review_state": "pending",
+                "approval_state": "blocked",
+                "ready_for_promotion": False,
+                "config_version": "",
+                "points_version": "",
+                "profile_version": "",
+                "software_build_id": "",
+                "source_artifact_ids": list(case.get("source_artifact_ids") or []),
+                "dimensions": {"suite": suite, "scenario": str(case.get("name") or "--"), "analyzer": [], "route": [], "temp": []},
+                "details": {"status": str(case.get("status") or "--"), "risk_level": str(case.get("risk_level") or "--"), "failure_type": str(case.get("failure_type") or "--")},
+            }
+        )
+    return {
+        "schema_version": OFFLINE_ARTIFACT_SCHEMA_VERSION,
+        "artifact_type": "suite_evidence_registry",
+        "suite": suite,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        **boundary,
+        "acceptance_scope": acceptance_plan.get("acceptance_scope"),
+        "review_state": acceptance_plan.get("review_state"),
+        "approval_state": acceptance_plan.get("approval_state"),
+        "ready_for_promotion": acceptance_plan.get("ready_for_promotion"),
+        "entries": entries,
+        "indexes": build_registry_indexes(entries),
+        "digest": analytics_summary.get("digest", {}),
+    }
+
+
+def build_suite_case_metadata(case: dict[str, Any], *, suite_name: str) -> dict[str, Any]:
+    kind = str(case.get("kind") or "")
+    details = dict(case.get("details") or {})
+    report_json = str(details.get("report_json") or "")
+    report_payload = {}
+    if report_json:
+        try:
+            report_payload = json.loads(Path(report_json).read_text(encoding="utf-8"))
+        except Exception:
+            report_payload = {}
+    evidence_source = "diagnostic"
+    evidence_state = "collected"
+    if kind == "scenario":
+        evidence_source = "simulated_protocol"
+    elif kind == "replay":
+        evidence_source = "replay"
+    compare_status = str(case.get("status") or report_payload.get("compare_status") or report_payload.get("status") or "--")
+    route_execution = dict(report_payload.get("route_execution_summary") or {})
+    reference_quality = str((report_payload.get("reference_quality") or {}).get("reference_quality") or "unknown")
+    route_mismatch = relay_mismatch_present(route_execution)
+    failure_phase = str(report_payload.get("first_failure_phase") or route_execution.get("first_failure_phase") or case.get("name") or "")
+    if evidence_source == "replay" and ("stale" in case.get("name", "") or "stale" in compare_status.lower()):
+        evidence_state = "stale"
+    if "superseded" in compare_status.lower():
+        evidence_state = "superseded"
+    parent_run_id = Path(str(case.get("artifact_dir") or "")).name if str(case.get("artifact_dir") or "").strip() else ""
+    source_artifact_ids = []
+    if parent_run_id:
+        source_artifact_ids = [
+            f"{parent_run_id}:report_json",
+            f"{parent_run_id}:report_markdown",
+        ]
+    risk_level = "low"
+    if not bool(case.get("ok", False)):
+        risk_level = "high"
+    elif compare_status in {"MISMATCH", "NOT_EXECUTED"} or route_mismatch or reference_quality in {"degraded", "failed"}:
+        risk_level = "medium"
+    failure_type = "none"
+    if route_mismatch:
+        failure_type = "route_physical_mismatch"
+    elif reference_quality in {"degraded", "failed"}:
+        failure_type = "reference_quality"
+    elif compare_status in {"MISMATCH", "NOT_EXECUTED", "SNAPSHOT_ONLY"}:
+        failure_type = compare_status.lower()
+    elif kind == "parity":
+        failure_type = "summary_parity"
+    elif kind == "resilience":
+        failure_type = "export_resilience"
+    return {
+        "suite": suite_name,
+        "evidence_source": evidence_source,
+        "evidence_state": evidence_state,
+        "acceptance_level": "offline_regression",
+        "acceptance_scope": "suite_case",
+        "parent_run_id": parent_run_id or None,
+        "source_artifact_ids": source_artifact_ids,
+        "risk_level": risk_level,
+        "failure_type": failure_type,
+        "failure_phase": failure_phase,
+        "reference_quality": reference_quality,
+        "route_physical_mismatch": route_mismatch,
+    }
+
+
+def build_registry_indexes(entries: list[dict[str, Any]]) -> dict[str, Any]:
+    index_payload: dict[str, dict[str, list[str]]] = {
+        "by_evidence_source": defaultdict(list),
+        "by_evidence_state": defaultdict(list),
+        "by_suite": defaultdict(list),
+        "by_scenario": defaultdict(list),
+        "by_analyzer": defaultdict(list),
+        "by_route": defaultdict(list),
+        "by_temp": defaultdict(list),
+        "by_config_version": defaultdict(list),
+        "by_points_version": defaultdict(list),
+        "by_profile_version": defaultdict(list),
+        "by_software_build_id": defaultdict(list),
+    }
+    for entry in entries:
+        artifact_id = str(entry.get("artifact_id") or "")
+        dimensions = dict(entry.get("dimensions") or {})
+        index_payload["by_evidence_source"][
+            _normalize_review_evidence_source(entry.get("evidence_source"))
+        ].append(artifact_id)
+        index_payload["by_evidence_state"][str(entry.get("evidence_state") or "--")].append(artifact_id)
+        index_payload["by_config_version"][str(entry.get("config_version") or "--")].append(artifact_id)
+        index_payload["by_points_version"][str(entry.get("points_version") or "--")].append(artifact_id)
+        index_payload["by_profile_version"][str(entry.get("profile_version") or "--")].append(artifact_id)
+        index_payload["by_software_build_id"][str(entry.get("software_build_id") or "--")].append(artifact_id)
+        index_payload["by_suite"][str(dimensions.get("suite") or "--")].append(artifact_id)
+        index_payload["by_scenario"][str(dimensions.get("scenario") or "--")].append(artifact_id)
+        for analyzer in _ensure_list(dimensions.get("analyzer")) or ["--"]:
+            index_payload["by_analyzer"][str(analyzer or "--")].append(artifact_id)
+        for route in _ensure_list(dimensions.get("route")) or ["--"]:
+            index_payload["by_route"][str(route or "--")].append(artifact_id)
+        for temp in _ensure_list(dimensions.get("temp")) or ["--"]:
+            index_payload["by_temp"][str(temp)].append(artifact_id)
+    return {name: {key: sorted(set(value)) for key, value in mapping.items()} for name, mapping in index_payload.items()}
+
+
+def _build_skipped_spectral_quality_summary(
+    *,
+    run_id: str,
+    simulation_mode: bool,
+    min_samples: int,
+    min_duration_s: float,
+    low_freq_max_hz: float,
+    error: str,
+) -> dict[str, Any]:
+    return {
+        "artifact_type": "spectral_quality_summary",
+        "schema_version": OFFLINE_ARTIFACT_SCHEMA_VERSION,
+        "run_id": str(run_id or ""),
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "status": "skipped",
+        "evidence_source": "simulated_protocol" if simulation_mode else "diagnostic",
+        "evidence_state": "collected",
+        "not_real_acceptance_evidence": True,
+        "channel_count": 0,
+        "ok_channel_count": 0,
+        "overall_score": None,
+        "flags": [],
+        "status_counts": {"skipped": 1},
+        "config": {
+            "min_samples": int(min_samples),
+            "min_duration_s": float(min_duration_s),
+            "low_freq_max_hz": float(low_freq_max_hz),
+        },
+        "channels": {},
+        "diagnostics": {
+            "error": str(error or "").strip(),
+        },
+    }
+
+
+def _spectral_quality_digest(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": str(payload.get("status") or ""),
+        "channel_count": int(payload.get("channel_count", 0) or 0),
+        "ok_channel_count": int(payload.get("ok_channel_count", 0) or 0),
+        "overall_score": payload.get("overall_score"),
+        "flags": [str(item) for item in list(payload.get("flags") or []) if str(item).strip()],
+    }
+
+
+def _artifact_status_payload(role: str, path: Path) -> dict[str, str]:
+    return {"role": role, "status": "ok" if path.exists() else "missing", "path": str(path), "error": ""}
+
+
+def _registry_entry(
+    *,
+    artifact_id: str,
+    artifact_name: str,
+    role: str,
+    path: str,
+    run_id: str,
+    versions: dict[str, Any],
+    acceptance_plan: dict[str, Any],
+    dimensions: dict[str, Any],
+    source_artifact_ids: list[str],
+) -> dict[str, Any]:
+    return {
+        "artifact_id": artifact_id,
+        "artifact_name": artifact_name,
+        "role": role,
+        "path": path,
+        "present": bool(path and Path(path).exists()),
+        "run_id": run_id,
+        "evidence_source": acceptance_plan.get("evidence_source"),
+        "evidence_state": acceptance_plan.get("evidence_state"),
+        "acceptance_level": acceptance_plan.get("acceptance_level"),
+        "acceptance_scope": acceptance_plan.get("acceptance_scope"),
+        "promotion_state": acceptance_plan.get("promotion_state"),
+        "review_state": acceptance_plan.get("review_state"),
+        "approval_state": acceptance_plan.get("approval_state"),
+        "ready_for_promotion": acceptance_plan.get("ready_for_promotion"),
+        "config_version": versions.get("config_version"),
+        "points_version": versions.get("points_version"),
+        "profile_version": versions.get("profile_version"),
+        "software_build_id": versions.get("software_build_id"),
+        "source_artifact_ids": source_artifact_ids,
+        "dimensions": dimensions,
+    }
+
+
+def _expected_analyzers(session: Any) -> list[str]:
+    devices = getattr(getattr(session, "config", None), "devices", None)
+    analyzers = getattr(devices, "gas_analyzers", []) if devices is not None else []
+    values = []
+    for index, item in enumerate(analyzers or []):
+        if not bool(getattr(item, "enabled", True)):
+            continue
+        values.append(str(getattr(item, "id", "") or f"GA{index + 1:02d}").strip().upper())
+    return values
+
+
+def _current_history_entry(*, run_id: str, samples: list[Any], analytics_summary: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "run_id": run_id,
+        "start_time": datetime.now().isoformat(timespec="seconds"),
+        "coverage_ratio": float(_text_ratio_to_float(((analytics_summary.get("analyzer_coverage") or {}).get("coverage_text"))) or 0.0),
+        "usable_frame_ratio": float(((analytics_summary.get("frame_quality_statistics") or {}).get("usable_frame_ratio")) or 0.0),
+        "reference_quality_score": _reference_quality_score((analytics_summary.get("reference_quality_statistics") or {}).get("reference_quality")),
+        "sample_count": len(samples),
+    }
+
+
+def _spc_metric(metric: str, values: list[float]) -> dict[str, Any]:
+    if not values:
+        return {"metric": metric, "center_line": None, "ucl": None, "lcl": None, "latest": None}
+    center = sum(values) / len(values)
+    if len(values) < 2:
+        return {"metric": metric, "center_line": round(center, 6), "ucl": round(center, 6), "lcl": round(center, 6), "latest": round(values[-1], 6)}
+    variance = sum((item - center) ** 2 for item in values) / len(values)
+    sigma = variance ** 0.5
+    return {"metric": metric, "center_line": round(center, 6), "ucl": round(center + (3.0 * sigma), 6), "lcl": round(center - (3.0 * sigma), 6), "latest": round(values[-1], 6)}
+
+
+def _control_limit_status(values: list[float]) -> str:
+    if len(values) < 2:
+        return "insufficient_history"
+    metric = _spc_metric("metric", values)
+    latest = float(metric.get("latest") or 0.0)
+    return "out_of_control" if latest > float(metric.get("ucl") or 0.0) or latest < float(metric.get("lcl") or 0.0) else "in_control"
+
+
+def _drift_indicator(values: list[float]) -> str:
+    if len(values) < 2:
+        return "insufficient_history"
+    delta = values[-1] - values[0]
+    if abs(delta) < 1e-6:
+        return "stable"
+    return "increasing" if delta > 0 else "decreasing"
+
+
+def _trend_label(values: list[float]) -> str:
+    if len(values) < 2:
+        return "insufficient_history"
+    if all(abs(values[idx] - values[0]) < 1e-6 for idx in range(1, len(values))):
+        return "stable"
+    return "improving" if values[-1] >= values[0] else "declining"
+
+
+def _reference_quality_score(value: Any) -> float:
+    normalized = str(value or "").strip().lower()
+    if normalized == "healthy":
+        return 1.0
+    if normalized == "degraded":
+        return 0.5
+    return 0.0
+
+
+def _load_named_status(path: Path, *, key: str, default: str) -> str:
+    if not path.exists():
+        return default
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return default
+    return str(payload.get(key) or default)
+
+
+def _text_ratio_to_float(value: Any) -> Optional[float]:
+    text = str(value or "").strip()
+    if "/" not in text:
+        return None
+    numerator, denominator = text.split("/", 1)
+    try:
+        return _safe_ratio(float(numerator), float(denominator))
+    except Exception:
+        return None
+
+
+def _path_version(path: str | Path, *, prefix: str) -> str:
+    target = Path(path)
+    if not target.exists():
+        return f"{prefix}-missing"
+    stats = target.stat()
+    return f"{prefix}-{target.name}-{stats.st_size}-{stats.st_mtime_ns}"
+
+
+def _ensure_list(value: Any) -> list[Any]:
+    if value in (None, ""):
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return list(value)
+    return [value]
+
+
+def _safe_ratio(numerator: float | int, denominator: float | int) -> float:
+    if float(denominator) == 0.0:
+        return 0.0
+    return round(float(numerator) / float(denominator), 6)

@@ -1,0 +1,31 @@
+# Python cache and virtual-env style artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Editor and local tool state
+.vscode/
+.arts/
+
+# Local AI/context notes
+.ai-context/
+
+# Runtime outputs and reports
+logs/
+output/
+results/
+tmp/
+tmp_*/
+.tmp_*
+*.log
+src/output/
+src/gas_calibrator/output/
+
+# One-off local probe/output folders
+pace_isol_probe_20260306_131122/
+
+# Local temporary manuals and scratch files
+tmp_*.docx
+tmp_*.pdf
+tmp_*.txt
+points.xlsx

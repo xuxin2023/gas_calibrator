@@ -1,0 +1,25 @@
+﻿{
+    "workflow":  {
+                     "pressure":  {
+                                      "soft_control_enabled":  false,
+                                      "handoff_fast_enabled":  false,
+                                      "soft_control_linear_slew_hpa_per_s":  10.0
+                                  },
+                     "stability":  {
+                                       "humidity_generator":  {
+                                                                  "temp_tol_c":  1.0,
+                                                                  "rh_tol_pct":  4.5,
+                                                                  "precondition_next_group_enabled":  true
+                                                              },
+                                       "temperature":  {
+                                                           "wait_for_target_before_continue":  true,
+                                                           "analyzer_chamber_temp_enabled":  true
+                                                       },
+                                       "dewpoint":  {
+                                                        "window_s":  40,
+                                                        "timeout_s":  1800,
+                                                        "stability_tol_c":  0.06
+                                                    }
+                                   }
+                 }
+}

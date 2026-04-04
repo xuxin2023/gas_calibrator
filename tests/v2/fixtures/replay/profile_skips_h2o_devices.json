@@ -1,0 +1,29 @@
+{
+  "kind": "compare",
+  "validation_profile": "skip0_co2_only_replacement",
+  "route_mode": "co2_only",
+  "temp_c": 20.0,
+  "skip_co2_ppm": [0],
+  "v1_runtime_policy": {
+    "route_mode": "co2_only",
+    "expected_disabled_devices": ["dewpoint_meter", "humidity_generator"]
+  },
+  "v2_runtime_policy": {
+    "route_mode": "co2_only",
+    "expected_disabled_devices": ["dewpoint_meter", "humidity_generator"]
+  },
+  "v1": {
+    "ok": true,
+    "status_phase": "completed",
+    "trace_lines": [
+      "{\"route\":\"co2\",\"action\":\"route_baseline\",\"point_tag\":\"co2_groupa_400ppm_1000hpa\",\"result\":\"ok\"}"
+    ]
+  },
+  "v2": {
+    "ok": true,
+    "status_phase": "completed",
+    "trace_lines": [
+      "{\"route\":\"co2\",\"action\":\"route_baseline\",\"point_tag\":\"co2_groupa_400ppm_1000hpa\",\"result\":\"ok\"}"
+    ]
+  }
+}

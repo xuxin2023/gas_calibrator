@@ -1,0 +1,22 @@
+{
+  "kind": "validation_snapshot",
+  "latest_indexes": [
+    {
+      "filename": "h2o_only_replacement_latest.json",
+      "payload": {
+        "validation_profile": "h2o_only_replacement",
+        "compare_status": "NOT_EXECUTED",
+        "checklist_gate": "12B",
+        "evidence_state": "diagnostic_fallback_validation_stale",
+        "diagnostic_only": true,
+        "acceptance_evidence": false,
+        "stale_for_current_bench": true,
+        "bench_context": {
+          "primary_replacement_route": "skip0_co2_only_replacement",
+          "validation_role": "diagnostic",
+          "target_route": "h2o"
+        }
+      }
+    }
+  ]
+}

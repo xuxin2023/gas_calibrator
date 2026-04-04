@@ -1,0 +1,100 @@
+[
+  {
+    "index": 1,
+    "temperature_c": 10.0,
+    "pressure_hpa": 1000.0,
+    "route": "h2o",
+    "humidity_pct": 30.0,
+    "humidity_generator_temp_c": 10.0,
+    "dewpoint_c": -6.0,
+    "h2o_mmol": 3.6,
+    "raw_h2o": "simulated h2o 10c 30%"
+  },
+  {
+    "index": 2,
+    "temperature_c": 10.0,
+    "pressure_hpa": 800.0,
+    "route": "h2o",
+    "humidity_pct": 50.0,
+    "humidity_generator_temp_c": 10.0,
+    "dewpoint_c": 0.1,
+    "h2o_mmol": 6.1,
+    "raw_h2o": "simulated h2o 10c 50%"
+  },
+  {
+    "index": 3,
+    "temperature_c": 10.0,
+    "pressure_hpa": 1100.0,
+    "route": "co2",
+    "co2_ppm": 0.0,
+    "co2_group": "A",
+    "cylinder_nominal_ppm": 0.0
+  },
+  {
+    "index": 4,
+    "temperature_c": 10.0,
+    "pressure_hpa": 1000.0,
+    "route": "co2",
+    "co2_ppm": 100.0,
+    "co2_group": "A",
+    "cylinder_nominal_ppm": 100.0
+  },
+  {
+    "index": 5,
+    "temperature_c": 10.0,
+    "pressure_hpa": 600.0,
+    "route": "co2",
+    "co2_ppm": 1000.0,
+    "co2_group": "B",
+    "cylinder_nominal_ppm": 1000.0
+  },
+  {
+    "index": 6,
+    "temperature_c": 20.0,
+    "pressure_hpa": 1000.0,
+    "route": "h2o",
+    "humidity_pct": 40.0,
+    "humidity_generator_temp_c": 20.0,
+    "dewpoint_c": 5.0,
+    "h2o_mmol": 7.8,
+    "raw_h2o": "simulated h2o 20c 40%"
+  },
+  {
+    "index": 7,
+    "temperature_c": 20.0,
+    "pressure_hpa": 800.0,
+    "route": "h2o",
+    "humidity_pct": 70.0,
+    "humidity_generator_temp_c": 20.0,
+    "dewpoint_c": 14.0,
+    "h2o_mmol": 15.2,
+    "raw_h2o": "simulated h2o 20c 70%"
+  },
+  {
+    "index": 8,
+    "temperature_c": 20.0,
+    "pressure_hpa": 1100.0,
+    "route": "co2",
+    "co2_ppm": 0.0,
+    "co2_group": "A",
+    "cylinder_nominal_ppm": 0.0
+  },
+  {
+    "index": 9,
+    "temperature_c": 20.0,
+    "pressure_hpa": 1000.0,
+    "route": "co2",
+    "co2_ppm": 400.0,
+    "co2_group": "A",
+    "cylinder_nominal_ppm": 400.0
+  },
+  {
+    "index": 10,
+    "temperature_c": 20.0,
+    "pressure_hpa": 600.0,
+    "route": "co2",
+    "co2_ppm": 1000.0,
+    "co2_group": "B",
+    "cylinder_nominal_ppm": 1000.0
+  }
+]

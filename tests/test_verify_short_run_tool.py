@@ -1,0 +1,45 @@
+from __future__ import annotations
+
+from gas_calibrator.tools.verify_short_run import build_short_verification_config
+
+
+def test_build_short_verification_config_applies_short_run_overrides() -> None:
+    cfg = {
+        "workflow": {
+            "collect_only": False,
+            "route_mode": "co2_only",
+            "skip_h2o": True,
+            "selected_temps_c": [0.0],
+            "skip_co2_ppm": [200],
+            "startup_connect_check": {"enabled": True},
+            "startup_pressure_precheck": {"enabled": True},
+        }
+    }
+
+    runtime_cfg = build_short_verification_config(
+        cfg,
+        temp_c=20.0,
+        skip_co2_ppm=[100, 200, 300],
+        enable_connect_check=False,
+    )
+
+    workflow_cfg = runtime_cfg["workflow"]
+    assert workflow_cfg["collect_only"] is True
+    assert workflow_cfg["route_mode"] == "h2o_then_co2"
+    assert workflow_cfg["skip_h2o"] is False
+    assert workflow_cfg["selected_temps_c"] == [20.0]
+    assert workflow_cfg["skip_co2_ppm"] == [100, 200, 300]
+    assert workflow_cfg["startup_connect_check"]["enabled"] is False
+    assert workflow_cfg["startup_pressure_precheck"]["enabled"] is False
+    assert workflow_cfg["stability"]["temperature"]["analyzer_chamber_temp_timeout_s"] == 300.0
+    assert workflow_cfg["stability"]["temperature"]["analyzer_chamber_temp_first_valid_timeout_s"] == 60.0
+
+
+def test_default_config_keeps_mode2_post_enable_wait() -> None:
+    import json
+    from pathlib import Path
+
+    cfg = json.loads(Path("D:/gas_calibrator/configs/default_config.json").read_text(encoding="utf-8"))
+    assert cfg["workflow"]["analyzer_mode2_init"]["post_enable_stream_wait_s"] == 2.0
+    assert cfg["workflow"]["analyzer_mode2_init"]["command_gap_s"] == 0.15
+    assert cfg["workflow"]["analyzer_mode2_init"]["post_enable_stream_ack_wait_s"] == 8.0

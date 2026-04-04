@@ -1,0 +1,33 @@
+{
+  "kind": "compare",
+  "validation_profile": "replacement_full_route_simulated_diagnostic",
+  "route_mode": "h2o_then_co2",
+  "bench_context": {
+    "co2_0ppm_available": true,
+    "other_gases_available": true,
+    "h2o_route_available": true,
+    "humidity_generator_humidity_feedback_valid": true,
+    "validation_role": "simulated_diagnostic",
+    "target_route": "h2o_then_co2",
+    "diagnostic_only": true,
+    "acceptance_evidence": false
+  },
+  "v1": {
+    "ok": true,
+    "status_phase": "completed",
+    "trace_lines": [
+      "{\"route\":\"h2o\",\"action\":\"sample_end\",\"point_tag\":\"h2o_20c_50rh_800hpa\",\"result\":\"ok\",\"actual\":{\"sample_count\":3}}",
+      "{\"route\":\"co2\",\"action\":\"sample_end\",\"point_tag\":\"co2_groupa_400ppm_900hpa\",\"result\":\"ok\",\"actual\":{\"sample_count\":3}}",
+      "{\"route\":\"cleanup\",\"action\":\"pressure_cleanup\",\"point_tag\":\"\",\"result\":\"ok\"}"
+    ]
+  },
+  "v2": {
+    "ok": false,
+    "status_phase": "cleanup.timeout",
+    "status_error": "PACE no response during cleanup vent sequence",
+    "trace_lines": [
+      "{\"route\":\"h2o\",\"action\":\"sample_end\",\"point_tag\":\"h2o_20c_50rh_800hpa\",\"result\":\"ok\",\"actual\":{\"sample_count\":3}}",
+      "{\"route\":\"co2\",\"action\":\"sample_end\",\"point_tag\":\"co2_groupa_400ppm_900hpa\",\"result\":\"ok\",\"actual\":{\"sample_count\":3}}"
+    ]
+  }
+}

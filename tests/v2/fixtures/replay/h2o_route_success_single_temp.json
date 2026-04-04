@@ -1,0 +1,34 @@
+{
+  "kind": "compare",
+  "validation_profile": "replacement_h2o_only_simulated",
+  "route_mode": "h2o_only",
+  "temp_c": 20.0,
+  "bench_context": {
+    "co2_0ppm_available": true,
+    "other_gases_available": true,
+    "h2o_route_available": true,
+    "humidity_generator_humidity_feedback_valid": true,
+    "validation_role": "simulated_diagnostic",
+    "target_route": "h2o",
+    "diagnostic_only": true,
+    "acceptance_evidence": false
+  },
+  "v1": {
+    "ok": true,
+    "status_phase": "completed",
+    "trace_lines": [
+      "{\"route\":\"h2o\",\"action\":\"set_h2o_path\",\"point_tag\":\"h2o_20c_50rh_800hpa\",\"result\":\"ok\"}",
+      "{\"route\":\"h2o\",\"action\":\"wait_humidity\",\"point_tag\":\"h2o_20c_50rh_800hpa\",\"result\":\"ok\"}",
+      "{\"route\":\"h2o\",\"action\":\"sample_end\",\"point_tag\":\"h2o_20c_50rh_800hpa\",\"result\":\"ok\",\"actual\":{\"sample_count\":4}}"
+    ]
+  },
+  "v2": {
+    "ok": true,
+    "status_phase": "completed",
+    "trace_lines": [
+      "{\"route\":\"h2o\",\"action\":\"set_h2o_path\",\"point_tag\":\"h2o_20c_50rh_800hpa\",\"result\":\"ok\"}",
+      "{\"route\":\"h2o\",\"action\":\"wait_humidity\",\"point_tag\":\"h2o_20c_50rh_800hpa\",\"result\":\"ok\"}",
+      "{\"route\":\"h2o\",\"action\":\"sample_end\",\"point_tag\":\"h2o_20c_50rh_800hpa\",\"result\":\"ok\",\"actual\":{\"sample_count\":4}}"
+    ]
+  }
+}

@@ -1,0 +1,1970 @@
+{
+  "app": {
+    "description": "Gas Calibrator V2 cockpit",
+    "arg": {
+      "config": "Path to V2 JSON config",
+      "simulation": "Force simulation mode"
+    },
+    "startup": {
+      "preparing_runtime": "Preparing runtime...",
+      "loading_config": "Loading cockpit configuration...",
+      "connecting_feed": "Connecting live state feed...",
+      "ready": "Ready"
+    }
+  },
+  "app_info": {
+    "product_name": "Gas Calibrator V2 Cockpit"
+  },
+  "common": {
+    "ready": "Ready",
+    "working": "Working...",
+    "none": "None",
+    "present": "present",
+    "missing": "missing",
+    "yes": "Yes",
+    "no": "No"
+  },
+  "terms": {
+    "coverage": "coverage",
+    "reference": "reference",
+    "exports": "exports",
+    "error": "error",
+    "warning": "warning",
+    "parity": "parity",
+    "stable": "stable",
+    "missing_gates": "missing {count} gates"
+  },
+  "shell": {
+    "title": "Gas Calibrator V2 Cockpit",
+    "license_fallback": "No bundled license text available.",
+    "nav": {
+      "title": "V2 Cockpit",
+      "run": "Run",
+      "qc": "QC",
+      "results": "Results",
+      "devices": "Devices",
+      "algorithms": "Algorithms",
+      "reports": "Reports",
+      "plans": "Plans"
+    },
+    "metric": {
+      "run_id": "Run ID",
+      "phase": "Phase",
+      "point": "Point",
+      "progress": "Progress",
+      "route": "Route",
+      "message": "Message"
+    },
+    "menu": {
+      "file": "File",
+      "capture_screenshot": "Capture Screenshot",
+      "recent_runs": "Recent Runs",
+      "no_recent_runs": "No recent runs",
+      "exit": "Exit",
+      "edit": "Edit",
+      "preferences": "Preferences...",
+      "view": "View",
+      "help": "Help",
+      "about": "About",
+      "release_notes": "Release Notes",
+      "licenses": "Licenses",
+      "export_diagnostics": "Export Diagnostics"
+    },
+    "recovery": {
+      "title": "Recover Previous Session",
+      "previous_run": "a previous run",
+      "prompt": "Detected an unfinished UI session from {when}.\n\nRun: {run_id}\nPhase: {phase}\nPage: {page}\n\nRestore the last UI page context?"
+    },
+    "log": {
+      "diagnostic_bundle_exported": "Diagnostic bundle exported: {path}",
+      "diagnostic_bundle_export_failed": "Diagnostic bundle export failed: {message}",
+      "recent_run_selected": "Recent run: {path}",
+      "screenshot_exported": "Screenshot exported: {path}",
+      "previous_session_restored": "Previous UI session restored",
+      "previous_session_recovery_skipped": "Previous UI session recovery skipped"
+    }
+  },
+  "run_control": {
+    "source": "Run Source",
+    "points_file": "Points File",
+    "default_profile": "Default Profile",
+    "mode": "Mode",
+    "points": "Points",
+    "preview": "Preview",
+    "edit_points": "Edit Points",
+    "start": "Start",
+    "pause": "Pause",
+    "resume": "Resume",
+    "stop": "Stop",
+    "current_point": "Current Point",
+    "retry": "Retry",
+    "command": "Command",
+    "validation_title": "Replacement Validation",
+    "validation_profile": "Profile",
+    "compare_status": "Compare Status",
+    "first_failure": "First Failure",
+    "evidence": "Evidence",
+    "gate_state": "Gate State",
+    "readiness": "Readiness",
+    "analytics": "Analytics",
+    "lineage": "Lineage",
+    "device_status": "Device Status",
+    "route_state": "Route State",
+    "execution_preview": "Execution Preview",
+    "points_preview_waiting": "Points preview: waiting",
+    "points_preview_failed": "Points preview failed",
+    "points_preview_refreshed": "Points preview refreshed",
+    "no_device_data": "No device data.",
+    "disabled_analyzers": "Disabled analyzers:",
+    "no_validation": "No replacement validation status loaded.",
+    "primary_missing": "primary-missing",
+    "single_temp": "single-temp",
+    "multi_temp": "multi-temp",
+    "tree": {
+      "seq": "Seq",
+      "row": "Row",
+      "temp": "Temp",
+      "route": "Route",
+      "h2o_target": "H2O Target",
+      "co2": "CO2",
+      "pressure": "Pressure",
+      "group": "Group",
+      "status": "Status"
+    },
+    "command_status": {
+      "start": "Start",
+      "start_failed": "Start Failed",
+      "edit": "Edit Points",
+      "edit_failed": "Edit Failed",
+      "paused": "Paused",
+      "pause_failed": "Pause Failed",
+      "resumed": "Resumed",
+      "resume_failed": "Resume Failed",
+      "stopped": "Stopped",
+      "stop_failed": "Stop Failed"
+    },
+    "detail": {
+      "route": "Current Route",
+      "phase": "Current Phase",
+      "source_point": "Source Point",
+      "active_point": "Active Point",
+      "point_tag": "Point Tag",
+      "retry": "Retry Count",
+      "route_state": "Route State Details",
+      "profile": "Validation Profile",
+      "compare_status": "Compare Status",
+      "evidence_source": "Evidence Source",
+      "evidence_state": "Evidence State",
+      "acceptance_level": "Acceptance Level",
+      "acceptance_scope": "Acceptance Scope",
+      "promotion_state": "Promotion State",
+      "review_state": "Review State",
+      "approval_state": "Approval State",
+      "ready_for_promotion": "Ready For Promotion",
+      "first_failure_phase": "First Failure Phase",
+      "missing_conditions": "Missing Conditions",
+      "reference_quality": "Reference Quality",
+      "thermometer_reference": "Thermometer Reference",
+      "pressure_reference": "Pressure Reference",
+      "route_physical_match": "Route Physical Match",
+      "relay_physical_mismatch": "Relay Physical Mismatch",
+      "evidence_layers": "Evidence Layers",
+      "fallback_candidates": "Fallback Candidates",
+      "artifact_bundle": "Artifact Bundle",
+      "report_dir": "Report Dir",
+      "gate": "Gate State",
+      "layer_line": "{tier} | profile={profile} | status={status} | source={evidence_source} | state={evidence_state}",
+      "fallback_line": "{profile} | status={status} | state={evidence_state}"
+    },
+    "route_state_key": {
+      "source_point_index": "Source Point Index",
+      "source_point_tag": "Source Point Tag",
+      "pressure_indices": "Pressure Point Indexes",
+      "sample_point_index": "Sample Point Index",
+      "pressure_point_index": "Pressure Reference Index",
+      "pressure_target_hpa": "Target Pressure",
+      "temperature_c": "Temperature",
+      "point_indices": "Point Indexes",
+      "h2o_indices": "H2O Point Indexes",
+      "co2_indices": "CO2 Point Indexes",
+      "active_subroute": "Active Subroute",
+      "lead_point_index": "Lead Point Index",
+      "retry": "Retry Count",
+      "pressure_ready": "Pressure Ready",
+      "soak": "Soak State"
+    }
+  },
+  "widgets": {
+    "notification": {
+      "title": "Notifications",
+      "empty_title": "No notifications",
+      "empty_message": "System reminders and export notices will show up here."
+    },
+    "empty_state": {
+      "title": "No data yet",
+      "message": "This panel will populate once data is available."
+    },
+    "qc_overview": {
+      "title": "QC Overview",
+      "score": "QC Score",
+      "valid": "Valid",
+      "invalid": "Invalid",
+      "total": "Total",
+      "empty": "No QC data yet.",
+      "grade": "Grade {grade}",
+      "summary": "Valid {valid} / {total} | Invalid {invalid}",
+      "no_totals": "No QC totals",
+      "bar_valid": "{valid}/{total} valid"
+    },
+    "startup": {
+      "title": "Starting Gas Calibrator V2",
+      "heading": "Gas Calibrator V2",
+      "starting": "Starting...",
+      "loading": "Loading..."
+    },
+    "log_panel": {
+      "title": "Event / Log"
+    },
+    "route_progress": {
+      "title": "Route Progress",
+      "no_active": "No active route.",
+      "detail": "Route={route} Phase={phase} Progress={completed}/{total}",
+      "no_steps": "No route steps",
+      "step_h2o": "H2O",
+      "step_co2": "CO2",
+      "step_finalize": "Finalize"
+    },
+    "winner": {
+      "title": "Winner",
+      "pending": "pending",
+      "no_recommendation": "No recommendation yet."
+    },
+    "timeseries": {
+      "title": "Time Series",
+      "no_data": "No live data"
+    },
+    "ai_summary": {
+      "title": "AI Summary"
+    },
+    "artifact_list": {
+      "artifact": "Artifact",
+      "present": "Present",
+      "origin": "Origin",
+      "role_status": "Role / Status",
+      "unclassified": "Unclassified",
+      "origin_current_run": "Current Run",
+      "origin_review_reference": "Review Reference",
+      "origin_source_scan": "Source Scan",
+      "origin_missing_reference": "Missing Reference",
+      "export_status_ok": "ok",
+      "export_status_skipped": "skipped",
+      "export_status_missing": "missing",
+      "export_status_error": "error",
+      "export_status_unregistered": "Unregistered",
+      "exportability_current_run": "Current-run exportable",
+      "exportability_current_run_missing": "Current-run missing",
+      "exportability_review_reference": "Reference only",
+      "exportability_source_scan": "Source-scan only",
+      "exportability_missing_reference": "Reference missing",
+      "path": "Path"
+    },
+    "algorithm_compare": {
+      "algorithm": "Algorithm",
+      "source": "Source",
+      "status": "Status",
+      "note": "Note"
+    },
+    "export_bar": {
+      "title": "Current-Run Artifact Export",
+      "export_all": "Export All",
+      "review_manifest": "Review Manifest",
+      "formats": "Current-run export formats: {formats}",
+      "ready": "Ready",
+      "unavailable": "Export unavailable",
+      "failed": "Export failed: {message}",
+      "done": "Done",
+      "failed_short": "Failed: {message}"
+    },
+    "device_status": {
+      "device": "Device",
+      "status": "Status",
+      "port": "Port"
+    },
+    "analyzer_health": {
+      "title": "Analyzer Health",
+      "analyzer": "Analyzer",
+      "status": "Status",
+      "health": "Health",
+      "note": "Note"
+    },
+    "qc_reject_reason": {
+      "title": "QC Reject Reasons",
+      "no_data": "No reject reasons"
+    },
+    "residual_chart": {
+      "title": "Residual Comparison",
+      "distribution_title": "Residual Distribution",
+      "no_data": "No residual data"
+    }
+  },
+  "pages": {
+    "results": {
+      "overview": "Run Overview",
+      "algorithm_compare": "Algorithm Compare",
+      "result_summary": "Result Summary",
+      "coefficient_summary": "Coefficient Summary",
+      "ai_summary": "AI Summary",
+      "residual_distribution": "Residual Distribution",
+      "no_overview": "No run overview yet.",
+      "no_algorithm_summary": "No algorithm summary yet.",
+      "no_result_summary": "No result summary yet.",
+      "no_coefficient_summary": "No coefficient summary yet.",
+      "no_ai_summary": "No AI summary yet.",
+      "review_center": "Review Center"
+    },
+    "devices": {
+      "enabled_devices": "Enabled Devices",
+      "listed_rows": "Listed Rows",
+      "disabled_analyzers": "Disabled Analyzers",
+      "warnings_errors": "Warnings / Errors",
+      "workbench": {
+        "title": "Device Workbench",
+        "banner": {
+          "simulation_mode": "Simulation Mode",
+          "offline_only": "This workbench only drives simulation / fake devices.",
+          "no_real_hardware": "No real hardware access and no real serial/COM ports.",
+          "validation_only": "Offline validation, diagnostics, and future safety gating only."
+        },
+        "common": {
+          "unmapped": "Unmapped"
+        },
+        "device": {
+          "analyzer": "Analyzer",
+          "pace": "Pressure Controller (PACE)",
+          "grz": "Humidity Generator (GRZ5013)",
+          "chamber": "Temperature Chamber",
+          "relay": "Relay 16ch",
+          "relay_8": "Relay 8ch",
+          "thermometer": "Digital Thermometer",
+          "pressure_gauge": "Digital Pressure Gauge / Reference"
+        },
+        "field": {
+          "analyzer_index": "Analyzer",
+          "view_mode": "View",
+          "quick_scenario": "Quick Scenario",
+          "sequence": "Seq",
+          "time": "Time",
+          "device": "Device",
+          "action_name": "Action",
+          "result": "Result",
+          "fault_injection": "Fault",
+          "channel": "Channel",
+          "expected": "Expected",
+          "actual": "Actual",
+          "input_status": "Input",
+          "valve_mapping": "Valve Mapping",
+          "preset": "Presets",
+          "layout_mode": "Layout",
+          "display_profile": "Display Profile"
+        },
+        "action": {
+          "workbench": {
+            "set_view_mode": "Set view mode",
+            "set_layout_mode": "Set layout",
+            "set_display_profile": "Set display profile",
+            "run_quick_scenario": "Run quick scenario",
+            "generate_diagnostic_evidence": "Generate diagnostic evidence"
+          },
+          "analyzer": {
+            "select": "Select analyzer",
+            "set_mode": "Set mode",
+            "set_active_state": "Set active/passive",
+            "set_frequency": "Set frequency",
+            "read_frame": "Read frame",
+            "broadcast": "Broadcast FFF",
+            "inject_fault": "Inject fault"
+          },
+          "pace": {
+            "set_vent": "Set vent",
+            "set_output": "Set output",
+            "set_isolation": "Set isolation",
+            "set_pressure": "Set pressure",
+            "set_unit": "Set unit",
+            "read_pressure": "Read pressure",
+            "query_error": "Query error",
+            "inject_fault": "Inject fault"
+          },
+          "grz": {
+            "set_target_temp": "Set target temp",
+            "set_target_rh": "Set target RH",
+            "set_target_flow": "Set target flow",
+            "set_cool": "Set COOL",
+            "set_heat": "Set HEAT",
+            "set_control": "Set CTRL",
+            "fetch_all": "Read FETC?(@All)",
+            "inject_fault": "Inject fault"
+          },
+          "chamber": {
+            "set_temperature": "Set temperature",
+            "set_humidity": "Set humidity",
+            "run": "Run",
+            "stop": "Stop",
+            "set_mode": "Set mode"
+          },
+          "relay": {
+            "write_channel": "Write channel",
+            "all_off": "All off",
+            "batch_write": "Batch write",
+            "inject_fault": "Inject fault"
+          },
+          "thermometer": {
+            "set_mode": "Set mode"
+          },
+          "pressure_gauge": {
+            "set_measurement_mode": "Set output mode",
+            "set_unit": "Set unit",
+            "inject_fault": "Inject fault"
+          }
+        },
+        "button": {
+          "run_quick_scenario": "Run Scenario",
+          "generate_evidence": "Generate Evidence",
+          "apply_display_profile": "Apply Profile",
+          "inject_fault": "Inject Fault",
+          "analyzer": {
+            "mode1": "Set MODE1",
+            "mode2": "Set MODE2",
+            "mode3": "Set MODE3",
+            "active": "Set Active",
+            "passive": "Set Passive",
+            "read_frame": "Read Frame",
+            "broadcast": "Broadcast FFF",
+            "set_frequency": "Apply Freq"
+          },
+          "pace": {
+            "vent_on": "Vent On",
+            "vent_off": "Vent Off",
+            "output_on": "Output On",
+            "output_off": "Output Off",
+            "isolation_on": "Isolation On",
+            "isolation_off": "Isolation Off",
+            "set_pressure": "Apply Pressure",
+            "set_unit": "Apply Unit",
+            "read_pressure": "Read Pressure",
+            "query_error": "Query Error"
+          },
+          "grz": {
+            "set_temp": "Apply Temp",
+            "set_rh": "Apply RH",
+            "set_flow": "Apply Flow",
+            "cool_on": "COOL On",
+            "cool_off": "COOL Off",
+            "heat_on": "HEAT On",
+            "heat_off": "HEAT Off",
+            "ctrl_on": "CTRL On",
+            "ctrl_off": "CTRL Off",
+            "fetch_all": "FETC?(@All)"
+          },
+          "chamber": {
+            "set_temp": "Apply Temp",
+            "set_rh": "Apply RH",
+            "run": "Run",
+            "stop": "Stop",
+            "set_mode": "Apply Mode"
+          },
+          "relay": {
+            "channel_on": "Channel On",
+            "channel_off": "Channel Off",
+            "all_off": "All Off",
+            "batch_write": "Batch Write"
+          },
+          "thermometer": {
+            "set_mode": "Apply Mode"
+          },
+          "pressure": {
+            "set_mode": "Apply Output Mode",
+            "set_unit": "Apply Unit"
+          },
+          "run_preset": "Run Preset"
+        },
+        "summary": {
+          "description": "The Devices page is now a simulation-only device workbench.",
+          "evidence": "Reference quality: {reference} | Route physical integrity: {route}",
+          "health": "{status}",
+          "health_stable": "Device health stable",
+          "health_attention": "Device health needs attention",
+          "fault_item": "{device}: {fault}",
+          "route_mismatch_active": "Route physical mismatch evidence is active",
+          "reference_fault_item": "Reference quality degraded: {quality}",
+          "no_faults": "No injected faults",
+          "reference": "Overall={quality} | Thermometer={thermometer} | Pressure={pressure}",
+          "route": "Route={status} | {detail}",
+          "history": "Recent actions {count}: {detail}",
+          "history_item": "#{seq} {device} {action} {result}",
+          "risk_attention": "Injected faults are active. Use for offline diagnostics only.",
+          "risk_safe": "Simulation-only controls with no active injected faults.",
+          "no_evidence": "No workbench evidence generated yet.",
+          "last_evidence": "Generated at {generated_at} | role={role} | state={state}",
+          "health_label": "Health Summary",
+          "faults_label": "Fault Summary",
+          "reference_label": "Reference Summary",
+          "route_label": "Route Summary",
+          "history_label": "Action History",
+          "risk_label": "Risk Prompt",
+          "last_evidence_label": "Latest Evidence",
+          "evidence_label": "Evidence State",
+          "operator_hint_label": "Latest Action",
+          "engineer_hint_label": "Safety Notice",
+          "engineer": "Scenario={context} | actions={actions} | view={view}",
+          "engineer_label": "Simulation Context",
+          "diagnostic_history": "Diagnostics / History",
+          "recent_frames": "Recent frames: {frames}",
+          "analyzer": "Device ID={device_id} | Mode={mode} | Active/passive={state} | Frequency={frequency} Hz | Status bits={status_bits}",
+          "pace": "Pressure={pressure} | Target={target} | vent={vent} | output={output} | isolation={isolation} | unit={unit} | slew={slew} hPa/s | error queue={errors}",
+          "grz": "Target temp={target_temp} | Target RH={target_rh}% | Target flow={target_flow} L/min | Current temp={current_temp} | Current RH={current_rh}% | Dew point={dewpoint} | Snapshot={snapshot}",
+          "chamber": "Temp={temperature} | RH={humidity}% | run/stop={running} | Set temp={target_temp} | Set RH={target_rh}% | Soak={soak}",
+          "thermometer": "Parsed temp={temperature} | Reference quality={status} | ASCII preview={preview}",
+          "pressure": "Pressure={pressure} | Unit={unit} | Reference quality={status} | Output mode={mode} | Preview={preview}"
+        },
+        "relay": {
+          "route_match": "Expected open={target} | Actual open={actual} | Route physical state matches.",
+          "route_mismatch": "Expected open={target} | Actual open={actual} | Direct route physical mismatch / relay stuck evidence detected."
+        },
+        "message": {
+          "view_mode_set": "Workbench view switched to {view}.",
+          "layout_mode_set": "Workbench layout switched to {mode}.",
+          "display_profile_set": "Display profile switched to {profile}.",
+          "quick_scenario_done": "Quick scenario applied: {scenario}.",
+          "evidence_generated": "Workbench simulated diagnostic evidence generated.",
+          "custom_preset_saved": "Custom preset {preset} saved.",
+          "custom_preset_deleted": "Custom preset {preset} deleted.",
+          "display_profile_context_refreshed": "Display profile context refreshed: {profile}.",
+          "selected_analyzer": "Switched to analyzer {index}.",
+          "analyzer_mode_set": "Analyzer {index} set to MODE{mode}.",
+          "analyzer_active_set": "Analyzer {index} set to {state}.",
+          "analyzer_frequency_set": "Analyzer {index} frequency set to {frequency} Hz.",
+          "analyzer_frame_read": "Read one frame from analyzer {index}.",
+          "analyzer_broadcast": "Broadcast FFF sent to analyzer {index}.",
+          "analyzer_fault_set": "Analyzer {index} fault injected: {fault}.",
+          "pace_vent_set": "PACE vent set to {state}.",
+          "pace_output_set": "PACE output set to {state}.",
+          "pace_isolation_set": "PACE isolation set to {state}.",
+          "pace_pressure_set": "PACE target pressure set to {pressure}.",
+          "pace_unit_set": "PACE unit set to {unit}.",
+          "pace_pressure_read": "PACE pressure read.",
+          "pace_error_queried": "PACE error queue returned: {error}",
+          "pace_fault_set": "PACE fault injected: {fault}.",
+          "grz_target_temp_set": "GRZ5013 target temperature set to {temperature}.",
+          "grz_target_rh_set": "GRZ5013 target humidity set to {humidity}.",
+          "grz_target_flow_set": "GRZ5013 target flow set to {flow}.",
+          "grz_cool_set": "GRZ5013 COOL set to {state}.",
+          "grz_heat_set": "GRZ5013 HEAT set to {state}.",
+          "grz_control_set": "GRZ5013 CTRL set to {state}.",
+          "grz_snapshot_read": "GRZ5013 FETC?(@All) snapshot read.",
+          "grz_fault_set": "GRZ5013 state injected: {fault}.",
+          "chamber_temperature_set": "Chamber temperature set to {temperature}.",
+          "chamber_humidity_set": "Chamber humidity set to {humidity}.",
+          "chamber_run": "Chamber switched to run.",
+          "chamber_stop": "Chamber switched to stop.",
+          "chamber_mode_set": "Chamber mode set to {mode}.",
+          "relay_channel_set": "{relay} channel {channel} set to {state}.",
+          "relay_all_off": "{relay} all-off applied.",
+          "relay_batch_set": "{relay} batch write applied.",
+          "relay_fault_set": "Relay fault injected: {fault}.",
+          "thermometer_mode_set": "Thermometer mode set to {mode}.",
+          "pressure_mode_set": "Pressure gauge output mode set to {mode}.",
+          "pressure_unit_set": "Pressure gauge unit set to {unit}.",
+          "pressure_fault_set": "Pressure gauge fault injected: {fault}.",
+          "action_failed": "{device} action failed: {error}",
+          "history_filter_set": "History filters updated.",
+          "history_detail_selected": "History detail updated.",
+          "snapshot_compare_set": "Snapshot comparison updated.",
+          "preset_done": "Preset executed: {preset}",
+          "preset_favorite_set": "Preset {preset} updated to {state}.",
+          "preset_pin_set": "Preset {preset} updated to {state}."
+        },
+        "view": {
+          "operator_view": "Operator View",
+          "engineer_view": "Engineer View"
+        },
+        "quick_scenario": {
+          "analyzer_partial_frame": {
+            "label": "Analyzer Partial Frame",
+            "description": "Inject a partial analyzer frame and read one frame."
+          },
+          "pace_cleanup_no_response": {
+            "label": "PACE Cleanup No Response",
+            "description": "Inject cleanup no_response and query the PACE error queue."
+          },
+          "relay_stuck": {
+            "label": "Relay Stuck",
+            "description": "Inject relay stuck and force a route mismatch."
+          },
+          "thermometer_stale": {
+            "label": "Thermometer Stale",
+            "description": "Set the thermometer to stale reference quality."
+          },
+          "pressure_wrong_unit": {
+            "label": "Pressure Wrong Unit",
+            "description": "Inject wrong pressure unit configuration."
+          }
+        },
+        "report": {
+          "title": "Workbench Diagnostic Evidence",
+          "generated_at": "Generated At",
+          "evidence_source": "Evidence Source",
+          "evidence_state": "Evidence State",
+          "acceptance_guard": "Not Real Acceptance Evidence",
+          "current_view": "Current View",
+          "current_device": "Current Device",
+          "current_action": "Current Action",
+          "operator_summary": "Operator Summary",
+          "action_history": "Action History",
+          "reference_quality": "Reference Quality Detail",
+          "route_validation": "Route Validation Detail",
+          "simulation_context": "Simulation Context",
+          "risk_level": "Risk Level",
+          "device_category": "Device Category",
+          "fault_injection": "Fault Injection",
+          "reference_quality_summary": "Reference Quality Summary",
+          "route_relay_summary": "Route / Relay Summary",
+          "snapshot_compare": "Snapshot Compare"
+        },
+        "enum": {
+          "action_result": {
+            "ok": "Success",
+            "failed": "Failed"
+          },
+          "analyzer_mode": {
+            "mode_1": "MODE1",
+            "mode_2": "MODE2",
+            "mode_3": "MODE3"
+          },
+          "active_state": {
+            "active": "Active",
+            "passive": "Passive"
+          },
+          "analyzer_fault": {
+            "stable": "Stable",
+            "partial_frame": "Partial frame",
+            "truncated_frame": "Truncated frame",
+            "corrupted_frame": "Corrupted frame",
+            "no_response": "No response",
+            "sensor_precheck_fail": "Sensor precheck fail"
+          },
+          "pace_fault": {
+            "stable": "Stable",
+            "no_response": "No response",
+            "unsupported_header": "Unsupported header",
+            "cleanup_no_response": "Cleanup no response",
+            "wrong_unit_configuration": "Wrong unit configuration"
+          },
+          "grz_fault": {
+            "stable": "Stable",
+            "temperature_only_progress": "Temperature only progress",
+            "humidity_static_fault": "Humidity static fault",
+            "timeout": "Timeout"
+          },
+          "chamber_mode": {
+            "stable": "Stable",
+            "ramp_to_target": "Ramp to target",
+            "soak_pending": "Soak pending",
+            "on_target": "On target",
+            "stalled": "Stalled",
+            "alarm": "Alarm"
+          },
+          "relay_fault": {
+            "stable": "Stable",
+            "stuck_channel": "Stuck channel",
+            "read_fail": "Read fail",
+            "write_fail": "Write fail"
+          },
+          "thermometer_mode": {
+            "stable": "Stable",
+            "drift": "Drift",
+            "stale": "Stale",
+            "no_response": "No response",
+            "warmup_unstable": "Warmup unstable",
+            "plus_200_mode": "+200 mode",
+            "corrupted_ascii": "Corrupted ASCII",
+            "truncated_ascii": "Truncated ASCII"
+          },
+          "pressure_output_mode": {
+            "single": "Single",
+            "continuous": "Continuous",
+            "sample_hold": "Sample hold"
+          },
+          "pressure_fault": {
+            "stable": "Stable",
+            "continuous_stream": "Continuous stream",
+            "sample_hold": "Sample hold",
+            "unit_switch": "Unit switch",
+            "no_response": "No response",
+            "unsupported_command": "Unsupported command",
+            "wrong_unit_configuration": "Wrong unit configuration"
+          },
+          "reference_status": {
+            "healthy": "Healthy",
+            "degraded": "Degraded",
+            "failed": "Failed",
+            "stale": "Stale",
+            "drift": "Drift",
+            "warmup_unstable": "Warmup unstable",
+            "wrong_unit_configuration": "Wrong unit configuration",
+            "no_response": "No response",
+            "unsupported_command": "Unsupported command",
+            "display_interrupted": "Display interrupted",
+            "corrupted_ascii": "Corrupted ASCII",
+            "truncated_ascii": "Truncated ASCII",
+            "not_assessed": "Not assessed",
+            "skipped_by_profile": "Skipped by profile"
+          },
+          "on_off": {
+            "on": "On",
+            "off": "Off"
+          },
+          "route_match": {
+            "match": "Match",
+            "mismatch": "Mismatch"
+          }
+        },
+        "history": {
+          "filter": {
+            "device": "Device Filter",
+            "result": "Result Filter",
+            "all_devices": "All Devices",
+            "all_results": "All Results",
+            "success": "Success",
+            "failed": "Failed",
+            "fault_injection": "Fault Injection"
+          },
+          "no_detail": "No action detail available.",
+          "detail_line": "#{sequence} {device} {action} | result={result} | fault={fault}",
+          "jump_snapshot": "Open Snapshot",
+          "jump_evidence": "Open Evidence",
+          "no_related_snapshot": "No linked snapshot",
+          "no_related_evidence": "No linked evidence",
+          "related_snapshot": {
+            "detail": "Linked snapshot: {label} -> compare {compare}"
+          },
+          "related_evidence": {
+            "detail": "Linked evidence: {summary} | {path}"
+          }
+        },
+        "snapshot": {
+          "left": "Snapshot A",
+          "right": "Snapshot B",
+          "compare_button": "Compare Snapshots",
+          "title": "Snapshot Compare",
+          "no_compare": "No comparable snapshots yet.",
+          "item_label": "#{seq} {device} {action}",
+          "compare_summary": "Snapshot #{left} vs #{right}",
+          "no_change": "No key state changes detected.",
+          "compare": {
+            "reference": "Reference Quality",
+            "route": "Route / Relay",
+            "analyzer": "Analyzer",
+            "pace": "PACE Error Queue",
+            "thermometer": "Thermometer Output",
+            "pressure": "Pressure Gauge Output"
+          }
+        },
+        "preset": {
+          "analyzer": {
+            "mode2_active_read": {
+              "label": "MODE2 Active Read",
+              "description": "Switch to MODE2, enable active send, and read one frame."
+            },
+            "partial_frame": {
+              "label": "Analyzer Partial Frame",
+              "description": "Switch to MODE2 active send and inject a partial-frame fault."
+            }
+          },
+          "pace": {
+            "vent_on": {
+              "label": "Vent On",
+              "description": "Enable PACE venting."
+            },
+            "vent_off": {
+              "label": "Vent Off",
+              "description": "Disable PACE venting."
+            },
+            "set_pressure": {
+              "label": "Set Pressure",
+              "description": "Apply the current target pressure input to PACE."
+            },
+            "unsupported_header": {
+              "label": "Unsupported Header",
+              "description": "Inject the unsupported-header protocol fault."
+            }
+          },
+          "grz": {
+            "stable": {
+              "label": "GRZ Stable",
+              "description": "Return GRZ to a stable state."
+            },
+            "humidity_static_fault": {
+              "label": "Humidity Static Fault",
+              "description": "Inject a humidity-static fault."
+            },
+            "timeout": {
+              "label": "GRZ Timeout",
+              "description": "Inject a timeout fault."
+            }
+          },
+          "chamber": {
+            "reach_target": {
+              "label": "Reach Target",
+              "description": "Return the chamber to the stable target state."
+            },
+            "stalled": {
+              "label": "Chamber Stalled",
+              "description": "Inject the stalled state."
+            },
+            "alarm": {
+              "label": "Chamber Alarm",
+              "description": "Inject the alarm state."
+            }
+          },
+          "relay": {
+            "all_off": {
+              "label": "All Off",
+              "description": "Turn all target relay channels off."
+            },
+            "route_h2o": {
+              "label": "Route H2O",
+              "description": "Switch relays to the H2O route."
+            },
+            "route_co2": {
+              "label": "Route CO2",
+              "description": "Switch relays to the CO2 route."
+            },
+            "stuck_channel": {
+              "label": "Stuck Channel",
+              "description": "Inject a stuck-channel relay fault."
+            }
+          },
+          "thermometer": {
+            "stable": {
+              "label": "Thermometer Stable",
+              "description": "Return the thermometer to a stable state."
+            },
+            "stale": {
+              "label": "Thermometer Stale",
+              "description": "Inject the stale state."
+            },
+            "drift": {
+              "label": "Thermometer Drift",
+              "description": "Inject the drift state."
+            }
+          },
+          "pressure_gauge": {
+            "stable": {
+              "label": "Pressure Stable",
+              "description": "Return the pressure gauge to a stable state."
+            },
+            "wrong_unit": {
+              "label": "Wrong Unit",
+              "description": "Inject a wrong-unit configuration fault."
+            },
+            "no_response": {
+              "label": "No Response",
+              "description": "Inject a no-response fault."
+            }
+          }
+        },
+        "layout": {
+          "compact": "Compact",
+          "standard": "Standard"
+        },
+        "display_profile": {
+          "auto": "Auto",
+          "dense_1080p": "Dense 1080p",
+          "standard_display": "Standard Display"
+        },
+        "display_profile_profile": {
+          "1080p_compact": "1080p Compact",
+          "1080p_standard": "1080p Standard",
+          "1440p_compact": "1440p Compact",
+          "1440p_standard": "1440p Standard",
+          "4k_compact": "4K Compact",
+          "4k_standard": "4K Standard",
+          "ultrawide_compact": "Ultrawide Compact",
+          "ultrawide_standard": "Ultrawide Standard"
+        },
+        "display_profile_family": {
+          "1080p": "1080p Family",
+          "1440p": "1440p Family",
+          "4k": "4K Family",
+          "ultrawide": "Ultrawide Family"
+        },
+        "display_profile_monitor": {
+          "compact_monitor": "Compact Monitor",
+          "standard_monitor": "Standard Monitor",
+          "wide_monitor": "Wide Monitor"
+        },
+        "display_profile_resolution": {
+          "dense_1080p": "Dense 1080p",
+          "wide_1440p": "Wide 1440p",
+          "ultra_hd": "Ultra HD",
+          "full_hd": "Full HD",
+          "wide_resolution": "Wide Resolution",
+          "ultrawide_resolution": "Ultrawide Resolution"
+        },
+        "display_profile_window": {
+          "compact_window": "Compact Window",
+          "comfort_window": "Comfort Window",
+          "wide_window": "Wide Window",
+          "standard_window": "Standard Window"
+        },
+        "display_profile_reason": {
+          "manual_dense_1080p": "Manual dense profile",
+          "manual_standard_display": "Manual standard profile",
+          "wide_or_large_window": "Large window / wide monitor",
+          "default_1080p": "Default 1080p strategy",
+          "balanced_default": "Balanced default strategy",
+          "wide_resolution": "Wide-resolution strategy",
+          "simulated_1440p_canvas": "Simulated 1440p canvas",
+          "simulated_4k_canvas": "Simulated 4K canvas",
+          "simulated_ultrawide_canvas": "Simulated ultrawide canvas"
+        },
+        "display_profile_multi_monitor": {
+          "single_monitor_baseline": "Single-monitor baseline",
+          "future_multi_monitor_ready": "Future multi-monitor ready"
+        },
+        "display_profile_hint": "{profile} | {family} | {resolution} | {layout} | {monitor}",
+        "preset_center": {
+          "title": "Preset Center",
+          "group": "Group",
+          "preset": "Preset",
+          "recent": "Recent",
+          "run_recent": "Run Recent",
+          "summary": "{groups} groups / {pinned} pinned / {favorites} favorites / {recent} recent items / custom {custom}",
+          "recent_item": "{group} / {preset}",
+          "favorite_button": "Favorite",
+          "pin_button": "Pin",
+          "favorite_enabled": "Favorited",
+          "favorite_disabled": "Not Favorited",
+          "pin_enabled": "Pinned",
+          "pin_disabled": "Not Pinned",
+          "source_builtin": "Built-in",
+          "source_custom": "Custom",
+          "detail": "{source} | {description} | {pinned} | {favorite} | {steps} steps | used {usage} times | {metadata}",
+          "detail_with_metadata": "{source} | {description} | {pinned} | {favorite} | {steps} steps | used {usage} times | {metadata}",
+          "detail_origin": "Origin {origin} | imported from {imported_from} | source ref {source_ref}",
+          "detail_capabilities": "Fake capabilities: {capabilities}",
+          "detail_parameters": "Parameters: {parameters}",
+          "metadata_line": "v{version} | {schema} | {origin} | created {created} | updated {updated}",
+          "capability": {
+            "summary": "{capabilities}",
+            "analyzer": "Analyzer frame path",
+            "pace": "Pressure controller path",
+            "grz": "Humidity generator path",
+            "chamber": "Chamber path",
+            "relay": "Relay routing path",
+            "thermometer": "Thermometer reference path",
+            "pressure_gauge": "Pressure reference path",
+            "fault_injection": "Fault injection",
+            "multi_step": "Multi-step orchestration"
+          },
+          "custom_summary": "{count} simulation-only custom presets are available.",
+          "no_custom_presets": "No custom presets in the current group.",
+          "custom_picker_label": "{label} · {source} {steps} steps",
+          "origin": {
+            "local_editor": "Local Editor",
+            "import_bundle": "Imported Bundle",
+            "duplicated": "Duplicated",
+            "builtin_export": "Built-in Export"
+          },
+          "manager": {
+            "title": "Preset Manager",
+            "summary": "Custom {custom} / recent {recent} | conflict policy {policy}",
+            "bundle_format_summary": "Bundle format | schema {schema} v{schema_version} | preset schema {preset_schema} | simulation-only",
+            "conflict_policy_summary": "Conflict policy | active {policy}",
+            "conflict_strategy_summary": "Conflict strategy | active {policy} | supported {supported}",
+            "sharing_reserved_fields_summary": "Sharing reserved fields | {fields}",
+            "bundle_profile_summary": "Bundle profile | {profile}",
+            "sharing_ready_summary": "Sharing preparation | local JSON only | reserved fields {fields}",
+            "import_conflict_summary": "Import conflicts | policy {policy} | created {created} | renamed {renamed} | overwritten {overwritten}",
+            "directory": {
+              "builtin": "Built-in Presets",
+              "local_custom": "Local Custom Presets",
+              "imported": "Imported Presets",
+              "entry": "{label} {count}",
+              "summary": "Directory | built-in {builtin} / local custom {local_custom} / imported {imported}"
+            },
+            "duplicate_button": "Duplicate Current",
+            "duplicate_label": "{label} Copy",
+            "export_selected_button": "Export Current",
+            "export_group_button": "Export Group",
+            "export_all_button": "Export All",
+            "import_button": "Import JSON",
+            "conflict_policy_label": "Conflict Policy",
+            "conflict_policy": {
+              "rename": "Rename on Conflict",
+              "overwrite": "Overwrite Existing"
+            },
+            "future_sharing_hint": "Local JSON collaboration only for now; shared preset service stays out of scope in step two.",
+            "import_source_timestamp": "{scope} bundle @ {exported_at}",
+            "import_source_scope": "{scope} bundle",
+            "import_renamed_label": "{label} Imported {index}",
+            "export_summary": "Exported {count} simulation-only presets.",
+            "import_summary": "Imported {count} simulation-only presets | renamed {renamed} | overwritten {overwritten} | policy {policy}.",
+            "error": {
+              "schema_invalid": "Preset bundle schema mismatch: expected {expected}, got {actual}.",
+              "simulation_only_required": "Preset bundle must remain simulation-only.",
+              "bundle_empty": "Preset bundle is empty.",
+              "item_invalid": "Preset item #{index} does not match the simulation preset schema.",
+              "bundle_no_valid_presets": "Preset bundle does not contain valid simulation presets.",
+              "json_required": "Preset bundle JSON is required.",
+              "json_invalid": "Preset bundle JSON is invalid: {error}",
+              "object_required": "Preset bundle must be a JSON object."
+            }
+          },
+          "editor": {
+            "title": "Custom Preset Editor",
+            "summary": "Simulation/fake action composition only. No real hardware access.",
+            "new_button": "New",
+            "load_button": "Load Selected",
+            "save_button": "Save",
+            "delete_button": "Delete",
+            "group": "Group",
+            "name": "Name",
+            "description": "Description",
+            "analyzer_index": "Analyzer Index",
+            "pressure_hpa": "Pressure (hPa)",
+            "relay_name": "Relay",
+            "channel": "Channel",
+            "step": "Step {index}",
+            "loaded_id": "Preset ID: {preset_id}",
+            "unsaved": "Unsaved"
+          }
+        },
+        "preset_group": {
+          "analyzer": "Analyzer",
+          "pace": "PACE",
+          "grz": "GRZ",
+          "chamber": "Chamber",
+          "relay": "Relay",
+          "thermometer": "Thermometer",
+          "pressure": "Pressure"
+        },
+        "engineer_overview": "Engineer Overview",
+        "engineer_evidence": "Evidence",
+        "engineer_data_state": {
+          "no_data": "No Data",
+          "diagnostic_only": "Diagnostic Only",
+          "failed": "Failed",
+          "ready": "Ready"
+        },
+        "engineer_card": {
+          "reference": "Reference",
+          "route": "Route",
+          "history": "History",
+          "evidence": "Evidence",
+          "statistics": "Statistics",
+          "statistics_summary": "passed {success} / failed {failed} / devices {devices}",
+          "suite_analytics": "Suite / Analytics",
+          "suite_analytics_summary": "{suite} | {status} | {analytics} | lineage {lineage}",
+          "artifact_lineage": "Artifact / Lineage",
+          "artifact_lineage_summary": "role {role} | source {source} | state {state}"
+        },
+        "engineer_card.statistics_summary": "passed {success} / failed {failed} / devices {devices}",
+        "engineer_block": {
+          "route": "Route Health",
+          "reference": "Reference State",
+          "reference_note": "Thermometer {thermometer} | Pressure {pressure}",
+          "faults": "Fault Injection",
+          "evidence": "Evidence State"
+        },
+        "engineer_trend": {
+          "actions": "Recent Actions",
+          "actions_value": "passed {success} / failed {failed}",
+          "faults": "Fault Window",
+          "faults_value": "recent fault actions {count}",
+          "faults_note": "{recent} recent actions in window",
+          "snapshots": "Snapshot Coverage",
+          "snapshots_value": "snapshots {count}",
+          "presets": "Preset Usage",
+          "presets_value": "recent {recent} / favorites {favorites}",
+          "evidence": "Evidence Trend",
+          "evidence_value": "{state} / changes {changes}",
+          "devices": "Device Spread",
+          "devices_value": "devices {count}",
+          "devices_note": "{recent} recent actions covered",
+          "reference_quality": "Reference Quality Trend",
+          "reference_quality_value": "{quality} / {trend}",
+          "reference_quality_note": "reasons {reasons}",
+          "suite_analytics": "Suite / Analytics Trend",
+          "suite_analytics_value": "{suite} {passed}/{total} | {analytics}",
+          "suite_analytics_note": "lineage {lineage} | coverage {coverage}",
+          "artifact_lineage": "Artifact / Lineage Trend",
+          "artifact_lineage_value": "{role} / {source} / {state}",
+          "artifact_lineage_note": "report {report} | snapshot {snapshot}"
+        },
+        "engineer_section": {
+          "field": {
+            "reference": "Reference",
+            "route": "Route",
+            "history": "History",
+            "compare": "Snapshot Compare",
+            "artifact_role": "Artifact Role",
+            "evidence_source": "Evidence Source",
+            "evidence_state": "Evidence State",
+            "report_path": "Report Path",
+            "snapshot_path": "Snapshot Path",
+            "lineage": "Lineage"
+          },
+          "hot_state": {
+            "title": "Hot State",
+            "summary": "{count} high-frequency items"
+          },
+          "device_groups": {
+            "title": "Grouped Device Cards",
+            "summary": "{count} device summaries"
+          },
+          "injection_state": {
+            "title": "Injection State",
+            "summary": "{count} injected states",
+            "empty": "No injected states to expand right now."
+          },
+          "trend_focus": {
+            "title": "Trend Focus",
+            "summary": "{count} trend blocks"
+          },
+          "exception_focus": {
+            "title": "Exception Focus",
+            "summary": "{count} highlighted anomalies",
+            "empty": "No highlighted anomalies in the current simulation window."
+          },
+          "history_detail": {
+            "title": "Action Detail",
+            "summary": "High-frequency fields stay up front"
+          },
+          "simulation_context": {
+            "title": "Simulation Context",
+            "summary": "Low-frequency fields, collapsed by default"
+          },
+          "raw_diagnostics": {
+            "title": "Raw Diagnostics",
+            "summary": "Raw low-frequency structure, collapsed by default"
+          },
+          "artifact_lineage": {
+            "title": "Artifact / Lineage Detail",
+            "summary": "Evidence lineage and generated paths"
+          },
+          "suite_analytics": {
+            "title": "Suite / Analytics Detail",
+            "summary": "Latest suite, analytics, and lineage digest"
+          }
+        },
+        "engineer_severity": {
+          "ok": "Stable",
+          "warning": "Needs Attention",
+          "info": "Diagnostic"
+        }
+      }
+    },
+    "algorithms": {
+      "default_algorithm": "Default Algorithm",
+      "candidates": "Candidates",
+      "coefficient_model": "Coefficient Model",
+      "auto_select": "Auto Select"
+    },
+    "reports": {
+      "run_dir": "Run Dir",
+      "artifacts": "Artifacts",
+      "present": "Present",
+      "artifact_list_title": "Artifact List",
+      "artifact_scope": {
+        "summary_all": "All artifacts | current scope {visible} | present on disk {present}/{total} | external {external} | missing {missing} | current-run baseline {catalog_present}/{catalog_total}",
+        "summary_source": "Source artifacts | {source} | current scope {visible} | present on disk {present}/{total} | external {external} | missing {missing} | current-run baseline {catalog_present}/{catalog_total}",
+        "summary_evidence": "Evidence artifacts | {source} / {evidence} | current scope {visible} | present on disk {present}/{total} | external {external} | missing {missing} | current-run baseline {catalog_present}/{catalog_total}",
+        "label_all": "All Artifacts",
+        "label_source": "Source Artifacts",
+        "label_evidence": "Evidence Artifacts",
+        "clear": "Back To All Artifacts",
+        "empty": "No related artifacts under {scope}; offline/simulated/diagnostic review only, not real acceptance.",
+        "disclaimer": "Artifact views below are for offline/simulated/replay/diagnostic review only and do not represent real acceptance.",
+        "run_dir_note": "Current review scope: {scope} | current-run baseline {catalog_present}/{catalog_total}",
+        "catalog_note": "Current-run catalog baseline {present}/{total}",
+        "scope_note": "{scope} | scope total {visible} | external {external} | missing {missing} | current-run baseline {catalog_total}",
+        "present_note": "{scope} | present on disk {present}/{total} | missing {missing} | current-run baseline {catalog_present}/{catalog_total}",
+        "export_scope_warning": "The export bar still exports current-run artifacts and does not follow the {scope} review scope."
+      },
+      "review_scope_manifest": {
+        "title": "Review Manifest",
+        "generated_at": "Generated At",
+        "scope": "Review Scope",
+        "selection": "Selection",
+        "counts": "Counts",
+        "rows": "Artifact Rows",
+        "note": "Note",
+        "disclaimer_label": "Disclaimer",
+        "disclaimer": "This manifest is for offline/simulated/replay/diagnostic review handoff only and is not real acceptance evidence.",
+        "selection_line": "scope={scope} | source={source} | evidence={evidence}",
+        "counts_line": "scope visible {visible} | scope present {present} | external {external} | missing {missing} | current-run baseline {catalog_present}/{catalog_total}",
+        "note_current_run_status": "Current-run artifact with export status {status}",
+        "note_current_run_unregistered": "Current-run artifact; exportable now, but governance status is unregistered",
+        "note_current_run_missing": "Current-run catalog artifact missing on disk; cannot be handed off by the current-run exporter",
+        "note_review_reference": "External review reference; not part of the current-run exporter set",
+        "note_source_scan": "Limited source_dir scan supplement; review context only, not part of the current-run exporter",
+        "note_missing_reference": "Selected review reference is missing on disk"
+      },
+      "ai_report_summary": "AI Report Summary",
+      "no_ai_report_summary": "No AI report summary yet.",
+      "review_digest": "Offline Review Digest",
+      "review_center": "Review Center"
+    },
+    "qc": {
+      "score": "QC Score",
+      "grade": "Grade",
+      "valid": "Valid",
+      "invalid": "Invalid",
+      "total": "Total",
+      "table_point": "Point",
+      "table_route": "Route",
+      "table_temp": "Temp",
+      "table_co2": "CO2",
+      "table_score": "Score",
+      "table_valid": "Valid",
+      "table_reason": "Reason",
+      "table_title": "QC Point Details",
+      "details_title": "Invalid Reasons / Recommendations",
+      "invalid_reasons": "Invalid reasons:",
+      "recommendations": "Recommendations:",
+      "no_detail": "No QC detail yet."
+    },
+    "plan_editor": {
+      "sidebar": {
+        "profiles": "Profiles"
+      },
+      "actions": {
+        "load": "Load",
+        "save": "Save",
+        "save_as": "Save As",
+        "delete": "Delete",
+        "set_default": "Set Default",
+        "new": "New",
+        "duplicate": "Duplicate",
+        "rename": "Rename",
+        "import": "Import",
+        "export": "Export",
+        "add": "Add",
+        "update": "Update",
+        "remove": "Remove",
+        "copy": "Copy",
+        "up": "Up",
+        "down": "Down",
+        "toggle": "Toggle"
+      },
+      "meta": {
+        "title": "Plan Editor",
+        "name": "Name",
+        "version": "Version",
+        "description": "Description",
+        "run_mode": "Run Mode"
+      },
+      "options": {
+        "title": "Plan Options",
+        "selected_temps": "Selected Temps",
+        "skip_co2": "Skip CO2 ppm",
+        "water_first": "Water First",
+        "water_first_temp_gte": "Water First >= Temp",
+        "temperature_descending": "Temperature Descending"
+      },
+      "analyzer": {
+        "title": "Analyzer Setup",
+        "software_version": "Software Version",
+        "id_assignment": "ID Assignment",
+        "start_id": "Start ID",
+        "manual_ids": "Manual IDs"
+      },
+      "preview": {
+        "title": "Compile Preview",
+        "compile": "Compile Preview",
+        "not_generated": "Compile preview: not generated",
+        "ready": "Compile preview ready"
+      },
+      "preview_columns": {
+        "seq": "Seq",
+        "row": "Row",
+        "temp": "Temp",
+        "route": "Route",
+        "h2o_target": "H2O Target",
+        "co2": "CO2",
+        "pressure": "Pressure",
+        "group": "Group",
+        "cylinder": "Cylinder",
+        "status": "Status"
+      },
+      "temperature": {
+        "title": "Temperature Section",
+        "value": "Temp C"
+      },
+      "humidity": {
+        "title": "Humidity Section",
+        "hgen_temp": "HGen Temp",
+        "rh_pct": "RH %",
+        "dew_point": "Dew Point",
+        "dew_short": "Dew"
+      },
+      "gas": {
+        "title": "Gas / CO2 Section",
+        "group": "Group",
+        "cylinder_ppm": "Cylinder ppm",
+        "co2_ppm": "CO2 ppm",
+        "cylinder": "Cylinder"
+      },
+      "pressure": {
+        "title": "Pressure Section",
+        "value": "Pressure hPa"
+      },
+      "common": {
+        "enabled": "Enabled",
+        "order": "#"
+      },
+      "dialog": {
+        "save_as_title": "Save Plan As",
+        "profile_name": "Profile name",
+        "duplicate_title": "Duplicate Plan",
+        "rename_title": "Rename Plan",
+        "new_profile_name": "New profile name",
+        "delete_title": "Delete Plan",
+        "delete_prompt": "Delete profile '{name}'?",
+        "import_title": "Import Plan Profile",
+        "export_title": "Export Plan Profile",
+        "json_files": "JSON files",
+        "all_files": "All files"
+      },
+      "status": {
+        "ready": "Ready",
+        "draft_profile": "Draft profile",
+        "selected_profile": "Selected profile: {name}",
+        "select_profile_first": "Select a profile first",
+        "profile_not_found": "Profile not found: {name}",
+        "loaded_profile": "Loaded profile: {name}",
+        "new_profile_draft": "New profile draft",
+        "invalid_plan_options": "Invalid plan options: {error}",
+        "profile_name_required": "Profile name is required",
+        "profile_name_no_path_separators": "Profile name cannot contain path separators",
+        "profile_version_required": "Profile version is required",
+        "profile_version_no_whitespace": "Profile version cannot contain whitespace",
+        "profile_version_too_long": "Profile version must be 32 characters or fewer",
+        "manual_ids_unique": "Manual device IDs must be unique",
+        "manual_ids_required": "Manual ID assignment needs at least one device ID",
+        "selected_temps_need_enabled_rows": "Selected temps need at least one enabled temperature row",
+        "selected_temps_missing": "Selected temps not found in enabled temperature rows: {values}",
+        "compile_need_temperature": "Add at least one enabled temperature before compile preview",
+        "compile_need_co2_point": "CO2 measurement mode needs at least one enabled gas point before compile preview",
+        "compile_need_h2o_point": "H2O measurement mode needs at least one enabled humidity point before compile preview",
+        "compile_need_humidity_or_gas": "Add at least one enabled humidity or gas point before compile preview",
+        "save_failed": "Save failed: {error}",
+        "saved_profile": "Saved profile: {name}",
+        "saved_as": "Saved as: {name}",
+        "load_profile_before_duplicate": "Load a profile before duplicating it",
+        "duplicate_failed": "Duplicate failed: {error}",
+        "duplicated_profile": "Duplicated profile: {name}",
+        "load_profile_before_rename": "Load a profile before renaming it",
+        "rename_failed": "Rename failed: {error}",
+        "renamed_profile": "Renamed profile: {name}",
+        "select_profile_to_delete": "Select a profile to delete",
+        "deleted_profile": "Deleted profile: {name}",
+        "save_or_load_first": "Save or load a profile first",
+        "set_default_failed": "Set default failed: {error}",
+        "default_profile": "Default profile: {name}",
+        "import_failed": "Import failed: {error}",
+        "imported_profile": "Imported profile: {name}",
+        "load_profile_before_export": "Load a profile before exporting it",
+        "export_failed": "Export failed: {error}",
+        "exported_profile": "Exported profile: {path}",
+        "compile_failed": "Compile failed: {error}",
+        "compiled_preview_for": "Compiled preview for: {name}",
+        "default_profile_flag": "Default profile: {value}",
+        "select_row_first": "Select a row first",
+        "order_updated": "Order updated",
+        "enabled_flag_updated": "Enabled flag updated",
+        "row_copied": "Row copied",
+        "invalid_temperature": "Invalid temperature: {error}",
+        "enter_temperature": "Enter at least one temperature",
+        "temperature_rows_added": "Temperature rows added: {count}",
+        "select_temperature_row_first": "Select a temperature row first",
+        "temperature_updated": "Temperature updated",
+        "humidity_error": "{error}",
+        "humidity_need_target": "Humidity row needs at least one target value",
+        "humidity_rh_range": "Humidity target must be between 0 and 100 %RH",
+        "humidity_added": "Humidity point added",
+        "select_humidity_row_first": "Select a humidity row first",
+        "humidity_updated": "Humidity point updated",
+        "invalid_gas_point": "Invalid gas point: {error}",
+        "enter_co2_value": "Enter at least one CO2 ppm value",
+        "co2_non_negative": "CO2 ppm must be >= 0",
+        "cylinder_non_negative": "Cylinder nominal ppm must be >= 0",
+        "gas_rows_added": "Gas rows added: {count}",
+        "select_gas_row_first": "Select a gas row first",
+        "gas_updated": "Gas point updated",
+        "invalid_pressure": "Invalid pressure: {error}",
+        "enter_pressure": "Enter at least one pressure value",
+        "pressure_positive": "Pressure must be > 0 hPa",
+        "pressure_rows_added": "Pressure rows added: {count}",
+        "select_pressure_row_first": "Select a pressure row first",
+        "pressure_updated": "Pressure point updated",
+        "row_removed": "Row removed"
+      },
+      "validation": {
+        "start_device_id": "start device ID",
+        "device_id": "device ID",
+        "temperature": "temperature",
+        "hgen_temp": "humidity generator temperature",
+        "humidity_target": "humidity target",
+        "dew_point": "dew point",
+        "cylinder_nominal_ppm": "cylinder nominal ppm",
+        "co2_ppm": "CO2 ppm",
+        "pressure": "pressure",
+        "invalid_number": "Invalid {field}: {error}",
+        "finite_number": "{field} must be a finite number",
+        "invalid_value": "Invalid {field}: {value}"
+      }
+    }
+  },
+  "dialogs": {
+    "common": {
+      "close": "Close",
+      "save": "Save",
+      "cancel": "Cancel"
+    },
+    "about": {
+      "title": "About",
+      "product": "Product",
+      "version": "Version",
+      "build": "Build",
+      "vendor": "Vendor",
+      "product_id": "Product ID"
+    },
+    "preferences": {
+      "title": "Preferences",
+      "last_config": "Last Config",
+      "simulation_default": "Simulation Default",
+      "auto_start_feed": "Auto Start Feed",
+      "screenshot_format": "Screenshot Format",
+      "status": {
+        "ready": "Ready",
+        "saved": "Saved"
+      }
+    },
+    "release_notes": {
+      "title": "Release Notes",
+      "empty": "No release notes available."
+    },
+    "licenses": {
+      "title": "Licenses",
+      "empty": "No bundled license text available."
+    }
+  },
+  "facade": {
+    "ui_attached": "UI facade attached",
+    "start_failed": "start failed: {error}",
+    "start_requested": "start requested ({source_label}: {display_path}) mode={mode}",
+    "preview_failed": "point preview failed: {error}",
+    "default_profile_summary": "default profile {profile} | {summary}",
+    "points_preview_summary": "points {point_count} rows | execution preview in runtime order | preview {row_count} points",
+    "default_profile_no_points": "default profile mode does not use points file; edit the default profile in Plans",
+    "edit_points_failed": "edit points failed: {error}",
+    "editing_points_file": "editing points file: {path}",
+    "stop_failed": "stop failed: {error}",
+    "stop_requested": "stop requested",
+    "pause_failed": "pause failed: {error}",
+    "pause_requested": "pause requested",
+    "resume_failed": "resume failed: {error}",
+    "resume_requested": "resume requested",
+    "winner_auto_select_reason": "Auto-select enabled; current default is highlighted until comparison artifacts are available.",
+    "winner_configured_reason": "Configured default algorithm is highlighted.",
+    "unsupported_export_format": "Unsupported export format: {format}",
+    "exporting": "Exporting {format} artifacts...",
+    "export_review_manifesting": "Generating review manifest...",
+    "export_failed": "export failed: {error}",
+    "exported": "Exported {count} file(s) to {destination}",
+    "review_scope_manifest_export_failed": "Review manifest export failed: {error}",
+    "review_scope_manifest_exported": "Exported {scope} review manifest batch {batch_id}: {destination}",
+    "preferences_saved": "Preferences saved",
+    "run_in_progress": "Run in progress...",
+    "validation_primary_missing_reason": "primary latest index is missing for the current acceptance profile",
+    "source_label": {
+      "points_file": "points file",
+      "default_profile": "default profile"
+    },
+    "role_summary_item": "{name} {count} item(s)",
+    "results": {
+      "overview": {
+        "run_id": "Run ID: {value}",
+        "phase": "Phase: {value}",
+        "output_dir": "Output dir: {value}",
+        "samples": "Samples: {value}",
+        "point_summaries": "Point summaries: {value}",
+        "warnings": "Warnings: {value}",
+        "errors": "Errors: {value}",
+        "report_mode": "Report mode: {value}",
+        "include_fleet_stats": "Include fleet stats: {value}",
+        "readiness": "Acceptance readiness: {value}",
+        "analytics": "Analytics summary: {value}"
+      },
+      "algorithm": {
+        "default": "Default algorithm: {value}",
+        "candidates": "Candidate algorithms: {value}",
+        "auto_select": "Auto select: {value}",
+        "coefficient_model": "Coefficient model: {value}"
+      },
+      "result_summary": {
+        "results_file": "Results file: {value}",
+        "summary_file": "Summary file: {value}",
+        "manifest_file": "Manifest file: {value}",
+        "readable_points": "Readable points table: {value}",
+        "sample_count": "Sample rows: {value}",
+        "point_summary_count": "Point summary rows: {value}",
+        "export_status_count": "Export status items: {value}",
+        "artifact_roles": "Artifact roles: {value}",
+        "lineage_config_version": "Lineage config version: {value}",
+        "suite_summary": "Suite summary: {value}",
+        "spectral_quality": "Spectral quality: {value}",
+        "workbench_evidence": "Workbench diagnostic evidence: {value}"
+      }
+    },
+    "route_status": {
+      "h2o_execution": "execution: h2o route",
+      "co2_execution": "execution: co2 route",
+      "co2_subzero_execution": "execution: subzero co2 route"
+    }
+  },
+  "compare": {
+    "cli_description": "Run an offline simulated/replay compare without opening real devices.",
+    "arg": {
+      "profile": "Simulated validation profile under configs/validation/simulated.",
+      "scenario": "Simulated scenario name.",
+      "fixture": "Explicit replay fixture JSON path.",
+      "report_root": "Root directory for compare artifacts.",
+      "run_name": "Optional fixed run name.",
+      "publish_latest": "Refresh the simulated latest index unless --no-publish-latest is passed.",
+      "no_publish_latest": "Keep simulated latest only inside the run directory.",
+      "list_scenarios": "List built-in simulated scenarios.",
+      "list_profiles": "List built-in simulated profiles."
+    },
+    "profile": "Profile: {value}",
+    "scenario": "Scenario: {value}",
+    "report_dir": "Report dir: {value}",
+    "report_json": "JSON report: {value}",
+    "report_markdown": "Markdown report: {value}",
+    "latest_index": "{index_name}: {value}",
+    "evidence_source": "Evidence source: {value}",
+    "compare_status": "Compare status: {value}"
+  },
+  "suite": {
+    "cli_description": "Run an offline simulation/replay/parity suite.",
+    "summary_title": "Simulation Suite Summary",
+    "suite": "Suite",
+    "description": "Description",
+    "report_dir": "Report Dir",
+    "total_cases": "Total Cases",
+    "passed": "Passed",
+    "failed": "Failed",
+    "acceptance_readiness": "Acceptance Readiness",
+    "analytics_digest": "Analytics Digest",
+    "operator_view": "Operator View",
+    "reviewer_view": "Reviewer View",
+    "approver_view": "Approver View",
+    "evidence_artifacts": "Evidence Artifacts",
+    "suite_summary_json": "Suite Summary JSON",
+    "suite_analytics_summary": "Suite Analytics Summary",
+    "suite_acceptance_plan": "Suite Acceptance Plan",
+    "suite_evidence_registry": "Suite Evidence Registry",
+    "failed_cases": "Failed Cases",
+    "failure_review": "Failure Review",
+    "no_failed_cases": "No failed cases in this suite.",
+    "case_results": "Case Results",
+    "none": "None",
+    "failure_type": "failure_type {name}: {count}",
+    "failure_phase": "failure_phase {name}: {count}",
+    "case_line": "{name}: {status} (expected {expected}) [artifacts: {artifact_dir}]",
+    "case_detail": "evidence={evidence_source} state={evidence_state} risk={risk_level} failure_type={failure_type} failure_phase={failure_phase}",
+    "review_artifacts": "review_artifacts=json:{json_path} md:{markdown_path}",
+    "cli_suite": "Suite: {value}",
+    "cli_report_dir": "Report dir: {value}",
+    "cli_passed": "Passed: {passed}/{total}",
+    "cli_summary_markdown": "Summary markdown: {value}",
+    "cli_case": "Case {name}: {status} (expected {expected})",
+    "arg": {
+      "suite": "Suite name: smoke/regression/nightly/parity.",
+      "report_root": "Root directory for suite artifacts.",
+      "run_name": "Optional fixed suite run name.",
+      "list_suites": "List built-in suites."
+    }
+  },
+  "parity": {
+    "title": "Summary Parity",
+    "status": "Status",
+    "evidence_source": "Evidence Source",
+    "acceptance_level": "Acceptance Level",
+    "risk_level": "Risk Level",
+    "float_tolerance": "Float tolerance",
+    "float_fields": "Float fields",
+    "exact_fields": "Exact fields",
+    "failed_cases": "Failed cases",
+    "none": "None",
+    "comparison_summary": "Comparison Summary: floats={float_ok} within tolerance / {float_failed} failed, exact={exact_ok} matched / {exact_failed} failed",
+    "expected_divergence": "Expected Divergence: {value}",
+    "comparison_line": "{field}: v1={v1} v2={v2} matched={matched}{suffix}"
+  },
+  "resilience": {
+    "title": "Export Resilience",
+    "status": "Status",
+    "evidence_source": "Evidence Source",
+    "acceptance_level": "Acceptance Level",
+    "risk_level": "Risk Level",
+    "details": "Details"
+  },
+  "enum": {
+    "phase": {
+      "idle": "idle",
+      "initializing": "initializing",
+      "co2_route": "co2_route",
+      "h2o_route": "h2o_route",
+      "paused": "paused",
+      "stopped": "stopped"
+    },
+    "page": {
+      "run": "Run",
+      "qc": "QC",
+      "results": "Results",
+      "devices": "Devices",
+      "algorithms": "Algorithms",
+      "reports": "Reports",
+      "plan": "Plans"
+    },
+    "route": {
+      "co2": "CO2",
+      "h2o": "H2O",
+      "finalize": "Finalize",
+      "co2_only": "co2_only",
+      "h2o_only": "h2o_only",
+      "h2o_then_co2": "h2o_then_co2"
+    },
+    "run_mode": {
+      "auto_calibration": "Auto Calibration",
+      "co2_measurement": "CO2 Measurement",
+      "h2o_measurement": "H2O Measurement",
+      "experiment_measurement": "Experiment Measurement"
+    },
+    "notification_level": {
+      "info": "INFO",
+      "warning": "WARNING",
+      "error": "ERROR",
+      "success": "SUCCESS"
+    },
+    "risk_level": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High"
+    },
+    "compare_status": {
+      "match": "MATCH",
+      "mismatch": "MISMATCH",
+      "not_executed": "NOT_EXECUTED",
+      "snapshot_only": "SNAPSHOT_ONLY",
+      "primary_real_validation_latest_missing": "PRIMARY_REAL_VALIDATION_LATEST_MISSING",
+      "primary_validation_latest_missing": "PRIMARY_VALIDATION_LATEST_MISSING"
+    },
+    "evidence_source": {
+      "real": "real",
+      "simulated": "simulated",
+      "simulated_protocol": "simulated protocol",
+      "diagnostic": "diagnostic",
+      "replay": "replay",
+      "real_probe": "real_probe",
+      "real_acceptance": "real_acceptance"
+    },
+    "evidence_state": {
+      "collected": "collected",
+      "replay": "replay",
+      "simulated_protocol": "simulated_protocol",
+      "simulated_fixture": "simulated_fixture",
+      "simulated_validation": "simulated_validation",
+      "simulated_workbench": "simulated_workbench",
+      "simulated_acceptance_like_coverage": "simulated_acceptance_like_coverage",
+      "route_unblock_diagnostic": "route_unblock_diagnostic",
+      "stale": "stale",
+      "superseded": "superseded",
+      "stale_diagnostic_only": "stale_diagnostic_only",
+      "primary_validation_latest_missing": "primary_validation_latest_missing"
+    },
+    "acceptance": {
+      "offline_regression": "offline_regression",
+      "validation_latest": "validation_latest",
+      "dry_run_only": "dry_run_only",
+      "pending": "pending",
+      "blocked": "blocked",
+      "approved": "approved",
+      "rejected": "rejected",
+      "primary": "primary",
+      "diagnostic": "diagnostic",
+      "stale": "stale",
+      "simulated": "simulated",
+      "replay": "replay",
+      "acceptance": "acceptance",
+      "promotion": "promotion",
+      "review": "review",
+      "approval": "approval",
+      "reference_quality": "reference_quality",
+      "degraded": "degraded",
+      "failed": "failed",
+      "ready_for_promotion": "ready_for_promotion"
+    },
+    "artifact_role": {
+      "execution_rows": "execution_rows",
+      "execution_summary": "execution_summary",
+      "diagnostic_analysis": "diagnostic_analysis",
+      "formal_analysis": "formal_analysis",
+      "unclassified": "unclassified"
+    },
+    "device_status": {
+      "online": "online",
+      "unknown": "unknown",
+      "disabled": "disabled",
+      "skipped_by_profile": "skipped_by_profile"
+    },
+    "reference_quality": {
+      "healthy": "healthy",
+      "degraded": "degraded",
+      "failed": "failed",
+      "missing": "missing",
+      "stale": "stale",
+      "drift": "drift",
+      "warmup_unstable": "warmup_unstable",
+      "no_response": "no_response",
+      "wrong_unit_configuration": "wrong_unit_configuration",
+      "corrupted_ascii": "corrupted_ascii",
+      "truncated_ascii": "truncated_ascii",
+      "display_interrupted": "display_interrupted",
+      "unsupported_command": "unsupported_command",
+      "skipped_by_profile": "skipped_by_profile",
+      "unknown": "unknown"
+    },
+    "suite_failure_type": {
+      "none": "none",
+      "route_physical_mismatch": "route physical mismatch",
+      "reference_quality": "reference quality",
+      "summary_parity": "summary parity",
+      "export_resilience": "export resilience",
+      "mismatch": "mismatch",
+      "not_executed": "not executed",
+      "snapshot_only": "snapshot only"
+    },
+    "analyzer_software_version": {
+      "pre_v5": "Pre-V5",
+      "v5_plus": "V5+"
+    },
+    "device_id_assignment": {
+      "automatic": "Automatic",
+      "manual": "Manual"
+    },
+    "winner_status": {
+      "recommended": "recommended",
+      "configured": "configured",
+      "pending": "pending"
+    }
+  },
+  "results": {
+    "review_digest": {
+      "suite": "Latest Suite",
+      "parity": "Latest Parity",
+      "resilience": "Latest Resilience",
+      "workbench": "Latest Workbench Evidence",
+      "readiness": "Acceptance Readiness",
+      "disclaimer": "All items above are offline simulated/replay review evidence and do not represent real acceptance.",
+      "suite_summary_line": "{suite} {passed}/{total} passed",
+      "parity_summary_line": "{matched}/{total} matched, failed: {failed}",
+      "resilience_summary_line": "{matched}/{total} checks passed",
+      "none": "None yet",
+      "unreadable": "Found but unreadable"
+    },
+    "spectral_quality": {
+      "title": "Spectral Quality",
+      "none": "None yet",
+      "summary_line": "{status} | channels {ok}/{total} | score {score} | flags {flags}",
+      "channel_line": "{name} | {status} | stability {score} | low-frequency {low_freq} | dominant {dominant} Hz | flags {flags}",
+      "detail": {
+        "status_line": "Status: {status}",
+        "channel_count_line": "Channel coverage: {ok}/{total}",
+        "score_line": "Overall stability score: {score}",
+        "flags_line": "Flags: {flags}",
+        "skipped_line": "Skipped: {error}"
+      },
+      "status": {
+        "ok": "OK",
+        "insufficient_data": "Insufficient data",
+        "invalid_series": "Invalid series",
+        "skipped": "Skipped"
+      },
+      "flag": {
+        "missing_values_dropped": "Missing values dropped",
+        "invalid_timestamps": "Invalid timestamps",
+        "irregular_sampling": "Irregular sampling",
+        "low_sample_count": "Low sample count",
+        "insufficient_duration": "Insufficient duration",
+        "constant_series": "Constant series",
+        "low_frequency_drift": "Low-frequency drift",
+        "oscillatory_peak": "Oscillatory peak",
+        "insufficient_frequency_bins": "Insufficient spectral resolution"
+      }
+    },
+    "review_center": {
+      "title": "Review Center",
+      "filter": {
+        "type": "Type",
+        "status": "Status",
+        "time": "Time",
+        "source": "Source",
+      "count": "Showing {visible}/{total}",
+      "all_types": "All Types",
+      "all_statuses": "All Statuses",
+      "all_sources": "All Sources",
+      "active_source": "Active Source: {source}",
+      "clear_source_drilldown": "Back To All Sources",
+      "all_time": "All Time",
+      "time_24h": "Last 24h",
+      "time_7d": "Last 7d",
+      "time_30d": "Last 30d"
+      },
+      "role": {
+        "operator": "Operator",
+        "reviewer": "Reviewer",
+        "approver": "Approver"
+      },
+      "section": {
+        "readiness": "Acceptance Readiness",
+        "analytics": "Analytics",
+        "lineage": "Lineage",
+        "risk": "Risk",
+        "run_index": "Cross-run Index",
+        "evidence_list": "Recent Evidence",
+        "evidence_detail": "Evidence Detail"
+      },
+      "column": {
+        "time": "Time",
+        "type": "Type",
+        "status": "Status",
+        "summary": "Summary",
+        "source": "Source",
+        "latest": "Latest",
+        "coverage": "Coverage",
+        "gaps": "Gaps"
+      },
+      "detail": {
+        "summary": "Summary",
+        "status": "Status",
+        "source": "Source",
+        "state": "State",
+        "path": "Path",
+        "failed_cases": "Failed Cases",
+        "source_hint": "{kind} / {source}",
+        "current_device": "Current Device",
+        "current_action": "Current Action",
+        "risk_line": "Item risk {item} | overall {overall} | status {status}",
+        "acceptance_hint": "{readiness} | coverage {coverage} | source {source} | state {state}",
+        "acceptance_level": "Acceptance Level",
+        "promotion_state": "Promotion State",
+        "qc_summary": "QC Summary",
+        "qc_run_gate": "Run Gate",
+        "qc_gate_reason": "Gate Reason",
+        "qc_point_gate": "Point Gate",
+        "qc_flagged_routes": "Flagged Routes",
+        "qc_decision_breakdown": "Decision Breakdown",
+        "qc_top_reject_reason": "Top Reject Reason",
+        "qc_top_failed_check": "Top Failed Check",
+        "qc_route_breakdown": "Route Breakdown",
+        "qc_reject_taxonomy": "Reject Taxonomy",
+        "qc_failed_check_taxonomy": "Failed Check Taxonomy",
+        "workbench_qc_note": "The current workbench evidence does not generate an independent QC gate and only provides simulated/offline diagnostics.",
+        "analytics_reference_quality": "Reference Quality",
+        "analytics_reference_trend": "Reference Trend",
+        "analytics_export_status": "Export Status",
+        "analytics_drift": "Drift Trend",
+        "analytics_control_chart": "Control Chart Status",
+        "analytics_health": "Analyzer Health",
+        "analytics_fault": "Primary Fault Attribution",
+        "analytics_lineage": "Lineage",
+        "spectral_status": "Spectral Status"
+      },
+      "detail_panel": {
+        "summary": "Evidence Summary",
+        "risk": "Risk Level",
+        "key_fields": "Key Fields",
+        "artifacts": "Artifact Paths",
+        "acceptance": "Acceptance Hint",
+        "qc": "QC Summary",
+        "analytics": "Analytics Summary",
+        "spectral_quality": "Spectral Quality",
+        "lineage": "Lineage Summary"
+      },
+      "detail_hint": "Select evidence to inspect details",
+      "empty": "No evidence under the current filter.",
+      "disclaimer": "Everything here is offline simulated/replay/diagnostic evidence for stage-two platformization only and does not represent real acceptance.",
+      "type": {
+        "suite": "Suite",
+        "parity": "Parity",
+        "resilience": "Resilience",
+        "workbench": "Workbench",
+        "analytics": "Analytics"
+      },
+    "source_kind": {
+      "run": "Run Evidence",
+      "suite": "Suite Evidence",
+      "workbench": "Workbench Evidence",
+      "mixed": "Mixed Sources"
+    },
+      "status": {
+        "passed": "Passed",
+        "failed": "Failed",
+        "degraded": "Degraded",
+        "diagnostic_only": "Diagnostic Only"
+      },
+      "index": {
+        "summary": "Recent sources {runs} | suites {suites} | parity {parity} | resilience {resilience} | workbench {workbench} | analytics {analytics}",
+        "source_kind_summary": "Sources by kind | runs {run} | suites {suite} | workbench {workbench}",
+        "coverage_summary": "Coverage | complete {complete} | gapped {gapped} | {gaps}",
+        "diagnostics_summary": "Diagnostics | cache {cache_hit} | roots {roots} | candidates {candidates} | elapsed {elapsed_ms} ms | budget {budget}",
+        "coverage_line": "{count}/{total} | {types}",
+        "source_scope_count": "{coverage} | filtered {visible}/{total}",
+        "source_disambiguation": "{source} ({hint})",
+        "gaps_none": "No gaps",
+        "gaps_line": "Missing {missing}",
+        "missing_type_count": "{type} missing {count}",
+        "source_drilldown_summary": "Active source {source} | latest {latest} | coverage {coverage} | gaps {gaps} | scope {scope} | filtered {visible}/{total}"
+      },
+    "scope": {
+      "readiness_summary": "Offline source {source} | coverage {coverage} | gaps {gaps} | filtered {visible}/{total} | simulated/offline review only, not real acceptance",
+      "analytics_summary": "Source {source} | {summary}",
+      "lineage_summary": "Source {source} | {summary}",
+      "no_detail": "No extra detail for the current source and filter."
+    },
+      "analytics": {
+        "summary_line": "coverage {coverage} | reference {reference} | exports {exports} | lineage {lineage}"
+      },
+      "lineage": {
+        "summary_line": "config {config} | points {points} | profile {profile}"
+      },
+      "risk": {
+        "high": "High",
+        "medium": "Medium",
+        "low": "Low",
+        "summary": "{level} | failed {failed} | degraded {degraded} | diagnostic {diagnostic} | missing {missing} | coverage {coverage}"
+      },
+    "focus": {
+      "operator_summary": "Execution health: {health}\nLatest suite: {suite}\nLatest workbench: {workbench}\nLatest analytics: {analytics}\nCurrent risk: {risk}\nCross-run sources: {runs}, complete bundles {complete}",
+      "reviewer_summary": "Evidence completeness: {completeness}\nLatest parity: {parity}\nLatest resilience: {resilience}\nLatest analytics: {analytics}\nNotes pending: {notes}\nCoverage gaps: {coverage}\nRisk level: {risk}",
+      "approver_summary": "Acceptance readiness: {readiness}\nPromotion: {promotion}\nOpen conditions: {missing}\nComplete cross-run bundles: {complete}\nCurrent gaps: {coverage}\nCurrent risk: {risk}",
+      "operator_source_summary": "Offline source: {source}\nLatest time: {latest}\nCoverage: {coverage}\nGaps: {gaps}\nSimulated/replay/diagnostic review only, not real acceptance",
+      "reviewer_source_summary": "Source: {source}\nFiltered evidence: {visible}/{total}\nScope: {scope}\nRisk: {risk}\nGaps: {gaps}",
+      "approver_source_summary": "Source: {source}\nOffline readiness hint: {readiness}\nFiltered evidence: {visible}/{total}\nRisk: {risk}\nThis view is offline/simulated only and does not represent real acceptance"
+    }
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "kind": "compare",
+  "validation_profile": "skip0_co2_only_replacement",
+  "route_mode": "co2_only",
+  "temp_c": 20.0,
+  "skip_co2_ppm": [0],
+  "v1": {
+    "ok": false,
+    "status_phase": "startup.device_connection",
+    "status_error": "Permission denied: COM31",
+    "error_category": "startup.device_connection.port_busy"
+  },
+  "v2": {
+    "ok": false,
+    "status_phase": "startup.device_connection",
+    "status_error": "could not open port COM35",
+    "error_category": "startup.device_connection.port_busy"
+  }
+}

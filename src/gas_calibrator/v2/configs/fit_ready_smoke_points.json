@@ -1,0 +1,128 @@
+[
+  {
+    "index": 1,
+    "temperature": 21.0,
+    "co2_ppm": 0.0,
+    "pressure_hpa": 950.0,
+    "route": "co2"
+  },
+  {
+    "index": 2,
+    "temperature": 22.0,
+    "co2_ppm": 200.0,
+    "pressure_hpa": 1000.0,
+    "route": "co2"
+  },
+  {
+    "index": 3,
+    "temperature": 20.0,
+    "co2_ppm": 400.0,
+    "pressure_hpa": 1050.0,
+    "route": "co2"
+  },
+  {
+    "index": 4,
+    "temperature": 21.0,
+    "co2_ppm": 600.0,
+    "pressure_hpa": 900.0,
+    "route": "co2"
+  },
+  {
+    "index": 5,
+    "temperature": 22.0,
+    "co2_ppm": 800.0,
+    "pressure_hpa": 950.0,
+    "route": "co2"
+  },
+  {
+    "index": 6,
+    "temperature": 20.0,
+    "co2_ppm": 1000.0,
+    "pressure_hpa": 1000.0,
+    "route": "co2"
+  },
+  {
+    "index": 7,
+    "temperature": 21.0,
+    "co2_ppm": 1200.0,
+    "pressure_hpa": 1050.0,
+    "route": "co2"
+  },
+  {
+    "index": 8,
+    "temperature": 22.0,
+    "co2_ppm": 1400.0,
+    "pressure_hpa": 900.0,
+    "route": "co2"
+  },
+  {
+    "index": 9,
+    "temperature": 20.0,
+    "co2_ppm": 1600.0,
+    "pressure_hpa": 950.0,
+    "route": "co2"
+  },
+  {
+    "index": 10,
+    "temperature": 12.0,
+    "humidity_pct": 35.0,
+    "pressure_hpa": 890.0,
+    "route": "h2o"
+  },
+  {
+    "index": 11,
+    "temperature": 13.0,
+    "humidity_pct": 36.0,
+    "pressure_hpa": 930.0,
+    "route": "h2o"
+  },
+  {
+    "index": 12,
+    "temperature": 10.0,
+    "humidity_pct": 37.0,
+    "pressure_hpa": 850.0,
+    "route": "h2o"
+  },
+  {
+    "index": 13,
+    "temperature": 11.0,
+    "humidity_pct": 38.0,
+    "pressure_hpa": 890.0,
+    "route": "h2o"
+  },
+  {
+    "index": 14,
+    "temperature": 12.0,
+    "humidity_pct": 39.0,
+    "pressure_hpa": 930.0,
+    "route": "h2o"
+  },
+  {
+    "index": 15,
+    "temperature": 13.0,
+    "humidity_pct": 40.0,
+    "pressure_hpa": 850.0,
+    "route": "h2o"
+  },
+  {
+    "index": 16,
+    "temperature": 10.0,
+    "humidity_pct": 41.0,
+    "pressure_hpa": 890.0,
+    "route": "h2o"
+  },
+  {
+    "index": 17,
+    "temperature": 11.0,
+    "humidity_pct": 42.0,
+    "pressure_hpa": 930.0,
+    "route": "h2o"
+  },
+  {
+    "index": 18,
+    "temperature": 12.0,
+    "humidity_pct": 43.0,
+    "pressure_hpa": 850.0,
+    "route": "h2o"
+  }
+]

@@ -1,0 +1,22 @@
+你是一个校准算法专家。
+
+请根据以下数据特征，推荐最适合的算法：
+
+## 数据特征
+- 点位数: {point_count}
+- 有效点位: {valid_points}
+- 数据质量评分: {quality_score}
+- CO2 范围: {co2_range}
+- H2O 范围: {h2o_range}
+- 温度范围: {temp_range}
+
+## 候选算法
+{candidate_algorithms}
+
+## 各算法拟合结果
+{fit_results}
+
+## 请回答
+1. 推荐使用哪个算法？
+2. 推荐理由是什么？
+3. 有什么注意事项？

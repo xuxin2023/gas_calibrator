@@ -1,0 +1,465 @@
+{
+    "devices":  {
+                    "pressure_controller":  {
+                                                "enabled":  true,
+                                                "port":  "COM31",
+                                                "baud":  9600,
+                                                "timeout":  1.0,
+                                                "line_ending":  "LF",
+                                                "query_line_endings":  [
+                                                                           "LF",
+                                                                           "CRLF",
+                                                                           "CR"
+                                                                       ],
+                                                "pressure_queries":  [
+                                                                         ":SENS:PRES:INL?",
+                                                                         ":SENS:PRES:CONT?",
+                                                                         ":SENS:PRES?",
+                                                                         ":MEAS:PRES?"
+                                                                     ],
+                                                "in_limits_pct":  0.02,
+                                                "in_limits_time_s":  10
+                                            },
+                    "pressure_gauge":  {
+                                           "enabled":  true,
+                                           "port":  "COM30",
+                                           "baud":  9600,
+                                           "timeout":  1.0,
+                                           "response_timeout_s":  2.2,
+                                           "dest_id":  "01"
+                                       },
+                    "dewpoint_meter":  {
+                                           "enabled":  true,
+                                           "port":  "COM25",
+                                           "baud":  9600,
+                                           "station":  "001"
+                                       },
+                    "humidity_generator":  {
+                                               "enabled":  true,
+                                               "port":  "COM24",
+                                               "baud":  9600
+                                           },
+                    "gas_analyzer":  {
+                                         "enabled":  true,
+                                         "port":  "COM35",
+                                         "baud":  115200,
+                                         "device_id":  "000",
+                                         "mode":  2,
+                                         "active_send": true,
+                                         "ftd_hz":  10,
+                                         "average_filter":  49,
+                                         "average_co2":  1,
+                                         "average_h2o":  1
+                                     },
+                    "gas_analyzers":  [
+                                          {
+                                              "name":  "ga01",
+                                              "enabled":  true,
+                                              "port":  "COM35",
+                                              "baud":  115200,
+                                              "device_id":  "001",
+                                              "mode":  2,
+                                              "active_send": true,
+                                              "ftd_hz":  10,
+                                              "average_co2":  1,
+                                              "average_h2o":  1
+                                          },
+                                          {
+                                              "name":  "ga02",
+                                              "enabled":  true,
+                                              "port":  "COM36",
+                                              "baud":  115200,
+                                              "device_id":  "002",
+                                              "mode":  2,
+                                              "active_send": true,
+                                              "ftd_hz":  10,
+                                              "average_co2":  1,
+                                              "average_h2o":  1
+                                          },
+                                          {
+                                              "name":  "ga03",
+                                              "enabled":  true,
+                                              "port":  "COM37",
+                                              "baud":  115200,
+                                              "device_id":  "003",
+                                              "mode":  2,
+                                              "active_send": true,
+                                              "ftd_hz":  10,
+                                              "average_co2":  1,
+                                              "average_h2o":  1
+                                          },
+                                          {
+                                              "name":  "ga04",
+                                              "enabled":  true,
+                                              "port":  "COM38",
+                                              "baud":  115200,
+                                              "device_id":  "004",
+                                              "mode":  2,
+                                              "active_send": true,
+                                              "ftd_hz":  10,
+                                              "average_co2":  1,
+                                              "average_h2o":  1
+                                          },
+                                          {
+                                              "name":  "ga05",
+                                              "enabled":  true,
+                                              "port":  "COM39",
+                                              "baud":  115200,
+                                              "device_id":  "005",
+                                              "mode":  2,
+                                              "active_send": true,
+                                              "ftd_hz":  10,
+                                              "average_co2":  1,
+                                              "average_h2o":  1
+                                          },
+                                          {
+                                              "name":  "ga06",
+                                              "enabled":  true,
+                                              "port":  "COM40",
+                                              "baud":  115200,
+                                              "device_id":  "006",
+                                              "mode":  2,
+                                              "active_send": true,
+                                              "ftd_hz":  10,
+                                              "average_co2":  1,
+                                              "average_h2o":  1
+                                          },
+                                          {
+                                              "name":  "ga07",
+                                              "enabled":  true,
+                                              "port":  "COM41",
+                                              "baud":  115200,
+                                              "device_id":  "007",
+                                              "mode":  2,
+                                              "active_send": true,
+                                              "ftd_hz":  10,
+                                              "average_co2":  1,
+                                              "average_h2o":  1
+                                          },
+                                          {
+                                              "name":  "ga08",
+                                              "enabled":  true,
+                                              "port":  "COM42",
+                                              "baud":  115200,
+                                              "device_id":  "008",
+                                              "mode":  2,
+                                              "active_send": true,
+                                              "ftd_hz":  10,
+                                              "average_co2":  1,
+                                              "average_h2o":  1
+                                          }
+                                      ],
+                    "temperature_chamber":  {
+                                                "enabled":  true,
+                                                "port":  "COM27",
+                                                "baud":  9600,
+                                                "addr":  1
+                                            },
+                    "thermometer":  {
+                                        "enabled":  false,
+                                        "port":  "COM26",
+                                        "baud":  2400,
+                                        "bytesize":  8,
+                                        "parity":  "N",
+                                        "stopbits":  1,
+                                        "timeout":  1.2
+                                    },
+                    "relay":  {
+                                  "enabled":  true,
+                                  "port":  "COM28",
+                                  "baud":  38400,
+                                  "addr":  1
+                              },
+                    "relay_8":  {
+                                    "enabled":  true,
+                                    "port":  "COM29",
+                                    "baud":  38400,
+                                    "addr":  1
+                                }
+                },
+    "valves":  {
+                   "co2_path":  7,
+                   "co2_path_group2":  16,
+                   "gas_main":  11,
+                   "h2o_path":  8,
+                   "flow_switch":  10,
+                   "hold":  9,
+                   "relay_map":  {
+                                     "1":  {
+                                               "device":  "relay",
+                                               "channel":  7
+                                           },
+                                     "2":  {
+                                               "device":  "relay",
+                                               "channel":  8
+                                           },
+                                     "3":  {
+                                               "device":  "relay",
+                                               "channel":  9
+                                           },
+                                     "4":  {
+                                               "device":  "relay",
+                                               "channel":  10
+                                           },
+                                     "5":  {
+                                               "device":  "relay",
+                                               "channel":  11
+                                           },
+                                     "6":  {
+                                               "device":  "relay",
+                                               "channel":  12
+                                           },
+                                     "7":  {
+                                               "device":  "relay",
+                                               "channel":  15
+                                           },
+                                     "8":  {
+                                               "device":  "relay_8",
+                                               "channel":  8
+                                           },
+                                     "9":  {
+                                               "device":  "relay_8",
+                                               "channel":  1
+                                           },
+                                     "10":  {
+                                                "device":  "relay_8",
+                                                "channel":  2
+                                            },
+                                     "11":  {
+                                                "device":  "relay_8",
+                                                "channel":  3
+                                            },
+                                     "16":  {
+                                                "device":  "relay",
+                                                "channel":  16
+                                            },
+                                     "21":  {
+                                                "device":  "relay",
+                                                "channel":  6
+                                            },
+                                     "22":  {
+                                                "device":  "relay",
+                                                "channel":  5
+                                            },
+                                     "23":  {
+                                                "device":  "relay",
+                                                "channel":  4
+                                            },
+                                     "24":  {
+                                                "device":  "relay",
+                                                "channel":  3
+                                            },
+                                     "25":  {
+                                                "device":  "relay",
+                                                "channel":  2
+                                            },
+                                     "26":  {
+                                                "device":  "relay",
+                                                "channel":  1
+                                            }
+                                 },
+                   "co2_map":  {
+                                   "0":  1,
+                                   "200":  2,
+                                   "400":  3,
+                                   "600":  4,
+                                   "800":  5,
+                                   "1000":  6
+                               },
+                   "co2_map_group2":  {
+                                          "0":  21,
+                                          "100":  22,
+                                          "300":  23,
+                                          "500":  24,
+                                          "700":  25,
+                                          "900":  26
+                                      }
+               },
+    "workflow":  {
+                     "collect_only":  true,
+                     "missing_pressure_policy":  "carry_forward",
+                     "h2o_carry_forward":  true,
+                     "skip_co2_ppm":  [],
+                     "humidity_generator":  {
+                                                "ensure_run":  true,
+                                                "min_flow_lpm":  0.1,
+                                                "tries":  2,
+                                                "wait_s":  2.5,
+                                                "poll_s":  0.25
+                                            },
+                     "sensor_precheck":  {
+                                             "enabled":  false,
+                                             "mode":  2,
+                                             "active_send":  true,
+                                             "ftd_hz":  10,
+                                             "average_filter":  49,
+                                             "average_co2":  1,
+                                             "average_h2o":  1,
+                                             "duration_s":  8.0,
+                                             "poll_s":  0.2,
+                                             "min_valid_frames":  3,
+                                             "strict":  true
+                                         },
+                     "startup_connect_check":  {
+                                                   "enabled":  true
+                                               },
+                     "pressure":  {
+                                      "pressurize_high_hpa":  1100,
+                                     "pressurize_wait_after_vent_off_s":  5,
+                                      "pressurize_timeout_s":  120,
+                                      "post_stable_sample_delay_s":  0,
+                                      "co2_post_stable_sample_delay_s":  0,
+                                      "capture_then_hold_enabled":  true,
+                                      "disable_output_during_sampling":  true,
+                                      "output_off_prefer_gauge":  true,
+                                      "output_off_sample_interval_s":  0.5,
+                                      "output_off_retry_count":  1,
+                                      "co2_output_off_hold_s":  6.0,
+                                      "h2o_output_off_hold_s":  10.0,
+                                      "co2_output_off_max_abs_drift_hpa":  0.25,
+                                      "h2o_output_off_max_abs_drift_hpa":  0.4,
+                                      "vent_time_s":  5,
+                                      "vent_transition_timeout_s":  30,
+                                      "continuous_atmosphere_hold":  true,
+                                      "vent_hold_interval_s":  2.0,
+                                      "stabilize_timeout_s":  180,
+                                      "restabilize_retries":  0,
+                                      "restabilize_retry_interval_s":  10,
+                                      "soft_recover_on_pressure_timeout":  false,
+                                      "soft_recover_reopen_delay_s":  1.0
+                                  },
+                     "sampling":  {
+                                      "count":  10,
+                                      "stable_count":  10,
+                                      "interval_s":  1.0,
+                                      "h2o_interval_s":  1.0,
+                                      "co2_interval_s":  1.0,
+                                      "quality":  {
+                                                      "enabled":  false,
+                                                      "retries":  2,
+                                                      "max_span_co2_ppm":  2.0,
+                                                      "max_span_h2o_mmol":  0.2,
+                                                      "max_span_pressure_hpa":  0.6,
+                                                      "max_span_dewpoint_c":  0.2
+                                                  }
+                                  },
+                     "stability":  {
+                                       "temperature":  {
+                                                           "tol":  0.2,
+        "window_s":  40,
+                                                           "soak_after_reach_s":  600,
+                                                           "timeout_s":  1800,
+                                                           "command_offset_c":  0.0
+                                                       },
+                                       "humidity_generator":  {
+                                                                  "enabled":  true,
+        "temp_tol_c":  0.5,
+        "rh_tol_pct":  2.5,
+                                                                  "rh_stable_window_s":  60,
+                                                                  "rh_stable_span_pct":  0.3,
+                                                                  "reach_confirm_count":  3,
+                                                                  "window_s":  60,
+                                                                  "timeout_s":  0,
+                                                                  "dewpoint_timeout_s":  0,
+                                                                  "poll_s":  1.0
+                                                              },
+                                       "h2o_route":  {
+                                                         "preseal_soak_s":  240
+                                                     },
+                                       "co2_route":  {
+                                                         "preseal_soak_s":  180,
+                                                         "post_h2o_zero_ppm_soak_s":  600
+                                                     },
+                                       "sensor":  {
+                                                      "enabled":  true,
+                                                      "co2_tol":  2.0,
+                                                      "co2_ratio_f_preseal_tol":  0.01,
+                                                      "co2_ratio_f_preseal_window_s":  60,
+                                                      "co2_ratio_f_preseal_min_samples":  10,
+                                                      "co2_ratio_f_tol":  0.001,
+                                                      "co2_ratio_f_pressure_tol":  0.001,
+                                                      "co2_ratio_f_pressure_window_s":  15,
+                                                      "co2_ratio_f_pressure_min_samples":  10,
+                                                      "co2_ratio_f_pressure_fill_s":  15,
+                                                      "co2_ratio_f_pressure_read_interval_s":  1.0,
+                                                      "co2_ratio_raw_tol":  0.001,
+                                                      "h2o_tol":  0.2,
+                                                      "h2o_ratio_f_preseal_tol":  0.01,
+                                                      "h2o_ratio_f_tol":  0.001,
+                                                      "h2o_ratio_f_pressure_tol":  0.001,
+                                                      "h2o_ratio_f_pressure_window_s":  15,
+                                                      "h2o_ratio_f_pressure_min_samples":  10,
+                                                      "h2o_ratio_f_pressure_fill_s":  15,
+                                                      "h2o_ratio_f_pressure_read_interval_s":  1.0,
+                                                      "h2o_ratio_raw_tol":  0.001,
+                                                      "read_interval_s":  1.0,
+                                                      "window_s":  30,
+                                                      "timeout_s":  300,
+                                                      "poll_s":  0.5
+                                                  },
+                                       "dewpoint":  {
+                                                        "target_tol_c":  0.2,
+        "temp_match_tol_c":  0.55,
+                                                        "rh_match_tol_pct":  5.5,
+                                                        "window_s":  60,
+                                                        "stability_tol_c":  0.05,
+                                                        "timeout_s":  1800,
+                                                        "poll_s":  1.0,
+                                                        "fluct_tol_c":  0.09,
+                                                        "stable_decimals":  1
+                                                    }
+                                   },
+                     "water_first_all_temps":  true,
+                     "water_first_temp_gte":  10,
+                     "route_mode":  "co2_only",
+                     "selected_temps":  [
+                                            20
+                                        ]
+                 },
+    "paths":  {
+                  "points_excel":  "points.xlsx",
+                  "output_dir":  "logs"
+              },
+    "coefficients":  {
+                         "enabled":  false,
+                         "auto_fit":  true,
+                         "sencos":  {
+
+                                    },
+                         "model":  "amt_eq4",
+                         "order":  2,
+                         "p0_hpa":  1013.25,
+                         "t0_k":  273.15,
+                         "dry_air_correction":  true,
+                         "h2o_source":  "target",
+                         "signal_keys":  {
+                                             "co2":  [
+                                                         "co2_signal",
+                                                         "co2_ratio_f",
+                                                         "co2_ratio_raw",
+                                                         "co2_sig"
+                                                     ],
+                                             "h2o":  [
+                                                         "h2o_signal",
+                                                         "h2o_ratio_f",
+                                                         "h2o_ratio_raw",
+                                                         "h2o_sig"
+                                                     ]
+                                         },
+                         "temp_keys":  [
+                                           "chamber_temp_c",
+                                           "case_temp_c",
+                                           "temp_c",
+                                           "temp_set_c"
+                                       ],
+                         "pressure_keys":  [
+                                               "pressure_hpa",
+                                               "pressure_kpa",
+                                               "pressure_gauge_raw",
+                                               "pressure_target_hpa"
+                                           ],
+                         "fit_h2o":  false,
+                         "save_residuals":  true,
+                         "min_samples":  0
+                     }
+}
