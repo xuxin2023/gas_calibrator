@@ -1917,10 +1917,11 @@ def test_wait_co2_route_soak_fails_when_dewpoint_gate_times_out(monkeypatch, tmp
     state = runner._point_runtime_state(point, phase="co2")
     assert state is not None
     assert state["flush_gate_status"] == "timeout"
+    assert float(state["dewpoint_time_to_gate"]) >= 6.0
     assert "max_total_wait_exceeded" in str(state["flush_gate_reason"])
 
 
-def test_wait_first_co2_route_soak_allows_one_full_gate_window_before_timeout(
+def test_wait_first_co2_route_soak_uses_after_soak_timeout_budget(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -1982,8 +1983,73 @@ def test_wait_first_co2_route_soak_allows_one_full_gate_window_before_timeout(
     state = runner._point_runtime_state(point, phase="co2")
     assert state is not None
     assert state["flush_gate_status"] == "timeout"
-    assert float(state["dewpoint_time_to_gate"]) >= 9.0
+    assert 8.0 <= float(state["dewpoint_time_to_gate"]) < 9.5
     assert "max_total_wait_exceeded" in str(state["flush_gate_reason"])
+
+
+def test_wait_co2_route_soak_warn_policy_allows_following_pressure_seal(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "stability": {
+                    "co2_route": {"preseal_soak_s": 2},
+                    "gas_route_dewpoint_gate_enabled": True,
+                    "gas_route_dewpoint_gate_policy": "warn",
+                    "gas_route_dewpoint_gate_window_s": 2.0,
+                    "gas_route_dewpoint_gate_max_total_wait_s": 4.0,
+                    "gas_route_dewpoint_gate_poll_s": 1.0,
+                    "gas_route_dewpoint_gate_tail_span_max_c": 0.01,
+                    "gas_route_dewpoint_gate_tail_slope_abs_max_c_per_s": 0.005,
+                    "gas_route_dewpoint_gate_log_interval_s": 1.0,
+                }
+            }
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _point_co2()
+    clock = {"now": 0.0}
+    dewpoints = iter([-30.0, -29.8, -29.6, -29.4, -29.2, -29.0])
+    trace_stages: list[str] = []
+
+    def fake_gate_row(self, *, total_elapsed_s, snapshot):
+        base = datetime(2026, 4, 3, 9, 0, 0)
+        return {
+            "timestamp": (base + timedelta(seconds=float(total_elapsed_s))).isoformat(timespec="seconds"),
+            "phase_elapsed_s": float(total_elapsed_s),
+            "phase": "co2_route_precondition",
+            "controller_vent_state": "VENT_ON",
+            "dewpoint_c": snapshot.get("dewpoint_c"),
+            "dewpoint_temp_c": snapshot.get("temp_c"),
+            "dewpoint_rh_percent": snapshot.get("rh_pct"),
+        }
+
+    def fake_trace(self, **kwargs):
+        trace_stages.append(str(kwargs.get("trace_stage") or ""))
+
+    monkeypatch.setattr(runner_module.time, "time", lambda: clock["now"])
+    monkeypatch.setattr(runner_module.time, "sleep", lambda seconds: clock.__setitem__("now", clock["now"] + float(seconds)))
+    runner._read_precondition_dewpoint_gate_snapshot = types.MethodType(
+        lambda self: {"dewpoint_c": next(dewpoints), "temp_c": 22.0, "rh_pct": 5.0},
+        runner,
+    )
+    runner._build_co2_route_dewpoint_gate_row = types.MethodType(fake_gate_row, runner)
+    runner._append_pressure_trace_row = types.MethodType(fake_trace, runner)
+
+    assert runner._wait_co2_route_soak_before_seal(point) is True
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2")
+    assert state is not None
+    assert state["flush_gate_status"] == "timeout"
+    assert "max_total_wait_exceeded" in str(state["flush_gate_reason"])
+    assert "co2_precondition_dewpoint_gate_end" in trace_stages
 
 
 def test_build_point_summary_row_includes_co2_precondition_dewpoint_gate_fields(tmp_path: Path) -> None:

@@ -211,6 +211,65 @@ def test_route_requires_preseal_topoff_only_when_1100_selected(tmp_path: Path) -
         _close_runner(runner)
 
 
+def test_explicit_tiny_matrix_keeps_repeated_500hpa_rows(tmp_path: Path) -> None:
+    runner = _runner(
+        tmp_path,
+        {"workflow": {"preserve_explicit_point_matrix": True, "selected_pressure_points": ["ambient", 500]}},
+    )
+    try:
+        points = [
+            CalibrationPoint(
+                index=idx + 1,
+                temp_chamber_c=20.0,
+                co2_ppm=500.0,
+                hgen_temp_c=None,
+                hgen_rh_pct=None,
+                target_pressure_hpa=float(pressure),
+                dewpoint_c=None,
+                h2o_mmol=None,
+                raw_h2o=None,
+                co2_group="B",
+            )
+            for idx, pressure in enumerate([1100, 500, 500, 500])
+        ]
+        selected = runner._co2_pressure_points_for_temperature(points)
+    finally:
+        _close_runner(runner)
+
+    assert [runner._pressure_target_label(point) for point in selected] == [
+        "当前大气压",
+        "500hPa",
+        "500hPa",
+        "500hPa",
+    ]
+
+
+def test_explicit_tiny_matrix_disables_20c_full_co2_sweep_expansion(tmp_path: Path) -> None:
+    runner = _runner(tmp_path, {"workflow": {"preserve_explicit_point_matrix": True}})
+    try:
+        points = [
+            CalibrationPoint(
+                index=idx + 1,
+                temp_chamber_c=20.0,
+                co2_ppm=500.0,
+                hgen_temp_c=None,
+                hgen_rh_pct=None,
+                target_pressure_hpa=float(pressure),
+                dewpoint_c=None,
+                h2o_mmol=None,
+                raw_h2o=None,
+                co2_group="B",
+            )
+            for idx, pressure in enumerate([1100, 500, 500, 500])
+        ]
+        selected = runner._co2_source_points(points)
+    finally:
+        _close_runner(runner)
+
+    assert [int(point.co2_ppm or 0) for point in selected] == [500]
+    assert [str(point.co2_group or "") for point in selected] == ["B"]
+
+
 def test_pressure_selection_rejects_invalid_ambient_token(tmp_path: Path) -> None:
     runner = _runner(tmp_path, {"workflow": {"selected_pressure_points": ["ambient_now"]}})
     try:

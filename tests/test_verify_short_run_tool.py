@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from gas_calibrator.tools.verify_short_run import build_short_verification_config
 
 
@@ -33,6 +35,34 @@ def test_build_short_verification_config_applies_short_run_overrides() -> None:
     assert workflow_cfg["startup_pressure_precheck"]["enabled"] is False
     assert workflow_cfg["stability"]["temperature"]["analyzer_chamber_temp_timeout_s"] == 300.0
     assert workflow_cfg["stability"]["temperature"]["analyzer_chamber_temp_first_valid_timeout_s"] == 60.0
+
+
+def test_build_short_verification_config_preserves_explicit_points_matrix_when_override_is_used() -> None:
+    cfg = {
+        "workflow": {
+            "selected_temps_c": [10.0],
+            "skip_co2_ppm": [200],
+        },
+        "paths": {
+            "points_excel": "configs/default_points.xlsx",
+        },
+    }
+
+    runtime_cfg = build_short_verification_config(
+        cfg,
+        temp_c=20.0,
+        skip_co2_ppm=[],
+        enable_connect_check=True,
+        points_excel_override="configs/points_tiny_short_run_20c_even500.xlsx",
+    )
+
+    workflow_cfg = runtime_cfg["workflow"]
+    assert workflow_cfg["selected_temps_c"] == []
+    assert workflow_cfg["skip_co2_ppm"] == []
+    assert workflow_cfg["preserve_explicit_point_matrix"] is True
+    assert runtime_cfg["paths"]["points_excel"] == str(
+        Path("configs/points_tiny_short_run_20c_even500.xlsx").resolve()
+    )
 
 
 def test_default_config_keeps_mode2_post_enable_wait() -> None:

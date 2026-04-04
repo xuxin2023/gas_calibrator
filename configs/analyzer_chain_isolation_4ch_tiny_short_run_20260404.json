@@ -284,8 +284,12 @@
     "selected_temps_c": [
       20.0
     ],
-    "selected_pressure_points": [],
+    "selected_pressure_points": [
+      "ambient",
+      500
+    ],
     "temperature_descending": true,
+    "preserve_explicit_point_matrix": true,
     "skip_co2_ppm": [],
     "humidity_generator": {
       "ensure_run": true,
@@ -527,7 +531,7 @@
         "progress_min_delta_c": 0.05,
         "hard_max_wait_s": 600.0,
         "command_offset_c": 0.0,
-        "analyzer_chamber_temp_enabled": true,
+        "analyzer_chamber_temp_enabled": false,
         "analyzer_chamber_temp_window_s": 15,
         "analyzer_chamber_temp_span_c": 0.04,
         "analyzer_chamber_temp_timeout_s": 120,
@@ -551,11 +555,16 @@
         "preseal_soak_s": 420
       },
       "co2_route": {
-        "preseal_soak_s": 240,
-        "first_point_preseal_soak_s": 420,
+        "preseal_soak_s": 20,
+        "first_point_preseal_soak_s": 45,
         "post_h2o_zero_ppm_soak_s": 900
       },
       "gas_route_dewpoint_gate_enabled": true,
+      "gas_route_dewpoint_gate_policy": "warn",
+      "gas_route_dewpoint_gate_window_s": 20.0,
+      "gas_route_dewpoint_gate_max_total_wait_s": 30.0,
+      "gas_route_dewpoint_gate_poll_s": 1.0,
+      "gas_route_dewpoint_gate_log_interval_s": 10.0,
       "sensor": {
         "enabled": true,
         "co2_tol": 2.0,
@@ -600,7 +609,7 @@
     "water_first_temp_gte": 10
   },
   "paths": {
-    "points_excel": "configs\\points_real_smoke_co2_tiny_20c_even500_20260404.xlsx",
+    "points_excel": "configs\\points_tiny_short_run_20c_even500.xlsx",
     "output_dir": "logs"
   },
   "coefficients": {
