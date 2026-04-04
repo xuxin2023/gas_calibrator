@@ -4,7 +4,7 @@ from collections import Counter, defaultdict
 from datetime import datetime
 import json
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 from ..config import (
     build_step2_config_governance_handoff,
@@ -103,6 +103,226 @@ def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
         "promotion_state": "dry_run_only",
         "not_real_acceptance_evidence": True,
     }
+
+
+def _load_json_dict(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _unique_existing_paths(values: Iterable[Any]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value or "").strip()
+        if not text:
+            continue
+        try:
+            candidate = Path(text).expanduser()
+        except Exception:
+            continue
+        if not candidate.exists():
+            continue
+        try:
+            key = str(candidate.resolve())
+        except Exception:
+            key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(key)
+    return normalized
+
+
+def _flatten_plot_files(values: Any) -> list[str]:
+    flattened: list[str] = []
+
+    def _collect(value: Any) -> None:
+        if value in (None, ""):
+            return
+        if isinstance(value, dict):
+            for item in value.values():
+                _collect(item)
+            return
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                _collect(item)
+            return
+        text = str(value).strip()
+        if text:
+            flattened.append(text)
+
+    _collect(values)
+    return flattened
+
+
+def _generated_at_or_mtime(path: Path, payload: Optional[dict[str, Any]] = None) -> str:
+    generated_at = str(dict(payload or {}).get("generated_at") or "").strip()
+    if generated_at:
+        return generated_at
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec="seconds")
+    except Exception:
+        return ""
+
+
+def _resolve_bundle_path(source_dir: Path, value: Any) -> Path:
+    candidate = Path(str(value or "").strip()).expanduser()
+    return candidate if candidate.is_absolute() else source_dir / candidate
+
+
+def _room_temp_summary_text(payload: dict[str, Any]) -> str:
+    explicit = str(payload.get("summary") or payload.get("summary_text") or "").strip()
+    if explicit:
+        return explicit
+    classification = str(payload.get("classification") or payload.get("status") or "--").strip() or "--"
+    recommended_variant = str(
+        payload.get("recommended_variant")
+        or payload.get("recommended_route")
+        or payload.get("recommended_mode")
+        or "--"
+    ).strip() or "--"
+    dominant_error = str(
+        payload.get("dominant_error")
+        or payload.get("dominant_error_code")
+        or payload.get("dominant_issue")
+        or "--"
+    ).strip() or "--"
+    return (
+        f"Room-temp pressure diagnostic | classification {classification} | "
+        f"variant {recommended_variant} | dominant {dominant_error}"
+    )
+
+
+def _analyzer_chain_summary_text(payload: dict[str, Any]) -> str:
+    explicit = str(payload.get("summary") or payload.get("summary_text") or "").strip()
+    if explicit:
+        return explicit
+    dominant_conclusion = str(
+        payload.get("dominant_conclusion")
+        or payload.get("dominant_issue")
+        or payload.get("dominant_delta")
+        or "--"
+    ).strip() or "--"
+    recommendation = str(
+        payload.get("recommended_next_check")
+        or payload.get("next_check")
+        or payload.get("recommendation")
+        or "--"
+    ).strip() or "--"
+    should_continue_s1 = payload.get("should_continue_s1")
+    continue_text = "--" if should_continue_s1 is None else ("continue" if bool(should_continue_s1) else "hold")
+    return (
+        f"Analyzer-chain isolation | continue_s1 {continue_text} | "
+        f"conclusion {dominant_conclusion} | next {recommendation}"
+    )
+
+
+def _discover_room_temp_diagnostic_bundles(root: Path) -> list[dict[str, Any]]:
+    bundles: list[dict[str, Any]] = []
+    try:
+        summary_paths = sorted(
+            root.rglob(ROOM_TEMP_DIAGNOSTIC_SUMMARY_FILENAME),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
+    except Exception:
+        summary_paths = []
+    for summary_path in summary_paths:
+        payload = _load_json_dict(summary_path)
+        source_dir = summary_path.parent
+        artifact_paths = _unique_existing_paths(
+            [
+                summary_path,
+                source_dir / "readable_report.md",
+                source_dir / "diagnostic_workbook.xlsx",
+                *[_resolve_bundle_path(source_dir, path) for path in _flatten_plot_files(payload.get("plot_files"))],
+            ]
+        )
+        bundles.append(
+            {
+                "kind": "room_temp",
+                "primary_artifact_path": str(summary_path.resolve()),
+                "source_dir": str(source_dir.resolve()),
+                "generated_at": _generated_at_or_mtime(summary_path, payload),
+                "summary_text": _room_temp_summary_text(payload),
+                "artifact_paths": artifact_paths,
+                "classification": str(payload.get("classification") or payload.get("status") or "").strip(),
+                "recommended_variant": str(
+                    payload.get("recommended_variant")
+                    or payload.get("recommended_route")
+                    or payload.get("recommended_mode")
+                    or ""
+                ).strip(),
+                "dominant_error": str(
+                    payload.get("dominant_error")
+                    or payload.get("dominant_error_code")
+                    or payload.get("dominant_issue")
+                    or ""
+                ).strip(),
+                "next_check": str(
+                    payload.get("recommended_next_check")
+                    or payload.get("next_check")
+                    or payload.get("recommendation")
+                    or ""
+                ).strip(),
+            }
+        )
+    return bundles
+
+
+def _discover_analyzer_chain_isolation_bundles(root: Path) -> list[dict[str, Any]]:
+    bundles: list[dict[str, Any]] = []
+    try:
+        summary_paths = sorted(
+            root.rglob(ANALYZER_CHAIN_ISOLATION_SUMMARY_FILENAME),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
+    except Exception:
+        summary_paths = []
+    for summary_path in summary_paths:
+        payload = _load_json_dict(summary_path)
+        source_dir = summary_path.parent
+        artifact_paths = _unique_existing_paths(
+            [
+                summary_path,
+                source_dir / "summary.json",
+                source_dir / "readable_report.md",
+                source_dir / "diagnostic_workbook.xlsx",
+                source_dir / "operator_checklist.md",
+                source_dir / "compare_vs_8ch.md",
+                source_dir / "compare_vs_baseline.md",
+                *[_resolve_bundle_path(source_dir, path) for path in _flatten_plot_files(payload.get("plot_files"))],
+            ]
+        )
+        bundles.append(
+            {
+                "kind": "analyzer_chain",
+                "primary_artifact_path": str(summary_path.resolve()),
+                "source_dir": str(source_dir.resolve()),
+                "generated_at": _generated_at_or_mtime(summary_path, payload),
+                "summary_text": _analyzer_chain_summary_text(payload),
+                "artifact_paths": artifact_paths,
+                "should_continue_s1": payload.get("should_continue_s1"),
+                "dominant_conclusion": str(
+                    payload.get("dominant_conclusion")
+                    or payload.get("dominant_issue")
+                    or payload.get("dominant_delta")
+                    or ""
+                ).strip(),
+                "recommendation": str(
+                    payload.get("recommended_next_check")
+                    or payload.get("next_check")
+                    or payload.get("recommendation")
+                    or ""
+                ).strip(),
+            }
+        )
+    return bundles
 
 
 def _normalize_review_evidence_source(value: Any, *, default: str = "--") -> str:
@@ -276,6 +496,10 @@ def export_run_offline_artifacts(
         "trend_registry": trend_registry,
         "evidence_registry_path": str(evidence_path),
     }
+    if analytics_summary.get("offline_diagnostic_adapter_summary"):
+        summary_stats["offline_diagnostic_adapter_summary"] = dict(
+            analytics_summary.get("offline_diagnostic_adapter_summary") or {}
+        )
     if spectral_quality_summary:
         summary_stats["spectral_quality_summary"] = spectral_quality_summary
         summary_stats["spectral_quality_digest"] = _spectral_quality_digest(spectral_quality_summary)
@@ -417,6 +641,16 @@ def build_run_analytics_summary(
         reference_quality=reference_quality,
     )
     measurement_analytics_summary = _build_measurement_analytics_summary(samples, point_summaries=point_summaries)
+    offline_diagnostic_adapter_summary = summarize_offline_diagnostic_adapters(run_dir)
+    if offline_diagnostic_adapter_summary:
+        measurement_analytics_summary = dict(measurement_analytics_summary)
+        measurement_summary = str(measurement_analytics_summary.get("summary") or "").strip()
+        adapter_summary = str(offline_diagnostic_adapter_summary.get("summary") or "").strip()
+        measurement_analytics_summary["offline_diagnostic_adapter_summary"] = dict(offline_diagnostic_adapter_summary)
+        if adapter_summary and adapter_summary not in measurement_summary:
+            measurement_analytics_summary["summary"] = (
+                f"{measurement_summary} | {adapter_summary}" if measurement_summary else adapter_summary
+            )
     unified_review_summary = _build_unified_review_summary(
         run_kpis=run_kpis,
         point_kpis=point_kpis,
@@ -467,7 +701,11 @@ def build_run_analytics_summary(
         "health": str(analyzer_health_digest.get("overall_status") or "attention"),
         "reviewer_summary": str(unified_review_summary.get("summary") or ""),
     }
-    return {
+    if offline_diagnostic_adapter_summary:
+        adapter_digest = str(offline_diagnostic_adapter_summary.get("summary") or "").strip()
+        if adapter_digest:
+            digest["summary"] = f"{digest['summary']} | offline {adapter_digest}"
+    payload = {
         "schema_version": OFFLINE_ARTIFACT_SCHEMA_VERSION,
         "artifact_type": "run_analytics_summary",
         "run_id": run_id,
@@ -518,6 +756,9 @@ def build_run_analytics_summary(
         "qc_review_cards": [dict(item) for item in list(qc_evidence_section.get("cards") or []) if isinstance(item, dict)],
         "digest": digest,
     }
+    if offline_diagnostic_adapter_summary:
+        payload["offline_diagnostic_adapter_summary"] = dict(offline_diagnostic_adapter_summary)
+    return payload
 
 
 def build_reference_quality_statistics(samples: list[Any]) -> dict[str, Any]:

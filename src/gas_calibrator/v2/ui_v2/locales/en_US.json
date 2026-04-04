@@ -1526,6 +1526,7 @@
         "lineage_config_version": "Lineage config version: {value}",
         "suite_summary": "Suite summary: {value}",
         "spectral_quality": "Spectral quality: {value}",
+        "offline_diagnostic": "Offline diagnostic adapter: {value}",
         "workbench_evidence": "Workbench diagnostic evidence: {value}"
       }
     },
@@ -1912,7 +1913,8 @@
         "parity": "Parity",
         "resilience": "Resilience",
         "workbench": "Workbench",
-        "analytics": "Analytics"
+        "analytics": "Analytics",
+        "offline_diagnostic": "Offline Diagnostic"
       },
     "source_kind": {
       "run": "Run Evidence",

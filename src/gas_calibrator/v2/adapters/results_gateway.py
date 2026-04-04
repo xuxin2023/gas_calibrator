@@ -6,6 +6,7 @@ from typing import Any, Callable, Iterable, Optional
 
 from ..config import build_step2_config_governance_handoff
 from ..core.artifact_catalog import KNOWN_REPORT_ARTIFACTS
+from ..core.offline_artifacts import summarize_offline_diagnostic_adapters
 from ..ui_v2.artifact_registry_governance import build_current_run_governance
 
 
@@ -43,6 +44,16 @@ class ResultsGateway:
             workbench_action_report,
             workbench_action_snapshot,
         )
+        offline_diagnostic_adapter_summary = self._read_summary_section(
+            "offline_diagnostic_adapter_summary",
+            summary,
+            evidence_registry,
+            analytics_summary,
+            workbench_action_report,
+            workbench_action_snapshot,
+        )
+        if not offline_diagnostic_adapter_summary:
+            offline_diagnostic_adapter_summary = summarize_offline_diagnostic_adapters(self.run_dir)
         return {
             "summary": summary,
             "manifest": self.load_json("manifest.json"),
@@ -69,6 +80,7 @@ class ResultsGateway:
             "artifact_exports": dict(summary.get("stats", {}).get("artifact_exports", {}) or {}) if isinstance(summary, dict) else {},
             "artifact_role_summary": dict(summary.get("stats", {}).get("artifact_role_summary", {}) or {}) if isinstance(summary, dict) else {},
             "workbench_evidence_summary": dict(summary.get("stats", {}).get("workbench_evidence_summary", {}) or {}) if isinstance(summary, dict) else {},
+            "offline_diagnostic_adapter_summary": offline_diagnostic_adapter_summary,
         }
 
     def read_reports_payload(self) -> dict[str, Any]:
@@ -76,9 +88,23 @@ class ResultsGateway:
         manifest = dict(payload.get("manifest", {}) or {})
         role_catalog = dict(manifest.get("artifacts", {}) or {}).get("role_catalog", {})
         artifact_exports = dict(payload.get("artifact_exports", {}) or {})
+        offline_diagnostic_adapter_summary = dict(payload.get("offline_diagnostic_adapter_summary", {}) or {})
         files = []
         seen: set[str] = set()
-        for path in [self.run_dir / item for item in KNOWN_REPORT_ARTIFACTS] + [Path(item) for item in payload["output_files"]]:
+
+        def _artifact_path(value: Any) -> Path:
+            candidate = Path(str(value or "").strip())
+            if candidate.is_absolute():
+                return candidate
+            return self.run_dir / candidate
+
+        candidate_paths = [self.run_dir / item for item in KNOWN_REPORT_ARTIFACTS]
+        candidate_paths.extend(_artifact_path(item) for item in payload["output_files"])
+        candidate_paths.extend(
+            _artifact_path(item)
+            for item in list(offline_diagnostic_adapter_summary.get("artifact_paths") or [])
+        )
+        for path in candidate_paths:
             key = str(path)
             if key in seen:
                 continue
@@ -114,6 +140,7 @@ class ResultsGateway:
             "artifact_exports": dict(payload.get("artifact_exports", {}) or {}),
             "artifact_role_summary": dict(payload.get("artifact_role_summary", {}) or {}),
             "workbench_evidence_summary": dict(payload.get("workbench_evidence_summary", {}) or {}),
+            "offline_diagnostic_adapter_summary": offline_diagnostic_adapter_summary,
         }
 
     def list_output_files(self) -> list[str]:

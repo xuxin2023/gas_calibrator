@@ -1525,6 +1525,7 @@
         "lineage_config_version": "追溯配置版本：{value}",
         "suite_summary": "套件摘要：{value}",
         "spectral_quality": "谱分析质量：{value}",
+        "offline_diagnostic": "离线诊断适配：{value}",
         "workbench_evidence": "工作台诊断证据：{value}"
       }
     },
@@ -1911,7 +1912,8 @@
         "parity": "口径对比",
         "resilience": "导出韧性",
         "workbench": "工作台",
-        "analytics": "分析"
+        "analytics": "分析",
+        "offline_diagnostic": "离线诊断"
       },
     "source_kind": {
       "run": "Run 证据",

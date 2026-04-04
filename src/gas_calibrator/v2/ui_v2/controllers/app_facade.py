@@ -1159,6 +1159,7 @@ class AppFacade:
         suite_acceptance_plan = dict(payload.get("suite_acceptance_plan", {}) or {})
         workbench_action_report = dict(payload.get("workbench_action_report", {}) or {})
         workbench_action_snapshot = dict(payload.get("workbench_action_snapshot", {}) or {})
+        offline_diagnostic_adapter_summary = dict(payload.get("offline_diagnostic_adapter_summary", {}) or {})
 
         sample_count = 0
         point_summary_count = 0
@@ -1220,6 +1221,9 @@ class AppFacade:
         spectral_quality_text = self._spectral_quality_summary_text(spectral_quality_summary)
         suite_digest_text = self._humanize_ui_summary(str(suite_digest.get("summary", "--") or "--"))
         workbench_evidence_text = self._humanize_ui_summary(str(workbench_evidence_summary.get("summary_line", "--") or "--"))
+        offline_diagnostic_text = self._humanize_ui_summary(
+            str(offline_diagnostic_adapter_summary.get("summary", "--") or "--")
+        )
         qc_evidence_section = self._build_results_qc_evidence_section(
             analytics_summary=analytics_summary,
             workbench_evidence_summary=workbench_evidence_summary,
@@ -1242,6 +1246,7 @@ class AppFacade:
             lineage_summary=lineage_summary,
             lineage_digest=lineage_digest,
             workbench_evidence_summary=workbench_evidence_summary,
+            offline_diagnostic_adapter_summary=offline_diagnostic_adapter_summary,
         )
         review_digest = self._build_review_digest(
             suite_summary=suite_summary,
@@ -1296,6 +1301,11 @@ class AppFacade:
                     if spectral_quality_text
                     else []
                 ),
+                *(
+                    [t("facade.results.result_summary.offline_diagnostic", value=offline_diagnostic_text)]
+                    if offline_diagnostic_adapter_summary
+                    else []
+                ),
                 f"配置安全: {str(config_safety_review.get('summary') or '--')}",
                 t("facade.results.result_summary.workbench_evidence", value=workbench_evidence_text),
             ]
@@ -1324,6 +1334,7 @@ class AppFacade:
             "workbench_action_report": workbench_action_report,
             "workbench_action_snapshot": workbench_action_snapshot,
             "workbench_evidence_summary": workbench_evidence_summary,
+            "offline_diagnostic_adapter_summary": offline_diagnostic_adapter_summary,
             "review_digest": review_digest,
             "review_digest_text": str(review_digest.get("summary_text", "") or ""),
             "review_center": review_center,
@@ -1418,6 +1429,7 @@ class AppFacade:
         lineage_summary: dict[str, Any],
         lineage_digest: dict[str, Any],
         workbench_evidence_summary: dict[str, Any],
+        offline_diagnostic_adapter_summary: dict[str, Any],
     ) -> dict[str, Any]:
         evidence_items, review_diagnostics = self._collect_review_evidence(
             suite_summary=suite_summary,
@@ -1426,6 +1438,7 @@ class AppFacade:
             spectral_quality_summary=spectral_quality_summary,
             lineage_summary=lineage_summary,
             workbench_evidence_summary=workbench_evidence_summary,
+            offline_diagnostic_adapter_summary=offline_diagnostic_adapter_summary,
         )
         index_summary = self._build_review_index_summary(evidence_items, diagnostics=review_diagnostics)
         readiness_text = self._humanize_ui_summary(
@@ -1737,6 +1750,7 @@ class AppFacade:
         spectral_quality_summary: dict[str, Any],
         lineage_summary: dict[str, Any],
         workbench_evidence_summary: dict[str, Any],
+        offline_diagnostic_adapter_summary: dict[str, Any],
         force_refresh: bool = False,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         started_at = time.perf_counter()
@@ -1848,6 +1862,32 @@ class AppFacade:
                 fallback_digest=lineage_summary,
                 fallback_spectral=spectral_quality_summary,
             )
+            if item:
+                items.append(item)
+        offline_primary_paths = [
+            Path(str(path))
+            for path in list(offline_diagnostic_adapter_summary.get("primary_artifact_paths") or [])
+            if str(path or "").strip()
+        ]
+        offline_paths: list[Path] = []
+        if offline_primary_paths:
+            offline_paths = self._review_artifact_paths(
+                "diagnostic_summary.json",
+                roots=run_roots,
+                explicit_paths=offline_primary_paths,
+                limit=8,
+                metrics=diagnostics,
+                force_refresh=force_refresh,
+            )
+            if len(offline_paths) < len(offline_primary_paths):
+                seen = {str(path) for path in offline_paths}
+                for path in offline_primary_paths:
+                    key = str(path)
+                    if path.exists() and key not in seen:
+                        seen.add(key)
+                        offline_paths.append(path)
+        for path in offline_paths:
+            item = self._parse_review_artifact(path, evidence_type="offline_diagnostic")
             if item:
                 items.append(item)
         diagnostics["elapsed_ms"] = int(round((time.perf_counter() - started_at) * 1000))
@@ -2205,6 +2245,8 @@ class AppFacade:
                 fallback_lineage=dict(fallback_digest or {}),
                 fallback_spectral=dict(fallback_spectral or {}),
             )
+        if evidence_type == "offline_diagnostic":
+            return self._build_offline_diagnostic_review_item(payload, path)
         return None
 
     def _build_suite_review_item(
@@ -2674,6 +2716,218 @@ class AppFacade:
             detail_analytics_summary=analytics_detail_summary,
             detail_lineage_summary=lineage_detail_summary,
             detail_spectral_summary=spectral_detail_summary,
+        )
+
+    @staticmethod
+    def _offline_diagnostic_payload_paths(source_dir: Path, value: Any) -> list[str]:
+        paths: list[str] = []
+
+        def _collect(item: Any) -> None:
+            if item in (None, ""):
+                return
+            if isinstance(item, dict):
+                for child in item.values():
+                    _collect(child)
+                return
+            if isinstance(item, (list, tuple, set)):
+                for child in item:
+                    _collect(child)
+                return
+            candidate = Path(str(item).strip()).expanduser()
+            resolved = candidate if candidate.is_absolute() else source_dir / candidate
+            paths.append(str(resolved))
+
+        _collect(value)
+        return paths
+
+    @staticmethod
+    def _offline_diagnostic_existing_paths(values: list[Any]) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            text = str(value or "").strip()
+            if not text:
+                continue
+            path = Path(text)
+            if not path.exists():
+                continue
+            resolved = str(path.resolve())
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            normalized.append(resolved)
+        return normalized
+
+    def _build_offline_diagnostic_review_item(self, payload: dict[str, Any], path: Path) -> dict[str, Any]:
+        if path.name == "isolation_comparison_summary.json":
+            return self._build_analyzer_chain_diagnostic_review_item(payload, path)
+        return self._build_room_temp_diagnostic_review_item(payload, path)
+
+    def _build_room_temp_diagnostic_review_item(self, payload: dict[str, Any], path: Path) -> dict[str, Any]:
+        source_dir = path.parent
+        classification = str(payload.get("classification") or payload.get("status") or "--").strip() or "--"
+        recommended_variant = str(
+            payload.get("recommended_variant")
+            or payload.get("recommended_route")
+            or payload.get("recommended_mode")
+            or "--"
+        ).strip() or "--"
+        dominant_error = str(
+            payload.get("dominant_error")
+            or payload.get("dominant_error_code")
+            or payload.get("dominant_issue")
+            or "--"
+        ).strip() or "--"
+        next_check = str(
+            payload.get("recommended_next_check")
+            or payload.get("next_check")
+            or payload.get("recommendation")
+            or "--"
+        ).strip() or "--"
+        summary = self._humanize_ui_summary(
+            str(
+                payload.get("summary")
+                or f"Room-temp diagnostic | classification {classification} | variant {recommended_variant} | dominant {dominant_error}"
+            )
+        )
+        classification_key = classification.lower()
+        if classification_key == "fail":
+            status = "failed"
+        elif classification_key in {"warn", "warning", "insufficient_evidence"}:
+            status = "degraded"
+        else:
+            status = "diagnostic_only"
+        evidence_source = str(payload.get("evidence_source") or "diagnostic").strip() or "diagnostic"
+        if evidence_source.lower() in {"simulated", "simulated_protocol"}:
+            evidence_source = _normalize_simulated_evidence_source(evidence_source)
+        artifact_paths = self._offline_diagnostic_existing_paths(
+            [
+                path,
+                source_dir / "readable_report.md",
+                source_dir / "diagnostic_workbook.xlsx",
+                *self._offline_diagnostic_payload_paths(source_dir, payload.get("plot_files")),
+            ]
+        )
+        analytics_detail_summary = [
+            summary,
+            f"classification: {classification}",
+            f"recommended variant: {recommended_variant}",
+            f"dominant error: {dominant_error}",
+            f"next check: {next_check}",
+        ]
+        lineage_detail_summary = [
+            f"bundle dir: {source_dir}",
+            f"primary artifact: {path}",
+        ]
+        detail = "\n".join(
+            [
+                f"{t('results.review_center.detail.summary')}: {summary}",
+                f"{t('results.review_center.detail.status')}: {classification}",
+                f"{t('results.review_center.detail.source')}: {display_evidence_source(evidence_source, default=evidence_source)}",
+                f"{t('results.review_center.detail.state')}: {display_evidence_state(payload.get('evidence_state'), default=str(payload.get('evidence_state') or 'collected'))}",
+                f"{t('results.review_center.detail.path')}: {path}",
+                f"classification: {classification}",
+                f"recommended variant: {recommended_variant}",
+                f"dominant error: {dominant_error}",
+                f"next check: {next_check}",
+                t("results.review_center.disclaimer"),
+            ]
+        )
+        return self._review_entry(
+            evidence_type="offline_diagnostic",
+            path=path,
+            generated_at=payload.get("generated_at"),
+            summary=summary,
+            detail_text=detail,
+            raw_status=classification,
+            status=status,
+            source_kind="run",
+            evidence_source=evidence_source,
+            evidence_state=str(payload.get("evidence_state") or "collected"),
+            not_real_acceptance_evidence=bool(payload.get("not_real_acceptance_evidence", True)),
+            key_fields=[classification, recommended_variant, dominant_error, next_check],
+            artifact_paths=artifact_paths,
+            detail_analytics_summary=analytics_detail_summary,
+            detail_lineage_summary=lineage_detail_summary,
+        )
+
+    def _build_analyzer_chain_diagnostic_review_item(self, payload: dict[str, Any], path: Path) -> dict[str, Any]:
+        source_dir = path.parent
+        should_continue_s1 = payload.get("should_continue_s1")
+        continue_text = "--" if should_continue_s1 is None else ("continue" if bool(should_continue_s1) else "hold")
+        dominant_conclusion = str(
+            payload.get("dominant_conclusion")
+            or payload.get("dominant_issue")
+            or payload.get("dominant_delta")
+            or "--"
+        ).strip() or "--"
+        recommendation = str(
+            payload.get("recommended_next_check")
+            or payload.get("next_check")
+            or payload.get("recommendation")
+            or "--"
+        ).strip() or "--"
+        summary = self._humanize_ui_summary(
+            str(
+                payload.get("summary")
+                or f"Analyzer-chain isolation | continue_s1 {continue_text} | conclusion {dominant_conclusion} | next {recommendation}"
+            )
+        )
+        status = "diagnostic_only" if should_continue_s1 is not False else "degraded"
+        evidence_source = str(payload.get("evidence_source") or "diagnostic").strip() or "diagnostic"
+        if evidence_source.lower() in {"simulated", "simulated_protocol"}:
+            evidence_source = _normalize_simulated_evidence_source(evidence_source)
+        artifact_paths = self._offline_diagnostic_existing_paths(
+            [
+                path,
+                source_dir / "summary.json",
+                source_dir / "readable_report.md",
+                source_dir / "diagnostic_workbook.xlsx",
+                source_dir / "operator_checklist.md",
+                source_dir / "compare_vs_8ch.md",
+                source_dir / "compare_vs_baseline.md",
+                *self._offline_diagnostic_payload_paths(source_dir, payload.get("plot_files")),
+            ]
+        )
+        analytics_detail_summary = [
+            summary,
+            f"should_continue_s1: {continue_text}",
+            f"dominant conclusion: {dominant_conclusion}",
+            f"recommended next check: {recommendation}",
+        ]
+        lineage_detail_summary = [
+            f"bundle dir: {source_dir}",
+            f"primary artifact: {path}",
+        ]
+        detail = "\n".join(
+            [
+                f"{t('results.review_center.detail.summary')}: {summary}",
+                f"{t('results.review_center.detail.status')}: {continue_text}",
+                f"{t('results.review_center.detail.source')}: {display_evidence_source(evidence_source, default=evidence_source)}",
+                f"{t('results.review_center.detail.state')}: {display_evidence_state(payload.get('evidence_state'), default=str(payload.get('evidence_state') or 'collected'))}",
+                f"{t('results.review_center.detail.path')}: {path}",
+                f"should_continue_s1: {continue_text}",
+                f"dominant conclusion: {dominant_conclusion}",
+                f"recommended next check: {recommendation}",
+                t("results.review_center.disclaimer"),
+            ]
+        )
+        return self._review_entry(
+            evidence_type="offline_diagnostic",
+            path=path,
+            generated_at=payload.get("generated_at"),
+            summary=summary,
+            detail_text=detail,
+            raw_status=continue_text,
+            status=status,
+            source_kind="run",
+            evidence_source=evidence_source,
+            evidence_state=str(payload.get("evidence_state") or "collected"),
+            not_real_acceptance_evidence=bool(payload.get("not_real_acceptance_evidence", True)),
+            key_fields=[continue_text, dominant_conclusion, recommendation],
+            artifact_paths=artifact_paths,
+            detail_analytics_summary=analytics_detail_summary,
+            detail_lineage_summary=lineage_detail_summary,
         )
 
     def _review_entry(
@@ -3319,6 +3573,9 @@ class AppFacade:
         payload["qc_evidence_section"] = dict(results.get("qc_evidence_section", {}) or {})
         payload["qc_review_cards"] = [dict(item) for item in list(results.get("qc_review_cards", []) or []) if isinstance(item, dict)]
         payload["spectral_quality_summary"] = dict(results.get("spectral_quality_summary", {}) or {})
+        payload["offline_diagnostic_adapter_summary"] = dict(
+            results.get("offline_diagnostic_adapter_summary", {}) or payload.get("offline_diagnostic_adapter_summary", {}) or {}
+        )
         payload["config_safety"] = dict(results.get("config_safety", {}) or payload.get("config_safety", {}) or {})
         payload["config_safety_review"] = dict(
             results.get("config_safety_review", {}) or payload.get("config_safety_review", {}) or {}
