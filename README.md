@@ -92,3 +92,18 @@ python run_v1_merged_sidecar.py --run-dir <completed_run_dir>
 These entrypoints keep V1-adjacent postprocess/sidecar flows easy to reach
 without changing `run_app.py`, without modifying the frozen V1 UI, and without
 promoting Step 2 sidecar capabilities into the V1 production path.
+
+### GitHub sync
+
+```powershell
+.\scripts\sync.ps1
+```
+
+```powershell
+.\scripts\sync.ps1 -Message "feat: describe your change"
+```
+
+The sync script stages the current branch changes, creates a commit, and pushes
+to `origin`. Use `-DryRun` to preview the actions first. If `origin/<branch>`
+is ahead of your local branch, the script stops and asks you to sync the branch
+history first.
