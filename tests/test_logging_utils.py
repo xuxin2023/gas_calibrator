@@ -1209,6 +1209,71 @@ def test_run_logger_extends_analyzer_workbook_header_for_late_mode2_extra_fields
         wb.close()
 
 
+def test_run_logger_preserves_analyzer_workbook_header_when_common_dynamic_key_order_changes(
+    tmp_path: Path,
+) -> None:
+    logger = RunLogger(tmp_path)
+    rows_1 = [
+        {
+            "point_title": "点1",
+            "sample_ts": "2026-04-04T23:25:55.597",
+            "point_phase": "co2",
+            "point_tag": "co2_groupa_400ppm_ambient",
+            "point_row": 4,
+            "pace_anchor_delta_ms": 304.05,
+            "pace_sample_ts": "2026-04-04T23:25:55.293",
+            "pressure_hpa": 1004.4226074,
+            "pressure_gauge_anchor_delta_ms": 11814.237,
+            "pressure_gauge_error": "fast_signal_stale",
+            "dewpoint_live_anchor_delta_ms": 111.617,
+            "dewpoint_live_sample_ts": "2026-04-04T23:25:55.486",
+            "dewpoint_live_c": -38.01,
+            "dew_temp_live_c": 35.51,
+            "dew_rh_live_pct": 0.28,
+            "ga01_id": "015",
+            "ga01_co2_ratio_f": 1.2661,
+            "pressure_error": "",
+        }
+    ]
+    rows_2 = [
+        {
+            "point_title": "点2",
+            "sample_ts": "2026-04-04T23:32:22.328",
+            "point_phase": "co2",
+            "point_tag": "co2_groupa_1000ppm_ambient",
+            "point_row": 5,
+            "pace_anchor_delta_ms": 1024.197,
+            "pressure_error": "fast_signal_stale",
+            "pressure_gauge_anchor_delta_ms": 12810.108,
+            "pressure_gauge_error": "fast_signal_stale",
+            "dewpoint_live_anchor_delta_ms": 411.399,
+            "dewpoint_live_sample_ts": "2026-04-04T23:32:21.917",
+            "dewpoint_live_c": -38.24,
+            "dew_temp_live_c": 35.62,
+            "dew_rh_live_pct": 0.27,
+            "ga01_id": "015",
+            "ga01_co2_ratio_f": 1.1425,
+        }
+    ]
+
+    logger.log_analyzer_workbook(rows_1, analyzer_labels=["ga01"], phase="co2")
+    logger.log_analyzer_workbook(rows_2, analyzer_labels=["ga01"], phase="co2")
+    logger.close()
+
+    wb = load_workbook(logger.co2_analyzer_book_path)
+    try:
+        ws = wb["气体分析仪1_ID015"]
+        headers = [ws.cell(row=1, column=i).value for i in range(1, ws.max_column + 1)]
+        pressure_error_col = headers.index("pressure_error") + 1
+        pace_sample_ts_col = headers.index("压力控制器采样时间") + 1
+        assert ws.max_row == 3
+        assert pressure_error_col > pace_sample_ts_col
+        assert ws.cell(row=2, column=pressure_error_col).value in (None, "")
+        assert ws.cell(row=3, column=pressure_error_col).value == "fast_signal_stale"
+    finally:
+        wb.close()
+
+
 def test_run_logger_writes_analyzer_summary_csv_and_workbook(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     expected_ppm_h2o_dew = _dewpoint_to_h2o_mmol_per_mol(1.3, 1000.3)

@@ -689,6 +689,45 @@ def _dedupe_keys_by_label(keys: List[str]) -> List[str]:
     return out
 
 
+def _merge_sheet_header_keys(existing_labels: List[Any], header_keys: List[str]) -> List[str]:
+    """Preserve existing sheet-column order while appending newly discovered fields."""
+    keyed_labels = [
+        (idx, str(key), _field_label(str(key)))
+        for idx, key in enumerate(header_keys)
+    ]
+    label_to_entries: Dict[str, List[tuple[int, str]]] = {}
+    for idx, key, label in keyed_labels:
+        label_to_entries.setdefault(label, []).append((idx, key))
+
+    used_indices = set()
+    merged_keys: List[str] = []
+    blank_idx = 0
+    for value in existing_labels:
+        label = "" if value is None else str(value)
+        entries = label_to_entries.get(label, [])
+        match_idx: Optional[int] = None
+        match_key: Optional[str] = None
+        while entries:
+            candidate_idx, candidate_key = entries.pop(0)
+            if candidate_idx in used_indices:
+                continue
+            match_idx = candidate_idx
+            match_key = candidate_key
+            break
+        if match_idx is None or match_key is None:
+            blank_idx += 1
+            merged_keys.append(f"__sheet_blank_{blank_idx}__")
+            continue
+        used_indices.add(match_idx)
+        merged_keys.append(match_key)
+
+    for idx, key, _label in keyed_labels:
+        if idx in used_indices:
+            continue
+        merged_keys.append(key)
+    return merged_keys
+
+
 def _trim_trailing_empty_labels(labels: List[Any]) -> List[Any]:
     out = list(labels)
     while out and out[-1] in (None, ""):
@@ -1791,9 +1830,8 @@ class RunLogger:
                     if ws.max_row >= 2 and ws["A1"].value is None:
                         ws.delete_rows(1, 1)
                 else:
-                    shared_len = min(len(existing), len(header_labels))
-                    if existing[:shared_len] != header_labels[:shared_len]:
-                        raise RuntimeError(f"Workbook sheet header mismatch: {sheet_name}")
+                    header_keys = _merge_sheet_header_keys(existing, header_keys)
+                    header_labels = [_field_label(key) for key in header_keys]
                     if len(existing) < len(header_labels):
                         for offset, label_text in enumerate(header_labels[len(existing) :], start=len(existing) + 1):
                             ws.cell(row=1, column=offset).value = label_text
