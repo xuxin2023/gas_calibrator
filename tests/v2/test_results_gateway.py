@@ -172,6 +172,7 @@ def test_results_gateway_reads_top_level_handoffs_when_stats_sections_are_missin
     stats = dict(payload.get("stats", {}) or {})
     stats.pop("artifact_role_summary", None)
     stats.pop("workbench_evidence_summary", None)
+    stats.pop("config_governance_handoff", None)
     payload["stats"] = stats
     payload["artifact_role_summary"] = {
         "execution_summary": {
@@ -179,6 +180,11 @@ def test_results_gateway_reads_top_level_handoffs_when_stats_sections_are_missin
             "artifacts": ["summary.json"],
             "status_counts": {"ok": 9},
         }
+    }
+    payload["config_governance_handoff"] = {
+        "status": "unlocked_override",
+        "execution_gate": {"status": "unlocked_override", "summary": "top-level governance override"},
+        "blocked_reason_details": [],
     }
     payload["workbench_evidence_summary"] = {
         "summary_line": "top-level workbench summary",
@@ -201,9 +207,11 @@ def test_results_gateway_reads_top_level_handoffs_when_stats_sections_are_missin
     assert results_payload["artifact_role_summary"]["execution_summary"]["count"] == 9
     assert results_payload["workbench_evidence_summary"]["summary_line"] == "top-level workbench summary"
     assert results_payload["workbench_evidence_summary"]["evidence_state"] == "simulated_workbench"
+    assert results_payload["config_governance_handoff"]["execution_gate"]["status"] == "unlocked_override"
     assert results_payload["evidence_source"] == "simulated_protocol"
     assert reports_payload["artifact_role_summary"]["execution_summary"]["status_counts"]["ok"] == 9
     assert reports_payload["workbench_evidence_summary"]["summary_line"] == "top-level workbench summary"
+    assert reports_payload["config_governance_handoff"]["execution_gate"]["status"] == "unlocked_override"
 
 
 def test_results_gateway_surfaces_point_taxonomy_summary(tmp_path: Path) -> None:

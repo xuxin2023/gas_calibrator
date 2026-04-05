@@ -140,7 +140,15 @@ class ResultsGateway:
             "reporting": dict(summary.get("reporting", {}) or {}) if isinstance(summary, dict) else {},
             "config_safety": config_safety,
             "config_safety_review": config_safety_review,
-            "config_governance_handoff": self._read_config_governance_handoff(config_safety, config_safety_review),
+            "config_governance_handoff": self._read_config_governance_handoff(
+                config_safety,
+                config_safety_review,
+                summary,
+                evidence_registry,
+                analytics_summary,
+                workbench_action_report,
+                workbench_action_snapshot,
+            ),
             "artifact_exports": dict(summary.get("stats", {}).get("artifact_exports", {}) or {}) if isinstance(summary, dict) else {},
             "artifact_role_summary": artifact_role_summary,
             "workbench_evidence_summary": workbench_evidence_summary,
@@ -278,7 +286,12 @@ class ResultsGateway:
         cls,
         config_safety: dict[str, Any] | None,
         config_safety_review: dict[str, Any] | None,
+        *payloads: dict[str, Any] | None,
     ) -> dict[str, Any]:
+        for payload in payloads:
+            section = cls._read_section_from_payload(payload, "config_governance_handoff")
+            if section:
+                return section
         if config_safety_review:
             return build_step2_config_governance_handoff(config_safety_review)
         if config_safety:

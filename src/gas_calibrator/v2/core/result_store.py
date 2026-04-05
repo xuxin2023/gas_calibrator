@@ -6,7 +6,11 @@ from pathlib import Path
 import json
 from typing import Any, Optional
 
-from ..config import build_step2_config_safety_review, summarize_step2_config_safety
+from ..config import (
+    build_step2_config_governance_handoff,
+    build_step2_config_safety_review,
+    summarize_step2_config_safety,
+)
 from ..domain.pressure_selection import effective_pressure_mode, normalize_pressure_selection_token, pressure_target_label
 from .data_writer import DataWriter
 from .models import CalibrationPoint, CalibrationStatus, SamplingResult
@@ -67,6 +71,11 @@ class ResultStore:
         if not config_safety and config is not None:
             config_safety = summarize_step2_config_safety(config)
         config_safety_review = build_step2_config_safety_review(config_safety) if config_safety else {}
+        config_governance_handoff = (
+            build_step2_config_governance_handoff(config_safety_review or config_safety)
+            if (config_safety_review or config_safety)
+            else {}
+        )
         stats = {
             "run_id": session.run_id,
             "sample_count": len(self._samples),
@@ -84,6 +93,7 @@ class ResultStore:
         if config_safety:
             stats["config_safety"] = config_safety
             stats["config_safety_review"] = config_safety_review
+            stats["config_governance_handoff"] = config_governance_handoff
         if startup_pressure_precheck is not None:
             stats["startup_pressure_precheck"] = startup_pressure_precheck
         if extra_stats:
@@ -192,6 +202,7 @@ class ResultStore:
             "reporting_mode",
             "config_safety",
             "config_safety_review",
+            "config_governance_handoff",
             "offline_diagnostic_adapter_summary",
             "workbench_evidence_summary",
         ):

@@ -133,6 +133,8 @@ def test_result_store_writes_run_summary(tmp_path: Path) -> None:
     assert payload["status"]["progress"] == 2 / 3
     assert payload["startup_pressure_precheck"] == startup_pressure_precheck
     assert payload["stats"]["startup_pressure_precheck"] == startup_pressure_precheck
+    assert payload["config_governance_handoff"]["execution_gate"]["status"] == "blocked"
+    assert payload["stats"]["config_governance_handoff"]["execution_gate"]["status"] == "blocked"
 
 
 def test_result_store_persists_point_taxonomy_summary(tmp_path: Path) -> None:
@@ -230,6 +232,8 @@ def test_result_store_promotes_offline_diagnostic_handoffs_to_summary_top_level(
     assert payload["stats"]["offline_diagnostic_adapter_summary"] == offline_summary
     assert payload["workbench_evidence_summary"] == workbench_summary
     assert payload["stats"]["workbench_evidence_summary"] == workbench_summary
+    assert payload["config_governance_handoff"]["execution_gate"]["status"] == "blocked"
+    assert payload["stats"]["config_governance_handoff"]["execution_gate"]["status"] == "blocked"
     assert payload["reporting_mode"]["mode"] == "formal_default"
     assert payload["stats"]["reporting_mode"]["mode"] == "formal_default"
 
