@@ -1221,6 +1221,7 @@ class AppFacade:
         spectral_quality_text = self._spectral_quality_summary_text(spectral_quality_summary)
         suite_digest_text = self._humanize_ui_summary(str(suite_digest.get("summary", "--") or "--"))
         workbench_evidence_text = self._humanize_ui_summary(str(workbench_evidence_summary.get("summary_line", "--") or "--"))
+        result_evidence_source = _normalize_simulated_evidence_source(workbench_evidence_summary.get("evidence_source"))
         offline_diagnostic_text = self._humanize_ui_summary(
             str(offline_diagnostic_adapter_summary.get("summary", "--") or "--")
         )
@@ -1296,6 +1297,7 @@ class AppFacade:
                 t("facade.results.result_summary.artifact_roles", value=artifact_role_text),
                 t("facade.results.result_summary.lineage_config_version", value=lineage_digest.get("config_version", "--")),
                 t("facade.results.result_summary.suite_summary", value=suite_digest_text),
+                f"证据来源: {result_evidence_source}",
                 *(
                     [t("facade.results.result_summary.spectral_quality", value=spectral_quality_text)]
                     if spectral_quality_text
