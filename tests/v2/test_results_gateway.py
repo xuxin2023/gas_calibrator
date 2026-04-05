@@ -539,9 +539,12 @@ def test_results_gateway_surfaces_offline_diagnostic_adapter_artifacts(tmp_path:
     assert summary["found"] is True
     assert summary["room_temp_count"] == 1
     assert summary["analyzer_chain_count"] == 1
-    assert summary["artifact_count"] == 9
+    assert summary["artifact_count"] == 12
+    assert summary["primary_artifact_count"] == 2
+    assert summary["supporting_artifact_count"] == 8
     assert summary["plot_count"] == 2
-    assert summary["coverage_summary"] == "room-temp 1 | analyzer-chain 1 | artifacts 9 | plots 2"
+    assert summary["coverage_summary"] == "room-temp 1 | analyzer-chain 1 | artifacts 12 | plots 2"
+    assert summary["review_scope_summary"] == "primary 2 | supporting 8 | plots 2"
     assert summary["next_check_summary"] == "verify ambient chain | inspect analyzer chain"
     assert summary["detail_lines"]
     assert summary["review_highlight_lines"]
@@ -555,7 +558,8 @@ def test_results_gateway_surfaces_offline_diagnostic_adapter_artifacts(tmp_path:
     assert "simulated_protocol" in reports_payload["result_summary_text"]
     assert "离线诊断" in results_payload["result_summary_text"]
     assert "离线诊断" in reports_payload["result_summary_text"]
-    assert "artifacts 9 | plots 2" in results_payload["result_summary_text"]
+    assert "artifacts 12 | plots 2" in results_payload["result_summary_text"]
+    assert "primary 2 | supporting 8 | plots 2" in results_payload["result_summary_text"]
     assert "verify ambient chain | inspect analyzer chain" in reports_payload["result_summary_text"]
     assert "verify ambient chain" in results_payload["result_summary_text"]
     assert "inspect analyzer chain" in reports_payload["result_summary_text"]

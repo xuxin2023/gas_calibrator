@@ -436,9 +436,12 @@ def test_app_facade_surfaces_offline_diagnostic_adapter_review_items(tmp_path: P
     assert offline_summary["found"] is True
     assert offline_summary["room_temp_count"] == 1
     assert offline_summary["analyzer_chain_count"] == 1
-    assert offline_summary["artifact_count"] == 9
+    assert offline_summary["artifact_count"] == 12
+    assert offline_summary["primary_artifact_count"] == 2
+    assert offline_summary["supporting_artifact_count"] == 8
     assert offline_summary["plot_count"] == 2
-    assert offline_summary["coverage_summary"] == "room-temp 1 | analyzer-chain 1 | artifacts 9 | plots 2"
+    assert offline_summary["coverage_summary"] == "room-temp 1 | analyzer-chain 1 | artifacts 12 | plots 2"
+    assert offline_summary["review_scope_summary"] == "primary 2 | supporting 8 | plots 2"
     assert offline_summary["next_check_summary"] == "verify ambient chain | inspect analyzer chain"
     assert offline_summary["detail_lines"]
     assert offline_summary["review_highlight_lines"]
@@ -450,7 +453,8 @@ def test_app_facade_surfaces_offline_diagnostic_adapter_review_items(tmp_path: P
     assert "simulated_protocol" in reports_snapshot["result_summary_text"]
     assert "离线诊断" in results_snapshot["result_summary_text"]
     assert "离线诊断" in reports_snapshot["result_summary_text"]
-    assert "artifacts 9 | plots 2" in results_snapshot["result_summary_text"]
+    assert "artifacts 12 | plots 2" in results_snapshot["result_summary_text"]
+    assert "primary 2 | supporting 8 | plots 2" in results_snapshot["result_summary_text"]
     assert "verify ambient chain | inspect analyzer chain" in reports_snapshot["result_summary_text"]
     assert "verify ambient chain" in results_snapshot["result_summary_text"]
     assert "inspect analyzer chain" in reports_snapshot["result_summary_text"]

@@ -220,7 +220,7 @@ class ReportsPage(ttk.Frame):
                 t(
                     "pages.reports.summary_fallback.offline_diagnostic_scope",
                     summary=offline_scope_summary,
-                    default=f"绂荤嚎璇婃柇宸ヤ欢鑼冨洿锛歿offline_scope_summary}",
+                    default="离线诊断工件范围：" + offline_scope_summary,
                 )
             )
         offline_next_check_summary = str(offline_diagnostic_adapter_summary.get("next_check_summary") or "").strip()

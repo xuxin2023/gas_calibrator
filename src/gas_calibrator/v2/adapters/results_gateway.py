@@ -340,7 +340,7 @@ class ResultsGateway:
                 t(
                     "facade.results.result_summary.offline_diagnostic_scope",
                     value=str(offline_summary.get("review_scope_summary") or ""),
-                    default=f"绂荤嚎璇婃柇宸ヤ欢鑼冨洿锛歿str(offline_summary.get('review_scope_summary') or '')}",
+                    default="离线诊断工件范围：" + str(offline_summary.get("review_scope_summary") or ""),
                 )
             )
         if str(offline_summary.get("next_check_summary") or "").strip():

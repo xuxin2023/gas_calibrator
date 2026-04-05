@@ -215,7 +215,8 @@ def test_reports_page_builds_result_summary_from_top_level_handoff() -> None:
                 "config_safety_review": {"summary": "blocked"},
                 "offline_diagnostic_adapter_summary": {
                     "summary": "room-temp 2 | analyzer-chain 1",
-                    "coverage_summary": "room-temp 2 | analyzer-chain 1 | artifacts 9 | plots 2",
+                    "coverage_summary": "room-temp 2 | analyzer-chain 1 | artifacts 12 | plots 2",
+                    "review_scope_summary": "primary 3 | supporting 7 | plots 2",
                     "next_check_summary": "verify ambient chain | inspect analyzer chain",
                     "review_highlight_lines": [
                         "room-temp latest | classification warn | variant ambient_open | dominant pressure_bias | next verify ambient chain",
@@ -245,7 +246,8 @@ def test_reports_page_builds_result_summary_from_top_level_handoff() -> None:
         assert "simulated_protocol" in summary_text
         assert "blocked" in summary_text
         assert "room-temp 2 | analyzer-chain 1" in summary_text
-        assert "artifacts 9 | plots 2" in summary_text
+        assert "artifacts 12 | plots 2" in summary_text
+        assert "primary 3 | supporting 7 | plots 2" in summary_text
         assert "verify ambient chain | inspect analyzer chain" in summary_text
         assert "verify ambient chain" in summary_text
         assert "inspect analyzer chain" in summary_text
