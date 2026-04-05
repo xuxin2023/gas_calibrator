@@ -97,6 +97,10 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["pressure"]["preseal_timeout_requires_invalid_gauge"] is True
     assert cfg["workflow"]["pressure"]["preseal_valid_gauge_stall_window_s"] == 20.0
     assert cfg["workflow"]["pressure"]["preseal_valid_gauge_min_rise_hpa"] == 0.5
+    assert cfg["workflow"]["pressure"]["transition_pressure_gauge_continuous_enabled"] is True
+    assert cfg["workflow"]["pressure"]["transition_pressure_gauge_continuous_mode"] == "P4"
+    assert cfg["workflow"]["pressure"]["transition_pressure_gauge_continuous_drain_s"] == 0.12
+    assert cfg["workflow"]["pressure"]["transition_pressure_gauge_continuous_read_timeout_s"] == 0.02
     assert cfg["workflow"]["pressure"]["post_stable_sample_delay_s"] == 5.0
     assert cfg["workflow"]["pressure"]["co2_post_stable_sample_delay_s"] == 5.0
     assert cfg["workflow"]["pressure"]["transition_trace_enabled"] is True
@@ -219,3 +223,4 @@ def test_default_config_shortens_h2o_preseal_soak_to_30s() -> None:
     assert cfg["workflow"]["stability"]["h2o_route"]["preseal_soak_s"] == 30
     assert cfg["workflow"]["stability"]["co2_route"]["preseal_soak_s"] == 180
     assert cfg["workflow"]["stability"]["dewpoint"]["rh_match_tol_pct"] == 3.3
+    assert cfg["workflow"]["pressure"]["transition_pressure_gauge_continuous_enabled"] is True

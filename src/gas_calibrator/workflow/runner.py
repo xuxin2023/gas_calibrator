@@ -1528,6 +1528,44 @@ class CalibrationRunner:
             float(self._wf("workflow.sampling.pressure_gauge_continuous_read_timeout_s", 0.02) or 0.02),
         )
 
+    def _pressure_transition_gauge_continuous_enabled(self) -> bool:
+        return bool(self._wf("workflow.pressure.transition_pressure_gauge_continuous_enabled", True))
+
+    def _pressure_transition_gauge_continuous_mode(self) -> str:
+        fallback_mode = self._sampling_pressure_gauge_continuous_mode()
+        mode = str(
+            self._wf("workflow.pressure.transition_pressure_gauge_continuous_mode", fallback_mode) or fallback_mode
+        ).strip().upper()
+        if mode not in {"P4", "P7"}:
+            return "P4"
+        return mode
+
+    def _pressure_transition_gauge_continuous_drain_s(self) -> float:
+        fallback_drain_s = self._sampling_pressure_gauge_continuous_drain_s()
+        return max(
+            0.02,
+            float(
+                self._wf(
+                    "workflow.pressure.transition_pressure_gauge_continuous_drain_s",
+                    fallback_drain_s,
+                )
+                or fallback_drain_s
+            ),
+        )
+
+    def _pressure_transition_gauge_continuous_read_timeout_s(self) -> float:
+        fallback_timeout_s = self._sampling_pressure_gauge_continuous_read_timeout_s()
+        return max(
+            0.01,
+            float(
+                self._wf(
+                    "workflow.pressure.transition_pressure_gauge_continuous_read_timeout_s",
+                    fallback_timeout_s,
+                )
+                or fallback_timeout_s
+            ),
+        )
+
     def _pressure_control_wait_aux_interval_s(self) -> float:
         return max(0.2, float(self._wf("workflow.pressure.control_wait_aux_interval_s", 1.0) or 1.0))
 
@@ -3771,8 +3809,12 @@ class CalibrationRunner:
         context: Dict[str, Any],
         *,
         reason: str = "",
+        skip_keys: Optional[Iterable[str]] = None,
     ) -> None:
+        skip = {str(one_key or "").strip().lower() for one_key in list(skip_keys or [])}
         for signal_key in self._pressure_transition_fast_signal_devices():
+            if str(signal_key or "").strip().lower() in skip:
+                continue
             self._refresh_pressure_transition_fast_signal_entry(context, signal_key, reason=reason)
 
     def _refresh_pressure_transition_fast_signal_entry(
@@ -3795,15 +3837,14 @@ class CalibrationRunner:
             continuous_reader = getattr(gauge, "read_pressure_continuous_latest", None)
             continuous_active = getattr(gauge, "pressure_continuous_active", None)
             if (
-                self._sampling_pressure_gauge_continuous_enabled()
-                and callable(continuous_reader)
+                callable(continuous_reader)
                 and callable(continuous_active)
                 and bool(continuous_active())
             ):
                 gauge_pressure_hpa = self._as_float(
                     continuous_reader(
-                        drain_s=self._sampling_pressure_gauge_continuous_drain_s(),
-                        read_timeout_s=self._sampling_pressure_gauge_continuous_read_timeout_s(),
+                        drain_s=self._pressure_transition_gauge_continuous_drain_s(),
+                        read_timeout_s=self._pressure_transition_gauge_continuous_read_timeout_s(),
                     )
                 )
                 if gauge_pressure_hpa is None:
@@ -3844,14 +3885,14 @@ class CalibrationRunner:
             if (
                 signal_key == "pressure_gauge"
                 and gauge is not None
-                and self._sampling_pressure_gauge_continuous_enabled()
+                and self._pressure_transition_gauge_continuous_enabled()
             ):
                 starter = getattr(gauge, "start_pressure_continuous", None)
                 if callable(starter):
                     try:
                         continuous_started = bool(
                             starter(
-                                mode=self._sampling_pressure_gauge_continuous_mode(),
+                                mode=self._pressure_transition_gauge_continuous_mode(),
                                 clear_buffer=True,
                             )
                         )
@@ -3864,7 +3905,7 @@ class CalibrationRunner:
                         if continuous_started:
                             self.log(
                                 "Pressure transition pressure-gauge continuous mode enabled: "
-                                f"mode={self._sampling_pressure_gauge_continuous_mode()}"
+                                f"mode={self._pressure_transition_gauge_continuous_mode()}"
                             )
             if continuous_started:
                 try:
@@ -3932,7 +3973,18 @@ class CalibrationRunner:
             context = self._new_sampling_window_context(point=point, phase=phase, point_tag=point_tag)
             self._pressure_transition_fast_signal_context = context
             if prime_immediately:
-                self._refresh_pressure_transition_fast_signal_once(context, reason=reason or "pressure transition start")
+                skip_keys: List[str] = []
+                if (
+                    self._sampling_fast_signal_worker_enabled()
+                    and "pressure_gauge" in worker_devices
+                    and self._pressure_transition_gauge_continuous_enabled()
+                ):
+                    skip_keys.append("pressure_gauge")
+                self._refresh_pressure_transition_fast_signal_once(
+                    context,
+                    reason=reason or "pressure transition start",
+                    skip_keys=skip_keys,
+                )
             if self._sampling_fast_signal_worker_enabled() and worker_devices:
                 for signal_key in worker_devices:
                     worker_key = f"pressure_transition_fast_signal:{signal_key}"

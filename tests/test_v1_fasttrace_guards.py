@@ -524,6 +524,102 @@ def test_pressure_transition_context_starts_per_device_workers(tmp_path: Path) -
     assert "pressure_transition_fast_signal:dewpoint" in worker_keys
 
 
+def test_pressure_transition_context_skips_sync_gauge_query_when_transition_continuous_enabled(
+    tmp_path: Path,
+) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "sampling": {"fast_signal_worker_enabled": True},
+                "pressure": {"transition_pressure_gauge_continuous_enabled": True},
+            }
+        },
+        {"pace": object(), "pressure_gauge": object(), "dewpoint": object()},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    prime_calls: list[set[str]] = []
+
+    def _fake_refresh(self, context, *, reason="", skip_keys=None):
+        prime_calls.append({str(one_key or "").strip().lower() for one_key in list(skip_keys or [])})
+
+    def _fake_run_worker(self, **_kwargs):
+        return None
+
+    runner._refresh_pressure_transition_fast_signal_once = types.MethodType(_fake_refresh, runner)
+    runner._run_sampling_window_worker = types.MethodType(_fake_run_worker, runner)
+
+    context = runner._start_pressure_transition_fast_signal_context(
+        point=_point_co2(),
+        phase="co2",
+        point_tag="transition_skip_sync_gauge",
+        reason="unit-test",
+    )
+    runner._stop_pressure_transition_fast_signal_context(reason="unit-test done")
+    logger.close()
+
+    assert context is not None
+    assert prime_calls == [{"pressure_gauge"}]
+
+
+def test_pressure_transition_gauge_worker_uses_continuous_mode_by_default(tmp_path: Path) -> None:
+    class _FakeGauge:
+        def __init__(self) -> None:
+            self.active = False
+            self.start_calls: list[tuple[str, bool]] = []
+            self.read_calls: list[tuple[float, float]] = []
+            self.stop_calls: list[float] = []
+
+        def start_pressure_continuous(self, *, mode: str = "P4", clear_buffer: bool = True) -> bool:
+            self.start_calls.append((str(mode), bool(clear_buffer)))
+            self.active = True
+            return True
+
+        def pressure_continuous_active(self) -> bool:
+            return self.active
+
+        def read_pressure_continuous_latest(self, *, drain_s: float = 0.12, read_timeout_s: float = 0.02):
+            self.read_calls.append((float(drain_s), float(read_timeout_s)))
+            return 1008.25
+
+        def stop_pressure_continuous(self, *, response_timeout_s: float | None = None) -> bool:
+            self.stop_calls.append(float(response_timeout_s or 0.0))
+            self.active = False
+            return True
+
+        def read_pressure(self):
+            raise AssertionError("transition worker should use pressure continuous mode")
+
+    logger = RunLogger(tmp_path)
+    gauge = _FakeGauge()
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "sampling": {"fast_signal_worker_interval_s": 0.2},
+                "pressure": {"transition_pressure_gauge_continuous_enabled": True},
+            }
+        },
+        {"pressure_gauge": gauge},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    context = runner._new_sampling_window_context(point=_point_co2(), phase="co2", point_tag="transition_continuous")
+    runner._sampling_window_wait = types.MethodType(lambda self, interval_s, stop_event=None: False, runner)
+
+    runner._pressure_transition_fast_signal_device_worker(context, signal_key="pressure_gauge")
+    frames = runner._sampling_window_fast_signal_frames(context, "pressure_gauge")
+    logger.close()
+
+    assert gauge.start_calls == [("P4", True)]
+    assert gauge.read_calls == [(0.12, 0.02)]
+    assert gauge.stop_calls == [runner._pressure_fast_gauge_response_timeout_s()]
+    assert len(frames) == 1
+    assert frames[0]["values"]["pressure_gauge_hpa"] == 1008.25
+
+
 def test_wait_after_pressure_stable_before_sampling_uses_cached_transition_frames(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner(
