@@ -191,7 +191,7 @@ _RUNTIME_DEFAULTS: Dict[str, Any] = {
             "water_route_dewpoint_gate_enabled": False,
             "gas_route_dewpoint_gate_policy": "reject",
             "gas_route_dewpoint_gate_window_s": 60.0,
-            "gas_route_dewpoint_gate_max_total_wait_s": 300.0,
+            "gas_route_dewpoint_gate_max_total_wait_s": 1080.0,
             "gas_route_dewpoint_gate_poll_s": 2.0,
             "gas_route_dewpoint_gate_tail_span_max_c": 0.35,
             "gas_route_dewpoint_gate_tail_slope_abs_max_c_per_s": 0.003,

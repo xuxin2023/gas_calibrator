@@ -530,7 +530,7 @@
         "command_offset_c": 0.0,
         "analyzer_chamber_temp_enabled": true,
         "analyzer_chamber_temp_window_s": 90,
-        "analyzer_chamber_temp_span_c": 0.04,
+        "analyzer_chamber_temp_span_c": 0.08,
         "analyzer_chamber_temp_timeout_s": 5400,
         "analyzer_chamber_temp_first_valid_timeout_s": 120,
         "analyzer_chamber_temp_poll_s": 1.0
