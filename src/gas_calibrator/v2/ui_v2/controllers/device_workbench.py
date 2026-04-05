@@ -498,6 +498,12 @@ class DeviceWorkbenchController:
         rendered: list[str] = []
         taxonomy_rows = (
             ("pressure_summary", "facade.results.result_summary.taxonomy_pressure", "压力语义：{value}"),
+            ("pressure_mode_summary", "facade.results.result_summary.taxonomy_pressure_mode", "压力模式：{value}"),
+            (
+                "pressure_target_label_summary",
+                "facade.results.result_summary.taxonomy_pressure_target_label",
+                "压力目标标签：{value}",
+            ),
             ("flush_gate_summary", "facade.results.result_summary.taxonomy_flush", "冲洗门禁：{value}"),
             ("preseal_summary", "facade.results.result_summary.taxonomy_preseal", "前封气：{value}"),
             ("postseal_summary", "facade.results.result_summary.taxonomy_postseal", "后封气：{value}"),
@@ -506,6 +512,10 @@ class DeviceWorkbenchController:
         for field_name, key, default_template in taxonomy_rows:
             value = str(payload.get(field_name) or "").strip()
             if not value:
+                continue
+            if field_name == "pressure_mode_summary" and value == str(payload.get("pressure_summary") or "").strip():
+                continue
+            if field_name == "pressure_target_label_summary" and value == str(payload.get("pressure_summary") or "").strip():
                 continue
             rendered.append(t(key, value=value, default=default_template.format(value=value)))
         return rendered

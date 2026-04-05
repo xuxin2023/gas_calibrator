@@ -1321,6 +1321,26 @@ class AppFacade:
                     if offline_diagnostic_adapter_summary
                     else []
                 ),
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.offline_diagnostic_coverage",
+                            value=str(offline_diagnostic_adapter_summary.get("coverage_summary") or ""),
+                        )
+                    ]
+                    if str(offline_diagnostic_adapter_summary.get("coverage_summary") or "").strip()
+                    else []
+                ),
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.offline_diagnostic_next_checks",
+                            value=str(offline_diagnostic_adapter_summary.get("next_check_summary") or ""),
+                        )
+                    ]
+                    if str(offline_diagnostic_adapter_summary.get("next_check_summary") or "").strip()
+                    else []
+                ),
                 *[
                     t(
                         "facade.results.result_summary.offline_diagnostic_detail",
@@ -1333,6 +1353,25 @@ class AppFacade:
                 *(
                     [t("facade.results.result_summary.taxonomy_pressure", value=str(point_taxonomy_summary.get("pressure_summary") or ""))]
                     if str(point_taxonomy_summary.get("pressure_summary") or "").strip()
+                    else []
+                ),
+                *(
+                    [t("facade.results.result_summary.taxonomy_pressure_mode", value=str(point_taxonomy_summary.get("pressure_mode_summary") or ""))]
+                    if str(point_taxonomy_summary.get("pressure_mode_summary") or "").strip()
+                    and str(point_taxonomy_summary.get("pressure_mode_summary") or "").strip()
+                    != str(point_taxonomy_summary.get("pressure_summary") or "").strip()
+                    else []
+                ),
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.taxonomy_pressure_target_label",
+                            value=str(point_taxonomy_summary.get("pressure_target_label_summary") or ""),
+                        )
+                    ]
+                    if str(point_taxonomy_summary.get("pressure_target_label_summary") or "").strip()
+                    and str(point_taxonomy_summary.get("pressure_target_label_summary") or "").strip()
+                    != str(point_taxonomy_summary.get("pressure_summary") or "").strip()
                     else []
                 ),
                 *(

@@ -49,6 +49,8 @@ def _inject_point_taxonomy_summary(run_dir: Path) -> None:
     ]
     stats["point_taxonomy_summary"] = {
         "pressure_summary": "ambient 1 | ambient_open 1",
+        "pressure_mode_summary": "ambient_open 2",
+        "pressure_target_label_summary": "ambient 1 | ambient_open 1",
         "flush_gate_summary": "pass 1 | veto 1 | rebound 1",
         "preseal_summary": "points 1 | max overshoot 4.2 hPa | max sealed wait 1200 ms",
         "postseal_summary": "timeout blocked 1 | late rebound 1",

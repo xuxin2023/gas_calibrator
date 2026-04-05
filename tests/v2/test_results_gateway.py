@@ -101,6 +101,8 @@ def _inject_point_taxonomy_summary(run_dir: Path) -> None:
     ]
     stats["point_taxonomy_summary"] = {
         "pressure_summary": "ambient 1 | ambient_open 1",
+        "pressure_mode_summary": "ambient_open 2",
+        "pressure_target_label_summary": "ambient 1 | ambient_open 1",
         "flush_gate_summary": "pass 1 | veto 1 | rebound 1",
         "preseal_summary": "points 1 | max overshoot 4.2 hPa | max sealed wait 1200 ms",
         "postseal_summary": "timeout blocked 1 | late rebound 1",
@@ -176,12 +178,15 @@ def test_results_gateway_surfaces_point_taxonomy_summary(tmp_path: Path) -> None
     taxonomy = dict(results_payload.get("point_taxonomy_summary", {}) or {})
 
     assert taxonomy["pressure_summary"] == "ambient 1 | ambient_open 1"
+    assert taxonomy["pressure_mode_summary"] == "ambient_open 2"
+    assert taxonomy["pressure_target_label_summary"] == "ambient 1 | ambient_open 1"
     assert taxonomy["flush_gate_summary"] == "pass 1 | veto 1 | rebound 1"
     assert taxonomy["preseal_summary"] == "points 1 | max overshoot 4.2 hPa | max sealed wait 1200 ms"
     assert taxonomy["postseal_summary"] == "timeout blocked 1 | late rebound 1"
     assert taxonomy["stale_gauge_summary"] == "points 1 | worst 25%"
     assert reports_payload["point_taxonomy_summary"] == taxonomy
     assert "ambient 1 | ambient_open 1" in results_payload["result_summary_text"]
+    assert "ambient_open 2" in results_payload["result_summary_text"]
     assert "pass 1 | veto 1 | rebound 1" in results_payload["result_summary_text"]
     assert "points 1 | max overshoot 4.2 hPa | max sealed wait 1200 ms" in results_payload["result_summary_text"]
     assert "points 1 | worst 25%" in results_payload["result_summary_text"]
@@ -196,6 +201,8 @@ def test_results_gateway_prefers_stored_point_taxonomy_summary_handoff(tmp_path:
         facade.result_store.run_dir,
         {
             "pressure_summary": "stored pressure taxonomy",
+            "pressure_mode_summary": "stored pressure mode taxonomy",
+            "pressure_target_label_summary": "stored pressure target taxonomy",
             "flush_gate_summary": "stored flush taxonomy",
             "preseal_summary": "stored preseal taxonomy",
             "postseal_summary": "stored postseal taxonomy",
@@ -211,8 +218,10 @@ def test_results_gateway_prefers_stored_point_taxonomy_summary_handoff(tmp_path:
     reports_payload = gateway.read_reports_payload()
 
     assert results_payload["point_taxonomy_summary"]["pressure_summary"] == "stored pressure taxonomy"
+    assert results_payload["point_taxonomy_summary"]["pressure_mode_summary"] == "stored pressure mode taxonomy"
     assert results_payload["point_taxonomy_summary"]["flush_gate_summary"] == "stored flush taxonomy"
     assert "stored pressure taxonomy" in results_payload["result_summary_text"]
+    assert "stored pressure mode taxonomy" in results_payload["result_summary_text"]
     assert reports_payload["point_taxonomy_summary"]["postseal_summary"] == "stored postseal taxonomy"
     assert "stored stale taxonomy" in reports_payload["result_summary_text"]
 
@@ -530,6 +539,10 @@ def test_results_gateway_surfaces_offline_diagnostic_adapter_artifacts(tmp_path:
     assert summary["found"] is True
     assert summary["room_temp_count"] == 1
     assert summary["analyzer_chain_count"] == 1
+    assert summary["artifact_count"] == 9
+    assert summary["plot_count"] == 2
+    assert summary["coverage_summary"] == "room-temp 1 | analyzer-chain 1 | artifacts 9 | plots 2"
+    assert summary["next_check_summary"] == "verify ambient chain | inspect analyzer chain"
     assert summary["detail_lines"]
     assert summary["review_highlight_lines"]
     assert summary["detail_items"][0]["kind"] == "room_temp"
@@ -542,6 +555,8 @@ def test_results_gateway_surfaces_offline_diagnostic_adapter_artifacts(tmp_path:
     assert "simulated_protocol" in reports_payload["result_summary_text"]
     assert "离线诊断" in results_payload["result_summary_text"]
     assert "离线诊断" in reports_payload["result_summary_text"]
+    assert "artifacts 9 | plots 2" in results_payload["result_summary_text"]
+    assert "verify ambient chain | inspect analyzer chain" in reports_payload["result_summary_text"]
     assert "verify ambient chain" in results_payload["result_summary_text"]
     assert "inspect analyzer chain" in reports_payload["result_summary_text"]
     assert "real acceptance evidence" in results_payload["result_summary_text"]

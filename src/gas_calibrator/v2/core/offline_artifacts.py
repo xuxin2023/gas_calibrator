@@ -11,6 +11,7 @@ from ..config import (
     build_step2_config_safety_review,
     summarize_step2_config_safety,
 )
+from ..domain.pressure_selection import effective_pressure_mode, pressure_target_label
 from ..domain.services import build_run_spectral_quality_summary
 from ..qc.qc_report import build_qc_evidence_section, build_qc_review_payload
 from .acceptance_model import (
@@ -67,10 +68,17 @@ def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
         for bundle in bundles
         for path in list(bundle.get("artifact_paths") or [])
     )
+    plot_artifact_paths = _unique_existing_paths(
+        path
+        for bundle in bundles
+        for path in list(bundle.get("plot_artifact_paths") or [])
+    )
     primary_artifact_paths = _unique_existing_paths(
         bundle.get("primary_artifact_path")
         for bundle in bundles
     )
+    artifact_count = len(artifact_paths)
+    plot_count = len(plot_artifact_paths)
     latest_bundle = dict(bundles[0] or {})
     latest_room_temp = dict(room_temp_bundles[0] or {}) if room_temp_bundles else {}
     latest_analyzer_chain = dict(analyzer_chain_bundles[0] or {}) if analyzer_chain_bundles else {}
@@ -88,9 +96,27 @@ def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
         f"analyzer-chain {len(analyzer_chain_bundles)} | "
         f"latest {str(latest_bundle.get('summary_text') or '--')}"
     )
+    coverage_parts = [
+        f"room-temp {len(room_temp_bundles)}",
+        f"analyzer-chain {len(analyzer_chain_bundles)}",
+        f"artifacts {artifact_count}",
+    ]
+    if plot_count:
+        coverage_parts.append(f"plots {plot_count}")
+    coverage_summary = " | ".join(coverage_parts)
+    next_check_summary = " | ".join(
+        _unique_review_lines(
+            [
+                detail_item.get("next_check") or detail_item.get("recommendation")
+                for detail_item in detail_items
+            ]
+        )
+    )
     review_lines = _unique_review_lines(
         [
             summary,
+            f"coverage: {coverage_summary}" if coverage_summary else "",
+            f"next checks: {next_check_summary}" if next_check_summary else "",
             *detail_lines,
             *[
                 str(bundle.get("summary_text") or "").strip()
@@ -125,7 +151,12 @@ def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
         "review_lines": review_lines,
         "review_highlight_lines": review_highlight_lines,
         "artifact_paths": artifact_paths,
+        "plot_artifact_paths": plot_artifact_paths,
         "primary_artifact_paths": primary_artifact_paths,
+        "artifact_count": artifact_count,
+        "plot_count": plot_count,
+        "coverage_summary": coverage_summary,
+        "next_check_summary": next_check_summary,
         "bundles": bundles,
         "latest_room_temp": latest_room_temp,
         "latest_analyzer_chain": latest_analyzer_chain,
@@ -139,6 +170,8 @@ def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
 
 def build_point_taxonomy_handoff(point_summaries: list[dict[str, Any]]) -> dict[str, Any]:
     pressure_counts = Counter()
+    pressure_mode_counts = Counter()
+    pressure_target_label_counts = Counter()
     flush_counts = Counter()
     preseal_point_count = 0
     postseal_timeout_blocked_count = 0
@@ -151,6 +184,30 @@ def build_point_taxonomy_handoff(point_summaries: list[dict[str, Any]]) -> dict[
     for item in list(point_summaries or []):
         point = dict(item.get("point") or {})
         stats = dict(item.get("stats") or {})
+
+        pressure_mode = (
+            effective_pressure_mode(
+                pressure_hpa=point.get("pressure_hpa"),
+                pressure_mode=point.get("pressure_mode"),
+                pressure_selection_token=point.get("pressure_selection_token"),
+            )
+            or "--"
+        )
+        pressure_mode_counts[pressure_mode] += 1
+
+        target_label = str(
+            pressure_target_label(
+                pressure_hpa=point.get("pressure_hpa"),
+                pressure_mode=point.get("pressure_mode"),
+                pressure_selection_token=point.get("pressure_selection_token"),
+                explicit_label=point.get("pressure_target_label"),
+            )
+            or point.get("pressure_target_label")
+            or point.get("pressure_selection_token")
+            or point.get("pressure_hpa")
+            or "--"
+        ).strip() or "--"
+        pressure_target_label_counts[target_label] += 1
 
         pressure_label = str(
             point.get("pressure_target_label")
@@ -204,7 +261,9 @@ def build_point_taxonomy_handoff(point_summaries: list[dict[str, Any]]) -> dict[
             stale_gauge_point_count += 1
             max_stale_ratio = stale_ratio if max_stale_ratio is None else max(max_stale_ratio, stale_ratio)
 
-    pressure_summary = " | ".join(f"{label} {count}" for label, count in pressure_counts.items()) if pressure_counts else ""
+    pressure_summary = _counter_summary(pressure_counts)
+    pressure_mode_summary = _counter_summary(pressure_mode_counts)
+    pressure_target_label_summary = _counter_summary(pressure_target_label_counts)
     flush_parts = [f"{status} {count}" for status, count in flush_counts.items()]
     if late_rebound_count:
         flush_parts.append(f"rebound {late_rebound_count}")
@@ -235,11 +294,17 @@ def build_point_taxonomy_handoff(point_summaries: list[dict[str, Any]]) -> dict[
 
     return {
         "pressure_summary": pressure_summary,
+        "pressure_mode_summary": pressure_mode_summary,
+        "pressure_target_label_summary": pressure_target_label_summary,
         "flush_gate_summary": flush_gate_summary,
         "preseal_summary": preseal_summary,
         "postseal_summary": postseal_summary,
         "stale_gauge_summary": stale_gauge_summary,
     }
+
+
+def _counter_summary(counter: Counter[str]) -> str:
+    return " | ".join(f"{label} {count}" for label, count in counter.items()) if counter else ""
 
 
 def _load_json_dict(path: Path) -> dict[str, Any]:
@@ -380,12 +445,16 @@ def _discover_room_temp_diagnostic_bundles(root: Path) -> list[dict[str, Any]]:
     for summary_path in summary_paths:
         payload = _load_json_dict(summary_path)
         source_dir = summary_path.parent
+        plot_artifact_paths = _unique_existing_paths(
+            _resolve_bundle_path(source_dir, path)
+            for path in _flatten_plot_files(payload.get("plot_files"))
+        )
         artifact_paths = _unique_existing_paths(
             [
                 summary_path,
                 source_dir / "readable_report.md",
                 source_dir / "diagnostic_workbook.xlsx",
-                *[_resolve_bundle_path(source_dir, path) for path in _flatten_plot_files(payload.get("plot_files"))],
+                *plot_artifact_paths,
             ]
         )
         bundles.append(
@@ -396,6 +465,7 @@ def _discover_room_temp_diagnostic_bundles(root: Path) -> list[dict[str, Any]]:
                 "generated_at": _generated_at_or_mtime(summary_path, payload),
                 "summary_text": _room_temp_summary_text(payload),
                 "artifact_paths": artifact_paths,
+                "plot_artifact_paths": plot_artifact_paths,
                 "classification": str(payload.get("classification") or payload.get("status") or "").strip(),
                 "recommended_variant": str(
                     payload.get("recommended_variant")
@@ -433,6 +503,10 @@ def _discover_analyzer_chain_isolation_bundles(root: Path) -> list[dict[str, Any
     for summary_path in summary_paths:
         payload = _load_json_dict(summary_path)
         source_dir = summary_path.parent
+        plot_artifact_paths = _unique_existing_paths(
+            _resolve_bundle_path(source_dir, path)
+            for path in _flatten_plot_files(payload.get("plot_files"))
+        )
         artifact_paths = _unique_existing_paths(
             [
                 summary_path,
@@ -442,7 +516,7 @@ def _discover_analyzer_chain_isolation_bundles(root: Path) -> list[dict[str, Any
                 source_dir / "operator_checklist.md",
                 source_dir / "compare_vs_8ch.md",
                 source_dir / "compare_vs_baseline.md",
-                *[_resolve_bundle_path(source_dir, path) for path in _flatten_plot_files(payload.get("plot_files"))],
+                *plot_artifact_paths,
             ]
         )
         bundles.append(
@@ -453,6 +527,7 @@ def _discover_analyzer_chain_isolation_bundles(root: Path) -> list[dict[str, Any
                 "generated_at": _generated_at_or_mtime(summary_path, payload),
                 "summary_text": _analyzer_chain_summary_text(payload),
                 "artifact_paths": artifact_paths,
+                "plot_artifact_paths": plot_artifact_paths,
                 "should_continue_s1": payload.get("should_continue_s1"),
                 "dominant_conclusion": str(
                     payload.get("dominant_conclusion")

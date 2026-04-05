@@ -327,6 +327,22 @@ class ResultsGateway:
                     )
                 )
             )
+        if str(offline_summary.get("coverage_summary") or "").strip():
+            lines.append(
+                t(
+                    "facade.results.result_summary.offline_diagnostic_coverage",
+                    value=str(offline_summary.get("coverage_summary") or ""),
+                    default=f"离线诊断覆盖：{str(offline_summary.get('coverage_summary') or '')}",
+                )
+            )
+        if str(offline_summary.get("next_check_summary") or "").strip():
+            lines.append(
+                t(
+                    "facade.results.result_summary.offline_diagnostic_next_checks",
+                    value=str(offline_summary.get("next_check_summary") or ""),
+                    default=f"离线诊断下一步：{str(offline_summary.get('next_check_summary') or '')}",
+                )
+            )
 
         for detail_line in ResultsGateway._offline_diagnostic_detail_lines(offline_summary):
             lines.append(
@@ -337,12 +353,31 @@ class ResultsGateway:
                 )
             )
         point_taxonomy_summary = taxonomy_summary
-        if str(taxonomy_summary.get("pressure_summary") or "").strip():
+        pressure_summary = str(taxonomy_summary.get("pressure_summary") or "").strip()
+        pressure_mode_summary = str(taxonomy_summary.get("pressure_mode_summary") or "").strip()
+        pressure_target_label_summary = str(taxonomy_summary.get("pressure_target_label_summary") or "").strip()
+        if pressure_summary:
             lines.append(
                 t(
                     "facade.results.result_summary.taxonomy_pressure",
-                    value=str(point_taxonomy_summary.get("pressure_summary") or ""),
-                    default=f"压力语义：{str(point_taxonomy_summary.get('pressure_summary') or '')}",
+                    value=pressure_summary,
+                    default=f"压力语义：{pressure_summary}",
+                )
+            )
+        if pressure_mode_summary and pressure_mode_summary != pressure_summary:
+            lines.append(
+                t(
+                    "facade.results.result_summary.taxonomy_pressure_mode",
+                    value=pressure_mode_summary,
+                    default=f"压力模式：{pressure_mode_summary}",
+                )
+            )
+        if pressure_target_label_summary and pressure_target_label_summary != pressure_summary:
+            lines.append(
+                t(
+                    "facade.results.result_summary.taxonomy_pressure_target_label",
+                    value=pressure_target_label_summary,
+                    default=f"压力目标标签：{pressure_target_label_summary}",
                 )
             )
         if str(point_taxonomy_summary.get("flush_gate_summary") or "").strip():

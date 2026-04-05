@@ -205,6 +205,24 @@ class ReportsPage(ttk.Frame):
                     default=f"离线诊断：{offline_summary}",
                 )
             )
+        offline_coverage_summary = str(offline_diagnostic_adapter_summary.get("coverage_summary") or "").strip()
+        if offline_coverage_summary:
+            lines.append(
+                t(
+                    "pages.reports.summary_fallback.offline_diagnostic_coverage",
+                    summary=offline_coverage_summary,
+                    default=f"离线诊断覆盖：{offline_coverage_summary}",
+                )
+            )
+        offline_next_check_summary = str(offline_diagnostic_adapter_summary.get("next_check_summary") or "").strip()
+        if offline_next_check_summary:
+            lines.append(
+                t(
+                    "pages.reports.summary_fallback.offline_diagnostic_next_checks",
+                    summary=offline_next_check_summary,
+                    default=f"离线诊断下一步：{offline_next_check_summary}",
+                )
+            )
 
         for detail_line in [
             str(item).strip()
@@ -231,6 +249,24 @@ class ReportsPage(ttk.Frame):
                     "pages.reports.summary_fallback.taxonomy_pressure",
                     summary=pressure_summary,
                     default=f"压力语义：{pressure_summary}",
+                )
+            )
+        pressure_mode_summary = str(point_taxonomy_summary.get("pressure_mode_summary") or "").strip()
+        if pressure_mode_summary and pressure_mode_summary != pressure_summary:
+            lines.append(
+                t(
+                    "pages.reports.summary_fallback.taxonomy_pressure_mode",
+                    summary=pressure_mode_summary,
+                    default=f"压力模式：{pressure_mode_summary}",
+                )
+            )
+        pressure_target_label_summary = str(point_taxonomy_summary.get("pressure_target_label_summary") or "").strip()
+        if pressure_target_label_summary and pressure_target_label_summary != pressure_summary:
+            lines.append(
+                t(
+                    "pages.reports.summary_fallback.taxonomy_pressure_target_label",
+                    summary=pressure_target_label_summary,
+                    default=f"压力目标标签：{pressure_target_label_summary}",
                 )
             )
 

@@ -121,6 +121,8 @@ def _inject_point_taxonomy_summary(run_dir: Path) -> None:
     ]
     stats["point_taxonomy_summary"] = {
         "pressure_summary": "ambient 1 | ambient_open 1",
+        "pressure_mode_summary": "ambient_open 2",
+        "pressure_target_label_summary": "ambient 1 | ambient_open 1",
         "flush_gate_summary": "pass 1 | veto 1 | rebound 1",
         "preseal_summary": "points 1 | max overshoot 4.2 hPa | max sealed wait 1200 ms",
         "postseal_summary": "timeout blocked 1 | late rebound 1",
@@ -434,6 +436,10 @@ def test_app_facade_surfaces_offline_diagnostic_adapter_review_items(tmp_path: P
     assert offline_summary["found"] is True
     assert offline_summary["room_temp_count"] == 1
     assert offline_summary["analyzer_chain_count"] == 1
+    assert offline_summary["artifact_count"] == 9
+    assert offline_summary["plot_count"] == 2
+    assert offline_summary["coverage_summary"] == "room-temp 1 | analyzer-chain 1 | artifacts 9 | plots 2"
+    assert offline_summary["next_check_summary"] == "verify ambient chain | inspect analyzer chain"
     assert offline_summary["detail_lines"]
     assert offline_summary["review_highlight_lines"]
     assert offline_summary["latest_room_temp"]["recommended_variant"] == "ambient_open"
@@ -444,6 +450,8 @@ def test_app_facade_surfaces_offline_diagnostic_adapter_review_items(tmp_path: P
     assert "simulated_protocol" in reports_snapshot["result_summary_text"]
     assert "离线诊断" in results_snapshot["result_summary_text"]
     assert "离线诊断" in reports_snapshot["result_summary_text"]
+    assert "artifacts 9 | plots 2" in results_snapshot["result_summary_text"]
+    assert "verify ambient chain | inspect analyzer chain" in reports_snapshot["result_summary_text"]
     assert "verify ambient chain" in results_snapshot["result_summary_text"]
     assert "inspect analyzer chain" in reports_snapshot["result_summary_text"]
     assert "real acceptance evidence" in results_snapshot["result_summary_text"]
@@ -475,12 +483,15 @@ def test_app_facade_surfaces_point_taxonomy_summary_in_results_and_reports(tmp_p
     taxonomy = dict(results_snapshot.get("point_taxonomy_summary", {}) or {})
 
     assert taxonomy["pressure_summary"] == "ambient 1 | ambient_open 1"
+    assert taxonomy["pressure_mode_summary"] == "ambient_open 2"
+    assert taxonomy["pressure_target_label_summary"] == "ambient 1 | ambient_open 1"
     assert taxonomy["flush_gate_summary"] == "pass 1 | veto 1 | rebound 1"
     assert taxonomy["preseal_summary"] == "points 1 | max overshoot 4.2 hPa | max sealed wait 1200 ms"
     assert taxonomy["postseal_summary"] == "timeout blocked 1 | late rebound 1"
     assert taxonomy["stale_gauge_summary"] == "points 1 | worst 25%"
     assert reports_snapshot["point_taxonomy_summary"] == taxonomy
     assert "ambient 1 | ambient_open 1" in results_snapshot["result_summary_text"]
+    assert "ambient_open 2" in results_snapshot["result_summary_text"]
     assert "pass 1 | veto 1 | rebound 1" in results_snapshot["result_summary_text"]
     assert "points 1 | worst 25%" in results_snapshot["result_summary_text"]
     assert "ambient 1 | ambient_open 1" in reports_snapshot["result_summary_text"]
@@ -494,6 +505,8 @@ def test_app_facade_prefers_stored_point_taxonomy_handoff(tmp_path: Path) -> Non
         facade.result_store.run_dir,
         {
             "pressure_summary": "stored pressure taxonomy",
+            "pressure_mode_summary": "stored pressure mode taxonomy",
+            "pressure_target_label_summary": "stored pressure target taxonomy",
             "flush_gate_summary": "stored flush taxonomy",
             "preseal_summary": "stored preseal taxonomy",
             "postseal_summary": "stored postseal taxonomy",
@@ -505,9 +518,11 @@ def test_app_facade_prefers_stored_point_taxonomy_handoff(tmp_path: Path) -> Non
     reports_snapshot = facade.get_reports_snapshot(results_snapshot=results_snapshot)
 
     assert results_snapshot["point_taxonomy_summary"]["pressure_summary"] == "stored pressure taxonomy"
+    assert results_snapshot["point_taxonomy_summary"]["pressure_mode_summary"] == "stored pressure mode taxonomy"
     assert results_snapshot["point_taxonomy_summary"]["flush_gate_summary"] == "stored flush taxonomy"
     assert reports_snapshot["point_taxonomy_summary"]["postseal_summary"] == "stored postseal taxonomy"
     assert "stored pressure taxonomy" in results_snapshot["result_summary_text"]
+    assert "stored pressure mode taxonomy" in results_snapshot["result_summary_text"]
     assert "stored stale taxonomy" in reports_snapshot["result_summary_text"]
 
 
