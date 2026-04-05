@@ -176,6 +176,8 @@ def test_app_facade_builds_run_qc_and_results_snapshots(tmp_path: Path) -> None:
     assert snapshot["reports"]["config_safety"]["classification"] == "simulation_real_port_inventory_risk"
     assert snapshot["reports"]["config_safety_review"]["execution_gate"]["status"] == "blocked"
     assert snapshot["reports"]["config_governance_handoff"]["execution_gate"]["status"] == "blocked"
+    assert "配置安全" in snapshot["reports"]["result_summary_text"]
+    assert "工作台诊断证据" in snapshot["reports"]["result_summary_text"]
     assert snapshot["reports"]["qc_evidence_section"]["reviewer_card"]["lines"]
     assert snapshot["reports"]["qc_evidence_section"]["cards"]
     assert "质控摘要" in snapshot["reports"]["qc_summary_text"]
@@ -374,6 +376,7 @@ def test_app_facade_surfaces_offline_diagnostic_adapter_review_items(tmp_path: P
     assert offline_summary["room_temp_count"] == 1
     assert offline_summary["analyzer_chain_count"] == 1
     assert "离线诊断" in results_snapshot["result_summary_text"]
+    assert "离线诊断" in reports_snapshot["result_summary_text"]
     assert len(offline_items) == 2
     assert all(item["type_display"] for item in offline_items)
     assert all(item["detail_analytics_summary"] for item in offline_items)

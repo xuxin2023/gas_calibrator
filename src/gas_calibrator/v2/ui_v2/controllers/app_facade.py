@@ -3567,6 +3567,7 @@ class AppFacade:
         payload = self.results_gateway.read_reports_payload()
         payload["review_digest"] = dict(results.get("review_digest", {}) or {})
         payload["review_digest_text"] = str(results.get("review_digest_text", "") or "")
+        payload["result_summary_text"] = str(results.get("result_summary_text", "") or payload.get("result_summary_text", "") or "")
         payload["review_center"] = dict(results.get("review_center", {}) or {})
         payload["qc_summary_text"] = str(results.get("qc_summary_text", "") or "")
         payload["qc_reviewer_card"] = dict(results.get("qc_reviewer_card", {}) or {})
