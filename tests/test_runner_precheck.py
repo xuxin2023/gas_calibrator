@@ -106,8 +106,8 @@ def test_sensor_precheck_passes_with_valid_frames(tmp_path: Path) -> None:
     assert ("mode", 2, False) in ga.calls
     assert ("comm_way", False, False) in ga.calls
     assert ("comm_way", True, False) in ga.calls
+    assert ("ftd", 1) in ga.calls
     assert ("avg_filter", 49, False) in ga.calls
-    assert not any(call[0] == "ftd" for call in ga.calls)
     assert not any(call[0] == "avg" for call in ga.calls)
     runner.logger.close()
 

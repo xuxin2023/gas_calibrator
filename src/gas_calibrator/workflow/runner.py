@@ -5772,6 +5772,7 @@ class CalibrationRunner:
                 set_warning_phase(warning_phase)
             set_comm_way = getattr(ga, "set_comm_way_with_ack", None)
             set_mode = getattr(ga, "set_mode_with_ack", None)
+            set_active_freq = getattr(ga, "set_active_freq_with_ack", None)
             set_average_filter = getattr(ga, "set_average_filter_with_ack", None)
             set_average_filter_channel = getattr(ga, "set_average_filter_channel_with_ack", None)
             success_ack = getattr(ga, "_is_success_ack", None)
@@ -5795,6 +5796,12 @@ class CalibrationRunner:
                     set_mode(mode, require_ack=False)
                 else:
                     ga.set_mode(mode)
+                if command_gap_s > 0:
+                    time.sleep(command_gap_s)
+                if callable(set_active_freq):
+                    set_active_freq(ftd_hz, require_ack=False)
+                else:
+                    ga.set_active_freq(ftd_hz)
                 if command_gap_s > 0:
                     time.sleep(command_gap_s)
                 if callable(set_average_filter_channel):

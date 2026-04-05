@@ -201,10 +201,10 @@ def test_configure_devices_forces_mode2_for_all_analyzers(tmp_path: Path) -> Non
     assert ("active", False, False) in devices["gas_analyzer_02"].calls
     assert ("active", True, False) not in devices["gas_analyzer_01"].calls
     assert ("active", True, False) in devices["gas_analyzer_02"].calls
+    assert ("ftd", 1) in devices["gas_analyzer_01"].calls
+    assert ("ftd", 2) in devices["gas_analyzer_02"].calls
     assert ("avg_filter", 49, False) in devices["gas_analyzer_01"].calls
     assert ("avg_filter", 49, False) in devices["gas_analyzer_02"].calls
-    assert not any(call[0] == "ftd" for call in devices["gas_analyzer_01"].calls)
-    assert not any(call[0] == "ftd" for call in devices["gas_analyzer_02"].calls)
     assert not any(call[0] == "avg" for call in devices["gas_analyzer_01"].calls)
     assert not any(call[0] == "avg" for call in devices["gas_analyzer_02"].calls)
     logger.close()
