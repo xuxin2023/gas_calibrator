@@ -1749,6 +1749,108 @@ def test_prime_sampling_window_context_skips_analyzer_prime_when_workers_enabled
     assert called == []
 
 
+def test_prime_sampling_window_context_skips_fast_signal_and_pace_state_prime_when_requested(
+    tmp_path: Path,
+) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {},
+        {"pace": object(), "pressure_gauge": object(), "dewpoint": object()},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    context = runner._new_sampling_window_context(point=_point(), phase="co2", point_tag="demo")
+    plan = {
+        "fast_signal_enabled": True,
+        "skip_fast_signal_prime": True,
+        "skip_pace_state_prime": True,
+        "skip_slow_aux_prime": True,
+        "active_entries": [],
+        "passive_entries": [],
+    }
+    called: list[str] = []
+    runner._refresh_fast_signal_cache_once = types.MethodType(
+        lambda self, *_args, **_kwargs: called.append("fast_signal"),
+        runner,
+    )
+    runner._pace_state_snapshot = types.MethodType(
+        lambda self, *_args, **_kwargs: called.append("pace_state") or {},
+        runner,
+    )
+
+    runner._prime_sampling_window_context(context, worker_plan=plan, reason="sampling window start")
+    logger.close()
+
+    assert called == []
+
+
+def test_start_sampling_window_context_marks_reusable_pace_state_as_non_blocking_prime(tmp_path: Path) -> None:
+    class _FakePace:
+        def read_pressure(self):
+            return 1000.0
+
+    class _FakeGauge:
+        def read_pressure(self):
+            return 1000.0
+
+    class _FakeDew:
+        def get_current(self):
+            return {"dewpoint_c": -10.0, "temp_c": 20.0, "rh_pct": 50.0}
+
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {"workflow": {"sampling": {"fast_signal_worker_enabled": True}}},
+        {"pace": _FakePace(), "pressure_gauge": _FakeGauge(), "dewpoint": _FakeDew()},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    runner._all_gas_analyzers = types.MethodType(lambda self: [], runner)
+    runner._last_sample_completion = {
+        "pace_output_state": 1,
+        "pace_isolation_state": 1,
+        "pace_vent_status": 0,
+    }
+    captured: dict[str, object] = {}
+    runner._prime_sampling_window_context = types.MethodType(
+        lambda self, context, **kwargs: captured.update({"worker_plan": dict(kwargs.get("worker_plan") or {})}),
+        runner,
+    )
+
+    context = runner._start_sampling_window_context(point=_point(), phase="co2", point_tag="demo")
+    runner._stop_sampling_window_context(context)
+    logger.close()
+
+    worker_plan = dict(captured.get("worker_plan") or {})
+    assert worker_plan["skip_fast_signal_prime"] is True
+    assert worker_plan["skip_pace_state_prime"] is True
+
+
+def test_sampling_window_fast_signal_device_worker_refreshes_immediately_before_wait(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    context = runner._new_sampling_window_context(point=_point(), phase="co2", point_tag="demo")
+    calls: list[tuple[str, str]] = []
+    waits: list[float] = []
+
+    def _fake_refresh(self, context, signal_key, *, reason=""):
+        calls.append((str(signal_key), str(reason)))
+        context["stop_event"].set()
+
+    runner._refresh_fast_signal_entry = types.MethodType(_fake_refresh, runner)
+    runner._sampling_window_wait = types.MethodType(
+        lambda self, interval_s, stop_event=None: waits.append(float(interval_s)) or False,
+        runner,
+    )
+
+    runner._sampling_window_fast_signal_device_worker(context, signal_key="pace")
+    logger.close()
+
+    assert calls == [("pace", "sampling window start")]
+    assert len(waits) == 1
+
+
 def test_refresh_fast_signal_entry_uses_fast_pace_query_path_when_available(tmp_path: Path) -> None:
     class _FastPace:
         pressure_queries = [":SENS:PRES:INL?"]
@@ -1776,6 +1878,83 @@ def test_refresh_fast_signal_entry_uses_fast_pace_query_path_when_available(tmp_
     frames = runner._sampling_window_fast_signal_frames(context, "pace")
     assert len(frames) == 1
     assert frames[0]["values"]["pressure_hpa"] == 1001.25
+
+
+def test_wait_for_sampling_freshness_gate_uses_async_workers_without_sync_refresh(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {},
+        {"pace": object(), "pressure_gauge": object(), "dewpoint": object()},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _point()
+    context = runner._new_sampling_window_context(point=point, phase="co2", point_tag="demo")
+    context["worker_plan"] = {
+        "fast_signal_enabled": True,
+        "analyzer_worker_enabled": False,
+        "active_entries": [],
+        "passive_entries": [],
+    }
+    base_mono = runner_module.time.monotonic()
+    with context["lock"]:
+        context["fast_signal_buffers"]["pace"].append(
+            {
+                "recv_wall_ts": "2026-04-05T10:51:28.307",
+                "timestamp": 1000.0,
+                "recv_mono_s": base_mono - 0.05,
+                "values": {"pressure_hpa": 1000.0},
+                "source": "pace_read_pressure",
+                "seq": 1,
+            }
+        )
+        context["fast_signal_buffers"]["pressure_gauge"].append(
+            {
+                "recv_wall_ts": "2026-04-05T10:51:28.307",
+                "timestamp": 1000.0,
+                "recv_mono_s": base_mono - 0.04,
+                "values": {"pressure_gauge_raw": 1000.1, "pressure_gauge_hpa": 1000.1},
+                "source": "pressure_gauge_read",
+                "seq": 2,
+            }
+        )
+        context["fast_signal_buffers"]["dewpoint"].append(
+            {
+                "recv_wall_ts": "2026-04-05T10:51:28.307",
+                "timestamp": 1000.0,
+                "recv_mono_s": base_mono - 0.03,
+                "values": {
+                    "dewpoint_live_c": -10.2,
+                    "dew_temp_live_c": 23.4,
+                    "dew_rh_live_pct": 44.5,
+                },
+                "source": "dewpoint_live_read",
+                "seq": 3,
+            }
+        )
+    runner._refresh_fast_signal_cache_once = types.MethodType(
+        lambda self, *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected sync fast-signal prime")),
+        runner,
+    )
+    runner._refresh_fast_signal_entry = types.MethodType(
+        lambda self, *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected sync fast-signal refresh")),
+        runner,
+    )
+
+    metrics = runner._wait_for_sampling_freshness_gate(
+        point=point,
+        phase="co2",
+        point_tag="demo",
+        context=context,
+    )
+    logger.close()
+
+    assert metrics["status"] == "ready"
+    assert metrics["missing"] == []
+    assert metrics["ready_values"]["pace_pressure_hpa"] == 1000.0
+    assert metrics["ready_values"]["pressure_gauge_hpa"] == 1000.1
+    assert metrics["ready_values"]["dewpoint_live_c"] == -10.2
 
 
 def test_collect_samples_uses_cached_pace_state_when_row_refresh_disabled(tmp_path: Path) -> None:

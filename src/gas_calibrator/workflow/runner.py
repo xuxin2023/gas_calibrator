@@ -1657,6 +1657,16 @@ class CalibrationRunner:
             return f"first_row_then_every_{every_n}_samples+cache"
         return f"first_row_then_every_{every_n}_samples"
 
+    def _sampling_has_reusable_pace_state(self) -> bool:
+        snapshot = self._pace_state_cache_snapshot()
+        if snapshot.get("sample_ts"):
+            return True
+        completion = dict(self._last_sample_completion or {})
+        for key in ("pace_output_state", "pace_isolation_state", "pace_vent_status"):
+            if self._as_int(completion.get(key)) is not None:
+                return True
+        return False
+
     def _sampling_worker_interval_s(self) -> float:
         return max(
             0.05,
@@ -2688,7 +2698,21 @@ class CalibrationRunner:
     def _sampling_row_pace_state_snapshot(self, pace: Any, *, sample_idx: int) -> Dict[str, Any]:
         every_n = self._sampling_pace_state_every_n_samples()
         refresh = every_n > 0 and (sample_idx == 0 or (sample_idx % every_n) == 0)
-        return self._pace_state_snapshot(pace, refresh=refresh)
+        snapshot = self._pace_state_snapshot(pace, refresh=refresh)
+        if refresh:
+            return snapshot
+        if any(
+            self._as_int(snapshot.get(key)) is not None
+            for key in ("pace_output_state", "pace_isolation_state", "pace_vent_status")
+        ):
+            return snapshot
+        fallback = self._last_sample_completion_pace_state()
+        if any(
+            self._as_int(fallback.get(key)) is not None
+            for key in ("pace_output_state", "pace_isolation_state", "pace_vent_status")
+        ):
+            return fallback
+        return snapshot
 
     def _run_sampling_window_worker(
         self,
@@ -3131,11 +3155,11 @@ class CalibrationRunner:
     def _sampling_window_fast_signal_worker(self, context: Dict[str, Any]) -> None:
         stop_event = context["stop_event"]
         interval_s = self._sampling_fast_signal_worker_interval_s()
-        if not self._sampling_window_wait(interval_s, stop_event=stop_event):
-            return
         while not self.stop_event.is_set() and not stop_event.is_set():
             try:
-                self._refresh_fast_signal_cache_once(context, reason="sampling window")
+                reason = "sampling window start" if not context.get("_fast_signal_worker_started") else "sampling window"
+                self._refresh_fast_signal_cache_once(context, reason=reason)
+                context["_fast_signal_worker_started"] = True
             except Exception as exc:
                 signature = f"fast_signal:{exc}"
                 if signature not in context["worker_errors"]:
@@ -3175,24 +3199,17 @@ class CalibrationRunner:
                                 "Sampling pressure-gauge continuous mode enabled: "
                                 f"mode={self._sampling_pressure_gauge_continuous_mode()}"
                             )
-            if continuous_started:
-                try:
-                    self._refresh_fast_signal_entry(context, signal_key, reason="sampling window start")
-                except Exception as exc:
-                    signature = f"fast_signal:{signal_key}:{exc}"
-                    if signature not in context["worker_errors"]:
-                        context["worker_errors"].add(signature)
-                        self.log(f"Sampling window worker warning [fast_signal:{signal_key}] err={exc}")
-            if not self._sampling_window_wait(interval_s, stop_event=stop_event):
-                return
+            first_pass = True
             while not self.stop_event.is_set() and not stop_event.is_set():
                 try:
-                    self._refresh_fast_signal_entry(context, signal_key, reason="sampling window")
+                    reason = "sampling window start" if first_pass else "sampling window"
+                    self._refresh_fast_signal_entry(context, signal_key, reason=reason)
                 except Exception as exc:
                     signature = f"fast_signal:{signal_key}:{exc}"
                     if signature not in context["worker_errors"]:
                         context["worker_errors"].add(signature)
                         self.log(f"Sampling window worker warning [fast_signal:{signal_key}] err={exc}")
+                first_pass = False
                 if not self._sampling_window_wait(interval_s, stop_event=stop_event):
                     return
         finally:
@@ -3215,13 +3232,16 @@ class CalibrationRunner:
         reason: str = "",
     ) -> None:
         plan = dict(worker_plan or context.get("worker_plan") or {})
+        skip_fast_signal_prime = bool(plan.get("skip_fast_signal_prime", False))
+        skip_pace_state_prime = bool(plan.get("skip_pace_state_prime", False))
         skip_slow_aux_prime = bool(plan.get("skip_slow_aux_prime", False))
-        if plan.get("fast_signal_enabled", True):
+        if plan.get("fast_signal_enabled", True) and not skip_fast_signal_prime:
             self._refresh_fast_signal_cache_once(context, reason=reason)
         if (
             self.devices.get("pace") is not None
             and self._sampling_pace_state_cache_enabled()
             and self._sampling_pace_state_every_n_samples() <= 0
+            and not skip_pace_state_prime
         ):
             self._pace_state_snapshot(refresh=True)
         analyzers = list(plan.get("active_entries") or []) + list(plan.get("passive_entries") or [])
@@ -3496,6 +3516,10 @@ class CalibrationRunner:
         context["worker_plan"] = plan
         prime_plan = dict(plan)
         prime_plan["skip_analyzer_prime"] = bool(plan.get("analyzer_worker_enabled", False))
+        prime_plan["skip_fast_signal_prime"] = bool(plan.get("fast_signal_enabled", False))
+        prime_plan["skip_pace_state_prime"] = bool(
+            plan.get("fast_signal_enabled", False) and self._sampling_has_reusable_pace_state()
+        )
         prime_plan["skip_slow_aux_prime"] = True
         self._prime_sampling_window_context(context, worker_plan=prime_plan, reason="sampling window start")
         pace_cache_primed = bool(self._pace_state_cache_snapshot().get("sample_ts"))
@@ -11106,8 +11130,11 @@ class CalibrationRunner:
 
         plan = dict(context.get("worker_plan") or {})
         analyzers = list(plan.get("active_entries") or []) + list(plan.get("passive_entries") or [])
-        self._refresh_fast_signal_cache_once(context, reason="pre-sample freshness gate")
-        if analyzers:
+        fast_signal_async = bool(plan.get("fast_signal_enabled", False))
+        analyzer_async = bool(plan.get("analyzer_worker_enabled", False))
+        if not fast_signal_async:
+            self._refresh_fast_signal_cache_once(context, reason="pre-sample freshness gate")
+        if analyzers and not analyzer_async:
             self._prime_sampling_analyzer_cache_once(
                 analyzers,
                 include_passive=True,
@@ -11180,12 +11207,13 @@ class CalibrationRunner:
                     f"phase={phase} point={point.index} elapsed_s={elapsed_s:.3f} missing={','.join(missing)}"
                 )
                 return metrics
-            for signal_key in missing_signals:
-                try:
-                    self._refresh_fast_signal_entry(context, signal_key, reason="pre-sample freshness gate")
-                except Exception:
-                    pass
-            if missing_analyzers:
+            if not fast_signal_async:
+                for signal_key in missing_signals:
+                    try:
+                        self._refresh_fast_signal_entry(context, signal_key, reason="pre-sample freshness gate")
+                    except Exception:
+                        pass
+            if missing_analyzers and not analyzer_async:
                 missing_entries = [entry for entry in analyzers if entry[0] in set(missing_analyzers)]
                 if missing_entries:
                     try:
