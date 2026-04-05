@@ -468,6 +468,22 @@ def test_app_facade_surfaces_offline_diagnostic_adapter_review_items(tmp_path: P
     assert all(item["type_display"] for item in offline_items)
     assert all(item["detail_analytics_summary"] for item in offline_items)
     assert all(item["detail_lineage_summary"] for item in offline_items)
+    assert all(
+        any("工件范围" in str(line) for line in list(item["detail_analytics_summary"] or []))
+        for item in offline_items
+    )
+    assert all(
+        any("工件范围" in str(line) for line in list(item["detail_lineage_summary"] or []))
+        for item in offline_items
+    )
+    assert any(
+        any("artifacts 4 | plots 1" in str(line) for line in list(item["detail_analytics_summary"] or []))
+        for item in offline_items
+    )
+    assert any(
+        any("artifacts 8 | plots 1" in str(line) for line in list(item["detail_analytics_summary"] or []))
+        for item in offline_items
+    )
     assert any(item["path"].endswith("diagnostic_summary.json") for item in offline_items)
     assert any(item["path"].endswith("isolation_comparison_summary.json") for item in offline_items)
     assert report_rows[str((run_dir / "room_temp_diagnostic" / "diagnostic_summary.json").resolve())]["artifact_key"] == (

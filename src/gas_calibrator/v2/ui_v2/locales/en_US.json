@@ -1927,6 +1927,7 @@
         "analytics_health": "Analyzer Health",
         "analytics_fault": "Primary Fault Attribution",
         "analytics_lineage": "Lineage",
+        "offline_diagnostic_scope": "Artifact Scope",
         "spectral_status": "Spectral Status"
       },
       "detail_panel": {

@@ -2857,6 +2857,17 @@ class AppFacade:
             normalized.append(resolved)
         return normalized
 
+    @staticmethod
+    def _offline_diagnostic_scope_line(*, artifact_count: int, plot_count: int) -> str:
+        parts = [f"artifacts {max(0, int(artifact_count or 0))}"]
+        if int(plot_count or 0) > 0:
+            parts.append(f"plots {int(plot_count or 0)}")
+        return (
+            t("results.review_center.detail.offline_diagnostic_scope", default="Artifact Scope")
+            + ": "
+            + " | ".join(parts)
+        )
+
     def _build_offline_diagnostic_review_item(self, payload: dict[str, Any], path: Path) -> dict[str, Any]:
         if path.name == "isolation_comparison_summary.json":
             return self._build_analyzer_chain_diagnostic_review_item(payload, path)
@@ -2899,22 +2910,31 @@ class AppFacade:
         evidence_source = str(payload.get("evidence_source") or "diagnostic").strip() or "diagnostic"
         if evidence_source.lower() in {"simulated", "simulated_protocol"}:
             evidence_source = _normalize_simulated_evidence_source(evidence_source)
+        plot_artifact_paths = self._offline_diagnostic_existing_paths(
+            self._offline_diagnostic_payload_paths(source_dir, payload.get("plot_files"))
+        )
         artifact_paths = self._offline_diagnostic_existing_paths(
             [
                 path,
                 source_dir / "readable_report.md",
                 source_dir / "diagnostic_workbook.xlsx",
-                *self._offline_diagnostic_payload_paths(source_dir, payload.get("plot_files")),
+                *plot_artifact_paths,
             ]
+        )
+        artifact_scope_line = self._offline_diagnostic_scope_line(
+            artifact_count=len(artifact_paths),
+            plot_count=len(plot_artifact_paths),
         )
         analytics_detail_summary = [
             summary,
+            artifact_scope_line,
             f"classification: {classification}",
             f"recommended variant: {recommended_variant}",
             f"dominant error: {dominant_error}",
             f"next check: {next_check}",
         ]
         lineage_detail_summary = [
+            artifact_scope_line,
             f"bundle dir: {source_dir}",
             f"primary artifact: {path}",
         ]
@@ -2925,6 +2945,7 @@ class AppFacade:
                 f"{t('results.review_center.detail.source')}: {display_evidence_source(evidence_source, default=evidence_source)}",
                 f"{t('results.review_center.detail.state')}: {display_evidence_state(payload.get('evidence_state'), default=str(payload.get('evidence_state') or 'collected'))}",
                 f"{t('results.review_center.detail.path')}: {path}",
+                artifact_scope_line,
                 f"classification: {classification}",
                 f"recommended variant: {recommended_variant}",
                 f"dominant error: {dominant_error}",
@@ -2976,6 +2997,9 @@ class AppFacade:
         evidence_source = str(payload.get("evidence_source") or "diagnostic").strip() or "diagnostic"
         if evidence_source.lower() in {"simulated", "simulated_protocol"}:
             evidence_source = _normalize_simulated_evidence_source(evidence_source)
+        plot_artifact_paths = self._offline_diagnostic_existing_paths(
+            self._offline_diagnostic_payload_paths(source_dir, payload.get("plot_files"))
+        )
         artifact_paths = self._offline_diagnostic_existing_paths(
             [
                 path,
@@ -2985,16 +3009,22 @@ class AppFacade:
                 source_dir / "operator_checklist.md",
                 source_dir / "compare_vs_8ch.md",
                 source_dir / "compare_vs_baseline.md",
-                *self._offline_diagnostic_payload_paths(source_dir, payload.get("plot_files")),
+                *plot_artifact_paths,
             ]
+        )
+        artifact_scope_line = self._offline_diagnostic_scope_line(
+            artifact_count=len(artifact_paths),
+            plot_count=len(plot_artifact_paths),
         )
         analytics_detail_summary = [
             summary,
+            artifact_scope_line,
             f"should_continue_s1: {continue_text}",
             f"dominant conclusion: {dominant_conclusion}",
             f"recommended next check: {recommendation}",
         ]
         lineage_detail_summary = [
+            artifact_scope_line,
             f"bundle dir: {source_dir}",
             f"primary artifact: {path}",
         ]
@@ -3005,6 +3035,7 @@ class AppFacade:
                 f"{t('results.review_center.detail.source')}: {display_evidence_source(evidence_source, default=evidence_source)}",
                 f"{t('results.review_center.detail.state')}: {display_evidence_state(payload.get('evidence_state'), default=str(payload.get('evidence_state') or 'collected'))}",
                 f"{t('results.review_center.detail.path')}: {path}",
+                artifact_scope_line,
                 f"should_continue_s1: {continue_text}",
                 f"dominant conclusion: {dominant_conclusion}",
                 f"recommended next check: {recommendation}",
