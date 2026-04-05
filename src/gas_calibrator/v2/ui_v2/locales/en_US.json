@@ -1067,7 +1067,8 @@
           "suite_analytics": "Suite / Analytics",
           "suite_analytics_summary": "{suite} | {status} | {analytics} | lineage {lineage}",
           "artifact_lineage": "Artifact / Lineage",
-          "artifact_lineage_summary": "role {role} | source {source} | state {state}"
+          "artifact_lineage_summary": "role {role} | source {source} | state {state}",
+          "point_taxonomy": "Point Taxonomy"
         },
         "engineer_card.statistics_summary": "passed {success} / failed {failed} / devices {devices}",
         "engineer_block": {
@@ -1153,6 +1154,11 @@
             "title": "Artifact / Lineage Detail",
             "summary": "Evidence lineage and generated paths"
           },
+          "point_taxonomy": {
+            "title": "Point Taxonomy / Gate",
+            "summary": "{count} point taxonomy digests",
+            "empty": "No point taxonomy digest is available for the current run."
+          },
           "suite_analytics": {
             "title": "Suite / Analytics Detail",
             "summary": "Latest suite, analytics, and lineage digest"
@@ -1183,6 +1189,11 @@
         "evidence_source_same": "Evidence source: {source}",
         "config_safety": "Config safety: {summary}",
         "offline_diagnostic": "Offline diagnostic: {summary}",
+        "taxonomy_pressure": "Pressure semantics: {summary}",
+        "taxonomy_flush": "Flush gate: {summary}",
+        "taxonomy_preseal": "Pre-seal: {summary}",
+        "taxonomy_postseal": "Post-seal: {summary}",
+        "taxonomy_stale_gauge": "Pressure gauge stale metrics: {summary}",
         "workbench_evidence": "Workbench diagnostic evidence: {summary}"
       },
       "artifact_scope": {
@@ -1536,6 +1547,11 @@
         "suite_summary": "Suite summary: {value}",
         "spectral_quality": "Spectral quality: {value}",
         "offline_diagnostic": "Offline diagnostic adapter: {value}",
+        "taxonomy_pressure": "Pressure semantics: {value}",
+        "taxonomy_flush": "Flush gate: {value}",
+        "taxonomy_preseal": "Pre-seal: {value}",
+        "taxonomy_postseal": "Post-seal: {value}",
+        "taxonomy_stale_gauge": "Pressure gauge stale metrics: {value}",
         "workbench_evidence": "Workbench diagnostic evidence: {value}"
       }
     },

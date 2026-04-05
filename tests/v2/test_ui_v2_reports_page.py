@@ -214,6 +214,13 @@ def test_reports_page_builds_result_summary_from_top_level_handoff() -> None:
                 "evidence_source": "simulated_protocol",
                 "config_safety_review": {"summary": "blocked"},
                 "offline_diagnostic_adapter_summary": {"summary": "room-temp 2 | analyzer-chain 1"},
+                "point_taxonomy_summary": {
+                    "pressure_summary": "ambient 1 | ambient_open 1",
+                    "flush_gate_summary": "pass 1 | veto 1 | rebound 1",
+                    "preseal_summary": "points 1 | max overshoot 4.2 hPa | max sealed wait 1200 ms",
+                    "postseal_summary": "timeout blocked 1 | late rebound 1",
+                    "stale_gauge_summary": "points 1 | worst 25%",
+                },
                 "workbench_evidence_summary": {"summary_line": "operator snapshot available"},
                 "qc_summary_text": "",
                 "ai_summary_text": "",
@@ -227,6 +234,9 @@ def test_reports_page_builds_result_summary_from_top_level_handoff() -> None:
         assert "simulated_protocol" in summary_text
         assert "blocked" in summary_text
         assert "room-temp 2 | analyzer-chain 1" in summary_text
+        assert "ambient 1 | ambient_open 1" in summary_text
+        assert "pass 1 | veto 1 | rebound 1" in summary_text
+        assert "points 1 | worst 25%" in summary_text
         assert "operator snapshot available" in summary_text
     finally:
         root.destroy()

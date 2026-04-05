@@ -25,6 +25,7 @@ from ...config import (
 from ...adapters.results_gateway import ResultsGateway
 from ...core.acceptance_model import build_validation_acceptance_snapshot, normalize_evidence_source
 from ...core.event_bus import Event, EventType
+from ...core.offline_artifacts import build_point_taxonomy_handoff
 from ...domain.mode_models import ModeProfile, RunMode
 from ...storage.profile_store import ProfileStore
 from ...qc.qc_report import build_qc_evidence_section, build_qc_review_payload, build_qc_reviewer_card
@@ -1222,6 +1223,7 @@ class AppFacade:
         suite_digest_text = self._humanize_ui_summary(str(suite_digest.get("summary", "--") or "--"))
         workbench_evidence_text = self._humanize_ui_summary(str(workbench_evidence_summary.get("summary_line", "--") or "--"))
         result_evidence_source = _normalize_simulated_evidence_source(workbench_evidence_summary.get("evidence_source"))
+        point_taxonomy_summary = build_point_taxonomy_handoff(list(summary_stats.get("point_summaries", []) or []))
         offline_diagnostic_text = self._humanize_ui_summary(
             str(offline_diagnostic_adapter_summary.get("summary", "--") or "--")
         )
@@ -1309,6 +1311,31 @@ class AppFacade:
                     else []
                 ),
                 f"配置安全: {str(config_safety_review.get('summary') or '--')}",
+                *(
+                    [t("facade.results.result_summary.taxonomy_pressure", value=str(point_taxonomy_summary.get("pressure_summary") or ""))]
+                    if str(point_taxonomy_summary.get("pressure_summary") or "").strip()
+                    else []
+                ),
+                *(
+                    [t("facade.results.result_summary.taxonomy_flush", value=str(point_taxonomy_summary.get("flush_gate_summary") or ""))]
+                    if str(point_taxonomy_summary.get("flush_gate_summary") or "").strip()
+                    else []
+                ),
+                *(
+                    [t("facade.results.result_summary.taxonomy_preseal", value=str(point_taxonomy_summary.get("preseal_summary") or ""))]
+                    if str(point_taxonomy_summary.get("preseal_summary") or "").strip()
+                    else []
+                ),
+                *(
+                    [t("facade.results.result_summary.taxonomy_postseal", value=str(point_taxonomy_summary.get("postseal_summary") or ""))]
+                    if str(point_taxonomy_summary.get("postseal_summary") or "").strip()
+                    else []
+                ),
+                *(
+                    [t("facade.results.result_summary.taxonomy_stale_gauge", value=str(point_taxonomy_summary.get("stale_gauge_summary") or ""))]
+                    if str(point_taxonomy_summary.get("stale_gauge_summary") or "").strip()
+                    else []
+                ),
                 t("facade.results.result_summary.workbench_evidence", value=workbench_evidence_text),
             ]
         )
@@ -1337,6 +1364,7 @@ class AppFacade:
             "workbench_action_snapshot": workbench_action_snapshot,
             "workbench_evidence_summary": workbench_evidence_summary,
             "offline_diagnostic_adapter_summary": offline_diagnostic_adapter_summary,
+            "point_taxonomy_summary": point_taxonomy_summary,
             "review_digest": review_digest,
             "review_digest_text": str(review_digest.get("summary_text", "") or ""),
             "review_center": review_center,
@@ -3578,6 +3606,9 @@ class AppFacade:
         payload["spectral_quality_summary"] = dict(results.get("spectral_quality_summary", {}) or {})
         payload["offline_diagnostic_adapter_summary"] = dict(
             results.get("offline_diagnostic_adapter_summary", {}) or payload.get("offline_diagnostic_adapter_summary", {}) or {}
+        )
+        payload["point_taxonomy_summary"] = dict(
+            results.get("point_taxonomy_summary", {}) or payload.get("point_taxonomy_summary", {}) or {}
         )
         payload["config_safety"] = dict(results.get("config_safety", {}) or payload.get("config_safety", {}) or {})
         payload["config_safety_review"] = dict(

@@ -7,8 +7,9 @@ from typing import Any, Callable, Iterable, Optional
 from ..config import build_step2_config_governance_handoff
 from ..core.acceptance_model import normalize_evidence_source
 from ..core.artifact_catalog import KNOWN_REPORT_ARTIFACTS
-from ..core.offline_artifacts import summarize_offline_diagnostic_adapters
+from ..core.offline_artifacts import build_point_taxonomy_handoff, summarize_offline_diagnostic_adapters
 from ..ui_v2.artifact_registry_governance import build_current_run_governance
+from ..ui_v2.i18n import t
 
 
 class ResultsGateway:
@@ -92,6 +93,11 @@ class ResultsGateway:
             workbench_evidence_summary=workbench_evidence_summary,
             evidence_source=evidence_source,
         )
+        point_taxonomy_summary = (
+            build_point_taxonomy_handoff(list(summary.get("stats", {}).get("point_summaries", []) or []))
+            if isinstance(summary, dict)
+            else {}
+        )
         return {
             "summary": summary,
             "manifest": self.load_json("manifest.json"),
@@ -119,6 +125,7 @@ class ResultsGateway:
             "artifact_role_summary": artifact_role_summary,
             "workbench_evidence_summary": workbench_evidence_summary,
             "offline_diagnostic_adapter_summary": offline_diagnostic_adapter_summary,
+            "point_taxonomy_summary": point_taxonomy_summary,
             "result_summary_text": result_summary_text,
             "evidence_source": evidence_source,
             "evidence_state": evidence_state,
@@ -187,6 +194,7 @@ class ResultsGateway:
             "artifact_role_summary": dict(payload.get("artifact_role_summary", {}) or {}),
             "workbench_evidence_summary": dict(payload.get("workbench_evidence_summary", {}) or {}),
             "offline_diagnostic_adapter_summary": offline_diagnostic_adapter_summary,
+            "point_taxonomy_summary": dict(payload.get("point_taxonomy_summary", {}) or {}),
             "evidence_source": str(payload.get("evidence_source", "") or "simulated_protocol"),
             "evidence_state": str(payload.get("evidence_state", "") or "collected"),
             "not_real_acceptance_evidence": bool(payload.get("not_real_acceptance_evidence", True)),
@@ -305,6 +313,48 @@ class ResultsGateway:
                         f"room-temp {int(offline_summary.get('room_temp_count', 0) or 0)} | "
                         f"analyzer-chain {int(offline_summary.get('analyzer_chain_count', 0) or 0)}"
                     )
+                )
+            )
+
+        point_taxonomy_summary = build_point_taxonomy_handoff(list(stats.get("point_summaries", []) or []))
+        if str(point_taxonomy_summary.get("pressure_summary") or "").strip():
+            lines.append(
+                t(
+                    "facade.results.result_summary.taxonomy_pressure",
+                    value=str(point_taxonomy_summary.get("pressure_summary") or ""),
+                    default=f"压力语义：{str(point_taxonomy_summary.get('pressure_summary') or '')}",
+                )
+            )
+        if str(point_taxonomy_summary.get("flush_gate_summary") or "").strip():
+            lines.append(
+                t(
+                    "facade.results.result_summary.taxonomy_flush",
+                    value=str(point_taxonomy_summary.get("flush_gate_summary") or ""),
+                    default=f"冲洗门禁：{str(point_taxonomy_summary.get('flush_gate_summary') or '')}",
+                )
+            )
+        if str(point_taxonomy_summary.get("preseal_summary") or "").strip():
+            lines.append(
+                t(
+                    "facade.results.result_summary.taxonomy_preseal",
+                    value=str(point_taxonomy_summary.get("preseal_summary") or ""),
+                    default=f"前封气：{str(point_taxonomy_summary.get('preseal_summary') or '')}",
+                )
+            )
+        if str(point_taxonomy_summary.get("postseal_summary") or "").strip():
+            lines.append(
+                t(
+                    "facade.results.result_summary.taxonomy_postseal",
+                    value=str(point_taxonomy_summary.get("postseal_summary") or ""),
+                    default=f"后封气：{str(point_taxonomy_summary.get('postseal_summary') or '')}",
+                )
+            )
+        if str(point_taxonomy_summary.get("stale_gauge_summary") or "").strip():
+            lines.append(
+                t(
+                    "facade.results.result_summary.taxonomy_stale_gauge",
+                    value=str(point_taxonomy_summary.get("stale_gauge_summary") or ""),
+                    default=f"压力参考陈旧：{str(point_taxonomy_summary.get('stale_gauge_summary') or '')}",
                 )
             )
 

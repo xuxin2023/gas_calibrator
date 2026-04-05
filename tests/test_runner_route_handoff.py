@@ -142,6 +142,54 @@ def test_sample_and_log_arms_route_handoff_before_sample_exports(tmp_path: Path)
     assert done_rows[0]["ts"] == "2026-03-30T21:06:12.636"
 
 
+def test_sample_and_log_defers_exports_when_route_seal_request_matches(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "sampling": {"stable_count": 1, "interval_s": 0.0, "quality": {"enabled": False}},
+                "reporting": {"defer_heavy_exports_during_handoff": True},
+            }
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _co2_point(1, 400.0, 1000.0)
+    runner._collect_samples = types.MethodType(
+        lambda self, *_args, **_kwargs: [
+            {
+                "point_row": point.index,
+                "point_title": "demo",
+                "co2_ppm": 401.2,
+                "pressure_hpa": 1000.1,
+                "pressure_gauge_hpa": 999.9,
+                "sample_end_ts": "2026-03-30T21:06:12.636",
+            }
+        ],
+        runner,
+    )
+
+    order = []
+    runner.logger.log_sample = lambda *_args, **_kwargs: order.append("log_sample")  # type: ignore[method-assign]
+    runner.logger.log_point_samples = lambda *_args, **_kwargs: (order.append("point_samples"), logger.run_dir / "demo.csv")[1]  # type: ignore[method-assign]
+    called = {"summary": 0, "workbook": 0, "point": 0}
+    runner.logger.log_analyzer_summary = lambda *_args, **_kwargs: called.__setitem__("summary", called["summary"] + 1)  # type: ignore[method-assign]
+    runner.logger.log_analyzer_workbook = lambda *_args, **_kwargs: called.__setitem__("workbook", called["workbook"] + 1)  # type: ignore[method-assign]
+    runner.logger.log_point = lambda *_args, **_kwargs: called.__setitem__("point", called["point"] + 1)  # type: ignore[method-assign]
+    assert runner._request_sample_export_deferral(point, phase="co2", point_tag="demo", mode="route_seal") is True
+
+    runner._sample_and_log(point, phase="co2", point_tag="demo")
+    logger.close()
+
+    assert order == []
+    assert runner._sample_export_deferral_request is None
+    assert len(runner._deferred_sample_exports) == 1
+    assert len(runner._deferred_point_exports) == 1
+    assert called == {"summary": 0, "workbook": 0, "point": 0}
+
+
 def test_sample_and_log_uses_cached_pace_state_for_end_trace_rows(tmp_path: Path) -> None:
     class _FailIfPaceStateRead:
         def get_output_state(self):

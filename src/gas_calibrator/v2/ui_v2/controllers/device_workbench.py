@@ -14,6 +14,7 @@ from ...config import (
     hydrate_step2_config_safety_summary,
     summarize_step2_config_safety,
 )
+from ...core.offline_artifacts import build_point_taxonomy_handoff
 from ...core.device_factory import DeviceFactory, DeviceType
 from ...qc.qc_report import build_qc_evidence_section, build_qc_reviewer_card
 from ...sim.devices import SimulatedDeviceMatrix
@@ -473,6 +474,35 @@ class DeviceWorkbenchController:
             ],
             "execution_gate": dict(handoff.get("execution_gate") or {}),
         }
+
+    def _point_taxonomy_snapshot(self) -> dict[str, Any]:
+        summary_path = Path(self.facade.results_gateway.run_dir) / "summary.json"
+        summary_payload = self._load_json_dict(summary_path)
+        stats = dict(summary_payload.get("stats", {}) or {})
+        point_summaries = [
+            dict(item)
+            for item in list(stats.get("point_summaries") or [])
+            if isinstance(item, dict)
+        ]
+        return build_point_taxonomy_handoff(point_summaries)
+
+    @staticmethod
+    def _point_taxonomy_lines(point_taxonomy_summary: dict[str, Any]) -> list[str]:
+        payload = dict(point_taxonomy_summary or {})
+        rendered: list[str] = []
+        taxonomy_rows = (
+            ("pressure_summary", "facade.results.result_summary.taxonomy_pressure", "压力语义：{value}"),
+            ("flush_gate_summary", "facade.results.result_summary.taxonomy_flush", "冲洗门禁：{value}"),
+            ("preseal_summary", "facade.results.result_summary.taxonomy_preseal", "前封气：{value}"),
+            ("postseal_summary", "facade.results.result_summary.taxonomy_postseal", "后封气：{value}"),
+            ("stale_gauge_summary", "facade.results.result_summary.taxonomy_stale_gauge", "压力参考陈旧：{value}"),
+        )
+        for field_name, key, default_template in taxonomy_rows:
+            value = str(payload.get(field_name) or "").strip()
+            if not value:
+                continue
+            rendered.append(t(key, value=value, default=default_template.format(value=value)))
+        return rendered
 
     def _default_display_profile_context(self) -> dict[str, Any]:
         return self._normalize_display_profile_context({})
@@ -2008,6 +2038,7 @@ class DeviceWorkbenchController:
         qc_review_summary = self._build_qc_review_summary(analytics_summary_payload)
         config_safety, config_safety_review = self._config_safety_snapshot()
         config_governance_payload = self._config_governance_payload(config_safety, config_safety_review)
+        point_taxonomy_summary = self._point_taxonomy_snapshot()
         engineer_summary = self._build_engineer_summary(
             analyzer_snapshot=analyzer_snapshot,
             pace_snapshot=pace_snapshot,
@@ -2025,6 +2056,7 @@ class DeviceWorkbenchController:
             qc_review_summary=qc_review_summary,
             config_safety=config_safety,
             config_safety_review=config_safety_review,
+            point_taxonomy_summary=point_taxonomy_summary,
         )
         return {
             "meta": {
@@ -2126,6 +2158,7 @@ class DeviceWorkbenchController:
                     "qc_review_cards": [dict(item) for item in list(qc_review_summary.get("cards") or []) if isinstance(item, dict)],
                     "config_safety": config_safety,
                     "config_safety_review": config_safety_review,
+                    "point_taxonomy_summary": point_taxonomy_summary,
                 },
                 "qc_review_summary": dict(qc_review_summary),
                 "qc_reviewer_card": dict(qc_review_summary.get("reviewer_card") or {}),
@@ -2134,6 +2167,7 @@ class DeviceWorkbenchController:
                 "config_safety": config_safety,
                 "config_safety_review": config_safety_review,
                 "config_governance_handoff": dict(config_governance_payload.get("config_governance_handoff") or {}),
+                "point_taxonomy_summary": point_taxonomy_summary,
             },
             "evidence": {
                 **self._workbench_evidence_boundary(),
@@ -2148,10 +2182,12 @@ class DeviceWorkbenchController:
                 "qc_review_cards": [dict(item) for item in list(qc_review_summary.get("cards") or []) if isinstance(item, dict)],
                 "config_safety": config_safety,
                 "config_safety_review": config_safety_review,
+                "point_taxonomy_summary": point_taxonomy_summary,
             },
             "history": history_payload,
             "operator_summary": operator_summary,
             "engineer_summary": engineer_summary,
+            "point_taxonomy_summary": point_taxonomy_summary,
             "analyzer": analyzer_snapshot,
             "pace": pace_snapshot,
             "grz": grz_snapshot,
@@ -3501,6 +3537,7 @@ class DeviceWorkbenchController:
         qc_review_summary: dict[str, Any],
         config_safety: dict[str, Any],
         config_safety_review: dict[str, Any],
+        point_taxonomy_summary: dict[str, Any],
     ) -> dict[str, Any]:
         diagnostics = {
             "reference_quality": reference_quality,
@@ -3615,6 +3652,11 @@ class DeviceWorkbenchController:
             f"- {str(item.get('title') or '--')}: {str(item.get('summary') or '--')}"
             for item in list(config_safety_review.get("blocked_reason_details") or [])[:2]
         ]
+        point_taxonomy_lines = self._point_taxonomy_lines(point_taxonomy_summary)
+        point_taxonomy_summary_text = " | ".join(point_taxonomy_lines) or t(
+            "pages.devices.workbench.engineer_section.point_taxonomy.empty",
+            default="当前 run 没有可汇总的点位语义摘要。",
+        )
         suite_summary_payload = dict(self.facade.results_gateway.load_json("suite_summary.json") or {})
         suite_analytics_payload = dict(self.facade.results_gateway.load_json("suite_analytics_summary.json") or {})
         lineage_summary_payload = dict(self.facade.results_gateway.load_json("lineage_summary.json") or {})
@@ -3658,6 +3700,7 @@ class DeviceWorkbenchController:
         diagnostics["qc_review_summary"] = dict(qc_review_summary)
         diagnostics["config_safety"] = dict(config_safety)
         diagnostics["config_safety_review"] = dict(config_safety_review)
+        diagnostics["point_taxonomy_summary"] = dict(point_taxonomy_summary)
         suite_state_display = self._engineer_data_state_display(suite_state)
         analytics_state_display = self._engineer_data_state_display(analytics_state)
         lineage_state_display = self._engineer_data_state_display(lineage_state)
@@ -3783,6 +3826,10 @@ class DeviceWorkbenchController:
             {
                 "title": t("pages.devices.workbench.engineer_card.config_safety", default="配置安全"),
                 "summary": config_safety_summary,
+            },
+            {
+                "title": t("pages.devices.workbench.engineer_card.point_taxonomy", default="点位语义"),
+                "summary": point_taxonomy_summary_text,
             },
         ]
         device_lines = [
@@ -4121,6 +4168,21 @@ class DeviceWorkbenchController:
                 "expanded": True,
             },
             {
+                "id": "point_taxonomy",
+                "title": t("pages.devices.workbench.engineer_section.point_taxonomy.title", default="点位语义 / 门禁"),
+                "summary": t(
+                    "pages.devices.workbench.engineer_section.point_taxonomy.summary",
+                    count=len(point_taxonomy_lines),
+                    default=f"{len(point_taxonomy_lines)} 条点位口径摘要",
+                ),
+                "body_text": "\n".join(point_taxonomy_lines)
+                or t(
+                    "pages.devices.workbench.engineer_section.point_taxonomy.empty",
+                    default="当前 run 没有可汇总的点位语义摘要。",
+                ),
+                "expanded": bool(point_taxonomy_lines),
+            },
+            {
                 "id": "suite_analytics",
                 "title": t("pages.devices.workbench.engineer_section.suite_analytics.title"),
                 "summary": t("pages.devices.workbench.engineer_section.suite_analytics.summary"),
@@ -4432,6 +4494,7 @@ class DeviceWorkbenchController:
         qc_review_summary = dict(snapshot.get("evidence", {}).get("qc_review_summary", {}) or {})
         evidence_config_safety = dict(snapshot.get("evidence", {}).get("config_safety", {}) or {})
         evidence_config_safety_review = dict(snapshot.get("evidence", {}).get("config_safety_review", {}) or {})
+        point_taxonomy_summary = dict(snapshot.get("evidence", {}).get("point_taxonomy_summary", {}) or {})
         config_governance_payload = self._config_governance_payload(
             evidence_config_safety,
             evidence_config_safety_review,
@@ -4472,6 +4535,7 @@ class DeviceWorkbenchController:
             "qc_review_cards": [dict(item) for item in list(qc_review_summary.get("cards") or []) if isinstance(item, dict)],
             "config_safety": evidence_config_safety,
             "config_safety_review": evidence_config_safety_review,
+            "point_taxonomy_summary": point_taxonomy_summary,
             "operator_summary": operator_summary,
             "history": list(history_payload.get("items", []) or []),
             "history_filters": dict(history_payload.get("filters", {}) or {}),
@@ -4532,6 +4596,7 @@ class DeviceWorkbenchController:
             "qc_review_cards": [dict(item) for item in list(qc_review_summary.get("cards") or []) if isinstance(item, dict)],
             "config_safety": evidence_config_safety,
             "config_safety_review": evidence_config_safety_review,
+            "point_taxonomy_summary": point_taxonomy_summary,
             "paths": {
                 "report_json": str(report_json_path),
                 "report_markdown": str(report_md_path),
@@ -4559,6 +4624,7 @@ class DeviceWorkbenchController:
             "qc_review_cards": [dict(item) for item in list(qc_review_summary.get("cards") or []) if isinstance(item, dict)],
             "config_safety": evidence_config_safety,
             "config_safety_review": evidence_config_safety_review,
+            "point_taxonomy_summary": point_taxonomy_summary,
             "snapshot_compare": snapshot_compare,
             "snapshot": self.build_snapshot(),
         }
@@ -4596,6 +4662,10 @@ class DeviceWorkbenchController:
             ]
             if str(line or "").strip()
         ) or f"- {t('common.none')}"
+        point_taxonomy_lines = "\n".join(
+            f"- {line}"
+            for line in self._point_taxonomy_lines(dict(report_payload.get("point_taxonomy_summary", {}) or {}))
+        ) or f"- {t('common.none')}"
         return "\n".join(
             [
                 f"# {t('pages.devices.workbench.report.title')}",
@@ -4627,6 +4697,10 @@ class DeviceWorkbenchController:
                 f"## {t('pages.devices.workbench.report.config_safety', default='配置安全治理')}",
                 "",
                 config_safety_lines,
+                "",
+                f"## {t('pages.devices.workbench.report.point_taxonomy', default='点位语义 / 门禁摘要')}",
+                "",
+                point_taxonomy_lines,
                 "",
                 f"## {t('pages.devices.workbench.report.action_history')}",
                 "",

@@ -11,8 +11,47 @@ if str(SUPPORT_DIR) not in sys.path:
 from ui_v2_support import build_fake_facade
 
 
+def _inject_point_taxonomy_summary(run_dir: Path) -> None:
+    summary_path = run_dir / "summary.json"
+    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    stats = dict(payload.get("stats", {}) or {})
+    stats["point_summaries"] = [
+        {
+            "point": {
+                "index": 1,
+                "pressure_target_label": "ambient",
+                "pressure_mode": "ambient",
+            },
+            "stats": {
+                "flush_gate_status": "pass",
+                "preseal_dewpoint_c": 6.1,
+                "preseal_trigger_overshoot_hpa": 4.2,
+                "preseal_vent_off_begin_to_route_sealed_ms": 1200,
+                "pressure_gauge_stale_ratio": 0.25,
+                "pressure_gauge_stale_count": 1,
+                "pressure_gauge_total_count": 4,
+            },
+        },
+        {
+            "point": {
+                "index": 2,
+                "pressure_target_label": "ambient_open",
+                "pressure_mode": "ambient_open",
+            },
+            "stats": {
+                "flush_gate_status": "veto",
+                "postseal_timeout_blocked": True,
+                "dewpoint_rebound_detected": True,
+            },
+        },
+    ]
+    payload["stats"] = stats
+    summary_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tmp_path: Path) -> None:
     facade = build_fake_facade(tmp_path)
+    _inject_point_taxonomy_summary(Path(facade.result_store.run_dir))
 
     facade.execute_device_workbench_action("thermometer", "set_mode", mode="stale")
     result = facade.execute_device_workbench_action(
@@ -56,6 +95,8 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
     assert report_payload["config_governance_handoff"]["execution_gate"]["status"] == "blocked"
     assert report_payload["config_safety_review"]["warnings"]
     assert "real_com_risk" in report_payload["config_safety"]["badge_ids"]
+    assert report_payload["point_taxonomy_summary"]["pressure_summary"] == "ambient 1 | ambient_open 1"
+    assert report_payload["point_taxonomy_summary"]["postseal_summary"] == "timeout blocked 1 | late rebound 1"
     assert report_payload["publish_primary_latest_allowed"] is False
     assert report_payload["artifact_role"] == "diagnostic_analysis"
     assert report_payload["risk_level"] in {"medium", "high"}
@@ -73,8 +114,11 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
     assert snapshot_payload["config_governance_handoff"]["blocked_reason_details"]
     assert snapshot_payload["qc_evidence_section"]["cards"]
     assert snapshot_payload["qc_review_cards"]
+    assert snapshot_payload["point_taxonomy_summary"]["stale_gauge_summary"] == "points 1 | worst 25%"
     assert report_payload["reference_quality"]["thermometer_reference_status"] == "stale"
     assert report_payload["simulation_context"]["workbench_reports"]
+    assert "压力语义" in report_md_path.read_text(encoding="utf-8")
+    assert "冲洗门禁" in report_md_path.read_text(encoding="utf-8")
 
     exports = summary_payload["stats"]["artifact_exports"]
     assert exports["workbench_action_report_json"]["role"] == "diagnostic_analysis"
@@ -90,10 +134,16 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
     assert summary_payload["stats"]["workbench_evidence_summary"]["config_safety_review"]["status"] == "blocked"
     assert summary_payload["stats"]["workbench_evidence_summary"]["config_safety_review"]["execution_gate"]["status"] == "blocked"
     assert summary_payload["stats"]["workbench_evidence_summary"]["config_governance_handoff"]["execution_gate"]["status"] == "blocked"
+    assert summary_payload["stats"]["workbench_evidence_summary"]["point_taxonomy_summary"]["flush_gate_summary"] == (
+        "pass 1 | veto 1 | rebound 1"
+    )
     assert "workbench_action_report_json" in manifest_payload["artifacts"]["role_catalog"]["diagnostic_analysis"]
     assert manifest_payload["workbench_evidence"]["config_safety"]["classification"] == "simulation_real_port_inventory_risk"
     assert manifest_payload["workbench_evidence"]["config_safety_review"]["execution_gate"]["status"] == "blocked"
     assert manifest_payload["workbench_evidence"]["qc_evidence_section"]["lines"]
+    assert manifest_payload["workbench_evidence"]["point_taxonomy_summary"]["preseal_summary"] == (
+        "points 1 | max overshoot 4.2 hPa | max sealed wait 1200 ms"
+    )
 
     results_snapshot = facade.build_results_snapshot()
 
@@ -117,6 +167,12 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
     assert results_snapshot["workbench_action_report"]["qc_review_cards"]
     assert results_snapshot["workbench_action_snapshot"]["qc_review_cards"]
     assert results_snapshot["workbench_action_snapshot"]["config_governance_handoff"]["blocked_reason_details"]
+    assert results_snapshot["workbench_action_report"]["point_taxonomy_summary"]["pressure_summary"] == (
+        "ambient 1 | ambient_open 1"
+    )
+    assert results_snapshot["workbench_evidence_summary"]["point_taxonomy_summary"]["stale_gauge_summary"] == (
+        "points 1 | worst 25%"
+    )
     assert results_snapshot["review_digest"]["items"]["workbench"]["available"] is True
     assert "diagnostic_analysis" in results_snapshot["artifact_role_summary"]
 

@@ -206,6 +206,57 @@ class ReportsPage(ttk.Frame):
                 )
             )
 
+        point_taxonomy_summary = dict(snapshot.get("point_taxonomy_summary", {}) or {})
+        pressure_summary = str(point_taxonomy_summary.get("pressure_summary") or "").strip()
+        if pressure_summary:
+            lines.append(
+                t(
+                    "pages.reports.summary_fallback.taxonomy_pressure",
+                    summary=pressure_summary,
+                    default=f"压力语义：{pressure_summary}",
+                )
+            )
+
+        flush_summary = str(point_taxonomy_summary.get("flush_gate_summary") or "").strip()
+        if flush_summary:
+            lines.append(
+                t(
+                    "pages.reports.summary_fallback.taxonomy_flush",
+                    summary=flush_summary,
+                    default=f"冲洗门禁：{flush_summary}",
+                )
+            )
+
+        preseal_summary = str(point_taxonomy_summary.get("preseal_summary") or "").strip()
+        if preseal_summary:
+            lines.append(
+                t(
+                    "pages.reports.summary_fallback.taxonomy_preseal",
+                    summary=preseal_summary,
+                    default=f"前封气：{preseal_summary}",
+                )
+            )
+
+        postseal_summary = str(point_taxonomy_summary.get("postseal_summary") or "").strip()
+        if postseal_summary:
+            lines.append(
+                t(
+                    "pages.reports.summary_fallback.taxonomy_postseal",
+                    summary=postseal_summary,
+                    default=f"后封气：{postseal_summary}",
+                )
+            )
+
+        stale_gauge_summary = str(point_taxonomy_summary.get("stale_gauge_summary") or "").strip()
+        if stale_gauge_summary:
+            lines.append(
+                t(
+                    "pages.reports.summary_fallback.taxonomy_stale_gauge",
+                    summary=stale_gauge_summary,
+                    default=f"压力参考陈旧：{stale_gauge_summary}",
+                )
+            )
+
         workbench_evidence_summary = dict(snapshot.get("workbench_evidence_summary", {}) or {})
         workbench_summary = str(
             workbench_evidence_summary.get("summary_line")

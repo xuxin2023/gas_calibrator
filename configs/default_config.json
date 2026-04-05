@@ -401,8 +401,8 @@
         "preseal_valid_gauge_stall_window_s": 20.0,
         "preseal_valid_gauge_min_rise_hpa": 0.5,
         "pressurize_timeout_s": 120,
-        "post_stable_sample_delay_s": 10.0,
-        "co2_post_stable_sample_delay_s": 10.0,
+        "post_stable_sample_delay_s": 5.0,
+        "co2_post_stable_sample_delay_s": 5.0,
         "transition_trace_enabled": true,
       "transition_trace_poll_s": 0.5,
       "capture_then_hold_enabled": false,
@@ -546,7 +546,7 @@
         "preseal_soak_s": 30
       },
       "co2_route": {
-        "preseal_soak_s": 240,
+        "preseal_soak_s": 180,
         "first_point_preseal_soak_s": 420,
         "post_h2o_zero_ppm_soak_s": 900
       },
@@ -577,8 +577,9 @@
         "timeout_s": 300,
         "poll_s": 0.5
       },
-      "gas_route_dewpoint_gate_enabled": false,
+      "gas_route_dewpoint_gate_enabled": true,
       "water_route_dewpoint_gate_enabled": false,
+      "gas_route_dewpoint_gate_policy": "reject",
       "gas_route_dewpoint_gate_window_s": 60.0,
       "gas_route_dewpoint_gate_max_total_wait_s": 300.0,
       "gas_route_dewpoint_gate_poll_s": 2.0,
@@ -591,7 +592,7 @@
         "enabled": true,
         "target_tol_c": 0.2,
         "temp_match_tol_c": 0.45,
-        "rh_match_tol_pct": 3.5,
+        "rh_match_tol_pct": 3.3,
         "window_s": 120,
         "stability_tol_c": 0.08,
         "timeout_s": 2400,

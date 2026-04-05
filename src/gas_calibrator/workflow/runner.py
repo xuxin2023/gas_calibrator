@@ -268,6 +268,7 @@ class CalibrationRunner:
         self._last_sample_completion: Optional[Dict[str, Any]] = None
         self._pending_route_handoff: Optional[Dict[str, Any]] = None
         self._sample_handoff_request: Optional[Dict[str, Any]] = None
+        self._sample_export_deferral_request: Optional[Dict[str, Any]] = None
         self._atmosphere_reference_hpa: Optional[float] = None
         self._point_runtime_summary: Dict[Tuple[str, int], Dict[str, Any]] = {}
         self._lead_in_transition_stage_ts: Dict[str, float] = {}
@@ -5408,6 +5409,7 @@ class CalibrationRunner:
 
     def _cleanup(self) -> None:
         self._pending_route_handoff = None
+        self._sample_export_deferral_request = None
         self._clear_preseal_pressure_control_ready_state(reason="runner_cleanup")
         self._stop_pressure_transition_fast_signal_context(reason="runner cleanup")
         try:
@@ -8000,10 +8002,19 @@ class CalibrationRunner:
             return None, "atmosphere_hold_not_stopped"
         return state, ""
 
-    def _pressure_controller_ready_snapshot(self, pace: Any) -> Dict[str, Any]:
+    def _pressure_controller_ready_snapshot_requires_aux_refresh(self) -> bool:
+        return self._pressure_atmosphere_hold_strategy == "vent_valve_open_after_vent"
+
+    def _pressure_controller_ready_snapshot(self, pace: Any, *, refresh_aux: Optional[bool] = None) -> Dict[str, Any]:
         snapshot = self._pace_state_snapshot(pace, refresh=True)
         snapshot["hold_thread_active"] = self._pressure_controller_hold_thread_active(pace)
-        self._refresh_pressure_controller_aux_state(pace)
+        should_refresh_aux = (
+            self._pressure_controller_ready_snapshot_requires_aux_refresh()
+            if refresh_aux is None
+            else bool(refresh_aux)
+        )
+        if should_refresh_aux:
+            self._refresh_pressure_controller_aux_state(pace)
         snapshot["vent_after_valve_open"] = self._pace_vent_after_valve_open
         snapshot["vent_popup_ack_enabled"] = self._pace_vent_popup_ack_enabled
         snapshot["vent_after_valve_supported"] = self._pace_vent_after_valve_supported
@@ -10177,10 +10188,25 @@ class CalibrationRunner:
             else:
                 self.log("CO2 preseal dewpoint gate completed")
         else:
-            self.log("CO2 preseal analyzer stability check skipped")
+            self.log("CO2 preseal dewpoint gate skipped by configuration")
+        if not self._wait_co2_preseal_primary_sensor_gate(point):
+            self.log(f"CO2 row {point.index} skipped: analyzer precondition failed before downstream sampling/seal")
+            self._cleanup_co2_route(reason="after CO2 preseal analyzer gate failure")
+            return
 
-        for ambient_ref in ambient_open_refs:
+        ambient_exports_deferred_until_seal = False
+
+        def _flush_co2_route_seal_deferred_exports(reason: str) -> None:
+            nonlocal ambient_exports_deferred_until_seal
+            if not ambient_exports_deferred_until_seal:
+                return
+            self._flush_deferred_sample_exports(reason=reason)
+            self._flush_deferred_point_exports(reason=reason)
+            ambient_exports_deferred_until_seal = False
+
+        for ambient_idx, ambient_ref in enumerate(ambient_open_refs):
             if self.stop_event.is_set():
+                _flush_co2_route_seal_deferred_exports(reason="before CO2 ambient interruption cleanup")
                 self._cleanup_co2_route(reason="after CO2 ambient open-route interrupted")
                 return
             self._check_pause()
@@ -10188,7 +10214,23 @@ class CalibrationRunner:
             point_tag = self._co2_point_tag(sample_point)
             pressure_label = self._pressure_target_label(sample_point) or self._AMBIENT_PRESSURE_LABEL
             self.set_status(f"CO2 {int(round(float(sample_point.co2_ppm or 0)))}ppm {pressure_label}")
-            self._sample_open_route_point(sample_point, phase="co2", point_tag=point_tag)
+            defer_until_route_sealed = bool(sealed_control_refs) and ambient_idx + 1 == len(ambient_open_refs)
+            if defer_until_route_sealed:
+                ambient_exports_deferred_until_seal = self._request_sample_export_deferral(
+                    sample_point,
+                    phase="co2",
+                    point_tag=point_tag,
+                    mode="route_seal",
+                )
+            try:
+                self._sample_open_route_point(sample_point, phase="co2", point_tag=point_tag)
+            finally:
+                if defer_until_route_sealed:
+                    self._clear_requested_sample_export_deferral(
+                        sample_point,
+                        phase="co2",
+                        point_tag=point_tag,
+                    )
 
         if not sealed_control_refs:
             self._cleanup_co2_route(reason="after CO2 source complete")
@@ -10197,6 +10239,7 @@ class CalibrationRunner:
         seal_start_index: Optional[int] = None
         for idx, pressure_point in enumerate(sealed_control_refs):
             if self.stop_event.is_set():
+                _flush_co2_route_seal_deferred_exports(reason="before CO2 pressure-seal interruption cleanup")
                 self._cleanup_co2_route(reason="after CO2 pressure-seal interrupted")
                 return
             self._check_pause()
@@ -10206,6 +10249,9 @@ class CalibrationRunner:
                 route="co2",
                 sealed_control_refs=sealed_control_refs,
             ):
+                _flush_co2_route_seal_deferred_exports(
+                    reason=f"after CO2 route sealed {seal_point.index}:{self._co2_point_tag(seal_point)}"
+                )
                 seal_start_index = idx
                 break
             self.log(
@@ -10214,6 +10260,7 @@ class CalibrationRunner:
             )
 
         if seal_start_index is None:
+            _flush_co2_route_seal_deferred_exports(reason="after CO2 pressure-seal failure")
             self.log(f"CO2 row {point.index} skipped: route sealing failed")
             self._cleanup_co2_route(reason="after CO2 pressure-seal failure")
             return
@@ -10712,6 +10759,66 @@ class CalibrationRunner:
             base_soak_s=soak_s,
             log_context=log_context,
         )
+
+    def _wait_co2_preseal_primary_sensor_gate(self, point: CalibrationPoint) -> bool:
+        sensor_cfg = self.cfg.get("workflow", {}).get("stability", {}).get("sensor", {})
+        if sensor_cfg and not sensor_cfg.get("enabled", True):
+            self.log("CO2 preseal analyzer stability gate skipped: sensor stability disabled by configuration")
+            return True
+
+        tol = float(sensor_cfg.get("co2_ratio_f_preseal_tol", sensor_cfg.get("co2_ratio_f_tol", 0.001)))
+        window_s = float(sensor_cfg.get("co2_ratio_f_preseal_window_s", sensor_cfg.get("window_s", 30)))
+        timeout_s = float(sensor_cfg.get("co2_ratio_f_preseal_timeout_s", sensor_cfg.get("timeout_s", 300)))
+        min_samples = max(2, int(sensor_cfg.get("co2_ratio_f_preseal_min_samples", 10)))
+        read_interval_s = float(
+            sensor_cfg.get("co2_ratio_f_preseal_read_interval_s", sensor_cfg.get("read_interval_s", 1.0))
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route="co2",
+            point_phase="co2",
+            trace_stage="co2_precondition_analyzer_gate_begin",
+            pressure_target_hpa=point.target_pressure_hpa,
+            refresh_pace_state=False,
+            note=(
+                f"key=co2_ratio_f tol={tol:.6f} window_s={window_s:.3f} "
+                f"timeout_s={timeout_s:.3f} min_samples={min_samples} "
+                f"read_interval_s={read_interval_s:.3f}"
+            ),
+        )
+        stable = self._wait_primary_sensor_stable(
+            point,
+            value_key="co2_ratio_f",
+            require_pressure_in_limits=False,
+            tol_override=tol,
+            window_override=window_s,
+            timeout_override=timeout_s,
+            min_samples_override=min_samples,
+            read_interval_override=read_interval_s,
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route="co2",
+            point_phase="co2",
+            trace_stage="co2_precondition_analyzer_gate_end",
+            pressure_target_hpa=point.target_pressure_hpa,
+            refresh_pace_state=False,
+            note=(
+                f"result={'pass' if stable else 'fail'} key=co2_ratio_f tol={tol:.6f} "
+                f"window_s={window_s:.3f} timeout_s={timeout_s:.3f} min_samples={min_samples}"
+            ),
+        )
+        if stable:
+            self.log(
+                "CO2 preseal analyzer stability gate passed: "
+                f"tol={tol:g} window_s={window_s:g} min_samples={min_samples}"
+            )
+            return True
+        self.log(
+            "CO2 preseal analyzer stability gate failed before downstream sampling/seal: "
+            f"tol={tol:g} window_s={window_s:g} min_samples={min_samples}"
+        )
+        return False
 
     def _co2_pressure_timeout_reseal_retries(self) -> int:
         return max(0, int(self._wf("workflow.pressure.co2_reseal_retry_count", 1)))
@@ -12983,6 +13090,75 @@ class CalibrationRunner:
         self._sample_handoff_request = request
         return bool(armed)
 
+    def _request_sample_export_deferral(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        point_tag: str,
+        mode: str,
+    ) -> bool:
+        if self._sample_export_deferral_request is not None:
+            self.log(
+                "Sample export deferral request skipped: "
+                f"phase={phase or '--'} point={point.index} reason=request_already_pending"
+            )
+            return False
+        if self._deferred_sample_exports or self._deferred_point_exports:
+            self.log(
+                "Sample export deferral request skipped: "
+                f"phase={phase or '--'} point={point.index} reason=deferred_export_queue_busy"
+            )
+            return False
+        self._sample_export_deferral_request = {
+            "phase": str(phase or "").strip().lower(),
+            "point_row": int(point.index),
+            "point_tag": str(point_tag or ""),
+            "mode": str(mode or "").strip().lower(),
+        }
+        return True
+
+    def _consume_requested_sample_export_deferral(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        point_tag: str,
+    ) -> Optional[Dict[str, Any]]:
+        request = self._sample_export_deferral_request
+        if not isinstance(request, dict):
+            return None
+        if str(request.get("phase") or "") != str(phase or ""):
+            return None
+        expected_point_tag = str(request.get("point_tag") or "")
+        if expected_point_tag:
+            if expected_point_tag != str(point_tag or ""):
+                return None
+        elif self._as_int(request.get("point_row")) != int(point.index):
+            return None
+        self._sample_export_deferral_request = None
+        return dict(request)
+
+    def _clear_requested_sample_export_deferral(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        point_tag: str,
+    ) -> None:
+        request = self._sample_export_deferral_request
+        if not isinstance(request, dict):
+            return
+        if str(request.get("phase") or "") != str(phase or ""):
+            return
+        expected_point_tag = str(request.get("point_tag") or "")
+        if expected_point_tag:
+            if expected_point_tag != str(point_tag or ""):
+                return
+        elif self._as_int(request.get("point_row")) != int(point.index):
+            return
+        self._sample_export_deferral_request = None
+
     def _last_sample_completion_pace_state(self, completion: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         completion = dict(completion or self._last_sample_completion or {})
         cache_snapshot = self._pace_state_cache_snapshot()
@@ -14260,6 +14436,12 @@ class CalibrationRunner:
             phase=phase_text,
             point_tag=point_tag,
         )
+        export_deferral_request = self._consume_requested_sample_export_deferral(
+            point,
+            phase=phase_text,
+            point_tag=point_tag,
+        )
+        route_seal_deferral_armed = bool(export_deferral_request)
 
         analyzer_labels = [label for label, _, _ in self._all_gas_analyzers()]
         integrity_summary = self._summarize_analyzer_integrity(samples, analyzer_labels=analyzer_labels)
@@ -14281,7 +14463,7 @@ class CalibrationRunner:
             phase=phase_text,
             samples=samples,
         )
-        if handoff_armed:
+        if handoff_armed or route_seal_deferral_armed:
             self._enqueue_deferred_sample_exports(
                 point,
                 samples,
@@ -14295,7 +14477,7 @@ class CalibrationRunner:
                 phase=phase,
                 point_tag=point_tag,
             )
-        if handoff_armed and self._defer_heavy_exports_during_handoff_enabled():
+        if route_seal_deferral_armed or (handoff_armed and self._defer_heavy_exports_during_handoff_enabled()):
             self._enqueue_deferred_point_exports(
                 point,
                 samples,

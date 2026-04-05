@@ -1174,7 +1174,7 @@ def test_set_pressure_to_target_reuses_preseal_ready_state_without_repeating_ven
     assert pace.setpoints == [1000.0]
 
 
-def test_run_co2_point_skips_preseal_analyzer_stability_wait(tmp_path: Path) -> None:
+def test_run_co2_point_skips_downstream_flow_when_preseal_analyzer_gate_fails(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
     calls = []
@@ -1196,8 +1196,8 @@ def test_run_co2_point_skips_preseal_analyzer_stability_wait(tmp_path: Path) -> 
         lambda self, point: calls.append(f"co2_soak_{getattr(point, 'index', None)}") or True,
         runner,
     )
-    runner._wait_primary_sensor_stable = types.MethodType(
-        lambda self, point, **kwargs: calls.append("sensor_wait_called") or False,
+    runner._wait_co2_preseal_primary_sensor_gate = types.MethodType(
+        lambda self, point: calls.append(f"co2_preseal_sensor_gate_{getattr(point, 'index', None)}") or False,
         runner,
     )
     runner._pressurize_and_hold = types.MethodType(
@@ -1212,8 +1212,8 @@ def test_run_co2_point_skips_preseal_analyzer_stability_wait(tmp_path: Path) -> 
         "co2_baseline:before CO2 route conditioning",
         "co2_valves_3",
         "co2_soak_3",
-        "pressurize_co2",
-        "co2_baseline:after CO2 pressure-seal failure",
+        "co2_preseal_sensor_gate_3",
+        "co2_baseline:after CO2 preseal analyzer gate failure",
     ]
 
 
@@ -1233,8 +1233,8 @@ def test_run_co2_point_waits_after_pressure_stable_before_sampling(tmp_path: Pat
         lambda self, point: calls.append("co2_soak") or True,
         runner,
     )
-    runner._wait_primary_sensor_stable = types.MethodType(
-        lambda self, point, **kwargs: calls.append("sensor_wait_called") or True,
+    runner._wait_co2_preseal_primary_sensor_gate = types.MethodType(
+        lambda self, point: calls.append("co2_preseal_sensor_gate") or True,
         runner,
     )
     runner._pressurize_and_hold = types.MethodType(lambda self, point, route="co2": calls.append("pressurize") or True, runner)
@@ -1255,6 +1255,7 @@ def test_run_co2_point_waits_after_pressure_stable_before_sampling(tmp_path: Pat
         "co2_baseline:before CO2 route conditioning",
         "co2_valves",
         "co2_soak",
+        "co2_preseal_sensor_gate",
         "pressurize",
         "set_pressure",
         "wait_pressure_delay",
@@ -1274,6 +1275,10 @@ def test_run_co2_point_ambient_only_samples_open_route_without_pressure_control(
     runner._set_co2_route_baseline = types.MethodType(lambda self, reason="": calls.append(f"co2_baseline:{reason}"), runner)
     runner._set_valves_for_co2 = types.MethodType(lambda self, point: calls.append("co2_valves"), runner)
     runner._wait_co2_route_soak_before_seal = types.MethodType(lambda self, point: calls.append("co2_soak") or True, runner)
+    runner._wait_co2_preseal_primary_sensor_gate = types.MethodType(
+        lambda self, point: calls.append("co2_preseal_sensor_gate") or True,
+        runner,
+    )
     runner._pressurize_and_hold = types.MethodType(lambda self, point, route="co2": calls.append("pressurize") or True, runner)
     runner._set_pressure_to_target = types.MethodType(lambda self, point: calls.append("set_pressure") or True, runner)
     runner._wait_after_pressure_stable_before_sampling = types.MethodType(
@@ -1292,6 +1297,7 @@ def test_run_co2_point_ambient_only_samples_open_route_without_pressure_control(
         "co2_baseline:before CO2 route conditioning",
         "co2_valves",
         "co2_soak",
+        "co2_preseal_sensor_gate",
         "sample_co2_co2_groupa_200ppm_ambient",
         "co2_baseline:after CO2 source complete",
     ]
@@ -1324,6 +1330,10 @@ def test_run_co2_point_runs_ambient_before_sealed_pressure_control(tmp_path: Pat
     runner._set_co2_route_baseline = types.MethodType(lambda self, reason="": calls.append(f"co2_baseline:{reason}"), runner)
     runner._set_valves_for_co2 = types.MethodType(lambda self, point: calls.append("co2_valves"), runner)
     runner._wait_co2_route_soak_before_seal = types.MethodType(lambda self, point: calls.append("co2_soak") or True, runner)
+    runner._wait_co2_preseal_primary_sensor_gate = types.MethodType(
+        lambda self, point: calls.append("co2_preseal_sensor_gate") or True,
+        runner,
+    )
     runner._pressurize_and_hold = types.MethodType(lambda self, point, route="co2": calls.append("pressurize") or True, runner)
     runner._set_pressure_to_target = types.MethodType(lambda self, point: calls.append("set_pressure") or True, runner)
     runner._wait_after_pressure_stable_before_sampling = types.MethodType(
@@ -1342,12 +1352,106 @@ def test_run_co2_point_runs_ambient_before_sealed_pressure_control(tmp_path: Pat
         "co2_baseline:before CO2 route conditioning",
         "co2_valves",
         "co2_soak",
+        "co2_preseal_sensor_gate",
         "sample_co2_co2_groupa_200ppm_ambient",
         "pressurize",
         "set_pressure",
         "wait_pressure_delay",
         "sample_co2_co2_groupa_200ppm_900hpa",
         "co2_baseline:after CO2 source complete",
+    ]
+
+
+def test_run_co2_point_flushes_ambient_exports_after_route_seal(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "sampling": {"stable_count": 1, "interval_s": 0.0, "quality": {"enabled": False}},
+                "reporting": {"defer_heavy_exports_during_handoff": True},
+            }
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    order: list[str] = []
+    point = _point_co2()
+    ambient_ref = runner._ambient_pressure_reference_point(point)
+    pressure_ref = CalibrationPoint(
+        index=5,
+        temp_chamber_c=point.temp_chamber_c,
+        co2_ppm=point.co2_ppm,
+        hgen_temp_c=None,
+        hgen_rh_pct=None,
+        target_pressure_hpa=500.0,
+        dewpoint_c=None,
+        h2o_mmol=None,
+        raw_h2o=None,
+    )
+
+    runner._set_temperature = types.MethodType(lambda self, target: True, runner)
+    runner._set_co2_route_baseline = types.MethodType(lambda self, reason="": None, runner)
+    runner._set_valves_for_co2 = types.MethodType(lambda self, point: None, runner)
+    runner._wait_co2_route_soak_before_seal = types.MethodType(lambda self, point: True, runner)
+    runner._wait_co2_preseal_primary_sensor_gate = types.MethodType(lambda self, point: True, runner)
+    runner._wait_for_sampling_freshness_gate = types.MethodType(
+        lambda self, **_kwargs: {"status": "skipped", "ready_values": {}, "missing": [], "elapsed_s": 0.0},
+        runner,
+    )
+    runner._collect_samples = types.MethodType(
+        lambda self, point, *_args, **_kwargs: [
+            {
+                "point_row": point.index,
+                "point_title": "demo",
+                "co2_ppm": float(point.co2_ppm or 0.0),
+                "pressure_hpa": float(point.target_pressure_hpa or 1000.0),
+                "pressure_gauge_hpa": float(point.target_pressure_hpa or 1000.0),
+                "sample_end_ts": "2026-03-30T21:06:12.636",
+            }
+        ],
+        runner,
+    )
+    runner._perform_light_point_exports = types.MethodType(
+        lambda self, point, samples, **kwargs: order.append(f"light_{kwargs.get('point_tag')}"),
+        runner,
+    )
+    runner._perform_heavy_point_exports = types.MethodType(
+        lambda self, point, samples, **kwargs: order.append(f"heavy_{kwargs.get('point_tag')}"),
+        runner,
+    )
+    runner._pressurize_and_hold = types.MethodType(
+        lambda self, point, route="co2": order.append("pressurize") or True,
+        runner,
+    )
+    runner._set_pressure_to_target = types.MethodType(
+        lambda self, point: order.append("set_pressure") or True,
+        runner,
+    )
+    runner._wait_after_pressure_stable_before_sampling = types.MethodType(
+        lambda self, point: order.append("wait_pressure_delay") or True,
+        runner,
+    )
+    original_sample_and_log = CalibrationRunner._sample_and_log
+
+    def sample_and_log(self, point, phase="", point_tag=""):
+        if str(point_tag).endswith("ambient"):
+            return original_sample_and_log(self, point, phase=phase, point_tag=point_tag)
+        order.append(f"sample_{point_tag}")
+
+    runner._sample_and_log = types.MethodType(sample_and_log, runner)
+
+    runner._run_co2_point(point, pressure_points=[ambient_ref, pressure_ref])
+    logger.close()
+
+    assert order == [
+        "pressurize",
+        "light_co2_groupa_200ppm_ambient",
+        "heavy_co2_groupa_200ppm_ambient",
+        "set_pressure",
+        "wait_pressure_delay",
+        "sample_co2_groupa_200ppm_500hpa",
     ]
 
 
@@ -1373,6 +1477,10 @@ def test_run_co2_point_skips_preseal_topoff_when_1100_not_selected(tmp_path: Pat
     runner._set_co2_route_baseline = types.MethodType(lambda self, reason="": calls.append(f"co2_baseline:{reason}"), runner)
     runner._set_valves_for_co2 = types.MethodType(lambda self, point: calls.append("co2_valves"), runner)
     runner._wait_co2_route_soak_before_seal = types.MethodType(lambda self, point: calls.append("co2_soak") or True, runner)
+    runner._wait_co2_preseal_primary_sensor_gate = types.MethodType(
+        lambda self, point: calls.append("co2_preseal_sensor_gate") or True,
+        runner,
+    )
 
     def pressurize(self, point, route="co2"):
         calls.append(f"pressurize_{bool(self._active_route_requires_preseal_topoff)}_{int(point.target_pressure_hpa or 0)}")
@@ -1396,6 +1504,7 @@ def test_run_co2_point_skips_preseal_topoff_when_1100_not_selected(tmp_path: Pat
         "co2_baseline:before CO2 route conditioning",
         "co2_valves",
         "co2_soak",
+        "co2_preseal_sensor_gate",
         "sample_co2_co2_groupa_200ppm_ambient",
         "pressurize_False_500",
         "set_pressure",
@@ -1427,6 +1536,10 @@ def test_run_co2_point_keeps_preseal_topoff_when_1100_selected(tmp_path: Path) -
     runner._set_co2_route_baseline = types.MethodType(lambda self, reason="": calls.append(f"co2_baseline:{reason}"), runner)
     runner._set_valves_for_co2 = types.MethodType(lambda self, point: calls.append("co2_valves"), runner)
     runner._wait_co2_route_soak_before_seal = types.MethodType(lambda self, point: calls.append("co2_soak") or True, runner)
+    runner._wait_co2_preseal_primary_sensor_gate = types.MethodType(
+        lambda self, point: calls.append("co2_preseal_sensor_gate") or True,
+        runner,
+    )
 
     def pressurize(self, point, route="co2"):
         calls.append(f"pressurize_{bool(self._active_route_requires_preseal_topoff)}_{int(point.target_pressure_hpa or 0)}")
@@ -1450,6 +1563,7 @@ def test_run_co2_point_keeps_preseal_topoff_when_1100_selected(tmp_path: Path) -
         "co2_baseline:before CO2 route conditioning",
         "co2_valves",
         "co2_soak",
+        "co2_preseal_sensor_gate",
         "sample_co2_co2_groupa_200ppm_ambient",
         "pressurize_True_1100",
         "set_pressure",
@@ -1489,6 +1603,10 @@ def test_run_co2_point_reseals_once_after_pressure_timeout(tmp_path: Path) -> No
         runner,
     )
     runner._wait_co2_route_soak_before_seal = types.MethodType(lambda self, point: calls.append("co2_soak") or True, runner)
+    runner._wait_co2_preseal_primary_sensor_gate = types.MethodType(
+        lambda self, point: calls.append("co2_preseal_sensor_gate") or True,
+        runner,
+    )
     runner._pressurize_and_hold = types.MethodType(
         lambda self, point, route="co2": calls.append(f"pressurize_{route}_{int(point.co2_ppm or 0)}") or True,
         runner,
@@ -1516,6 +1634,7 @@ def test_run_co2_point_reseals_once_after_pressure_timeout(tmp_path: Path) -> No
         "co2_baseline:before CO2 route conditioning",
         "co2_valves_200",
         "co2_soak",
+        "co2_preseal_sensor_gate",
         "pressurize_co2_200",
         "set_pressure_550_1",
         "set_pressure_550_2",
@@ -1572,6 +1691,10 @@ def test_run_co2_point_falls_back_to_lower_pressure_when_highest_seal_fails(tmp_
     )
     runner._set_valves_for_co2 = types.MethodType(lambda self, point: calls.append(f"co2_valves_{int(point.co2_ppm or 0)}"), runner)
     runner._wait_co2_route_soak_before_seal = types.MethodType(lambda self, point: calls.append("co2_soak") or True, runner)
+    runner._wait_co2_preseal_primary_sensor_gate = types.MethodType(
+        lambda self, point: calls.append("co2_preseal_sensor_gate") or True,
+        runner,
+    )
 
     def pressurize(self, point, route="co2"):
         calls.append(f"pressurize_{int(point.target_pressure_hpa or 0)}")
@@ -1598,6 +1721,7 @@ def test_run_co2_point_falls_back_to_lower_pressure_when_highest_seal_fails(tmp_
         "co2_baseline:before CO2 route conditioning",
         "co2_valves_200",
         "co2_soak",
+        "co2_preseal_sensor_gate",
         "pressurize_1100",
         "pressurize_1000",
         "set_pressure_1000",
@@ -1607,6 +1731,66 @@ def test_run_co2_point_falls_back_to_lower_pressure_when_highest_seal_fails(tmp_
         "wait_pressure_delay_900",
         "sample_co2_co2_groupa_200ppm_900hpa",
         "co2_baseline:after CO2 source complete",
+    ]
+
+
+def test_wait_co2_preseal_primary_sensor_gate_uses_preseal_overrides(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "stability": {
+                    "sensor": {
+                        "enabled": True,
+                        "co2_ratio_f_tol": 0.005,
+                        "window_s": 40.0,
+                        "timeout_s": 90.0,
+                        "read_interval_s": 2.0,
+                        "co2_ratio_f_preseal_tol": 0.0015,
+                        "co2_ratio_f_preseal_window_s": 18.0,
+                        "co2_ratio_f_preseal_timeout_s": 75.0,
+                        "co2_ratio_f_preseal_min_samples": 7,
+                        "co2_ratio_f_preseal_read_interval_s": 0.8,
+                    }
+                }
+            }
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _point_co2()
+    captured: dict[str, object] = {}
+    trace_stages: list[str] = []
+
+    def fake_wait(self, point_arg, **kwargs):
+        captured["point"] = point_arg
+        captured.update(kwargs)
+        return True
+
+    def fake_trace(self, **kwargs):
+        trace_stages.append(str(kwargs.get("trace_stage") or ""))
+
+    runner._wait_primary_sensor_stable = types.MethodType(fake_wait, runner)
+    runner._append_pressure_trace_row = types.MethodType(fake_trace, runner)
+
+    assert runner._wait_co2_preseal_primary_sensor_gate(point) is True
+    logger.close()
+
+    assert captured == {
+        "point": point,
+        "value_key": "co2_ratio_f",
+        "require_pressure_in_limits": False,
+        "tol_override": 0.0015,
+        "window_override": 18.0,
+        "timeout_override": 75.0,
+        "min_samples_override": 7,
+        "read_interval_override": 0.8,
+    }
+    assert trace_stages == [
+        "co2_precondition_analyzer_gate_begin",
+        "co2_precondition_analyzer_gate_end",
     ]
 
 
@@ -2673,7 +2857,7 @@ def test_wait_after_pressure_stable_co2_honors_configured_delay(tmp_path: Path) 
     logger = RunLogger(tmp_path)
     messages: list[str] = []
     runner = CalibrationRunner(
-        {"workflow": {"pressure": {"post_stable_sample_delay_s": 0.0, "co2_post_stable_sample_delay_s": 10.0}}},
+        {"workflow": {"pressure": {"post_stable_sample_delay_s": 0.0, "co2_post_stable_sample_delay_s": 5.0}}},
         {},
         logger,
         messages.append,
@@ -2690,13 +2874,13 @@ def test_wait_after_pressure_stable_co2_honors_configured_delay(tmp_path: Path) 
     assert runner._wait_after_pressure_stable_before_sampling(point) is True
     logger.close()
 
-    assert waits == [10.0]
-    assert any("waiting 10.0s before sampling" in message for message in messages)
+    assert waits == [5.0]
+    assert any("waiting 5.0s before sampling" in message for message in messages)
     trace_rows = _load_pressure_trace_rows(logger)
     sampling_begin_rows = [row for row in trace_rows if row["trace_stage"] == "sampling_begin"]
     assert len(sampling_begin_rows) == 1
     assert sampling_begin_rows[0]["trigger_reason"] == "co2_post_stable_delay_elapsed"
-    assert "configured_delay_s=10.0" in sampling_begin_rows[0]["note"]
+    assert "configured_delay_s=5.0" in sampling_begin_rows[0]["note"]
 
 
 def test_wait_after_pressure_stable_co2_tops_up_minimum_delay_from_pressure_in_limits(
@@ -2706,7 +2890,7 @@ def test_wait_after_pressure_stable_co2_tops_up_minimum_delay_from_pressure_in_l
     logger = RunLogger(tmp_path)
     messages: list[str] = []
     runner = CalibrationRunner(
-        {"workflow": {"pressure": {"post_stable_sample_delay_s": 0.0, "co2_post_stable_sample_delay_s": 10.0}}},
+        {"workflow": {"pressure": {"post_stable_sample_delay_s": 0.0, "co2_post_stable_sample_delay_s": 5.0}}},
         {},
         logger,
         messages.append,
@@ -2724,20 +2908,20 @@ def test_wait_after_pressure_stable_co2_tops_up_minimum_delay_from_pressure_in_l
     runner._set_point_runtime_fields(
         point,
         phase="co2",
-        timing_stages={"pressure_in_limits": 94.0},
+        timing_stages={"pressure_in_limits": 97.0},
     )
     monkeypatch.setattr(runner_module.time, "time", lambda: clock["now"])
 
     assert runner._wait_after_pressure_stable_before_sampling(point) is True
     logger.close()
 
-    assert waits == [4.0]
-    assert any("elapsed since pressure_in_limits=6.0s" in message for message in messages)
+    assert waits == [2.0]
+    assert any("elapsed since pressure_in_limits=3.0s" in message for message in messages)
     trace_rows = _load_pressure_trace_rows(logger)
     sampling_begin_rows = [row for row in trace_rows if row["trace_stage"] == "sampling_begin"]
     assert len(sampling_begin_rows) == 1
     assert sampling_begin_rows[0]["trigger_reason"] == "co2_post_stable_delay_elapsed"
-    assert "waited_remaining_s=4.000" in sampling_begin_rows[0]["note"]
+    assert "waited_remaining_s=2.000" in sampling_begin_rows[0]["note"]
 
 
 def test_wait_after_pressure_stable_ready_check_uses_cached_fast_values(tmp_path: Path) -> None:
@@ -2816,7 +3000,7 @@ def test_wait_after_pressure_stable_h2o_honors_configured_delay(tmp_path: Path) 
     logger = RunLogger(tmp_path)
     messages: list[str] = []
     runner = CalibrationRunner(
-        {"workflow": {"pressure": {"post_stable_sample_delay_s": 10.0, "co2_post_stable_sample_delay_s": 0.0}}},
+        {"workflow": {"pressure": {"post_stable_sample_delay_s": 5.0, "co2_post_stable_sample_delay_s": 0.0}}},
         {},
         logger,
         messages.append,
@@ -2833,13 +3017,13 @@ def test_wait_after_pressure_stable_h2o_honors_configured_delay(tmp_path: Path) 
     assert runner._wait_after_pressure_stable_before_sampling(point) is True
     logger.close()
 
-    assert waits == [10.0]
-    assert any("waiting 10.0s before sampling" in message for message in messages)
+    assert waits == [5.0]
+    assert any("waiting 5.0s before sampling" in message for message in messages)
     trace_rows = _load_pressure_trace_rows(logger)
     sampling_begin_rows = [row for row in trace_rows if row["trace_stage"] == "sampling_begin"]
     assert len(sampling_begin_rows) == 1
     assert sampling_begin_rows[0]["trigger_reason"] == "h2o_post_stable_delay_elapsed"
-    assert "configured_delay_s=10.0" in sampling_begin_rows[0]["note"]
+    assert "configured_delay_s=5.0" in sampling_begin_rows[0]["note"]
 
 
 def test_build_point_summary_row_includes_pressure_timing_fields(tmp_path: Path) -> None:

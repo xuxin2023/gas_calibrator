@@ -105,12 +105,126 @@ def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
     }
 
 
+def build_point_taxonomy_handoff(point_summaries: list[dict[str, Any]]) -> dict[str, Any]:
+    pressure_counts = Counter()
+    flush_counts = Counter()
+    preseal_point_count = 0
+    postseal_timeout_blocked_count = 0
+    late_rebound_count = 0
+    stale_gauge_point_count = 0
+    max_preseal_overshoot_hpa: float | None = None
+    max_preseal_route_sealed_ms: float | None = None
+    max_stale_ratio: float | None = None
+
+    for item in list(point_summaries or []):
+        point = dict(item.get("point") or {})
+        stats = dict(item.get("stats") or {})
+
+        pressure_label = str(
+            point.get("pressure_target_label")
+            or point.get("pressure_selection_token")
+            or point.get("pressure_mode")
+            or point.get("pressure_hpa")
+            or "--"
+        ).strip() or "--"
+        pressure_counts[pressure_label] += 1
+
+        flush_status = str(stats.get("flush_gate_status") or stats.get("dewpoint_gate_result") or "").strip().lower()
+        if flush_status:
+            flush_counts[flush_status] += 1
+
+        if any(
+            stats.get(key) not in (None, "", [])
+            for key in (
+                "preseal_dewpoint_c",
+                "preseal_temp_c",
+                "preseal_rh_pct",
+                "preseal_pressure_hpa",
+                "preseal_trigger_overshoot_hpa",
+                "preseal_vent_off_begin_to_route_sealed_ms",
+            )
+        ):
+            preseal_point_count += 1
+
+        overshoot = _coerce_float(stats.get("preseal_trigger_overshoot_hpa"))
+        if overshoot is not None:
+            max_preseal_overshoot_hpa = overshoot if max_preseal_overshoot_hpa is None else max(max_preseal_overshoot_hpa, overshoot)
+
+        route_sealed_ms = _coerce_float(stats.get("preseal_vent_off_begin_to_route_sealed_ms"))
+        if route_sealed_ms is not None:
+            max_preseal_route_sealed_ms = (
+                route_sealed_ms
+                if max_preseal_route_sealed_ms is None
+                else max(max_preseal_route_sealed_ms, route_sealed_ms)
+            )
+
+        if bool(stats.get("postseal_timeout_blocked")):
+            postseal_timeout_blocked_count += 1
+
+        if bool(stats.get("dewpoint_rebound_detected")) or str(stats.get("postsample_late_rebound_status") or "").strip().lower() in {
+            "warn",
+            "fail",
+        }:
+            late_rebound_count += 1
+
+        stale_ratio = _coerce_float(stats.get("pressure_gauge_stale_ratio"))
+        if stale_ratio is not None and stale_ratio > 0:
+            stale_gauge_point_count += 1
+            max_stale_ratio = stale_ratio if max_stale_ratio is None else max(max_stale_ratio, stale_ratio)
+
+    pressure_summary = " | ".join(f"{label} {count}" for label, count in pressure_counts.items()) if pressure_counts else ""
+    flush_parts = [f"{status} {count}" for status, count in flush_counts.items()]
+    if late_rebound_count:
+        flush_parts.append(f"rebound {late_rebound_count}")
+    flush_gate_summary = " | ".join(flush_parts)
+
+    preseal_parts: list[str] = []
+    if preseal_point_count:
+        preseal_parts.append(f"points {preseal_point_count}")
+    if max_preseal_overshoot_hpa is not None:
+        preseal_parts.append(f"max overshoot {max_preseal_overshoot_hpa:g} hPa")
+    if max_preseal_route_sealed_ms is not None:
+        preseal_parts.append(f"max sealed wait {max_preseal_route_sealed_ms:g} ms")
+    preseal_summary = " | ".join(preseal_parts)
+
+    postseal_parts: list[str] = []
+    if postseal_timeout_blocked_count:
+        postseal_parts.append(f"timeout blocked {postseal_timeout_blocked_count}")
+    if late_rebound_count:
+        postseal_parts.append(f"late rebound {late_rebound_count}")
+    postseal_summary = " | ".join(postseal_parts)
+
+    stale_parts: list[str] = []
+    if stale_gauge_point_count:
+        stale_parts.append(f"points {stale_gauge_point_count}")
+    if max_stale_ratio is not None:
+        stale_parts.append(f"worst {max_stale_ratio * 100:g}%")
+    stale_gauge_summary = " | ".join(stale_parts)
+
+    return {
+        "pressure_summary": pressure_summary,
+        "flush_gate_summary": flush_gate_summary,
+        "preseal_summary": preseal_summary,
+        "postseal_summary": postseal_summary,
+        "stale_gauge_summary": stale_gauge_summary,
+    }
+
+
 def _load_json_dict(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
     except Exception:
         return {}
     return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _coerce_float(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _unique_existing_paths(values: Iterable[Any]) -> list[str]:

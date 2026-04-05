@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 import sys
@@ -12,8 +13,47 @@ if str(SUPPORT_DIR) not in sys.path:
 from ui_v2_support import build_fake_facade
 
 
+def _inject_point_taxonomy_summary(run_dir: Path) -> None:
+    summary_path = run_dir / "summary.json"
+    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    stats = dict(payload.get("stats", {}) or {})
+    stats["point_summaries"] = [
+        {
+            "point": {
+                "index": 1,
+                "pressure_target_label": "ambient",
+                "pressure_mode": "ambient",
+            },
+            "stats": {
+                "flush_gate_status": "pass",
+                "preseal_dewpoint_c": 6.1,
+                "preseal_trigger_overshoot_hpa": 4.2,
+                "preseal_vent_off_begin_to_route_sealed_ms": 1200,
+                "pressure_gauge_stale_ratio": 0.25,
+                "pressure_gauge_stale_count": 1,
+                "pressure_gauge_total_count": 4,
+            },
+        },
+        {
+            "point": {
+                "index": 2,
+                "pressure_target_label": "ambient_open",
+                "pressure_mode": "ambient_open",
+            },
+            "stats": {
+                "flush_gate_status": "veto",
+                "postseal_timeout_blocked": True,
+                "dewpoint_rebound_detected": True,
+            },
+        },
+    ]
+    payload["stats"] = stats
+    summary_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> None:
     facade = build_fake_facade(tmp_path)
+    _inject_point_taxonomy_summary(Path(facade.result_store.run_dir))
 
     devices = facade.get_devices_snapshot()
     workbench = devices["workbench"]
@@ -30,6 +70,10 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
     assert workbench["workbench"]["live_snapshot_evidence"]["qc_evidence_section"]["lines"]
     assert workbench["workbench"]["live_snapshot_evidence"]["qc_evidence_section"]["cards"]
     assert workbench["workbench"]["live_snapshot_evidence"]["qc_review_cards"]
+    assert workbench["workbench"]["live_snapshot_evidence"]["point_taxonomy_summary"]["pressure_summary"] == (
+        "ambient 1 | ambient_open 1"
+    )
+    assert workbench["evidence"]["point_taxonomy_summary"]["flush_gate_summary"] == "pass 1 | veto 1 | rebound 1"
     assert workbench["history"]["items"] == []
     assert workbench["workbench"]["preset_center"]["groups"]
     assert workbench["workbench"]["preset_center"]["manager"]["supports_import_export"] is True
@@ -189,6 +233,7 @@ def test_workbench_does_not_reuse_non_simulated_service_device_manager(tmp_path:
 
 def test_workbench_supports_view_layering_history_and_quick_scenarios(tmp_path: Path) -> None:
     facade = build_fake_facade(tmp_path)
+    _inject_point_taxonomy_summary(Path(facade.result_store.run_dir))
 
     facade.execute_device_workbench_action("workbench", "set_view_mode", view_mode="engineer_view")
     facade.execute_device_workbench_action("relay", "run_preset", preset_id="route_h2o", relay_name="relay_8")
@@ -218,6 +263,19 @@ def test_workbench_supports_view_layering_history_and_quick_scenarios(tmp_path: 
     assert any(
         str(item.get("id") or "") == "config_safety"
         and "配置安全" in str(item.get("summary") or "")
+        for item in snapshot["engineer_summary"]["sections"]
+    )
+    assert snapshot["engineer_summary"]["diagnostics"]["point_taxonomy_summary"]["preseal_summary"] == (
+        "points 1 | max overshoot 4.2 hPa | max sealed wait 1200 ms"
+    )
+    assert any(
+        str(item.get("title") or "") == t("pages.devices.workbench.engineer_card.point_taxonomy")
+        and "压力语义" in str(item.get("summary") or "")
+        for item in snapshot["engineer_summary"]["cards"]
+    )
+    assert any(
+        str(item.get("id") or "") == "point_taxonomy"
+        and "压力语义" in str(item.get("body_text") or "")
         for item in snapshot["engineer_summary"]["sections"]
     )
     assert "workbench_route_trace" in snapshot["evidence"]["simulation_context"]

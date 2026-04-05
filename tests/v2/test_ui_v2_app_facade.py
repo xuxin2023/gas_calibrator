@@ -85,6 +85,44 @@ def _write_offline_diagnostic_bundles(run_dir: Path) -> None:
     )
 
 
+def _inject_point_taxonomy_summary(run_dir: Path) -> None:
+    summary_path = run_dir / "summary.json"
+    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    stats = dict(payload.get("stats", {}) or {})
+    stats["point_summaries"] = [
+        {
+            "point": {
+                "index": 1,
+                "pressure_target_label": "ambient",
+                "pressure_mode": "ambient",
+            },
+            "stats": {
+                "flush_gate_status": "pass",
+                "preseal_dewpoint_c": 6.1,
+                "preseal_trigger_overshoot_hpa": 4.2,
+                "preseal_vent_off_begin_to_route_sealed_ms": 1200,
+                "pressure_gauge_stale_ratio": 0.25,
+                "pressure_gauge_stale_count": 1,
+                "pressure_gauge_total_count": 4,
+            },
+        },
+        {
+            "point": {
+                "index": 2,
+                "pressure_target_label": "ambient_open",
+                "pressure_mode": "ambient_open",
+            },
+            "stats": {
+                "flush_gate_status": "veto",
+                "postseal_timeout_blocked": True,
+                "dewpoint_rebound_detected": True,
+            },
+        },
+    ]
+    payload["stats"] = stats
+    summary_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def test_app_facade_builds_run_qc_and_results_snapshots(tmp_path: Path) -> None:
     facade = build_fake_facade(tmp_path)
 
@@ -398,6 +436,27 @@ def test_app_facade_surfaces_offline_diagnostic_adapter_review_items(tmp_path: P
     assert report_rows[str((run_dir / "analyzer_chain_isolation" / "operator_checklist.md").resolve())]["artifact_key"] == (
         "analyzer_chain_operator_checklist"
     )
+
+
+def test_app_facade_surfaces_point_taxonomy_summary_in_results_and_reports(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    _inject_point_taxonomy_summary(facade.result_store.run_dir)
+
+    results_snapshot = facade.build_results_snapshot()
+    reports_snapshot = facade.get_reports_snapshot(results_snapshot=results_snapshot)
+    taxonomy = dict(results_snapshot.get("point_taxonomy_summary", {}) or {})
+
+    assert taxonomy["pressure_summary"] == "ambient 1 | ambient_open 1"
+    assert taxonomy["flush_gate_summary"] == "pass 1 | veto 1 | rebound 1"
+    assert taxonomy["preseal_summary"] == "points 1 | max overshoot 4.2 hPa | max sealed wait 1200 ms"
+    assert taxonomy["postseal_summary"] == "timeout blocked 1 | late rebound 1"
+    assert taxonomy["stale_gauge_summary"] == "points 1 | worst 25%"
+    assert reports_snapshot["point_taxonomy_summary"] == taxonomy
+    assert "ambient 1 | ambient_open 1" in results_snapshot["result_summary_text"]
+    assert "pass 1 | veto 1 | rebound 1" in results_snapshot["result_summary_text"]
+    assert "points 1 | worst 25%" in results_snapshot["result_summary_text"]
+    assert "ambient 1 | ambient_open 1" in reports_snapshot["result_summary_text"]
+    assert "timeout blocked 1 | late rebound 1" in reports_snapshot["result_summary_text"]
 
 
 def test_app_facade_preferences_recent_runs_and_app_info(tmp_path: Path) -> None:

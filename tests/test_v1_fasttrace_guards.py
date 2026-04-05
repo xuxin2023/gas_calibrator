@@ -135,6 +135,101 @@ def test_preseal_ready_state_requires_target_age_and_invalidation_match(tmp_path
     assert reason == "snapshot_invalidated:vent_on:test"
 
 
+def test_pressure_controller_ready_snapshot_skips_aux_refresh_in_legacy_hold(tmp_path: Path) -> None:
+    class _FakePace:
+        def __init__(self) -> None:
+            self.output_calls = 0
+            self.isolation_calls = 0
+            self.vent_calls = 0
+            self.aux_calls = 0
+
+        def get_output_state(self):
+            self.output_calls += 1
+            return 0
+
+        def get_isolation_state(self):
+            self.isolation_calls += 1
+            return 1
+
+        def get_vent_status(self):
+            self.vent_calls += 1
+            return 0
+
+        def supports_vent_after_valve_open(self):
+            self.aux_calls += 1
+            return True
+
+        def get_vent_after_valve_open(self):
+            self.aux_calls += 1
+            return False
+
+        def supports_vent_popup_ack(self):
+            self.aux_calls += 1
+            return True
+
+        def get_vent_popup_ack_enabled(self):
+            self.aux_calls += 1
+            return True
+
+    logger = RunLogger(tmp_path)
+    pace = _FakePace()
+    runner = CalibrationRunner({}, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+
+    snapshot = runner._pressure_controller_ready_snapshot(pace)
+    logger.close()
+
+    assert snapshot["pace_output_state"] == 0
+    assert snapshot["pace_isolation_state"] == 1
+    assert snapshot["pace_vent_status"] == 0
+    assert pace.output_calls == 1
+    assert pace.isolation_calls == 1
+    assert pace.vent_calls == 1
+    assert pace.aux_calls == 0
+
+
+def test_pressure_controller_ready_snapshot_refreshes_aux_for_open_vent_strategy(tmp_path: Path) -> None:
+    class _FakePace:
+        def __init__(self) -> None:
+            self.aux_calls = 0
+
+        def get_output_state(self):
+            return 0
+
+        def get_isolation_state(self):
+            return 1
+
+        def get_vent_status(self):
+            return 0
+
+        def supports_vent_after_valve_open(self):
+            self.aux_calls += 1
+            return True
+
+        def get_vent_after_valve_open(self):
+            self.aux_calls += 1
+            return False
+
+        def supports_vent_popup_ack(self):
+            self.aux_calls += 1
+            return True
+
+        def get_vent_popup_ack_enabled(self):
+            self.aux_calls += 1
+            return True
+
+    logger = RunLogger(tmp_path)
+    pace = _FakePace()
+    runner = CalibrationRunner({}, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+    runner._pressure_atmosphere_hold_strategy = "vent_valve_open_after_vent"
+
+    snapshot = runner._pressure_controller_ready_snapshot(pace)
+    logger.close()
+
+    assert snapshot["vent_after_valve_open"] is False
+    assert snapshot["vent_popup_ack_enabled"] is True
+    assert pace.aux_calls >= 4
+
+
 def test_real_co2_fasttrace_keeps_long_route_guards() -> None:
     cfg = load_config(ROOT / "configs" / "headless_real_smoke_co2_fasttrace.json")
     sampling_cfg = cfg["workflow"]["sampling"]
