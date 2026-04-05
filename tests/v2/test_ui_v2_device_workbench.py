@@ -91,6 +91,9 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
     assert workbench["workbench"]["live_snapshot_evidence"]["point_taxonomy_summary"]["pressure_summary"] == (
         "ambient 1 | ambient_open 1"
     )
+    assert workbench["workbench"]["live_snapshot_evidence"]["point_taxonomy_summary"]["pressure_mode_summary"] == (
+        "ambient_open 2"
+    )
     assert workbench["evidence"]["point_taxonomy_summary"]["flush_gate_summary"] == "pass 1 | veto 1 | rebound 1"
     assert workbench["history"]["items"] == []
     assert workbench["workbench"]["preset_center"]["groups"]
@@ -146,6 +149,8 @@ def test_workbench_prefers_stored_point_taxonomy_summary_handoff(tmp_path: Path)
         run_dir,
         {
             "pressure_summary": "stored pressure taxonomy",
+            "pressure_mode_summary": "stored pressure mode taxonomy",
+            "pressure_target_label_summary": "stored pressure target taxonomy",
             "flush_gate_summary": "stored flush taxonomy",
             "preseal_summary": "stored preseal taxonomy",
             "postseal_summary": "stored postseal taxonomy",
@@ -157,6 +162,9 @@ def test_workbench_prefers_stored_point_taxonomy_summary_handoff(tmp_path: Path)
 
     assert workbench["workbench"]["live_snapshot_evidence"]["point_taxonomy_summary"]["pressure_summary"] == (
         "stored pressure taxonomy"
+    )
+    assert workbench["workbench"]["live_snapshot_evidence"]["point_taxonomy_summary"]["pressure_mode_summary"] == (
+        "stored pressure mode taxonomy"
     )
     assert workbench["evidence"]["point_taxonomy_summary"]["flush_gate_summary"] == "stored flush taxonomy"
     assert workbench["engineer_summary"]["diagnostics"]["point_taxonomy_summary"]["preseal_summary"] == (

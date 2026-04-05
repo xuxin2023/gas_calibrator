@@ -163,6 +163,8 @@ def test_result_store_persists_point_taxonomy_summary(tmp_path: Path) -> None:
     taxonomy = dict(payload["stats"]["point_taxonomy_summary"])
 
     assert taxonomy["pressure_summary"] == "1000.0 1"
+    assert taxonomy["pressure_mode_summary"] == "sealed_controlled 1"
+    assert taxonomy["pressure_target_label_summary"] == "1000hPa 1"
     assert taxonomy["flush_gate_summary"] == "pass 1"
     assert taxonomy["preseal_summary"] == "points 1"
     assert taxonomy["stale_gauge_summary"] == "points 1 | worst 25%"
@@ -278,5 +280,7 @@ def test_result_store_exports_offline_acceptance_and_analytics_artifacts(tmp_pat
     assert payload["summary_stats"]["acceptance_plan"]["ready_for_promotion"] is False
     assert payload["summary_stats"]["analytics_summary"]["analyzer_coverage"]["coverage_text"] == "1/1"
     assert payload["summary_stats"]["point_taxonomy_summary"]["pressure_summary"] == "1000.0 1"
+    assert payload["summary_stats"]["point_taxonomy_summary"]["pressure_mode_summary"] == "sealed_controlled 1"
     analytics_summary = json.loads((store.run_dir / "analytics_summary.json").read_text(encoding="utf-8"))
     assert analytics_summary["point_taxonomy_summary"]["pressure_summary"] == "1000.0 1"
+    assert analytics_summary["point_taxonomy_summary"]["pressure_target_label_summary"] == "1000hPa 1"

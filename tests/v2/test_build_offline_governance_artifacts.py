@@ -146,6 +146,12 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert analytics_summary["config_governance_handoff"]["execution_gate"]["status"] == "blocked"
     assert analytics_summary["offline_diagnostic_adapter_summary"]["found"] is True
     assert analytics_summary["offline_diagnostic_adapter_summary"]["bundle_count"] == 2
+    assert analytics_summary["offline_diagnostic_adapter_summary"]["coverage_summary"] == (
+        "room-temp 1 | analyzer-chain 1 | artifacts 9 | plots 2"
+    )
+    assert analytics_summary["offline_diagnostic_adapter_summary"]["next_check_summary"] == (
+        "verify ambient chain | inspect analyzer chain"
+    )
     assert analytics_summary["qc_evidence_section"]["cards"]
     assert analytics_summary["qc_review_cards"]
     assert analytics_summary["run_kpis"]["point_count"] == 1

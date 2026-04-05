@@ -215,6 +215,8 @@ def test_reports_page_builds_result_summary_from_top_level_handoff() -> None:
                 "config_safety_review": {"summary": "blocked"},
                 "offline_diagnostic_adapter_summary": {
                     "summary": "room-temp 2 | analyzer-chain 1",
+                    "coverage_summary": "room-temp 2 | analyzer-chain 1 | artifacts 9 | plots 2",
+                    "next_check_summary": "verify ambient chain | inspect analyzer chain",
                     "review_highlight_lines": [
                         "room-temp latest | classification warn | variant ambient_open | dominant pressure_bias | next verify ambient chain",
                         "analyzer-chain latest | continue_s1 hold | conclusion chain mismatch | next inspect analyzer chain",
@@ -223,6 +225,8 @@ def test_reports_page_builds_result_summary_from_top_level_handoff() -> None:
                 },
                 "point_taxonomy_summary": {
                     "pressure_summary": "ambient 1 | ambient_open 1",
+                    "pressure_mode_summary": "ambient_open 2",
+                    "pressure_target_label_summary": "ambient 1 | ambient_open 1",
                     "flush_gate_summary": "pass 1 | veto 1 | rebound 1",
                     "preseal_summary": "points 1 | max overshoot 4.2 hPa | max sealed wait 1200 ms",
                     "postseal_summary": "timeout blocked 1 | late rebound 1",
@@ -241,10 +245,13 @@ def test_reports_page_builds_result_summary_from_top_level_handoff() -> None:
         assert "simulated_protocol" in summary_text
         assert "blocked" in summary_text
         assert "room-temp 2 | analyzer-chain 1" in summary_text
+        assert "artifacts 9 | plots 2" in summary_text
+        assert "verify ambient chain | inspect analyzer chain" in summary_text
         assert "verify ambient chain" in summary_text
         assert "inspect analyzer chain" in summary_text
         assert "real acceptance evidence" in summary_text
         assert "ambient 1 | ambient_open 1" in summary_text
+        assert "ambient_open 2" in summary_text
         assert "pass 1 | veto 1 | rebound 1" in summary_text
         assert "points 1 | worst 25%" in summary_text
         assert "operator snapshot available" in summary_text
