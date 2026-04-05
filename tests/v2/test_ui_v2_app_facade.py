@@ -173,6 +173,10 @@ def test_app_facade_builds_run_qc_and_results_snapshots(tmp_path: Path) -> None:
     assert snapshot["results"]["config_safety_review"]["warnings"]
     assert "配置安全" in snapshot["results"]["result_summary_text"]
     assert snapshot["reports"]["review_center"]["evidence_items"]
+    assert snapshot["reports"]["evidence_source"] == "simulated_protocol"
+    assert snapshot["reports"]["not_real_acceptance_evidence"] is True
+    assert snapshot["reports"]["acceptance_level"] == "offline_regression"
+    assert snapshot["reports"]["promotion_state"] == "dry_run_only"
     assert snapshot["reports"]["config_safety"]["classification"] == "simulation_real_port_inventory_risk"
     assert snapshot["reports"]["config_safety_review"]["execution_gate"]["status"] == "blocked"
     assert snapshot["reports"]["config_governance_handoff"]["execution_gate"]["status"] == "blocked"
@@ -182,6 +186,7 @@ def test_app_facade_builds_run_qc_and_results_snapshots(tmp_path: Path) -> None:
     assert snapshot["reports"]["qc_evidence_section"]["cards"]
     assert "质控摘要" in snapshot["reports"]["qc_summary_text"]
     assert snapshot["reports"]["qc_review_cards"]
+    assert "simulated_protocol" in snapshot["reports"]["result_summary_text"]
     assert any(card["id"] == "boundary" for card in snapshot["results"]["analytics_summary"]["qc_review_cards"])
     assert snapshot["timeseries"]["series"]["temperature_c"]
     assert snapshot["qc_overview"]["grade"] == "B"

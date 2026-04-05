@@ -87,11 +87,21 @@ def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> No
     assert results_payload["config_safety"]["classification"] == "simulation_real_port_inventory_risk"
     assert results_payload["config_safety_review"]["status"] == "blocked"
     assert results_payload["config_governance_handoff"]["execution_gate"]["status"] == "blocked"
+    assert results_payload["evidence_source"] == "simulated_protocol"
+    assert results_payload["not_real_acceptance_evidence"] is True
+    assert results_payload["acceptance_level"] == "offline_regression"
+    assert results_payload["promotion_state"] == "dry_run_only"
+    assert "simulated_protocol" in results_payload["result_summary_text"]
     assert "配置安全" in results_payload["result_summary_text"]
     assert "工作台诊断证据" in results_payload["result_summary_text"]
     assert results_payload["output_files"]
     assert reports_payload["run_dir"].endswith(facade.session.run_id)
     assert reports_payload["files"]
+    assert reports_payload["evidence_source"] == "simulated_protocol"
+    assert reports_payload["not_real_acceptance_evidence"] is True
+    assert reports_payload["acceptance_level"] == "offline_regression"
+    assert reports_payload["promotion_state"] == "dry_run_only"
+    assert "simulated_protocol" in reports_payload["result_summary_text"]
     assert reports_payload["config_safety"]["classification"] == "simulation_real_port_inventory_risk"
     assert reports_payload["config_safety_review"]["execution_gate"]["status"] == "blocked"
     assert reports_payload["config_governance_handoff"]["blocked_reason_details"]
@@ -412,7 +422,11 @@ def test_results_gateway_surfaces_offline_diagnostic_adapter_artifacts(tmp_path:
     assert summary["found"] is True
     assert summary["room_temp_count"] == 1
     assert summary["analyzer_chain_count"] == 1
+    assert results_payload["evidence_source"] == "simulated_protocol"
+    assert reports_payload["evidence_source"] == "simulated_protocol"
     assert any("Room-temp diagnostic summary" in str(line) for line in list(summary.get("review_lines") or []))
+    assert "simulated_protocol" in results_payload["result_summary_text"]
+    assert "simulated_protocol" in reports_payload["result_summary_text"]
     assert "离线诊断" in results_payload["result_summary_text"]
     assert "离线诊断" in reports_payload["result_summary_text"]
     assert rows_by_path[str((run_dir / "room_temp_diagnostic" / "diagnostic_summary.json").resolve())]["artifact_role"] == (

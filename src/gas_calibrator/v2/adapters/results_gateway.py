@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
 from ..config import build_step2_config_governance_handoff
+from ..core.acceptance_model import normalize_evidence_source
 from ..core.artifact_catalog import KNOWN_REPORT_ARTIFACTS
 from ..core.offline_artifacts import summarize_offline_diagnostic_adapters
 from ..ui_v2.artifact_registry_governance import build_current_run_governance
@@ -60,6 +61,28 @@ class ResultsGateway:
         workbench_evidence_summary = (
             dict(summary.get("stats", {}).get("workbench_evidence_summary", {}) or {}) if isinstance(summary, dict) else {}
         )
+        evidence_source = self._resolve_current_run_evidence_source(workbench_evidence_summary, workbench_action_report)
+        evidence_state = str(
+            workbench_evidence_summary.get("evidence_state")
+            or dict(workbench_action_report or {}).get("evidence_state")
+            or "collected"
+        )
+        not_real_acceptance_evidence = bool(
+            workbench_evidence_summary.get(
+                "not_real_acceptance_evidence",
+                dict(workbench_action_report or {}).get("not_real_acceptance_evidence", True),
+            )
+        )
+        acceptance_level = str(
+            workbench_evidence_summary.get("acceptance_level")
+            or dict(workbench_action_report or {}).get("acceptance_level")
+            or "offline_regression"
+        )
+        promotion_state = str(
+            workbench_evidence_summary.get("promotion_state")
+            or dict(workbench_action_report or {}).get("promotion_state")
+            or "dry_run_only"
+        )
         result_summary_text = self._build_result_summary_text(
             summary=summary,
             artifact_role_summary=artifact_role_summary,
@@ -67,6 +90,7 @@ class ResultsGateway:
             config_safety_review=config_safety_review,
             offline_diagnostic_adapter_summary=offline_diagnostic_adapter_summary,
             workbench_evidence_summary=workbench_evidence_summary,
+            evidence_source=evidence_source,
         )
         return {
             "summary": summary,
@@ -96,6 +120,11 @@ class ResultsGateway:
             "workbench_evidence_summary": workbench_evidence_summary,
             "offline_diagnostic_adapter_summary": offline_diagnostic_adapter_summary,
             "result_summary_text": result_summary_text,
+            "evidence_source": evidence_source,
+            "evidence_state": evidence_state,
+            "not_real_acceptance_evidence": not_real_acceptance_evidence,
+            "acceptance_level": acceptance_level,
+            "promotion_state": promotion_state,
         }
 
     def read_reports_payload(self) -> dict[str, Any]:
@@ -158,6 +187,11 @@ class ResultsGateway:
             "artifact_role_summary": dict(payload.get("artifact_role_summary", {}) or {}),
             "workbench_evidence_summary": dict(payload.get("workbench_evidence_summary", {}) or {}),
             "offline_diagnostic_adapter_summary": offline_diagnostic_adapter_summary,
+            "evidence_source": str(payload.get("evidence_source", "") or "simulated_protocol"),
+            "evidence_state": str(payload.get("evidence_state", "") or "collected"),
+            "not_real_acceptance_evidence": bool(payload.get("not_real_acceptance_evidence", True)),
+            "acceptance_level": str(payload.get("acceptance_level", "") or "offline_regression"),
+            "promotion_state": str(payload.get("promotion_state", "") or "dry_run_only"),
         }
 
     def list_output_files(self) -> list[str]:
@@ -233,6 +267,7 @@ class ResultsGateway:
         config_safety_review: dict[str, Any] | None,
         offline_diagnostic_adapter_summary: dict[str, Any] | None,
         workbench_evidence_summary: dict[str, Any] | None,
+        evidence_source: str,
     ) -> str:
         summary_payload = dict(summary or {})
         stats = dict(summary_payload.get("stats", {}) or {})
@@ -260,6 +295,7 @@ class ResultsGateway:
             f"配置安全: {str(safety_review.get('summary') or safety.get('summary') or '--')}",
         ]
 
+        lines.insert(4, f"证据来源: {evidence_source}")
         if offline_summary:
             lines.append(
                 "离线诊断: "
@@ -281,3 +317,15 @@ class ResultsGateway:
         lines.append(f"工作台诊断证据: {workbench_text}")
 
         return "\n".join(line for line in lines if str(line).strip())
+
+    @staticmethod
+    def _resolve_current_run_evidence_source(
+        workbench_evidence_summary: dict[str, Any] | None,
+        workbench_action_report: dict[str, Any] | None,
+    ) -> str:
+        source = (
+            dict(workbench_evidence_summary or {}).get("evidence_source")
+            or dict(workbench_action_report or {}).get("evidence_source")
+            or "simulated_protocol"
+        )
+        return normalize_evidence_source(source)
