@@ -543,7 +543,7 @@
         "poll_s": 1.0
       },
       "h2o_route": {
-        "preseal_soak_s": 420
+        "preseal_soak_s": 30
       },
       "co2_route": {
         "preseal_soak_s": 240,

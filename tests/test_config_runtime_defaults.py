@@ -208,3 +208,10 @@ def test_analyzer_chain_isolation_4ch_enables_focused_quality_guards() -> None:
     assert cfg["workflow"]["pressure"]["preseal_trigger_overshoot_reject_hpa"] == 25.0
     assert cfg["valves"]["co2_path_group2"] == 16
     assert cfg["valves"]["co2_map_group2"]["500"] == 24
+
+
+def test_default_config_shortens_h2o_preseal_soak_to_30s() -> None:
+    root = Path(__file__).resolve().parents[1]
+    cfg = load_config(root / "configs" / "default_config.json")
+
+    assert cfg["workflow"]["stability"]["h2o_route"]["preseal_soak_s"] == 30

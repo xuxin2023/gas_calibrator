@@ -4,7 +4,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Any
 
-from ..i18n import t
+from ..i18n import display_evidence_source, t
 from ..review_center_presenter import build_artifact_scope_view
 from ..widgets.ai_summary_panel import AISummaryPanel
 from ..widgets.artifact_list_panel import ArtifactListPanel
@@ -139,6 +139,9 @@ class ReportsPage(ttk.Frame):
         self.run_dir_card.set_value(str(snapshot.get("run_dir", "--") or "--"))
         self.review_center.render(dict(snapshot.get("review_center", {}) or {}))
         self._apply_artifact_scope(self.review_center.get_selection_snapshot())
+        if not str(snapshot.get("result_summary_text", "") or "").strip():
+            snapshot = dict(snapshot)
+            snapshot["result_summary_text"] = self._build_result_summary_fallback(snapshot)
         result_summary_text = str(
             snapshot.get("result_summary_text", "")
             or snapshot.get("review_digest_text", "")
