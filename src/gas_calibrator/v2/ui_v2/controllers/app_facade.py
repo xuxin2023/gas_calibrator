@@ -1161,6 +1161,7 @@ class AppFacade:
         workbench_action_report = dict(payload.get("workbench_action_report", {}) or {})
         workbench_action_snapshot = dict(payload.get("workbench_action_snapshot", {}) or {})
         offline_diagnostic_adapter_summary = dict(payload.get("offline_diagnostic_adapter_summary", {}) or {})
+        point_taxonomy_summary = dict(payload.get("point_taxonomy_summary", {}) or {})
 
         sample_count = 0
         point_summary_count = 0
@@ -1223,10 +1224,16 @@ class AppFacade:
         suite_digest_text = self._humanize_ui_summary(str(suite_digest.get("summary", "--") or "--"))
         workbench_evidence_text = self._humanize_ui_summary(str(workbench_evidence_summary.get("summary_line", "--") or "--"))
         result_evidence_source = _normalize_simulated_evidence_source(workbench_evidence_summary.get("evidence_source"))
-        point_taxonomy_summary = build_point_taxonomy_handoff(list(summary_stats.get("point_summaries", []) or []))
+        if not point_taxonomy_summary:
+            point_taxonomy_summary = build_point_taxonomy_handoff(list(summary_stats.get("point_summaries", []) or []))
         offline_diagnostic_text = self._humanize_ui_summary(
             str(offline_diagnostic_adapter_summary.get("summary", "--") or "--")
         )
+        offline_diagnostic_detail_lines = [
+            self._humanize_ui_summary(str(item))
+            for item in list(offline_diagnostic_adapter_summary.get("detail_lines") or [])
+            if str(item).strip()
+        ][:2]
         qc_evidence_section = self._build_results_qc_evidence_section(
             analytics_summary=analytics_summary,
             workbench_evidence_summary=workbench_evidence_summary,
@@ -1310,6 +1317,14 @@ class AppFacade:
                     if offline_diagnostic_adapter_summary
                     else []
                 ),
+                *[
+                    t(
+                        "facade.results.result_summary.offline_diagnostic_detail",
+                        value=line,
+                        default=f"离线诊断补充: {line}",
+                    )
+                    for line in offline_diagnostic_detail_lines
+                ],
                 f"配置安全: {str(config_safety_review.get('summary') or '--')}",
                 *(
                     [t("facade.results.result_summary.taxonomy_pressure", value=str(point_taxonomy_summary.get("pressure_summary") or ""))]

@@ -206,6 +206,19 @@ class ReportsPage(ttk.Frame):
                 )
             )
 
+        for detail_line in [
+            str(item).strip()
+            for item in list(offline_diagnostic_adapter_summary.get("detail_lines") or [])
+            if str(item).strip()
+        ][:2]:
+            lines.append(
+                t(
+                    "facade.results.result_summary.offline_diagnostic_detail",
+                    value=detail_line,
+                    default=f"离线诊断补充: {detail_line}",
+                )
+            )
+
         point_taxonomy_summary = dict(snapshot.get("point_taxonomy_summary", {}) or {})
         pressure_summary = str(point_taxonomy_summary.get("pressure_summary") or "").strip()
         if pressure_summary:

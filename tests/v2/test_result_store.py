@@ -135,6 +135,39 @@ def test_result_store_writes_run_summary(tmp_path: Path) -> None:
     assert payload["stats"]["startup_pressure_precheck"] == startup_pressure_precheck
 
 
+def test_result_store_persists_point_taxonomy_summary(tmp_path: Path) -> None:
+    store = ResultStore(tmp_path, "run_test")
+    config = AppConfig.from_dict({"paths": {"output_dir": str(tmp_path)}})
+    session = RunSession(config)
+    sample = _sample()
+    store.save_sample(sample)
+    store.save_point_summary(
+        sample.point,
+        {
+            "point_phase": "co2",
+            "point_tag": "co2_1",
+            "valid": True,
+            "recommendation": "use",
+            "reason": "passed",
+            "flush_gate_status": "pass",
+            "preseal_dewpoint_c": 6.5,
+            "pressure_gauge_stale_ratio": 0.25,
+        },
+    )
+    session.start()
+    session.end("done")
+
+    store.save_run_summary(session)
+
+    payload = json.loads(store.data_writer.summary_path.read_text(encoding="utf-8"))
+    taxonomy = dict(payload["stats"]["point_taxonomy_summary"])
+
+    assert taxonomy["pressure_summary"] == "1000.0 1"
+    assert taxonomy["flush_gate_summary"] == "pass 1"
+    assert taxonomy["preseal_summary"] == "points 1"
+    assert taxonomy["stale_gauge_summary"] == "points 1 | worst 25%"
+
+
 def test_result_store_summarizes_artifact_roles(tmp_path: Path) -> None:
     store = ResultStore(tmp_path, "run_test")
     config = AppConfig.from_dict({"paths": {"output_dir": str(tmp_path)}})
@@ -244,3 +277,6 @@ def test_result_store_exports_offline_acceptance_and_analytics_artifacts(tmp_pat
     assert (store.run_dir / "coefficient_registry.json").exists()
     assert payload["summary_stats"]["acceptance_plan"]["ready_for_promotion"] is False
     assert payload["summary_stats"]["analytics_summary"]["analyzer_coverage"]["coverage_text"] == "1/1"
+    assert payload["summary_stats"]["point_taxonomy_summary"]["pressure_summary"] == "1000.0 1"
+    analytics_summary = json.loads((store.run_dir / "analytics_summary.json").read_text(encoding="utf-8"))
+    assert analytics_summary["point_taxonomy_summary"]["pressure_summary"] == "1000.0 1"

@@ -123,6 +123,15 @@ def _inject_point_taxonomy_summary(run_dir: Path) -> None:
     summary_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def _inject_stored_point_taxonomy_summary(run_dir: Path, summary: dict[str, str]) -> None:
+    summary_path = run_dir / "summary.json"
+    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    stats = dict(payload.get("stats", {}) or {})
+    stats["point_taxonomy_summary"] = dict(summary)
+    payload["stats"] = stats
+    summary_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def test_app_facade_builds_run_qc_and_results_snapshots(tmp_path: Path) -> None:
     facade = build_fake_facade(tmp_path)
 
@@ -418,12 +427,17 @@ def test_app_facade_surfaces_offline_diagnostic_adapter_review_items(tmp_path: P
     assert offline_summary["found"] is True
     assert offline_summary["room_temp_count"] == 1
     assert offline_summary["analyzer_chain_count"] == 1
+    assert offline_summary["detail_lines"]
+    assert offline_summary["latest_room_temp"]["recommended_variant"] == "ambient_open"
+    assert offline_summary["latest_analyzer_chain"]["recommendation"] == "inspect analyzer chain"
     assert reports_snapshot["evidence_source"] == "simulated_protocol"
     assert reports_snapshot["not_real_acceptance_evidence"] is True
     assert "simulated_protocol" in results_snapshot["result_summary_text"]
     assert "simulated_protocol" in reports_snapshot["result_summary_text"]
     assert "离线诊断" in results_snapshot["result_summary_text"]
     assert "离线诊断" in reports_snapshot["result_summary_text"]
+    assert "verify ambient chain" in results_snapshot["result_summary_text"]
+    assert "inspect analyzer chain" in reports_snapshot["result_summary_text"]
     assert len(offline_items) == 2
     assert all(item["type_display"] for item in offline_items)
     assert all(item["detail_analytics_summary"] for item in offline_items)
@@ -457,6 +471,30 @@ def test_app_facade_surfaces_point_taxonomy_summary_in_results_and_reports(tmp_p
     assert "points 1 | worst 25%" in results_snapshot["result_summary_text"]
     assert "ambient 1 | ambient_open 1" in reports_snapshot["result_summary_text"]
     assert "timeout blocked 1 | late rebound 1" in reports_snapshot["result_summary_text"]
+
+
+def test_app_facade_prefers_stored_point_taxonomy_handoff(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    _inject_point_taxonomy_summary(facade.result_store.run_dir)
+    _inject_stored_point_taxonomy_summary(
+        facade.result_store.run_dir,
+        {
+            "pressure_summary": "stored pressure taxonomy",
+            "flush_gate_summary": "stored flush taxonomy",
+            "preseal_summary": "stored preseal taxonomy",
+            "postseal_summary": "stored postseal taxonomy",
+            "stale_gauge_summary": "stored stale taxonomy",
+        },
+    )
+
+    results_snapshot = facade.build_results_snapshot()
+    reports_snapshot = facade.get_reports_snapshot(results_snapshot=results_snapshot)
+
+    assert results_snapshot["point_taxonomy_summary"]["pressure_summary"] == "stored pressure taxonomy"
+    assert results_snapshot["point_taxonomy_summary"]["flush_gate_summary"] == "stored flush taxonomy"
+    assert reports_snapshot["point_taxonomy_summary"]["postseal_summary"] == "stored postseal taxonomy"
+    assert "stored pressure taxonomy" in results_snapshot["result_summary_text"]
+    assert "stored stale taxonomy" in reports_snapshot["result_summary_text"]
 
 
 def test_app_facade_preferences_recent_runs_and_app_info(tmp_path: Path) -> None:

@@ -56,6 +56,20 @@ class ResultsGateway:
         )
         if not offline_diagnostic_adapter_summary:
             offline_diagnostic_adapter_summary = summarize_offline_diagnostic_adapters(self.run_dir)
+        point_taxonomy_summary = self._read_summary_section(
+            "point_taxonomy_summary",
+            summary,
+            evidence_registry,
+            analytics_summary,
+            workbench_action_report,
+            workbench_action_snapshot,
+        )
+        if not point_taxonomy_summary:
+            point_taxonomy_summary = (
+                build_point_taxonomy_handoff(list(summary.get("stats", {}).get("point_summaries", []) or []))
+                if isinstance(summary, dict)
+                else {}
+            )
         artifact_role_summary = (
             dict(summary.get("stats", {}).get("artifact_role_summary", {}) or {}) if isinstance(summary, dict) else {}
         )
@@ -90,13 +104,9 @@ class ResultsGateway:
             config_safety=config_safety,
             config_safety_review=config_safety_review,
             offline_diagnostic_adapter_summary=offline_diagnostic_adapter_summary,
+            point_taxonomy_summary=point_taxonomy_summary,
             workbench_evidence_summary=workbench_evidence_summary,
             evidence_source=evidence_source,
-        )
-        point_taxonomy_summary = (
-            build_point_taxonomy_handoff(list(summary.get("stats", {}).get("point_summaries", []) or []))
-            if isinstance(summary, dict)
-            else {}
         )
         return {
             "summary": summary,
@@ -274,6 +284,7 @@ class ResultsGateway:
         config_safety: dict[str, Any] | None,
         config_safety_review: dict[str, Any] | None,
         offline_diagnostic_adapter_summary: dict[str, Any] | None,
+        point_taxonomy_summary: dict[str, Any] | None,
         workbench_evidence_summary: dict[str, Any] | None,
         evidence_source: str,
     ) -> str:
@@ -283,6 +294,7 @@ class ResultsGateway:
         safety = dict(config_safety or {})
         safety_review = dict(config_safety_review or {})
         offline_summary = dict(offline_diagnostic_adapter_summary or {})
+        taxonomy_summary = dict(point_taxonomy_summary or {})
         workbench_summary = dict(workbench_evidence_summary or {})
 
         role_parts: list[str] = []
@@ -316,8 +328,16 @@ class ResultsGateway:
                 )
             )
 
-        point_taxonomy_summary = build_point_taxonomy_handoff(list(stats.get("point_summaries", []) or []))
-        if str(point_taxonomy_summary.get("pressure_summary") or "").strip():
+        for detail_line in ResultsGateway._offline_diagnostic_detail_lines(offline_summary):
+            lines.append(
+                t(
+                    "facade.results.result_summary.offline_diagnostic_detail",
+                    value=detail_line,
+                    default=f"离线诊断补充: {detail_line}",
+                )
+            )
+        point_taxonomy_summary = taxonomy_summary
+        if str(taxonomy_summary.get("pressure_summary") or "").strip():
             lines.append(
                 t(
                     "facade.results.result_summary.taxonomy_pressure",
@@ -379,3 +399,16 @@ class ResultsGateway:
             or "simulated_protocol"
         )
         return normalize_evidence_source(source)
+
+    @staticmethod
+    def _offline_diagnostic_detail_lines(
+        offline_diagnostic_adapter_summary: dict[str, Any] | None,
+        *,
+        limit: int = 2,
+    ) -> list[str]:
+        lines = [
+            str(item).strip()
+            for item in list(dict(offline_diagnostic_adapter_summary or {}).get("detail_lines") or [])
+            if str(item).strip()
+        ]
+        return lines[:limit]

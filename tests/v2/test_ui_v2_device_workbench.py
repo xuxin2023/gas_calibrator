@@ -51,6 +51,15 @@ def _inject_point_taxonomy_summary(run_dir: Path) -> None:
     summary_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def _inject_stored_point_taxonomy_summary(run_dir: Path, summary: dict[str, str]) -> None:
+    summary_path = run_dir / "summary.json"
+    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    stats = dict(payload.get("stats", {}) or {})
+    stats["point_taxonomy_summary"] = dict(summary)
+    payload["stats"] = stats
+    summary_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> None:
     facade = build_fake_facade(tmp_path)
     _inject_point_taxonomy_summary(Path(facade.result_store.run_dir))
@@ -118,6 +127,32 @@ def test_workbench_live_snapshot_prefers_runtime_config_governance_override(tmp_
     assert live_snapshot["config_governance_handoff"]["execution_gate"]["status"] == "unlocked_override"
     assert live_snapshot["config_safety_review"]["execution_gate"]["allow_unsafe_step2_config_flag"] is True
     assert live_snapshot["config_safety_review"]["execution_gate"]["allow_unsafe_step2_config_env"] is True
+
+
+def test_workbench_prefers_stored_point_taxonomy_summary_handoff(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    _inject_point_taxonomy_summary(run_dir)
+    _inject_stored_point_taxonomy_summary(
+        run_dir,
+        {
+            "pressure_summary": "stored pressure taxonomy",
+            "flush_gate_summary": "stored flush taxonomy",
+            "preseal_summary": "stored preseal taxonomy",
+            "postseal_summary": "stored postseal taxonomy",
+            "stale_gauge_summary": "stored stale taxonomy",
+        },
+    )
+
+    workbench = facade.get_devices_snapshot()["workbench"]
+
+    assert workbench["workbench"]["live_snapshot_evidence"]["point_taxonomy_summary"]["pressure_summary"] == (
+        "stored pressure taxonomy"
+    )
+    assert workbench["evidence"]["point_taxonomy_summary"]["flush_gate_summary"] == "stored flush taxonomy"
+    assert workbench["engineer_summary"]["diagnostics"]["point_taxonomy_summary"]["preseal_summary"] == (
+        "stored preseal taxonomy"
+    )
 
 
 def test_analyzer_workbench_supports_eight_devices_and_fault_injection(tmp_path: Path) -> None:

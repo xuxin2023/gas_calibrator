@@ -213,7 +213,13 @@ def test_reports_page_builds_result_summary_from_top_level_handoff() -> None:
                 "review_digest_text": "offline diagnostic digest",
                 "evidence_source": "simulated_protocol",
                 "config_safety_review": {"summary": "blocked"},
-                "offline_diagnostic_adapter_summary": {"summary": "room-temp 2 | analyzer-chain 1"},
+                "offline_diagnostic_adapter_summary": {
+                    "summary": "room-temp 2 | analyzer-chain 1",
+                    "detail_lines": [
+                        "room-temp latest | classification warn | variant ambient_open | dominant pressure_bias | next verify ambient chain",
+                        "analyzer-chain latest | continue_s1 hold | conclusion chain mismatch | next inspect analyzer chain",
+                    ],
+                },
                 "point_taxonomy_summary": {
                     "pressure_summary": "ambient 1 | ambient_open 1",
                     "flush_gate_summary": "pass 1 | veto 1 | rebound 1",
@@ -234,6 +240,8 @@ def test_reports_page_builds_result_summary_from_top_level_handoff() -> None:
         assert "simulated_protocol" in summary_text
         assert "blocked" in summary_text
         assert "room-temp 2 | analyzer-chain 1" in summary_text
+        assert "verify ambient chain" in summary_text
+        assert "inspect analyzer chain" in summary_text
         assert "ambient 1 | ambient_open 1" in summary_text
         assert "pass 1 | veto 1 | rebound 1" in summary_text
         assert "points 1 | worst 25%" in summary_text

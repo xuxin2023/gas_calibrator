@@ -103,6 +103,15 @@ def _inject_point_taxonomy_summary(run_dir: Path) -> None:
     summary_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def _inject_stored_point_taxonomy_summary(run_dir: Path, summary: dict[str, str]) -> None:
+    summary_path = run_dir / "summary.json"
+    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    stats = dict(payload.get("stats", {}) or {})
+    stats["point_taxonomy_summary"] = dict(summary)
+    payload["stats"] = stats
+    summary_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> None:
     facade = build_fake_facade(tmp_path)
     gateway = ResultsGateway(
@@ -171,6 +180,34 @@ def test_results_gateway_surfaces_point_taxonomy_summary(tmp_path: Path) -> None
     assert "points 1 | worst 25%" in results_payload["result_summary_text"]
     assert "ambient 1 | ambient_open 1" in reports_payload["result_summary_text"]
     assert "timeout blocked 1 | late rebound 1" in reports_payload["result_summary_text"]
+
+
+def test_results_gateway_prefers_stored_point_taxonomy_summary_handoff(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    _inject_point_taxonomy_summary(facade.result_store.run_dir)
+    _inject_stored_point_taxonomy_summary(
+        facade.result_store.run_dir,
+        {
+            "pressure_summary": "stored pressure taxonomy",
+            "flush_gate_summary": "stored flush taxonomy",
+            "preseal_summary": "stored preseal taxonomy",
+            "postseal_summary": "stored postseal taxonomy",
+            "stale_gauge_summary": "stored stale taxonomy",
+        },
+    )
+    gateway = ResultsGateway(
+        facade.result_store.run_dir,
+        output_files_provider=facade.service.get_output_files,
+    )
+
+    results_payload = gateway.read_results_payload()
+    reports_payload = gateway.read_reports_payload()
+
+    assert results_payload["point_taxonomy_summary"]["pressure_summary"] == "stored pressure taxonomy"
+    assert results_payload["point_taxonomy_summary"]["flush_gate_summary"] == "stored flush taxonomy"
+    assert "stored pressure taxonomy" in results_payload["result_summary_text"]
+    assert reports_payload["point_taxonomy_summary"]["postseal_summary"] == "stored postseal taxonomy"
+    assert "stored stale taxonomy" in reports_payload["result_summary_text"]
 
 
 def test_build_role_by_key_keeps_baseline_defaults_when_legacy_catalog_is_sparse() -> None:
@@ -486,6 +523,10 @@ def test_results_gateway_surfaces_offline_diagnostic_adapter_artifacts(tmp_path:
     assert summary["found"] is True
     assert summary["room_temp_count"] == 1
     assert summary["analyzer_chain_count"] == 1
+    assert summary["detail_lines"]
+    assert summary["detail_items"][0]["kind"] == "room_temp"
+    assert summary["latest_room_temp"]["recommended_variant"] == "ambient_open"
+    assert summary["latest_analyzer_chain"]["recommendation"] == "inspect analyzer chain"
     assert results_payload["evidence_source"] == "simulated_protocol"
     assert reports_payload["evidence_source"] == "simulated_protocol"
     assert any("Room-temp diagnostic summary" in str(line) for line in list(summary.get("review_lines") or []))
@@ -493,6 +534,8 @@ def test_results_gateway_surfaces_offline_diagnostic_adapter_artifacts(tmp_path:
     assert "simulated_protocol" in reports_payload["result_summary_text"]
     assert "离线诊断" in results_payload["result_summary_text"]
     assert "离线诊断" in reports_payload["result_summary_text"]
+    assert "verify ambient chain" in results_payload["result_summary_text"]
+    assert "inspect analyzer chain" in reports_payload["result_summary_text"]
     assert rows_by_path[str((run_dir / "room_temp_diagnostic" / "diagnostic_summary.json").resolve())]["artifact_role"] == (
         "diagnostic_analysis"
     )
