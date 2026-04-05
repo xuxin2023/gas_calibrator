@@ -79,6 +79,14 @@ def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
     )
     artifact_count = len(artifact_paths)
     plot_count = len(plot_artifact_paths)
+    primary_artifact_count = len(primary_artifact_paths)
+    primary_artifact_keys = {str(path) for path in primary_artifact_paths}
+    plot_artifact_keys = {str(path) for path in plot_artifact_paths}
+    supporting_artifact_count = sum(
+        1
+        for path in artifact_paths
+        if str(path) not in primary_artifact_keys and str(path) not in plot_artifact_keys
+    )
     latest_bundle = dict(bundles[0] or {})
     latest_room_temp = dict(room_temp_bundles[0] or {}) if room_temp_bundles else {}
     latest_analyzer_chain = dict(analyzer_chain_bundles[0] or {}) if analyzer_chain_bundles else {}
@@ -104,6 +112,13 @@ def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
     if plot_count:
         coverage_parts.append(f"plots {plot_count}")
     coverage_summary = " | ".join(coverage_parts)
+    review_scope_parts = [
+        f"primary {primary_artifact_count}",
+        f"supporting {supporting_artifact_count}",
+    ]
+    if plot_count:
+        review_scope_parts.append(f"plots {plot_count}")
+    review_scope_summary = " | ".join(review_scope_parts)
     next_check_summary = " | ".join(
         _unique_review_lines(
             [
@@ -116,6 +131,7 @@ def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
         [
             summary,
             f"coverage: {coverage_summary}" if coverage_summary else "",
+            f"artifact scope: {review_scope_summary}" if review_scope_summary else "",
             f"next checks: {next_check_summary}" if next_check_summary else "",
             *detail_lines,
             *[
@@ -154,8 +170,11 @@ def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
         "plot_artifact_paths": plot_artifact_paths,
         "primary_artifact_paths": primary_artifact_paths,
         "artifact_count": artifact_count,
+        "primary_artifact_count": primary_artifact_count,
+        "supporting_artifact_count": supporting_artifact_count,
         "plot_count": plot_count,
         "coverage_summary": coverage_summary,
+        "review_scope_summary": review_scope_summary,
         "next_check_summary": next_check_summary,
         "bundles": bundles,
         "latest_room_temp": latest_room_temp,

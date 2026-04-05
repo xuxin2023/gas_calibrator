@@ -214,6 +214,15 @@ class ReportsPage(ttk.Frame):
                     default=f"离线诊断覆盖：{offline_coverage_summary}",
                 )
             )
+        offline_scope_summary = str(offline_diagnostic_adapter_summary.get("review_scope_summary") or "").strip()
+        if offline_scope_summary:
+            lines.append(
+                t(
+                    "pages.reports.summary_fallback.offline_diagnostic_scope",
+                    summary=offline_scope_summary,
+                    default=f"绂荤嚎璇婃柇宸ヤ欢鑼冨洿锛歿offline_scope_summary}",
+                )
+            )
         offline_next_check_summary = str(offline_diagnostic_adapter_summary.get("next_check_summary") or "").strip()
         if offline_next_check_summary:
             lines.append(

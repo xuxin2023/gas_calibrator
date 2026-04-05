@@ -1334,6 +1334,16 @@ class AppFacade:
                 *(
                     [
                         t(
+                            "facade.results.result_summary.offline_diagnostic_scope",
+                            value=str(offline_diagnostic_adapter_summary.get("review_scope_summary") or ""),
+                        )
+                    ]
+                    if str(offline_diagnostic_adapter_summary.get("review_scope_summary") or "").strip()
+                    else []
+                ),
+                *(
+                    [
+                        t(
                             "facade.results.result_summary.offline_diagnostic_next_checks",
                             value=str(offline_diagnostic_adapter_summary.get("next_check_summary") or ""),
                         )
