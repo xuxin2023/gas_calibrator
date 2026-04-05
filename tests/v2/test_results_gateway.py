@@ -165,6 +165,47 @@ def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> No
     assert "工作台诊断证据" in reports_payload["result_summary_text"]
 
 
+def test_results_gateway_reads_top_level_handoffs_when_stats_sections_are_missing(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    summary_path = Path(facade.result_store.run_dir) / "summary.json"
+    payload = json.loads(summary_path.read_text(encoding="utf-8"))
+    stats = dict(payload.get("stats", {}) or {})
+    stats.pop("artifact_role_summary", None)
+    stats.pop("workbench_evidence_summary", None)
+    payload["stats"] = stats
+    payload["artifact_role_summary"] = {
+        "execution_summary": {
+            "count": 9,
+            "artifacts": ["summary.json"],
+            "status_counts": {"ok": 9},
+        }
+    }
+    payload["workbench_evidence_summary"] = {
+        "summary_line": "top-level workbench summary",
+        "evidence_source": "simulated_protocol",
+        "evidence_state": "simulated_workbench",
+        "not_real_acceptance_evidence": True,
+        "acceptance_level": "offline_regression",
+        "promotion_state": "dry_run_only",
+    }
+    summary_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    gateway = ResultsGateway(
+        facade.result_store.run_dir,
+        output_files_provider=facade.service.get_output_files,
+    )
+
+    results_payload = gateway.read_results_payload()
+    reports_payload = gateway.read_reports_payload()
+
+    assert results_payload["artifact_role_summary"]["execution_summary"]["count"] == 9
+    assert results_payload["workbench_evidence_summary"]["summary_line"] == "top-level workbench summary"
+    assert results_payload["workbench_evidence_summary"]["evidence_state"] == "simulated_workbench"
+    assert results_payload["evidence_source"] == "simulated_protocol"
+    assert reports_payload["artifact_role_summary"]["execution_summary"]["status_counts"]["ok"] == 9
+    assert reports_payload["workbench_evidence_summary"]["summary_line"] == "top-level workbench summary"
+
+
 def test_results_gateway_surfaces_point_taxonomy_summary(tmp_path: Path) -> None:
     facade = build_fake_facade(tmp_path)
     _inject_point_taxonomy_summary(facade.result_store.run_dir)

@@ -4801,6 +4801,10 @@ class DeviceWorkbenchController:
         if output_files:
             stats["output_files"] = list(output_files)
         summary_payload["stats"] = stats
+        summary_payload["config_safety"] = dict(summary.get("config_safety", {}) or {})
+        summary_payload["config_safety_review"] = dict(summary.get("config_safety_review", {}) or {})
+        summary_payload["config_governance_handoff"] = dict(summary.get("config_governance_handoff", {}) or {})
+        summary_payload["point_taxonomy_summary"] = dict(summary.get("point_taxonomy_summary", {}) or {})
         summary_payload["artifact_role_summary"] = dict(stats["artifact_role_summary"])
         summary_payload["workbench_evidence_summary"] = dict(summary)
         self._write_json_dict(summary_path, summary_payload)

@@ -131,6 +131,11 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
     assert exports["workbench_action_report_json"]["role"] == "diagnostic_analysis"
     assert exports["workbench_action_report_markdown"]["role"] == "diagnostic_analysis"
     assert exports["workbench_action_snapshot"]["role"] == "diagnostic_analysis"
+    assert summary_payload["config_safety"]["classification"] == "simulation_real_port_inventory_risk"
+    assert summary_payload["config_safety_review"]["status"] == "blocked"
+    assert summary_payload["config_safety_review"]["execution_gate"]["status"] == "blocked"
+    assert summary_payload["config_governance_handoff"]["execution_gate"]["status"] == "blocked"
+    assert summary_payload["point_taxonomy_summary"]["flush_gate_summary"] == "pass 1 | veto 1 | rebound 1"
     assert summary_payload["artifact_role_summary"] == summary_payload["stats"]["artifact_role_summary"]
     assert summary_payload["workbench_evidence_summary"]["evidence_state"] == "simulated_workbench"
     assert summary_payload["workbench_evidence_summary"]["evidence_source"] == "simulated_protocol"

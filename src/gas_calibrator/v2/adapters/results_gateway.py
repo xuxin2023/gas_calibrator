@@ -70,11 +70,21 @@ class ResultsGateway:
                 if isinstance(summary, dict)
                 else {}
             )
-        artifact_role_summary = (
-            dict(summary.get("stats", {}).get("artifact_role_summary", {}) or {}) if isinstance(summary, dict) else {}
+        artifact_role_summary = self._read_summary_section(
+            "artifact_role_summary",
+            summary,
+            evidence_registry,
+            analytics_summary,
+            workbench_action_report,
+            workbench_action_snapshot,
         )
-        workbench_evidence_summary = (
-            dict(summary.get("stats", {}).get("workbench_evidence_summary", {}) or {}) if isinstance(summary, dict) else {}
+        workbench_evidence_summary = self._read_summary_section(
+            "workbench_evidence_summary",
+            summary,
+            evidence_registry,
+            analytics_summary,
+            workbench_action_report,
+            workbench_action_snapshot,
         )
         evidence_source = self._resolve_current_run_evidence_source(workbench_evidence_summary, workbench_action_report)
         evidence_state = str(
