@@ -7444,6 +7444,7 @@ class CalibrationRunner:
                 )
             if preseal_ready_state:
                 preseal_failures = list(preseal_ready_state.get("failures") or [])
+                ready_verification_pending = bool(preseal_ready_state.get("ready_verification_pending"))
                 recorded_wall_ts = self._as_float(preseal_ready_state.get("recorded_wall_ts"))
                 snapshot_age_s = None if recorded_wall_ts is None else max(0.0, time.time() - recorded_wall_ts)
                 target_delta_hpa = None
@@ -7462,11 +7463,22 @@ class CalibrationRunner:
                             f"reuse preseal vent-off state age_s={snapshot_age_s:.3f} "
                             f"target_delta_hpa={target_delta_hpa if target_delta_hpa is not None else 'NA'}"
                         )
+                        + (" live_ready_check=deferred" if ready_verification_pending else "")
                         if not preseal_failures
                         else f"preseal snapshot had failures: {','.join(preseal_failures)}"
                     ),
                 )
-                if not preseal_failures:
+                if not preseal_failures and ready_verification_pending:
+                    ready_for_control = self._ensure_pressure_controller_ready_for_control(
+                        point,
+                        phase=phase,
+                        pressure_target_hpa=target,
+                        note="reused preseal vent-off state; deferred live ready check before setpoint",
+                    )
+                    if not ready_for_control:
+                        return False
+                    reused_preseal_ready = True
+                elif not preseal_failures:
                     reused_preseal_ready = True
                     ready_for_control = True
                     self._append_pressure_trace_row(
@@ -7933,6 +7945,7 @@ class CalibrationRunner:
         point: CalibrationPoint,
         *,
         phase: str,
+        defer_live_check: bool = False,
     ) -> None:
         pace = self.devices.get("pace")
         if not pace:
@@ -7942,7 +7955,14 @@ class CalibrationRunner:
                 phase=phase,
             )
             return
-        snapshot = self._pressure_controller_ready_snapshot(pace)
+        if defer_live_check:
+            snapshot = self._pressure_controller_ready_snapshot(
+                pace,
+                refresh_state=False,
+                refresh_aux=False,
+            )
+        else:
+            snapshot = self._pressure_controller_ready_snapshot(pace)
         snapshot.update(
             {
                 "phase": str(phase or "").strip().lower(),
@@ -7951,9 +7971,10 @@ class CalibrationRunner:
                 "recorded_wall_ts": time.time(),
                 "route_sealed": True,
                 "atmosphere_hold_stopped": not bool(snapshot.get("hold_thread_active")),
+                "ready_verification_pending": bool(defer_live_check),
             }
         )
-        snapshot["failures"] = self._pressure_controller_ready_failures(snapshot, pace)
+        snapshot["failures"] = [] if defer_live_check else self._pressure_controller_ready_failures(snapshot, pace)
         self._preseal_pressure_control_ready_state = snapshot
         self._last_preseal_pressure_control_ready_invalidation = None
 
@@ -8005,8 +8026,14 @@ class CalibrationRunner:
     def _pressure_controller_ready_snapshot_requires_aux_refresh(self) -> bool:
         return self._pressure_atmosphere_hold_strategy == "vent_valve_open_after_vent"
 
-    def _pressure_controller_ready_snapshot(self, pace: Any, *, refresh_aux: Optional[bool] = None) -> Dict[str, Any]:
-        snapshot = self._pace_state_snapshot(pace, refresh=True)
+    def _pressure_controller_ready_snapshot(
+        self,
+        pace: Any,
+        *,
+        refresh_state: bool = True,
+        refresh_aux: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        snapshot = self._pace_state_snapshot(pace, refresh=refresh_state)
         snapshot["hold_thread_active"] = self._pressure_controller_hold_thread_active(pace)
         should_refresh_aux = (
             self._pressure_controller_ready_snapshot_requires_aux_refresh()
@@ -12641,6 +12668,27 @@ class CalibrationRunner:
             else:
                 preseal_trigger_source = "no_wait"
                 _seal_route_now()
+                trace_values = self._cached_ready_check_trace_values(point=point)
+                dewpoint_kwargs: Dict[str, Any] = {}
+                if any(
+                    trace_values.get(key) is not None
+                    for key in (
+                        "dewpoint_c",
+                        "dew_temp_c",
+                        "dew_rh_pct",
+                        "dewpoint_live_c",
+                        "dew_temp_live_c",
+                        "dew_rh_live_pct",
+                    )
+                ):
+                    dewpoint_kwargs = {
+                        "dewpoint_c": trace_values.get("dewpoint_c"),
+                        "dew_temp_c": trace_values.get("dew_temp_c"),
+                        "dew_rh_pct": trace_values.get("dew_rh_pct"),
+                        "dewpoint_live_c": trace_values.get("dewpoint_live_c"),
+                        "dew_temp_live_c": trace_values.get("dew_temp_live_c"),
+                        "dew_rh_live_pct": trace_values.get("dew_rh_live_pct"),
+                    }
                 self._append_pressure_trace_row(
                     point=point,
                     route=phase,
@@ -12648,15 +12696,16 @@ class CalibrationRunner:
                     trace_stage="preseal_trigger_reached",
                     trigger_reason=preseal_trigger_source,
                     pressure_target_hpa=point.target_pressure_hpa,
-                    read_pace_pressure=True,
-                    read_pressure_gauge=True,
-                    read_dewpoint=True,
+                    pace_pressure_hpa=trace_values.get("pace_pressure_hpa"),
+                    pressure_gauge_hpa=trace_values.get("pressure_gauge_hpa"),
+                    refresh_pace_state=False,
                     note=(
                         "selected sealed pressures do not include 1100hPa; "
                         "vent off and seal immediately before pressure control"
                         if not use_preseal_topoff
                         else "vent-off settle wait disabled"
                     ),
+                    **dewpoint_kwargs,
                 )
 
             if route_name in {"co2", "h2o"}:
@@ -12697,7 +12746,7 @@ class CalibrationRunner:
 
             trace_values = self._cached_ready_check_trace_values(point=point)
             last_pressure = self._as_float(trace_values.get("pace_pressure_hpa"))
-            if last_pressure is None:
+            if last_pressure is None and use_preseal_topoff:
                 try:
                     last_pressure = float(pace.read_pressure())
                 except Exception:
@@ -12711,9 +12760,14 @@ class CalibrationRunner:
                 )
             else:
                 self.log(f"{route.upper()} route sealed for pressure control (pressure={last_pressure})")
-            self._record_preseal_pressure_control_ready_state(point, phase=phase)
+            self._record_preseal_pressure_control_ready_state(
+                point,
+                phase=phase,
+                defer_live_check=not use_preseal_topoff,
+            )
             ready_state = dict(self._preseal_pressure_control_ready_state or {})
             ready_failures = list(ready_state.get("failures") or [])
+            ready_verification_pending = bool(ready_state.get("ready_verification_pending"))
             self._append_pressure_trace_row(
                 point=point,
                 route=phase,
@@ -12727,7 +12781,9 @@ class CalibrationRunner:
                 note=(
                     "route sealed for pressure control; "
                     + (
-                        "preseal_ready=ok"
+                        "preseal_ready=deferred_live_check"
+                        if ready_verification_pending
+                        else "preseal_ready=ok"
                         if not ready_failures
                         else f"preseal_ready_failures={','.join(ready_failures)}"
                     )
