@@ -478,11 +478,11 @@ class DeviceWorkbenchController:
     def _point_taxonomy_snapshot(self) -> dict[str, Any]:
         summary_path = Path(self.facade.results_gateway.run_dir) / "summary.json"
         summary_payload = self._load_json_dict(summary_path)
-        point_taxonomy_summary = dict(summary_payload.get("point_taxonomy_summary") or {})
-        if point_taxonomy_summary:
-            return point_taxonomy_summary
         stats = dict(summary_payload.get("stats", {}) or {})
         point_taxonomy_summary = dict(stats.get("point_taxonomy_summary") or {})
+        if point_taxonomy_summary:
+            return point_taxonomy_summary
+        point_taxonomy_summary = dict(summary_payload.get("point_taxonomy_summary") or {})
         if point_taxonomy_summary:
             return point_taxonomy_summary
         point_summaries = [
@@ -4801,6 +4801,8 @@ class DeviceWorkbenchController:
         if output_files:
             stats["output_files"] = list(output_files)
         summary_payload["stats"] = stats
+        summary_payload["artifact_role_summary"] = dict(stats["artifact_role_summary"])
+        summary_payload["workbench_evidence_summary"] = dict(summary)
         self._write_json_dict(summary_path, summary_payload)
 
         manifest_path = Path(self.facade.result_store.run_dir) / "manifest.json"
