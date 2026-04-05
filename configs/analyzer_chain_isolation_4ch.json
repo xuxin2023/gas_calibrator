@@ -553,7 +553,7 @@
       },
       "co2_route": {
         "preseal_soak_s": 240,
-        "first_point_preseal_soak_s": 420,
+        "first_point_preseal_soak_s": 180,
         "post_h2o_zero_ppm_soak_s": 900
       },
       "gas_route_dewpoint_gate_enabled": true,

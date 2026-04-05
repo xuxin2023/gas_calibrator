@@ -67,7 +67,7 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["sampling"]["fast_signal_worker_enabled"] is True
     assert cfg["workflow"]["sampling"]["fast_signal_worker_interval_s"] == 0.1
     assert cfg["workflow"]["sampling"]["fast_signal_ring_buffer_size"] == 128
-    assert cfg["workflow"]["sampling"]["pressure_gauge_continuous_enabled"] is False
+    assert cfg["workflow"]["sampling"]["pressure_gauge_continuous_enabled"] is True
     assert cfg["workflow"]["sampling"]["pressure_gauge_continuous_mode"] == "P4"
     assert cfg["workflow"]["sampling"]["pressure_gauge_continuous_drain_s"] == 0.12
     assert cfg["workflow"]["sampling"]["pressure_gauge_continuous_read_timeout_s"] == 0.02
@@ -177,7 +177,7 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["pressure"]["h2o_postseal_dewpoint_span_c"] == 0.18
     assert cfg["workflow"]["pressure"]["h2o_postseal_dewpoint_slope_c_per_s"] == 0.06
     assert cfg["workflow"]["pressure"]["h2o_postseal_dewpoint_min_samples"] == 4
-    assert cfg["workflow"]["pressure"]["preseal_trigger_overshoot_warn_hpa"] is None
+    assert cfg["workflow"]["pressure"]["preseal_trigger_overshoot_warn_hpa"] == 10.0
     assert cfg["workflow"]["pressure"]["preseal_trigger_overshoot_reject_hpa"] is None
     assert cfg["workflow"]["pressure"]["skip_fixed_post_stable_delay_when_adaptive"] is True
     assert cfg["workflow"]["pressure"]["soft_control_enabled"] is False
@@ -212,6 +212,7 @@ def test_analyzer_chain_isolation_4ch_enables_focused_quality_guards() -> None:
     assert cfg["workflow"]["pressure"]["co2_postsample_late_rebound_policy"] == "warn"
     assert cfg["workflow"]["pressure"]["preseal_trigger_overshoot_warn_hpa"] == 10.0
     assert cfg["workflow"]["pressure"]["preseal_trigger_overshoot_reject_hpa"] == 25.0
+    assert cfg["workflow"]["stability"]["co2_route"]["first_point_preseal_soak_s"] == 180
     assert cfg["valves"]["co2_path_group2"] == 16
     assert cfg["valves"]["co2_map_group2"]["500"] == 24
 
@@ -222,5 +223,8 @@ def test_default_config_shortens_h2o_preseal_soak_to_30s() -> None:
 
     assert cfg["workflow"]["stability"]["h2o_route"]["preseal_soak_s"] == 30
     assert cfg["workflow"]["stability"]["co2_route"]["preseal_soak_s"] == 180
+    assert cfg["workflow"]["stability"]["co2_route"]["first_point_preseal_soak_s"] == 180
     assert cfg["workflow"]["stability"]["dewpoint"]["rh_match_tol_pct"] == 3.3
     assert cfg["workflow"]["pressure"]["transition_pressure_gauge_continuous_enabled"] is True
+    assert cfg["workflow"]["sampling"]["pressure_gauge_continuous_enabled"] is True
+    assert cfg["workflow"]["pressure"]["preseal_trigger_overshoot_warn_hpa"] == 10.0

@@ -450,6 +450,7 @@
       "soft_control_use_active_mode": true,
       "preseal_ready_snapshot_max_age_s": 6.0,
       "preseal_ready_target_tolerance_hpa": 0.5,
+      "preseal_trigger_overshoot_warn_hpa": 10.0,
       "soft_control_linear_slew_hpa_per_s": 10.0,
       "soft_control_disallow_overshoot": true,
       "atmosphere_hold_strategy": "legacy_hold_thread",
@@ -486,7 +487,7 @@
       "fast_signal_worker_enabled": true,
       "fast_signal_worker_interval_s": 0.1,
       "fast_signal_ring_buffer_size": 128,
-      "pressure_gauge_continuous_enabled": false,
+      "pressure_gauge_continuous_enabled": true,
       "pressure_gauge_continuous_mode": "P4",
       "pressure_gauge_continuous_drain_s": 0.12,
       "pressure_gauge_continuous_read_timeout_s": 0.02,
@@ -551,7 +552,7 @@
       },
       "co2_route": {
         "preseal_soak_s": 180,
-        "first_point_preseal_soak_s": 420,
+        "first_point_preseal_soak_s": 180,
         "post_h2o_zero_ppm_soak_s": 900
       },
       "sensor": {
