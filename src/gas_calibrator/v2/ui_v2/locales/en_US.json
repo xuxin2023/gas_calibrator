@@ -1178,6 +1178,13 @@
       "artifact_list_title": "Artifact List",
       "result_summary": "Run & Governance Summary",
       "no_result_summary": "No run or governance summary yet.",
+      "summary_fallback": {
+        "evidence_source": "Evidence source: {display} ({source})",
+        "evidence_source_same": "Evidence source: {source}",
+        "config_safety": "Config safety: {summary}",
+        "offline_diagnostic": "Offline diagnostic: {summary}",
+        "workbench_evidence": "Workbench diagnostic evidence: {summary}"
+      },
       "artifact_scope": {
         "summary_all": "All artifacts | current scope {visible} | present on disk {present}/{total} | external {external} | missing {missing} | current-run baseline {catalog_present}/{catalog_total}",
         "summary_source": "Source artifacts | {source} | current scope {visible} | present on disk {present}/{total} | external {external} | missing {missing} | current-run baseline {catalog_present}/{catalog_total}",

@@ -153,6 +153,77 @@ class ReportsPage(ttk.Frame):
         self.export_bar.render(dict(snapshot.get("export", {}) or {}))
         self.page_scaffold._update_scroll_region()
 
+    @staticmethod
+    def _build_result_summary_fallback(snapshot: dict[str, Any]) -> str:
+        lines: list[str] = []
+
+        review_digest_text = str(snapshot.get("review_digest_text", "") or "").strip()
+        if review_digest_text:
+            lines.append(review_digest_text)
+
+        evidence_source = str(snapshot.get("evidence_source", "") or "").strip()
+        if evidence_source:
+            display_source = display_evidence_source(evidence_source, default=evidence_source)
+            evidence_key = (
+                "pages.reports.summary_fallback.evidence_source_same"
+                if display_source == evidence_source
+                else "pages.reports.summary_fallback.evidence_source"
+            )
+            lines.append(
+                t(
+                    evidence_key,
+                    source=evidence_source,
+                    display=display_source,
+                    default=f"证据来源：{display_source} ({evidence_source})",
+                )
+            )
+
+        config_safety_review = dict(snapshot.get("config_safety_review", {}) or {})
+        config_safety = dict(snapshot.get("config_safety", {}) or {})
+        config_summary = str(config_safety_review.get("summary") or config_safety.get("summary") or "").strip()
+        if config_summary:
+            lines.append(
+                t(
+                    "pages.reports.summary_fallback.config_safety",
+                    summary=config_summary,
+                    default=f"配置安全：{config_summary}",
+                )
+            )
+
+        offline_diagnostic_adapter_summary = dict(snapshot.get("offline_diagnostic_adapter_summary", {}) or {})
+        offline_summary = str(offline_diagnostic_adapter_summary.get("summary") or "").strip()
+        if not offline_summary and offline_diagnostic_adapter_summary:
+            room_temp_count = int(offline_diagnostic_adapter_summary.get("room_temp_count", 0) or 0)
+            analyzer_chain_count = int(offline_diagnostic_adapter_summary.get("analyzer_chain_count", 0) or 0)
+            if room_temp_count or analyzer_chain_count:
+                offline_summary = f"room-temp {room_temp_count} | analyzer-chain {analyzer_chain_count}"
+        if offline_summary:
+            lines.append(
+                t(
+                    "pages.reports.summary_fallback.offline_diagnostic",
+                    summary=offline_summary,
+                    default=f"离线诊断：{offline_summary}",
+                )
+            )
+
+        workbench_evidence_summary = dict(snapshot.get("workbench_evidence_summary", {}) or {})
+        workbench_summary = str(
+            workbench_evidence_summary.get("summary_line")
+            or workbench_evidence_summary.get("summary")
+            or workbench_evidence_summary.get("review_summary")
+            or ""
+        ).strip()
+        if workbench_summary:
+            lines.append(
+                t(
+                    "pages.reports.summary_fallback.workbench_evidence",
+                    summary=workbench_summary,
+                    default=f"工作台诊断证据：{workbench_summary}",
+                )
+            )
+
+        return "\n".join(line for line in lines if str(line).strip())
+
     def _text_panel(self, parent: tk.Misc, *, row: int, title: str) -> tk.Text:
         frame = ttk.Frame(parent, style="Card.TFrame", padding=8)
         frame.grid(row=row, column=0, sticky="nsew", pady=(0, 12))

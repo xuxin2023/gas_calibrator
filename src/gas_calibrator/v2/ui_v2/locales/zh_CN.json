@@ -1177,6 +1177,13 @@
       "artifact_list_title": "工件列表",
       "result_summary": "运行与治理摘要",
       "no_result_summary": "暂无运行与治理摘要。",
+      "summary_fallback": {
+        "evidence_source": "证据来源：{display} ({source})",
+        "evidence_source_same": "证据来源：{source}",
+        "config_safety": "配置安全：{summary}",
+        "offline_diagnostic": "离线诊断：{summary}",
+        "workbench_evidence": "工作台诊断证据：{summary}"
+      },
       "artifact_scope": {
         "summary_all": "全部工件 | 当前 scope {visible} 项 | 磁盘存在 {present}/{total} | external {external} | 缺失 {missing} | current-run 基线 {catalog_present}/{catalog_total}",
         "summary_source": "来源工件 | {source} | 当前 scope {visible} 项 | 磁盘存在 {present}/{total} | external {external} | 缺失 {missing} | current-run 基线 {catalog_present}/{catalog_total}",

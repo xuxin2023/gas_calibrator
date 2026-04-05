@@ -201,6 +201,37 @@ def test_reports_page_falls_back_to_review_digest_for_result_summary() -> None:
         root.destroy()
 
 
+def test_reports_page_builds_result_summary_from_top_level_handoff() -> None:
+    root = make_root()
+    try:
+        page = ReportsPage(root)
+        page.render(
+            {
+                "run_dir": "D:/tmp/run_3",
+                "files": [],
+                "review_center": _build_review_center_payload(),
+                "review_digest_text": "offline diagnostic digest",
+                "evidence_source": "simulated_protocol",
+                "config_safety_review": {"summary": "blocked"},
+                "offline_diagnostic_adapter_summary": {"summary": "room-temp 2 | analyzer-chain 1"},
+                "workbench_evidence_summary": {"summary_line": "operator snapshot available"},
+                "qc_summary_text": "",
+                "ai_summary_text": "",
+                "export": {"available_formats": ["json"], "last_export_message": "Ready"},
+            }
+        )
+
+        summary_text = page.result_summary.get("1.0", "end")
+
+        assert "offline diagnostic digest" in summary_text
+        assert "simulated_protocol" in summary_text
+        assert "blocked" in summary_text
+        assert "room-temp 2 | analyzer-chain 1" in summary_text
+        assert "operator snapshot available" in summary_text
+    finally:
+        root.destroy()
+
+
 def test_reports_page_artifact_list_follows_review_center_source_and_evidence_scope() -> None:
     root = make_root()
     try:
