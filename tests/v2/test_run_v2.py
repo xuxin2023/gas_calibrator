@@ -212,3 +212,58 @@ def test_run_v2_headless_blocks_unsafe_step2_config_without_dual_unlock(tmp_path
 
     with pytest.raises(RuntimeError, match="Step 2 默认工作流已拦截当前配置"):
         module.main(["--config", str(config_path), "--headless"])
+
+
+def test_run_v2_headless_blocks_capture_then_hold_without_dual_unlock(tmp_path: Path, monkeypatch) -> None:
+    module = _load_run_v2_module()
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    points_path = config_dir / "points.json"
+    points_path.write_text('{"points": []}', encoding="utf-8")
+    config_path = config_dir / "capture_then_hold.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "devices": {
+                    "pressure_controller": {"port": "SIM-PACE5000", "enabled": True},
+                    "gas_analyzers": [{"port": "SIM-GA1", "enabled": True}],
+                },
+                "paths": {
+                    "points_excel": "points.json",
+                    "output_dir": "output",
+                    "logs_dir": "logs",
+                },
+                "features": {"simulation_mode": True},
+                "workflow": {
+                    "pressure": {
+                        "capture_then_hold_enabled": True,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("GAS_CALIBRATOR_V2_ALLOW_UNSAFE_CONFIG", raising=False)
+
+    with pytest.raises(RuntimeError, match="Step 2"):
+        module.main(["--config", str(config_path), "--headless"])
+
+    with pytest.raises(RuntimeError, match="Step 2"):
+        module.main(["--config", str(config_path), "--headless", "--allow-unsafe-step2-config"])
+
+    captured: dict[str, dict[str, object]] = {}
+    real_create = module.create_calibration_service
+
+    def _capturing_create(*args, **kwargs):
+        service = real_create(*args, **kwargs)
+        captured["gate"] = dict(getattr(service.config, "_step2_execution_gate", {}) or {})
+        return service
+
+    monkeypatch.setenv("GAS_CALIBRATOR_V2_ALLOW_UNSAFE_CONFIG", "1")
+    monkeypatch.setattr(module, "create_calibration_service", _capturing_create)
+    monkeypatch.setattr(CalibrationService, "run", lambda self: None)
+
+    assert module.main(
+        ["--config", str(config_path), "--headless", "--simulation", "--allow-unsafe-step2-config"]
+    ) == 0
+    assert captured["gate"]["status"] == "unlocked_override"
