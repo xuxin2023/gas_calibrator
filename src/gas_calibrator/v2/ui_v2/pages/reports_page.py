@@ -208,9 +208,13 @@ class ReportsPage(ttk.Frame):
 
         for detail_line in [
             str(item).strip()
-            for item in list(offline_diagnostic_adapter_summary.get("detail_lines") or [])
+            for item in list(
+                offline_diagnostic_adapter_summary.get("review_highlight_lines")
+                or offline_diagnostic_adapter_summary.get("detail_lines")
+                or []
+            )
             if str(item).strip()
-        ][:2]:
+        ][:3]:
             lines.append(
                 t(
                     "facade.results.result_summary.offline_diagnostic_detail",

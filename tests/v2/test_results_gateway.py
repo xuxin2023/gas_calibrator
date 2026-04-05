@@ -531,6 +531,7 @@ def test_results_gateway_surfaces_offline_diagnostic_adapter_artifacts(tmp_path:
     assert summary["room_temp_count"] == 1
     assert summary["analyzer_chain_count"] == 1
     assert summary["detail_lines"]
+    assert summary["review_highlight_lines"]
     assert summary["detail_items"][0]["kind"] == "room_temp"
     assert summary["latest_room_temp"]["recommended_variant"] == "ambient_open"
     assert summary["latest_analyzer_chain"]["recommendation"] == "inspect analyzer chain"
@@ -543,6 +544,8 @@ def test_results_gateway_surfaces_offline_diagnostic_adapter_artifacts(tmp_path:
     assert "离线诊断" in reports_payload["result_summary_text"]
     assert "verify ambient chain" in results_payload["result_summary_text"]
     assert "inspect analyzer chain" in reports_payload["result_summary_text"]
+    assert "real acceptance evidence" in results_payload["result_summary_text"]
+    assert "real acceptance evidence" in reports_payload["result_summary_text"]
     assert rows_by_path[str((run_dir / "room_temp_diagnostic" / "diagnostic_summary.json").resolve())]["artifact_role"] == (
         "diagnostic_analysis"
     )

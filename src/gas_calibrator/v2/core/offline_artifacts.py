@@ -99,6 +99,21 @@ def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
             "证据边界: 仅限 simulation/offline/headless evidence，不代表 real acceptance evidence。",
         ]
     )
+    boundary_line = next(
+        (
+            line
+            for line in reversed(review_lines)
+            if "real acceptance" in str(line or "").strip().lower()
+        ),
+        "",
+    )
+    review_highlight_lines = [
+        line
+        for line in detail_lines[:2]
+        if str(line or "").strip()
+    ]
+    if str(boundary_line).strip() and boundary_line not in review_highlight_lines:
+        review_highlight_lines.append(boundary_line)
     return {
         "found": True,
         "bundle_count": len(bundles),
@@ -108,6 +123,7 @@ def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
         "detail_lines": detail_lines,
         "detail_items": detail_items,
         "review_lines": review_lines,
+        "review_highlight_lines": review_highlight_lines,
         "artifact_paths": artifact_paths,
         "primary_artifact_paths": primary_artifact_paths,
         "bundles": bundles,

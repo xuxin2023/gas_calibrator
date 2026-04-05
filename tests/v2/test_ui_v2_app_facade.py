@@ -435,6 +435,7 @@ def test_app_facade_surfaces_offline_diagnostic_adapter_review_items(tmp_path: P
     assert offline_summary["room_temp_count"] == 1
     assert offline_summary["analyzer_chain_count"] == 1
     assert offline_summary["detail_lines"]
+    assert offline_summary["review_highlight_lines"]
     assert offline_summary["latest_room_temp"]["recommended_variant"] == "ambient_open"
     assert offline_summary["latest_analyzer_chain"]["recommendation"] == "inspect analyzer chain"
     assert reports_snapshot["evidence_source"] == "simulated_protocol"
@@ -445,6 +446,12 @@ def test_app_facade_surfaces_offline_diagnostic_adapter_review_items(tmp_path: P
     assert "离线诊断" in reports_snapshot["result_summary_text"]
     assert "verify ambient chain" in results_snapshot["result_summary_text"]
     assert "inspect analyzer chain" in reports_snapshot["result_summary_text"]
+    assert "real acceptance evidence" in results_snapshot["result_summary_text"]
+    assert results_snapshot["review_center"]["latest"]["offline_diagnostic"]["available"] is True
+    assert any(
+        item["id"] == "offline_diagnostic"
+        for item in list(results_snapshot["review_center"]["filters"]["type_options"] or [])
+    )
     assert len(offline_items) == 2
     assert all(item["type_display"] for item in offline_items)
     assert all(item["detail_analytics_summary"] for item in offline_items)

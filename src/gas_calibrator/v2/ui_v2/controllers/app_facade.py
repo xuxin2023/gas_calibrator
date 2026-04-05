@@ -1231,9 +1231,13 @@ class AppFacade:
         )
         offline_diagnostic_detail_lines = [
             self._humanize_ui_summary(str(item))
-            for item in list(offline_diagnostic_adapter_summary.get("detail_lines") or [])
+            for item in list(
+                offline_diagnostic_adapter_summary.get("review_highlight_lines")
+                or offline_diagnostic_adapter_summary.get("detail_lines")
+                or []
+            )
             if str(item).strip()
-        ][:2]
+        ][:3]
         qc_evidence_section = self._build_results_qc_evidence_section(
             analytics_summary=analytics_summary,
             workbench_evidence_summary=workbench_evidence_summary,
@@ -1556,7 +1560,7 @@ class AppFacade:
                     "type_display": t(f"results.review_center.type.{evidence_type}"),
                 },
             )
-            for evidence_type in ("suite", "parity", "resilience", "workbench", "analytics")
+            for evidence_type in ("suite", "parity", "resilience", "workbench", "analytics", "offline_diagnostic")
         }
         return {
             "latest": latest_items,
@@ -1629,6 +1633,7 @@ class AppFacade:
                     {"id": "resilience", "label": t("results.review_center.type.resilience")},
                     {"id": "workbench", "label": t("results.review_center.type.workbench")},
                     {"id": "analytics", "label": t("results.review_center.type.analytics")},
+                    {"id": "offline_diagnostic", "label": t("results.review_center.type.offline_diagnostic")},
                 ],
                 "status_options": [
                     {"id": "all", "label": t("results.review_center.filter.all_statuses")},

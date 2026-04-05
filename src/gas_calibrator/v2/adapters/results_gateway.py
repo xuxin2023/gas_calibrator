@@ -404,11 +404,12 @@ class ResultsGateway:
     def _offline_diagnostic_detail_lines(
         offline_diagnostic_adapter_summary: dict[str, Any] | None,
         *,
-        limit: int = 2,
+        limit: int = 3,
     ) -> list[str]:
+        summary = dict(offline_diagnostic_adapter_summary or {})
         lines = [
             str(item).strip()
-            for item in list(dict(offline_diagnostic_adapter_summary or {}).get("detail_lines") or [])
+            for item in list(summary.get("review_highlight_lines") or summary.get("detail_lines") or [])
             if str(item).strip()
         ]
         return lines[:limit]
