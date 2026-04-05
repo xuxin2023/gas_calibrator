@@ -1046,6 +1046,8 @@ def test_pressurize_co2_uses_cached_fast_trace_values_for_trigger_and_route_seal
     route_rows = [row for row in trace_rows if row["trace_stage"] == "route_sealed"]
     assert len(route_rows) == 1
     assert float(route_rows[0]["pace_pressure_hpa"]) == 1082.1
+    assert "preseal_ready=deferred_live_check" in route_rows[0]["note"]
+    assert runner._preseal_pressure_control_ready_state["ready_verification_pending"] is True
 
 
 def test_pressurize_co2_no_topoff_uses_cached_fast_trace_values_and_defers_live_ready_check(

@@ -12763,7 +12763,7 @@ class CalibrationRunner:
             self._record_preseal_pressure_control_ready_state(
                 point,
                 phase=phase,
-                defer_live_check=not use_preseal_topoff,
+                defer_live_check=(route_name == "co2") or (not use_preseal_topoff),
             )
             ready_state = dict(self._preseal_pressure_control_ready_state or {})
             ready_failures = list(ready_state.get("failures") or [])
