@@ -1048,6 +1048,97 @@ def test_pressurize_co2_uses_cached_fast_trace_values_for_trigger_and_route_seal
     assert float(route_rows[0]["pace_pressure_hpa"]) == 1082.1
 
 
+def test_pressurize_co2_no_topoff_uses_cached_fast_trace_values_and_defers_live_ready_check(
+    tmp_path: Path,
+) -> None:
+    logger = RunLogger(tmp_path)
+    messages: list[str] = []
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "pressure": {
+                    "pressurize_wait_after_vent_off_s": 5.0,
+                    "co2_preseal_pressure_gauge_trigger_hpa": 1110.0,
+                },
+                "sampling": {
+                    "fast_signal_worker_enabled": False,
+                },
+            },
+            "valves": {"co2_path": 7, "co2_map": {"200": 2}},
+        },
+        {},
+        logger,
+        messages.append,
+        lambda *_: None,
+    )
+
+    class _FailIfGaugeRead:
+        def read_pressure(self):
+            raise AssertionError("no-topoff path should avoid direct pressure gauge read")
+
+    class _FailIfDewRead:
+        def get_current(self):
+            raise AssertionError("no-topoff path should avoid direct dewpoint read")
+
+        def get_current_fast(self, timeout_s: float = 0.35, clear_buffer: bool = False):
+            raise AssertionError("no-topoff path should avoid direct dewpoint fast read")
+
+    calls: list[str] = []
+    runner.devices["pace"] = object()
+    runner.devices["pressure_gauge"] = _FailIfGaugeRead()
+    runner.devices["dewpoint"] = _FailIfDewRead()
+    runner._active_route_requires_preseal_topoff = False
+    runner._set_pressure_controller_vent = types.MethodType(
+        lambda self, vent_on, reason="": calls.append(f"vent_{bool(vent_on)}:{reason}"),
+        runner,
+    )
+    runner._apply_valve_states = types.MethodType(
+        lambda self, states: calls.append(f"apply_{states}"),
+        runner,
+    )
+
+    transition_context = runner._new_sampling_window_context(point=_point_co2(), phase="co2", point_tag="preseal")
+    runner._append_fast_signal_frame(
+        transition_context,
+        "pressure_gauge",
+        values={"pressure_gauge_raw": 1008.4, "pressure_gauge_hpa": 1008.4},
+        source="pressure_gauge_read",
+    )
+    runner._append_fast_signal_frame(
+        transition_context,
+        "pace",
+        values={"pressure_hpa": 1007.2},
+        source="pace_read",
+    )
+    runner._append_fast_signal_frame(
+        transition_context,
+        "dewpoint",
+        values={"dewpoint_live_c": -12.3, "dew_temp_live_c": 24.5, "dew_rh_live_pct": 45.6},
+        source="dewpoint_fast",
+    )
+    runner._pressure_transition_fast_signal_context = transition_context
+
+    assert runner._pressurize_and_hold(_point_co2(), route="co2") is True
+    logger.close()
+
+    assert calls == [
+        "vent_False:before CO2 pressure seal",
+        "apply_[]",
+    ]
+    assert runner._preseal_pressure_control_ready_state["ready_verification_pending"] is True
+    trace_rows = _load_pressure_trace_rows(logger)
+    trigger_rows = [row for row in trace_rows if row["trace_stage"] == "preseal_trigger_reached"]
+    assert len(trigger_rows) == 1
+    assert trigger_rows[0]["trigger_reason"] == "no_wait"
+    assert float(trigger_rows[0]["pace_pressure_hpa"]) == 1007.2
+    assert float(trigger_rows[0]["pressure_gauge_hpa"]) == 1008.4
+    assert float(trigger_rows[0]["dewpoint_c"]) == -12.3
+    route_rows = [row for row in trace_rows if row["trace_stage"] == "route_sealed"]
+    assert len(route_rows) == 1
+    assert float(route_rows[0]["pace_pressure_hpa"]) == 1007.2
+    assert "preseal_ready=deferred_live_check" in route_rows[0]["note"]
+
+
 def test_read_preseal_pressure_gauge_avoids_direct_read_while_transition_worker_active(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
@@ -1171,6 +1262,86 @@ def test_set_pressure_to_target_reuses_preseal_ready_state_without_repeating_ven
     logger.close()
 
     assert vent_calls == []
+    assert pace.setpoints == [1000.0]
+
+
+def test_set_pressure_to_target_reuses_deferred_preseal_ready_state_without_repeating_vent_off(
+    tmp_path: Path,
+) -> None:
+    logger = RunLogger(tmp_path)
+
+    class _FakePace:
+        def __init__(self) -> None:
+            self.output_state = 0
+            self.setpoints: list[float] = []
+
+        def read_pressure(self):
+            return 1000.0
+
+        def get_output_state(self):
+            return self.output_state
+
+        def get_isolation_state(self):
+            return 1
+
+        def get_vent_status(self):
+            return 0
+
+        def set_setpoint(self, value: float):
+            self.setpoints.append(float(value))
+
+        def set_output(self, on: bool):
+            self.output_state = 1 if on else 0
+
+        def get_in_limits(self):
+            return 1000.0, 1
+
+    pace = _FakePace()
+    runner = CalibrationRunner({}, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+    vent_calls: list[str] = []
+    ready_calls: list[tuple[str, bool, str]] = []
+    runner._set_pressure_controller_vent = types.MethodType(
+        lambda self, vent_on, reason="": vent_calls.append(f"{vent_on}:{reason}") or True,
+        runner,
+    )
+
+    def _fake_ensure_ready(
+        self,
+        point,
+        *,
+        phase: str,
+        pressure_target_hpa,
+        attempt_recovery: bool = True,
+        note: str = "",
+    ) -> bool:
+        ready_calls.append((phase, bool(attempt_recovery), note))
+        return True
+
+    runner._ensure_pressure_controller_ready_for_control = types.MethodType(_fake_ensure_ready, runner)
+
+    point = _point_co2()
+    runner._preseal_pressure_control_ready_state = {
+        "phase": "co2",
+        "point_row": point.index,
+        "target_pressure_hpa": point.target_pressure_hpa,
+        "recorded_wall_ts": runner_module.time.time(),
+        "route_sealed": True,
+        "atmosphere_hold_stopped": True,
+        "ready_verification_pending": True,
+        "failures": [],
+    }
+
+    assert runner._set_pressure_to_target(point) is True
+    logger.close()
+
+    assert vent_calls == []
+    assert ready_calls == [
+        (
+            "co2",
+            True,
+            "reused preseal vent-off state; deferred live ready check before setpoint",
+        )
+    ]
     assert pace.setpoints == [1000.0]
 
 
@@ -2666,6 +2837,9 @@ def test_pressurize_and_hold_seals_immediately_when_preseal_topoff_disabled(
     assert len(trigger_rows) == 1
     assert trigger_rows[0]["trigger_reason"] == "no_wait"
     assert "selected sealed pressures do not include 1100hPa" in trigger_rows[0]["note"]
+    route_rows = [row for row in trace_rows if row["trace_stage"] == "route_sealed"]
+    assert len(route_rows) == 1
+    assert "preseal_ready=deferred_live_check" in route_rows[0]["note"]
 
 
 def test_run_h2o_group_skips_preseal_topoff_when_1100_not_selected(tmp_path: Path) -> None:
