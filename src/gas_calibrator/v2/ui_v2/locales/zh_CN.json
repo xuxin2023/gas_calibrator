@@ -1175,6 +1175,8 @@
       "artifacts": "工件数",
       "present": "已生成",
       "artifact_list_title": "工件列表",
+      "result_summary": "运行与治理摘要",
+      "no_result_summary": "暂无运行与治理摘要。",
       "artifact_scope": {
         "summary_all": "全部工件 | 当前 scope {visible} 项 | 磁盘存在 {present}/{total} | external {external} | 缺失 {missing} | current-run 基线 {catalog_present}/{catalog_total}",
         "summary_source": "来源工件 | {source} | 当前 scope {visible} 项 | 磁盘存在 {present}/{total} | external {external} | 缺失 {missing} | current-run 基线 {catalog_present}/{catalog_total}",

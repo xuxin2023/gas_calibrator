@@ -153,6 +153,7 @@ def test_reports_page_displays_snapshot() -> None:
                     }
                 ],
                 "review_center": _build_review_center_payload(),
+                "result_summary_text": "运行与治理摘要：离线诊断 room-temp 1 | analyzer-chain 1\n配置安全：blocked",
                 "qc_summary_text": "质控摘要：运行门禁 warn | 点级门禁 warn\n证据边界：仅供 simulation/offline 审阅，不代表 real acceptance evidence。",
                 "ai_summary_text": "# AI Run Summary\nStable",
                 "export": {"available_formats": ["json", "csv", "all"], "last_export_message": "Ready"},
@@ -166,6 +167,7 @@ def test_reports_page_displays_snapshot() -> None:
         assert page.present_count_card.value_var.get() == "1"
         assert len(page.artifacts.tree.get_children()) == 1
         assert "执行摘要" in page.artifacts.tree.item(page.artifacts.tree.get_children()[0], "values")[3]
+        assert "离线诊断 room-temp 1" in page.result_summary.get("1.0", "end")
         assert "质控摘要" in page.qc_summary.get("1.0", "end")
         assert "Stable" in page.ai_summary.text.get("1.0", "end")
 
@@ -174,6 +176,27 @@ def test_reports_page_displays_snapshot() -> None:
 
         assert exports == ["all", "manifest:all"]
         assert "review_scope_20260328_142210_all.json" in page.export_bar.status_var.get()
+    finally:
+        root.destroy()
+
+
+def test_reports_page_falls_back_to_review_digest_for_result_summary() -> None:
+    root = make_root()
+    try:
+        page = ReportsPage(root)
+        page.render(
+            {
+                "run_dir": "D:/tmp/run_2",
+                "files": [],
+                "review_center": _build_review_center_payload(),
+                "review_digest_text": "离线诊断摘要：room-temp 1 | analyzer-chain 1",
+                "qc_summary_text": "",
+                "ai_summary_text": "",
+                "export": {"available_formats": ["json"], "last_export_message": "Ready"},
+            }
+        )
+
+        assert "离线诊断摘要" in page.result_summary.get("1.0", "end")
     finally:
         root.destroy()
 

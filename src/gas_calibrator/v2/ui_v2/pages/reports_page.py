@@ -97,6 +97,7 @@ class ReportsPage(ttk.Frame):
         right.rowconfigure(2, weight=1)
         right.rowconfigure(3, weight=1)
         right.rowconfigure(4, weight=1)
+        right.rowconfigure(5, weight=1)
         self.export_bar = ExportBar(
             right,
             on_export_json=self._export_json,
@@ -119,13 +120,18 @@ class ReportsPage(ttk.Frame):
             on_selection_changed=self._on_review_selection_changed,
         )
         self.review_center.grid(row=2, column=0, sticky="nsew", pady=(0, 12))
-        self.qc_summary = self._text_panel(
+        self.result_summary = self._text_panel(
             right,
             row=3,
+            title=t("pages.reports.result_summary", default="运行与治理摘要"),
+        )
+        self.qc_summary = self._text_panel(
+            right,
+            row=4,
             title=t("pages.reports.qc_summary", default="质控审阅摘要"),
         )
         self.ai_summary = AISummaryPanel(right, title=t("pages.reports.ai_report_summary"))
-        self.ai_summary.grid(row=4, column=0, sticky="nsew")
+        self.ai_summary.grid(row=5, column=0, sticky="nsew")
 
     def render(self, snapshot: dict[str, Any]) -> None:
         rows = list(snapshot.get("files", []) or [])
@@ -133,6 +139,12 @@ class ReportsPage(ttk.Frame):
         self.run_dir_card.set_value(str(snapshot.get("run_dir", "--") or "--"))
         self.review_center.render(dict(snapshot.get("review_center", {}) or {}))
         self._apply_artifact_scope(self.review_center.get_selection_snapshot())
+        result_summary_text = str(
+            snapshot.get("result_summary_text", "")
+            or snapshot.get("review_digest_text", "")
+            or t("pages.reports.no_result_summary", default="暂无运行与治理摘要")
+        )
+        self._set_text(self.result_summary, result_summary_text)
         self._set_text(self.qc_summary, str(snapshot.get("qc_summary_text", "") or t("pages.reports.no_qc_summary", default="暂无质控审阅摘要")))
         self.ai_summary.set_text(str(snapshot.get("ai_summary_text", "") or t("pages.reports.no_ai_report_summary")))
         self.export_bar.render(dict(snapshot.get("export", {}) or {}))
