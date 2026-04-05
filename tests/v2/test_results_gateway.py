@@ -87,12 +87,16 @@ def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> No
     assert results_payload["config_safety"]["classification"] == "simulation_real_port_inventory_risk"
     assert results_payload["config_safety_review"]["status"] == "blocked"
     assert results_payload["config_governance_handoff"]["execution_gate"]["status"] == "blocked"
+    assert "配置安全" in results_payload["result_summary_text"]
+    assert "工作台诊断证据" in results_payload["result_summary_text"]
     assert results_payload["output_files"]
     assert reports_payload["run_dir"].endswith(facade.session.run_id)
     assert reports_payload["files"]
     assert reports_payload["config_safety"]["classification"] == "simulation_real_port_inventory_risk"
     assert reports_payload["config_safety_review"]["execution_gate"]["status"] == "blocked"
     assert reports_payload["config_governance_handoff"]["blocked_reason_details"]
+    assert "配置安全" in reports_payload["result_summary_text"]
+    assert "工作台诊断证据" in reports_payload["result_summary_text"]
 
 
 def test_build_role_by_key_keeps_baseline_defaults_when_legacy_catalog_is_sparse() -> None:
@@ -409,6 +413,8 @@ def test_results_gateway_surfaces_offline_diagnostic_adapter_artifacts(tmp_path:
     assert summary["room_temp_count"] == 1
     assert summary["analyzer_chain_count"] == 1
     assert any("Room-temp diagnostic summary" in str(line) for line in list(summary.get("review_lines") or []))
+    assert "离线诊断" in results_payload["result_summary_text"]
+    assert "离线诊断" in reports_payload["result_summary_text"]
     assert rows_by_path[str((run_dir / "room_temp_diagnostic" / "diagnostic_summary.json").resolve())]["artifact_role"] == (
         "diagnostic_analysis"
     )

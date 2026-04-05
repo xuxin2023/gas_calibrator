@@ -39,7 +39,22 @@ def test_result_store_exports_artifacts(tmp_path: Path) -> None:
             "valid": True,
             "recommendation": "use",
             "reason": "passed",
+            "pressure_mode": "ambient",
+            "pressure_target_label": "ambient",
+            "preseal_dewpoint_c": 6.5,
+            "preseal_temp_c": 25.4,
+            "preseal_rh_pct": 38.0,
+            "preseal_pressure_hpa": 1001.2,
+            "preseal_trigger_overshoot_hpa": 3.5,
+            "preseal_vent_off_begin_to_route_sealed_ms": 1250,
+            "postseal_timeout_policy": "guarded_wait",
+            "postseal_timeout_blocked": False,
             "dewpoint_gate_result": "pass",
+            "flush_gate_status": "pass",
+            "flush_gate_reason": "stable enough",
+            "pressure_gauge_stale_count": 1,
+            "pressure_gauge_total_count": 4,
+            "pressure_gauge_stale_ratio": 0.25,
             "dewpoint_rebound_detected": True,
             "rebound_rise_c": 1.25,
             "rebound_note": "late rebound observed",
@@ -60,8 +75,19 @@ def test_result_store_exports_artifacts(tmp_path: Path) -> None:
     assert "AnalyzerCoverage" in readable_text
     assert "reference_quality" in readable_text
     assert "dewpoint_gate_result" in readable_text
+    assert "flush_gate_status" in readable_text
+    assert "flush_gate_reason" in readable_text
     assert "dewpoint_rebound_detected" in readable_text
     assert "rebound_rise_c" in readable_text
+    assert "preseal_dewpoint_c" in readable_text
+    assert "preseal_temp_c" in readable_text
+    assert "preseal_rh_pct" in readable_text
+    assert "preseal_pressure_hpa" in readable_text
+    assert "preseal_trigger_overshoot_hpa" in readable_text
+    assert "preseal_vent_off_begin_to_route_sealed_ms" in readable_text
+    assert "postseal_timeout_policy" in readable_text
+    assert "pressure_gauge_stale_ratio" in readable_text
+    assert "stable enough" in readable_text
     assert "late rebound observed" in readable_text
     assert len(store.get_samples()) == 1
 

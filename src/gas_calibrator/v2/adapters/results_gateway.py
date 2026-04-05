@@ -54,6 +54,20 @@ class ResultsGateway:
         )
         if not offline_diagnostic_adapter_summary:
             offline_diagnostic_adapter_summary = summarize_offline_diagnostic_adapters(self.run_dir)
+        artifact_role_summary = (
+            dict(summary.get("stats", {}).get("artifact_role_summary", {}) or {}) if isinstance(summary, dict) else {}
+        )
+        workbench_evidence_summary = (
+            dict(summary.get("stats", {}).get("workbench_evidence_summary", {}) or {}) if isinstance(summary, dict) else {}
+        )
+        result_summary_text = self._build_result_summary_text(
+            summary=summary,
+            artifact_role_summary=artifact_role_summary,
+            config_safety=config_safety,
+            config_safety_review=config_safety_review,
+            offline_diagnostic_adapter_summary=offline_diagnostic_adapter_summary,
+            workbench_evidence_summary=workbench_evidence_summary,
+        )
         return {
             "summary": summary,
             "manifest": self.load_json("manifest.json"),
@@ -78,9 +92,10 @@ class ResultsGateway:
             "config_safety_review": config_safety_review,
             "config_governance_handoff": self._read_config_governance_handoff(config_safety, config_safety_review),
             "artifact_exports": dict(summary.get("stats", {}).get("artifact_exports", {}) or {}) if isinstance(summary, dict) else {},
-            "artifact_role_summary": dict(summary.get("stats", {}).get("artifact_role_summary", {}) or {}) if isinstance(summary, dict) else {},
-            "workbench_evidence_summary": dict(summary.get("stats", {}).get("workbench_evidence_summary", {}) or {}) if isinstance(summary, dict) else {},
+            "artifact_role_summary": artifact_role_summary,
+            "workbench_evidence_summary": workbench_evidence_summary,
             "offline_diagnostic_adapter_summary": offline_diagnostic_adapter_summary,
+            "result_summary_text": result_summary_text,
         }
 
     def read_reports_payload(self) -> dict[str, Any]:
@@ -133,6 +148,7 @@ class ResultsGateway:
             "run_dir": str(self.run_dir),
             "files": files,
             "ai_summary_text": str(payload.get("ai_summary_text", "") or ""),
+            "result_summary_text": str(payload.get("result_summary_text", "") or ""),
             "output_files": list(payload["output_files"]),
             "reporting": dict(payload.get("reporting", {}) or {}),
             "config_safety": dict(payload.get("config_safety", {}) or {}),
@@ -207,3 +223,61 @@ class ResultsGateway:
         if config_safety:
             return build_step2_config_governance_handoff(config_safety)
         return {}
+
+    @staticmethod
+    def _build_result_summary_text(
+        *,
+        summary: dict[str, Any] | None,
+        artifact_role_summary: dict[str, Any] | None,
+        config_safety: dict[str, Any] | None,
+        config_safety_review: dict[str, Any] | None,
+        offline_diagnostic_adapter_summary: dict[str, Any] | None,
+        workbench_evidence_summary: dict[str, Any] | None,
+    ) -> str:
+        summary_payload = dict(summary or {})
+        stats = dict(summary_payload.get("stats", {}) or {})
+        role_summary = dict(artifact_role_summary or {})
+        safety = dict(config_safety or {})
+        safety_review = dict(config_safety_review or {})
+        offline_summary = dict(offline_diagnostic_adapter_summary or {})
+        workbench_summary = dict(workbench_evidence_summary or {})
+
+        role_parts: list[str] = []
+        for role in ("execution_summary", "execution_rows", "diagnostic_analysis", "formal_analysis"):
+            payload = dict(role_summary.get(role) or {})
+            count = int(payload.get("count", 0) or 0)
+            if count > 0:
+                role_parts.append(f"{role} {count}")
+        artifact_role_text = " | ".join(role_parts) if role_parts else "--"
+
+        sample_count = int(stats.get("sample_count", 0) or 0)
+        point_summary_count = len(list(stats.get("point_summaries", []) or []))
+        lines = [
+            f"结果文件: {'已生成' if isinstance(summary, dict) else '缺失'}",
+            f"样本数: {sample_count}",
+            f"点摘要数: {point_summary_count}",
+            f"工件角色: {artifact_role_text}",
+            f"配置安全: {str(safety_review.get('summary') or safety.get('summary') or '--')}",
+        ]
+
+        if offline_summary:
+            lines.append(
+                "离线诊断: "
+                + str(
+                    offline_summary.get("summary")
+                    or (
+                        f"room-temp {int(offline_summary.get('room_temp_count', 0) or 0)} | "
+                        f"analyzer-chain {int(offline_summary.get('analyzer_chain_count', 0) or 0)}"
+                    )
+                )
+            )
+
+        workbench_text = str(
+            workbench_summary.get("summary_line")
+            or workbench_summary.get("summary")
+            or workbench_summary.get("review_summary")
+            or "--"
+        )
+        lines.append(f"工作台诊断证据: {workbench_text}")
+
+        return "\n".join(line for line in lines if str(line).strip())
