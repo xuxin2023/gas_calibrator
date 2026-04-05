@@ -10,7 +10,7 @@ from ..config import build_step2_config_safety_review, summarize_step2_config_sa
 from ..domain.pressure_selection import effective_pressure_mode, normalize_pressure_selection_token, pressure_target_label
 from .data_writer import DataWriter
 from .models import CalibrationPoint, CalibrationStatus, SamplingResult
-from .offline_artifacts import export_run_offline_artifacts
+from .offline_artifacts import build_point_taxonomy_handoff, export_run_offline_artifacts
 from .run_manifest import write_run_manifest
 from .session import RunSession
 
@@ -79,6 +79,8 @@ class ResultStore:
             "artifact_role_summary": self._artifact_role_summary(artifact_exports),
             "reporting_mode": reporting,
         }
+        if self._point_summaries:
+            stats["point_taxonomy_summary"] = build_point_taxonomy_handoff(self._point_summaries)
         if config_safety:
             stats["config_safety"] = config_safety
             stats["config_safety_review"] = config_safety_review

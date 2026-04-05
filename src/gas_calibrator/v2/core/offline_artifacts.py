@@ -72,6 +72,17 @@ def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
         for bundle in bundles
     )
     latest_bundle = dict(bundles[0] or {})
+    latest_room_temp = dict(room_temp_bundles[0] or {}) if room_temp_bundles else {}
+    latest_analyzer_chain = dict(analyzer_chain_bundles[0] or {}) if analyzer_chain_bundles else {}
+    detail_items = _build_offline_diagnostic_detail_items(
+        latest_room_temp=latest_room_temp,
+        latest_analyzer_chain=latest_analyzer_chain,
+    )
+    detail_lines = [
+        str(item.get("detail_line") or "").strip()
+        for item in detail_items
+        if str(item.get("detail_line") or "").strip()
+    ]
     summary = (
         f"room-temp {len(room_temp_bundles)} | "
         f"analyzer-chain {len(analyzer_chain_bundles)} | "
@@ -80,6 +91,7 @@ def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
     review_lines = _unique_review_lines(
         [
             summary,
+            *detail_lines,
             *[
                 str(bundle.get("summary_text") or "").strip()
                 for bundle in bundles[:4]
@@ -93,10 +105,14 @@ def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
         "room_temp_count": len(room_temp_bundles),
         "analyzer_chain_count": len(analyzer_chain_bundles),
         "summary": summary,
+        "detail_lines": detail_lines,
+        "detail_items": detail_items,
         "review_lines": review_lines,
         "artifact_paths": artifact_paths,
         "primary_artifact_paths": primary_artifact_paths,
         "bundles": bundles,
+        "latest_room_temp": latest_room_temp,
+        "latest_analyzer_chain": latest_analyzer_chain,
         "evidence_source": "diagnostic",
         "evidence_state": "collected",
         "acceptance_level": "diagnostic",
@@ -464,6 +480,73 @@ def _unique_review_lines(lines: list[Any]) -> list[str]:
     return normalized
 
 
+def _build_offline_diagnostic_detail_items(
+    *,
+    latest_room_temp: dict[str, Any],
+    latest_analyzer_chain: dict[str, Any],
+) -> list[dict[str, Any]]:
+    detail_items = [
+        _build_room_temp_detail_item(latest_room_temp),
+        _build_analyzer_chain_detail_item(latest_analyzer_chain),
+    ]
+    return [item for item in detail_items if item]
+
+
+def _build_room_temp_detail_item(bundle: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(bundle or {})
+    if not payload:
+        return {}
+    classification = str(payload.get("classification") or "--").strip() or "--"
+    recommended_variant = str(payload.get("recommended_variant") or "--").strip() or "--"
+    dominant_error = str(payload.get("dominant_error") or "--").strip() or "--"
+    next_check = str(payload.get("next_check") or "--").strip() or "--"
+    return {
+        "kind": "room_temp",
+        "summary": str(payload.get("summary_text") or "").strip(),
+        "detail_line": (
+            "room-temp latest | "
+            f"classification {classification} | "
+            f"variant {recommended_variant} | "
+            f"dominant {dominant_error} | "
+            f"next {next_check}"
+        ),
+        "generated_at": str(payload.get("generated_at") or ""),
+        "primary_artifact_path": str(payload.get("primary_artifact_path") or ""),
+        "source_dir": str(payload.get("source_dir") or ""),
+        "classification": classification,
+        "recommended_variant": recommended_variant,
+        "dominant_error": dominant_error,
+        "next_check": next_check,
+    }
+
+
+def _build_analyzer_chain_detail_item(bundle: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(bundle or {})
+    if not payload:
+        return {}
+    should_continue_s1 = payload.get("should_continue_s1")
+    continue_text = "--" if should_continue_s1 is None else ("continue" if bool(should_continue_s1) else "hold")
+    dominant_conclusion = str(payload.get("dominant_conclusion") or "--").strip() or "--"
+    recommendation = str(payload.get("recommendation") or "--").strip() or "--"
+    return {
+        "kind": "analyzer_chain",
+        "summary": str(payload.get("summary_text") or "").strip(),
+        "detail_line": (
+            "analyzer-chain latest | "
+            f"continue_s1 {continue_text} | "
+            f"conclusion {dominant_conclusion} | "
+            f"next {recommendation}"
+        ),
+        "generated_at": str(payload.get("generated_at") or ""),
+        "primary_artifact_path": str(payload.get("primary_artifact_path") or ""),
+        "source_dir": str(payload.get("source_dir") or ""),
+        "should_continue_s1": should_continue_s1,
+        "continue_s1": continue_text,
+        "dominant_conclusion": dominant_conclusion,
+        "recommendation": recommendation,
+    }
+
+
 def export_run_offline_artifacts(
     *,
     run_dir: Path,
@@ -610,6 +693,8 @@ def export_run_offline_artifacts(
         "trend_registry": trend_registry,
         "evidence_registry_path": str(evidence_path),
     }
+    if analytics_summary.get("point_taxonomy_summary"):
+        summary_stats["point_taxonomy_summary"] = dict(analytics_summary.get("point_taxonomy_summary") or {})
     if analytics_summary.get("offline_diagnostic_adapter_summary"):
         summary_stats["offline_diagnostic_adapter_summary"] = dict(
             analytics_summary.get("offline_diagnostic_adapter_summary") or {}
@@ -803,6 +888,7 @@ def build_run_analytics_summary(
         if (config_safety_review or config_safety)
         else {}
     )
+    point_taxonomy_summary = build_point_taxonomy_handoff(point_summaries)
     digest = {
         "summary": (
             f"coverage {len(usable_analyzers)}/{len(expected_analyzers) or len(present_analyzers)} | "
@@ -868,6 +954,7 @@ def build_run_analytics_summary(
         "qc_reviewer_card": dict(qc_evidence_section.get("reviewer_card") or {}),
         "qc_evidence_section": qc_evidence_section,
         "qc_review_cards": [dict(item) for item in list(qc_evidence_section.get("cards") or []) if isinstance(item, dict)],
+        "point_taxonomy_summary": point_taxonomy_summary,
         "digest": digest,
     }
     if offline_diagnostic_adapter_summary:
