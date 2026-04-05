@@ -247,14 +247,13 @@ class ResultsGateway:
     def _read_section_from_payload(payload: dict[str, Any] | None, key: str) -> dict[str, Any]:
         if not isinstance(payload, dict):
             return {}
-        direct = payload.get(key)
-        if isinstance(direct, dict):
-            return dict(direct)
         stats = payload.get("stats")
-        if not isinstance(stats, dict):
-            return {}
-        legacy = stats.get(key)
-        return dict(legacy) if isinstance(legacy, dict) else {}
+        if isinstance(stats, dict):
+            legacy = stats.get(key)
+            if isinstance(legacy, dict):
+                return dict(legacy)
+        direct = payload.get(key)
+        return dict(direct) if isinstance(direct, dict) else {}
 
     @classmethod
     def _read_summary_section(cls, key: str, *payloads: dict[str, Any] | None) -> dict[str, Any]:

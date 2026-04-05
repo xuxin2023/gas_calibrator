@@ -100,6 +100,7 @@ class ResultStore:
             reporting=reporting,
             simulation_mode=bool(getattr(features, "simulation_mode", False)),
         )
+        self._promote_summary_handoffs(stats)
 
     def save_run_manifest(
         self,
@@ -172,6 +173,38 @@ class ResultStore:
             )
             if dict(getattr(getattr(session, "config", None), "_config_safety", {}) or {})
             else {},
+        )
+
+    def _promote_summary_handoffs(self, stats: dict[str, Any]) -> None:
+        if not self.data_writer.summary_path.exists():
+            return
+        try:
+            payload = json.loads(self.data_writer.summary_path.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        if not isinstance(payload, dict):
+            return
+
+        promoted = False
+        for key in (
+            "point_taxonomy_summary",
+            "artifact_role_summary",
+            "reporting_mode",
+            "config_safety",
+            "config_safety_review",
+            "offline_diagnostic_adapter_summary",
+            "workbench_evidence_summary",
+        ):
+            value = stats.get(key)
+            if not isinstance(value, dict) or not value:
+                continue
+            payload[key] = dict(value)
+            promoted = True
+        if not promoted:
+            return
+        self.data_writer.summary_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
         )
 
     @staticmethod

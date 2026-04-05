@@ -162,6 +162,7 @@ def test_result_store_persists_point_taxonomy_summary(tmp_path: Path) -> None:
     payload = json.loads(store.data_writer.summary_path.read_text(encoding="utf-8"))
     taxonomy = dict(payload["stats"]["point_taxonomy_summary"])
 
+    assert payload["point_taxonomy_summary"] == taxonomy
     assert taxonomy["pressure_summary"] == "1000.0 1"
     assert taxonomy["pressure_mode_summary"] == "sealed_controlled 1"
     assert taxonomy["pressure_target_label_summary"] == "1000hPa 1"
@@ -189,9 +190,48 @@ def test_result_store_summarizes_artifact_roles(tmp_path: Path) -> None:
 
     payload = json.loads(store.data_writer.summary_path.read_text(encoding="utf-8"))
     role_summary = payload["stats"]["artifact_role_summary"]
+    assert payload["artifact_role_summary"] == role_summary
     assert role_summary["execution_summary"]["count"] == 2
     assert role_summary["execution_rows"]["count"] == 1
     assert role_summary["diagnostic_analysis"]["status_counts"]["error"] == 1
+
+
+def test_result_store_promotes_offline_diagnostic_handoffs_to_summary_top_level(tmp_path: Path) -> None:
+    store = ResultStore(tmp_path, "run_test")
+    config = AppConfig.from_dict({"paths": {"output_dir": str(tmp_path)}})
+    session = RunSession(config)
+    session.start()
+    session.end("done")
+
+    offline_summary = {
+        "found": True,
+        "summary": "room-temp 1 | analyzer-chain 1 | latest warn",
+        "coverage_summary": "room-temp 1 | analyzer-chain 1 | artifacts 12 | plots 2",
+        "review_scope_summary": "primary 2 | supporting 8 | plots 2",
+        "next_check_summary": "verify ambient chain | inspect analyzer chain",
+    }
+    workbench_summary = {
+        "summary_line": "simulation-only review evidence",
+        "evidence_source": "simulated_protocol",
+        "not_real_acceptance_evidence": True,
+    }
+
+    store.save_run_summary(
+        session,
+        extra_stats={
+            "offline_diagnostic_adapter_summary": offline_summary,
+            "workbench_evidence_summary": workbench_summary,
+        },
+    )
+
+    payload = json.loads(store.data_writer.summary_path.read_text(encoding="utf-8"))
+
+    assert payload["offline_diagnostic_adapter_summary"] == offline_summary
+    assert payload["stats"]["offline_diagnostic_adapter_summary"] == offline_summary
+    assert payload["workbench_evidence_summary"] == workbench_summary
+    assert payload["stats"]["workbench_evidence_summary"] == workbench_summary
+    assert payload["reporting_mode"]["mode"] == "formal_default"
+    assert payload["stats"]["reporting_mode"]["mode"] == "formal_default"
 
 
 def test_result_store_writes_manifest(tmp_path: Path) -> None:
