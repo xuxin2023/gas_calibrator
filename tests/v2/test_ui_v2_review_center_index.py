@@ -907,7 +907,7 @@ def test_review_center_panel_exposes_index_summary_and_time_source_filters() -> 
         panel.render(payload)
         assert panel.index_var.get().startswith("recent sources 2")
         assert "sources by kind" in panel.index_var.get()
-        assert "coverage | complete" in panel.index_var.get()
+        assert "\u8986\u76d6 | \u5b8c\u6574" in panel.index_var.get()
         assert "diagnostics | cache no" in panel.index_var.get()
         assert panel.risk_var.get() == payload["risk_summary"]["summary"]
         assert len(panel.source_tree.get_children()) == 2
@@ -929,3 +929,27 @@ def test_review_center_panel_exposes_index_summary_and_time_source_filters() -> 
         assert source_values[0] == "review_run_a"
     finally:
         root.destroy()
+
+
+def test_artifact_scope_decorate_source_rows_humanizes_raw_coverage_fragments() -> None:
+    rows = [
+        {
+            "source_id": "D:/tmp/shared_run",
+            "source_label": "shared_run",
+            "source_scope": "run",
+            "coverage_display": "coverage | complete 0 | gapped 2 | missing parity / resilience",
+            "gaps_display": "missing suite / analytics",
+            "evidence_count": 2,
+        }
+    ]
+
+    decorated = artifact_scope.decorate_source_rows(
+        rows,
+        visible_items=[],
+        item_matcher=lambda item, row: False,
+    )
+
+    assert decorated[0]["coverage_display"] == "\u8986\u76d6 | \u5b8c\u6574 0 | \u7f3a\u53e3 2 | \u7f3a\u5c11 parity / resilience"
+    assert decorated[0]["gaps_display"] == "\u7f3a\u5c11 suite / analytics"
+    assert "\u8986\u76d6 | \u5b8c\u6574 0 | \u7f3a\u53e3 2 | \u7f3a\u5c11 parity / resilience" in decorated[0]["scope_count_display"]
+    assert rows[0]["coverage_display"] == "coverage | complete 0 | gapped 2 | missing parity / resilience"

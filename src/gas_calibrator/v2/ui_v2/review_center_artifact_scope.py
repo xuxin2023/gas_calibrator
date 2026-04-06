@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ..review_surface_formatter import humanize_review_center_coverage_text
 from .artifact_registry_governance import (
     OFFICIAL_EXPORT_STATUSES,
     build_current_run_governance,
@@ -33,9 +34,13 @@ def decorate_source_rows(
     for row in rows:
         payload = dict(row)
         source_label = str(payload.get("source_label") or t("common.none"))
+        coverage_display = humanize_review_center_coverage_text(str(payload.get("coverage_display") or t("common.none")))
+        gaps_display = humanize_review_center_coverage_text(str(payload.get("gaps_display") or t("common.none")))
         visible_count = sum(1 for item in visible_items if item_matcher(item, payload))
         total_count = int(payload.get("evidence_count", visible_count) or visible_count)
         source_hint = _source_disambiguation_hint(payload) if label_counts.get(source_label, 0) > 1 else ""
+        payload["coverage_display"] = coverage_display
+        payload["gaps_display"] = gaps_display
         payload["source_hint"] = source_hint
         payload["source_label_display"] = (
             t(
@@ -50,11 +55,11 @@ def decorate_source_rows(
         payload["visible_evidence_count"] = visible_count
         payload["scope_count_display"] = t(
             "results.review_center.index.source_scope_count",
-            coverage=str(payload.get("coverage_display") or t("common.none")),
+            coverage=coverage_display,
             visible=visible_count,
             total=total_count,
             default=(
-                f"{payload.get('coverage_display') or t('common.none')} | "
+                f"{coverage_display or t('common.none')} | "
                 f"filtered {visible_count}/{total_count}"
             ),
         )
