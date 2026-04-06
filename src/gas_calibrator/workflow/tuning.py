@@ -54,7 +54,7 @@ WORKFLOW_TUNABLE_PARAMETERS: Tuple[TunableParameterSpec, ...] = (
     TunableParameterSpec("route", "workflow.stability.h2o_route.preseal_soak_s", "H2O preseal soak", "s", 300.0, 0.0, 600.0),
     TunableParameterSpec("route", "workflow.stability.co2_route.preseal_soak_s", "CO2 preseal soak", "s", 180.0, 0.0, 600.0),
     TunableParameterSpec("route", "workflow.stability.co2_route.first_point_preseal_soak_s", "First CO2-point preseal soak", "s", 300.0, 0.0, 1200.0),
-    TunableParameterSpec("route", "workflow.stability.co2_route.post_h2o_zero_ppm_soak_s", "CO2 post-H2O zero-gas flush", "s", 600.0, 0.0, 1800.0),
+    TunableParameterSpec("route", "workflow.stability.co2_route.post_h2o_zero_ppm_soak_s", "CO2 post-H2O zero-gas flush", "s", 900.0, 0.0, 1800.0),
     TunableParameterSpec("sensor", "workflow.stability.sensor.co2_ratio_f_preseal_tol", "CO2 preseal tolerance", "ratio", 0.01, 0.0001, 0.1),
     TunableParameterSpec("sensor", "workflow.stability.sensor.co2_ratio_f_preseal_window_s", "CO2 preseal stable window", "s", 60.0, 5.0, 300.0),
     TunableParameterSpec("sensor", "workflow.stability.sensor.co2_ratio_f_preseal_min_samples", "CO2 preseal min samples", "count", 10, 3.0, 100.0),

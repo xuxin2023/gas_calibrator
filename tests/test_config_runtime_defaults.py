@@ -214,10 +214,7 @@ def test_analyzer_chain_isolation_4ch_enables_focused_quality_guards() -> None:
     assert cfg["workflow"]["pressure"]["preseal_trigger_overshoot_warn_hpa"] == 10.0
     assert cfg["workflow"]["pressure"]["preseal_trigger_overshoot_reject_hpa"] == 25.0
     assert cfg["workflow"]["stability"]["co2_route"]["first_point_preseal_soak_s"] == 180
-    assert (
-        cfg["workflow"]["stability"]["co2_route"]["post_h2o_zero_ppm_soak_s"]
-        == cfg["workflow"]["stability"]["co2_route"]["preseal_soak_s"]
-    )
+    assert cfg["workflow"]["stability"]["co2_route"]["post_h2o_zero_ppm_soak_s"] == 900
     assert cfg["workflow"]["stability"]["temperature"]["analyzer_chamber_temp_span_c"] == 0.08
     assert cfg["valves"]["co2_path_group2"] == 16
     assert cfg["valves"]["co2_map_group2"]["500"] == 24
@@ -230,11 +227,7 @@ def test_default_config_shortens_h2o_preseal_soak_to_30s() -> None:
     assert cfg["workflow"]["stability"]["h2o_route"]["preseal_soak_s"] == 30
     assert cfg["workflow"]["stability"]["co2_route"]["preseal_soak_s"] == 180
     assert cfg["workflow"]["stability"]["co2_route"]["first_point_preseal_soak_s"] == 180
-    assert cfg["workflow"]["stability"]["co2_route"]["post_h2o_zero_ppm_soak_s"] == 180
-    assert (
-        cfg["workflow"]["stability"]["co2_route"]["post_h2o_zero_ppm_soak_s"]
-        == cfg["workflow"]["stability"]["co2_route"]["preseal_soak_s"]
-    )
+    assert cfg["workflow"]["stability"]["co2_route"]["post_h2o_zero_ppm_soak_s"] == 900
     assert cfg["workflow"]["stability"]["dewpoint"]["rh_match_tol_pct"] == 3.3
     assert cfg["workflow"]["stability"]["temperature"]["analyzer_chamber_temp_span_c"] == 0.08
     assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_max_total_wait_s"] == 1080.0

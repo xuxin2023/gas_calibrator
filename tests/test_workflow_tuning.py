@@ -30,3 +30,13 @@ def test_get_workflow_tunable_parameters_returns_catalog_tuple() -> None:
     assert isinstance(specs, tuple)
     assert specs == WORKFLOW_TUNABLE_PARAMETERS
     assert any(spec.group == "pressure" for spec in specs)
+
+
+def test_post_h2o_zero_flush_tuning_default_matches_runtime_default() -> None:
+    spec = next(
+        item
+        for item in WORKFLOW_TUNABLE_PARAMETERS
+        if item.path == "workflow.stability.co2_route.post_h2o_zero_ppm_soak_s"
+    )
+
+    assert spec.default == 900.0
