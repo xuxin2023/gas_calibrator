@@ -164,14 +164,14 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["pressure"]["co2_presample_long_guard_max_abs_slope_c_per_s"] == 0.02
     assert cfg["workflow"]["pressure"]["co2_presample_long_guard_max_rise_c"] == 0.12
     assert cfg["workflow"]["pressure"]["co2_presample_long_guard_policy"] == "off"
-    assert cfg["workflow"]["pressure"]["co2_postsample_late_rebound_guard_enabled"] is False
+    assert cfg["workflow"]["pressure"]["co2_postsample_late_rebound_guard_enabled"] is True
     assert cfg["workflow"]["pressure"]["co2_postsample_late_rebound_max_rise_c"] == 0.12
-    assert cfg["workflow"]["pressure"]["co2_postsample_late_rebound_policy"] == "off"
-    assert cfg["workflow"]["pressure"]["co2_sampling_window_qc_enabled"] is False
+    assert cfg["workflow"]["pressure"]["co2_postsample_late_rebound_policy"] == "warn"
+    assert cfg["workflow"]["pressure"]["co2_sampling_window_qc_enabled"] is True
     assert cfg["workflow"]["pressure"]["co2_sampling_window_qc_max_range_c"] == 0.20
     assert cfg["workflow"]["pressure"]["co2_sampling_window_qc_max_rise_c"] == 0.12
     assert cfg["workflow"]["pressure"]["co2_sampling_window_qc_max_abs_slope_c_per_s"] == 0.02
-    assert cfg["workflow"]["pressure"]["co2_sampling_window_qc_policy"] == "off"
+    assert cfg["workflow"]["pressure"]["co2_sampling_window_qc_policy"] == "warn"
     assert cfg["workflow"]["pressure"]["h2o_postseal_dewpoint_window_s"] == 2.5
     assert cfg["workflow"]["pressure"]["h2o_postseal_dewpoint_timeout_s"] == 5.5
     assert cfg["workflow"]["pressure"]["h2o_postseal_dewpoint_span_c"] == 0.18
