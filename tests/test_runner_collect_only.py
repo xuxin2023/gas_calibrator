@@ -265,6 +265,138 @@ def test_sample_and_log_aligns_first_sample_trace_and_keeps_first_row_fresh(tmp_
     assert float(prime_ready_rows[0]["dewpoint_live_c"]) == -10.2
 
 
+def test_sample_and_log_relabels_prime_timeout_when_effective_sample_arrives_after_start(tmp_path: Path) -> None:
+    cfg = {
+        "workflow": {
+            "sampling": {
+                "stable_count": 3,
+                "interval_s": 0.0,
+                "quality": {"enabled": False},
+            }
+        }
+    }
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(cfg, {}, logger, lambda *_: None, lambda *_: None)
+    captured: dict[str, list[dict]] = {}
+    runner._perform_light_point_exports = types.MethodType(
+        lambda self, point, samples, **kwargs: captured.__setitem__("samples", [dict(row) for row in samples]),
+        runner,
+    )
+    runner._perform_heavy_point_exports = types.MethodType(lambda self, *args, **kwargs: None, runner)
+
+    def _fake_freshness(self, point, phase="", point_tag="", context=None):
+        return {
+            "status": "timeout",
+            "elapsed_s": 1.0,
+            "missing": ["pace", "pressure_gauge"],
+            "ready_values": {},
+        }
+
+    def _fake_collect(self, point, count, interval, phase="", point_tag=""):
+        phase_text = str(phase or ("h2o" if point.is_h2o_point else "co2")).strip().lower()
+        samples = [
+            {
+                "point_row": point.index,
+                "co2_ppm": 400.0,
+                "pressure_hpa": None,
+                "pressure_gauge_hpa": None,
+                "dewpoint_live_c": -10.2,
+                "dew_temp_live_c": 21.0,
+                "dew_rh_live_pct": 45.0,
+                "sample_start_ts": "2026-04-06T12:00:00",
+                "sample_end_ts": "2026-04-06T12:00:00.050000",
+            },
+            {
+                "point_row": point.index,
+                "co2_ppm": 400.0,
+                "pressure_hpa": 1000.0,
+                "pressure_gauge_hpa": None,
+                "dewpoint_live_c": -10.2,
+                "dew_temp_live_c": 21.0,
+                "dew_rh_live_pct": 45.0,
+                "sample_start_ts": "2026-04-06T12:00:01",
+                "sample_end_ts": "2026-04-06T12:00:01.050000",
+            },
+            {
+                "point_row": point.index,
+                "co2_ppm": 400.0,
+                "pressure_hpa": 1000.0,
+                "pressure_gauge_hpa": 1000.1,
+                "dewpoint_c": -10.2,
+                "dew_temp_c": 21.0,
+                "dew_rh_pct": 45.0,
+                "dewpoint_live_c": -10.2,
+                "dew_temp_live_c": 21.0,
+                "dew_rh_live_pct": 45.0,
+                "ga01_co2_ppm": 400.0,
+                "sample_start_ts": "2026-04-06T12:00:02",
+                "sample_end_ts": "2026-04-06T12:00:02.050000",
+                "pace_output_state": 1,
+                "pace_isolation_state": 1,
+                "pace_vent_status": 0,
+            },
+        ]
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            point_tag=point_tag,
+            trace_stage="first_effective_sample",
+            pressure_target_hpa=point.target_pressure_hpa,
+            pace_pressure_hpa=1000.0,
+            pressure_gauge_hpa=1000.1,
+            dewpoint_c=-10.2,
+            dew_temp_c=21.0,
+            dew_rh_pct=45.0,
+            refresh_pace_state=False,
+            dewpoint_live_c=-10.2,
+            dew_temp_live_c=21.0,
+            dew_rh_live_pct=45.0,
+            event_ts=self._sample_row_wall_ts(samples[2], key="sample_start_ts"),
+            note=(
+                "sample_index=3/3 "
+                "pace_first_valid_ms=0.012 "
+                "pressure_gauge_first_valid_ms=0.012 "
+                "dewpoint_first_valid_ms=0.012 "
+                "analyzer_first_valid_ms=0.012"
+            ),
+        )
+        self._set_point_runtime_fields(
+            point,
+            phase=phase_text,
+            first_valid_pace_ms=0.012,
+            first_valid_pressure_gauge_ms=0.012,
+            first_valid_dewpoint_ms=0.012,
+            first_valid_analyzer_ms=0.012,
+            effective_sample_started_on_row=3,
+        )
+        return samples
+
+    runner._wait_for_sampling_freshness_gate = types.MethodType(_fake_freshness, runner)
+    runner._collect_samples = types.MethodType(_fake_collect, runner)
+
+    runner._sample_and_log(_point(), phase="co2", point_tag="prime_timeout_demo")
+    logger.close()
+
+    assert len(captured["samples"]) == 3
+    with logger.run_dir.joinpath("pressure_transition_trace.csv").open("r", encoding="utf-8-sig", newline="") as handle:
+        trace_rows = list(csv.DictReader(handle))
+
+    prime_ready_rows = [row for row in trace_rows if row["trace_stage"] == "sampling_prime_ready"]
+    assert len(prime_ready_rows) == 1
+    assert "status=ready_after_start" in prime_ready_rows[0]["note"]
+    assert "originally_missing=pace,pressure_gauge" in prime_ready_rows[0]["note"]
+    assert "effective_row=3" in prime_ready_rows[0]["note"]
+    assert "pace_first_valid_ms=0.012" in prime_ready_rows[0]["note"]
+    assert "pressure_gauge_first_valid_ms=0.012" in prime_ready_rows[0]["note"]
+    assert prime_ready_rows[0]["ts"] == "2026-04-06T12:00:02.000"
+    assert float(prime_ready_rows[0]["pace_pressure_hpa"]) == 1000.0
+    assert float(prime_ready_rows[0]["pressure_gauge_hpa"]) == 1000.1
+
+    stage_order = [row["trace_stage"] for row in trace_rows]
+    assert stage_order.index("first_effective_sample") < stage_order.index("sampling_prime_ready")
+
+
 def test_sample_and_log_exports_co2_preseal_dew_pressure_to_running_summaries(tmp_path: Path) -> None:
     class _FakePace:
         pressure_queries = [":SENS:PRES:INL?"]
