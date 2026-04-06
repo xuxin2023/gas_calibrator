@@ -4,6 +4,13 @@ from typing import Any
 
 from .ui_v2.i18n import t
 
+_OFFLINE_DIAGNOSTIC_DISPLAY_LABELS = {
+    "artifacts": "\u5de5\u4ef6",
+    "plots": "\u56fe\u8868",
+    "primary": "\u4e3b\u5de5\u4ef6",
+    "supporting": "\u652f\u6491\u5de5\u4ef6",
+}
+
 
 def offline_diagnostic_scope_label() -> str:
     return t("results.review_center.detail.offline_diagnostic_scope", default="Artifact Scope")
@@ -17,7 +24,7 @@ def build_offline_diagnostic_scope_summary(*, artifact_count: int, plot_count: i
 
 
 def build_offline_diagnostic_scope_line(scope_summary: str) -> str:
-    text = str(scope_summary or "").strip()
+    text = humanize_offline_diagnostic_summary_value(scope_summary)
     if not text:
         return ""
     return offline_diagnostic_scope_label() + ": " + text
@@ -40,6 +47,24 @@ def normalize_offline_diagnostic_line(line: str) -> str:
         scope_line = build_offline_diagnostic_scope_line(str(suffix or "").strip())
         return f"{prefix.strip()} | {scope_line}" if prefix.strip() else scope_line
     return text
+
+
+def humanize_offline_diagnostic_summary_value(summary_value: str) -> str:
+    text = str(summary_value or "").strip()
+    if not text:
+        return ""
+    normalized_parts: list[str] = []
+    for fragment in text.split("|"):
+        part = str(fragment or "").strip()
+        if not part:
+            continue
+        prefix, remainder = (part.split(" ", 1) + [""])[:2]
+        label = _OFFLINE_DIAGNOSTIC_DISPLAY_LABELS.get(prefix.lower())
+        if label:
+            normalized_parts.append(f"{label} {remainder}".strip())
+            continue
+        normalized_parts.append(part)
+    return " | ".join(normalized_parts)
 
 
 def build_offline_diagnostic_detail_item_line(item: Any) -> str:

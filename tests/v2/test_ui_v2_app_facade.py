@@ -455,10 +455,10 @@ def test_app_facade_surfaces_offline_diagnostic_adapter_review_items(tmp_path: P
     assert "simulated_protocol" in reports_snapshot["result_summary_text"]
     assert "离线诊断" in results_snapshot["result_summary_text"]
     assert "离线诊断" in reports_snapshot["result_summary_text"]
-    assert "artifacts 12 | plots 2" in results_snapshot["result_summary_text"]
-    assert "primary 2 | supporting 8 | plots 2" in results_snapshot["result_summary_text"]
-    assert "工件范围: artifacts 4 | plots 1" in results_snapshot["result_summary_text"]
-    assert "工件范围: artifacts 8 | plots 1" in reports_snapshot["result_summary_text"]
+    assert "工件 12 | 图表 2" in results_snapshot["result_summary_text"]
+    assert "主工件 2 | 支撑工件 8 | 图表 2" in results_snapshot["result_summary_text"]
+    assert "工件范围: 工件 4 | 图表 1" in results_snapshot["result_summary_text"]
+    assert "工件范围: 工件 8 | 图表 1" in reports_snapshot["result_summary_text"]
     assert "verify ambient chain | inspect analyzer chain" in reports_snapshot["result_summary_text"]
     assert "verify ambient chain" in results_snapshot["result_summary_text"]
     assert "inspect analyzer chain" in reports_snapshot["result_summary_text"]
@@ -481,11 +481,11 @@ def test_app_facade_surfaces_offline_diagnostic_adapter_review_items(tmp_path: P
         for item in offline_items
     )
     assert any(
-        any("artifacts 4 | plots 1" in str(line) for line in list(item["detail_analytics_summary"] or []))
+        any("工件 4 | 图表 1" in str(line) for line in list(item["detail_analytics_summary"] or []))
         for item in offline_items
     )
     assert any(
-        any("artifacts 8 | plots 1" in str(line) for line in list(item["detail_analytics_summary"] or []))
+        any("工件 8 | 图表 1" in str(line) for line in list(item["detail_analytics_summary"] or []))
         for item in offline_items
     )
     assert any(item["path"].endswith("diagnostic_summary.json") for item in offline_items)

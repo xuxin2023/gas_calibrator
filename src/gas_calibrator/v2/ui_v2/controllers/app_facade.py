@@ -31,6 +31,7 @@ from ...review_surface_formatter import (
     build_offline_diagnostic_detail_item_line,
     build_offline_diagnostic_scope_line_from_counts,
     collect_offline_diagnostic_detail_lines,
+    humanize_offline_diagnostic_summary_value,
     normalize_offline_diagnostic_line,
     offline_diagnostic_scope_label,
 )
@@ -1328,7 +1329,9 @@ class AppFacade:
                     [
                         t(
                             "facade.results.result_summary.offline_diagnostic_coverage",
-                            value=str(offline_diagnostic_adapter_summary.get("coverage_summary") or ""),
+                            value=humanize_offline_diagnostic_summary_value(
+                                str(offline_diagnostic_adapter_summary.get("coverage_summary") or "")
+                            ),
                         )
                     ]
                     if str(offline_diagnostic_adapter_summary.get("coverage_summary") or "").strip()
@@ -1338,7 +1341,9 @@ class AppFacade:
                     [
                         t(
                             "facade.results.result_summary.offline_diagnostic_scope",
-                            value=str(offline_diagnostic_adapter_summary.get("review_scope_summary") or ""),
+                            value=humanize_offline_diagnostic_summary_value(
+                                str(offline_diagnostic_adapter_summary.get("review_scope_summary") or "")
+                            ),
                         )
                     ]
                     if str(offline_diagnostic_adapter_summary.get("review_scope_summary") or "").strip()

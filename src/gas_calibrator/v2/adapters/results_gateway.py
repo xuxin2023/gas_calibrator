@@ -12,6 +12,7 @@ from ..review_surface_formatter import (
     build_offline_diagnostic_detail_item_line,
     build_offline_diagnostic_scope_line,
     collect_offline_diagnostic_detail_lines,
+    humanize_offline_diagnostic_summary_value,
     normalize_offline_diagnostic_line,
     offline_diagnostic_scope_label,
 )
@@ -357,19 +358,23 @@ class ResultsGateway:
                 )
             )
         if str(offline_summary.get("coverage_summary") or "").strip():
+            coverage_summary = humanize_offline_diagnostic_summary_value(str(offline_summary.get("coverage_summary") or ""))
             lines.append(
                 t(
                     "facade.results.result_summary.offline_diagnostic_coverage",
-                    value=str(offline_summary.get("coverage_summary") or ""),
-                    default=f"离线诊断覆盖：{str(offline_summary.get('coverage_summary') or '')}",
+                    value=coverage_summary,
+                    default=f"离线诊断覆盖：{coverage_summary}",
                 )
             )
         if str(offline_summary.get("review_scope_summary") or "").strip():
+            review_scope_summary = humanize_offline_diagnostic_summary_value(
+                str(offline_summary.get("review_scope_summary") or "")
+            )
             lines.append(
                 t(
                     "facade.results.result_summary.offline_diagnostic_scope",
-                    value=str(offline_summary.get("review_scope_summary") or ""),
-                    default="离线诊断工件范围：" + str(offline_summary.get("review_scope_summary") or ""),
+                    value=review_scope_summary,
+                    default="离线诊断工件范围：" + review_scope_summary,
                 )
             )
         if str(offline_summary.get("next_check_summary") or "").strip():

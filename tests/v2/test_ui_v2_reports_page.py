@@ -246,8 +246,8 @@ def test_reports_page_builds_result_summary_from_top_level_handoff() -> None:
         assert "simulated_protocol" in summary_text
         assert "blocked" in summary_text
         assert "room-temp 2 | analyzer-chain 1" in summary_text
-        assert "artifacts 12 | plots 2" in summary_text
-        assert "primary 3 | supporting 7 | plots 2" in summary_text
+        assert "工件 12 | 图表 2" in summary_text
+        assert "主工件 3 | 支撑工件 7 | 图表 2" in summary_text
         assert "verify ambient chain | inspect analyzer chain" in summary_text
         assert "verify ambient chain" in summary_text
         assert "inspect analyzer chain" in summary_text
@@ -257,6 +257,42 @@ def test_reports_page_builds_result_summary_from_top_level_handoff() -> None:
         assert "pass 1 | veto 1 | rebound 1" in summary_text
         assert "points 1 | worst 25%" in summary_text
         assert "operator snapshot available" in summary_text
+    finally:
+        root.destroy()
+
+
+def test_reports_page_normalizes_offline_diagnostic_scope_lines_in_fallback() -> None:
+    root = make_root()
+    try:
+        page = ReportsPage(root)
+        page.render(
+            {
+                "run_dir": "D:/tmp/run_scope",
+                "files": [],
+                "review_center": _build_review_center_payload(),
+                "offline_diagnostic_adapter_summary": {
+                    "summary": "room-temp 1 | analyzer-chain 1",
+                    "review_highlight_lines": [
+                        "room-temp latest | classification warn | next verify ambient chain | scope artifacts 4 | plots 1",
+                    ],
+                    "detail_items": [
+                        {
+                            "detail_line": "analyzer-chain latest | continue_s1 hold | next inspect analyzer chain",
+                            "artifact_scope_summary": "artifacts 8 | plots 1",
+                        }
+                    ],
+                },
+                "qc_summary_text": "",
+                "ai_summary_text": "",
+                "export": {"available_formats": ["json"], "last_export_message": "Ready"},
+            }
+        )
+
+        summary_text = page.result_summary.get("1.0", "end")
+
+        assert "\u5de5\u4ef6\u8303\u56f4: \u5de5\u4ef6 4 | \u56fe\u8868 1" in summary_text
+        assert "\u5de5\u4ef6\u8303\u56f4: \u5de5\u4ef6 8 | \u56fe\u8868 1" in summary_text
+        assert "scope artifacts 4 | plots 1" not in summary_text
     finally:
         root.destroy()
 

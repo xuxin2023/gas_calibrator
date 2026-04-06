@@ -4,7 +4,10 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Any
 
-from ...review_surface_formatter import collect_offline_diagnostic_detail_lines
+from ...review_surface_formatter import (
+    collect_offline_diagnostic_detail_lines,
+    humanize_offline_diagnostic_summary_value,
+)
 from ..i18n import display_evidence_source, t
 from ..review_center_presenter import build_artifact_scope_view
 from ..widgets.ai_summary_panel import AISummaryPanel
@@ -206,7 +209,9 @@ class ReportsPage(ttk.Frame):
                     default=f"离线诊断：{offline_summary}",
                 )
             )
-        offline_coverage_summary = str(offline_diagnostic_adapter_summary.get("coverage_summary") or "").strip()
+        offline_coverage_summary = humanize_offline_diagnostic_summary_value(
+            str(offline_diagnostic_adapter_summary.get("coverage_summary") or "")
+        )
         if offline_coverage_summary:
             lines.append(
                 t(
@@ -215,7 +220,9 @@ class ReportsPage(ttk.Frame):
                     default=f"离线诊断覆盖：{offline_coverage_summary}",
                 )
             )
-        offline_scope_summary = str(offline_diagnostic_adapter_summary.get("review_scope_summary") or "").strip()
+        offline_scope_summary = humanize_offline_diagnostic_summary_value(
+            str(offline_diagnostic_adapter_summary.get("review_scope_summary") or "")
+        )
         if offline_scope_summary:
             lines.append(
                 t(
