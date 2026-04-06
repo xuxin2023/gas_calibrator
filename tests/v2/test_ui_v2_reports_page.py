@@ -2,6 +2,7 @@ from pathlib import Path
 import sys
 
 from gas_calibrator.v2.ui_v2.i18n import t
+import gas_calibrator.v2.ui_v2.pages.reports_page as reports_page_module
 from gas_calibrator.v2.ui_v2.pages.reports_page import ReportsPage
 from gas_calibrator.v2.ui_v2.review_center_presenter import build_artifact_scope_view
 
@@ -327,15 +328,16 @@ def test_reports_page_artifact_list_follows_review_center_source_and_evidence_sc
             page._artifact_rows,
             selection=page._artifact_scope_snapshot,
         )
+        expected_source_reviewer_display = dict(expected_source_scope.get("reviewer_display", {}) or {})
 
         assert len(page.artifacts.tree.get_children()) == 3
-        assert "shared_run" in page.artifact_scope_var.get()
+        assert page.artifact_scope_var.get() == expected_source_reviewer_display["summary_text"]
         assert str(page.clear_artifact_scope_button["state"]) == "normal"
         assert page.artifact_count_card.value_var.get() == "3"
         assert page.present_count_card.value_var.get() == "2"
-        assert page.run_dir_card.note_var.get() == expected_source_scope["run_dir_note_text"]
-        assert page.artifact_count_card.note_var.get() == expected_source_scope["scope_note_text"]
-        assert page.present_count_card.note_var.get() == expected_source_scope["present_note_text"]
+        assert page.run_dir_card.note_var.get() == expected_source_reviewer_display["run_dir_note_text"]
+        assert page.artifact_count_card.note_var.get() == expected_source_reviewer_display["scope_note_text"]
+        assert page.present_count_card.note_var.get() == expected_source_reviewer_display["present_note_text"]
         assert "2/3" in page.present_count_card.note_var.get()
         assert "可见" in page.artifact_count_card.note_var.get()
         assert "外部" in page.artifact_count_card.note_var.get()
@@ -345,7 +347,7 @@ def test_reports_page_artifact_list_follows_review_center_source_and_evidence_sc
         assert "catalog " not in page.artifact_count_card.note_var.get()
         assert "当前审阅视角" in page.run_dir_card.note_var.get()
         assert "当前运行基线" in page.run_dir_card.note_var.get()
-        assert page.export_scope_notice_var.get()
+        assert page.export_scope_notice_var.get() == expected_source_reviewer_display["export_warning_text"]
         assert "当前运行" in page.export_scope_notice_var.get()
         assert "scope " not in page.export_scope_notice_var.get()
 
@@ -355,6 +357,7 @@ def test_reports_page_artifact_list_follows_review_center_source_and_evidence_sc
             page._artifact_rows,
             selection=page._artifact_scope_snapshot,
         )
+        expected_evidence_reviewer_display = dict(expected_evidence_scope.get("reviewer_display", {}) or {})
 
         assert len(page.artifacts.tree.get_children()) == 2
         assert "运行门禁" in page.review_center.detail_qc_var.get()
@@ -365,9 +368,9 @@ def test_reports_page_artifact_list_follows_review_center_source_and_evidence_sc
         assert "offline" in page.artifact_scope_notice_var.get().lower()
         assert page.artifact_count_card.value_var.get() == "2"
         assert page.present_count_card.value_var.get() == "1"
-        assert page.run_dir_card.note_var.get() == expected_evidence_scope["run_dir_note_text"]
-        assert page.artifact_count_card.note_var.get() == expected_evidence_scope["scope_note_text"]
-        assert page.present_count_card.note_var.get() == expected_evidence_scope["present_note_text"]
+        assert page.run_dir_card.note_var.get() == expected_evidence_reviewer_display["run_dir_note_text"]
+        assert page.artifact_count_card.note_var.get() == expected_evidence_reviewer_display["scope_note_text"]
+        assert page.present_count_card.note_var.get() == expected_evidence_reviewer_display["present_note_text"]
         assert "1/2" in page.present_count_card.note_var.get()
         assert "缺失" in page.present_count_card.note_var.get()
         assert "catalog " not in page.present_count_card.note_var.get()
@@ -377,5 +380,59 @@ def test_reports_page_artifact_list_follows_review_center_source_and_evidence_sc
         assert len(page.artifacts.tree.get_children()) == 3
         assert str(page.clear_artifact_scope_button["state"]) == "disabled"
         assert page.export_scope_notice_var.get() == ""
+    finally:
+        root.destroy()
+
+
+def test_reports_page_prefers_artifact_scope_reviewer_display_payload(monkeypatch) -> None:
+    root = make_root()
+    try:
+        page = ReportsPage(root)
+
+        def _fake_scope_view(_files, *, selection=None):
+            return {
+                "rows": [],
+                "summary_text": "top-level summary",
+                "empty_text": "top-level empty",
+                "disclaimer_text": "top-level disclaimer",
+                "run_dir_note_text": "top-level run dir",
+                "scope_note_text": "top-level scope note",
+                "present_note_text": "top-level present note",
+                "export_warning_text": "top-level warning",
+                "reviewer_display": {
+                    "summary_text": "reviewer summary",
+                    "empty_text": "reviewer empty",
+                    "run_dir_note_text": "reviewer run dir",
+                    "scope_note_text": "reviewer scope note",
+                    "present_note_text": "reviewer present note",
+                    "export_warning_text": "reviewer warning",
+                },
+                "clear_enabled": False,
+                "visible_count": 0,
+                "scope_present_count": 0,
+                "scope_visible_count": 0,
+                "scope_external_count": 0,
+                "scope_missing_count": 0,
+            }
+
+        monkeypatch.setattr(reports_page_module, "build_artifact_scope_view", _fake_scope_view)
+
+        page.render(
+            {
+                "run_dir": "D:/tmp/run_scope_payload",
+                "files": [],
+                "review_center": _build_review_center_payload(),
+                "qc_summary_text": "",
+                "ai_summary_text": "",
+                "export": {"available_formats": ["json"], "last_export_message": "Ready"},
+            }
+        )
+
+        assert page.artifact_scope_var.get() == "reviewer summary"
+        assert page.artifact_scope_notice_var.get() == "reviewer empty"
+        assert page.run_dir_card.note_var.get() == "reviewer run dir"
+        assert page.artifact_count_card.note_var.get() == "reviewer scope note"
+        assert page.present_count_card.note_var.get() == "reviewer present note"
+        assert page.export_scope_notice_var.get() == "reviewer warning"
     finally:
         root.destroy()

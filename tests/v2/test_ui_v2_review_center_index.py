@@ -723,12 +723,30 @@ def test_review_scope_manifest_payload_marks_reference_only_rows_headless(tmp_pa
         },
         run_dir=str(current_run),
     )
+    scoped_view = build_artifact_scope_view(
+        [
+            {
+                "name": "summary.json",
+                "path": str(summary_file),
+                "present": True,
+                "listed_in_current_run": True,
+                "artifact_role": "execution_summary",
+                "export_status": "ok",
+                "export_status_known": True,
+                "exportable_in_current_run": True,
+            }
+        ],
+        selection=payload["selection"],
+    )
 
     assert payload["scope_summary"]["scope"] == "evidence"
     assert payload["scope_summary"]["scope_visible_count"] == 2
     assert payload["scope_summary"]["scope_present_count"] == 1
     assert payload["reviewer_display"]["selection_line"] == "范围=evidence | 来源=manifest_case | 证据=suite summary"
     assert payload["reviewer_display"]["counts_line"] == "可见 2 | 存在 1 | 外部 1 | 缺少 1 | 当前运行基线 1/1"
+    assert payload["reviewer_display"]["run_dir_note_text"] == scoped_view["reviewer_display"]["run_dir_note_text"]
+    assert payload["reviewer_display"]["scope_note_text"] == scoped_view["reviewer_display"]["scope_note_text"]
+    assert payload["reviewer_display"]["present_note_text"] == scoped_view["reviewer_display"]["present_note_text"]
     assert payload["disclaimer"]["not_real_acceptance_evidence"] is True
     assert payload["selection"]["selected_evidence_summary"] == "suite summary"
     assert payload["rows"][0]["artifact_role"] == "execution_summary"

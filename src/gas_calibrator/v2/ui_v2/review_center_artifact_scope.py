@@ -7,6 +7,7 @@ from typing import Any
 from ..review_surface_formatter import (
     build_artifact_scope_view_reviewer_display,
     build_review_scope_payload_reviewer_display,
+    build_review_scope_reviewer_display,
     humanize_review_center_coverage_text,
     humanize_review_surface_text,
 )
@@ -322,15 +323,19 @@ def build_review_scope_manifest_payload(
         "scope_external_count": int(registry.get("scope_external_count", 0) or 0),
         "scope_missing_count": int(registry.get("scope_missing_count", 0) or 0),
     }
+    reviewer_display = {
+        **dict(registry.get("reviewer_display", {}) or {}),
+        **build_review_scope_reviewer_display(
+            selection=selection_snapshot,
+            scope_summary=scope_summary,
+        ),
+    }
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "run_dir": str(run_dir or ""),
         "selection": selection_snapshot,
         "scope_summary": scope_summary,
-        "reviewer_display": build_review_scope_payload_reviewer_display(
-            selection=selection_snapshot,
-            scope_summary=scope_summary,
-        ),
+        "reviewer_display": reviewer_display,
         "disclaimer": {
             "text": t("pages.reports.review_scope_manifest.disclaimer"),
             "offline_review_only": True,
