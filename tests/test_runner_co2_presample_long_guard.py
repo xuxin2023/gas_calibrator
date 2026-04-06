@@ -113,6 +113,111 @@ def test_wait_co2_presample_long_guard_passes_after_full_window(monkeypatch, tmp
     assert state["presample_long_guard_rise_c"] == 0.08
 
 
+def test_wait_co2_presample_long_guard_passes_after_late_rebound_settles(monkeypatch, tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "pressure": {
+                    "co2_presample_long_guard_enabled": True,
+                    "co2_presample_long_guard_window_s": 10.0,
+                    "co2_presample_long_guard_timeout_s": 30.0,
+                    "co2_presample_long_guard_max_span_c": 0.30,
+                    "co2_presample_long_guard_max_abs_slope_c_per_s": 0.02,
+                    "co2_presample_long_guard_max_rise_c": 0.12,
+                    "co2_presample_long_guard_policy": "reject",
+                }
+            }
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _point_co2_low_pressure()
+    runner._set_point_runtime_fields(point, phase="co2", dewpoint_gate_pass_live_c=-24.50)
+    _install_long_guard_sequence(
+        runner,
+        monkeypatch,
+        observations=[
+            {"count": 4, "span": 0.45, "slope_per_s": 0.0600, "min_value": -24.50},
+            {"count": 9, "span": 0.25, "slope_per_s": 0.0080, "min_value": -23.48},
+        ],
+        ready_values=[
+            {"dewpoint_live_c": -23.40, "dew_temp_live_c": 20.0, "dew_rh_live_pct": 6.0, "pressure_gauge_hpa": 700.0},
+            {"dewpoint_live_c": -23.38, "dew_temp_live_c": 20.0, "dew_rh_live_pct": 6.0, "pressure_gauge_hpa": 700.0},
+        ],
+        step_s=10.0,
+    )
+
+    assert runner._wait_co2_presample_long_guard(
+        point,
+        phase="co2",
+        context={"stop_event": None},
+    ) is True
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2")
+    assert state is not None
+    assert state["presample_long_guard_status"] == "pass"
+    assert state["presample_long_guard_rise_c"] == 1.12
+    assert state["presample_long_guard_span_c"] == 0.25
+    assert state["presample_long_guard_slope_c_per_s"] == 0.008
+
+
+def test_wait_co2_presample_long_guard_uses_first_live_reference_when_gate_pass_missing(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "pressure": {
+                    "co2_presample_long_guard_enabled": True,
+                    "co2_presample_long_guard_window_s": 5.0,
+                    "co2_presample_long_guard_timeout_s": 10.0,
+                    "co2_presample_long_guard_max_span_c": 0.10,
+                    "co2_presample_long_guard_max_abs_slope_c_per_s": 0.01,
+                    "co2_presample_long_guard_max_rise_c": 0.12,
+                    "co2_presample_long_guard_policy": "reject",
+                }
+            }
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _point_co2_low_pressure()
+    _install_long_guard_sequence(
+        runner,
+        monkeypatch,
+        observations=[
+            {"count": 2, "span": 0.00, "slope_per_s": 0.0000, "min_value": -24.00},
+            {"count": 6, "span": 0.05, "slope_per_s": 0.0050, "min_value": -24.02},
+        ],
+        ready_values=[
+            {"dewpoint_live_c": -24.00, "dew_temp_live_c": 20.0, "dew_rh_live_pct": 6.0, "pressure_gauge_hpa": 700.0},
+            {"dewpoint_live_c": -23.97, "dew_temp_live_c": 20.0, "dew_rh_live_pct": 6.0, "pressure_gauge_hpa": 700.0},
+        ],
+        step_s=5.0,
+    )
+
+    assert runner._wait_co2_presample_long_guard(
+        point,
+        phase="co2",
+        context={"stop_event": None},
+    ) is True
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2")
+    assert state is not None
+    assert state["presample_long_guard_status"] == "pass"
+    assert state["presample_long_guard_reason"] == ""
+    assert state["presample_long_guard_rise_c"] == 0.03
+
+
 @pytest.mark.parametrize(
     ("policy", "expected_allowed", "expected_status"),
     [
@@ -172,7 +277,7 @@ def test_wait_co2_presample_long_guard_warns_or_rejects_on_timeout(
     assert state is not None
     assert state["presample_long_guard_status"] == expected_status
     assert "timeout_elapsed_s=" in state["presample_long_guard_reason"]
-    assert "rise_c=0.190>max_rise_c=0.120" in state["presample_long_guard_reason"]
+    assert "window_rebound_c=0.190>max_rise_c=0.120" in state["presample_long_guard_reason"]
     assert f"policy={policy}" in state["presample_long_guard_reason"]
 
 

@@ -8,12 +8,14 @@ import time
 
 import gas_calibrator.v2.ui_v2.review_center_artifact_scope as artifact_scope
 from gas_calibrator.v2.ui_v2.i18n import t
+from gas_calibrator.v2.review_surface_formatter import build_review_scope_payload_reviewer_display
 from gas_calibrator.v2.ui_v2.review_center_presenter import (
     build_artifact_scope_view,
     build_review_center_selection_snapshot,
     build_review_center_view,
 )
 from gas_calibrator.v2.ui_v2.review_scope_export_index import (
+    build_review_scope_export_entry,
     build_review_scope_batch_id,
     write_review_scope_export_index,
 )
@@ -674,6 +676,13 @@ def test_review_center_artifact_scope_keeps_scope_denominator_consistent_headles
     assert "visible " not in view["summary_text"]
     assert "external " not in view["summary_text"]
     assert "catalog " not in view["summary_text"]
+    assert "当前运行基线" in view["run_dir_note_text"]
+    assert "可见" in view["scope_note_text"]
+    assert "外部" in view["scope_note_text"]
+    assert "存在" in view["present_note_text"]
+    assert "catalog " not in view["run_dir_note_text"]
+    assert "visible " not in view["scope_note_text"]
+    assert "present " not in view["present_note_text"]
 
 
 def test_review_scope_manifest_payload_marks_reference_only_rows_headless(tmp_path: Path) -> None:
@@ -713,6 +722,8 @@ def test_review_scope_manifest_payload_marks_reference_only_rows_headless(tmp_pa
     assert payload["scope_summary"]["scope"] == "evidence"
     assert payload["scope_summary"]["scope_visible_count"] == 2
     assert payload["scope_summary"]["scope_present_count"] == 1
+    assert payload["reviewer_display"]["selection_line"] == "范围=evidence | 来源=manifest_case | 证据=suite summary"
+    assert payload["reviewer_display"]["counts_line"] == "可见 2 | 存在 1 | 外部 1 | 缺少 1 | 当前运行基线 1/1"
     assert payload["disclaimer"]["not_real_acceptance_evidence"] is True
     assert payload["selection"]["selected_evidence_summary"] == "suite summary"
     assert payload["rows"][0]["artifact_role"] == "execution_summary"
@@ -823,9 +834,74 @@ def test_review_scope_export_index_keeps_handoff_history_without_overwriting(tmp
     assert second_index["latest"]["summary_counts"]["scope_visible_count"] == 3
     assert second_index["latest"]["summary_counts"]["scope_missing_count"] == 1
     assert second_index["latest"]["exported_files"] == [str(json_b), str(md_b)]
+    assert second_index["latest"]["reviewer_display"]["selection_line"] == "范围=source | 来源=history_run | 证据=无"
+    assert second_index["latest"]["reviewer_display"]["counts_line"] == "可见 3 | 存在 2 | 外部 2 | 缺少 1 | 当前运行基线 8/12"
+    assert "当前审阅视角" in second_index["latest"]["reviewer_display"]["run_dir_note_text"]
+    assert "当前可见 3" in second_index["latest"]["reviewer_display"]["scope_note_text"]
+    assert "当前范围 磁盘存在 2/3" in second_index["latest"]["reviewer_display"]["present_note_text"]
     assert second_index["latest"]["disclaimer_flags"]["offline_review_only"] is True
     assert second_index["latest"]["disclaimer_flags"]["not_real_acceptance_evidence"] is True
+    assert second_index["latest"]["selection_snapshot"]["scope"] == "source"
+    assert second_index["latest"]["summary_counts"]["catalog_present_count"] == 8
     assert json.loads((destination / "index.json").read_text(encoding="utf-8"))["entry_count"] == 2
+
+
+def test_review_scope_manifest_and_export_index_share_reviewer_display_lines() -> None:
+    payload = {
+        "generated_at": "2026-03-28T14:22:10+00:00",
+        "selection": {
+            "scope": "source",
+            "selected_source_label_display": "history_run",
+            "selected_evidence_summary": "suite summary",
+        },
+        "scope_summary": {
+            "scope": "source",
+            "scope_label": "Source",
+            "catalog_total_count": 12,
+            "catalog_present_count": 8,
+            "scope_visible_count": 3,
+            "scope_present_count": 2,
+            "scope_external_count": 2,
+            "scope_missing_count": 1,
+        },
+        "disclaimer": {
+            "text": "offline review only",
+            "offline_review_only": True,
+            "simulated_or_replay_context": True,
+            "diagnostic_context": True,
+            "not_real_acceptance_evidence": True,
+        },
+        "rows": [],
+    }
+    payload["reviewer_display"] = build_review_scope_payload_reviewer_display(
+        selection=payload["selection"],
+        scope_summary=payload["scope_summary"],
+    )
+
+    markdown = artifact_scope.render_review_scope_manifest_markdown(payload)
+
+    export_entry = build_review_scope_export_entry(
+        payload,
+        batch_id="review_scope_20260328_142210_source",
+        exported_files=["D:/tmp/review_scope_source.json"],
+    )
+
+    assert payload["reviewer_display"]["selection_line"] == "范围=source | 来源=history_run | 证据=suite summary"
+    assert payload["reviewer_display"]["counts_line"] == "可见 3 | 存在 2 | 外部 2 | 缺少 1 | 当前运行基线 8/12"
+    assert "当前审阅视角" in payload["reviewer_display"]["run_dir_note_text"]
+    assert "当前可见 3" in payload["reviewer_display"]["scope_note_text"]
+    assert "当前范围 磁盘存在 2/3" in payload["reviewer_display"]["present_note_text"]
+    assert export_entry["reviewer_display"] == payload["reviewer_display"]
+    assert export_entry["reviewer_display"]["selection_line"] in markdown
+    assert export_entry["reviewer_display"]["counts_line"] in markdown
+    assert "scope=" not in markdown
+    assert "source=" not in markdown
+    assert "evidence=" not in markdown
+    assert payload["selection"]["scope"] == "source"
+    assert payload["scope_summary"]["scope_visible_count"] == 3
+    assert payload["selection"]["selected_source_label_display"] == "history_run"
+    assert export_entry["selection_snapshot"]["scope"] == "source"
+    assert export_entry["summary_counts"]["scope_visible_count"] == 3
 
 
 def test_review_center_panel_exposes_index_summary_and_time_source_filters() -> None:

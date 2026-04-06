@@ -2145,15 +2145,8 @@ class CalibrationRunner:
             return True
 
         gate_pass_dewpoint_c = self._as_float(runtime_state.get("dewpoint_gate_pass_live_c"))
-        if gate_pass_dewpoint_c is None:
-            return _finalize(
-                "fail" if policy == "reject" else "warn",
-                f"gate_pass_dewpoint_missing;policy={policy}",
-                log_message=(
-                    f"CO2 pre-sample long guard cannot evaluate: point={point.index} "
-                    f"gate_pass_dewpoint_missing policy={policy}"
-                ),
-            )
+        reference_dewpoint_c = gate_pass_dewpoint_c
+        reference_source = "gate_pass" if gate_pass_dewpoint_c is not None else "first_live_pending"
 
         active_context = context if isinstance(context, dict) else self._pressure_transition_fast_signal_context_active()
         if not isinstance(active_context, dict):
@@ -2184,7 +2177,12 @@ class CalibrationRunner:
             note=(
                 f"window_s={window_s:.3f} timeout_s={timeout_s:.3f} "
                 f"max_span_c={max_span_c:.3f} max_abs_slope_c_per_s={max_abs_slope_c_per_s:.4f} "
-                f"max_rise_c={max_rise_c:.3f} gate_pass_dewpoint_c={gate_pass_dewpoint_c:.3f}"
+                f"max_rise_c={max_rise_c:.3f} "
+                + (
+                    f"reference_dewpoint_c={reference_dewpoint_c:.3f}"
+                    if reference_dewpoint_c is not None
+                    else "reference_dewpoint_c=awaiting_first_live"
+                )
             ),
         )
 
@@ -2202,9 +2200,12 @@ class CalibrationRunner:
             elapsed_s = max(0.0, time.monotonic() - start_mono)
             span_c = self._as_float(obs.get("span"))
             slope_c_per_s = self._as_float(obs.get("slope_per_s"))
+            if reference_dewpoint_c is None and live_dewpoint_c is not None:
+                reference_dewpoint_c = float(live_dewpoint_c)
+                reference_source = "first_live"
             rise_c = (
-                round(float(live_dewpoint_c) - float(gate_pass_dewpoint_c), 6)
-                if live_dewpoint_c is not None
+                round(float(live_dewpoint_c) - float(reference_dewpoint_c), 6)
+                if live_dewpoint_c is not None and reference_dewpoint_c is not None
                 else None
             )
             rebound_c = (
@@ -2227,11 +2228,9 @@ class CalibrationRunner:
                 and int(obs.get("count") or 0) >= 2
                 and span_c is not None
                 and slope_c_per_s is not None
-                and rise_c is not None
                 and rebound_c is not None
                 and span_c <= max_span_c
                 and abs(slope_c_per_s) <= max_abs_slope_c_per_s
-                and rise_c <= max_rise_c
                 and rebound_c <= max_rise_c
             )
             if passed:
@@ -2248,7 +2247,17 @@ class CalibrationRunner:
                     refresh_pace_state=False,
                     note=(
                         f"result=pass elapsed_s={elapsed_s:.3f} span_c={span_c:.3f} "
-                        f"slope_c_per_s={slope_c_per_s:.4f} rise_c={float(rise_c):.3f}"
+                        f"slope_c_per_s={slope_c_per_s:.4f} "
+                        + (
+                            f"rise_c={float(rise_c):.3f} "
+                            if rise_c is not None
+                            else ""
+                        )
+                        + (
+                            f"window_rebound_c={float(rebound_c):.3f} reference={reference_source}"
+                            if rebound_c is not None
+                            else f"reference={reference_source}"
+                        )
                     ),
                 )
                 return _finalize(
@@ -2256,7 +2265,17 @@ class CalibrationRunner:
                     "",
                     log_message=(
                         f"CO2 pre-sample long guard pass: point={point.index} elapsed_s={elapsed_s:.3f} "
-                        f"span_c={span_c:.3f} slope_c_per_s={slope_c_per_s:.4f} rise_c={float(rise_c):.3f}"
+                        f"span_c={span_c:.3f} slope_c_per_s={slope_c_per_s:.4f} "
+                        + (
+                            f"rise_c={float(rise_c):.3f} "
+                            if rise_c is not None
+                            else ""
+                        )
+                        + (
+                            f"window_rebound_c={float(rebound_c):.3f} reference={reference_source}"
+                            if rebound_c is not None
+                            else f"reference={reference_source}"
+                        )
                     ),
                 )
 
@@ -2278,14 +2297,16 @@ class CalibrationRunner:
                         f"abs_slope_c_per_s={abs(slope_c_per_s):.4f}>"
                         f"max_abs_slope_c_per_s={max_abs_slope_c_per_s:.4f}"
                     )
-                if rise_c is None:
-                    reasons.append("rise_c=NA")
-                elif rise_c > max_rise_c:
-                    reasons.append(f"rise_c={rise_c:.3f}>max_rise_c={max_rise_c:.3f}")
                 if rebound_c is None:
                     reasons.append("window_rebound_c=NA")
                 elif rebound_c > max_rise_c:
                     reasons.append(f"window_rebound_c={rebound_c:.3f}>max_rise_c={max_rise_c:.3f}")
+                if reference_dewpoint_c is None:
+                    reasons.append("reference_dewpoint_c=NA")
+                else:
+                    reasons.append(f"reference={reference_source}")
+                if rise_c is not None:
+                    reasons.append(f"rise_c={rise_c:.3f}")
                 reasons.append(f"policy={policy}")
                 reason = ";".join(reasons)
                 status = "fail" if policy == "reject" else "warn"
@@ -12492,11 +12513,25 @@ class CalibrationRunner:
             if not use_preseal_topoff:
                 preseal_trigger_threshold_hpa = None
                 wait_after_vent_off_s = 0.0
-                self.log(
-                    f"{route.upper()} preseal top-off skipped: selected sealed pressures do not include "
-                    f"{int(round(float(self._PRESEAL_TOPOFF_TARGET_HPA)))} hPa; "
-                    "vent OFF and seal immediately before pressure control"
-                )
+                no_topoff_open_wait_s = 0.0
+                if route_name == "co2":
+                    no_topoff_open_wait_s = max(
+                        0.0,
+                        float(pcfg.get("co2_no_topoff_vent_off_open_wait_s", 2.0) or 0.0),
+                    )
+                    wait_after_vent_off_s = no_topoff_open_wait_s
+                if route_name == "co2" and no_topoff_open_wait_s > 0:
+                    self.log(
+                        f"{route.upper()} preseal top-off skipped: selected sealed pressures do not include "
+                        f"{int(round(float(self._PRESEAL_TOPOFF_TARGET_HPA)))} hPa; "
+                        f"vent OFF, keep route open for {no_topoff_open_wait_s:.1f}s, then seal before pressure control"
+                    )
+                else:
+                    self.log(
+                        f"{route.upper()} preseal top-off skipped: selected sealed pressures do not include "
+                        f"{int(round(float(self._PRESEAL_TOPOFF_TARGET_HPA)))} hPa; "
+                        "vent OFF and seal immediately before pressure control"
+                    )
             else:
                 threshold_text = f"{float(preseal_trigger_threshold_hpa or 0.0):.0f}"
                 if wait_after_vent_off_s > 0:
@@ -12515,7 +12550,101 @@ class CalibrationRunner:
                         f"seal {route.upper()} route when pressure gauge >= {threshold_text} hPa; "
                         "no extra timeout wait configured"
                     )
-            if wait_after_vent_off_s > 0 or preseal_trigger_threshold_hpa is not None:
+            if not use_preseal_topoff and route_name == "co2" and wait_after_vent_off_s > 0:
+                start = time.time()
+                sample_interval_s = self._pressure_transition_monitor_wait_s(point)
+                while True:
+                    if self.stop_event.is_set():
+                        return False
+                    self._check_pause()
+                    transition_context = self._pressure_transition_fast_signal_context_active()
+                    if isinstance(transition_context, dict) and not list(transition_context.get("workers", []) or []):
+                        self._refresh_pressure_transition_fast_signal_once(
+                            transition_context,
+                            reason=f"{route.upper()} preseal open wait",
+                        )
+                    loop_now = time.time()
+                    pressure_now, pressure_source = self._read_preseal_pressure_gauge()
+                    if pressure_now is not None and pressure_source == "pressure_gauge":
+                        valid_preseal_pressure_gauge_seen = True
+                        invalid_preseal_pressure_gauge_reads = 0
+                        preseal_pressure_last = pressure_now
+                        if preseal_pressure_peak is None or pressure_now > preseal_pressure_peak:
+                            preseal_pressure_peak = pressure_now
+                    else:
+                        invalid_preseal_pressure_gauge_reads += 1
+                    elapsed = loop_now - start
+                    remain = wait_after_vent_off_s - elapsed
+                    wait_note = f"elapsed_s={max(0.0, elapsed):.3f} open_wait_remaining_s={max(0.0, remain):.3f}"
+                    if pressure_source != "pressure_gauge":
+                        wait_note = (
+                            f"pressure_source={pressure_source} "
+                            f"open_wait_remaining_s={max(0.0, remain):.3f}"
+                        )
+                    self._append_pressure_trace_row(
+                        point=point,
+                        route=phase,
+                        point_phase=phase,
+                        trace_stage="preseal_wait",
+                        trigger_reason=pressure_source,
+                        pressure_target_hpa=point.target_pressure_hpa,
+                        pressure_gauge_hpa=pressure_now,
+                        refresh_pace_state=False,
+                        note=wait_note,
+                    )
+                    if remain <= 0:
+                        preseal_trigger_source = "fixed_open_wait_after_vent_off"
+                        timeout_note = (
+                            f"fixed open-route wait after vent off completed after {wait_after_vent_off_s:.3f}s"
+                        )
+                        self.log(f"{route.upper()} preseal {timeout_note}")
+                        _seal_route_now()
+                        trace_values = self._cached_ready_check_trace_values(point=point)
+                        pace_pressure_now = self._as_float(trace_values.get("pace_pressure_hpa"))
+                        if pace_pressure_now is None:
+                            try:
+                                pace_pressure_now = self._as_float(pace.read_pressure())
+                            except Exception:
+                                pace_pressure_now = None
+                        dewpoint_kwargs: Dict[str, Any] = {}
+                        if any(
+                            trace_values.get(key) is not None
+                            for key in (
+                                "dewpoint_c",
+                                "dew_temp_c",
+                                "dew_rh_pct",
+                                "dewpoint_live_c",
+                                "dew_temp_live_c",
+                                "dew_rh_live_pct",
+                            )
+                        ):
+                            dewpoint_kwargs = {
+                                "dewpoint_c": trace_values.get("dewpoint_c"),
+                                "dew_temp_c": trace_values.get("dew_temp_c"),
+                                "dew_rh_pct": trace_values.get("dew_rh_pct"),
+                                "dewpoint_live_c": trace_values.get("dewpoint_live_c"),
+                                "dew_temp_live_c": trace_values.get("dew_temp_live_c"),
+                                "dew_rh_live_pct": trace_values.get("dew_rh_live_pct"),
+                            }
+                        else:
+                            dewpoint_kwargs = {"read_dewpoint": True}
+                        self._append_pressure_trace_row(
+                            point=point,
+                            route=phase,
+                            point_phase=phase,
+                            trace_stage="preseal_trigger_reached",
+                            trigger_reason=preseal_trigger_source,
+                            pressure_target_hpa=point.target_pressure_hpa,
+                            pace_pressure_hpa=pace_pressure_now,
+                            pressure_gauge_hpa=preseal_pressure_last,
+                            refresh_pace_state=False,
+                            note=timeout_note,
+                            **dewpoint_kwargs,
+                        )
+                        break
+                    sleep_s = min(sample_interval_s, max(0.02, remain))
+                    time.sleep(max(0.02, sleep_s))
+            elif wait_after_vent_off_s > 0 or preseal_trigger_threshold_hpa is not None:
                 start = time.time()
                 sample_interval_s = self._pressure_transition_monitor_wait_s(point)
                 while True:
@@ -12787,6 +12916,10 @@ class CalibrationRunner:
                         trigger_detail = (
                             f"fallback timeout without valid pressure gauge after {wait_after_vent_off_s:.3f}s; "
                         )
+                    elif preseal_trigger_source == "fixed_open_wait_after_vent_off":
+                        trigger_detail = (
+                            f"kept route open for {wait_after_vent_off_s:.3f}s after vent OFF; "
+                        )
                     self.log(
                         f"{route_title} route vent OFF settle complete; "
                         f"pre-seal pressure peak={preseal_pressure_peak:.3f} hPa "
@@ -12799,6 +12932,12 @@ class CalibrationRunner:
                         self.log(
                             f"{route_title} route vent OFF settle complete; "
                             f"fallback timeout without valid pressure gauge after {wait_after_vent_off_s:.3f}s; "
+                            "seal route directly before pressure control"
+                        )
+                    elif preseal_trigger_source == "fixed_open_wait_after_vent_off":
+                        self.log(
+                            f"{route_title} route vent OFF settle complete; "
+                            f"kept route open for {wait_after_vent_off_s:.3f}s after vent OFF; "
                             "seal route directly before pressure control"
                         )
                     else:

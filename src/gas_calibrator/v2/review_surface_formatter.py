@@ -212,6 +212,159 @@ def humanize_review_surface_text(summary_value: str) -> str:
     return " | ".join(normalized_parts)
 
 
+def build_review_scope_selection_line(
+    *,
+    scope: Any,
+    source: Any,
+    evidence: Any,
+) -> str:
+    return humanize_review_surface_text(
+        f"scope={str(scope or 'all').strip() or 'all'} | "
+        f"source={str(source or t('common.none')).strip() or t('common.none')} | "
+        f"evidence={str(evidence or t('common.none')).strip() or t('common.none')}"
+    )
+
+
+def build_review_scope_counts_line(
+    *,
+    visible: Any,
+    present: Any,
+    external: Any,
+    missing: Any,
+    catalog_present: Any,
+    catalog_total: Any,
+) -> str:
+    return humanize_review_surface_text(
+        " | ".join(
+            [
+                f"visible {int(visible or 0)}",
+                f"present {int(present or 0)}",
+                f"external {int(external or 0)}",
+                f"missing {int(missing or 0)}",
+                f"catalog {int(catalog_present or 0)}/{int(catalog_total or 0)}",
+            ]
+        )
+    )
+
+
+def build_review_scope_reviewer_display(
+    *,
+    selection: dict[str, Any] | None = None,
+    scope_summary: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    selection_payload = dict(selection or {})
+    summary_payload = dict(scope_summary or {})
+    return {
+        "selection_line": build_review_scope_selection_line(
+            scope=str(selection_payload.get("scope") or summary_payload.get("scope") or "all"),
+            source=str(
+                selection_payload.get("selected_source_label_display")
+                or selection_payload.get("selected_source_label")
+                or t("common.none")
+            ),
+            evidence=str(selection_payload.get("selected_evidence_summary") or t("common.none")),
+        ),
+        "counts_line": build_review_scope_counts_line(
+            visible=int(summary_payload.get("scope_visible_count", 0) or 0),
+            present=int(summary_payload.get("scope_present_count", 0) or 0),
+            external=int(summary_payload.get("scope_external_count", 0) or 0),
+            missing=int(summary_payload.get("scope_missing_count", 0) or 0),
+            catalog_present=int(summary_payload.get("catalog_present_count", 0) or 0),
+            catalog_total=int(summary_payload.get("catalog_total_count", 0) or 0),
+        ),
+    }
+
+
+def build_review_scope_payload_reviewer_display(
+    *,
+    selection: dict[str, Any] | None = None,
+    scope_summary: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    selection_payload = dict(selection or {})
+    summary_payload = dict(scope_summary or {})
+    return {
+        **build_review_scope_reviewer_display(
+            selection=selection_payload,
+            scope_summary=summary_payload,
+        ),
+        **build_artifact_scope_reviewer_notes(
+            scope_label=str(summary_payload.get("scope_label") or t("common.none")),
+            visible_count=int(summary_payload.get("scope_visible_count", 0) or 0),
+            present_count=int(summary_payload.get("scope_present_count", 0) or 0),
+            scope_total_count=int(summary_payload.get("scope_visible_count", 0) or 0),
+            external_count=int(summary_payload.get("scope_external_count", 0) or 0),
+            missing_count=int(summary_payload.get("scope_missing_count", 0) or 0),
+            catalog_present_count=int(summary_payload.get("catalog_present_count", 0) or 0),
+            catalog_total_count=int(summary_payload.get("catalog_total_count", 0) or 0),
+        ),
+    }
+
+
+def build_artifact_scope_reviewer_notes(
+    *,
+    scope_label: Any,
+    visible_count: Any,
+    present_count: Any,
+    scope_total_count: Any,
+    external_count: Any,
+    missing_count: Any,
+    catalog_present_count: Any,
+    catalog_total_count: Any,
+) -> dict[str, str]:
+    scope_text = str(scope_label or t("pages.reports.artifact_scope.label_all")).strip() or t(
+        "pages.reports.artifact_scope.label_all"
+    )
+    visible_value = int(visible_count or 0)
+    present_value = int(present_count or 0)
+    total_value = int(scope_total_count or 0)
+    external_value = int(external_count or 0)
+    missing_value = int(missing_count or 0)
+    catalog_present_value = int(catalog_present_count or 0)
+    catalog_total_value = int(catalog_total_count or 0)
+    return {
+        "run_dir_note_text": humanize_review_surface_text(
+            t(
+                "pages.reports.artifact_scope.run_dir_note",
+                scope=scope_text,
+                catalog_present=catalog_present_value,
+                catalog_total=catalog_total_value,
+                default=f"Current review scope: {scope_text} | catalog {catalog_present_value}/{catalog_total_value}",
+            )
+        ),
+        "scope_note_text": humanize_review_surface_text(
+            t(
+                "pages.reports.artifact_scope.scope_note",
+                scope=scope_text,
+                visible=visible_value,
+                total=total_value,
+                external=external_value,
+                missing=missing_value,
+                catalog_total=catalog_total_value,
+                default=(
+                    f"{scope_text} | visible {visible_value} | external {external_value} | "
+                    f"missing {missing_value} | catalog {catalog_total_value}"
+                ),
+            )
+        ),
+        "present_note_text": humanize_review_surface_text(
+            t(
+                "pages.reports.artifact_scope.present_note",
+                scope=scope_text,
+                present=present_value,
+                visible=visible_value,
+                total=total_value,
+                missing=missing_value,
+                catalog_present=catalog_present_value,
+                catalog_total=catalog_total_value,
+                default=(
+                    f"{scope_text} | present {present_value}/{total_value} | "
+                    f"missing {missing_value} | catalog {catalog_present_value}/{catalog_total_value}"
+                ),
+            )
+        ),
+    }
+
+
 def build_offline_diagnostic_detail_item_line(item: Any) -> str:
     payload = dict(item or {}) if isinstance(item, dict) else {}
     if not payload:

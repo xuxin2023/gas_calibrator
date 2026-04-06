@@ -5,6 +5,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ..review_surface_formatter import (
+    build_review_scope_payload_reviewer_display,
+)
+
 INDEX_FILENAME = "index.json"
 
 
@@ -64,14 +68,19 @@ def build_review_scope_export_entry(
     batch_id: str,
     exported_files: list[str],
 ) -> dict[str, Any]:
+    selection_snapshot = dict(payload.get("selection", {}) or {})
     scope_summary = dict(payload.get("scope_summary", {}) or {})
     disclaimer = dict(payload.get("disclaimer", {}) or {})
+    reviewer_display = dict(payload.get("reviewer_display", {}) or {}) or build_review_scope_payload_reviewer_display(
+        selection=selection_snapshot,
+        scope_summary=scope_summary,
+    )
     entry = {
         "batch_id": str(batch_id or ""),
         "generated_at": str(payload.get("generated_at") or ""),
         "scope": str(scope_summary.get("scope") or payload.get("selection", {}).get("scope") or "all"),
         "scope_label": str(scope_summary.get("scope_label") or ""),
-        "selection_snapshot": dict(payload.get("selection", {}) or {}),
+        "selection_snapshot": selection_snapshot,
         "summary_counts": {
             "catalog_total_count": int(scope_summary.get("catalog_total_count", 0) or 0),
             "catalog_present_count": int(scope_summary.get("catalog_present_count", 0) or 0),
@@ -87,6 +96,7 @@ def build_review_scope_export_entry(
             "diagnostic_context": bool(disclaimer.get("diagnostic_context", False)),
             "not_real_acceptance_evidence": bool(disclaimer.get("not_real_acceptance_evidence", False)),
         },
+        "reviewer_display": reviewer_display,
     }
     spectral_quality = dict(payload.get("spectral_quality", {}) or {})
     if spectral_quality:

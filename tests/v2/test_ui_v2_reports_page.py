@@ -3,6 +3,7 @@ import sys
 
 from gas_calibrator.v2.ui_v2.i18n import t
 from gas_calibrator.v2.ui_v2.pages.reports_page import ReportsPage
+from gas_calibrator.v2.ui_v2.review_center_presenter import build_artifact_scope_view
 
 SUPPORT_DIR = Path(__file__).resolve().parent
 if str(SUPPORT_DIR) not in sys.path:
@@ -322,12 +323,19 @@ def test_reports_page_artifact_list_follows_review_center_source_and_evidence_sc
 
         page.review_center.source_tree.selection_set("source-0")
         page.review_center._on_source_selected()
+        expected_source_scope = build_artifact_scope_view(
+            page._artifact_rows,
+            selection=page._artifact_scope_snapshot,
+        )
 
         assert len(page.artifacts.tree.get_children()) == 3
         assert "shared_run" in page.artifact_scope_var.get()
         assert str(page.clear_artifact_scope_button["state"]) == "normal"
         assert page.artifact_count_card.value_var.get() == "3"
         assert page.present_count_card.value_var.get() == "2"
+        assert page.run_dir_card.note_var.get() == expected_source_scope["run_dir_note_text"]
+        assert page.artifact_count_card.note_var.get() == expected_source_scope["scope_note_text"]
+        assert page.present_count_card.note_var.get() == expected_source_scope["present_note_text"]
         assert "2/3" in page.present_count_card.note_var.get()
         assert "可见" in page.artifact_count_card.note_var.get()
         assert "外部" in page.artifact_count_card.note_var.get()
@@ -343,6 +351,10 @@ def test_reports_page_artifact_list_follows_review_center_source_and_evidence_sc
 
         page.review_center.tree.selection_set("0")
         page.review_center._on_tree_selected()
+        expected_evidence_scope = build_artifact_scope_view(
+            page._artifact_rows,
+            selection=page._artifact_scope_snapshot,
+        )
 
         assert len(page.artifacts.tree.get_children()) == 2
         assert "运行门禁" in page.review_center.detail_qc_var.get()
@@ -353,6 +365,9 @@ def test_reports_page_artifact_list_follows_review_center_source_and_evidence_sc
         assert "offline" in page.artifact_scope_notice_var.get().lower()
         assert page.artifact_count_card.value_var.get() == "2"
         assert page.present_count_card.value_var.get() == "1"
+        assert page.run_dir_card.note_var.get() == expected_evidence_scope["run_dir_note_text"]
+        assert page.artifact_count_card.note_var.get() == expected_evidence_scope["scope_note_text"]
+        assert page.present_count_card.note_var.get() == expected_evidence_scope["present_note_text"]
         assert "1/2" in page.present_count_card.note_var.get()
         assert "缺失" in page.present_count_card.note_var.get()
         assert "catalog " not in page.present_count_card.note_var.get()

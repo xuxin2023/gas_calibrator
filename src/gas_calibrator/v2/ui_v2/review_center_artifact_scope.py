@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Any
 
 from ..review_surface_formatter import (
+    build_artifact_scope_reviewer_notes,
+    build_review_scope_payload_reviewer_display,
     humanize_review_center_coverage_text,
     humanize_review_surface_text,
 )
@@ -234,6 +236,16 @@ def build_review_artifact_registry(
         if str(row.get("artifact_origin") or "") in {"review_reference", "source_scan"}
     )
     scope_missing_count = sum(1 for row in rows if not bool(row.get("present_on_disk", False)))
+    reviewer_notes = build_artifact_scope_reviewer_notes(
+        scope_label=scope_label,
+        visible_count=scope_visible_count,
+        present_count=scope_present_count,
+        scope_total_count=scope_visible_count,
+        external_count=scope_external_count,
+        missing_count=scope_missing_count,
+        catalog_present_count=catalog_present_count,
+        catalog_total_count=catalog_total_count,
+    )
 
     return {
         "scope": scope,
@@ -250,6 +262,7 @@ def build_review_artifact_registry(
         "total_present_count": catalog_present_count,
         "scope_label": scope_label,
         "summary_text": humanize_review_surface_text(summary_text),
+        **reviewer_notes,
         "catalog_note_text": humanize_review_surface_text(
             t(
                 "pages.reports.artifact_scope.catalog_note",
@@ -293,21 +306,27 @@ def build_review_scope_manifest_payload(
 ) -> dict[str, Any]:
     registry = build_review_artifact_registry(files, selection=selection)
     rows = [_build_manifest_row(row) for row in list(registry.get("rows", []) or [])]
+    selection_snapshot = _sanitize_selection_snapshot(selection)
+    scope_summary = {
+        "scope": str(registry.get("scope") or "all"),
+        "scope_label": str(registry.get("scope_label") or t("common.none")),
+        "summary_text": str(registry.get("summary_text") or t("common.none")),
+        "catalog_total_count": int(registry.get("catalog_total_count", 0) or 0),
+        "catalog_present_count": int(registry.get("catalog_present_count", 0) or 0),
+        "scope_visible_count": int(registry.get("scope_visible_count", 0) or 0),
+        "scope_present_count": int(registry.get("scope_present_count", 0) or 0),
+        "scope_external_count": int(registry.get("scope_external_count", 0) or 0),
+        "scope_missing_count": int(registry.get("scope_missing_count", 0) or 0),
+    }
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "run_dir": str(run_dir or ""),
-        "selection": _sanitize_selection_snapshot(selection),
-        "scope_summary": {
-            "scope": str(registry.get("scope") or "all"),
-            "scope_label": str(registry.get("scope_label") or t("common.none")),
-            "summary_text": str(registry.get("summary_text") or t("common.none")),
-            "catalog_total_count": int(registry.get("catalog_total_count", 0) or 0),
-            "catalog_present_count": int(registry.get("catalog_present_count", 0) or 0),
-            "scope_visible_count": int(registry.get("scope_visible_count", 0) or 0),
-            "scope_present_count": int(registry.get("scope_present_count", 0) or 0),
-            "scope_external_count": int(registry.get("scope_external_count", 0) or 0),
-            "scope_missing_count": int(registry.get("scope_missing_count", 0) or 0),
-        },
+        "selection": selection_snapshot,
+        "scope_summary": scope_summary,
+        "reviewer_display": build_review_scope_payload_reviewer_display(
+            selection=selection_snapshot,
+            scope_summary=scope_summary,
+        ),
         "disclaimer": {
             "text": t("pages.reports.review_scope_manifest.disclaimer"),
             "offline_review_only": True,
@@ -323,13 +342,17 @@ def render_review_scope_manifest_markdown(payload: dict[str, Any]) -> str:
     selection = dict(payload.get("selection", {}) or {})
     scope_summary = dict(payload.get("scope_summary", {}) or {})
     disclaimer = dict(payload.get("disclaimer", {}) or {})
+    reviewer_display = dict(payload.get("reviewer_display", {}) or {}) or build_review_scope_payload_reviewer_display(
+        selection=selection,
+        scope_summary=scope_summary,
+    )
     lines = [
         f"# {t('pages.reports.review_scope_manifest.title')}",
         "",
         f"- {t('pages.reports.review_scope_manifest.generated_at')}: {payload.get('generated_at', '--')}",
         f"- {t('pages.reports.review_scope_manifest.scope')}: {scope_summary.get('scope_label', '--')}",
-        f"- {t('pages.reports.review_scope_manifest.selection')}: {_selection_summary_line(selection)}",
-        f"- {t('pages.reports.review_scope_manifest.counts')}: {_scope_counts_line(scope_summary)}",
+        f"- {t('pages.reports.review_scope_manifest.selection')}: {reviewer_display.get('selection_line', t('common.none'))}",
+        f"- {t('pages.reports.review_scope_manifest.counts')}: {reviewer_display.get('counts_line', t('common.none'))}",
         f"- {t('pages.reports.review_scope_manifest.disclaimer_label')}: {disclaimer.get('text', t('common.none'))}",
         "",
         f"## {t('pages.reports.review_scope_manifest.rows')}",
@@ -808,43 +831,6 @@ def _build_manifest_note(row: dict[str, Any]) -> str:
     if artifact_origin == "missing_reference":
         return t("pages.reports.review_scope_manifest.note_missing_reference")
     return t("pages.reports.review_scope_manifest.note_review_reference")
-
-
-def _selection_summary_line(selection: dict[str, Any]) -> str:
-    scope = str(selection.get("scope") or "all")
-    source = str(selection.get("selected_source_label_display") or selection.get("selected_source_label") or t("common.none"))
-    evidence = str(selection.get("selected_evidence_summary") or t("common.none"))
-    return humanize_review_surface_text(
-        t(
-            "pages.reports.review_scope_manifest.selection_line",
-            scope=scope,
-            source=source,
-            evidence=evidence,
-            default=f"scope={scope} | source={source} | evidence={evidence}",
-        )
-    )
-
-
-def _scope_counts_line(scope_summary: dict[str, Any]) -> str:
-    return humanize_review_surface_text(
-        t(
-            "pages.reports.review_scope_manifest.counts_line",
-            visible=int(scope_summary.get("scope_visible_count", 0) or 0),
-            present=int(scope_summary.get("scope_present_count", 0) or 0),
-            external=int(scope_summary.get("scope_external_count", 0) or 0),
-            missing=int(scope_summary.get("scope_missing_count", 0) or 0),
-            catalog_present=int(scope_summary.get("catalog_present_count", 0) or 0),
-            catalog_total=int(scope_summary.get("catalog_total_count", 0) or 0),
-            default=(
-                f"visible {scope_summary.get('scope_visible_count', 0)} | "
-                f"present {scope_summary.get('scope_present_count', 0)} | "
-                f"external {scope_summary.get('scope_external_count', 0)} | "
-                f"missing {scope_summary.get('scope_missing_count', 0)} | "
-                f"catalog {scope_summary.get('catalog_present_count', 0)}/{scope_summary.get('catalog_total_count', 0)}"
-            ),
-        )
-    )
-
 
 def _escape_markdown_table_cell(value: Any) -> str:
     return str(value or "").replace("|", "\\|").replace("\n", "<br/>")
