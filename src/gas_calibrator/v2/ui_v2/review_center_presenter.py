@@ -3,7 +3,10 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from ..review_surface_formatter import humanize_review_center_coverage_text
+from ..review_surface_formatter import (
+    humanize_review_center_coverage_text,
+    humanize_review_surface_text,
+)
 from .i18n import t
 from .review_center_artifact_scope import (
     build_artifact_scope_view,
@@ -314,14 +317,16 @@ def _build_source_scope_view(
     total_count = int(selected_source_row.get("evidence_count", len(scope_items)) or len(scope_items))
     visible_count = int(selected_source_row.get("visible_evidence_count", len(filtered_items)) or len(filtered_items))
     risk_summary = _source_scope_risk_summary(filtered_items, coverage_display=coverage_display, gaps_display=gaps_display)
-    readiness_summary = t(
-        "results.review_center.scope.readiness_summary",
-        source=source_label,
-        coverage=coverage_display,
-        gaps=gaps_display,
-        visible=visible_count,
-        total=total_count,
-        default=f"{source_label} | {coverage_display} | {gaps_display} | {visible_count}/{total_count} | offline only",
+    readiness_summary = humanize_review_surface_text(
+        t(
+            "results.review_center.scope.readiness_summary",
+            source=source_label,
+            coverage=coverage_display,
+            gaps=gaps_display,
+            visible=visible_count,
+            total=total_count,
+            default=f"{source_label} | {coverage_display} | {gaps_display} | {visible_count}/{total_count} | offline only",
+        )
     )
     analytics_summary = t(
         "results.review_center.scope.analytics_summary",
@@ -339,47 +344,55 @@ def _build_source_scope_view(
         "index_text": "\n".join(
             line
             for line in (
-                t(
-                    "results.review_center.index.source_drilldown_summary",
-                    source=source_label,
-                    latest=latest_display,
-                    coverage=coverage_display,
-                    gaps=gaps_display,
-                    scope=scope_display,
-                    visible=visible_count,
-                    total=total_count,
-                    default=f"{source_label} | {latest_display} | {coverage_display} | {gaps_display} | {scope_display} | {visible_count}/{total_count}",
+                humanize_review_surface_text(
+                    t(
+                        "results.review_center.index.source_drilldown_summary",
+                        source=source_label,
+                        latest=latest_display,
+                        coverage=coverage_display,
+                        gaps=gaps_display,
+                        scope=scope_display,
+                        visible=visible_count,
+                        total=total_count,
+                        default=f"{source_label} | {latest_display} | {coverage_display} | {gaps_display} | {scope_display} | {visible_count}/{total_count}",
+                    )
                 ),
                 str(base_index.get("diagnostics_summary") or "").strip(),
             )
             if line
         ) or t("common.none"),
-        "operator_summary": t(
-            "results.review_center.focus.operator_source_summary",
-            source=source_label,
-            latest=latest_display,
-            coverage=coverage_display,
-            gaps=gaps_display,
-            default=f"{source_label} | {latest_display} | {coverage_display} | {gaps_display} | offline only",
+        "operator_summary": humanize_review_surface_text(
+            t(
+                "results.review_center.focus.operator_source_summary",
+                source=source_label,
+                latest=latest_display,
+                coverage=coverage_display,
+                gaps=gaps_display,
+                default=f"{source_label} | {latest_display} | {coverage_display} | {gaps_display} | offline only",
+            )
         ),
-        "reviewer_summary": t(
-            "results.review_center.focus.reviewer_source_summary",
-            source=source_label,
-            visible=visible_count,
-            total=total_count,
-            scope=scope_display,
-            risk=risk_summary["summary"],
-            gaps=gaps_display,
-            default=f"{source_label} | {visible_count}/{total_count} | {scope_display} | {risk_summary['summary']}",
+        "reviewer_summary": humanize_review_surface_text(
+            t(
+                "results.review_center.focus.reviewer_source_summary",
+                source=source_label,
+                visible=visible_count,
+                total=total_count,
+                scope=scope_display,
+                risk=risk_summary["summary"],
+                gaps=gaps_display,
+                default=f"{source_label} | {visible_count}/{total_count} | {scope_display} | {risk_summary['summary']}",
+            )
         ),
-        "approver_summary": t(
-            "results.review_center.focus.approver_source_summary",
-            source=source_label,
-            readiness=readiness_summary,
-            visible=visible_count,
-            total=total_count,
-            risk=risk_summary["summary"],
-            default=f"{source_label} | {readiness_summary} | {visible_count}/{total_count} | {risk_summary['summary']}",
+        "approver_summary": humanize_review_surface_text(
+            t(
+                "results.review_center.focus.approver_source_summary",
+                source=source_label,
+                readiness=readiness_summary,
+                visible=visible_count,
+                total=total_count,
+                risk=risk_summary["summary"],
+                default=f"{source_label} | {readiness_summary} | {visible_count}/{total_count} | {risk_summary['summary']}",
+            )
         ),
         "risk_summary": risk_summary["summary"],
         "readiness_summary": readiness_summary,
@@ -413,15 +426,17 @@ def _source_scope_risk_summary(
         level = "low"
     return {
         "level": level,
-        "summary": t(
-            "results.review_center.risk.summary",
-            level=t(f"results.review_center.risk.{level}"),
-            failed=failed_count,
-            degraded=degraded_count,
-            diagnostic=diagnostic_only_count,
-            missing=missing_count,
-            coverage=coverage_display,
-            default=f"{level} | failed {failed_count} | degraded {degraded_count} | diagnostic {diagnostic_only_count} | missing {missing_count} | {coverage_display}",
+        "summary": humanize_review_surface_text(
+            t(
+                "results.review_center.risk.summary",
+                level=t(f"results.review_center.risk.{level}"),
+                failed=failed_count,
+                degraded=degraded_count,
+                diagnostic=diagnostic_only_count,
+                missing=missing_count,
+                coverage=coverage_display,
+                default=f"{level} | failed {failed_count} | degraded {degraded_count} | diagnostic {diagnostic_only_count} | missing {missing_count} | {coverage_display}",
+            )
         ),
     }
 

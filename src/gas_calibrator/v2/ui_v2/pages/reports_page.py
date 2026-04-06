@@ -7,6 +7,7 @@ from typing import Any
 from ...review_surface_formatter import (
     collect_offline_diagnostic_detail_lines,
     humanize_offline_diagnostic_summary_value,
+    humanize_review_surface_text,
 )
 from ..i18n import display_evidence_source, t
 from ..review_center_presenter import build_artifact_scope_view
@@ -380,39 +381,45 @@ class ReportsPage(ttk.Frame):
         catalog_present_count = int(scoped_view.get("catalog_present_count", 0) or 0)
         scope_label = str(scoped_view.get("scope_label") or t("pages.reports.artifact_scope.label_all"))
         self.run_dir_card.set_note(
-            t(
-                "pages.reports.artifact_scope.run_dir_note",
-                scope=scope_label,
-                catalog_present=catalog_present_count,
-                catalog_total=catalog_total_count,
-                default=f"Current review scope: {scope_label} | catalog {catalog_present_count}/{catalog_total_count}",
+            humanize_review_surface_text(
+                t(
+                    "pages.reports.artifact_scope.run_dir_note",
+                    scope=scope_label,
+                    catalog_present=catalog_present_count,
+                    catalog_total=catalog_total_count,
+                    default=f"Current review scope: {scope_label} | catalog {catalog_present_count}/{catalog_total_count}",
+                )
             )
         )
         self.artifact_count_card.set_value(str(visible_count))
         self.artifact_count_card.set_note(
-            t(
-                "pages.reports.artifact_scope.scope_note",
-                scope=scope_label,
-                visible=visible_count,
-                total=scope_total_count,
-                external=external_count,
-                missing=missing_count,
-                catalog_total=catalog_total_count,
-                default=f"{scope_label} | visible {visible_count} | external {external_count} | missing {missing_count} | catalog {catalog_total_count}",
+            humanize_review_surface_text(
+                t(
+                    "pages.reports.artifact_scope.scope_note",
+                    scope=scope_label,
+                    visible=visible_count,
+                    total=scope_total_count,
+                    external=external_count,
+                    missing=missing_count,
+                    catalog_total=catalog_total_count,
+                    default=f"{scope_label} | visible {visible_count} | external {external_count} | missing {missing_count} | catalog {catalog_total_count}",
+                )
             )
         )
         self.present_count_card.set_value(str(present_count))
         self.present_count_card.set_note(
-            t(
-                "pages.reports.artifact_scope.present_note",
-                scope=scope_label,
-                present=present_count,
-                visible=visible_count,
-                total=scope_total_count,
-                missing=missing_count,
-                catalog_present=catalog_present_count,
-                catalog_total=catalog_total_count,
-                default=f"{scope_label} | present {present_count}/{scope_total_count} | missing {missing_count} | catalog {catalog_present_count}/{catalog_total_count}",
+            humanize_review_surface_text(
+                t(
+                    "pages.reports.artifact_scope.present_note",
+                    scope=scope_label,
+                    present=present_count,
+                    visible=visible_count,
+                    total=scope_total_count,
+                    missing=missing_count,
+                    catalog_present=catalog_present_count,
+                    catalog_total=catalog_total_count,
+                    default=f"{scope_label} | present {present_count}/{scope_total_count} | missing {missing_count} | catalog {catalog_present_count}/{catalog_total_count}",
+                )
             )
         )
         self.export_scope_notice_var.set(str(scoped_view.get("export_warning_text") or ""))

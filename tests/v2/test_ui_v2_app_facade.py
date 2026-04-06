@@ -326,6 +326,7 @@ def test_app_facade_exports_review_scope_manifest(tmp_path: Path) -> None:
     json_path_b = Path(result_b["json_path"])
     markdown_path_a = Path(result_a["markdown_path"])
     payload_a = json.loads(json_path_a.read_text(encoding="utf-8"))
+    markdown_a = markdown_path_a.read_text(encoding="utf-8")
     index_payload = json.loads(Path(result_b["index_path"]).read_text(encoding="utf-8"))
 
     assert json_path_a.exists()
@@ -346,6 +347,13 @@ def test_app_facade_exports_review_scope_manifest(tmp_path: Path) -> None:
     assert index_payload["latest"]["disclaimer_flags"]["not_real_acceptance_evidence"] is True
     assert index_payload["latest"]["spectral_quality"]["status"] == "ok"
     assert index_payload["latest"]["spectral_quality"]["not_real_acceptance_evidence"] is True
+    assert "可见" in markdown_a
+    assert "存在" in markdown_a
+    assert "外部" in markdown_a
+    assert "当前运行基线" in markdown_a
+    assert "visible " not in markdown_a
+    assert "external " not in markdown_a
+    assert "catalog " not in markdown_a
 
 
 def test_app_facade_rejects_unsupported_export_format_in_chinese(tmp_path: Path) -> None:

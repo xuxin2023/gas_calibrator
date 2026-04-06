@@ -4,7 +4,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ..review_surface_formatter import humanize_review_center_coverage_text
+from ..review_surface_formatter import (
+    humanize_review_center_coverage_text,
+    humanize_review_surface_text,
+)
 from .artifact_registry_governance import (
     OFFICIAL_EXPORT_STATUSES,
     build_current_run_governance,
@@ -63,6 +66,7 @@ def decorate_source_rows(
                 f"filtered {visible_count}/{total_count}"
             ),
         )
+        payload["scope_count_display"] = humanize_review_surface_text(str(payload.get("scope_count_display") or ""))
         decorated.append(payload)
     return decorated
 
@@ -245,30 +249,36 @@ def build_review_artifact_registry(
         "total_count": scope_visible_count,
         "total_present_count": catalog_present_count,
         "scope_label": scope_label,
-        "summary_text": summary_text,
-        "catalog_note_text": t(
-            "pages.reports.artifact_scope.catalog_note",
-            present=catalog_present_count,
-            total=catalog_total_count,
-            default=f"Current-run catalog baseline {catalog_present_count}/{catalog_total_count}",
+        "summary_text": humanize_review_surface_text(summary_text),
+        "catalog_note_text": humanize_review_surface_text(
+            t(
+                "pages.reports.artifact_scope.catalog_note",
+                present=catalog_present_count,
+                total=catalog_total_count,
+                default=f"Current-run catalog baseline {catalog_present_count}/{catalog_total_count}",
+            )
         ),
         "empty_text": (
             ""
             if rows
-            else t(
-                "pages.reports.artifact_scope.empty",
-                scope=scope_label,
-                default=f"No artifacts for {scope_label}. Offline review only.",
+            else humanize_review_surface_text(
+                t(
+                    "pages.reports.artifact_scope.empty",
+                    scope=scope_label,
+                    default=f"No artifacts for {scope_label}. Offline review only.",
+                )
             )
         ),
         "disclaimer_text": t("pages.reports.artifact_scope.disclaimer"),
         "export_warning_text": (
             ""
             if scope == "all"
-            else t(
-                "pages.reports.artifact_scope.export_scope_warning",
-                scope=scope_label,
-                default=f"Export still targets current-run artifacts and does not follow the {scope_label} review scope.",
+            else humanize_review_surface_text(
+                t(
+                    "pages.reports.artifact_scope.export_scope_warning",
+                    scope=scope_label,
+                    default=f"Export still targets current-run artifacts and does not follow the {scope_label} review scope.",
+                )
             )
         ),
         "clear_enabled": scope != "all",
@@ -378,7 +388,8 @@ def _build_scope_summary_text(
         if str(row.get("artifact_origin") or "") in {"review_reference", "source_scan"}
     )
     scope_missing_count = sum(1 for row in scope_rows if not bool(row.get("present_on_disk", False)))
-    return t(
+    return humanize_review_surface_text(
+        t(
         scope_key,
         source=source,
         evidence=evidence,
@@ -395,6 +406,7 @@ def _build_scope_summary_text(
             f"external {scope_external_count} | missing {scope_missing_count} | "
             f"catalog {catalog_present_count}/{catalog_total_count}"
         ),
+    )
     )
 
 
@@ -780,10 +792,12 @@ def _build_manifest_note(row: dict[str, Any]) -> str:
     if bool(row.get("listed_in_current_run", False)):
         if bool(row.get("exportable_in_current_run", False)):
             if bool(row.get("export_status_known", False)):
-                return t(
-                    "pages.reports.review_scope_manifest.note_current_run_status",
-                    status=str(row.get("export_status_display") or t("widgets.artifact_list.export_status_unregistered")),
-                    default=f"Current-run artifact with export status {row.get('export_status_display')}",
+                return humanize_review_surface_text(
+                    t(
+                        "pages.reports.review_scope_manifest.note_current_run_status",
+                        status=str(row.get("export_status_display") or t("widgets.artifact_list.export_status_unregistered")),
+                        default=f"Current-run artifact with export status {row.get('export_status_display')}",
+                    )
                 )
             return t("pages.reports.review_scope_manifest.note_current_run_unregistered")
         return t("pages.reports.review_scope_manifest.note_current_run_missing")
@@ -810,21 +824,23 @@ def _selection_summary_line(selection: dict[str, Any]) -> str:
 
 
 def _scope_counts_line(scope_summary: dict[str, Any]) -> str:
-    return t(
-        "pages.reports.review_scope_manifest.counts_line",
-        visible=int(scope_summary.get("scope_visible_count", 0) or 0),
-        present=int(scope_summary.get("scope_present_count", 0) or 0),
-        external=int(scope_summary.get("scope_external_count", 0) or 0),
-        missing=int(scope_summary.get("scope_missing_count", 0) or 0),
-        catalog_present=int(scope_summary.get("catalog_present_count", 0) or 0),
-        catalog_total=int(scope_summary.get("catalog_total_count", 0) or 0),
-        default=(
-            f"visible {scope_summary.get('scope_visible_count', 0)} | "
-            f"present {scope_summary.get('scope_present_count', 0)} | "
-            f"external {scope_summary.get('scope_external_count', 0)} | "
-            f"missing {scope_summary.get('scope_missing_count', 0)} | "
-            f"catalog {scope_summary.get('catalog_present_count', 0)}/{scope_summary.get('catalog_total_count', 0)}"
-        ),
+    return humanize_review_surface_text(
+        t(
+            "pages.reports.review_scope_manifest.counts_line",
+            visible=int(scope_summary.get("scope_visible_count", 0) or 0),
+            present=int(scope_summary.get("scope_present_count", 0) or 0),
+            external=int(scope_summary.get("scope_external_count", 0) or 0),
+            missing=int(scope_summary.get("scope_missing_count", 0) or 0),
+            catalog_present=int(scope_summary.get("catalog_present_count", 0) or 0),
+            catalog_total=int(scope_summary.get("catalog_total_count", 0) or 0),
+            default=(
+                f"visible {scope_summary.get('scope_visible_count', 0)} | "
+                f"present {scope_summary.get('scope_present_count', 0)} | "
+                f"external {scope_summary.get('scope_external_count', 0)} | "
+                f"missing {scope_summary.get('scope_missing_count', 0)} | "
+                f"catalog {scope_summary.get('catalog_present_count', 0)}/{scope_summary.get('catalog_total_count', 0)}"
+            ),
+        )
     )
 
 

@@ -50,6 +50,34 @@ _REVIEW_CENTER_COVERAGE_LABELS = {
     "missing": "\u7f3a\u5c11",
 }
 
+_REVIEW_SURFACE_FRAGMENT_LABELS = {
+    "visible": "\u53ef\u89c1",
+    "present": "\u5b58\u5728",
+    "external": "\u5916\u90e8",
+    "catalog": "\u5f53\u524d\u8fd0\u884c\u57fa\u7ebf",
+    "filtered": "\u5f53\u524d\u7b5b\u9009",
+    "failed": "\u5931\u8d25",
+    "degraded": "\u964d\u7ea7",
+    "diagnostic": "\u4ec5\u8bca\u65ad",
+    "high": "\u9ad8",
+    "medium": "\u4e2d",
+    "low": "\u4f4e",
+    "artifacts": "\u5de5\u4ef6",
+    "plots": "\u56fe\u8868",
+    "primary": "\u4e3b\u5de5\u4ef6",
+    "supporting": "\u652f\u6491\u5de5\u4ef6",
+}
+
+_REVIEW_SURFACE_INLINE_REPLACEMENTS = (
+    ("Current-run catalog baseline", "\u5f53\u524d\u8fd0\u884c\u57fa\u7ebf"),
+    ("current-run catalog baseline", "\u5f53\u524d\u8fd0\u884c\u57fa\u7ebf"),
+    ("current-run catalog", "\u5f53\u524d\u8fd0\u884c\u57fa\u7ebf"),
+    ("Current review scope:", "\u5f53\u524d\u5ba1\u9605\u8303\u56f4\uff1a"),
+    ("current review scope:", "\u5f53\u524d\u5ba1\u9605\u8303\u56f4\uff1a"),
+    ("current-run", "\u5f53\u524d\u8fd0\u884c"),
+    ("offline only", "\u4ec5\u4f9b\u79bb\u7ebf\u5ba1\u9605"),
+)
+
 
 def offline_diagnostic_scope_label() -> str:
     return t("results.review_center.detail.offline_diagnostic_scope", default="Artifact Scope")
@@ -146,6 +174,31 @@ def humanize_review_center_coverage_text(summary_value: str) -> str:
         if label:
             normalized_parts.append(f"{label} {remainder}".strip())
             continue
+        normalized_parts.append(part)
+    return " | ".join(normalized_parts)
+
+
+def humanize_review_surface_text(summary_value: str) -> str:
+    text = normalize_offline_diagnostic_line(str(summary_value or "").strip())
+    if not text:
+        return ""
+    text = humanize_review_center_coverage_text(text)
+    for source, target in _REVIEW_SURFACE_INLINE_REPLACEMENTS:
+        text = text.replace(source, target)
+    normalized_parts: list[str] = []
+    for fragment in text.split("|"):
+        part = str(fragment or "").strip()
+        if not part:
+            continue
+        lower = part.lower()
+        for prefix, label in _REVIEW_SURFACE_FRAGMENT_LABELS.items():
+            marker = prefix + " "
+            if lower == prefix:
+                part = label
+                break
+            if lower.startswith(marker):
+                part = f"{label} {part[len(marker):]}".strip()
+                break
         normalized_parts.append(part)
     return " | ".join(normalized_parts)
 
