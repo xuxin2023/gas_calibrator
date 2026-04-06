@@ -14374,6 +14374,98 @@ class CalibrationRunner:
             interval = float(scfg.get("h2o_interval_s", interval))
         return count, interval
 
+    def _finalize_sampling_prime_metrics_after_collection(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        metrics: Dict[str, Any],
+        samples: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        finalized = dict(metrics or {})
+        status = str(finalized.get("status") or "skipped")
+        if status != "timeout":
+            return finalized
+        state = self._point_runtime_state(point, phase=phase, create=False) or {}
+        effective_row = self._as_int(state.get("effective_sample_started_on_row"))
+        if effective_row is None or effective_row < 1 or effective_row > len(samples):
+            return finalized
+        effective_sample = samples[effective_row - 1]
+        finalized["status"] = "ready_after_start"
+        finalized["original_missing"] = list(finalized.get("missing") or [])
+        finalized["missing"] = []
+        finalized["effective_row"] = effective_row
+        finalized["event_ts"] = (
+            self._sample_row_wall_ts(effective_sample, key="sample_start_ts")
+            or self._sample_row_wall_ts(effective_sample)
+        )
+        finalized["ready_values"] = {
+            "pace_pressure_hpa": self._as_float(effective_sample.get("pressure_hpa")),
+            "pressure_gauge_hpa": self._as_float(effective_sample.get("pressure_gauge_hpa")),
+            "dewpoint_c": self._as_float(effective_sample.get("dewpoint_c")),
+            "dew_temp_c": self._as_float(effective_sample.get("dew_temp_c")),
+            "dew_rh_pct": self._as_float(effective_sample.get("dew_rh_pct")),
+            "dewpoint_live_c": self._as_float(effective_sample.get("dewpoint_live_c")),
+            "dew_temp_live_c": self._as_float(effective_sample.get("dew_temp_live_c")),
+            "dew_rh_live_pct": self._as_float(effective_sample.get("dew_rh_live_pct")),
+        }
+        finalized["first_valid_pace_ms"] = self._as_float(state.get("first_valid_pace_ms"))
+        finalized["first_valid_pressure_gauge_ms"] = self._as_float(state.get("first_valid_pressure_gauge_ms"))
+        finalized["first_valid_dewpoint_ms"] = self._as_float(state.get("first_valid_dewpoint_ms"))
+        finalized["first_valid_analyzer_ms"] = self._as_float(state.get("first_valid_analyzer_ms"))
+        return finalized
+
+    def _append_sampling_prime_ready_trace(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        point_tag: str,
+        metrics: Dict[str, Any],
+    ) -> None:
+        status = str(metrics.get("status") or "skipped")
+        ready_values = dict(metrics.get("ready_values") or {})
+        note = f"status={status} elapsed_s={float(metrics.get('elapsed_s') or 0.0):.3f}"
+        if status == "ready_after_start":
+            original_missing = list(metrics.get("original_missing") or metrics.get("missing") or [])
+            if original_missing:
+                note += f" originally_missing={','.join(original_missing)}"
+            effective_row = self._as_int(metrics.get("effective_row"))
+            if effective_row is not None:
+                note += f" effective_row={effective_row}"
+            for field_name, label in (
+                ("first_valid_pace_ms", "pace_first_valid_ms"),
+                ("first_valid_pressure_gauge_ms", "pressure_gauge_first_valid_ms"),
+                ("first_valid_dewpoint_ms", "dewpoint_first_valid_ms"),
+                ("first_valid_analyzer_ms", "analyzer_first_valid_ms"),
+            ):
+                value = metrics.get(field_name)
+                if value is not None:
+                    note += f" {label}={value}"
+        else:
+            missing = list(metrics.get("missing") or [])
+            if missing:
+                note += f" missing={','.join(missing)}"
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            point_tag=point_tag,
+            trace_stage="sampling_prime_ready",
+            pressure_target_hpa=point.target_pressure_hpa,
+            pace_pressure_hpa=ready_values.get("pace_pressure_hpa"),
+            pressure_gauge_hpa=ready_values.get("pressure_gauge_hpa"),
+            dewpoint_c=ready_values.get("dewpoint_c"),
+            dew_temp_c=ready_values.get("dew_temp_c"),
+            dew_rh_pct=ready_values.get("dew_rh_pct"),
+            dewpoint_live_c=ready_values.get("dewpoint_live_c"),
+            dew_temp_live_c=ready_values.get("dew_temp_live_c"),
+            dew_rh_live_pct=ready_values.get("dew_rh_live_pct"),
+            refresh_pace_state=False,
+            event_ts=self._as_float(metrics.get("event_ts")),
+            note=note,
+        )
+
     def _sample_and_log(self, point: CalibrationPoint, phase: str = "", point_tag: str = "") -> None:
         count, interval = self._sampling_params(phase=phase)
         scfg = self.cfg["workflow"]["sampling"]
@@ -14442,48 +14534,66 @@ class CalibrationRunner:
             point_tag=point_tag,
             context=sampling_context,
         )
-        prime_status = str(prime_metrics.get("status") or "skipped")
-        prime_ready_values = dict(prime_metrics.get("ready_values") or {})
-        prime_missing = list(prime_metrics.get("missing") or [])
-        prime_note = f"status={prime_status} elapsed_s={float(prime_metrics.get('elapsed_s') or 0.0):.3f}"
-        if prime_missing:
-            prime_note += f" missing={','.join(prime_missing)}"
-        self._append_pressure_trace_row(
-            point=point,
-            route=phase_text,
-            point_phase=phase_text,
-            point_tag=point_tag,
-            trace_stage="sampling_prime_ready",
-            pressure_target_hpa=point.target_pressure_hpa,
-            pace_pressure_hpa=prime_ready_values.get("pace_pressure_hpa"),
-            pressure_gauge_hpa=prime_ready_values.get("pressure_gauge_hpa"),
-            dewpoint_c=prime_ready_values.get("dewpoint_c"),
-            dew_temp_c=prime_ready_values.get("dew_temp_c"),
-            dew_rh_pct=prime_ready_values.get("dew_rh_pct"),
-            dewpoint_live_c=prime_ready_values.get("dewpoint_live_c"),
-            dew_temp_live_c=prime_ready_values.get("dew_temp_live_c"),
-            dew_rh_live_pct=prime_ready_values.get("dew_rh_live_pct"),
-            refresh_pace_state=False,
-            note=prime_note,
-        )
+        prime_trace_deferred = str(prime_metrics.get("status") or "skipped") == "timeout"
+        prime_trace_written = False
+        if not prime_trace_deferred:
+            self._append_sampling_prime_ready_trace(
+                point,
+                phase=phase_text,
+                point_tag=point_tag,
+                metrics=prime_metrics,
+            )
+            prime_trace_written = True
         try:
-            for attempt in range(retries + 1):
-                collected = self._collect_samples(point, count, interval, phase=phase, point_tag=point_tag)
-                if collected is None:
-                    return
+            try:
+                for attempt in range(retries + 1):
+                    collected = self._collect_samples(point, count, interval, phase=phase, point_tag=point_tag)
+                    if collected is None:
+                        if prime_trace_deferred and not prime_trace_written:
+                            self._append_sampling_prime_ready_trace(
+                                point,
+                                phase=phase_text,
+                                point_tag=point_tag,
+                                metrics=prime_metrics,
+                            )
+                            prime_trace_written = True
+                        return
 
-                ok, spans = self._evaluate_sample_quality(collected)
-                samples = collected
-                if ok:
-                    break
+                    ok, spans = self._evaluate_sample_quality(collected)
+                    samples = collected
+                    if ok:
+                        break
 
-                if attempt < retries:
-                    self.log(f"Sample quality not met, retry {attempt + 1}/{retries}: spans={spans}")
-                else:
-                    self.log(f"Sample quality not met, using last batch: spans={spans}")
+                    if attempt < retries:
+                        self.log(f"Sample quality not met, retry {attempt + 1}/{retries}: spans={spans}")
+                    else:
+                        self.log(f"Sample quality not met, using last batch: spans={spans}")
+            except Exception:
+                if prime_trace_deferred and not prime_trace_written:
+                    self._append_sampling_prime_ready_trace(
+                        point,
+                        phase=phase_text,
+                        point_tag=point_tag,
+                        metrics=prime_metrics,
+                    )
+                    prime_trace_written = True
+                raise
         finally:
             self._sampling_window_context = previous_sampling_context
             self._stop_sampling_window_context(sampling_context)
+
+        if prime_trace_deferred and not prime_trace_written:
+            self._append_sampling_prime_ready_trace(
+                point,
+                phase=phase_text,
+                point_tag=point_tag,
+                metrics=self._finalize_sampling_prime_metrics_after_collection(
+                    point,
+                    phase=phase_text,
+                    metrics=prime_metrics,
+                    samples=samples,
+                ),
+            )
 
         last_sample = samples[-1] if samples else {}
         sample_done_ts = self._sample_row_wall_ts(last_sample) or time.time()
