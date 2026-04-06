@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from ..review_surface_formatter import humanize_review_center_coverage_text
 from .i18n import t
 from .review_center_artifact_scope import (
     build_artifact_scope_view,
@@ -172,8 +173,8 @@ def _normalize_source_rows(raw_sources: Any, *, items: list[dict[str, Any]]) -> 
         )
         row["source_dir"] = str(row.get("source_dir") or "").strip()
         row["latest_display"] = str(row.get("latest_display") or "--")
-        row["coverage_display"] = str(row.get("coverage_display") or t("common.none"))
-        row["gaps_display"] = str(row.get("gaps_display") or t("common.none"))
+        row["coverage_display"] = humanize_review_center_coverage_text(str(row.get("coverage_display") or t("common.none")))
+        row["gaps_display"] = humanize_review_center_coverage_text(str(row.get("gaps_display") or t("common.none")))
         row["evidence_count"] = int(row.get("evidence_count", 0) or 0)
         normalized.append(row)
     return normalized
@@ -280,7 +281,7 @@ def _build_source_scope_view(
                 for line in (
                     str(base_index.get("summary") or "").strip(),
                     str(base_index.get("source_kind_summary") or "").strip(),
-                    str(base_index.get("coverage_summary") or "").strip(),
+                    humanize_review_center_coverage_text(str(base_index.get("coverage_summary") or "").strip()),
                     str(base_index.get("diagnostics_summary") or "").strip(),
                 )
                 if line
@@ -401,7 +402,9 @@ def _source_scope_risk_summary(
     failed_count = sum(1 for item in filtered_items if str(item.get("status") or "") == "failed")
     degraded_count = sum(1 for item in filtered_items if str(item.get("status") or "") == "degraded")
     diagnostic_only_count = sum(1 for item in filtered_items if str(item.get("status") or "") == "diagnostic_only")
-    missing_count = 0 if gaps_display == t("results.review_center.index.gaps_none", default="No gaps") else 1
+    missing_count = 0 if gaps_display == humanize_review_center_coverage_text(
+        t("results.review_center.index.gaps_none", default="No gaps")
+    ) else 1
     if failed_count > 0 or missing_count > 0:
         level = "high"
     elif degraded_count > 0 or diagnostic_only_count > 0:

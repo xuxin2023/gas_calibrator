@@ -11,6 +11,13 @@ _OFFLINE_DIAGNOSTIC_DISPLAY_LABELS = {
     "supporting": "\u652f\u6491\u5de5\u4ef6",
 }
 
+_REVIEW_CENTER_COVERAGE_LABELS = {
+    "coverage": "\u8986\u76d6",
+    "complete": "\u5b8c\u6574",
+    "gapped": "\u7f3a\u53e3",
+    "missing": "\u7f3a\u5c11",
+}
+
 
 def offline_diagnostic_scope_label() -> str:
     return t("results.review_center.detail.offline_diagnostic_scope", default="Artifact Scope")
@@ -60,6 +67,27 @@ def humanize_offline_diagnostic_summary_value(summary_value: str) -> str:
             continue
         prefix, remainder = (part.split(" ", 1) + [""])[:2]
         label = _OFFLINE_DIAGNOSTIC_DISPLAY_LABELS.get(prefix.lower())
+        if label:
+            normalized_parts.append(f"{label} {remainder}".strip())
+            continue
+        normalized_parts.append(part)
+    return " | ".join(normalized_parts)
+
+
+def humanize_review_center_coverage_text(summary_value: str) -> str:
+    text = str(summary_value or "").strip()
+    if not text:
+        return ""
+    normalized_parts: list[str] = []
+    for fragment in text.split("|"):
+        part = str(fragment or "").strip()
+        if not part:
+            continue
+        if part.lower() == "no gaps":
+            normalized_parts.append("\u65e0\u7f3a\u53e3")
+            continue
+        prefix, remainder = (part.split(" ", 1) + [""])[:2]
+        label = _REVIEW_CENTER_COVERAGE_LABELS.get(prefix.lower())
         if label:
             normalized_parts.append(f"{label} {remainder}".strip())
             continue

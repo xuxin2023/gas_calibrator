@@ -380,7 +380,7 @@ def test_review_center_panel_filters_by_type_status_and_source_without_implying_
         assert panel.approver_var.get()
         assert panel.risk_var.get() == payload["risk_summary"]["summary"]
         assert "sources by kind" in panel.index_var.get()
-        assert "coverage | complete" in panel.index_var.get()
+        assert "覆盖 | 完整 1 | 缺口 0 | 无缺口" in panel.index_var.get()
         assert panel.time_filter["values"]
         assert panel.source_filter["values"]
         assert len(panel.source_tree.get_children()) == 1
@@ -594,6 +594,8 @@ def test_review_center_panel_source_drilldown_syncs_list_detail_and_scope_summar
         assert "review_run_b" in panel.source_scope_var.get()
         assert str(panel.clear_source_button["state"]) == "normal"
         assert "review_run_b" in panel.index_var.get()
+        assert "2/5 | parity / analytics" in panel.index_var.get()
+        assert "缺少 suite / resilience / workbench" in panel.index_var.get()
         assert "acceptance" in panel.readiness_var.get().lower()
         assert "cfg-b" in panel.detail_lineage_var.get()
         assert "reference drift b" in panel.detail_analytics_var.get()

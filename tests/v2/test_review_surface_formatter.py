@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from gas_calibrator.v2.review_surface_formatter import collect_offline_diagnostic_detail_lines
+from gas_calibrator.v2.review_surface_formatter import (
+    collect_offline_diagnostic_detail_lines,
+    humanize_review_center_coverage_text,
+)
 
 
 def test_collect_offline_diagnostic_detail_lines_normalizes_scope_but_keeps_raw_contract() -> None:
@@ -24,3 +27,12 @@ def test_collect_offline_diagnostic_detail_lines_normalizes_scope_but_keeps_raw_
     )
     assert summary["review_highlight_lines"][0].endswith("scope artifacts 4 | plots 1")
     assert summary["detail_items"][0]["artifact_scope_summary"] == "artifacts 8 | plots 1"
+
+
+def test_humanize_review_center_coverage_text_keeps_raw_payload_contract_out_of_band() -> None:
+    text = "coverage | complete 0 | gapped 2 | missing parity / resilience"
+
+    normalized = humanize_review_center_coverage_text(text)
+
+    assert normalized == "覆盖 | 完整 0 | 缺口 2 | 缺少 parity / resilience"
+    assert text == "coverage | complete 0 | gapped 2 | missing parity / resilience"

@@ -32,6 +32,7 @@ from ...review_surface_formatter import (
     build_offline_diagnostic_scope_line_from_counts,
     collect_offline_diagnostic_detail_lines,
     humanize_offline_diagnostic_summary_value,
+    humanize_review_center_coverage_text,
     normalize_offline_diagnostic_line,
     offline_diagnostic_scope_label,
 )
@@ -1568,7 +1569,7 @@ class AppFacade:
             str(index_summary.get("source_kind_summary") or t("common.none"))
         )
         coverage_summary = self._humanize_ui_summary(
-            str(index_summary.get("coverage_summary") or t("common.none"))
+            humanize_review_center_coverage_text(str(index_summary.get("coverage_summary") or t("common.none")))
         )
         role_views = dict(acceptance_plan.get("role_views") or suite_acceptance_plan.get("role_views") or {})
         operator_view = dict(role_views.get("operator", {}) or {})
@@ -1586,7 +1587,9 @@ class AppFacade:
         ]
         complete_sources = int(index_summary.get("complete_sources", 0) or 0)
         recent_runs = int(index_summary.get("recent_runs", 0) or 0)
-        coverage_gaps = self._humanize_ui_summary(str(index_summary.get("coverage_gaps_display") or t("common.none")))
+        coverage_gaps = self._humanize_ui_summary(
+            humanize_review_center_coverage_text(str(index_summary.get("coverage_gaps_display") or t("common.none")))
+        )
         risk_summary = self._build_review_risk_summary(
             evidence_items=evidence_items,
             acceptance_plan=acceptance_plan,
@@ -3285,13 +3288,17 @@ class AppFacade:
             for name, count in missing_by_type.items()
             if int(count or 0) > 0
         ]
-        coverage_gaps_display = " | ".join(gap_fragments) if gap_fragments else t("results.review_center.index.gaps_none", default="No gaps")
-        coverage_summary = t(
+        coverage_gaps_display = humanize_review_center_coverage_text(
+            " | ".join(gap_fragments) if gap_fragments else t("results.review_center.index.gaps_none", default="No gaps")
+        )
+        coverage_summary = humanize_review_center_coverage_text(
+            t(
             "results.review_center.index.coverage_summary",
             complete=complete_sources,
             gapped=gapped_sources,
             gaps=coverage_gaps_display,
             default=f"complete {complete_sources} | gapped {gapped_sources} | {coverage_gaps_display}",
+        )
         )
         normalized_diagnostics = {
             "cache_hit": bool(dict(diagnostics or {}).get("cache_hit", False)),
@@ -3345,7 +3352,7 @@ class AppFacade:
             },
             "diagnostics": normalized_diagnostics,
             "diagnostics_summary": diagnostics_summary,
-            "coverage_gaps_display": " | ".join(gap_fragments) if gap_fragments else t("results.review_center.index.gaps_none", default="缺口已补齐"),
+            "coverage_gaps_display": coverage_gaps_display,
             "source_kind_summary": source_kind_summary,
             "coverage_summary": coverage_summary,
             "sources": sources[:8],
