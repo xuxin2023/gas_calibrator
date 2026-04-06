@@ -28,9 +28,11 @@ from ...core.event_bus import Event, EventType
 from ...core.offline_artifacts import build_point_taxonomy_handoff
 from ...domain.mode_models import ModeProfile, RunMode
 from ...review_surface_formatter import (
+    build_offline_diagnostic_detail_line,
     build_offline_diagnostic_detail_item_line,
     build_offline_diagnostic_scope_line_from_counts,
     collect_offline_diagnostic_detail_lines,
+    humanize_offline_diagnostic_detail_value,
     humanize_offline_diagnostic_summary_value,
     humanize_review_center_coverage_text,
     normalize_offline_diagnostic_line,
@@ -2922,6 +2924,7 @@ class AppFacade:
             or payload.get("recommendation")
             or "--"
         ).strip() or "--"
+        classification_display = humanize_offline_diagnostic_detail_value("classification", classification)
         summary = self._humanize_ui_summary(
             str(
                 payload.get("summary")
@@ -2953,31 +2956,37 @@ class AppFacade:
             artifact_count=len(artifact_paths),
             plot_count=len(plot_artifact_paths),
         )
+        classification_line = build_offline_diagnostic_detail_line("classification", classification)
+        variant_line = build_offline_diagnostic_detail_line("recommended_variant", recommended_variant)
+        dominant_error_line = build_offline_diagnostic_detail_line("dominant_error", dominant_error)
+        next_check_line = build_offline_diagnostic_detail_line("next_check", next_check)
+        bundle_dir_line = build_offline_diagnostic_detail_line("bundle_dir", source_dir)
+        primary_artifact_line = build_offline_diagnostic_detail_line("primary_artifact", path)
         analytics_detail_summary = [
             summary,
             artifact_scope_line,
-            f"classification: {classification}",
-            f"recommended variant: {recommended_variant}",
-            f"dominant error: {dominant_error}",
-            f"next check: {next_check}",
+            classification_line,
+            variant_line,
+            dominant_error_line,
+            next_check_line,
         ]
         lineage_detail_summary = [
             artifact_scope_line,
-            f"bundle dir: {source_dir}",
-            f"primary artifact: {path}",
+            bundle_dir_line,
+            primary_artifact_line,
         ]
         detail = "\n".join(
             [
                 f"{t('results.review_center.detail.summary')}: {summary}",
-                f"{t('results.review_center.detail.status')}: {classification}",
+                f"{t('results.review_center.detail.status')}: {classification_display}",
                 f"{t('results.review_center.detail.source')}: {display_evidence_source(evidence_source, default=evidence_source)}",
                 f"{t('results.review_center.detail.state')}: {display_evidence_state(payload.get('evidence_state'), default=str(payload.get('evidence_state') or 'collected'))}",
                 f"{t('results.review_center.detail.path')}: {path}",
                 artifact_scope_line,
-                f"classification: {classification}",
-                f"recommended variant: {recommended_variant}",
-                f"dominant error: {dominant_error}",
-                f"next check: {next_check}",
+                classification_line,
+                variant_line,
+                dominant_error_line,
+                next_check_line,
                 t("results.review_center.disclaimer"),
             ]
         )
@@ -2993,7 +3002,7 @@ class AppFacade:
             evidence_source=evidence_source,
             evidence_state=str(payload.get("evidence_state") or "collected"),
             not_real_acceptance_evidence=bool(payload.get("not_real_acceptance_evidence", True)),
-            key_fields=[classification, recommended_variant, dominant_error, next_check],
+            key_fields=[classification_display, recommended_variant, dominant_error, next_check],
             artifact_paths=artifact_paths,
             detail_analytics_summary=analytics_detail_summary,
             detail_lineage_summary=lineage_detail_summary,
@@ -3015,6 +3024,7 @@ class AppFacade:
             or payload.get("recommendation")
             or "--"
         ).strip() or "--"
+        continue_display = humanize_offline_diagnostic_detail_value("continue_s1", continue_text)
         summary = self._humanize_ui_summary(
             str(
                 payload.get("summary")
@@ -3044,29 +3054,34 @@ class AppFacade:
             artifact_count=len(artifact_paths),
             plot_count=len(plot_artifact_paths),
         )
+        continue_line = build_offline_diagnostic_detail_line("continue_s1", continue_text)
+        dominant_conclusion_line = build_offline_diagnostic_detail_line("dominant_conclusion", dominant_conclusion)
+        recommended_next_check_line = build_offline_diagnostic_detail_line("recommended_next_check", recommendation)
+        bundle_dir_line = build_offline_diagnostic_detail_line("bundle_dir", source_dir)
+        primary_artifact_line = build_offline_diagnostic_detail_line("primary_artifact", path)
         analytics_detail_summary = [
             summary,
             artifact_scope_line,
-            f"should_continue_s1: {continue_text}",
-            f"dominant conclusion: {dominant_conclusion}",
-            f"recommended next check: {recommendation}",
+            continue_line,
+            dominant_conclusion_line,
+            recommended_next_check_line,
         ]
         lineage_detail_summary = [
             artifact_scope_line,
-            f"bundle dir: {source_dir}",
-            f"primary artifact: {path}",
+            bundle_dir_line,
+            primary_artifact_line,
         ]
         detail = "\n".join(
             [
                 f"{t('results.review_center.detail.summary')}: {summary}",
-                f"{t('results.review_center.detail.status')}: {continue_text}",
+                f"{t('results.review_center.detail.status')}: {continue_display}",
                 f"{t('results.review_center.detail.source')}: {display_evidence_source(evidence_source, default=evidence_source)}",
                 f"{t('results.review_center.detail.state')}: {display_evidence_state(payload.get('evidence_state'), default=str(payload.get('evidence_state') or 'collected'))}",
                 f"{t('results.review_center.detail.path')}: {path}",
                 artifact_scope_line,
-                f"should_continue_s1: {continue_text}",
-                f"dominant conclusion: {dominant_conclusion}",
-                f"recommended next check: {recommendation}",
+                continue_line,
+                dominant_conclusion_line,
+                recommended_next_check_line,
                 t("results.review_center.disclaimer"),
             ]
         )
@@ -3082,7 +3097,7 @@ class AppFacade:
             evidence_source=evidence_source,
             evidence_state=str(payload.get("evidence_state") or "collected"),
             not_real_acceptance_evidence=bool(payload.get("not_real_acceptance_evidence", True)),
-            key_fields=[continue_text, dominant_conclusion, recommendation],
+            key_fields=[continue_display, dominant_conclusion, recommendation],
             artifact_paths=artifact_paths,
             detail_analytics_summary=analytics_detail_summary,
             detail_lineage_summary=lineage_detail_summary,

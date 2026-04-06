@@ -1927,6 +1927,24 @@
         "analytics_fault": "主故障归因",
         "analytics_lineage": "血缘摘要",
         "offline_diagnostic_scope": "工件范围",
+        "offline_diagnostic_classification": "分类",
+        "offline_diagnostic_recommended_variant": "建议变体",
+        "offline_diagnostic_dominant_error": "主导误差",
+        "offline_diagnostic_next_check": "下一步检查",
+        "offline_diagnostic_continue_s1": "S1 继续判定",
+        "offline_diagnostic_dominant_conclusion": "主导结论",
+        "offline_diagnostic_recommended_next_check": "建议下一步检查",
+        "offline_diagnostic_bundle_dir": "工件目录",
+        "offline_diagnostic_primary_artifact": "主工件",
+        "offline_diagnostic_value": {
+          "warn": "预警",
+          "warning": "预警",
+          "fail": "失败",
+          "pass": "通过",
+          "insufficient_evidence": "证据不足",
+          "continue": "继续",
+          "hold": "保持"
+        },
         "spectral_status": "谱分析状态"
       },
       "detail_panel": {

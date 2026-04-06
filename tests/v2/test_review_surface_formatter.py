@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from gas_calibrator.v2.review_surface_formatter import (
+    build_offline_diagnostic_detail_line,
     collect_offline_diagnostic_detail_lines,
     humanize_review_center_coverage_text,
 )

@@ -1928,6 +1928,24 @@
         "analytics_fault": "Primary Fault Attribution",
         "analytics_lineage": "Lineage",
         "offline_diagnostic_scope": "Artifact Scope",
+        "offline_diagnostic_classification": "Classification",
+        "offline_diagnostic_recommended_variant": "Recommended Variant",
+        "offline_diagnostic_dominant_error": "Dominant Error",
+        "offline_diagnostic_next_check": "Next Check",
+        "offline_diagnostic_continue_s1": "S1 Continuation",
+        "offline_diagnostic_dominant_conclusion": "Dominant Conclusion",
+        "offline_diagnostic_recommended_next_check": "Recommended Next Check",
+        "offline_diagnostic_bundle_dir": "Bundle Dir",
+        "offline_diagnostic_primary_artifact": "Primary Artifact",
+        "offline_diagnostic_value": {
+          "warn": "Warning",
+          "warning": "Warning",
+          "fail": "Failed",
+          "pass": "Passed",
+          "insufficient_evidence": "Insufficient Evidence",
+          "continue": "Continue",
+          "hold": "Hold"
+        },
         "spectral_status": "Spectral Status"
       },
       "detail_panel": {

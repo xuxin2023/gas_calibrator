@@ -11,6 +11,38 @@ _OFFLINE_DIAGNOSTIC_DISPLAY_LABELS = {
     "supporting": "\u652f\u6491\u5de5\u4ef6",
 }
 
+_OFFLINE_DIAGNOSTIC_DETAIL_LABELS = {
+    "classification": ("results.review_center.detail.offline_diagnostic_classification", "\u5206\u7c7b"),
+    "recommended_variant": ("results.review_center.detail.offline_diagnostic_recommended_variant", "\u5efa\u8bae\u53d8\u4f53"),
+    "dominant_error": ("results.review_center.detail.offline_diagnostic_dominant_error", "\u4e3b\u5bfc\u8bef\u5dee"),
+    "next_check": ("results.review_center.detail.offline_diagnostic_next_check", "\u4e0b\u4e00\u6b65\u68c0\u67e5"),
+    "continue_s1": ("results.review_center.detail.offline_diagnostic_continue_s1", "S1 \u7ee7\u7eed\u5224\u5b9a"),
+    "dominant_conclusion": ("results.review_center.detail.offline_diagnostic_dominant_conclusion", "\u4e3b\u5bfc\u7ed3\u8bba"),
+    "recommended_next_check": (
+        "results.review_center.detail.offline_diagnostic_recommended_next_check",
+        "\u5efa\u8bae\u4e0b\u4e00\u6b65\u68c0\u67e5",
+    ),
+    "bundle_dir": ("results.review_center.detail.offline_diagnostic_bundle_dir", "\u5de5\u4ef6\u76ee\u5f55"),
+    "primary_artifact": ("results.review_center.detail.offline_diagnostic_primary_artifact", "\u4e3b\u5de5\u4ef6"),
+}
+
+_OFFLINE_DIAGNOSTIC_DETAIL_VALUE_LABELS = {
+    "classification": {
+        "warn": ("results.review_center.detail.offline_diagnostic_value.warn", "\u9884\u8b66"),
+        "warning": ("results.review_center.detail.offline_diagnostic_value.warning", "\u9884\u8b66"),
+        "fail": ("results.review_center.detail.offline_diagnostic_value.fail", "\u5931\u8d25"),
+        "pass": ("results.review_center.detail.offline_diagnostic_value.pass", "\u901a\u8fc7"),
+        "insufficient_evidence": (
+            "results.review_center.detail.offline_diagnostic_value.insufficient_evidence",
+            "\u8bc1\u636e\u4e0d\u8db3",
+        ),
+    },
+    "continue_s1": {
+        "continue": ("results.review_center.detail.offline_diagnostic_value.continue", "\u7ee7\u7eed"),
+        "hold": ("results.review_center.detail.offline_diagnostic_value.hold", "\u4fdd\u6301"),
+    },
+}
+
 _REVIEW_CENTER_COVERAGE_LABELS = {
     "coverage": "\u8986\u76d6",
     "complete": "\u5b8c\u6574",
@@ -72,6 +104,29 @@ def humanize_offline_diagnostic_summary_value(summary_value: str) -> str:
             continue
         normalized_parts.append(part)
     return " | ".join(normalized_parts)
+
+
+def humanize_offline_diagnostic_detail_value(field_key: str, value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    key = str(field_key or "").strip().lower()
+    value_key, default = _OFFLINE_DIAGNOSTIC_DETAIL_VALUE_LABELS.get(key, {}).get(text.lower(), (None, None))
+    if value_key:
+        return t(value_key, default=default)
+    return text
+
+
+def build_offline_diagnostic_detail_line(field_key: str, value: Any) -> str:
+    text = humanize_offline_diagnostic_detail_value(field_key, value)
+    if not text:
+        return ""
+    label_key, default = _OFFLINE_DIAGNOSTIC_DETAIL_LABELS.get(
+        str(field_key or "").strip().lower(),
+        ("", str(field_key or "").strip() or t("common.none")),
+    )
+    label = t(label_key, default=default) if label_key else default
+    return f"{label}: {text}"
 
 
 def humanize_review_center_coverage_text(summary_value: str) -> str:
