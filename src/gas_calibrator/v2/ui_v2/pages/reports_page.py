@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Any
 
+from ...review_surface_formatter import collect_offline_diagnostic_detail_lines
 from ..i18n import display_evidence_source, t
 from ..review_center_presenter import build_artifact_scope_view
 from ..widgets.ai_summary_panel import AISummaryPanel
@@ -233,15 +234,7 @@ class ReportsPage(ttk.Frame):
                 )
             )
 
-        for detail_line in [
-            str(item).strip()
-            for item in list(
-                offline_diagnostic_adapter_summary.get("review_highlight_lines")
-                or offline_diagnostic_adapter_summary.get("detail_lines")
-                or []
-            )
-            if str(item).strip()
-        ][:3]:
+        for detail_line in collect_offline_diagnostic_detail_lines(offline_diagnostic_adapter_summary, limit=3):
             lines.append(
                 t(
                     "facade.results.result_summary.offline_diagnostic_detail",

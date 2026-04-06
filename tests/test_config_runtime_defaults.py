@@ -145,17 +145,17 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["pressure"]["h2o_sampling_gate_pressure_fill_s"] == 8.0
     assert cfg["workflow"]["pressure"]["co2_sampling_gate_min_samples"] == 6
     assert cfg["workflow"]["pressure"]["h2o_sampling_gate_min_samples"] == 8
-    assert cfg["workflow"]["pressure"]["co2_postseal_dewpoint_window_s"] == 2.0
-    assert cfg["workflow"]["pressure"]["co2_postseal_dewpoint_timeout_s"] == 5.5
+    assert cfg["workflow"]["pressure"]["co2_postseal_dewpoint_window_s"] == 4.0
+    assert cfg["workflow"]["pressure"]["co2_postseal_dewpoint_timeout_s"] == 6.0
     assert cfg["workflow"]["pressure"]["co2_postseal_dewpoint_span_c"] == 0.12
     assert cfg["workflow"]["pressure"]["co2_postseal_dewpoint_slope_c_per_s"] == 0.04
-    assert cfg["workflow"]["pressure"]["co2_postseal_dewpoint_min_samples"] == 4
+    assert cfg["workflow"]["pressure"]["co2_postseal_dewpoint_min_samples"] == 6
     assert cfg["workflow"]["pressure"]["co2_postseal_rebound_guard_enabled"] is False
     assert cfg["workflow"]["pressure"]["co2_postseal_rebound_window_s"] == 8.0
     assert cfg["workflow"]["pressure"]["co2_postseal_rebound_min_rise_c"] == 0.12
-    assert cfg["workflow"]["pressure"]["co2_postseal_physical_qc_enabled"] is False
+    assert cfg["workflow"]["pressure"]["co2_postseal_physical_qc_enabled"] is True
     assert cfg["workflow"]["pressure"]["co2_postseal_physical_qc_max_abs_delta_c"] == 1.0
-    assert cfg["workflow"]["pressure"]["co2_postseal_physical_qc_policy"] == "off"
+    assert cfg["workflow"]["pressure"]["co2_postseal_physical_qc_policy"] == "warn"
     assert cfg["workflow"]["pressure"]["co2_postseal_timeout_policy"] == "pass"
     assert cfg["workflow"]["pressure"]["co2_presample_long_guard_enabled"] is False
     assert cfg["workflow"]["pressure"]["co2_presample_long_guard_window_s"] == 8.0

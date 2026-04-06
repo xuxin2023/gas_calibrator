@@ -8,6 +8,13 @@ from ..config import build_step2_config_governance_handoff
 from ..core.acceptance_model import normalize_evidence_source
 from ..core.artifact_catalog import KNOWN_REPORT_ARTIFACTS
 from ..core.offline_artifacts import build_point_taxonomy_handoff, summarize_offline_diagnostic_adapters
+from ..review_surface_formatter import (
+    build_offline_diagnostic_detail_item_line,
+    build_offline_diagnostic_scope_line,
+    collect_offline_diagnostic_detail_lines,
+    normalize_offline_diagnostic_line,
+    offline_diagnostic_scope_label,
+)
 from ..ui_v2.artifact_registry_governance import build_current_run_governance
 from ..ui_v2.i18n import t
 
@@ -471,48 +478,20 @@ class ResultsGateway:
         *,
         limit: int = 3,
     ) -> list[str]:
-        summary = dict(offline_diagnostic_adapter_summary or {})
-        lines: list[str] = []
-        for item in list(summary.get("review_highlight_lines") or summary.get("detail_lines") or []):
-            text = ResultsGateway._normalize_offline_diagnostic_line(str(item).strip())
-            if text and text not in lines:
-                lines.append(text)
-        if len(lines) < limit:
-            for item in list(summary.get("detail_items") or []):
-                text = ResultsGateway._offline_diagnostic_detail_item_line(item)
-                if text and text not in lines:
-                    lines.append(text)
-                if len(lines) >= limit:
-                    break
-        return lines[:limit]
+        return collect_offline_diagnostic_detail_lines(offline_diagnostic_adapter_summary, limit=limit)
 
     @staticmethod
     def _offline_diagnostic_detail_item_line(item: Any) -> str:
-        payload = dict(item or {}) if isinstance(item, dict) else {}
-        if not payload:
-            return ""
-        line = str(payload.get("detail_line") or payload.get("summary") or "").strip()
-        scope = str(payload.get("artifact_scope_summary") or "").strip()
-        if scope and scope.lower() not in line.lower():
-            scope_line = ResultsGateway._offline_diagnostic_scope_line(scope)
-            return f"{line} | {scope_line}" if line else scope_line
-        return ResultsGateway._normalize_offline_diagnostic_line(line)
+        return build_offline_diagnostic_detail_item_line(item)
 
     @staticmethod
     def _offline_diagnostic_scope_line(scope_summary: str) -> str:
-        return ResultsGateway._offline_diagnostic_scope_label() + ": " + str(scope_summary or "").strip()
+        return build_offline_diagnostic_scope_line(scope_summary)
 
     @staticmethod
     def _offline_diagnostic_scope_label() -> str:
-        return t("results.review_center.detail.offline_diagnostic_scope", default="Artifact Scope")
+        return offline_diagnostic_scope_label()
 
     @staticmethod
     def _normalize_offline_diagnostic_line(line: str) -> str:
-        text = str(line or "").strip()
-        marker = " | scope "
-        if marker in text:
-            prefix, suffix = text.split(marker, 1)
-            suffix = str(suffix or "").strip()
-            scope_line = ResultsGateway._offline_diagnostic_scope_line(suffix)
-            return f"{prefix.strip()} | {scope_line}" if prefix.strip() else scope_line
-        return text
+        return normalize_offline_diagnostic_line(line)
