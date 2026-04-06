@@ -472,9 +472,27 @@ class ResultsGateway:
         limit: int = 3,
     ) -> list[str]:
         summary = dict(offline_diagnostic_adapter_summary or {})
-        lines = [
-            str(item).strip()
-            for item in list(summary.get("review_highlight_lines") or summary.get("detail_lines") or [])
-            if str(item).strip()
-        ]
+        lines: list[str] = []
+        for item in list(summary.get("review_highlight_lines") or summary.get("detail_lines") or []):
+            text = str(item).strip()
+            if text and text not in lines:
+                lines.append(text)
+        if len(lines) < limit:
+            for item in list(summary.get("detail_items") or []):
+                text = ResultsGateway._offline_diagnostic_detail_item_line(item)
+                if text and text not in lines:
+                    lines.append(text)
+                if len(lines) >= limit:
+                    break
         return lines[:limit]
+
+    @staticmethod
+    def _offline_diagnostic_detail_item_line(item: Any) -> str:
+        payload = dict(item or {}) if isinstance(item, dict) else {}
+        if not payload:
+            return ""
+        line = str(payload.get("detail_line") or payload.get("summary") or "").strip()
+        scope = str(payload.get("artifact_scope_summary") or "").strip()
+        if scope and scope.lower() not in line.lower():
+            return f"{line} | scope {scope}" if line else f"scope {scope}"
+        return line

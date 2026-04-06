@@ -598,17 +598,23 @@ def test_results_gateway_surfaces_offline_diagnostic_adapter_artifacts(tmp_path:
     assert summary["detail_lines"]
     assert summary["review_highlight_lines"]
     assert summary["detail_items"][0]["kind"] == "room_temp"
+    assert summary["detail_items"][0]["artifact_scope_summary"] == "artifacts 4 | plots 1"
+    assert summary["detail_items"][1]["artifact_scope_summary"] == "artifacts 8 | plots 1"
     assert summary["latest_room_temp"]["recommended_variant"] == "ambient_open"
     assert summary["latest_analyzer_chain"]["recommendation"] == "inspect analyzer chain"
     assert results_payload["evidence_source"] == "simulated_protocol"
     assert reports_payload["evidence_source"] == "simulated_protocol"
     assert any("Room-temp diagnostic summary" in str(line) for line in list(summary.get("review_lines") or []))
+    assert any("scope artifacts 4 | plots 1" in str(line) for line in list(summary.get("review_highlight_lines") or []))
+    assert any("scope artifacts 8 | plots 1" in str(line) for line in list(summary.get("review_highlight_lines") or []))
     assert "simulated_protocol" in results_payload["result_summary_text"]
     assert "simulated_protocol" in reports_payload["result_summary_text"]
     assert "离线诊断" in results_payload["result_summary_text"]
     assert "离线诊断" in reports_payload["result_summary_text"]
     assert "artifacts 12 | plots 2" in results_payload["result_summary_text"]
     assert "primary 2 | supporting 8 | plots 2" in results_payload["result_summary_text"]
+    assert "scope artifacts 4 | plots 1" in results_payload["result_summary_text"]
+    assert "scope artifacts 8 | plots 1" in reports_payload["result_summary_text"]
     assert "verify ambient chain | inspect analyzer chain" in reports_payload["result_summary_text"]
     assert "verify ambient chain" in results_payload["result_summary_text"]
     assert "inspect analyzer chain" in reports_payload["result_summary_text"]

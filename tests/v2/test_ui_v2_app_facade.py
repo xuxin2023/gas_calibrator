@@ -445,6 +445,8 @@ def test_app_facade_surfaces_offline_diagnostic_adapter_review_items(tmp_path: P
     assert offline_summary["next_check_summary"] == "verify ambient chain | inspect analyzer chain"
     assert offline_summary["detail_lines"]
     assert offline_summary["review_highlight_lines"]
+    assert offline_summary["detail_items"][0]["artifact_scope_summary"] == "artifacts 4 | plots 1"
+    assert offline_summary["detail_items"][1]["artifact_scope_summary"] == "artifacts 8 | plots 1"
     assert offline_summary["latest_room_temp"]["recommended_variant"] == "ambient_open"
     assert offline_summary["latest_analyzer_chain"]["recommendation"] == "inspect analyzer chain"
     assert reports_snapshot["evidence_source"] == "simulated_protocol"
@@ -455,6 +457,8 @@ def test_app_facade_surfaces_offline_diagnostic_adapter_review_items(tmp_path: P
     assert "离线诊断" in reports_snapshot["result_summary_text"]
     assert "artifacts 12 | plots 2" in results_snapshot["result_summary_text"]
     assert "primary 2 | supporting 8 | plots 2" in results_snapshot["result_summary_text"]
+    assert "scope artifacts 4 | plots 1" in results_snapshot["result_summary_text"]
+    assert "scope artifacts 8 | plots 1" in reports_snapshot["result_summary_text"]
     assert "verify ambient chain | inspect analyzer chain" in reports_snapshot["result_summary_text"]
     assert "verify ambient chain" in results_snapshot["result_summary_text"]
     assert "inspect analyzer chain" in reports_snapshot["result_summary_text"]

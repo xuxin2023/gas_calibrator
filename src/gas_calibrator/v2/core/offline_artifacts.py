@@ -610,6 +610,7 @@ def _build_room_temp_detail_item(bundle: dict[str, Any]) -> dict[str, Any]:
     recommended_variant = str(payload.get("recommended_variant") or "--").strip() or "--"
     dominant_error = str(payload.get("dominant_error") or "--").strip() or "--"
     next_check = str(payload.get("next_check") or "--").strip() or "--"
+    artifact_scope_summary = _offline_diagnostic_scope_summary(payload)
     return {
         "kind": "room_temp",
         "summary": str(payload.get("summary_text") or "").strip(),
@@ -619,6 +620,7 @@ def _build_room_temp_detail_item(bundle: dict[str, Any]) -> dict[str, Any]:
             f"variant {recommended_variant} | "
             f"dominant {dominant_error} | "
             f"next {next_check}"
+            + (f" | scope {artifact_scope_summary}" if artifact_scope_summary else "")
         ),
         "generated_at": str(payload.get("generated_at") or ""),
         "primary_artifact_path": str(payload.get("primary_artifact_path") or ""),
@@ -627,6 +629,9 @@ def _build_room_temp_detail_item(bundle: dict[str, Any]) -> dict[str, Any]:
         "recommended_variant": recommended_variant,
         "dominant_error": dominant_error,
         "next_check": next_check,
+        "artifact_scope_summary": artifact_scope_summary,
+        "artifact_count": len(list(payload.get("artifact_paths") or [])),
+        "plot_count": len(list(payload.get("plot_artifact_paths") or [])),
     }
 
 
@@ -638,6 +643,7 @@ def _build_analyzer_chain_detail_item(bundle: dict[str, Any]) -> dict[str, Any]:
     continue_text = "--" if should_continue_s1 is None else ("continue" if bool(should_continue_s1) else "hold")
     dominant_conclusion = str(payload.get("dominant_conclusion") or "--").strip() or "--"
     recommendation = str(payload.get("recommendation") or "--").strip() or "--"
+    artifact_scope_summary = _offline_diagnostic_scope_summary(payload)
     return {
         "kind": "analyzer_chain",
         "summary": str(payload.get("summary_text") or "").strip(),
@@ -646,6 +652,7 @@ def _build_analyzer_chain_detail_item(bundle: dict[str, Any]) -> dict[str, Any]:
             f"continue_s1 {continue_text} | "
             f"conclusion {dominant_conclusion} | "
             f"next {recommendation}"
+            + (f" | scope {artifact_scope_summary}" if artifact_scope_summary else "")
         ),
         "generated_at": str(payload.get("generated_at") or ""),
         "primary_artifact_path": str(payload.get("primary_artifact_path") or ""),
@@ -654,7 +661,20 @@ def _build_analyzer_chain_detail_item(bundle: dict[str, Any]) -> dict[str, Any]:
         "continue_s1": continue_text,
         "dominant_conclusion": dominant_conclusion,
         "recommendation": recommendation,
+        "artifact_scope_summary": artifact_scope_summary,
+        "artifact_count": len(list(payload.get("artifact_paths") or [])),
+        "plot_count": len(list(payload.get("plot_artifact_paths") or [])),
     }
+
+
+def _offline_diagnostic_scope_summary(bundle: dict[str, Any]) -> str:
+    payload = dict(bundle or {})
+    artifact_count = len([item for item in list(payload.get("artifact_paths") or []) if str(item or "").strip()])
+    plot_count = len([item for item in list(payload.get("plot_artifact_paths") or []) if str(item or "").strip()])
+    parts = [f"artifacts {artifact_count}"]
+    if plot_count > 0:
+        parts.append(f"plots {plot_count}")
+    return " | ".join(parts)
 
 
 def export_run_offline_artifacts(

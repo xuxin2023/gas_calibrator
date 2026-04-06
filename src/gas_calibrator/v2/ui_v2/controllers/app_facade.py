@@ -1231,13 +1231,9 @@ class AppFacade:
         )
         offline_diagnostic_detail_lines = [
             self._humanize_ui_summary(str(item))
-            for item in list(
-                offline_diagnostic_adapter_summary.get("review_highlight_lines")
-                or offline_diagnostic_adapter_summary.get("detail_lines")
-                or []
-            )
+            for item in self._offline_diagnostic_highlight_lines(offline_diagnostic_adapter_summary)
             if str(item).strip()
-        ][:3]
+        ]
         qc_evidence_section = self._build_results_qc_evidence_section(
             analytics_summary=analytics_summary,
             workbench_evidence_summary=workbench_evidence_summary,
@@ -2867,6 +2863,39 @@ class AppFacade:
             + ": "
             + " | ".join(parts)
         )
+
+    @classmethod
+    def _offline_diagnostic_highlight_lines(
+        cls,
+        offline_diagnostic_adapter_summary: dict[str, Any] | None,
+        *,
+        limit: int = 3,
+    ) -> list[str]:
+        summary = dict(offline_diagnostic_adapter_summary or {})
+        lines: list[str] = []
+        for item in list(summary.get("review_highlight_lines") or summary.get("detail_lines") or []):
+            text = str(item).strip()
+            if text and text not in lines:
+                lines.append(text)
+        if len(lines) < limit:
+            for item in list(summary.get("detail_items") or []):
+                text = cls._offline_diagnostic_detail_item_line(item)
+                if text and text not in lines:
+                    lines.append(text)
+                if len(lines) >= limit:
+                    break
+        return lines[:limit]
+
+    @staticmethod
+    def _offline_diagnostic_detail_item_line(item: Any) -> str:
+        payload = dict(item or {}) if isinstance(item, dict) else {}
+        if not payload:
+            return ""
+        line = str(payload.get("detail_line") or payload.get("summary") or "").strip()
+        scope = str(payload.get("artifact_scope_summary") or "").strip()
+        if scope and scope.lower() not in line.lower():
+            return f"{line} | scope {scope}" if line else f"scope {scope}"
+        return line
 
     def _build_offline_diagnostic_review_item(self, payload: dict[str, Any], path: Path) -> dict[str, Any]:
         if path.name == "isolation_comparison_summary.json":
