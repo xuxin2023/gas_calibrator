@@ -37,3 +37,18 @@ def test_humanize_review_center_coverage_text_keeps_raw_payload_contract_out_of_
 
     assert normalized == "覆盖 | 完整 0 | 缺口 2 | 缺少 parity / resilience"
     assert text == "coverage | complete 0 | gapped 2 | missing parity / resilience"
+
+
+def test_build_offline_diagnostic_detail_line_humanizes_reviewer_labels_without_touching_raw_values() -> None:
+    classification = "warn"
+    continue_s1 = "hold"
+
+    classification_line = build_offline_diagnostic_detail_line("classification", classification)
+    continue_line = build_offline_diagnostic_detail_line("continue_s1", continue_s1)
+    bundle_dir_line = build_offline_diagnostic_detail_line("bundle_dir", "D:/tmp/run_scope")
+
+    assert classification_line == "\u5206\u7c7b: \u9884\u8b66"
+    assert continue_line == "S1 \u7ee7\u7eed\u5224\u5b9a: \u4fdd\u6301"
+    assert bundle_dir_line == "\u5de5\u4ef6\u76ee\u5f55: D:/tmp/run_scope"
+    assert classification == "warn"
+    assert continue_s1 == "hold"

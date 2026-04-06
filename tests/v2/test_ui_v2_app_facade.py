@@ -469,9 +469,29 @@ def test_app_facade_surfaces_offline_diagnostic_adapter_review_items(tmp_path: P
         for item in list(results_snapshot["review_center"]["filters"]["type_options"] or [])
     )
     assert len(offline_items) == 2
+    room_temp_item = next(item for item in offline_items if item["path"].endswith("diagnostic_summary.json"))
+    analyzer_item = next(item for item in offline_items if item["path"].endswith("isolation_comparison_summary.json"))
     assert all(item["type_display"] for item in offline_items)
     assert all(item["detail_analytics_summary"] for item in offline_items)
     assert all(item["detail_lineage_summary"] for item in offline_items)
+    assert room_temp_item["raw_status"] == "warn"
+    assert analyzer_item["raw_status"] == "hold"
+    assert "\u5206\u7c7b: \u9884\u8b66" in room_temp_item["detail_text"]
+    assert "\u5efa\u8bae\u53d8\u4f53: ambient_open" in room_temp_item["detail_text"]
+    assert "\u4e3b\u5bfc\u8bef\u5dee: pressure_bias" in room_temp_item["detail_text"]
+    assert "\u4e0b\u4e00\u6b65\u68c0\u67e5: verify ambient chain" in room_temp_item["detail_text"]
+    assert "classification:" not in room_temp_item["detail_text"]
+    assert "recommended variant:" not in room_temp_item["detail_text"]
+    assert "dominant error:" not in room_temp_item["detail_text"]
+    assert "next check:" not in room_temp_item["detail_text"]
+    assert "S1 \u7ee7\u7eed\u5224\u5b9a: \u4fdd\u6301" in analyzer_item["detail_text"]
+    assert "\u4e3b\u5bfc\u7ed3\u8bba: chain mismatch" in analyzer_item["detail_text"]
+    assert "\u5efa\u8bae\u4e0b\u4e00\u6b65\u68c0\u67e5: inspect analyzer chain" in analyzer_item["detail_text"]
+    assert "should_continue_s1:" not in analyzer_item["detail_text"]
+    assert "dominant conclusion:" not in analyzer_item["detail_text"]
+    assert "recommended next check:" not in analyzer_item["detail_text"]
+    assert any("\u5de5\u4ef6\u76ee\u5f55:" in str(line) for line in list(analyzer_item["detail_lineage_summary"] or []))
+    assert any("\u4e3b\u5de5\u4ef6:" in str(line) for line in list(analyzer_item["detail_lineage_summary"] or []))
     assert all(
         any("工件范围" in str(line) for line in list(item["detail_analytics_summary"] or []))
         for item in offline_items
