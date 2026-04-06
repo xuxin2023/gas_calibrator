@@ -561,7 +561,7 @@
       "co2_route": {
         "preseal_soak_s": 180,
         "first_point_preseal_soak_s": 180,
-        "post_h2o_zero_ppm_soak_s": 900
+        "post_h2o_zero_ppm_soak_s": 180
       },
       "sensor": {
         "enabled": true,

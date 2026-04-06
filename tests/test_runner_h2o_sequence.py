@@ -2043,6 +2043,49 @@ def test_wait_co2_route_soak_uses_post_h2o_zero_flush(monkeypatch, tmp_path: Pat
     assert any("wait 600s before pressure sealing" in message for message in messages)
 
 
+def test_wait_co2_route_soak_falls_back_to_regular_duration_for_post_h2o_zero_flush(
+    monkeypatch, tmp_path: Path
+) -> None:
+    logger = RunLogger(tmp_path)
+    messages: list[str] = []
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "stability": {
+                    "co2_route": {
+                        "preseal_soak_s": 180,
+                    }
+                }
+            }
+        },
+        {},
+        logger,
+        messages.append,
+        lambda *_: None,
+    )
+    point = _point_co2()
+    point.co2_ppm = 0.0
+    runner._post_h2o_co2_zero_flush_pending = True
+
+    clock = {"now": 0.0}
+
+    def fake_time() -> float:
+        return clock["now"]
+
+    def fake_sleep(seconds: float) -> None:
+        clock["now"] += float(seconds)
+
+    monkeypatch.setattr(runner_module.time, "time", fake_time)
+    monkeypatch.setattr(runner_module.time, "sleep", fake_sleep)
+
+    assert runner._wait_co2_route_soak_before_seal(point) is True
+    logger.close()
+
+    assert runner._post_h2o_co2_zero_flush_pending is False
+    assert runner._active_post_h2o_co2_zero_flush is True
+    assert any("wait 180s before pressure sealing" in message for message in messages)
+
+
 def test_wait_co2_route_soak_uses_same_180s_duration_for_first_gas_point(monkeypatch, tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     messages: list[str] = []

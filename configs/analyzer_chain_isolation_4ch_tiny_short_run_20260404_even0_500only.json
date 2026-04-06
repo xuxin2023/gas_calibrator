@@ -566,7 +566,7 @@
       "co2_route": {
         "preseal_soak_s": 60,
         "first_point_preseal_soak_s": 60,
-        "post_h2o_zero_ppm_soak_s": 900
+        "post_h2o_zero_ppm_soak_s": 60
       },
       "gas_route_dewpoint_gate_enabled": true,
       "gas_route_dewpoint_gate_max_total_wait_s": 120,

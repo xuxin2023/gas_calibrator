@@ -10769,7 +10769,7 @@ class CalibrationRunner:
         log_context = "CO2 route opened"
         if special_flush:
             soak_key = "workflow.stability.co2_route.post_h2o_zero_ppm_soak_s"
-            soak_default = 600.0
+            soak_default = float(self._wf("workflow.stability.co2_route.preseal_soak_s", 180.0))
             if self._post_h2o_co2_zero_flush_pending:
                 wait_reason = "水转气后首个0气清洗"
                 log_context = "CO2 route opened after H2O; zero-gas flush"
