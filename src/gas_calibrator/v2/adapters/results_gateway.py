@@ -474,7 +474,7 @@ class ResultsGateway:
         summary = dict(offline_diagnostic_adapter_summary or {})
         lines: list[str] = []
         for item in list(summary.get("review_highlight_lines") or summary.get("detail_lines") or []):
-            text = str(item).strip()
+            text = ResultsGateway._normalize_offline_diagnostic_line(str(item).strip())
             if text and text not in lines:
                 lines.append(text)
         if len(lines) < limit:
@@ -494,5 +494,25 @@ class ResultsGateway:
         line = str(payload.get("detail_line") or payload.get("summary") or "").strip()
         scope = str(payload.get("artifact_scope_summary") or "").strip()
         if scope and scope.lower() not in line.lower():
-            return f"{line} | scope {scope}" if line else f"scope {scope}"
-        return line
+            scope_line = ResultsGateway._offline_diagnostic_scope_line(scope)
+            return f"{line} | {scope_line}" if line else scope_line
+        return ResultsGateway._normalize_offline_diagnostic_line(line)
+
+    @staticmethod
+    def _offline_diagnostic_scope_line(scope_summary: str) -> str:
+        return ResultsGateway._offline_diagnostic_scope_label() + ": " + str(scope_summary or "").strip()
+
+    @staticmethod
+    def _offline_diagnostic_scope_label() -> str:
+        return t("results.review_center.detail.offline_diagnostic_scope", default="Artifact Scope")
+
+    @staticmethod
+    def _normalize_offline_diagnostic_line(line: str) -> str:
+        text = str(line or "").strip()
+        marker = " | scope "
+        if marker in text:
+            prefix, suffix = text.split(marker, 1)
+            suffix = str(suffix or "").strip()
+            scope_line = ResultsGateway._offline_diagnostic_scope_line(suffix)
+            return f"{prefix.strip()} | {scope_line}" if prefix.strip() else scope_line
+        return text

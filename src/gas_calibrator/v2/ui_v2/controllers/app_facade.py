@@ -2874,7 +2874,7 @@ class AppFacade:
         summary = dict(offline_diagnostic_adapter_summary or {})
         lines: list[str] = []
         for item in list(summary.get("review_highlight_lines") or summary.get("detail_lines") or []):
-            text = str(item).strip()
+            text = cls._normalize_offline_diagnostic_line(str(item).strip())
             if text and text not in lines:
                 lines.append(text)
         if len(lines) < limit:
@@ -2894,8 +2894,24 @@ class AppFacade:
         line = str(payload.get("detail_line") or payload.get("summary") or "").strip()
         scope = str(payload.get("artifact_scope_summary") or "").strip()
         if scope and scope.lower() not in line.lower():
-            return f"{line} | scope {scope}" if line else f"scope {scope}"
-        return line
+            scope_line = AppFacade._offline_diagnostic_scope_label() + ": " + scope
+            return f"{line} | {scope_line}" if line else scope_line
+        return AppFacade._normalize_offline_diagnostic_line(line)
+
+    @staticmethod
+    def _normalize_offline_diagnostic_line(line: str) -> str:
+        text = str(line or "").strip()
+        marker = " | scope "
+        if marker in text:
+            prefix, suffix = text.split(marker, 1)
+            scope_label = AppFacade._offline_diagnostic_scope_label()
+            suffix = str(suffix or "").strip()
+            return f"{prefix.strip()} | {scope_label}: {suffix}" if prefix.strip() else f"{scope_label}: {suffix}"
+        return text
+
+    @staticmethod
+    def _offline_diagnostic_scope_label() -> str:
+        return t("results.review_center.detail.offline_diagnostic_scope", default="Artifact Scope")
 
     def _build_offline_diagnostic_review_item(self, payload: dict[str, Any], path: Path) -> dict[str, Any]:
         if path.name == "isolation_comparison_summary.json":
