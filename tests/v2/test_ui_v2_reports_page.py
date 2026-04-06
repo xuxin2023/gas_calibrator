@@ -335,7 +335,7 @@ def test_reports_page_artifact_list_follows_review_center_source_and_evidence_sc
         assert "visible " not in page.artifact_count_card.note_var.get()
         assert "external " not in page.artifact_count_card.note_var.get()
         assert "catalog " not in page.artifact_count_card.note_var.get()
-        assert "当前审阅范围" in page.run_dir_card.note_var.get()
+        assert "当前审阅视角" in page.run_dir_card.note_var.get()
         assert "当前运行基线" in page.run_dir_card.note_var.get()
         assert page.export_scope_notice_var.get()
         assert "当前运行" in page.export_scope_notice_var.get()
@@ -354,7 +354,7 @@ def test_reports_page_artifact_list_follows_review_center_source_and_evidence_sc
         assert page.artifact_count_card.value_var.get() == "2"
         assert page.present_count_card.value_var.get() == "1"
         assert "1/2" in page.present_count_card.note_var.get()
-        assert "缺少" in page.present_count_card.note_var.get()
+        assert "缺失" in page.present_count_card.note_var.get()
         assert "catalog " not in page.present_count_card.note_var.get()
 
         page._clear_artifact_scope()

@@ -405,7 +405,7 @@ def test_review_center_artifact_scope_helper_handles_all_source_and_evidence_wit
     assert source_scope_snapshot["selected_source_visible_count"] == 2
     assert len(source_scope["rows"]) == 3
     assert "shared_run" in source_scope["summary_text"]
-    assert "可见" in source_scope["summary_text"]
+    assert "当前范围" in source_scope["summary_text"]
     assert "存在" in source_scope["summary_text"]
     assert "外部" in source_scope["summary_text"]
     assert "当前运行基线" in source_scope["summary_text"]
@@ -667,7 +667,7 @@ def test_review_center_artifact_scope_keeps_scope_denominator_consistent_headles
     assert view["total_count"] == view["scope_visible_count"]
     assert "1/1" in view["summary_text"]
     assert "1/0" not in view["summary_text"]
-    assert "可见" in view["summary_text"]
+    assert "当前范围" in view["summary_text"]
     assert "存在" in view["summary_text"]
     assert "外部" in view["summary_text"]
     assert "当前运行基线" in view["summary_text"]

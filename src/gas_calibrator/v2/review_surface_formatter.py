@@ -72,9 +72,15 @@ _REVIEW_SURFACE_INLINE_REPLACEMENTS = (
     ("Current-run catalog baseline", "\u5f53\u524d\u8fd0\u884c\u57fa\u7ebf"),
     ("current-run catalog baseline", "\u5f53\u524d\u8fd0\u884c\u57fa\u7ebf"),
     ("current-run catalog", "\u5f53\u524d\u8fd0\u884c\u57fa\u7ebf"),
+    ("current-run \u57fa\u7ebf", "\u5f53\u524d\u8fd0\u884c\u57fa\u7ebf"),
     ("Current review scope:", "\u5f53\u524d\u5ba1\u9605\u8303\u56f4\uff1a"),
     ("current review scope:", "\u5f53\u524d\u5ba1\u9605\u8303\u56f4\uff1a"),
     ("current-run", "\u5f53\u524d\u8fd0\u884c"),
+    ("\u5f53\u524d\u8fd0\u884c \u57fa\u7ebf", "\u5f53\u524d\u8fd0\u884c\u57fa\u7ebf"),
+    ("\u5f53\u524d scope \u603b\u91cf", "\u5f53\u524d\u53ef\u89c1"),
+    ("\u5f53\u524d scope ", "\u5f53\u524d\u8303\u56f4 "),
+    ("scope \u53ef\u89c1", "\u53ef\u89c1"),
+    ("scope \u5b58\u5728", "\u5b58\u5728"),
     ("offline only", "\u4ec5\u4f9b\u79bb\u7ebf\u5ba1\u9605"),
 )
 
