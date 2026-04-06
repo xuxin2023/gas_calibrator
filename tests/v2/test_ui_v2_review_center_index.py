@@ -930,6 +930,55 @@ def test_review_scope_manifest_and_export_index_share_reviewer_display_lines() -
     assert export_entry["summary_counts"]["scope_visible_count"] == 3
 
 
+def test_review_scope_export_entry_preserves_top_level_artifact_scope_reviewer_fields_when_nested_payload_is_missing() -> None:
+    payload = {
+        "generated_at": "2026-03-28T14:22:10+00:00",
+        "selection": {
+            "scope": "source",
+            "selected_source_label_display": "history_run",
+            "selected_evidence_summary": "",
+        },
+        "scope_summary": {
+            "scope": "source",
+            "scope_label": "Source",
+            "summary_text": "Source | visible 3 | present 2/3 | external 2 | missing 1 | catalog 8/12",
+            "catalog_total_count": 12,
+            "catalog_present_count": 8,
+            "scope_visible_count": 3,
+            "scope_present_count": 2,
+            "scope_external_count": 2,
+            "scope_missing_count": 1,
+        },
+        "run_dir_note_text": "当前审阅视角：Source | 当前运行基线 8/12",
+        "scope_note_text": "Source | 当前可见 3 | 外部 2 | 缺失 1 | 当前运行基线 12",
+        "present_note_text": "Source | 当前范围 磁盘存在 2/3 | 缺失 1 | 当前运行基线 8/12",
+        "catalog_note_text": "当前运行基线 8/12",
+        "export_warning_text": "当前运行导出仍以当前运行工件为准",
+        "disclaimer": {
+            "offline_review_only": True,
+            "simulated_or_replay_context": True,
+            "diagnostic_context": True,
+            "not_real_acceptance_evidence": True,
+        },
+    }
+
+    export_entry = build_review_scope_export_entry(
+        payload,
+        batch_id="review_scope_20260328_142210_source",
+        exported_files=["D:/tmp/review_scope_source.json"],
+    )
+
+    assert export_entry["reviewer_display"]["summary_text"] == "Source | 可见 3 | 存在 2/3 | 外部 2 | 缺少 1 | 当前运行基线 8/12"
+    assert export_entry["reviewer_display"]["selection_line"] == "范围=source | 来源=history_run | 证据=无"
+    assert export_entry["reviewer_display"]["counts_line"] == "可见 3 | 存在 2 | 外部 2 | 缺少 1 | 当前运行基线 8/12"
+    assert export_entry["reviewer_display"]["run_dir_note_text"] == payload["run_dir_note_text"]
+    assert export_entry["reviewer_display"]["scope_note_text"] == payload["scope_note_text"]
+    assert export_entry["reviewer_display"]["present_note_text"] == payload["present_note_text"]
+    assert export_entry["reviewer_display"]["catalog_note_text"] == payload["catalog_note_text"]
+    assert export_entry["reviewer_display"]["export_warning_text"] == payload["export_warning_text"]
+    assert payload["scope_summary"]["scope"] == "source"
+
+
 def test_review_center_panel_exposes_index_summary_and_time_source_filters() -> None:
     root = make_root()
     try:
