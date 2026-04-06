@@ -87,6 +87,18 @@ _REVIEW_SURFACE_INLINE_REPLACEMENTS = (
     ("offline only", "\u4ec5\u4f9b\u79bb\u7ebf\u5ba1\u9605"),
 )
 
+_REVIEW_SCOPE_REVIEWER_DISPLAY_FIELDS = (
+    "summary_text",
+    "selection_line",
+    "counts_line",
+    "run_dir_note_text",
+    "scope_note_text",
+    "present_note_text",
+    "catalog_note_text",
+    "empty_text",
+    "export_warning_text",
+)
+
 
 def offline_diagnostic_scope_label() -> str:
     return t("results.review_center.detail.offline_diagnostic_scope", default="Artifact Scope")
@@ -299,6 +311,30 @@ def build_review_scope_payload_reviewer_display(
             catalog_total_count=int(summary_payload.get("catalog_total_count", 0) or 0),
         ),
     }
+
+
+def hydrate_review_scope_reviewer_display(
+    payload: dict[str, Any] | None,
+    *,
+    selection: dict[str, Any] | None = None,
+    scope_summary: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    payload_dict = dict(payload or {})
+    selection_payload = dict(selection or payload_dict.get("selection", {}) or {})
+    summary_payload = dict(scope_summary or payload_dict.get("scope_summary", {}) or {})
+    hydrated = build_review_scope_payload_reviewer_display(
+        selection=selection_payload,
+        scope_summary=summary_payload,
+    )
+    for field in _REVIEW_SCOPE_REVIEWER_DISPLAY_FIELDS:
+        fallback_value = str(payload_dict.get(field) or "").strip()
+        if fallback_value:
+            hydrated[field] = fallback_value
+    for field in _REVIEW_SCOPE_REVIEWER_DISPLAY_FIELDS:
+        nested_value = str(dict(payload_dict.get("reviewer_display", {}) or {}).get(field) or "").strip()
+        if nested_value:
+            hydrated[field] = nested_value
+    return hydrated
 
 
 def build_artifact_scope_view_reviewer_display(

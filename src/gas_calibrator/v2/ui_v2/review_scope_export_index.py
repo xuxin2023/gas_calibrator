@@ -7,6 +7,7 @@ from typing import Any
 
 from ..review_surface_formatter import (
     build_review_scope_payload_reviewer_display,
+    hydrate_review_scope_reviewer_display,
 )
 
 INDEX_FILENAME = "index.json"
@@ -71,22 +72,14 @@ def build_review_scope_export_entry(
     selection_snapshot = dict(payload.get("selection", {}) or {})
     scope_summary = dict(payload.get("scope_summary", {}) or {})
     disclaimer = dict(payload.get("disclaimer", {}) or {})
-    reviewer_display = dict(payload.get("reviewer_display", {}) or {}) or build_review_scope_payload_reviewer_display(
+    reviewer_display = hydrate_review_scope_reviewer_display(
+        payload,
+        selection=selection_snapshot,
+        scope_summary=scope_summary,
+    ) or build_review_scope_payload_reviewer_display(
         selection=selection_snapshot,
         scope_summary=scope_summary,
     )
-    for field in (
-        "summary_text",
-        "run_dir_note_text",
-        "scope_note_text",
-        "present_note_text",
-        "catalog_note_text",
-        "empty_text",
-        "export_warning_text",
-    ):
-        fallback_value = str(payload.get(field) or "").strip()
-        if fallback_value and not str(reviewer_display.get(field) or "").strip():
-            reviewer_display[field] = fallback_value
     entry = {
         "batch_id": str(batch_id or ""),
         "generated_at": str(payload.get("generated_at") or ""),

@@ -979,6 +979,54 @@ def test_review_scope_export_entry_preserves_top_level_artifact_scope_reviewer_f
     assert payload["scope_summary"]["scope"] == "source"
 
 
+def test_review_scope_export_entry_prefers_nested_reviewer_display_but_backfills_missing_fields() -> None:
+    payload = {
+        "generated_at": "2026-03-28T14:22:10+00:00",
+        "selection": {
+            "scope": "source",
+            "selected_source_label_display": "history_run",
+            "selected_evidence_summary": "suite summary",
+        },
+        "scope_summary": {
+            "scope": "source",
+            "scope_label": "Source",
+            "summary_text": "Source | visible 3 | present 2/3 | external 2 | missing 1 | catalog 8/12",
+            "catalog_total_count": 12,
+            "catalog_present_count": 8,
+            "scope_visible_count": 3,
+            "scope_present_count": 2,
+            "scope_external_count": 2,
+            "scope_missing_count": 1,
+        },
+        "scope_note_text": "顶层范围说明",
+        "export_warning_text": "顶层导出提醒",
+        "reviewer_display": {
+            "selection_line": "范围=source | 来源=nested_source | 证据=nested evidence",
+            "present_note_text": "nested present note",
+        },
+        "disclaimer": {
+            "offline_review_only": True,
+            "simulated_or_replay_context": True,
+            "diagnostic_context": True,
+            "not_real_acceptance_evidence": True,
+        },
+    }
+
+    export_entry = build_review_scope_export_entry(
+        payload,
+        batch_id="review_scope_20260328_142210_source",
+        exported_files=["D:/tmp/review_scope_source.json"],
+    )
+
+    assert export_entry["reviewer_display"]["summary_text"] == "Source | 可见 3 | 存在 2/3 | 外部 2 | 缺少 1 | 当前运行基线 8/12"
+    assert export_entry["reviewer_display"]["selection_line"] == "范围=source | 来源=nested_source | 证据=nested evidence"
+    assert export_entry["reviewer_display"]["counts_line"] == "可见 3 | 存在 2 | 外部 2 | 缺少 1 | 当前运行基线 8/12"
+    assert export_entry["reviewer_display"]["scope_note_text"] == payload["scope_note_text"]
+    assert export_entry["reviewer_display"]["present_note_text"] == "nested present note"
+    assert export_entry["reviewer_display"]["export_warning_text"] == payload["export_warning_text"]
+    assert payload["selection"]["scope"] == "source"
+
+
 def test_review_center_panel_exposes_index_summary_and_time_source_filters() -> None:
     root = make_root()
     try:

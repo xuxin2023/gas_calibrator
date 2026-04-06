@@ -7,6 +7,7 @@ from gas_calibrator.v2.review_surface_formatter import (
     build_review_scope_counts_line,
     build_review_scope_reviewer_display,
     build_review_scope_selection_line,
+    hydrate_review_scope_reviewer_display,
     build_offline_diagnostic_detail_line,
     collect_offline_diagnostic_detail_lines,
     humanize_review_center_coverage_text,
@@ -200,6 +201,61 @@ def test_build_review_scope_payload_reviewer_display_merges_selection_counts_and
     assert reviewer_display["present_note_text"] == "Source | 当前范围 磁盘存在 2/3 | 缺失 1 | 当前运行基线 8/12"
     assert selection["scope"] == "source"
     assert scope_summary["catalog_total_count"] == 12
+
+
+def test_hydrate_review_scope_reviewer_display_backfills_partial_payloads_but_keeps_nested_priority() -> None:
+    selection = {
+        "scope": "source",
+        "selected_source_label_display": "history_run",
+        "selected_evidence_summary": "suite summary",
+    }
+    scope_summary = {
+        "scope": "source",
+        "scope_label": "Source",
+        "summary_text": "Source | visible 3 | present 2/3 | external 1 | missing 1 | catalog 8/12",
+        "scope_visible_count": 3,
+        "scope_present_count": 2,
+        "scope_external_count": 1,
+        "scope_missing_count": 1,
+        "catalog_present_count": 8,
+        "catalog_total_count": 12,
+    }
+    top_level_only_payload = {
+        "selection": selection,
+        "scope_summary": scope_summary,
+        "run_dir_note_text": "顶层运行目录说明",
+        "scope_note_text": "顶层范围说明",
+        "present_note_text": "顶层存在说明",
+        "catalog_note_text": "顶层目录基线",
+        "export_warning_text": "顶层导出提醒",
+    }
+    partial_nested_payload = {
+        "selection": selection,
+        "scope_summary": scope_summary,
+        "scope_note_text": "顶层范围说明",
+        "reviewer_display": {
+            "selection_line": "范围=source | 来源=nested_source | 证据=nested evidence",
+            "present_note_text": "nested present note",
+        },
+    }
+
+    top_level_only = hydrate_review_scope_reviewer_display(top_level_only_payload)
+    partial_nested = hydrate_review_scope_reviewer_display(partial_nested_payload)
+
+    assert top_level_only["summary_text"] == "Source | 可见 3 | 存在 2/3 | 外部 1 | 缺少 1 | 当前运行基线 8/12"
+    assert top_level_only["selection_line"] == "范围=source | 来源=history_run | 证据=suite summary"
+    assert top_level_only["counts_line"] == "可见 3 | 存在 2 | 外部 1 | 缺少 1 | 当前运行基线 8/12"
+    assert top_level_only["run_dir_note_text"] == "顶层运行目录说明"
+    assert top_level_only["scope_note_text"] == "顶层范围说明"
+    assert top_level_only["present_note_text"] == "顶层存在说明"
+    assert top_level_only["catalog_note_text"] == "顶层目录基线"
+    assert top_level_only["export_warning_text"] == "顶层导出提醒"
+    assert partial_nested["selection_line"] == "范围=source | 来源=nested_source | 证据=nested evidence"
+    assert partial_nested["counts_line"] == "可见 3 | 存在 2 | 外部 1 | 缺少 1 | 当前运行基线 8/12"
+    assert partial_nested["scope_note_text"] == "顶层范围说明"
+    assert partial_nested["present_note_text"] == "nested present note"
+    assert selection["selected_source_label_display"] == "history_run"
+    assert scope_summary["scope_visible_count"] == 3
 
 
 def test_build_artifact_scope_view_reviewer_display_packages_summary_and_notes_without_touching_raw_inputs() -> None:
