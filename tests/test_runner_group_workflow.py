@@ -463,7 +463,7 @@ def test_co2_source_points_synthesize_full_sweep_for_10c_without_real_co2_rows(t
         (900, "B"),
         (1000, None),
     ]
-    assert [int(point.target_pressure_hpa or 0) for point in sources] == [1100] * 10
+    assert all(point.target_pressure_hpa is None for point in sources)
 
 
 def test_co2_source_points_keep_real_group_b_order_without_duplicate_group_a_ppm(tmp_path: Path) -> None:

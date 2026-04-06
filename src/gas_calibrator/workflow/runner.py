@@ -4686,7 +4686,7 @@ class CalibrationRunner:
             co2_ppm=None,
             hgen_temp_c=None,
             hgen_rh_pct=None,
-            target_pressure_hpa=template.target_pressure_hpa,
+            target_pressure_hpa=None,
             dewpoint_c=None,
             h2o_mmol=None,
             raw_h2o=None,
@@ -4734,7 +4734,10 @@ class CalibrationRunner:
             co2_ppm=float(ppm),
             hgen_temp_c=None,
             hgen_rh_pct=None,
-            target_pressure_hpa=template.target_pressure_hpa,
+            # Synthetic source points represent route conditioning only.
+            # They must not inherit a sealed-pressure template and leak that
+            # pressure into route-open trace titles or precondition gate rows.
+            target_pressure_hpa=None,
             dewpoint_c=None,
             h2o_mmol=None,
             raw_h2o=None,

@@ -198,6 +198,62 @@ def test_pressure_selection_ambient_point_uses_explicit_labels(tmp_path: Path) -
     assert runner._point_title(ambient_point, phase="co2") == "20°C环境，二氧化碳0ppm，当前大气压"
 
 
+def test_synthesized_co2_source_points_do_not_leak_template_pressure_into_route_context(tmp_path: Path) -> None:
+    runner = _runner(tmp_path, {"workflow": {"selected_pressure_points": ["ambient", 500]}})
+    try:
+        points = [
+            CalibrationPoint(
+                index=1,
+                temp_chamber_c=20.0,
+                co2_ppm=0.0,
+                hgen_temp_c=None,
+                hgen_rh_pct=None,
+                target_pressure_hpa=1000.0,
+                dewpoint_c=None,
+                h2o_mmol=None,
+                raw_h2o=None,
+            ),
+            CalibrationPoint(
+                index=2,
+                temp_chamber_c=20.0,
+                co2_ppm=400.0,
+                hgen_temp_c=None,
+                hgen_rh_pct=None,
+                target_pressure_hpa=500.0,
+                dewpoint_c=None,
+                h2o_mmol=None,
+                raw_h2o=None,
+            ),
+            CalibrationPoint(
+                index=3,
+                temp_chamber_c=20.0,
+                co2_ppm=600.0,
+                hgen_temp_c=None,
+                hgen_rh_pct=None,
+                target_pressure_hpa=500.0,
+                dewpoint_c=None,
+                h2o_mmol=None,
+                raw_h2o=None,
+            ),
+        ]
+        pressure_points = runner._co2_pressure_points_for_temperature(points)
+        synthesized_200 = next(
+            point for point in runner._co2_source_points(points) if int(point.co2_ppm or 0) == 200
+        )
+        route_context = runner._route_entry_context_for_co2_source(
+            synthesized_200,
+            pressure_points=pressure_points,
+        )
+    finally:
+        _close_runner(runner)
+
+    assert synthesized_200.target_pressure_hpa is None
+    assert route_context["point_tag"] == "co2_groupa_200ppm_ambient"
+    assert runner._point_title(synthesized_200, phase="co2", point_tag=route_context["point_tag"]) == (
+        "20°C环境，二氧化碳200ppm，气压未设"
+    )
+
+
 def test_route_requires_preseal_topoff_only_when_1100_selected(tmp_path: Path) -> None:
     runner = _runner(tmp_path)
     try:
