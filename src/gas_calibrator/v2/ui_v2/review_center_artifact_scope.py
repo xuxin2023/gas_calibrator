@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from ..review_surface_formatter import (
-    build_artifact_scope_reviewer_notes,
+    build_artifact_scope_view_reviewer_display,
     build_review_scope_payload_reviewer_display,
     humanize_review_center_coverage_text,
     humanize_review_surface_text,
@@ -236,7 +236,32 @@ def build_review_artifact_registry(
         if str(row.get("artifact_origin") or "") in {"review_reference", "source_scan"}
     )
     scope_missing_count = sum(1 for row in rows if not bool(row.get("present_on_disk", False)))
-    reviewer_notes = build_artifact_scope_reviewer_notes(
+    catalog_note_text = t(
+        "pages.reports.artifact_scope.catalog_note",
+        present=catalog_present_count,
+        total=catalog_total_count,
+        default=f"Current-run catalog baseline {catalog_present_count}/{catalog_total_count}",
+    )
+    empty_text = (
+        ""
+        if rows
+        else t(
+            "pages.reports.artifact_scope.empty",
+            scope=scope_label,
+            default=f"No artifacts for {scope_label}. Offline review only.",
+        )
+    )
+    export_warning_text = (
+        ""
+        if scope == "all"
+        else t(
+            "pages.reports.artifact_scope.export_scope_warning",
+            scope=scope_label,
+            default=f"Export still targets current-run artifacts and does not follow the {scope_label} review scope.",
+        )
+    )
+    reviewer_display = build_artifact_scope_view_reviewer_display(
+        summary_text=summary_text,
         scope_label=scope_label,
         visible_count=scope_visible_count,
         present_count=scope_present_count,
@@ -245,6 +270,9 @@ def build_review_artifact_registry(
         missing_count=scope_missing_count,
         catalog_present_count=catalog_present_count,
         catalog_total_count=catalog_total_count,
+        catalog_note_text=catalog_note_text,
+        empty_text=empty_text,
+        export_warning_text=export_warning_text,
     )
 
     return {
@@ -261,39 +289,15 @@ def build_review_artifact_registry(
         "total_count": scope_visible_count,
         "total_present_count": catalog_present_count,
         "scope_label": scope_label,
-        "summary_text": humanize_review_surface_text(summary_text),
-        **reviewer_notes,
-        "catalog_note_text": humanize_review_surface_text(
-            t(
-                "pages.reports.artifact_scope.catalog_note",
-                present=catalog_present_count,
-                total=catalog_total_count,
-                default=f"Current-run catalog baseline {catalog_present_count}/{catalog_total_count}",
-            )
-        ),
-        "empty_text": (
-            ""
-            if rows
-            else humanize_review_surface_text(
-                t(
-                    "pages.reports.artifact_scope.empty",
-                    scope=scope_label,
-                    default=f"No artifacts for {scope_label}. Offline review only.",
-                )
-            )
-        ),
+        "summary_text": reviewer_display["summary_text"],
+        "reviewer_display": reviewer_display,
+        "run_dir_note_text": reviewer_display["run_dir_note_text"],
+        "scope_note_text": reviewer_display["scope_note_text"],
+        "present_note_text": reviewer_display["present_note_text"],
+        "catalog_note_text": reviewer_display["catalog_note_text"],
+        "empty_text": reviewer_display["empty_text"],
         "disclaimer_text": t("pages.reports.artifact_scope.disclaimer"),
-        "export_warning_text": (
-            ""
-            if scope == "all"
-            else humanize_review_surface_text(
-                t(
-                    "pages.reports.artifact_scope.export_scope_warning",
-                    scope=scope_label,
-                    default=f"Export still targets current-run artifacts and does not follow the {scope_label} review scope.",
-                )
-            )
-        ),
+        "export_warning_text": reviewer_display["export_warning_text"],
         "clear_enabled": scope != "all",
     }
 

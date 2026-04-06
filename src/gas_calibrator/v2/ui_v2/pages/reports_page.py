@@ -363,10 +363,18 @@ class ReportsPage(ttk.Frame):
     def _apply_artifact_scope(self, selection: dict[str, Any] | None) -> None:
         self._artifact_scope_snapshot = dict(selection or {"scope": "all"})
         scoped_view = build_artifact_scope_view(self._artifact_rows, selection=self._artifact_scope_snapshot)
+        reviewer_display = dict(scoped_view.get("reviewer_display", {}) or {})
         self.artifacts.render(list(scoped_view.get("rows", []) or []))
-        self.artifact_scope_var.set(str(scoped_view.get("summary_text") or t("common.none")))
+        self.artifact_scope_var.set(
+            str(reviewer_display.get("summary_text") or scoped_view.get("summary_text") or t("common.none"))
+        )
         self.artifact_scope_notice_var.set(
-            str(scoped_view.get("empty_text") or scoped_view.get("disclaimer_text") or t("common.none"))
+            str(
+                reviewer_display.get("empty_text")
+                or scoped_view.get("empty_text")
+                or scoped_view.get("disclaimer_text")
+                or t("common.none")
+            )
         )
         self.clear_artifact_scope_button.configure(
             state="normal" if bool(scoped_view.get("clear_enabled", False)) else "disabled"
@@ -376,12 +384,24 @@ class ReportsPage(ttk.Frame):
         scope_total_count = int(scoped_view.get("scope_visible_count", scoped_view.get("total_count", 0)) or 0)
         external_count = int(scoped_view.get("scope_external_count", 0) or 0)
         missing_count = int(scoped_view.get("scope_missing_count", 0) or 0)
-        self.run_dir_card.set_note(str(scoped_view.get("run_dir_note_text") or t("common.none")))
+        self.run_dir_card.set_note(
+            str(reviewer_display.get("run_dir_note_text") or scoped_view.get("run_dir_note_text") or t("common.none"))
+        )
         self.artifact_count_card.set_value(str(visible_count))
-        self.artifact_count_card.set_note(str(scoped_view.get("scope_note_text") or t("common.none")))
+        self.artifact_count_card.set_note(
+            str(reviewer_display.get("scope_note_text") or scoped_view.get("scope_note_text") or t("common.none"))
+        )
         self.present_count_card.set_value(str(present_count))
-        self.present_count_card.set_note(str(scoped_view.get("present_note_text") or t("common.none")))
-        self.export_scope_notice_var.set(str(scoped_view.get("export_warning_text") or ""))
+        self.present_count_card.set_note(
+            str(
+                reviewer_display.get("present_note_text")
+                or scoped_view.get("present_note_text")
+                or t("common.none")
+            )
+        )
+        self.export_scope_notice_var.set(
+            str(reviewer_display.get("export_warning_text") or scoped_view.get("export_warning_text") or "")
+        )
 
     def _clear_artifact_scope(self) -> None:
         self.review_center.clear_selection_scope()

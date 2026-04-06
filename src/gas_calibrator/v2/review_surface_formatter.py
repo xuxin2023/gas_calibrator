@@ -300,6 +300,39 @@ def build_review_scope_payload_reviewer_display(
     }
 
 
+def build_artifact_scope_view_reviewer_display(
+    *,
+    summary_text: Any,
+    scope_label: Any,
+    visible_count: Any,
+    present_count: Any,
+    scope_total_count: Any,
+    external_count: Any,
+    missing_count: Any,
+    catalog_present_count: Any,
+    catalog_total_count: Any,
+    catalog_note_text: Any = "",
+    empty_text: Any = "",
+    export_warning_text: Any = "",
+) -> dict[str, str]:
+    return {
+        "summary_text": humanize_review_surface_text(str(summary_text or "").strip()),
+        **build_artifact_scope_reviewer_notes(
+            scope_label=scope_label,
+            visible_count=visible_count,
+            present_count=present_count,
+            scope_total_count=scope_total_count,
+            external_count=external_count,
+            missing_count=missing_count,
+            catalog_present_count=catalog_present_count,
+            catalog_total_count=catalog_total_count,
+        ),
+        "catalog_note_text": humanize_review_surface_text(str(catalog_note_text or "").strip()),
+        "empty_text": humanize_review_surface_text(str(empty_text or "").strip()),
+        "export_warning_text": humanize_review_surface_text(str(export_warning_text or "").strip()),
+    }
+
+
 def build_artifact_scope_reviewer_notes(
     *,
     scope_label: Any,

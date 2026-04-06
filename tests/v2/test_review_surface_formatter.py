@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from gas_calibrator.v2.review_surface_formatter import (
     build_artifact_scope_reviewer_notes,
+    build_artifact_scope_view_reviewer_display,
     build_review_scope_payload_reviewer_display,
     build_review_scope_counts_line,
     build_review_scope_reviewer_display,
@@ -197,3 +198,35 @@ def test_build_review_scope_payload_reviewer_display_merges_selection_counts_and
     assert reviewer_display["present_note_text"] == "Source | 当前范围 磁盘存在 2/3 | 缺失 1 | 当前运行基线 8/12"
     assert selection["scope"] == "source"
     assert scope_summary["catalog_total_count"] == 12
+
+
+def test_build_artifact_scope_view_reviewer_display_packages_summary_and_notes_without_touching_raw_inputs() -> None:
+    raw_summary = "Source | visible 3 | present 2/3 | external 1 | missing 1 | catalog 8/12"
+    raw_catalog_note = "Current-run catalog baseline 8/12"
+    raw_empty_text = "当前范围没有工件，仅供离线审阅。"
+    raw_warning_text = "当前范围导出提醒"
+
+    reviewer_display = build_artifact_scope_view_reviewer_display(
+        summary_text=raw_summary,
+        scope_label="Source",
+        visible_count=3,
+        present_count=2,
+        scope_total_count=3,
+        external_count=1,
+        missing_count=1,
+        catalog_present_count=8,
+        catalog_total_count=12,
+        catalog_note_text=raw_catalog_note,
+        empty_text=raw_empty_text,
+        export_warning_text=raw_warning_text,
+    )
+
+    assert reviewer_display["summary_text"] == "Source | 可见 3 | 存在 2/3 | 外部 1 | 缺少 1 | 当前运行基线 8/12"
+    assert reviewer_display["run_dir_note_text"] == "当前审阅视角：Source | 当前运行基线 8/12"
+    assert reviewer_display["scope_note_text"] == "Source | 当前可见 3 | 外部 1 | 缺失 1 | 当前运行基线 12"
+    assert reviewer_display["present_note_text"] == "Source | 当前范围 磁盘存在 2/3 | 缺失 1 | 当前运行基线 8/12"
+    assert reviewer_display["catalog_note_text"] == "当前运行基线 8/12"
+    assert reviewer_display["empty_text"] == raw_empty_text
+    assert reviewer_display["export_warning_text"] == raw_warning_text
+    assert raw_summary == "Source | visible 3 | present 2/3 | external 1 | missing 1 | catalog 8/12"
+    assert raw_catalog_note == "Current-run catalog baseline 8/12"
