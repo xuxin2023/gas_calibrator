@@ -6,8 +6,8 @@ from typing import Any
 
 from ..review_surface_formatter import (
     build_artifact_scope_view_reviewer_display,
-    build_review_scope_payload_reviewer_display,
     build_review_scope_reviewer_display,
+    hydrate_review_scope_reviewer_display,
     humanize_review_center_coverage_text,
     humanize_review_surface_text,
 )
@@ -351,7 +351,11 @@ def render_review_scope_manifest_markdown(payload: dict[str, Any]) -> str:
     selection = dict(payload.get("selection", {}) or {})
     scope_summary = dict(payload.get("scope_summary", {}) or {})
     disclaimer = dict(payload.get("disclaimer", {}) or {})
-    reviewer_display = dict(payload.get("reviewer_display", {}) or {}) or build_review_scope_payload_reviewer_display(
+    reviewer_display = hydrate_review_scope_reviewer_display(
+        payload,
+        selection=selection,
+        scope_summary=scope_summary,
+    ) or build_review_scope_reviewer_display(
         selection=selection,
         scope_summary=scope_summary,
     )
