@@ -819,6 +819,7 @@ def test_review_scope_export_index_keeps_handoff_history_without_overwriting(tmp
         "scope_summary": {
             "scope": "source",
             "scope_label": "Source",
+            "summary_text": "Source | visible 3 | present 2/3 | external 2 | missing 1 | catalog 8/12",
             "catalog_total_count": 12,
             "catalog_present_count": 8,
             "scope_visible_count": 3,
@@ -880,6 +881,7 @@ def test_review_scope_manifest_and_export_index_share_reviewer_display_lines() -
         "scope_summary": {
             "scope": "source",
             "scope_label": "Source",
+            "summary_text": "Source | visible 3 | present 2/3 | external 2 | missing 1 | catalog 8/12",
             "catalog_total_count": 12,
             "catalog_present_count": 8,
             "scope_visible_count": 3,
@@ -909,6 +911,7 @@ def test_review_scope_manifest_and_export_index_share_reviewer_display_lines() -
         exported_files=["D:/tmp/review_scope_source.json"],
     )
 
+    assert payload["reviewer_display"]["summary_text"] == "Source | 可见 3 | 存在 2/3 | 外部 2 | 缺少 1 | 当前运行基线 8/12"
     assert payload["reviewer_display"]["selection_line"] == "范围=source | 来源=history_run | 证据=suite summary"
     assert payload["reviewer_display"]["counts_line"] == "可见 3 | 存在 2 | 外部 2 | 缺少 1 | 当前运行基线 8/12"
     assert "当前审阅视角" in payload["reviewer_display"]["run_dir_note_text"]

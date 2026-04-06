@@ -283,6 +283,7 @@ def build_review_scope_payload_reviewer_display(
     selection_payload = dict(selection or {})
     summary_payload = dict(scope_summary or {})
     return {
+        "summary_text": humanize_review_surface_text(str(summary_payload.get("summary_text") or "").strip()),
         **build_review_scope_reviewer_display(
             selection=selection_payload,
             scope_summary=summary_payload,

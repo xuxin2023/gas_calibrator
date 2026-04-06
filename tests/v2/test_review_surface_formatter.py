@@ -178,6 +178,7 @@ def test_build_review_scope_payload_reviewer_display_merges_selection_counts_and
     scope_summary = {
         "scope": "source",
         "scope_label": "Source",
+        "summary_text": "Source | visible 3 | present 2/3 | external 1 | missing 1 | catalog 8/12",
         "scope_visible_count": 3,
         "scope_present_count": 2,
         "scope_external_count": 1,
@@ -191,6 +192,7 @@ def test_build_review_scope_payload_reviewer_display_merges_selection_counts_and
         scope_summary=scope_summary,
     )
 
+    assert reviewer_display["summary_text"] == "Source | 可见 3 | 存在 2/3 | 外部 1 | 缺少 1 | 当前运行基线 8/12"
     assert reviewer_display["selection_line"] == "范围=source | 来源=history_run | 证据=suite summary"
     assert reviewer_display["counts_line"] == "可见 3 | 存在 2 | 外部 1 | 缺少 1 | 当前运行基线 8/12"
     assert reviewer_display["run_dir_note_text"] == "当前审阅视角：Source | 当前运行基线 8/12"
