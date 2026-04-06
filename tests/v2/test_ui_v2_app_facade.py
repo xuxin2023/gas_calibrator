@@ -351,6 +351,11 @@ def test_app_facade_exports_review_scope_manifest(tmp_path: Path) -> None:
     assert "存在" in markdown_a
     assert "外部" in markdown_a
     assert "当前运行基线" in markdown_a
+    assert "范围=source" in markdown_a
+    assert "来源=review_scope_case" in markdown_a
+    assert "scope=" not in markdown_a
+    assert "source=" not in markdown_a
+    assert "evidence=" not in markdown_a
     assert "visible " not in markdown_a
     assert "external " not in markdown_a
     assert "catalog " not in markdown_a

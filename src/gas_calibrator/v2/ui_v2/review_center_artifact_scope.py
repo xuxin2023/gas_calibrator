@@ -814,12 +814,14 @@ def _selection_summary_line(selection: dict[str, Any]) -> str:
     scope = str(selection.get("scope") or "all")
     source = str(selection.get("selected_source_label_display") or selection.get("selected_source_label") or t("common.none"))
     evidence = str(selection.get("selected_evidence_summary") or t("common.none"))
-    return t(
-        "pages.reports.review_scope_manifest.selection_line",
-        scope=scope,
-        source=source,
-        evidence=evidence,
-        default=f"scope={scope} | source={source} | evidence={evidence}",
+    return humanize_review_surface_text(
+        t(
+            "pages.reports.review_scope_manifest.selection_line",
+            scope=scope,
+            source=source,
+            evidence=evidence,
+            default=f"scope={scope} | source={source} | evidence={evidence}",
+        )
     )
 
 

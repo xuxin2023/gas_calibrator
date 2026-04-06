@@ -720,10 +720,16 @@ def test_review_scope_manifest_payload_marks_reference_only_rows_headless(tmp_pa
     assert "当前运行 exporter" in payload["rows"][0]["note"] or "current-run exporter" in payload["rows"][0]["note"]
     assert payload["rows"][1]["present_on_disk"] is False
     markdown = artifact_scope.render_review_scope_manifest_markdown(payload)
+    assert "范围=evidence" in markdown
+    assert "来源=manifest_case" in markdown
+    assert "证据=suite summary" in markdown
     assert "可见" in markdown
     assert "存在" in markdown
     assert "外部" in markdown
     assert "当前运行基线" in markdown
+    assert "scope=" not in markdown
+    assert "source=" not in markdown
+    assert "evidence=" not in markdown
     assert "visible " not in markdown
     assert "external " not in markdown
     assert "catalog " not in markdown
