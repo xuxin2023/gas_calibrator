@@ -22,6 +22,10 @@ from ..core.phase_transition_bridge import (
     build_phase_transition_bridge,
 )
 from ..core.phase_transition_bridge_presenter import build_phase_transition_bridge_panel_payload
+from ..core.phase_transition_bridge_reviewer_artifact import (
+    PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME,
+    build_phase_transition_bridge_reviewer_artifact,
+)
 from ..core.step2_readiness import (
     STEP2_READINESS_SUMMARY_FILENAME,
     build_step2_readiness_summary,
@@ -88,10 +92,16 @@ def _augment_run_payload_with_step2_readiness(
         metrology_calibration_contract=metrology_contract,
     )
     phase_transition_bridge_surface_bundle = build_phase_transition_bridge_panel_payload(phase_transition_bridge)
+    phase_transition_bridge_reviewer_artifact = build_phase_transition_bridge_reviewer_artifact(phase_transition_bridge)
     analytics_summary["phase_transition_bridge"] = dict(phase_transition_bridge)
     analytics_summary["phase_transition_bridge_reviewer_section"] = dict(phase_transition_bridge_surface_bundle)
     write_json(run_dir / ANALYTICS_SUMMARY_FILENAME, analytics_summary)
     phase_transition_path = write_json(run_dir / PHASE_TRANSITION_BRIDGE_FILENAME, phase_transition_bridge)
+    phase_transition_reviewer_path = run_dir / PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME
+    phase_transition_reviewer_path.write_text(
+        str(phase_transition_bridge_reviewer_artifact.get("markdown") or ""),
+        encoding="utf-8",
+    )
 
     summary_stats = dict(payload.get("summary_stats") or {})
     summary_stats["analytics_summary"] = analytics_summary
@@ -147,6 +157,11 @@ def _augment_run_payload_with_step2_readiness(
         "role": "execution_summary",
         "path": str(phase_transition_path),
     }
+    artifact_statuses["phase_transition_bridge_reviewer_artifact"] = {
+        "status": "ok",
+        "role": "formal_analysis",
+        "path": str(phase_transition_reviewer_path),
+    }
     payload["artifact_statuses"] = artifact_statuses
 
     manifest_sections = dict(payload.get("manifest_sections") or {})
@@ -182,6 +197,27 @@ def _augment_run_payload_with_step2_readiness(
         "not_real_acceptance_evidence": True,
     }
     manifest_sections["phase_transition_bridge_reviewer_section"] = dict(phase_transition_bridge_surface_bundle)
+    manifest_sections["phase_transition_bridge_reviewer_artifact"] = {
+        "artifact_type": str(phase_transition_bridge_reviewer_artifact.get("artifact_type") or ""),
+        "path": str(phase_transition_reviewer_path),
+        "available": bool(phase_transition_bridge_reviewer_artifact.get("available", False)),
+        "summary_text": str(phase_transition_bridge_reviewer_artifact.get("display", {}).get("summary_text") or ""),
+        "status_line": str(phase_transition_bridge_reviewer_artifact.get("display", {}).get("status_line") or ""),
+        "current_stage_text": str(
+            phase_transition_bridge_reviewer_artifact.get("display", {}).get("current_stage_text") or ""
+        ),
+        "next_stage_text": str(
+            phase_transition_bridge_reviewer_artifact.get("display", {}).get("next_stage_text") or ""
+        ),
+        "execute_now_text": str(
+            phase_transition_bridge_reviewer_artifact.get("display", {}).get("execute_now_text") or ""
+        ),
+        "defer_to_stage3_text": str(
+            phase_transition_bridge_reviewer_artifact.get("display", {}).get("defer_to_stage3_text") or ""
+        ),
+        "warning_text": str(phase_transition_bridge_reviewer_artifact.get("display", {}).get("warning_text") or ""),
+        "not_real_acceptance_evidence": True,
+    }
     payload["manifest_sections"] = manifest_sections
 
     remembered_files = [str(item) for item in list(payload.get("remembered_files") or [])]
@@ -194,6 +230,9 @@ def _augment_run_payload_with_step2_readiness(
     phase_transition_path_text = str(phase_transition_path)
     if phase_transition_path_text not in remembered_files:
         remembered_files.append(phase_transition_path_text)
+    phase_transition_reviewer_path_text = str(phase_transition_reviewer_path)
+    if phase_transition_reviewer_path_text not in remembered_files:
+        remembered_files.append(phase_transition_reviewer_path_text)
     payload["remembered_files"] = remembered_files
     return payload
 
@@ -259,6 +298,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             print(f"step2_readiness_summary: {Path(args.run_dir).resolve() / STEP2_READINESS_SUMMARY_FILENAME}")
             print(f"metrology_calibration_contract: {Path(args.run_dir).resolve() / METROLOGY_CALIBRATION_CONTRACT_FILENAME}")
             print(f"phase_transition_bridge: {Path(args.run_dir).resolve() / PHASE_TRANSITION_BRIDGE_FILENAME}")
+            print(f"phase_transition_bridge_reviewer: {Path(args.run_dir).resolve() / PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME}")
             print(f"lineage_summary: {Path(args.run_dir).resolve() / 'lineage_summary.json'}")
             print(f"trend_registry: {Path(args.run_dir).resolve() / 'trend_registry.json'}")
             print(f"evidence_registry: {Path(args.run_dir).resolve() / 'evidence_registry.json'}")

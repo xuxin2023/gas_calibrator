@@ -6,6 +6,10 @@ from gas_calibrator.v2.core.acceptance_model import (
 )
 from gas_calibrator.v2.core.metrology_calibration_contract import build_metrology_calibration_contract
 from gas_calibrator.v2.core.phase_transition_bridge import build_phase_transition_bridge
+from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact import (
+    PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME,
+    build_phase_transition_bridge_reviewer_artifact,
+)
 from gas_calibrator.v2.core.step2_readiness import build_step2_readiness_summary
 
 
@@ -311,3 +315,53 @@ def test_phase_transition_bridge_reports_engineering_isolation_without_marking_r
     assert bridge["real_acceptance_ready"] is False
     assert "engineering-isolation" in bridge["reviewer_display"]["status_line"]
     assert "not_real_acceptance_evidence" in bridge["warning_items"]
+
+
+def test_phase_transition_bridge_reviewer_artifact_reuses_canonical_panel_output_without_leaking_raw_keys() -> None:
+    readiness = build_step2_readiness_summary(
+        run_id="run_bridge_reviewer",
+        simulation_mode=True,
+        config_governance_handoff={
+            "simulation_only": True,
+            "operator_safe": True,
+            "real_port_device_count": 0,
+            "engineering_only_flag_count": 0,
+            "enabled_engineering_flags": [],
+            "risk_markers": [],
+            "execution_gate": {"status": "open"},
+            "step2_default_workflow_allowed": True,
+            "requires_explicit_unlock": False,
+        },
+    )
+    metrology = build_metrology_calibration_contract(
+        run_id="run_bridge_reviewer",
+        simulation_mode=True,
+        config_governance_handoff={
+            "simulation_only": True,
+            "real_port_device_count": 0,
+            "engineering_only_flag_count": 0,
+            "enabled_engineering_flags": [],
+        },
+    )
+    bridge = build_phase_transition_bridge(
+        run_id="run_bridge_reviewer",
+        step2_readiness_summary=readiness,
+        metrology_calibration_contract=metrology,
+    )
+
+    artifact = build_phase_transition_bridge_reviewer_artifact(bridge)
+    markdown = artifact["markdown"]
+
+    assert artifact["available"] is True
+    assert artifact["artifact_type"] == "phase_transition_bridge_reviewer_artifact"
+    assert artifact["filename"] == PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME
+    assert artifact["raw"]["ready_for_engineering_isolation"] is True
+    assert artifact["raw"]["real_acceptance_ready"] is False
+    assert "Step 2 tail / Stage 3 bridge" in markdown
+    assert "engineering-isolation" in markdown
+    assert "当前执行" in markdown
+    assert "第三阶段执行" in markdown
+    assert "不是 real acceptance" in markdown
+    assert "不能替代真实计量验证" in markdown
+    assert "ready_for_engineering_isolation" not in markdown
+    assert "real_acceptance_ready" not in markdown

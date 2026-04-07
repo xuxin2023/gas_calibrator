@@ -6,6 +6,9 @@ from pathlib import Path
 from gas_calibrator.v2.core.phase_transition_bridge_presenter import (
     build_phase_transition_bridge_panel_payload,
 )
+from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact import (
+    build_phase_transition_bridge_reviewer_artifact,
+)
 from gas_calibrator.v2.scripts.build_offline_governance_artifacts import main, rebuild_run, rebuild_suite
 
 
@@ -140,12 +143,16 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert (run_dir / "step2_readiness_summary.json").exists()
     assert (run_dir / "metrology_calibration_contract.json").exists()
     assert (run_dir / "phase_transition_bridge.json").exists()
+    assert (run_dir / "phase_transition_bridge_reviewer.md").exists()
     assert (run_dir / "lineage_summary.json").exists()
     assert (run_dir / "evidence_registry.json").exists()
     analytics_summary = json.loads((run_dir / "analytics_summary.json").read_text(encoding="utf-8"))
     readiness_summary = json.loads((run_dir / "step2_readiness_summary.json").read_text(encoding="utf-8"))
     metrology_contract = json.loads((run_dir / "metrology_calibration_contract.json").read_text(encoding="utf-8"))
     phase_transition_bridge = json.loads((run_dir / "phase_transition_bridge.json").read_text(encoding="utf-8"))
+    phase_transition_bridge_reviewer_markdown = (run_dir / "phase_transition_bridge_reviewer.md").read_text(
+        encoding="utf-8"
+    )
     evidence_registry = json.loads((run_dir / "evidence_registry.json").read_text(encoding="utf-8"))
     assert analytics_summary["evidence_source"] == "simulated_protocol"
     assert analytics_summary["not_real_acceptance_evidence"] is True
@@ -195,11 +202,13 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert analytics_summary["phase_transition_bridge"]["real_acceptance_ready"] is False
     assert "阶段桥工件" in analytics_summary["phase_transition_bridge"]["reviewer_display"]["summary_text"]
     expected_bridge_section = build_phase_transition_bridge_panel_payload(phase_transition_bridge)
+    expected_bridge_reviewer_artifact = build_phase_transition_bridge_reviewer_artifact(phase_transition_bridge)
     assert analytics_summary["phase_transition_bridge_reviewer_section"]["available"] is True
     assert (
         analytics_summary["phase_transition_bridge_reviewer_section"]["display"]
         == expected_bridge_section["display"]
     )
+    assert phase_transition_bridge_reviewer_markdown == expected_bridge_reviewer_artifact["markdown"]
     assert readiness_summary["phase"] == "step2_readiness_bridge"
     assert readiness_summary["overall_status"] == "not_ready"
     assert readiness_summary["ready_for_engineering_isolation"] is False
@@ -272,7 +281,24 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
         payload["manifest_sections"]["phase_transition_bridge_reviewer_section"]["display"]
         == expected_bridge_section["display"]
     )
+    assert payload["manifest_sections"]["phase_transition_bridge_reviewer_artifact"]["artifact_type"] == (
+        "phase_transition_bridge_reviewer_artifact"
+    )
+    assert payload["manifest_sections"]["phase_transition_bridge_reviewer_artifact"]["path"] == str(
+        run_dir / "phase_transition_bridge_reviewer.md"
+    )
+    assert payload["manifest_sections"]["phase_transition_bridge_reviewer_artifact"]["summary_text"] == (
+        expected_bridge_reviewer_artifact["display"]["summary_text"]
+    )
     section_text = payload["manifest_sections"]["phase_transition_bridge_reviewer_section"]["display"]["section_text"]
+    assert "Step 2 tail / Stage 3 bridge" in phase_transition_bridge_reviewer_markdown
+    assert "engineering-isolation" in phase_transition_bridge_reviewer_markdown
+    assert "当前执行" in phase_transition_bridge_reviewer_markdown
+    assert "第三阶段执行" in phase_transition_bridge_reviewer_markdown
+    assert "不是 real acceptance" in phase_transition_bridge_reviewer_markdown
+    assert "不能替代真实计量验证" in phase_transition_bridge_reviewer_markdown
+    assert "ready_for_engineering_isolation" not in phase_transition_bridge_reviewer_markdown
+    assert "real_acceptance_ready" not in phase_transition_bridge_reviewer_markdown
     assert "Step 2 tail / Stage 3 bridge" in section_text
     assert "engineering-isolation" in section_text
     assert "当前执行" in section_text
@@ -287,9 +313,14 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     )
     assert payload["artifact_statuses"]["phase_transition_bridge"]["role"] == "execution_summary"
     assert payload["artifact_statuses"]["phase_transition_bridge"]["path"] == str(run_dir / "phase_transition_bridge.json")
+    assert payload["artifact_statuses"]["phase_transition_bridge_reviewer_artifact"]["role"] == "formal_analysis"
+    assert payload["artifact_statuses"]["phase_transition_bridge_reviewer_artifact"]["path"] == str(
+        run_dir / "phase_transition_bridge_reviewer.md"
+    )
     assert str(run_dir / "step2_readiness_summary.json") in payload["remembered_files"]
     assert str(run_dir / "metrology_calibration_contract.json") in payload["remembered_files"]
     assert str(run_dir / "phase_transition_bridge.json") in payload["remembered_files"]
+    assert str(run_dir / "phase_transition_bridge_reviewer.md") in payload["remembered_files"]
 
 
 def test_rebuild_suite_generates_governance_artifacts(tmp_path: Path) -> None:
