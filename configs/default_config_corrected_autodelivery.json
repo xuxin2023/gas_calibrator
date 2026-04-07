@@ -405,7 +405,7 @@
       "strict": true,
       "target_hpa": 1000.0,
       "flush_soak_s": 10.0,
-      "sample_duration_s": 8.0,
+      "sample_duration_s": 15.0,
       "sample_interval_s": 1.0,
       "min_samples": 3,
       "apply_write": true,
