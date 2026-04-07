@@ -22,7 +22,7 @@ from ..coefficients.fit_ratio_poly_evolved import fit_ratio_poly_rt_p_evolved
 from ..data.points import CalibrationPoint, load_points_from_excel, reorder_points, validate_points
 from ..export.temperature_compensation_export import export_temperature_compensation_artifacts
 from ..logging_utils import RunLogger
-from ..senco_format import format_senco_values
+from ..senco_format import format_senco_values, rounded_senco_values
 from ..validation.dewpoint_flush_gate import (
     detect_dewpoint_rebound,
     evaluate_dewpoint_flush_gate,
@@ -9563,10 +9563,17 @@ class CalibrationRunner:
                         if not ga.set_senco(9, offset, 1.0, 0.0, 0.0):
                             raise RuntimeError("SENCO9 write ack failed")
                         readback = ga.read_coefficient_group(9)
+                        expected_rounded = rounded_senco_values((offset, 1.0, 0.0, 0.0))
+                        readback_c0 = self._as_float(readback.get("C0"))
+                        readback_c1 = self._as_float(readback.get("C1"))
+                        readback_c2 = self._as_float(readback.get("C2"))
                         readback_ok = (
-                            abs(float(readback.get("C0")) - float(offset)) <= 1e-9
-                            and abs(float(readback.get("C1")) - 1.0) <= 1e-9
-                            and abs(float(readback.get("C2")) - 0.0) <= 1e-9
+                            readback_c0 is not None
+                            and readback_c1 is not None
+                            and readback_c2 is not None
+                            and abs(float(readback_c0) - expected_rounded[0]) <= 1e-9
+                            and abs(float(readback_c1) - expected_rounded[1]) <= 1e-9
+                            and abs(float(readback_c2) - expected_rounded[2]) <= 1e-9
                         )
                     except Exception as exc:
                         error = str(exc)

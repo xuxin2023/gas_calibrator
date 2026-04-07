@@ -31,10 +31,31 @@ def format_senco_values(values: Sequence[Any]) -> Tuple[str, ...]:
     return tuple(format_senco_value(value) for value in values)
 
 
+def rounded_senco_values(values: Sequence[Any]) -> Tuple[float, ...]:
+    """Round values the same way SENCO payload formatting does, then parse back to float."""
+
+    return tuple(float(text) for text in format_senco_values(values))
+
+
+def senco_readback_matches(expected: Sequence[Any], actual: Sequence[Any], *, atol: float = 1e-9) -> bool:
+    """Compare device readback against SENCO-rounded expected values."""
+
+    if len(expected) != len(actual):
+        return False
+    try:
+        rounded_expected = rounded_senco_values(expected)
+        actual_values = tuple(float(value) for value in actual)
+    except Exception:
+        return False
+    return all(
+        math.isfinite(exp) and math.isfinite(got) and abs(got - exp) <= float(atol)
+        for exp, got in zip(rounded_expected, actual_values)
+    )
+
+
 def format_senco_coeffs(coeffs: Sequence[Any]) -> Tuple[str, str, str, str]:
     """Format the 4-coefficient A/B/C/D payload used by SENCO7/8."""
 
     if len(coeffs) != 4:
         raise ValueError("coeffs must contain exactly 4 values")
     return tuple(format_senco_values(coeffs))  # type: ignore[return-value]
-

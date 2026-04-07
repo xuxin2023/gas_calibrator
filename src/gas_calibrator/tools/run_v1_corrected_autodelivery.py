@@ -15,7 +15,7 @@ from openpyxl import load_workbook
 from ..config import load_config
 from ..devices.gas_analyzer import GasAnalyzer
 from ..export import build_corrected_water_points_report
-from ..senco_format import format_senco_values
+from ..senco_format import format_senco_values, senco_readback_matches
 from .run_v1_no500_postprocess import _filter_no_500_frame
 
 
@@ -453,7 +453,7 @@ def write_coefficients_to_live_devices(
                         raise RuntimeError("WRITE_ACK_FAILED")
                     values = _read_group_as_list(ga, int(group), len(coeffs))
                     readback = json.dumps(values, ensure_ascii=False)
-                    readback_ok = len(values) == len(coeffs) and all(abs(float(values[idx]) - float(coeffs[idx])) <= 1e-9 for idx in range(len(coeffs)))
+                    readback_ok = senco_readback_matches(coeffs, values)
                     if readback_ok:
                         matched += 1
                     else:
