@@ -117,8 +117,8 @@ class ReviewCenterPanel(ttk.LabelFrame):
         ttk.Label(
             self.phase_bridge_artifact_frame,
             text=t(
-                "results.review_center.section.phase_bridge_artifact",
-                default="阶段桥独立审阅工件",
+                "results.review_center.section.phase_bridge",
+                default="阶段准入桥",
             ),
             style="Section.TLabel",
         ).grid(row=0, column=0, sticky="w", pady=(0, 4))
