@@ -174,11 +174,19 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert any("质控" in item for item in analytics_summary["unified_review_summary"]["reviewer_notes"])
     assert analytics_summary["step2_readiness_summary"]["artifact_type"] == "step2_readiness_summary"
     assert analytics_summary["step2_readiness_summary"]["overall_status"] == "not_ready"
+    assert analytics_summary["step2_readiness_summary"]["ready_for_engineering_isolation"] is False
+    assert analytics_summary["step2_readiness_summary"]["real_acceptance_ready"] is False
     assert analytics_summary["step2_readiness_summary"]["evidence_mode"] == "simulation_offline_headless"
     assert "不是 real acceptance" in analytics_summary["step2_readiness_summary"]["reviewer_display"]["summary_text"]
     assert readiness_summary["phase"] == "step2_readiness_bridge"
     assert readiness_summary["overall_status"] == "not_ready"
+    assert readiness_summary["ready_for_engineering_isolation"] is False
+    assert readiness_summary["real_acceptance_ready"] is False
     assert readiness_summary["not_real_acceptance_evidence"] is True
+    assert any(
+        item["gate_id"] == "readiness_evidence_complete" and item["status"] == "pass"
+        for item in readiness_summary["gates"]
+    )
     assert readiness_summary["gates"][-1]["gate_id"] == "step2_gate_status"
     assert readiness_summary["gates"][-1]["status"] == "not_ready"
     assert "real acceptance passed" not in readiness_summary["reviewer_display"]["summary_text"].lower()
@@ -191,9 +199,16 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert evidence_registry["config_safety_review"]["warnings"] == ["top-level warning"]
     assert payload["summary_stats"]["offline_diagnostic_adapter_summary"]["found"] is True
     assert payload["summary_stats"]["step2_readiness_summary"]["overall_status"] == "not_ready"
+    assert payload["summary_stats"]["step2_readiness_digest"]["overall_status"] == "not_ready"
+    assert payload["summary_stats"]["step2_readiness_digest"]["ready_for_engineering_isolation"] is False
+    assert payload["summary_stats"]["step2_readiness_digest"]["real_acceptance_ready"] is False
+    assert payload["summary_stats"]["step2_readiness_digest"]["gate_status_counts"]["not_ready"] == 1
     assert payload["manifest_sections"]["step2_readiness"]["overall_status"] == "not_ready"
+    assert payload["manifest_sections"]["step2_readiness"]["ready_for_engineering_isolation"] is False
+    assert payload["manifest_sections"]["step2_readiness"]["real_acceptance_ready"] is False
     assert payload["artifact_statuses"]["step2_readiness_summary"]["role"] == "execution_summary"
     assert payload["artifact_statuses"]["step2_readiness_summary"]["path"] == str(run_dir / "step2_readiness_summary.json")
+    assert str(run_dir / "step2_readiness_summary.json") in payload["remembered_files"]
 
 
 def test_rebuild_suite_generates_governance_artifacts(tmp_path: Path) -> None:

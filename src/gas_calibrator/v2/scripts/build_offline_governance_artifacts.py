@@ -72,6 +72,9 @@ def _augment_run_payload_with_step2_readiness(
     summary_stats["step2_readiness_digest"] = {
         "phase": readiness_summary.get("phase"),
         "overall_status": readiness_summary.get("overall_status"),
+        "ready_for_engineering_isolation": bool(readiness_summary.get("ready_for_engineering_isolation", False)),
+        "real_acceptance_ready": bool(readiness_summary.get("real_acceptance_ready", False)),
+        "gate_status_counts": dict(readiness_summary.get("gate_status_counts") or {}),
         "blocking_items": list(readiness_summary.get("blocking_items") or []),
         "warning_items": list(readiness_summary.get("warning_items") or []),
         "evidence_mode": readiness_summary.get("evidence_mode"),
@@ -90,9 +93,12 @@ def _augment_run_payload_with_step2_readiness(
     manifest_sections["step2_readiness"] = {
         "phase": readiness_summary.get("phase"),
         "overall_status": readiness_summary.get("overall_status"),
+        "ready_for_engineering_isolation": bool(readiness_summary.get("ready_for_engineering_isolation", False)),
+        "real_acceptance_ready": bool(readiness_summary.get("real_acceptance_ready", False)),
         "evidence_mode": readiness_summary.get("evidence_mode"),
         "blocking_items": list(readiness_summary.get("blocking_items") or []),
         "warning_items": list(readiness_summary.get("warning_items") or []),
+        "gate_status_counts": dict(readiness_summary.get("gate_status_counts") or {}),
         "not_real_acceptance_evidence": bool(readiness_summary.get("not_real_acceptance_evidence", True)),
     }
     payload["manifest_sections"] = manifest_sections

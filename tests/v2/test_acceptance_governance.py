@@ -93,8 +93,11 @@ def test_step2_readiness_summary_reports_engineering_isolation_preparation_witho
     assert readiness["phase"] == "step2_readiness_bridge"
     assert readiness["mode"] == "simulation_only"
     assert readiness["overall_status"] == "ready_for_engineering_isolation"
+    assert readiness["ready_for_engineering_isolation"] is True
+    assert readiness["real_acceptance_ready"] is False
     assert readiness["evidence_mode"] == "simulation_offline_headless"
     assert readiness["not_real_acceptance_evidence"] is True
+    assert readiness["gate_status_counts"]["pass"] >= 1
     assert readiness["blocking_items"] == []
     assert {
         "simulation_only_boundary",
@@ -151,10 +154,14 @@ def test_step2_readiness_summary_requires_governance_evidence_completeness_befor
     step2_gate = next(item for item in readiness["gates"] if item["gate_id"] == "step2_gate_status")
 
     assert readiness["overall_status"] == "not_ready"
+    assert readiness["ready_for_engineering_isolation"] is False
+    assert readiness["real_acceptance_ready"] is False
     assert evidence_gate["status"] == "blocked"
     assert evidence_gate["reason_code"] == "config_governance_handoff_incomplete"
     assert evidence_gate["details"]["governance_handoff_present"] is False
     assert "execution_gate" in evidence_gate["details"]["missing_fields"]
+    assert readiness["gate_status_counts"]["blocked"] >= 1
+    assert readiness["gate_status_counts"]["not_ready"] == 1
     assert "readiness_evidence_complete" in readiness["blocking_items"]
     assert "config_governance_handoff_incomplete" in readiness["warning_items"]
     assert any("治理证据完整性：阻塞" in line for line in readiness["reviewer_display"]["gate_lines"])

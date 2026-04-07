@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -187,6 +188,7 @@ def build_step2_readiness_summary(
             },
         )
     )
+    gate_status_counts = dict(Counter(str(gate.get("status") or "unknown") for gate in gates))
 
     blocking_items = [
         str(gate.get("gate_id") or "")
@@ -226,12 +228,15 @@ def build_step2_readiness_summary(
         "phase": "step2_readiness_bridge",
         "mode": "simulation_only",
         "overall_status": overall_status,
+        "ready_for_engineering_isolation": overall_status == "ready_for_engineering_isolation",
+        "real_acceptance_ready": False,
         "evidence_mode": "simulation_offline_headless",
         "evidence_source": boundary.get("evidence_source"),
         "not_real_acceptance_evidence": True,
         "acceptance_level": boundary.get("acceptance_level"),
         "promotion_state": boundary.get("promotion_state"),
         "gates": gates,
+        "gate_status_counts": gate_status_counts,
         "blocking_items": blocking_items,
         "warning_items": warning_items,
         "notes": notes,
