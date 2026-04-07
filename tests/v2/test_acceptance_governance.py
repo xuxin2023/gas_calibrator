@@ -1,7 +1,7 @@
 from gas_calibrator.v2.core.acceptance_model import (
-    build_user_visible_evidence_boundary,
     build_run_acceptance_plan,
     build_suite_acceptance_plan,
+    build_user_visible_evidence_boundary,
     build_validation_acceptance_snapshot,
 )
 from gas_calibrator.v2.core.step2_readiness import build_step2_readiness_summary
@@ -103,6 +103,7 @@ def test_step2_readiness_summary_reports_engineering_isolation_preparation_witho
         "offline_only_adapters_not_in_default_path",
         "reviewer_surface_hydration_chain_ready",
         "headless_smoke_path_available",
+        "readiness_evidence_complete",
         "step2_gate_status",
     } <= gate_ids
     assert readiness["reviewer_display"]["status_line"].startswith("阶段状态：")
@@ -137,3 +138,24 @@ def test_step2_readiness_summary_blocks_enabled_engineering_flags_but_keeps_raw_
     assert flag_gate["status"] == "blocked"
     assert flag_gate["details"]["enabled_engineering_flags"] == ["workflow.pressure.capture_then_hold_enabled"]
     assert "不是 real acceptance" in readiness["reviewer_display"]["summary_text"]
+
+
+def test_step2_readiness_summary_requires_governance_evidence_completeness_before_marking_ready() -> None:
+    readiness = build_step2_readiness_summary(
+        run_id="run_missing_governance",
+        simulation_mode=True,
+        config_governance_handoff={},
+    )
+
+    evidence_gate = next(item for item in readiness["gates"] if item["gate_id"] == "readiness_evidence_complete")
+    step2_gate = next(item for item in readiness["gates"] if item["gate_id"] == "step2_gate_status")
+
+    assert readiness["overall_status"] == "not_ready"
+    assert evidence_gate["status"] == "blocked"
+    assert evidence_gate["reason_code"] == "config_governance_handoff_incomplete"
+    assert evidence_gate["details"]["governance_handoff_present"] is False
+    assert "execution_gate" in evidence_gate["details"]["missing_fields"]
+    assert "readiness_evidence_complete" in readiness["blocking_items"]
+    assert "config_governance_handoff_incomplete" in readiness["warning_items"]
+    assert any("治理证据完整性：阻塞" in line for line in readiness["reviewer_display"]["gate_lines"])
+    assert step2_gate["status"] == "not_ready"

@@ -30,6 +30,7 @@ _GATE_LABELS = {
     "offline_only_adapters_not_in_default_path": "离线适配器边界",
     "reviewer_surface_hydration_chain_ready": "reviewer handoff 主链",
     "headless_smoke_path_available": "headless smoke 路径",
+    "readiness_evidence_complete": "治理证据完整性",
     "step2_gate_status": "阶段结论",
 }
 
@@ -54,6 +55,8 @@ def build_step2_readiness_summary(
     enabled_engineering_flags = _normalize_string_list(governance.get("enabled_engineering_flags"))
     risk_markers = _normalize_string_list(governance.get("risk_markers"))
     execution_gate = dict(governance.get("execution_gate") or {})
+    evidence_completeness = _build_evidence_completeness(governance)
+    evidence_complete = bool(evidence_completeness.get("complete", False))
     step2_default_workflow_allowed = bool(
         governance.get(
             "step2_default_workflow_allowed",
@@ -149,6 +152,14 @@ def build_step2_readiness_summary(
                 "headless_command": HEADLESS_SMOKE_COMMAND,
             },
         ),
+        _gate(
+            "readiness_evidence_complete",
+            "pass" if evidence_complete else "blocked",
+            "config_governance_handoff_complete"
+            if evidence_complete
+            else "config_governance_handoff_incomplete",
+            evidence_completeness,
+        ),
     ]
 
     overall_ready = (
@@ -158,6 +169,7 @@ def build_step2_readiness_summary(
         and offline_adapters_isolated
         and reviewer_hydration_ready
         and headless_smoke_ready
+        and evidence_complete
         and step2_default_workflow_allowed
         and execution_gate_status == "open"
     )
@@ -185,11 +197,8 @@ def build_step2_readiness_summary(
         dict.fromkeys(
             [
                 *risk_markers,
-                *(
-                    ["requires_explicit_unlock"]
-                    if requires_explicit_unlock
-                    else []
-                ),
+                *(["requires_explicit_unlock"] if requires_explicit_unlock else []),
+                *(["config_governance_handoff_incomplete"] if not evidence_complete else []),
                 "simulation_offline_headless_only",
                 "not_real_acceptance_evidence",
             ]
@@ -256,6 +265,31 @@ def _gate(gate_id: str, status: str, reason_code: str, details: dict[str, Any]) 
     }
 
 
+def _build_evidence_completeness(governance: dict[str, Any]) -> dict[str, Any]:
+    required_fields = [
+        "simulation_only",
+        "operator_safe",
+        "execution_gate",
+        "real_port_device_count",
+        "engineering_only_flag_count",
+        "step2_default_workflow_allowed",
+        "requires_explicit_unlock",
+    ]
+    present_fields = [
+        field
+        for field in required_fields
+        if field in governance and governance.get(field) not in (None, "")
+    ]
+    missing_fields = [field for field in required_fields if field not in present_fields]
+    return {
+        "governance_handoff_present": bool(governance),
+        "required_fields": required_fields,
+        "present_fields": present_fields,
+        "missing_fields": missing_fields,
+        "complete": bool(governance) and not missing_fields,
+    }
+
+
 def _build_reviewer_display(
     *,
     overall_status: str,
@@ -283,8 +317,7 @@ def _build_reviewer_display(
     warning_text = (
         "提示：本工件仅用于 simulation/offline/headless 阶段治理与准入准备，不代表 real acceptance evidence。"
         if not warning_items
-        else "提示：本工件仅用于 simulation/offline/headless 阶段治理与准入准备；"
-        + "当前 warning code 包括 "
+        else "提示：本工件仅用于 simulation/offline/headless 阶段治理与准入准备；当前 warning code 包括 "
         + ", ".join(warning_items)
         + "。"
     )
@@ -329,6 +362,11 @@ def _build_reviewer_gate_line(gate: dict[str, Any]) -> str:
             if status == "pass"
             else f"{label}：阻塞，headless smoke 配置或 points 路径缺失。"
         )
+    if gate_id == "readiness_evidence_complete":
+        if status == "pass":
+            return "治理证据完整性：通过，config_governance_handoff 已具备 Step 2 readiness 所需关键字段。"
+        missing_fields = ", ".join(list(details.get("missing_fields") or [])) or "--"
+        return f"治理证据完整性：阻塞，config_governance_handoff 缺少关键字段：{missing_fields}。"
     if gate_id == "step2_gate_status":
         return (
             "阶段结论：已具备 engineering-isolation 准入准备；仍不是 real acceptance。"
