@@ -1197,6 +1197,8 @@ def test_review_scope_export_entry_exposes_phase_transition_bridge_section() -> 
     assert section["display"] == expected_section["display"]
     assert "Step 2 tail / Stage 3 bridge" in section_text
     assert "engineering-isolation" in section_text
+    assert expected_section["display"]["engineering_isolation_text"] in section_text
+    assert expected_section["display"]["real_acceptance_text"] in section_text
     assert "\u73b0\u5728\u6267\u884c" in section_text
     assert "\u7b2c\u4e09\u9636\u6bb5\u6267\u884c" in section_text
     assert "\u4e0d\u662f real acceptance" in section_text

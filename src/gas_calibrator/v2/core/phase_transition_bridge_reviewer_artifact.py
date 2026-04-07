@@ -25,16 +25,8 @@ def build_phase_transition_bridge_reviewer_artifact(
 
     raw = dict(section.get("raw", {}) or {})
     display = dict(section.get("display", {}) or {})
-    engineering_isolation_text = (
-        "engineering-isolation 准备：已具备。"
-        if bool(raw.get("ready_for_engineering_isolation", False))
-        else "engineering-isolation 准备：尚未具备。"
-    )
-    real_acceptance_text = (
-        "real acceptance 准备：已具备。"
-        if bool(raw.get("real_acceptance_ready", False))
-        else "real acceptance 准备：尚未具备。"
-    )
+    engineering_isolation_text = str(display.get("engineering_isolation_text") or "").strip()
+    real_acceptance_text = str(display.get("real_acceptance_text") or "").strip()
     markdown = _render_phase_transition_bridge_reviewer_markdown(
         title_text=str(display.get("title_text") or "阶段准入桥 / Phase Transition Bridge"),
         summary_text=str(display.get("summary_text") or "").strip(),

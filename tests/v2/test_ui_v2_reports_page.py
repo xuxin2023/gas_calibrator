@@ -503,6 +503,8 @@ def test_reports_page_includes_phase_transition_bridge_digest_in_result_summary_
         assert "阶段桥工件" in summary_text
         assert "Step 2 tail / Stage 3 bridge" in summary_text
         assert "engineering-isolation" in summary_text
+        assert "engineering-isolation 准备：已具备。" in summary_text
+        assert "real acceptance 准备：尚未具备。" in summary_text
         assert "现在执行：contract_schema_digest_reporting / governance_artifact_export。" in summary_text
         assert "第三阶段执行：real_reference_instrument_enforcement / real_acceptance_pass_fail。" in summary_text
         assert "不是 real acceptance" in summary_text
@@ -533,6 +535,8 @@ def test_reports_page_exposes_phase_transition_bridge_as_dedicated_section() -> 
         assert "阶段桥工件" in bridge_text
         assert "Step 2 tail / Stage 3 bridge" in bridge_text
         assert "engineering-isolation" in bridge_text
+        assert "engineering-isolation 准备：已具备。" in bridge_text
+        assert "real acceptance 准备：尚未具备。" in bridge_text
         assert "现在执行" in bridge_text
         assert "第三阶段执行" in bridge_text
         assert "不是 real acceptance" in bridge_text
@@ -565,6 +569,8 @@ def test_reports_page_phase_transition_bridge_section_matches_presenter_payload(
         assert bridge_text == expected_panel["display"]["section_text"]
         assert "Step 2 tail / Stage 3 bridge" in bridge_text
         assert "engineering-isolation" in bridge_text
+        assert expected_panel["display"]["engineering_isolation_text"] in bridge_text
+        assert expected_panel["display"]["real_acceptance_text"] in bridge_text
         assert expected_panel["display"]["execute_now_text"] in bridge_text
         assert expected_panel["display"]["defer_to_stage3_text"] in bridge_text
         assert "不是 real acceptance" in bridge_text

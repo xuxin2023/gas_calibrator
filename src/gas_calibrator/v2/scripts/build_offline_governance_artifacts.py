@@ -209,12 +209,19 @@ def _augment_run_payload_with_step2_readiness(
         "next_stage_text": str(
             phase_transition_bridge_reviewer_artifact.get("display", {}).get("next_stage_text") or ""
         ),
+        "engineering_isolation_text": str(
+            phase_transition_bridge_reviewer_artifact.get("display", {}).get("engineering_isolation_text") or ""
+        ),
+        "real_acceptance_text": str(
+            phase_transition_bridge_reviewer_artifact.get("display", {}).get("real_acceptance_text") or ""
+        ),
         "execute_now_text": str(
             phase_transition_bridge_reviewer_artifact.get("display", {}).get("execute_now_text") or ""
         ),
         "defer_to_stage3_text": str(
             phase_transition_bridge_reviewer_artifact.get("display", {}).get("defer_to_stage3_text") or ""
         ),
+        "blocking_text": str(phase_transition_bridge_reviewer_artifact.get("display", {}).get("blocking_text") or ""),
         "warning_text": str(phase_transition_bridge_reviewer_artifact.get("display", {}).get("warning_text") or ""),
         "not_real_acceptance_evidence": True,
     }

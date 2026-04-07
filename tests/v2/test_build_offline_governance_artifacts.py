@@ -290,9 +290,20 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert payload["manifest_sections"]["phase_transition_bridge_reviewer_artifact"]["summary_text"] == (
         expected_bridge_reviewer_artifact["display"]["summary_text"]
     )
+    assert payload["manifest_sections"]["phase_transition_bridge_reviewer_artifact"]["engineering_isolation_text"] == (
+        expected_bridge_reviewer_artifact["display"]["engineering_isolation_text"]
+    )
+    assert payload["manifest_sections"]["phase_transition_bridge_reviewer_artifact"]["real_acceptance_text"] == (
+        expected_bridge_reviewer_artifact["display"]["real_acceptance_text"]
+    )
+    assert payload["manifest_sections"]["phase_transition_bridge_reviewer_artifact"]["blocking_text"] == (
+        expected_bridge_reviewer_artifact["display"]["blocking_text"]
+    )
     section_text = payload["manifest_sections"]["phase_transition_bridge_reviewer_section"]["display"]["section_text"]
     assert "Step 2 tail / Stage 3 bridge" in phase_transition_bridge_reviewer_markdown
     assert "engineering-isolation" in phase_transition_bridge_reviewer_markdown
+    assert "engineering-isolation 准备：尚未具备。" in phase_transition_bridge_reviewer_markdown
+    assert "real acceptance 准备：尚未具备。" in phase_transition_bridge_reviewer_markdown
     assert "当前执行" in phase_transition_bridge_reviewer_markdown
     assert "第三阶段执行" in phase_transition_bridge_reviewer_markdown
     assert "不是 real acceptance" in phase_transition_bridge_reviewer_markdown
@@ -301,6 +312,8 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert "real_acceptance_ready" not in phase_transition_bridge_reviewer_markdown
     assert "Step 2 tail / Stage 3 bridge" in section_text
     assert "engineering-isolation" in section_text
+    assert "engineering-isolation 准备：尚未具备。" in section_text
+    assert "real acceptance 准备：尚未具备。" in section_text
     assert "当前执行" in section_text
     assert "第三阶段执行" in section_text
     assert "不是 real acceptance" in section_text

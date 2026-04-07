@@ -564,6 +564,8 @@ def test_review_center_panel_exposes_phase_transition_bridge_as_dedicated_card()
 
         assert "Step 2 tail / Stage 3 bridge" in panel.phase_bridge_var.get()
         assert "engineering-isolation" in panel.phase_bridge_var.get()
+        assert "engineering-isolation 准备：已具备。" in panel.phase_bridge_var.get()
+        assert "real acceptance 准备：尚未具备。" in panel.phase_bridge_var.get()
         assert "现在执行" in panel.phase_bridge_var.get()
         assert "第三阶段执行" in panel.phase_bridge_var.get()
         assert "不是 real acceptance" in panel.phase_bridge_var.get()
@@ -621,6 +623,8 @@ def test_review_center_phase_transition_bridge_card_matches_presenter_payload() 
         assert bridge_text == expected_panel["display"]["card_text"]
         assert "Step 2 tail / Stage 3 bridge" in bridge_text
         assert "engineering-isolation" in bridge_text
+        assert expected_panel["display"]["engineering_isolation_text"] in bridge_text
+        assert expected_panel["display"]["real_acceptance_text"] in bridge_text
         assert expected_panel["display"]["execute_now_text"] in bridge_text
         assert expected_panel["display"]["defer_to_stage3_text"] in bridge_text
         assert "不是 real acceptance" in bridge_text

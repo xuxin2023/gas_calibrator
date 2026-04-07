@@ -47,12 +47,24 @@ def build_phase_transition_bridge_digest(
     warning_text = str(reviewer_display.get("warning_text") or "").strip() or _default_warning_text(
         warning_items
     )
+    engineering_isolation_text = str(reviewer_display.get("engineering_isolation_text") or "").strip() or (
+        _default_engineering_isolation_text(
+            ready_for_engineering_isolation=ready_for_engineering_isolation,
+        )
+    )
+    real_acceptance_text = str(reviewer_display.get("real_acceptance_text") or "").strip() or (
+        _default_real_acceptance_text(
+            real_acceptance_ready=real_acceptance_ready,
+        )
+    )
 
     report_lines = [
         summary_text,
         status_line,
         current_stage_text,
         next_stage_text,
+        engineering_isolation_text,
+        real_acceptance_text,
         execute_now_text,
         defer_to_stage3_text,
         blocking_text,
@@ -70,6 +82,8 @@ def build_phase_transition_bridge_digest(
         "status_line": status_line,
         "current_stage_text": current_stage_text,
         "next_stage_text": next_stage_text,
+        "engineering_isolation_text": engineering_isolation_text,
+        "real_acceptance_text": real_acceptance_text,
         "execute_now_text": execute_now_text,
         "defer_to_stage3_text": defer_to_stage3_text,
         "blocking_text": blocking_text,
@@ -95,6 +109,8 @@ def build_phase_transition_bridge_panel_payload(
     card_lines = [
         str(digest.get("current_stage_text") or "").strip(),
         str(digest.get("next_stage_text") or "").strip(),
+        str(digest.get("engineering_isolation_text") or "").strip(),
+        str(digest.get("real_acceptance_text") or "").strip(),
         str(digest.get("execute_now_text") or "").strip(),
         str(digest.get("defer_to_stage3_text") or "").strip(),
         warning_text,
@@ -104,6 +120,8 @@ def build_phase_transition_bridge_panel_payload(
         str(digest.get("status_line") or "").strip(),
         str(digest.get("current_stage_text") or "").strip(),
         str(digest.get("next_stage_text") or "").strip(),
+        str(digest.get("engineering_isolation_text") or "").strip(),
+        str(digest.get("real_acceptance_text") or "").strip(),
         str(digest.get("execute_now_text") or "").strip(),
         str(digest.get("defer_to_stage3_text") or "").strip(),
         blocking_text,
@@ -124,6 +142,8 @@ def build_phase_transition_bridge_panel_payload(
             "status_line": str(digest.get("status_line") or "").strip(),
             "current_stage_text": str(digest.get("current_stage_text") or "").strip(),
             "next_stage_text": str(digest.get("next_stage_text") or "").strip(),
+            "engineering_isolation_text": str(digest.get("engineering_isolation_text") or "").strip(),
+            "real_acceptance_text": str(digest.get("real_acceptance_text") or "").strip(),
             "execute_now_text": str(digest.get("execute_now_text") or "").strip(),
             "defer_to_stage3_text": str(digest.get("defer_to_stage3_text") or "").strip(),
             "blocking_text": blocking_text,
@@ -187,6 +207,28 @@ def _default_execute_now_text(items: list[str]) -> str:
     if not items:
         return "现在执行：无新增 Step 2 tail 事项。"
     return "现在执行：" + " / ".join(items) + "。"
+
+
+def _default_engineering_isolation_text(
+    *,
+    ready_for_engineering_isolation: bool,
+) -> str:
+    return (
+        "engineering-isolation 准备：已具备。"
+        if ready_for_engineering_isolation
+        else "engineering-isolation 准备：尚未具备。"
+    )
+
+
+def _default_real_acceptance_text(
+    *,
+    real_acceptance_ready: bool,
+) -> str:
+    return (
+        "real acceptance 准备：已具备。"
+        if real_acceptance_ready
+        else "real acceptance 准备：尚未具备。"
+    )
 
 
 def _default_defer_text(items: list[str]) -> str:

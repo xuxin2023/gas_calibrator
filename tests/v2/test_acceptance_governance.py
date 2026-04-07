@@ -6,6 +6,7 @@ from gas_calibrator.v2.core.acceptance_model import (
 )
 from gas_calibrator.v2.core.metrology_calibration_contract import build_metrology_calibration_contract
 from gas_calibrator.v2.core.phase_transition_bridge import build_phase_transition_bridge
+from gas_calibrator.v2.core.phase_transition_bridge_presenter import build_phase_transition_bridge_panel_payload
 from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact import (
     PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME,
     build_phase_transition_bridge_reviewer_artifact,
@@ -350,6 +351,7 @@ def test_phase_transition_bridge_reviewer_artifact_reuses_canonical_panel_output
     )
 
     artifact = build_phase_transition_bridge_reviewer_artifact(bridge)
+    expected_panel = build_phase_transition_bridge_panel_payload(bridge)
     markdown = artifact["markdown"]
 
     assert artifact["available"] is True
@@ -357,8 +359,15 @@ def test_phase_transition_bridge_reviewer_artifact_reuses_canonical_panel_output
     assert artifact["filename"] == PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME
     assert artifact["raw"]["ready_for_engineering_isolation"] is True
     assert artifact["raw"]["real_acceptance_ready"] is False
+    assert artifact["section"]["display"] == expected_panel["display"]
+    assert artifact["display"]["engineering_isolation_text"] == expected_panel["display"]["engineering_isolation_text"]
+    assert artifact["display"]["real_acceptance_text"] == expected_panel["display"]["real_acceptance_text"]
+    assert "engineering-isolation 准备：已具备。" in expected_panel["display"]["section_text"]
+    assert "real acceptance 准备：尚未具备。" in expected_panel["display"]["section_text"]
     assert "Step 2 tail / Stage 3 bridge" in markdown
     assert "engineering-isolation" in markdown
+    assert "engineering-isolation 准备：已具备。" in markdown
+    assert "real acceptance 准备：尚未具备。" in markdown
     assert "当前执行" in markdown
     assert "第三阶段执行" in markdown
     assert "不是 real acceptance" in markdown
