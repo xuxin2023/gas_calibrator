@@ -14,6 +14,7 @@ from gas_calibrator.v2.domain.pressure_selection import (
     AMBIENT_PRESSURE_LABEL,
     AMBIENT_PRESSURE_TOKEN,
 )
+from gas_calibrator.v2.scripts.build_offline_governance_artifacts import rebuild_run
 from gas_calibrator.v2.ui_v2.controllers.app_facade import AppFacade
 from ui_v2_support import build_fake_facade
 
@@ -1473,3 +1474,27 @@ def test_app_facade_reads_config_safety_from_analytics_summary_when_summary_and_
     assert results_snapshot["config_governance_handoff"]["execution_gate"]["status"] == "analytics_override"
     assert reports_snapshot["config_safety_review"]["execution_gate"]["status"] == "analytics_override"
     assert reports_snapshot["config_governance_handoff"]["execution_gate"]["status"] == "analytics_override"
+
+
+def test_app_facade_promotes_phase_transition_bridge_reviewer_artifact_into_review_center(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+
+    results_snapshot = facade.build_results_snapshot()
+    reports_snapshot = facade.get_reports_snapshot(results_snapshot=results_snapshot)
+    review_center_entry = dict(results_snapshot["review_center"].get("phase_transition_bridge_reviewer_artifact_entry", {}) or {})
+    reports_entry = dict(reports_snapshot.get("phase_transition_bridge_reviewer_artifact_entry", {}) or {})
+
+    assert review_center_entry["path"] == reports_entry["path"]
+    assert review_center_entry["summary_text"] == reports_entry["summary_text"]
+    assert review_center_entry["status_line"] == reports_entry["status_line"]
+    assert review_center_entry["stage_marker_text"] == reports_entry["stage_marker_text"]
+    assert review_center_entry["engineering_isolation_text"] == reports_entry["engineering_isolation_text"]
+    assert review_center_entry["real_acceptance_text"] == reports_entry["real_acceptance_text"]
+    assert "Step 2 tail / Stage 3 bridge" in review_center_entry["entry_text"]
+    assert "engineering-isolation" in review_center_entry["entry_text"]
+    assert "不是 real acceptance" in review_center_entry["entry_text"]
+    assert "不能替代真实计量验证" in review_center_entry["entry_text"]
+    assert review_center_entry["ready_for_engineering_isolation"] is False
+    assert review_center_entry["real_acceptance_ready"] is False

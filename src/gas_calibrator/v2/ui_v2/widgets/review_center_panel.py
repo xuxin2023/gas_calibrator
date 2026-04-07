@@ -32,7 +32,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
         )
         self.compact = bool(compact)
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(4, weight=1)
+        self.rowconfigure(5, weight=1)
         self._payload: dict[str, Any] = {}
         self._items: list[dict[str, Any]] = []
         self._type_lookup: dict[str, str] = {}
@@ -107,8 +107,52 @@ class ReviewCenterPanel(ttk.LabelFrame):
         self._summary_card(summary, 1, 2, t("results.review_center.section.lineage"), self.lineage_var)
         self._summary_card(summary, 1, 3, t("results.review_center.section.phase_bridge", default="阶段准入桥"), self.phase_bridge_var)
 
+        self.phase_bridge_artifact_frame = ttk.Frame(self, style="Card.TFrame")
+        self.phase_bridge_artifact_frame.grid(row=3, column=0, sticky="ew", pady=(0, 6))
+        self.phase_bridge_artifact_frame.columnconfigure(0, weight=1)
+        self.phase_bridge_artifact_title_var = tk.StringVar(value="")
+        self.phase_bridge_artifact_status_var = tk.StringVar(value="")
+        self.phase_bridge_artifact_path_var = tk.StringVar(value="")
+        self.phase_bridge_artifact_note_var = tk.StringVar(value="")
+        ttk.Label(
+            self.phase_bridge_artifact_frame,
+            text=t(
+                "results.review_center.section.phase_bridge_artifact",
+                default="阶段桥独立审阅工件",
+            ),
+            style="Section.TLabel",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 4))
+        ttk.Label(
+            self.phase_bridge_artifact_frame,
+            textvariable=self.phase_bridge_artifact_title_var,
+            justify="left",
+            wraplength=1120 if compact else 1320,
+        ).grid(row=1, column=0, sticky="ew")
+        ttk.Label(
+            self.phase_bridge_artifact_frame,
+            textvariable=self.phase_bridge_artifact_status_var,
+            justify="left",
+            wraplength=1120 if compact else 1320,
+            style="Muted.TLabel",
+        ).grid(row=2, column=0, sticky="ew", pady=(2, 0))
+        ttk.Label(
+            self.phase_bridge_artifact_frame,
+            textvariable=self.phase_bridge_artifact_path_var,
+            justify="left",
+            wraplength=1120 if compact else 1320,
+            style="Muted.TLabel",
+        ).grid(row=3, column=0, sticky="ew", pady=(2, 0))
+        ttk.Label(
+            self.phase_bridge_artifact_frame,
+            textvariable=self.phase_bridge_artifact_note_var,
+            justify="left",
+            wraplength=1120 if compact else 1320,
+            style="Muted.TLabel",
+        ).grid(row=4, column=0, sticky="ew", pady=(2, 0))
+        self.phase_bridge_artifact_frame.grid_remove()
+
         source_frame = ttk.Frame(self, style="Card.TFrame")
-        source_frame.grid(row=3, column=0, sticky="ew", pady=(0, 6))
+        source_frame.grid(row=4, column=0, sticky="ew", pady=(0, 6))
         source_frame.columnconfigure(0, weight=1)
         source_frame.columnconfigure(1, weight=1)
         source_frame.rowconfigure(1, weight=1)
@@ -160,7 +204,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
         self.source_tree.bind("<<TreeviewSelect>>", self._on_source_selected, add="+")
 
         list_frame = ttk.Frame(self, style="Card.TFrame")
-        list_frame.grid(row=4, column=0, sticky="nsew")
+        list_frame.grid(row=5, column=0, sticky="nsew")
         list_frame.columnconfigure(0, weight=1)
         list_frame.rowconfigure(1, weight=1)
         ttk.Label(list_frame, text=t("results.review_center.section.evidence_list"), style="Section.TLabel").grid(
@@ -194,7 +238,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
             title=t("results.review_center.section.evidence_detail"),
             expanded=not compact,
         )
-        self.detail_section.grid(row=5, column=0, sticky="nsew", pady=(6, 0))
+        self.detail_section.grid(row=6, column=0, sticky="nsew", pady=(6, 0))
         self.detail_section.body.rowconfigure(8, weight=1)
         self.detail_section.body.columnconfigure(0, weight=1)
         detail_meta = ttk.Frame(self.detail_section.body, style="Card.TFrame")
@@ -245,7 +289,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
             wraplength=1120 if compact else 1320,
             justify="left",
             style="Muted.TLabel",
-        ).grid(row=6, column=0, sticky="ew", pady=(6, 0))
+        ).grid(row=7, column=0, sticky="ew", pady=(6, 0))
 
     def _summary_card(
         self,
@@ -410,6 +454,35 @@ class ReviewCenterPanel(ttk.LabelFrame):
         self.analytics_var.set(str(self._active_view.get("analytics_summary") or t("common.none")))
         self.lineage_var.set(str(self._active_view.get("lineage_summary") or t("common.none")))
         self.phase_bridge_var.set(str(self._active_view.get("phase_bridge_summary") or t("common.none")))
+        phase_bridge_artifact_entry = dict(
+            self._active_view.get("phase_bridge_reviewer_artifact_entry", {}) or {}
+        )
+        if bool(phase_bridge_artifact_entry.get("available", False)):
+            self.phase_bridge_artifact_title_var.set(
+                str(
+                    phase_bridge_artifact_entry.get("name_text")
+                    or phase_bridge_artifact_entry.get("title_text")
+                    or t("common.none")
+                )
+            )
+            self.phase_bridge_artifact_status_var.set(
+                str(phase_bridge_artifact_entry.get("role_status_display") or t("common.none"))
+            )
+            self.phase_bridge_artifact_path_var.set(str(phase_bridge_artifact_entry.get("path") or t("common.none")))
+            self.phase_bridge_artifact_note_var.set(
+                str(
+                    phase_bridge_artifact_entry.get("note_text")
+                    or phase_bridge_artifact_entry.get("summary_text")
+                    or t("common.none")
+                )
+            )
+            self.phase_bridge_artifact_frame.grid()
+        else:
+            self.phase_bridge_artifact_title_var.set("")
+            self.phase_bridge_artifact_status_var.set("")
+            self.phase_bridge_artifact_path_var.set("")
+            self.phase_bridge_artifact_note_var.set("")
+            self.phase_bridge_artifact_frame.grid_remove()
         self.index_var.set(str(self._active_view.get("index_text") or t("common.none")))
         self.source_scope_var.set(
             str(

@@ -6,6 +6,12 @@ import time
 from gas_calibrator.v2.core.phase_transition_bridge_presenter import (
     build_phase_transition_bridge_panel_payload,
 )
+from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact import (
+    build_phase_transition_bridge_reviewer_artifact,
+)
+from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact_entry import (
+    build_phase_transition_bridge_reviewer_artifact_entry,
+)
 from gas_calibrator.v2.ui_v2.i18n import t
 from gas_calibrator.v2.ui_v2.widgets.review_center_panel import ReviewCenterPanel
 
@@ -46,6 +52,31 @@ def _build_phase_transition_bridge_payload() -> dict:
             "gate_lines": [],
         },
     }
+
+
+def _build_phase_transition_bridge_reviewer_entry() -> dict:
+    bridge = _build_phase_transition_bridge_payload()
+    reviewer_artifact = build_phase_transition_bridge_reviewer_artifact(bridge)
+    return build_phase_transition_bridge_reviewer_artifact_entry(
+        artifact_path="D:/tmp/history_run/phase_transition_bridge_reviewer.md",
+        manifest_section={
+            "artifact_type": reviewer_artifact["artifact_type"],
+            "path": "D:/tmp/history_run/phase_transition_bridge_reviewer.md",
+            "available": True,
+            "summary_text": reviewer_artifact["display"]["summary_text"],
+            "status_line": reviewer_artifact["display"]["status_line"],
+            "current_stage_text": reviewer_artifact["display"]["current_stage_text"],
+            "next_stage_text": reviewer_artifact["display"]["next_stage_text"],
+            "engineering_isolation_text": reviewer_artifact["display"]["engineering_isolation_text"],
+            "real_acceptance_text": reviewer_artifact["display"]["real_acceptance_text"],
+            "execute_now_text": reviewer_artifact["display"]["execute_now_text"],
+            "defer_to_stage3_text": reviewer_artifact["display"]["defer_to_stage3_text"],
+            "blocking_text": reviewer_artifact["display"]["blocking_text"],
+            "warning_text": reviewer_artifact["display"]["warning_text"],
+            "not_real_acceptance_evidence": True,
+        },
+        reviewer_section=reviewer_artifact["section"],
+    )
 
 
 def test_review_center_aggregates_multi_evidence_and_acceptance_readiness(tmp_path: Path) -> None:
@@ -631,6 +662,65 @@ def test_review_center_phase_transition_bridge_card_matches_presenter_payload() 
         assert "不能替代真实计量验证" in bridge_text
         assert "ready_for_engineering_isolation" not in bridge_text
         assert "real_acceptance_ready" not in bridge_text
+    finally:
+        root.destroy()
+
+
+def test_review_center_panel_exposes_phase_transition_bridge_reviewer_artifact_as_dedicated_entry() -> None:
+    root = make_root()
+    try:
+        panel = ReviewCenterPanel(root, compact=True)
+        reviewer_entry = _build_phase_transition_bridge_reviewer_entry()
+        payload = {
+            "operator_focus": {"summary": "operator"},
+            "reviewer_focus": {"summary": "reviewer"},
+            "approver_focus": {"summary": "approver"},
+            "risk_summary": {"level": "low", "level_display": "low", "summary": "risk summary"},
+            "acceptance_readiness": {"summary": "offline readiness only"},
+            "analytics_summary": {
+                "summary": "analytics summary",
+                "detail": {
+                    "phase_transition_bridge": _build_phase_transition_bridge_payload(),
+                },
+            },
+            "lineage_summary": {"summary": "lineage summary"},
+            "index_summary": {
+                "summary": "recent sources 1",
+                "source_kind_summary": "sources by kind | run 1",
+                "coverage_summary": "coverage | complete 1 | gapped 0 | no gaps",
+                "sources": [],
+            },
+            "phase_transition_bridge_reviewer_artifact_entry": reviewer_entry,
+            "filters": {
+                "selected_type": "all",
+                "selected_status": "all",
+                "selected_time": "all",
+                "selected_source": "all",
+                "type_options": [{"id": "all", "label": t("results.review_center.filter.all_types")}],
+                "status_options": [{"id": "all", "label": t("results.review_center.filter.all_statuses")}],
+                "time_options": [{"id": "all", "label": t("results.review_center.filter.all_time"), "window_seconds": None}],
+                "source_options": [{"id": "all", "label": t("results.review_center.filter.all_sources")}],
+            },
+            "evidence_items": [],
+            "detail_hint": "select evidence",
+            "empty_detail": "no evidence",
+            "disclaimer": "offline only; not real acceptance.",
+        }
+
+        panel.render(payload)
+        root.update_idletasks()
+
+        assert panel.phase_bridge_artifact_frame.winfo_manager() == "grid"
+        assert panel.phase_bridge_artifact_title_var.get() == reviewer_entry["name_text"]
+        assert panel.phase_bridge_artifact_status_var.get() == reviewer_entry["role_status_display"]
+        assert panel.phase_bridge_artifact_path_var.get() == reviewer_entry["path"]
+        assert panel.phase_bridge_artifact_note_var.get() == reviewer_entry["note_text"]
+        assert "Step 2 tail / Stage 3 bridge" in panel.phase_bridge_artifact_status_var.get()
+        assert "engineering-isolation" in panel.phase_bridge_artifact_status_var.get()
+        assert "不是 real acceptance" in panel.phase_bridge_artifact_status_var.get()
+        assert "不能替代真实计量验证" in panel.phase_bridge_artifact_status_var.get()
+        assert "ready_for_engineering_isolation" not in panel.phase_bridge_artifact_status_var.get()
+        assert "real_acceptance_ready" not in panel.phase_bridge_artifact_status_var.get()
     finally:
         root.destroy()
 

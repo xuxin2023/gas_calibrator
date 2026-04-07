@@ -84,6 +84,9 @@ def build_review_center_view(
         "lineage_summary": source_scope_view["lineage_summary"],
         "phase_bridge_summary": source_scope_view["phase_bridge_summary"],
         "phase_bridge_panel": source_scope_view["phase_bridge_panel"],
+        "phase_bridge_reviewer_artifact_entry": dict(
+            base_payload.get("phase_transition_bridge_reviewer_artifact_entry", {}) or {}
+        ),
         "source_scope_label": source_scope_view["source_scope_label"],
         "source_scope_active": bool(selected_source_row),
     }
