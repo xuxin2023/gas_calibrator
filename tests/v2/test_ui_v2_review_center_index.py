@@ -19,6 +19,9 @@ from gas_calibrator.v2.ui_v2.review_scope_export_index import (
     build_review_scope_batch_id,
     write_review_scope_export_index,
 )
+from gas_calibrator.v2.core.phase_transition_bridge_presenter import (
+    build_phase_transition_bridge_panel_payload,
+)
 from gas_calibrator.v2.ui_v2.widgets.review_center_panel import ReviewCenterPanel
 
 SUPPORT_DIR = Path(__file__).resolve().parent
@@ -1075,6 +1078,131 @@ def test_review_scope_manifest_markdown_hydrates_top_level_reviewer_fields_when_
     assert export_entry["reviewer_display"]["run_dir_note_text"] == payload["run_dir_note_text"]
     assert export_entry["reviewer_display"]["scope_note_text"] == payload["scope_note_text"]
     assert export_entry["reviewer_display"]["present_note_text"] == payload["present_note_text"]
+    assert payload["scope_summary"]["scope"] == "source"
+
+
+def test_review_scope_export_entry_exposes_phase_transition_bridge_section() -> None:
+    bridge = {
+        "artifact_type": "phase_transition_bridge",
+        "phase": "step2_tail_stage3_bridge",
+        "mode": "simulation_only",
+        "overall_status": "ready_for_engineering_isolation",
+        "recommended_next_stage": "engineering_isolation",
+        "ready_for_engineering_isolation": True,
+        "real_acceptance_ready": False,
+        "execute_now_in_step2_tail": [
+            "governance_contract",
+            "evidence_schema",
+            "reporting_contract",
+        ],
+        "defer_to_stage3_real_validation": [
+            "real_reference_instrument_enforcement",
+            "real_acceptance_pass_fail",
+        ],
+        "blocking_items": [],
+        "warning_items": [
+            "simulation_offline_only",
+            "not_real_acceptance",
+        ],
+        "reviewer_display": {
+            "summary_text": (
+                "\u9636\u6bb5\u6865\u5de5\u4ef6\uff1a\u5f53\u524d\u4ecd\u5904\u4e8e "
+                "Step 2 tail / Stage 3 bridge\uff0c\u7528\u4e8e\u8bf4\u660e\u79bb\u7b2c\u4e09\u9636\u6bb5"
+                "\u771f\u5b9e\u8ba1\u91cf\u9a8c\u8bc1\u8fd8\u6709\u591a\u8fdc\u3002\u4e0d\u662f real acceptance\u3002"
+            ),
+            "status_line": (
+                "\u9636\u6bb5\u72b6\u6001\uff1a\u5f53\u524d\u4ecd\u5904\u4e8e Step 2 tail / Stage 3 bridge\uff0c"
+                "\u4f46\u5df2\u5177\u5907 engineering-isolation \u51c6\u5907\u3002\u4e0d\u662f real acceptance\u3002"
+            ),
+            "current_stage_text": "\u5f53\u524d\u9636\u6bb5\uff1aStep 2 tail / Stage 3 bridge\u3002",
+            "next_stage_text": "\u4e0b\u4e00\u9636\u6bb5\uff1aengineering-isolation \u51c6\u5907\u3002",
+            "execute_now_text": (
+                "\u73b0\u5728\u6267\u884c\uff1agoovernance contract / evidence schema / "
+                "template / digest / reporting contract\u3002"
+            ).replace("goovernance", "governance"),
+            "defer_to_stage3_text": (
+                "\u7b2c\u4e09\u9636\u6bb5\u6267\u884c\uff1a"
+                "\u771f\u5b9e\u53c2\u8003\u8868\u6267\u884c / \u771f\u5b9e\u8bc1\u4e66/\u68c0\u5b9a\u5468\u671f\u786c\u963b\u585e / "
+                "\u57fa\u4e8e\u771f\u5b9e run \u7684\u6700\u7ec8\u4e0d\u786e\u5b9a\u5ea6\u7ed3\u679c / "
+                "\u771f\u673a\u7cfb\u6570\u5199\u5165 acceptance / real acceptance pass/fail\u3002"
+            ),
+            "blocking_text": "\u963b\u585e\u9879\uff1a\u65e0\u3002",
+            "warning_text": (
+                "\u63d0\u793a\uff1a\u4e0d\u662f real acceptance\uff0c"
+                "\u4e0d\u80fd\u66ff\u4ee3\u771f\u5b9e\u8ba1\u91cf\u9a8c\u8bc1\u3002"
+            ),
+            "gate_lines": [
+                "gate: ready_for_engineering_isolation=true",
+                "gate: real_acceptance_ready=false",
+            ],
+        },
+    }
+    payload = {
+        "generated_at": "2026-04-07T09:12:00+00:00",
+        "selection": {
+            "scope": "source",
+            "selected_source_label_display": "history_run",
+            "selected_evidence_summary": "",
+        },
+        "scope_summary": {
+            "scope": "source",
+            "scope_label": "Source",
+            "summary_text": "Source | visible 3 | present 2/3 | external 2 | missing 1 | catalog 8/12",
+            "catalog_total_count": 12,
+            "catalog_present_count": 8,
+            "scope_visible_count": 3,
+            "scope_present_count": 2,
+            "scope_external_count": 2,
+            "scope_missing_count": 1,
+        },
+        "reviewer_display": build_review_scope_payload_reviewer_display(
+            selection={
+                "scope": "source",
+                "selected_source_label_display": "history_run",
+                "selected_evidence_summary": "",
+            },
+            scope_summary={
+                "scope": "source",
+                "scope_label": "Source",
+                "summary_text": "Source | visible 3 | present 2/3 | external 2 | missing 1 | catalog 8/12",
+                "catalog_total_count": 12,
+                "catalog_present_count": 8,
+                "scope_visible_count": 3,
+                "scope_present_count": 2,
+                "scope_external_count": 2,
+                "scope_missing_count": 1,
+            },
+        ),
+        "disclaimer": {
+            "offline_review_only": True,
+            "simulated_or_replay_context": True,
+            "diagnostic_context": True,
+            "not_real_acceptance_evidence": True,
+        },
+        "phase_transition_bridge": bridge,
+    }
+
+    export_entry = build_review_scope_export_entry(
+        payload,
+        batch_id="review_scope_20260407_091200_source",
+        exported_files=["D:/tmp/review_scope_source.json"],
+    )
+    expected_section = build_phase_transition_bridge_panel_payload(bridge)
+    section = export_entry["phase_transition_bridge_section"]
+    section_text = section["display"]["section_text"]
+
+    assert section["available"] is True
+    assert section["raw"]["ready_for_engineering_isolation"] is True
+    assert section["raw"]["real_acceptance_ready"] is False
+    assert section["display"] == expected_section["display"]
+    assert "Step 2 tail / Stage 3 bridge" in section_text
+    assert "engineering-isolation" in section_text
+    assert "\u73b0\u5728\u6267\u884c" in section_text
+    assert "\u7b2c\u4e09\u9636\u6bb5\u6267\u884c" in section_text
+    assert "\u4e0d\u662f real acceptance" in section_text
+    assert "\u4e0d\u80fd\u66ff\u4ee3\u771f\u5b9e\u8ba1\u91cf\u9a8c\u8bc1" in section_text
+    assert export_entry["selection_snapshot"]["scope"] == "source"
+    assert export_entry["summary_counts"]["scope_visible_count"] == 3
     assert payload["scope_summary"]["scope"] == "source"
 
 

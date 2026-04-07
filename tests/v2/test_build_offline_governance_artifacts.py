@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from gas_calibrator.v2.core.phase_transition_bridge_presenter import (
+    build_phase_transition_bridge_panel_payload,
+)
 from gas_calibrator.v2.scripts.build_offline_governance_artifacts import main, rebuild_run, rebuild_suite
 
 
@@ -191,6 +194,12 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert analytics_summary["phase_transition_bridge"]["recommended_next_stage"] == "close_step2_tail_gaps"
     assert analytics_summary["phase_transition_bridge"]["real_acceptance_ready"] is False
     assert "阶段桥工件" in analytics_summary["phase_transition_bridge"]["reviewer_display"]["summary_text"]
+    expected_bridge_section = build_phase_transition_bridge_panel_payload(phase_transition_bridge)
+    assert analytics_summary["phase_transition_bridge_reviewer_section"]["available"] is True
+    assert (
+        analytics_summary["phase_transition_bridge_reviewer_section"]["display"]
+        == expected_bridge_section["display"]
+    )
     assert readiness_summary["phase"] == "step2_readiness_bridge"
     assert readiness_summary["overall_status"] == "not_ready"
     assert readiness_summary["ready_for_engineering_isolation"] is False
@@ -243,6 +252,13 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert payload["summary_stats"]["phase_transition_bridge_digest"]["overall_status"] == "step2_tail_in_progress"
     assert payload["summary_stats"]["phase_transition_bridge_digest"]["recommended_next_stage"] == "close_step2_tail_gaps"
     assert payload["summary_stats"]["phase_transition_bridge_digest"]["ready_for_engineering_isolation"] is False
+    assert payload["summary_stats"]["phase_transition_bridge_reviewer_section"]["available"] is True
+    assert payload["summary_stats"]["phase_transition_bridge_reviewer_section"]["raw"]["ready_for_engineering_isolation"] is False
+    assert payload["summary_stats"]["phase_transition_bridge_reviewer_section"]["raw"]["real_acceptance_ready"] is False
+    assert (
+        payload["summary_stats"]["phase_transition_bridge_reviewer_section"]["display"]
+        == expected_bridge_section["display"]
+    )
     assert payload["manifest_sections"]["step2_readiness"]["overall_status"] == "not_ready"
     assert payload["manifest_sections"]["step2_readiness"]["ready_for_engineering_isolation"] is False
     assert payload["manifest_sections"]["step2_readiness"]["real_acceptance_ready"] is False
@@ -251,6 +267,18 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert payload["manifest_sections"]["phase_transition_bridge"]["overall_status"] == "step2_tail_in_progress"
     assert payload["manifest_sections"]["phase_transition_bridge"]["recommended_next_stage"] == "close_step2_tail_gaps"
     assert payload["manifest_sections"]["phase_transition_bridge"]["real_acceptance_ready"] is False
+    assert payload["manifest_sections"]["phase_transition_bridge_reviewer_section"]["available"] is True
+    assert (
+        payload["manifest_sections"]["phase_transition_bridge_reviewer_section"]["display"]
+        == expected_bridge_section["display"]
+    )
+    section_text = payload["manifest_sections"]["phase_transition_bridge_reviewer_section"]["display"]["section_text"]
+    assert "Step 2 tail / Stage 3 bridge" in section_text
+    assert "engineering-isolation" in section_text
+    assert "当前执行" in section_text
+    assert "第三阶段执行" in section_text
+    assert "不是 real acceptance" in section_text
+    assert "不能替代真实计量验证" in section_text
     assert payload["artifact_statuses"]["step2_readiness_summary"]["role"] == "execution_summary"
     assert payload["artifact_statuses"]["step2_readiness_summary"]["path"] == str(run_dir / "step2_readiness_summary.json")
     assert payload["artifact_statuses"]["metrology_calibration_contract"]["role"] == "formal_analysis"
