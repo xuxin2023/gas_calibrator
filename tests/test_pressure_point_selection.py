@@ -333,3 +333,18 @@ def test_pressure_selection_rejects_invalid_ambient_token(tmp_path: Path) -> Non
             runner._co2_pressure_points_for_temperature(_co2_points(700, 1100, 900))
     finally:
         _close_runner(runner)
+
+
+def test_pressure_selection_no500_run_keeps_ambient_reference_when_only_500_template_exists(tmp_path: Path) -> None:
+    runner = _runner(
+        tmp_path,
+        {"workflow": {"selected_pressure_points": ["ambient", 1100, 1000, 900, 800, 700, 600]}},
+    )
+    try:
+        selected = runner._co2_pressure_points_for_temperature(_co2_points(500))
+    finally:
+        _close_runner(runner)
+
+    assert len(selected) == 1
+    assert runner._pressure_mode_for_point(selected[0]) == "ambient_open"
+    assert selected[0].target_pressure_hpa is None
