@@ -1267,6 +1267,35 @@ def test_read_preseal_pressure_gauge_avoids_direct_read_while_transition_worker_
     assert source == "pressure_gauge_cache_wait"
 
 
+def test_read_preseal_pressure_gauge_falls_back_to_normal_read_after_fast_failure(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+
+    class _FakeGauge:
+        def read_pressure(self):
+            return 1000.2
+
+    runner.devices["pressure_gauge"] = _FakeGauge()
+    calls: list[tuple[bool, str]] = []
+
+    def _fake_read_pressure_gauge_value(self, *, fast: bool = False, purpose: str = "sampling") -> float:
+        calls.append((bool(fast), str(purpose)))
+        if fast:
+            raise RuntimeError("NO_RESPONSE")
+        return 1000.2
+
+    runner._read_pressure_gauge_value = types.MethodType(_fake_read_pressure_gauge_value, runner)
+
+    try:
+        value, source = runner._read_preseal_pressure_gauge()
+    finally:
+        logger.close()
+
+    assert value == 1000.2
+    assert source == "pressure_gauge"
+    assert calls == [(True, "sampling"), (False, "sampling")]
+
+
 def test_refresh_pressure_transition_fast_signal_uses_transition_timeout_path(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)

@@ -9950,6 +9950,18 @@ class CalibrationRunner:
             return None, "unsupported"
         try:
             value = self._read_pressure_gauge_value(fast=True)
+        except Exception as fast_exc:
+            self.log(f"Pre-seal pressure-gauge fast read failed: {fast_exc}; retrying normal read")
+            try:
+                value = self._read_pressure_gauge_value(fast=False)
+            except Exception as exc:
+                self.log(f"Pre-seal pressure-gauge read failed: {exc}")
+                return None, "error"
+        if math.isfinite(value):
+            return value, "pressure_gauge"
+        self.log("Pre-seal pressure-gauge fast read returned invalid value; retrying normal read")
+        try:
+            value = self._read_pressure_gauge_value(fast=False)
         except Exception as exc:
             self.log(f"Pre-seal pressure-gauge read failed: {exc}")
             return None, "error"
