@@ -3,6 +3,9 @@ from pathlib import Path
 import sys
 import time
 
+from gas_calibrator.v2.core.phase_transition_bridge_presenter import (
+    build_phase_transition_bridge_panel_payload,
+)
 from gas_calibrator.v2.ui_v2.i18n import t
 from gas_calibrator.v2.ui_v2.widgets.review_center_panel import ReviewCenterPanel
 
@@ -567,6 +570,63 @@ def test_review_center_panel_exposes_phase_transition_bridge_as_dedicated_card()
         assert "不能替代真实计量验证" in panel.phase_bridge_var.get()
         assert "ready_for_engineering_isolation" not in panel.phase_bridge_var.get()
         assert "real_acceptance_ready" not in panel.phase_bridge_var.get()
+    finally:
+        root.destroy()
+
+
+def test_review_center_phase_transition_bridge_card_matches_presenter_payload() -> None:
+    root = make_root()
+    try:
+        panel = ReviewCenterPanel(root, compact=True)
+        bridge = _build_phase_transition_bridge_payload()
+        expected_panel = build_phase_transition_bridge_panel_payload(bridge)
+        payload = {
+            "operator_focus": {"summary": "operator"},
+            "reviewer_focus": {"summary": "reviewer"},
+            "approver_focus": {"summary": "approver"},
+            "risk_summary": {"level": "low", "level_display": "low", "summary": "risk summary"},
+            "acceptance_readiness": {"summary": "offline readiness only"},
+            "analytics_summary": {
+                "summary": "analytics summary",
+                "detail": {
+                    "phase_transition_bridge": bridge,
+                },
+            },
+            "lineage_summary": {"summary": "lineage summary"},
+            "index_summary": {
+                "summary": "recent sources 1",
+                "source_kind_summary": "sources by kind | run 1",
+                "coverage_summary": "coverage | complete 1 | gapped 0 | no gaps",
+                "sources": [],
+            },
+            "filters": {
+                "selected_type": "all",
+                "selected_status": "all",
+                "selected_time": "all",
+                "selected_source": "all",
+                "type_options": [{"id": "all", "label": t("results.review_center.filter.all_types")}],
+                "status_options": [{"id": "all", "label": t("results.review_center.filter.all_statuses")}],
+                "time_options": [{"id": "all", "label": t("results.review_center.filter.all_time"), "window_seconds": None}],
+                "source_options": [{"id": "all", "label": t("results.review_center.filter.all_sources")}],
+            },
+            "evidence_items": [],
+            "detail_hint": "select evidence",
+            "empty_detail": "no evidence",
+            "disclaimer": "offline only; not real acceptance.",
+        }
+
+        panel.render(payload)
+        bridge_text = panel.phase_bridge_var.get().strip()
+
+        assert bridge_text == expected_panel["display"]["card_text"]
+        assert "Step 2 tail / Stage 3 bridge" in bridge_text
+        assert "engineering-isolation" in bridge_text
+        assert expected_panel["display"]["execute_now_text"] in bridge_text
+        assert expected_panel["display"]["defer_to_stage3_text"] in bridge_text
+        assert "不是 real acceptance" in bridge_text
+        assert "不能替代真实计量验证" in bridge_text
+        assert "ready_for_engineering_isolation" not in bridge_text
+        assert "real_acceptance_ready" not in bridge_text
     finally:
         root.destroy()
 

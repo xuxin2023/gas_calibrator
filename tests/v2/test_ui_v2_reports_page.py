@@ -1,6 +1,9 @@
 from pathlib import Path
 import sys
 
+from gas_calibrator.v2.core.phase_transition_bridge_presenter import (
+    build_phase_transition_bridge_panel_payload,
+)
 from gas_calibrator.v2.ui_v2.i18n import t
 import gas_calibrator.v2.ui_v2.pages.reports_page as reports_page_module
 from gas_calibrator.v2.ui_v2.pages.reports_page import ReportsPage
@@ -535,5 +538,36 @@ def test_reports_page_exposes_phase_transition_bridge_as_dedicated_section() -> 
         assert "不是 real acceptance" in bridge_text
         assert "不能替代真实计量验证" in bridge_text
         assert "已有运行摘要" in result_summary_text
+    finally:
+        root.destroy()
+
+
+def test_reports_page_phase_transition_bridge_section_matches_presenter_payload() -> None:
+    root = make_root()
+    try:
+        page = ReportsPage(root)
+        bridge = _build_phase_transition_bridge_payload()
+        expected_panel = build_phase_transition_bridge_panel_payload(bridge)
+        page.render(
+            {
+                "run_dir": "D:/tmp/run_bridge_section_parity",
+                "files": [],
+                "review_center": _build_review_center_payload(),
+                "result_summary_text": "已有运行摘要",
+                "qc_summary_text": "",
+                "ai_summary_text": "",
+                "export": {"available_formats": ["json"], "last_export_message": "Ready"},
+            }
+        )
+
+        bridge_text = page.phase_bridge_section.get("1.0", "end").strip()
+
+        assert bridge_text == expected_panel["display"]["section_text"]
+        assert "Step 2 tail / Stage 3 bridge" in bridge_text
+        assert "engineering-isolation" in bridge_text
+        assert expected_panel["display"]["execute_now_text"] in bridge_text
+        assert expected_panel["display"]["defer_to_stage3_text"] in bridge_text
+        assert "不是 real acceptance" in bridge_text
+        assert "不能替代真实计量验证" in bridge_text
     finally:
         root.destroy()
