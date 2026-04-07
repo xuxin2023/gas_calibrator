@@ -8,6 +8,7 @@ import gas_calibrator.tools.run_room_temp_co2_pressure_diagnostic as room_temp_d
 
 from gas_calibrator.tools.run_room_temp_co2_pressure_diagnostic import (
     _append_live_csv_row,
+    _capture_phase_rows,
     _load_cli_config,
     _run_closed_pressure_swing_predry,
     parse_args,
