@@ -506,3 +506,34 @@ def test_reports_page_includes_phase_transition_bridge_digest_in_result_summary_
         assert "不能替代真实计量验证" in summary_text
     finally:
         root.destroy()
+
+
+def test_reports_page_exposes_phase_transition_bridge_as_dedicated_section() -> None:
+    root = make_root()
+    try:
+        page = ReportsPage(root)
+        page.render(
+            {
+                "run_dir": "D:/tmp/run_bridge_section",
+                "files": [],
+                "review_center": _build_review_center_payload(),
+                "result_summary_text": "已有运行摘要",
+                "qc_summary_text": "",
+                "ai_summary_text": "",
+                "export": {"available_formats": ["json"], "last_export_message": "Ready"},
+            }
+        )
+
+        bridge_text = page.phase_bridge_section.get("1.0", "end")
+        result_summary_text = page.result_summary.get("1.0", "end")
+
+        assert "阶段桥工件" in bridge_text
+        assert "Step 2 tail / Stage 3 bridge" in bridge_text
+        assert "engineering-isolation" in bridge_text
+        assert "现在执行" in bridge_text
+        assert "第三阶段执行" in bridge_text
+        assert "不是 real acceptance" in bridge_text
+        assert "不能替代真实计量验证" in bridge_text
+        assert "已有运行摘要" in result_summary_text
+    finally:
+        root.destroy()

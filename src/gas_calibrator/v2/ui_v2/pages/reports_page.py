@@ -4,7 +4,10 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Any
 
-from ...core.phase_transition_bridge_presenter import build_phase_transition_bridge_digest
+from ...core.phase_transition_bridge_presenter import (
+    build_phase_transition_bridge_digest,
+    build_phase_transition_bridge_panel_payload,
+)
 from ...review_surface_formatter import (
     collect_offline_diagnostic_detail_lines,
     humanize_offline_diagnostic_summary_value,
@@ -103,6 +106,7 @@ class ReportsPage(ttk.Frame):
         right.rowconfigure(3, weight=1)
         right.rowconfigure(4, weight=1)
         right.rowconfigure(5, weight=1)
+        right.rowconfigure(6, weight=1)
         self.export_bar = ExportBar(
             right,
             on_export_json=self._export_json,
@@ -125,18 +129,23 @@ class ReportsPage(ttk.Frame):
             on_selection_changed=self._on_review_selection_changed,
         )
         self.review_center.grid(row=2, column=0, sticky="nsew", pady=(0, 12))
-        self.result_summary = self._text_panel(
+        self.phase_bridge_section = self._text_panel(
             right,
             row=3,
+            title=t("pages.reports.phase_transition_bridge", default="阶段准入桥"),
+        )
+        self.result_summary = self._text_panel(
+            right,
+            row=4,
             title=t("pages.reports.result_summary", default="运行与治理摘要"),
         )
         self.qc_summary = self._text_panel(
             right,
-            row=4,
+            row=5,
             title=t("pages.reports.qc_summary", default="质控审阅摘要"),
         )
         self.ai_summary = AISummaryPanel(right, title=t("pages.reports.ai_report_summary"))
-        self.ai_summary.grid(row=5, column=0, sticky="nsew")
+        self.ai_summary.grid(row=6, column=0, sticky="nsew")
 
     def render(self, snapshot: dict[str, Any]) -> None:
         rows = list(snapshot.get("files", []) or [])
@@ -147,10 +156,19 @@ class ReportsPage(ttk.Frame):
         if not str(snapshot.get("result_summary_text", "") or "").strip():
             snapshot = dict(snapshot)
             snapshot["result_summary_text"] = self._build_result_summary_fallback(snapshot)
+        phase_bridge_panel = self._phase_transition_bridge_panel(snapshot)
+        phase_bridge_display = dict(phase_bridge_panel.get("display", {}) or {})
         result_summary_text = str(
             snapshot.get("result_summary_text", "")
             or snapshot.get("review_digest_text", "")
             or t("pages.reports.no_result_summary", default="暂无运行与治理摘要")
+        )
+        self._set_text(
+            self.phase_bridge_section,
+            str(
+                phase_bridge_display.get("section_text")
+                or t("pages.reports.no_phase_transition_bridge", default="暂无阶段准入桥摘要")
+            ),
         )
         self._set_text(self.result_summary, result_summary_text)
         self._set_text(self.qc_summary, str(snapshot.get("qc_summary_text", "") or t("pages.reports.no_qc_summary", default="暂无质控审阅摘要")))
@@ -353,6 +371,17 @@ class ReportsPage(ttk.Frame):
             or dict(analytics_detail.get("phase_transition_bridge", {}) or {})
         )
         return build_phase_transition_bridge_digest(bridge)
+
+    @staticmethod
+    def _phase_transition_bridge_panel(snapshot: dict[str, Any]) -> dict[str, Any]:
+        review_center = dict(snapshot.get("review_center", {}) or {})
+        analytics_summary = dict(review_center.get("analytics_summary", {}) or {})
+        analytics_detail = dict(analytics_summary.get("detail", {}) or {})
+        bridge = (
+            dict(snapshot.get("phase_transition_bridge", {}) or {})
+            or dict(analytics_detail.get("phase_transition_bridge", {}) or {})
+        )
+        return build_phase_transition_bridge_panel_payload(bridge)
 
     def _text_panel(self, parent: tk.Misc, *, row: int, title: str) -> tk.Text:
         frame = ttk.Frame(parent, style="Card.TFrame", padding=8)

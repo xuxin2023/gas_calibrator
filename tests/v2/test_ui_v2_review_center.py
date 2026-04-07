@@ -518,6 +518,59 @@ def test_review_center_panel_merges_phase_transition_bridge_into_readiness_and_a
         root.destroy()
 
 
+def test_review_center_panel_exposes_phase_transition_bridge_as_dedicated_card() -> None:
+    root = make_root()
+    try:
+        panel = ReviewCenterPanel(root, compact=True)
+        payload = {
+            "operator_focus": {"summary": "operator"},
+            "reviewer_focus": {"summary": "reviewer"},
+            "approver_focus": {"summary": "approver"},
+            "risk_summary": {"level": "low", "level_display": "low", "summary": "risk summary"},
+            "acceptance_readiness": {"summary": "offline readiness only"},
+            "analytics_summary": {
+                "summary": "analytics summary",
+                "detail": {
+                    "phase_transition_bridge": _build_phase_transition_bridge_payload(),
+                },
+            },
+            "lineage_summary": {"summary": "lineage summary"},
+            "index_summary": {
+                "summary": "recent sources 1",
+                "source_kind_summary": "sources by kind | run 1",
+                "coverage_summary": "coverage | complete 1 | gapped 0 | no gaps",
+                "sources": [],
+            },
+            "filters": {
+                "selected_type": "all",
+                "selected_status": "all",
+                "selected_time": "all",
+                "selected_source": "all",
+                "type_options": [{"id": "all", "label": t("results.review_center.filter.all_types")}],
+                "status_options": [{"id": "all", "label": t("results.review_center.filter.all_statuses")}],
+                "time_options": [{"id": "all", "label": t("results.review_center.filter.all_time"), "window_seconds": None}],
+                "source_options": [{"id": "all", "label": t("results.review_center.filter.all_sources")}],
+            },
+            "evidence_items": [],
+            "detail_hint": "select evidence",
+            "empty_detail": "no evidence",
+            "disclaimer": "offline only; not real acceptance.",
+        }
+
+        panel.render(payload)
+
+        assert "Step 2 tail / Stage 3 bridge" in panel.phase_bridge_var.get()
+        assert "engineering-isolation" in panel.phase_bridge_var.get()
+        assert "现在执行" in panel.phase_bridge_var.get()
+        assert "第三阶段执行" in panel.phase_bridge_var.get()
+        assert "不是 real acceptance" in panel.phase_bridge_var.get()
+        assert "不能替代真实计量验证" in panel.phase_bridge_var.get()
+        assert "ready_for_engineering_isolation" not in panel.phase_bridge_var.get()
+        assert "real_acceptance_ready" not in panel.phase_bridge_var.get()
+    finally:
+        root.destroy()
+
+
 def test_review_center_panel_source_drilldown_syncs_list_detail_and_scope_summaries() -> None:
     root = make_root()
     try:

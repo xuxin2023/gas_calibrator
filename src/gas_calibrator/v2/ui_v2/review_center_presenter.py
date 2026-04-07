@@ -3,7 +3,10 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from ..core.phase_transition_bridge_presenter import build_phase_transition_bridge_digest
+from ..core.phase_transition_bridge_presenter import (
+    build_phase_transition_bridge_digest,
+    build_phase_transition_bridge_panel_payload,
+)
 from ..review_surface_formatter import (
     humanize_review_center_coverage_text,
     humanize_review_surface_text,
@@ -79,6 +82,8 @@ def build_review_center_view(
         "readiness_summary": source_scope_view["readiness_summary"],
         "analytics_summary": source_scope_view["analytics_summary"],
         "lineage_summary": source_scope_view["lineage_summary"],
+        "phase_bridge_summary": source_scope_view["phase_bridge_summary"],
+        "phase_bridge_panel": source_scope_view["phase_bridge_panel"],
         "source_scope_label": source_scope_view["source_scope_label"],
         "source_scope_active": bool(selected_source_row),
     }
@@ -109,6 +114,12 @@ def _phase_transition_bridge_digest(payload: dict[str, Any]) -> dict[str, Any]:
     analytics_summary = dict(payload.get("analytics_summary", {}) or {})
     analytics_detail = dict(analytics_summary.get("detail", {}) or {})
     return build_phase_transition_bridge_digest(dict(analytics_detail.get("phase_transition_bridge", {}) or {}))
+
+
+def _phase_transition_bridge_panel(payload: dict[str, Any]) -> dict[str, Any]:
+    analytics_summary = dict(payload.get("analytics_summary", {}) or {})
+    analytics_detail = dict(analytics_summary.get("detail", {}) or {})
+    return build_phase_transition_bridge_panel_payload(dict(analytics_detail.get("phase_transition_bridge", {}) or {}))
 
 
 def _merge_summary_text(*parts: Any) -> str:
@@ -294,6 +305,8 @@ def _build_source_scope_view(
     selected_source_row: dict[str, Any] | None,
 ) -> dict[str, Any]:
     bridge_digest = _phase_transition_bridge_digest(payload)
+    bridge_panel = _phase_transition_bridge_panel(payload)
+    bridge_panel_display = dict(bridge_panel.get("display", {}) or {})
     if not selected_source_row:
         readiness_summary = _merge_summary_text(
             str(dict(payload.get("acceptance_readiness", {}) or {}).get("summary") or t("common.none")),
@@ -321,6 +334,8 @@ def _build_source_scope_view(
             "readiness_summary": readiness_summary,
             "analytics_summary": analytics_summary,
             "lineage_summary": str(dict(payload.get("lineage_summary", {}) or {}).get("summary") or t("common.none")),
+            "phase_bridge_summary": str(bridge_panel_display.get("card_text") or t("common.none")),
+            "phase_bridge_panel": bridge_panel,
             "source_scope_label": t(
                 "results.review_center.filter.active_source",
                 source=t("results.review_center.filter.all_sources"),
@@ -423,6 +438,8 @@ def _build_source_scope_view(
         "readiness_summary": _merge_summary_text(source_readiness_summary, bridge_digest.get("status_line")),
         "analytics_summary": _merge_summary_text(source_analytics_summary, bridge_digest.get("next_stage_text")),
         "lineage_summary": lineage_summary,
+        "phase_bridge_summary": str(bridge_panel_display.get("card_text") or t("common.none")),
+        "phase_bridge_panel": bridge_panel,
         "source_scope_label": t(
             "results.review_center.filter.active_source",
             source=source_label,

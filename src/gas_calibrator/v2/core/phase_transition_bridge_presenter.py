@@ -136,6 +136,30 @@ def build_phase_transition_bridge_panel_payload(
     }
 
 
+def _panel_warning_text(warning_text: str) -> str:
+    required_prefix = "提示："
+    required_parts = [
+        "不是 real acceptance",
+        "不能替代真实计量验证",
+    ]
+    text = str(warning_text or "").strip()
+    if not text:
+        return required_prefix + "不是 real acceptance，不能替代真实计量验证。"
+
+    core = text[len(required_prefix) :].strip() if text.startswith(required_prefix) else text
+    core = core.rstrip("。")
+    parts: list[str] = []
+    for item in required_parts:
+        if item not in parts:
+            parts.append(item)
+    if core:
+        for segment in core.replace("；", "，").split("，"):
+            value = str(segment).strip()
+            if value and value not in parts:
+                parts.append(value)
+    return required_prefix + "，".join(parts) + "。"
+
+
 def _text_list(value: Any) -> list[str]:
     rows: list[str] = []
     for item in list(value or []):

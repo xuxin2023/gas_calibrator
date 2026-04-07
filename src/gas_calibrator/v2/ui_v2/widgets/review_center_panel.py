@@ -97,6 +97,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
         self.readiness_var = tk.StringVar(value="")
         self.analytics_var = tk.StringVar(value="")
         self.lineage_var = tk.StringVar(value="")
+        self.phase_bridge_var = tk.StringVar(value="")
         self._summary_card(summary, 0, 0, t("results.review_center.role.operator"), self.operator_var)
         self._summary_card(summary, 0, 1, t("results.review_center.role.reviewer"), self.reviewer_var)
         self._summary_card(summary, 0, 2, t("results.review_center.role.approver"), self.approver_var)
@@ -104,6 +105,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
         self._summary_card(summary, 1, 0, t("results.review_center.section.readiness"), self.readiness_var)
         self._summary_card(summary, 1, 1, t("results.review_center.section.analytics"), self.analytics_var)
         self._summary_card(summary, 1, 2, t("results.review_center.section.lineage"), self.lineage_var)
+        self._summary_card(summary, 1, 3, t("results.review_center.section.phase_bridge", default="阶段准入桥"), self.phase_bridge_var)
 
         source_frame = ttk.Frame(self, style="Card.TFrame")
         source_frame.grid(row=3, column=0, sticky="ew", pady=(0, 6))
@@ -407,6 +409,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
         self.readiness_var.set(str(self._active_view.get("readiness_summary") or t("common.none")))
         self.analytics_var.set(str(self._active_view.get("analytics_summary") or t("common.none")))
         self.lineage_var.set(str(self._active_view.get("lineage_summary") or t("common.none")))
+        self.phase_bridge_var.set(str(self._active_view.get("phase_bridge_summary") or t("common.none")))
         self.index_var.set(str(self._active_view.get("index_text") or t("common.none")))
         self.source_scope_var.set(
             str(
