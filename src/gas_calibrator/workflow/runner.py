@@ -8,8 +8,9 @@ import time
 import re
 import math
 import json
-from collections import deque
+from collections import Counter, deque
 from datetime import datetime, timedelta
+from pathlib import Path
 from statistics import mean, stdev
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -67,6 +68,15 @@ def _co2_map_ppm_values(raw_map: Any, default_ppm: Tuple[int, ...]) -> List[int]
     if not ppm_values:
         return list(default_ppm)
     return sorted(ppm_values)
+
+
+def _normalized_device_id_text(value: Any) -> str:
+    text = str(value or "").strip().upper()
+    if not text:
+        return ""
+    if text.isdigit():
+        return f"{int(text):03d}"
+    return text
 
 
 _PRESSURE_TRACE_FIELDS = [
@@ -4530,6 +4540,7 @@ class CalibrationRunner:
         self.log("Starting calibration...")
         self._log_data_quality_effective_config()
         self._log_run_event(command="run-start", response="CalibrationRunner.run entered")
+        completed_normally = False
         try:
             points_path = self.cfg["paths"]["points_excel"]
             wcfg = self.cfg.get("workflow", {})
@@ -4575,6 +4586,9 @@ class CalibrationRunner:
             self.set_status("初始化：启动压力预检查")
             self._emit_stage_event(current="初始化", wait_reason="启动压力预检查")
             self._startup_pressure_precheck(points)
+            self.set_status("初始化：压力传感器单点校准")
+            self._emit_stage_event(current="初始化", wait_reason="压力传感器单点校准")
+            self._startup_pressure_sensor_calibration(points)
             self.set_status("初始化完成，准备进入点位流程")
             self._emit_stage_event(current="初始化完成", wait_reason="准备进入点位流程")
             self._run_points(points)
@@ -4592,6 +4606,7 @@ class CalibrationRunner:
                 self._maybe_write_coefficients()
             self.log("Run finished.")
             self._log_run_event(command="run-finished", response="completed normally")
+            completed_normally = True
         except Exception as exc:
             self.log(f"Run aborted: {exc}")
             self._log_run_event(command="run-aborted", error=exc)
@@ -4599,6 +4614,8 @@ class CalibrationRunner:
             self._finalize_temperature_calibration_outputs()
             self._log_run_event(command="run-cleanup", response="cleanup begin")
             self._cleanup()
+            if completed_normally:
+                self._maybe_run_postrun_corrected_delivery()
 
     def _run_points(self, points: List[CalibrationPoint]) -> None:
         groups = self._group_points_by_temperature(points)
@@ -6916,6 +6933,52 @@ class CalibrationRunner:
             )
         except Exception as exc:
             self.log(f"Temperature calibration export warning: {exc}")
+
+    def _maybe_run_postrun_corrected_delivery(self) -> None:
+        cfg = self.cfg.get("workflow", {}).get("postrun_corrected_delivery", {})
+        if not isinstance(cfg, dict) or not cfg.get("enabled", False):
+            return
+        if not getattr(self, "logger", None) or not getattr(self.logger, "run_dir", None):
+            self.log("Postrun corrected delivery skipped: run logger unavailable")
+            return
+
+        run_dir = Path(self.logger.run_dir)
+        config_snapshot = run_dir / "runtime_config_snapshot.json"
+        if not config_snapshot.exists():
+            try:
+                config_snapshot.write_text(json.dumps(self.cfg, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+            except Exception as exc:
+                self.log(f"Postrun corrected delivery skipped: config snapshot unavailable ({exc})")
+                return
+
+        output_dir = cfg.get("output_dir")
+        if output_dir:
+            target_dir = Path(str(output_dir)).resolve()
+        else:
+            target_dir = run_dir / f"corrected_autodelivery_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+        try:
+            from ..tools import run_v1_corrected_autodelivery
+
+            result = run_v1_corrected_autodelivery.run_from_cli(
+                run_dir=str(run_dir),
+                config_path=str(config_snapshot),
+                output_dir=str(target_dir),
+                write_devices=bool(cfg.get("write_devices", False)),
+                verify_report=bool(cfg.get("verify_report", False)),
+                verification_template=str(cfg.get("verification_template") or ""),
+                fallback_pressure_to_controller=bool(cfg.get("fallback_pressure_to_controller", False)),
+            )
+            self.log(
+                "Postrun corrected delivery finished: "
+                f"report={result.get('report_path')} "
+                f"write={'yes' if result.get('write_result') else 'no'} "
+                f"verify={'yes' if result.get('verify_outputs') else 'no'}"
+            )
+        except Exception as exc:
+            if bool(cfg.get("strict", False)):
+                raise
+            self.log(f"Postrun corrected delivery warning: {exc}")
 
     def _wait_analyzer_chamber_temp_stable(self, target_c: float) -> bool:
         enabled = bool(self._wf("workflow.stability.temperature.analyzer_chamber_temp_enabled", True))
@@ -9302,6 +9365,243 @@ class CalibrationRunner:
                 co2_group=getattr(candidate, "co2_group", None),
             )
         )
+
+    def _startup_pressure_sensor_calibration_cfg(self) -> Dict[str, Any]:
+        cfg = self.cfg.get("workflow", {}).get("startup_pressure_sensor_calibration", {})
+        return dict(cfg) if isinstance(cfg, dict) else {}
+
+    def _startup_pressure_sensor_calibration_point(
+        self,
+        points: List[CalibrationPoint],
+    ) -> Optional[CalibrationPoint]:
+        gas_sources = self._co2_source_points(points)
+        for point in gas_sources:
+            if self._is_zero_co2_point(point):
+                return point
+        return gas_sources[0] if gas_sources else None
+
+    def _build_pressure_sensor_calibration_target_point(
+        self,
+        template: CalibrationPoint,
+        *,
+        target_hpa: float,
+    ) -> CalibrationPoint:
+        point = CalibrationPoint(
+            index=int(getattr(template, "index", 0) or 0),
+            temp_chamber_c=self._as_float(getattr(template, "temp_chamber_c", None)),
+            co2_ppm=self._as_float(getattr(template, "co2_ppm", None)),
+            hgen_temp_c=None,
+            hgen_rh_pct=None,
+            target_pressure_hpa=float(target_hpa),
+            dewpoint_c=None,
+            h2o_mmol=None,
+            raw_h2o=None,
+            co2_group=getattr(template, "co2_group", None),
+        )
+        return self._decorate_pressure_point(
+            point,
+            pressure_mode="sealed_controlled",
+            pressure_target_label=f"{int(round(float(target_hpa)))}hPa",
+        )
+
+    def _restore_startup_pressure_sensor_calibration_analyzers(self) -> None:
+        gas_cfg_default = self.cfg.get("devices", {}).get("gas_analyzer", {})
+        for label, ga, cfg in self._all_gas_analyzers():
+            try:
+                self._configure_gas_analyzer(
+                    ga,
+                    label=label,
+                    mode=2,
+                    active_send=bool(cfg.get("active_send", gas_cfg_default.get("active_send", False))),
+                    ftd_hz=int(cfg.get("ftd_hz", gas_cfg_default.get("ftd_hz", 1))),
+                    avg_co2=int(cfg.get("average_co2", gas_cfg_default.get("average_co2", 1))),
+                    avg_h2o=int(cfg.get("average_h2o", gas_cfg_default.get("average_h2o", 1))),
+                    avg_filter=int(cfg.get("average_filter", gas_cfg_default.get("average_filter", 49))),
+                    warning_phase="startup",
+                )
+            except Exception as exc:
+                self.log(f"Startup pressure calibration restore analyzer failed: {label} err={exc}")
+
+    def _write_startup_pressure_sensor_calibration_artifacts(
+        self,
+        *,
+        output_dir: Path,
+        sample_rows: Sequence[Mapping[str, Any]],
+        summary_rows: Sequence[Mapping[str, Any]],
+    ) -> None:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        for name, rows in (("detail.csv", sample_rows), ("summary.csv", summary_rows)):
+            header: List[str] = []
+            for row in rows:
+                for key in row.keys():
+                    if key not in header:
+                        header.append(str(key))
+            with (output_dir / name).open("w", encoding="utf-8-sig", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=header)
+                writer.writeheader()
+                for row in rows:
+                    writer.writerow(dict(row))
+        (output_dir / "summary.json").write_text(
+            json.dumps({"sample_rows": list(sample_rows), "summary_rows": list(summary_rows)}, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+
+    def _startup_pressure_sensor_calibration(self, points: List[CalibrationPoint]) -> None:
+        cfg = self._startup_pressure_sensor_calibration_cfg()
+        if not bool(cfg.get("enabled", False)):
+            return
+
+        strict = bool(cfg.get("strict", True))
+        target_hpa = float(cfg.get("target_hpa", 1000.0) or 1000.0)
+        flush_soak_s = max(0.0, float(cfg.get("flush_soak_s", 10.0) or 10.0))
+        sample_duration_s = max(1.0, float(cfg.get("sample_duration_s", 8.0) or 8.0))
+        sample_interval_s = max(0.1, float(cfg.get("sample_interval_s", 1.0) or 1.0))
+        min_samples = max(1, int(cfg.get("min_samples", 3) or 3))
+        apply_write = bool(cfg.get("apply_write", True))
+        require_pressure_gauge = bool(cfg.get("require_pressure_gauge", True))
+
+        template_point = self._startup_pressure_sensor_calibration_point(points)
+        if template_point is None:
+            msg = "Startup pressure sensor calibration skipped: no usable zero-gas CO2 point found"
+            self.log(msg)
+            if strict:
+                raise RuntimeError(msg)
+            return
+
+        analyzers = self._active_gas_analyzers()
+        if not analyzers:
+            msg = "Startup pressure sensor calibration skipped: no active analyzers"
+            self.log(msg)
+            if strict:
+                raise RuntimeError(msg)
+            return
+
+        target_point = self._build_pressure_sensor_calibration_target_point(template_point, target_hpa=target_hpa)
+        sample_rows: List[Dict[str, Any]] = []
+        summary_rows: List[Dict[str, Any]] = []
+        output_dir = self.logger.run_dir / f"startup_pressure_sensor_calibration_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+        try:
+            self.log(
+                "Startup pressure sensor calibration: "
+                f"zero-gas flush at atmosphere, then seal and control to {target_hpa:.0f} hPa"
+            )
+            self._set_pressure_controller_vent(True, reason="startup pressure sensor calibration flush")
+            self._set_co2_route_baseline(reason="before startup pressure sensor calibration")
+            self._set_valves_for_co2(template_point)
+            if flush_soak_s > 0:
+                time.sleep(flush_soak_s)
+
+            self.log(
+                "Startup pressure sensor calibration: flush done; "
+                "close atmosphere, close all route valves, then start pressure control"
+            )
+            self._apply_route_baseline_valves()
+            self._set_pressure_controller_vent(False, reason="startup pressure sensor calibration control")
+            if not self._set_pressure_to_target(target_point):
+                raise RuntimeError(f"startup pressure sensor calibration could not stabilize at {target_hpa:.1f} hPa")
+
+            started = time.time()
+            while (time.time() - started) < sample_duration_s:
+                if self.stop_event.is_set():
+                    raise RuntimeError("startup pressure sensor calibration interrupted")
+                self._check_pause()
+                reference_hpa, reference_source = self._read_preseal_pressure_gauge()
+                if require_pressure_gauge and reference_source != "pressure_gauge":
+                    time.sleep(sample_interval_s)
+                    continue
+                for label, ga, _analyzer_cfg in analyzers:
+                    line, parsed = self._read_sensor_parsed(
+                        ga,
+                        required_key="pressure_kpa",
+                        require_usable=True,
+                        frame_acceptance_mode="required_key_relaxed",
+                    )
+                    analyzer_kpa = self._as_float(parsed.get("pressure_kpa")) if parsed else None
+                    offset = None if analyzer_kpa is None or reference_hpa is None else (float(reference_hpa) / 10.0) - float(analyzer_kpa)
+                    sample_rows.append(
+                        {
+                            "Analyzer": label,
+                            "DeviceId": _normalized_device_id_text((parsed or {}).get("id")),
+                            "ReferenceHpa": reference_hpa,
+                            "ReferenceSource": reference_source,
+                            "AnalyzerPressureKPa": analyzer_kpa,
+                            "OffsetA_kPa": offset,
+                            "Raw": str(line or ""),
+                            "FrameOk": analyzer_kpa is not None and reference_hpa is not None,
+                        }
+                    )
+                time.sleep(sample_interval_s)
+
+            for label, ga, _analyzer_cfg in analyzers:
+                analyzer_rows = [
+                    row for row in sample_rows
+                    if str(row.get("Analyzer") or "") == label and row.get("OffsetA_kPa") is not None
+                ]
+                if len(analyzer_rows) < min_samples:
+                    summary_rows.append(
+                        {
+                            "Analyzer": label,
+                            "DeviceId": "",
+                            "Samples": len(analyzer_rows),
+                            "OffsetA_kPa": None,
+                            "WriteApplied": False,
+                            "ReadbackOk": False,
+                            "Status": "insufficient_samples",
+                        }
+                    )
+                    continue
+                device_ids = [_normalized_device_id_text(row.get("DeviceId")) for row in analyzer_rows if _normalized_device_id_text(row.get("DeviceId"))]
+                device_id = Counter(device_ids).most_common(1)[0][0] if device_ids else ""
+                offset = float(sum(float(row["OffsetA_kPa"]) for row in analyzer_rows) / len(analyzer_rows))
+                readback_ok = False
+                readback = {}
+                error = ""
+                if apply_write:
+                    try:
+                        ga.set_mode_with_ack(2, require_ack=True)
+                        if not ga.set_senco(9, offset, 1.0, 0.0, 0.0):
+                            raise RuntimeError("SENCO9 write ack failed")
+                        readback = ga.read_coefficient_group(9)
+                        readback_ok = (
+                            abs(float(readback.get("C0")) - float(offset)) <= 1e-9
+                            and abs(float(readback.get("C1")) - 1.0) <= 1e-9
+                            and abs(float(readback.get("C2")) - 0.0) <= 1e-9
+                        )
+                    except Exception as exc:
+                        error = str(exc)
+                summary_rows.append(
+                    {
+                        "Analyzer": label,
+                        "DeviceId": device_id,
+                        "Samples": len(analyzer_rows),
+                        "OffsetA_kPa": offset,
+                        "WriteApplied": bool(apply_write),
+                        "ReadbackOk": bool(readback_ok) if apply_write else "",
+                        "Readback": json.dumps(readback, ensure_ascii=False, sort_keys=True) if readback else "",
+                        "Status": "ok" if (not apply_write or readback_ok) else "write_failed",
+                        "Error": error,
+                    }
+                )
+
+            self._write_startup_pressure_sensor_calibration_artifacts(
+                output_dir=output_dir,
+                sample_rows=sample_rows,
+                summary_rows=summary_rows,
+            )
+            failed = [row for row in summary_rows if str(row.get("Status") or "") != "ok"]
+            if failed and strict:
+                raise RuntimeError(f"startup pressure sensor calibration failed for {len(failed)} analyzers")
+        except Exception:
+            if strict:
+                raise
+            self.log("Startup pressure sensor calibration failed but strict=false; continue run")
+        finally:
+            try:
+                self._cleanup_co2_route(reason="after startup pressure sensor calibration")
+            except Exception as exc:
+                self.log(f"Startup pressure sensor calibration cleanup failed: {exc}")
+            self._restore_startup_pressure_sensor_calibration_analyzers()
 
     def _sample_open_route_point(self, point: CalibrationPoint, *, phase: str, point_tag: str) -> None:
         phase_text = str(phase or ("h2o" if point.is_h2o_point else "co2")).strip().lower()

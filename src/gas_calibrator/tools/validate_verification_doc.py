@@ -182,14 +182,16 @@ def _load_targets(cfg: Mapping[str, Any], targets_json: Optional[str]) -> List[D
     if targets_json:
         payload = json.loads(Path(targets_json).read_text(encoding="utf-8"))
         targets = payload.get("devices", {}).get("gas_analyzers", [])
+        explicit_targets = True
     else:
         targets = cfg.get("devices", {}).get("gas_analyzers", [])
+        explicit_targets = False
     rows: List[Dict[str, Any]] = []
     for row in targets:
         if not isinstance(row, Mapping) or not row.get("enabled", True):
             continue
         device_id = GasAnalyzer.normalize_device_id(row.get("device_id") or "000")
-        if device_id not in DEFAULT_DEVICE_IDS:
+        if (not explicit_targets) and device_id not in DEFAULT_DEVICE_IDS:
             continue
         rows.append(
             {
@@ -431,23 +433,37 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
-def main(argv: Optional[Iterable[str]] = None) -> int:
-    args = _parse_args(argv)
-    cfg = load_config(args.config)
-    template_path = Path(args.template).resolve()
-    output_dir = (
-        Path(args.output_dir).resolve()
-        if args.output_dir
+def run_from_cli(
+    *,
+    config: str = "configs/default_config.json",
+    template: str,
+    targets_json: Optional[str] = None,
+    output_dir: Optional[str] = None,
+    co2_settle_s: float = 18.0,
+    co2_sample_s: float = 8.0,
+    h2o_timeout_s: float = 900.0,
+    h2o_sample_s: float = 12.0,
+    sample_interval_s: float = 1.0,
+    flow_lpm: float = DEFAULT_FLOW_LPM,
+    skip_h2o: bool = False,
+    reuse_summary_csv: Optional[str] = None,
+) -> int:
+    cfg = load_config(config)
+    template_path = Path(template).resolve()
+    output_dir_path = (
+        Path(output_dir).resolve()
+        if output_dir
         else Path(cfg.get("paths", {}).get("output_dir", "logs")).resolve() / f"verify_doc_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     )
+    output_dir = output_dir_path
     output_dir.mkdir(parents=True, exist_ok=True)
     spec = load_template_spec(template_path)
-    targets = _load_targets(cfg, args.targets_json)
+    targets = _load_targets(cfg, targets_json)
     if len(targets) != 4:
         raise ValueError(f"need 4 targets, got {len(targets)}")
-    if args.skip_h2o and not args.reuse_summary_csv:
+    if skip_h2o and not reuse_summary_csv:
         raise ValueError("--skip-h2o requires --reuse-summary-csv so the output form keeps the previous H2O rows")
-    devices = _build_devices(cfg, targets, include_h2o_devices=not args.skip_h2o)
+    devices = _build_devices(cfg, targets, include_h2o_devices=not skip_h2o)
     report_rows: Dict[str, Dict[str, List[Dict[str, Any]]]] = {row["name"].upper(): {"co2": [], "h2o": []} for row in targets}
     summary_rows: List[Dict[str, Any]] = []
     raw_rows: List[Dict[str, Any]] = []
@@ -461,8 +477,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             route = _route_for_gas_ppm(cfg, int(point["nominal_ppm"]), "A")
             _apply_logical_valves(cfg, devices, route["open_logical_valves"])
             _log(f"CO2 point {point['nominal_ppm']} ppm -> open {route['open_logical_valves']}")
-            time.sleep(float(args.co2_settle_s))
-            window = _collect_window(devices["analyzers"], duration_s=float(args.co2_sample_s), sample_interval_s=float(args.sample_interval_s))
+            time.sleep(float(co2_settle_s))
+            window = _collect_window(devices["analyzers"], duration_s=float(co2_sample_s), sample_interval_s=float(sample_interval_s))
             for analyzer_name, samples in window["analyzers"].items():
                 for sample in samples:
                     raw_rows.append({"point": f"co2_{point['nominal_ppm']}", "analyzer": analyzer_name, **sample})
@@ -492,13 +508,13 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                     }
                 )
 
-        if args.skip_h2o:
-            reused_h2o_rows, reused_summary_rows = _build_reused_h2o_rows(spec, Path(args.reuse_summary_csv).resolve())
+        if skip_h2o:
+            reused_h2o_rows, reused_summary_rows = _build_reused_h2o_rows(spec, Path(reuse_summary_csv).resolve())
             for analyzer, rows in reused_h2o_rows.items():
                 report_rows.setdefault(analyzer, {"co2": [], "h2o": []})
                 report_rows[analyzer]["h2o"] = list(rows)
             summary_rows.extend(reused_summary_rows)
-            reuse_meta_path = Path(args.reuse_summary_csv).resolve().with_name("h2o_reference_summary.json")
+            reuse_meta_path = Path(reuse_summary_csv).resolve().with_name("h2o_reference_summary.json")
             if reuse_meta_path.exists():
                 h2o_meta = json.loads(reuse_meta_path.read_text(encoding="utf-8"))
         else:
@@ -509,7 +525,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 hgen = devices["humidity_generator"]
                 hgen.set_target_temp(setpoint["hgen_temp_c"])
                 hgen.set_target_rh(setpoint["hgen_rh_pct"])
-                hgen.set_flow_target(float(args.flow_lpm))
+                hgen.set_flow_target(float(flow_lpm))
                 hgen.enable_control(True)
                 try:
                     hgen.heat_on()
@@ -519,14 +535,14 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                     hgen.cool_on()
                 except Exception:
                     pass
-                hgen.ensure_run(min_flow_lpm=max(0.1, float(args.flow_lpm) * 0.25), tries=3, wait_s=4.0, poll_s=0.4)
+                hgen.ensure_run(min_flow_lpm=max(0.1, float(flow_lpm) * 0.25), tries=3, wait_s=4.0, poll_s=0.4)
                 _apply_logical_valves(cfg, devices, h2o_open)
-                wait_state = _wait_dewpoint_ready(devices["dewpoint"], target_dewpoint_c, float(args.h2o_timeout_s))
+                wait_state = _wait_dewpoint_ready(devices["dewpoint"], target_dewpoint_c, float(h2o_timeout_s))
                 _log(f"H2O point dewpoint={target_dewpoint_c:.1f}C -> wait={wait_state}")
                 window = _collect_window(
                     devices["analyzers"],
-                    duration_s=float(args.h2o_sample_s),
-                    sample_interval_s=float(args.sample_interval_s),
+                    duration_s=float(h2o_sample_s),
+                    sample_interval_s=float(sample_interval_s),
                     dewpoint=devices["dewpoint"],
                     pressure_gauge=devices["pressure_gauge"],
                 )
@@ -609,6 +625,24 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         except Exception:
             pass
         close_devices(devices)
+
+
+def main(argv: Optional[Iterable[str]] = None) -> int:
+    args = _parse_args(argv)
+    return run_from_cli(
+        config=args.config,
+        template=args.template,
+        targets_json=args.targets_json,
+        output_dir=args.output_dir,
+        co2_settle_s=args.co2_settle_s,
+        co2_sample_s=args.co2_sample_s,
+        h2o_timeout_s=args.h2o_timeout_s,
+        h2o_sample_s=args.h2o_sample_s,
+        sample_interval_s=args.sample_interval_s,
+        flow_lpm=args.flow_lpm,
+        skip_h2o=args.skip_h2o,
+        reuse_summary_csv=args.reuse_summary_csv,
+    )
 
 
 if __name__ == "__main__":
