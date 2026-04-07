@@ -665,7 +665,9 @@ def _decorate_artifact_row(row: dict[str, Any]) -> dict[str, Any]:
         "export_status_known": export_status_known,
         "exportable_in_current_run": exportable_in_current_run,
         "exportability_display": exportability_display,
-        "role_status_display": f"{role_display} | {export_status_display} | {exportability_display}",
+        "role_status_display": str(
+            payload.get("role_status_display") or f"{role_display} | {export_status_display} | {exportability_display}"
+        ),
         "note": note,
     }
 

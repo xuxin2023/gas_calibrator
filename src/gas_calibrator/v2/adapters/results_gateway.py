@@ -12,6 +12,7 @@ from ..core.phase_transition_bridge_reviewer_artifact_entry import (
     PHASE_TRANSITION_BRIDGE_REVIEWER_ARTIFACT_KEY,
     build_phase_transition_bridge_reviewer_artifact_entry,
 )
+from ..core.phase_transition_bridge_reviewer_artifact import PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME
 from ..review_surface_formatter import (
     build_offline_diagnostic_detail_item_line,
     build_offline_diagnostic_scope_line,
@@ -186,11 +187,18 @@ class ResultsGateway:
             dict(manifest.get("phase_transition_bridge_reviewer_section") or {})
             or dict(analytics_summary.get("phase_transition_bridge_reviewer_section") or {})
         )
+        reviewer_artifact_path = str(reviewer_artifact_section.get("path") or "").strip()
+        if not reviewer_artifact_path:
+            fallback_path = self.run_dir / PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME
+            if fallback_path.exists():
+                reviewer_artifact_path = str(fallback_path)
         reviewer_artifact_entry = build_phase_transition_bridge_reviewer_artifact_entry(
-            artifact_path=reviewer_artifact_section.get("path"),
+            artifact_path=reviewer_artifact_path,
             manifest_section=reviewer_artifact_section,
             reviewer_section=reviewer_surface_section,
         )
+        if not bool(reviewer_artifact_entry.get("available", False)):
+            reviewer_artifact_entry = {}
         files = []
         seen: set[str] = set()
 
@@ -249,7 +257,7 @@ class ResultsGateway:
             "workbench_evidence_summary": dict(payload.get("workbench_evidence_summary", {}) or {}),
             "offline_diagnostic_adapter_summary": offline_diagnostic_adapter_summary,
             "point_taxonomy_summary": dict(payload.get("point_taxonomy_summary", {}) or {}),
-            "phase_transition_bridge_reviewer_artifact_entry": reviewer_artifact_entry,
+            "phase_transition_bridge_reviewer_artifact_entry": dict(reviewer_artifact_entry),
             "evidence_source": str(payload.get("evidence_source", "") or "simulated_protocol"),
             "evidence_state": str(payload.get("evidence_state", "") or "collected"),
             "not_real_acceptance_evidence": bool(payload.get("not_real_acceptance_evidence", True)),
@@ -532,19 +540,10 @@ class ResultsGateway:
         entry = dict(reviewer_artifact_entry or {})
         if not entry:
             return payload
-        role_status_display = " | ".join(
-            part
-            for part in (
-                str(payload.get("artifact_role_display") or "").strip(),
-                str(entry.get("stage_marker_text") or "").strip(),
-                str(entry.get("warning_text") or "").strip(),
-            )
-            if part
-        )
         return {
             **payload,
             "name": str(entry.get("name_text") or payload.get("name") or ""),
             "note": str(entry.get("note_text") or payload.get("note") or ""),
-            "role_status_display": role_status_display or str(payload.get("role_status_display") or ""),
+            "role_status_display": str(entry.get("role_status_display") or payload.get("role_status_display") or ""),
             "phase_transition_bridge_reviewer_artifact_entry": entry,
         }

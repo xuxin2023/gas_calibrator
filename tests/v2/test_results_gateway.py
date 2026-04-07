@@ -666,8 +666,8 @@ def test_results_gateway_exposes_phase_transition_bridge_reviewer_markdown_as_fi
     assert "不是 real acceptance" in reviewer_row["role_status_display"]
     assert "不能替代真实计量验证" not in reviewer_row["name"]
     assert "Step 2 tail / Stage 3 bridge" in reviewer_entry["entry_text"]
-    assert "现在执行" in reviewer_entry["entry_text"]
-    assert "第三阶段执行" in reviewer_entry["entry_text"]
+    assert reviewer_entry["execute_now_text"] in reviewer_entry["entry_text"]
+    assert reviewer_entry["defer_to_stage3_text"] in reviewer_entry["entry_text"]
     assert "不是 real acceptance" in reviewer_entry["entry_text"]
     assert "不能替代真实计量验证" in reviewer_entry["entry_text"]
     assert reviewer_entry["ready_for_engineering_isolation"] is False
