@@ -79,6 +79,63 @@ def build_phase_transition_bridge_digest(
     }
 
 
+def build_phase_transition_bridge_panel_payload(
+    bridge: dict[str, Any] | None,
+) -> dict[str, Any]:
+    digest = build_phase_transition_bridge_digest(bridge)
+    if not digest.get("available"):
+        return {
+            "available": False,
+            "raw": {},
+            "display": {},
+        }
+
+    warning_text = _panel_warning_text(str(digest.get("warning_text") or "").strip())
+    blocking_text = str(digest.get("blocking_text") or "").strip()
+    card_lines = [
+        str(digest.get("current_stage_text") or "").strip(),
+        str(digest.get("next_stage_text") or "").strip(),
+        str(digest.get("execute_now_text") or "").strip(),
+        str(digest.get("defer_to_stage3_text") or "").strip(),
+        warning_text,
+    ]
+    section_lines = [
+        str(digest.get("summary_text") or "").strip(),
+        str(digest.get("status_line") or "").strip(),
+        str(digest.get("current_stage_text") or "").strip(),
+        str(digest.get("next_stage_text") or "").strip(),
+        str(digest.get("execute_now_text") or "").strip(),
+        str(digest.get("defer_to_stage3_text") or "").strip(),
+        blocking_text,
+        warning_text,
+    ]
+
+    return {
+        "available": True,
+        "raw": {
+            "overall_status": str(digest.get("overall_status") or "not_ready"),
+            "recommended_next_stage": str(digest.get("recommended_next_stage") or "close_step2_tail_gaps"),
+            "ready_for_engineering_isolation": bool(digest.get("ready_for_engineering_isolation", False)),
+            "real_acceptance_ready": bool(digest.get("real_acceptance_ready", False)),
+        },
+        "display": {
+            "title_text": "阶段准入桥",
+            "summary_text": str(digest.get("summary_text") or "").strip(),
+            "status_line": str(digest.get("status_line") or "").strip(),
+            "current_stage_text": str(digest.get("current_stage_text") or "").strip(),
+            "next_stage_text": str(digest.get("next_stage_text") or "").strip(),
+            "execute_now_text": str(digest.get("execute_now_text") or "").strip(),
+            "defer_to_stage3_text": str(digest.get("defer_to_stage3_text") or "").strip(),
+            "blocking_text": blocking_text,
+            "warning_text": warning_text,
+            "card_lines": [line for line in card_lines if str(line).strip()],
+            "card_text": "\n".join(line for line in card_lines if str(line).strip()),
+            "section_lines": [line for line in section_lines if str(line).strip()],
+            "section_text": "\n".join(line for line in section_lines if str(line).strip()),
+        },
+    }
+
+
 def _text_list(value: Any) -> list[str]:
     rows: list[str] = []
     for item in list(value or []):
