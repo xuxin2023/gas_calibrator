@@ -13,6 +13,38 @@ if str(SUPPORT_DIR) not in sys.path:
 from ui_v2_support import build_fake_facade, make_root
 
 
+def _build_phase_transition_bridge_payload() -> dict:
+    return {
+        "artifact_type": "phase_transition_bridge",
+        "phase": "step2_tail_stage3_bridge",
+        "overall_status": "ready_for_engineering_isolation",
+        "recommended_next_stage": "engineering_isolation",
+        "ready_for_engineering_isolation": True,
+        "real_acceptance_ready": False,
+        "execute_now_in_step2_tail": [
+            "contract_schema_digest_reporting",
+            "governance_artifact_export",
+        ],
+        "defer_to_stage3_real_validation": [
+            "real_reference_instrument_enforcement",
+            "real_acceptance_pass_fail",
+        ],
+        "blocking_items": [],
+        "warning_items": ["phase_transition_bridge_not_real_acceptance"],
+        "reviewer_display": {
+            "summary_text": "阶段桥工件：统一说明离第三阶段真实验证还有多远，不是 real acceptance。",
+            "status_line": "阶段状态：当前仍处于 Step 2 tail / Stage 3 bridge，但已具备 engineering-isolation 准备。不是 real acceptance。",
+            "current_stage_text": "当前阶段：Step 2 tail / Stage 3 bridge。",
+            "next_stage_text": "下一阶段：进入 engineering-isolation，继续准备 Stage 3 real validation。",
+            "execute_now_text": "现在执行：contract_schema_digest_reporting / governance_artifact_export。",
+            "defer_to_stage3_text": "第三阶段执行：real_reference_instrument_enforcement / real_acceptance_pass_fail。",
+            "blocking_text": "阻塞项：无。",
+            "warning_text": "提示：不能替代真实计量验证。",
+            "gate_lines": [],
+        },
+    }
+
+
 def test_review_center_aggregates_multi_evidence_and_acceptance_readiness(tmp_path: Path) -> None:
     facade = build_fake_facade(tmp_path)
     run_dir = Path(facade.result_store.run_dir)
@@ -431,6 +463,57 @@ def test_review_center_panel_filters_by_type_status_and_source_without_implying_
         panel.time_filter_var.set(t("results.review_center.filter.time_24h"))
         panel._apply_filters()
         assert len(panel.tree.get_children()) == 5
+    finally:
+        root.destroy()
+
+
+def test_review_center_panel_merges_phase_transition_bridge_into_readiness_and_analytics_summary() -> None:
+    root = make_root()
+    try:
+        panel = ReviewCenterPanel(root, compact=True)
+        payload = {
+            "operator_focus": {"summary": "operator"},
+            "reviewer_focus": {"summary": "reviewer"},
+            "approver_focus": {"summary": "approver"},
+            "risk_summary": {"level": "low", "level_display": "low", "summary": "risk summary"},
+            "acceptance_readiness": {"summary": "offline readiness only"},
+            "analytics_summary": {
+                "summary": "analytics summary",
+                "detail": {
+                    "phase_transition_bridge": _build_phase_transition_bridge_payload(),
+                },
+            },
+            "lineage_summary": {"summary": "lineage summary"},
+            "index_summary": {
+                "summary": "recent sources 1",
+                "source_kind_summary": "sources by kind | run 1",
+                "coverage_summary": "coverage | complete 1 | gapped 0 | no gaps",
+                "sources": [],
+            },
+            "filters": {
+                "selected_type": "all",
+                "selected_status": "all",
+                "selected_time": "all",
+                "selected_source": "all",
+                "type_options": [{"id": "all", "label": t("results.review_center.filter.all_types")}],
+                "status_options": [{"id": "all", "label": t("results.review_center.filter.all_statuses")}],
+                "time_options": [{"id": "all", "label": t("results.review_center.filter.all_time"), "window_seconds": None}],
+                "source_options": [{"id": "all", "label": t("results.review_center.filter.all_sources")}],
+            },
+            "evidence_items": [],
+            "detail_hint": "select evidence",
+            "empty_detail": "no evidence",
+            "disclaimer": "offline evidence only; not real acceptance.",
+        }
+
+        panel.render(payload)
+
+        assert "offline readiness only" in panel.readiness_var.get()
+        assert "Step 2 tail / Stage 3 bridge" in panel.readiness_var.get()
+        assert "不是 real acceptance" in panel.readiness_var.get()
+        assert "analytics summary" in panel.analytics_var.get()
+        assert "阶段桥工件" in panel.analytics_var.get()
+        assert "real acceptance passed" not in panel.analytics_var.get()
     finally:
         root.destroy()
 

@@ -13,6 +13,42 @@ if str(SUPPORT_DIR) not in sys.path:
 from ui_v2_support import make_root
 
 
+def _build_phase_transition_bridge_payload() -> dict:
+    return {
+        "artifact_type": "phase_transition_bridge",
+        "phase": "step2_tail_stage3_bridge",
+        "overall_status": "ready_for_engineering_isolation",
+        "recommended_next_stage": "engineering_isolation",
+        "ready_for_engineering_isolation": True,
+        "real_acceptance_ready": False,
+        "execute_now_in_step2_tail": [
+            "contract_schema_digest_reporting",
+            "governance_artifact_export",
+        ],
+        "defer_to_stage3_real_validation": [
+            "real_reference_instrument_enforcement",
+            "real_acceptance_pass_fail",
+        ],
+        "blocking_items": [],
+        "warning_items": [
+            "phase_transition_bridge_not_real_acceptance",
+        ],
+        "reviewer_display": {
+            "summary_text": "阶段桥工件：统一说明离第三阶段真实验证还有多远，不是 real acceptance。",
+            "status_line": "阶段状态：当前仍处于 Step 2 tail / Stage 3 bridge，但已具备 engineering-isolation 准备。不是 real acceptance。",
+            "current_stage_text": "当前阶段：Step 2 tail / Stage 3 bridge。",
+            "next_stage_text": "下一阶段：进入 engineering-isolation，继续准备 Stage 3 real validation。",
+            "execute_now_text": "现在执行：contract_schema_digest_reporting / governance_artifact_export。",
+            "defer_to_stage3_text": "第三阶段执行：real_reference_instrument_enforcement / real_acceptance_pass_fail。",
+            "blocking_text": "阻塞项：无。",
+            "warning_text": "提示：不能替代真实计量验证。",
+            "gate_lines": [
+                "simulation_only_boundary：pass（simulation_only）",
+            ],
+        },
+    }
+
+
 def _build_review_center_payload() -> dict:
     return {
         "operator_focus": {"summary": "operator"},
@@ -22,6 +58,12 @@ def _build_review_center_payload() -> dict:
         "acceptance_readiness": {"summary": "offline readiness"},
         "analytics_summary": {"summary": "analytics"},
         "lineage_summary": {"summary": "lineage"},
+        "analytics_summary": {
+            "summary": "analytics",
+            "detail": {
+                "phase_transition_bridge": _build_phase_transition_bridge_payload(),
+            },
+        },
         "index_summary": {
             "summary": "recent sources 2",
             "sources": [
@@ -434,5 +476,33 @@ def test_reports_page_prefers_artifact_scope_reviewer_display_payload(monkeypatc
         assert page.artifact_count_card.note_var.get() == "reviewer scope note"
         assert page.present_count_card.note_var.get() == "reviewer present note"
         assert page.export_scope_notice_var.get() == "reviewer warning"
+    finally:
+        root.destroy()
+
+
+def test_reports_page_includes_phase_transition_bridge_digest_in_result_summary_fallback() -> None:
+    root = make_root()
+    try:
+        page = ReportsPage(root)
+        page.render(
+            {
+                "run_dir": "D:/tmp/run_bridge",
+                "files": [],
+                "review_center": _build_review_center_payload(),
+                "qc_summary_text": "",
+                "ai_summary_text": "",
+                "export": {"available_formats": ["json"], "last_export_message": "Ready"},
+            }
+        )
+
+        summary_text = page.result_summary.get("1.0", "end")
+
+        assert "阶段桥工件" in summary_text
+        assert "Step 2 tail / Stage 3 bridge" in summary_text
+        assert "engineering-isolation" in summary_text
+        assert "现在执行：contract_schema_digest_reporting / governance_artifact_export。" in summary_text
+        assert "第三阶段执行：real_reference_instrument_enforcement / real_acceptance_pass_fail。" in summary_text
+        assert "不是 real acceptance" in summary_text
+        assert "不能替代真实计量验证" in summary_text
     finally:
         root.destroy()

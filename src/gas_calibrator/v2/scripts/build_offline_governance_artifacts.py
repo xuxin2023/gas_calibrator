@@ -13,6 +13,14 @@ from ..core.offline_artifacts import (
     export_suite_offline_artifacts,
     write_json,
 )
+from ..core.metrology_calibration_contract import (
+    METROLOGY_CALIBRATION_CONTRACT_FILENAME,
+    build_metrology_calibration_contract,
+)
+from ..core.phase_transition_bridge import (
+    PHASE_TRANSITION_BRIDGE_FILENAME,
+    build_phase_transition_bridge,
+)
 from ..core.step2_readiness import (
     STEP2_READINESS_SUMMARY_FILENAME,
     build_step2_readiness_summary,
@@ -65,10 +73,28 @@ def _augment_run_payload_with_step2_readiness(
     analytics_summary["step2_readiness_summary"] = dict(readiness_summary)
     write_json(run_dir / ANALYTICS_SUMMARY_FILENAME, analytics_summary)
     readiness_path = write_json(run_dir / STEP2_READINESS_SUMMARY_FILENAME, readiness_summary)
+    metrology_contract = build_metrology_calibration_contract(
+        run_id=run_id,
+        simulation_mode=simulation_mode,
+        config_governance_handoff=dict(analytics_summary.get("config_governance_handoff") or {}),
+    )
+    analytics_summary["metrology_calibration_contract"] = dict(metrology_contract)
+    write_json(run_dir / ANALYTICS_SUMMARY_FILENAME, analytics_summary)
+    metrology_path = write_json(run_dir / METROLOGY_CALIBRATION_CONTRACT_FILENAME, metrology_contract)
+    phase_transition_bridge = build_phase_transition_bridge(
+        run_id=run_id,
+        step2_readiness_summary=readiness_summary,
+        metrology_calibration_contract=metrology_contract,
+    )
+    analytics_summary["phase_transition_bridge"] = dict(phase_transition_bridge)
+    write_json(run_dir / ANALYTICS_SUMMARY_FILENAME, analytics_summary)
+    phase_transition_path = write_json(run_dir / PHASE_TRANSITION_BRIDGE_FILENAME, phase_transition_bridge)
 
     summary_stats = dict(payload.get("summary_stats") or {})
     summary_stats["analytics_summary"] = analytics_summary
     summary_stats["step2_readiness_summary"] = dict(readiness_summary)
+    summary_stats["metrology_calibration_contract"] = dict(metrology_contract)
+    summary_stats["phase_transition_bridge"] = dict(phase_transition_bridge)
     summary_stats["step2_readiness_digest"] = {
         "phase": readiness_summary.get("phase"),
         "overall_status": readiness_summary.get("overall_status"),
@@ -79,6 +105,26 @@ def _augment_run_payload_with_step2_readiness(
         "warning_items": list(readiness_summary.get("warning_items") or []),
         "evidence_mode": readiness_summary.get("evidence_mode"),
     }
+    summary_stats["metrology_calibration_contract_digest"] = {
+        "phase": metrology_contract.get("phase"),
+        "overall_status": metrology_contract.get("overall_status"),
+        "real_acceptance_ready": bool(metrology_contract.get("real_acceptance_ready", False)),
+        "stage_assignment": dict(metrology_contract.get("stage_assignment") or {}),
+        "stage3_execution_items": list(metrology_contract.get("stage3_execution_items") or []),
+        "blocking_items": list(metrology_contract.get("blocking_items") or []),
+        "warning_items": list(metrology_contract.get("warning_items") or []),
+        "evidence_mode": metrology_contract.get("evidence_mode"),
+    }
+    summary_stats["phase_transition_bridge_digest"] = {
+        "phase": phase_transition_bridge.get("phase"),
+        "overall_status": phase_transition_bridge.get("overall_status"),
+        "recommended_next_stage": phase_transition_bridge.get("recommended_next_stage"),
+        "ready_for_engineering_isolation": bool(phase_transition_bridge.get("ready_for_engineering_isolation", False)),
+        "real_acceptance_ready": bool(phase_transition_bridge.get("real_acceptance_ready", False)),
+        "blocking_items": list(phase_transition_bridge.get("blocking_items") or []),
+        "warning_items": list(phase_transition_bridge.get("warning_items") or []),
+        "missing_real_world_evidence": list(phase_transition_bridge.get("missing_real_world_evidence") or []),
+    }
     payload["summary_stats"] = summary_stats
 
     artifact_statuses = dict(payload.get("artifact_statuses") or {})
@@ -86,6 +132,16 @@ def _augment_run_payload_with_step2_readiness(
         "status": "ok",
         "role": "execution_summary",
         "path": str(readiness_path),
+    }
+    artifact_statuses["metrology_calibration_contract"] = {
+        "status": "ok",
+        "role": "formal_analysis",
+        "path": str(metrology_path),
+    }
+    artifact_statuses["phase_transition_bridge"] = {
+        "status": "ok",
+        "role": "execution_summary",
+        "path": str(phase_transition_path),
     }
     payload["artifact_statuses"] = artifact_statuses
 
@@ -101,12 +157,38 @@ def _augment_run_payload_with_step2_readiness(
         "gate_status_counts": dict(readiness_summary.get("gate_status_counts") or {}),
         "not_real_acceptance_evidence": bool(readiness_summary.get("not_real_acceptance_evidence", True)),
     }
+    manifest_sections["metrology_calibration_contract"] = {
+        "phase": metrology_contract.get("phase"),
+        "overall_status": metrology_contract.get("overall_status"),
+        "real_acceptance_ready": bool(metrology_contract.get("real_acceptance_ready", False)),
+        "stage_assignment": dict(metrology_contract.get("stage_assignment") or {}),
+        "stage3_execution_items": list(metrology_contract.get("stage3_execution_items") or []),
+        "blocking_items": list(metrology_contract.get("blocking_items") or []),
+        "warning_items": list(metrology_contract.get("warning_items") or []),
+        "not_real_acceptance_evidence": bool(metrology_contract.get("not_real_acceptance_evidence", True)),
+    }
+    manifest_sections["phase_transition_bridge"] = {
+        "phase": phase_transition_bridge.get("phase"),
+        "overall_status": phase_transition_bridge.get("overall_status"),
+        "recommended_next_stage": phase_transition_bridge.get("recommended_next_stage"),
+        "ready_for_engineering_isolation": bool(phase_transition_bridge.get("ready_for_engineering_isolation", False)),
+        "real_acceptance_ready": bool(phase_transition_bridge.get("real_acceptance_ready", False)),
+        "blocking_items": list(phase_transition_bridge.get("blocking_items") or []),
+        "warning_items": list(phase_transition_bridge.get("warning_items") or []),
+        "not_real_acceptance_evidence": True,
+    }
     payload["manifest_sections"] = manifest_sections
 
     remembered_files = [str(item) for item in list(payload.get("remembered_files") or [])]
     readiness_path_text = str(readiness_path)
     if readiness_path_text not in remembered_files:
         remembered_files.append(readiness_path_text)
+    metrology_path_text = str(metrology_path)
+    if metrology_path_text not in remembered_files:
+        remembered_files.append(metrology_path_text)
+    phase_transition_path_text = str(phase_transition_path)
+    if phase_transition_path_text not in remembered_files:
+        remembered_files.append(phase_transition_path_text)
     payload["remembered_files"] = remembered_files
     return payload
 
@@ -170,6 +252,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             print(f"acceptance_plan: {Path(args.run_dir).resolve() / 'acceptance_plan.json'}")
             print(f"analytics_summary: {Path(args.run_dir).resolve() / 'analytics_summary.json'}")
             print(f"step2_readiness_summary: {Path(args.run_dir).resolve() / STEP2_READINESS_SUMMARY_FILENAME}")
+            print(f"metrology_calibration_contract: {Path(args.run_dir).resolve() / METROLOGY_CALIBRATION_CONTRACT_FILENAME}")
+            print(f"phase_transition_bridge: {Path(args.run_dir).resolve() / PHASE_TRANSITION_BRIDGE_FILENAME}")
             print(f"lineage_summary: {Path(args.run_dir).resolve() / 'lineage_summary.json'}")
             print(f"trend_registry: {Path(args.run_dir).resolve() / 'trend_registry.json'}")
             print(f"evidence_registry: {Path(args.run_dir).resolve() / 'evidence_registry.json'}")

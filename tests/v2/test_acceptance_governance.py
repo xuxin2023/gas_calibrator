@@ -4,6 +4,8 @@ from gas_calibrator.v2.core.acceptance_model import (
     build_user_visible_evidence_boundary,
     build_validation_acceptance_snapshot,
 )
+from gas_calibrator.v2.core.metrology_calibration_contract import build_metrology_calibration_contract
+from gas_calibrator.v2.core.phase_transition_bridge import build_phase_transition_bridge
 from gas_calibrator.v2.core.step2_readiness import build_step2_readiness_summary
 
 
@@ -166,3 +168,146 @@ def test_step2_readiness_summary_requires_governance_evidence_completeness_befor
     assert "config_governance_handoff_incomplete" in readiness["warning_items"]
     assert any("治理证据完整性：阻塞" in line for line in readiness["reviewer_display"]["gate_lines"])
     assert step2_gate["status"] == "not_ready"
+
+
+def test_metrology_calibration_contract_reports_step2_tail_design_contract_without_claiming_real_acceptance() -> None:
+    contract = build_metrology_calibration_contract(
+        run_id="run_metrology",
+        simulation_mode=True,
+        config_governance_handoff={
+            "simulation_only": True,
+            "real_port_device_count": 0,
+            "engineering_only_flag_count": 0,
+            "enabled_engineering_flags": [],
+        },
+    )
+
+    assert contract["artifact_type"] == "metrology_calibration_contract"
+    assert contract["phase"] == "step2_tail_step3_bridge"
+    assert contract["mode"] == "simulation_only"
+    assert contract["overall_status"] == "contract_ready_for_stage3_bridge"
+    assert contract["real_acceptance_ready"] is False
+    assert contract["reference_traceability_contract"]["placeholder_only"] is True
+    assert contract["reference_traceability_contract"]["certificate_cycle_hard_blocking_stage"] == "stage3_real_validation"
+    assert contract["calibration_execution_contract"]["default_workflow_unchanged"] is True
+    assert contract["uncertainty_budget_template"]["template_only"] is True
+    assert "real_run_uncertainty_result" in contract["stage3_execution_items"]
+    assert "reference_traceability_contract_schema" in contract["stage_assignment"]["execute_now_in_step2_tail"]
+    assert "real_reference_instrument_enforcement" in contract["stage_assignment"]["defer_to_stage3_real_validation"]
+    assert "不是 real acceptance" in contract["reviewer_display"]["summary_text"]
+    assert "第三阶段再执行" in contract["reviewer_display"]["defer_to_stage3_text"]
+    assert any("不确定度模板" in line for line in contract["reviewer_display"]["section_lines"])
+
+
+def test_metrology_calibration_contract_keeps_raw_contract_machine_readable_when_boundary_is_not_simulation_only() -> None:
+    contract = build_metrology_calibration_contract(
+        run_id="run_non_sim_boundary",
+        simulation_mode=False,
+        config_governance_handoff={
+            "simulation_only": False,
+            "real_port_device_count": 1,
+            "engineering_only_flag_count": 1,
+            "enabled_engineering_flags": ["workflow.pressure.capture_then_hold_enabled"],
+        },
+    )
+
+    assert contract["overall_status"] == "contract_ready_for_stage3_bridge"
+    assert contract["blocking_items"] == []
+    assert "simulation_only_boundary_not_satisfied" in contract["warning_items"]
+    assert "engineering_only_flags_enabled" in contract["warning_items"]
+    assert contract["reference_traceability_contract"]["device_classes"][0]["device_class"] == "dewpoint_meter"
+    assert contract["data_quality_contract"]["gates"][0]["gate_id"] == "pressure_stability_gate"
+    assert contract["reporting_contract"]["governance_notice_code"] == "metrology_design_contract_only"
+    assert contract["reviewer_display"]["blocking_text"].startswith("阻塞项：")
+
+
+def test_phase_transition_bridge_reports_step2_tail_gap_without_confusing_it_with_real_acceptance() -> None:
+    readiness = build_step2_readiness_summary(
+        run_id="run_bridge_blocked",
+        simulation_mode=True,
+        config_governance_handoff={
+            "simulation_only": True,
+            "operator_safe": True,
+            "real_port_device_count": 0,
+            "engineering_only_flag_count": 0,
+            "enabled_engineering_flags": [],
+            "risk_markers": [],
+            "execution_gate": {"status": "blocked"},
+            "step2_default_workflow_allowed": False,
+            "requires_explicit_unlock": True,
+        },
+    )
+    metrology = build_metrology_calibration_contract(
+        run_id="run_bridge_blocked",
+        simulation_mode=True,
+        config_governance_handoff={
+            "simulation_only": True,
+            "real_port_device_count": 0,
+            "engineering_only_flag_count": 0,
+            "enabled_engineering_flags": [],
+        },
+    )
+
+    bridge = build_phase_transition_bridge(
+        run_id="run_bridge_blocked",
+        step2_readiness_summary=readiness,
+        metrology_calibration_contract=metrology,
+    )
+
+    assert bridge["artifact_type"] == "phase_transition_bridge"
+    assert bridge["phase"] == "step2_tail_stage3_bridge"
+    assert bridge["overall_status"] == "step2_tail_in_progress"
+    assert bridge["recommended_next_stage"] == "close_step2_tail_gaps"
+    assert bridge["ready_for_engineering_isolation"] is False
+    assert bridge["real_acceptance_ready"] is False
+    assert bridge["step2_readiness_ref"]["overall_status"] == "not_ready"
+    assert bridge["metrology_contract_ref"]["overall_status"] == "contract_ready_for_stage3_bridge"
+    assert "real_reference_instrument_enforcement" in bridge["defer_to_stage3_real_validation"]
+    assert "reference_traceability_contract_schema" in bridge["execute_now_in_step2_tail"]
+    assert "resolve_step2_gate_status" in bridge["execute_now_in_step2_tail"]
+    assert any(item["gate_id"] == "simulation_only_boundary" for item in bridge["gate_matrix"])
+    assert any(item["gate_id"] == "reference_traceability_contract" for item in bridge["gate_matrix"])
+    assert "不是 real acceptance" in bridge["reviewer_display"]["summary_text"]
+    assert "第三阶段执行" in bridge["reviewer_display"]["defer_to_stage3_text"]
+    assert "不能替代真实计量验证" in bridge["reviewer_display"]["summary_text"]
+
+
+def test_phase_transition_bridge_reports_engineering_isolation_without_marking_real_acceptance_ready() -> None:
+    readiness = build_step2_readiness_summary(
+        run_id="run_bridge_ready",
+        simulation_mode=True,
+        config_governance_handoff={
+            "simulation_only": True,
+            "operator_safe": True,
+            "real_port_device_count": 0,
+            "engineering_only_flag_count": 0,
+            "enabled_engineering_flags": [],
+            "risk_markers": [],
+            "execution_gate": {"status": "open"},
+            "step2_default_workflow_allowed": True,
+            "requires_explicit_unlock": False,
+        },
+    )
+    metrology = build_metrology_calibration_contract(
+        run_id="run_bridge_ready",
+        simulation_mode=True,
+        config_governance_handoff={
+            "simulation_only": True,
+            "real_port_device_count": 0,
+            "engineering_only_flag_count": 0,
+            "enabled_engineering_flags": [],
+        },
+    )
+
+    bridge = build_phase_transition_bridge(
+        run_id="run_bridge_ready",
+        step2_readiness_summary=readiness,
+        metrology_calibration_contract=metrology,
+    )
+
+    assert bridge["overall_status"] == "ready_for_engineering_isolation"
+    assert bridge["recommended_next_stage"] == "engineering_isolation"
+    assert bridge["ready_for_engineering_isolation"] is True
+    assert bridge["real_acceptance_ready"] is False
+    assert "engineering-isolation" in bridge["reviewer_display"]["status_line"]
+    assert "not_real_acceptance_evidence" in bridge["warning_items"]

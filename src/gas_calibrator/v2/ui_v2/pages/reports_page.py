@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Any
 
+from ...core.phase_transition_bridge_presenter import build_phase_transition_bridge_digest
 from ...review_surface_formatter import (
     collect_offline_diagnostic_detail_lines,
     humanize_offline_diagnostic_summary_value,
@@ -335,7 +336,23 @@ class ReportsPage(ttk.Frame):
                 )
             )
 
+        phase_transition_bridge_digest = ReportsPage._phase_transition_bridge_digest(snapshot)
+        for line in list(phase_transition_bridge_digest.get("report_lines") or []):
+            if str(line).strip():
+                lines.append(str(line))
+
         return "\n".join(line for line in lines if str(line).strip())
+
+    @staticmethod
+    def _phase_transition_bridge_digest(snapshot: dict[str, Any]) -> dict[str, Any]:
+        review_center = dict(snapshot.get("review_center", {}) or {})
+        analytics_summary = dict(review_center.get("analytics_summary", {}) or {})
+        analytics_detail = dict(analytics_summary.get("detail", {}) or {})
+        bridge = (
+            dict(snapshot.get("phase_transition_bridge", {}) or {})
+            or dict(analytics_detail.get("phase_transition_bridge", {}) or {})
+        )
+        return build_phase_transition_bridge_digest(bridge)
 
     def _text_panel(self, parent: tk.Misc, *, row: int, title: str) -> tk.Text:
         frame = ttk.Frame(parent, style="Card.TFrame", padding=8)

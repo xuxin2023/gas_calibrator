@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from ..core.phase_transition_bridge_presenter import build_phase_transition_bridge_digest
 from ..review_surface_formatter import (
     humanize_review_center_coverage_text,
     humanize_review_surface_text,
@@ -102,6 +103,21 @@ def build_review_center_selection_snapshot(
         selected_item=selected_item,
         item_matcher=_item_matches_selected_source,
     )
+
+
+def _phase_transition_bridge_digest(payload: dict[str, Any]) -> dict[str, Any]:
+    analytics_summary = dict(payload.get("analytics_summary", {}) or {})
+    analytics_detail = dict(analytics_summary.get("detail", {}) or {})
+    return build_phase_transition_bridge_digest(dict(analytics_detail.get("phase_transition_bridge", {}) or {}))
+
+
+def _merge_summary_text(*parts: Any) -> str:
+    rows: list[str] = []
+    for value in parts:
+        text = str(value or "").strip()
+        if text and text not in rows:
+            rows.append(text)
+    return " | ".join(rows) if rows else t("common.none")
 
 
 def _normalize_review_items(raw_items: Any) -> list[dict[str, Any]]:
@@ -277,7 +293,16 @@ def _build_source_scope_view(
     filtered_items: list[dict[str, Any]],
     selected_source_row: dict[str, Any] | None,
 ) -> dict[str, Any]:
+    bridge_digest = _phase_transition_bridge_digest(payload)
     if not selected_source_row:
+        readiness_summary = _merge_summary_text(
+            str(dict(payload.get("acceptance_readiness", {}) or {}).get("summary") or t("common.none")),
+            bridge_digest.get("status_line"),
+        )
+        analytics_summary = _merge_summary_text(
+            str(dict(payload.get("analytics_summary", {}) or {}).get("summary") or t("common.none")),
+            bridge_digest.get("summary_text"),
+        )
         return {
             "index_text": "\n".join(
                 line
@@ -293,8 +318,8 @@ def _build_source_scope_view(
             "reviewer_summary": str(dict(payload.get("reviewer_focus", {}) or {}).get("summary") or t("common.none")),
             "approver_summary": str(dict(payload.get("approver_focus", {}) or {}).get("summary") or t("common.none")),
             "risk_summary": str(dict(payload.get("risk_summary", {}) or {}).get("summary") or t("common.none")),
-            "readiness_summary": str(dict(payload.get("acceptance_readiness", {}) or {}).get("summary") or t("common.none")),
-            "analytics_summary": str(dict(payload.get("analytics_summary", {}) or {}).get("summary") or t("common.none")),
+            "readiness_summary": readiness_summary,
+            "analytics_summary": analytics_summary,
             "lineage_summary": str(dict(payload.get("lineage_summary", {}) or {}).get("summary") or t("common.none")),
             "source_scope_label": t(
                 "results.review_center.filter.active_source",
@@ -317,7 +342,7 @@ def _build_source_scope_view(
     total_count = int(selected_source_row.get("evidence_count", len(scope_items)) or len(scope_items))
     visible_count = int(selected_source_row.get("visible_evidence_count", len(filtered_items)) or len(filtered_items))
     risk_summary = _source_scope_risk_summary(filtered_items, coverage_display=coverage_display, gaps_display=gaps_display)
-    readiness_summary = humanize_review_surface_text(
+    source_readiness_summary = humanize_review_surface_text(
         t(
             "results.review_center.scope.readiness_summary",
             source=source_label,
@@ -328,7 +353,7 @@ def _build_source_scope_view(
             default=f"{source_label} | {coverage_display} | {gaps_display} | {visible_count}/{total_count} | offline only",
         )
     )
-    analytics_summary = t(
+    source_analytics_summary = t(
         "results.review_center.scope.analytics_summary",
         source=source_label,
         summary=_collect_scope_detail_summary(filtered_items, "detail_analytics_summary"),
@@ -387,16 +412,16 @@ def _build_source_scope_view(
             t(
                 "results.review_center.focus.approver_source_summary",
                 source=source_label,
-                readiness=readiness_summary,
+                readiness=source_readiness_summary,
                 visible=visible_count,
                 total=total_count,
                 risk=risk_summary["summary"],
-                default=f"{source_label} | {readiness_summary} | {visible_count}/{total_count} | {risk_summary['summary']}",
+                default=f"{source_label} | {source_readiness_summary} | {visible_count}/{total_count} | {risk_summary['summary']}",
             )
         ),
         "risk_summary": risk_summary["summary"],
-        "readiness_summary": readiness_summary,
-        "analytics_summary": analytics_summary,
+        "readiness_summary": _merge_summary_text(source_readiness_summary, bridge_digest.get("status_line")),
+        "analytics_summary": _merge_summary_text(source_analytics_summary, bridge_digest.get("next_stage_text")),
         "lineage_summary": lineage_summary,
         "source_scope_label": t(
             "results.review_center.filter.active_source",

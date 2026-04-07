@@ -135,10 +135,14 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert payload["summary_stats"]["acceptance_plan"]["promotion_state"] == "dry_run_only"
     assert (run_dir / "analytics_summary.json").exists()
     assert (run_dir / "step2_readiness_summary.json").exists()
+    assert (run_dir / "metrology_calibration_contract.json").exists()
+    assert (run_dir / "phase_transition_bridge.json").exists()
     assert (run_dir / "lineage_summary.json").exists()
     assert (run_dir / "evidence_registry.json").exists()
     analytics_summary = json.loads((run_dir / "analytics_summary.json").read_text(encoding="utf-8"))
     readiness_summary = json.loads((run_dir / "step2_readiness_summary.json").read_text(encoding="utf-8"))
+    metrology_contract = json.loads((run_dir / "metrology_calibration_contract.json").read_text(encoding="utf-8"))
+    phase_transition_bridge = json.loads((run_dir / "phase_transition_bridge.json").read_text(encoding="utf-8"))
     evidence_registry = json.loads((run_dir / "evidence_registry.json").read_text(encoding="utf-8"))
     assert analytics_summary["evidence_source"] == "simulated_protocol"
     assert analytics_summary["not_real_acceptance_evidence"] is True
@@ -178,6 +182,15 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert analytics_summary["step2_readiness_summary"]["real_acceptance_ready"] is False
     assert analytics_summary["step2_readiness_summary"]["evidence_mode"] == "simulation_offline_headless"
     assert "不是 real acceptance" in analytics_summary["step2_readiness_summary"]["reviewer_display"]["summary_text"]
+    assert analytics_summary["metrology_calibration_contract"]["artifact_type"] == "metrology_calibration_contract"
+    assert analytics_summary["metrology_calibration_contract"]["overall_status"] == "contract_ready_for_stage3_bridge"
+    assert analytics_summary["metrology_calibration_contract"]["real_acceptance_ready"] is False
+    assert "不是 real acceptance" in analytics_summary["metrology_calibration_contract"]["reviewer_display"]["summary_text"]
+    assert analytics_summary["phase_transition_bridge"]["artifact_type"] == "phase_transition_bridge"
+    assert analytics_summary["phase_transition_bridge"]["overall_status"] == "step2_tail_in_progress"
+    assert analytics_summary["phase_transition_bridge"]["recommended_next_stage"] == "close_step2_tail_gaps"
+    assert analytics_summary["phase_transition_bridge"]["real_acceptance_ready"] is False
+    assert "阶段桥工件" in analytics_summary["phase_transition_bridge"]["reviewer_display"]["summary_text"]
     assert readiness_summary["phase"] == "step2_readiness_bridge"
     assert readiness_summary["overall_status"] == "not_ready"
     assert readiness_summary["ready_for_engineering_isolation"] is False
@@ -190,6 +203,25 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert readiness_summary["gates"][-1]["gate_id"] == "step2_gate_status"
     assert readiness_summary["gates"][-1]["status"] == "not_ready"
     assert "real acceptance passed" not in readiness_summary["reviewer_display"]["summary_text"].lower()
+    assert metrology_contract["phase"] == "step2_tail_step3_bridge"
+    assert metrology_contract["overall_status"] == "contract_ready_for_stage3_bridge"
+    assert metrology_contract["not_real_acceptance_evidence"] is True
+    assert metrology_contract["reference_traceability_contract"]["required_reference_chain_declaration"] is True
+    assert metrology_contract["uncertainty_budget_template"]["template_only"] is True
+    assert "coefficient_writeback_real_acceptance" in metrology_contract["stage3_execution_items"]
+    assert "reference_traceability_contract_schema" in metrology_contract["stage_assignment"]["execute_now_in_step2_tail"]
+    assert "real_reference_instrument_enforcement" in metrology_contract["stage_assignment"]["defer_to_stage3_real_validation"]
+    assert "real acceptance passed" not in metrology_contract["reviewer_display"]["summary_text"].lower()
+    assert phase_transition_bridge["phase"] == "step2_tail_stage3_bridge"
+    assert phase_transition_bridge["overall_status"] == "step2_tail_in_progress"
+    assert phase_transition_bridge["ready_for_engineering_isolation"] is False
+    assert phase_transition_bridge["real_acceptance_ready"] is False
+    assert phase_transition_bridge["step2_readiness_ref"]["overall_status"] == "not_ready"
+    assert phase_transition_bridge["metrology_contract_ref"]["overall_status"] == "contract_ready_for_stage3_bridge"
+    assert "real_reference_evidence" in phase_transition_bridge["missing_real_world_evidence"]
+    assert "resolve_step2_gate_status" in phase_transition_bridge["execute_now_in_step2_tail"]
+    assert "real_reference_instrument_enforcement" in phase_transition_bridge["defer_to_stage3_real_validation"]
+    assert "real acceptance passed" not in phase_transition_bridge["reviewer_display"]["summary_text"].lower()
     assert evidence_registry["evidence_source"] == "simulated_protocol"
     assert evidence_registry["not_real_acceptance_evidence"] is True
     assert evidence_registry["acceptance_level"] == "offline_regression"
@@ -203,12 +235,33 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert payload["summary_stats"]["step2_readiness_digest"]["ready_for_engineering_isolation"] is False
     assert payload["summary_stats"]["step2_readiness_digest"]["real_acceptance_ready"] is False
     assert payload["summary_stats"]["step2_readiness_digest"]["gate_status_counts"]["not_ready"] == 1
+    assert payload["summary_stats"]["metrology_calibration_contract"]["overall_status"] == "contract_ready_for_stage3_bridge"
+    assert payload["summary_stats"]["metrology_calibration_contract_digest"]["overall_status"] == "contract_ready_for_stage3_bridge"
+    assert payload["summary_stats"]["metrology_calibration_contract_digest"]["real_acceptance_ready"] is False
+    assert "real_run_uncertainty_result" in payload["summary_stats"]["metrology_calibration_contract_digest"]["stage3_execution_items"]
+    assert payload["summary_stats"]["phase_transition_bridge"]["overall_status"] == "step2_tail_in_progress"
+    assert payload["summary_stats"]["phase_transition_bridge_digest"]["overall_status"] == "step2_tail_in_progress"
+    assert payload["summary_stats"]["phase_transition_bridge_digest"]["recommended_next_stage"] == "close_step2_tail_gaps"
+    assert payload["summary_stats"]["phase_transition_bridge_digest"]["ready_for_engineering_isolation"] is False
     assert payload["manifest_sections"]["step2_readiness"]["overall_status"] == "not_ready"
     assert payload["manifest_sections"]["step2_readiness"]["ready_for_engineering_isolation"] is False
     assert payload["manifest_sections"]["step2_readiness"]["real_acceptance_ready"] is False
+    assert payload["manifest_sections"]["metrology_calibration_contract"]["overall_status"] == "contract_ready_for_stage3_bridge"
+    assert payload["manifest_sections"]["metrology_calibration_contract"]["real_acceptance_ready"] is False
+    assert payload["manifest_sections"]["phase_transition_bridge"]["overall_status"] == "step2_tail_in_progress"
+    assert payload["manifest_sections"]["phase_transition_bridge"]["recommended_next_stage"] == "close_step2_tail_gaps"
+    assert payload["manifest_sections"]["phase_transition_bridge"]["real_acceptance_ready"] is False
     assert payload["artifact_statuses"]["step2_readiness_summary"]["role"] == "execution_summary"
     assert payload["artifact_statuses"]["step2_readiness_summary"]["path"] == str(run_dir / "step2_readiness_summary.json")
+    assert payload["artifact_statuses"]["metrology_calibration_contract"]["role"] == "formal_analysis"
+    assert payload["artifact_statuses"]["metrology_calibration_contract"]["path"] == str(
+        run_dir / "metrology_calibration_contract.json"
+    )
+    assert payload["artifact_statuses"]["phase_transition_bridge"]["role"] == "execution_summary"
+    assert payload["artifact_statuses"]["phase_transition_bridge"]["path"] == str(run_dir / "phase_transition_bridge.json")
     assert str(run_dir / "step2_readiness_summary.json") in payload["remembered_files"]
+    assert str(run_dir / "metrology_calibration_contract.json") in payload["remembered_files"]
+    assert str(run_dir / "phase_transition_bridge.json") in payload["remembered_files"]
 
 
 def test_rebuild_suite_generates_governance_artifacts(tmp_path: Path) -> None:
