@@ -1622,3 +1622,75 @@ def test_append_live_csv_row_rewrites_with_expanded_header(tmp_path) -> None:
     assert len(rows) == 2
     assert rows[0]["dewpoint_gate_result"] == ""
     assert rows[1]["dewpoint_gate_result"] == "timeout"
+
+
+def test_capture_phase_rows_records_extended_analyzer_fields(monkeypatch) -> None:
+    class FakeAnalyzer:
+        active_send = False
+
+        def read_latest_data(self, **kwargs):
+            return "frame"
+
+        def parse_line(self, raw):
+            return {
+                "co2_ratio_raw": 1.2345,
+                "co2_ratio_f": 1.2333,
+                "co2_density": 0.4567,
+                "co2_ppm": 612.3,
+                "pressure_kpa": 50.0,
+                "chamber_temp_c": 33.2,
+                "case_temp_c": 31.8,
+            }
+
+    class FakeGauge:
+        def read_pressure_fast(self):
+            return 501.2
+
+    class FakePace:
+        def read_pressure(self):
+            return 500.8
+
+        def get_vent_status(self):
+            return 0
+
+        def get_output_state(self):
+            return 1
+
+        def get_isolation_state(self):
+            return 1
+
+    class FakeDewpoint:
+        def get_current_fast(self, timeout_s=0.35):
+            return {"dewpoint_c": -35.1, "temp_c": 24.6, "rh_pct": 0.42}
+
+    monkeypatch.setattr(room_temp_diag_tool, "_log", lambda *args, **kwargs: None)
+
+    rows = _capture_phase_rows(
+        FakeAnalyzer(),
+        {"pressure_gauge": FakeGauge(), "pace": FakePace(), "dewpoint": FakeDewpoint()},
+        context={
+            "process_variant": "B",
+            "layer": 4,
+            "repeat_index": 1,
+            "phase": "stable_sampling",
+            "gas_ppm": 600,
+        },
+        gas_start_mono=0.0,
+        duration_s=0.0,
+        sample_poll_s=0.0,
+        print_every_s=999.0,
+        controller_vent_state="VENT_OFF",
+        pressure_target_hpa=500,
+    )
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["co2_ratio_raw"] == 1.2345
+    assert row["co2_ratio_f"] == 1.2333
+    assert row["co2_density"] == 0.4567
+    assert row["co2_ppm"] == 612.3
+    assert row["chamber_temp_c"] == 33.2
+    assert row["shell_temp_c"] == 31.8
+    assert row["analyzer2_pressure_hpa"] == 500.0
+    assert row["gauge_pressure_hpa"] == 501.2
+    assert row["controller_pressure_hpa"] == 500.8
