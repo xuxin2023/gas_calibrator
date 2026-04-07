@@ -4,6 +4,7 @@ from gas_calibrator.v2.core.acceptance_model import (
     build_suite_acceptance_plan,
     build_validation_acceptance_snapshot,
 )
+from gas_calibrator.v2.core.step2_readiness import build_step2_readiness_summary
 
 
 def test_validation_acceptance_snapshot_does_not_allow_simulated_promotion() -> None:
@@ -68,3 +69,71 @@ def test_user_visible_evidence_boundary_defaults_to_step2_dry_run_fields() -> No
     assert payload["not_real_acceptance_evidence"] is True
     assert payload["acceptance_level"] == "offline_regression"
     assert payload["promotion_state"] == "dry_run_only"
+
+
+def test_step2_readiness_summary_reports_engineering_isolation_preparation_without_claiming_real_acceptance() -> None:
+    readiness = build_step2_readiness_summary(
+        run_id="run_ready",
+        simulation_mode=True,
+        config_governance_handoff={
+            "simulation_only": True,
+            "operator_safe": True,
+            "real_port_device_count": 0,
+            "engineering_only_flag_count": 0,
+            "enabled_engineering_flags": [],
+            "risk_markers": [],
+            "execution_gate": {"status": "open"},
+            "step2_default_workflow_allowed": True,
+            "requires_explicit_unlock": False,
+        },
+    )
+
+    gate_ids = {str(item["gate_id"]) for item in readiness["gates"]}
+
+    assert readiness["phase"] == "step2_readiness_bridge"
+    assert readiness["mode"] == "simulation_only"
+    assert readiness["overall_status"] == "ready_for_engineering_isolation"
+    assert readiness["evidence_mode"] == "simulation_offline_headless"
+    assert readiness["not_real_acceptance_evidence"] is True
+    assert readiness["blocking_items"] == []
+    assert {
+        "simulation_only_boundary",
+        "real_bench_locked_by_default",
+        "shared_experiment_flags_default_off",
+        "offline_only_adapters_not_in_default_path",
+        "reviewer_surface_hydration_chain_ready",
+        "headless_smoke_path_available",
+        "step2_gate_status",
+    } <= gate_ids
+    assert readiness["reviewer_display"]["status_line"].startswith("阶段状态：")
+    assert "不是 real acceptance" in readiness["reviewer_display"]["summary_text"]
+    assert all(str(item["reason_code"]).strip() for item in readiness["gates"])
+
+
+def test_step2_readiness_summary_blocks_enabled_engineering_flags_but_keeps_raw_contract_machine_readable() -> None:
+    readiness = build_step2_readiness_summary(
+        run_id="run_blocked",
+        simulation_mode=True,
+        config_governance_handoff={
+            "simulation_only": True,
+            "operator_safe": False,
+            "real_port_device_count": 0,
+            "engineering_only_flag_count": 1,
+            "enabled_engineering_flags": ["workflow.pressure.capture_then_hold_enabled"],
+            "risk_markers": ["engineering_only_flags_enabled"],
+            "execution_gate": {"status": "blocked"},
+            "step2_default_workflow_allowed": False,
+            "requires_explicit_unlock": True,
+        },
+    )
+
+    step2_gate = next(item for item in readiness["gates"] if item["gate_id"] == "step2_gate_status")
+    flag_gate = next(item for item in readiness["gates"] if item["gate_id"] == "shared_experiment_flags_default_off")
+
+    assert readiness["overall_status"] == "not_ready"
+    assert "shared_experiment_flags_default_off" in readiness["blocking_items"]
+    assert step2_gate["status"] == "not_ready"
+    assert step2_gate["reason_code"] == "execution_gate_blocked"
+    assert flag_gate["status"] == "blocked"
+    assert flag_gate["details"]["enabled_engineering_flags"] == ["workflow.pressure.capture_then_hold_enabled"]
+    assert "不是 real acceptance" in readiness["reviewer_display"]["summary_text"]

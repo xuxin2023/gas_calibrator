@@ -134,9 +134,11 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
 
     assert payload["summary_stats"]["acceptance_plan"]["promotion_state"] == "dry_run_only"
     assert (run_dir / "analytics_summary.json").exists()
+    assert (run_dir / "step2_readiness_summary.json").exists()
     assert (run_dir / "lineage_summary.json").exists()
     assert (run_dir / "evidence_registry.json").exists()
     analytics_summary = json.loads((run_dir / "analytics_summary.json").read_text(encoding="utf-8"))
+    readiness_summary = json.loads((run_dir / "step2_readiness_summary.json").read_text(encoding="utf-8"))
     evidence_registry = json.loads((run_dir / "evidence_registry.json").read_text(encoding="utf-8"))
     assert analytics_summary["evidence_source"] == "simulated_protocol"
     assert analytics_summary["not_real_acceptance_evidence"] is True
@@ -170,6 +172,16 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert analytics_summary["unified_review_summary"]["analytics_summary"]["summary"]
     assert analytics_summary["unified_review_summary"]["boundary_note"].startswith("证据边界:")
     assert any("质控" in item for item in analytics_summary["unified_review_summary"]["reviewer_notes"])
+    assert analytics_summary["step2_readiness_summary"]["artifact_type"] == "step2_readiness_summary"
+    assert analytics_summary["step2_readiness_summary"]["overall_status"] == "not_ready"
+    assert analytics_summary["step2_readiness_summary"]["evidence_mode"] == "simulation_offline_headless"
+    assert "不是 real acceptance" in analytics_summary["step2_readiness_summary"]["reviewer_display"]["summary_text"]
+    assert readiness_summary["phase"] == "step2_readiness_bridge"
+    assert readiness_summary["overall_status"] == "not_ready"
+    assert readiness_summary["not_real_acceptance_evidence"] is True
+    assert readiness_summary["gates"][-1]["gate_id"] == "step2_gate_status"
+    assert readiness_summary["gates"][-1]["status"] == "not_ready"
+    assert "real acceptance passed" not in readiness_summary["reviewer_display"]["summary_text"].lower()
     assert evidence_registry["evidence_source"] == "simulated_protocol"
     assert evidence_registry["not_real_acceptance_evidence"] is True
     assert evidence_registry["acceptance_level"] == "offline_regression"
@@ -178,6 +190,10 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert evidence_registry["config_safety_review"]["status"] == "blocked"
     assert evidence_registry["config_safety_review"]["warnings"] == ["top-level warning"]
     assert payload["summary_stats"]["offline_diagnostic_adapter_summary"]["found"] is True
+    assert payload["summary_stats"]["step2_readiness_summary"]["overall_status"] == "not_ready"
+    assert payload["manifest_sections"]["step2_readiness"]["overall_status"] == "not_ready"
+    assert payload["artifact_statuses"]["step2_readiness_summary"]["role"] == "execution_summary"
+    assert payload["artifact_statuses"]["step2_readiness_summary"]["path"] == str(run_dir / "step2_readiness_summary.json")
 
 
 def test_rebuild_suite_generates_governance_artifacts(tmp_path: Path) -> None:

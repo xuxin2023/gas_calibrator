@@ -7,7 +7,16 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Iterable, Optional
 
-from ..core.offline_artifacts import export_run_offline_artifacts, export_suite_offline_artifacts
+from ..core.offline_artifacts import (
+    ANALYTICS_SUMMARY_FILENAME,
+    export_run_offline_artifacts,
+    export_suite_offline_artifacts,
+    write_json,
+)
+from ..core.step2_readiness import (
+    STEP2_READINESS_SUMMARY_FILENAME,
+    build_step2_readiness_summary,
+)
 
 
 def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
@@ -32,6 +41,70 @@ def _objectify(value):
     return value
 
 
+def _default_smoke_paths() -> tuple[Path, Path]:
+    config_dir = Path(__file__).resolve().parents[1] / "configs"
+    return config_dir / "smoke_v2_minimal.json", config_dir / "smoke_points_minimal.json"
+
+
+def _augment_run_payload_with_step2_readiness(
+    payload: dict[str, object],
+    *,
+    run_dir: Path,
+    run_id: str,
+    simulation_mode: bool,
+) -> dict[str, object]:
+    analytics_summary = dict(payload.get("summary_stats", {}).get("analytics_summary") or _load_json(run_dir / ANALYTICS_SUMMARY_FILENAME))
+    smoke_config_path, smoke_points_path = _default_smoke_paths()
+    readiness_summary = build_step2_readiness_summary(
+        run_id=run_id,
+        simulation_mode=simulation_mode,
+        config_governance_handoff=dict(analytics_summary.get("config_governance_handoff") or {}),
+        smoke_config_path=smoke_config_path,
+        smoke_points_path=smoke_points_path,
+    )
+    analytics_summary["step2_readiness_summary"] = dict(readiness_summary)
+    write_json(run_dir / ANALYTICS_SUMMARY_FILENAME, analytics_summary)
+    readiness_path = write_json(run_dir / STEP2_READINESS_SUMMARY_FILENAME, readiness_summary)
+
+    summary_stats = dict(payload.get("summary_stats") or {})
+    summary_stats["analytics_summary"] = analytics_summary
+    summary_stats["step2_readiness_summary"] = dict(readiness_summary)
+    summary_stats["step2_readiness_digest"] = {
+        "phase": readiness_summary.get("phase"),
+        "overall_status": readiness_summary.get("overall_status"),
+        "blocking_items": list(readiness_summary.get("blocking_items") or []),
+        "warning_items": list(readiness_summary.get("warning_items") or []),
+        "evidence_mode": readiness_summary.get("evidence_mode"),
+    }
+    payload["summary_stats"] = summary_stats
+
+    artifact_statuses = dict(payload.get("artifact_statuses") or {})
+    artifact_statuses["step2_readiness_summary"] = {
+        "status": "ok",
+        "role": "execution_summary",
+        "path": str(readiness_path),
+    }
+    payload["artifact_statuses"] = artifact_statuses
+
+    manifest_sections = dict(payload.get("manifest_sections") or {})
+    manifest_sections["step2_readiness"] = {
+        "phase": readiness_summary.get("phase"),
+        "overall_status": readiness_summary.get("overall_status"),
+        "evidence_mode": readiness_summary.get("evidence_mode"),
+        "blocking_items": list(readiness_summary.get("blocking_items") or []),
+        "warning_items": list(readiness_summary.get("warning_items") or []),
+        "not_real_acceptance_evidence": bool(readiness_summary.get("not_real_acceptance_evidence", True)),
+    }
+    payload["manifest_sections"] = manifest_sections
+
+    remembered_files = [str(item) for item in list(payload.get("remembered_files") or [])]
+    readiness_path_text = str(readiness_path)
+    if readiness_path_text not in remembered_files:
+        remembered_files.append(readiness_path_text)
+    payload["remembered_files"] = remembered_files
+    return payload
+
+
 def rebuild_run(run_dir: Path) -> dict[str, object]:
     for name in ("summary.json", "manifest.json", "results.json"):
         if not (run_dir / name).exists():
@@ -46,7 +119,7 @@ def rebuild_run(run_dir: Path) -> dict[str, object]:
         run_id=str(summary.get("run_id") or manifest.get("run_id") or run_dir.name),
         config=_objectify(dict(manifest.get("config_snapshot") or {})),
     )
-    return export_run_offline_artifacts(
+    payload = export_run_offline_artifacts(
         run_dir=run_dir,
         output_dir=run_dir.parent,
         run_id=str(session.run_id),
@@ -61,6 +134,13 @@ def rebuild_run(run_dir: Path) -> dict[str, object]:
         config_safety_review=dict(
             summary.get("config_safety_review") or (summary.get("stats") or {}).get("config_safety_review") or {}
         ),
+    )
+    simulation_mode = bool(getattr(getattr(session.config, "features", None), "simulation_mode", False))
+    return _augment_run_payload_with_step2_readiness(
+        payload,
+        run_dir=run_dir,
+        run_id=str(session.run_id),
+        simulation_mode=simulation_mode,
     )
 
 
@@ -83,6 +163,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             payload = rebuild_run(Path(str(args.run_dir)).resolve())
             print(f"acceptance_plan: {Path(args.run_dir).resolve() / 'acceptance_plan.json'}")
             print(f"analytics_summary: {Path(args.run_dir).resolve() / 'analytics_summary.json'}")
+            print(f"step2_readiness_summary: {Path(args.run_dir).resolve() / STEP2_READINESS_SUMMARY_FILENAME}")
             print(f"lineage_summary: {Path(args.run_dir).resolve() / 'lineage_summary.json'}")
             print(f"trend_registry: {Path(args.run_dir).resolve() / 'trend_registry.json'}")
             print(f"evidence_registry: {Path(args.run_dir).resolve() / 'evidence_registry.json'}")
