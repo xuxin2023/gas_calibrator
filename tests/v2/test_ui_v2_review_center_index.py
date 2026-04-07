@@ -22,6 +22,12 @@ from gas_calibrator.v2.ui_v2.review_scope_export_index import (
 from gas_calibrator.v2.core.phase_transition_bridge_presenter import (
     build_phase_transition_bridge_panel_payload,
 )
+from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact import (
+    build_phase_transition_bridge_reviewer_artifact,
+)
+from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact_entry import (
+    build_phase_transition_bridge_reviewer_artifact_entry,
+)
 from gas_calibrator.v2.ui_v2.widgets.review_center_panel import ReviewCenterPanel
 
 SUPPORT_DIR = Path(__file__).resolve().parent
@@ -1206,6 +1212,111 @@ def test_review_scope_export_entry_exposes_phase_transition_bridge_section() -> 
     assert export_entry["selection_snapshot"]["scope"] == "source"
     assert export_entry["summary_counts"]["scope_visible_count"] == 3
     assert payload["scope_summary"]["scope"] == "source"
+
+
+def test_review_scope_export_entry_promotes_phase_transition_bridge_reviewer_markdown_to_first_class_entry() -> None:
+    bridge = {
+        "artifact_type": "phase_transition_bridge",
+        "phase": "step2_tail_stage3_bridge",
+        "mode": "simulation_only",
+        "overall_status": "ready_for_engineering_isolation",
+        "recommended_next_stage": "engineering_isolation",
+        "ready_for_engineering_isolation": True,
+        "real_acceptance_ready": False,
+        "execute_now_in_step2_tail": [
+            "governance_contract",
+            "evidence_schema",
+            "template",
+            "digest",
+            "reporting_contract",
+        ],
+        "defer_to_stage3_real_validation": [
+            "real_reference_instrument_enforcement",
+            "real_certificate_cycle_hard_block",
+            "real_run_uncertainty_result",
+            "acceptance_coefficient_writeback",
+            "real_acceptance_pass_fail",
+        ],
+        "blocking_items": [],
+        "warning_items": [
+            "not_real_acceptance",
+            "cannot_replace_real_metrology_validation",
+        ],
+        "reviewer_display": {
+            "summary_text": "阶段桥工件：当前仍处于 Step 2 tail / Stage 3 bridge，用于说明离第三阶段真实计量验证还有多远。不是 real acceptance。",
+            "status_line": "阶段状态：当前仍处于 Step 2 tail / Stage 3 bridge，但已具备 engineering-isolation 准备。不是 real acceptance。",
+            "current_stage_text": "当前阶段：Step 2 tail / Stage 3 bridge。",
+            "next_stage_text": "下一阶段：engineering-isolation 准备。",
+            "execute_now_text": "现在执行：governance contract / evidence schema / template / digest / reporting contract。",
+            "defer_to_stage3_text": "第三阶段执行：真实参考表执行 / 真实证书/检定周期硬阻塞 / 基于真实 run 的最终不确定度结果 / 真机系数写入 acceptance / real acceptance pass/fail。",
+            "blocking_text": "阻塞项：无。",
+            "warning_text": "提示：不是 real acceptance，不能替代真实计量验证。",
+            "gate_lines": [],
+        },
+    }
+    reviewer_artifact = build_phase_transition_bridge_reviewer_artifact(bridge)
+    reviewer_entry = build_phase_transition_bridge_reviewer_artifact_entry(
+        artifact_path="D:/tmp/history_run/phase_transition_bridge_reviewer.md",
+        manifest_section={
+            "artifact_type": reviewer_artifact["artifact_type"],
+            "path": "D:/tmp/history_run/phase_transition_bridge_reviewer.md",
+            "available": True,
+            "summary_text": reviewer_artifact["display"]["summary_text"],
+            "status_line": reviewer_artifact["display"]["status_line"],
+            "current_stage_text": reviewer_artifact["display"]["current_stage_text"],
+            "next_stage_text": reviewer_artifact["display"]["next_stage_text"],
+            "engineering_isolation_text": reviewer_artifact["display"]["engineering_isolation_text"],
+            "real_acceptance_text": reviewer_artifact["display"]["real_acceptance_text"],
+            "execute_now_text": reviewer_artifact["display"]["execute_now_text"],
+            "defer_to_stage3_text": reviewer_artifact["display"]["defer_to_stage3_text"],
+            "blocking_text": reviewer_artifact["display"]["blocking_text"],
+            "warning_text": reviewer_artifact["display"]["warning_text"],
+            "not_real_acceptance_evidence": True,
+        },
+        reviewer_section=reviewer_artifact["section"],
+    )
+    manifest_payload = artifact_scope.build_review_scope_manifest_payload(
+        [
+            {
+                "name": reviewer_entry["name_text"],
+                "path": reviewer_entry["path"],
+                "present_on_disk": True,
+                "listed_in_current_run": True,
+                "artifact_origin": "current_run",
+                "artifact_key": reviewer_entry["artifact_key"],
+                "artifact_role": "formal_analysis",
+                "role_status_display": reviewer_entry["role_status_display"],
+                "note": reviewer_entry["note_text"],
+                "phase_transition_bridge_reviewer_artifact_entry": reviewer_entry,
+            }
+        ],
+        selection={"scope": "all"},
+        run_dir="D:/tmp/history_run",
+    )
+
+    export_entry = build_review_scope_export_entry(
+        manifest_payload,
+        batch_id="review_scope_20260407_101500_all",
+        exported_files=["D:/tmp/review_scope_all.json"],
+    )
+    reviewer_export_entry = export_entry["phase_transition_bridge_reviewer_artifact_entry"]
+
+    assert manifest_payload["phase_transition_bridge_reviewer_artifact_entry"] == reviewer_entry
+    assert reviewer_export_entry["path"] == reviewer_entry["path"]
+    assert reviewer_export_entry["summary_text"] == reviewer_entry["summary_text"]
+    assert reviewer_export_entry["status_line"] == reviewer_entry["status_line"]
+    assert reviewer_export_entry["stage_marker_text"] == reviewer_entry["stage_marker_text"]
+    assert reviewer_export_entry["engineering_isolation_text"] == reviewer_entry["engineering_isolation_text"]
+    assert reviewer_export_entry["real_acceptance_text"] == reviewer_entry["real_acceptance_text"]
+    assert "Step 2 tail / Stage 3 bridge" in reviewer_export_entry["entry_text"]
+    assert "engineering-isolation" in reviewer_export_entry["entry_text"]
+    assert "现在执行" in reviewer_export_entry["entry_text"]
+    assert "第三阶段执行" in reviewer_export_entry["entry_text"]
+    assert "不是 real acceptance" in reviewer_export_entry["entry_text"]
+    assert "不能替代真实计量验证" in reviewer_export_entry["entry_text"]
+    assert "ready_for_engineering_isolation" not in reviewer_export_entry["entry_text"]
+    assert "real_acceptance_ready" not in reviewer_export_entry["entry_text"]
+    assert export_entry["reviewer_display"]["summary_text"]
 
 
 def test_review_center_panel_exposes_index_summary_and_time_source_filters() -> None:

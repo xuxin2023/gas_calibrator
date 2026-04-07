@@ -11,6 +11,10 @@ from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact import (
     PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME,
     build_phase_transition_bridge_reviewer_artifact,
 )
+from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact_entry import (
+    PHASE_TRANSITION_BRIDGE_REVIEWER_ARTIFACT_KEY,
+    build_phase_transition_bridge_reviewer_artifact_entry,
+)
 from gas_calibrator.v2.core.step2_readiness import build_step2_readiness_summary
 
 
@@ -374,3 +378,78 @@ def test_phase_transition_bridge_reviewer_artifact_reuses_canonical_panel_output
     assert "不能替代真实计量验证" in markdown
     assert "ready_for_engineering_isolation" not in markdown
     assert "real_acceptance_ready" not in markdown
+
+
+def test_phase_transition_bridge_reviewer_artifact_entry_reuses_manifest_and_panel_wording_without_rejudging_stage_logic() -> None:
+    readiness = build_step2_readiness_summary(
+        run_id="run_bridge_entry",
+        simulation_mode=True,
+        config_governance_handoff={
+            "simulation_only": True,
+            "operator_safe": True,
+            "real_port_device_count": 0,
+            "engineering_only_flag_count": 0,
+            "enabled_engineering_flags": [],
+            "risk_markers": [],
+            "execution_gate": {"status": "open"},
+            "step2_default_workflow_allowed": True,
+            "requires_explicit_unlock": False,
+        },
+    )
+    metrology = build_metrology_calibration_contract(
+        run_id="run_bridge_entry",
+        simulation_mode=True,
+        config_governance_handoff={
+            "simulation_only": True,
+            "real_port_device_count": 0,
+            "engineering_only_flag_count": 0,
+            "enabled_engineering_flags": [],
+        },
+    )
+    bridge = build_phase_transition_bridge(
+        run_id="run_bridge_entry",
+        step2_readiness_summary=readiness,
+        metrology_calibration_contract=metrology,
+    )
+    reviewer_artifact = build_phase_transition_bridge_reviewer_artifact(bridge)
+
+    entry = build_phase_transition_bridge_reviewer_artifact_entry(
+        artifact_path=f"D:/tmp/{PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME}",
+        manifest_section={
+            "artifact_type": reviewer_artifact["artifact_type"],
+            "path": f"D:/tmp/{PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME}",
+            "available": True,
+            "summary_text": reviewer_artifact["display"]["summary_text"],
+            "status_line": reviewer_artifact["display"]["status_line"],
+            "current_stage_text": reviewer_artifact["display"]["current_stage_text"],
+            "next_stage_text": reviewer_artifact["display"]["next_stage_text"],
+            "engineering_isolation_text": reviewer_artifact["display"]["engineering_isolation_text"],
+            "real_acceptance_text": reviewer_artifact["display"]["real_acceptance_text"],
+            "execute_now_text": reviewer_artifact["display"]["execute_now_text"],
+            "defer_to_stage3_text": reviewer_artifact["display"]["defer_to_stage3_text"],
+            "blocking_text": reviewer_artifact["display"]["blocking_text"],
+            "warning_text": reviewer_artifact["display"]["warning_text"],
+            "not_real_acceptance_evidence": True,
+        },
+        reviewer_section=reviewer_artifact["section"],
+    )
+
+    assert entry["artifact_key"] == PHASE_TRANSITION_BRIDGE_REVIEWER_ARTIFACT_KEY
+    assert entry["artifact_type"] == PHASE_TRANSITION_BRIDGE_REVIEWER_ARTIFACT_KEY
+    assert entry["path"].endswith(PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME)
+    assert entry["name_text"] == reviewer_artifact["section"]["display"]["title_text"]
+    assert entry["summary_text"] == reviewer_artifact["display"]["summary_text"]
+    assert entry["status_line"] == reviewer_artifact["display"]["status_line"]
+    assert entry["stage_marker_text"] == reviewer_artifact["display"]["current_stage_text"]
+    assert entry["engineering_isolation_text"] == reviewer_artifact["display"]["engineering_isolation_text"]
+    assert entry["real_acceptance_text"] == reviewer_artifact["display"]["real_acceptance_text"]
+    assert "Step 2 tail / Stage 3 bridge" in entry["entry_text"]
+    assert "engineering-isolation" in entry["entry_text"]
+    assert "现在执行" in entry["entry_text"]
+    assert "第三阶段执行" in entry["entry_text"]
+    assert "不是 real acceptance" in entry["entry_text"]
+    assert "不能替代真实计量验证" in entry["entry_text"]
+    assert "ready_for_engineering_isolation" not in entry["entry_text"]
+    assert "real_acceptance_ready" not in entry["entry_text"]
+    assert entry["ready_for_engineering_isolation"] is True
+    assert entry["real_acceptance_ready"] is False

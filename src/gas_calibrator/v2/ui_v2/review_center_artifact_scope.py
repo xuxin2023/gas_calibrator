@@ -330,7 +330,7 @@ def build_review_scope_manifest_payload(
             scope_summary=scope_summary,
         ),
     }
-    return {
+    payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "run_dir": str(run_dir or ""),
         "selection": selection_snapshot,
@@ -345,6 +345,12 @@ def build_review_scope_manifest_payload(
         },
         "rows": rows,
     }
+    reviewer_artifact_entry = _find_phase_transition_bridge_reviewer_artifact_entry(
+        list(registry.get("rows", []) or [])
+    )
+    if reviewer_artifact_entry:
+        payload["phase_transition_bridge_reviewer_artifact_entry"] = reviewer_artifact_entry
+    return payload
 
 
 def render_review_scope_manifest_markdown(payload: dict[str, Any]) -> str:
@@ -824,6 +830,9 @@ def _build_manifest_row(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def _build_manifest_note(row: dict[str, Any]) -> str:
+    note_override = str(row.get("note") or "").strip()
+    if note_override:
+        return note_override
     artifact_origin = str(row.get("artifact_origin") or "")
     if bool(row.get("listed_in_current_run", False)):
         if bool(row.get("exportable_in_current_run", False)):
@@ -847,3 +856,11 @@ def _build_manifest_note(row: dict[str, Any]) -> str:
 
 def _escape_markdown_table_cell(value: Any) -> str:
     return str(value or "").replace("|", "\\|").replace("\n", "<br/>")
+
+
+def _find_phase_transition_bridge_reviewer_artifact_entry(files: list[dict[str, Any]]) -> dict[str, Any]:
+    for item in list(files or []):
+        entry = dict(dict(item or {}).get("phase_transition_bridge_reviewer_artifact_entry") or {})
+        if entry:
+            return entry
+    return {}

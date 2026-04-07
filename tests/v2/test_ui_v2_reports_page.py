@@ -4,6 +4,12 @@ import sys
 from gas_calibrator.v2.core.phase_transition_bridge_presenter import (
     build_phase_transition_bridge_panel_payload,
 )
+from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact import (
+    build_phase_transition_bridge_reviewer_artifact,
+)
+from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact_entry import (
+    build_phase_transition_bridge_reviewer_artifact_entry,
+)
 from gas_calibrator.v2.ui_v2.i18n import t
 import gas_calibrator.v2.ui_v2.pages.reports_page as reports_page_module
 from gas_calibrator.v2.ui_v2.pages.reports_page import ReportsPage
@@ -575,5 +581,67 @@ def test_reports_page_phase_transition_bridge_section_matches_presenter_payload(
         assert expected_panel["display"]["defer_to_stage3_text"] in bridge_text
         assert "不是 real acceptance" in bridge_text
         assert "不能替代真实计量验证" in bridge_text
+    finally:
+        root.destroy()
+
+
+def test_reports_page_artifact_list_surfaces_phase_transition_bridge_reviewer_markdown_as_named_artifact() -> None:
+    root = make_root()
+    try:
+        page = ReportsPage(root)
+        bridge = _build_phase_transition_bridge_payload()
+        reviewer_artifact = build_phase_transition_bridge_reviewer_artifact(bridge)
+        reviewer_entry = build_phase_transition_bridge_reviewer_artifact_entry(
+            artifact_path="D:/tmp/run_bridge/phase_transition_bridge_reviewer.md",
+            manifest_section={
+                "artifact_type": reviewer_artifact["artifact_type"],
+                "path": "D:/tmp/run_bridge/phase_transition_bridge_reviewer.md",
+                "available": True,
+                "summary_text": reviewer_artifact["display"]["summary_text"],
+                "status_line": reviewer_artifact["display"]["status_line"],
+                "current_stage_text": reviewer_artifact["display"]["current_stage_text"],
+                "next_stage_text": reviewer_artifact["display"]["next_stage_text"],
+                "engineering_isolation_text": reviewer_artifact["display"]["engineering_isolation_text"],
+                "real_acceptance_text": reviewer_artifact["display"]["real_acceptance_text"],
+                "execute_now_text": reviewer_artifact["display"]["execute_now_text"],
+                "defer_to_stage3_text": reviewer_artifact["display"]["defer_to_stage3_text"],
+                "blocking_text": reviewer_artifact["display"]["blocking_text"],
+                "warning_text": reviewer_artifact["display"]["warning_text"],
+                "not_real_acceptance_evidence": True,
+            },
+            reviewer_section=reviewer_artifact["section"],
+        )
+        page.render(
+            {
+                "run_dir": "D:/tmp/run_bridge",
+                "files": [
+                    {
+                        "name": reviewer_entry["name_text"],
+                        "present": True,
+                        "path": reviewer_entry["path"],
+                        "listed_in_current_run": True,
+                        "artifact_origin": "current_run",
+                        "artifact_role": "formal_analysis",
+                        "role_status_display": reviewer_entry["role_status_display"],
+                        "note": reviewer_entry["note_text"],
+                        "artifact_key": reviewer_entry["artifact_key"],
+                        "phase_transition_bridge_reviewer_artifact_entry": reviewer_entry,
+                    }
+                ],
+                "review_center": _build_review_center_payload(),
+                "result_summary_text": "已有运行摘要",
+                "qc_summary_text": "",
+                "ai_summary_text": "",
+                "export": {"available_formats": ["json"], "last_export_message": "Ready"},
+            }
+        )
+
+        values = page.artifacts.tree.item(page.artifacts.tree.get_children()[0], "values")
+
+        assert values[0] == reviewer_entry["name_text"]
+        assert "Step 2 tail / Stage 3 bridge" in values[3]
+        assert "engineering-isolation" in values[3]
+        assert "不是 real acceptance" in values[3]
+        assert values[4] == reviewer_entry["path"]
     finally:
         root.destroy()

@@ -9,6 +9,9 @@ from gas_calibrator.v2.core.phase_transition_bridge_presenter import (
 from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact import (
     build_phase_transition_bridge_reviewer_artifact,
 )
+from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact_entry import (
+    build_phase_transition_bridge_reviewer_artifact_entry,
+)
 from gas_calibrator.v2.scripts.build_offline_governance_artifacts import main, rebuild_run, rebuild_suite
 
 
@@ -203,6 +206,11 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert "阶段桥工件" in analytics_summary["phase_transition_bridge"]["reviewer_display"]["summary_text"]
     expected_bridge_section = build_phase_transition_bridge_panel_payload(phase_transition_bridge)
     expected_bridge_reviewer_artifact = build_phase_transition_bridge_reviewer_artifact(phase_transition_bridge)
+    expected_bridge_reviewer_entry = build_phase_transition_bridge_reviewer_artifact_entry(
+        artifact_path=run_dir / "phase_transition_bridge_reviewer.md",
+        manifest_section=payload["manifest_sections"].get("phase_transition_bridge_reviewer_artifact"),
+        reviewer_section=payload["manifest_sections"].get("phase_transition_bridge_reviewer_section"),
+    )
     assert analytics_summary["phase_transition_bridge_reviewer_section"]["available"] is True
     assert (
         analytics_summary["phase_transition_bridge_reviewer_section"]["display"]
@@ -299,6 +307,15 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert payload["manifest_sections"]["phase_transition_bridge_reviewer_artifact"]["blocking_text"] == (
         expected_bridge_reviewer_artifact["display"]["blocking_text"]
     )
+    assert expected_bridge_reviewer_entry["summary_text"] == expected_bridge_reviewer_artifact["display"]["summary_text"]
+    assert expected_bridge_reviewer_entry["status_line"] == expected_bridge_reviewer_artifact["display"]["status_line"]
+    assert expected_bridge_reviewer_entry["stage_marker_text"] == expected_bridge_reviewer_artifact["display"]["current_stage_text"]
+    assert "Step 2 tail / Stage 3 bridge" in expected_bridge_reviewer_entry["entry_text"]
+    assert "engineering-isolation" in expected_bridge_reviewer_entry["entry_text"]
+    assert "不是 real acceptance" in expected_bridge_reviewer_entry["entry_text"]
+    assert "不能替代真实计量验证" in expected_bridge_reviewer_entry["entry_text"]
+    assert "ready_for_engineering_isolation" not in expected_bridge_reviewer_entry["entry_text"]
+    assert "real_acceptance_ready" not in expected_bridge_reviewer_entry["entry_text"]
     section_text = payload["manifest_sections"]["phase_transition_bridge_reviewer_section"]["display"]["section_text"]
     assert "Step 2 tail / Stage 3 bridge" in phase_transition_bridge_reviewer_markdown
     assert "engineering-isolation" in phase_transition_bridge_reviewer_markdown

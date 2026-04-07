@@ -68,6 +68,7 @@ DEFAULT_ROLE_CATALOG: dict[str, list[str]] = {
     "formal_analysis": [
         "coefficient_report",
         "coefficient_registry",
+        "phase_transition_bridge_reviewer_artifact",
     ],
 }
 
@@ -104,6 +105,7 @@ KNOWN_ARTIFACT_KEYS_BY_FILENAME: dict[str, str] = {
     "qc_reviewer_digest.md": "qc_reviewer_digest",
     "temperature_snapshots.json": "temperature_snapshots",
     "calibration_coefficients.xlsx": "coefficient_report",
+    "phase_transition_bridge_reviewer.md": "phase_transition_bridge_reviewer_artifact",
     "workbench_action_report.json": "workbench_action_report_json",
     "workbench_action_report.md": "workbench_action_report_markdown",
     "workbench_action_snapshot.json": "workbench_action_snapshot",
@@ -148,6 +150,7 @@ KNOWN_REPORT_ARTIFACTS = [
     "ai_run_summary.md",
     "run_summary.txt",
     "calibration_coefficients.xlsx",
+    "phase_transition_bridge_reviewer.md",
     "workbench_action_report.json",
     "workbench_action_report.md",
     "workbench_action_snapshot.json",

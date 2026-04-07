@@ -4,6 +4,7 @@ import sys
 
 from gas_calibrator.v2.adapters.results_gateway import ResultsGateway
 from gas_calibrator.v2.ui_v2.artifact_registry_governance import build_role_by_key
+from gas_calibrator.v2.scripts.build_offline_governance_artifacts import rebuild_run
 
 SUPPORT_DIR = Path(__file__).resolve().parent
 if str(SUPPORT_DIR) not in sys.path:
@@ -632,3 +633,42 @@ def test_results_gateway_surfaces_offline_diagnostic_adapter_artifacts(tmp_path:
     assert rows_by_path[str((run_dir / "analyzer_chain_isolation" / "operator_checklist.md").resolve())]["artifact_key"] == (
         "analyzer_chain_operator_checklist"
     )
+
+
+def test_results_gateway_exposes_phase_transition_bridge_reviewer_markdown_as_first_class_artifact_entry(
+    tmp_path: Path,
+) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+
+    gateway = ResultsGateway(
+        run_dir,
+        output_files_provider=facade.service.get_output_files,
+    )
+    reports_payload = gateway.read_reports_payload()
+    reviewer_path = str((run_dir / "phase_transition_bridge_reviewer.md").resolve())
+    rows_by_path = {
+        str(Path(str(row.get("path") or "")).resolve()): dict(row)
+        for row in reports_payload["files"]
+    }
+    reviewer_row = rows_by_path[reviewer_path]
+    reviewer_entry = dict(reports_payload.get("phase_transition_bridge_reviewer_artifact_entry", {}) or {})
+
+    assert reviewer_entry["path"] == reviewer_path
+    assert reviewer_entry["summary_text"] == reviewer_row["note"]
+    assert reviewer_row["artifact_key"] == "phase_transition_bridge_reviewer_artifact"
+    assert reviewer_row["artifact_role"] == "formal_analysis"
+    assert reviewer_row["name"] == reviewer_entry["name_text"]
+    assert reviewer_row["present_on_disk"] is True
+    assert "Step 2 tail / Stage 3 bridge" in reviewer_row["role_status_display"]
+    assert "engineering-isolation" in reviewer_row["role_status_display"]
+    assert "不是 real acceptance" in reviewer_row["role_status_display"]
+    assert "不能替代真实计量验证" not in reviewer_row["name"]
+    assert "Step 2 tail / Stage 3 bridge" in reviewer_entry["entry_text"]
+    assert "现在执行" in reviewer_entry["entry_text"]
+    assert "第三阶段执行" in reviewer_entry["entry_text"]
+    assert "不是 real acceptance" in reviewer_entry["entry_text"]
+    assert "不能替代真实计量验证" in reviewer_entry["entry_text"]
+    assert reviewer_entry["ready_for_engineering_isolation"] is False
+    assert reviewer_entry["real_acceptance_ready"] is False

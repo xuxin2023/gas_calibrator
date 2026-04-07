@@ -8,6 +8,10 @@ from ..config import build_step2_config_governance_handoff
 from ..core.acceptance_model import normalize_evidence_source
 from ..core.artifact_catalog import KNOWN_REPORT_ARTIFACTS
 from ..core.offline_artifacts import build_point_taxonomy_handoff, summarize_offline_diagnostic_adapters
+from ..core.phase_transition_bridge_reviewer_artifact_entry import (
+    PHASE_TRANSITION_BRIDGE_REVIEWER_ARTIFACT_KEY,
+    build_phase_transition_bridge_reviewer_artifact_entry,
+)
 from ..review_surface_formatter import (
     build_offline_diagnostic_detail_item_line,
     build_offline_diagnostic_scope_line,
@@ -176,6 +180,17 @@ class ResultsGateway:
         role_catalog = dict(manifest.get("artifacts", {}) or {}).get("role_catalog", {})
         artifact_exports = dict(payload.get("artifact_exports", {}) or {})
         offline_diagnostic_adapter_summary = dict(payload.get("offline_diagnostic_adapter_summary", {}) or {})
+        analytics_summary = dict(payload.get("analytics_summary", {}) or {})
+        reviewer_artifact_section = dict(manifest.get(PHASE_TRANSITION_BRIDGE_REVIEWER_ARTIFACT_KEY) or {})
+        reviewer_surface_section = (
+            dict(manifest.get("phase_transition_bridge_reviewer_section") or {})
+            or dict(analytics_summary.get("phase_transition_bridge_reviewer_section") or {})
+        )
+        reviewer_artifact_entry = build_phase_transition_bridge_reviewer_artifact_entry(
+            artifact_path=reviewer_artifact_section.get("path"),
+            manifest_section=reviewer_artifact_section,
+            reviewer_section=reviewer_surface_section,
+        )
         files = []
         seen: set[str] = set()
 
@@ -204,18 +219,21 @@ class ResultsGateway:
                 role_catalog=role_catalog if isinstance(role_catalog, dict) else None,
                 present_on_disk=present_on_disk,
             )
-            files.append(
-                {
-                    "name": path.name,
-                    "path": str(path),
-                    "present": present_on_disk,
-                    "present_on_disk": present_on_disk,
-                    "listed_in_current_run": True,
-                    "artifact_origin": "current_run",
-                    "scope_match": "all",
-                    **governance,
-                }
+            row = {
+                "name": path.name,
+                "path": str(path),
+                "present": present_on_disk,
+                "present_on_disk": present_on_disk,
+                "listed_in_current_run": True,
+                "artifact_origin": "current_run",
+                "scope_match": "all",
+                **governance,
+            }
+            row = self._decorate_phase_transition_bridge_reviewer_artifact_row(
+                row,
+                reviewer_artifact_entry=reviewer_artifact_entry,
             )
+            files.append(row)
         return {
             "run_dir": str(self.run_dir),
             "files": files,
@@ -231,6 +249,7 @@ class ResultsGateway:
             "workbench_evidence_summary": dict(payload.get("workbench_evidence_summary", {}) or {}),
             "offline_diagnostic_adapter_summary": offline_diagnostic_adapter_summary,
             "point_taxonomy_summary": dict(payload.get("point_taxonomy_summary", {}) or {}),
+            "phase_transition_bridge_reviewer_artifact_entry": reviewer_artifact_entry,
             "evidence_source": str(payload.get("evidence_source", "") or "simulated_protocol"),
             "evidence_state": str(payload.get("evidence_state", "") or "collected"),
             "not_real_acceptance_evidence": bool(payload.get("not_real_acceptance_evidence", True)),
@@ -500,3 +519,32 @@ class ResultsGateway:
     @staticmethod
     def _normalize_offline_diagnostic_line(line: str) -> str:
         return normalize_offline_diagnostic_line(line)
+
+    @staticmethod
+    def _decorate_phase_transition_bridge_reviewer_artifact_row(
+        row: dict[str, Any],
+        *,
+        reviewer_artifact_entry: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload = dict(row or {})
+        if str(payload.get("artifact_key") or "") != PHASE_TRANSITION_BRIDGE_REVIEWER_ARTIFACT_KEY:
+            return payload
+        entry = dict(reviewer_artifact_entry or {})
+        if not entry:
+            return payload
+        role_status_display = " | ".join(
+            part
+            for part in (
+                str(payload.get("artifact_role_display") or "").strip(),
+                str(entry.get("stage_marker_text") or "").strip(),
+                str(entry.get("warning_text") or "").strip(),
+            )
+            if part
+        )
+        return {
+            **payload,
+            "name": str(entry.get("name_text") or payload.get("name") or ""),
+            "note": str(entry.get("note_text") or payload.get("note") or ""),
+            "role_status_display": role_status_display or str(payload.get("role_status_display") or ""),
+            "phase_transition_bridge_reviewer_artifact_entry": entry,
+        }

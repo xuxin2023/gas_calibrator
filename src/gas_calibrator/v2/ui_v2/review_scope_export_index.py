@@ -5,6 +5,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ..core.phase_transition_bridge_reviewer_artifact_entry import (
+    PHASE_TRANSITION_BRIDGE_REVIEWER_ARTIFACT_KEY,
+    build_phase_transition_bridge_reviewer_artifact_entry,
+)
 from ..review_surface_formatter import (
     build_review_scope_payload_reviewer_display,
     hydrate_review_scope_reviewer_display,
@@ -110,6 +114,9 @@ def build_review_scope_export_entry(
     phase_transition_bridge_section = _build_phase_transition_bridge_section(payload)
     if phase_transition_bridge_section:
         entry["phase_transition_bridge_section"] = phase_transition_bridge_section
+    reviewer_artifact_entry = _build_phase_transition_bridge_reviewer_artifact_entry(payload)
+    if reviewer_artifact_entry:
+        entry["phase_transition_bridge_reviewer_artifact_entry"] = reviewer_artifact_entry
     return entry
 
 
@@ -122,6 +129,31 @@ def _build_phase_transition_bridge_section(payload: dict[str, Any]) -> dict[str,
     )
     bundle = build_phase_transition_bridge_panel_payload(bridge)
     return bundle if bool(bundle.get("available", False)) else {}
+
+
+def _build_phase_transition_bridge_reviewer_artifact_entry(payload: dict[str, Any]) -> dict[str, Any]:
+    direct_entry = dict(payload.get("phase_transition_bridge_reviewer_artifact_entry") or {})
+    if direct_entry:
+        return direct_entry
+
+    manifest_sections = dict(payload.get("manifest_sections", {}) or {})
+    manifest_section = dict(manifest_sections.get(PHASE_TRANSITION_BRIDGE_REVIEWER_ARTIFACT_KEY) or {})
+    reviewer_section = dict(manifest_sections.get("phase_transition_bridge_reviewer_section") or {})
+    if manifest_section:
+        entry = build_phase_transition_bridge_reviewer_artifact_entry(
+            artifact_path=manifest_section.get("path"),
+            manifest_section=manifest_section,
+            reviewer_section=reviewer_section,
+        )
+        if entry:
+            return entry
+
+    for row in list(payload.get("rows", []) or []):
+        row_entry = dict(dict(row or {}).get("phase_transition_bridge_reviewer_artifact_entry") or {})
+        if row_entry:
+            return row_entry
+
+    return {}
 
 
 def _load_index(path: Path) -> dict[str, Any]:
