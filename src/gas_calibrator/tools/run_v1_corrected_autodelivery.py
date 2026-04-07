@@ -546,6 +546,8 @@ def build_corrected_delivery(
     _append_dataframe_sheet(report_path, "pressure_plan", pd.DataFrame(pressure_rows))
 
     _write_csv(output_dir / "download_plan_no_500.csv", download_plan_rows)
+    _write_csv(output_dir / "fit_summary_no_500.csv", summary.to_dict(orient="records"))
+    _write_csv(output_dir / "simplified_coefficients_no_500.csv", simplified.to_dict(orient="records"))
     _write_csv(output_dir / "temperature_coefficients_target.csv", temperature_rows)
     _write_csv(output_dir / "pressure_offset_current_ambient_summary.csv", pressure_rows)
     _write_csv(output_dir / "filter_summary.csv", filter_stats)
