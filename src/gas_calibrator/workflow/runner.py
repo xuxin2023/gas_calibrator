@@ -10553,31 +10553,52 @@ class CalibrationRunner:
         dew = self.devices.get("dewpoint")
         if dew is None:
             raise RuntimeError("dewpoint_meter_unavailable")
+
+        def _snapshot_from_payload(payload: Any) -> Optional[Dict[str, Any]]:
+            if not isinstance(payload, dict):
+                return None
+            snapshot = {
+                "dewpoint_c": self._as_float(payload.get("dewpoint_c")),
+                "temp_c": self._as_float(payload.get("temp_c")),
+                "rh_pct": self._as_float(payload.get("rh_pct")),
+            }
+            if snapshot["dewpoint_c"] is None:
+                return None
+            return snapshot
+
+        fast_timeout_s = self._sampling_dewpoint_fast_timeout_s()
         fast_reader = getattr(dew, "get_current_fast", None)
         dew_data: Any = None
         if callable(fast_reader):
             try:
-                dew_data = fast_reader(timeout_s=self._sampling_dewpoint_fast_timeout_s())
+                dew_data = fast_reader(timeout_s=fast_timeout_s)
             except TypeError:
                 dew_data = fast_reader()
-        else:
-            reader = getattr(dew, "get_current", None)
-            if callable(reader):
+            snapshot = _snapshot_from_payload(dew_data)
+            if snapshot is not None:
+                return snapshot
+            try:
+                dew_data = fast_reader(timeout_s=max(0.8, fast_timeout_s), clear_buffer=True)
+            except TypeError:
                 try:
-                    dew_data = reader(timeout_s=self._sampling_dewpoint_fast_timeout_s(), attempts=1)
+                    dew_data = fast_reader(timeout_s=max(0.8, fast_timeout_s))
                 except TypeError:
-                    try:
-                        dew_data = reader(timeout_s=self._sampling_dewpoint_fast_timeout_s())
-                    except TypeError:
-                        dew_data = reader()
-        if not isinstance(dew_data, dict):
-            raise RuntimeError("dewpoint_gate_read_missing")
-        snapshot = {
-            "dewpoint_c": self._as_float(dew_data.get("dewpoint_c")),
-            "temp_c": self._as_float(dew_data.get("temp_c")),
-            "rh_pct": self._as_float(dew_data.get("rh_pct")),
-        }
-        if snapshot["dewpoint_c"] is None:
+                    dew_data = fast_reader()
+            snapshot = _snapshot_from_payload(dew_data)
+            if snapshot is not None:
+                return snapshot
+
+        reader = getattr(dew, "get_current", None)
+        if callable(reader):
+            try:
+                dew_data = reader(timeout_s=max(0.8, fast_timeout_s), attempts=1)
+            except TypeError:
+                try:
+                    dew_data = reader(timeout_s=max(0.8, fast_timeout_s))
+                except TypeError:
+                    dew_data = reader()
+        snapshot = _snapshot_from_payload(dew_data)
+        if snapshot is None:
             raise RuntimeError("dewpoint_gate_read_missing")
         return snapshot
 
@@ -10611,6 +10632,8 @@ class CalibrationRunner:
         gate_begin_ts = time.time()
         gate_rows: List[Dict[str, Any]] = []
         last_log_ts = 0.0
+        consecutive_read_missing = 0
+        max_transient_read_missing = 3
         self._append_pressure_trace_row(
             point=point,
             route="co2",
@@ -10634,6 +10657,20 @@ class CalibrationRunner:
             except Exception as exc:
                 reason = str(exc) or "dewpoint_gate_read_failed"
                 total_elapsed_s = float(base_soak_s) + max(0.0, time.time() - gate_begin_ts)
+                if reason == "dewpoint_gate_read_missing":
+                    consecutive_read_missing += 1
+                    if consecutive_read_missing < max_transient_read_missing:
+                        now_ts = time.time()
+                        if (now_ts - last_log_ts) >= float(cfg["log_interval_s"]):
+                            last_log_ts = now_ts
+                            self.log(
+                                "CO2 route precondition dewpoint gate waiting: "
+                                f"row={point.index} read missing; retry "
+                                f"{consecutive_read_missing}/{max_transient_read_missing - 1} "
+                                f"time_to_gate={total_elapsed_s:.1f}s"
+                            )
+                        time.sleep(float(cfg["poll_s"]))
+                        continue
                 self._set_point_runtime_fields(
                     point,
                     phase="co2",
@@ -10662,6 +10699,7 @@ class CalibrationRunner:
                 )
                 return False
 
+            consecutive_read_missing = 0
             gate_elapsed_after_soak_s = max(0.0, time.time() - gate_begin_ts)
             total_elapsed_s = float(base_soak_s) + gate_elapsed_after_soak_s
             gate_rows.append(

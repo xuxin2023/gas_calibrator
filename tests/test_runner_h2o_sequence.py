@@ -2367,6 +2367,107 @@ def test_wait_co2_route_soak_runs_dewpoint_gate_only_after_fixed_soak_and_waits_
     assert float(state["dewpoint_time_to_gate"]) > 3.0
 
 
+def test_read_precondition_dewpoint_gate_snapshot_falls_back_to_full_read_when_fast_read_is_empty(
+    tmp_path: Path,
+) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+
+    class _FakeDew:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, float, object]] = []
+
+        def get_current_fast(self, timeout_s: float = 0.35, clear_buffer: bool = False):
+            self.calls.append(("fast", float(timeout_s), bool(clear_buffer)))
+            return {"ok": False, "raw": "", "lines": []}
+
+        def get_current(self, timeout_s: float = 2.0, attempts: int = 2):
+            self.calls.append(("slow", float(timeout_s), int(attempts)))
+            return {"dewpoint_c": -31.2, "temp_c": 22.3, "rh_pct": 5.4}
+
+    dew = _FakeDew()
+    runner.devices["dewpoint"] = dew
+
+    snapshot = runner._read_precondition_dewpoint_gate_snapshot()
+    logger.close()
+
+    assert snapshot == {"dewpoint_c": -31.2, "temp_c": 22.3, "rh_pct": 5.4}
+    assert dew.calls[:2] == [("fast", 0.35, False), ("fast", 0.8, True)]
+    assert dew.calls[2] == ("slow", 0.8, 1)
+
+
+def test_wait_co2_route_soak_tolerates_single_transient_dewpoint_gate_read_missing(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "stability": {
+                    "co2_route": {"preseal_soak_s": 2},
+                    "gas_route_dewpoint_gate_enabled": True,
+                    "gas_route_dewpoint_gate_window_s": 5.0,
+                    "gas_route_dewpoint_gate_max_total_wait_s": 12.0,
+                    "gas_route_dewpoint_gate_poll_s": 1.0,
+                    "gas_route_dewpoint_gate_log_interval_s": 1.0,
+                }
+            }
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _point_co2()
+    clock = {"now": 0.0}
+    reads: list[str] = []
+    runner._first_co2_route_soak_pending = False
+
+    def fake_snapshot(self):
+        reads.append(f"read@{clock['now']:.1f}")
+        if len(reads) == 1:
+            raise RuntimeError("dewpoint_gate_read_missing")
+        return {"dewpoint_c": -30.0, "temp_c": 22.0, "rh_pct": 5.0}
+
+    def fake_gate_row(self, *, total_elapsed_s, snapshot):
+        base = datetime(2026, 4, 3, 9, 0, 0)
+        return {
+            "timestamp": (base + timedelta(seconds=float(total_elapsed_s))).isoformat(timespec="seconds"),
+            "phase_elapsed_s": float(total_elapsed_s),
+            "phase": "co2_route_precondition",
+            "controller_vent_state": "VENT_ON",
+            "dewpoint_c": snapshot.get("dewpoint_c"),
+            "dewpoint_temp_c": snapshot.get("temp_c"),
+            "dewpoint_rh_percent": snapshot.get("rh_pct"),
+        }
+
+    def fake_eval(rows, **_kwargs):
+        total_elapsed = float(rows[-1]["phase_elapsed_s"])
+        return {
+            "gate_pass": len(rows) >= 2,
+            "gate_reason": "",
+            "dewpoint_tail_span_60s": 0.0,
+            "dewpoint_tail_slope_60s": 0.0,
+            "dewpoint_rebound_detected": False,
+            "dewpoint_time_to_gate": total_elapsed,
+        }
+
+    monkeypatch.setattr(runner_module.time, "time", lambda: clock["now"])
+    monkeypatch.setattr(runner_module.time, "sleep", lambda seconds: clock.__setitem__("now", clock["now"] + float(seconds)))
+    monkeypatch.setattr(runner_module, "evaluate_dewpoint_flush_gate", fake_eval)
+    runner._read_precondition_dewpoint_gate_snapshot = types.MethodType(fake_snapshot, runner)
+    runner._build_co2_route_dewpoint_gate_row = types.MethodType(fake_gate_row, runner)
+
+    assert runner._wait_co2_route_soak_before_seal(point) is True
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2")
+    assert state is not None
+    assert state["flush_gate_status"] == "pass"
+    assert reads == ["read@2.0", "read@3.0", "read@4.0"]
+
+
 def test_wait_co2_route_soak_fails_when_dewpoint_gate_times_out(monkeypatch, tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner(
