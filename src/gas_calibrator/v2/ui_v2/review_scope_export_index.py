@@ -9,6 +9,7 @@ from ..review_surface_formatter import (
     build_review_scope_payload_reviewer_display,
     hydrate_review_scope_reviewer_display,
 )
+from ..core.phase_transition_bridge_presenter import build_phase_transition_bridge_panel_payload
 
 INDEX_FILENAME = "index.json"
 
@@ -106,7 +107,21 @@ def build_review_scope_export_entry(
     spectral_quality = dict(payload.get("spectral_quality", {}) or {})
     if spectral_quality:
         entry["spectral_quality"] = spectral_quality
+    phase_transition_bridge_section = _build_phase_transition_bridge_section(payload)
+    if phase_transition_bridge_section:
+        entry["phase_transition_bridge_section"] = phase_transition_bridge_section
     return entry
+
+
+def _build_phase_transition_bridge_section(payload: dict[str, Any]) -> dict[str, Any]:
+    analytics_summary = dict(payload.get("analytics_summary", {}) or {})
+    analytics_detail = dict(analytics_summary.get("detail", {}) or {})
+    bridge = (
+        dict(payload.get("phase_transition_bridge", {}) or {})
+        or dict(analytics_detail.get("phase_transition_bridge", {}) or {})
+    )
+    bundle = build_phase_transition_bridge_panel_payload(bridge)
+    return bundle if bool(bundle.get("available", False)) else {}
 
 
 def _load_index(path: Path) -> dict[str, Any]:
