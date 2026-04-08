@@ -5727,7 +5727,8 @@ class CalibrationRunner:
                 self._disabled_analyzer_last_reprobe_ts.pop(label, None)
             except Exception as exc:
                 self.log(f"Analyzer startup config failed: {label} err={exc}")
-                raise RuntimeError(f"Analyzer startup config failed: {label} err={exc}") from exc
+                self._disable_analyzers([label], reason="startup_mode2_verify_failed")
+                self._disabled_analyzer_last_reprobe_ts[label] = time.time()
 
         if analyzers and not self._active_gas_analyzers():
             raise RuntimeError("No gas analyzers available after startup configuration")

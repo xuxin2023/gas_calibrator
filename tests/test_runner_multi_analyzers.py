@@ -210,7 +210,7 @@ def test_configure_devices_forces_mode2_for_all_analyzers(tmp_path: Path) -> Non
     logger.close()
 
 
-def test_configure_devices_raises_when_analyzer_mode2_verify_fails(tmp_path: Path) -> None:
+def test_configure_devices_disables_failing_analyzer_when_others_reach_mode2(tmp_path: Path) -> None:
     cfg = {
         "devices": {
             "gas_analyzer": {"active_send": True, "ftd_hz": 10, "average_co2": 1, "average_h2o": 1},
@@ -228,10 +228,13 @@ def test_configure_devices_raises_when_analyzer_mode2_verify_fails(tmp_path: Pat
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner(cfg, devices, logger, lambda *_: None, lambda *_: None)
 
-    with pytest.raises(RuntimeError, match="Analyzer startup config failed: ga02"):
-        runner._configure_devices()
+    runner._configure_devices()
 
     assert devices["gas_analyzer_02"].read_latest_calls >= 1
+    assert "ga02" in runner._disabled_analyzers
+    assert runner._disabled_analyzer_reasons["ga02"] == "startup_mode2_verify_failed"
+    assert "ga01" not in runner._disabled_analyzers
+    assert "ga02" in runner._disabled_analyzer_last_reprobe_ts
     logger.close()
 
 
@@ -252,9 +255,11 @@ def test_configure_devices_raises_when_no_analyzer_reaches_mode2(tmp_path: Path)
         lambda *_: None,
     )
 
-    with pytest.raises(RuntimeError, match="Analyzer startup config failed: ga01"):
+    with pytest.raises(RuntimeError, match="No gas analyzers available after startup configuration"):
         runner._configure_devices()
 
+    assert "ga01" in runner._disabled_analyzers
+    assert runner._disabled_analyzer_reasons["ga01"] == "startup_mode2_verify_failed"
     logger.close()
 
 
@@ -320,9 +325,11 @@ def test_configure_devices_raises_when_mode2_frame_missing_startup_required_key(
         lambda *_: None,
     )
 
-    with pytest.raises(RuntimeError, match="Analyzer startup config failed: ga01"):
+    with pytest.raises(RuntimeError, match="No gas analyzers available after startup configuration"):
         runner._configure_devices()
 
+    assert "ga01" in runner._disabled_analyzers
+    assert runner._disabled_analyzer_reasons["ga01"] == "startup_mode2_verify_failed"
     logger.close()
 
 
