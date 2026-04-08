@@ -1435,21 +1435,33 @@ def test_review_scope_manifest_and_export_index_surface_stage_admission_review_p
 ) -> None:
     facade = build_fake_facade(tmp_path)
     run_dir = Path(facade.result_store.run_dir)
-    rebuild_run(run_dir)
+    rebuild_payload = rebuild_run(run_dir)
+    results_snapshot = facade.build_results_snapshot()
+    reports_snapshot = facade.get_reports_snapshot(results_snapshot=results_snapshot)
 
     result = facade.export_review_scope_manifest(selection={"scope": "all"})
     manifest_payload = json.loads(Path(result["json_path"]).read_text(encoding="utf-8"))
     export_index = json.loads(Path(result["index_path"]).read_text(encoding="utf-8"))
+    pack_raw = json.loads((run_dir / STAGE_ADMISSION_REVIEW_PACK_FILENAME).read_text(encoding="utf-8"))
     rows_by_name = {
         str(row.get("name") or ""): dict(row)
         for row in list(manifest_payload.get("rows", []) or [])
     }
+    reports_rows_by_path = {
+        str(Path(str(row.get("path") or "")).resolve()): dict(row)
+        for row in list(reports_snapshot.get("files", []) or [])
+    }
     pack_markdown = (run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME).read_text(encoding="utf-8")
     pack_entry = dict(manifest_payload.get("stage_admission_review_pack_artifact_entry", {}) or {})
     export_pack_entry = dict(export_index["latest"].get("stage_admission_review_pack_artifact_entry", {}) or {})
+    reports_entry = dict(reports_snapshot.get("stage_admission_review_pack_artifact_entry", {}) or {})
     review_center_entry = dict(
-        facade.build_results_snapshot()["review_center"].get("stage_admission_review_pack_artifact_entry", {}) or {}
+        results_snapshot["review_center"].get("stage_admission_review_pack_artifact_entry", {}) or {}
     )
+    pack_json_path = str((run_dir / STAGE_ADMISSION_REVIEW_PACK_FILENAME).resolve())
+    pack_md_path = str((run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME).resolve())
+    pack_json_row = reports_rows_by_path[pack_json_path]
+    pack_md_row = reports_rows_by_path[pack_md_path]
 
     assert "阶段准入评审包 / Stage Admission Review Pack (JSON)" in rows_by_name
     assert "阶段准入评审包 / Stage Admission Review Pack (Markdown)" in rows_by_name
