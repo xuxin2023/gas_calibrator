@@ -4712,6 +4712,8 @@ class CalibrationRunner:
                 expanded.append(real_point)
                 continue
             expanded.append(self._synthesized_co2_source_point(source_template, ppm))
+        if self._selected_pressure_points_is_ambient_only():
+            return [self._ambient_pressure_reference_point(point) for point in expanded]
         return expanded
 
     def _co2_synthesis_template(self, points: List[CalibrationPoint]) -> Optional[CalibrationPoint]:
@@ -5152,7 +5154,9 @@ class CalibrationRunner:
         elif is_subzero:
             self.log(f"Temperature group {temp}C: sub-zero, skip H2O route")
         else:
-            h2o_points = [point for point in points if point.is_h2o_point]
+            h2o_points = self._filter_execution_points_by_selected_pressure(
+                [point for point in points if point.is_h2o_point]
+            )
             h2o_pressure_points = self._h2o_pressure_points_for_temperature(points)
             h2o_groups = self._group_h2o_points(h2o_points)
 
@@ -5161,7 +5165,7 @@ class CalibrationRunner:
         if skip_co2:
             self.log(f"Temperature group {temp}C: workflow route_mode=h2o_only, skip CO2 route")
         else:
-            gas_sources = self._co2_source_points(points)
+            gas_sources = self._co2_source_points(self._filter_execution_points_by_selected_pressure(points))
             pressure_points = self._co2_pressure_points_for_temperature(points)
         if gas_sources and pressure_points:
             pressure_text = ", ".join(self._pressure_target_label(p) or "--" for p in pressure_points)
@@ -5229,7 +5233,9 @@ class CalibrationRunner:
         temp = self._as_float(next_group[0].temp_chamber_c)
         if temp is not None and temp < 0.0:
             return None
-        h2o_points = [point for point in next_group if point.is_h2o_point]
+        h2o_points = self._filter_execution_points_by_selected_pressure(
+            [point for point in next_group if point.is_h2o_point]
+        )
         groups = self._group_h2o_points(h2o_points)
         if not groups or not groups[0]:
             return None
@@ -5364,6 +5370,69 @@ class CalibrationRunner:
         if not normalized:
             raise ValueError("no valid pressure points selected after filtering")
         return normalized
+
+    def _selected_pressure_points_is_ambient_only(
+        self,
+        selected: Optional[List[Any]] = None,
+    ) -> bool:
+        normalized = (
+            selected
+            if selected is not None
+            else self._normalize_selected_pressure_points(
+                self.cfg.get("workflow", {}).get("selected_pressure_points")
+            )
+        )
+        if normalized is None:
+            return False
+        include_ambient = any(self._is_ambient_pressure_selection_value(value) for value in normalized)
+        include_numeric = any(not self._is_ambient_pressure_selection_value(value) for value in normalized)
+        return include_ambient and not include_numeric
+
+    def _point_matches_selected_pressure(
+        self,
+        point: CalibrationPoint,
+        *,
+        selected: Optional[List[Any]] = None,
+    ) -> bool:
+        normalized = (
+            selected
+            if selected is not None
+            else self._normalize_selected_pressure_points(
+                self.cfg.get("workflow", {}).get("selected_pressure_points")
+            )
+        )
+        if normalized is None:
+            return True
+
+        include_ambient = any(self._is_ambient_pressure_selection_value(value) for value in normalized)
+        selected_numeric = {
+            int(value)
+            for value in normalized
+            if not self._is_ambient_pressure_selection_value(value)
+        }
+        normalized_point = self._normalize_pressure_point(point)
+        pressure_hpa = self._as_float(getattr(normalized_point, "target_pressure_hpa", None))
+        if pressure_hpa is None:
+            return include_ambient
+        return int(round(float(pressure_hpa))) in selected_numeric
+
+    def _filter_execution_points_by_selected_pressure(
+        self,
+        points: List[CalibrationPoint],
+    ) -> List[CalibrationPoint]:
+        selected = self._normalize_selected_pressure_points(
+            self.cfg.get("workflow", {}).get("selected_pressure_points")
+        )
+        if selected is None:
+            return list(points)
+
+        ambient_only = self._selected_pressure_points_is_ambient_only(selected)
+        filtered: List[CalibrationPoint] = []
+        for point in points:
+            if not self._point_matches_selected_pressure(point, selected=selected):
+                continue
+            filtered.append(self._ambient_pressure_reference_point(point) if ambient_only else point)
+        return filtered
 
     def _filter_pressure_points_by_selection(
         self,

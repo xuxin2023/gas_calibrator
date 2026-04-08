@@ -3284,6 +3284,89 @@ def test_run_temperature_group_h2o_only_skips_co2(tmp_path: Path) -> None:
     assert calls == ["run_h2o_group"]
 
 
+def test_run_temperature_group_ambient_only_filters_co2_source_rows_before_execution(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {"workflow": {"skip_h2o": True, "selected_pressure_points": ["ambient"]}},
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    calls: list[dict[str, object]] = []
+
+    runner._run_h2o_group = types.MethodType(lambda self, group, pressure_points=None, next_route_context=None: None, runner)
+    runner._run_co2_point = types.MethodType(
+        lambda self, point, pressure_points=None, next_route_context=None: calls.append(
+            {
+                "ppm": int(point.co2_ppm or 0),
+                "source_pressure_hpa": self._as_float(getattr(point, "target_pressure_hpa", None)),
+                "source_pressure_mode": self._pressure_mode_for_point(point),
+                "pressure_modes": [self._pressure_mode_for_point(ref) for ref in (pressure_points or [])],
+            }
+        ),
+        runner,
+    )
+
+    points = [
+        CalibrationPoint(index=44, temp_chamber_c=30.0, co2_ppm=0.0, hgen_temp_c=None, hgen_rh_pct=None, target_pressure_hpa=None, dewpoint_c=None, h2o_mmol=None, raw_h2o=None, co2_group="A"),
+        CalibrationPoint(index=45, temp_chamber_c=30.0, co2_ppm=100.0, hgen_temp_c=None, hgen_rh_pct=None, target_pressure_hpa=None, dewpoint_c=None, h2o_mmol=None, raw_h2o=None, co2_group="B"),
+        CalibrationPoint(index=46, temp_chamber_c=30.0, co2_ppm=200.0, hgen_temp_c=None, hgen_rh_pct=None, target_pressure_hpa=None, dewpoint_c=None, h2o_mmol=None, raw_h2o=None, co2_group="A"),
+        CalibrationPoint(index=47, temp_chamber_c=30.0, co2_ppm=300.0, hgen_temp_c=None, hgen_rh_pct=None, target_pressure_hpa=900.0, dewpoint_c=None, h2o_mmol=None, raw_h2o=None, co2_group="B"),
+        CalibrationPoint(index=48, temp_chamber_c=30.0, co2_ppm=400.0, hgen_temp_c=None, hgen_rh_pct=None, target_pressure_hpa=900.0, dewpoint_c=None, h2o_mmol=None, raw_h2o=None, co2_group="A"),
+    ]
+
+    runner._run_temperature_group(points)
+    logger.close()
+
+    source_map = {int(call["ppm"]): call for call in calls}
+    assert source_map[300]["source_pressure_hpa"] is None
+    assert source_map[400]["source_pressure_hpa"] is None
+    assert source_map[300]["source_pressure_mode"] == "ambient_open"
+    assert source_map[400]["source_pressure_mode"] == "ambient_open"
+    assert all(call["pressure_modes"] == ["ambient_open"] for call in calls)
+
+
+def test_run_temperature_group_ambient_only_filters_h2o_group_rows_before_execution(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {"workflow": {"route_mode": "h2o_only", "selected_pressure_points": ["ambient"]}},
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    calls: list[dict[str, object]] = []
+
+    runner._run_h2o_group = types.MethodType(
+        lambda self, group, pressure_points=None, next_route_context=None: calls.append(
+            {
+                "lead_pressure_hpa": self._as_float(getattr(group[0], "target_pressure_hpa", None)),
+                "lead_pressure_mode": self._pressure_mode_for_point(group[0]),
+                "pressure_modes": [self._pressure_mode_for_point(ref) for ref in (pressure_points or [])],
+                "lead_rh": self._as_float(getattr(group[0], "hgen_rh_pct", None)),
+            }
+        ),
+        runner,
+    )
+    runner._run_co2_point = types.MethodType(lambda self, point, pressure_points=None, next_route_context=None: None, runner)
+
+    points = [
+        CalibrationPoint(index=11, temp_chamber_c=20.0, co2_ppm=None, hgen_temp_c=20.0, hgen_rh_pct=30.0, target_pressure_hpa=900.0, dewpoint_c=5.0, h2o_mmol=10.0, raw_h2o="sealed"),
+        CalibrationPoint(index=12, temp_chamber_c=20.0, co2_ppm=None, hgen_temp_c=20.0, hgen_rh_pct=30.0, target_pressure_hpa=None, dewpoint_c=5.0, h2o_mmol=10.0, raw_h2o="ambient"),
+        CalibrationPoint(index=13, temp_chamber_c=20.0, co2_ppm=None, hgen_temp_c=20.0, hgen_rh_pct=50.0, target_pressure_hpa=None, dewpoint_c=7.0, h2o_mmol=12.0, raw_h2o="ambient-50"),
+    ]
+
+    runner._run_temperature_group(points)
+    logger.close()
+
+    assert len(calls) == 2
+    assert calls[0]["lead_rh"] == 30.0
+    assert calls[0]["lead_pressure_hpa"] is None
+    assert calls[0]["lead_pressure_mode"] == "ambient_open"
+    assert all(call["pressure_modes"] == ["ambient_open"] for call in calls)
+
+
 def test_wait_after_pressure_stable_co2_starts_sampling_immediately_and_traces_begin(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     messages: list[str] = []
