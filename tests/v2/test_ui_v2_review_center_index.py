@@ -1469,11 +1469,32 @@ def test_review_scope_manifest_and_export_index_surface_stage_admission_review_p
     assert rows_by_name["阶段准入评审包 / Stage Admission Review Pack (Markdown)"]["artifact_role"] == "formal_analysis"
     assert rows_by_name["阶段准入评审包 / Stage Admission Review Pack (JSON)"]["present_on_disk"] is True
     assert rows_by_name["阶段准入评审包 / Stage Admission Review Pack (Markdown)"]["present_on_disk"] is True
-    assert pack_entry["path"].endswith(STAGE_ADMISSION_REVIEW_PACK_FILENAME)
-    assert pack_entry["reviewer_path"].endswith(STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME)
+    assert rebuild_payload["artifact_statuses"]["stage_admission_review_pack"]["path"] == str(
+        run_dir / STAGE_ADMISSION_REVIEW_PACK_FILENAME
+    )
+    assert rebuild_payload["artifact_statuses"]["stage_admission_review_pack_reviewer_artifact"]["path"] == str(
+        run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME
+    )
+    assert rebuild_payload["manifest_sections"]["stage_admission_review_pack"]["path"] == str(
+        run_dir / STAGE_ADMISSION_REVIEW_PACK_FILENAME
+    )
+    assert rebuild_payload["manifest_sections"]["stage_admission_review_pack"]["reviewer_path"] == str(
+        run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME
+    )
+    assert rebuild_payload["manifest_sections"]["stage_admission_review_pack_reviewer_artifact"]["path"] == str(
+        run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME
+    )
+    assert str(run_dir / STAGE_ADMISSION_REVIEW_PACK_FILENAME) in rebuild_payload["remembered_files"]
+    assert str(run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME) in rebuild_payload["remembered_files"]
+    assert pack_entry["path"] == pack_json_path
+    assert pack_entry["reviewer_path"] == pack_md_path
     assert export_pack_entry["path"] == pack_entry["path"]
     assert export_pack_entry["reviewer_path"] == pack_entry["reviewer_path"]
     assert export_pack_entry["summary_text"] == pack_entry["summary_text"]
+    assert reports_entry["path"] == pack_entry["path"]
+    assert reports_entry["reviewer_path"] == pack_entry["reviewer_path"]
+    assert reports_entry["summary_text"] == pack_entry["summary_text"]
+    assert reports_entry["status_line"] == pack_entry["status_line"]
     assert review_center_entry["path"] == pack_entry["path"]
     assert review_center_entry["reviewer_path"] == pack_entry["reviewer_path"]
     assert review_center_entry["summary_text"] == pack_entry["summary_text"]
@@ -1481,6 +1502,19 @@ def test_review_scope_manifest_and_export_index_surface_stage_admission_review_p
     assert review_center_entry["stage_marker_text"] == pack_entry["stage_marker_text"]
     assert review_center_entry["engineering_isolation_text"] == pack_entry["engineering_isolation_text"]
     assert review_center_entry["real_acceptance_text"] == pack_entry["real_acceptance_text"]
+    assert pack_json_row["stage_admission_review_pack_artifact_entry"]["path"] == pack_json_path
+    assert pack_md_row["stage_admission_review_pack_artifact_entry"]["reviewer_path"] == pack_md_path
+    assert pack_json_row["name"] == "阶段准入评审包 / Stage Admission Review Pack (JSON)"
+    assert pack_md_row["name"] == "阶段准入评审包 / Stage Admission Review Pack (Markdown)"
+    assert pack_json_row["note"] == pack_entry["summary_text"]
+    assert pack_md_row["note"] == pack_entry["summary_text"]
+    assert pack_json_row["artifact_role"] == "execution_summary"
+    assert pack_md_row["artifact_role"] == "formal_analysis"
+    assert pack_raw["artifact_type"] == "stage_admission_review_pack"
+    assert isinstance(pack_raw["ready_for_engineering_isolation"], bool)
+    assert isinstance(pack_raw["real_acceptance_ready"], bool)
+    assert "step2_readiness_summary" in pack_raw["artifact_refs"]
+    assert "phase_transition_bridge_reviewer_artifact" in pack_raw["artifact_paths"]
     assert "Step 2 tail / Stage 3 bridge" in pack_entry["entry_text"]
     assert "engineering-isolation" in pack_entry["entry_text"]
     assert "不是 real acceptance" in pack_entry["entry_text"]
@@ -1489,6 +1523,20 @@ def test_review_scope_manifest_and_export_index_surface_stage_admission_review_p
     assert "real_acceptance_ready" not in pack_entry["entry_text"]
     assert export_index["latest"]["batch_id"] == result["batch_id"]
     assert export_index["latest"]["selection_snapshot"]["scope"] == "all"
+    for text in (
+        reports_entry["entry_text"],
+        pack_entry["entry_text"],
+        export_pack_entry["entry_text"],
+        review_center_entry["entry_text"],
+        pack_json_row["role_status_display"],
+        pack_md_row["role_status_display"],
+    ):
+        assert "Step 2 tail / Stage 3 bridge" in text
+        assert "engineering-isolation" in text
+        assert "不是 real acceptance" in text
+        assert "不能替代真实计量验证" in text
+        assert "ready_for_engineering_isolation" not in text
+        assert "real_acceptance_ready" not in text
     assert "Step 2 tail / Stage 3 bridge" in pack_markdown
     assert "engineering-isolation" in pack_markdown
     assert review_center_entry["execute_now_text"] in pack_markdown

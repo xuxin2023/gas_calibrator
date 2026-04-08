@@ -704,6 +704,7 @@ def test_reports_page_artifact_list_surfaces_stage_admission_review_pack_from_sa
     rebuild_run(run_dir)
     results_snapshot = facade.build_results_snapshot()
     reports_snapshot = facade.get_reports_snapshot(results_snapshot=results_snapshot)
+    review_center_entry = dict(results_snapshot["review_center"].get("stage_admission_review_pack_artifact_entry", {}) or {})
     rows_by_path = {
         str(row.get("path") or ""): dict(row)
         for row in list(reports_snapshot.get("files", []) or [])
@@ -729,6 +730,10 @@ def test_reports_page_artifact_list_surfaces_stage_admission_review_pack_from_sa
         assert rows_by_path[pack_md_path]["artifact_role"] == "formal_analysis"
         assert pack_entry["path"] == pack_json_path
         assert pack_entry["reviewer_path"] == pack_md_path
+        assert pack_entry["summary_text"] == review_center_entry["summary_text"]
+        assert pack_entry["status_line"] == review_center_entry["status_line"]
+        assert pack_entry["engineering_isolation_text"] == review_center_entry["engineering_isolation_text"]
+        assert pack_entry["real_acceptance_text"] == review_center_entry["real_acceptance_text"]
         assert pack_entry["summary_text"] == rows_by_path[pack_json_path]["note"]
         assert "阶段准入评审包 / Stage Admission Review Pack (JSON)" in rows_by_tree_name
         assert "阶段准入评审包 / Stage Admission Review Pack (Markdown)" in rows_by_tree_name
