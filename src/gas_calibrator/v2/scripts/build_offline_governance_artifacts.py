@@ -27,6 +27,11 @@ from ..core.stage3_real_validation_plan import (
     STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME,
     build_stage3_real_validation_plan,
 )
+from ..core.stage3_standards_alignment_matrix import (
+    STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME,
+    STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME,
+    build_stage3_standards_alignment_matrix,
+)
 from ..core.phase_transition_bridge import (
     PHASE_TRANSITION_BRIDGE_FILENAME,
     build_phase_transition_bridge,
