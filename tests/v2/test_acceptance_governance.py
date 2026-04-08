@@ -48,6 +48,16 @@ from gas_calibrator.v2.core.stage3_real_validation_plan_artifact_entry import (
     STAGE3_REAL_VALIDATION_PLAN_REVIEWER_ARTIFACT_KEY,
     build_stage3_real_validation_plan_artifact_entry,
 )
+from gas_calibrator.v2.core.stage3_standards_alignment_matrix import (
+    STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME,
+    STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME,
+    build_stage3_standards_alignment_matrix,
+)
+from gas_calibrator.v2.core.stage3_standards_alignment_matrix_artifact_entry import (
+    STAGE3_STANDARDS_ALIGNMENT_MATRIX_ARTIFACT_KEY,
+    STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_ARTIFACT_KEY,
+    build_stage3_standards_alignment_matrix_artifact_entry,
+)
 from gas_calibrator.v2.core.step2_readiness import build_step2_readiness_summary
 from gas_calibrator.v2.core.step2_readiness import STEP2_READINESS_SUMMARY_FILENAME
 
@@ -483,6 +493,187 @@ def test_phase_transition_bridge_reviewer_artifact_entry_reuses_manifest_and_pan
     assert reviewer_artifact["display"]["defer_to_stage3_text"] in entry["entry_text"]
     assert "不是 real acceptance" in entry["entry_text"]
     assert "不能替代真实计量验证" in entry["entry_text"]
+    assert "ready_for_engineering_isolation" not in entry["entry_text"]
+    assert "real_acceptance_ready" not in entry["entry_text"]
+
+
+def test_stage3_standards_alignment_matrix_reuses_stage3_plan_pack_and_checklist_wording_without_fake_compliance() -> None:
+    readiness = build_step2_readiness_summary(
+        run_id="run_stage3_matrix",
+        simulation_mode=True,
+        config_governance_handoff={
+            "simulation_only": True,
+            "operator_safe": True,
+            "real_port_device_count": 0,
+            "engineering_only_flag_count": 0,
+            "enabled_engineering_flags": [],
+            "risk_markers": [],
+            "execution_gate": {"status": "open"},
+            "step2_default_workflow_allowed": True,
+            "requires_explicit_unlock": False,
+        },
+    )
+    metrology = build_metrology_calibration_contract(
+        run_id="run_stage3_matrix",
+        simulation_mode=True,
+        config_governance_handoff={
+            "simulation_only": True,
+            "real_port_device_count": 0,
+            "engineering_only_flag_count": 0,
+            "enabled_engineering_flags": [],
+        },
+    )
+    bridge = build_phase_transition_bridge(
+        run_id="run_stage3_matrix",
+        step2_readiness_summary=readiness,
+        metrology_calibration_contract=metrology,
+    )
+    artifact_paths = {
+        "step2_readiness_summary": f"D:/tmp/{STEP2_READINESS_SUMMARY_FILENAME}",
+        "metrology_calibration_contract": f"D:/tmp/{METROLOGY_CALIBRATION_CONTRACT_FILENAME}",
+        "phase_transition_bridge": "D:/tmp/phase_transition_bridge.json",
+        "phase_transition_bridge_reviewer_artifact": f"D:/tmp/{PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME}",
+        "stage_admission_review_pack": f"D:/tmp/{STAGE_ADMISSION_REVIEW_PACK_FILENAME}",
+        "stage_admission_review_pack_reviewer_artifact": f"D:/tmp/{STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME}",
+        "engineering_isolation_admission_checklist": f"D:/tmp/{ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME}",
+        "engineering_isolation_admission_checklist_reviewer_artifact": (
+            f"D:/tmp/{ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME}"
+        ),
+        "stage3_real_validation_plan": f"D:/tmp/{STAGE3_REAL_VALIDATION_PLAN_FILENAME}",
+        "stage3_real_validation_plan_reviewer_artifact": f"D:/tmp/{STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME}",
+        "stage3_standards_alignment_matrix": f"D:/tmp/{STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME}",
+        "stage3_standards_alignment_matrix_reviewer_artifact": (
+            f"D:/tmp/{STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME}"
+        ),
+    }
+    pack = build_stage_admission_review_pack(
+        run_id="run_stage3_matrix",
+        step2_readiness_summary=readiness,
+        metrology_calibration_contract=metrology,
+        phase_transition_bridge=bridge,
+        phase_transition_bridge_reviewer_artifact=build_phase_transition_bridge_reviewer_artifact(bridge),
+        artifact_paths=artifact_paths,
+    )
+    checklist = build_engineering_isolation_admission_checklist(
+        run_id="run_stage3_matrix",
+        step2_readiness_summary=readiness,
+        metrology_calibration_contract=metrology,
+        phase_transition_bridge=bridge,
+        stage_admission_review_pack=pack,
+        artifact_paths=artifact_paths,
+    )
+    plan = build_stage3_real_validation_plan(
+        run_id="run_stage3_matrix",
+        step2_readiness_summary=readiness,
+        metrology_calibration_contract=metrology,
+        phase_transition_bridge=bridge,
+        stage_admission_review_pack=pack,
+        engineering_isolation_admission_checklist=checklist,
+        artifact_paths=artifact_paths,
+    )
+    matrix = build_stage3_standards_alignment_matrix(
+        run_id="run_stage3_matrix",
+        step2_readiness_summary=readiness,
+        metrology_calibration_contract=metrology,
+        phase_transition_bridge=bridge,
+        stage_admission_review_pack=pack,
+        engineering_isolation_admission_checklist=checklist,
+        stage3_real_validation_plan=plan,
+        artifact_paths=artifact_paths,
+    )
+
+    raw = matrix["raw"]
+    markdown = matrix["markdown"]
+    entry = build_stage3_standards_alignment_matrix_artifact_entry(
+        artifact_path=artifact_paths["stage3_standards_alignment_matrix"],
+        reviewer_artifact_path=artifact_paths["stage3_standards_alignment_matrix_reviewer_artifact"],
+        manifest_section={
+            **raw,
+            "path": artifact_paths["stage3_standards_alignment_matrix"],
+            "reviewer_path": artifact_paths["stage3_standards_alignment_matrix_reviewer_artifact"],
+        },
+        reviewer_manifest_section={
+            "artifact_type": STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_ARTIFACT_KEY,
+            "path": artifact_paths["stage3_standards_alignment_matrix_reviewer_artifact"],
+            "summary_text": matrix["display"]["summary_text"],
+            "reviewer_note_text": matrix["display"]["reviewer_note_text"],
+            "status_line": matrix["display"]["status_line"],
+            "current_stage_text": matrix["display"]["current_stage_text"],
+            "next_stage_text": matrix["display"]["next_stage_text"],
+            "engineering_isolation_text": matrix["display"]["engineering_isolation_text"],
+            "real_acceptance_text": matrix["display"]["real_acceptance_text"],
+            "stage_bridge_text": matrix["display"]["stage_bridge_text"],
+            "artifact_role_text": matrix["display"]["artifact_role_text"],
+            "not_real_acceptance_evidence": True,
+        },
+        digest_section={
+            "overall_status": raw["overall_status"],
+            "recommended_next_stage": raw["recommended_next_stage"],
+            "mapping_scope": raw["mapping_scope"],
+            "standard_family_count": len(raw["standard_families"]),
+            "mapping_row_count": len(raw["rows"]),
+            "required_evidence_category_count": len(raw["required_evidence_categories"]),
+            "standard_families": raw["standard_families"],
+            "required_evidence_categories": raw["required_evidence_categories"],
+            "readiness_status_counts": raw["readiness_status_counts"],
+            "boundary_statements": raw["boundary_statements"],
+            "artifact_paths": raw["artifact_paths"],
+        },
+        reviewer_markdown_text=markdown,
+    )
+
+    assert matrix["artifact_type"] == "stage3_standards_alignment_matrix"
+    assert matrix["filename"] == STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME
+    assert matrix["reviewer_filename"] == STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME
+    assert raw["mapping_scope"] == "family_topic_level_only"
+    assert raw["artifact_refs"]["stage3_real_validation_plan"]["summary_text"] == plan["display"]["summary_text"]
+    assert raw["artifact_refs"]["engineering_isolation_admission_checklist"]["summary_text"] == (
+        checklist["display"]["summary_text"]
+    )
+    assert raw["standard_families"] == [
+        "中国气象局 / 气象行业观测与质量控制相关要求",
+        "CNAS-CL01",
+        "CNAS-CL01-G002",
+        "CNAS-CL01-G003",
+        "ISO/IEC 17025",
+        "ISO 6142 family",
+        "ISO 6143",
+        "ISO 6145 family",
+        "WMO / GAW QA",
+    ]
+    assert len(raw["rows"]) == 9
+    assert all(row["mapping_level"] == "family_topic_level_only" for row in raw["rows"])
+    assert all("clause" not in json.dumps(row, ensure_ascii=False).lower() for row in raw["rows"])
+    assert matrix["display"]["status_line"] == plan["display"]["status_line"]
+    assert matrix["display"]["engineering_isolation_text"] == plan["display"]["engineering_isolation_text"]
+    assert matrix["display"]["real_acceptance_text"] == plan["display"]["real_acceptance_text"]
+    assert "Step 2 tail / Stage 3 bridge" in markdown
+    assert "readiness mapping only" in markdown
+    assert "not accreditation claim" in markdown
+    assert "not compliance certification" in markdown
+    assert "not real acceptance" in markdown
+    assert "cannot replace real metrology validation" in markdown
+    assert "simulation / offline / headless only" in markdown
+    assert "stage3_real_validation_plan.json" in markdown
+    assert "ready_for_engineering_isolation" not in markdown
+    assert "real_acceptance_ready" not in markdown
+    assert entry["artifact_key"] == STAGE3_STANDARDS_ALIGNMENT_MATRIX_ARTIFACT_KEY
+    assert entry["reviewer_artifact_key"] == STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_ARTIFACT_KEY
+    assert entry["path"].endswith(STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME)
+    assert entry["reviewer_path"].endswith(STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME)
+    assert entry["status_line"] == matrix["display"]["status_line"]
+    assert entry["engineering_isolation_text"] == matrix["display"]["engineering_isolation_text"]
+    assert entry["real_acceptance_text"] == matrix["display"]["real_acceptance_text"]
+    assert entry["stage_bridge_text"] == matrix["display"]["stage_bridge_text"]
+    assert entry["navigation_id"] == "stage3-standards-alignment-matrix"
+    assert "Step 2 tail / Stage 3 bridge" in entry["card_text"]
+    assert "readiness mapping only" in entry["card_text"]
+    assert "not accreditation claim" in entry["card_text"]
+    assert "not compliance certification" in entry["card_text"]
+    assert "not real acceptance" in entry["card_text"]
+    assert "cannot replace real metrology validation" in entry["card_text"]
+    assert "ISO/IEC 17025" in entry["standard_families_text"]
+    assert "CNAS-CL01-G003" in entry["standard_families_text"]
     assert "ready_for_engineering_isolation" not in entry["entry_text"]
     assert "real_acceptance_ready" not in entry["entry_text"]
     assert entry["ready_for_engineering_isolation"] is True

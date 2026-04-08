@@ -15,6 +15,10 @@ from gas_calibrator.v2.core.stage3_real_validation_plan import (
     STAGE3_REAL_VALIDATION_PLAN_FILENAME,
     STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME,
 )
+from gas_calibrator.v2.core.stage3_standards_alignment_matrix import (
+    STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME,
+    STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME,
+)
 from gas_calibrator.v2.ui_v2.artifact_registry_governance import build_role_by_key
 from gas_calibrator.v2.scripts.build_offline_governance_artifacts import rebuild_run
 
@@ -843,3 +847,56 @@ def test_results_gateway_exposes_stage3_real_validation_plan_as_first_class_arti
     assert "不能替代真实计量验证" in stage3_entry["entry_text"]
     assert "ready_for_engineering_isolation" not in stage3_entry["entry_text"]
     assert "real_acceptance_ready" not in stage3_entry["entry_text"]
+
+
+def test_results_gateway_exposes_stage3_standards_alignment_matrix_as_first_class_artifact_entry(
+    tmp_path: Path,
+) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+
+    gateway = ResultsGateway(
+        run_dir,
+        output_files_provider=facade.service.get_output_files,
+    )
+    reports_payload = gateway.read_reports_payload()
+    matrix_entry = dict(reports_payload.get("stage3_standards_alignment_matrix_artifact_entry", {}) or {})
+    rows_by_path = {
+        str(Path(str(row.get("path") or "")).resolve()): dict(row)
+        for row in reports_payload["files"]
+    }
+    matrix_json_path = str((run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME).resolve())
+    matrix_md_path = str((run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME).resolve())
+    matrix_json_row = rows_by_path[matrix_json_path]
+    matrix_md_row = rows_by_path[matrix_md_path]
+
+    assert matrix_entry["path"] == matrix_json_path
+    assert matrix_entry["reviewer_path"] == matrix_md_path
+    assert matrix_json_row["artifact_key"] == "stage3_standards_alignment_matrix"
+    assert matrix_json_row["artifact_role"] == "execution_summary"
+    assert matrix_md_row["artifact_key"] == "stage3_standards_alignment_matrix_reviewer_artifact"
+    assert matrix_md_row["artifact_role"] == "formal_analysis"
+    assert matrix_json_row["stage3_standards_alignment_matrix_artifact_entry"]["path"] == matrix_json_path
+    assert matrix_md_row["stage3_standards_alignment_matrix_artifact_entry"]["reviewer_path"] == matrix_md_path
+    assert matrix_json_row["name"] == (
+        "Stage 3 Standards Alignment Matrix / 第三阶段标准符合性映射与证据覆盖矩阵 (JSON)"
+    )
+    assert matrix_md_row["name"] == (
+        "Stage 3 Standards Alignment Matrix / 第三阶段标准符合性映射与证据覆盖矩阵 (Markdown)"
+    )
+    assert matrix_entry["summary_text"] == matrix_json_row["note"] == matrix_md_row["note"]
+    assert "Step 2 tail / Stage 3 bridge" in matrix_json_row["role_status_display"]
+    assert "engineering-isolation" in matrix_json_row["role_status_display"]
+    assert "simulation / offline / headless only" in matrix_md_row["role_status_display"]
+    assert "readiness mapping only" in matrix_entry["card_text"]
+    assert "not accreditation claim" in matrix_entry["card_text"]
+    assert "not compliance certification" in matrix_entry["card_text"]
+    assert "not real acceptance" in matrix_entry["card_text"]
+    assert "cannot replace real metrology validation" in matrix_entry["card_text"]
+    assert "JSON" in matrix_entry["card_text"]
+    assert "Markdown" in matrix_entry["card_text"]
+    assert "ISO/IEC 17025" in matrix_entry["standard_families_text"]
+    assert "CNAS-CL01-G003" in matrix_entry["standard_families_text"]
+    assert "ready_for_engineering_isolation" not in matrix_entry["entry_text"]
+    assert "real_acceptance_ready" not in matrix_entry["entry_text"]

@@ -27,6 +27,10 @@ from gas_calibrator.v2.core.stage3_real_validation_plan import (
     STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME,
     build_stage3_real_validation_plan,
 )
+from gas_calibrator.v2.core.stage3_standards_alignment_matrix import (
+    STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME,
+    STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME,
+)
 from gas_calibrator.v2.scripts.build_offline_governance_artifacts import main, rebuild_run, rebuild_suite
 
 
@@ -727,6 +731,86 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert manifest_after_rebuild["stage3_real_validation_plan_reviewer_artifact"]["path"] == str(
         run_dir / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME
     )
+
+
+def test_rebuild_run_generates_stage3_standards_alignment_matrix_artifacts(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+
+    payload = rebuild_run(run_dir)
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    matrix_json = json.loads((run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME).read_text(encoding="utf-8"))
+    matrix_markdown = (run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME).read_text(
+        encoding="utf-8"
+    )
+
+    assert (run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME).exists()
+    assert (run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME).exists()
+    assert payload["summary_stats"]["stage3_standards_alignment_matrix"]["artifact_type"] == (
+        "stage3_standards_alignment_matrix"
+    )
+    assert payload["summary_stats"]["stage3_standards_alignment_matrix_digest"]["mapping_scope"] == (
+        "family_topic_level_only"
+    )
+    assert payload["summary_stats"]["stage3_standards_alignment_matrix_digest"]["mapping_row_count"] == 9
+    assert payload["artifact_statuses"]["stage3_standards_alignment_matrix"]["role"] == "execution_summary"
+    assert payload["artifact_statuses"]["stage3_standards_alignment_matrix_reviewer_artifact"]["role"] == (
+        "formal_analysis"
+    )
+    assert payload["manifest_sections"]["stage3_standards_alignment_matrix"]["path"] == str(
+        run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME
+    )
+    assert payload["manifest_sections"]["stage3_standards_alignment_matrix"]["reviewer_path"] == str(
+        run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME
+    )
+    assert payload["manifest_sections"]["stage3_standards_alignment_matrix_reviewer_artifact"]["path"] == str(
+        run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME
+    )
+    assert str(run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME) in payload["remembered_files"]
+    assert str(run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME) in payload["remembered_files"]
+    assert summary["stats"]["artifact_exports"]["stage3_standards_alignment_matrix"]["role"] == (
+        "execution_summary"
+    )
+    assert summary["stats"]["artifact_exports"]["stage3_standards_alignment_matrix_reviewer_artifact"]["role"] == (
+        "formal_analysis"
+    )
+    assert str(run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME) in summary["stats"]["output_files"]
+    assert str(run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME) in summary["stats"]["output_files"]
+    assert manifest["stage3_standards_alignment_matrix"]["path"] == str(
+        run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME
+    )
+    assert manifest["stage3_standards_alignment_matrix"]["reviewer_path"] == str(
+        run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME
+    )
+    assert manifest["stage3_standards_alignment_matrix_reviewer_artifact"]["path"] == str(
+        run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME
+    )
+    assert matrix_json["mapping_scope"] == "family_topic_level_only"
+    assert matrix_json["standard_families"] == [
+        "中国气象局 / 气象行业观测与质量控制相关要求",
+        "CNAS-CL01",
+        "CNAS-CL01-G002",
+        "CNAS-CL01-G003",
+        "ISO/IEC 17025",
+        "ISO 6142 family",
+        "ISO 6143",
+        "ISO 6145 family",
+        "WMO / GAW QA",
+    ]
+    assert len(matrix_json["rows"]) == 9
+    assert all(row["mapping_level"] == "family_topic_level_only" for row in matrix_json["rows"])
+    assert all("clause" not in json.dumps(row, ensure_ascii=False).lower() for row in matrix_json["rows"])
+    assert "Step 2 tail / Stage 3 bridge" in matrix_markdown
+    assert "readiness mapping only" in matrix_markdown
+    assert "not accreditation claim" in matrix_markdown
+    assert "not compliance certification" in matrix_markdown
+    assert "not real acceptance" in matrix_markdown
+    assert "cannot replace real metrology validation" in matrix_markdown
+    assert "simulation / offline / headless only" in matrix_markdown
+    assert "stage3_real_validation_plan.json" in matrix_markdown
+    assert "ready_for_engineering_isolation" not in matrix_markdown
+    assert "real_acceptance_ready" not in matrix_markdown
 
 
 def test_rebuild_suite_generates_governance_artifacts(tmp_path: Path) -> None:
