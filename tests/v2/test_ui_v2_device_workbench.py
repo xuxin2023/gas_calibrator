@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import sys
 
 from gas_calibrator.v2.config import summarize_step2_config_safety
+from gas_calibrator.v2.core.multi_source_stability import MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME
 from gas_calibrator.v2.ui_v2.i18n import t
 
 SUPPORT_DIR = Path(__file__).resolve().parent
@@ -91,10 +92,15 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
     assert workbench["workbench"]["live_snapshot_evidence"]["point_taxonomy_summary"]["pressure_summary"] == (
         "ambient 1 | ambient_open 1"
     )
+    assert workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["available"] is True
+    assert workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["artifact_paths"][
+        "multi_source_stability_evidence"
+    ].endswith(MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME)
     assert workbench["workbench"]["live_snapshot_evidence"]["point_taxonomy_summary"]["pressure_mode_summary"] == (
         "ambient_open 2"
     )
     assert workbench["evidence"]["point_taxonomy_summary"]["flush_gate_summary"] == "pass 1 | veto 1 | rebound 1"
+    assert workbench["evidence"]["measurement_core_evidence"]["available"] is True
     assert workbench["history"]["items"] == []
     assert workbench["workbench"]["preset_center"]["groups"]
     assert workbench["workbench"]["preset_center"]["manager"]["supports_import_export"] is True

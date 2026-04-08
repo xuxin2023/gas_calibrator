@@ -3,6 +3,11 @@ from pathlib import Path
 import sys
 
 from gas_calibrator.v2.config import summarize_step2_config_safety
+from gas_calibrator.v2.core.controlled_state_machine_profile import STATE_TRANSITION_EVIDENCE_FILENAME
+from gas_calibrator.v2.core.multi_source_stability import (
+    MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME,
+    SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME,
+)
 
 SUPPORT_DIR = Path(__file__).resolve().parent
 if str(SUPPORT_DIR) not in sys.path:
@@ -104,6 +109,17 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
     assert "real_com_risk" in report_payload["config_safety"]["badge_ids"]
     assert report_payload["point_taxonomy_summary"]["pressure_summary"] == "ambient 1 | ambient_open 1"
     assert report_payload["point_taxonomy_summary"]["postseal_summary"] == "timeout blocked 1 | late rebound 1"
+    assert report_payload["measurement_core_evidence"]["available"] is True
+    assert report_payload["measurement_core_evidence"]["multi_source_stability_evidence"]["artifact_type"] == (
+        "multi_source_stability_evidence"
+    )
+    assert report_payload["measurement_core_evidence"]["state_transition_evidence"]["artifact_type"] == (
+        "state_transition_evidence"
+    )
+    assert report_payload["measurement_core_evidence"]["simulation_evidence_sidecar_bundle"]["artifact_type"] == (
+        "simulation_evidence_sidecar_bundle"
+    )
+    assert "shadow evaluation only" in report_payload["measurement_core_evidence"]["boundary_lines"]
     assert report_payload["publish_primary_latest_allowed"] is False
     assert report_payload["artifact_role"] == "diagnostic_analysis"
     assert report_payload["risk_level"] in {"medium", "high"}
@@ -122,10 +138,23 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
     assert snapshot_payload["qc_evidence_section"]["cards"]
     assert snapshot_payload["qc_review_cards"]
     assert snapshot_payload["point_taxonomy_summary"]["stale_gauge_summary"] == "points 1 | worst 25%"
+    assert snapshot_payload["measurement_core_evidence"]["artifact_paths"]["multi_source_stability_evidence"].endswith(
+        MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME
+    )
+    assert snapshot_payload["measurement_core_evidence"]["artifact_paths"]["state_transition_evidence"].endswith(
+        STATE_TRANSITION_EVIDENCE_FILENAME
+    )
+    assert snapshot_payload["measurement_core_evidence"]["artifact_paths"][
+        "simulation_evidence_sidecar_bundle"
+    ].endswith(SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME)
     assert report_payload["reference_quality"]["thermometer_reference_status"] == "stale"
     assert report_payload["simulation_context"]["workbench_reports"]
     assert "压力语义" in report_md_path.read_text(encoding="utf-8")
     assert "冲洗门禁" in report_md_path.read_text(encoding="utf-8")
+
+    assert "measurement-core readiness" in report_md_path.read_text(encoding="utf-8")
+    assert MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME in report_md_path.read_text(encoding="utf-8")
+    assert STATE_TRANSITION_EVIDENCE_FILENAME in report_md_path.read_text(encoding="utf-8")
 
     exports = summary_payload["stats"]["artifact_exports"]
     assert exports["workbench_action_report_json"]["role"] == "diagnostic_analysis"
@@ -188,6 +217,9 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
     assert results_snapshot["workbench_evidence_summary"]["point_taxonomy_summary"]["stale_gauge_summary"] == (
         "points 1 | worst 25%"
     )
+    assert results_snapshot["multi_source_stability_evidence"]["artifact_type"] == "multi_source_stability_evidence"
+    assert results_snapshot["state_transition_evidence"]["artifact_type"] == "state_transition_evidence"
+    assert results_snapshot["simulation_evidence_sidecar_bundle"]["artifact_type"] == "simulation_evidence_sidecar_bundle"
     assert results_snapshot["review_digest"]["items"]["workbench"]["available"] is True
     assert "diagnostic_analysis" in results_snapshot["artifact_role_summary"]
 

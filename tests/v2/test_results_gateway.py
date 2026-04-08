@@ -19,6 +19,15 @@ from gas_calibrator.v2.core.stage3_standards_alignment_matrix import (
     STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME,
     STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME,
 )
+from gas_calibrator.v2.core.controlled_state_machine_profile import (
+    STATE_TRANSITION_EVIDENCE_FILENAME,
+    STATE_TRANSITION_EVIDENCE_MARKDOWN_FILENAME,
+)
+from gas_calibrator.v2.core.multi_source_stability import (
+    MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME,
+    MULTI_SOURCE_STABILITY_EVIDENCE_MARKDOWN_FILENAME,
+    SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME,
+)
 from gas_calibrator.v2.ui_v2.artifact_registry_governance import build_role_by_key
 from gas_calibrator.v2.scripts.build_offline_governance_artifacts import rebuild_run
 
@@ -900,3 +909,63 @@ def test_results_gateway_exposes_stage3_standards_alignment_matrix_as_first_clas
     assert "CNAS-CL01-G003" in matrix_entry["standard_families_text"]
     assert "ready_for_engineering_isolation" not in matrix_entry["entry_text"]
     assert "real_acceptance_ready" not in matrix_entry["entry_text"]
+
+
+def test_results_gateway_exposes_measurement_core_evidence_artifacts(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+
+    gateway = ResultsGateway(
+        run_dir,
+        output_files_provider=facade.service.get_output_files,
+    )
+    results_payload = gateway.read_results_payload()
+    reports_payload = gateway.read_reports_payload()
+    rows_by_path = {
+        str(Path(str(row.get("path") or "")).resolve()): dict(row)
+        for row in reports_payload["files"]
+    }
+
+    stability_json_path = str((run_dir / MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME).resolve())
+    stability_md_path = str((run_dir / MULTI_SOURCE_STABILITY_EVIDENCE_MARKDOWN_FILENAME).resolve())
+    transition_json_path = str((run_dir / STATE_TRANSITION_EVIDENCE_FILENAME).resolve())
+    transition_md_path = str((run_dir / STATE_TRANSITION_EVIDENCE_MARKDOWN_FILENAME).resolve())
+    sidecar_path = str((run_dir / SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME).resolve())
+
+    assert Path(stability_json_path).exists()
+    assert Path(stability_md_path).exists()
+    assert Path(transition_json_path).exists()
+    assert Path(transition_md_path).exists()
+    assert Path(sidecar_path).exists()
+
+    assert results_payload["multi_source_stability_evidence"]["artifact_type"] == "multi_source_stability_evidence"
+    assert results_payload["state_transition_evidence"]["artifact_type"] == "state_transition_evidence"
+    assert results_payload["simulation_evidence_sidecar_bundle"]["artifact_type"] == "simulation_evidence_sidecar_bundle"
+    assert "shadow evaluation only" in results_payload["multi_source_stability_evidence"]["boundary_statements"]
+    assert "does not modify live sampling gate by default" in results_payload["state_transition_evidence"][
+        "boundary_statements"
+    ]
+    assert "future database intake / sidecar-ready" in results_payload["simulation_evidence_sidecar_bundle"][
+        "boundary_statements"
+    ]
+
+    stability_json_row = rows_by_path[stability_json_path]
+    stability_md_row = rows_by_path[stability_md_path]
+    transition_json_row = rows_by_path[transition_json_path]
+    transition_md_row = rows_by_path[transition_md_path]
+    sidecar_row = rows_by_path[sidecar_path]
+
+    assert stability_json_row["artifact_key"] == "multi_source_stability_evidence"
+    assert stability_json_row["artifact_role"] == "diagnostic_analysis"
+    assert stability_md_row["artifact_key"] == "multi_source_stability_evidence_markdown"
+    assert transition_json_row["artifact_key"] == "state_transition_evidence"
+    assert transition_md_row["artifact_key"] == "state_transition_evidence_markdown"
+    assert sidecar_row["artifact_key"] == "simulation_evidence_sidecar_bundle"
+    assert sidecar_row["artifact_role"] == "execution_summary"
+    assert "shadow evaluation only" in stability_json_row["role_status_display"]
+    assert "does not modify live sampling gate by default" in stability_json_row["note"]
+    assert "fixed canonical states" in transition_json_row["note"]
+    assert "Future database intake only" in sidecar_row["note"]
+    assert "shadow_evaluation_results" not in stability_json_row["note"]
+    assert "live_gate" not in stability_json_row["note"]
+    assert "compliance" not in sidecar_row["note"].lower()
