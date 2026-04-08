@@ -760,6 +760,36 @@ def test_review_center_panel_exposes_stage_admission_review_pack_as_dedicated_en
         root.destroy()
 
 
+def test_review_center_panel_exposes_engineering_isolation_admission_checklist_as_dedicated_entry(
+    tmp_path: Path,
+) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+    payload = facade.build_results_snapshot()["review_center"]
+    checklist_entry = dict(payload.get("engineering_isolation_admission_checklist_artifact_entry", {}) or {})
+
+    root = make_root()
+    try:
+        panel = ReviewCenterPanel(root, compact=True)
+        panel.render(payload)
+        root.update_idletasks()
+
+        assert panel.engineering_isolation_admission_checklist_frame.winfo_manager() == "grid"
+        assert panel.engineering_isolation_admission_checklist_title_var.get() == checklist_entry["name_text"]
+        assert panel.engineering_isolation_admission_checklist_status_var.get() == checklist_entry["role_status_display"]
+        assert panel.engineering_isolation_admission_checklist_path_var.get() == checklist_entry["reviewer_path"]
+        assert panel.engineering_isolation_admission_checklist_note_var.get() == checklist_entry["note_text"]
+        assert "Step 2 tail / Stage 3 bridge" in panel.engineering_isolation_admission_checklist_status_var.get()
+        assert "engineering-isolation" in panel.engineering_isolation_admission_checklist_status_var.get()
+        assert "涓嶆槸 real acceptance" in panel.engineering_isolation_admission_checklist_status_var.get()
+        assert "涓嶈兘鏇夸唬鐪熷疄璁￠噺楠岃瘉" in panel.engineering_isolation_admission_checklist_status_var.get()
+        assert "ready_for_engineering_isolation" not in panel.engineering_isolation_admission_checklist_status_var.get()
+        assert "real_acceptance_ready" not in panel.engineering_isolation_admission_checklist_status_var.get()
+    finally:
+        root.destroy()
+
+
 def test_review_center_keeps_stage_admission_review_pack_markdown_aligned_with_pack_entry(
     tmp_path: Path,
 ) -> None:
@@ -788,7 +818,7 @@ def test_review_center_keeps_stage_admission_review_pack_markdown_aligned_with_p
     assert "real_acceptance_ready" not in pack_markdown
 
 
-def test_review_center_keeps_engineering_isolation_checklist_markdown_aligned_with_pack_entry(
+def test_review_center_keeps_engineering_isolation_checklist_markdown_aligned_with_checklist_entry(
     tmp_path: Path,
 ) -> None:
     facade = build_fake_facade(tmp_path)
@@ -796,19 +826,20 @@ def test_review_center_keeps_engineering_isolation_checklist_markdown_aligned_wi
     rebuild_run(run_dir)
 
     results_snapshot = facade.build_results_snapshot()
-    pack_entry = dict(
-        results_snapshot["review_center"].get("stage_admission_review_pack_artifact_entry", {}) or {}
+    checklist_entry = dict(
+        results_snapshot["review_center"].get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
     )
     checklist_markdown = (run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME).read_text(
         encoding="utf-8"
     )
 
-    assert pack_entry["status_line"] in checklist_markdown
-    assert pack_entry["engineering_isolation_text"] in checklist_markdown
-    assert pack_entry["real_acceptance_text"] in checklist_markdown
-    assert pack_entry["execute_now_text"] in checklist_markdown
-    assert pack_entry["defer_to_stage3_text"] in checklist_markdown
-    assert pack_entry["warning_text"] in checklist_markdown
+    assert checklist_entry["summary_text"] in checklist_markdown
+    assert checklist_entry["status_line"] in checklist_markdown
+    assert checklist_entry["engineering_isolation_text"] in checklist_markdown
+    assert checklist_entry["real_acceptance_text"] in checklist_markdown
+    assert checklist_entry["execute_now_text"] in checklist_markdown
+    assert checklist_entry["defer_to_stage3_text"] in checklist_markdown
+    assert checklist_entry["warning_text"] in checklist_markdown
     assert "Step 2 tail / Stage 3 bridge" in checklist_markdown
     assert "engineering-isolation" in checklist_markdown
     assert "不是 real acceptance" in checklist_markdown

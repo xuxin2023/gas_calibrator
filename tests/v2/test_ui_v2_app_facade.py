@@ -19,6 +19,10 @@ from gas_calibrator.v2.core.stage_admission_review_pack import (
     STAGE_ADMISSION_REVIEW_PACK_FILENAME,
     STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME,
 )
+from gas_calibrator.v2.core.engineering_isolation_admission_checklist import (
+    ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME,
+    ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME,
+)
 from gas_calibrator.v2.ui_v2.controllers.app_facade import AppFacade
 from ui_v2_support import build_fake_facade
 
@@ -1531,6 +1535,46 @@ def test_app_facade_promotes_stage_admission_review_pack_into_review_center(tmp_
     assert "不是 real acceptance" in review_center_entry["entry_text"]
     assert "不能替代真实计量验证" in review_center_entry["entry_text"]
     assert review_center_entry["ready_for_engineering_isolation"] is False
+    assert review_center_entry["real_acceptance_ready"] is False
+    assert "ready_for_engineering_isolation" not in review_center_entry["entry_text"]
+    assert "real_acceptance_ready" not in review_center_entry["entry_text"]
+
+
+def test_app_facade_promotes_engineering_isolation_admission_checklist_into_review_center(
+    tmp_path: Path,
+) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+
+    results_snapshot = facade.build_results_snapshot()
+    reports_snapshot = facade.get_reports_snapshot(results_snapshot=results_snapshot)
+    review_center_entry = dict(
+        results_snapshot["review_center"].get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
+    )
+    reports_entry = dict(
+        reports_snapshot.get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
+    )
+
+    assert review_center_entry["path"] == reports_entry["path"]
+    assert review_center_entry["reviewer_path"] == reports_entry["reviewer_path"]
+    assert review_center_entry["summary_text"] == reports_entry["summary_text"]
+    assert review_center_entry["status_line"] == reports_entry["status_line"]
+    assert review_center_entry["stage_marker_text"] == reports_entry["stage_marker_text"]
+    assert review_center_entry["engineering_isolation_text"] == reports_entry["engineering_isolation_text"]
+    assert review_center_entry["real_acceptance_text"] == reports_entry["real_acceptance_text"]
+    assert review_center_entry["execute_now_text"] == reports_entry["execute_now_text"]
+    assert review_center_entry["defer_to_stage3_text"] == reports_entry["defer_to_stage3_text"]
+    assert review_center_entry["warning_text"] == reports_entry["warning_text"]
+    assert review_center_entry["path"].endswith(ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME)
+    assert review_center_entry["reviewer_path"].endswith(
+        ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME
+    )
+    assert "Step 2 tail / Stage 3 bridge" in review_center_entry["entry_text"]
+    assert "engineering-isolation" in review_center_entry["entry_text"]
+    assert "涓嶆槸 real acceptance" in review_center_entry["entry_text"]
+    assert "涓嶈兘鏇夸唬鐪熷疄璁￠噺楠岃瘉" in review_center_entry["entry_text"]
+    assert review_center_entry["ready_for_engineering_isolation"] is True
     assert review_center_entry["real_acceptance_ready"] is False
     assert "ready_for_engineering_isolation" not in review_center_entry["entry_text"]
     assert "real_acceptance_ready" not in review_center_entry["entry_text"]

@@ -1459,8 +1459,15 @@ def test_review_scope_manifest_and_export_index_surface_stage_admission_review_p
     pack_entry = dict(manifest_payload.get("stage_admission_review_pack_artifact_entry", {}) or {})
     export_pack_entry = dict(export_index["latest"].get("stage_admission_review_pack_artifact_entry", {}) or {})
     reports_entry = dict(reports_snapshot.get("stage_admission_review_pack_artifact_entry", {}) or {})
+    checklist_entry = dict(manifest_payload.get("engineering_isolation_admission_checklist_artifact_entry", {}) or {})
+    export_checklist_entry = dict(
+        export_index["latest"].get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
+    )
+    reports_entry = dict(
+        reports_snapshot.get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
+    )
     review_center_entry = dict(
-        results_snapshot["review_center"].get("stage_admission_review_pack_artifact_entry", {}) or {}
+        results_snapshot["review_center"].get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
     )
     pack_json_path = str((run_dir / STAGE_ADMISSION_REVIEW_PACK_FILENAME).resolve())
     pack_md_path = str((run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME).resolve())
@@ -1581,15 +1588,19 @@ def test_review_scope_manifest_and_export_index_surface_engineering_isolation_ad
     )
     checklist_json_path = str((run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME).resolve())
     checklist_md_path = str((run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME).resolve())
+    checklist_json_row = reports_rows_by_path[checklist_json_path]
+    checklist_md_row = reports_rows_by_path[checklist_md_path]
 
-    assert ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME in rows_by_name
-    assert ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME in rows_by_name
-    assert rows_by_name[ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME]["artifact_role"] == "execution_summary"
-    assert rows_by_name[ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME]["artifact_role"] == (
-        "formal_analysis"
+    assert "Engineering Isolation Admission Checklist / 工程隔离准入清单 (JSON)" in rows_by_name
+    assert "Engineering Isolation Admission Checklist / 工程隔离准入清单 (Markdown)" in rows_by_name
+    assert rows_by_name["Engineering Isolation Admission Checklist / 工程隔离准入清单 (JSON)"]["artifact_role"] == (
+        "execution_summary"
     )
-    assert reports_rows_by_path[checklist_json_path]["artifact_role"] == "execution_summary"
-    assert reports_rows_by_path[checklist_md_path]["artifact_role"] == "formal_analysis"
+    assert rows_by_name["Engineering Isolation Admission Checklist / 工程隔离准入清单 (Markdown)"][
+        "artifact_role"
+    ] == "formal_analysis"
+    assert checklist_json_row["artifact_role"] == "execution_summary"
+    assert checklist_md_row["artifact_role"] == "formal_analysis"
     assert rebuild_payload["artifact_statuses"]["engineering_isolation_admission_checklist"]["path"] == str(
         run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME
     )
@@ -1607,6 +1618,25 @@ def test_review_scope_manifest_and_export_index_surface_engineering_isolation_ad
     )
     assert str(run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME) in rebuild_payload["remembered_files"]
     assert str(run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME) in rebuild_payload["remembered_files"]
+    assert checklist_entry["path"] == checklist_json_path
+    assert checklist_entry["reviewer_path"] == checklist_md_path
+    assert export_checklist_entry["path"] == checklist_entry["path"]
+    assert export_checklist_entry["reviewer_path"] == checklist_entry["reviewer_path"]
+    assert reports_entry["path"] == checklist_entry["path"]
+    assert reports_entry["reviewer_path"] == checklist_entry["reviewer_path"]
+    assert review_center_entry["path"] == checklist_entry["path"]
+    assert review_center_entry["reviewer_path"] == checklist_entry["reviewer_path"]
+    assert reports_entry["summary_text"] == checklist_entry["summary_text"]
+    assert review_center_entry["summary_text"] == checklist_entry["summary_text"]
+    assert checklist_json_row["engineering_isolation_admission_checklist_artifact_entry"]["path"] == checklist_json_path
+    assert (
+        checklist_md_row["engineering_isolation_admission_checklist_artifact_entry"]["reviewer_path"]
+        == checklist_md_path
+    )
+    assert checklist_json_row["name"] == "Engineering Isolation Admission Checklist / 工程隔离准入清单 (JSON)"
+    assert checklist_md_row["name"] == "Engineering Isolation Admission Checklist / 工程隔离准入清单 (Markdown)"
+    assert checklist_json_row["note"] == checklist_entry["summary_text"]
+    assert checklist_md_row["note"] == checklist_entry["summary_text"]
     assert export_index["latest"]["batch_id"] == result["batch_id"]
     assert export_index["latest"]["selection_snapshot"]["scope"] == "all"
     assert checklist_raw["artifact_type"] == "engineering_isolation_admission_checklist"
@@ -1618,14 +1648,20 @@ def test_review_scope_manifest_and_export_index_surface_engineering_isolation_ad
     )
     assert isinstance(checklist_raw["ready_for_engineering_isolation"], bool)
     assert isinstance(checklist_raw["real_acceptance_ready"], bool)
-    assert review_center_entry["status_line"] in checklist_markdown
-    assert review_center_entry["engineering_isolation_text"] in checklist_markdown
-    assert review_center_entry["real_acceptance_text"] in checklist_markdown
-    assert review_center_entry["execute_now_text"] in checklist_markdown
-    assert review_center_entry["defer_to_stage3_text"] in checklist_markdown
+    assert checklist_entry["summary_text"] in checklist_markdown
+    assert checklist_entry["status_line"] in checklist_markdown
+    assert checklist_entry["engineering_isolation_text"] in checklist_markdown
+    assert checklist_entry["real_acceptance_text"] in checklist_markdown
+    assert checklist_entry["execute_now_text"] in checklist_markdown
+    assert checklist_entry["defer_to_stage3_text"] in checklist_markdown
     for text in (
         checklist_markdown,
+        checklist_entry["entry_text"],
+        export_checklist_entry["entry_text"],
+        reports_entry["entry_text"],
         review_center_entry["entry_text"],
+        checklist_json_row["role_status_display"],
+        checklist_md_row["role_status_display"],
     ):
         assert "Step 2 tail / Stage 3 bridge" in text
         assert "engineering-isolation" in text

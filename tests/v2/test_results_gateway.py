@@ -7,6 +7,10 @@ from gas_calibrator.v2.core.stage_admission_review_pack import (
     STAGE_ADMISSION_REVIEW_PACK_FILENAME,
     STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME,
 )
+from gas_calibrator.v2.core.engineering_isolation_admission_checklist import (
+    ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME,
+    ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME,
+)
 from gas_calibrator.v2.ui_v2.artifact_registry_governance import build_role_by_key
 from gas_calibrator.v2.scripts.build_offline_governance_artifacts import rebuild_run
 
@@ -731,3 +735,53 @@ def test_results_gateway_exposes_stage_admission_review_pack_as_first_class_arti
     assert "不能替代真实计量验证" in pack_entry["entry_text"]
     assert pack_entry["ready_for_engineering_isolation"] is False
     assert pack_entry["real_acceptance_ready"] is False
+
+
+def test_results_gateway_exposes_engineering_isolation_admission_checklist_as_first_class_artifact_entry(
+    tmp_path: Path,
+) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+
+    gateway = ResultsGateway(
+        run_dir,
+        output_files_provider=facade.service.get_output_files,
+    )
+    reports_payload = gateway.read_reports_payload()
+    checklist_entry = dict(
+        reports_payload.get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
+    )
+    rows_by_path = {
+        str(Path(str(row.get("path") or "")).resolve()): dict(row)
+        for row in reports_payload["files"]
+    }
+    checklist_json_path = str((run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME).resolve())
+    checklist_md_path = str((run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME).resolve())
+    checklist_json_row = rows_by_path[checklist_json_path]
+    checklist_md_row = rows_by_path[checklist_md_path]
+
+    assert checklist_entry["path"] == checklist_json_path
+    assert checklist_entry["reviewer_path"] == checklist_md_path
+    assert checklist_json_row["artifact_key"] == "engineering_isolation_admission_checklist"
+    assert checklist_json_row["artifact_role"] == "execution_summary"
+    assert checklist_md_row["artifact_key"] == "engineering_isolation_admission_checklist_reviewer_artifact"
+    assert checklist_md_row["artifact_role"] == "formal_analysis"
+    assert checklist_json_row["engineering_isolation_admission_checklist_artifact_entry"]["path"] == checklist_json_path
+    assert (
+        checklist_md_row["engineering_isolation_admission_checklist_artifact_entry"]["reviewer_path"]
+        == checklist_md_path
+    )
+    assert checklist_json_row["name"] == "Engineering Isolation Admission Checklist / 工程隔离准入清单 (JSON)"
+    assert checklist_md_row["name"] == "Engineering Isolation Admission Checklist / 工程隔离准入清单 (Markdown)"
+    assert checklist_entry["summary_text"] == checklist_json_row["note"] == checklist_md_row["note"]
+    assert "execution_summary" not in checklist_json_row["role_status_display"]
+    assert "formal_analysis" not in checklist_md_row["role_status_display"]
+    assert "Step 2 tail / Stage 3 bridge" in checklist_json_row["role_status_display"]
+    assert "engineering-isolation" in checklist_json_row["role_status_display"]
+    assert "涓嶆槸 real acceptance" in checklist_md_row["role_status_display"]
+    assert checklist_entry["execute_now_text"] in checklist_entry["entry_text"]
+    assert checklist_entry["defer_to_stage3_text"] in checklist_entry["entry_text"]
+    assert "涓嶈兘鏇夸唬鐪熷疄璁￠噺楠岃瘉" in checklist_entry["entry_text"]
+    assert checklist_entry["ready_for_engineering_isolation"] is True
+    assert checklist_entry["real_acceptance_ready"] is False
