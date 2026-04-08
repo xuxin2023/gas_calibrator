@@ -807,6 +807,7 @@ def test_engineering_isolation_admission_checklist_artifact_entry_reuses_checkli
         },
     )
     bridge = build_phase_transition_bridge(
+        run_id="run_checklist_entry",
         step2_readiness_summary=readiness,
         metrology_calibration_contract=metrology,
     )
