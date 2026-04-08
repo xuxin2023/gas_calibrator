@@ -664,16 +664,6 @@ def test_reports_page_keeps_phase_bridge_section_aligned_with_reviewer_artifact_
     rebuild_run(run_dir)
     results_snapshot = facade.build_results_snapshot()
     reports_snapshot = facade.get_reports_snapshot(results_snapshot=results_snapshot)
-    review_center_entry = dict(
-        results_snapshot["review_center"].get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
-    )
-    checklist_entry = dict(
-        reports_snapshot.get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
-    )
-    rows_by_path = {
-        str(row.get("path") or ""): dict(row)
-        for row in list(reports_snapshot.get("files", []) or [])
-    }
     reviewer_entry = dict(reports_snapshot.get("phase_transition_bridge_reviewer_artifact_entry", {}) or {})
 
     root = make_root()
@@ -777,6 +767,16 @@ def test_reports_page_artifact_list_surfaces_engineering_isolation_admission_che
     rebuild_run(run_dir)
     results_snapshot = facade.build_results_snapshot()
     reports_snapshot = facade.get_reports_snapshot(results_snapshot=results_snapshot)
+    review_center_entry = dict(
+        results_snapshot["review_center"].get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
+    )
+    checklist_entry = dict(
+        reports_snapshot.get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
+    )
+    rows_by_path = {
+        str(row.get("path") or ""): dict(row)
+        for row in list(reports_snapshot.get("files", []) or [])
+    }
 
     root = make_root()
     try:
@@ -803,18 +803,16 @@ def test_reports_page_artifact_list_surfaces_engineering_isolation_admission_che
         assert checklist_md_path in rows_by_path
         assert rows_by_path[checklist_json_path]["note"] == checklist_entry["summary_text"]
         assert rows_by_path[checklist_md_path]["note"] == checklist_entry["summary_text"]
+        assert rows_by_path[checklist_json_path]["artifact_role"] == "execution_summary"
+        assert rows_by_path[checklist_md_path]["artifact_role"] == "formal_analysis"
         assert "Engineering Isolation Admission Checklist / 工程隔离准入清单 (JSON)" in rows_by_name
         assert "Engineering Isolation Admission Checklist / 工程隔离准入清单 (Markdown)" in rows_by_name
-        rows_by_name.setdefault(
-            ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME,
-            ("", "", "", "执行摘要", checklist_json_path),
-        )
-        rows_by_name.setdefault(
-            ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME,
-            ("", "", "", "正式分析", checklist_md_path),
-        )
-        assert "执行摘要" in rows_by_name[ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME][3]
-        assert "正式分析" in rows_by_name[ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME][3]
+        assert checklist_entry["stage_marker_text"] in rows_by_name[
+            "Engineering Isolation Admission Checklist / 工程隔离准入清单 (JSON)"
+        ][3]
+        assert checklist_entry["warning_text"] in rows_by_name[
+            "Engineering Isolation Admission Checklist / 工程隔离准入清单 (Markdown)"
+        ][3]
         assert "Step 2 tail / Stage 3 bridge" in checklist_markdown
         assert "engineering-isolation" in checklist_markdown
         assert "当前执行" in checklist_markdown

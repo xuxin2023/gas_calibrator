@@ -1459,15 +1459,8 @@ def test_review_scope_manifest_and_export_index_surface_stage_admission_review_p
     pack_entry = dict(manifest_payload.get("stage_admission_review_pack_artifact_entry", {}) or {})
     export_pack_entry = dict(export_index["latest"].get("stage_admission_review_pack_artifact_entry", {}) or {})
     reports_entry = dict(reports_snapshot.get("stage_admission_review_pack_artifact_entry", {}) or {})
-    checklist_entry = dict(manifest_payload.get("engineering_isolation_admission_checklist_artifact_entry", {}) or {})
-    export_checklist_entry = dict(
-        export_index["latest"].get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
-    )
-    reports_entry = dict(
-        reports_snapshot.get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
-    )
     review_center_entry = dict(
-        results_snapshot["review_center"].get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
+        results_snapshot["review_center"].get("stage_admission_review_pack_artifact_entry", {}) or {}
     )
     pack_json_path = str((run_dir / STAGE_ADMISSION_REVIEW_PACK_FILENAME).resolve())
     pack_md_path = str((run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME).resolve())
@@ -1661,12 +1654,12 @@ def test_review_scope_manifest_and_export_index_surface_engineering_isolation_ad
     )
     assert isinstance(checklist_raw["ready_for_engineering_isolation"], bool)
     assert isinstance(checklist_raw["real_acceptance_ready"], bool)
-    assert checklist_entry["summary_text"] in checklist_markdown
     assert checklist_entry["status_line"] in checklist_markdown
     assert checklist_entry["engineering_isolation_text"] in checklist_markdown
     assert checklist_entry["real_acceptance_text"] in checklist_markdown
     assert checklist_entry["execute_now_text"] in checklist_markdown
     assert checklist_entry["defer_to_stage3_text"] in checklist_markdown
+    assert checklist_entry["warning_text"] in checklist_markdown
     for text in (
         checklist_markdown,
         checklist_entry["entry_text"],

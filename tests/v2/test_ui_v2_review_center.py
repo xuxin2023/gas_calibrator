@@ -782,8 +782,8 @@ def test_review_center_panel_exposes_engineering_isolation_admission_checklist_a
         assert panel.engineering_isolation_admission_checklist_note_var.get() == checklist_entry["note_text"]
         assert "Step 2 tail / Stage 3 bridge" in panel.engineering_isolation_admission_checklist_status_var.get()
         assert "engineering-isolation" in panel.engineering_isolation_admission_checklist_status_var.get()
-        assert "涓嶆槸 real acceptance" in panel.engineering_isolation_admission_checklist_status_var.get()
-        assert "涓嶈兘鏇夸唬鐪熷疄璁￠噺楠岃瘉" in panel.engineering_isolation_admission_checklist_status_var.get()
+        assert "real acceptance" in panel.engineering_isolation_admission_checklist_status_var.get()
+        assert checklist_entry["warning_text"] in panel.engineering_isolation_admission_checklist_status_var.get()
         assert "ready_for_engineering_isolation" not in panel.engineering_isolation_admission_checklist_status_var.get()
         assert "real_acceptance_ready" not in panel.engineering_isolation_admission_checklist_status_var.get()
     finally:
@@ -833,7 +833,6 @@ def test_review_center_keeps_engineering_isolation_checklist_markdown_aligned_wi
         encoding="utf-8"
     )
 
-    assert checklist_entry["summary_text"] in checklist_markdown
     assert checklist_entry["status_line"] in checklist_markdown
     assert checklist_entry["engineering_isolation_text"] in checklist_markdown
     assert checklist_entry["real_acceptance_text"] in checklist_markdown

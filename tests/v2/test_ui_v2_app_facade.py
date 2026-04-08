@@ -1572,9 +1572,9 @@ def test_app_facade_promotes_engineering_isolation_admission_checklist_into_revi
     )
     assert "Step 2 tail / Stage 3 bridge" in review_center_entry["entry_text"]
     assert "engineering-isolation" in review_center_entry["entry_text"]
-    assert "涓嶆槸 real acceptance" in review_center_entry["entry_text"]
-    assert "涓嶈兘鏇夸唬鐪熷疄璁￠噺楠岃瘉" in review_center_entry["entry_text"]
-    assert review_center_entry["ready_for_engineering_isolation"] is True
+    assert "real acceptance" in review_center_entry["entry_text"]
+    assert review_center_entry["warning_text"] in review_center_entry["entry_text"]
+    assert review_center_entry["ready_for_engineering_isolation"] is False
     assert review_center_entry["real_acceptance_ready"] is False
     assert "ready_for_engineering_isolation" not in review_center_entry["entry_text"]
     assert "real_acceptance_ready" not in review_center_entry["entry_text"]

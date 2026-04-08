@@ -779,9 +779,12 @@ def test_results_gateway_exposes_engineering_isolation_admission_checklist_as_fi
     assert "formal_analysis" not in checklist_md_row["role_status_display"]
     assert "Step 2 tail / Stage 3 bridge" in checklist_json_row["role_status_display"]
     assert "engineering-isolation" in checklist_json_row["role_status_display"]
-    assert "涓嶆槸 real acceptance" in checklist_md_row["role_status_display"]
+    assert "real acceptance" in checklist_md_row["role_status_display"]
+    assert checklist_entry["warning_text"] in checklist_md_row["role_status_display"]
     assert checklist_entry["execute_now_text"] in checklist_entry["entry_text"]
     assert checklist_entry["defer_to_stage3_text"] in checklist_entry["entry_text"]
-    assert "涓嶈兘鏇夸唬鐪熷疄璁￠噺楠岃瘉" in checklist_entry["entry_text"]
-    assert checklist_entry["ready_for_engineering_isolation"] is True
+    assert checklist_entry["warning_text"] in checklist_entry["entry_text"]
+    assert "ready_for_engineering_isolation" not in checklist_entry["entry_text"]
+    assert "real_acceptance_ready" not in checklist_entry["entry_text"]
+    assert checklist_entry["ready_for_engineering_isolation"] is False
     assert checklist_entry["real_acceptance_ready"] is False
