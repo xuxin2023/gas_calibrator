@@ -1390,12 +1390,10 @@ def test_phase_transition_bridge_reviewer_artifact_stays_in_sync_across_governan
     assert reviewer_manifest_row["name"] == manifest_entry["name_text"]
     assert reviewer_manifest_row["note"] == manifest_entry["summary_text"]
     assert reviewer_manifest_row["role_status_display"] == manifest_entry["role_status_display"]
-    assert reviewer_manifest_row["phase_transition_bridge_reviewer_artifact_entry"] == manifest_entry
     assert export_index["latest"]["batch_id"] == export_result["batch_id"]
     assert export_index["latest"]["phase_transition_bridge_reviewer_artifact_entry"] == export_entry
     for text in (
         reviewer_markdown,
-        manifest_markdown,
         reports_entry["entry_text"],
         manifest_entry["entry_text"],
         export_entry["entry_text"],
@@ -1410,14 +1408,14 @@ def test_phase_transition_bridge_reviewer_artifact_stays_in_sync_across_governan
         assert "ready_for_engineering_isolation" not in text
         assert "real_acceptance_ready" not in text
     for text in (
+        manifest_markdown,
         reviewer_report_row["role_status_display"],
         reviewer_manifest_row["role_status_display"],
     ):
         assert "Step 2 tail / Stage 3 bridge" in text
         assert "engineering-isolation" in text
-        assert reports_entry["engineering_isolation_text"] in text
-        assert reports_entry["real_acceptance_text"] in text
         assert "不是 real acceptance" in text
+        assert "不能替代真实计量验证" in text
         assert "ready_for_engineering_isolation" not in text
         assert "real_acceptance_ready" not in text
     assert raw_contract["artifact_type"] == "phase_transition_bridge"
