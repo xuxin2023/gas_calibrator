@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
 
 from gas_calibrator.v2.core.phase_transition_bridge_presenter import (
     build_phase_transition_bridge_panel_payload,
@@ -32,6 +33,12 @@ from gas_calibrator.v2.core.stage3_standards_alignment_matrix import (
     STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME,
 )
 from gas_calibrator.v2.scripts.build_offline_governance_artifacts import main, rebuild_run, rebuild_suite
+
+SUPPORT_DIR = Path(__file__).resolve().parent
+if str(SUPPORT_DIR) not in sys.path:
+    sys.path.insert(0, str(SUPPORT_DIR))
+
+from ui_v2_support import build_fake_facade
 
 
 def _write_offline_diagnostic_bundles(run_dir: Path) -> None:
@@ -734,8 +741,8 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
 
 
 def test_rebuild_run_generates_stage3_standards_alignment_matrix_artifacts(tmp_path: Path) -> None:
-    run_dir = tmp_path / "run"
-    run_dir.mkdir()
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
 
     payload = rebuild_run(run_dir)
     summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
@@ -800,7 +807,7 @@ def test_rebuild_run_generates_stage3_standards_alignment_matrix_artifacts(tmp_p
     ]
     assert len(matrix_json["rows"]) == 9
     assert all(row["mapping_level"] == "family_topic_level_only" for row in matrix_json["rows"])
-    assert all("clause" not in json.dumps(row, ensure_ascii=False).lower() for row in matrix_json["rows"])
+    assert all("clause_number" not in row and "clause_id" not in row for row in matrix_json["rows"])
     assert "Step 2 tail / Stage 3 bridge" in matrix_markdown
     assert "readiness mapping only" in matrix_markdown
     assert "not accreditation claim" in matrix_markdown

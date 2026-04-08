@@ -905,3 +905,78 @@ def test_reports_page_artifact_list_surfaces_stage3_real_validation_plan_from_sa
         assert "real_acceptance_ready" not in stage3_markdown
     finally:
         root.destroy()
+
+
+def test_reports_page_artifact_list_surfaces_stage3_standards_alignment_matrix_from_same_rebuilt_run(
+    tmp_path: Path,
+) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+    results_snapshot = facade.build_results_snapshot()
+    reports_snapshot = facade.get_reports_snapshot(results_snapshot=results_snapshot)
+    review_center_entry = dict(
+        results_snapshot["review_center"].get("stage3_standards_alignment_matrix_artifact_entry", {}) or {}
+    )
+    matrix_entry = dict(reports_snapshot.get("stage3_standards_alignment_matrix_artifact_entry", {}) or {})
+    rows_by_path = {
+        str(row.get("path") or ""): dict(row)
+        for row in list(reports_snapshot.get("files", []) or [])
+    }
+
+    root = make_root()
+    try:
+        page = ReportsPage(root)
+        page.render(reports_snapshot)
+        tree_values = [
+            page.artifacts.tree.item(item, "values")
+            for item in page.artifacts.tree.get_children()
+        ]
+        tree_paths = {str(values[4]): values for values in tree_values if len(values) >= 5}
+        matrix_markdown = (
+            run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME
+        ).read_text(encoding="utf-8")
+        matrix_json_path = str((run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME).resolve())
+        matrix_md_path = str((run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME).resolve())
+
+        assert matrix_json_path in rows_by_path
+        assert matrix_md_path in rows_by_path
+        assert rows_by_path[matrix_json_path]["artifact_role"] == "execution_summary"
+        assert rows_by_path[matrix_md_path]["artifact_role"] == "formal_analysis"
+        assert matrix_entry["path"] == matrix_json_path
+        assert matrix_entry["reviewer_path"] == matrix_md_path
+        assert matrix_entry == review_center_entry
+        assert rows_by_path[matrix_json_path]["stage3_standards_alignment_matrix_artifact_entry"]["path"] == (
+            matrix_json_path
+        )
+        assert rows_by_path[matrix_md_path]["stage3_standards_alignment_matrix_artifact_entry"]["reviewer_path"] == (
+            matrix_md_path
+        )
+        assert matrix_json_path in tree_paths
+        assert matrix_md_path in tree_paths
+        assert tree_paths[matrix_json_path][4].endswith(STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME)
+        assert tree_paths[matrix_md_path][4].endswith(STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME)
+        assert rows_by_path[matrix_json_path]["note"] == matrix_entry["summary_text"]
+        assert rows_by_path[matrix_md_path]["note"] == matrix_entry["summary_text"]
+        assert tree_paths[matrix_json_path][0] == (
+            "Stage 3 Standards Alignment Matrix / 第三阶段标准符合性映射与证据覆盖矩阵 (JSON)"
+        )
+        assert tree_paths[matrix_md_path][0] == (
+            "Stage 3 Standards Alignment Matrix / 第三阶段标准符合性映射与证据覆盖矩阵 (Markdown)"
+        )
+        assert review_center_entry["status_line"] in matrix_markdown
+        assert review_center_entry["engineering_isolation_text"] in matrix_markdown
+        assert review_center_entry["real_acceptance_text"] in matrix_markdown
+        assert review_center_entry["reviewer_note_text"] in matrix_markdown
+        assert review_center_entry["stage_bridge_text"] in matrix_markdown
+        assert "Step 2 tail / Stage 3 bridge" in matrix_markdown
+        assert "readiness mapping only" in matrix_markdown
+        assert "not accreditation claim" in matrix_markdown
+        assert "not compliance certification" in matrix_markdown
+        assert "not real acceptance" in matrix_markdown
+        assert "cannot replace real metrology validation" in matrix_markdown
+        assert "simulation / offline / headless only" in matrix_markdown
+        assert "ready_for_engineering_isolation" not in matrix_markdown
+        assert "real_acceptance_ready" not in matrix_markdown
+    finally:
+        root.destroy()

@@ -41,6 +41,10 @@ from gas_calibrator.v2.core.stage3_real_validation_plan import (
     STAGE3_REAL_VALIDATION_PLAN_FILENAME,
     STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME,
 )
+from gas_calibrator.v2.core.stage3_standards_alignment_matrix import (
+    STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME,
+    STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME,
+)
 from gas_calibrator.v2.ui_v2.widgets.review_center_panel import ReviewCenterPanel
 
 SUPPORT_DIR = Path(__file__).resolve().parent
@@ -1785,6 +1789,130 @@ def test_review_scope_manifest_and_export_index_surface_stage3_real_validation_p
     assert "real_acceptance_ready" not in stage3_plan_markdown
     assert "ready_for_engineering_isolation" not in review_center_entry["entry_text"]
     assert "real_acceptance_ready" not in review_center_entry["entry_text"]
+
+
+def test_review_scope_manifest_and_export_index_surface_stage3_standards_alignment_matrix_artifacts(
+    tmp_path: Path,
+) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_payload = rebuild_run(run_dir)
+    results_snapshot = facade.build_results_snapshot()
+    reports_snapshot = facade.get_reports_snapshot(results_snapshot=results_snapshot)
+
+    result = facade.export_review_scope_manifest(selection={"scope": "all"})
+    manifest_payload = json.loads(Path(result["json_path"]).read_text(encoding="utf-8"))
+    export_index = json.loads(Path(result["index_path"]).read_text(encoding="utf-8"))
+    matrix_raw = json.loads((run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME).read_text(encoding="utf-8"))
+    matrix_markdown = (run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME).read_text(
+        encoding="utf-8"
+    )
+    rows_by_path = {
+        str(Path(str(row.get("path") or "")).resolve()): dict(row)
+        for row in list(manifest_payload.get("rows", []) or [])
+    }
+    reports_rows_by_path = {
+        str(Path(str(row.get("path") or "")).resolve()): dict(row)
+        for row in list(reports_snapshot.get("files", []) or [])
+    }
+    review_center_entry = dict(
+        results_snapshot["review_center"].get("stage3_standards_alignment_matrix_artifact_entry", {}) or {}
+    )
+    reports_entry = dict(reports_snapshot.get("stage3_standards_alignment_matrix_artifact_entry", {}) or {})
+    manifest_entry = dict(manifest_payload.get("stage3_standards_alignment_matrix_artifact_entry", {}) or {})
+    export_entry = dict(export_index["latest"].get("stage3_standards_alignment_matrix_artifact_entry", {}) or {})
+    matrix_json_path = str((run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME).resolve())
+    matrix_md_path = str((run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME).resolve())
+
+    assert matrix_json_path in rows_by_path
+    assert matrix_md_path in rows_by_path
+    assert rows_by_path[matrix_json_path]["artifact_role"] == "execution_summary"
+    assert rows_by_path[matrix_md_path]["artifact_role"] == "formal_analysis"
+    assert matrix_json_path in reports_rows_by_path
+    assert matrix_md_path in reports_rows_by_path
+    assert reports_rows_by_path[matrix_json_path]["artifact_role"] == "execution_summary"
+    assert reports_rows_by_path[matrix_md_path]["artifact_role"] == "formal_analysis"
+    assert rebuild_payload["artifact_statuses"]["stage3_standards_alignment_matrix"]["path"] == str(
+        run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME
+    )
+    assert rebuild_payload["artifact_statuses"]["stage3_standards_alignment_matrix_reviewer_artifact"]["path"] == str(
+        run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME
+    )
+    assert rebuild_payload["manifest_sections"]["stage3_standards_alignment_matrix"]["path"] == str(
+        run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME
+    )
+    assert rebuild_payload["manifest_sections"]["stage3_standards_alignment_matrix"]["reviewer_path"] == str(
+        run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME
+    )
+    assert str(run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME) in rebuild_payload["remembered_files"]
+    assert str(run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME) in rebuild_payload["remembered_files"]
+    assert export_index["latest"]["batch_id"] == result["batch_id"]
+    assert matrix_raw["artifact_type"] == "stage3_standards_alignment_matrix"
+    assert matrix_raw["mapping_scope"] == "family_topic_level_only"
+    assert len(matrix_raw["rows"]) == 9
+    assert manifest_entry["path"] == matrix_json_path
+    assert manifest_entry["reviewer_path"] == matrix_md_path
+    assert reports_entry == review_center_entry == manifest_entry == export_entry
+    assert review_center_entry["anchor_id"] == "stage3-standards-alignment-matrix"
+    assert reports_rows_by_path[matrix_json_path]["stage3_standards_alignment_matrix_artifact_entry"]["path"] == (
+        matrix_json_path
+    )
+    assert reports_rows_by_path[matrix_md_path]["stage3_standards_alignment_matrix_artifact_entry"]["reviewer_path"] == (
+        matrix_md_path
+    )
+    assert manifest_payload["stage3_standards_alignment_matrix_artifact_entry"] == manifest_entry
+    assert export_index["latest"]["stage3_standards_alignment_matrix_artifact_entry"] == export_entry
+    assert rows_by_path[matrix_json_path]["note"] == review_center_entry["summary_text"]
+    assert reports_rows_by_path[matrix_md_path]["note"] == review_center_entry["summary_text"]
+    assert "Step 2 tail / Stage 3 bridge" in matrix_markdown
+    assert "readiness mapping only" in matrix_markdown
+    assert "not accreditation claim" in matrix_markdown
+    assert "not compliance certification" in matrix_markdown
+    assert "not real acceptance" in matrix_markdown
+    assert "cannot replace real metrology validation" in matrix_markdown
+    assert "simulation / offline / headless only" in matrix_markdown
+    assert "ready_for_engineering_isolation" not in matrix_markdown
+    assert "real_acceptance_ready" not in matrix_markdown
+
+
+def test_review_center_view_filters_stage3_reviewer_artifacts_by_phase_role_family_evidence_boundary_and_anchor(
+    tmp_path: Path,
+) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+    payload = facade.build_results_snapshot()["review_center"]
+    matrix_entry = dict(payload.get("stage3_standards_alignment_matrix_artifact_entry", {}) or {})
+    plan_entry = dict(payload.get("stage3_real_validation_plan_artifact_entry", {}) or {})
+    required_category = str(matrix_entry.get("required_evidence_categories", [""])[0] or "")
+
+    phase_view = build_review_center_view(payload, selected_phase="stage3_standards_alignment")
+    role_view = build_review_center_view(payload, selected_artifact_role="formal_analysis")
+    family_view = build_review_center_view(payload, selected_standard_family="ISO/IEC 17025")
+    category_view = build_review_center_view(payload, selected_evidence_category=required_category)
+    boundary_view = build_review_center_view(payload, selected_boundary="not accreditation claim")
+    anchor_view = build_review_center_view(payload, selected_anchor=plan_entry["anchor_id"])
+
+    assert [item["artifact_key"] for item in phase_view["reviewer_artifact_entries"]] == [
+        "stage3_standards_alignment_matrix"
+    ]
+    assert len(role_view["reviewer_artifact_entries"]) == 4
+    assert all(
+        "formal_analysis" in list(item.get("artifact_role_filters") or [])
+        for item in role_view["reviewer_artifact_entries"]
+    )
+    assert [item["artifact_key"] for item in family_view["reviewer_artifact_entries"]] == [
+        "stage3_standards_alignment_matrix"
+    ]
+    assert {
+        item["artifact_key"] for item in category_view["reviewer_artifact_entries"]
+    } == {"stage3_real_validation_plan", "stage3_standards_alignment_matrix"}
+    assert [item["artifact_key"] for item in boundary_view["reviewer_artifact_entries"]] == [
+        "stage3_standards_alignment_matrix"
+    ]
+    assert [item["artifact_key"] for item in anchor_view["reviewer_artifact_entries"]] == [
+        "stage3_real_validation_plan"
+    ]
 
 
 def test_review_center_panel_exposes_index_summary_and_time_source_filters() -> None:

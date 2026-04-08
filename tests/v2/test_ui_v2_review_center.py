@@ -828,6 +828,56 @@ def test_review_center_panel_exposes_stage3_real_validation_plan_as_dedicated_en
         root.destroy()
 
 
+def test_review_center_panel_exposes_stage3_standards_alignment_matrix_and_anchor_filter(
+    tmp_path: Path,
+) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+    payload = facade.build_results_snapshot()["review_center"]
+    matrix_entry = dict(payload.get("stage3_standards_alignment_matrix_artifact_entry", {}) or {})
+    plan_entry = dict(payload.get("stage3_real_validation_plan_artifact_entry", {}) or {})
+
+    root = make_root()
+    try:
+        panel = ReviewCenterPanel(root, compact=True)
+        panel.render(payload)
+        root.update_idletasks()
+
+        assert panel.stage3_standards_alignment_matrix_frame.winfo_manager() == "grid"
+        assert panel.stage3_standards_alignment_matrix_title_var.get() == matrix_entry["name_text"]
+        assert panel.stage3_standards_alignment_matrix_status_var.get() == matrix_entry["card_text"]
+        assert panel.stage3_standards_alignment_matrix_path_var.get() == matrix_entry["artifact_paths_text"]
+        assert panel.stage3_standards_alignment_matrix_note_var.get() == matrix_entry["reviewer_note_text"]
+        assert any(item["id"] == "stage3_standards_alignment" for item in payload["filters"]["phase_options"])
+        assert any(item["id"] == "ISO/IEC 17025" for item in payload["filters"]["standard_family_options"])
+        assert any(
+            item["id"] == "stage3-standards-alignment-matrix" for item in payload["filters"]["anchor_options"]
+        )
+        assert "readiness mapping only" in panel.stage3_standards_alignment_matrix_status_var.get()
+        assert "not accreditation claim" in panel.stage3_standards_alignment_matrix_status_var.get()
+        assert "not compliance certification" in panel.stage3_standards_alignment_matrix_status_var.get()
+        assert "not real acceptance" in panel.stage3_standards_alignment_matrix_status_var.get()
+        assert "cannot replace real metrology validation" in panel.stage3_standards_alignment_matrix_status_var.get()
+
+        panel.standard_family_filter_var.set("ISO/IEC 17025")
+        panel._apply_filters()
+        root.update_idletasks()
+
+        assert panel.stage3_standards_alignment_matrix_frame.winfo_manager() == "grid"
+        assert panel.stage3_real_validation_plan_frame.winfo_ismapped() == 0
+
+        panel.standard_family_filter_var.set(t("results.review_center.filter.all_standard_families"))
+        panel.anchor_filter_var.set(plan_entry["anchor_label"])
+        panel._apply_filters()
+        root.update_idletasks()
+
+        assert panel.stage3_real_validation_plan_frame.winfo_manager() == "grid"
+        assert panel.stage3_standards_alignment_matrix_frame.winfo_ismapped() == 0
+    finally:
+        root.destroy()
+
+
 def test_review_center_keeps_stage_admission_review_pack_markdown_aligned_with_pack_entry(
     tmp_path: Path,
 ) -> None:

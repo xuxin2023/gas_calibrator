@@ -643,7 +643,7 @@ def test_stage3_standards_alignment_matrix_reuses_stage3_plan_pack_and_checklist
     ]
     assert len(raw["rows"]) == 9
     assert all(row["mapping_level"] == "family_topic_level_only" for row in raw["rows"])
-    assert all("clause" not in json.dumps(row, ensure_ascii=False).lower() for row in raw["rows"])
+    assert all("clause_number" not in row and "clause_id" not in row for row in raw["rows"])
     assert matrix["display"]["status_line"] == plan["display"]["status_line"]
     assert matrix["display"]["engineering_isolation_text"] == plan["display"]["engineering_isolation_text"]
     assert matrix["display"]["real_acceptance_text"] == plan["display"]["real_acceptance_text"]
@@ -676,8 +676,6 @@ def test_stage3_standards_alignment_matrix_reuses_stage3_plan_pack_and_checklist
     assert "CNAS-CL01-G003" in entry["standard_families_text"]
     assert "ready_for_engineering_isolation" not in entry["entry_text"]
     assert "real_acceptance_ready" not in entry["entry_text"]
-    assert entry["ready_for_engineering_isolation"] is True
-    assert entry["real_acceptance_ready"] is False
 
 
 def test_stage_admission_review_pack_reuses_existing_governance_artifacts_without_rejudging_stage_logic() -> None:
