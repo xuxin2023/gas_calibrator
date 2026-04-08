@@ -793,6 +793,41 @@ def test_review_center_panel_exposes_engineering_isolation_admission_checklist_a
         root.destroy()
 
 
+def test_review_center_panel_exposes_stage3_real_validation_plan_as_dedicated_entry(
+    tmp_path: Path,
+) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+    payload = facade.build_results_snapshot()["review_center"]
+    stage3_entry = dict(payload.get("stage3_real_validation_plan_artifact_entry", {}) or {})
+
+    root = make_root()
+    try:
+        panel = ReviewCenterPanel(root, compact=True)
+        panel.render(payload)
+        root.update_idletasks()
+
+        assert panel.stage3_real_validation_plan_frame.winfo_manager() == "grid"
+        assert panel.stage3_real_validation_plan_title_var.get() == stage3_entry["name_text"]
+        assert panel.stage3_real_validation_plan_status_var.get() == stage3_entry["card_text"]
+        assert panel.stage3_real_validation_plan_path_var.get() == stage3_entry["artifact_paths_text"]
+        assert panel.stage3_real_validation_plan_note_var.get() == stage3_entry["reviewer_note_text"]
+        assert "Step 2 tail / Stage 3 bridge" in panel.stage3_real_validation_plan_status_var.get()
+        assert "engineering-isolation" in panel.stage3_real_validation_plan_status_var.get()
+        assert "第三阶段真实验证证据类别" in panel.stage3_real_validation_plan_status_var.get()
+        assert "pass/fail contract 摘要" in panel.stage3_real_validation_plan_status_var.get()
+        assert "Digest：" in panel.stage3_real_validation_plan_status_var.get()
+        assert "simulation / offline / headless only" in panel.stage3_real_validation_plan_status_var.get()
+        assert "不是 real acceptance" in panel.stage3_real_validation_plan_status_var.get()
+        assert "不能替代真实计量验证" in panel.stage3_real_validation_plan_status_var.get()
+        assert "ready_for_engineering_isolation" not in panel.stage3_real_validation_plan_status_var.get()
+        assert "real_acceptance_ready" not in panel.stage3_real_validation_plan_status_var.get()
+        assert stage3_entry["reviewer_path"] in panel.stage3_real_validation_plan_path_var.get()
+    finally:
+        root.destroy()
+
+
 def test_review_center_keeps_stage_admission_review_pack_markdown_aligned_with_pack_entry(
     tmp_path: Path,
 ) -> None:
@@ -850,7 +885,7 @@ def test_review_center_keeps_engineering_isolation_checklist_markdown_aligned_wi
     assert "real_acceptance_ready" not in checklist_markdown
 
 
-def test_review_center_keeps_stage3_real_validation_plan_markdown_aligned_with_existing_checklist_entry(
+def test_review_center_keeps_stage3_real_validation_plan_markdown_aligned_with_stage3_entry(
     tmp_path: Path,
 ) -> None:
     facade = build_fake_facade(tmp_path)
@@ -858,20 +893,25 @@ def test_review_center_keeps_stage3_real_validation_plan_markdown_aligned_with_e
     rebuild_run(run_dir)
 
     results_snapshot = facade.build_results_snapshot()
-    checklist_entry = dict(
-        results_snapshot["review_center"].get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
+    stage3_entry = dict(
+        results_snapshot["review_center"].get("stage3_real_validation_plan_artifact_entry", {}) or {}
     )
     stage3_plan_markdown = (run_dir / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME).read_text(encoding="utf-8")
 
-    assert checklist_entry["status_line"] in stage3_plan_markdown
-    assert checklist_entry["engineering_isolation_text"] in stage3_plan_markdown
-    assert checklist_entry["real_acceptance_text"] in stage3_plan_markdown
-    assert checklist_entry["execute_now_text"] in stage3_plan_markdown
-    assert checklist_entry["defer_to_stage3_text"] in stage3_plan_markdown
-    assert checklist_entry["warning_text"] in stage3_plan_markdown
+    assert stage3_entry["title_text"] in stage3_plan_markdown
+    assert stage3_entry["status_line"] in stage3_plan_markdown
+    assert stage3_entry["engineering_isolation_text"] in stage3_plan_markdown
+    assert stage3_entry["real_acceptance_text"] in stage3_plan_markdown
+    assert stage3_entry["execute_now_text"] in stage3_plan_markdown
+    assert stage3_entry["defer_to_stage3_text"] in stage3_plan_markdown
+    assert stage3_entry["warning_text"] in stage3_plan_markdown
+    assert stage3_entry["reviewer_note_text"] in stage3_plan_markdown
     assert "Step 2 tail / Stage 3 bridge" in stage3_plan_markdown
     assert "engineering-isolation" in stage3_plan_markdown
     assert "第三阶段真实验证" in stage3_plan_markdown
+    assert "第三阶段真实验证证据类别" in stage3_entry["card_text"]
+    assert "pass/fail contract 摘要" in stage3_entry["card_text"]
+    assert "simulation / offline / headless only" in stage3_entry["card_text"]
     assert "不是 real acceptance" in stage3_plan_markdown
     assert "不能替代真实计量验证" in stage3_plan_markdown
     assert "本工件只定义第三阶段真实验证计划，不代表验证已完成" in stage3_plan_markdown

@@ -1706,8 +1706,11 @@ def test_review_scope_manifest_and_export_index_surface_stage3_real_validation_p
         for row in list(reports_snapshot.get("files", []) or [])
     }
     review_center_entry = dict(
-        results_snapshot["review_center"].get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
+        results_snapshot["review_center"].get("stage3_real_validation_plan_artifact_entry", {}) or {}
     )
+    reports_entry = dict(reports_snapshot.get("stage3_real_validation_plan_artifact_entry", {}) or {})
+    manifest_entry = dict(manifest_payload.get("stage3_real_validation_plan_artifact_entry", {}) or {})
+    export_entry = dict(export_index["latest"].get("stage3_real_validation_plan_artifact_entry", {}) or {})
     stage3_json_path = str((run_dir / STAGE3_REAL_VALIDATION_PLAN_FILENAME).resolve())
     stage3_md_path = str((run_dir / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME).resolve())
 
@@ -1739,6 +1742,9 @@ def test_review_scope_manifest_and_export_index_surface_stage3_real_validation_p
     assert export_index["latest"]["batch_id"] == result["batch_id"]
     assert export_index["latest"]["selection_snapshot"]["scope"] == "all"
     assert stage3_plan_raw["artifact_type"] == "stage3_real_validation_plan"
+    assert manifest_entry["path"] == stage3_json_path
+    assert manifest_entry["reviewer_path"] == stage3_md_path
+    assert reports_entry == review_center_entry == manifest_entry == export_entry
     assert stage3_plan_raw["artifact_paths"]["stage_admission_review_pack"] == str(
         run_dir / STAGE_ADMISSION_REVIEW_PACK_FILENAME
     )
@@ -1747,20 +1753,38 @@ def test_review_scope_manifest_and_export_index_surface_stage3_real_validation_p
     )
     assert isinstance(stage3_plan_raw["ready_for_engineering_isolation"], bool)
     assert isinstance(stage3_plan_raw["real_acceptance_ready"], bool)
+    assert review_center_entry["title_text"] in stage3_plan_markdown
     assert review_center_entry["status_line"] in stage3_plan_markdown
     assert review_center_entry["engineering_isolation_text"] in stage3_plan_markdown
     assert review_center_entry["real_acceptance_text"] in stage3_plan_markdown
     assert review_center_entry["execute_now_text"] in stage3_plan_markdown
     assert review_center_entry["defer_to_stage3_text"] in stage3_plan_markdown
     assert review_center_entry["warning_text"] in stage3_plan_markdown
+    assert review_center_entry["reviewer_note_text"] in stage3_plan_markdown
+    assert review_center_entry["artifact_paths_text"].endswith(stage3_md_path)
+    assert reports_rows_by_path[stage3_json_path]["stage3_real_validation_plan_artifact_entry"]["path"] == (
+        stage3_json_path
+    )
+    assert reports_rows_by_path[stage3_md_path]["stage3_real_validation_plan_artifact_entry"]["reviewer_path"] == stage3_md_path
+    assert manifest_payload["stage3_real_validation_plan_artifact_entry"] == manifest_entry
+    assert export_index["latest"]["stage3_real_validation_plan_artifact_entry"] == export_entry
+    stage3_entry_note = review_center_entry["summary_text"]
+    assert rows_by_path[stage3_json_path]["note"] == stage3_entry_note
+    assert reports_rows_by_path[stage3_md_path]["note"] == stage3_entry_note
     assert "Step 2 tail / Stage 3 bridge" in stage3_plan_markdown
     assert "engineering-isolation" in stage3_plan_markdown
     assert "第三阶段真实验证" in stage3_plan_markdown
     assert "不是 real acceptance" in stage3_plan_markdown
     assert "不能替代真实计量验证" in stage3_plan_markdown
     assert "本工件只定义第三阶段真实验证计划，不代表验证已完成" in stage3_plan_markdown
+    assert "第三阶段真实验证证据类别" in review_center_entry["card_text"]
+    assert "pass/fail contract 摘要" in review_center_entry["card_text"]
+    assert "Digest：" in review_center_entry["card_text"]
+    assert "simulation / offline / headless only" in review_center_entry["card_text"]
     assert "ready_for_engineering_isolation" not in stage3_plan_markdown
     assert "real_acceptance_ready" not in stage3_plan_markdown
+    assert "ready_for_engineering_isolation" not in review_center_entry["entry_text"]
+    assert "real_acceptance_ready" not in review_center_entry["entry_text"]
 
 
 def test_review_center_panel_exposes_index_summary_and_time_source_filters() -> None:

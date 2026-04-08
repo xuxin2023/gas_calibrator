@@ -43,6 +43,11 @@ from gas_calibrator.v2.core.stage3_real_validation_plan import (
     STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME,
     build_stage3_real_validation_plan,
 )
+from gas_calibrator.v2.core.stage3_real_validation_plan_artifact_entry import (
+    STAGE3_REAL_VALIDATION_PLAN_ARTIFACT_KEY,
+    STAGE3_REAL_VALIDATION_PLAN_REVIEWER_ARTIFACT_KEY,
+    build_stage3_real_validation_plan_artifact_entry,
+)
 from gas_calibrator.v2.core.step2_readiness import build_step2_readiness_summary
 from gas_calibrator.v2.core.step2_readiness import STEP2_READINESS_SUMMARY_FILENAME
 
@@ -1020,3 +1025,66 @@ def test_stage3_real_validation_plan_reuses_existing_checklist_and_pack_wording_
     assert "engineering_isolation_admission_checklist.json" in markdown
     assert "ready_for_engineering_isolation" not in markdown
     assert "real_acceptance_ready" not in markdown
+
+    entry = build_stage3_real_validation_plan_artifact_entry(
+        artifact_path=f"D:/tmp/{STAGE3_REAL_VALIDATION_PLAN_FILENAME}",
+        reviewer_artifact_path=f"D:/tmp/{STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME}",
+        manifest_section={
+            **raw,
+            "path": f"D:/tmp/{STAGE3_REAL_VALIDATION_PLAN_FILENAME}",
+            "reviewer_path": f"D:/tmp/{STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME}",
+        },
+        reviewer_manifest_section={
+            "artifact_type": STAGE3_REAL_VALIDATION_PLAN_REVIEWER_ARTIFACT_KEY,
+            "path": f"D:/tmp/{STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME}",
+            "summary_text": plan["display"]["summary_text"],
+            "status_line": plan["display"]["status_line"],
+            "current_stage_text": plan["display"]["current_stage_text"],
+            "next_stage_text": plan["display"]["next_stage_text"],
+            "engineering_isolation_text": plan["display"]["engineering_isolation_text"],
+            "real_acceptance_text": plan["display"]["real_acceptance_text"],
+            "execute_now_text": plan["display"]["execute_now_text"],
+            "defer_to_stage3_text": plan["display"]["defer_to_stage3_text"],
+            "blocking_text": plan["display"]["blocking_text"],
+            "warning_text": plan["display"]["warning_text"],
+            "plan_boundary_text": plan["display"]["plan_boundary_text"],
+            "not_real_acceptance_evidence": True,
+        },
+        digest_section={
+            "overall_status": raw["overall_status"],
+            "recommended_next_stage": raw["recommended_next_stage"],
+            "validation_status_counts": raw["validation_status_counts"],
+            "required_real_world_evidence": raw["required_real_world_evidence"],
+            "artifact_paths": raw["artifact_paths"],
+        },
+        reviewer_markdown_text=markdown,
+    )
+
+    assert entry["artifact_key"] == STAGE3_REAL_VALIDATION_PLAN_ARTIFACT_KEY
+    assert entry["reviewer_artifact_key"] == STAGE3_REAL_VALIDATION_PLAN_REVIEWER_ARTIFACT_KEY
+    assert entry["path"].endswith(STAGE3_REAL_VALIDATION_PLAN_FILENAME)
+    assert entry["reviewer_path"].endswith(STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME)
+    assert entry["summary_text"] == plan["display"]["summary_text"]
+    assert entry["status_line"] == plan["display"]["status_line"]
+    assert entry["current_stage_text"] == plan["display"]["current_stage_text"]
+    assert entry["next_stage_text"] == plan["display"]["next_stage_text"]
+    assert entry["engineering_isolation_text"] == plan["display"]["engineering_isolation_text"]
+    assert entry["real_acceptance_text"] == plan["display"]["real_acceptance_text"]
+    assert entry["execute_now_text"] == plan["display"]["execute_now_text"]
+    assert entry["defer_to_stage3_text"] == plan["display"]["defer_to_stage3_text"]
+    assert entry["reviewer_note_text"] in entry["card_text"]
+    assert entry["role_text"] in entry["card_text"]
+    assert "Step 2 tail / Stage 3 bridge" in entry["card_text"]
+    assert "engineering-isolation" in entry["card_text"]
+    assert "第三阶段真实验证证据类别" in entry["card_text"]
+    assert "pass/fail contract 摘要" in entry["card_text"]
+    assert "Digest：" in entry["card_text"]
+    assert "simulation / offline / headless only" in entry["card_text"]
+    assert "不是 real acceptance" in entry["card_text"]
+    assert "不能替代真实计量验证" in entry["card_text"]
+    assert "JSON：D:/tmp/stage3_real_validation_plan.json" in entry["card_text"]
+    assert "Markdown：D:/tmp/stage3_real_validation_plan.md" in entry["card_text"]
+    assert "真实参考表 / 参考仪器强制执行" in entry["required_evidence_categories_text"]
+    assert "真机系数写入 / 回读 / acceptance" in entry["required_evidence_categories_text"]
+    assert "ready_for_engineering_isolation" not in entry["entry_text"]
+    assert "real_acceptance_ready" not in entry["entry_text"]

@@ -838,8 +838,9 @@ def test_reports_page_artifact_list_surfaces_stage3_real_validation_plan_from_sa
     results_snapshot = facade.build_results_snapshot()
     reports_snapshot = facade.get_reports_snapshot(results_snapshot=results_snapshot)
     review_center_entry = dict(
-        results_snapshot["review_center"].get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
+        results_snapshot["review_center"].get("stage3_real_validation_plan_artifact_entry", {}) or {}
     )
+    stage3_entry = dict(reports_snapshot.get("stage3_real_validation_plan_artifact_entry", {}) or {})
     rows_by_path = {
         str(row.get("path") or ""): dict(row)
         for row in list(reports_snapshot.get("files", []) or [])
@@ -864,19 +865,35 @@ def test_reports_page_artifact_list_surfaces_stage3_real_validation_plan_from_sa
         assert stage3_md_path in rows_by_path
         assert rows_by_path[stage3_json_path]["artifact_role"] == "execution_summary"
         assert rows_by_path[stage3_md_path]["artifact_role"] == "formal_analysis"
+        assert stage3_entry["path"] == stage3_json_path
+        assert stage3_entry["reviewer_path"] == stage3_md_path
+        assert stage3_entry == review_center_entry
+        assert rows_by_path[stage3_json_path]["stage3_real_validation_plan_artifact_entry"]["path"] == stage3_json_path
+        assert rows_by_path[stage3_md_path]["stage3_real_validation_plan_artifact_entry"]["reviewer_path"] == (
+            stage3_md_path
+        )
         assert stage3_json_path in tree_paths
         assert stage3_md_path in tree_paths
         assert tree_paths[stage3_json_path][4].endswith(STAGE3_REAL_VALIDATION_PLAN_FILENAME)
         assert tree_paths[stage3_md_path][4].endswith(STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME)
+        assert rows_by_path[stage3_json_path]["note"] == stage3_entry["summary_text"]
+        assert rows_by_path[stage3_md_path]["note"] == stage3_entry["summary_text"]
+        assert tree_paths[stage3_json_path][0] == "Stage 3 Real Validation Plan / 第三阶段真实验证计划 (JSON)"
+        assert tree_paths[stage3_md_path][0] == "Stage 3 Real Validation Plan / 第三阶段真实验证计划 (Markdown)"
         assert review_center_entry["status_line"] in stage3_markdown
         assert review_center_entry["engineering_isolation_text"] in stage3_markdown
         assert review_center_entry["real_acceptance_text"] in stage3_markdown
         assert review_center_entry["execute_now_text"] in stage3_markdown
         assert review_center_entry["defer_to_stage3_text"] in stage3_markdown
         assert review_center_entry["warning_text"] in stage3_markdown
+        assert review_center_entry["reviewer_note_text"] in stage3_markdown
         assert "Step 2 tail / Stage 3 bridge" in stage3_markdown
         assert "engineering-isolation" in stage3_markdown
         assert "第三阶段真实验证" in stage3_markdown
+        assert "第三阶段真实验证证据类别" in review_center_entry["card_text"]
+        assert "pass/fail contract 摘要" in review_center_entry["card_text"]
+        assert "Digest：" in review_center_entry["card_text"]
+        assert "simulation / offline / headless only" in review_center_entry["card_text"]
         assert "不是 real acceptance" in stage3_markdown
         assert "不能替代真实计量验证" in stage3_markdown
         assert "本工件只定义第三阶段真实验证计划，不代表验证已完成" in stage3_markdown

@@ -11,6 +11,10 @@ from gas_calibrator.v2.core.engineering_isolation_admission_checklist import (
     ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME,
     ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME,
 )
+from gas_calibrator.v2.core.stage3_real_validation_plan import (
+    STAGE3_REAL_VALIDATION_PLAN_FILENAME,
+    STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME,
+)
 from gas_calibrator.v2.ui_v2.artifact_registry_governance import build_role_by_key
 from gas_calibrator.v2.scripts.build_offline_governance_artifacts import rebuild_run
 
@@ -788,3 +792,54 @@ def test_results_gateway_exposes_engineering_isolation_admission_checklist_as_fi
     assert "real_acceptance_ready" not in checklist_entry["entry_text"]
     assert checklist_entry["ready_for_engineering_isolation"] is False
     assert checklist_entry["real_acceptance_ready"] is False
+
+
+def test_results_gateway_exposes_stage3_real_validation_plan_as_first_class_artifact_entry(
+    tmp_path: Path,
+) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+
+    gateway = ResultsGateway(
+        run_dir,
+        output_files_provider=facade.service.get_output_files,
+    )
+    reports_payload = gateway.read_reports_payload()
+    stage3_entry = dict(reports_payload.get("stage3_real_validation_plan_artifact_entry", {}) or {})
+    rows_by_path = {
+        str(Path(str(row.get("path") or "")).resolve()): dict(row)
+        for row in reports_payload["files"]
+    }
+    stage3_json_path = str((run_dir / STAGE3_REAL_VALIDATION_PLAN_FILENAME).resolve())
+    stage3_md_path = str((run_dir / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME).resolve())
+    stage3_json_row = rows_by_path[stage3_json_path]
+    stage3_md_row = rows_by_path[stage3_md_path]
+
+    assert stage3_entry["path"] == stage3_json_path
+    assert stage3_entry["reviewer_path"] == stage3_md_path
+    assert stage3_json_row["artifact_key"] == "stage3_real_validation_plan"
+    assert stage3_json_row["artifact_role"] == "execution_summary"
+    assert stage3_md_row["artifact_key"] == "stage3_real_validation_plan_reviewer_artifact"
+    assert stage3_md_row["artifact_role"] == "formal_analysis"
+    assert stage3_json_row["stage3_real_validation_plan_artifact_entry"]["path"] == stage3_json_path
+    assert stage3_md_row["stage3_real_validation_plan_artifact_entry"]["reviewer_path"] == stage3_md_path
+    assert stage3_json_row["name"] == "Stage 3 Real Validation Plan / 第三阶段真实验证计划 (JSON)"
+    assert stage3_md_row["name"] == "Stage 3 Real Validation Plan / 第三阶段真实验证计划 (Markdown)"
+    assert stage3_entry["summary_text"] == stage3_json_row["note"] == stage3_md_row["note"]
+    assert "execution_summary" not in stage3_json_row["role_status_display"]
+    assert "formal_analysis" not in stage3_md_row["role_status_display"]
+    assert "Step 2 tail / Stage 3 bridge" in stage3_json_row["role_status_display"]
+    assert "engineering-isolation" in stage3_json_row["role_status_display"]
+    assert "simulation / offline / headless only" in stage3_md_row["role_status_display"]
+    assert stage3_entry["role_text"] in stage3_entry["card_text"]
+    assert stage3_entry["reviewer_note_text"] in stage3_entry["card_text"]
+    assert "第三阶段真实验证证据类别" in stage3_entry["card_text"]
+    assert "pass/fail contract 摘要" in stage3_entry["card_text"]
+    assert "Digest：" in stage3_entry["card_text"]
+    assert "JSON：" in stage3_entry["card_text"]
+    assert "Markdown：" in stage3_entry["card_text"]
+    assert "不是 real acceptance" in stage3_entry["entry_text"]
+    assert "不能替代真实计量验证" in stage3_entry["entry_text"]
+    assert "ready_for_engineering_isolation" not in stage3_entry["entry_text"]
+    assert "real_acceptance_ready" not in stage3_entry["entry_text"]
