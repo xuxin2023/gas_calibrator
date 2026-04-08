@@ -473,7 +473,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
             wraplength=1120 if compact else 1320,
             justify="left",
             style="Muted.TLabel",
-        ).grid(row=9, column=0, sticky="ew", pady=(6, 0))
+        ).grid(row=11, column=0, sticky="ew", pady=(6, 0))
 
     def _summary_card(
         self,
@@ -550,10 +550,37 @@ class ReviewCenterPanel(ttk.LabelFrame):
         status_options = [dict(item) for item in list(filters.get("status_options", []) or [])]
         time_options = [dict(item) for item in list(filters.get("time_options", []) or [])]
         source_options = [dict(item) for item in list(filters.get("source_options", []) or [])]
+        phase_options = [dict(item) for item in list(filters.get("phase_options", []) or [])]
+        artifact_role_options = [dict(item) for item in list(filters.get("artifact_role_options", []) or [])]
+        standard_family_options = [dict(item) for item in list(filters.get("standard_family_options", []) or [])]
+        evidence_category_options = [dict(item) for item in list(filters.get("evidence_category_options", []) or [])]
+        boundary_options = [dict(item) for item in list(filters.get("boundary_options", []) or [])]
+        anchor_options = [dict(item) for item in list(filters.get("anchor_options", []) or [])]
         self._type_lookup = {str(item.get("label") or ""): str(item.get("id") or "") for item in type_options}
         self._status_lookup = {str(item.get("label") or ""): str(item.get("id") or "") for item in status_options}
         self._time_lookup = {str(item.get("label") or ""): str(item.get("id") or "") for item in time_options}
         self._source_lookup = {str(item.get("label") or ""): str(item.get("id") or "") for item in source_options}
+        self._phase_lookup = {str(item.get("label") or ""): str(item.get("id") or "") for item in phase_options}
+        self._artifact_role_lookup = {
+            str(item.get("label") or ""): str(item.get("id") or "")
+            for item in artifact_role_options
+        }
+        self._standard_family_lookup = {
+            str(item.get("label") or ""): str(item.get("id") or "")
+            for item in standard_family_options
+        }
+        self._evidence_category_lookup = {
+            str(item.get("label") or ""): str(item.get("id") or "")
+            for item in evidence_category_options
+        }
+        self._boundary_lookup = {
+            str(item.get("label") or ""): str(item.get("id") or "")
+            for item in boundary_options
+        }
+        self._anchor_lookup = {
+            str(item.get("label") or ""): str(item.get("id") or "")
+            for item in anchor_options
+        }
         self._time_windows = {
             str(item.get("id") or ""): (
                 None
@@ -566,10 +593,38 @@ class ReviewCenterPanel(ttk.LabelFrame):
         status_labels = [str(item.get("label") or "") for item in status_options if str(item.get("label") or "").strip()]
         time_labels = [str(item.get("label") or "") for item in time_options if str(item.get("label") or "").strip()]
         source_labels = [str(item.get("label") or "") for item in source_options if str(item.get("label") or "").strip()]
+        phase_labels = [str(item.get("label") or "") for item in phase_options if str(item.get("label") or "").strip()]
+        artifact_role_labels = [
+            str(item.get("label") or "")
+            for item in artifact_role_options
+            if str(item.get("label") or "").strip()
+        ]
+        standard_family_labels = [
+            str(item.get("label") or "")
+            for item in standard_family_options
+            if str(item.get("label") or "").strip()
+        ]
+        evidence_category_labels = [
+            str(item.get("label") or "")
+            for item in evidence_category_options
+            if str(item.get("label") or "").strip()
+        ]
+        boundary_labels = [
+            str(item.get("label") or "")
+            for item in boundary_options
+            if str(item.get("label") or "").strip()
+        ]
+        anchor_labels = [str(item.get("label") or "") for item in anchor_options if str(item.get("label") or "").strip()]
         self.type_filter.configure(values=type_labels)
         self.status_filter.configure(values=status_labels)
         self.time_filter.configure(values=time_labels)
         self.source_filter.configure(values=source_labels)
+        self.phase_filter.configure(values=phase_labels)
+        self.artifact_role_filter.configure(values=artifact_role_labels)
+        self.standard_family_filter.configure(values=standard_family_labels)
+        self.evidence_category_filter.configure(values=evidence_category_labels)
+        self.boundary_filter.configure(values=boundary_labels)
+        self.anchor_filter.configure(values=anchor_labels)
         default_type = next(
             (
                 str(item.get("label") or "")
@@ -610,6 +665,66 @@ class ReviewCenterPanel(ttk.LabelFrame):
         )
         if default_source:
             self.source_filter_var.set(default_source)
+        default_phase = next(
+            (
+                str(item.get("label") or "")
+                for item in phase_options
+                if str(item.get("id") or "") == str(filters.get("selected_phase") or "all")
+            ),
+            phase_labels[0] if phase_labels else "",
+        )
+        default_artifact_role = next(
+            (
+                str(item.get("label") or "")
+                for item in artifact_role_options
+                if str(item.get("id") or "") == str(filters.get("selected_artifact_role") or "all")
+            ),
+            artifact_role_labels[0] if artifact_role_labels else "",
+        )
+        default_standard_family = next(
+            (
+                str(item.get("label") or "")
+                for item in standard_family_options
+                if str(item.get("id") or "") == str(filters.get("selected_standard_family") or "all")
+            ),
+            standard_family_labels[0] if standard_family_labels else "",
+        )
+        default_evidence_category = next(
+            (
+                str(item.get("label") or "")
+                for item in evidence_category_options
+                if str(item.get("id") or "") == str(filters.get("selected_evidence_category") or "all")
+            ),
+            evidence_category_labels[0] if evidence_category_labels else "",
+        )
+        default_boundary = next(
+            (
+                str(item.get("label") or "")
+                for item in boundary_options
+                if str(item.get("id") or "") == str(filters.get("selected_boundary") or "all")
+            ),
+            boundary_labels[0] if boundary_labels else "",
+        )
+        default_anchor = next(
+            (
+                str(item.get("label") or "")
+                for item in anchor_options
+                if str(item.get("id") or "") == str(filters.get("selected_anchor") or "all")
+            ),
+            anchor_labels[0] if anchor_labels else "",
+        )
+        if default_phase:
+            self.phase_filter_var.set(default_phase)
+        if default_artifact_role:
+            self.artifact_role_filter_var.set(default_artifact_role)
+        if default_standard_family:
+            self.standard_family_filter_var.set(default_standard_family)
+        if default_evidence_category:
+            self.evidence_category_filter_var.set(default_evidence_category)
+        if default_boundary:
+            self.boundary_filter_var.set(default_boundary)
+        if default_anchor:
+            self.anchor_filter_var.set(default_anchor)
 
     def _on_filter_changed(self, _event: tk.Event[tk.Misc] | None = None) -> None:
         self._apply_filters()
@@ -619,6 +734,21 @@ class ReviewCenterPanel(ttk.LabelFrame):
         selected_status = self._status_lookup.get(str(self.status_filter_var.get() or ""), "all")
         selected_time = self._time_lookup.get(str(self.time_filter_var.get() or ""), "all")
         selected_source = self._source_lookup.get(str(self.source_filter_var.get() or ""), "all")
+        selected_phase = self._phase_lookup.get(str(self.phase_filter_var.get() or ""), "all")
+        selected_artifact_role = self._artifact_role_lookup.get(
+            str(self.artifact_role_filter_var.get() or ""),
+            "all",
+        )
+        selected_standard_family = self._standard_family_lookup.get(
+            str(self.standard_family_filter_var.get() or ""),
+            "all",
+        )
+        selected_evidence_category = self._evidence_category_lookup.get(
+            str(self.evidence_category_filter_var.get() or ""),
+            "all",
+        )
+        selected_boundary = self._boundary_lookup.get(str(self.boundary_filter_var.get() or ""), "all")
+        selected_anchor = self._anchor_lookup.get(str(self.anchor_filter_var.get() or ""), "all")
         self._active_view = build_review_center_view(
             self._payload,
             selected_type=selected_type,
@@ -626,6 +756,12 @@ class ReviewCenterPanel(ttk.LabelFrame):
             selected_time=selected_time,
             selected_source_kind=selected_source,
             selected_source_id=self._selected_source_id,
+            selected_phase=selected_phase,
+            selected_artifact_role=selected_artifact_role,
+            selected_standard_family=selected_standard_family,
+            selected_evidence_category=selected_evidence_category,
+            selected_boundary=selected_boundary,
+            selected_anchor=selected_anchor,
             now_ts=time.time(),
         )
         rows = [dict(item) for item in list(self._active_view.get("items", []) or [])]
@@ -778,6 +914,48 @@ class ReviewCenterPanel(ttk.LabelFrame):
             self.stage3_real_validation_plan_path_var.set("")
             self.stage3_real_validation_plan_note_var.set("")
             self.stage3_real_validation_plan_frame.grid_remove()
+        stage3_standards_alignment_matrix_entry = dict(
+            self._active_view.get("stage3_standards_alignment_matrix_artifact_entry", {}) or {}
+        )
+        if bool(stage3_standards_alignment_matrix_entry.get("available", False)):
+            self.stage3_standards_alignment_matrix_title_var.set(
+                str(
+                    stage3_standards_alignment_matrix_entry.get("name_text")
+                    or stage3_standards_alignment_matrix_entry.get("title_text")
+                    or t("common.none")
+                )
+            )
+            self.stage3_standards_alignment_matrix_status_var.set(
+                str(
+                    stage3_standards_alignment_matrix_entry.get("card_text")
+                    or stage3_standards_alignment_matrix_entry.get("entry_text")
+                    or stage3_standards_alignment_matrix_entry.get("role_status_display")
+                    or t("common.none")
+                )
+            )
+            self.stage3_standards_alignment_matrix_path_var.set(
+                str(
+                    stage3_standards_alignment_matrix_entry.get("artifact_paths_text")
+                    or stage3_standards_alignment_matrix_entry.get("reviewer_path")
+                    or stage3_standards_alignment_matrix_entry.get("path")
+                    or t("common.none")
+                )
+            )
+            self.stage3_standards_alignment_matrix_note_var.set(
+                str(
+                    stage3_standards_alignment_matrix_entry.get("reviewer_note_text")
+                    or stage3_standards_alignment_matrix_entry.get("note_text")
+                    or stage3_standards_alignment_matrix_entry.get("summary_text")
+                    or t("common.none")
+                )
+            )
+            self.stage3_standards_alignment_matrix_frame.grid()
+        else:
+            self.stage3_standards_alignment_matrix_title_var.set("")
+            self.stage3_standards_alignment_matrix_status_var.set("")
+            self.stage3_standards_alignment_matrix_path_var.set("")
+            self.stage3_standards_alignment_matrix_note_var.set("")
+            self.stage3_standards_alignment_matrix_frame.grid_remove()
         self.index_var.set(str(self._active_view.get("index_text") or t("common.none")))
         self.source_scope_var.set(
             str(
