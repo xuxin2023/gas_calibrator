@@ -33,6 +33,10 @@ from gas_calibrator.v2.core.stage_admission_review_pack import (
     STAGE_ADMISSION_REVIEW_PACK_FILENAME,
     STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME,
 )
+from gas_calibrator.v2.core.engineering_isolation_admission_checklist import (
+    ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME,
+    ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME,
+)
 from gas_calibrator.v2.ui_v2.widgets.review_center_panel import ReviewCenterPanel
 
 SUPPORT_DIR = Path(__file__).resolve().parent
@@ -1546,6 +1550,90 @@ def test_review_scope_manifest_and_export_index_surface_stage_admission_review_p
     assert "不能替代真实计量验证" in pack_markdown
     assert "ready_for_engineering_isolation" not in pack_markdown
     assert "real_acceptance_ready" not in pack_markdown
+
+
+def test_review_scope_manifest_and_export_index_surface_engineering_isolation_admission_checklist_artifacts(
+    tmp_path: Path,
+) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_payload = rebuild_run(run_dir)
+    results_snapshot = facade.build_results_snapshot()
+    reports_snapshot = facade.get_reports_snapshot(results_snapshot=results_snapshot)
+
+    result = facade.export_review_scope_manifest(selection={"scope": "all"})
+    manifest_payload = json.loads(Path(result["json_path"]).read_text(encoding="utf-8"))
+    export_index = json.loads(Path(result["index_path"]).read_text(encoding="utf-8"))
+    checklist_raw = json.loads((run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME).read_text(encoding="utf-8"))
+    checklist_markdown = (run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME).read_text(
+        encoding="utf-8"
+    )
+    rows_by_name = {
+        str(row.get("name") or ""): dict(row)
+        for row in list(manifest_payload.get("rows", []) or [])
+    }
+    reports_rows_by_path = {
+        str(Path(str(row.get("path") or "")).resolve()): dict(row)
+        for row in list(reports_snapshot.get("files", []) or [])
+    }
+    review_center_entry = dict(
+        results_snapshot["review_center"].get("stage_admission_review_pack_artifact_entry", {}) or {}
+    )
+    checklist_json_path = str((run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME).resolve())
+    checklist_md_path = str((run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME).resolve())
+
+    assert ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME in rows_by_name
+    assert ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME in rows_by_name
+    assert rows_by_name[ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME]["artifact_role"] == "execution_summary"
+    assert rows_by_name[ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME]["artifact_role"] == (
+        "formal_analysis"
+    )
+    assert reports_rows_by_path[checklist_json_path]["artifact_role"] == "execution_summary"
+    assert reports_rows_by_path[checklist_md_path]["artifact_role"] == "formal_analysis"
+    assert rebuild_payload["artifact_statuses"]["engineering_isolation_admission_checklist"]["path"] == str(
+        run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME
+    )
+    assert rebuild_payload["artifact_statuses"]["engineering_isolation_admission_checklist_reviewer_artifact"][
+        "path"
+    ] == str(run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME)
+    assert rebuild_payload["manifest_sections"]["engineering_isolation_admission_checklist"]["path"] == str(
+        run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME
+    )
+    assert rebuild_payload["manifest_sections"]["engineering_isolation_admission_checklist"]["reviewer_path"] == str(
+        run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME
+    )
+    assert rebuild_payload["manifest_sections"]["engineering_isolation_admission_checklist_reviewer_artifact"]["path"] == str(
+        run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME
+    )
+    assert str(run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME) in rebuild_payload["remembered_files"]
+    assert str(run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME) in rebuild_payload["remembered_files"]
+    assert export_index["latest"]["batch_id"] == result["batch_id"]
+    assert export_index["latest"]["selection_snapshot"]["scope"] == "all"
+    assert checklist_raw["artifact_type"] == "engineering_isolation_admission_checklist"
+    assert checklist_raw["artifact_paths"]["stage_admission_review_pack"] == str(
+        run_dir / STAGE_ADMISSION_REVIEW_PACK_FILENAME
+    )
+    assert checklist_raw["artifact_paths"]["stage_admission_review_pack_reviewer_artifact"] == str(
+        run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME
+    )
+    assert isinstance(checklist_raw["ready_for_engineering_isolation"], bool)
+    assert isinstance(checklist_raw["real_acceptance_ready"], bool)
+    assert review_center_entry["status_line"] in checklist_markdown
+    assert review_center_entry["engineering_isolation_text"] in checklist_markdown
+    assert review_center_entry["real_acceptance_text"] in checklist_markdown
+    assert review_center_entry["execute_now_text"] in checklist_markdown
+    assert review_center_entry["defer_to_stage3_text"] in checklist_markdown
+    for text in (
+        checklist_markdown,
+        rows_by_name[ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME]["role_status_display"],
+        rows_by_name[ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME]["role_status_display"],
+    ):
+        assert "Step 2 tail / Stage 3 bridge" in text
+        assert "engineering-isolation" in text
+        assert "不是 real acceptance" in text
+        assert "不能替代真实计量验证" in text
+        assert "ready_for_engineering_isolation" not in text
+        assert "real_acceptance_ready" not in text
 
 
 def test_review_center_panel_exposes_index_summary_and_time_source_filters() -> None:

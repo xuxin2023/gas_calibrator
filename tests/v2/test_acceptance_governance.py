@@ -28,6 +28,11 @@ from gas_calibrator.v2.core.stage_admission_review_pack_artifact_entry import (
     STAGE_ADMISSION_REVIEW_PACK_REVIEWER_ARTIFACT_KEY,
     build_stage_admission_review_pack_artifact_entry,
 )
+from gas_calibrator.v2.core.engineering_isolation_admission_checklist import (
+    ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME,
+    ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME,
+    build_engineering_isolation_admission_checklist,
+)
 from gas_calibrator.v2.core.step2_readiness import build_step2_readiness_summary
 from gas_calibrator.v2.core.step2_readiness import STEP2_READINESS_SUMMARY_FILENAME
 
@@ -655,3 +660,116 @@ def test_stage_admission_review_pack_artifact_entry_reuses_pack_reviewer_display
     assert "real_acceptance_ready" not in entry["entry_text"]
     assert entry["ready_for_engineering_isolation"] is True
     assert entry["real_acceptance_ready"] is False
+
+
+def test_engineering_isolation_admission_checklist_reuses_existing_pack_and_bridge_wording_without_new_stage_logic() -> None:
+    readiness = build_step2_readiness_summary(
+        run_id="run_checklist",
+        simulation_mode=True,
+        config_governance_handoff={
+            "simulation_only": True,
+            "operator_safe": True,
+            "real_port_device_count": 0,
+            "engineering_only_flag_count": 0,
+            "enabled_engineering_flags": [],
+            "risk_markers": [],
+            "execution_gate": {"status": "open"},
+            "step2_default_workflow_allowed": True,
+            "requires_explicit_unlock": False,
+        },
+    )
+    metrology = build_metrology_calibration_contract(
+        run_id="run_checklist",
+        simulation_mode=True,
+        config_governance_handoff={
+            "simulation_only": True,
+            "real_port_device_count": 0,
+            "engineering_only_flag_count": 0,
+            "enabled_engineering_flags": [],
+        },
+    )
+    bridge = build_phase_transition_bridge(
+        run_id="run_checklist",
+        step2_readiness_summary=readiness,
+        metrology_calibration_contract=metrology,
+    )
+    reviewer_artifact = build_phase_transition_bridge_reviewer_artifact(bridge)
+    pack = build_stage_admission_review_pack(
+        run_id="run_checklist",
+        step2_readiness_summary=readiness,
+        metrology_calibration_contract=metrology,
+        phase_transition_bridge=bridge,
+        phase_transition_bridge_reviewer_artifact=reviewer_artifact,
+        artifact_paths={
+            "step2_readiness_summary": f"D:/tmp/{STEP2_READINESS_SUMMARY_FILENAME}",
+            "metrology_calibration_contract": f"D:/tmp/{METROLOGY_CALIBRATION_CONTRACT_FILENAME}",
+            "phase_transition_bridge": "D:/tmp/phase_transition_bridge.json",
+            "phase_transition_bridge_reviewer_artifact": f"D:/tmp/{PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME}",
+            "stage_admission_review_pack": f"D:/tmp/{STAGE_ADMISSION_REVIEW_PACK_FILENAME}",
+            "stage_admission_review_pack_reviewer_artifact": f"D:/tmp/{STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME}",
+        },
+    )
+
+    checklist = build_engineering_isolation_admission_checklist(
+        run_id="run_checklist",
+        step2_readiness_summary=readiness,
+        metrology_calibration_contract=metrology,
+        phase_transition_bridge=bridge,
+        stage_admission_review_pack=pack,
+        artifact_paths={
+            "step2_readiness_summary": f"D:/tmp/{STEP2_READINESS_SUMMARY_FILENAME}",
+            "metrology_calibration_contract": f"D:/tmp/{METROLOGY_CALIBRATION_CONTRACT_FILENAME}",
+            "phase_transition_bridge": "D:/tmp/phase_transition_bridge.json",
+            "phase_transition_bridge_reviewer_artifact": f"D:/tmp/{PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME}",
+            "stage_admission_review_pack": f"D:/tmp/{STAGE_ADMISSION_REVIEW_PACK_FILENAME}",
+            "stage_admission_review_pack_reviewer_artifact": f"D:/tmp/{STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME}",
+        },
+    )
+
+    raw = checklist["raw"]
+    markdown = checklist["markdown"]
+    status_map = {item["item_id"]: item["status"] for item in raw["checklist_items"]}
+
+    assert checklist["artifact_type"] == "engineering_isolation_admission_checklist"
+    assert checklist["filename"] == ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME
+    assert checklist["reviewer_filename"] == ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME
+    assert raw["artifact_type"] == "engineering_isolation_admission_checklist"
+    assert raw["phase"] == pack["raw"]["phase"]
+    assert raw["overall_status"] == pack["raw"]["overall_status"]
+    assert raw["recommended_next_stage"] == pack["raw"]["recommended_next_stage"]
+    assert raw["ready_for_engineering_isolation"] is True
+    assert raw["real_acceptance_ready"] is False
+    assert raw["artifact_paths"]["step2_readiness_summary"].endswith(STEP2_READINESS_SUMMARY_FILENAME)
+    assert raw["artifact_paths"]["metrology_calibration_contract"].endswith(METROLOGY_CALIBRATION_CONTRACT_FILENAME)
+    assert raw["artifact_paths"]["phase_transition_bridge"].endswith("phase_transition_bridge.json")
+    assert raw["artifact_paths"]["stage_admission_review_pack"].endswith(STAGE_ADMISSION_REVIEW_PACK_FILENAME)
+    assert raw["artifact_paths"]["stage_admission_review_pack_reviewer_artifact"].endswith(
+        STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME
+    )
+    assert raw["artifact_refs"]["stage_admission_review_pack"]["summary_text"] == pack["display"]["summary_text"]
+    assert raw["checklist_status_counts"]["done"] >= 4
+    assert raw["checklist_status_counts"]["pending"] >= 3
+    assert raw["checklist_status_counts"]["stage3_only"] >= 1
+    assert status_map["step2_readiness_bridge_formed"] == "done"
+    assert status_map["metrology_contract_institutionalized"] == "done"
+    assert status_map["handoff_pack_integrity_confirmation"] == "pending"
+    assert status_map["reviewer_discoverability_confirmation"] == "pending"
+    assert status_map["evidence_bundle_path_confirmation"] == "pending"
+    assert checklist["display"]["status_line"] == pack["display"]["status_line"]
+    assert checklist["display"]["engineering_isolation_text"] == pack["display"]["engineering_isolation_text"]
+    assert checklist["display"]["real_acceptance_text"] == pack["display"]["real_acceptance_text"]
+    assert checklist["display"]["execute_now_text"] == pack["display"]["execute_now_text"]
+    assert checklist["display"]["defer_to_stage3_text"] == pack["display"]["defer_to_stage3_text"]
+    assert "Step 2 tail / Stage 3 bridge" in markdown
+    assert "engineering-isolation" in markdown
+    assert "当前执行" in markdown
+    assert "第三阶段执行" in markdown
+    assert "不是 real acceptance" in markdown
+    assert "不能替代真实计量验证" in markdown
+    assert "step2_readiness_summary.json" in markdown
+    assert "metrology_calibration_contract.json" in markdown
+    assert "phase_transition_bridge.json" in markdown
+    assert "stage_admission_review_pack.json" in markdown
+    assert "stage_admission_review_pack.md" in markdown
+    assert "ready_for_engineering_isolation" not in markdown
+    assert "real_acceptance_ready" not in markdown

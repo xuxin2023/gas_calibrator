@@ -35,6 +35,7 @@ DEFAULT_ROLE_CATALOG: dict[str, list[str]] = {
         "suite_acceptance_plan",
         "suite_evidence_registry",
         "stage_admission_review_pack",
+        "engineering_isolation_admission_checklist",
     ],
     "diagnostic_analysis": [
         "qc_report",
@@ -71,6 +72,7 @@ DEFAULT_ROLE_CATALOG: dict[str, list[str]] = {
         "coefficient_registry",
         "phase_transition_bridge_reviewer_artifact",
         "stage_admission_review_pack_reviewer_artifact",
+        "engineering_isolation_admission_checklist_reviewer_artifact",
     ],
 }
 
@@ -110,6 +112,8 @@ KNOWN_ARTIFACT_KEYS_BY_FILENAME: dict[str, str] = {
     "phase_transition_bridge_reviewer.md": "phase_transition_bridge_reviewer_artifact",
     "stage_admission_review_pack.json": "stage_admission_review_pack",
     "stage_admission_review_pack.md": "stage_admission_review_pack_reviewer_artifact",
+    "engineering_isolation_admission_checklist.json": "engineering_isolation_admission_checklist",
+    "engineering_isolation_admission_checklist.md": "engineering_isolation_admission_checklist_reviewer_artifact",
     "workbench_action_report.json": "workbench_action_report_json",
     "workbench_action_report.md": "workbench_action_report_markdown",
     "workbench_action_snapshot.json": "workbench_action_snapshot",
@@ -157,6 +161,8 @@ KNOWN_REPORT_ARTIFACTS = [
     "phase_transition_bridge_reviewer.md",
     "stage_admission_review_pack.json",
     "stage_admission_review_pack.md",
+    "engineering_isolation_admission_checklist.json",
+    "engineering_isolation_admission_checklist.md",
     "workbench_action_report.json",
     "workbench_action_report.md",
     "workbench_action_snapshot.json",

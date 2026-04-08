@@ -17,6 +17,11 @@ from ..core.metrology_calibration_contract import (
     METROLOGY_CALIBRATION_CONTRACT_FILENAME,
     build_metrology_calibration_contract,
 )
+from ..core.engineering_isolation_admission_checklist import (
+    ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME,
+    ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME,
+    build_engineering_isolation_admission_checklist,
+)
 from ..core.phase_transition_bridge import (
     PHASE_TRANSITION_BRIDGE_FILENAME,
     build_phase_transition_bridge,
@@ -130,6 +135,35 @@ def _augment_run_payload_with_step2_readiness(
         encoding="utf-8",
     )
     analytics_summary["stage_admission_review_pack"] = dict(stage_admission_review_pack.get("raw") or {})
+    engineering_isolation_admission_checklist = build_engineering_isolation_admission_checklist(
+        run_id=run_id,
+        step2_readiness_summary=readiness_summary,
+        metrology_calibration_contract=metrology_contract,
+        phase_transition_bridge=phase_transition_bridge,
+        stage_admission_review_pack=stage_admission_review_pack,
+        artifact_paths={
+            "step2_readiness_summary": readiness_path,
+            "metrology_calibration_contract": metrology_path,
+            "phase_transition_bridge": phase_transition_path,
+            "phase_transition_bridge_reviewer_artifact": phase_transition_reviewer_path,
+            "stage_admission_review_pack": stage_admission_review_pack_path,
+            "stage_admission_review_pack_reviewer_artifact": stage_admission_review_pack_reviewer_path,
+        },
+    )
+    engineering_isolation_admission_checklist_path = write_json(
+        run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME,
+        dict(engineering_isolation_admission_checklist.get("raw") or {}),
+    )
+    engineering_isolation_admission_checklist_reviewer_path = (
+        run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME
+    )
+    engineering_isolation_admission_checklist_reviewer_path.write_text(
+        str(engineering_isolation_admission_checklist.get("markdown") or ""),
+        encoding="utf-8",
+    )
+    analytics_summary["engineering_isolation_admission_checklist"] = dict(
+        engineering_isolation_admission_checklist.get("raw") or {}
+    )
     write_json(run_dir / ANALYTICS_SUMMARY_FILENAME, analytics_summary)
 
     summary_stats = dict(payload.get("summary_stats") or {})
@@ -184,6 +218,27 @@ def _augment_run_payload_with_step2_readiness(
             stage_admission_review_pack["raw"].get("missing_real_world_evidence") or []
         ),
     }
+    summary_stats["engineering_isolation_admission_checklist"] = dict(
+        engineering_isolation_admission_checklist.get("raw") or {}
+    )
+    summary_stats["engineering_isolation_admission_checklist_digest"] = {
+        "phase": engineering_isolation_admission_checklist["raw"].get("phase"),
+        "overall_status": engineering_isolation_admission_checklist["raw"].get("overall_status"),
+        "recommended_next_stage": engineering_isolation_admission_checklist["raw"].get("recommended_next_stage"),
+        "ready_for_engineering_isolation": bool(
+            engineering_isolation_admission_checklist["raw"].get("ready_for_engineering_isolation", False)
+        ),
+        "real_acceptance_ready": bool(
+            engineering_isolation_admission_checklist["raw"].get("real_acceptance_ready", False)
+        ),
+        "artifact_paths": dict(engineering_isolation_admission_checklist["raw"].get("artifact_paths") or {}),
+        "checklist_status_counts": dict(
+            engineering_isolation_admission_checklist["raw"].get("checklist_status_counts") or {}
+        ),
+        "missing_real_world_evidence": list(
+            engineering_isolation_admission_checklist["raw"].get("missing_real_world_evidence") or []
+        ),
+    }
     payload["summary_stats"] = summary_stats
 
     artifact_statuses = dict(payload.get("artifact_statuses") or {})
@@ -216,6 +271,16 @@ def _augment_run_payload_with_step2_readiness(
         "status": "ok",
         "role": "formal_analysis",
         "path": str(stage_admission_review_pack_reviewer_path),
+    }
+    artifact_statuses["engineering_isolation_admission_checklist"] = {
+        "status": "ok",
+        "role": "execution_summary",
+        "path": str(engineering_isolation_admission_checklist_path),
+    }
+    artifact_statuses["engineering_isolation_admission_checklist_reviewer_artifact"] = {
+        "status": "ok",
+        "role": "formal_analysis",
+        "path": str(engineering_isolation_admission_checklist_reviewer_path),
     }
     payload["artifact_statuses"] = artifact_statuses
 
@@ -325,6 +390,63 @@ def _augment_run_payload_with_step2_readiness(
         "warning_text": str(stage_admission_review_pack["display"].get("warning_text") or ""),
         "not_real_acceptance_evidence": True,
     }
+    manifest_sections["engineering_isolation_admission_checklist"] = {
+        "artifact_type": str(engineering_isolation_admission_checklist["raw"].get("artifact_type") or ""),
+        "path": str(engineering_isolation_admission_checklist_path),
+        "reviewer_path": str(engineering_isolation_admission_checklist_reviewer_path),
+        "phase": engineering_isolation_admission_checklist["raw"].get("phase"),
+        "overall_status": engineering_isolation_admission_checklist["raw"].get("overall_status"),
+        "recommended_next_stage": engineering_isolation_admission_checklist["raw"].get("recommended_next_stage"),
+        "ready_for_engineering_isolation": bool(
+            engineering_isolation_admission_checklist["raw"].get("ready_for_engineering_isolation", False)
+        ),
+        "real_acceptance_ready": bool(
+            engineering_isolation_admission_checklist["raw"].get("real_acceptance_ready", False)
+        ),
+        "checklist_items": list(engineering_isolation_admission_checklist["raw"].get("checklist_items") or []),
+        "checklist_status_counts": dict(
+            engineering_isolation_admission_checklist["raw"].get("checklist_status_counts") or {}
+        ),
+        "artifact_paths": dict(engineering_isolation_admission_checklist["raw"].get("artifact_paths") or {}),
+        "blocking_items": list(engineering_isolation_admission_checklist["raw"].get("blocking_items") or []),
+        "warning_items": list(engineering_isolation_admission_checklist["raw"].get("warning_items") or []),
+        "missing_real_world_evidence": list(
+            engineering_isolation_admission_checklist["raw"].get("missing_real_world_evidence") or []
+        ),
+        "defer_to_stage3_real_validation": list(
+            engineering_isolation_admission_checklist["raw"].get("defer_to_stage3_real_validation") or []
+        ),
+        "notes": list(engineering_isolation_admission_checklist["raw"].get("notes") or []),
+        "not_real_acceptance_evidence": True,
+    }
+    manifest_sections["engineering_isolation_admission_checklist_reviewer_artifact"] = {
+        "artifact_type": "engineering_isolation_admission_checklist_reviewer_artifact",
+        "path": str(engineering_isolation_admission_checklist_reviewer_path),
+        "available": bool(engineering_isolation_admission_checklist.get("available", False)),
+        "summary_text": str(engineering_isolation_admission_checklist["display"].get("summary_text") or ""),
+        "status_line": str(engineering_isolation_admission_checklist["display"].get("status_line") or ""),
+        "current_stage_text": str(
+            engineering_isolation_admission_checklist["display"].get("current_stage_text") or ""
+        ),
+        "next_stage_text": str(
+            engineering_isolation_admission_checklist["display"].get("next_stage_text") or ""
+        ),
+        "engineering_isolation_text": str(
+            engineering_isolation_admission_checklist["display"].get("engineering_isolation_text") or ""
+        ),
+        "real_acceptance_text": str(
+            engineering_isolation_admission_checklist["display"].get("real_acceptance_text") or ""
+        ),
+        "execute_now_text": str(
+            engineering_isolation_admission_checklist["display"].get("execute_now_text") or ""
+        ),
+        "defer_to_stage3_text": str(
+            engineering_isolation_admission_checklist["display"].get("defer_to_stage3_text") or ""
+        ),
+        "blocking_text": str(engineering_isolation_admission_checklist["display"].get("blocking_text") or ""),
+        "warning_text": str(engineering_isolation_admission_checklist["display"].get("warning_text") or ""),
+        "not_real_acceptance_evidence": True,
+    }
     payload["manifest_sections"] = manifest_sections
 
     remembered_files = [str(item) for item in list(payload.get("remembered_files") or [])]
@@ -346,6 +468,14 @@ def _augment_run_payload_with_step2_readiness(
     stage_admission_review_pack_reviewer_path_text = str(stage_admission_review_pack_reviewer_path)
     if stage_admission_review_pack_reviewer_path_text not in remembered_files:
         remembered_files.append(stage_admission_review_pack_reviewer_path_text)
+    engineering_isolation_admission_checklist_path_text = str(engineering_isolation_admission_checklist_path)
+    if engineering_isolation_admission_checklist_path_text not in remembered_files:
+        remembered_files.append(engineering_isolation_admission_checklist_path_text)
+    engineering_isolation_admission_checklist_reviewer_path_text = str(
+        engineering_isolation_admission_checklist_reviewer_path
+    )
+    if engineering_isolation_admission_checklist_reviewer_path_text not in remembered_files:
+        remembered_files.append(engineering_isolation_admission_checklist_reviewer_path_text)
     payload["remembered_files"] = remembered_files
     _persist_governance_handoff_metadata(run_dir=run_dir, payload=payload)
     return payload
@@ -452,6 +582,14 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             print(
                 "stage_admission_review_pack_reviewer: "
                 f"{Path(args.run_dir).resolve() / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME}"
+            )
+            print(
+                "engineering_isolation_admission_checklist: "
+                f"{Path(args.run_dir).resolve() / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME}"
+            )
+            print(
+                "engineering_isolation_admission_checklist_reviewer: "
+                f"{Path(args.run_dir).resolve() / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME}"
             )
             print(f"lineage_summary: {Path(args.run_dir).resolve() / 'lineage_summary.json'}")
             print(f"trend_registry: {Path(args.run_dir).resolve() / 'trend_registry.json'}")
