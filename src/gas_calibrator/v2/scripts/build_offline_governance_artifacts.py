@@ -22,6 +22,11 @@ from ..core.engineering_isolation_admission_checklist import (
     ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME,
     build_engineering_isolation_admission_checklist,
 )
+from ..core.stage3_real_validation_plan import (
+    STAGE3_REAL_VALIDATION_PLAN_FILENAME,
+    STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME,
+    build_stage3_real_validation_plan,
+)
 from ..core.phase_transition_bridge import (
     PHASE_TRANSITION_BRIDGE_FILENAME,
     build_phase_transition_bridge,
@@ -164,6 +169,36 @@ def _augment_run_payload_with_step2_readiness(
     analytics_summary["engineering_isolation_admission_checklist"] = dict(
         engineering_isolation_admission_checklist.get("raw") or {}
     )
+    stage3_real_validation_plan = build_stage3_real_validation_plan(
+        run_id=run_id,
+        step2_readiness_summary=readiness_summary,
+        metrology_calibration_contract=metrology_contract,
+        phase_transition_bridge=phase_transition_bridge,
+        stage_admission_review_pack=stage_admission_review_pack,
+        engineering_isolation_admission_checklist=engineering_isolation_admission_checklist,
+        artifact_paths={
+            "step2_readiness_summary": readiness_path,
+            "metrology_calibration_contract": metrology_path,
+            "phase_transition_bridge": phase_transition_path,
+            "phase_transition_bridge_reviewer_artifact": phase_transition_reviewer_path,
+            "stage_admission_review_pack": stage_admission_review_pack_path,
+            "stage_admission_review_pack_reviewer_artifact": stage_admission_review_pack_reviewer_path,
+            "engineering_isolation_admission_checklist": engineering_isolation_admission_checklist_path,
+            "engineering_isolation_admission_checklist_reviewer_artifact": (
+                engineering_isolation_admission_checklist_reviewer_path
+            ),
+        },
+    )
+    stage3_real_validation_plan_path = write_json(
+        run_dir / STAGE3_REAL_VALIDATION_PLAN_FILENAME,
+        dict(stage3_real_validation_plan.get("raw") or {}),
+    )
+    stage3_real_validation_plan_reviewer_path = run_dir / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME
+    stage3_real_validation_plan_reviewer_path.write_text(
+        str(stage3_real_validation_plan.get("markdown") or ""),
+        encoding="utf-8",
+    )
+    analytics_summary["stage3_real_validation_plan"] = dict(stage3_real_validation_plan.get("raw") or {})
     write_json(run_dir / ANALYTICS_SUMMARY_FILENAME, analytics_summary)
 
     summary_stats = dict(payload.get("summary_stats") or {})
@@ -239,6 +274,25 @@ def _augment_run_payload_with_step2_readiness(
             engineering_isolation_admission_checklist["raw"].get("missing_real_world_evidence") or []
         ),
     }
+    summary_stats["stage3_real_validation_plan"] = dict(stage3_real_validation_plan.get("raw") or {})
+    summary_stats["stage3_real_validation_plan_digest"] = {
+        "phase": stage3_real_validation_plan["raw"].get("phase"),
+        "overall_status": stage3_real_validation_plan["raw"].get("overall_status"),
+        "recommended_next_stage": stage3_real_validation_plan["raw"].get("recommended_next_stage"),
+        "ready_for_engineering_isolation": bool(
+            stage3_real_validation_plan["raw"].get("ready_for_engineering_isolation", False)
+        ),
+        "real_acceptance_ready": bool(
+            stage3_real_validation_plan["raw"].get("real_acceptance_ready", False)
+        ),
+        "artifact_paths": dict(stage3_real_validation_plan["raw"].get("artifact_paths") or {}),
+        "validation_status_counts": dict(
+            stage3_real_validation_plan["raw"].get("validation_status_counts") or {}
+        ),
+        "required_real_world_evidence": list(
+            stage3_real_validation_plan["raw"].get("required_real_world_evidence") or []
+        ),
+    }
     payload["summary_stats"] = summary_stats
 
     artifact_statuses = dict(payload.get("artifact_statuses") or {})
@@ -281,6 +335,16 @@ def _augment_run_payload_with_step2_readiness(
         "status": "ok",
         "role": "formal_analysis",
         "path": str(engineering_isolation_admission_checklist_reviewer_path),
+    }
+    artifact_statuses["stage3_real_validation_plan"] = {
+        "status": "ok",
+        "role": "execution_summary",
+        "path": str(stage3_real_validation_plan_path),
+    }
+    artifact_statuses["stage3_real_validation_plan_reviewer_artifact"] = {
+        "status": "ok",
+        "role": "formal_analysis",
+        "path": str(stage3_real_validation_plan_reviewer_path),
     }
     payload["artifact_statuses"] = artifact_statuses
 
@@ -447,6 +511,50 @@ def _augment_run_payload_with_step2_readiness(
         "warning_text": str(engineering_isolation_admission_checklist["display"].get("warning_text") or ""),
         "not_real_acceptance_evidence": True,
     }
+    manifest_sections["stage3_real_validation_plan"] = {
+        "artifact_type": str(stage3_real_validation_plan["raw"].get("artifact_type") or ""),
+        "path": str(stage3_real_validation_plan_path),
+        "reviewer_path": str(stage3_real_validation_plan_reviewer_path),
+        "phase": stage3_real_validation_plan["raw"].get("phase"),
+        "overall_status": stage3_real_validation_plan["raw"].get("overall_status"),
+        "recommended_next_stage": stage3_real_validation_plan["raw"].get("recommended_next_stage"),
+        "ready_for_engineering_isolation": bool(
+            stage3_real_validation_plan["raw"].get("ready_for_engineering_isolation", False)
+        ),
+        "real_acceptance_ready": bool(
+            stage3_real_validation_plan["raw"].get("real_acceptance_ready", False)
+        ),
+        "validation_items": list(stage3_real_validation_plan["raw"].get("validation_items") or []),
+        "validation_status_counts": dict(stage3_real_validation_plan["raw"].get("validation_status_counts") or {}),
+        "required_real_world_evidence": list(
+            stage3_real_validation_plan["raw"].get("required_real_world_evidence") or []
+        ),
+        "pass_fail_contract": dict(stage3_real_validation_plan["raw"].get("pass_fail_contract") or {}),
+        "artifact_paths": dict(stage3_real_validation_plan["raw"].get("artifact_paths") or {}),
+        "blocking_items": list(stage3_real_validation_plan["raw"].get("blocking_items") or []),
+        "warning_items": list(stage3_real_validation_plan["raw"].get("warning_items") or []),
+        "notes": list(stage3_real_validation_plan["raw"].get("notes") or []),
+        "not_real_acceptance_evidence": True,
+    }
+    manifest_sections["stage3_real_validation_plan_reviewer_artifact"] = {
+        "artifact_type": "stage3_real_validation_plan_reviewer_artifact",
+        "path": str(stage3_real_validation_plan_reviewer_path),
+        "available": bool(stage3_real_validation_plan.get("available", False)),
+        "summary_text": str(stage3_real_validation_plan["display"].get("summary_text") or ""),
+        "status_line": str(stage3_real_validation_plan["display"].get("status_line") or ""),
+        "current_stage_text": str(stage3_real_validation_plan["display"].get("current_stage_text") or ""),
+        "next_stage_text": str(stage3_real_validation_plan["display"].get("next_stage_text") or ""),
+        "engineering_isolation_text": str(
+            stage3_real_validation_plan["display"].get("engineering_isolation_text") or ""
+        ),
+        "real_acceptance_text": str(stage3_real_validation_plan["display"].get("real_acceptance_text") or ""),
+        "execute_now_text": str(stage3_real_validation_plan["display"].get("execute_now_text") or ""),
+        "defer_to_stage3_text": str(stage3_real_validation_plan["display"].get("defer_to_stage3_text") or ""),
+        "blocking_text": str(stage3_real_validation_plan["display"].get("blocking_text") or ""),
+        "warning_text": str(stage3_real_validation_plan["display"].get("warning_text") or ""),
+        "plan_boundary_text": str(stage3_real_validation_plan["display"].get("plan_boundary_text") or ""),
+        "not_real_acceptance_evidence": True,
+    }
     payload["manifest_sections"] = manifest_sections
 
     remembered_files = [str(item) for item in list(payload.get("remembered_files") or [])]
@@ -476,6 +584,12 @@ def _augment_run_payload_with_step2_readiness(
     )
     if engineering_isolation_admission_checklist_reviewer_path_text not in remembered_files:
         remembered_files.append(engineering_isolation_admission_checklist_reviewer_path_text)
+    stage3_real_validation_plan_path_text = str(stage3_real_validation_plan_path)
+    if stage3_real_validation_plan_path_text not in remembered_files:
+        remembered_files.append(stage3_real_validation_plan_path_text)
+    stage3_real_validation_plan_reviewer_path_text = str(stage3_real_validation_plan_reviewer_path)
+    if stage3_real_validation_plan_reviewer_path_text not in remembered_files:
+        remembered_files.append(stage3_real_validation_plan_reviewer_path_text)
     payload["remembered_files"] = remembered_files
     _persist_governance_handoff_metadata(run_dir=run_dir, payload=payload)
     return payload

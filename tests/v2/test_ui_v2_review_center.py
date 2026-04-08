@@ -16,6 +16,9 @@ from gas_calibrator.v2.core.stage_admission_review_pack import STAGE_ADMISSION_R
 from gas_calibrator.v2.core.engineering_isolation_admission_checklist import (
     ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME,
 )
+from gas_calibrator.v2.core.stage3_real_validation_plan import (
+    STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME,
+)
 from gas_calibrator.v2.scripts.build_offline_governance_artifacts import rebuild_run
 from gas_calibrator.v2.ui_v2.i18n import t
 from gas_calibrator.v2.ui_v2.widgets.review_center_panel import ReviewCenterPanel

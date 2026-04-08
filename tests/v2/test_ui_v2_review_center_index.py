@@ -37,6 +37,10 @@ from gas_calibrator.v2.core.engineering_isolation_admission_checklist import (
     ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME,
     ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME,
 )
+from gas_calibrator.v2.core.stage3_real_validation_plan import (
+    STAGE3_REAL_VALIDATION_PLAN_FILENAME,
+    STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME,
+)
 from gas_calibrator.v2.ui_v2.widgets.review_center_panel import ReviewCenterPanel
 
 SUPPORT_DIR = Path(__file__).resolve().parent

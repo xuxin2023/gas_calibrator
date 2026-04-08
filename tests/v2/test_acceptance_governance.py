@@ -38,6 +38,11 @@ from gas_calibrator.v2.core.engineering_isolation_admission_checklist_artifact_e
     ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_ARTIFACT_KEY,
     build_engineering_isolation_admission_checklist_artifact_entry,
 )
+from gas_calibrator.v2.core.stage3_real_validation_plan import (
+    STAGE3_REAL_VALIDATION_PLAN_FILENAME,
+    STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME,
+    build_stage3_real_validation_plan,
+)
 from gas_calibrator.v2.core.step2_readiness import build_step2_readiness_summary
 from gas_calibrator.v2.core.step2_readiness import STEP2_READINESS_SUMMARY_FILENAME
 
