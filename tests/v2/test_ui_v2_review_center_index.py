@@ -29,6 +29,10 @@ from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact_entry impo
     build_phase_transition_bridge_reviewer_artifact_entry,
 )
 from gas_calibrator.v2.scripts.build_offline_governance_artifacts import rebuild_run
+from gas_calibrator.v2.core.stage_admission_review_pack import (
+    STAGE_ADMISSION_REVIEW_PACK_FILENAME,
+    STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME,
+)
 from gas_calibrator.v2.ui_v2.widgets.review_center_panel import ReviewCenterPanel
 
 SUPPORT_DIR = Path(__file__).resolve().parent
@@ -1424,6 +1428,44 @@ def test_phase_transition_bridge_reviewer_artifact_stays_in_sync_across_governan
     assert raw_contract["real_acceptance_ready"] is False
     assert raw_contract["overall_status"] == "step2_tail_in_progress"
     assert raw_contract["recommended_next_stage"] == "close_step2_tail_gaps"
+
+
+def test_review_scope_manifest_and_export_index_surface_stage_admission_review_pack_artifacts(
+    tmp_path: Path,
+) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+
+    result = facade.export_review_scope_manifest(selection={"scope": "all"})
+    manifest_payload = json.loads(Path(result["json_path"]).read_text(encoding="utf-8"))
+    export_index = json.loads(Path(result["index_path"]).read_text(encoding="utf-8"))
+    rows_by_name = {
+        str(row.get("name") or ""): dict(row)
+        for row in list(manifest_payload.get("rows", []) or [])
+    }
+    pack_markdown = (run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME).read_text(encoding="utf-8")
+    review_center_entry = dict(
+        facade.build_results_snapshot()["review_center"].get("phase_transition_bridge_reviewer_artifact_entry", {}) or {}
+    )
+
+    assert STAGE_ADMISSION_REVIEW_PACK_FILENAME in rows_by_name
+    assert STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME in rows_by_name
+    assert rows_by_name[STAGE_ADMISSION_REVIEW_PACK_FILENAME]["artifact_role"] == "execution_summary"
+    assert rows_by_name[STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME]["artifact_role"] == "formal_analysis"
+    assert rows_by_name[STAGE_ADMISSION_REVIEW_PACK_FILENAME]["present_on_disk"] is True
+    assert rows_by_name[STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME]["present_on_disk"] is True
+    assert export_index["latest"]["batch_id"] == result["batch_id"]
+    assert export_index["latest"]["selection_snapshot"]["scope"] == "all"
+    assert "Step 2 tail / Stage 3 bridge" in pack_markdown
+    assert "engineering-isolation" in pack_markdown
+    assert review_center_entry["execute_now_text"] in pack_markdown
+    assert review_center_entry["defer_to_stage3_text"] in pack_markdown
+    assert review_center_entry["warning_text"] in pack_markdown
+    assert "不是 real acceptance" in pack_markdown
+    assert "不能替代真实计量验证" in pack_markdown
+    assert "ready_for_engineering_isolation" not in pack_markdown
+    assert "real_acceptance_ready" not in pack_markdown
 
 
 def test_review_center_panel_exposes_index_summary_and_time_source_filters() -> None:

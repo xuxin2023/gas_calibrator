@@ -12,6 +12,11 @@ from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact import (
 from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact_entry import (
     build_phase_transition_bridge_reviewer_artifact_entry,
 )
+from gas_calibrator.v2.core.stage_admission_review_pack import (
+    STAGE_ADMISSION_REVIEW_PACK_FILENAME,
+    STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME,
+    build_stage_admission_review_pack,
+)
 from gas_calibrator.v2.scripts.build_offline_governance_artifacts import main, rebuild_run, rebuild_suite
 
 
@@ -147,13 +152,21 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert (run_dir / "metrology_calibration_contract.json").exists()
     assert (run_dir / "phase_transition_bridge.json").exists()
     assert (run_dir / "phase_transition_bridge_reviewer.md").exists()
+    assert (run_dir / STAGE_ADMISSION_REVIEW_PACK_FILENAME).exists()
+    assert (run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME).exists()
     assert (run_dir / "lineage_summary.json").exists()
     assert (run_dir / "evidence_registry.json").exists()
+    summary_after_rebuild = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    manifest_after_rebuild = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
     analytics_summary = json.loads((run_dir / "analytics_summary.json").read_text(encoding="utf-8"))
     readiness_summary = json.loads((run_dir / "step2_readiness_summary.json").read_text(encoding="utf-8"))
     metrology_contract = json.loads((run_dir / "metrology_calibration_contract.json").read_text(encoding="utf-8"))
     phase_transition_bridge = json.loads((run_dir / "phase_transition_bridge.json").read_text(encoding="utf-8"))
     phase_transition_bridge_reviewer_markdown = (run_dir / "phase_transition_bridge_reviewer.md").read_text(
+        encoding="utf-8"
+    )
+    stage_admission_review_pack = json.loads((run_dir / STAGE_ADMISSION_REVIEW_PACK_FILENAME).read_text(encoding="utf-8"))
+    stage_admission_review_pack_markdown = (run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME).read_text(
         encoding="utf-8"
     )
     evidence_registry = json.loads((run_dir / "evidence_registry.json").read_text(encoding="utf-8"))
@@ -210,6 +223,19 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
         artifact_path=run_dir / "phase_transition_bridge_reviewer.md",
         manifest_section=payload["manifest_sections"].get("phase_transition_bridge_reviewer_artifact"),
         reviewer_section=payload["manifest_sections"].get("phase_transition_bridge_reviewer_section"),
+    )
+    expected_stage_admission_review_pack = build_stage_admission_review_pack(
+        run_id="run_001",
+        step2_readiness_summary=readiness_summary,
+        metrology_calibration_contract=metrology_contract,
+        phase_transition_bridge=phase_transition_bridge,
+        phase_transition_bridge_reviewer_artifact=expected_bridge_reviewer_artifact,
+        artifact_paths={
+            "step2_readiness_summary": run_dir / "step2_readiness_summary.json",
+            "metrology_calibration_contract": run_dir / "metrology_calibration_contract.json",
+            "phase_transition_bridge": run_dir / "phase_transition_bridge.json",
+            "phase_transition_bridge_reviewer_artifact": run_dir / "phase_transition_bridge_reviewer.md",
+        },
     )
     assert analytics_summary["phase_transition_bridge_reviewer_section"]["available"] is True
     assert (
@@ -276,6 +302,15 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
         payload["summary_stats"]["phase_transition_bridge_reviewer_section"]["display"]
         == expected_bridge_section["display"]
     )
+    assert payload["summary_stats"]["stage_admission_review_pack"]["artifact_type"] == "stage_admission_review_pack"
+    assert payload["summary_stats"]["stage_admission_review_pack"]["overall_status"] == "step2_tail_in_progress"
+    assert payload["summary_stats"]["stage_admission_review_pack"]["ready_for_engineering_isolation"] is False
+    assert payload["summary_stats"]["stage_admission_review_pack"]["real_acceptance_ready"] is False
+    assert payload["summary_stats"]["stage_admission_review_pack_digest"]["overall_status"] == "step2_tail_in_progress"
+    assert payload["summary_stats"]["stage_admission_review_pack_digest"]["recommended_next_stage"] == "close_step2_tail_gaps"
+    assert payload["summary_stats"]["stage_admission_review_pack_digest"]["artifact_paths"][
+        "phase_transition_bridge_reviewer_artifact"
+    ] == str(run_dir / "phase_transition_bridge_reviewer.md")
     assert payload["manifest_sections"]["step2_readiness"]["overall_status"] == "not_ready"
     assert payload["manifest_sections"]["step2_readiness"]["ready_for_engineering_isolation"] is False
     assert payload["manifest_sections"]["step2_readiness"]["real_acceptance_ready"] is False
@@ -307,6 +342,27 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert payload["manifest_sections"]["phase_transition_bridge_reviewer_artifact"]["blocking_text"] == (
         expected_bridge_reviewer_artifact["display"]["blocking_text"]
     )
+    assert payload["manifest_sections"]["stage_admission_review_pack"]["artifact_type"] == "stage_admission_review_pack"
+    assert payload["manifest_sections"]["stage_admission_review_pack"]["artifact_paths"] == (
+        expected_stage_admission_review_pack["raw"]["artifact_paths"]
+    )
+    assert payload["manifest_sections"]["stage_admission_review_pack"]["ready_for_engineering_isolation"] is False
+    assert payload["manifest_sections"]["stage_admission_review_pack"]["real_acceptance_ready"] is False
+    assert payload["manifest_sections"]["stage_admission_review_pack_reviewer_artifact"]["artifact_type"] == (
+        "stage_admission_review_pack_reviewer_artifact"
+    )
+    assert payload["manifest_sections"]["stage_admission_review_pack_reviewer_artifact"]["path"] == str(
+        run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME
+    )
+    assert payload["manifest_sections"]["stage_admission_review_pack_reviewer_artifact"]["summary_text"] == (
+        expected_stage_admission_review_pack["display"]["summary_text"]
+    )
+    assert payload["manifest_sections"]["stage_admission_review_pack_reviewer_artifact"]["execute_now_text"] == (
+        expected_stage_admission_review_pack["display"]["execute_now_text"]
+    )
+    assert payload["manifest_sections"]["stage_admission_review_pack_reviewer_artifact"]["defer_to_stage3_text"] == (
+        expected_stage_admission_review_pack["display"]["defer_to_stage3_text"]
+    )
     assert expected_bridge_reviewer_entry["summary_text"] == expected_bridge_reviewer_artifact["display"]["summary_text"]
     assert expected_bridge_reviewer_entry["status_line"] == expected_bridge_reviewer_artifact["display"]["status_line"]
     assert expected_bridge_reviewer_entry["stage_marker_text"] == expected_bridge_reviewer_artifact["display"]["current_stage_text"]
@@ -327,6 +383,30 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert "不能替代真实计量验证" in phase_transition_bridge_reviewer_markdown
     assert "ready_for_engineering_isolation" not in phase_transition_bridge_reviewer_markdown
     assert "real_acceptance_ready" not in phase_transition_bridge_reviewer_markdown
+    assert stage_admission_review_pack["artifact_type"] == "stage_admission_review_pack"
+    assert stage_admission_review_pack["artifact_refs"] == expected_stage_admission_review_pack["raw"]["artifact_refs"]
+    assert stage_admission_review_pack["artifact_paths"] == expected_stage_admission_review_pack["raw"]["artifact_paths"]
+    assert stage_admission_review_pack["execute_now_in_step2_tail"] == phase_transition_bridge["execute_now_in_step2_tail"]
+    assert stage_admission_review_pack["defer_to_stage3_real_validation"] == (
+        phase_transition_bridge["defer_to_stage3_real_validation"]
+    )
+    assert stage_admission_review_pack["missing_real_world_evidence"] == phase_transition_bridge["missing_real_world_evidence"]
+    assert stage_admission_review_pack["handoff_checklist"]["stage3_prerequisites"] == (
+        phase_transition_bridge["missing_real_world_evidence"]
+    )
+    assert stage_admission_review_pack_markdown == expected_stage_admission_review_pack["markdown"]
+    assert "Step 2 tail / Stage 3 bridge" in stage_admission_review_pack_markdown
+    assert "engineering-isolation" in stage_admission_review_pack_markdown
+    assert "当前执行" in stage_admission_review_pack_markdown
+    assert "第三阶段执行" in stage_admission_review_pack_markdown
+    assert "不是 real acceptance" in stage_admission_review_pack_markdown
+    assert "不能替代真实计量验证" in stage_admission_review_pack_markdown
+    assert "step2_readiness_summary.json" in stage_admission_review_pack_markdown
+    assert "metrology_calibration_contract.json" in stage_admission_review_pack_markdown
+    assert "phase_transition_bridge.json" in stage_admission_review_pack_markdown
+    assert "phase_transition_bridge_reviewer.md" in stage_admission_review_pack_markdown
+    assert "ready_for_engineering_isolation" not in stage_admission_review_pack_markdown
+    assert "real_acceptance_ready" not in stage_admission_review_pack_markdown
     assert "Step 2 tail / Stage 3 bridge" in section_text
     assert "engineering-isolation" in section_text
     assert "engineering-isolation 准备：尚未具备。" in section_text
@@ -347,10 +427,32 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert payload["artifact_statuses"]["phase_transition_bridge_reviewer_artifact"]["path"] == str(
         run_dir / "phase_transition_bridge_reviewer.md"
     )
+    assert payload["artifact_statuses"]["stage_admission_review_pack"]["role"] == "execution_summary"
+    assert payload["artifact_statuses"]["stage_admission_review_pack"]["path"] == str(
+        run_dir / STAGE_ADMISSION_REVIEW_PACK_FILENAME
+    )
+    assert payload["artifact_statuses"]["stage_admission_review_pack_reviewer_artifact"]["role"] == "formal_analysis"
+    assert payload["artifact_statuses"]["stage_admission_review_pack_reviewer_artifact"]["path"] == str(
+        run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME
+    )
     assert str(run_dir / "step2_readiness_summary.json") in payload["remembered_files"]
     assert str(run_dir / "metrology_calibration_contract.json") in payload["remembered_files"]
     assert str(run_dir / "phase_transition_bridge.json") in payload["remembered_files"]
     assert str(run_dir / "phase_transition_bridge_reviewer.md") in payload["remembered_files"]
+    assert str(run_dir / STAGE_ADMISSION_REVIEW_PACK_FILENAME) in payload["remembered_files"]
+    assert str(run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME) in payload["remembered_files"]
+    assert summary_after_rebuild["stats"]["artifact_exports"]["stage_admission_review_pack"]["role"] == "execution_summary"
+    assert summary_after_rebuild["stats"]["artifact_exports"]["stage_admission_review_pack_reviewer_artifact"]["role"] == (
+        "formal_analysis"
+    )
+    assert str(run_dir / STAGE_ADMISSION_REVIEW_PACK_FILENAME) in summary_after_rebuild["stats"]["output_files"]
+    assert str(run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME) in summary_after_rebuild["stats"]["output_files"]
+    assert manifest_after_rebuild["stage_admission_review_pack"]["artifact_paths"] == (
+        expected_stage_admission_review_pack["raw"]["artifact_paths"]
+    )
+    assert manifest_after_rebuild["stage_admission_review_pack_reviewer_artifact"]["path"] == str(
+        run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME
+    )
 
 
 def test_rebuild_suite_generates_governance_artifacts(tmp_path: Path) -> None:

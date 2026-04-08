@@ -4,7 +4,10 @@ from gas_calibrator.v2.core.acceptance_model import (
     build_user_visible_evidence_boundary,
     build_validation_acceptance_snapshot,
 )
-from gas_calibrator.v2.core.metrology_calibration_contract import build_metrology_calibration_contract
+from gas_calibrator.v2.core.metrology_calibration_contract import (
+    METROLOGY_CALIBRATION_CONTRACT_FILENAME,
+    build_metrology_calibration_contract,
+)
 from gas_calibrator.v2.core.phase_transition_bridge import build_phase_transition_bridge
 from gas_calibrator.v2.core.phase_transition_bridge_presenter import build_phase_transition_bridge_panel_payload
 from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact import (
@@ -14,6 +17,11 @@ from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact import (
 from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact_entry import (
     PHASE_TRANSITION_BRIDGE_REVIEWER_ARTIFACT_KEY,
     build_phase_transition_bridge_reviewer_artifact_entry,
+)
+from gas_calibrator.v2.core.stage_admission_review_pack import (
+    STAGE_ADMISSION_REVIEW_PACK_FILENAME,
+    STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME,
+    build_stage_admission_review_pack,
 )
 from gas_calibrator.v2.core.step2_readiness import build_step2_readiness_summary
 
@@ -453,3 +461,98 @@ def test_phase_transition_bridge_reviewer_artifact_entry_reuses_manifest_and_pan
     assert "real_acceptance_ready" not in entry["entry_text"]
     assert entry["ready_for_engineering_isolation"] is True
     assert entry["real_acceptance_ready"] is False
+
+
+def test_stage_admission_review_pack_reuses_existing_governance_artifacts_without_rejudging_stage_logic() -> None:
+    readiness = build_step2_readiness_summary(
+        run_id="run_stage_pack",
+        simulation_mode=True,
+        config_governance_handoff={
+            "simulation_only": True,
+            "operator_safe": True,
+            "real_port_device_count": 0,
+            "engineering_only_flag_count": 0,
+            "enabled_engineering_flags": [],
+            "risk_markers": [],
+            "execution_gate": {"status": "open"},
+            "step2_default_workflow_allowed": True,
+            "requires_explicit_unlock": False,
+        },
+    )
+    metrology = build_metrology_calibration_contract(
+        run_id="run_stage_pack",
+        simulation_mode=True,
+        config_governance_handoff={
+            "simulation_only": True,
+            "real_port_device_count": 0,
+            "engineering_only_flag_count": 0,
+            "enabled_engineering_flags": [],
+        },
+    )
+    bridge = build_phase_transition_bridge(
+        run_id="run_stage_pack",
+        step2_readiness_summary=readiness,
+        metrology_calibration_contract=metrology,
+    )
+    reviewer_artifact = build_phase_transition_bridge_reviewer_artifact(bridge)
+
+    pack = build_stage_admission_review_pack(
+        run_id="run_stage_pack",
+        step2_readiness_summary=readiness,
+        metrology_calibration_contract=metrology,
+        phase_transition_bridge=bridge,
+        phase_transition_bridge_reviewer_artifact=reviewer_artifact,
+        artifact_paths={
+            "step2_readiness_summary": f"D:/tmp/{STEP2_READINESS_SUMMARY_FILENAME}",
+            "metrology_calibration_contract": f"D:/tmp/{METROLOGY_CALIBRATION_CONTRACT_FILENAME}",
+            "phase_transition_bridge": f"D:/tmp/phase_transition_bridge.json",
+            "phase_transition_bridge_reviewer_artifact": f"D:/tmp/{PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME}",
+        },
+    )
+
+    raw = pack["raw"]
+    markdown = pack["markdown"]
+
+    assert pack["artifact_type"] == "stage_admission_review_pack"
+    assert pack["filename"] == STAGE_ADMISSION_REVIEW_PACK_FILENAME
+    assert pack["reviewer_filename"] == STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME
+    assert raw["artifact_type"] == "stage_admission_review_pack"
+    assert raw["phase"] == bridge["phase"]
+    assert raw["overall_status"] == bridge["overall_status"]
+    assert raw["recommended_next_stage"] == bridge["recommended_next_stage"]
+    assert raw["ready_for_engineering_isolation"] is True
+    assert raw["real_acceptance_ready"] is False
+    assert raw["artifact_paths"]["step2_readiness_summary"].endswith(STEP2_READINESS_SUMMARY_FILENAME)
+    assert raw["artifact_paths"]["metrology_calibration_contract"].endswith(METROLOGY_CALIBRATION_CONTRACT_FILENAME)
+    assert raw["artifact_paths"]["phase_transition_bridge"].endswith("phase_transition_bridge.json")
+    assert raw["artifact_paths"]["phase_transition_bridge_reviewer_artifact"].endswith(
+        PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME
+    )
+    assert raw["artifact_refs"]["step2_readiness_summary"]["overall_status"] == readiness["overall_status"]
+    assert raw["artifact_refs"]["metrology_calibration_contract"]["overall_status"] == metrology["overall_status"]
+    assert raw["artifact_refs"]["phase_transition_bridge"]["overall_status"] == bridge["overall_status"]
+    assert raw["artifact_refs"]["phase_transition_bridge_reviewer_artifact"]["summary_text"] == (
+        reviewer_artifact["display"]["summary_text"]
+    )
+    assert raw["execute_now_in_step2_tail"] == bridge["execute_now_in_step2_tail"]
+    assert raw["defer_to_stage3_real_validation"] == bridge["defer_to_stage3_real_validation"]
+    assert raw["missing_real_world_evidence"] == bridge["missing_real_world_evidence"]
+    assert raw["handoff_checklist"]["stage3_prerequisites"] == bridge["missing_real_world_evidence"]
+    assert reviewer_artifact["display"]["summary_text"] == pack["display"]["summary_text"]
+    assert reviewer_artifact["display"]["status_line"] == pack["display"]["status_line"]
+    assert reviewer_artifact["display"]["engineering_isolation_text"] == pack["display"]["engineering_isolation_text"]
+    assert reviewer_artifact["display"]["real_acceptance_text"] == pack["display"]["real_acceptance_text"]
+    assert reviewer_artifact["display"]["execute_now_text"] == pack["display"]["execute_now_text"]
+    assert reviewer_artifact["display"]["defer_to_stage3_text"] == pack["display"]["defer_to_stage3_text"]
+    assert "Step 2 tail / Stage 3 bridge" in markdown
+    assert "engineering-isolation" in markdown
+    assert "当前执行" in markdown
+    assert "第三阶段执行" in markdown
+    assert "不是 real acceptance" in markdown
+    assert "不能替代真实计量验证" in markdown
+    assert "step2_readiness_summary.json" in markdown
+    assert "metrology_calibration_contract.json" in markdown
+    assert "phase_transition_bridge.json" in markdown
+    assert "phase_transition_bridge_reviewer.md" in markdown
+    assert "ready_for_engineering_isolation" not in markdown
+    assert "real_acceptance_ready" not in markdown

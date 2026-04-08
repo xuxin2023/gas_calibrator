@@ -26,6 +26,11 @@ from ..core.phase_transition_bridge_reviewer_artifact import (
     PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME,
     build_phase_transition_bridge_reviewer_artifact,
 )
+from ..core.stage_admission_review_pack import (
+    STAGE_ADMISSION_REVIEW_PACK_FILENAME,
+    STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME,
+    build_stage_admission_review_pack,
+)
 from ..core.step2_readiness import (
     STEP2_READINESS_SUMMARY_FILENAME,
     build_step2_readiness_summary,
@@ -102,6 +107,30 @@ def _augment_run_payload_with_step2_readiness(
         str(phase_transition_bridge_reviewer_artifact.get("markdown") or ""),
         encoding="utf-8",
     )
+    stage_admission_review_pack = build_stage_admission_review_pack(
+        run_id=run_id,
+        step2_readiness_summary=readiness_summary,
+        metrology_calibration_contract=metrology_contract,
+        phase_transition_bridge=phase_transition_bridge,
+        phase_transition_bridge_reviewer_artifact=phase_transition_bridge_reviewer_artifact,
+        artifact_paths={
+            "step2_readiness_summary": readiness_path,
+            "metrology_calibration_contract": metrology_path,
+            "phase_transition_bridge": phase_transition_path,
+            "phase_transition_bridge_reviewer_artifact": phase_transition_reviewer_path,
+        },
+    )
+    stage_admission_review_pack_path = write_json(
+        run_dir / STAGE_ADMISSION_REVIEW_PACK_FILENAME,
+        dict(stage_admission_review_pack.get("raw") or {}),
+    )
+    stage_admission_review_pack_reviewer_path = run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME
+    stage_admission_review_pack_reviewer_path.write_text(
+        str(stage_admission_review_pack.get("markdown") or ""),
+        encoding="utf-8",
+    )
+    analytics_summary["stage_admission_review_pack"] = dict(stage_admission_review_pack.get("raw") or {})
+    write_json(run_dir / ANALYTICS_SUMMARY_FILENAME, analytics_summary)
 
     summary_stats = dict(payload.get("summary_stats") or {})
     summary_stats["analytics_summary"] = analytics_summary
@@ -139,6 +168,22 @@ def _augment_run_payload_with_step2_readiness(
         "missing_real_world_evidence": list(phase_transition_bridge.get("missing_real_world_evidence") or []),
     }
     summary_stats["phase_transition_bridge_reviewer_section"] = dict(phase_transition_bridge_surface_bundle)
+    summary_stats["stage_admission_review_pack"] = dict(stage_admission_review_pack.get("raw") or {})
+    summary_stats["stage_admission_review_pack_digest"] = {
+        "phase": stage_admission_review_pack["raw"].get("phase"),
+        "overall_status": stage_admission_review_pack["raw"].get("overall_status"),
+        "recommended_next_stage": stage_admission_review_pack["raw"].get("recommended_next_stage"),
+        "ready_for_engineering_isolation": bool(
+            stage_admission_review_pack["raw"].get("ready_for_engineering_isolation", False)
+        ),
+        "real_acceptance_ready": bool(
+            stage_admission_review_pack["raw"].get("real_acceptance_ready", False)
+        ),
+        "artifact_paths": dict(stage_admission_review_pack["raw"].get("artifact_paths") or {}),
+        "missing_real_world_evidence": list(
+            stage_admission_review_pack["raw"].get("missing_real_world_evidence") or []
+        ),
+    }
     payload["summary_stats"] = summary_stats
 
     artifact_statuses = dict(payload.get("artifact_statuses") or {})
@@ -161,6 +206,16 @@ def _augment_run_payload_with_step2_readiness(
         "status": "ok",
         "role": "formal_analysis",
         "path": str(phase_transition_reviewer_path),
+    }
+    artifact_statuses["stage_admission_review_pack"] = {
+        "status": "ok",
+        "role": "execution_summary",
+        "path": str(stage_admission_review_pack_path),
+    }
+    artifact_statuses["stage_admission_review_pack_reviewer_artifact"] = {
+        "status": "ok",
+        "role": "formal_analysis",
+        "path": str(stage_admission_review_pack_reviewer_path),
     }
     payload["artifact_statuses"] = artifact_statuses
 
@@ -225,6 +280,49 @@ def _augment_run_payload_with_step2_readiness(
         "warning_text": str(phase_transition_bridge_reviewer_artifact.get("display", {}).get("warning_text") or ""),
         "not_real_acceptance_evidence": True,
     }
+    manifest_sections["stage_admission_review_pack"] = {
+        "artifact_type": str(stage_admission_review_pack["raw"].get("artifact_type") or ""),
+        "phase": stage_admission_review_pack["raw"].get("phase"),
+        "overall_status": stage_admission_review_pack["raw"].get("overall_status"),
+        "recommended_next_stage": stage_admission_review_pack["raw"].get("recommended_next_stage"),
+        "ready_for_engineering_isolation": bool(
+            stage_admission_review_pack["raw"].get("ready_for_engineering_isolation", False)
+        ),
+        "real_acceptance_ready": bool(stage_admission_review_pack["raw"].get("real_acceptance_ready", False)),
+        "artifact_paths": dict(stage_admission_review_pack["raw"].get("artifact_paths") or {}),
+        "execute_now_in_step2_tail": list(
+            stage_admission_review_pack["raw"].get("execute_now_in_step2_tail") or []
+        ),
+        "defer_to_stage3_real_validation": list(
+            stage_admission_review_pack["raw"].get("defer_to_stage3_real_validation") or []
+        ),
+        "blocking_items": list(stage_admission_review_pack["raw"].get("blocking_items") or []),
+        "warning_items": list(stage_admission_review_pack["raw"].get("warning_items") or []),
+        "missing_real_world_evidence": list(
+            stage_admission_review_pack["raw"].get("missing_real_world_evidence") or []
+        ),
+        "handoff_checklist": dict(stage_admission_review_pack["raw"].get("handoff_checklist") or {}),
+        "notes": list(stage_admission_review_pack["raw"].get("notes") or []),
+        "not_real_acceptance_evidence": True,
+    }
+    manifest_sections["stage_admission_review_pack_reviewer_artifact"] = {
+        "artifact_type": "stage_admission_review_pack_reviewer_artifact",
+        "path": str(stage_admission_review_pack_reviewer_path),
+        "available": bool(stage_admission_review_pack.get("available", False)),
+        "summary_text": str(stage_admission_review_pack["display"].get("summary_text") or ""),
+        "status_line": str(stage_admission_review_pack["display"].get("status_line") or ""),
+        "current_stage_text": str(stage_admission_review_pack["display"].get("current_stage_text") or ""),
+        "next_stage_text": str(stage_admission_review_pack["display"].get("next_stage_text") or ""),
+        "engineering_isolation_text": str(
+            stage_admission_review_pack["display"].get("engineering_isolation_text") or ""
+        ),
+        "real_acceptance_text": str(stage_admission_review_pack["display"].get("real_acceptance_text") or ""),
+        "execute_now_text": str(stage_admission_review_pack["display"].get("execute_now_text") or ""),
+        "defer_to_stage3_text": str(stage_admission_review_pack["display"].get("defer_to_stage3_text") or ""),
+        "blocking_text": str(stage_admission_review_pack["display"].get("blocking_text") or ""),
+        "warning_text": str(stage_admission_review_pack["display"].get("warning_text") or ""),
+        "not_real_acceptance_evidence": True,
+    }
     payload["manifest_sections"] = manifest_sections
 
     remembered_files = [str(item) for item in list(payload.get("remembered_files") or [])]
@@ -240,8 +338,50 @@ def _augment_run_payload_with_step2_readiness(
     phase_transition_reviewer_path_text = str(phase_transition_reviewer_path)
     if phase_transition_reviewer_path_text not in remembered_files:
         remembered_files.append(phase_transition_reviewer_path_text)
+    stage_admission_review_pack_path_text = str(stage_admission_review_pack_path)
+    if stage_admission_review_pack_path_text not in remembered_files:
+        remembered_files.append(stage_admission_review_pack_path_text)
+    stage_admission_review_pack_reviewer_path_text = str(stage_admission_review_pack_reviewer_path)
+    if stage_admission_review_pack_reviewer_path_text not in remembered_files:
+        remembered_files.append(stage_admission_review_pack_reviewer_path_text)
     payload["remembered_files"] = remembered_files
+    _persist_governance_handoff_metadata(run_dir=run_dir, payload=payload)
     return payload
+
+
+def _persist_governance_handoff_metadata(*, run_dir: Path, payload: dict[str, object]) -> None:
+    summary_path = run_dir / "summary.json"
+    manifest_path = run_dir / "manifest.json"
+    summary = _load_json(summary_path)
+    manifest = _load_json(manifest_path)
+
+    stats = dict(summary.get("stats") or {})
+    output_files = _merge_unique_text_list(
+        list(stats.get("output_files") or []),
+        list(payload.get("remembered_files") or []),
+    )
+    artifact_exports = dict(stats.get("artifact_exports") or {})
+    artifact_exports.update(dict(payload.get("artifact_statuses") or {}))
+    stats["output_files"] = output_files
+    stats["artifact_exports"] = artifact_exports
+    for key, value in dict(payload.get("summary_stats") or {}).items():
+        stats[str(key)] = value
+    summary["stats"] = stats
+    write_json(summary_path, summary)
+
+    for key, value in dict(payload.get("manifest_sections") or {}).items():
+        manifest[str(key)] = value
+    write_json(manifest_path, manifest)
+
+
+def _merge_unique_text_list(existing: Iterable[object], incoming: Iterable[object]) -> list[str]:
+    rows: list[str] = []
+    for collection in (existing, incoming):
+        for item in list(collection or []):
+            text = str(item or "").strip()
+            if text and text not in rows:
+                rows.append(text)
+    return rows
 
 
 def rebuild_run(run_dir: Path) -> dict[str, object]:
@@ -306,6 +446,11 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             print(f"metrology_calibration_contract: {Path(args.run_dir).resolve() / METROLOGY_CALIBRATION_CONTRACT_FILENAME}")
             print(f"phase_transition_bridge: {Path(args.run_dir).resolve() / PHASE_TRANSITION_BRIDGE_FILENAME}")
             print(f"phase_transition_bridge_reviewer: {Path(args.run_dir).resolve() / PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME}")
+            print(f"stage_admission_review_pack: {Path(args.run_dir).resolve() / STAGE_ADMISSION_REVIEW_PACK_FILENAME}")
+            print(
+                "stage_admission_review_pack_reviewer: "
+                f"{Path(args.run_dir).resolve() / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME}"
+            )
             print(f"lineage_summary: {Path(args.run_dir).resolve() / 'lineage_summary.json'}")
             print(f"trend_registry: {Path(args.run_dir).resolve() / 'trend_registry.json'}")
             print(f"evidence_registry: {Path(args.run_dir).resolve() / 'evidence_registry.json'}")
