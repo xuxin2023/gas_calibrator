@@ -25,6 +25,10 @@ from ..core.stage3_real_validation_plan_artifact_entry import (
     STAGE3_REAL_VALIDATION_PLAN_ARTIFACT_KEY,
     build_stage3_real_validation_plan_artifact_entry,
 )
+from ..core.stage3_standards_alignment_matrix_artifact_entry import (
+    STAGE3_STANDARDS_ALIGNMENT_MATRIX_ARTIFACT_KEY,
+    build_stage3_standards_alignment_matrix_artifact_entry,
+)
 from ..core.phase_transition_bridge_presenter import build_phase_transition_bridge_panel_payload
 
 INDEX_FILENAME = "index.json"
@@ -142,6 +146,9 @@ def build_review_scope_export_entry(
     stage3_real_validation_plan_entry = _build_stage3_real_validation_plan_artifact_entry(payload)
     if stage3_real_validation_plan_entry:
         entry["stage3_real_validation_plan_artifact_entry"] = stage3_real_validation_plan_entry
+    stage3_standards_alignment_matrix_entry = _build_stage3_standards_alignment_matrix_artifact_entry(payload)
+    if stage3_standards_alignment_matrix_entry:
+        entry["stage3_standards_alignment_matrix_artifact_entry"] = stage3_standards_alignment_matrix_entry
     return entry
 
 
@@ -259,6 +266,39 @@ def _build_stage3_real_validation_plan_artifact_entry(payload: dict[str, Any]) -
 
     for row in list(payload.get("rows", []) or []):
         row_entry = dict(dict(row or {}).get("stage3_real_validation_plan_artifact_entry") or {})
+        if row_entry:
+            return row_entry
+
+    return {}
+
+
+def _build_stage3_standards_alignment_matrix_artifact_entry(payload: dict[str, Any]) -> dict[str, Any]:
+    direct_entry = dict(payload.get("stage3_standards_alignment_matrix_artifact_entry") or {})
+    if direct_entry:
+        return direct_entry
+
+    manifest_sections = dict(payload.get("manifest_sections", {}) or {})
+    manifest_section = dict(manifest_sections.get(STAGE3_STANDARDS_ALIGNMENT_MATRIX_ARTIFACT_KEY) or {})
+    reviewer_manifest_section = dict(
+        manifest_sections.get("stage3_standards_alignment_matrix_reviewer_artifact") or {}
+    )
+    digest_section = dict(payload.get("summary_stats", {}) or {}).get(
+        "stage3_standards_alignment_matrix_digest",
+        {},
+    ) or {}
+    if manifest_section or reviewer_manifest_section:
+        entry = build_stage3_standards_alignment_matrix_artifact_entry(
+            artifact_path=manifest_section.get("path"),
+            reviewer_artifact_path=reviewer_manifest_section.get("path"),
+            manifest_section=manifest_section,
+            reviewer_manifest_section=reviewer_manifest_section,
+            digest_section=digest_section,
+        )
+        if entry:
+            return entry
+
+    for row in list(payload.get("rows", []) or []):
+        row_entry = dict(dict(row or {}).get("stage3_standards_alignment_matrix_artifact_entry") or {})
         if row_entry:
             return row_entry
 

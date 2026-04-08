@@ -40,6 +40,15 @@ from ..core.stage3_real_validation_plan_artifact_entry import (
     STAGE3_REAL_VALIDATION_PLAN_REVIEWER_ARTIFACT_KEY,
     build_stage3_real_validation_plan_artifact_entry,
 )
+from ..core.stage3_standards_alignment_matrix import (
+    STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME,
+    STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME,
+)
+from ..core.stage3_standards_alignment_matrix_artifact_entry import (
+    STAGE3_STANDARDS_ALIGNMENT_MATRIX_ARTIFACT_KEY,
+    STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_ARTIFACT_KEY,
+    build_stage3_standards_alignment_matrix_artifact_entry,
+)
 from ..review_surface_formatter import (
     build_offline_diagnostic_detail_item_line,
     build_offline_diagnostic_scope_line,
@@ -322,6 +331,44 @@ class ResultsGateway:
         )
         if not bool(stage3_real_validation_plan_entry.get("available", False)):
             stage3_real_validation_plan_entry = {}
+        stage3_standards_alignment_matrix_section = dict(
+            manifest.get(STAGE3_STANDARDS_ALIGNMENT_MATRIX_ARTIFACT_KEY) or {}
+        )
+        stage3_standards_alignment_matrix_reviewer_section = dict(
+            manifest.get(STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_ARTIFACT_KEY) or {}
+        )
+        stage3_standards_alignment_matrix_path = str(
+            stage3_standards_alignment_matrix_section.get("path") or ""
+        ).strip()
+        if not stage3_standards_alignment_matrix_path:
+            fallback_path = self.run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME
+            if fallback_path.exists():
+                stage3_standards_alignment_matrix_path = str(fallback_path)
+        stage3_standards_alignment_matrix_reviewer_path = str(
+            stage3_standards_alignment_matrix_reviewer_section.get("path") or ""
+        ).strip()
+        if not stage3_standards_alignment_matrix_reviewer_path:
+            fallback_path = self.run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME
+            if fallback_path.exists():
+                stage3_standards_alignment_matrix_reviewer_path = str(fallback_path)
+        stage3_standards_alignment_matrix_markdown_text = ""
+        if stage3_standards_alignment_matrix_reviewer_path:
+            try:
+                stage3_standards_alignment_matrix_markdown_text = _artifact_path(
+                    stage3_standards_alignment_matrix_reviewer_path
+                ).read_text(encoding="utf-8")
+            except Exception:
+                stage3_standards_alignment_matrix_markdown_text = ""
+        stage3_standards_alignment_matrix_entry = build_stage3_standards_alignment_matrix_artifact_entry(
+            artifact_path=stage3_standards_alignment_matrix_path,
+            reviewer_artifact_path=stage3_standards_alignment_matrix_reviewer_path,
+            manifest_section=stage3_standards_alignment_matrix_section,
+            reviewer_manifest_section=stage3_standards_alignment_matrix_reviewer_section,
+            digest_section=dict(summary_stats.get("stage3_standards_alignment_matrix_digest") or {}),
+            reviewer_markdown_text=stage3_standards_alignment_matrix_markdown_text,
+        )
+        if not bool(stage3_standards_alignment_matrix_entry.get("available", False)):
+            stage3_standards_alignment_matrix_entry = {}
         files = []
         seen: set[str] = set()
 
@@ -370,6 +417,10 @@ class ResultsGateway:
                 row,
                 stage3_real_validation_plan_entry=stage3_real_validation_plan_entry,
             )
+            row = self._decorate_stage3_standards_alignment_matrix_row(
+                row,
+                stage3_standards_alignment_matrix_entry=stage3_standards_alignment_matrix_entry,
+            )
             files.append(row)
         return {
             "run_dir": str(self.run_dir),
@@ -392,6 +443,7 @@ class ResultsGateway:
                 engineering_isolation_admission_checklist_entry
             ),
             "stage3_real_validation_plan_artifact_entry": dict(stage3_real_validation_plan_entry),
+            "stage3_standards_alignment_matrix_artifact_entry": dict(stage3_standards_alignment_matrix_entry),
             "evidence_source": str(payload.get("evidence_source", "") or "simulated_protocol"),
             "evidence_state": str(payload.get("evidence_state", "") or "collected"),
             "not_real_acceptance_evidence": bool(payload.get("not_real_acceptance_evidence", True)),
@@ -791,4 +843,37 @@ class ResultsGateway:
             "note": str(entry.get("summary_text") or payload.get("note") or ""),
             "role_status_display": role_status_display or existing_role_status,
             "stage3_real_validation_plan_artifact_entry": entry,
+        }
+
+    @staticmethod
+    def _decorate_stage3_standards_alignment_matrix_row(
+        row: dict[str, Any],
+        *,
+        stage3_standards_alignment_matrix_entry: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload = dict(row or {})
+        artifact_key = str(payload.get("artifact_key") or "")
+        if artifact_key not in {
+            STAGE3_STANDARDS_ALIGNMENT_MATRIX_ARTIFACT_KEY,
+            STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_ARTIFACT_KEY,
+        }:
+            return payload
+        entry = dict(stage3_standards_alignment_matrix_entry or {})
+        if not entry:
+            return payload
+        is_reviewer_artifact = artifact_key == STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_ARTIFACT_KEY
+        existing_role_status = str(payload.get("role_status_display") or "").strip()
+        entry_role_status = str(entry.get("role_status_display") or "").strip()
+        role_status_display = " | ".join(
+            part
+            for part in (existing_role_status, entry_role_status)
+            if str(part).strip()
+        )
+        return {
+            **payload,
+            "name": str(entry.get("name_text") or payload.get("name") or "")
+            + (" (Markdown)" if is_reviewer_artifact else " (JSON)"),
+            "note": str(entry.get("summary_text") or payload.get("note") or ""),
+            "role_status_display": role_status_display or existing_role_status,
+            "stage3_standards_alignment_matrix_artifact_entry": entry,
         }

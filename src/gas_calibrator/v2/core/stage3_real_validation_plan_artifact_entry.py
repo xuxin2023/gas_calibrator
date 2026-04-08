@@ -131,6 +131,13 @@ def build_stage3_real_validation_plan_artifact_entry(
     )
     stage_marker_text = current_stage_text or next_stage_text
     simulation_only_text = "simulation / offline / headless only"
+    anchor_id = "stage3-real-validation-plan"
+    boundary_filters = [
+        "engineering-isolation dependency",
+        "simulation / offline / headless only",
+        "not real acceptance",
+        "cannot replace real metrology validation",
+    ]
     role_text = "执行摘要 + 正式分析"
 
     card_lines = [
@@ -222,6 +229,14 @@ def build_stage3_real_validation_plan_artifact_entry(
         "digest": dict(digest_payload),
         "digest_text": digest_text,
         "simulation_only_text": simulation_only_text,
+        "anchor_id": anchor_id,
+        "navigation_id": anchor_id,
+        "anchor_label": title_text,
+        "phase_filters": ["step2_tail_stage3_bridge", "stage3_real_validation_bridge"],
+        "artifact_role_filters": ["execution_summary", "formal_analysis"],
+        "standard_family_filters": [],
+        "evidence_category_filters": list(required_evidence_categories),
+        "boundary_filters": boundary_filters,
         "entry_text": "\n".join(line for line in entry_lines if str(line).strip()),
         "card_text": "\n".join(line for line in card_lines if str(line).strip()),
         "role_status_display": role_status_display,

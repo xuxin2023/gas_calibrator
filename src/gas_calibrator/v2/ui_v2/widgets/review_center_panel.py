@@ -32,13 +32,19 @@ class ReviewCenterPanel(ttk.LabelFrame):
         )
         self.compact = bool(compact)
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(8, weight=1)
+        self.rowconfigure(9, weight=1)
         self._payload: dict[str, Any] = {}
         self._items: list[dict[str, Any]] = []
         self._type_lookup: dict[str, str] = {}
         self._status_lookup: dict[str, str] = {}
         self._time_lookup: dict[str, str] = {}
         self._source_lookup: dict[str, str] = {}
+        self._phase_lookup: dict[str, str] = {}
+        self._artifact_role_lookup: dict[str, str] = {}
+        self._standard_family_lookup: dict[str, str] = {}
+        self._evidence_category_lookup: dict[str, str] = {}
+        self._boundary_lookup: dict[str, str] = {}
+        self._anchor_lookup: dict[str, str] = {}
         self._time_windows: dict[str, float | None] = {}
         self._active_view: dict[str, Any] = {}
         self._selected_source_id = "all"
@@ -53,11 +59,17 @@ class ReviewCenterPanel(ttk.LabelFrame):
 
         toolbar = ttk.Frame(self, style="Card.TFrame")
         toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 6))
-        toolbar.columnconfigure(9, weight=1)
+        toolbar.columnconfigure(11, weight=1)
         self.type_filter_var = tk.StringVar(value="")
         self.status_filter_var = tk.StringVar(value="")
         self.time_filter_var = tk.StringVar(value="")
         self.source_filter_var = tk.StringVar(value="")
+        self.phase_filter_var = tk.StringVar(value="")
+        self.artifact_role_filter_var = tk.StringVar(value="")
+        self.standard_family_filter_var = tk.StringVar(value="")
+        self.evidence_category_filter_var = tk.StringVar(value="")
+        self.boundary_filter_var = tk.StringVar(value="")
+        self.anchor_filter_var = tk.StringVar(value="")
         self.count_var = tk.StringVar(value="")
         ttk.Label(toolbar, text=t("results.review_center.filter.type"), style="Muted.TLabel").grid(row=0, column=0, sticky="w")
         self.type_filter = ttk.Combobox(toolbar, textvariable=self.type_filter_var, state="readonly", width=16)
@@ -76,6 +88,30 @@ class ReviewCenterPanel(ttk.LabelFrame):
         self.source_filter.grid(row=0, column=7, sticky="w", padx=(6, 12))
         self.source_filter.bind("<<ComboboxSelected>>", self._on_filter_changed, add="+")
         ttk.Label(toolbar, textvariable=self.count_var, style="Muted.TLabel").grid(row=0, column=9, sticky="e")
+        ttk.Label(toolbar, text=t("results.review_center.filter.phase", default="阶段"), style="Muted.TLabel").grid(row=1, column=0, sticky="w", pady=(4, 0))
+        self.phase_filter = ttk.Combobox(toolbar, textvariable=self.phase_filter_var, state="readonly", width=18)
+        self.phase_filter.grid(row=1, column=1, sticky="w", padx=(6, 12), pady=(4, 0))
+        self.phase_filter.bind("<<ComboboxSelected>>", self._on_filter_changed, add="+")
+        ttk.Label(toolbar, text=t("results.review_center.filter.artifact_role", default="工件角色"), style="Muted.TLabel").grid(row=1, column=2, sticky="w", pady=(4, 0))
+        self.artifact_role_filter = ttk.Combobox(toolbar, textvariable=self.artifact_role_filter_var, state="readonly", width=18)
+        self.artifact_role_filter.grid(row=1, column=3, sticky="w", padx=(6, 12), pady=(4, 0))
+        self.artifact_role_filter.bind("<<ComboboxSelected>>", self._on_filter_changed, add="+")
+        ttk.Label(toolbar, text=t("results.review_center.filter.standard_family", default="标准家族"), style="Muted.TLabel").grid(row=1, column=4, sticky="w", pady=(4, 0))
+        self.standard_family_filter = ttk.Combobox(toolbar, textvariable=self.standard_family_filter_var, state="readonly", width=24)
+        self.standard_family_filter.grid(row=1, column=5, sticky="w", padx=(6, 12), pady=(4, 0))
+        self.standard_family_filter.bind("<<ComboboxSelected>>", self._on_filter_changed, add="+")
+        ttk.Label(toolbar, text=t("results.review_center.filter.evidence_category", default="证据类别"), style="Muted.TLabel").grid(row=1, column=6, sticky="w", pady=(4, 0))
+        self.evidence_category_filter = ttk.Combobox(toolbar, textvariable=self.evidence_category_filter_var, state="readonly", width=24)
+        self.evidence_category_filter.grid(row=1, column=7, sticky="w", padx=(6, 12), pady=(4, 0))
+        self.evidence_category_filter.bind("<<ComboboxSelected>>", self._on_filter_changed, add="+")
+        ttk.Label(toolbar, text=t("results.review_center.filter.boundary", default="边界"), style="Muted.TLabel").grid(row=1, column=8, sticky="w", pady=(4, 0))
+        self.boundary_filter = ttk.Combobox(toolbar, textvariable=self.boundary_filter_var, state="readonly", width=22)
+        self.boundary_filter.grid(row=1, column=9, sticky="w", padx=(6, 12), pady=(4, 0))
+        self.boundary_filter.bind("<<ComboboxSelected>>", self._on_filter_changed, add="+")
+        ttk.Label(toolbar, text=t("results.review_center.filter.anchor", default="锚点"), style="Muted.TLabel").grid(row=1, column=10, sticky="w", pady=(4, 0))
+        self.anchor_filter = ttk.Combobox(toolbar, textvariable=self.anchor_filter_var, state="readonly", width=24)
+        self.anchor_filter.grid(row=1, column=11, sticky="ew", padx=(6, 0), pady=(4, 0))
+        self.anchor_filter.bind("<<ComboboxSelected>>", self._on_filter_changed, add="+")
 
         self.index_var = tk.StringVar(value="")
         ttk.Label(
@@ -262,8 +298,45 @@ class ReviewCenterPanel(ttk.LabelFrame):
         ).grid(row=3, column=0, sticky="ew", pady=(2, 0))
         self.stage3_real_validation_plan_frame.grid_remove()
 
+        self.stage3_standards_alignment_matrix_frame = ttk.Frame(self, style="Card.TFrame")
+        self.stage3_standards_alignment_matrix_frame.grid(row=7, column=0, sticky="ew", pady=(0, 6))
+        self.stage3_standards_alignment_matrix_frame.columnconfigure(0, weight=1)
+        self.stage3_standards_alignment_matrix_title_var = tk.StringVar(value="")
+        self.stage3_standards_alignment_matrix_status_var = tk.StringVar(value="")
+        self.stage3_standards_alignment_matrix_path_var = tk.StringVar(value="")
+        self.stage3_standards_alignment_matrix_note_var = tk.StringVar(value="")
+        ttk.Label(
+            self.stage3_standards_alignment_matrix_frame,
+            textvariable=self.stage3_standards_alignment_matrix_title_var,
+            style="Section.TLabel",
+            wraplength=1120 if compact else 1320,
+            justify="left",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 4))
+        ttk.Label(
+            self.stage3_standards_alignment_matrix_frame,
+            textvariable=self.stage3_standards_alignment_matrix_status_var,
+            justify="left",
+            wraplength=1120 if compact else 1320,
+            style="Muted.TLabel",
+        ).grid(row=1, column=0, sticky="ew")
+        ttk.Label(
+            self.stage3_standards_alignment_matrix_frame,
+            textvariable=self.stage3_standards_alignment_matrix_path_var,
+            justify="left",
+            wraplength=1120 if compact else 1320,
+            style="Muted.TLabel",
+        ).grid(row=2, column=0, sticky="ew", pady=(2, 0))
+        ttk.Label(
+            self.stage3_standards_alignment_matrix_frame,
+            textvariable=self.stage3_standards_alignment_matrix_note_var,
+            justify="left",
+            wraplength=1120 if compact else 1320,
+            style="Muted.TLabel",
+        ).grid(row=3, column=0, sticky="ew", pady=(2, 0))
+        self.stage3_standards_alignment_matrix_frame.grid_remove()
+
         source_frame = ttk.Frame(self, style="Card.TFrame")
-        source_frame.grid(row=7, column=0, sticky="ew", pady=(0, 6))
+        source_frame.grid(row=8, column=0, sticky="ew", pady=(0, 6))
         source_frame.columnconfigure(0, weight=1)
         source_frame.columnconfigure(1, weight=1)
         source_frame.rowconfigure(1, weight=1)
@@ -315,7 +388,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
         self.source_tree.bind("<<TreeviewSelect>>", self._on_source_selected, add="+")
 
         list_frame = ttk.Frame(self, style="Card.TFrame")
-        list_frame.grid(row=8, column=0, sticky="nsew")
+        list_frame.grid(row=9, column=0, sticky="nsew")
         list_frame.columnconfigure(0, weight=1)
         list_frame.rowconfigure(1, weight=1)
         ttk.Label(list_frame, text=t("results.review_center.section.evidence_list"), style="Section.TLabel").grid(
@@ -349,7 +422,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
             title=t("results.review_center.section.evidence_detail"),
             expanded=not compact,
         )
-        self.detail_section.grid(row=9, column=0, sticky="nsew", pady=(6, 0))
+        self.detail_section.grid(row=10, column=0, sticky="nsew", pady=(6, 0))
         self.detail_section.body.rowconfigure(8, weight=1)
         self.detail_section.body.columnconfigure(0, weight=1)
         detail_meta = ttk.Frame(self.detail_section.body, style="Card.TFrame")

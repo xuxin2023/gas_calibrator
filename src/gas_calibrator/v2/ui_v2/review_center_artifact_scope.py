@@ -367,6 +367,11 @@ def build_review_scope_manifest_payload(
     )
     if stage3_real_validation_plan_entry:
         payload["stage3_real_validation_plan_artifact_entry"] = stage3_real_validation_plan_entry
+    stage3_standards_alignment_matrix_entry = _find_stage3_standards_alignment_matrix_artifact_entry(
+        list(registry.get("rows", []) or [])
+    )
+    if stage3_standards_alignment_matrix_entry:
+        payload["stage3_standards_alignment_matrix_artifact_entry"] = stage3_standards_alignment_matrix_entry
     return payload
 
 
@@ -904,6 +909,14 @@ def _find_engineering_isolation_admission_checklist_artifact_entry(files: list[d
 def _find_stage3_real_validation_plan_artifact_entry(files: list[dict[str, Any]]) -> dict[str, Any]:
     for item in list(files or []):
         entry = dict(dict(item or {}).get("stage3_real_validation_plan_artifact_entry") or {})
+        if entry:
+            return entry
+    return {}
+
+
+def _find_stage3_standards_alignment_matrix_artifact_entry(files: list[dict[str, Any]]) -> dict[str, Any]:
+    for item in list(files or []):
+        entry = dict(dict(item or {}).get("stage3_standards_alignment_matrix_artifact_entry") or {})
         if entry:
             return entry
     return {}

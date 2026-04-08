@@ -43,6 +43,14 @@ def build_stage_admission_review_pack_artifact_entry(
     blocking_text = str(reviewer_manifest_payload.get("blocking_text") or "").strip()
     warning_text = str(reviewer_manifest_payload.get("warning_text") or "").strip()
     stage_marker_text = current_stage_text or next_stage_text
+    role_text = "execution_summary + formal_analysis"
+    anchor_id = "stage-admission-review-pack"
+    boundary_filters = [
+        "engineering-isolation dependency",
+        "simulation / offline / headless only",
+        "not real acceptance",
+        "cannot replace real metrology validation",
+    ]
     entry_lines = [
         summary_text,
         status_line,
@@ -79,6 +87,7 @@ def build_stage_admission_review_pack_artifact_entry(
         ),
         "title_text": title_text,
         "name_text": title_text,
+        "role_text": role_text,
         "filename": Path(path_text).name if path_text else "",
         "reviewer_filename": Path(reviewer_path_text).name if reviewer_path_text else "",
         "path": path_text,
@@ -94,6 +103,14 @@ def build_stage_admission_review_pack_artifact_entry(
         "defer_to_stage3_text": defer_to_stage3_text,
         "blocking_text": blocking_text,
         "warning_text": warning_text,
+        "anchor_id": anchor_id,
+        "navigation_id": anchor_id,
+        "anchor_label": title_text,
+        "phase_filters": ["step2_tail_stage3_bridge", "stage_admission_review"],
+        "artifact_role_filters": ["execution_summary", "formal_analysis"],
+        "standard_family_filters": [],
+        "evidence_category_filters": [],
+        "boundary_filters": boundary_filters,
         "entry_text": "\n".join(line for line in entry_lines if str(line).strip()),
         "role_status_display": role_status_display,
         "note_text": summary_text or warning_text or status_line,

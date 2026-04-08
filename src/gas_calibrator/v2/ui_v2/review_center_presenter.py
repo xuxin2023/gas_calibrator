@@ -26,6 +26,12 @@ def build_review_center_view(
     selected_time: str = "all",
     selected_source_kind: str = "all",
     selected_source_id: str = "all",
+    selected_phase: str = "all",
+    selected_artifact_role: str = "all",
+    selected_standard_family: str = "all",
+    selected_evidence_category: str = "all",
+    selected_boundary: str = "all",
+    selected_anchor: str = "all",
     now_ts: float | None = None,
 ) -> dict[str, Any]:
     base_payload = dict(payload or {})
@@ -59,6 +65,20 @@ def build_review_center_view(
         filtered_items=filtered_items,
         selected_source_row=selected_source_row,
     )
+    reviewer_artifact_entries = _filter_reviewer_artifact_entries(
+        _normalize_reviewer_artifact_entries(base_payload),
+        selected_phase=selected_phase,
+        selected_artifact_role=selected_artifact_role,
+        selected_standard_family=selected_standard_family,
+        selected_evidence_category=selected_evidence_category,
+        selected_boundary=selected_boundary,
+        selected_anchor=selected_anchor,
+    )
+    reviewer_artifact_entry_by_key = {
+        str(item.get("artifact_key") or ""): dict(item)
+        for item in reviewer_artifact_entries
+        if str(item.get("artifact_key") or "").strip()
+    }
     selected_item = dict(filtered_items[0]) if filtered_items else {
         "detail_text": str(base_payload.get("empty_detail") or t("results.review_center.empty")),
         "detail_hint": str(base_payload.get("detail_hint") or t("results.review_center.detail_hint")),
@@ -84,17 +104,21 @@ def build_review_center_view(
         "lineage_summary": source_scope_view["lineage_summary"],
         "phase_bridge_summary": source_scope_view["phase_bridge_summary"],
         "phase_bridge_panel": source_scope_view["phase_bridge_panel"],
+        "reviewer_artifact_entries": reviewer_artifact_entries,
         "phase_bridge_reviewer_artifact_entry": dict(
             base_payload.get("phase_transition_bridge_reviewer_artifact_entry", {}) or {}
         ),
         "stage_admission_review_pack_artifact_entry": dict(
-            base_payload.get("stage_admission_review_pack_artifact_entry", {}) or {}
+            reviewer_artifact_entry_by_key.get("stage_admission_review_pack", {})
         ),
         "engineering_isolation_admission_checklist_artifact_entry": dict(
-            base_payload.get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
+            reviewer_artifact_entry_by_key.get("engineering_isolation_admission_checklist", {})
         ),
         "stage3_real_validation_plan_artifact_entry": dict(
-            base_payload.get("stage3_real_validation_plan_artifact_entry", {}) or {}
+            reviewer_artifact_entry_by_key.get("stage3_real_validation_plan", {})
+        ),
+        "stage3_standards_alignment_matrix_artifact_entry": dict(
+            reviewer_artifact_entry_by_key.get("stage3_standards_alignment_matrix", {})
         ),
         "source_scope_label": source_scope_view["source_scope_label"],
         "source_scope_active": bool(selected_source_row),
@@ -120,6 +144,86 @@ def build_review_center_selection_snapshot(
         selected_item=selected_item,
         item_matcher=_item_matches_selected_source,
     )
+
+
+def _normalize_reviewer_artifact_entries(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    explicit_entries = [
+        dict(item)
+        for item in list(payload.get("reviewer_artifact_entries", []) or [])
+        if isinstance(item, dict) and bool(item.get("available", False))
+    ]
+    if explicit_entries:
+        return explicit_entries
+
+    entries: list[dict[str, Any]] = []
+    for key in (
+        "stage_admission_review_pack_artifact_entry",
+        "engineering_isolation_admission_checklist_artifact_entry",
+        "stage3_real_validation_plan_artifact_entry",
+        "stage3_standards_alignment_matrix_artifact_entry",
+    ):
+        entry = dict(payload.get(key, {}) or {})
+        if bool(entry.get("available", False)):
+            entries.append(entry)
+    return entries
+
+
+def _filter_reviewer_artifact_entries(
+    entries: list[dict[str, Any]],
+    *,
+    selected_phase: str,
+    selected_artifact_role: str,
+    selected_standard_family: str,
+    selected_evidence_category: str,
+    selected_boundary: str,
+    selected_anchor: str,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for entry in entries:
+        if not _entry_matches_reviewer_filters(
+            entry,
+            selected_phase=selected_phase,
+            selected_artifact_role=selected_artifact_role,
+            selected_standard_family=selected_standard_family,
+            selected_evidence_category=selected_evidence_category,
+            selected_boundary=selected_boundary,
+            selected_anchor=selected_anchor,
+        ):
+            continue
+        rows.append(dict(entry))
+    return rows
+
+
+def _entry_matches_reviewer_filters(
+    entry: dict[str, Any],
+    *,
+    selected_phase: str,
+    selected_artifact_role: str,
+    selected_standard_family: str,
+    selected_evidence_category: str,
+    selected_boundary: str,
+    selected_anchor: str,
+) -> bool:
+    if selected_anchor not in {"", "all"} and str(entry.get("anchor_id") or "") != selected_anchor:
+        return False
+    if not _matches_list_filter(entry.get("phase_filters"), selected_phase):
+        return False
+    if not _matches_list_filter(entry.get("artifact_role_filters"), selected_artifact_role):
+        return False
+    if not _matches_list_filter(entry.get("standard_family_filters"), selected_standard_family):
+        return False
+    if not _matches_list_filter(entry.get("evidence_category_filters"), selected_evidence_category):
+        return False
+    if not _matches_list_filter(entry.get("boundary_filters"), selected_boundary):
+        return False
+    return True
+
+
+def _matches_list_filter(values: Any, selected_value: str) -> bool:
+    if selected_value in {"", "all"}:
+        return True
+    rows = {str(item).strip() for item in list(values or []) if str(item).strip()}
+    return selected_value in rows
 
 
 def _phase_transition_bridge_digest(payload: dict[str, Any]) -> dict[str, Any]:

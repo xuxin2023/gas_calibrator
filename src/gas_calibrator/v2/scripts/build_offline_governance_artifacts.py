@@ -204,6 +204,43 @@ def _augment_run_payload_with_step2_readiness(
         encoding="utf-8",
     )
     analytics_summary["stage3_real_validation_plan"] = dict(stage3_real_validation_plan.get("raw") or {})
+    stage3_standards_alignment_matrix = build_stage3_standards_alignment_matrix(
+        run_id=run_id,
+        step2_readiness_summary=readiness_summary,
+        metrology_calibration_contract=metrology_contract,
+        phase_transition_bridge=phase_transition_bridge,
+        stage_admission_review_pack=stage_admission_review_pack,
+        engineering_isolation_admission_checklist=engineering_isolation_admission_checklist,
+        stage3_real_validation_plan=stage3_real_validation_plan,
+        artifact_paths={
+            "step2_readiness_summary": readiness_path,
+            "metrology_calibration_contract": metrology_path,
+            "phase_transition_bridge": phase_transition_path,
+            "phase_transition_bridge_reviewer_artifact": phase_transition_reviewer_path,
+            "stage_admission_review_pack": stage_admission_review_pack_path,
+            "stage_admission_review_pack_reviewer_artifact": stage_admission_review_pack_reviewer_path,
+            "engineering_isolation_admission_checklist": engineering_isolation_admission_checklist_path,
+            "engineering_isolation_admission_checklist_reviewer_artifact": (
+                engineering_isolation_admission_checklist_reviewer_path
+            ),
+            "stage3_real_validation_plan": stage3_real_validation_plan_path,
+            "stage3_real_validation_plan_reviewer_artifact": stage3_real_validation_plan_reviewer_path,
+        },
+    )
+    stage3_standards_alignment_matrix_path = write_json(
+        run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME,
+        dict(stage3_standards_alignment_matrix.get("raw") or {}),
+    )
+    stage3_standards_alignment_matrix_reviewer_path = (
+        run_dir / STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME
+    )
+    stage3_standards_alignment_matrix_reviewer_path.write_text(
+        str(stage3_standards_alignment_matrix.get("markdown") or ""),
+        encoding="utf-8",
+    )
+    analytics_summary["stage3_standards_alignment_matrix"] = dict(
+        stage3_standards_alignment_matrix.get("raw") or {}
+    )
     write_json(run_dir / ANALYTICS_SUMMARY_FILENAME, analytics_summary)
 
     summary_stats = dict(payload.get("summary_stats") or {})
@@ -298,6 +335,29 @@ def _augment_run_payload_with_step2_readiness(
             stage3_real_validation_plan["raw"].get("required_real_world_evidence") or []
         ),
     }
+    summary_stats["stage3_standards_alignment_matrix"] = dict(
+        stage3_standards_alignment_matrix.get("raw") or {}
+    )
+    summary_stats["stage3_standards_alignment_matrix_digest"] = {
+        "phase": stage3_standards_alignment_matrix["raw"].get("phase"),
+        "overall_status": stage3_standards_alignment_matrix["raw"].get("overall_status"),
+        "recommended_next_stage": stage3_standards_alignment_matrix["raw"].get("recommended_next_stage"),
+        "mapping_scope": stage3_standards_alignment_matrix["raw"].get("mapping_scope"),
+        "standard_family_count": len(stage3_standards_alignment_matrix["raw"].get("standard_families") or []),
+        "mapping_row_count": len(stage3_standards_alignment_matrix["raw"].get("rows") or []),
+        "required_evidence_category_count": len(
+            stage3_standards_alignment_matrix["raw"].get("required_evidence_categories") or []
+        ),
+        "standard_families": list(stage3_standards_alignment_matrix["raw"].get("standard_families") or []),
+        "required_evidence_categories": list(
+            stage3_standards_alignment_matrix["raw"].get("required_evidence_categories") or []
+        ),
+        "readiness_status_counts": dict(
+            stage3_standards_alignment_matrix["raw"].get("readiness_status_counts") or {}
+        ),
+        "boundary_statements": list(stage3_standards_alignment_matrix["raw"].get("boundary_statements") or []),
+        "artifact_paths": dict(stage3_standards_alignment_matrix["raw"].get("artifact_paths") or {}),
+    }
     payload["summary_stats"] = summary_stats
 
     artifact_statuses = dict(payload.get("artifact_statuses") or {})
@@ -350,6 +410,16 @@ def _augment_run_payload_with_step2_readiness(
         "status": "ok",
         "role": "formal_analysis",
         "path": str(stage3_real_validation_plan_reviewer_path),
+    }
+    artifact_statuses["stage3_standards_alignment_matrix"] = {
+        "status": "ok",
+        "role": "execution_summary",
+        "path": str(stage3_standards_alignment_matrix_path),
+    }
+    artifact_statuses["stage3_standards_alignment_matrix_reviewer_artifact"] = {
+        "status": "ok",
+        "role": "formal_analysis",
+        "path": str(stage3_standards_alignment_matrix_reviewer_path),
     }
     payload["artifact_statuses"] = artifact_statuses
 
@@ -560,6 +630,43 @@ def _augment_run_payload_with_step2_readiness(
         "plan_boundary_text": str(stage3_real_validation_plan["display"].get("plan_boundary_text") or ""),
         "not_real_acceptance_evidence": True,
     }
+    manifest_sections["stage3_standards_alignment_matrix"] = {
+        "artifact_type": str(stage3_standards_alignment_matrix["raw"].get("artifact_type") or ""),
+        "path": str(stage3_standards_alignment_matrix_path),
+        "reviewer_path": str(stage3_standards_alignment_matrix_reviewer_path),
+        "phase": stage3_standards_alignment_matrix["raw"].get("phase"),
+        "overall_status": stage3_standards_alignment_matrix["raw"].get("overall_status"),
+        "recommended_next_stage": stage3_standards_alignment_matrix["raw"].get("recommended_next_stage"),
+        "mapping_scope": stage3_standards_alignment_matrix["raw"].get("mapping_scope"),
+        "artifact_paths": dict(stage3_standards_alignment_matrix["raw"].get("artifact_paths") or {}),
+        "standard_families": list(stage3_standards_alignment_matrix["raw"].get("standard_families") or []),
+        "required_evidence_categories": list(
+            stage3_standards_alignment_matrix["raw"].get("required_evidence_categories") or []
+        ),
+        "readiness_status_counts": dict(
+            stage3_standards_alignment_matrix["raw"].get("readiness_status_counts") or {}
+        ),
+        "boundary_statements": list(stage3_standards_alignment_matrix["raw"].get("boundary_statements") or []),
+        "rows": list(stage3_standards_alignment_matrix["raw"].get("rows") or []),
+        "not_real_acceptance_evidence": True,
+    }
+    manifest_sections["stage3_standards_alignment_matrix_reviewer_artifact"] = {
+        "artifact_type": "stage3_standards_alignment_matrix_reviewer_artifact",
+        "path": str(stage3_standards_alignment_matrix_reviewer_path),
+        "available": bool(stage3_standards_alignment_matrix.get("available", False)),
+        "summary_text": str(stage3_standards_alignment_matrix["display"].get("summary_text") or ""),
+        "reviewer_note_text": str(stage3_standards_alignment_matrix["display"].get("reviewer_note_text") or ""),
+        "status_line": str(stage3_standards_alignment_matrix["display"].get("status_line") or ""),
+        "current_stage_text": str(stage3_standards_alignment_matrix["display"].get("current_stage_text") or ""),
+        "next_stage_text": str(stage3_standards_alignment_matrix["display"].get("next_stage_text") or ""),
+        "engineering_isolation_text": str(
+            stage3_standards_alignment_matrix["display"].get("engineering_isolation_text") or ""
+        ),
+        "real_acceptance_text": str(stage3_standards_alignment_matrix["display"].get("real_acceptance_text") or ""),
+        "stage_bridge_text": str(stage3_standards_alignment_matrix["display"].get("stage_bridge_text") or ""),
+        "artifact_role_text": str(stage3_standards_alignment_matrix["display"].get("artifact_role_text") or ""),
+        "not_real_acceptance_evidence": True,
+    }
     payload["manifest_sections"] = manifest_sections
 
     remembered_files = [str(item) for item in list(payload.get("remembered_files") or [])]
@@ -595,6 +702,12 @@ def _augment_run_payload_with_step2_readiness(
     stage3_real_validation_plan_reviewer_path_text = str(stage3_real_validation_plan_reviewer_path)
     if stage3_real_validation_plan_reviewer_path_text not in remembered_files:
         remembered_files.append(stage3_real_validation_plan_reviewer_path_text)
+    stage3_standards_alignment_matrix_path_text = str(stage3_standards_alignment_matrix_path)
+    if stage3_standards_alignment_matrix_path_text not in remembered_files:
+        remembered_files.append(stage3_standards_alignment_matrix_path_text)
+    stage3_standards_alignment_matrix_reviewer_path_text = str(stage3_standards_alignment_matrix_reviewer_path)
+    if stage3_standards_alignment_matrix_reviewer_path_text not in remembered_files:
+        remembered_files.append(stage3_standards_alignment_matrix_reviewer_path_text)
     payload["remembered_files"] = remembered_files
     _persist_governance_handoff_metadata(run_dir=run_dir, payload=payload)
     return payload
@@ -709,6 +822,19 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             print(
                 "engineering_isolation_admission_checklist_reviewer: "
                 f"{Path(args.run_dir).resolve() / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME}"
+            )
+            print(f"stage3_real_validation_plan: {Path(args.run_dir).resolve() / STAGE3_REAL_VALIDATION_PLAN_FILENAME}")
+            print(
+                "stage3_real_validation_plan_reviewer: "
+                f"{Path(args.run_dir).resolve() / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME}"
+            )
+            print(
+                "stage3_standards_alignment_matrix: "
+                f"{Path(args.run_dir).resolve() / STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME}"
+            )
+            print(
+                "stage3_standards_alignment_matrix_reviewer: "
+                f"{Path(args.run_dir).resolve() / STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME}"
             )
             print(f"lineage_summary: {Path(args.run_dir).resolve() / 'lineage_summary.json'}")
             print(f"trend_registry: {Path(args.run_dir).resolve() / 'trend_registry.json'}")

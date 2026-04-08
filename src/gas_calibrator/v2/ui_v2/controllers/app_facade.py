@@ -79,6 +79,82 @@ from ..utils.runtime_paths import RuntimePaths
 VALIDATION_COMPARE_ROOT = Path(__file__).resolve().parents[2] / "output" / "v1_v2_compare"
 PRIMARY_VALIDATION_PROFILE = "skip0_co2_only_replacement"
 PRIMARY_REAL_VALIDATION_MISSING_STATUS = "PRIMARY_REAL_VALIDATION_LATEST_MISSING"
+_REVIEW_CENTER_PHASE_OPTION_LABELS = {
+    "step2_tail_stage3_bridge": "Step 2 tail / Stage 3 bridge",
+    "stage_admission_review": "Stage admission review",
+    "engineering_isolation_admission": "engineering-isolation admission",
+    "stage3_real_validation_bridge": "Stage 3 real validation bridge",
+    "stage3_standards_alignment": "Stage 3 standards alignment",
+}
+
+
+def _available_reviewer_artifact_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [dict(item) for item in entries if isinstance(item, dict) and bool(item.get("available", False))]
+
+
+def _build_reviewer_filter_options(entries: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]]:
+    available_entries = _available_reviewer_artifact_entries(entries)
+    phase_values = _dedupe_entry_filter_values(available_entries, "phase_filters")
+    artifact_role_values = _dedupe_entry_filter_values(available_entries, "artifact_role_filters")
+    standard_family_values = _dedupe_entry_filter_values(available_entries, "standard_family_filters")
+    evidence_category_values = _dedupe_entry_filter_values(available_entries, "evidence_category_filters")
+    boundary_values = _dedupe_entry_filter_values(available_entries, "boundary_filters")
+    anchor_options = [
+        {
+            "id": str(item.get("anchor_id") or ""),
+            "label": str(item.get("anchor_label") or item.get("name_text") or item.get("title_text") or ""),
+        }
+        for item in available_entries
+        if str(item.get("anchor_id") or "").strip()
+    ]
+    return {
+        "phase_options": [
+            {"id": "all", "label": t("results.review_center.filter.all_phases", default="全部阶段")}
+        ]
+        + [
+            {"id": value, "label": _REVIEW_CENTER_PHASE_OPTION_LABELS.get(value, value)}
+            for value in phase_values
+        ],
+        "artifact_role_options": [
+            {"id": "all", "label": t("results.review_center.filter.all_artifact_roles", default="全部工件角色")}
+        ]
+        + [
+            {
+                "id": value,
+                "label": display_artifact_role(
+                    value,
+                    default=value,
+                ),
+            }
+            for value in artifact_role_values
+        ],
+        "standard_family_options": [
+            {"id": "all", "label": t("results.review_center.filter.all_standard_families", default="全部标准家族")}
+        ]
+        + [{"id": value, "label": value} for value in standard_family_values],
+        "evidence_category_options": [
+            {"id": "all", "label": t("results.review_center.filter.all_evidence_categories", default="全部证据类别")}
+        ]
+        + [{"id": value, "label": value} for value in evidence_category_values],
+        "boundary_options": [
+            {"id": "all", "label": t("results.review_center.filter.all_boundaries", default="全部边界")}
+        ]
+        + [{"id": value, "label": value} for value in boundary_values],
+        "anchor_options": [
+            {"id": "all", "label": t("results.review_center.filter.all_anchors", default="全部锚点")}
+        ]
+        + anchor_options,
+    }
+
+
+def _dedupe_entry_filter_values(entries: list[dict[str, Any]], field_name: str) -> list[str]:
+    rows: list[str] = []
+    for entry in entries:
+        for value in list(entry.get(field_name) or []):
+            text = str(value or "").strip()
+            if text and text not in rows:
+                rows.append(text)
+    return rows
 REAL_VALIDATION_LATEST_INDEXES = (
     (PRIMARY_VALIDATION_PROFILE, VALIDATION_COMPARE_ROOT / "skip0_co2_only_replacement_latest.json"),
     ("skip0_co2_only_diagnostic_relaxed", VALIDATION_COMPARE_ROOT / "skip0_co2_only_diagnostic_relaxed_latest.json"),
@@ -1628,6 +1704,7 @@ class AppFacade:
         stage_admission_review_pack_artifact_entry: dict[str, Any] = {}
         engineering_isolation_admission_checklist_artifact_entry: dict[str, Any] = {}
         stage3_real_validation_plan_artifact_entry: dict[str, Any] = {}
+        stage3_standards_alignment_matrix_artifact_entry: dict[str, Any] = {}
         try:
             reports_payload = dict(self.results_gateway.read_reports_payload() or {})
             phase_bridge_reviewer_artifact_entry = dict(
@@ -1642,11 +1719,24 @@ class AppFacade:
             stage3_real_validation_plan_artifact_entry = dict(
                 reports_payload.get("stage3_real_validation_plan_artifact_entry") or {}
             )
+            stage3_standards_alignment_matrix_artifact_entry = dict(
+                reports_payload.get("stage3_standards_alignment_matrix_artifact_entry") or {}
+            )
         except Exception:
             phase_bridge_reviewer_artifact_entry = {}
             stage_admission_review_pack_artifact_entry = {}
             engineering_isolation_admission_checklist_artifact_entry = {}
             stage3_real_validation_plan_artifact_entry = {}
+            stage3_standards_alignment_matrix_artifact_entry = {}
+        reviewer_artifact_entries = _available_reviewer_artifact_entries(
+            [
+                stage_admission_review_pack_artifact_entry,
+                engineering_isolation_admission_checklist_artifact_entry,
+                stage3_real_validation_plan_artifact_entry,
+                stage3_standards_alignment_matrix_artifact_entry,
+            ]
+        )
+        reviewer_filter_options = _build_reviewer_filter_options(reviewer_artifact_entries)
         return {
             "latest": latest_items,
             "operator_focus": {
@@ -1712,11 +1802,19 @@ class AppFacade:
                 engineering_isolation_admission_checklist_artifact_entry
             ),
             "stage3_real_validation_plan_artifact_entry": stage3_real_validation_plan_artifact_entry,
+            "stage3_standards_alignment_matrix_artifact_entry": stage3_standards_alignment_matrix_artifact_entry,
+            "reviewer_artifact_entries": reviewer_artifact_entries,
             "filters": {
                 "selected_type": "all",
                 "selected_status": "all",
                 "selected_time": "all",
                 "selected_source": "all",
+                "selected_phase": "all",
+                "selected_artifact_role": "all",
+                "selected_standard_family": "all",
+                "selected_evidence_category": "all",
+                "selected_boundary": "all",
+                "selected_anchor": "all",
                 "type_options": [
                     {"id": "all", "label": t("results.review_center.filter.all_types")},
                     {"id": "suite", "label": t("results.review_center.type.suite")},
@@ -1745,6 +1843,12 @@ class AppFacade:
                     {"id": "suite", "label": t("results.review_center.source_kind.suite")},
                     {"id": "workbench", "label": t("results.review_center.source_kind.workbench")},
                 ],
+                "phase_options": reviewer_filter_options["phase_options"],
+                "artifact_role_options": reviewer_filter_options["artifact_role_options"],
+                "standard_family_options": reviewer_filter_options["standard_family_options"],
+                "evidence_category_options": reviewer_filter_options["evidence_category_options"],
+                "boundary_options": reviewer_filter_options["boundary_options"],
+                "anchor_options": reviewer_filter_options["anchor_options"],
             },
             "detail_hint": t("results.review_center.detail_hint"),
             "empty_detail": t("results.review_center.empty"),
