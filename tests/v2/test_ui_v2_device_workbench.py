@@ -336,6 +336,17 @@ def test_workbench_supports_view_layering_history_and_quick_scenarios(tmp_path: 
         and "压力语义" in str(item.get("body_text") or "")
         for item in snapshot["engineer_summary"]["sections"]
     )
+    assert any(
+        str(item.get("title") or "")
+        == t("pages.devices.workbench.engineer_card.measurement_core", default="measurement-core readiness")
+        and "shadow" in str(item.get("summary") or "").lower()
+        for item in snapshot["engineer_summary"]["cards"]
+    )
+    assert any(
+        str(item.get("id") or "") == "measurement_core"
+        and MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME in str(item.get("body_text") or "")
+        for item in snapshot["engineer_summary"]["sections"]
+    )
     assert "workbench_route_trace" in snapshot["evidence"]["simulation_context"]
     assert history_items[0]["device"] == "workbench"
     assert history_items[0]["action"] == "run_quick_scenario"

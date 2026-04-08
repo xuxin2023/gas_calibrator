@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 
 from .models import CalibrationPoint, SamplingResult
-from .plan_compiler import CompiledPlan
+
+if TYPE_CHECKING:
+    from .plan_compiler import CompiledPlan
 
 
 STATE_TRANSITION_EVIDENCE_FILENAME = "state_transition_evidence.json"
@@ -39,7 +41,7 @@ ALLOWED_TRANSITIONS: dict[str, tuple[str, ...]] = {
     "DEVICE_READY": ("PLAN_COMPILED", "FAULT_CAPTURE", "ABORT"),
     "PLAN_COMPILED": ("TEMP_SOAK", "FAULT_CAPTURE", "ABORT"),
     "TEMP_SOAK": ("ROUTE_FLUSH", "FAULT_CAPTURE", "ABORT"),
-    "ROUTE_FLUSH": ("PRESEAL_STABILITY", "RAW_SIGNAL_STABLE", "FAULT_CAPTURE", "ABORT"),
+    "ROUTE_FLUSH": ("PRESEAL_STABILITY", "SEAL", "RAW_SIGNAL_STABLE", "FAULT_CAPTURE", "ABORT"),
     "PRESEAL_STABILITY": ("SEAL", "FAULT_CAPTURE", "ABORT"),
     "SEAL": ("PRESSURE_HANDOFF", "FAULT_CAPTURE", "ABORT"),
     "PRESSURE_HANDOFF": ("PRESSURE_STABLE", "FAULT_CAPTURE", "ABORT"),
@@ -469,6 +471,15 @@ def _route_family(route_text: str, *, pressure_mode: str = "") -> str:
     if pressure_token == "ambient_open" or "ambient" in route:
         return "ambient"
     return "gas"
+
+
+def _phase_policy_from_text(value: str) -> str:
+    text = str(value or "").strip().lower()
+    if "preseal" in text or "seal" in text:
+        return "preseal"
+    if "pressure" in text:
+        return "pressure_stable"
+    return "sample_ready"
 
 
 def _render_markdown(

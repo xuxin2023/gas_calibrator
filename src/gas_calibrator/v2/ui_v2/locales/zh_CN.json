@@ -629,7 +629,7 @@
           "reference_quality_summary": "参考质量摘要",
           "route_relay_summary": "路由/继电器摘要",
           "snapshot_compare": "快照对比"
-          "measurement_core": "measurement-core readiness"
+          ,"measurement_core": "measurement-core readiness"
         },
         "enum": {
           "action_result": {
@@ -1070,7 +1070,7 @@
           "artifact_lineage": "工件 / 血缘",
           "artifact_lineage_summary": "角色 {role} | 来源 {source} | 状态 {state}",
           "point_taxonomy": "点位语义"
-          "measurement_core": "measurement-core readiness"
+          ,"measurement_core": "measurement-core readiness"
         },
         "engineer_block": {
           "route": "路由健康",

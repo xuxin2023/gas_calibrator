@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from gas_calibrator.v2.config import AppConfig
+from gas_calibrator.v2.core.controlled_state_machine_profile import compile_controlled_state_machine_profile
 from gas_calibrator.v2.core.plan_compiler import PlanCompiler
 from gas_calibrator.v2.core.point_parser import PointParser
 from gas_calibrator.v2.domain.plan_models import (
@@ -214,3 +215,25 @@ def test_plan_compiler_synthesizes_ambient_pressure_points_from_selected_pressur
         for row in compiled.runtime_rows
         if row.get("pressure_selection_token") != AMBIENT_PRESSURE_TOKEN
     } == {900.0}
+
+
+def test_plan_compiler_exposes_controlled_state_machine_profile_ready_shape() -> None:
+    compiled = PlanCompiler().compile(
+        CalibrationPlanProfile(
+            name="measurement_core_bridge",
+            temperatures=[TemperatureSpec(temperature_c=25.0)],
+            humidities=[HumiditySpec(hgen_temp_c=25.0, hgen_rh_pct=50.0)],
+            gas_points=[GasPointSpec(co2_ppm=400.0)],
+            pressures=[PressureSpec(pressure_hpa=1000.0)],
+            ordering=PlanOrderingOptions(selected_pressure_points=[AMBIENT_PRESSURE_TOKEN, 1000.0]),
+        )
+    )
+
+    profile = compile_controlled_state_machine_profile(compiled)
+
+    assert profile["profile_version"] == "controlled_flex_v1"
+    assert "PRESEAL_STABILITY" in profile["enabled_states"]
+    assert "PRESSURE_STABLE" in profile["enabled_states"]
+    assert "RUN_COMPLETE" in profile["enabled_states"]
+    assert set(profile["route_families"]) >= {"water", "gas", "ambient"}
+    assert profile["metadata"]["preview_point_count"] == len(compiled.preview_points)

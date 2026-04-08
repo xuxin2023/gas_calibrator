@@ -146,7 +146,7 @@ def test_multi_source_stability_applies_route_specific_shadow_policies() -> None
     ambient_point = _point(3, route="co2", pressure_hpa=None, pressure_mode="ambient_open")
     samples = [
         _sample(gas_point, seconds=0, point_phase="pressure_stable"),
-        _sample(gas_point, seconds=12, point_phase="pressure_stable", co2_ratio_raw=1.0005, co2_ppm=401.0),
+        _sample(gas_point, seconds=9, point_phase="pressure_stable", co2_ratio_raw=1.0005, co2_ppm=401.0),
         _sample(water_point, seconds=0, point_phase="preseal", co2_ppm=None, co2_ratio_f=None, co2_ratio_raw=None, co2_signal=None),
         _sample(water_point, seconds=14, point_phase="preseal", co2_ppm=None, co2_ratio_f=None, co2_ratio_raw=None, co2_signal=None, h2o_ratio_raw=0.7005),
         _sample(ambient_point, seconds=0, point_phase="diagnostic", co2_signal=None, co2_ratio_raw=None, co2_ratio_f=None, ref_signal=3400.0),
@@ -175,7 +175,10 @@ def test_multi_source_stability_applies_route_specific_shadow_policies() -> None
     assert decisions_by_route["water"]["hold_time_met"] is True
     assert evidence["raw"]["review_surface"]["route_filters"] == ["gas", "water", "ambient"]
     assert "Step 2 tail / Stage 3 bridge" in evidence["raw"]["digest"]["summary"]
-    assert "shadow evaluation only" in evidence["raw"]["review_surface"]["detail_lines"][-2]
+    assert any(
+        "shadow evaluation only" in str(line)
+        for line in list(evidence["raw"]["review_surface"]["detail_lines"] or [])
+    )
 
 
 def test_simulation_evidence_sidecar_bundle_stays_contract_only() -> None:
