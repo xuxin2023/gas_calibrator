@@ -11,6 +11,10 @@ from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact_entry impo
     build_phase_transition_bridge_reviewer_artifact_entry,
 )
 from gas_calibrator.v2.scripts.build_offline_governance_artifacts import rebuild_run
+from gas_calibrator.v2.core.stage_admission_review_pack import (
+    STAGE_ADMISSION_REVIEW_PACK_FILENAME,
+    STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME,
+)
 from gas_calibrator.v2.ui_v2.i18n import t
 import gas_calibrator.v2.ui_v2.pages.reports_page as reports_page_module
 from gas_calibrator.v2.ui_v2.pages.reports_page import ReportsPage
@@ -688,5 +692,49 @@ def test_reports_page_keeps_phase_bridge_section_aligned_with_reviewer_artifact_
         assert reviewer_entry["real_acceptance_ready"] is False
         assert "ready_for_engineering_isolation" not in bridge_text
         assert "real_acceptance_ready" not in bridge_text
+    finally:
+        root.destroy()
+
+
+def test_reports_page_artifact_list_surfaces_stage_admission_review_pack_from_same_rebuilt_run(
+    tmp_path: Path,
+) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+    results_snapshot = facade.build_results_snapshot()
+    reports_snapshot = facade.get_reports_snapshot(results_snapshot=results_snapshot)
+    rows_by_name = {
+        str(row.get("name") or ""): dict(row)
+        for row in list(reports_snapshot.get("files", []) or [])
+    }
+
+    root = make_root()
+    try:
+        page = ReportsPage(root)
+        page.render(reports_snapshot)
+        tree_values = [
+            page.artifacts.tree.item(item, "values")
+            for item in page.artifacts.tree.get_children()
+        ]
+        rows_by_tree_name = {values[0]: values for values in tree_values}
+        pack_markdown = (run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME).read_text(encoding="utf-8")
+
+        assert STAGE_ADMISSION_REVIEW_PACK_FILENAME in rows_by_name
+        assert STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME in rows_by_name
+        assert rows_by_name[STAGE_ADMISSION_REVIEW_PACK_FILENAME]["artifact_role"] == "execution_summary"
+        assert rows_by_name[STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME]["artifact_role"] == "formal_analysis"
+        assert rows_by_tree_name[STAGE_ADMISSION_REVIEW_PACK_FILENAME][4].endswith(STAGE_ADMISSION_REVIEW_PACK_FILENAME)
+        assert rows_by_tree_name[STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME][4].endswith(
+            STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME
+        )
+        assert "执行摘要" in rows_by_tree_name[STAGE_ADMISSION_REVIEW_PACK_FILENAME][3]
+        assert "正式分析" in rows_by_tree_name[STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME][3]
+        assert "Step 2 tail / Stage 3 bridge" in pack_markdown
+        assert "engineering-isolation" in pack_markdown
+        assert "当前执行" in pack_markdown
+        assert "第三阶段执行" in pack_markdown
+        assert "不是 real acceptance" in pack_markdown
+        assert "不能替代真实计量验证" in pack_markdown
     finally:
         root.destroy()

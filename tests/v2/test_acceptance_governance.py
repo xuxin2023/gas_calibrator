@@ -24,6 +24,7 @@ from gas_calibrator.v2.core.stage_admission_review_pack import (
     build_stage_admission_review_pack,
 )
 from gas_calibrator.v2.core.step2_readiness import build_step2_readiness_summary
+from gas_calibrator.v2.core.step2_readiness import STEP2_READINESS_SUMMARY_FILENAME
 
 
 def test_validation_acceptance_snapshot_does_not_allow_simulated_promotion() -> None:

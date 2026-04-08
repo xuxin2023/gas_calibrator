@@ -12,6 +12,8 @@ from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact import (
 from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact_entry import (
     build_phase_transition_bridge_reviewer_artifact_entry,
 )
+from gas_calibrator.v2.core.stage_admission_review_pack import STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME
+from gas_calibrator.v2.scripts.build_offline_governance_artifacts import rebuild_run
 from gas_calibrator.v2.ui_v2.i18n import t
 from gas_calibrator.v2.ui_v2.widgets.review_center_panel import ReviewCenterPanel
 
@@ -723,6 +725,34 @@ def test_review_center_panel_exposes_phase_transition_bridge_reviewer_artifact_a
         assert "real_acceptance_ready" not in panel.phase_bridge_artifact_status_var.get()
     finally:
         root.destroy()
+
+
+def test_review_center_keeps_stage_admission_review_pack_markdown_aligned_with_phase_bridge_entry(
+    tmp_path: Path,
+) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+
+    results_snapshot = facade.build_results_snapshot()
+    reviewer_entry = dict(
+        results_snapshot["review_center"].get("phase_transition_bridge_reviewer_artifact_entry", {}) or {}
+    )
+    pack_markdown = (run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME).read_text(encoding="utf-8")
+
+    assert reviewer_entry["summary_text"] in pack_markdown
+    assert reviewer_entry["status_line"] in pack_markdown
+    assert reviewer_entry["engineering_isolation_text"] in pack_markdown
+    assert reviewer_entry["real_acceptance_text"] in pack_markdown
+    assert reviewer_entry["execute_now_text"] in pack_markdown
+    assert reviewer_entry["defer_to_stage3_text"] in pack_markdown
+    assert reviewer_entry["warning_text"] in pack_markdown
+    assert "Step 2 tail / Stage 3 bridge" in pack_markdown
+    assert "engineering-isolation" in pack_markdown
+    assert "不是 real acceptance" in pack_markdown
+    assert "不能替代真实计量验证" in pack_markdown
+    assert "ready_for_engineering_isolation" not in pack_markdown
+    assert "real_acceptance_ready" not in pack_markdown
 
 
 def test_review_center_panel_source_drilldown_syncs_list_detail_and_scope_summaries() -> None:
