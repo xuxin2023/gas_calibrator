@@ -59,3 +59,38 @@ def test_run_calls_startup_pressure_calibration_and_postrun_delivery_in_order(tm
     assert order.index("startup_pressure_precheck") < order.index("startup_pressure_sensor_calibration") < order.index("run_points")
     assert order.index("cleanup") < order.index("postrun_delivery")
     logger.close()
+
+
+def test_postrun_corrected_delivery_passes_pressure_handoff_options(tmp_path: Path, monkeypatch) -> None:
+    from gas_calibrator.tools import run_v1_corrected_autodelivery as tool_module
+
+    logger = RunLogger(tmp_path)
+    cfg = {
+        "workflow": {
+            "postrun_corrected_delivery": {
+                "enabled": True,
+                "strict": True,
+                "write_devices": True,
+                "verify_report": False,
+                "verification_template": "",
+                "fallback_pressure_to_controller": False,
+                "pressure_row_source": "startup_calibration",
+                "write_pressure_coefficients": False,
+            }
+        }
+    }
+    runner = CalibrationRunner(cfg, {}, logger, lambda *_: None, lambda *_: None)
+    captured: dict[str, object] = {}
+
+    class _StubTool:
+        @staticmethod
+        def run_from_cli(**kwargs):
+            captured.update(kwargs)
+            return {"output_dir": str(tmp_path / "done")}
+
+    monkeypatch.setattr(tool_module, "run_from_cli", _StubTool.run_from_cli)
+    runner._maybe_run_postrun_corrected_delivery()
+
+    assert captured["pressure_row_source"] == "startup_calibration"
+    assert captured["write_pressure_coefficients"] is False
+    logger.close()

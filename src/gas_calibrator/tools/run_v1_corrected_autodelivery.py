@@ -217,6 +217,53 @@ def load_temperature_coefficient_rows(run_dir: str | Path) -> List[Dict[str, Any
         return list(csv.DictReader(handle))
 
 
+def _latest_startup_pressure_calibration_summary(run_dir: Path) -> Optional[Path]:
+    summaries = [
+        path
+        for path in run_dir.glob("startup_pressure_sensor_calibration_*/summary.csv")
+        if path.is_file()
+    ]
+    if not summaries:
+        return None
+    return max(summaries, key=lambda item: item.stat().st_mtime)
+
+
+def load_startup_pressure_calibration_rows(run_dir: str | Path) -> List[Dict[str, Any]]:
+    run_dir = Path(run_dir)
+    summary_path = _latest_startup_pressure_calibration_summary(run_dir)
+    if summary_path is None:
+        return []
+    with summary_path.open("r", encoding="utf-8-sig", newline="") as handle:
+        source_rows = list(csv.DictReader(handle))
+
+    rows: List[Dict[str, Any]] = []
+    for row in source_rows:
+        analyzer = _normalize_analyzer(row.get("Analyzer"))
+        device_id = _normalize_device_id(row.get("DeviceId"))
+        offset = _safe_float(row.get("OffsetA_kPa"))
+        if not analyzer or offset is None:
+            continue
+        rows.append(
+            {
+                "Analyzer": analyzer,
+                "DeviceId": device_id,
+                "ReferenceSource": "startup_pressure_sensor_calibration",
+                "Samples": int(_safe_float(row.get("Samples")) or 0),
+                "OffsetA_kPa": float(offset),
+                "ResidualMeanAbs_kPa": "",
+                "ResidualMaxAbs_kPa": "",
+                "WriteApplied": row.get("WriteApplied", ""),
+                "ReadbackOk": row.get("ReadbackOk", ""),
+                "Status": row.get("Status", ""),
+                "Error": row.get("Error", ""),
+                "Command": "SENCO9,YGAS,FFF," + ",".join(format_senco_values((float(offset), 1.0, 0.0, 0.0))),
+                "SourceSummary": str(summary_path),
+            }
+        )
+    rows.sort(key=lambda item: str(item.get("Analyzer") or ""))
+    return rows
+
+
 def compute_pressure_offset_rows(
     run_dir: str | Path,
     *,
@@ -383,8 +430,10 @@ def write_coefficients_to_live_devices(
     temperature_rows: Sequence[Mapping[str, Any]],
     pressure_rows: Sequence[Mapping[str, Any]],
     actual_device_ids: Mapping[str, str],
+    write_pressure_rows: bool = True,
 ) -> Dict[str, Any]:
     output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
     scan_rows = scan_live_targets(cfg, output_dir)
     live_by_id = {str(row.get("LiveDeviceId") or ""): row for row in scan_rows if str(row.get("LiveDeviceId") or "")}
 
@@ -412,11 +461,12 @@ def write_coefficients_to_live_devices(
             gas_by_analyzer.setdefault(analyzer, {})[group] = coeffs
 
     pressure_by_analyzer: Dict[str, Dict[int, List[float]]] = {}
-    for row in pressure_rows:
-        analyzer = _normalize_analyzer(row.get("Analyzer"))
-        offset = _safe_float(row.get("OffsetA_kPa"))
-        if analyzer and offset is not None:
-            pressure_by_analyzer.setdefault(analyzer, {})[9] = [float(offset), 1.0, 0.0, 0.0]
+    if write_pressure_rows:
+        for row in pressure_rows:
+            analyzer = _normalize_analyzer(row.get("Analyzer"))
+            offset = _safe_float(row.get("OffsetA_kPa"))
+            if analyzer and offset is not None:
+                pressure_by_analyzer.setdefault(analyzer, {})[9] = [float(offset), 1.0, 0.0, 0.0]
 
     summary_rows: List[Dict[str, Any]] = []
     detail_rows: List[Dict[str, Any]] = []
@@ -516,6 +566,7 @@ def build_corrected_delivery(
     run_dir: str | Path,
     output_dir: str | Path,
     fallback_pressure_to_controller: bool = False,
+    pressure_row_source: str = "startup_calibration",
 ) -> Dict[str, Any]:
     run_dir = Path(run_dir).resolve()
     output_dir = Path(output_dir).resolve()
@@ -538,7 +589,15 @@ def build_corrected_delivery(
 
     download_plan_rows = build_corrected_download_plan_rows(simplified)
     temperature_rows = load_temperature_coefficient_rows(run_dir)
-    pressure_rows = compute_pressure_offset_rows(run_dir, fallback_to_controller=fallback_pressure_to_controller)
+    pressure_mode = str(pressure_row_source or "startup_calibration").strip().lower()
+    if pressure_mode == "current_ambient":
+        pressure_rows = compute_pressure_offset_rows(run_dir, fallback_to_controller=fallback_pressure_to_controller)
+    elif pressure_mode == "none":
+        pressure_rows = []
+    else:
+        pressure_rows = load_startup_pressure_calibration_rows(run_dir)
+        if not pressure_rows and fallback_pressure_to_controller:
+            pressure_rows = compute_pressure_offset_rows(run_dir, fallback_to_controller=True)
 
     _append_dataframe_sheet(report_path, "download_plan", pd.DataFrame(download_plan_rows))
     _append_dataframe_sheet(report_path, "分析仪汇总", pd.DataFrame(analyzer_summary_rows))
@@ -556,6 +615,7 @@ def build_corrected_delivery(
         "",
         f"- run_dir: {run_dir}",
         f"- output_dir: {output_dir}",
+        f"- pressure_row_source: {pressure_mode}",
         "",
         "## filter summary",
     ]
@@ -573,6 +633,7 @@ def build_corrected_delivery(
         "download_plan_rows": download_plan_rows,
         "temperature_rows": temperature_rows,
         "pressure_rows": pressure_rows,
+        "pressure_row_source": pressure_mode,
     }
 
 
@@ -585,6 +646,8 @@ def run_from_cli(
     verify_report: bool = False,
     verification_template: Optional[str] = None,
     fallback_pressure_to_controller: bool = False,
+    pressure_row_source: str = "startup_calibration",
+    write_pressure_coefficients: bool = False,
 ) -> Dict[str, Any]:
     run_dir_path = Path(run_dir).resolve()
     target_dir = Path(output_dir).resolve() if output_dir else run_dir_path / f"corrected_autodelivery_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -593,6 +656,7 @@ def run_from_cli(
         run_dir=run_dir_path,
         output_dir=target_dir,
         fallback_pressure_to_controller=fallback_pressure_to_controller,
+        pressure_row_source=pressure_row_source,
     )
 
     cfg_path = Path(config_path).resolve() if config_path else (run_dir_path / "runtime_config_snapshot.json")
@@ -606,6 +670,7 @@ def run_from_cli(
             temperature_rows=delivery["temperature_rows"],
             pressure_rows=delivery["pressure_rows"],
             actual_device_ids=delivery["actual_device_ids"],
+            write_pressure_rows=write_pressure_coefficients,
         )
 
     verify_outputs: Dict[str, Any] = {}

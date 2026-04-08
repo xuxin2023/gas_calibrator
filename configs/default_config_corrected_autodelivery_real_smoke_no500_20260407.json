@@ -417,7 +417,9 @@
       "write_devices": false,
       "verify_report": false,
       "verification_template": "C:\\Users\\A\\Desktop\\测试点.docx",
-      "fallback_pressure_to_controller": false
+      "fallback_pressure_to_controller": false,
+      "pressure_row_source": "startup_calibration",
+      "write_pressure_coefficients": false
     },
     "pressure": {
       "pressurize_high_hpa": 1100,
@@ -691,7 +693,7 @@
       }
     },
     "ratio_poly_fit": {
-      "pressure_source_preference": "reference_first"
+      "pressure_source_preference": "analyzer_only"
     },
     "h2o_summary_selection": {
       "include_h2o_phase": true,

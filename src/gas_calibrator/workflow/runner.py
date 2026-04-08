@@ -7037,6 +7037,8 @@ class CalibrationRunner:
                 verify_report=bool(cfg.get("verify_report", False)),
                 verification_template=str(cfg.get("verification_template") or ""),
                 fallback_pressure_to_controller=bool(cfg.get("fallback_pressure_to_controller", False)),
+                pressure_row_source=str(cfg.get("pressure_row_source") or "startup_calibration"),
+                write_pressure_coefficients=bool(cfg.get("write_pressure_coefficients", False)),
             )
             self.log(
                 "Postrun corrected delivery finished: "
