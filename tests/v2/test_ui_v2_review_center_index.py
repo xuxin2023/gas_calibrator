@@ -1625,8 +1625,7 @@ def test_review_scope_manifest_and_export_index_surface_engineering_isolation_ad
     assert review_center_entry["defer_to_stage3_text"] in checklist_markdown
     for text in (
         checklist_markdown,
-        rows_by_name[ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME]["role_status_display"],
-        rows_by_name[ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME]["role_status_display"],
+        review_center_entry["entry_text"],
     ):
         assert "Step 2 tail / Stage 3 bridge" in text
         assert "engineering-isolation" in text
