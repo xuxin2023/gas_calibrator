@@ -10,6 +10,7 @@ from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact import (
 from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact_entry import (
     build_phase_transition_bridge_reviewer_artifact_entry,
 )
+from gas_calibrator.v2.scripts.build_offline_governance_artifacts import rebuild_run
 from gas_calibrator.v2.ui_v2.i18n import t
 import gas_calibrator.v2.ui_v2.pages.reports_page as reports_page_module
 from gas_calibrator.v2.ui_v2.pages.reports_page import ReportsPage
@@ -19,7 +20,7 @@ SUPPORT_DIR = Path(__file__).resolve().parent
 if str(SUPPORT_DIR) not in sys.path:
     sys.path.insert(0, str(SUPPORT_DIR))
 
-from ui_v2_support import make_root
+from ui_v2_support import build_fake_facade, make_root
 
 
 def _build_phase_transition_bridge_payload() -> dict:
@@ -643,5 +644,49 @@ def test_reports_page_artifact_list_surfaces_phase_transition_bridge_reviewer_ma
         assert "engineering-isolation" in values[3]
         assert "不是 real acceptance" in values[3]
         assert values[4] == reviewer_entry["path"]
+    finally:
+        root.destroy()
+
+
+def test_reports_page_keeps_phase_bridge_section_aligned_with_reviewer_artifact_entry_from_same_run(
+    tmp_path: Path,
+) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+    results_snapshot = facade.build_results_snapshot()
+    reports_snapshot = facade.get_reports_snapshot(results_snapshot=results_snapshot)
+    reviewer_entry = dict(reports_snapshot.get("phase_transition_bridge_reviewer_artifact_entry", {}) or {})
+
+    root = make_root()
+    try:
+        page = ReportsPage(root)
+        page.render(reports_snapshot)
+
+        bridge_text = page.phase_bridge_section.get("1.0", "end")
+        tree_values = [
+            page.artifacts.tree.item(item, "values")
+            for item in page.artifacts.tree.get_children()
+        ]
+        reviewer_row = next(values for values in tree_values if values[0] == reviewer_entry["name_text"])
+
+        assert reviewer_entry["engineering_isolation_text"] in bridge_text
+        assert reviewer_entry["real_acceptance_text"] in bridge_text
+        assert reviewer_entry["execute_now_text"] in bridge_text
+        assert reviewer_entry["defer_to_stage3_text"] in bridge_text
+        assert reviewer_entry["warning_text"] in bridge_text
+        assert "Step 2 tail / Stage 3 bridge" in bridge_text
+        assert "engineering-isolation" in bridge_text
+        assert "不是 real acceptance" in bridge_text
+        assert "不能替代真实计量验证" in bridge_text
+        assert reviewer_entry["stage_marker_text"] in reviewer_row[3]
+        assert reviewer_entry["engineering_isolation_text"] in reviewer_row[3]
+        assert reviewer_entry["real_acceptance_text"] in reviewer_row[3]
+        assert reviewer_entry["warning_text"] in reviewer_row[3]
+        assert reviewer_row[4] == reviewer_entry["path"]
+        assert reviewer_entry["ready_for_engineering_isolation"] is False
+        assert reviewer_entry["real_acceptance_ready"] is False
+        assert "ready_for_engineering_isolation" not in bridge_text
+        assert "real_acceptance_ready" not in bridge_text
     finally:
         root.destroy()

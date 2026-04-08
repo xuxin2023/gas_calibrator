@@ -28,6 +28,7 @@ from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact import (
 from gas_calibrator.v2.core.phase_transition_bridge_reviewer_artifact_entry import (
     build_phase_transition_bridge_reviewer_artifact_entry,
 )
+from gas_calibrator.v2.scripts.build_offline_governance_artifacts import rebuild_run
 from gas_calibrator.v2.ui_v2.widgets.review_center_panel import ReviewCenterPanel
 
 SUPPORT_DIR = Path(__file__).resolve().parent
@@ -1317,6 +1318,114 @@ def test_review_scope_export_entry_promotes_phase_transition_bridge_reviewer_mar
     assert "ready_for_engineering_isolation" not in reviewer_export_entry["entry_text"]
     assert "real_acceptance_ready" not in reviewer_export_entry["entry_text"]
     assert export_entry["reviewer_display"]["summary_text"]
+
+
+def test_phase_transition_bridge_reviewer_artifact_stays_in_sync_across_governance_reports_review_scope_and_review_center(
+    tmp_path: Path,
+) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    governance_payload = rebuild_run(run_dir)
+
+    results_snapshot = facade.build_results_snapshot()
+    reports_snapshot = facade.get_reports_snapshot(results_snapshot=results_snapshot)
+    review_center_entry = dict(
+        results_snapshot["review_center"].get("phase_transition_bridge_reviewer_artifact_entry", {}) or {}
+    )
+    reports_entry = dict(reports_snapshot.get("phase_transition_bridge_reviewer_artifact_entry", {}) or {})
+    export_result = facade.export_review_scope_manifest(selection={"scope": "all"})
+    manifest_payload = json.loads(Path(export_result["json_path"]).read_text(encoding="utf-8"))
+    manifest_markdown = Path(export_result["markdown_path"]).read_text(encoding="utf-8")
+    export_index = json.loads(Path(export_result["index_path"]).read_text(encoding="utf-8"))
+    manifest_entry = dict(manifest_payload.get("phase_transition_bridge_reviewer_artifact_entry", {}) or {})
+    export_entry = dict(export_index["latest"].get("phase_transition_bridge_reviewer_artifact_entry", {}) or {})
+    reviewer_markdown = (run_dir / "phase_transition_bridge_reviewer.md").read_text(encoding="utf-8")
+    raw_contract = json.loads((run_dir / "phase_transition_bridge.json").read_text(encoding="utf-8"))
+    remembered_path = str(run_dir / "phase_transition_bridge_reviewer.md")
+    resolved_reviewer_path = str((run_dir / "phase_transition_bridge_reviewer.md").resolve())
+    report_rows_by_path = {
+        str(Path(str(row.get("path") or "")).resolve()): dict(row)
+        for row in list(reports_snapshot.get("files", []) or [])
+    }
+    manifest_rows_by_path = {
+        str(Path(str(row.get("path") or "")).resolve()): dict(row)
+        for row in list(manifest_payload.get("rows", []) or [])
+    }
+    reviewer_report_row = report_rows_by_path[resolved_reviewer_path]
+    reviewer_manifest_row = manifest_rows_by_path[resolved_reviewer_path]
+    manifest_section = dict(governance_payload["manifest_sections"]["phase_transition_bridge_reviewer_artifact"])
+    reviewer_section = dict(governance_payload["manifest_sections"]["phase_transition_bridge_reviewer_section"])
+    parity_fields = (
+        "path",
+        "summary_text",
+        "status_line",
+        "stage_marker_text",
+        "engineering_isolation_text",
+        "real_acceptance_text",
+        "execute_now_text",
+        "defer_to_stage3_text",
+        "warning_text",
+        "ready_for_engineering_isolation",
+        "real_acceptance_ready",
+    )
+
+    assert remembered_path in governance_payload["remembered_files"]
+    assert governance_payload["artifact_statuses"]["phase_transition_bridge_reviewer_artifact"]["role"] == "formal_analysis"
+    assert governance_payload["artifact_statuses"]["phase_transition_bridge_reviewer_artifact"]["path"] == remembered_path
+    assert manifest_section["path"] == remembered_path
+    assert manifest_section["summary_text"] == reports_entry["summary_text"]
+    assert manifest_section["engineering_isolation_text"] == reports_entry["engineering_isolation_text"]
+    assert manifest_section["real_acceptance_text"] == reports_entry["real_acceptance_text"]
+    assert reviewer_section["raw"]["ready_for_engineering_isolation"] is False
+    assert reviewer_section["raw"]["real_acceptance_ready"] is False
+    for field in parity_fields:
+        assert reports_entry[field] == manifest_entry[field]
+        assert reports_entry[field] == export_entry[field]
+        assert reports_entry[field] == review_center_entry[field]
+    assert reviewer_report_row["artifact_key"] == reports_entry["artifact_key"]
+    assert reviewer_report_row["artifact_role"] == "formal_analysis"
+    assert reviewer_report_row["name"] == reports_entry["name_text"]
+    assert reviewer_report_row["note"] == reports_entry["summary_text"]
+    assert reviewer_report_row["role_status_display"] == reports_entry["role_status_display"]
+    assert reviewer_manifest_row["name"] == manifest_entry["name_text"]
+    assert reviewer_manifest_row["note"] == manifest_entry["summary_text"]
+    assert reviewer_manifest_row["role_status_display"] == manifest_entry["role_status_display"]
+    assert reviewer_manifest_row["phase_transition_bridge_reviewer_artifact_entry"] == manifest_entry
+    assert export_index["latest"]["batch_id"] == export_result["batch_id"]
+    assert export_index["latest"]["phase_transition_bridge_reviewer_artifact_entry"] == export_entry
+    for text in (
+        reviewer_markdown,
+        manifest_markdown,
+        reports_entry["entry_text"],
+        manifest_entry["entry_text"],
+        export_entry["entry_text"],
+        review_center_entry["entry_text"],
+    ):
+        assert "Step 2 tail / Stage 3 bridge" in text
+        assert "engineering-isolation" in text
+        assert "当前执行" in text
+        assert "第三阶段执行" in text
+        assert "不是 real acceptance" in text
+        assert "不能替代真实计量验证" in text
+        assert "ready_for_engineering_isolation" not in text
+        assert "real_acceptance_ready" not in text
+    for text in (
+        reviewer_report_row["role_status_display"],
+        reviewer_manifest_row["role_status_display"],
+    ):
+        assert "Step 2 tail / Stage 3 bridge" in text
+        assert "engineering-isolation" in text
+        assert reports_entry["engineering_isolation_text"] in text
+        assert reports_entry["real_acceptance_text"] in text
+        assert "不是 real acceptance" in text
+        assert "ready_for_engineering_isolation" not in text
+        assert "real_acceptance_ready" not in text
+    assert raw_contract["artifact_type"] == "phase_transition_bridge"
+    assert raw_contract["phase"] == "step2_tail_stage3_bridge"
+    assert raw_contract["ready_for_engineering_isolation"] is False
+    assert raw_contract["real_acceptance_ready"] is False
+    assert raw_contract["overall_status"] == "step2_tail_in_progress"
+    assert raw_contract["recommended_next_stage"] == "close_step2_tail_gaps"
 
 
 def test_review_center_panel_exposes_index_summary_and_time_source_filters() -> None:
