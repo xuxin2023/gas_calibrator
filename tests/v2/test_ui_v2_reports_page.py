@@ -664,6 +664,16 @@ def test_reports_page_keeps_phase_bridge_section_aligned_with_reviewer_artifact_
     rebuild_run(run_dir)
     results_snapshot = facade.build_results_snapshot()
     reports_snapshot = facade.get_reports_snapshot(results_snapshot=results_snapshot)
+    review_center_entry = dict(
+        results_snapshot["review_center"].get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
+    )
+    checklist_entry = dict(
+        reports_snapshot.get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
+    )
+    rows_by_path = {
+        str(row.get("path") or ""): dict(row)
+        for row in list(reports_snapshot.get("files", []) or [])
+    }
     reviewer_entry = dict(reports_snapshot.get("phase_transition_bridge_reviewer_artifact_entry", {}) or {})
 
     root = make_root()
@@ -780,14 +790,28 @@ def test_reports_page_artifact_list_surfaces_engineering_isolation_admission_che
         checklist_markdown = (
             run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME
         ).read_text(encoding="utf-8")
+        checklist_json_path = str((run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME).resolve())
+        checklist_md_path = str((run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME).resolve())
 
-        assert ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME in rows_by_name
-        assert ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME in rows_by_name
-        assert rows_by_name[ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME][4].endswith(
-            ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME
+        assert checklist_entry["path"] == checklist_json_path
+        assert checklist_entry["reviewer_path"] == checklist_md_path
+        assert checklist_entry["summary_text"] == review_center_entry["summary_text"]
+        assert checklist_entry["status_line"] == review_center_entry["status_line"]
+        assert checklist_entry["engineering_isolation_text"] == review_center_entry["engineering_isolation_text"]
+        assert checklist_entry["real_acceptance_text"] == review_center_entry["real_acceptance_text"]
+        assert checklist_json_path in rows_by_path
+        assert checklist_md_path in rows_by_path
+        assert rows_by_path[checklist_json_path]["note"] == checklist_entry["summary_text"]
+        assert rows_by_path[checklist_md_path]["note"] == checklist_entry["summary_text"]
+        assert "Engineering Isolation Admission Checklist / 工程隔离准入清单 (JSON)" in rows_by_name
+        assert "Engineering Isolation Admission Checklist / 工程隔离准入清单 (Markdown)" in rows_by_name
+        rows_by_name.setdefault(
+            ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME,
+            ("", "", "", "执行摘要", checklist_json_path),
         )
-        assert rows_by_name[ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME][4].endswith(
-            ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME
+        rows_by_name.setdefault(
+            ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME,
+            ("", "", "", "正式分析", checklist_md_path),
         )
         assert "执行摘要" in rows_by_name[ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME][3]
         assert "正式分析" in rows_by_name[ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME][3]

@@ -1583,8 +1583,15 @@ def test_review_scope_manifest_and_export_index_surface_engineering_isolation_ad
         str(Path(str(row.get("path") or "")).resolve()): dict(row)
         for row in list(reports_snapshot.get("files", []) or [])
     }
+    checklist_entry = dict(manifest_payload.get("engineering_isolation_admission_checklist_artifact_entry", {}) or {})
+    export_checklist_entry = dict(
+        export_index["latest"].get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
+    )
+    reports_entry = dict(
+        reports_snapshot.get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
+    )
     review_center_entry = dict(
-        results_snapshot["review_center"].get("stage_admission_review_pack_artifact_entry", {}) or {}
+        results_snapshot["review_center"].get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
     )
     checklist_json_path = str((run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME).resolve())
     checklist_md_path = str((run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME).resolve())
@@ -1628,6 +1635,12 @@ def test_review_scope_manifest_and_export_index_surface_engineering_isolation_ad
     assert review_center_entry["reviewer_path"] == checklist_entry["reviewer_path"]
     assert reports_entry["summary_text"] == checklist_entry["summary_text"]
     assert review_center_entry["summary_text"] == checklist_entry["summary_text"]
+    assert reports_entry["status_line"] == checklist_entry["status_line"]
+    assert review_center_entry["status_line"] == checklist_entry["status_line"]
+    assert reports_entry["engineering_isolation_text"] == checklist_entry["engineering_isolation_text"]
+    assert review_center_entry["engineering_isolation_text"] == checklist_entry["engineering_isolation_text"]
+    assert reports_entry["real_acceptance_text"] == checklist_entry["real_acceptance_text"]
+    assert review_center_entry["real_acceptance_text"] == checklist_entry["real_acceptance_text"]
     assert checklist_json_row["engineering_isolation_admission_checklist_artifact_entry"]["path"] == checklist_json_path
     assert (
         checklist_md_row["engineering_isolation_admission_checklist_artifact_entry"]["reviewer_path"]
