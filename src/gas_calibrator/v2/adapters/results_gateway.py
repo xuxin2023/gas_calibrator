@@ -31,6 +31,15 @@ from ..core.stage_admission_review_pack_artifact_entry import (
     STAGE_ADMISSION_REVIEW_PACK_REVIEWER_ARTIFACT_KEY,
     build_stage_admission_review_pack_artifact_entry,
 )
+from ..core.stage3_real_validation_plan import (
+    STAGE3_REAL_VALIDATION_PLAN_FILENAME,
+    STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME,
+)
+from ..core.stage3_real_validation_plan_artifact_entry import (
+    STAGE3_REAL_VALIDATION_PLAN_ARTIFACT_KEY,
+    STAGE3_REAL_VALIDATION_PLAN_REVIEWER_ARTIFACT_KEY,
+    build_stage3_real_validation_plan_artifact_entry,
+)
 from ..review_surface_formatter import (
     build_offline_diagnostic_detail_item_line,
     build_offline_diagnostic_scope_line,
@@ -200,6 +209,14 @@ class ResultsGateway:
         artifact_exports = dict(payload.get("artifact_exports", {}) or {})
         offline_diagnostic_adapter_summary = dict(payload.get("offline_diagnostic_adapter_summary", {}) or {})
         analytics_summary = dict(payload.get("analytics_summary", {}) or {})
+        summary_stats = dict(dict(payload.get("summary", {}) or {}).get("stats", {}) or {})
+
+        def _artifact_path(value: Any) -> Path:
+            candidate = Path(str(value or "").strip())
+            if candidate.is_absolute():
+                return candidate
+            return self.run_dir / candidate
+
         reviewer_artifact_section = dict(manifest.get(PHASE_TRANSITION_BRIDGE_REVIEWER_ARTIFACT_KEY) or {})
         reviewer_surface_section = (
             dict(manifest.get("phase_transition_bridge_reviewer_section") or {})
@@ -271,14 +288,42 @@ class ResultsGateway:
         )
         if not bool(engineering_isolation_admission_checklist_entry.get("available", False)):
             engineering_isolation_admission_checklist_entry = {}
+        stage3_real_validation_plan_section = dict(manifest.get(STAGE3_REAL_VALIDATION_PLAN_ARTIFACT_KEY) or {})
+        stage3_real_validation_plan_reviewer_section = dict(
+            manifest.get(STAGE3_REAL_VALIDATION_PLAN_REVIEWER_ARTIFACT_KEY) or {}
+        )
+        stage3_real_validation_plan_path = str(stage3_real_validation_plan_section.get("path") or "").strip()
+        if not stage3_real_validation_plan_path:
+            fallback_path = self.run_dir / STAGE3_REAL_VALIDATION_PLAN_FILENAME
+            if fallback_path.exists():
+                stage3_real_validation_plan_path = str(fallback_path)
+        stage3_real_validation_plan_reviewer_path = str(
+            stage3_real_validation_plan_reviewer_section.get("path") or ""
+        ).strip()
+        if not stage3_real_validation_plan_reviewer_path:
+            fallback_path = self.run_dir / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME
+            if fallback_path.exists():
+                stage3_real_validation_plan_reviewer_path = str(fallback_path)
+        stage3_reviewer_markdown_text = ""
+        if stage3_real_validation_plan_reviewer_path:
+            try:
+                stage3_reviewer_markdown_text = _artifact_path(
+                    stage3_real_validation_plan_reviewer_path
+                ).read_text(encoding="utf-8")
+            except Exception:
+                stage3_reviewer_markdown_text = ""
+        stage3_real_validation_plan_entry = build_stage3_real_validation_plan_artifact_entry(
+            artifact_path=stage3_real_validation_plan_path,
+            reviewer_artifact_path=stage3_real_validation_plan_reviewer_path,
+            manifest_section=stage3_real_validation_plan_section,
+            reviewer_manifest_section=stage3_real_validation_plan_reviewer_section,
+            digest_section=dict(summary_stats.get("stage3_real_validation_plan_digest") or {}),
+            reviewer_markdown_text=stage3_reviewer_markdown_text,
+        )
+        if not bool(stage3_real_validation_plan_entry.get("available", False)):
+            stage3_real_validation_plan_entry = {}
         files = []
         seen: set[str] = set()
-
-        def _artifact_path(value: Any) -> Path:
-            candidate = Path(str(value or "").strip())
-            if candidate.is_absolute():
-                return candidate
-            return self.run_dir / candidate
 
         candidate_paths = [self.run_dir / item for item in KNOWN_REPORT_ARTIFACTS]
         candidate_paths.extend(_artifact_path(item) for item in payload["output_files"] if str(item or "").strip())
@@ -321,6 +366,10 @@ class ResultsGateway:
                 row,
                 engineering_isolation_admission_checklist_entry=engineering_isolation_admission_checklist_entry,
             )
+            row = self._decorate_stage3_real_validation_plan_row(
+                row,
+                stage3_real_validation_plan_entry=stage3_real_validation_plan_entry,
+            )
             files.append(row)
         return {
             "run_dir": str(self.run_dir),
@@ -342,6 +391,7 @@ class ResultsGateway:
             "engineering_isolation_admission_checklist_artifact_entry": dict(
                 engineering_isolation_admission_checklist_entry
             ),
+            "stage3_real_validation_plan_artifact_entry": dict(stage3_real_validation_plan_entry),
             "evidence_source": str(payload.get("evidence_source", "") or "simulated_protocol"),
             "evidence_state": str(payload.get("evidence_state", "") or "collected"),
             "not_real_acceptance_evidence": bool(payload.get("not_real_acceptance_evidence", True)),
@@ -704,4 +754,41 @@ class ResultsGateway:
             "note": str(entry.get("note_text") or payload.get("note") or ""),
             "role_status_display": role_status_display or existing_role_status,
             "engineering_isolation_admission_checklist_artifact_entry": entry,
+        }
+
+    @staticmethod
+    def _decorate_stage3_real_validation_plan_row(
+        row: dict[str, Any],
+        *,
+        stage3_real_validation_plan_entry: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload = dict(row or {})
+        artifact_key = str(payload.get("artifact_key") or "")
+        if artifact_key not in {
+            STAGE3_REAL_VALIDATION_PLAN_ARTIFACT_KEY,
+            STAGE3_REAL_VALIDATION_PLAN_REVIEWER_ARTIFACT_KEY,
+        }:
+            return payload
+        entry = dict(stage3_real_validation_plan_entry or {})
+        if not entry:
+            return payload
+        is_reviewer_artifact = artifact_key == STAGE3_REAL_VALIDATION_PLAN_REVIEWER_ARTIFACT_KEY
+        existing_role_status = str(payload.get("role_status_display") or "").strip()
+        entry_role_status = str(entry.get("role_status_display") or "").strip()
+        role_status_display = " | ".join(
+            part
+            for part in (existing_role_status, entry_role_status)
+            if str(part).strip()
+        )
+        return {
+            **payload,
+            "name": str(
+                entry.get("name_text")
+                or payload.get("name")
+                or ""
+            )
+            + (" (Markdown)" if is_reviewer_artifact else " (JSON)"),
+            "note": str(entry.get("summary_text") or payload.get("note") or ""),
+            "role_status_display": role_status_display or existing_role_status,
+            "stage3_real_validation_plan_artifact_entry": entry,
         }
