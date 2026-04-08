@@ -355,6 +355,13 @@ def build_review_scope_manifest_payload(
     )
     if stage_admission_review_pack_entry:
         payload["stage_admission_review_pack_artifact_entry"] = stage_admission_review_pack_entry
+    engineering_isolation_admission_checklist_entry = _find_engineering_isolation_admission_checklist_artifact_entry(
+        list(registry.get("rows", []) or [])
+    )
+    if engineering_isolation_admission_checklist_entry:
+        payload["engineering_isolation_admission_checklist_artifact_entry"] = (
+            engineering_isolation_admission_checklist_entry
+        )
     return payload
 
 
@@ -876,6 +883,14 @@ def _find_phase_transition_bridge_reviewer_artifact_entry(files: list[dict[str, 
 def _find_stage_admission_review_pack_artifact_entry(files: list[dict[str, Any]]) -> dict[str, Any]:
     for item in list(files or []):
         entry = dict(dict(item or {}).get("stage_admission_review_pack_artifact_entry") or {})
+        if entry:
+            return entry
+    return {}
+
+
+def _find_engineering_isolation_admission_checklist_artifact_entry(files: list[dict[str, Any]]) -> dict[str, Any]:
+    for item in list(files or []):
+        entry = dict(dict(item or {}).get("engineering_isolation_admission_checklist_artifact_entry") or {})
         if entry:
             return entry
     return {}

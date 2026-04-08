@@ -7,6 +7,15 @@ from typing import Any, Callable, Iterable, Optional
 from ..config import build_step2_config_governance_handoff
 from ..core.acceptance_model import normalize_evidence_source
 from ..core.artifact_catalog import KNOWN_REPORT_ARTIFACTS
+from ..core.engineering_isolation_admission_checklist import (
+    ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME,
+    ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME,
+)
+from ..core.engineering_isolation_admission_checklist_artifact_entry import (
+    ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_ARTIFACT_KEY,
+    ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_ARTIFACT_KEY,
+    build_engineering_isolation_admission_checklist_artifact_entry,
+)
 from ..core.offline_artifacts import build_point_taxonomy_handoff, summarize_offline_diagnostic_adapters
 from ..core.phase_transition_bridge_reviewer_artifact_entry import (
     PHASE_TRANSITION_BRIDGE_REVIEWER_ARTIFACT_KEY,
@@ -232,6 +241,36 @@ class ResultsGateway:
         )
         if not bool(stage_admission_review_pack_entry.get("available", False)):
             stage_admission_review_pack_entry = {}
+        engineering_isolation_admission_checklist_section = dict(
+            manifest.get(ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_ARTIFACT_KEY) or {}
+        )
+        engineering_isolation_admission_checklist_reviewer_section = dict(
+            manifest.get(ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_ARTIFACT_KEY) or {}
+        )
+        engineering_isolation_admission_checklist_path = str(
+            engineering_isolation_admission_checklist_section.get("path") or ""
+        ).strip()
+        if not engineering_isolation_admission_checklist_path:
+            fallback_path = self.run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME
+            if fallback_path.exists():
+                engineering_isolation_admission_checklist_path = str(fallback_path)
+        engineering_isolation_admission_checklist_reviewer_path = str(
+            engineering_isolation_admission_checklist_reviewer_section.get("path") or ""
+        ).strip()
+        if not engineering_isolation_admission_checklist_reviewer_path:
+            fallback_path = self.run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME
+            if fallback_path.exists():
+                engineering_isolation_admission_checklist_reviewer_path = str(fallback_path)
+        engineering_isolation_admission_checklist_entry = (
+            build_engineering_isolation_admission_checklist_artifact_entry(
+                artifact_path=engineering_isolation_admission_checklist_path,
+                reviewer_artifact_path=engineering_isolation_admission_checklist_reviewer_path,
+                manifest_section=engineering_isolation_admission_checklist_section,
+                reviewer_manifest_section=engineering_isolation_admission_checklist_reviewer_section,
+            )
+        )
+        if not bool(engineering_isolation_admission_checklist_entry.get("available", False)):
+            engineering_isolation_admission_checklist_entry = {}
         files = []
         seen: set[str] = set()
 
@@ -278,6 +317,10 @@ class ResultsGateway:
                 row,
                 stage_admission_review_pack_entry=stage_admission_review_pack_entry,
             )
+            row = self._decorate_engineering_isolation_admission_checklist_row(
+                row,
+                engineering_isolation_admission_checklist_entry=engineering_isolation_admission_checklist_entry,
+            )
             files.append(row)
         return {
             "run_dir": str(self.run_dir),
@@ -296,6 +339,9 @@ class ResultsGateway:
             "point_taxonomy_summary": dict(payload.get("point_taxonomy_summary", {}) or {}),
             "phase_transition_bridge_reviewer_artifact_entry": dict(reviewer_artifact_entry),
             "stage_admission_review_pack_artifact_entry": dict(stage_admission_review_pack_entry),
+            "engineering_isolation_admission_checklist_artifact_entry": dict(
+                engineering_isolation_admission_checklist_entry
+            ),
             "evidence_source": str(payload.get("evidence_source", "") or "simulated_protocol"),
             "evidence_state": str(payload.get("evidence_state", "") or "collected"),
             "not_real_acceptance_evidence": bool(payload.get("not_real_acceptance_evidence", True)),
@@ -621,4 +667,41 @@ class ResultsGateway:
             "note": str(entry.get("note_text") or payload.get("note") or ""),
             "role_status_display": role_status_display or existing_role_status,
             "stage_admission_review_pack_artifact_entry": entry,
+        }
+
+    @staticmethod
+    def _decorate_engineering_isolation_admission_checklist_row(
+        row: dict[str, Any],
+        *,
+        engineering_isolation_admission_checklist_entry: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload = dict(row or {})
+        artifact_key = str(payload.get("artifact_key") or "")
+        if artifact_key not in {
+            ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_ARTIFACT_KEY,
+            ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_ARTIFACT_KEY,
+        }:
+            return payload
+        entry = dict(engineering_isolation_admission_checklist_entry or {})
+        if not entry:
+            return payload
+        is_reviewer_artifact = artifact_key == ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_ARTIFACT_KEY
+        existing_role_status = str(payload.get("role_status_display") or "").strip()
+        entry_role_status = str(entry.get("role_status_display") or "").strip()
+        role_status_display = " | ".join(
+            part
+            for part in (existing_role_status, entry_role_status)
+            if str(part).strip()
+        )
+        return {
+            **payload,
+            "name": str(
+                entry.get("name_text")
+                or payload.get("name")
+                or ""
+            )
+            + (" (Markdown)" if is_reviewer_artifact else " (JSON)"),
+            "note": str(entry.get("note_text") or payload.get("note") or ""),
+            "role_status_display": role_status_display or existing_role_status,
+            "engineering_isolation_admission_checklist_artifact_entry": entry,
         }

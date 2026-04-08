@@ -90,6 +90,9 @@ def build_review_center_view(
         "stage_admission_review_pack_artifact_entry": dict(
             base_payload.get("stage_admission_review_pack_artifact_entry", {}) or {}
         ),
+        "engineering_isolation_admission_checklist_artifact_entry": dict(
+            base_payload.get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
+        ),
         "source_scope_label": source_scope_view["source_scope_label"],
         "source_scope_active": bool(selected_source_row),
     }

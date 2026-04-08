@@ -32,7 +32,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
         )
         self.compact = bool(compact)
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(6, weight=1)
+        self.rowconfigure(7, weight=1)
         self._payload: dict[str, Any] = {}
         self._items: list[dict[str, Any]] = []
         self._type_lookup: dict[str, str] = {}
@@ -188,8 +188,45 @@ class ReviewCenterPanel(ttk.LabelFrame):
         ).grid(row=3, column=0, sticky="ew", pady=(2, 0))
         self.stage_admission_review_pack_frame.grid_remove()
 
+        self.engineering_isolation_admission_checklist_frame = ttk.Frame(self, style="Card.TFrame")
+        self.engineering_isolation_admission_checklist_frame.grid(row=5, column=0, sticky="ew", pady=(0, 6))
+        self.engineering_isolation_admission_checklist_frame.columnconfigure(0, weight=1)
+        self.engineering_isolation_admission_checklist_title_var = tk.StringVar(value="")
+        self.engineering_isolation_admission_checklist_status_var = tk.StringVar(value="")
+        self.engineering_isolation_admission_checklist_path_var = tk.StringVar(value="")
+        self.engineering_isolation_admission_checklist_note_var = tk.StringVar(value="")
+        ttk.Label(
+            self.engineering_isolation_admission_checklist_frame,
+            textvariable=self.engineering_isolation_admission_checklist_title_var,
+            style="Section.TLabel",
+            wraplength=1120 if compact else 1320,
+            justify="left",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 4))
+        ttk.Label(
+            self.engineering_isolation_admission_checklist_frame,
+            textvariable=self.engineering_isolation_admission_checklist_status_var,
+            justify="left",
+            wraplength=1120 if compact else 1320,
+            style="Muted.TLabel",
+        ).grid(row=1, column=0, sticky="ew")
+        ttk.Label(
+            self.engineering_isolation_admission_checklist_frame,
+            textvariable=self.engineering_isolation_admission_checklist_path_var,
+            justify="left",
+            wraplength=1120 if compact else 1320,
+            style="Muted.TLabel",
+        ).grid(row=2, column=0, sticky="ew", pady=(2, 0))
+        ttk.Label(
+            self.engineering_isolation_admission_checklist_frame,
+            textvariable=self.engineering_isolation_admission_checklist_note_var,
+            justify="left",
+            wraplength=1120 if compact else 1320,
+            style="Muted.TLabel",
+        ).grid(row=3, column=0, sticky="ew", pady=(2, 0))
+        self.engineering_isolation_admission_checklist_frame.grid_remove()
+
         source_frame = ttk.Frame(self, style="Card.TFrame")
-        source_frame.grid(row=5, column=0, sticky="ew", pady=(0, 6))
+        source_frame.grid(row=6, column=0, sticky="ew", pady=(0, 6))
         source_frame.columnconfigure(0, weight=1)
         source_frame.columnconfigure(1, weight=1)
         source_frame.rowconfigure(1, weight=1)
@@ -241,7 +278,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
         self.source_tree.bind("<<TreeviewSelect>>", self._on_source_selected, add="+")
 
         list_frame = ttk.Frame(self, style="Card.TFrame")
-        list_frame.grid(row=6, column=0, sticky="nsew")
+        list_frame.grid(row=7, column=0, sticky="nsew")
         list_frame.columnconfigure(0, weight=1)
         list_frame.rowconfigure(1, weight=1)
         ttk.Label(list_frame, text=t("results.review_center.section.evidence_list"), style="Section.TLabel").grid(
@@ -275,7 +312,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
             title=t("results.review_center.section.evidence_detail"),
             expanded=not compact,
         )
-        self.detail_section.grid(row=7, column=0, sticky="nsew", pady=(6, 0))
+        self.detail_section.grid(row=8, column=0, sticky="nsew", pady=(6, 0))
         self.detail_section.body.rowconfigure(8, weight=1)
         self.detail_section.body.columnconfigure(0, weight=1)
         detail_meta = ttk.Frame(self.detail_section.body, style="Card.TFrame")
@@ -326,7 +363,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
             wraplength=1120 if compact else 1320,
             justify="left",
             style="Muted.TLabel",
-        ).grid(row=8, column=0, sticky="ew", pady=(6, 0))
+        ).grid(row=9, column=0, sticky="ew", pady=(6, 0))
 
     def _summary_card(
         self,
@@ -551,6 +588,44 @@ class ReviewCenterPanel(ttk.LabelFrame):
             self.stage_admission_review_pack_path_var.set("")
             self.stage_admission_review_pack_note_var.set("")
             self.stage_admission_review_pack_frame.grid_remove()
+        engineering_isolation_admission_checklist_entry = dict(
+            self._active_view.get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
+        )
+        if bool(engineering_isolation_admission_checklist_entry.get("available", False)):
+            self.engineering_isolation_admission_checklist_title_var.set(
+                str(
+                    engineering_isolation_admission_checklist_entry.get("name_text")
+                    or engineering_isolation_admission_checklist_entry.get("title_text")
+                    or t("common.none")
+                )
+            )
+            self.engineering_isolation_admission_checklist_status_var.set(
+                str(
+                    engineering_isolation_admission_checklist_entry.get("role_status_display")
+                    or t("common.none")
+                )
+            )
+            self.engineering_isolation_admission_checklist_path_var.set(
+                str(
+                    engineering_isolation_admission_checklist_entry.get("reviewer_path")
+                    or engineering_isolation_admission_checklist_entry.get("path")
+                    or t("common.none")
+                )
+            )
+            self.engineering_isolation_admission_checklist_note_var.set(
+                str(
+                    engineering_isolation_admission_checklist_entry.get("note_text")
+                    or engineering_isolation_admission_checklist_entry.get("summary_text")
+                    or t("common.none")
+                )
+            )
+            self.engineering_isolation_admission_checklist_frame.grid()
+        else:
+            self.engineering_isolation_admission_checklist_title_var.set("")
+            self.engineering_isolation_admission_checklist_status_var.set("")
+            self.engineering_isolation_admission_checklist_path_var.set("")
+            self.engineering_isolation_admission_checklist_note_var.set("")
+            self.engineering_isolation_admission_checklist_frame.grid_remove()
         self.index_var.set(str(self._active_view.get("index_text") or t("common.none")))
         self.source_scope_var.set(
             str(

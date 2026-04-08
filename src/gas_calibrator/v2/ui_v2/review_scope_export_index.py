@@ -5,6 +5,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ..core.engineering_isolation_admission_checklist_artifact_entry import (
+    ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_ARTIFACT_KEY,
+    build_engineering_isolation_admission_checklist_artifact_entry,
+)
 from ..core.phase_transition_bridge_reviewer_artifact_entry import (
     PHASE_TRANSITION_BRIDGE_REVIEWER_ARTIFACT_KEY,
     build_phase_transition_bridge_reviewer_artifact_entry,
@@ -124,6 +128,13 @@ def build_review_scope_export_entry(
     stage_admission_review_pack_entry = _build_stage_admission_review_pack_artifact_entry(payload)
     if stage_admission_review_pack_entry:
         entry["stage_admission_review_pack_artifact_entry"] = stage_admission_review_pack_entry
+    engineering_isolation_admission_checklist_entry = _build_engineering_isolation_admission_checklist_artifact_entry(
+        payload
+    )
+    if engineering_isolation_admission_checklist_entry:
+        entry["engineering_isolation_admission_checklist_artifact_entry"] = (
+            engineering_isolation_admission_checklist_entry
+        )
     return entry
 
 
@@ -183,6 +194,34 @@ def _build_stage_admission_review_pack_artifact_entry(payload: dict[str, Any]) -
 
     for row in list(payload.get("rows", []) or []):
         row_entry = dict(dict(row or {}).get("stage_admission_review_pack_artifact_entry") or {})
+        if row_entry:
+            return row_entry
+
+    return {}
+
+
+def _build_engineering_isolation_admission_checklist_artifact_entry(payload: dict[str, Any]) -> dict[str, Any]:
+    direct_entry = dict(payload.get("engineering_isolation_admission_checklist_artifact_entry") or {})
+    if direct_entry:
+        return direct_entry
+
+    manifest_sections = dict(payload.get("manifest_sections", {}) or {})
+    manifest_section = dict(manifest_sections.get(ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_ARTIFACT_KEY) or {})
+    reviewer_manifest_section = dict(
+        manifest_sections.get("engineering_isolation_admission_checklist_reviewer_artifact") or {}
+    )
+    if manifest_section or reviewer_manifest_section:
+        entry = build_engineering_isolation_admission_checklist_artifact_entry(
+            artifact_path=manifest_section.get("path"),
+            reviewer_artifact_path=reviewer_manifest_section.get("path"),
+            manifest_section=manifest_section,
+            reviewer_manifest_section=reviewer_manifest_section,
+        )
+        if entry:
+            return entry
+
+    for row in list(payload.get("rows", []) or []):
+        row_entry = dict(dict(row or {}).get("engineering_isolation_admission_checklist_artifact_entry") or {})
         if row_entry:
             return row_entry
 

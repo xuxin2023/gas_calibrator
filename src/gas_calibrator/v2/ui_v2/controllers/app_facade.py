@@ -1626,6 +1626,7 @@ class AppFacade:
         }
         phase_bridge_reviewer_artifact_entry: dict[str, Any] = {}
         stage_admission_review_pack_artifact_entry: dict[str, Any] = {}
+        engineering_isolation_admission_checklist_artifact_entry: dict[str, Any] = {}
         try:
             reports_payload = dict(self.results_gateway.read_reports_payload() or {})
             phase_bridge_reviewer_artifact_entry = dict(
@@ -1634,9 +1635,13 @@ class AppFacade:
             stage_admission_review_pack_artifact_entry = dict(
                 reports_payload.get("stage_admission_review_pack_artifact_entry") or {}
             )
+            engineering_isolation_admission_checklist_artifact_entry = dict(
+                reports_payload.get("engineering_isolation_admission_checklist_artifact_entry") or {}
+            )
         except Exception:
             phase_bridge_reviewer_artifact_entry = {}
             stage_admission_review_pack_artifact_entry = {}
+            engineering_isolation_admission_checklist_artifact_entry = {}
         return {
             "latest": latest_items,
             "operator_focus": {
@@ -1698,6 +1703,9 @@ class AppFacade:
             "evidence_items": evidence_items,
             "phase_transition_bridge_reviewer_artifact_entry": phase_bridge_reviewer_artifact_entry,
             "stage_admission_review_pack_artifact_entry": stage_admission_review_pack_artifact_entry,
+            "engineering_isolation_admission_checklist_artifact_entry": (
+                engineering_isolation_admission_checklist_artifact_entry
+            ),
             "filters": {
                 "selected_type": "all",
                 "selected_status": "all",
