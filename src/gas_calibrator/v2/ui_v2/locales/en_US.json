@@ -628,7 +628,8 @@
           "fault_injection": "Fault Injection",
           "reference_quality_summary": "Reference Quality Summary",
           "route_relay_summary": "Route / Relay Summary",
-          "snapshot_compare": "Snapshot Compare"
+          "snapshot_compare": "Snapshot Compare",
+          "measurement_core": "measurement-core readiness"
         },
         "enum": {
           "action_result": {
@@ -1068,7 +1069,8 @@
           "suite_analytics_summary": "{suite} | {status} | {analytics} | lineage {lineage}",
           "artifact_lineage": "Artifact / Lineage",
           "artifact_lineage_summary": "role {role} | source {source} | state {state}",
-          "point_taxonomy": "Point Taxonomy"
+          "point_taxonomy": "Point Taxonomy",
+          "measurement_core": "measurement-core readiness"
         },
         "engineer_card.statistics_summary": "passed {success} / failed {failed} / devices {devices}",
         "engineer_block": {
@@ -1158,6 +1160,10 @@
             "title": "Point Taxonomy / Gate",
             "summary": "{count} point taxonomy digests",
             "empty": "No point taxonomy digest is available for the current run."
+          },
+          "measurement_core": {
+            "title": "measurement-core readiness",
+            "summary": "Shadow stability, controlled-flex trace, and sidecar-ready evidence"
           },
           "suite_analytics": {
             "title": "Suite / Analytics Detail",
@@ -1864,6 +1870,10 @@
         "evidence_category": "Evidence Category",
         "boundary": "Boundary",
         "anchor": "Anchor",
+        "route": "Route",
+        "signal_family": "Signal Family",
+        "decision_result": "Decision Result",
+        "policy_version": "Policy Version",
         "count": "Showing {visible}/{total}",
         "all_types": "All Types",
         "all_statuses": "All Statuses",
@@ -1879,7 +1889,11 @@
         "all_standard_families": "All Standard Families",
         "all_evidence_categories": "All Evidence Categories",
         "all_boundaries": "All Boundaries",
-        "all_anchors": "All Anchors"
+        "all_anchors": "All Anchors",
+        "all_routes": "All Routes",
+        "all_signal_families": "All Signal Families",
+        "all_decision_results": "All Decision Results",
+        "all_policy_versions": "All Policy Versions"
       },
       "role": {
         "operator": "Operator",

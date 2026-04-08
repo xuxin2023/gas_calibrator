@@ -4276,6 +4276,27 @@ class DeviceWorkbenchController:
                 "expanded": bool(point_taxonomy_lines),
             },
             {
+                "id": "measurement_core",
+                "title": t(
+                    "pages.devices.workbench.engineer_section.measurement_core.title",
+                    default="measurement-core readiness",
+                ),
+                "summary": measurement_core_summary,
+                "body_text": "\n".join(
+                    [
+                        *measurement_core_lines,
+                        *measurement_core_boundaries,
+                        *[
+                            f"{label}: {path}"
+                            for label, path in dict(measurement_core_evidence.get("artifact_paths") or {}).items()
+                            if str(path or "").strip()
+                        ],
+                    ]
+                )
+                or t("common.none"),
+                "expanded": bool(measurement_core_evidence.get("available", False)),
+            },
+            {
                 "id": "suite_analytics",
                 "title": t("pages.devices.workbench.engineer_section.suite_analytics.title"),
                 "summary": t("pages.devices.workbench.engineer_section.suite_analytics.summary"),
@@ -4588,6 +4609,7 @@ class DeviceWorkbenchController:
         evidence_config_safety = dict(snapshot.get("evidence", {}).get("config_safety", {}) or {})
         evidence_config_safety_review = dict(snapshot.get("evidence", {}).get("config_safety_review", {}) or {})
         point_taxonomy_summary = dict(snapshot.get("evidence", {}).get("point_taxonomy_summary", {}) or {})
+        measurement_core_evidence = dict(snapshot.get("evidence", {}).get("measurement_core_evidence", {}) or {})
         config_governance_payload = self._config_governance_payload(
             evidence_config_safety,
             evidence_config_safety_review,
@@ -4629,6 +4651,7 @@ class DeviceWorkbenchController:
             "config_safety": evidence_config_safety,
             "config_safety_review": evidence_config_safety_review,
             "point_taxonomy_summary": point_taxonomy_summary,
+            "measurement_core_evidence": measurement_core_evidence,
             "operator_summary": operator_summary,
             "history": list(history_payload.get("items", []) or []),
             "history_filters": dict(history_payload.get("filters", {}) or {}),
@@ -4690,6 +4713,7 @@ class DeviceWorkbenchController:
             "config_safety": evidence_config_safety,
             "config_safety_review": evidence_config_safety_review,
             "point_taxonomy_summary": point_taxonomy_summary,
+            "measurement_core_evidence": measurement_core_evidence,
             "paths": {
                 "report_json": str(report_json_path),
                 "report_markdown": str(report_md_path),
@@ -4718,6 +4742,7 @@ class DeviceWorkbenchController:
             "config_safety": evidence_config_safety,
             "config_safety_review": evidence_config_safety_review,
             "point_taxonomy_summary": point_taxonomy_summary,
+            "measurement_core_evidence": measurement_core_evidence,
             "snapshot_compare": snapshot_compare,
             "snapshot": self.build_snapshot(),
         }
@@ -4759,6 +4784,38 @@ class DeviceWorkbenchController:
             f"- {line}"
             for line in self._point_taxonomy_lines(dict(report_payload.get("point_taxonomy_summary", {}) or {}))
         ) or f"- {t('common.none')}"
+        measurement_core_payload = dict(report_payload.get("measurement_core_evidence", {}) or {})
+        measurement_core_summary_lines = [
+            str(item)
+            for item in list(measurement_core_payload.get("summary_lines") or [])
+            if str(item).strip()
+        ]
+        measurement_core_boundary_lines = [
+            str(item)
+            for item in list(measurement_core_payload.get("boundary_lines") or [])
+            if str(item).strip()
+        ]
+        measurement_core_artifact_paths = dict(measurement_core_payload.get("artifact_paths") or {})
+        measurement_core_lines = "\n".join(
+            f"- {line}"
+            for line in [
+                *measurement_core_summary_lines,
+                *measurement_core_boundary_lines,
+                *[
+                    f"{label}: {path}"
+                    for label, path in (
+                        ("multi_source_stability_evidence", measurement_core_artifact_paths.get("multi_source_stability_evidence")),
+                        ("state_transition_evidence", measurement_core_artifact_paths.get("state_transition_evidence")),
+                        (
+                            "simulation_evidence_sidecar_bundle",
+                            measurement_core_artifact_paths.get("simulation_evidence_sidecar_bundle"),
+                        ),
+                    )
+                    if str(path or "").strip()
+                ],
+            ]
+            if str(line).strip()
+        ) or f"- {t('common.none')}"
         return "\n".join(
             [
                 f"# {t('pages.devices.workbench.report.title')}",
@@ -4794,6 +4851,10 @@ class DeviceWorkbenchController:
                 f"## {t('pages.devices.workbench.report.point_taxonomy', default='点位语义 / 门禁摘要')}",
                 "",
                 point_taxonomy_lines,
+                "",
+                f"## {t('pages.devices.workbench.report.measurement_core', default='measurement-core readiness')}",
+                "",
+                measurement_core_lines,
                 "",
                 f"## {t('pages.devices.workbench.report.action_history')}",
                 "",
