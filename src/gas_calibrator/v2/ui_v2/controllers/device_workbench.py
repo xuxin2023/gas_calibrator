@@ -14,6 +14,11 @@ from ...config import (
     hydrate_step2_config_safety_summary,
     summarize_step2_config_safety,
 )
+from ...core.controlled_state_machine_profile import STATE_TRANSITION_EVIDENCE_FILENAME
+from ...core.multi_source_stability import (
+    MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME,
+    SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME,
+)
 from ...core.offline_artifacts import build_point_taxonomy_handoff
 from ...core.device_factory import DeviceFactory, DeviceType
 from ...qc.qc_report import build_qc_evidence_section, build_qc_reviewer_card
@@ -287,6 +292,57 @@ class DeviceWorkbenchController:
             "not_real_acceptance_evidence": True,
             "acceptance_level": self.WORKBENCH_ACCEPTANCE_LEVEL,
             "promotion_state": self.WORKBENCH_PROMOTION_STATE,
+        }
+
+    def _load_measurement_core_evidence(self) -> dict[str, Any]:
+        gateway = getattr(self.facade, "results_gateway", None)
+        if gateway is None:
+            return {}
+        stability = dict(gateway.load_json(MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME) or {})
+        transition = dict(gateway.load_json(STATE_TRANSITION_EVIDENCE_FILENAME) or {})
+        sidecar = dict(gateway.load_json(SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME) or {})
+        if not stability and not transition and not sidecar:
+            return {}
+        stability_digest = dict(stability.get("digest") or {})
+        transition_digest = dict(transition.get("digest") or {})
+        summary_lines = [
+            str(stability_digest.get("summary") or "").strip(),
+            str(transition_digest.get("summary") or "").strip(),
+            str(sidecar.get("reviewer_note") or "").strip(),
+        ]
+        summary_lines = [line for line in summary_lines if line]
+        boundary_lines = [
+            str(item).strip()
+            for item in list(
+                stability.get("boundary_statements")
+                or transition.get("boundary_statements")
+                or sidecar.get("boundary_statements")
+                or []
+            )
+            if str(item).strip()
+        ]
+        return {
+            "available": True,
+            "summary_line": " | ".join(summary_lines) if summary_lines else t("common.none"),
+            "summary_lines": summary_lines,
+            "boundary_lines": boundary_lines,
+            "multi_source_stability_evidence": stability,
+            "state_transition_evidence": transition,
+            "simulation_evidence_sidecar_bundle": sidecar,
+            "artifact_paths": {
+                "multi_source_stability_evidence": str(
+                    dict(stability.get("artifact_paths") or {}).get("multi_source_stability_evidence")
+                    or gateway.run_dir / MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME
+                ),
+                "state_transition_evidence": str(
+                    dict(transition.get("artifact_paths") or {}).get("state_transition_evidence")
+                    or gateway.run_dir / STATE_TRANSITION_EVIDENCE_FILENAME
+                ),
+                "simulation_evidence_sidecar_bundle": str(
+                    dict(sidecar.get("artifact_paths") or {}).get("simulation_evidence_sidecar_bundle")
+                    or gateway.run_dir / SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME
+                ),
+            },
         }
 
     @staticmethod
@@ -2055,6 +2111,7 @@ class DeviceWorkbenchController:
         config_safety, config_safety_review = self._config_safety_snapshot()
         config_governance_payload = self._config_governance_payload(config_safety, config_safety_review)
         point_taxonomy_summary = self._point_taxonomy_snapshot()
+        measurement_core_evidence = self._load_measurement_core_evidence()
         engineer_summary = self._build_engineer_summary(
             analyzer_snapshot=analyzer_snapshot,
             pace_snapshot=pace_snapshot,
@@ -2073,6 +2130,7 @@ class DeviceWorkbenchController:
             config_safety=config_safety,
             config_safety_review=config_safety_review,
             point_taxonomy_summary=point_taxonomy_summary,
+            measurement_core_evidence=measurement_core_evidence,
         )
         return {
             "meta": {
@@ -2175,6 +2233,7 @@ class DeviceWorkbenchController:
                     "config_safety": config_safety,
                     "config_safety_review": config_safety_review,
                     "point_taxonomy_summary": point_taxonomy_summary,
+                    "measurement_core_evidence": measurement_core_evidence,
                 },
                 "qc_review_summary": dict(qc_review_summary),
                 "qc_reviewer_card": dict(qc_review_summary.get("reviewer_card") or {}),
@@ -2199,6 +2258,7 @@ class DeviceWorkbenchController:
                 "config_safety": config_safety,
                 "config_safety_review": config_safety_review,
                 "point_taxonomy_summary": point_taxonomy_summary,
+                "measurement_core_evidence": measurement_core_evidence,
             },
             "history": history_payload,
             "operator_summary": operator_summary,
@@ -3554,6 +3614,7 @@ class DeviceWorkbenchController:
         config_safety: dict[str, Any],
         config_safety_review: dict[str, Any],
         point_taxonomy_summary: dict[str, Any],
+        measurement_core_evidence: dict[str, Any],
     ) -> dict[str, Any]:
         diagnostics = {
             "reference_quality": reference_quality,
@@ -3717,6 +3778,7 @@ class DeviceWorkbenchController:
         diagnostics["config_safety"] = dict(config_safety)
         diagnostics["config_safety_review"] = dict(config_safety_review)
         diagnostics["point_taxonomy_summary"] = dict(point_taxonomy_summary)
+        diagnostics["measurement_core_evidence"] = dict(measurement_core_evidence)
         suite_state_display = self._engineer_data_state_display(suite_state)
         analytics_state_display = self._engineer_data_state_display(analytics_state)
         lineage_state_display = self._engineer_data_state_display(lineage_state)
@@ -3794,6 +3856,17 @@ class DeviceWorkbenchController:
             pressure=pressure_panel.get("reference_status_display", "--"),
             default=f"温度参考 {thermometer_panel.get('reference_status_display', '--')} | 压力参考 {pressure_panel.get('reference_status_display', '--')}",
         )
+        measurement_core_summary = str(measurement_core_evidence.get("summary_line") or t("common.none"))
+        measurement_core_lines = [
+            str(item)
+            for item in list(measurement_core_evidence.get("summary_lines") or [])
+            if str(item).strip()
+        ]
+        measurement_core_boundaries = [
+            str(item)
+            for item in list(measurement_core_evidence.get("boundary_lines") or [])
+            if str(item).strip()
+        ]
         cards = [
             {
                 "title": t("pages.devices.workbench.engineer_card.reference"),
@@ -3846,6 +3919,10 @@ class DeviceWorkbenchController:
             {
                 "title": t("pages.devices.workbench.engineer_card.point_taxonomy", default="点位语义"),
                 "summary": point_taxonomy_summary_text,
+            },
+            {
+                "title": t("pages.devices.workbench.engineer_card.measurement_core", default="measurement-core readiness"),
+                "summary": measurement_core_summary,
             },
         ]
         device_lines = [
