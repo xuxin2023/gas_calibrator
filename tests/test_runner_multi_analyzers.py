@@ -699,7 +699,7 @@ def test_active_analyzer_anchor_match_marks_stale_frames_explicitly(tmp_path: Pa
     logger.close()
 
 
-def test_collect_samples_marks_suspicious_extreme_frame_unusable(tmp_path: Path) -> None:
+def test_collect_samples_keeps_soft_marked_extreme_frame_when_ratio_is_usable(tmp_path: Path) -> None:
     cfg = {
         "devices": {
             "gas_analyzer": {"active_send": True, "ftd_hz": 10, "average_co2": 1, "average_h2o": 1},
@@ -716,9 +716,12 @@ def test_collect_samples_marks_suspicious_extreme_frame_unusable(tmp_path: Path)
     assert samples is not None
     row = samples[0]
     assert row["ga01_frame_has_data"] is True
-    assert row["ga01_frame_usable"] is False
+    assert row["ga01_frame_usable"] is True
+    assert row["ga01_frame_status"] == "极值已标记"
+    '''
     assert row["ga01_frame_status"] == "异常极值"
-    assert row["co2_ppm"] is None
+    '''
+    assert row["co2_ppm"] == 3000.0
     logger.close()
 
 

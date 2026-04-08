@@ -10,6 +10,7 @@ import csv
 import io
 import os
 import json
+import math
 import subprocess
 import time
 from datetime import datetime, timedelta
@@ -6441,7 +6442,13 @@ class App:
                     h2o_mmol = float(parsed.get("h2o_mmol")) if parsed.get("h2o_mmol") is not None else None
                 except Exception:
                     h2o_mmol = None
-                if co2_ppm is not None and h2o_mmol is not None and co2_ppm >= 2999.0 and h2o_mmol >= 70.0:
+                if (
+                    co2_ppm is not None
+                    and h2o_mmol is not None
+                    and co2_ppm >= 2999.0
+                    and h2o_mmol >= 70.0
+                    and not App._analyzer_frame_has_usable_ratio(parsed, runtime_cfg)
+                ):
                     suspicious_count += 1
             if empty_count >= 3 or protocol_count >= 2 or suspicious_count >= 3:
                 parts: List[str] = []
@@ -6455,6 +6462,32 @@ class App:
         if not issues:
             return "--"
         return "分析仪告警：" + "；".join(issues[:2])
+
+    @staticmethod
+    def _analyzer_frame_has_usable_ratio(parsed: Dict[str, Any], runtime_cfg: Dict[str, Any] | None = None) -> bool:
+        workflow_cfg = runtime_cfg.get("workflow", {}) if isinstance(runtime_cfg, dict) else {}
+        frame_cfg = workflow_cfg.get("analyzer_frame_quality", {}) if isinstance(workflow_cfg, dict) else {}
+        tolerance = abs(float(frame_cfg.get("invalid_sentinel_tolerance", 0.001) or 0.001))
+        sentinels: List[float] = []
+        for item in frame_cfg.get("invalid_sentinel_values", [-1001.0, -9999.0, 999999.0]) or []:
+            try:
+                numeric = float(item)
+            except Exception:
+                continue
+            if math.isfinite(numeric):
+                sentinels.append(numeric)
+
+        for key in ("co2_ratio_f", "h2o_ratio_f"):
+            try:
+                numeric = float(parsed.get(key)) if parsed.get(key) is not None else None
+            except Exception:
+                numeric = None
+            if numeric is None or not math.isfinite(numeric) or numeric <= 0:
+                continue
+            if any(abs(numeric - sentinel) <= tolerance for sentinel in sentinels):
+                continue
+            return True
+        return False
 
     @staticmethod
     def _last_issue_from_progress_rows(rows: List[Dict[str, str]], runtime_cfg: Dict[str, Any] | None = None) -> str:

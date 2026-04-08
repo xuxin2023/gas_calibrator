@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 from typing import Any, Callable, Dict, Iterable, Optional, Set
 
@@ -77,6 +78,40 @@ def _gas_analyzer_probe(
     return last_raw, dev.parse_line(last_raw)
 
 
+def _coerce_float(value: Any) -> float | None:
+    try:
+        numeric = float(value)
+    except Exception:
+        return None
+    if not math.isfinite(numeric):
+        return None
+    return numeric
+
+
+def _matches_sentinel(value: float | None, sentinels: list[float], tolerance: float) -> bool:
+    if value is None:
+        return False
+    return any(abs(value - sentinel) <= tolerance for sentinel in sentinels)
+
+
+def _has_usable_ratio_value(parsed: Dict[str, Any], qcfg: Dict[str, Any]) -> bool:
+    tolerance = abs(float(qcfg.get("invalid_sentinel_tolerance", 0.001) or 0.001))
+    sentinels: list[float] = []
+    for item in qcfg.get("invalid_sentinel_values", [-1001.0, -9999.0, 999999.0]) or []:
+        numeric = _coerce_float(item)
+        if numeric is not None:
+            sentinels.append(numeric)
+
+    for key in ("co2_ratio_f", "h2o_ratio_f"):
+        numeric = _coerce_float(parsed.get(key))
+        if numeric is None or numeric <= 0:
+            continue
+        if _matches_sentinel(numeric, sentinels, tolerance):
+            continue
+        return True
+    return False
+
+
 def _assess_gas_analyzer_frame(
     parsed: Optional[Dict[str, Any]],
     cfg: Dict[str, Any],
@@ -88,14 +123,8 @@ def _assess_gas_analyzer_frame(
     suspicious_co2_ppm_min = float(qcfg.get("suspicious_co2_ppm_min", 2999.0) or 2999.0)
     suspicious_h2o_mmol_min = float(qcfg.get("suspicious_h2o_mmol_min", 70.0) or 70.0)
 
-    try:
-        co2_ppm = float(parsed.get("co2_ppm")) if parsed.get("co2_ppm") is not None else None
-    except Exception:
-        co2_ppm = None
-    try:
-        h2o_mmol = float(parsed.get("h2o_mmol")) if parsed.get("h2o_mmol") is not None else None
-    except Exception:
-        h2o_mmol = None
+    co2_ppm = _coerce_float(parsed.get("co2_ppm"))
+    h2o_mmol = _coerce_float(parsed.get("h2o_mmol"))
 
     if (
         co2_ppm is not None
@@ -103,6 +132,8 @@ def _assess_gas_analyzer_frame(
         and co2_ppm >= suspicious_co2_ppm_min
         and h2o_mmol >= suspicious_h2o_mmol_min
     ):
+        if _has_usable_ratio_value(parsed, qcfg):
+            return True, "极值已标记"
         return False, "异常极值"
 
     return True, "OK"
@@ -274,8 +305,16 @@ def run_self_test(
                     usable, status = _assess_gas_analyzer_frame(parsed, cfg)
                     if not usable:
                         raise RuntimeError(status)
-                    item_results.append({"name": name, "ok": True, "co2_ppm": parsed.get("co2_ppm")})
-                    _log(log_fn, f"[gas_analyzer:{name}] OK co2={parsed.get('co2_ppm')}")
+                    item_results.append(
+                        {
+                            "name": name,
+                            "ok": True,
+                            "co2_ppm": parsed.get("co2_ppm"),
+                            "frame_status": status,
+                        }
+                    )
+                    suffix = "" if status == "OK" else f" status={status}"
+                    _log(log_fn, f"[gas_analyzer:{name}] OK co2={parsed.get('co2_ppm')}{suffix}")
                 except Exception as exc:
                     all_ok = False
                     item_results.append({"name": name, "ok": False, "err": str(exc)})
@@ -318,8 +357,14 @@ def run_self_test(
                     usable, status = _assess_gas_analyzer_frame(parsed, cfg)
                     if not usable:
                         raise RuntimeError(status)
-                    results["gas_analyzer"] = {"ok": True, "raw": last_line["raw"], "parsed": parsed}
-                    _log(log_fn, f"[gas_analyzer] OK co2={parsed.get('co2_ppm')}")
+                    results["gas_analyzer"] = {
+                        "ok": True,
+                        "raw": last_line["raw"],
+                        "parsed": parsed,
+                        "frame_status": status,
+                    }
+                    suffix = "" if status == "OK" else f" status={status}"
+                    _log(log_fn, f"[gas_analyzer] OK co2={parsed.get('co2_ppm')}{suffix}")
                 except Exception as exc:
                     results["gas_analyzer"] = {"ok": False, "err": str(exc)}
                     _log(log_fn, f"[gas_analyzer] FAIL {exc}")

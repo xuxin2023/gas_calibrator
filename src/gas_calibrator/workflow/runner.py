@@ -6511,6 +6511,12 @@ class CalibrationRunner:
             return True
         return any(abs(numeric - float(sentinel)) <= float(tolerance) for sentinel in sentinels)
 
+    def _frame_quality_ratio_is_usable(self, value: Any, sentinels: List[float], tolerance: float) -> bool:
+        numeric = self._as_float(value)
+        if numeric is None or not math.isfinite(numeric) or numeric <= 0:
+            return False
+        return not self._matches_frame_sentinel(numeric, sentinels, tolerance)
+
     def _assess_mode2_frame_for_startup(self, parsed: Optional[Dict[str, Any]]) -> tuple[bool, str]:
         if not isinstance(parsed, dict) or not parsed:
             return False, "无帧"
@@ -6554,6 +6560,7 @@ class CalibrationRunner:
 
         cfg = self._analyzer_frame_quality_cfg()
         issues: List[str] = []
+        marks: List[str] = []
         min_mode2_fields = max(0, int(cfg.get("min_mode2_fields", 16) or 16))
         field_count = self._as_int(parsed.get("mode2_field_count"))
         if field_count is not None and field_count < min_mode2_fields:
@@ -6608,10 +6615,18 @@ class CalibrationRunner:
             and co2_ppm >= suspicious_co2_ppm_min
             and h2o_mmol >= suspicious_h2o_mmol_min
         ):
-            issues.append("异常极值")
+            if any(
+                self._frame_quality_ratio_is_usable(parsed.get(key), invalid_sentinels, invalid_sentinel_tol)
+                for key in ("co2_ratio_f", "h2o_ratio_f")
+            ):
+                marks.append("极值已标记")
+            else:
+                issues.append("异常极值")
 
         if issues:
             return False, "；".join(issues)
+        if marks:
+            return True, "；".join(marks)
         return True, "可用"
 
     @staticmethod

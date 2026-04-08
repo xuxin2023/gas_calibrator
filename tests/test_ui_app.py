@@ -2633,6 +2633,28 @@ def test_last_issue_from_progress_rows_ignores_startup_no_ack() -> None:
     assert app_module.App._last_issue_from_progress_rows(rows) == "--"
 
 
+def test_summarize_analyzer_health_issue_ignores_soft_marked_extreme_frames() -> None:
+    runtime_cfg = {
+        "devices": {
+            "gas_analyzers": [
+                {"name": "ga01", "port": "COM16", "enabled": True},
+            ]
+        }
+    }
+    rows = [
+        {
+            "timestamp": f"2026-03-14T10:50:2{idx}",
+            "port": "COM16",
+            "direction": "RX",
+            "response": "YGAS,001,3000,72,2.1,3.2,0.456,0.457,0.111,0.112,9.9,8.8,7.7,20.12,21.34,101.56,T",
+            "error": "",
+        }
+        for idx in range(3)
+    ]
+
+    assert app_module.App._summarize_analyzer_health_issue(rows, runtime_cfg=runtime_cfg) == "--"
+
+
 def test_infer_sample_progress_counts_com16_samples_after_in_limits() -> None:
     rows = [
         {"ts": "2026-03-09T11:00:00", "port": "COM31", "direction": "RX", "response": ":SENS:PRES:INL 1000.0, 1"},
