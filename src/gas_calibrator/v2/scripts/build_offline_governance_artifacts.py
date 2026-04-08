@@ -282,6 +282,8 @@ def _augment_run_payload_with_step2_readiness(
     }
     manifest_sections["stage_admission_review_pack"] = {
         "artifact_type": str(stage_admission_review_pack["raw"].get("artifact_type") or ""),
+        "path": str(stage_admission_review_pack_path),
+        "reviewer_path": str(stage_admission_review_pack_reviewer_path),
         "phase": stage_admission_review_pack["raw"].get("phase"),
         "overall_status": stage_admission_review_pack["raw"].get("overall_status"),
         "recommended_next_stage": stage_admission_review_pack["raw"].get("recommended_next_stage"),
