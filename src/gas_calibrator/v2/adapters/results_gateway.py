@@ -747,6 +747,38 @@ class ResultsGateway:
 
         stability_digest = dict(stability_summary.get("digest") or {})
         transition_digest = dict(transition_summary.get("digest") or {})
+        measurement_core_stability_text = (
+            str(
+                stability_digest.get("summary")
+                or stability_summary.get("summary")
+                or stability_summary.get("coverage_status")
+                or "--"
+            )
+            if stability_summary
+            else ""
+        )
+        measurement_core_transition_text = (
+            str(
+                transition_digest.get("summary")
+                or transition_summary.get("summary")
+                or transition_summary.get("overall_status")
+                or "--"
+            )
+            if transition_summary
+            else ""
+        )
+        measurement_core_sidecar_text = (
+            " | ".join(
+                f"{key} {len(list(value or []))}"
+                for key, value in dict(sidecar_summary.get("stores") or {}).items()
+            )
+            if sidecar_summary
+            else ""
+        )
+        # Keep newly-added measurement-core summary lines readable without refactoring the whole legacy summary block.
+        stability_summary = {}
+        transition_summary = {}
+        sidecar_summary = {}
         if stability_summary:
             lines.append(
                 "澶氭簮鍒ょǔ shadow: "
@@ -773,6 +805,15 @@ class ResultsGateway:
                 for key, value in dict(sidecar_summary.get("stores") or {}).items()
             )
             lines.append(f"sidecar-ready 鍚堝悓: {sidecar_store_text or 'future database intake / sidecar-ready'}")
+
+        if measurement_core_stability_text:
+            lines.append(f"measurement-core shadow: {measurement_core_stability_text}")
+        if measurement_core_transition_text:
+            lines.append(f"controlled state trace: {measurement_core_transition_text}")
+        if measurement_core_sidecar_text or dict(simulation_evidence_sidecar_bundle or {}):
+            lines.append(
+                f"sidecar-ready stores: {measurement_core_sidecar_text or 'future database intake / sidecar-ready'}"
+            )
 
         return "\n".join(line for line in lines if str(line).strip())
 
