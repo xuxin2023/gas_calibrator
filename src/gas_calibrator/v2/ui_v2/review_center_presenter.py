@@ -32,6 +32,10 @@ def build_review_center_view(
     selected_evidence_category: str = "all",
     selected_boundary: str = "all",
     selected_anchor: str = "all",
+    selected_route: str = "all",
+    selected_signal_family: str = "all",
+    selected_decision_result: str = "all",
+    selected_policy_version: str = "all",
     now_ts: float | None = None,
 ) -> dict[str, Any]:
     base_payload = dict(payload or {})
@@ -45,6 +49,16 @@ def build_review_center_view(
         selected_time=selected_time,
         selected_source_kind=selected_source_kind,
         selected_source_row=None,
+        selected_phase=selected_phase,
+        selected_artifact_role=selected_artifact_role,
+        selected_standard_family=selected_standard_family,
+        selected_evidence_category=selected_evidence_category,
+        selected_boundary=selected_boundary,
+        selected_anchor=selected_anchor,
+        selected_route=selected_route,
+        selected_signal_family=selected_signal_family,
+        selected_decision_result=selected_decision_result,
+        selected_policy_version=selected_policy_version,
         time_windows=_time_windows(base_payload),
         now_ts=now_ts,
     )
@@ -357,6 +371,16 @@ def _filter_review_items(
     selected_time: str,
     selected_source_kind: str,
     selected_source_row: dict[str, Any] | None,
+    selected_phase: str,
+    selected_artifact_role: str,
+    selected_standard_family: str,
+    selected_evidence_category: str,
+    selected_boundary: str,
+    selected_anchor: str,
+    selected_route: str,
+    selected_signal_family: str,
+    selected_decision_result: str,
+    selected_policy_version: str,
     time_windows: dict[str, float | None],
     now_ts: float | None,
 ) -> list[dict[str, Any]]:
@@ -369,6 +393,26 @@ def _filter_review_items(
         if selected_source_kind not in {"", "all"} and str(item.get("source_kind") or "") != selected_source_kind:
             continue
         if selected_source_row and not _item_matches_selected_source(item, selected_source_row):
+            continue
+        if selected_anchor not in {"", "all"} and str(item.get("anchor_id") or "") != selected_anchor:
+            continue
+        if not _matches_list_filter(item.get("phase_filters"), selected_phase):
+            continue
+        if not _matches_list_filter(item.get("artifact_role_filters"), selected_artifact_role):
+            continue
+        if not _matches_list_filter(item.get("standard_family_filters"), selected_standard_family):
+            continue
+        if not _matches_list_filter(item.get("evidence_category_filters"), selected_evidence_category):
+            continue
+        if not _matches_list_filter(item.get("boundary_filters"), selected_boundary):
+            continue
+        if not _matches_list_filter(item.get("route_filters"), selected_route):
+            continue
+        if not _matches_list_filter(item.get("signal_family_filters"), selected_signal_family):
+            continue
+        if not _matches_list_filter(item.get("decision_result_filters"), selected_decision_result):
+            continue
+        if not _matches_list_filter(item.get("policy_version_filters"), selected_policy_version):
             continue
         if not _matches_time_filter(item, selected_time, time_windows=time_windows, now_ts=now_ts):
             continue

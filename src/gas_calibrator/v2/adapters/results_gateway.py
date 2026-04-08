@@ -593,6 +593,9 @@ class ResultsGateway:
         point_taxonomy_summary: dict[str, Any] | None,
         workbench_evidence_summary: dict[str, Any] | None,
         evidence_source: str,
+        multi_source_stability_evidence: dict[str, Any] | None,
+        state_transition_evidence: dict[str, Any] | None,
+        simulation_evidence_sidecar_bundle: dict[str, Any] | None,
     ) -> str:
         summary_payload = dict(summary or {})
         stats = dict(summary_payload.get("stats", {}) or {})
@@ -602,6 +605,9 @@ class ResultsGateway:
         offline_summary = dict(offline_diagnostic_adapter_summary or {})
         taxonomy_summary = dict(point_taxonomy_summary or {})
         workbench_summary = dict(workbench_evidence_summary or {})
+        stability_summary = dict(multi_source_stability_evidence or {})
+        transition_summary = dict(state_transition_evidence or {})
+        sidecar_summary = dict(simulation_evidence_sidecar_bundle or {})
 
         role_parts: list[str] = []
         for role in ("execution_summary", "execution_rows", "diagnostic_analysis", "formal_analysis"):
@@ -738,6 +744,35 @@ class ResultsGateway:
             or "--"
         )
         lines.append(f"工作台诊断证据: {workbench_text}")
+
+        stability_digest = dict(stability_summary.get("digest") or {})
+        transition_digest = dict(transition_summary.get("digest") or {})
+        if stability_summary:
+            lines.append(
+                "澶氭簮鍒ょǔ shadow: "
+                + str(
+                    stability_digest.get("summary")
+                    or stability_summary.get("summary")
+                    or stability_summary.get("coverage_status")
+                    or "--"
+                )
+            )
+        if transition_summary:
+            lines.append(
+                "鍙楁帶鐘舵€佹満 trace: "
+                + str(
+                    transition_digest.get("summary")
+                    or transition_summary.get("summary")
+                    or transition_summary.get("overall_status")
+                    or "--"
+                )
+            )
+        if sidecar_summary:
+            sidecar_store_text = " | ".join(
+                f"{key} {len(list(value or []))}"
+                for key, value in dict(sidecar_summary.get("stores") or {}).items()
+            )
+            lines.append(f"sidecar-ready 鍚堝悓: {sidecar_store_text or 'future database intake / sidecar-ready'}")
 
         return "\n".join(line for line in lines if str(line).strip())
 
@@ -939,4 +974,116 @@ class ResultsGateway:
             "note": str(entry.get("summary_text") or payload.get("note") or ""),
             "role_status_display": role_status_display or existing_role_status,
             "stage3_standards_alignment_matrix_artifact_entry": entry,
+        }
+
+    @classmethod
+    def _decorate_multi_source_stability_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        multi_source_stability_evidence: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=multi_source_stability_evidence,
+            json_filename=MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME,
+            markdown_filename=MULTI_SOURCE_STABILITY_EVIDENCE_MARKDOWN_FILENAME,
+            entry_key="multi_source_stability_evidence_entry",
+        )
+
+    @classmethod
+    def _decorate_state_transition_evidence_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        state_transition_evidence: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=state_transition_evidence,
+            json_filename=STATE_TRANSITION_EVIDENCE_FILENAME,
+            markdown_filename=STATE_TRANSITION_EVIDENCE_MARKDOWN_FILENAME,
+            entry_key="state_transition_evidence_entry",
+        )
+
+    @staticmethod
+    def _decorate_simulation_sidecar_bundle_row(
+        row: dict[str, Any],
+        *,
+        simulation_evidence_sidecar_bundle: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload = dict(row or {})
+        if Path(str(payload.get("path") or "")).name != SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME:
+            return payload
+        sidecar_payload = dict(simulation_evidence_sidecar_bundle or {})
+        if not sidecar_payload:
+            return payload
+        note = str(sidecar_payload.get("reviewer_note") or payload.get("note") or "").strip()
+        boundary_summary = " | ".join(str(item).strip() for item in list(sidecar_payload.get("boundary_statements") or []) if str(item).strip())
+        role_status_display = " | ".join(
+            part
+            for part in (
+                str(payload.get("role_status_display") or "").strip(),
+                boundary_summary,
+            )
+            if str(part).strip()
+        )
+        return {
+            **payload,
+            "name": str(sidecar_payload.get("title_text") or payload.get("name") or ""),
+            "note": note,
+            "role_status_display": role_status_display or str(payload.get("role_status_display") or ""),
+            "simulation_evidence_sidecar_bundle_entry": sidecar_payload,
+        }
+
+    @staticmethod
+    def _decorate_measurement_core_row(
+        row: dict[str, Any],
+        *,
+        payload: dict[str, Any],
+        json_filename: str,
+        markdown_filename: str,
+        entry_key: str,
+    ) -> dict[str, Any]:
+        artifact_row = dict(row or {})
+        path_name = Path(str(artifact_row.get("path") or "")).name
+        if path_name not in {json_filename, markdown_filename}:
+            return artifact_row
+        evidence_payload = dict(payload or {})
+        review_surface = dict(evidence_payload.get("review_surface") or {})
+        digest = dict(evidence_payload.get("digest") or {})
+        if not review_surface and not digest:
+            return artifact_row
+        is_markdown = path_name == markdown_filename
+        boundary_summary = " | ".join(
+            str(item).strip()
+            for item in list(review_surface.get("boundary_filters") or evidence_payload.get("boundary_statements") or [])
+            if str(item).strip()
+        )
+        role_status_display = " | ".join(
+            part
+            for part in (
+                str(artifact_row.get("role_status_display") or "").strip(),
+                str(evidence_payload.get("overall_status") or "").strip(),
+                boundary_summary,
+            )
+            if str(part).strip()
+        )
+        return {
+            **artifact_row,
+            "name": str(review_surface.get("title_text") or artifact_row.get("name") or "")
+            + (" (Markdown)" if is_markdown else " (JSON)"),
+            "note": str(
+                review_surface.get("reviewer_note")
+                or digest.get("summary")
+                or artifact_row.get("note")
+                or ""
+            ),
+            "role_status_display": role_status_display or str(artifact_row.get("role_status_display") or ""),
+            entry_key: {
+                "review_surface": review_surface,
+                "digest": digest,
+                "artifact_paths": dict(evidence_payload.get("artifact_paths") or {}),
+                "overall_status": str(evidence_payload.get("overall_status") or ""),
+            },
         }

@@ -24,7 +24,15 @@ from ...config import (
 )
 from ...adapters.results_gateway import ResultsGateway
 from ...core.acceptance_model import build_validation_acceptance_snapshot, normalize_evidence_source
+from ...core.controlled_state_machine_profile import (
+    STATE_TRANSITION_EVIDENCE_FILENAME,
+    STATE_TRANSITION_EVIDENCE_MARKDOWN_FILENAME,
+)
 from ...core.event_bus import Event, EventType
+from ...core.multi_source_stability import (
+    MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME,
+    MULTI_SOURCE_STABILITY_EVIDENCE_MARKDOWN_FILENAME,
+)
 from ...core.offline_artifacts import build_point_taxonomy_handoff
 from ...domain.mode_models import ModeProfile, RunMode
 from ...review_surface_formatter import (
@@ -155,6 +163,77 @@ def _dedupe_entry_filter_values(entries: list[dict[str, Any]], field_name: str) 
             if text and text not in rows:
                 rows.append(text)
     return rows
+
+
+def _dedupe_item_filter_values(items: list[dict[str, Any]], field_name: str) -> list[str]:
+    rows: list[str] = []
+    for item in items:
+        for value in list(item.get(field_name) or []):
+            text = str(value or "").strip()
+            if text and text not in rows:
+                rows.append(text)
+    return rows
+
+
+def _merge_filter_options(*option_groups: list[dict[str, str]]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for option_group in option_groups:
+        for option in list(option_group or []):
+            option_id = str(dict(option or {}).get("id") or "").strip()
+            if not option_id or option_id in seen:
+                continue
+            seen.add(option_id)
+            rows.append({"id": option_id, "label": str(dict(option or {}).get("label") or option_id)})
+    return rows
+
+
+def _build_measurement_core_filter_options(items: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]]:
+    phase_values = _dedupe_item_filter_values(items, "phase_filters")
+    artifact_role_values = _dedupe_item_filter_values(items, "artifact_role_filters")
+    evidence_category_values = _dedupe_item_filter_values(items, "evidence_category_filters")
+    boundary_values = _dedupe_item_filter_values(items, "boundary_filters")
+    anchor_values = [
+        {
+            "id": str(item.get("anchor_id") or ""),
+            "label": str(item.get("anchor_label") or item.get("summary") or item.get("type_display") or ""),
+        }
+        for item in items
+        if str(item.get("anchor_id") or "").strip()
+    ]
+    route_values = _dedupe_item_filter_values(items, "route_filters")
+    signal_family_values = _dedupe_item_filter_values(items, "signal_family_filters")
+    decision_result_values = _dedupe_item_filter_values(items, "decision_result_filters")
+    policy_version_values = _dedupe_item_filter_values(items, "policy_version_filters")
+    return {
+        "phase_options": [
+            {"id": "all", "label": t("results.review_center.filter.all_phases", default="鍏ㄩ儴闃舵")}
+        ] + [{"id": value, "label": _REVIEW_CENTER_PHASE_OPTION_LABELS.get(value, value)} for value in phase_values],
+        "artifact_role_options": [
+            {"id": "all", "label": t("results.review_center.filter.all_artifact_roles", default="鍏ㄩ儴宸ヤ欢瑙掕壊")}
+        ] + [{"id": value, "label": display_artifact_role(value, default=value)} for value in artifact_role_values],
+        "evidence_category_options": [
+            {"id": "all", "label": t("results.review_center.filter.all_evidence_categories", default="鍏ㄩ儴璇佹嵁绫诲埆")}
+        ] + [{"id": value, "label": value} for value in evidence_category_values],
+        "boundary_options": [
+            {"id": "all", "label": t("results.review_center.filter.all_boundaries", default="鍏ㄩ儴杈圭晫")}
+        ] + [{"id": value, "label": value} for value in boundary_values],
+        "anchor_options": [
+            {"id": "all", "label": t("results.review_center.filter.all_anchors", default="鍏ㄩ儴閿氱偣")}
+        ] + anchor_values,
+        "route_options": [
+            {"id": "all", "label": t("results.review_center.filter.all_routes", default="鍏ㄩ儴璺敱")}
+        ] + [{"id": value, "label": value} for value in route_values],
+        "signal_family_options": [
+            {"id": "all", "label": t("results.review_center.filter.all_signal_families", default="鍏ㄩ儴淇″彿瀹舵棌")}
+        ] + [{"id": value, "label": value} for value in signal_family_values],
+        "decision_result_options": [
+            {"id": "all", "label": t("results.review_center.filter.all_decision_results", default="鍏ㄩ儴鍒ゅ畾缁撴灉")}
+        ] + [{"id": value, "label": value} for value in decision_result_values],
+        "policy_version_options": [
+            {"id": "all", "label": t("results.review_center.filter.all_policy_versions", default="鍏ㄩ儴绛栫暐鐗堟湰")}
+        ] + [{"id": value, "label": value} for value in policy_version_values],
+    }
 REAL_VALIDATION_LATEST_INDEXES = (
     (PRIMARY_VALIDATION_PROFILE, VALIDATION_COMPARE_ROOT / "skip0_co2_only_replacement_latest.json"),
     ("skip0_co2_only_diagnostic_relaxed", VALIDATION_COMPARE_ROOT / "skip0_co2_only_diagnostic_relaxed_latest.json"),
@@ -1249,6 +1328,9 @@ class AppFacade:
         workbench_action_snapshot = dict(payload.get("workbench_action_snapshot", {}) or {})
         offline_diagnostic_adapter_summary = dict(payload.get("offline_diagnostic_adapter_summary", {}) or {})
         point_taxonomy_summary = dict(payload.get("point_taxonomy_summary", {}) or {})
+        multi_source_stability_evidence = dict(payload.get("multi_source_stability_evidence", {}) or {})
+        state_transition_evidence = dict(payload.get("state_transition_evidence", {}) or {})
+        simulation_evidence_sidecar_bundle = dict(payload.get("simulation_evidence_sidecar_bundle", {}) or {})
 
         sample_count = 0
         point_summary_count = 0
@@ -1310,6 +1392,14 @@ class AppFacade:
         spectral_quality_text = self._spectral_quality_summary_text(spectral_quality_summary)
         suite_digest_text = self._humanize_ui_summary(str(suite_digest.get("summary", "--") or "--"))
         workbench_evidence_text = self._humanize_ui_summary(str(workbench_evidence_summary.get("summary_line", "--") or "--"))
+        stability_digest = dict(multi_source_stability_evidence.get("digest") or {})
+        state_transition_digest = dict(state_transition_evidence.get("digest") or {})
+        stability_text = self._humanize_ui_summary(str(stability_digest.get("summary") or "--"))
+        state_transition_text = self._humanize_ui_summary(str(state_transition_digest.get("summary") or "--"))
+        sidecar_store_summary = " | ".join(
+            f"{key} {len(list(value or []))}"
+            for key, value in dict(simulation_evidence_sidecar_bundle.get("stores") or {}).items()
+        )
         result_evidence_source = _normalize_simulated_evidence_source(workbench_evidence_summary.get("evidence_source"))
         if not point_taxonomy_summary:
             point_taxonomy_summary = build_point_taxonomy_handoff(list(summary_stats.get("point_summaries", []) or []))
@@ -1344,6 +1434,8 @@ class AppFacade:
             lineage_digest=lineage_digest,
             workbench_evidence_summary=workbench_evidence_summary,
             offline_diagnostic_adapter_summary=offline_diagnostic_adapter_summary,
+            multi_source_stability_evidence=multi_source_stability_evidence,
+            state_transition_evidence=state_transition_evidence,
         )
         review_digest = self._build_review_digest(
             suite_summary=suite_summary,
@@ -1491,6 +1583,21 @@ class AppFacade:
                     if str(point_taxonomy_summary.get("stale_gauge_summary") or "").strip()
                     else []
                 ),
+                *(
+                    [f"澶氭簮鍒ょǔ shadow: {stability_text}"]
+                    if multi_source_stability_evidence
+                    else []
+                ),
+                *(
+                    [f"鍙楁帶鐘舵€佹満 trace: {state_transition_text}"]
+                    if state_transition_evidence
+                    else []
+                ),
+                *(
+                    [f"sidecar-ready 鍚堝悓: {sidecar_store_summary or 'future database intake / sidecar-ready'}"]
+                    if simulation_evidence_sidecar_bundle
+                    else []
+                ),
                 t("facade.results.result_summary.workbench_evidence", value=workbench_evidence_text),
             ]
         )
@@ -1520,6 +1627,9 @@ class AppFacade:
             "workbench_evidence_summary": workbench_evidence_summary,
             "offline_diagnostic_adapter_summary": offline_diagnostic_adapter_summary,
             "point_taxonomy_summary": point_taxonomy_summary,
+            "multi_source_stability_evidence": multi_source_stability_evidence,
+            "state_transition_evidence": state_transition_evidence,
+            "simulation_evidence_sidecar_bundle": simulation_evidence_sidecar_bundle,
             "review_digest": review_digest,
             "review_digest_text": str(review_digest.get("summary_text", "") or ""),
             "review_center": review_center,
@@ -1615,6 +1725,8 @@ class AppFacade:
         lineage_digest: dict[str, Any],
         workbench_evidence_summary: dict[str, Any],
         offline_diagnostic_adapter_summary: dict[str, Any],
+        multi_source_stability_evidence: dict[str, Any],
+        state_transition_evidence: dict[str, Any],
     ) -> dict[str, Any]:
         evidence_items, review_diagnostics = self._collect_review_evidence(
             suite_summary=suite_summary,
@@ -1624,6 +1736,8 @@ class AppFacade:
             lineage_summary=lineage_summary,
             workbench_evidence_summary=workbench_evidence_summary,
             offline_diagnostic_adapter_summary=offline_diagnostic_adapter_summary,
+            multi_source_stability_evidence=multi_source_stability_evidence,
+            state_transition_evidence=state_transition_evidence,
         )
         index_summary = self._build_review_index_summary(evidence_items, diagnostics=review_diagnostics)
         readiness_text = self._humanize_ui_summary(
@@ -1698,7 +1812,16 @@ class AppFacade:
                     "type_display": t(f"results.review_center.type.{evidence_type}"),
                 },
             )
-            for evidence_type in ("suite", "parity", "resilience", "workbench", "analytics", "offline_diagnostic")
+            for evidence_type in (
+                "suite",
+                "parity",
+                "resilience",
+                "workbench",
+                "analytics",
+                "offline_diagnostic",
+                "stability",
+                "state_transition",
+            )
         }
         phase_bridge_reviewer_artifact_entry: dict[str, Any] = {}
         stage_admission_review_pack_artifact_entry: dict[str, Any] = {}
@@ -1737,6 +1860,7 @@ class AppFacade:
             ]
         )
         reviewer_filter_options = _build_reviewer_filter_options(reviewer_artifact_entries)
+        measurement_filter_options = _build_measurement_core_filter_options(evidence_items)
         return {
             "latest": latest_items,
             "operator_focus": {
@@ -1815,6 +1939,10 @@ class AppFacade:
                 "selected_evidence_category": "all",
                 "selected_boundary": "all",
                 "selected_anchor": "all",
+                "selected_route": "all",
+                "selected_signal_family": "all",
+                "selected_decision_result": "all",
+                "selected_policy_version": "all",
                 "type_options": [
                     {"id": "all", "label": t("results.review_center.filter.all_types")},
                     {"id": "suite", "label": t("results.review_center.type.suite")},
@@ -1823,6 +1951,8 @@ class AppFacade:
                     {"id": "workbench", "label": t("results.review_center.type.workbench")},
                     {"id": "analytics", "label": t("results.review_center.type.analytics")},
                     {"id": "offline_diagnostic", "label": t("results.review_center.type.offline_diagnostic")},
+                    {"id": "stability", "label": t("results.review_center.type.stability", default="澶氭簮鍒ょǔ")},
+                    {"id": "state_transition", "label": t("results.review_center.type.state_transition", default="鍙楁帶鐘舵€佹満")},
                 ],
                 "status_options": [
                     {"id": "all", "label": t("results.review_center.filter.all_statuses")},
@@ -1843,12 +1973,31 @@ class AppFacade:
                     {"id": "suite", "label": t("results.review_center.source_kind.suite")},
                     {"id": "workbench", "label": t("results.review_center.source_kind.workbench")},
                 ],
-                "phase_options": reviewer_filter_options["phase_options"],
-                "artifact_role_options": reviewer_filter_options["artifact_role_options"],
+                "phase_options": _merge_filter_options(
+                    reviewer_filter_options["phase_options"],
+                    measurement_filter_options["phase_options"],
+                ),
+                "artifact_role_options": _merge_filter_options(
+                    reviewer_filter_options["artifact_role_options"],
+                    measurement_filter_options["artifact_role_options"],
+                ),
                 "standard_family_options": reviewer_filter_options["standard_family_options"],
-                "evidence_category_options": reviewer_filter_options["evidence_category_options"],
-                "boundary_options": reviewer_filter_options["boundary_options"],
-                "anchor_options": reviewer_filter_options["anchor_options"],
+                "evidence_category_options": _merge_filter_options(
+                    reviewer_filter_options["evidence_category_options"],
+                    measurement_filter_options["evidence_category_options"],
+                ),
+                "boundary_options": _merge_filter_options(
+                    reviewer_filter_options["boundary_options"],
+                    measurement_filter_options["boundary_options"],
+                ),
+                "anchor_options": _merge_filter_options(
+                    reviewer_filter_options["anchor_options"],
+                    measurement_filter_options["anchor_options"],
+                ),
+                "route_options": measurement_filter_options["route_options"],
+                "signal_family_options": measurement_filter_options["signal_family_options"],
+                "decision_result_options": measurement_filter_options["decision_result_options"],
+                "policy_version_options": measurement_filter_options["policy_version_options"],
             },
             "detail_hint": t("results.review_center.detail_hint"),
             "empty_detail": t("results.review_center.empty"),
@@ -1996,6 +2145,8 @@ class AppFacade:
         lineage_summary: dict[str, Any],
         workbench_evidence_summary: dict[str, Any],
         offline_diagnostic_adapter_summary: dict[str, Any],
+        multi_source_stability_evidence: dict[str, Any],
+        state_transition_evidence: dict[str, Any],
         force_refresh: bool = False,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         started_at = time.perf_counter()
@@ -2066,6 +2217,48 @@ class AppFacade:
         )
         for path in workbench_paths:
             item = self._parse_review_artifact(path, evidence_type="workbench")
+            if item:
+                items.append(item)
+        stability_path = str(
+            dict(multi_source_stability_evidence.get("artifact_paths") or {}).get("multi_source_stability_evidence")
+            or multi_source_stability_evidence.get("path")
+            or ""
+        )
+        stability_paths = self._review_artifact_paths(
+            MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME,
+            roots=run_roots,
+            explicit_paths=[Path(stability_path)] if stability_path.strip() else None,
+            limit=8,
+            metrics=diagnostics,
+            force_refresh=force_refresh,
+        )
+        for path in stability_paths:
+            item = self._parse_review_artifact(
+                path,
+                evidence_type="stability",
+                fallback_payload=multi_source_stability_evidence,
+            )
+            if item:
+                items.append(item)
+        transition_path = str(
+            dict(state_transition_evidence.get("artifact_paths") or {}).get("state_transition_evidence")
+            or state_transition_evidence.get("path")
+            or ""
+        )
+        transition_paths = self._review_artifact_paths(
+            STATE_TRANSITION_EVIDENCE_FILENAME,
+            roots=run_roots,
+            explicit_paths=[Path(transition_path)] if transition_path.strip() else None,
+            limit=8,
+            metrics=diagnostics,
+            force_refresh=force_refresh,
+        )
+        for path in transition_paths:
+            item = self._parse_review_artifact(
+                path,
+                evidence_type="state_transition",
+                fallback_payload=state_transition_evidence,
+            )
             if item:
                 items.append(item)
 
@@ -2492,6 +2685,10 @@ class AppFacade:
             )
         if evidence_type == "offline_diagnostic":
             return self._build_offline_diagnostic_review_item(payload, path)
+        if evidence_type == "stability":
+            return self._build_stability_review_item(payload, path)
+        if evidence_type == "state_transition":
+            return self._build_state_transition_review_item(payload, path)
         return None
 
     def _build_suite_review_item(
@@ -3236,6 +3433,134 @@ class AppFacade:
             detail_lineage_summary=lineage_detail_summary,
         )
 
+    def _build_stability_review_item(self, payload: dict[str, Any], path: Path) -> dict[str, Any]:
+        review_surface = dict(payload.get("review_surface") or {})
+        digest = dict(payload.get("digest") or {})
+        summary = self._humanize_ui_summary(
+            str(
+                digest.get("summary")
+                or review_surface.get("summary_text")
+                or payload.get("coverage_status")
+                or "multi-source stability shadow evaluation"
+            )
+        )
+        detail_lines = [
+            f"{t('results.review_center.detail.summary')}: {summary}",
+            f"{t('results.review_center.detail.status')}: {t(f'results.review_center.status.{str(payload.get('overall_status') or 'diagnostic_only')}', default=str(payload.get('overall_status') or 'diagnostic_only'))}",
+            f"{t('results.review_center.detail.source')}: {display_evidence_source(payload.get('evidence_source'), default=str(payload.get('evidence_source') or 'simulated_protocol'))}",
+            f"{t('results.review_center.detail.state')}: {display_evidence_state(payload.get('evidence_state'), default=str(payload.get('evidence_state') or 'shadow_only'))}",
+            f"{t('results.review_center.detail.path')}: {path}",
+            *[str(item) for item in list(review_surface.get("summary_lines") or []) if str(item).strip()],
+            *[str(item) for item in list(review_surface.get("detail_lines") or []) if str(item).strip()],
+            t("results.review_center.disclaimer"),
+        ]
+        artifact_paths = [
+            str(path),
+            *[
+                str(item)
+                for item in dict(payload.get("artifact_paths") or {}).values()
+                if str(item).strip()
+            ],
+        ]
+        return self._review_entry(
+            evidence_type="stability",
+            path=path,
+            generated_at=payload.get("generated_at"),
+            summary=summary,
+            detail_text="\n".join(detail_lines),
+            raw_status=str(payload.get("coverage_status") or payload.get("overall_status") or "diagnostic_only"),
+            status=str(payload.get("overall_status") or "diagnostic_only"),
+            source_kind="run",
+            evidence_source=str(payload.get("evidence_source") or "simulated_protocol"),
+            evidence_state=str(payload.get("evidence_state") or "shadow_only"),
+            not_real_acceptance_evidence=bool(payload.get("not_real_acceptance_evidence", True)),
+            key_fields=[
+                str(digest.get("policy_summary") or ""),
+                str(digest.get("coverage_summary") or ""),
+                str(digest.get("decision_summary") or ""),
+            ],
+            artifact_paths=artifact_paths,
+            detail_analytics_summary=list(review_surface.get("summary_lines") or []),
+            detail_lineage_summary=[
+                str(digest.get("gap_summary") or ""),
+                *[str(item) for item in list(review_surface.get("detail_lines") or []) if str(item).strip()],
+            ],
+            phase_filters=list(review_surface.get("phase_filters") or []),
+            artifact_role_filters=["diagnostic_analysis"],
+            evidence_category_filters=["measurement_core", "shadow_stability"],
+            boundary_filters=list(review_surface.get("boundary_filters") or []),
+            anchor_id=str(review_surface.get("anchor_id") or ""),
+            anchor_label=str(review_surface.get("anchor_label") or ""),
+            route_filters=list(review_surface.get("route_filters") or []),
+            signal_family_filters=list(review_surface.get("signal_family_filters") or []),
+            decision_result_filters=list(review_surface.get("decision_result_filters") or []),
+            policy_version_filters=list(review_surface.get("policy_version_filters") or []),
+        )
+
+    def _build_state_transition_review_item(self, payload: dict[str, Any], path: Path) -> dict[str, Any]:
+        review_surface = dict(payload.get("review_surface") or {})
+        digest = dict(payload.get("digest") or {})
+        summary = self._humanize_ui_summary(
+            str(
+                digest.get("summary")
+                or review_surface.get("summary_text")
+                or payload.get("overall_status")
+                or "controlled-flex state transition trace"
+            )
+        )
+        detail_lines = [
+            f"{t('results.review_center.detail.summary')}: {summary}",
+            f"{t('results.review_center.detail.status')}: {t(f'results.review_center.status.{str(payload.get('overall_status') or 'diagnostic_only')}', default=str(payload.get('overall_status') or 'diagnostic_only'))}",
+            f"{t('results.review_center.detail.source')}: {display_evidence_source(payload.get('evidence_source'), default=str(payload.get('evidence_source') or 'simulated_protocol'))}",
+            f"{t('results.review_center.detail.state')}: {display_evidence_state(payload.get('evidence_state'), default=str(payload.get('evidence_state') or 'shadow_only'))}",
+            f"{t('results.review_center.detail.path')}: {path}",
+            *[str(item) for item in list(review_surface.get("summary_lines") or []) if str(item).strip()],
+            *[str(item) for item in list(review_surface.get("detail_lines") or []) if str(item).strip()],
+            t("results.review_center.disclaimer"),
+        ]
+        artifact_paths = [
+            str(path),
+            *[
+                str(item)
+                for item in dict(payload.get("artifact_paths") or {}).values()
+                if str(item).strip()
+            ],
+        ]
+        return self._review_entry(
+            evidence_type="state_transition",
+            path=path,
+            generated_at=payload.get("generated_at"),
+            summary=summary,
+            detail_text="\n".join(detail_lines),
+            raw_status=str(payload.get("overall_status") or "diagnostic_only"),
+            status=str(payload.get("overall_status") or "diagnostic_only"),
+            source_kind="run",
+            evidence_source=str(payload.get("evidence_source") or "simulated_protocol"),
+            evidence_state=str(payload.get("evidence_state") or "shadow_only"),
+            not_real_acceptance_evidence=bool(payload.get("not_real_acceptance_evidence", True)),
+            key_fields=[
+                str(digest.get("transition_summary") or ""),
+                str(digest.get("recovery_summary") or ""),
+                f"illegal {len(list(payload.get('illegal_transitions') or []))}",
+            ],
+            artifact_paths=artifact_paths,
+            detail_analytics_summary=list(review_surface.get("summary_lines") or []),
+            detail_lineage_summary=[
+                str(digest.get("boundary_summary") or ""),
+                *[str(item) for item in list(review_surface.get("detail_lines") or []) if str(item).strip()],
+            ],
+            phase_filters=list(review_surface.get("phase_filters") or []),
+            artifact_role_filters=["diagnostic_analysis"],
+            evidence_category_filters=["measurement_core", "controlled_transition"],
+            boundary_filters=list(review_surface.get("boundary_filters") or []),
+            anchor_id=str(review_surface.get("anchor_id") or ""),
+            anchor_label=str(review_surface.get("anchor_label") or ""),
+            route_filters=list(review_surface.get("route_filters") or []),
+            signal_family_filters=list(review_surface.get("signal_family_filters") or []),
+            decision_result_filters=list(review_surface.get("decision_result_filters") or []),
+            policy_version_filters=list(review_surface.get("policy_version_filters") or []),
+        )
+
     def _review_entry(
         self,
         *,
@@ -3257,6 +3582,17 @@ class AppFacade:
         detail_analytics_summary: Any = None,
         detail_lineage_summary: Any = None,
         detail_spectral_summary: Any = None,
+        phase_filters: Optional[list[str]] = None,
+        artifact_role_filters: Optional[list[str]] = None,
+        standard_family_filters: Optional[list[str]] = None,
+        evidence_category_filters: Optional[list[str]] = None,
+        boundary_filters: Optional[list[str]] = None,
+        anchor_id: str = "",
+        anchor_label: str = "",
+        route_filters: Optional[list[str]] = None,
+        signal_family_filters: Optional[list[str]] = None,
+        decision_result_filters: Optional[list[str]] = None,
+        policy_version_filters: Optional[list[str]] = None,
     ) -> dict[str, Any]:
         sort_key, display_time = self._review_time(generated_at, path)
         source_label = Path(path).parent.name or Path(path).name
@@ -3265,7 +3601,10 @@ class AppFacade:
         return {
             "available": True,
             "type": evidence_type,
-            "type_display": t(f"results.review_center.type.{evidence_type}"),
+            "type_display": t(
+                f"results.review_center.type.{evidence_type}",
+                default=evidence_type,
+            ),
             "path": str(path),
             "source_id": source_dir or source_label,
             "source_label": source_label,
@@ -3305,6 +3644,29 @@ class AppFacade:
             "detail_analytics_summary": detail_analytics_summary,
             "detail_lineage_summary": detail_lineage_summary,
             "detail_spectral_summary": detail_spectral_summary,
+            "phase_filters": [str(item).strip() for item in list(phase_filters or []) if str(item).strip()],
+            "artifact_role_filters": [
+                str(item).strip() for item in list(artifact_role_filters or []) if str(item).strip()
+            ],
+            "standard_family_filters": [
+                str(item).strip() for item in list(standard_family_filters or []) if str(item).strip()
+            ],
+            "evidence_category_filters": [
+                str(item).strip() for item in list(evidence_category_filters or []) if str(item).strip()
+            ],
+            "boundary_filters": [str(item).strip() for item in list(boundary_filters or []) if str(item).strip()],
+            "anchor_id": str(anchor_id or "").strip(),
+            "anchor_label": str(anchor_label or "").strip(),
+            "route_filters": [str(item).strip() for item in list(route_filters or []) if str(item).strip()],
+            "signal_family_filters": [
+                str(item).strip() for item in list(signal_family_filters or []) if str(item).strip()
+            ],
+            "decision_result_filters": [
+                str(item).strip() for item in list(decision_result_filters or []) if str(item).strip()
+            ],
+            "policy_version_filters": [
+                str(item).strip() for item in list(policy_version_filters or []) if str(item).strip()
+            ],
         }
 
     def _build_review_index_summary(

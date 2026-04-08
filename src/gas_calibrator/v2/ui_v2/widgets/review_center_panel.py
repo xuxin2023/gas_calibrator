@@ -45,6 +45,10 @@ class ReviewCenterPanel(ttk.LabelFrame):
         self._evidence_category_lookup: dict[str, str] = {}
         self._boundary_lookup: dict[str, str] = {}
         self._anchor_lookup: dict[str, str] = {}
+        self._route_lookup: dict[str, str] = {}
+        self._signal_family_lookup: dict[str, str] = {}
+        self._decision_result_lookup: dict[str, str] = {}
+        self._policy_version_lookup: dict[str, str] = {}
         self._time_windows: dict[str, float | None] = {}
         self._active_view: dict[str, Any] = {}
         self._selected_source_id = "all"
@@ -70,6 +74,10 @@ class ReviewCenterPanel(ttk.LabelFrame):
         self.evidence_category_filter_var = tk.StringVar(value="")
         self.boundary_filter_var = tk.StringVar(value="")
         self.anchor_filter_var = tk.StringVar(value="")
+        self.route_filter_var = tk.StringVar(value="")
+        self.signal_family_filter_var = tk.StringVar(value="")
+        self.decision_result_filter_var = tk.StringVar(value="")
+        self.policy_version_filter_var = tk.StringVar(value="")
         self.count_var = tk.StringVar(value="")
         ttk.Label(toolbar, text=t("results.review_center.filter.type"), style="Muted.TLabel").grid(row=0, column=0, sticky="w")
         self.type_filter = ttk.Combobox(toolbar, textvariable=self.type_filter_var, state="readonly", width=16)
@@ -112,6 +120,22 @@ class ReviewCenterPanel(ttk.LabelFrame):
         self.anchor_filter = ttk.Combobox(toolbar, textvariable=self.anchor_filter_var, state="readonly", width=24)
         self.anchor_filter.grid(row=1, column=11, sticky="ew", padx=(6, 0), pady=(4, 0))
         self.anchor_filter.bind("<<ComboboxSelected>>", self._on_filter_changed, add="+")
+        ttk.Label(toolbar, text=t("results.review_center.filter.route", default="璺敱"), style="Muted.TLabel").grid(row=2, column=0, sticky="w", pady=(4, 0))
+        self.route_filter = ttk.Combobox(toolbar, textvariable=self.route_filter_var, state="readonly", width=18)
+        self.route_filter.grid(row=2, column=1, sticky="w", padx=(6, 12), pady=(4, 0))
+        self.route_filter.bind("<<ComboboxSelected>>", self._on_filter_changed, add="+")
+        ttk.Label(toolbar, text=t("results.review_center.filter.signal_family", default="淇″彿瀹舵棌"), style="Muted.TLabel").grid(row=2, column=2, sticky="w", pady=(4, 0))
+        self.signal_family_filter = ttk.Combobox(toolbar, textvariable=self.signal_family_filter_var, state="readonly", width=18)
+        self.signal_family_filter.grid(row=2, column=3, sticky="w", padx=(6, 12), pady=(4, 0))
+        self.signal_family_filter.bind("<<ComboboxSelected>>", self._on_filter_changed, add="+")
+        ttk.Label(toolbar, text=t("results.review_center.filter.decision_result", default="鍒ゅ畾缁撴灉"), style="Muted.TLabel").grid(row=2, column=4, sticky="w", pady=(4, 0))
+        self.decision_result_filter = ttk.Combobox(toolbar, textvariable=self.decision_result_filter_var, state="readonly", width=18)
+        self.decision_result_filter.grid(row=2, column=5, sticky="w", padx=(6, 12), pady=(4, 0))
+        self.decision_result_filter.bind("<<ComboboxSelected>>", self._on_filter_changed, add="+")
+        ttk.Label(toolbar, text=t("results.review_center.filter.policy_version", default="绛栫暐鐗堟湰"), style="Muted.TLabel").grid(row=2, column=6, sticky="w", pady=(4, 0))
+        self.policy_version_filter = ttk.Combobox(toolbar, textvariable=self.policy_version_filter_var, state="readonly", width=24)
+        self.policy_version_filter.grid(row=2, column=7, sticky="w", padx=(6, 12), pady=(4, 0))
+        self.policy_version_filter.bind("<<ComboboxSelected>>", self._on_filter_changed, add="+")
 
         self.index_var = tk.StringVar(value="")
         ttk.Label(
@@ -556,6 +580,10 @@ class ReviewCenterPanel(ttk.LabelFrame):
         evidence_category_options = [dict(item) for item in list(filters.get("evidence_category_options", []) or [])]
         boundary_options = [dict(item) for item in list(filters.get("boundary_options", []) or [])]
         anchor_options = [dict(item) for item in list(filters.get("anchor_options", []) or [])]
+        route_options = [dict(item) for item in list(filters.get("route_options", []) or [])]
+        signal_family_options = [dict(item) for item in list(filters.get("signal_family_options", []) or [])]
+        decision_result_options = [dict(item) for item in list(filters.get("decision_result_options", []) or [])]
+        policy_version_options = [dict(item) for item in list(filters.get("policy_version_options", []) or [])]
         self._type_lookup = {str(item.get("label") or ""): str(item.get("id") or "") for item in type_options}
         self._status_lookup = {str(item.get("label") or ""): str(item.get("id") or "") for item in status_options}
         self._time_lookup = {str(item.get("label") or ""): str(item.get("id") or "") for item in time_options}
@@ -580,6 +608,19 @@ class ReviewCenterPanel(ttk.LabelFrame):
         self._anchor_lookup = {
             str(item.get("label") or ""): str(item.get("id") or "")
             for item in anchor_options
+        }
+        self._route_lookup = {str(item.get("label") or ""): str(item.get("id") or "") for item in route_options}
+        self._signal_family_lookup = {
+            str(item.get("label") or ""): str(item.get("id") or "")
+            for item in signal_family_options
+        }
+        self._decision_result_lookup = {
+            str(item.get("label") or ""): str(item.get("id") or "")
+            for item in decision_result_options
+        }
+        self._policy_version_lookup = {
+            str(item.get("label") or ""): str(item.get("id") or "")
+            for item in policy_version_options
         }
         self._time_windows = {
             str(item.get("id") or ""): (
@@ -615,6 +656,22 @@ class ReviewCenterPanel(ttk.LabelFrame):
             if str(item.get("label") or "").strip()
         ]
         anchor_labels = [str(item.get("label") or "") for item in anchor_options if str(item.get("label") or "").strip()]
+        route_labels = [str(item.get("label") or "") for item in route_options if str(item.get("label") or "").strip()]
+        signal_family_labels = [
+            str(item.get("label") or "")
+            for item in signal_family_options
+            if str(item.get("label") or "").strip()
+        ]
+        decision_result_labels = [
+            str(item.get("label") or "")
+            for item in decision_result_options
+            if str(item.get("label") or "").strip()
+        ]
+        policy_version_labels = [
+            str(item.get("label") or "")
+            for item in policy_version_options
+            if str(item.get("label") or "").strip()
+        ]
         self.type_filter.configure(values=type_labels)
         self.status_filter.configure(values=status_labels)
         self.time_filter.configure(values=time_labels)
@@ -625,6 +682,10 @@ class ReviewCenterPanel(ttk.LabelFrame):
         self.evidence_category_filter.configure(values=evidence_category_labels)
         self.boundary_filter.configure(values=boundary_labels)
         self.anchor_filter.configure(values=anchor_labels)
+        self.route_filter.configure(values=route_labels)
+        self.signal_family_filter.configure(values=signal_family_labels)
+        self.decision_result_filter.configure(values=decision_result_labels)
+        self.policy_version_filter.configure(values=policy_version_labels)
         default_type = next(
             (
                 str(item.get("label") or "")
@@ -713,6 +774,38 @@ class ReviewCenterPanel(ttk.LabelFrame):
             ),
             anchor_labels[0] if anchor_labels else "",
         )
+        default_route = next(
+            (
+                str(item.get("label") or "")
+                for item in route_options
+                if str(item.get("id") or "") == str(filters.get("selected_route") or "all")
+            ),
+            route_labels[0] if route_labels else "",
+        )
+        default_signal_family = next(
+            (
+                str(item.get("label") or "")
+                for item in signal_family_options
+                if str(item.get("id") or "") == str(filters.get("selected_signal_family") or "all")
+            ),
+            signal_family_labels[0] if signal_family_labels else "",
+        )
+        default_decision_result = next(
+            (
+                str(item.get("label") or "")
+                for item in decision_result_options
+                if str(item.get("id") or "") == str(filters.get("selected_decision_result") or "all")
+            ),
+            decision_result_labels[0] if decision_result_labels else "",
+        )
+        default_policy_version = next(
+            (
+                str(item.get("label") or "")
+                for item in policy_version_options
+                if str(item.get("id") or "") == str(filters.get("selected_policy_version") or "all")
+            ),
+            policy_version_labels[0] if policy_version_labels else "",
+        )
         if default_phase:
             self.phase_filter_var.set(default_phase)
         if default_artifact_role:
@@ -725,6 +818,14 @@ class ReviewCenterPanel(ttk.LabelFrame):
             self.boundary_filter_var.set(default_boundary)
         if default_anchor:
             self.anchor_filter_var.set(default_anchor)
+        if default_route:
+            self.route_filter_var.set(default_route)
+        if default_signal_family:
+            self.signal_family_filter_var.set(default_signal_family)
+        if default_decision_result:
+            self.decision_result_filter_var.set(default_decision_result)
+        if default_policy_version:
+            self.policy_version_filter_var.set(default_policy_version)
 
     def _on_filter_changed(self, _event: tk.Event[tk.Misc] | None = None) -> None:
         self._apply_filters()
@@ -749,6 +850,19 @@ class ReviewCenterPanel(ttk.LabelFrame):
         )
         selected_boundary = self._boundary_lookup.get(str(self.boundary_filter_var.get() or ""), "all")
         selected_anchor = self._anchor_lookup.get(str(self.anchor_filter_var.get() or ""), "all")
+        selected_route = self._route_lookup.get(str(self.route_filter_var.get() or ""), "all")
+        selected_signal_family = self._signal_family_lookup.get(
+            str(self.signal_family_filter_var.get() or ""),
+            "all",
+        )
+        selected_decision_result = self._decision_result_lookup.get(
+            str(self.decision_result_filter_var.get() or ""),
+            "all",
+        )
+        selected_policy_version = self._policy_version_lookup.get(
+            str(self.policy_version_filter_var.get() or ""),
+            "all",
+        )
         self._active_view = build_review_center_view(
             self._payload,
             selected_type=selected_type,
@@ -762,6 +876,10 @@ class ReviewCenterPanel(ttk.LabelFrame):
             selected_evidence_category=selected_evidence_category,
             selected_boundary=selected_boundary,
             selected_anchor=selected_anchor,
+            selected_route=selected_route,
+            selected_signal_family=selected_signal_family,
+            selected_decision_result=selected_decision_result,
+            selected_policy_version=selected_policy_version,
             now_ts=time.time(),
         )
         rows = [dict(item) for item in list(self._active_view.get("items", []) or [])]
