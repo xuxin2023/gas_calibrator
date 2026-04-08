@@ -205,6 +205,11 @@ class ResultStore:
             "config_governance_handoff",
             "offline_diagnostic_adapter_summary",
             "workbench_evidence_summary",
+            "multi_source_stability_evidence",
+            "multi_source_stability_evidence_digest",
+            "state_transition_evidence",
+            "state_transition_evidence_digest",
+            "simulation_evidence_sidecar_bundle",
         ):
             value = stats.get(key)
             if not isinstance(value, dict) or not value:

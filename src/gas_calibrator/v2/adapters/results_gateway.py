@@ -16,6 +16,15 @@ from ..core.engineering_isolation_admission_checklist_artifact_entry import (
     ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_ARTIFACT_KEY,
     build_engineering_isolation_admission_checklist_artifact_entry,
 )
+from ..core.controlled_state_machine_profile import (
+    STATE_TRANSITION_EVIDENCE_FILENAME,
+    STATE_TRANSITION_EVIDENCE_MARKDOWN_FILENAME,
+)
+from ..core.multi_source_stability import (
+    MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME,
+    MULTI_SOURCE_STABILITY_EVIDENCE_MARKDOWN_FILENAME,
+    SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME,
+)
 from ..core.offline_artifacts import build_point_taxonomy_handoff, summarize_offline_diagnostic_adapters
 from ..core.phase_transition_bridge_reviewer_artifact_entry import (
     PHASE_TRANSITION_BRIDGE_REVIEWER_ARTIFACT_KEY,
@@ -135,6 +144,36 @@ class ResultsGateway:
             workbench_action_report,
             workbench_action_snapshot,
         )
+        multi_source_stability_evidence = self.load_json(MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME)
+        if not multi_source_stability_evidence:
+            multi_source_stability_evidence = self._read_summary_section(
+                "multi_source_stability_evidence",
+                summary,
+                evidence_registry,
+                analytics_summary,
+                workbench_action_report,
+                workbench_action_snapshot,
+            )
+        state_transition_evidence = self.load_json(STATE_TRANSITION_EVIDENCE_FILENAME)
+        if not state_transition_evidence:
+            state_transition_evidence = self._read_summary_section(
+                "state_transition_evidence",
+                summary,
+                evidence_registry,
+                analytics_summary,
+                workbench_action_report,
+                workbench_action_snapshot,
+            )
+        simulation_evidence_sidecar_bundle = self.load_json(SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME)
+        if not simulation_evidence_sidecar_bundle:
+            simulation_evidence_sidecar_bundle = self._read_summary_section(
+                "simulation_evidence_sidecar_bundle",
+                summary,
+                evidence_registry,
+                analytics_summary,
+                workbench_action_report,
+                workbench_action_snapshot,
+            )
         evidence_source = self._resolve_current_run_evidence_source(workbench_evidence_summary, workbench_action_report)
         evidence_state = str(
             workbench_evidence_summary.get("evidence_state")
@@ -166,6 +205,9 @@ class ResultsGateway:
             point_taxonomy_summary=point_taxonomy_summary,
             workbench_evidence_summary=workbench_evidence_summary,
             evidence_source=evidence_source,
+            multi_source_stability_evidence=multi_source_stability_evidence,
+            state_transition_evidence=state_transition_evidence,
+            simulation_evidence_sidecar_bundle=simulation_evidence_sidecar_bundle,
         )
         return {
             "summary": summary,
@@ -203,6 +245,9 @@ class ResultsGateway:
             "workbench_evidence_summary": workbench_evidence_summary,
             "offline_diagnostic_adapter_summary": offline_diagnostic_adapter_summary,
             "point_taxonomy_summary": point_taxonomy_summary,
+            "multi_source_stability_evidence": multi_source_stability_evidence,
+            "state_transition_evidence": state_transition_evidence,
+            "simulation_evidence_sidecar_bundle": simulation_evidence_sidecar_bundle,
             "result_summary_text": result_summary_text,
             "evidence_source": evidence_source,
             "evidence_state": evidence_state,
@@ -219,6 +264,9 @@ class ResultsGateway:
         offline_diagnostic_adapter_summary = dict(payload.get("offline_diagnostic_adapter_summary", {}) or {})
         analytics_summary = dict(payload.get("analytics_summary", {}) or {})
         summary_stats = dict(dict(payload.get("summary", {}) or {}).get("stats", {}) or {})
+        multi_source_stability_evidence = dict(payload.get("multi_source_stability_evidence", {}) or {})
+        state_transition_evidence = dict(payload.get("state_transition_evidence", {}) or {})
+        simulation_evidence_sidecar_bundle = dict(payload.get("simulation_evidence_sidecar_bundle", {}) or {})
 
         def _artifact_path(value: Any) -> Path:
             candidate = Path(str(value or "").strip())
@@ -421,6 +469,18 @@ class ResultsGateway:
                 row,
                 stage3_standards_alignment_matrix_entry=stage3_standards_alignment_matrix_entry,
             )
+            row = self._decorate_multi_source_stability_row(
+                row,
+                multi_source_stability_evidence=multi_source_stability_evidence,
+            )
+            row = self._decorate_state_transition_evidence_row(
+                row,
+                state_transition_evidence=state_transition_evidence,
+            )
+            row = self._decorate_simulation_sidecar_bundle_row(
+                row,
+                simulation_evidence_sidecar_bundle=simulation_evidence_sidecar_bundle,
+            )
             files.append(row)
         return {
             "run_dir": str(self.run_dir),
@@ -437,6 +497,9 @@ class ResultsGateway:
             "workbench_evidence_summary": dict(payload.get("workbench_evidence_summary", {}) or {}),
             "offline_diagnostic_adapter_summary": offline_diagnostic_adapter_summary,
             "point_taxonomy_summary": dict(payload.get("point_taxonomy_summary", {}) or {}),
+            "multi_source_stability_evidence": multi_source_stability_evidence,
+            "state_transition_evidence": state_transition_evidence,
+            "simulation_evidence_sidecar_bundle": simulation_evidence_sidecar_bundle,
             "phase_transition_bridge_reviewer_artifact_entry": dict(reviewer_artifact_entry),
             "stage_admission_review_pack_artifact_entry": dict(stage_admission_review_pack_entry),
             "engineering_isolation_admission_checklist_artifact_entry": dict(

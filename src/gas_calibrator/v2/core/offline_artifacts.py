@@ -803,6 +803,53 @@ def export_run_offline_artifacts(
     trend_path = write_json(run_dir / TREND_REGISTRY_FILENAME, trend_registry)
     evidence_path = write_json(run_dir / EVIDENCE_REGISTRY_FILENAME, evidence_registry)
     coefficient_path = write_json(run_dir / COEFFICIENT_REGISTRY_FILENAME, coefficient_registry)
+    measurement_artifact_paths = {
+        "multi_source_stability_evidence": str(run_dir / MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME),
+        "multi_source_stability_evidence_markdown": str(run_dir / MULTI_SOURCE_STABILITY_EVIDENCE_MARKDOWN_FILENAME),
+        "state_transition_evidence": str(run_dir / STATE_TRANSITION_EVIDENCE_FILENAME),
+        "state_transition_evidence_markdown": str(run_dir / STATE_TRANSITION_EVIDENCE_MARKDOWN_FILENAME),
+        "simulation_evidence_sidecar_bundle": str(run_dir / SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME),
+    }
+    multi_source_stability_evidence = build_multi_source_stability_evidence(
+        run_id=run_id,
+        samples=samples,
+        point_summaries=point_summaries,
+        artifact_paths=measurement_artifact_paths,
+    )
+    multi_source_stability_evidence_path = write_json(
+        run_dir / MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME,
+        dict(multi_source_stability_evidence.get("raw") or {}),
+    )
+    multi_source_stability_markdown_path = run_dir / MULTI_SOURCE_STABILITY_EVIDENCE_MARKDOWN_FILENAME
+    multi_source_stability_markdown_path.write_text(
+        str(multi_source_stability_evidence.get("markdown") or ""),
+        encoding="utf-8",
+    )
+    state_transition_evidence = build_state_transition_evidence(
+        run_id=run_id,
+        samples=samples,
+        point_summaries=point_summaries,
+        artifact_paths=measurement_artifact_paths,
+    )
+    state_transition_evidence_path = write_json(
+        run_dir / STATE_TRANSITION_EVIDENCE_FILENAME,
+        dict(state_transition_evidence.get("raw") or {}),
+    )
+    state_transition_markdown_path = run_dir / STATE_TRANSITION_EVIDENCE_MARKDOWN_FILENAME
+    state_transition_markdown_path.write_text(
+        str(state_transition_evidence.get("markdown") or ""),
+        encoding="utf-8",
+    )
+    simulation_evidence_sidecar_bundle = build_simulation_evidence_sidecar_bundle(
+        run_id=run_id,
+        multi_source_stability_evidence=multi_source_stability_evidence,
+        state_transition_evidence=state_transition_evidence,
+        artifact_paths=measurement_artifact_paths,
+    )
+    simulation_evidence_sidecar_bundle_path = write_json(
+        run_dir / SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME,
+        simulation_evidence_sidecar_bundle,
+    )
 
     statuses = {
         "acceptance_plan": _artifact_status_payload("execution_summary", acceptance_path),
@@ -811,6 +858,26 @@ def export_run_offline_artifacts(
         "trend_registry": _artifact_status_payload("diagnostic_analysis", trend_path),
         "evidence_registry": _artifact_status_payload("execution_summary", evidence_path),
         "coefficient_registry": _artifact_status_payload("formal_analysis", coefficient_path),
+        "multi_source_stability_evidence": _artifact_status_payload(
+            "diagnostic_analysis",
+            multi_source_stability_evidence_path,
+        ),
+        "multi_source_stability_evidence_markdown": _artifact_status_payload(
+            "diagnostic_analysis",
+            multi_source_stability_markdown_path,
+        ),
+        "state_transition_evidence": _artifact_status_payload(
+            "diagnostic_analysis",
+            state_transition_evidence_path,
+        ),
+        "state_transition_evidence_markdown": _artifact_status_payload(
+            "diagnostic_analysis",
+            state_transition_markdown_path,
+        ),
+        "simulation_evidence_sidecar_bundle": _artifact_status_payload(
+            "execution_summary",
+            simulation_evidence_sidecar_bundle_path,
+        ),
     }
     if spectral_quality_path is not None:
         statuses["spectral_quality_summary"] = _artifact_status_payload("diagnostic_analysis", spectral_quality_path)
@@ -834,6 +901,32 @@ def export_run_offline_artifacts(
         "coefficient_registry": coefficient_registry,
         "trend_registry": trend_registry,
         "evidence_registry_path": str(evidence_path),
+        "multi_source_stability_evidence": {
+            "path": str(multi_source_stability_evidence_path),
+            "markdown_path": str(multi_source_stability_markdown_path),
+            "overall_status": str(dict(multi_source_stability_evidence.get("raw") or {}).get("overall_status") or ""),
+            "coverage_status": str(dict(multi_source_stability_evidence.get("raw") or {}).get("coverage_status") or ""),
+            "review_surface": dict(dict(multi_source_stability_evidence.get("raw") or {}).get("review_surface") or {}),
+        },
+        "multi_source_stability_evidence_digest": dict(multi_source_stability_evidence.get("digest") or {}),
+        "state_transition_evidence": {
+            "path": str(state_transition_evidence_path),
+            "markdown_path": str(state_transition_markdown_path),
+            "overall_status": str(dict(state_transition_evidence.get("raw") or {}).get("overall_status") or ""),
+            "review_surface": dict(dict(state_transition_evidence.get("raw") or {}).get("review_surface") or {}),
+            "illegal_transition_count": len(list(dict(state_transition_evidence.get("raw") or {}).get("illegal_transitions") or [])),
+        },
+        "state_transition_evidence_digest": dict(state_transition_evidence.get("digest") or {}),
+        "simulation_evidence_sidecar_bundle": {
+            "path": str(simulation_evidence_sidecar_bundle_path),
+            "title_text": str(simulation_evidence_sidecar_bundle.get("title_text") or ""),
+            "reviewer_note": str(simulation_evidence_sidecar_bundle.get("reviewer_note") or ""),
+            "store_counts": {
+                key: len(list(value or []))
+                for key, value in dict(simulation_evidence_sidecar_bundle.get("stores") or {}).items()
+            },
+            "boundary_statements": list(simulation_evidence_sidecar_bundle.get("boundary_statements") or []),
+        },
     }
     if analytics_summary.get("point_taxonomy_summary"):
         summary_stats["point_taxonomy_summary"] = dict(analytics_summary.get("point_taxonomy_summary") or {})
@@ -856,6 +949,33 @@ def export_run_offline_artifacts(
             "profile_version": lineage_summary.get("profile_version"),
             "software_build_id": lineage_summary.get("software_build_id"),
         },
+        "multi_source_stability_evidence": {
+            "path": str(multi_source_stability_evidence_path),
+            "markdown_path": str(multi_source_stability_markdown_path),
+            "summary": str(dict(multi_source_stability_evidence.get("digest") or {}).get("summary") or ""),
+            "coverage_summary": str(dict(multi_source_stability_evidence.get("digest") or {}).get("coverage_summary") or ""),
+            "decision_summary": str(dict(multi_source_stability_evidence.get("digest") or {}).get("decision_summary") or ""),
+            "gap_summary": str(dict(multi_source_stability_evidence.get("digest") or {}).get("gap_summary") or ""),
+            "boundary_summary": str(dict(multi_source_stability_evidence.get("digest") or {}).get("boundary_summary") or ""),
+        },
+        "state_transition_evidence": {
+            "path": str(state_transition_evidence_path),
+            "markdown_path": str(state_transition_markdown_path),
+            "summary": str(dict(state_transition_evidence.get("digest") or {}).get("summary") or ""),
+            "transition_summary": str(dict(state_transition_evidence.get("digest") or {}).get("transition_summary") or ""),
+            "recovery_summary": str(dict(state_transition_evidence.get("digest") or {}).get("recovery_summary") or ""),
+            "boundary_summary": str(dict(state_transition_evidence.get("digest") or {}).get("boundary_summary") or ""),
+        },
+        "simulation_evidence_sidecar_bundle": {
+            "path": str(simulation_evidence_sidecar_bundle_path),
+            "title_text": str(simulation_evidence_sidecar_bundle.get("title_text") or ""),
+            "reviewer_note": str(simulation_evidence_sidecar_bundle.get("reviewer_note") or ""),
+            "store_counts": {
+                key: len(list(value or []))
+                for key, value in dict(simulation_evidence_sidecar_bundle.get("stores") or {}).items()
+            },
+            "boundary_summary": " | ".join(list(simulation_evidence_sidecar_bundle.get("boundary_statements") or [])),
+        },
     }
     if spectral_quality_summary:
         manifest_sections["spectral_quality"] = _spectral_quality_digest(spectral_quality_summary)
@@ -874,6 +994,11 @@ def export_run_offline_artifacts(
             str(trend_path),
             str(evidence_path),
             str(coefficient_path),
+            str(multi_source_stability_evidence_path),
+            str(multi_source_stability_markdown_path),
+            str(state_transition_evidence_path),
+            str(state_transition_markdown_path),
+            str(simulation_evidence_sidecar_bundle_path),
             *([str(spectral_quality_path)] if spectral_quality_path is not None else []),
         ],
     }

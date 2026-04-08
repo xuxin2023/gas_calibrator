@@ -461,6 +461,16 @@ def _route_family_from_point(point: CalibrationPoint | None) -> str:
     return "water" if route == "h2o" else "ambient" if pressure_mode == "ambient_open" or "ambient" in route else "gas"
 
 
+def _route_family(route_text: str, *, pressure_mode: str = "") -> str:
+    route = str(route_text or "").strip().lower()
+    pressure_token = str(pressure_mode or "").strip().lower()
+    if route == "h2o":
+        return "water"
+    if pressure_token == "ambient_open" or "ambient" in route:
+        return "ambient"
+    return "gas"
+
+
 def _render_markdown(
     *,
     trace: list[dict[str, Any]],
