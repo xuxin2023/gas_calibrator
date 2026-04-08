@@ -4687,6 +4687,8 @@ class CalibrationRunner:
                 1 if _normalized_co2_group(getattr(point, "co2_group", "")) == "B" else 0,
             )
         )
+        if self._selected_pressure_points_is_ambient_only():
+            out = [self._ambient_pressure_reference_point(point) for point in out]
         if self._preserve_explicit_point_matrix():
             return out
         if not self._should_expand_co2_sources(points):
@@ -5165,7 +5167,11 @@ class CalibrationRunner:
         if skip_co2:
             self.log(f"Temperature group {temp}C: workflow route_mode=h2o_only, skip CO2 route")
         else:
-            gas_sources = self._co2_source_points(self._filter_execution_points_by_selected_pressure(points))
+            # Pressure selection chooses which pressure references to execute.
+            # CO2 source ppm steps still come from the whole temperature group;
+            # otherwise ambient-only selection can erase the route when the point
+            # table has no explicit ambient CO2 source rows.
+            gas_sources = self._co2_source_points(points)
             pressure_points = self._co2_pressure_points_for_temperature(points)
         if gas_sources and pressure_points:
             pressure_text = ", ".join(self._pressure_target_label(p) or "--" for p in pressure_points)

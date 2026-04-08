@@ -3327,6 +3327,44 @@ def test_run_temperature_group_ambient_only_filters_co2_source_rows_before_execu
     assert all(call["pressure_modes"] == ["ambient_open"] for call in calls)
 
 
+def test_run_temperature_group_ambient_only_without_explicit_co2_rows_still_runs_co2(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {"workflow": {"skip_h2o": True, "selected_pressure_points": ["ambient"]}},
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    calls: list[dict[str, object]] = []
+
+    runner._run_h2o_group = types.MethodType(lambda self, group, pressure_points=None, next_route_context=None: None, runner)
+    runner._run_co2_point = types.MethodType(
+        lambda self, point, pressure_points=None, next_route_context=None: calls.append(
+            {
+                "ppm": int(point.co2_ppm or 0),
+                "source_pressure_hpa": self._as_float(getattr(point, "target_pressure_hpa", None)),
+                "source_pressure_mode": self._pressure_mode_for_point(point),
+                "pressure_modes": [self._pressure_mode_for_point(ref) for ref in (pressure_points or [])],
+            }
+        ),
+        runner,
+    )
+
+    points = [
+        CalibrationPoint(index=61, temp_chamber_c=25.0, co2_ppm=300.0, hgen_temp_c=None, hgen_rh_pct=None, target_pressure_hpa=900.0, dewpoint_c=None, h2o_mmol=None, raw_h2o=None, co2_group="B"),
+        CalibrationPoint(index=62, temp_chamber_c=25.0, co2_ppm=400.0, hgen_temp_c=None, hgen_rh_pct=None, target_pressure_hpa=1100.0, dewpoint_c=None, h2o_mmol=None, raw_h2o=None, co2_group="A"),
+    ]
+
+    runner._run_temperature_group(points)
+    logger.close()
+
+    assert [call["ppm"] for call in calls] == [300, 400]
+    assert all(call["source_pressure_hpa"] is None for call in calls)
+    assert all(call["source_pressure_mode"] == "ambient_open" for call in calls)
+    assert all(call["pressure_modes"] == ["ambient_open"] for call in calls)
+
+
 def test_run_temperature_group_ambient_only_filters_h2o_group_rows_before_execution(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner(
