@@ -1448,7 +1448,7 @@ def test_review_scope_manifest_and_export_index_surface_stage_admission_review_p
     pack_entry = dict(manifest_payload.get("stage_admission_review_pack_artifact_entry", {}) or {})
     export_pack_entry = dict(export_index["latest"].get("stage_admission_review_pack_artifact_entry", {}) or {})
     review_center_entry = dict(
-        facade.build_results_snapshot()["review_center"].get("phase_transition_bridge_reviewer_artifact_entry", {}) or {}
+        facade.build_results_snapshot()["review_center"].get("stage_admission_review_pack_artifact_entry", {}) or {}
     )
 
     assert "阶段准入评审包 / Stage Admission Review Pack (JSON)" in rows_by_name
@@ -1462,6 +1462,13 @@ def test_review_scope_manifest_and_export_index_surface_stage_admission_review_p
     assert export_pack_entry["path"] == pack_entry["path"]
     assert export_pack_entry["reviewer_path"] == pack_entry["reviewer_path"]
     assert export_pack_entry["summary_text"] == pack_entry["summary_text"]
+    assert review_center_entry["path"] == pack_entry["path"]
+    assert review_center_entry["reviewer_path"] == pack_entry["reviewer_path"]
+    assert review_center_entry["summary_text"] == pack_entry["summary_text"]
+    assert review_center_entry["status_line"] == pack_entry["status_line"]
+    assert review_center_entry["stage_marker_text"] == pack_entry["stage_marker_text"]
+    assert review_center_entry["engineering_isolation_text"] == pack_entry["engineering_isolation_text"]
+    assert review_center_entry["real_acceptance_text"] == pack_entry["real_acceptance_text"]
     assert "Step 2 tail / Stage 3 bridge" in pack_entry["entry_text"]
     assert "engineering-isolation" in pack_entry["entry_text"]
     assert "不是 real acceptance" in pack_entry["entry_text"]
