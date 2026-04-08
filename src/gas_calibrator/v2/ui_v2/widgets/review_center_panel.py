@@ -32,7 +32,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
         )
         self.compact = bool(compact)
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(5, weight=1)
+        self.rowconfigure(6, weight=1)
         self._payload: dict[str, Any] = {}
         self._items: list[dict[str, Any]] = []
         self._type_lookup: dict[str, str] = {}
@@ -151,8 +151,45 @@ class ReviewCenterPanel(ttk.LabelFrame):
         ).grid(row=4, column=0, sticky="ew", pady=(2, 0))
         self.phase_bridge_artifact_frame.grid_remove()
 
+        self.stage_admission_review_pack_frame = ttk.Frame(self, style="Card.TFrame")
+        self.stage_admission_review_pack_frame.grid(row=4, column=0, sticky="ew", pady=(0, 6))
+        self.stage_admission_review_pack_frame.columnconfigure(0, weight=1)
+        self.stage_admission_review_pack_title_var = tk.StringVar(value="")
+        self.stage_admission_review_pack_status_var = tk.StringVar(value="")
+        self.stage_admission_review_pack_path_var = tk.StringVar(value="")
+        self.stage_admission_review_pack_note_var = tk.StringVar(value="")
+        ttk.Label(
+            self.stage_admission_review_pack_frame,
+            textvariable=self.stage_admission_review_pack_title_var,
+            style="Section.TLabel",
+            wraplength=1120 if compact else 1320,
+            justify="left",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 4))
+        ttk.Label(
+            self.stage_admission_review_pack_frame,
+            textvariable=self.stage_admission_review_pack_status_var,
+            justify="left",
+            wraplength=1120 if compact else 1320,
+            style="Muted.TLabel",
+        ).grid(row=1, column=0, sticky="ew")
+        ttk.Label(
+            self.stage_admission_review_pack_frame,
+            textvariable=self.stage_admission_review_pack_path_var,
+            justify="left",
+            wraplength=1120 if compact else 1320,
+            style="Muted.TLabel",
+        ).grid(row=2, column=0, sticky="ew", pady=(2, 0))
+        ttk.Label(
+            self.stage_admission_review_pack_frame,
+            textvariable=self.stage_admission_review_pack_note_var,
+            justify="left",
+            wraplength=1120 if compact else 1320,
+            style="Muted.TLabel",
+        ).grid(row=3, column=0, sticky="ew", pady=(2, 0))
+        self.stage_admission_review_pack_frame.grid_remove()
+
         source_frame = ttk.Frame(self, style="Card.TFrame")
-        source_frame.grid(row=4, column=0, sticky="ew", pady=(0, 6))
+        source_frame.grid(row=5, column=0, sticky="ew", pady=(0, 6))
         source_frame.columnconfigure(0, weight=1)
         source_frame.columnconfigure(1, weight=1)
         source_frame.rowconfigure(1, weight=1)
@@ -204,7 +241,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
         self.source_tree.bind("<<TreeviewSelect>>", self._on_source_selected, add="+")
 
         list_frame = ttk.Frame(self, style="Card.TFrame")
-        list_frame.grid(row=5, column=0, sticky="nsew")
+        list_frame.grid(row=6, column=0, sticky="nsew")
         list_frame.columnconfigure(0, weight=1)
         list_frame.rowconfigure(1, weight=1)
         ttk.Label(list_frame, text=t("results.review_center.section.evidence_list"), style="Section.TLabel").grid(
@@ -238,7 +275,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
             title=t("results.review_center.section.evidence_detail"),
             expanded=not compact,
         )
-        self.detail_section.grid(row=6, column=0, sticky="nsew", pady=(6, 0))
+        self.detail_section.grid(row=7, column=0, sticky="nsew", pady=(6, 0))
         self.detail_section.body.rowconfigure(8, weight=1)
         self.detail_section.body.columnconfigure(0, weight=1)
         detail_meta = ttk.Frame(self.detail_section.body, style="Card.TFrame")
@@ -289,7 +326,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
             wraplength=1120 if compact else 1320,
             justify="left",
             style="Muted.TLabel",
-        ).grid(row=7, column=0, sticky="ew", pady=(6, 0))
+        ).grid(row=8, column=0, sticky="ew", pady=(6, 0))
 
     def _summary_card(
         self,
@@ -483,6 +520,37 @@ class ReviewCenterPanel(ttk.LabelFrame):
             self.phase_bridge_artifact_path_var.set("")
             self.phase_bridge_artifact_note_var.set("")
             self.phase_bridge_artifact_frame.grid_remove()
+        stage_admission_review_pack_entry = dict(
+            self._active_view.get("stage_admission_review_pack_artifact_entry", {}) or {}
+        )
+        if bool(stage_admission_review_pack_entry.get("available", False)):
+            self.stage_admission_review_pack_title_var.set(
+                str(
+                    stage_admission_review_pack_entry.get("name_text")
+                    or stage_admission_review_pack_entry.get("title_text")
+                    or t("common.none")
+                )
+            )
+            self.stage_admission_review_pack_status_var.set(
+                str(stage_admission_review_pack_entry.get("role_status_display") or t("common.none"))
+            )
+            self.stage_admission_review_pack_path_var.set(
+                str(stage_admission_review_pack_entry.get("reviewer_path") or stage_admission_review_pack_entry.get("path") or t("common.none"))
+            )
+            self.stage_admission_review_pack_note_var.set(
+                str(
+                    stage_admission_review_pack_entry.get("note_text")
+                    or stage_admission_review_pack_entry.get("summary_text")
+                    or t("common.none")
+                )
+            )
+            self.stage_admission_review_pack_frame.grid()
+        else:
+            self.stage_admission_review_pack_title_var.set("")
+            self.stage_admission_review_pack_status_var.set("")
+            self.stage_admission_review_pack_path_var.set("")
+            self.stage_admission_review_pack_note_var.set("")
+            self.stage_admission_review_pack_frame.grid_remove()
         self.index_var.set(str(self._active_view.get("index_text") or t("common.none")))
         self.source_scope_var.set(
             str(
