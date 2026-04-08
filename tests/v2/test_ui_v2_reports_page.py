@@ -827,3 +827,60 @@ def test_reports_page_artifact_list_surfaces_engineering_isolation_admission_che
         assert "real_acceptance_ready" not in checklist_markdown
     finally:
         root.destroy()
+
+
+def test_reports_page_artifact_list_surfaces_stage3_real_validation_plan_from_same_rebuilt_run(
+    tmp_path: Path,
+) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+    results_snapshot = facade.build_results_snapshot()
+    reports_snapshot = facade.get_reports_snapshot(results_snapshot=results_snapshot)
+    review_center_entry = dict(
+        results_snapshot["review_center"].get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
+    )
+    rows_by_path = {
+        str(row.get("path") or ""): dict(row)
+        for row in list(reports_snapshot.get("files", []) or [])
+    }
+
+    root = make_root()
+    try:
+        page = ReportsPage(root)
+        page.render(reports_snapshot)
+        tree_values = [
+            page.artifacts.tree.item(item, "values")
+            for item in page.artifacts.tree.get_children()
+        ]
+        tree_paths = {str(values[4]): values for values in tree_values if len(values) >= 5}
+        stage3_markdown = (
+            run_dir / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME
+        ).read_text(encoding="utf-8")
+        stage3_json_path = str((run_dir / STAGE3_REAL_VALIDATION_PLAN_FILENAME).resolve())
+        stage3_md_path = str((run_dir / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME).resolve())
+
+        assert stage3_json_path in rows_by_path
+        assert stage3_md_path in rows_by_path
+        assert rows_by_path[stage3_json_path]["artifact_role"] == "execution_summary"
+        assert rows_by_path[stage3_md_path]["artifact_role"] == "formal_analysis"
+        assert stage3_json_path in tree_paths
+        assert stage3_md_path in tree_paths
+        assert tree_paths[stage3_json_path][4].endswith(STAGE3_REAL_VALIDATION_PLAN_FILENAME)
+        assert tree_paths[stage3_md_path][4].endswith(STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME)
+        assert review_center_entry["status_line"] in stage3_markdown
+        assert review_center_entry["engineering_isolation_text"] in stage3_markdown
+        assert review_center_entry["real_acceptance_text"] in stage3_markdown
+        assert review_center_entry["execute_now_text"] in stage3_markdown
+        assert review_center_entry["defer_to_stage3_text"] in stage3_markdown
+        assert review_center_entry["warning_text"] in stage3_markdown
+        assert "Step 2 tail / Stage 3 bridge" in stage3_markdown
+        assert "engineering-isolation" in stage3_markdown
+        assert "第三阶段真实验证" in stage3_markdown
+        assert "不是 real acceptance" in stage3_markdown
+        assert "不能替代真实计量验证" in stage3_markdown
+        assert "本工件只定义第三阶段真实验证计划，不代表验证已完成" in stage3_markdown
+        assert "ready_for_engineering_isolation" not in stage3_markdown
+        assert "real_acceptance_ready" not in stage3_markdown
+    finally:
+        root.destroy()

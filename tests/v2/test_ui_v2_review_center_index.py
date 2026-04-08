@@ -1681,6 +1681,88 @@ def test_review_scope_manifest_and_export_index_surface_engineering_isolation_ad
         assert "real_acceptance_ready" not in text
 
 
+def test_review_scope_manifest_and_export_index_surface_stage3_real_validation_plan_artifacts(
+    tmp_path: Path,
+) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_payload = rebuild_run(run_dir)
+    results_snapshot = facade.build_results_snapshot()
+    reports_snapshot = facade.get_reports_snapshot(results_snapshot=results_snapshot)
+
+    result = facade.export_review_scope_manifest(selection={"scope": "all"})
+    manifest_payload = json.loads(Path(result["json_path"]).read_text(encoding="utf-8"))
+    export_index = json.loads(Path(result["index_path"]).read_text(encoding="utf-8"))
+    stage3_plan_raw = json.loads((run_dir / STAGE3_REAL_VALIDATION_PLAN_FILENAME).read_text(encoding="utf-8"))
+    stage3_plan_markdown = (run_dir / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME).read_text(
+        encoding="utf-8"
+    )
+    rows_by_path = {
+        str(Path(str(row.get("path") or "")).resolve()): dict(row)
+        for row in list(manifest_payload.get("rows", []) or [])
+    }
+    reports_rows_by_path = {
+        str(Path(str(row.get("path") or "")).resolve()): dict(row)
+        for row in list(reports_snapshot.get("files", []) or [])
+    }
+    review_center_entry = dict(
+        results_snapshot["review_center"].get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
+    )
+    stage3_json_path = str((run_dir / STAGE3_REAL_VALIDATION_PLAN_FILENAME).resolve())
+    stage3_md_path = str((run_dir / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME).resolve())
+
+    assert stage3_json_path in rows_by_path
+    assert stage3_md_path in rows_by_path
+    assert rows_by_path[stage3_json_path]["artifact_role"] == "execution_summary"
+    assert rows_by_path[stage3_md_path]["artifact_role"] == "formal_analysis"
+    assert stage3_json_path in reports_rows_by_path
+    assert stage3_md_path in reports_rows_by_path
+    assert reports_rows_by_path[stage3_json_path]["artifact_role"] == "execution_summary"
+    assert reports_rows_by_path[stage3_md_path]["artifact_role"] == "formal_analysis"
+    assert rebuild_payload["artifact_statuses"]["stage3_real_validation_plan"]["path"] == str(
+        run_dir / STAGE3_REAL_VALIDATION_PLAN_FILENAME
+    )
+    assert rebuild_payload["artifact_statuses"]["stage3_real_validation_plan_reviewer_artifact"]["path"] == str(
+        run_dir / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME
+    )
+    assert rebuild_payload["manifest_sections"]["stage3_real_validation_plan"]["path"] == str(
+        run_dir / STAGE3_REAL_VALIDATION_PLAN_FILENAME
+    )
+    assert rebuild_payload["manifest_sections"]["stage3_real_validation_plan"]["reviewer_path"] == str(
+        run_dir / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME
+    )
+    assert rebuild_payload["manifest_sections"]["stage3_real_validation_plan_reviewer_artifact"]["path"] == str(
+        run_dir / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME
+    )
+    assert str(run_dir / STAGE3_REAL_VALIDATION_PLAN_FILENAME) in rebuild_payload["remembered_files"]
+    assert str(run_dir / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME) in rebuild_payload["remembered_files"]
+    assert export_index["latest"]["batch_id"] == result["batch_id"]
+    assert export_index["latest"]["selection_snapshot"]["scope"] == "all"
+    assert stage3_plan_raw["artifact_type"] == "stage3_real_validation_plan"
+    assert stage3_plan_raw["artifact_paths"]["stage_admission_review_pack"] == str(
+        run_dir / STAGE_ADMISSION_REVIEW_PACK_FILENAME
+    )
+    assert stage3_plan_raw["artifact_paths"]["engineering_isolation_admission_checklist"] == str(
+        run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME
+    )
+    assert isinstance(stage3_plan_raw["ready_for_engineering_isolation"], bool)
+    assert isinstance(stage3_plan_raw["real_acceptance_ready"], bool)
+    assert review_center_entry["status_line"] in stage3_plan_markdown
+    assert review_center_entry["engineering_isolation_text"] in stage3_plan_markdown
+    assert review_center_entry["real_acceptance_text"] in stage3_plan_markdown
+    assert review_center_entry["execute_now_text"] in stage3_plan_markdown
+    assert review_center_entry["defer_to_stage3_text"] in stage3_plan_markdown
+    assert review_center_entry["warning_text"] in stage3_plan_markdown
+    assert "Step 2 tail / Stage 3 bridge" in stage3_plan_markdown
+    assert "engineering-isolation" in stage3_plan_markdown
+    assert "第三阶段真实验证" in stage3_plan_markdown
+    assert "不是 real acceptance" in stage3_plan_markdown
+    assert "不能替代真实计量验证" in stage3_plan_markdown
+    assert "本工件只定义第三阶段真实验证计划，不代表验证已完成" in stage3_plan_markdown
+    assert "ready_for_engineering_isolation" not in stage3_plan_markdown
+    assert "real_acceptance_ready" not in stage3_plan_markdown
+
+
 def test_review_center_panel_exposes_index_summary_and_time_source_filters() -> None:
     root = make_root()
     try:

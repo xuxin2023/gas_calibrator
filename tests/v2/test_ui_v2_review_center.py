@@ -850,6 +850,35 @@ def test_review_center_keeps_engineering_isolation_checklist_markdown_aligned_wi
     assert "real_acceptance_ready" not in checklist_markdown
 
 
+def test_review_center_keeps_stage3_real_validation_plan_markdown_aligned_with_existing_checklist_entry(
+    tmp_path: Path,
+) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+
+    results_snapshot = facade.build_results_snapshot()
+    checklist_entry = dict(
+        results_snapshot["review_center"].get("engineering_isolation_admission_checklist_artifact_entry", {}) or {}
+    )
+    stage3_plan_markdown = (run_dir / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME).read_text(encoding="utf-8")
+
+    assert checklist_entry["status_line"] in stage3_plan_markdown
+    assert checklist_entry["engineering_isolation_text"] in stage3_plan_markdown
+    assert checklist_entry["real_acceptance_text"] in stage3_plan_markdown
+    assert checklist_entry["execute_now_text"] in stage3_plan_markdown
+    assert checklist_entry["defer_to_stage3_text"] in stage3_plan_markdown
+    assert checklist_entry["warning_text"] in stage3_plan_markdown
+    assert "Step 2 tail / Stage 3 bridge" in stage3_plan_markdown
+    assert "engineering-isolation" in stage3_plan_markdown
+    assert "第三阶段真实验证" in stage3_plan_markdown
+    assert "不是 real acceptance" in stage3_plan_markdown
+    assert "不能替代真实计量验证" in stage3_plan_markdown
+    assert "本工件只定义第三阶段真实验证计划，不代表验证已完成" in stage3_plan_markdown
+    assert "ready_for_engineering_isolation" not in stage3_plan_markdown
+    assert "real_acceptance_ready" not in stage3_plan_markdown
+
+
 def test_review_center_panel_source_drilldown_syncs_list_detail_and_scope_summaries() -> None:
     root = make_root()
     try:

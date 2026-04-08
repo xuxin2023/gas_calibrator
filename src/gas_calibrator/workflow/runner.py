@@ -6617,7 +6617,14 @@ class CalibrationRunner:
         ):
             if any(
                 self._frame_quality_ratio_is_usable(parsed.get(key), invalid_sentinels, invalid_sentinel_tol)
-                for key in ("co2_ratio_f", "h2o_ratio_f")
+                for key in (
+                    "co2_ratio_f",
+                    "co2_ratio_raw",
+                    "h2o_ratio_f",
+                    "h2o_ratio_raw",
+                    "co2_sig",
+                    "h2o_sig",
+                )
             ):
                 marks.append("极值已标记")
             else:

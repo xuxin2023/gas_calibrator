@@ -151,6 +151,25 @@ def test_assess_analyzer_frame_soft_marks_extreme_values_when_ratio_is_usable(tm
     assert status == "极值已标记"
 
 
+def test_assess_analyzer_frame_soft_marks_legacy_extreme_values_when_signal_is_usable(tmp_path: Path) -> None:
+    runner = _runner_with_quality(tmp_path, {"enabled": False})
+    ok, status = runner._assess_analyzer_frame(
+        {
+            "mode": 1,
+            "status": "0003",
+            "co2_ppm": 3000.0,
+            "h2o_mmol": 72.0,
+            "co2_sig": 0.71,
+            "h2o_sig": 0.71,
+            "pressure_kpa": 101.31,
+        }
+    )
+    runner.logger.close()
+
+    assert ok is True
+    assert status == "极值已标记"
+
+
 def test_assess_mode2_frame_for_startup_accepts_protocol_ready_high_pressure_frame(tmp_path: Path) -> None:
     runner = _runner_with_quality(tmp_path, {"enabled": False})
     parsed = {

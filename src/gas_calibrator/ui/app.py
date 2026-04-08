@@ -6477,7 +6477,14 @@ class App:
             if math.isfinite(numeric):
                 sentinels.append(numeric)
 
-        for key in ("co2_ratio_f", "h2o_ratio_f"):
+        for key in (
+            "co2_ratio_f",
+            "co2_ratio_raw",
+            "h2o_ratio_f",
+            "h2o_ratio_raw",
+            "co2_sig",
+            "h2o_sig",
+        ):
             try:
                 numeric = float(parsed.get(key)) if parsed.get(key) is not None else None
             except Exception:

@@ -166,6 +166,8 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert (run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME).exists()
     assert (run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME).exists()
     assert (run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME).exists()
+    assert (run_dir / STAGE3_REAL_VALIDATION_PLAN_FILENAME).exists()
+    assert (run_dir / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME).exists()
     assert (run_dir / "lineage_summary.json").exists()
     assert (run_dir / "evidence_registry.json").exists()
     summary_after_rebuild = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
@@ -186,6 +188,12 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     )
     engineering_isolation_admission_checklist_markdown = (
         run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME
+    ).read_text(encoding="utf-8")
+    stage3_real_validation_plan = json.loads(
+        (run_dir / STAGE3_REAL_VALIDATION_PLAN_FILENAME).read_text(encoding="utf-8")
+    )
+    stage3_real_validation_plan_markdown = (
+        run_dir / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME
     ).read_text(encoding="utf-8")
     evidence_registry = json.loads((run_dir / "evidence_registry.json").read_text(encoding="utf-8"))
     assert analytics_summary["evidence_source"] == "simulated_protocol"
@@ -235,6 +243,9 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert analytics_summary["phase_transition_bridge"]["recommended_next_stage"] == "close_step2_tail_gaps"
     assert analytics_summary["phase_transition_bridge"]["real_acceptance_ready"] is False
     assert "阶段桥工件" in analytics_summary["phase_transition_bridge"]["reviewer_display"]["summary_text"]
+    assert analytics_summary["stage3_real_validation_plan"]["artifact_type"] == "stage3_real_validation_plan"
+    assert analytics_summary["stage3_real_validation_plan"]["overall_status"] == "step2_tail_in_progress"
+    assert analytics_summary["stage3_real_validation_plan"]["real_acceptance_ready"] is False
     expected_bridge_section = build_phase_transition_bridge_panel_payload(phase_transition_bridge)
     expected_bridge_reviewer_artifact = build_phase_transition_bridge_reviewer_artifact(phase_transition_bridge)
     expected_bridge_reviewer_entry = build_phase_transition_bridge_reviewer_artifact_entry(
@@ -268,6 +279,26 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
             "phase_transition_bridge_reviewer_artifact": run_dir / "phase_transition_bridge_reviewer.md",
             "stage_admission_review_pack": run_dir / STAGE_ADMISSION_REVIEW_PACK_FILENAME,
             "stage_admission_review_pack_reviewer_artifact": run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME,
+        },
+    )
+    expected_stage3_real_validation_plan = build_stage3_real_validation_plan(
+        run_id="run_001",
+        step2_readiness_summary=readiness_summary,
+        metrology_calibration_contract=metrology_contract,
+        phase_transition_bridge=phase_transition_bridge,
+        stage_admission_review_pack=expected_stage_admission_review_pack,
+        engineering_isolation_admission_checklist=expected_engineering_isolation_admission_checklist,
+        artifact_paths={
+            "step2_readiness_summary": run_dir / "step2_readiness_summary.json",
+            "metrology_calibration_contract": run_dir / "metrology_calibration_contract.json",
+            "phase_transition_bridge": run_dir / "phase_transition_bridge.json",
+            "phase_transition_bridge_reviewer_artifact": run_dir / "phase_transition_bridge_reviewer.md",
+            "stage_admission_review_pack": run_dir / STAGE_ADMISSION_REVIEW_PACK_FILENAME,
+            "stage_admission_review_pack_reviewer_artifact": run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME,
+            "engineering_isolation_admission_checklist": run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME,
+            "engineering_isolation_admission_checklist_reviewer_artifact": (
+                run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME
+            ),
         },
     )
     assert analytics_summary["phase_transition_bridge_reviewer_section"]["available"] is True
@@ -361,6 +392,22 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert payload["summary_stats"]["engineering_isolation_admission_checklist_digest"]["artifact_paths"][
         "stage_admission_review_pack"
     ] == str(run_dir / STAGE_ADMISSION_REVIEW_PACK_FILENAME)
+    assert payload["summary_stats"]["stage3_real_validation_plan"]["artifact_type"] == "stage3_real_validation_plan"
+    assert payload["summary_stats"]["stage3_real_validation_plan"]["overall_status"] == "step2_tail_in_progress"
+    assert payload["summary_stats"]["stage3_real_validation_plan"]["ready_for_engineering_isolation"] is False
+    assert payload["summary_stats"]["stage3_real_validation_plan"]["real_acceptance_ready"] is False
+    assert payload["summary_stats"]["stage3_real_validation_plan_digest"]["overall_status"] == (
+        "step2_tail_in_progress"
+    )
+    assert payload["summary_stats"]["stage3_real_validation_plan_digest"]["recommended_next_stage"] == (
+        "close_step2_tail_gaps"
+    )
+    assert payload["summary_stats"]["stage3_real_validation_plan_digest"]["artifact_paths"][
+        "engineering_isolation_admission_checklist"
+    ] == str(run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME)
+    assert payload["summary_stats"]["stage3_real_validation_plan_digest"]["validation_status_counts"][
+        "blocked_until_stage3"
+    ] >= 4
     assert payload["manifest_sections"]["step2_readiness"]["overall_status"] == "not_ready"
     assert payload["manifest_sections"]["step2_readiness"]["ready_for_engineering_isolation"] is False
     assert payload["manifest_sections"]["step2_readiness"]["real_acceptance_ready"] is False
@@ -450,6 +497,42 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert payload["manifest_sections"]["engineering_isolation_admission_checklist_reviewer_artifact"][
         "defer_to_stage3_text"
     ] == expected_engineering_isolation_admission_checklist["display"]["defer_to_stage3_text"]
+    assert payload["manifest_sections"]["stage3_real_validation_plan"]["artifact_type"] == (
+        "stage3_real_validation_plan"
+    )
+    assert payload["manifest_sections"]["stage3_real_validation_plan"]["path"] == str(
+        run_dir / STAGE3_REAL_VALIDATION_PLAN_FILENAME
+    )
+    assert payload["manifest_sections"]["stage3_real_validation_plan"]["reviewer_path"] == str(
+        run_dir / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME
+    )
+    assert payload["manifest_sections"]["stage3_real_validation_plan"]["artifact_paths"] == (
+        expected_stage3_real_validation_plan["raw"]["artifact_paths"]
+    )
+    assert payload["manifest_sections"]["stage3_real_validation_plan"]["validation_status_counts"] == (
+        expected_stage3_real_validation_plan["raw"]["validation_status_counts"]
+    )
+    assert payload["manifest_sections"]["stage3_real_validation_plan"]["required_real_world_evidence"] == (
+        expected_stage3_real_validation_plan["raw"]["required_real_world_evidence"]
+    )
+    assert payload["manifest_sections"]["stage3_real_validation_plan_reviewer_artifact"]["artifact_type"] == (
+        "stage3_real_validation_plan_reviewer_artifact"
+    )
+    assert payload["manifest_sections"]["stage3_real_validation_plan_reviewer_artifact"]["path"] == str(
+        run_dir / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME
+    )
+    assert payload["manifest_sections"]["stage3_real_validation_plan_reviewer_artifact"]["summary_text"] == (
+        expected_stage3_real_validation_plan["display"]["summary_text"]
+    )
+    assert payload["manifest_sections"]["stage3_real_validation_plan_reviewer_artifact"]["execute_now_text"] == (
+        expected_stage3_real_validation_plan["display"]["execute_now_text"]
+    )
+    assert payload["manifest_sections"]["stage3_real_validation_plan_reviewer_artifact"]["defer_to_stage3_text"] == (
+        expected_stage3_real_validation_plan["display"]["defer_to_stage3_text"]
+    )
+    assert payload["manifest_sections"]["stage3_real_validation_plan_reviewer_artifact"]["plan_boundary_text"] == (
+        expected_stage3_real_validation_plan["display"]["plan_boundary_text"]
+    )
     assert expected_bridge_reviewer_entry["summary_text"] == expected_bridge_reviewer_artifact["display"]["summary_text"]
     assert expected_bridge_reviewer_entry["status_line"] == expected_bridge_reviewer_artifact["display"]["status_line"]
     assert expected_bridge_reviewer_entry["stage_marker_text"] == expected_bridge_reviewer_artifact["display"]["current_stage_text"]
@@ -520,6 +603,32 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert "stage_admission_review_pack.md" in engineering_isolation_admission_checklist_markdown
     assert "ready_for_engineering_isolation" not in engineering_isolation_admission_checklist_markdown
     assert "real_acceptance_ready" not in engineering_isolation_admission_checklist_markdown
+    assert stage3_real_validation_plan["artifact_type"] == "stage3_real_validation_plan"
+    assert stage3_real_validation_plan["artifact_refs"] == expected_stage3_real_validation_plan["raw"]["artifact_refs"]
+    assert stage3_real_validation_plan["artifact_paths"] == expected_stage3_real_validation_plan["raw"]["artifact_paths"]
+    assert stage3_real_validation_plan["validation_status_counts"] == (
+        expected_stage3_real_validation_plan["raw"]["validation_status_counts"]
+    )
+    assert stage3_real_validation_plan["required_real_world_evidence"] == (
+        expected_stage3_real_validation_plan["raw"]["required_real_world_evidence"]
+    )
+    assert stage3_real_validation_plan["pass_fail_contract"] == expected_stage3_real_validation_plan["raw"][
+        "pass_fail_contract"
+    ]
+    assert stage3_real_validation_plan_markdown == expected_stage3_real_validation_plan["markdown"]
+    assert "Step 2 tail / Stage 3 bridge" in stage3_real_validation_plan_markdown
+    assert "engineering-isolation" in stage3_real_validation_plan_markdown
+    assert "第三阶段真实验证" in stage3_real_validation_plan_markdown
+    assert "不是 real acceptance" in stage3_real_validation_plan_markdown
+    assert "不能替代真实计量验证" in stage3_real_validation_plan_markdown
+    assert "本工件只定义第三阶段真实验证计划，不代表验证已完成" in stage3_real_validation_plan_markdown
+    assert "step2_readiness_summary.json" in stage3_real_validation_plan_markdown
+    assert "metrology_calibration_contract.json" in stage3_real_validation_plan_markdown
+    assert "phase_transition_bridge.json" in stage3_real_validation_plan_markdown
+    assert "stage_admission_review_pack.json" in stage3_real_validation_plan_markdown
+    assert "engineering_isolation_admission_checklist.json" in stage3_real_validation_plan_markdown
+    assert "ready_for_engineering_isolation" not in stage3_real_validation_plan_markdown
+    assert "real_acceptance_ready" not in stage3_real_validation_plan_markdown
     assert "Step 2 tail / Stage 3 bridge" in section_text
     assert "engineering-isolation" in section_text
     assert "engineering-isolation 准备：尚未具备。" in section_text
@@ -558,6 +667,16 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert payload["artifact_statuses"]["engineering_isolation_admission_checklist_reviewer_artifact"]["path"] == str(
         run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME
     )
+    assert payload["artifact_statuses"]["stage3_real_validation_plan"]["role"] == "execution_summary"
+    assert payload["artifact_statuses"]["stage3_real_validation_plan"]["path"] == str(
+        run_dir / STAGE3_REAL_VALIDATION_PLAN_FILENAME
+    )
+    assert payload["artifact_statuses"]["stage3_real_validation_plan_reviewer_artifact"]["role"] == (
+        "formal_analysis"
+    )
+    assert payload["artifact_statuses"]["stage3_real_validation_plan_reviewer_artifact"]["path"] == str(
+        run_dir / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME
+    )
     assert str(run_dir / "step2_readiness_summary.json") in payload["remembered_files"]
     assert str(run_dir / "metrology_calibration_contract.json") in payload["remembered_files"]
     assert str(run_dir / "phase_transition_bridge.json") in payload["remembered_files"]
@@ -566,6 +685,8 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert str(run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME) in payload["remembered_files"]
     assert str(run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME) in payload["remembered_files"]
     assert str(run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME) in payload["remembered_files"]
+    assert str(run_dir / STAGE3_REAL_VALIDATION_PLAN_FILENAME) in payload["remembered_files"]
+    assert str(run_dir / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME) in payload["remembered_files"]
     assert summary_after_rebuild["stats"]["artifact_exports"]["stage_admission_review_pack"]["role"] == "execution_summary"
     assert summary_after_rebuild["stats"]["artifact_exports"]["stage_admission_review_pack_reviewer_artifact"]["role"] == (
         "formal_analysis"
@@ -576,10 +697,18 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert summary_after_rebuild["stats"]["artifact_exports"][
         "engineering_isolation_admission_checklist_reviewer_artifact"
     ]["role"] == "formal_analysis"
+    assert summary_after_rebuild["stats"]["artifact_exports"]["stage3_real_validation_plan"]["role"] == (
+        "execution_summary"
+    )
+    assert summary_after_rebuild["stats"]["artifact_exports"]["stage3_real_validation_plan_reviewer_artifact"][
+        "role"
+    ] == "formal_analysis"
     assert str(run_dir / STAGE_ADMISSION_REVIEW_PACK_FILENAME) in summary_after_rebuild["stats"]["output_files"]
     assert str(run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME) in summary_after_rebuild["stats"]["output_files"]
     assert str(run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME) in summary_after_rebuild["stats"]["output_files"]
     assert str(run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME) in summary_after_rebuild["stats"]["output_files"]
+    assert str(run_dir / STAGE3_REAL_VALIDATION_PLAN_FILENAME) in summary_after_rebuild["stats"]["output_files"]
+    assert str(run_dir / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME) in summary_after_rebuild["stats"]["output_files"]
     assert manifest_after_rebuild["stage_admission_review_pack"]["artifact_paths"] == (
         expected_stage_admission_review_pack["raw"]["artifact_paths"]
     )
@@ -591,6 +720,12 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     )
     assert manifest_after_rebuild["engineering_isolation_admission_checklist_reviewer_artifact"]["path"] == str(
         run_dir / ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME
+    )
+    assert manifest_after_rebuild["stage3_real_validation_plan"]["artifact_paths"] == (
+        expected_stage3_real_validation_plan["raw"]["artifact_paths"]
+    )
+    assert manifest_after_rebuild["stage3_real_validation_plan_reviewer_artifact"]["path"] == str(
+        run_dir / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME
     )
 
 

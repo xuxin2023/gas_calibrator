@@ -2655,6 +2655,28 @@ def test_summarize_analyzer_health_issue_ignores_soft_marked_extreme_frames() ->
     assert app_module.App._summarize_analyzer_health_issue(rows, runtime_cfg=runtime_cfg) == "--"
 
 
+def test_summarize_analyzer_health_issue_ignores_soft_marked_extreme_legacy_frames() -> None:
+    runtime_cfg = {
+        "devices": {
+            "gas_analyzers": [
+                {"name": "ga01", "port": "COM16", "enabled": True},
+            ]
+        }
+    }
+    rows = [
+        {
+            "timestamp": f"2026-03-14T10:51:2{idx}",
+            "port": "COM16",
+            "direction": "RX",
+            "response": "YGAS,027,3000.000,72.000,0.71,0.71,027.74,101.31,0003,2726",
+            "error": "",
+        }
+        for idx in range(3)
+    ]
+
+    assert app_module.App._summarize_analyzer_health_issue(rows, runtime_cfg=runtime_cfg) == "--"
+
+
 def test_infer_sample_progress_counts_com16_samples_after_in_limits() -> None:
     rows = [
         {"ts": "2026-03-09T11:00:00", "port": "COM31", "direction": "RX", "response": ":SENS:PRES:INL 1000.0, 1"},

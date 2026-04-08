@@ -102,7 +102,14 @@ def _has_usable_ratio_value(parsed: Dict[str, Any], qcfg: Dict[str, Any]) -> boo
         if numeric is not None:
             sentinels.append(numeric)
 
-    for key in ("co2_ratio_f", "h2o_ratio_f"):
+    for key in (
+        "co2_ratio_f",
+        "co2_ratio_raw",
+        "h2o_ratio_f",
+        "h2o_ratio_raw",
+        "co2_sig",
+        "h2o_sig",
+    ):
         numeric = _coerce_float(parsed.get(key))
         if numeric is None or numeric <= 0:
             continue
