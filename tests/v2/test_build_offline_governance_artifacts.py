@@ -343,6 +343,12 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
         expected_bridge_reviewer_artifact["display"]["blocking_text"]
     )
     assert payload["manifest_sections"]["stage_admission_review_pack"]["artifact_type"] == "stage_admission_review_pack"
+    assert payload["manifest_sections"]["stage_admission_review_pack"]["path"] == str(
+        run_dir / STAGE_ADMISSION_REVIEW_PACK_FILENAME
+    )
+    assert payload["manifest_sections"]["stage_admission_review_pack"]["reviewer_path"] == str(
+        run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME
+    )
     assert payload["manifest_sections"]["stage_admission_review_pack"]["artifact_paths"] == (
         expected_stage_admission_review_pack["raw"]["artifact_paths"]
     )

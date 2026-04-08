@@ -3,6 +3,10 @@ import json
 import sys
 
 from gas_calibrator.v2.adapters.results_gateway import ResultsGateway
+from gas_calibrator.v2.core.stage_admission_review_pack import (
+    STAGE_ADMISSION_REVIEW_PACK_FILENAME,
+    STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME,
+)
 from gas_calibrator.v2.ui_v2.artifact_registry_governance import build_role_by_key
 from gas_calibrator.v2.scripts.build_offline_governance_artifacts import rebuild_run
 
@@ -302,6 +306,8 @@ def test_build_role_by_key_keeps_baseline_defaults_when_legacy_catalog_is_sparse
     assert role_by_key["spectral_quality_summary"] == "diagnostic_analysis"
     assert role_by_key["workbench_action_report_json"] == "diagnostic_analysis"
     assert "custom_legacy_only" not in role_by_key
+    assert role_by_key["stage_admission_review_pack"] == "execution_summary"
+    assert role_by_key["stage_admission_review_pack_reviewer_artifact"] == "formal_analysis"
 
 
 def test_results_gateway_backfills_obvious_known_artifacts_for_sparse_legacy_manifest(tmp_path: Path) -> None:
@@ -338,6 +344,8 @@ def test_results_gateway_backfills_obvious_known_artifacts_for_sparse_legacy_man
         "workbench_action_report.json",
         "workbench_action_snapshot.json",
         "temperature_snapshots.json",
+        "stage_admission_review_pack.json",
+        "stage_admission_review_pack.md",
     ):
         run_dir.joinpath(name).write_text("{}", encoding="utf-8")
     run_dir.joinpath("suite_summary.md").write_text("# suite summary\n", encoding="utf-8")
@@ -377,6 +385,10 @@ def test_results_gateway_backfills_obvious_known_artifacts_for_sparse_legacy_man
     assert rows_by_name["workbench_action_report.md"]["artifact_role"] == "diagnostic_analysis"
     assert rows_by_name["workbench_action_snapshot.json"]["artifact_role"] == "diagnostic_analysis"
     assert rows_by_name["temperature_snapshots.json"]["artifact_role"] == "diagnostic_analysis"
+    assert rows_by_name["stage_admission_review_pack.json"]["artifact_key"] == "stage_admission_review_pack"
+    assert rows_by_name["stage_admission_review_pack.json"]["artifact_role"] == "execution_summary"
+    assert rows_by_name["stage_admission_review_pack.md"]["artifact_key"] == "stage_admission_review_pack_reviewer_artifact"
+    assert rows_by_name["stage_admission_review_pack.md"]["artifact_role"] == "formal_analysis"
     assert rows_by_name["points.csv"]["artifact_role"] == "execution_rows"
     assert rows_by_name["io_log.csv"]["artifact_role"] == "execution_rows"
     assert rows_by_name["samples.xlsx"]["artifact_role"] == "execution_rows"
@@ -672,3 +684,50 @@ def test_results_gateway_exposes_phase_transition_bridge_reviewer_markdown_as_fi
     assert "不能替代真实计量验证" in reviewer_entry["entry_text"]
     assert reviewer_entry["ready_for_engineering_isolation"] is False
     assert reviewer_entry["real_acceptance_ready"] is False
+
+
+def test_results_gateway_exposes_stage_admission_review_pack_as_first_class_artifact_entry(
+    tmp_path: Path,
+) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+
+    gateway = ResultsGateway(
+        run_dir,
+        output_files_provider=facade.service.get_output_files,
+    )
+    reports_payload = gateway.read_reports_payload()
+    pack_entry = dict(reports_payload.get("stage_admission_review_pack_artifact_entry", {}) or {})
+    rows_by_path = {
+        str(Path(str(row.get("path") or "")).resolve()): dict(row)
+        for row in reports_payload["files"]
+    }
+    pack_json_path = str((run_dir / STAGE_ADMISSION_REVIEW_PACK_FILENAME).resolve())
+    pack_md_path = str((run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME).resolve())
+    pack_json_row = rows_by_path[pack_json_path]
+    pack_md_row = rows_by_path[pack_md_path]
+
+    assert pack_entry["path"] == pack_json_path
+    assert pack_entry["reviewer_path"] == pack_md_path
+    assert pack_json_row["artifact_key"] == "stage_admission_review_pack"
+    assert pack_json_row["artifact_role"] == "execution_summary"
+    assert pack_md_row["artifact_key"] == "stage_admission_review_pack_reviewer_artifact"
+    assert pack_md_row["artifact_role"] == "formal_analysis"
+    assert pack_json_row["stage_admission_review_pack_artifact_entry"]["path"] == pack_json_path
+    assert pack_md_row["stage_admission_review_pack_artifact_entry"]["reviewer_path"] == pack_md_path
+    assert pack_json_row["name"] == "阶段准入评审包 / Stage Admission Review Pack (JSON)"
+    assert pack_md_row["name"] == "阶段准入评审包 / Stage Admission Review Pack (Markdown)"
+    assert pack_entry["summary_text"] == pack_json_row["note"] == pack_md_row["note"]
+    assert "execution_summary" not in pack_json_row["role_status_display"]
+    assert "Step 2 tail / Stage 3 bridge" in pack_json_row["role_status_display"]
+    assert "engineering-isolation" in pack_json_row["role_status_display"]
+    assert "不是 real acceptance" in pack_json_row["role_status_display"]
+    assert "formal_analysis" not in pack_md_row["role_status_display"]
+    assert "Step 2 tail / Stage 3 bridge" in pack_entry["entry_text"]
+    assert pack_entry["execute_now_text"] in pack_entry["entry_text"]
+    assert pack_entry["defer_to_stage3_text"] in pack_entry["entry_text"]
+    assert "不是 real acceptance" in pack_entry["entry_text"]
+    assert "不能替代真实计量验证" in pack_entry["entry_text"]
+    assert pack_entry["ready_for_engineering_isolation"] is False
+    assert pack_entry["real_acceptance_ready"] is False

@@ -13,6 +13,15 @@ from ..core.phase_transition_bridge_reviewer_artifact_entry import (
     build_phase_transition_bridge_reviewer_artifact_entry,
 )
 from ..core.phase_transition_bridge_reviewer_artifact import PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME
+from ..core.stage_admission_review_pack import (
+    STAGE_ADMISSION_REVIEW_PACK_FILENAME,
+    STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME,
+)
+from ..core.stage_admission_review_pack_artifact_entry import (
+    STAGE_ADMISSION_REVIEW_PACK_ARTIFACT_KEY,
+    STAGE_ADMISSION_REVIEW_PACK_REVIEWER_ARTIFACT_KEY,
+    build_stage_admission_review_pack_artifact_entry,
+)
 from ..review_surface_formatter import (
     build_offline_diagnostic_detail_item_line,
     build_offline_diagnostic_scope_line,
@@ -199,6 +208,30 @@ class ResultsGateway:
         )
         if not bool(reviewer_artifact_entry.get("available", False)):
             reviewer_artifact_entry = {}
+        stage_admission_review_pack_section = dict(manifest.get(STAGE_ADMISSION_REVIEW_PACK_ARTIFACT_KEY) or {})
+        stage_admission_review_pack_reviewer_section = dict(
+            manifest.get(STAGE_ADMISSION_REVIEW_PACK_REVIEWER_ARTIFACT_KEY) or {}
+        )
+        stage_admission_review_pack_path = str(stage_admission_review_pack_section.get("path") or "").strip()
+        if not stage_admission_review_pack_path:
+            fallback_path = self.run_dir / STAGE_ADMISSION_REVIEW_PACK_FILENAME
+            if fallback_path.exists():
+                stage_admission_review_pack_path = str(fallback_path)
+        stage_admission_review_pack_reviewer_path = str(
+            stage_admission_review_pack_reviewer_section.get("path") or ""
+        ).strip()
+        if not stage_admission_review_pack_reviewer_path:
+            fallback_path = self.run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME
+            if fallback_path.exists():
+                stage_admission_review_pack_reviewer_path = str(fallback_path)
+        stage_admission_review_pack_entry = build_stage_admission_review_pack_artifact_entry(
+            artifact_path=stage_admission_review_pack_path,
+            reviewer_artifact_path=stage_admission_review_pack_reviewer_path,
+            manifest_section=stage_admission_review_pack_section,
+            reviewer_manifest_section=stage_admission_review_pack_reviewer_section,
+        )
+        if not bool(stage_admission_review_pack_entry.get("available", False)):
+            stage_admission_review_pack_entry = {}
         files = []
         seen: set[str] = set()
 
@@ -241,6 +274,10 @@ class ResultsGateway:
                 row,
                 reviewer_artifact_entry=reviewer_artifact_entry,
             )
+            row = self._decorate_stage_admission_review_pack_row(
+                row,
+                stage_admission_review_pack_entry=stage_admission_review_pack_entry,
+            )
             files.append(row)
         return {
             "run_dir": str(self.run_dir),
@@ -258,6 +295,7 @@ class ResultsGateway:
             "offline_diagnostic_adapter_summary": offline_diagnostic_adapter_summary,
             "point_taxonomy_summary": dict(payload.get("point_taxonomy_summary", {}) or {}),
             "phase_transition_bridge_reviewer_artifact_entry": dict(reviewer_artifact_entry),
+            "stage_admission_review_pack_artifact_entry": dict(stage_admission_review_pack_entry),
             "evidence_source": str(payload.get("evidence_source", "") or "simulated_protocol"),
             "evidence_state": str(payload.get("evidence_state", "") or "collected"),
             "not_real_acceptance_evidence": bool(payload.get("not_real_acceptance_evidence", True)),
@@ -546,4 +584,41 @@ class ResultsGateway:
             "note": str(entry.get("note_text") or payload.get("note") or ""),
             "role_status_display": str(entry.get("role_status_display") or payload.get("role_status_display") or ""),
             "phase_transition_bridge_reviewer_artifact_entry": entry,
+        }
+
+    @staticmethod
+    def _decorate_stage_admission_review_pack_row(
+        row: dict[str, Any],
+        *,
+        stage_admission_review_pack_entry: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload = dict(row or {})
+        artifact_key = str(payload.get("artifact_key") or "")
+        if artifact_key not in {
+            STAGE_ADMISSION_REVIEW_PACK_ARTIFACT_KEY,
+            STAGE_ADMISSION_REVIEW_PACK_REVIEWER_ARTIFACT_KEY,
+        }:
+            return payload
+        entry = dict(stage_admission_review_pack_entry or {})
+        if not entry:
+            return payload
+        is_reviewer_artifact = artifact_key == STAGE_ADMISSION_REVIEW_PACK_REVIEWER_ARTIFACT_KEY
+        existing_role_status = str(payload.get("role_status_display") or "").strip()
+        entry_role_status = str(entry.get("role_status_display") or "").strip()
+        role_status_display = " | ".join(
+            part
+            for part in (existing_role_status, entry_role_status)
+            if str(part).strip()
+        )
+        return {
+            **payload,
+            "name": str(
+                entry.get("name_text")
+                or payload.get("name")
+                or ""
+            )
+            + (" (Markdown)" if is_reviewer_artifact else " (JSON)"),
+            "note": str(entry.get("note_text") or payload.get("note") or ""),
+            "role_status_display": role_status_display or existing_role_status,
+            "stage_admission_review_pack_artifact_entry": entry,
         }

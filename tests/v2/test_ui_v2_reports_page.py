@@ -704,10 +704,11 @@ def test_reports_page_artifact_list_surfaces_stage_admission_review_pack_from_sa
     rebuild_run(run_dir)
     results_snapshot = facade.build_results_snapshot()
     reports_snapshot = facade.get_reports_snapshot(results_snapshot=results_snapshot)
-    rows_by_name = {
-        str(row.get("name") or ""): dict(row)
+    rows_by_path = {
+        str(row.get("path") or ""): dict(row)
         for row in list(reports_snapshot.get("files", []) or [])
     }
+    pack_entry = dict(reports_snapshot.get("stage_admission_review_pack_artifact_entry", {}) or {})
 
     root = make_root()
     try:
@@ -719,17 +720,26 @@ def test_reports_page_artifact_list_surfaces_stage_admission_review_pack_from_sa
         ]
         rows_by_tree_name = {values[0]: values for values in tree_values}
         pack_markdown = (run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME).read_text(encoding="utf-8")
+        pack_json_path = str((run_dir / STAGE_ADMISSION_REVIEW_PACK_FILENAME).resolve())
+        pack_md_path = str((run_dir / STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME).resolve())
 
-        assert STAGE_ADMISSION_REVIEW_PACK_FILENAME in rows_by_name
-        assert STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME in rows_by_name
-        assert rows_by_name[STAGE_ADMISSION_REVIEW_PACK_FILENAME]["artifact_role"] == "execution_summary"
-        assert rows_by_name[STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME]["artifact_role"] == "formal_analysis"
-        assert rows_by_tree_name[STAGE_ADMISSION_REVIEW_PACK_FILENAME][4].endswith(STAGE_ADMISSION_REVIEW_PACK_FILENAME)
-        assert rows_by_tree_name[STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME][4].endswith(
+        assert pack_json_path in rows_by_path
+        assert pack_md_path in rows_by_path
+        assert rows_by_path[pack_json_path]["artifact_role"] == "execution_summary"
+        assert rows_by_path[pack_md_path]["artifact_role"] == "formal_analysis"
+        assert pack_entry["path"] == pack_json_path
+        assert pack_entry["reviewer_path"] == pack_md_path
+        assert pack_entry["summary_text"] == rows_by_path[pack_json_path]["note"]
+        assert "阶段准入评审包 / Stage Admission Review Pack (JSON)" in rows_by_tree_name
+        assert "阶段准入评审包 / Stage Admission Review Pack (Markdown)" in rows_by_tree_name
+        assert rows_by_tree_name["阶段准入评审包 / Stage Admission Review Pack (JSON)"][4].endswith(STAGE_ADMISSION_REVIEW_PACK_FILENAME)
+        assert rows_by_tree_name["阶段准入评审包 / Stage Admission Review Pack (Markdown)"][4].endswith(
             STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME
         )
-        assert "执行摘要" in rows_by_tree_name[STAGE_ADMISSION_REVIEW_PACK_FILENAME][3]
-        assert "正式分析" in rows_by_tree_name[STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME][3]
+        assert "Step 2 tail / Stage 3 bridge" in rows_by_tree_name["阶段准入评审包 / Stage Admission Review Pack (JSON)"][3]
+        assert "Step 2 tail / Stage 3 bridge" in rows_by_tree_name["阶段准入评审包 / Stage Admission Review Pack (Markdown)"][3]
+        assert "engineering-isolation" in rows_by_tree_name["阶段准入评审包 / Stage Admission Review Pack (JSON)"][3]
+        assert "不是 real acceptance" in rows_by_tree_name["阶段准入评审包 / Stage Admission Review Pack (Markdown)"][3]
         assert "Step 2 tail / Stage 3 bridge" in pack_markdown
         assert "engineering-isolation" in pack_markdown
         assert "当前执行" in pack_markdown

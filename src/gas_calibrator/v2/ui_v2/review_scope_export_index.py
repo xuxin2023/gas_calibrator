@@ -13,6 +13,10 @@ from ..review_surface_formatter import (
     build_review_scope_payload_reviewer_display,
     hydrate_review_scope_reviewer_display,
 )
+from ..core.stage_admission_review_pack_artifact_entry import (
+    STAGE_ADMISSION_REVIEW_PACK_ARTIFACT_KEY,
+    build_stage_admission_review_pack_artifact_entry,
+)
 from ..core.phase_transition_bridge_presenter import build_phase_transition_bridge_panel_payload
 
 INDEX_FILENAME = "index.json"
@@ -117,6 +121,9 @@ def build_review_scope_export_entry(
     reviewer_artifact_entry = _build_phase_transition_bridge_reviewer_artifact_entry(payload)
     if reviewer_artifact_entry:
         entry["phase_transition_bridge_reviewer_artifact_entry"] = reviewer_artifact_entry
+    stage_admission_review_pack_entry = _build_stage_admission_review_pack_artifact_entry(payload)
+    if stage_admission_review_pack_entry:
+        entry["stage_admission_review_pack_artifact_entry"] = stage_admission_review_pack_entry
     return entry
 
 
@@ -150,6 +157,32 @@ def _build_phase_transition_bridge_reviewer_artifact_entry(payload: dict[str, An
 
     for row in list(payload.get("rows", []) or []):
         row_entry = dict(dict(row or {}).get("phase_transition_bridge_reviewer_artifact_entry") or {})
+        if row_entry:
+            return row_entry
+
+    return {}
+
+
+def _build_stage_admission_review_pack_artifact_entry(payload: dict[str, Any]) -> dict[str, Any]:
+    direct_entry = dict(payload.get("stage_admission_review_pack_artifact_entry") or {})
+    if direct_entry:
+        return direct_entry
+
+    manifest_sections = dict(payload.get("manifest_sections", {}) or {})
+    manifest_section = dict(manifest_sections.get(STAGE_ADMISSION_REVIEW_PACK_ARTIFACT_KEY) or {})
+    reviewer_manifest_section = dict(manifest_sections.get("stage_admission_review_pack_reviewer_artifact") or {})
+    if manifest_section or reviewer_manifest_section:
+        entry = build_stage_admission_review_pack_artifact_entry(
+            artifact_path=manifest_section.get("path"),
+            reviewer_artifact_path=reviewer_manifest_section.get("path"),
+            manifest_section=manifest_section,
+            reviewer_manifest_section=reviewer_manifest_section,
+        )
+        if entry:
+            return entry
+
+    for row in list(payload.get("rows", []) or []):
+        row_entry = dict(dict(row or {}).get("stage_admission_review_pack_artifact_entry") or {})
         if row_entry:
             return row_entry
 

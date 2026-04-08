@@ -350,6 +350,11 @@ def build_review_scope_manifest_payload(
     )
     if reviewer_artifact_entry:
         payload["phase_transition_bridge_reviewer_artifact_entry"] = reviewer_artifact_entry
+    stage_admission_review_pack_entry = _find_stage_admission_review_pack_artifact_entry(
+        list(registry.get("rows", []) or [])
+    )
+    if stage_admission_review_pack_entry:
+        payload["stage_admission_review_pack_artifact_entry"] = stage_admission_review_pack_entry
     return payload
 
 
@@ -863,6 +868,14 @@ def _escape_markdown_table_cell(value: Any) -> str:
 def _find_phase_transition_bridge_reviewer_artifact_entry(files: list[dict[str, Any]]) -> dict[str, Any]:
     for item in list(files or []):
         entry = dict(dict(item or {}).get("phase_transition_bridge_reviewer_artifact_entry") or {})
+        if entry:
+            return entry
+    return {}
+
+
+def _find_stage_admission_review_pack_artifact_entry(files: list[dict[str, Any]]) -> dict[str, Any]:
+    for item in list(files or []):
+        entry = dict(dict(item or {}).get("stage_admission_review_pack_artifact_entry") or {})
         if entry:
             return entry
     return {}
