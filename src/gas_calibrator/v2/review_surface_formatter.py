@@ -534,8 +534,9 @@ def _display_boundary_summary(payload: dict[str, Any]) -> str:
         BOUNDARY_FRAGMENT_FAMILY,
         fragment_rows=list(payload.get("boundary_fragments") or []),
         fragment_keys=list(payload.get("boundary_fragment_keys") or []),
-        text_values=list(payload.get("boundary_statements") or []) or [payload.get("boundary_digest")],
-        default_text=str(payload.get("boundary_digest") or ""),
+        text_values=list(payload.get("boundary_statements") or [])
+        or [payload.get("phase_boundary_digest") or payload.get("boundary_digest")],
+        default_text=str(payload.get("phase_boundary_digest") or payload.get("boundary_digest") or ""),
     )
 
 
@@ -552,11 +553,28 @@ def _display_non_claim_summary(payload: dict[str, Any]) -> str:
 def _display_phase_contrast_summary(payload: dict[str, Any], fallback: str) -> str:
     return _display_fragment_list(
         PHASE_CONTRAST_FRAGMENT_FAMILY,
-        fragment_rows=list(payload.get("phase_contrast_fragments") or []),
-        fragment_keys=list(payload.get("phase_contrast_fragment_keys") or []),
-        text_values=[payload.get("phase_contrast_summary") or fallback],
-        default_text=str(payload.get("phase_contrast_summary") or fallback or ""),
+        fragment_rows=list(payload.get("phase_contrast_fragments") or payload.get("comparison_fragments") or []),
+        fragment_keys=list(payload.get("phase_contrast_fragment_keys") or payload.get("comparison_fragment_keys") or []),
+        text_values=[payload.get("phase_contrast_summary") or payload.get("comparison_digest") or fallback],
+        default_text=str(payload.get("phase_contrast_summary") or payload.get("comparison_digest") or fallback or ""),
     )
+
+
+def _summary_to_lines(text: str) -> list[str]:
+    return _dedupe(part.strip() for part in str(text or "").split("|"))
+
+
+def collect_boundary_digest_lines(*payloads: Any) -> list[str]:
+    rows: list[str] = []
+    for payload in payloads:
+        current = dict(payload or {}) if isinstance(payload, dict) else {}
+        if not current:
+            continue
+        for summary in (_display_boundary_summary(current), _display_non_claim_summary(current)):
+            for line in _summary_to_lines(summary):
+                if line and line != t("common.none") and line not in rows:
+                    rows.append(line)
+    return rows
 
 
 def _phase_field_summary(
