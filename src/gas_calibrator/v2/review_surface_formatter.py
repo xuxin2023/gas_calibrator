@@ -574,7 +574,35 @@ def _localized_phase_contrast_summary(rows: list[dict[str, Any]], fallback: str)
 def build_measurement_review_digest_lines(payload: dict[str, Any]) -> dict[str, list[str]]:
     raw = dict(payload.get("raw") or payload or {})
     digest = dict(raw.get("digest") or payload.get("digest") or {})
-    phase_rows = [dict(item) for item in list(raw.get("phase_rows") or payload.get("phase_rows") or []) if isinstance(item, dict)]
+    phase_rows = [
+        _normalize_measurement_phase_row(dict(item))
+        for item in list(raw.get("phase_rows") or payload.get("phase_rows") or [])
+        if isinstance(item, dict)
+    ]
+    linked_method_summary = _phase_field_summary(
+        phase_rows,
+        family=METHOD_CONFIRMATION_FAMILY,
+        key_field_name="linked_method_confirmation_item_keys",
+        display_field_name="linked_method_confirmation_items",
+    )
+    linked_uncertainty_summary = _phase_field_summary(
+        phase_rows,
+        family=UNCERTAINTY_INPUT_FAMILY,
+        key_field_name="linked_uncertainty_input_keys",
+        display_field_name="linked_uncertainty_inputs",
+    )
+    linked_traceability_summary = _phase_field_summary(
+        phase_rows,
+        family=TRACEABILITY_NODE_FAMILY,
+        key_field_name="linked_traceability_node_keys",
+        display_field_name="linked_traceability_stub_nodes",
+    )
+    gap_index_summary = _gap_index_summary(phase_rows)
+    reviewer_next_step_summary = _reviewer_next_step_summary(phase_rows)
+    phase_contrast_summary = _localized_phase_contrast_summary(
+        phase_rows,
+        str(digest.get("phase_contrast_summary") or ""),
+    )
     summary_lines = [
         humanize_review_surface_text(str(digest.get("summary") or "")),
         t(
@@ -609,27 +637,27 @@ def build_measurement_review_digest_lines(payload: dict[str, Any]) -> dict[str, 
         ),
         t(
             "results.review_center.detail.measurement.linked_method_items_line",
-            value=str(digest.get("linked_method_confirmation_summary") or t("common.none")),
+            value=linked_method_summary,
             default=f"关联方法确认条目：{str(digest.get('linked_method_confirmation_summary') or t('common.none'))}",
         ),
         t(
             "results.review_center.detail.measurement.linked_uncertainty_inputs_line",
-            value=str(digest.get("linked_uncertainty_input_summary") or t("common.none")),
+            value=linked_uncertainty_summary,
             default=f"关联不确定度输入：{str(digest.get('linked_uncertainty_input_summary') or t('common.none'))}",
         ),
         t(
             "results.review_center.detail.measurement.linked_traceability_nodes_line",
-            value=str(digest.get("linked_traceability_stub_summary") or t("common.none")),
+            value=linked_traceability_summary,
             default=f"关联溯源节点：{str(digest.get('linked_traceability_stub_summary') or t('common.none'))}",
         ),
         t(
             "results.review_center.detail.measurement.reviewer_next_steps_line",
-            value=str(digest.get("reviewer_next_step_summary") or t("common.none")),
+            value=reviewer_next_step_summary,
             default=f"审阅下一步：{str(digest.get('reviewer_next_step_summary') or t('common.none'))}",
         ),
         t(
             "results.review_center.detail.measurement.phase_contrast_line",
-            value=str(digest.get("phase_contrast_summary") or t("common.none")),
+            value=phase_contrast_summary,
             default=f"preseal / pressure_stable 对照：{str(digest.get('phase_contrast_summary') or t('common.none'))}",
         ),
     ]
@@ -646,7 +674,7 @@ def build_measurement_review_digest_lines(payload: dict[str, Any]) -> dict[str, 
         ),
         t(
             "results.review_center.detail.measurement.gap_index_line",
-            value=str(digest.get("gap_index_summary") or t("common.none")),
+            value=gap_index_summary,
             default=f"缺口索引：{str(digest.get('gap_index_summary') or t('common.none'))}",
         ),
     ]
