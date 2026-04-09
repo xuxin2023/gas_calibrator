@@ -158,6 +158,14 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
         "下一步补证工件" in str(line)
         for line in list(report_payload["recognition_readiness_evidence"]["detail_lines"] or [])
     )
+    assert any(
+        "Linked method confirmation items" in str(line)
+        for line in list(report_payload["recognition_readiness_evidence"]["detail_lines"] or [])
+    )
+    assert any(
+        "Linked uncertainty inputs" in str(line)
+        for line in list(report_payload["measurement_core_evidence"]["summary_lines"] or [])
+    )
     assert report_payload["publish_primary_latest_allowed"] is False
     assert report_payload["artifact_role"] == "diagnostic_analysis"
     assert report_payload["risk_level"] in {"medium", "high"}

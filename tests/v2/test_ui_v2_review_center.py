@@ -465,6 +465,10 @@ def test_review_center_surfaces_recognition_readiness_governance_items(tmp_path:
         for line in list(scope_item.get("detail_lineage_summary") or [])
     )
     assert any("关联测量阶段" in str(line) for line in list(scope_item.get("detail_lineage_summary") or []))
+    assert any("关联方法确认条目" in str(line) for line in list(scope_item.get("detail_lineage_summary") or []))
+    assert any("关联不确定度输入" in str(line) for line in list(uncertainty_item.get("detail_lineage_summary") or []))
+    assert any("关联溯源节点" in str(line) for line in list(uncertainty_item.get("detail_lineage_summary") or []))
+    assert any("审阅下一步" in str(line) for line in list(audit_item.get("detail_lineage_summary") or []))
     assert any("下一步补证工件" in str(line) for line in list(uncertainty_item.get("detail_lineage_summary") or []))
     assert any("仍缺证据" in str(line) for line in list(certificate_item.get("detail_lineage_summary") or []))
     for item in readiness_items:

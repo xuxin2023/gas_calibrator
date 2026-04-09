@@ -538,6 +538,36 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
     title = str(dict(raw.get("review_surface") or payload.get("review_surface") or {}).get("title_text") or raw.get("artifact_type") or "--")
     summary_lines = [
         f"{title}: {humanize_review_surface_text(str(digest.get('summary') or ''))}".strip(": "),
+        t(
+            "results.review_center.detail.readiness.linked_measurement_line",
+            value=str(digest.get("linked_measurement_phase_summary") or t("common.none")),
+            default=f"关联测量阶段：{str(digest.get('linked_measurement_phase_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.readiness.linked_measurement_gap_line",
+            value=str(digest.get("linked_measurement_gap_summary") or t("common.none")),
+            default=f"关联测量缺口：{str(digest.get('linked_measurement_gap_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.readiness.linked_method_items_line",
+            value=str(digest.get("linked_method_confirmation_items_summary") or t("common.none")),
+            default=f"关联方法确认条目：{str(digest.get('linked_method_confirmation_items_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.readiness.linked_uncertainty_inputs_line",
+            value=str(digest.get("linked_uncertainty_inputs_summary") or t("common.none")),
+            default=f"关联不确定度输入：{str(digest.get('linked_uncertainty_inputs_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.readiness.linked_traceability_nodes_line",
+            value=str(digest.get("linked_traceability_nodes_summary") or t("common.none")),
+            default=f"关联溯源节点：{str(digest.get('linked_traceability_nodes_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.readiness.reviewer_next_step_line",
+            value=str(digest.get("reviewer_next_step_digest") or t("common.none")),
+            default=f"审阅下一步：{str(digest.get('reviewer_next_step_digest') or t('common.none'))}",
+        ),
     ]
     detail_lines = [
         t(

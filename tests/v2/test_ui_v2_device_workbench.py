@@ -109,6 +109,10 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
         "payload" in str(line).lower()
         for line in list(workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["summary_lines"] or [])
     )
+    assert any(
+        "Linked uncertainty inputs" in str(line)
+        for line in list(workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["summary_lines"] or [])
+    )
     assert workbench["workbench"]["live_snapshot_evidence"]["point_taxonomy_summary"]["pressure_mode_summary"] == (
         "ambient_open 2"
     )
@@ -123,6 +127,11 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
         "工件范围" in str(section.get("summary") or "") or "Scope Readiness Summary" in str(section.get("summary") or "")
         for section in list(workbench["engineer_summary"]["sections"] or [])
         if section.get("id") == "recognition_readiness"
+    )
+    assert any(
+        str(section.get("id") or "") == "recognition_readiness"
+        and "Linked method confirmation items" in str(section.get("body_text") or "")
+        for section in list(workbench["engineer_summary"]["sections"] or [])
     )
     assert workbench["history"]["items"] == []
     assert workbench["workbench"]["preset_center"]["groups"]
@@ -373,6 +382,11 @@ def test_workbench_supports_view_layering_history_and_quick_scenarios(tmp_path: 
     assert any(
         str(item.get("id") or "") == "measurement_core"
         and MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME in str(item.get("body_text") or "")
+        for item in snapshot["engineer_summary"]["sections"]
+    )
+    assert any(
+        str(item.get("id") or "") == "measurement_core"
+        and "Linked uncertainty inputs" in str(item.get("body_text") or "")
         for item in snapshot["engineer_summary"]["sections"]
     )
     assert "workbench_route_trace" in snapshot["evidence"]["simulation_context"]

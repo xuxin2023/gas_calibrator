@@ -625,6 +625,43 @@ def build_measurement_phase_coverage_report(
         "review_surface": review_surface,
         "artifact_paths": artifact_path_map,
         "linked_artifact_refs": linked_artifact_refs,
+        "linked_measurement_phases": [
+            f"{str(row.get('route_family') or '').strip()}/{str(row.get('phase_name') or '').strip()}".strip("/")
+            for row in phase_rows
+            if str(row.get("route_family") or "").strip() and str(row.get("phase_name") or "").strip()
+        ],
+        "linked_measurement_gaps": [
+            {
+                "phase_route_key": str(row.get("phase_route_key") or "").strip(),
+                "route_phase": f"{str(row.get('route_family') or '').strip()}/{str(row.get('phase_name') or '').strip()}".strip("/"),
+                "gap_classification": str(row.get("gap_classification") or "").strip(),
+                "gap_severity": str(row.get("gap_severity") or "").strip(),
+                "missing_signal_layers": list(row.get("missing_signal_layers") or []),
+                "gap_reason": str(row.get("missing_reason_digest") or "").strip(),
+                "linked_method_confirmation_items": list(row.get("linked_method_confirmation_items") or []),
+                "linked_uncertainty_inputs": list(row.get("linked_uncertainty_inputs") or []),
+                "linked_traceability_nodes": list(row.get("linked_traceability_stub_nodes") or []),
+                "reviewer_next_step_digest": str(row.get("reviewer_next_step_digest") or "").strip(),
+            }
+            for row in phase_rows
+            if str(row.get("coverage_bucket") or "").strip() != _PAYLOAD_COMPLETE_BUCKET
+        ],
+        "linked_method_confirmation_items": _dedupe(
+            item
+            for row in phase_rows
+            for item in list(row.get("linked_method_confirmation_items") or [])
+        ),
+        "linked_uncertainty_inputs": _dedupe(
+            item
+            for row in phase_rows
+            for item in list(row.get("linked_uncertainty_inputs") or [])
+        ),
+        "linked_traceability_nodes": _dedupe(
+            item
+            for row in phase_rows
+            for item in list(row.get("linked_traceability_stub_nodes") or [])
+        ),
+        "reviewer_next_step_digest": reviewer_next_step_summary,
         "next_required_artifacts": _dedupe(
             artifact_name
             for row in phase_rows
