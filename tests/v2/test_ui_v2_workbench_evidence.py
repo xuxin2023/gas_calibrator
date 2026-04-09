@@ -13,7 +13,11 @@ from gas_calibrator.v2.core.phase_taxonomy_contract import (
     METHOD_CONFIRMATION_FAMILY,
     UNCERTAINTY_INPUT_FAMILY,
 )
-from gas_calibrator.v2.ui_v2.i18n import display_taxonomy_value
+from gas_calibrator.v2.core.reviewer_fragments_contract import (
+    BOUNDARY_FRAGMENT_FAMILY,
+    NON_CLAIM_FRAGMENT_FAMILY,
+)
+from gas_calibrator.v2.ui_v2.i18n import display_fragment_value, display_taxonomy_value
 
 SUPPORT_DIR = Path(__file__).resolve().parent
 if str(SUPPORT_DIR) not in sys.path:
@@ -145,8 +149,8 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
         report_payload["recognition_readiness_evidence"]["audit_readiness_digest"]["artifact_type"]
         == "audit_readiness_digest"
     )
-    assert "shadow evaluation only" in report_payload["measurement_core_evidence"]["boundary_lines"]
-    assert "not accreditation claim" in report_payload["recognition_readiness_evidence"]["boundary_lines"]
+    assert display_fragment_value(BOUNDARY_FRAGMENT_FAMILY, "shadow_evaluation_only") in report_payload["measurement_core_evidence"]["boundary_lines"]
+    assert display_fragment_value(NON_CLAIM_FRAGMENT_FAMILY, "not_accreditation_claim") in report_payload["recognition_readiness_evidence"]["boundary_lines"]
     assert any(
         "payload" in str(line).lower()
         for line in list(report_payload["measurement_core_evidence"]["summary_lines"] or [])

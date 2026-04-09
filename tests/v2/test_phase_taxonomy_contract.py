@@ -19,6 +19,7 @@ from gas_calibrator.v2.core.phase_taxonomy_contract import (
     GAP_CLASSIFICATION_FAMILY,
     GAP_SEVERITY_FAMILY,
     METHOD_CONFIRMATION_FAMILY,
+    REVIEWER_NEXT_STEP_TEMPLATE_FAMILY,
     TAXONOMY_CONTRACT_VERSION,
     TRACEABILITY_NODE_FAMILY,
     UNCERTAINTY_INPUT_FAMILY,
@@ -32,7 +33,10 @@ from gas_calibrator.v2.core.phase_taxonomy_contract import (
 )
 from gas_calibrator.v2.core.reviewer_fragments_contract import (
     BLOCKER_FRAGMENT_FAMILY,
+    BOUNDARY_FRAGMENT_FAMILY,
     GAP_REASON_FRAGMENT_FAMILY,
+    NON_CLAIM_FRAGMENT_FAMILY,
+    PHASE_CONTRAST_FRAGMENT_FAMILY,
     READINESS_IMPACT_FRAGMENT_FAMILY,
     REVIEWER_FRAGMENTS_CONTRACT_VERSION,
     REVIEWER_NEXT_STEP_FRAGMENT_FAMILY,
@@ -42,9 +46,10 @@ from gas_calibrator.v2.core.reviewer_fragments_contract import (
 from gas_calibrator.v2.review_surface_formatter import (
     build_measurement_review_digest_lines,
     build_readiness_review_digest_lines,
+    collect_boundary_digest_lines,
 )
 from gas_calibrator.v2.scripts.build_offline_governance_artifacts import rebuild_run
-from gas_calibrator.v2.ui_v2.i18n import display_fragment_value, display_taxonomy_value
+from gas_calibrator.v2.ui_v2.i18n import display_fragment_value, display_taxonomy_value, set_locale, t
 
 SUPPORT_DIR = Path(__file__).resolve().parent
 if str(SUPPORT_DIR) not in sys.path:
@@ -183,9 +188,21 @@ def test_reviewer_fragments_contract_normalizes_aliases_and_labels() -> None:
         "payload stays partial so reviewer evidence cannot be overstated as phase-complete measurement evidence",
     ) == "partial_payload_not_phase_complete"
     assert normalize_fragment_key(
+        BOUNDARY_FRAGMENT_FAMILY,
+        "shadow evaluation only",
+    ) == "shadow_evaluation_only"
+    assert normalize_fragment_key(
         GAP_REASON_FRAGMENT_FAMILY,
         "output: conditioning window remains setup evidence until same-route pressure_stable closes full payload-backed output capture",
     ) == "conditioning_window_output_layer_open"
+    assert normalize_fragment_key(
+        NON_CLAIM_FRAGMENT_FAMILY,
+        "not accreditation claim",
+    ) == "not_accreditation_claim"
+    assert normalize_fragment_key(
+        PHASE_CONTRAST_FRAGMENT_FAMILY,
+        "trace-only phases ambient/pressure_stable keep the same taxonomy visible, but reviewer closure stays open until payload-backed evidence is promoted",
+    ) == "trace_only_taxonomy_visibility_open"
     assert normalize_fragment_key(
         READINESS_IMPACT_FRAGMENT_FAMILY,
         "scope, method confirmation remains open because this phase is still trace-only and not payload-evaluated",
@@ -204,6 +221,21 @@ def test_reviewer_fragments_contract_normalizes_aliases_and_labels() -> None:
     assert next_step_en
     assert next_step_zh
     assert next_step_zh != next_step_en
+    assert display_fragment_value(
+        BOUNDARY_FRAGMENT_FAMILY,
+        "shadow_evaluation_only",
+        locale="zh_CN",
+    ) == t("reviewer_fragments.boundary.shadow_evaluation_only", locale="zh_CN")
+    assert display_fragment_value(
+        NON_CLAIM_FRAGMENT_FAMILY,
+        "not_accreditation_claim",
+        locale="zh_CN",
+    ) == t("reviewer_fragments.non_claim.not_accreditation_claim", locale="zh_CN")
+    assert display_taxonomy_value(
+        REVIEWER_NEXT_STEP_TEMPLATE_FAMILY,
+        "ambient_diagnostic_trace_promotion",
+        locale="zh_CN",
+    ) == t("taxonomy.reviewer_next_step.ambient_diagnostic_trace_promotion", locale="zh_CN")
 
 
 def test_taxonomy_contract_preserves_partial_complete_and_payload_backed_phase_differences() -> None:
@@ -414,6 +446,7 @@ def test_taxonomy_contract_parity_remains_consistent_across_gateway_and_review_s
         "linked_method_items_open",
         params={"items": "Ambient baseline stabilization rule"},
     )
+    blocker_prefix = blocker_label.split("：", 1)[0]
     scope_joined = "\n".join(scope_lines["detail_lines"])
     measurement_joined = "\n".join(measurement_lines["detail_lines"])
     audit_joined = "\n".join(audit_lines["detail_lines"])
@@ -423,9 +456,71 @@ def test_taxonomy_contract_parity_remains_consistent_across_gateway_and_review_s
     assert gap_label in measurement_joined
     assert gap_label in scope_joined
     assert audit_gap_label in audit_joined
-    assert blocker_label in measurement_joined or blocker_label in scope_joined
+    assert blocker_prefix in measurement_joined or blocker_prefix in scope_joined
     assert "ambient_baseline_stabilization_rule" not in measurement_joined
     assert "ambient_baseline_gap" not in scope_joined
     assert "linked method confirmation items remain open" not in scope_joined
+    
+
+def test_structured_fragment_locale_catalog_and_boundary_digest_lines_stay_consistent(tmp_path: Path) -> None:
+    set_locale("zh_CN")
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+    gateway = ResultsGateway(
+        run_dir,
+        output_files_provider=facade.service.get_output_files,
+    )
+
+    results_payload = gateway.read_results_payload()
+    measurement_entry = dict(results_payload["measurement_phase_coverage_report"])
+    scope_entry = dict(results_payload["scope_readiness_summary"])
+
+    assert "shadow_evaluation_only" in list(measurement_entry.get("boundary_fragment_keys") or [])
+    assert "not_real_acceptance" in list(measurement_entry.get("non_claim_fragment_keys") or [])
+    assert "not_accreditation_claim" in list(scope_entry.get("non_claim_fragment_keys") or [])
+
+    boundary_lines = collect_boundary_digest_lines(measurement_entry, scope_entry)
+    shadow_boundary = display_fragment_value(
+        BOUNDARY_FRAGMENT_FAMILY,
+        "shadow_evaluation_only",
+        locale="zh_CN",
+    )
+    accreditation_boundary = display_fragment_value(
+        NON_CLAIM_FRAGMENT_FAMILY,
+        "not_accreditation_claim",
+        locale="zh_CN",
+    )
+    assert shadow_boundary in boundary_lines
+    assert accreditation_boundary in boundary_lines
+    assert shadow_boundary == t("reviewer_fragments.boundary.shadow_evaluation_only", locale="zh_CN")
+    assert accreditation_boundary == t(
+        "reviewer_fragments.non_claim.not_accreditation_claim",
+        locale="zh_CN",
+    )
+
+    measurement_lines = build_measurement_review_digest_lines(measurement_entry)
+    scope_lines = build_readiness_review_digest_lines(scope_entry)
+    measurement_text = "\n".join(
+        list(measurement_lines.get("summary_lines") or []) + list(measurement_lines.get("detail_lines") or [])
+    )
+    readiness_text = "\n".join(
+        list(scope_lines.get("summary_lines") or []) + list(scope_lines.get("detail_lines") or [])
+    )
+
+    assert shadow_boundary in measurement_text
+    assert display_fragment_value(
+        NON_CLAIM_FRAGMENT_FAMILY,
+        "not_real_acceptance",
+        locale="zh_CN",
+    ) in measurement_text
+    assert accreditation_boundary in readiness_text
+    assert display_taxonomy_value(
+        REVIEWER_NEXT_STEP_TEMPLATE_FAMILY,
+        "water_preseal_partial_gap_closeout",
+        locale="zh_CN",
+    ) in measurement_text
+    assert "shadow evaluation only" not in measurement_text
+    assert "not accreditation claim" not in readiness_text
     assert any("关联方法确认条目" in line for line in scope_lines["detail_lines"])
     assert any("差距分类" in line for line in measurement_lines["detail_lines"])
