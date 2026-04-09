@@ -309,7 +309,7 @@ def _rebuild_alias_index() -> None:
 
 _GAP_REASON_PATTERNS: tuple[tuple[re.Pattern[str], str, tuple[str, ...]], ...] = (
     (re.compile(r"^(?P<details>.*conditioning window.*setup evidence.*)$", re.IGNORECASE), "conditioning_window_output_layer_open", ("details",)),
-    (re.compile(r"^(?P<details>(?:[a-z_]+: .+)(?: \\| [a-z_]+: .+)*)$", re.IGNORECASE), "missing_layer_reason_explicit", ("details",)),
+    (re.compile(r"^(?P<details>(?:[a-z_]+: .+)(?: \| [a-z_]+: .+)*)$", re.IGNORECASE), "missing_layer_reason_explicit", ("details",)),
     (re.compile(r"^payload (?:remains|is) partial.*explicit: (?P<missing_layers>.+)$", re.IGNORECASE), "partial_payload_boundary_open", ("missing_layers",)),
     (re.compile(r"^this phase is still trace-only and not payload-evaluated$", re.IGNORECASE), "trace_only_not_payload_evaluated", ()),
     (re.compile(r"^this phase has only (?P<coverage_bucket_label>.+?) reviewer coverage$", re.IGNORECASE), "reviewer_coverage_only_gap", ("coverage_bucket_label",)),
@@ -330,6 +330,210 @@ _BLOCKER_PATTERNS: tuple[tuple[re.Pattern[str], str, tuple[str, ...]], ...] = (
     (re.compile(r"^linked uncertainty inputs remain open: (?P<items>.+)$", re.IGNORECASE), "linked_uncertainty_inputs_open", ("items",)),
     (re.compile(r"^linked traceability nodes remain stub-only: (?P<items>.+)$", re.IGNORECASE), "linked_traceability_nodes_stub_only", ("items",)),
 )
+
+
+def _infer_fragment_row(family: str, value: Any) -> tuple[str, dict[str, Any]]:
+    text = str(value or "").strip()
+    if not text:
+        return "", {}
+    if family == REVIEWER_NEXT_STEP_FRAGMENT_FAMILY:
+        return normalize_taxonomy_key(REVIEWER_NEXT_STEP_TEMPLATE_FAMILY, text, default=""), {}
+    patterns = {
+        GAP_REASON_FRAGMENT_FAMILY: _GAP_REASON_PATTERNS,
+        READINESS_IMPACT_FRAGMENT_FAMILY: _READINESS_IMPACT_PATTERNS,
+        BLOCKER_FRAGMENT_FAMILY: _BLOCKER_PATTERNS,
+    }.get(family, ())
+    for pattern, canonical_key, field_names in patterns:
+        match = pattern.match(text)
+        if not match:
+            continue
+        params = {
+            field_name: _stringify_param(match.group(field_name))
+            for field_name in field_names
+            if match.groupdict().get(field_name) is not None
+        }
+        if family == GAP_REASON_FRAGMENT_FAMILY and canonical_key == "conditioning_window_output_layer_open" and not params.get("details"):
+            params["details"] = text
+        return canonical_key, params
+    return _ALIAS_INDEX.get(family, {}).get(_normalize_lookup_value(text), ""), {}
+
+
+def normalize_fragment_key(family: str, value: Any, *, default: str | None = None) -> str:
+    family_name = str(family or "").strip()
+    if not family_name:
+        return str(default or "")
+    if family_name == REVIEWER_NEXT_STEP_FRAGMENT_FAMILY:
+        normalized = normalize_taxonomy_key(REVIEWER_NEXT_STEP_TEMPLATE_FAMILY, value, default="")
+        return str(normalized or default or "")
+    normalized = _ALIAS_INDEX.get(family_name, {}).get(_normalize_lookup_value(value), "")
+    if normalized:
+        return normalized
+    inferred_key, _ = _infer_fragment_row(family_name, value)
+    return str(inferred_key or default or "")
+
+
+def fragment_entry(family: str, value: Any) -> dict[str, Any] | None:
+    family_name = str(family or "").strip()
+    canonical_key = normalize_fragment_key(family_name, value)
+    if not canonical_key:
+        return None
+    if family_name == REVIEWER_NEXT_STEP_FRAGMENT_FAMILY:
+        return {
+            "family": family_name,
+            "canonical_key": canonical_key,
+            "fragment_key": canonical_key,
+            "i18n_key": taxonomy_i18n_key(REVIEWER_NEXT_STEP_TEMPLATE_FAMILY, canonical_key),
+            "zh_label": taxonomy_display_label(REVIEWER_NEXT_STEP_TEMPLATE_FAMILY, canonical_key, locale="zh_CN", default=""),
+            "en_label": taxonomy_display_label(REVIEWER_NEXT_STEP_TEMPLATE_FAMILY, canonical_key, locale="en_US", default=""),
+            "aliases": (),
+            "parameter_names": (),
+        }
+    entry = _FRAGMENT_REGISTRY.get(family_name, {}).get(canonical_key)
+    return dict(entry) if entry else None
+
+
+def fragment_i18n_key(family: str, value: Any) -> str:
+    entry = fragment_entry(family, value)
+    return str((entry or {}).get("i18n_key") or "")
+
+
+def fragment_display_label(
+    family: str,
+    value: Any,
+    *,
+    locale: str = "zh_CN",
+    params: dict[str, Any] | None = None,
+    default: str | None = None,
+) -> str:
+    family_name = str(family or "").strip()
+    entry = fragment_entry(family_name, value)
+    if family_name == REVIEWER_NEXT_STEP_FRAGMENT_FAMILY:
+        rendered = taxonomy_display_label(
+            REVIEWER_NEXT_STEP_TEMPLATE_FAMILY,
+            normalize_fragment_key(family_name, value, default=str(value or "").strip()),
+            locale=locale,
+            default=default or str(value or "").strip(),
+        )
+        return _render_template(rendered, params)
+    if not entry:
+        if default is not None:
+            return _render_template(default, params)
+        return _render_template(str(value or "").strip(), params)
+    template = str(entry.get("en_label") or default or "") if str(locale or "").lower().startswith("en") else str(entry.get("zh_label") or default or "")
+    return _render_template(template, params)
+
+
+def build_fragment_row(
+    family: str,
+    value: Any,
+    *,
+    params: dict[str, Any] | None = None,
+    display_locale: str = "en_US",
+    default_text: str | None = None,
+) -> dict[str, Any]:
+    payload = dict(value or {}) if isinstance(value, dict) else {}
+    family_name = str(payload.get("fragment_family") or family or "").strip()
+    input_value = payload.get("fragment_key") or payload.get("canonical_key") or payload.get("text") or value
+    inferred_key, inferred_params = _infer_fragment_row(family_name, input_value)
+    canonical_key = str(payload.get("canonical_key") or payload.get("fragment_key") or normalize_fragment_key(family_name, input_value, default="") or inferred_key or "").strip()
+    merged_params = {
+        **{key: value for key, value in inferred_params.items() if _stringify_param(value) != "--"},
+        **{key: value for key, value in dict(payload.get("params") or {}).items() if str(key).strip()},
+        **{key: value for key, value in dict(params or {}).items() if str(key).strip()},
+    }
+    fallback_text = str(payload.get("text") or default_text or (value if isinstance(value, str) else "")).strip()
+    rendered_text = fragment_display_label(
+        family_name,
+        canonical_key or input_value,
+        locale=display_locale,
+        params=merged_params,
+        default=fallback_text,
+    )
+    return {
+        "fragment_family": family_name,
+        "fragment_key": canonical_key,
+        "canonical_key": canonical_key,
+        "i18n_key": fragment_i18n_key(family_name, canonical_key or input_value),
+        "params": merged_params,
+        "text": rendered_text,
+        "display_text": rendered_text,
+        "reviewer_fragments_contract_version": REVIEWER_FRAGMENTS_CONTRACT_VERSION,
+    }
+
+
+def normalize_fragment_rows(
+    family: str,
+    values: Iterable[Any] | None,
+    *,
+    display_locale: str = "en_US",
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, tuple[tuple[str, str], ...]]] = set()
+    for value in list(values or []):
+        row = build_fragment_row(family, value, display_locale=display_locale)
+        text = str(row.get("text") or "").strip()
+        canonical_key = str(row.get("canonical_key") or "").strip()
+        params = tuple(sorted((str(key), _stringify_param(val)) for key, val in dict(row.get("params") or {}).items() if str(key).strip()))
+        if not text and not canonical_key:
+            continue
+        marker = (canonical_key, text, params)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        rows.append(row)
+    return rows
+
+
+def fragment_rows_to_keys(rows: Iterable[dict[str, Any]] | None) -> list[str]:
+    values: list[str] = []
+    for row in list(rows or []):
+        canonical_key = str(dict(row or {}).get("canonical_key") or dict(row or {}).get("fragment_key") or "").strip()
+        if canonical_key and canonical_key not in values:
+            values.append(canonical_key)
+    return values
+
+
+def fragment_rows_to_texts(rows: Iterable[dict[str, Any]] | None) -> list[str]:
+    values: list[str] = []
+    for row in list(rows or []):
+        text = str(dict(row or {}).get("text") or dict(row or {}).get("display_text") or "").strip()
+        if text and text not in values:
+            values.append(text)
+    return values
+
+
+def fragment_summary(
+    rows: Iterable[dict[str, Any]] | None,
+    *,
+    default: str = "--",
+    separator: str = " | ",
+) -> str:
+    values = fragment_rows_to_texts(rows)
+    return separator.join(values) if values else str(default or "")
+
+
+def fragment_text_replacements(*, locale: str = "zh_CN") -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for family, items in _FRAGMENT_REGISTRY.items():
+        for canonical_key, entry in items.items():
+            target = fragment_display_label(family, canonical_key, locale=locale)
+            for source in (
+                canonical_key,
+                canonical_key.replace("_", " "),
+                str(entry.get("en_label") or ""),
+                str(entry.get("zh_label") or ""),
+                *tuple(entry.get("aliases") or ()),
+            ):
+                source_text = str(source or "").strip()
+                if not source_text or source_text == target:
+                    continue
+                pair = (source_text, target)
+                if pair not in seen:
+                    seen.add(pair)
+                    rows.append(pair)
+    return rows
+
 
 _FRAGMENT_REGISTRY[BLOCKER_FRAGMENT_FAMILY].update(
     {
@@ -463,3 +667,6 @@ _FRAGMENT_REGISTRY[BLOCKER_FRAGMENT_FAMILY].update(
         ),
     }
 )
+
+
+_rebuild_alias_index()

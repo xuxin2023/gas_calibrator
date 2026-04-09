@@ -1359,6 +1359,9 @@ class ResultsGateway:
                 "digest": digest,
                 "artifact_paths": dict(evidence_payload.get("artifact_paths") or {}),
                 "overall_status": str(evidence_payload.get("overall_status") or ""),
+                "reviewer_fragments_contract_version": str(
+                    evidence_payload.get("reviewer_fragments_contract_version") or ""
+                ),
                 "anchor_id": str(evidence_payload.get("anchor_id") or review_surface.get("anchor_id") or ""),
                 "anchor_label": str(evidence_payload.get("anchor_label") or review_surface.get("anchor_label") or ""),
                 "readiness_status": str(evidence_payload.get("readiness_status") or digest.get("readiness_status") or ""),
@@ -1382,7 +1385,16 @@ class ResultsGateway:
                 "linked_gap_severity_keys": list(evidence_payload.get("linked_gap_severity_keys") or []),
                 "next_required_artifacts": list(evidence_payload.get("next_required_artifacts") or []),
                 "blockers": list(evidence_payload.get("blockers") or []),
+                "blocker_fragments": [dict(item) for item in list(evidence_payload.get("blocker_fragments") or []) if isinstance(item, dict)],
+                "blocker_fragment_keys": list(evidence_payload.get("blocker_fragment_keys") or []),
                 "gap_reason": str(evidence_payload.get("gap_reason") or digest.get("gap_reason") or ""),
+                "gap_reason_fragments": [dict(item) for item in list(evidence_payload.get("gap_reason_fragments") or []) if isinstance(item, dict)],
+                "gap_reason_fragment_keys": list(evidence_payload.get("gap_reason_fragment_keys") or []),
+                "linked_readiness_impact_summary": str(
+                    evidence_payload.get("linked_readiness_impact_summary")
+                    or digest.get("linked_readiness_impact_summary")
+                    or ""
+                ),
                 "gap_classification_label": str(
                     evidence_payload.get("gap_classification_label") or digest.get("gap_classification_label") or ""
                 ),
@@ -1392,6 +1404,10 @@ class ResultsGateway:
                 "reviewer_next_step_digest": str(
                     evidence_payload.get("reviewer_next_step_digest") or digest.get("reviewer_next_step_digest") or ""
                 ),
+                "reviewer_next_step_fragments": [
+                    dict(item) for item in list(evidence_payload.get("reviewer_next_step_fragments") or []) if isinstance(item, dict)
+                ],
+                "reviewer_next_step_fragment_keys": list(evidence_payload.get("reviewer_next_step_fragment_keys") or []),
                 "reviewer_next_step_template_key": str(
                     evidence_payload.get("reviewer_next_step_template_key")
                     or digest.get("reviewer_next_step_template_key")

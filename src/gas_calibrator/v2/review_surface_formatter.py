@@ -11,7 +11,22 @@ from .core.phase_taxonomy_contract import (
     normalize_phase_taxonomy_row,
     taxonomy_text_replacements,
 )
-from .ui_v2.i18n import display_phase, display_route, display_taxonomy_value, display_taxonomy_values, t
+from .core.reviewer_fragments_contract import (
+    BLOCKER_FRAGMENT_FAMILY,
+    GAP_REASON_FRAGMENT_FAMILY,
+    READINESS_IMPACT_FRAGMENT_FAMILY,
+    REVIEWER_NEXT_STEP_FRAGMENT_FAMILY,
+    fragment_text_replacements,
+)
+from .ui_v2.i18n import (
+    display_fragment_value,
+    display_fragment_values,
+    display_phase,
+    display_route,
+    display_taxonomy_value,
+    display_taxonomy_values,
+    t,
+)
 
 _OFFLINE_DIAGNOSTIC_DISPLAY_LABELS = {
     "artifacts": "\u5de5\u4ef6",
@@ -347,6 +362,8 @@ def humanize_review_surface_text(summary_value: str) -> str:
         text = text.replace(source, t(key, default=default))
     for source, target in taxonomy_text_replacements():
         text = text.replace(source, target)
+    for source, target in fragment_text_replacements():
+        text = text.replace(source, target)
     for source, target in _REVIEW_SURFACE_INLINE_REPLACEMENTS:
         text = text.replace(source, target)
     if ":" in text:
@@ -426,6 +443,25 @@ def _display_taxonomy_list(
     values = list(key_values or []) or list(display_values or [])
     labels = display_taxonomy_values(family, values)
     return " | ".join(labels) if labels else t("common.none")
+
+
+def _display_fragment_list(
+    family: str,
+    *,
+    fragment_rows: list[Any] | None = None,
+    fragment_keys: list[Any] | None = None,
+    text_values: list[Any] | None = None,
+    default_text: str | None = None,
+) -> str:
+    labels = display_fragment_values(family, list(fragment_rows or []))
+    if not labels and list(fragment_keys or []):
+        labels = display_fragment_values(family, list(fragment_keys or []))
+    if not labels and list(text_values or []):
+        labels = display_fragment_values(family, list(text_values or []))
+    if labels:
+        return " | ".join(labels)
+    text = humanize_review_surface_text(str(default_text or "").strip())
+    return text or t("common.none")
 
 
 def _display_gap_classification(row: dict[str, Any]) -> str:

@@ -17,6 +17,18 @@ from .phase_taxonomy_contract import (
     phase_uncertainty_input_keys,
     reviewer_next_step_text,
 )
+from .reviewer_fragments_contract import (
+    BLOCKER_FRAGMENT_FAMILY,
+    GAP_REASON_FRAGMENT_FAMILY,
+    READINESS_IMPACT_FRAGMENT_FAMILY,
+    REVIEWER_FRAGMENTS_CONTRACT_VERSION,
+    REVIEWER_NEXT_STEP_FRAGMENT_FAMILY,
+    build_fragment_row,
+    fragment_rows_to_keys,
+    fragment_rows_to_texts,
+    fragment_summary,
+    normalize_fragment_rows,
+)
 
 
 MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME = "measurement_phase_coverage_report.json"
@@ -857,6 +869,7 @@ def build_measurement_phase_coverage_report(
         "artifact_role": "diagnostic_analysis",
         "evidence_source": "simulated",
         "taxonomy_contract_version": TAXONOMY_CONTRACT_VERSION,
+        "reviewer_fragments_contract_version": REVIEWER_FRAGMENTS_CONTRACT_VERSION,
         "not_real_acceptance_evidence": True,
         "boundary_statements": list(CANONICAL_BOUNDARY_STATEMENTS),
         "phase_rows": phase_rows,
@@ -879,10 +892,21 @@ def build_measurement_phase_coverage_report(
                 "gap_severity": str(row.get("gap_severity") or "").strip(),
                 "missing_signal_layers": list(row.get("missing_signal_layers") or []),
                 "gap_reason": str(row.get("missing_reason_digest") or "").strip(),
+                "gap_reason_fragments": [dict(item) for item in list(row.get("gap_reason_fragments") or []) if isinstance(item, dict)],
+                "gap_reason_fragment_keys": list(row.get("gap_reason_fragment_keys") or []),
+                "readiness_impact_digest": str(row.get("readiness_impact_digest") or "").strip(),
+                "readiness_impact_fragments": [dict(item) for item in list(row.get("readiness_impact_fragments") or []) if isinstance(item, dict)],
+                "readiness_impact_fragment_keys": list(row.get("readiness_impact_fragment_keys") or []),
                 "linked_method_confirmation_items": list(row.get("linked_method_confirmation_items") or []),
                 "linked_uncertainty_inputs": list(row.get("linked_uncertainty_inputs") or []),
                 "linked_traceability_nodes": list(row.get("linked_traceability_stub_nodes") or []),
+                "blockers": list(row.get("blockers") or []),
+                "blocker_fragments": [dict(item) for item in list(row.get("blocker_fragments") or []) if isinstance(item, dict)],
+                "blocker_fragment_keys": list(row.get("blocker_fragment_keys") or []),
                 "reviewer_next_step_digest": str(row.get("reviewer_next_step_digest") or "").strip(),
+                "reviewer_next_step_fragments": [dict(item) for item in list(row.get("reviewer_next_step_fragments") or []) if isinstance(item, dict)],
+                "reviewer_next_step_fragment_keys": list(row.get("reviewer_next_step_fragment_keys") or []),
+                "reviewer_next_step_template_key": str(row.get("reviewer_next_step_template_key") or "").strip(),
             }
             for row in phase_rows
             if str(row.get("coverage_bucket") or "").strip() != _PAYLOAD_COMPLETE_BUCKET
@@ -1062,18 +1086,59 @@ def _build_phase_row(
         linked_traceability_stub_nodes=linked_traceability_stub_nodes,
     )
     impacted_readiness_dimensions = _phase_readiness_dimensions(phase_name)
-    missing_reason_digest = _missing_reason_digest(missing_layer_reasons)
-    readiness_impact_digest = _phase_readiness_impact_digest(
+    gap_reason_fragments = _phase_gap_reason_fragments(
+        phase_name=phase_name,
+        payload_completeness=payload_completeness,
+        missing_layer_reasons=missing_layer_reasons,
+        missing_signal_layers=missing_signal_layers,
+        coverage_bucket=coverage_bucket,
+    )
+    missing_reason_digest = fragment_summary(
+        gap_reason_fragments,
+        default=_missing_reason_digest(missing_layer_reasons),
+    )
+    readiness_impact_fragments = _phase_readiness_impact_fragments(
         phase_name=phase_name,
         payload_completeness=payload_completeness,
         impacted_readiness_dimensions=impacted_readiness_dimensions,
         missing_signal_layers=missing_signal_layers,
         coverage_bucket=coverage_bucket,
     )
+    readiness_impact_digest = fragment_summary(
+        readiness_impact_fragments,
+        default=_phase_readiness_impact_digest(
+            phase_name=phase_name,
+            payload_completeness=payload_completeness,
+            impacted_readiness_dimensions=impacted_readiness_dimensions,
+            missing_signal_layers=missing_signal_layers,
+            coverage_bucket=coverage_bucket,
+        ),
+    )
+    blocker_fragments = _phase_blocker_fragments(
+        phase_name=phase_name,
+        payload_completeness=payload_completeness,
+        actual_run_evidence_present=actual_run_evidence_present,
+        missing_signal_layers=missing_signal_layers,
+        coverage_bucket=coverage_bucket,
+        linked_method_confirmation_items=linked_method_confirmation_items,
+        linked_uncertainty_inputs=linked_uncertainty_inputs,
+        linked_traceability_stub_nodes=linked_traceability_stub_nodes,
+    )
+    reviewer_next_step_fragments = _phase_reviewer_next_step_fragments(
+        route_family=route_family,
+        phase_name=phase_name,
+        coverage_bucket=coverage_bucket,
+        payload_completeness=payload_completeness,
+    )
+    blockers = fragment_rows_to_texts(blocker_fragments)
     phase_boundary_digest = _phase_boundary_digest(
         phase_name=phase_name,
         coverage_bucket=coverage_bucket,
         payload_completeness=payload_completeness,
+    )
+    reviewer_next_step_digest = fragment_summary(
+        reviewer_next_step_fragments,
+        default=reviewer_next_step_digest,
     )
     reviewer_guidance_digest = _phase_reviewer_guidance_digest(
         route_family=route_family,
@@ -1112,6 +1177,7 @@ def _build_phase_row(
         "anchor_id": anchor_id,
         "anchor_label": f"{route_family}/{phase_name} phase coverage",
         "taxonomy_contract_version": TAXONOMY_CONTRACT_VERSION,
+        "reviewer_fragments_contract_version": REVIEWER_FRAGMENTS_CONTRACT_VERSION,
         "actual_run_evidence_present": actual_run_evidence_present,
         "evidence_source": coverage_bucket,
         "coverage_bucket": coverage_bucket,
@@ -1154,7 +1220,11 @@ def _build_phase_row(
         ),
         "hold_time_summary": hold_time_summary,
         "impacted_readiness_dimensions": impacted_readiness_dimensions,
+        "gap_reason_fragments": gap_reason_fragments,
+        "gap_reason_fragment_keys": fragment_rows_to_keys(gap_reason_fragments),
         "readiness_impact_digest": readiness_impact_digest,
+        "readiness_impact_fragments": readiness_impact_fragments,
+        "readiness_impact_fragment_keys": fragment_rows_to_keys(readiness_impact_fragments),
         "phase_boundary_digest": phase_boundary_digest,
         "gap_classification": gap_classification,
         "gap_severity": gap_severity,
@@ -1168,6 +1238,8 @@ def _build_phase_row(
         "linked_uncertainty_inputs": linked_uncertainty_inputs,
         "linked_traceability_stub_nodes": linked_traceability_stub_nodes,
         "blockers": blockers,
+        "blocker_fragments": blocker_fragments,
+        "blocker_fragment_keys": fragment_rows_to_keys(blocker_fragments),
         "next_required_artifacts": next_required_artifacts,
         "linked_readiness_artifact_refs": linked_readiness_artifact_refs,
         "linked_readiness_summary": linked_readiness_summary,
@@ -1178,6 +1250,8 @@ def _build_phase_row(
         },
         "linked_artifact_refs": linked_artifact_refs,
         "reviewer_next_step_digest": reviewer_next_step_digest,
+        "reviewer_next_step_fragments": reviewer_next_step_fragments,
+        "reviewer_next_step_fragment_keys": fragment_rows_to_keys(reviewer_next_step_fragments),
         "reviewer_guidance_digest": reviewer_guidance_digest,
         "reviewer_note": str(definition.get("reviewer_note") or ""),
         "digest": summary,
@@ -1765,13 +1839,13 @@ def _phase_reviewer_next_step_digest(
     linked_uncertainty_inputs: list[str],
     linked_traceability_stub_nodes: list[str],
 ) -> str:
-    template_key = phase_reviewer_next_step_template_key(
+    rows = _phase_reviewer_next_step_fragments(
         route_family=route_family,
         phase_name=phase_name,
         coverage_bucket=coverage_bucket,
         payload_completeness=payload_completeness,
     )
-    rendered = reviewer_next_step_text(template_key, locale="en_US")
+    rendered = fragment_summary(rows, default="")
     if rendered:
         return rendered
     parts = []
@@ -1992,6 +2066,228 @@ def _phase_readiness_artifact_refs(phase_name: str) -> list[dict[str, str]]:
     return refs
 
 
+def _phase_gap_reason_fragments(
+    *,
+    phase_name: str,
+    payload_completeness: str,
+    missing_layer_reasons: dict[str, str],
+    missing_signal_layers: list[str],
+    coverage_bucket: str,
+) -> list[dict[str, Any]]:
+    phase_name = str(phase_name or "").strip()
+    coverage_bucket_label = _coverage_bucket_display(coverage_bucket)
+    missing_details = _missing_reason_digest(missing_layer_reasons)
+    rows: list[dict[str, Any]] = []
+    if missing_details != "--":
+        if phase_name == "preseal":
+            rows.append(
+                build_fragment_row(
+                    GAP_REASON_FRAGMENT_FAMILY,
+                    "conditioning_window_output_layer_open",
+                    params={"details": missing_details},
+                    display_locale="en_US",
+                )
+            )
+        else:
+            rows.append(
+                build_fragment_row(
+                    GAP_REASON_FRAGMENT_FAMILY,
+                    "missing_layer_reason_explicit",
+                    params={"details": missing_details},
+                    display_locale="en_US",
+                )
+            )
+        return rows
+    if payload_completeness == "partial":
+        rows.append(
+            build_fragment_row(
+                GAP_REASON_FRAGMENT_FAMILY,
+                "partial_payload_boundary_open",
+                params={"missing_layers": missing_signal_layers or ["boundary remains explicit"]},
+                display_locale="en_US",
+            )
+        )
+    elif payload_completeness == "trace_only":
+        rows.append(
+            build_fragment_row(
+                GAP_REASON_FRAGMENT_FAMILY,
+                "trace_only_not_payload_evaluated",
+                display_locale="en_US",
+            )
+        )
+    elif coverage_bucket in {"model_only", "test_only", "gap"}:
+        rows.append(
+            build_fragment_row(
+                GAP_REASON_FRAGMENT_FAMILY,
+                "reviewer_coverage_only_gap",
+                params={"coverage_bucket_label": coverage_bucket_label},
+                display_locale="en_US",
+            )
+        )
+    return rows
+
+
+def _phase_readiness_impact_fragments(
+    *,
+    payload_completeness: str,
+    impacted_readiness_dimensions: list[str],
+    missing_signal_layers: list[str],
+    coverage_bucket: str,
+) -> list[dict[str, Any]]:
+    dimension_text = ", ".join(list(impacted_readiness_dimensions or [])) or "readiness"
+    coverage_bucket_label = _coverage_bucket_display(coverage_bucket)
+    if coverage_bucket == _PAYLOAD_COMPLETE_BUCKET:
+        return normalize_fragment_rows(
+            READINESS_IMPACT_FRAGMENT_FAMILY,
+            [
+                {
+                    "fragment_key": "payload_backed_linkage_available",
+                    "params": {"dimensions": dimension_text},
+                }
+            ],
+            display_locale="en_US",
+        )
+    if payload_completeness == "partial":
+        return normalize_fragment_rows(
+            READINESS_IMPACT_FRAGMENT_FAMILY,
+            [
+                {
+                    "fragment_key": "payload_partial_linkage_open",
+                    "params": {
+                        "dimensions": dimension_text,
+                        "missing_layers": missing_signal_layers or ["boundary remains explicit"],
+                    },
+                }
+            ],
+            display_locale="en_US",
+        )
+    if payload_completeness == "trace_only":
+        return normalize_fragment_rows(
+            READINESS_IMPACT_FRAGMENT_FAMILY,
+            [
+                {
+                    "fragment_key": "trace_only_linkage_open",
+                    "params": {"dimensions": dimension_text},
+                }
+            ],
+            display_locale="en_US",
+        )
+    if coverage_bucket in {"model_only", "test_only", "gap"}:
+        return normalize_fragment_rows(
+            READINESS_IMPACT_FRAGMENT_FAMILY,
+            [
+                {
+                    "fragment_key": "reviewer_coverage_only_linkage_open",
+                    "params": {
+                        "dimensions": dimension_text,
+                        "coverage_bucket_label": coverage_bucket_label,
+                    },
+                }
+            ],
+            display_locale="en_US",
+        )
+    return normalize_fragment_rows(
+        READINESS_IMPACT_FRAGMENT_FAMILY,
+        [
+            {
+                "fragment_key": "payload_evidence_not_complete",
+                "params": {"dimensions": dimension_text},
+            }
+        ],
+        display_locale="en_US",
+    )
+
+
+def _phase_blocker_fragments(
+    *,
+    phase_name: str,
+    payload_completeness: str,
+    actual_run_evidence_present: bool,
+    missing_signal_layers: list[str],
+    coverage_bucket: str,
+    linked_method_confirmation_items: list[str],
+    linked_uncertainty_inputs: list[str],
+    linked_traceability_stub_nodes: list[str],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    coverage_bucket_label = _coverage_bucket_display(coverage_bucket)
+    if payload_completeness == "partial":
+        rows.append(build_fragment_row(BLOCKER_FRAGMENT_FAMILY, "partial_payload_not_phase_complete", display_locale="en_US"))
+    elif payload_completeness == "trace_only":
+        rows.append(build_fragment_row(BLOCKER_FRAGMENT_FAMILY, "trace_only_payload_not_promoted", display_locale="en_US"))
+    elif coverage_bucket in {"model_only", "test_only", "gap"}:
+        rows.append(
+            build_fragment_row(
+                BLOCKER_FRAGMENT_FAMILY,
+                "coverage_bucket_richer_payload_missing",
+                params={"coverage_bucket_label": coverage_bucket_label},
+                display_locale="en_US",
+            )
+        )
+    elif actual_run_evidence_present and coverage_bucket != _PAYLOAD_COMPLETE_BUCKET:
+        rows.append(build_fragment_row(BLOCKER_FRAGMENT_FAMILY, "actual_simulated_payload_still_open", display_locale="en_US"))
+    if missing_signal_layers:
+        rows.append(
+            build_fragment_row(
+                BLOCKER_FRAGMENT_FAMILY,
+                "missing_signal_layers_explicit",
+                params={"missing_layers": missing_signal_layers},
+                display_locale="en_US",
+            )
+        )
+    if linked_method_confirmation_items and coverage_bucket != _PAYLOAD_COMPLETE_BUCKET:
+        rows.append(
+            build_fragment_row(
+                BLOCKER_FRAGMENT_FAMILY,
+                "linked_method_items_open",
+                params={"items": linked_method_confirmation_items},
+                display_locale="en_US",
+            )
+        )
+    if linked_uncertainty_inputs and coverage_bucket != _PAYLOAD_COMPLETE_BUCKET:
+        rows.append(
+            build_fragment_row(
+                BLOCKER_FRAGMENT_FAMILY,
+                "linked_uncertainty_inputs_open",
+                params={"items": linked_uncertainty_inputs},
+                display_locale="en_US",
+            )
+        )
+    if linked_traceability_stub_nodes and coverage_bucket != _PAYLOAD_COMPLETE_BUCKET:
+        rows.append(
+            build_fragment_row(
+                BLOCKER_FRAGMENT_FAMILY,
+                "linked_traceability_nodes_stub_only",
+                params={"items": linked_traceability_stub_nodes},
+                display_locale="en_US",
+            )
+        )
+    if str(phase_name or "").strip() == "preseal":
+        rows.append(build_fragment_row(BLOCKER_FRAGMENT_FAMILY, "preseal_honesty_boundary", display_locale="en_US"))
+        rows.append(build_fragment_row(BLOCKER_FRAGMENT_FAMILY, "preseal_setup_conditioning_only", display_locale="en_US"))
+    return normalize_fragment_rows(BLOCKER_FRAGMENT_FAMILY, rows, display_locale="en_US")
+
+
+def _phase_reviewer_next_step_fragments(
+    *,
+    route_family: str,
+    phase_name: str,
+    coverage_bucket: str,
+    payload_completeness: str,
+) -> list[dict[str, Any]]:
+    template_key = phase_reviewer_next_step_template_key(
+        route_family=route_family,
+        phase_name=phase_name,
+        coverage_bucket=coverage_bucket,
+        payload_completeness=payload_completeness,
+    ) or "generic_boundary_documentation"
+    return normalize_fragment_rows(
+        REVIEWER_NEXT_STEP_FRAGMENT_FAMILY,
+        [{"fragment_key": template_key}],
+        display_locale="en_US",
+    )
+
+
 def _phase_readiness_impact_digest(
     *,
     phase_name: str,
@@ -2001,19 +2297,13 @@ def _phase_readiness_impact_digest(
     coverage_bucket: str,
 ) -> str:
     impact_area = _PHASE_READINESS_IMPACT_AREAS.get(str(phase_name or "").strip(), "readiness")
-    dimension_text = ", ".join(list(impacted_readiness_dimensions or [])) or impact_area
-    if coverage_bucket == _PAYLOAD_COMPLETE_BUCKET:
-        return f"{dimension_text} linkage is available from synthetic payload-backed reviewer evidence"
-    if payload_completeness == "partial":
-        return (
-            f"{dimension_text} remains open because payload is partial and "
-            f"missing layers stay explicit: {', '.join(missing_signal_layers) or '--'}"
-        )
-    if payload_completeness == "trace_only":
-        return f"{dimension_text} remains open because this phase is still trace-only and not payload-evaluated"
-    if coverage_bucket in {"model_only", "test_only", "gap"}:
-        return f"{dimension_text} remains open because this phase has only {coverage_bucket} reviewer coverage"
-    return f"{dimension_text} remains open because payload evidence is not complete"
+    rows = _phase_readiness_impact_fragments(
+        payload_completeness=payload_completeness,
+        impacted_readiness_dimensions=impacted_readiness_dimensions or [impact_area],
+        missing_signal_layers=missing_signal_layers,
+        coverage_bucket=coverage_bucket,
+    )
+    return fragment_summary(rows, default=f"{impact_area} remains open because payload evidence is not complete")
 
 
 def _phase_blockers(
@@ -2027,26 +2317,15 @@ def _phase_blockers(
     linked_uncertainty_inputs: list[str],
     linked_traceability_stub_nodes: list[str],
 ) -> list[str]:
-    blockers = []
-    if payload_completeness == "partial":
-        blockers.append(
-            "payload stays partial so reviewer evidence cannot be overstated as phase-complete measurement evidence"
+    return fragment_rows_to_texts(
+        _phase_blocker_fragments(
+            phase_name=phase_name,
+            payload_completeness=payload_completeness,
+            actual_run_evidence_present=actual_run_evidence_present,
+            missing_signal_layers=missing_signal_layers,
+            coverage_bucket=coverage_bucket,
+            linked_method_confirmation_items=linked_method_confirmation_items,
+            linked_uncertainty_inputs=linked_uncertainty_inputs,
+            linked_traceability_stub_nodes=linked_traceability_stub_nodes,
         )
-    elif payload_completeness == "trace_only":
-        blockers.append("phase is still trace-only; simulated payload layers have not been promoted yet")
-    elif coverage_bucket in {"model_only", "test_only", "gap"}:
-        blockers.append(f"phase remains {coverage_bucket}; richer simulated payload evidence is still missing")
-    elif actual_run_evidence_present and coverage_bucket != _PAYLOAD_COMPLETE_BUCKET:
-        blockers.append("actual simulated evidence exists but payload completeness remains open")
-    if missing_signal_layers:
-        blockers.append(f"missing signal layers: {', '.join(missing_signal_layers)}")
-    if linked_method_confirmation_items and coverage_bucket != _PAYLOAD_COMPLETE_BUCKET:
-        blockers.append(f"linked method confirmation items remain open: {', '.join(linked_method_confirmation_items)}")
-    if linked_uncertainty_inputs and coverage_bucket != _PAYLOAD_COMPLETE_BUCKET:
-        blockers.append(f"linked uncertainty inputs remain open: {', '.join(linked_uncertainty_inputs)}")
-    if linked_traceability_stub_nodes and coverage_bucket != _PAYLOAD_COMPLETE_BUCKET:
-        blockers.append(f"linked traceability nodes remain stub-only: {', '.join(linked_traceability_stub_nodes)}")
-    if str(phase_name or "").strip() == "preseal":
-        blockers.append("preseal partial is an honesty boundary, not a measurement-core bug")
-        blockers.append("preseal remains setup/conditioning evidence and does not imply released measurement output")
-    return _dedupe(blockers)
+    )

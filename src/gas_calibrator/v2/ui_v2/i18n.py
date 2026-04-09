@@ -7,6 +7,7 @@ import re
 from typing import Any
 
 from ..core.phase_taxonomy_contract import taxonomy_display_label, taxonomy_i18n_key
+from ..core.reviewer_fragments_contract import fragment_display_label, fragment_i18n_key
 
 DEFAULT_LOCALE = "zh_CN"
 FALLBACK_LOCALE = "en_US"
@@ -173,6 +174,44 @@ def display_taxonomy_values(
     rows: list[str] = []
     for value in list(values or []):
         label = display_taxonomy_value(family, value, locale=locale, default=default)
+        if label and label not in rows:
+            rows.append(label)
+    return rows
+
+
+def display_fragment_value(
+    family: str,
+    value: Any,
+    *,
+    params: dict[str, Any] | None = None,
+    locale: str | None = None,
+    default: str | None = None,
+) -> str:
+    preferred = str(locale or _current_locale or DEFAULT_LOCALE)
+    i18n_key = fragment_i18n_key(family, value)
+    fallback = fragment_display_label(family, value, locale=preferred, params=params, default=default)
+    if i18n_key:
+        return t(i18n_key, locale=preferred, default=fallback, **dict(params or {}))
+    return fallback
+
+
+def display_fragment_values(
+    family: str,
+    values: list[Any] | tuple[Any, ...] | None,
+    *,
+    locale: str | None = None,
+    default: str | None = None,
+) -> list[str]:
+    rows: list[str] = []
+    for value in list(values or []):
+        params = dict(value.get("params") or {}) if isinstance(value, dict) else {}
+        label = display_fragment_value(
+            family,
+            value.get("fragment_key") if isinstance(value, dict) else value,
+            params=params,
+            locale=locale,
+            default=(value.get("text") if isinstance(value, dict) else default),
+        )
         if label and label not in rows:
             rows.append(label)
     return rows

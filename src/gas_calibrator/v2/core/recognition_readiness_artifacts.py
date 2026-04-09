@@ -11,6 +11,18 @@ from .phase_taxonomy_contract import (
     normalize_phase_taxonomy_row,
     normalize_taxonomy_keys,
 )
+from .reviewer_fragments_contract import (
+    BLOCKER_FRAGMENT_FAMILY,
+    GAP_REASON_FRAGMENT_FAMILY,
+    READINESS_IMPACT_FRAGMENT_FAMILY,
+    REVIEWER_FRAGMENTS_CONTRACT_VERSION,
+    REVIEWER_NEXT_STEP_FRAGMENT_FAMILY,
+    build_fragment_row,
+    fragment_rows_to_keys,
+    fragment_rows_to_texts,
+    fragment_summary,
+    normalize_fragment_rows,
+)
 
 SCOPE_DEFINITION_PACK_FILENAME = "scope_definition_pack.json"
 SCOPE_DEFINITION_PACK_MARKDOWN_FILENAME = "scope_definition_pack.md"
@@ -1540,26 +1552,26 @@ def _enrich_recognition_readiness_artifact(
         or _RECOGNITION_MISSING_EVIDENCE_DEFAULTS.get(artifact_type)
         or []
     )
-    blockers = _normalize_text_list(
-        raw.get("blockers")
+    artifact_blocker_fragments = normalize_fragment_rows(
+        BLOCKER_FRAGMENT_FAMILY,
+        raw.get("blocker_fragments")
+        or raw.get("blockers")
         or _RECOGNITION_BLOCKER_DEFAULTS.get(artifact_type)
-        or []
+        or [],
+        display_locale="en_US",
     )
+    artifact_blockers = fragment_rows_to_texts(artifact_blocker_fragments)
     next_required_artifacts = _normalize_text_list(
         raw.get("next_required_artifacts")
         or _RECOGNITION_NEXT_ARTIFACT_DEFAULTS.get(artifact_type)
         or []
     )
-    blockers = _normalize_text_list(
-        [
-            *blockers,
-            *(
-                f"{str(item.get('route_phase') or '--')}: {', '.join(list(item.get('blockers') or []))}"
-                for item in linked_measurement_gaps
-                if list(item.get("blockers") or [])
-            ),
-        ]
+    measurement_blockers = _normalize_text_list(
+        f"{str(item.get('route_phase') or '--')}: {fragment_summary(item.get('blocker_fragments') or [], default=' | '.join(list(item.get('blockers') or [])) or '--')}"
+        for item in linked_measurement_gaps
+        if list(item.get("blocker_fragments") or []) or list(item.get("blockers") or [])
     )
+    blockers = _normalize_text_list([*artifact_blockers, *measurement_blockers])
     next_required_artifacts = _normalize_text_list(
         [
             *next_required_artifacts,
@@ -1574,6 +1586,13 @@ def _enrich_recognition_readiness_artifact(
     readiness_status = str(raw.get("readiness_status") or "").strip() or f"{artifact_type}_readiness_stub"
     linked_measurement_phase_summary = _phase_route_summary(linked_measurement_phase_artifacts)
     linked_measurement_gap_summary = _linked_measurement_gap_summary(linked_measurement_phase_artifacts)
+    linked_readiness_impact_summary = _fragment_summary_by_route(
+        linked_measurement_phase_artifacts,
+        family=READINESS_IMPACT_FRAGMENT_FAMILY,
+        fragment_field_name="readiness_impact_fragments",
+        text_field_name="readiness_impact_digest",
+        include_complete=False,
+    )
     linked_method_confirmation_summary = _field_summary_from_phase_refs(
         linked_measurement_phase_artifacts,
         "linked_method_confirmation_items",
@@ -1604,10 +1623,24 @@ def _enrich_recognition_readiness_artifact(
         artifact_type=artifact_type,
         linked_measurement_phase_artifacts=linked_measurement_phase_artifacts,
     )
-    gap_reason = linked_measurement_gap_summary or str(raw.get("gap_reason") or "").strip()
-    reviewer_next_step_digest = _linked_reviewer_next_step_summary(linked_measurement_gaps) or str(
-        raw.get("reviewer_next_step_digest") or ""
-    ).strip()
+    gap_reason_fragments = normalize_fragment_rows(
+        GAP_REASON_FRAGMENT_FAMILY,
+        raw.get("gap_reason_fragments") or raw.get("gap_reason") or [],
+        display_locale="en_US",
+    )
+    reviewer_next_step_fragments = normalize_fragment_rows(
+        REVIEWER_NEXT_STEP_FRAGMENT_FAMILY,
+        raw.get("reviewer_next_step_fragments") or raw.get("reviewer_next_step_digest") or [],
+        display_locale="en_US",
+    )
+    gap_reason = linked_measurement_gap_summary or fragment_summary(
+        gap_reason_fragments,
+        default=str(raw.get("gap_reason") or "").strip(),
+    )
+    reviewer_next_step_digest = _linked_reviewer_next_step_summary(linked_measurement_gaps) or fragment_summary(
+        reviewer_next_step_fragments,
+        default=str(raw.get("reviewer_next_step_digest") or "").strip(),
+    )
     linked_artifact_summary = " | ".join(
         _dedupe(str(item.get("artifact_type") or item.get("anchor_label") or "").strip() for item in linked_artifact_refs)
     )
@@ -1627,6 +1660,8 @@ def _enrich_recognition_readiness_artifact(
         digest["linked_measurement_phase_summary"] = linked_measurement_phase_summary
     if linked_measurement_gap_summary:
         digest["linked_measurement_gap_summary"] = linked_measurement_gap_summary
+    if linked_readiness_impact_summary:
+        digest["linked_readiness_impact_summary"] = linked_readiness_impact_summary
     if linked_method_confirmation_summary:
         digest["linked_method_confirmation_items_summary"] = linked_method_confirmation_summary
     if linked_uncertainty_input_summary:
@@ -1652,6 +1687,7 @@ def _enrich_recognition_readiness_artifact(
     raw["anchor_id"] = anchor_id
     raw["anchor_label"] = anchor_label
     raw["taxonomy_contract_version"] = TAXONOMY_CONTRACT_VERSION
+    raw["reviewer_fragments_contract_version"] = REVIEWER_FRAGMENTS_CONTRACT_VERSION
     raw["linked_artifact_refs"] = linked_artifact_refs
     raw["linked_measurement_phase_artifacts"] = linked_measurement_phase_artifacts
     raw["linked_measurement_phases"] = linked_measurement_phases
@@ -1662,15 +1698,22 @@ def _enrich_recognition_readiness_artifact(
     raw["linked_gap_classification_keys"] = linked_gap_classification_keys
     raw["linked_gap_severity_keys"] = linked_gap_severity_keys
     raw["linked_measurement_gap_summary"] = linked_measurement_gap_summary
+    raw["linked_readiness_impact_summary"] = linked_readiness_impact_summary
     raw["preseal_partial_gap_summary"] = preseal_partial_gap_summary
     raw["gap_reason"] = gap_reason
+    raw["gap_reason_fragments"] = gap_reason_fragments
+    raw["gap_reason_fragment_keys"] = fragment_rows_to_keys(gap_reason_fragments)
     raw["missing_evidence"] = missing_evidence
     raw["blockers"] = blockers
+    raw["blocker_fragments"] = artifact_blocker_fragments
+    raw["blocker_fragment_keys"] = fragment_rows_to_keys(artifact_blocker_fragments)
     raw["next_required_artifacts"] = next_required_artifacts
     raw["readiness_status"] = readiness_status
     raw["boundary_digest"] = boundary_digest
     raw["non_claim_digest"] = non_claim_digest
     raw["reviewer_next_step_digest"] = reviewer_next_step_digest
+    raw["reviewer_next_step_fragments"] = reviewer_next_step_fragments
+    raw["reviewer_next_step_fragment_keys"] = fragment_rows_to_keys(reviewer_next_step_fragments)
     raw["digest"] = digest
     if review_surface:
         review_surface["anchor_id"] = anchor_id
@@ -1694,6 +1737,7 @@ def _enrich_recognition_readiness_artifact(
                 f"readiness status: {readiness_status}",
                 f"linked measurement phases: {linked_measurement_phase_summary}" if linked_measurement_phase_summary else "",
                 f"linked measurement gaps: {linked_measurement_gap_summary}" if linked_measurement_gap_summary else "",
+                f"readiness impact: {linked_readiness_impact_summary}" if linked_readiness_impact_summary else "",
                 f"reviewer next step: {reviewer_next_step_digest}" if reviewer_next_step_digest else "",
                 f"next required artifacts: {' | '.join(next_required_artifacts)}" if next_required_artifacts else "",
             ],
@@ -1704,6 +1748,7 @@ def _enrich_recognition_readiness_artifact(
                 f"linked artifacts: {linked_artifact_summary}" if linked_artifact_summary else "",
                 f"linked measurement phases: {linked_measurement_phase_summary}" if linked_measurement_phase_summary else "",
                 f"linked measurement gaps: {linked_measurement_gap_summary}" if linked_measurement_gap_summary else "",
+                f"readiness impact: {linked_readiness_impact_summary}" if linked_readiness_impact_summary else "",
                 f"linked method confirmation items: {linked_method_confirmation_summary}" if linked_method_confirmation_summary else "",
                 f"linked uncertainty inputs: {linked_uncertainty_input_summary}" if linked_uncertainty_input_summary else "",
                 f"linked traceability nodes: {linked_traceability_node_summary}" if linked_traceability_node_summary else "",
@@ -1769,8 +1814,12 @@ def _measurement_phase_refs_for_artifact(
                     "available_signal_layers": list(row.get("available_signal_layers") or []),
                     "missing_signal_layers": list(row.get("missing_signal_layers") or []),
                     "missing_reason_digest": str(row.get("missing_reason_digest") or "").strip(),
+                    "gap_reason_fragments": [dict(item) for item in list(row.get("gap_reason_fragments") or []) if isinstance(item, dict)],
+                    "gap_reason_fragment_keys": list(row.get("gap_reason_fragment_keys") or []),
                     "evidence_provenance": str(row.get("evidence_provenance") or "").strip(),
                     "readiness_impact_digest": str(row.get("readiness_impact_digest") or "").strip(),
+                    "readiness_impact_fragments": [dict(item) for item in list(row.get("readiness_impact_fragments") or []) if isinstance(item, dict)],
+                    "readiness_impact_fragment_keys": list(row.get("readiness_impact_fragment_keys") or []),
                     "gap_classification": str(row.get("gap_classification") or "").strip(),
                     "gap_severity": str(row.get("gap_severity") or "").strip(),
                     "linked_method_confirmation_items": list(row.get("linked_method_confirmation_items") or []),
@@ -1782,9 +1831,13 @@ def _measurement_phase_refs_for_artifact(
                     "linked_traceability_stub_nodes": list(row.get("linked_traceability_stub_nodes") or []),
                     "linked_readiness_summary": str(row.get("linked_readiness_summary") or "").strip(),
                     "blockers": list(row.get("blockers") or []),
+                    "blocker_fragments": [dict(item) for item in list(row.get("blocker_fragments") or []) if isinstance(item, dict)],
+                    "blocker_fragment_keys": list(row.get("blocker_fragment_keys") or []),
                     "next_required_artifacts": list(row.get("next_required_artifacts") or []),
                     "gap_reason": str(row.get("missing_reason_digest") or row.get("readiness_impact_digest") or "").strip(),
                     "reviewer_next_step_digest": str(row.get("reviewer_next_step_digest") or "").strip(),
+                    "reviewer_next_step_fragments": [dict(item) for item in list(row.get("reviewer_next_step_fragments") or []) if isinstance(item, dict)],
+                    "reviewer_next_step_fragment_keys": list(row.get("reviewer_next_step_fragment_keys") or []),
                     "reviewer_next_step_template_key": str(row.get("reviewer_next_step_template_key") or "").strip(),
                     "reviewer_guidance_digest": str(row.get("reviewer_guidance_digest") or "").strip(),
                     "comparison_digest": str(row.get("comparison_digest") or "").strip(),
@@ -1809,20 +1862,21 @@ def _phase_route_summary(rows: list[dict[str, Any]]) -> str:
 
 
 def _linked_measurement_gap_summary(rows: list[dict[str, Any]]) -> str:
-    return " | ".join(
-        _dedupe(
-            (
-                f"{str(item.get('route_phase') or '').strip()}: "
-                f"{str(item.get('missing_reason_digest') or item.get('readiness_impact_digest') or '').strip()}"
-            )
-            for item in rows
-            if str(item.get("route_phase") or "").strip()
-            and (
-                str(item.get("missing_reason_digest") or "").strip()
-                or str(item.get("readiness_impact_digest") or "").strip()
-            )
-            and str(item.get("coverage_bucket") or "").strip() != "actual_simulated_run_with_payload_complete"
-        )
+    gap_reason_summary = _fragment_summary_by_route(
+        rows,
+        family=GAP_REASON_FRAGMENT_FAMILY,
+        fragment_field_name="gap_reason_fragments",
+        text_field_name="missing_reason_digest",
+        include_complete=False,
+    )
+    if gap_reason_summary:
+        return gap_reason_summary
+    return _fragment_summary_by_route(
+        rows,
+        family=READINESS_IMPACT_FRAGMENT_FAMILY,
+        fragment_field_name="readiness_impact_fragments",
+        text_field_name="readiness_impact_digest",
+        include_complete=False,
     )
 
 
@@ -1853,6 +1907,11 @@ def _linked_measurement_gap_rows(rows: list[dict[str, Any]]) -> list[dict[str, A
                     or payload.get("readiness_impact_digest")
                     or ""
                 ).strip(),
+                "gap_reason_fragments": [dict(item) for item in list(payload.get("gap_reason_fragments") or []) if isinstance(item, dict)],
+                "gap_reason_fragment_keys": list(payload.get("gap_reason_fragment_keys") or []),
+                "readiness_impact_digest": str(payload.get("readiness_impact_digest") or "").strip(),
+                "readiness_impact_fragments": [dict(item) for item in list(payload.get("readiness_impact_fragments") or []) if isinstance(item, dict)],
+                "readiness_impact_fragment_keys": list(payload.get("readiness_impact_fragment_keys") or []),
                 "linked_method_confirmation_item_keys": list(payload.get("linked_method_confirmation_item_keys") or []),
                 "linked_method_confirmation_items": list(payload.get("linked_method_confirmation_items") or []),
                 "linked_uncertainty_input_keys": list(payload.get("linked_uncertainty_input_keys") or []),
@@ -1860,8 +1919,12 @@ def _linked_measurement_gap_rows(rows: list[dict[str, Any]]) -> list[dict[str, A
                 "linked_traceability_node_keys": list(payload.get("linked_traceability_node_keys") or []),
                 "linked_traceability_nodes": list(payload.get("linked_traceability_nodes") or []),
                 "blockers": list(payload.get("blockers") or []),
+                "blocker_fragments": [dict(item) for item in list(payload.get("blocker_fragments") or []) if isinstance(item, dict)],
+                "blocker_fragment_keys": list(payload.get("blocker_fragment_keys") or []),
                 "next_required_artifacts": list(payload.get("next_required_artifacts") or []),
                 "reviewer_next_step_digest": str(payload.get("reviewer_next_step_digest") or "").strip(),
+                "reviewer_next_step_fragments": [dict(item) for item in list(payload.get("reviewer_next_step_fragments") or []) if isinstance(item, dict)],
+                "reviewer_next_step_fragment_keys": list(payload.get("reviewer_next_step_fragment_keys") or []),
                 "reviewer_next_step_template_key": str(payload.get("reviewer_next_step_template_key") or "").strip(),
             }
         )
@@ -1890,12 +1953,60 @@ def _linked_value_summary(rows: list[dict[str, Any]], field_name: str) -> list[s
     )
 
 
+def _fragment_summary_by_route(
+    rows: list[dict[str, Any]],
+    *,
+    family: str,
+    fragment_field_name: str,
+    text_field_name: str,
+    include_complete: bool = True,
+) -> str:
+    return " | ".join(
+        _dedupe(
+            (
+                f"{str(item.get('route_phase') or '').strip()}: "
+                f"{fragment_summary(item.get(fragment_field_name) or [], default=str(item.get(text_field_name) or '').strip() or '--')}"
+            )
+            for item in rows
+            if str(item.get("route_phase") or "").strip()
+            and (include_complete or str(item.get("coverage_bucket") or "").strip() != "actual_simulated_run_with_payload_complete")
+            and (
+                list(item.get(fragment_field_name) or [])
+                or str(item.get(text_field_name) or "").strip()
+            )
+        )
+    )
+
+
+def _fragment_text_list_from_rows(
+    rows: list[dict[str, Any]],
+    *,
+    family: str,
+    fragment_field_name: str,
+    text_field_name: str,
+) -> list[str]:
+    values: list[str] = []
+    for item in rows:
+        fragment_rows = normalize_fragment_rows(
+            family,
+            list(item.get(fragment_field_name) or []) or _normalize_text_list(item.get(text_field_name)),
+            display_locale="en_US",
+        )
+        for text in fragment_rows_to_texts(fragment_rows):
+            if text and text not in values:
+                values.append(text)
+    return values
+
+
 def _linked_reviewer_next_step_summary(rows: list[dict[str, Any]]) -> str:
     return " | ".join(
         _dedupe(
-            str(item.get("reviewer_next_step_digest") or "").strip()
+            fragment_summary(
+                item.get("reviewer_next_step_fragments") or [],
+                default=str(item.get("reviewer_next_step_digest") or "").strip(),
+            )
             for item in rows
-            if str(item.get("reviewer_next_step_digest") or "").strip()
+            if list(item.get("reviewer_next_step_fragments") or []) or str(item.get("reviewer_next_step_digest") or "").strip()
         )
     )
 
