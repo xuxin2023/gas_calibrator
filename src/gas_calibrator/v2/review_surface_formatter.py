@@ -13,7 +13,10 @@ from .core.phase_taxonomy_contract import (
 )
 from .core.reviewer_fragments_contract import (
     BLOCKER_FRAGMENT_FAMILY,
+    BOUNDARY_FRAGMENT_FAMILY,
     GAP_REASON_FRAGMENT_FAMILY,
+    NON_CLAIM_FRAGMENT_FAMILY,
+    PHASE_CONTRAST_FRAGMENT_FAMILY,
     READINESS_IMPACT_FRAGMENT_FAMILY,
     REVIEWER_NEXT_STEP_FRAGMENT_FAMILY,
     fragment_text_replacements,
@@ -523,6 +526,36 @@ def _display_reviewer_next_step(row: dict[str, Any]) -> str:
         fragment_keys=list(payload.get("reviewer_next_step_fragment_keys") or [payload.get("reviewer_next_step_template_key")]),
         text_values=[payload.get("reviewer_next_step_digest")],
         default_text=str(payload.get("reviewer_next_step_digest") or ""),
+    )
+
+
+def _display_boundary_summary(payload: dict[str, Any]) -> str:
+    return _display_fragment_list(
+        BOUNDARY_FRAGMENT_FAMILY,
+        fragment_rows=list(payload.get("boundary_fragments") or []),
+        fragment_keys=list(payload.get("boundary_fragment_keys") or []),
+        text_values=list(payload.get("boundary_statements") or []) or [payload.get("boundary_digest")],
+        default_text=str(payload.get("boundary_digest") or ""),
+    )
+
+
+def _display_non_claim_summary(payload: dict[str, Any]) -> str:
+    return _display_fragment_list(
+        NON_CLAIM_FRAGMENT_FAMILY,
+        fragment_rows=list(payload.get("non_claim_fragments") or []),
+        fragment_keys=list(payload.get("non_claim_fragment_keys") or []),
+        text_values=list(payload.get("non_claim") or []) or [payload.get("non_claim_digest")],
+        default_text=str(payload.get("non_claim_digest") or ""),
+    )
+
+
+def _display_phase_contrast_summary(payload: dict[str, Any], fallback: str) -> str:
+    return _display_fragment_list(
+        PHASE_CONTRAST_FRAGMENT_FAMILY,
+        fragment_rows=list(payload.get("phase_contrast_fragments") or []),
+        fragment_keys=list(payload.get("phase_contrast_fragment_keys") or []),
+        text_values=[payload.get("phase_contrast_summary") or fallback],
+        default_text=str(payload.get("phase_contrast_summary") or fallback or ""),
     )
 
 

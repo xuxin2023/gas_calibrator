@@ -1390,6 +1390,10 @@ class ResultsGateway:
                 "gap_reason": str(evidence_payload.get("gap_reason") or digest.get("gap_reason") or ""),
                 "gap_reason_fragments": [dict(item) for item in list(evidence_payload.get("gap_reason_fragments") or []) if isinstance(item, dict)],
                 "gap_reason_fragment_keys": list(evidence_payload.get("gap_reason_fragment_keys") or []),
+                "boundary_fragments": [dict(item) for item in list(evidence_payload.get("boundary_fragments") or []) if isinstance(item, dict)],
+                "boundary_fragment_keys": list(evidence_payload.get("boundary_fragment_keys") or []),
+                "non_claim_fragments": [dict(item) for item in list(evidence_payload.get("non_claim_fragments") or []) if isinstance(item, dict)],
+                "non_claim_fragment_keys": list(evidence_payload.get("non_claim_fragment_keys") or []),
                 "linked_readiness_impact_summary": str(
                     evidence_payload.get("linked_readiness_impact_summary")
                     or digest.get("linked_readiness_impact_summary")
@@ -1415,5 +1419,12 @@ class ResultsGateway:
                 ),
                 "boundary_digest": str(evidence_payload.get("boundary_digest") or digest.get("boundary_digest") or ""),
                 "non_claim_digest": str(evidence_payload.get("non_claim_digest") or digest.get("non_claim_digest") or ""),
+                "phase_contrast_fragments": [dict(item) for item in list(evidence_payload.get("phase_contrast_fragments") or []) if isinstance(item, dict)],
+                "phase_contrast_fragment_keys": list(evidence_payload.get("phase_contrast_fragment_keys") or []),
+                "phase_contrast_summary": str(
+                    evidence_payload.get("phase_contrast_summary")
+                    or dict(digest).get("phase_contrast_summary")
+                    or ""
+                ),
             },
         }

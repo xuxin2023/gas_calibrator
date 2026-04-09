@@ -19,7 +19,10 @@ from .phase_taxonomy_contract import (
 )
 from .reviewer_fragments_contract import (
     BLOCKER_FRAGMENT_FAMILY,
+    BOUNDARY_FRAGMENT_FAMILY,
     GAP_REASON_FRAGMENT_FAMILY,
+    NON_CLAIM_FRAGMENT_FAMILY,
+    PHASE_CONTRAST_FRAGMENT_FAMILY,
     READINESS_IMPACT_FRAGMENT_FAMILY,
     REVIEWER_FRAGMENTS_CONTRACT_VERSION,
     REVIEWER_NEXT_STEP_FRAGMENT_FAMILY,
@@ -111,6 +114,14 @@ _PHASE_ACTIONS: dict[str, tuple[str, ...]] = {
 _PAYLOAD_COMPLETE_BUCKET = "actual_simulated_run_with_payload_complete"
 _PAYLOAD_PARTIAL_BUCKET = "actual_simulated_run_with_payload_partial"
 _PAYLOAD_BACKED_BUCKETS = {_PAYLOAD_COMPLETE_BUCKET, _PAYLOAD_PARTIAL_BUCKET}
+
+_MEASUREMENT_NON_CLAIM_STATEMENTS = (
+    "simulation / synthetic reviewer evidence only",
+    "not real acceptance",
+    "not live gate",
+    "not compliance claim",
+    "not accreditation claim",
+)
 
 _READINESS_ARTIFACT_ANCHORS: dict[str, dict[str, str]] = {
     "scope_definition_pack": {
@@ -751,7 +762,29 @@ def build_measurement_phase_coverage_report(
             if str(row.get("reviewer_next_step_digest") or "").strip()
         )
     ) or "no reviewer next-step guidance recorded"
-    phase_contrast_summary = _phase_contrast_summary(phase_rows)
+    phase_contrast_fragments = _phase_contrast_fragments(phase_rows)
+    phase_contrast_summary = fragment_summary(
+        phase_contrast_fragments,
+        default="no complete-vs-partial phase contrast recorded",
+    )
+    boundary_fragments = normalize_fragment_rows(
+        BOUNDARY_FRAGMENT_FAMILY,
+        CANONICAL_BOUNDARY_STATEMENTS,
+        display_locale="en_US",
+    )
+    boundary_summary = fragment_summary(
+        boundary_fragments,
+        default=" | ".join(CANONICAL_BOUNDARY_STATEMENTS),
+    )
+    non_claim_fragments = normalize_fragment_rows(
+        NON_CLAIM_FRAGMENT_FAMILY,
+        _MEASUREMENT_NON_CLAIM_STATEMENTS,
+        display_locale="en_US",
+    )
+    non_claim_summary = fragment_summary(
+        non_claim_fragments,
+        default=" | ".join(_MEASUREMENT_NON_CLAIM_STATEMENTS),
+    )
     digest = {
         "summary": (
             "Step 2 tail / Stage 3 bridge | measurement phase coverage | "
@@ -779,7 +812,8 @@ def build_measurement_phase_coverage_report(
         "gap_index_summary": gap_index_summary,
         "reviewer_next_step_summary": reviewer_next_step_summary,
         "phase_contrast_summary": phase_contrast_summary,
-        "boundary_summary": " | ".join(CANONICAL_BOUNDARY_STATEMENTS),
+        "boundary_summary": boundary_summary,
+        "non_claim_summary": non_claim_summary,
     }
     review_surface = {
         "title_text": "Measurement Phase Coverage Report",
@@ -806,6 +840,7 @@ def build_measurement_phase_coverage_report(
             f"linked traceability stub nodes: {linked_traceability_stub_summary}",
             f"reviewer next steps: {reviewer_next_step_summary}",
             f"phase contrast: {phase_contrast_summary}",
+            f"non-claim digest: {non_claim_summary}",
         ],
         "detail_lines": [
             f"route families: {', '.join(routes) or '--'}",
@@ -826,7 +861,8 @@ def build_measurement_phase_coverage_report(
                 if str(row.get("comparison_digest") or "").strip()
             ],
             f"synthetic provenance: {dict(synthetic_trace_provenance or {}).get('summary', 'simulation trace only')}",
-            *[f"boundary: {line}" for line in CANONICAL_BOUNDARY_STATEMENTS],
+            *[f"boundary: {line}" for line in fragment_rows_to_texts(boundary_fragments)],
+            f"non-claim digest: {non_claim_summary}",
         ],
         "anchor_id": "measurement-phase-coverage-report",
         "anchor_label": "Measurement phase coverage report",
@@ -835,7 +871,7 @@ def build_measurement_phase_coverage_report(
         "signal_family_filters": signal_families,
         "decision_result_filters": decision_results,
         "policy_version_filters": policy_versions,
-        "boundary_filters": list(CANONICAL_BOUNDARY_STATEMENTS),
+        "boundary_filters": fragment_rows_to_texts(boundary_fragments),
         "evidence_source_filters": evidence_sources,
         "linked_anchor_refs": _dedupe(
             str(ref.get("anchor_id") or "")
@@ -872,6 +908,11 @@ def build_measurement_phase_coverage_report(
         "reviewer_fragments_contract_version": REVIEWER_FRAGMENTS_CONTRACT_VERSION,
         "not_real_acceptance_evidence": True,
         "boundary_statements": list(CANONICAL_BOUNDARY_STATEMENTS),
+        "boundary_fragments": boundary_fragments,
+        "boundary_fragment_keys": fragment_rows_to_keys(boundary_fragments),
+        "non_claim": list(_MEASUREMENT_NON_CLAIM_STATEMENTS),
+        "non_claim_fragments": non_claim_fragments,
+        "non_claim_fragment_keys": fragment_rows_to_keys(non_claim_fragments),
         "phase_rows": phase_rows,
         "phase_index": {str(row.get("phase_route_key") or ""): dict(row) for row in phase_rows},
         "synthetic_trace_provenance": dict(synthetic_trace_provenance or {}),
@@ -897,6 +938,12 @@ def build_measurement_phase_coverage_report(
                 "readiness_impact_digest": str(row.get("readiness_impact_digest") or "").strip(),
                 "readiness_impact_fragments": [dict(item) for item in list(row.get("readiness_impact_fragments") or []) if isinstance(item, dict)],
                 "readiness_impact_fragment_keys": list(row.get("readiness_impact_fragment_keys") or []),
+                "boundary_fragments": [dict(item) for item in list(row.get("boundary_fragments") or []) if isinstance(item, dict)],
+                "boundary_fragment_keys": list(row.get("boundary_fragment_keys") or []),
+                "phase_boundary_digest": str(row.get("phase_boundary_digest") or "").strip(),
+                "non_claim_digest": str(row.get("non_claim_digest") or "").strip(),
+                "non_claim_fragments": [dict(item) for item in list(row.get("non_claim_fragments") or []) if isinstance(item, dict)],
+                "non_claim_fragment_keys": list(row.get("non_claim_fragment_keys") or []),
                 "linked_method_confirmation_items": list(row.get("linked_method_confirmation_items") or []),
                 "linked_uncertainty_inputs": list(row.get("linked_uncertainty_inputs") or []),
                 "linked_traceability_nodes": list(row.get("linked_traceability_stub_nodes") or []),
@@ -907,6 +954,9 @@ def build_measurement_phase_coverage_report(
                 "reviewer_next_step_fragments": [dict(item) for item in list(row.get("reviewer_next_step_fragments") or []) if isinstance(item, dict)],
                 "reviewer_next_step_fragment_keys": list(row.get("reviewer_next_step_fragment_keys") or []),
                 "reviewer_next_step_template_key": str(row.get("reviewer_next_step_template_key") or "").strip(),
+                "comparison_fragments": [dict(item) for item in list(row.get("comparison_fragments") or []) if isinstance(item, dict)],
+                "comparison_fragment_keys": list(row.get("comparison_fragment_keys") or []),
+                "comparison_digest": str(row.get("comparison_digest") or "").strip(),
             }
             for row in phase_rows
             if str(row.get("coverage_bucket") or "").strip() != _PAYLOAD_COMPLETE_BUCKET
@@ -927,6 +977,8 @@ def build_measurement_phase_coverage_report(
             for item in list(row.get("linked_traceability_stub_nodes") or [])
         ),
         "reviewer_next_step_digest": reviewer_next_step_summary,
+        "phase_contrast_fragments": phase_contrast_fragments,
+        "phase_contrast_fragment_keys": fragment_rows_to_keys(phase_contrast_fragments),
         "next_required_artifacts": _dedupe(
             artifact_name
             for row in phase_rows
@@ -1130,10 +1182,20 @@ def _build_phase_row(
         payload_completeness=payload_completeness,
     )
     blockers = fragment_rows_to_texts(blocker_fragments)
+    boundary_fragments = _phase_boundary_fragments(
+        phase_name=phase_name,
+        coverage_bucket=coverage_bucket,
+        payload_completeness=payload_completeness,
+    )
     phase_boundary_digest = _phase_boundary_digest(
         phase_name=phase_name,
         coverage_bucket=coverage_bucket,
         payload_completeness=payload_completeness,
+    )
+    non_claim_fragments = _phase_non_claim_fragments()
+    non_claim_digest = fragment_summary(
+        non_claim_fragments,
+        default=" | ".join(_MEASUREMENT_NON_CLAIM_STATEMENTS),
     )
     reviewer_next_step_digest = fragment_summary(
         reviewer_next_step_fragments,
@@ -1197,10 +1259,11 @@ def _build_phase_row(
         ),
         "evidence_provenance": evidence_provenance,
         "boundary_digest": " | ".join(CANONICAL_BOUNDARY_STATEMENTS),
-        "non_claim_digest": (
-            "simulation / synthetic reviewer evidence only | "
-            "not real acceptance | not live gate | not compliance claim | not accreditation claim"
-        ),
+        "boundary_fragments": boundary_fragments,
+        "boundary_fragment_keys": fragment_rows_to_keys(boundary_fragments),
+        "non_claim_digest": non_claim_digest,
+        "non_claim_fragments": non_claim_fragments,
+        "non_claim_fragment_keys": fragment_rows_to_keys(non_claim_fragments),
         "decision_result": decision_result,
         "decision_summary": str(
             stability_row.get("decision_result")
@@ -1719,17 +1782,54 @@ def _missing_reason_digest(missing_layer_reasons: dict[str, str]) -> str:
 
 
 def _phase_boundary_digest(*, phase_name: str, coverage_bucket: str, payload_completeness: str) -> str:
+    return fragment_summary(
+        _phase_boundary_fragments(
+            phase_name=phase_name,
+            coverage_bucket=coverage_bucket,
+            payload_completeness=payload_completeness,
+        ),
+        default="measurement-core reviewer evidence stays within Step 2 simulation-only boundaries",
+    )
+
+
+def _phase_boundary_fragments(
+    *,
+    phase_name: str,
+    coverage_bucket: str,
+    payload_completeness: str,
+) -> list[dict[str, Any]]:
     phase_name = str(phase_name or "").strip()
     if phase_name == "preseal":
-        return (
-            "preseal partial is an honesty boundary for setup / conditioning evidence and does not imply released "
-            "measurement output"
+        return normalize_fragment_rows(
+            BOUNDARY_FRAGMENT_FAMILY,
+            ["preseal_partial_honesty_boundary"],
+            display_locale="en_US",
         )
     if phase_name == "pressure_stable" and coverage_bucket == _PAYLOAD_COMPLETE_BUCKET:
-        return "pressure-stable complete remains synthetic reviewer evidence only and does not imply real acceptance"
+        return normalize_fragment_rows(
+            BOUNDARY_FRAGMENT_FAMILY,
+            ["pressure_stable_complete_synthetic_only"],
+            display_locale="en_US",
+        )
     if payload_completeness == "trace_only":
-        return "trace-only phase evidence remains reviewer-only until payload-backed layers are promoted"
-    return "measurement-core reviewer evidence stays within Step 2 simulation-only boundaries"
+        return normalize_fragment_rows(
+            BOUNDARY_FRAGMENT_FAMILY,
+            ["trace_only_reviewer_boundary"],
+            display_locale="en_US",
+        )
+    return normalize_fragment_rows(
+        BOUNDARY_FRAGMENT_FAMILY,
+        ["measurement_core_step2_boundary"],
+        display_locale="en_US",
+    )
+
+
+def _phase_non_claim_fragments() -> list[dict[str, Any]]:
+    return normalize_fragment_rows(
+        NON_CLAIM_FRAGMENT_FAMILY,
+        _MEASUREMENT_NON_CLAIM_STATEMENTS,
+        display_locale="en_US",
+    )
 
 
 def _phase_navigation_profile(route_family: str, phase_name: str) -> dict[str, Any]:
@@ -1903,32 +2003,45 @@ def _enrich_phase_rows_for_reviewer_guidance(phase_rows: list[dict[str, Any]]) -
         if phase_name != "preseal":
             continue
         comparison_row = by_key.get((route_family, "pressure_stable"))
-        comparison_digest = _phase_comparison_digest(row=row, comparison_row=comparison_row)
+        comparison_fragments = _phase_comparison_fragments(row=row, comparison_row=comparison_row)
+        comparison_digest = fragment_summary(comparison_fragments, default="")
         if comparison_digest:
+            row["comparison_fragments"] = comparison_fragments
+            row["comparison_fragment_keys"] = fragment_rows_to_keys(comparison_fragments)
             row["comparison_digest"] = comparison_digest
     for row in rows:
         if str(row.get("phase_name") or "").strip() != "pressure_stable":
             continue
         comparison_row = by_key.get((str(row.get("route_family") or "").strip(), "preseal"))
-        comparison_digest = _phase_comparison_digest(row=comparison_row, comparison_row=row)
+        comparison_fragments = _phase_comparison_fragments(row=comparison_row, comparison_row=row)
+        comparison_digest = fragment_summary(comparison_fragments, default="")
         if comparison_digest:
+            row["comparison_fragments"] = comparison_fragments
+            row["comparison_fragment_keys"] = fragment_rows_to_keys(comparison_fragments)
             row["comparison_digest"] = comparison_digest
     return rows
 
 
 def _phase_comparison_digest(*, row: dict[str, Any] | None, comparison_row: dict[str, Any] | None) -> str:
+    return fragment_summary(
+        _phase_comparison_fragments(row=row, comparison_row=comparison_row),
+        default="",
+    )
+
+
+def _phase_comparison_fragments(*, row: dict[str, Any] | None, comparison_row: dict[str, Any] | None) -> list[dict[str, Any]]:
     phase_row = dict(row or {})
     stable_row = dict(comparison_row or {})
     if not phase_row or not stable_row:
-        return ""
+        return []
     if str(phase_row.get("phase_name") or "").strip() != "preseal":
-        return ""
+        return []
     if str(phase_row.get("coverage_bucket") or "").strip() != _PAYLOAD_PARTIAL_BUCKET:
-        return ""
+        return []
     if str(stable_row.get("phase_name") or "").strip() != "pressure_stable":
-        return ""
+        return []
     if str(stable_row.get("coverage_bucket") or "").strip() != _PAYLOAD_COMPLETE_BUCKET:
-        return ""
+        return []
     route_family = str(phase_row.get("route_family") or "").strip() or str(stable_row.get("route_family") or "").strip()
     preseal_missing = ", ".join(list(phase_row.get("missing_signal_layers") or [])) or "--"
     stable_available = ", ".join(list(stable_row.get("available_signal_layers") or [])) or "--"
@@ -1938,20 +2051,43 @@ def _phase_comparison_digest(*, row: dict[str, Any] | None, comparison_row: dict
     stable_method = ", ".join(list(stable_row.get("linked_method_confirmation_items") or [])) or "--"
     stable_uncertainty = ", ".join(list(stable_row.get("linked_uncertainty_inputs") or [])) or "--"
     stable_traceability = ", ".join(list(stable_row.get("linked_traceability_stub_nodes") or [])) or "--"
-    return (
-        f"{route_family} route: preseal stays payload-partial because missing {preseal_missing}; "
-        f"same-route pressure_stable reaches payload-complete because {stable_available} are all available; "
-        f"preseal keeps method {preseal_method}, uncertainty {preseal_uncertainty}, and traceability "
-        f"{preseal_traceability} open, while pressure_stable already exposes method {stable_method}, "
-        f"uncertainty {stable_uncertainty}, and traceability {stable_traceability} as synthetic reviewer linkage"
+    return normalize_fragment_rows(
+        PHASE_CONTRAST_FRAGMENT_FAMILY,
+        [
+            {
+                "fragment_key": "preseal_partial_vs_pressure_stable_complete_detail",
+                "params": {
+                    "route": route_family,
+                    "preseal_missing": preseal_missing,
+                    "stable_available": stable_available,
+                    "preseal_method": preseal_method,
+                    "preseal_uncertainty": preseal_uncertainty,
+                    "preseal_traceability": preseal_traceability,
+                    "stable_method": stable_method,
+                    "stable_uncertainty": stable_uncertainty,
+                    "stable_traceability": stable_traceability,
+                },
+            }
+        ],
+        display_locale="en_US",
     )
 
 
 def _phase_contrast_summary(phase_rows: list[dict[str, Any]]) -> str:
-    explicit = " | ".join(
-        _dedupe(str(row.get("comparison_digest") or "").strip() for row in list(phase_rows or []) if isinstance(row, dict))
+    return fragment_summary(
+        _phase_contrast_fragments(phase_rows),
+        default="no complete-vs-partial phase contrast recorded",
     )
-    parts: list[str] = [explicit] if explicit else []
+
+
+def _phase_contrast_fragments(phase_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    parts: list[dict[str, Any]] = []
+    for row in list(phase_rows or []):
+        if not isinstance(row, dict):
+            continue
+        for fragment in list(row.get("comparison_fragments") or []):
+            if isinstance(fragment, dict):
+                parts.append(dict(fragment))
     preseal_row = next(
         (
             dict(row)
@@ -1975,10 +2111,20 @@ def _phase_contrast_summary(phase_rows: list[dict[str, Any]]) -> str:
     if preseal_row and pressure_row:
         preseal_missing = ", ".join(list(preseal_row.get("missing_signal_layers") or [])) or "--"
         pressure_available = ", ".join(list(pressure_row.get("available_signal_layers") or [])) or "--"
-        parts.append(
-            "preseal stays payload-partial because setup / conditioning evidence still keeps "
-            f"{preseal_missing} explicit; pressure_stable can reach payload-complete once {pressure_available} are all "
-            "available and can therefore anchor richer method / uncertainty / traceability reviewer linkage"
+        parts.extend(
+            normalize_fragment_rows(
+                PHASE_CONTRAST_FRAGMENT_FAMILY,
+                [
+                    {
+                        "fragment_key": "preseal_partial_vs_pressure_stable_complete",
+                        "params": {
+                            "preseal_missing": preseal_missing,
+                            "stable_available": pressure_available,
+                        },
+                    }
+                ],
+                display_locale="en_US",
+            )
         )
     payload_backed_taxonomy_rows = [
         dict(row)
@@ -2018,10 +2164,22 @@ def _phase_contrast_summary(phase_rows: list[dict[str, Any]]) -> str:
                 if str(item).strip()
             )
         ) or "--"
-        parts.append(
-            f"payload-backed ambient/recovery phases {route_phase_summary} keep method {method_summary}, "
-            f"uncertainty {uncertainty_summary}, and traceability {traceability_summary} visible as synthetic reviewer "
-            "anchors without changing Step 2 evidence boundaries"
+        parts.extend(
+            normalize_fragment_rows(
+                PHASE_CONTRAST_FRAGMENT_FAMILY,
+                [
+                    {
+                        "fragment_key": "payload_backed_ambient_recovery_anchor_visibility",
+                        "params": {
+                            "phases": route_phase_summary,
+                            "method": method_summary,
+                            "uncertainty": uncertainty_summary,
+                            "traceability": traceability_summary,
+                        },
+                    }
+                ],
+                display_locale="en_US",
+            )
         )
     trace_only_taxonomy_rows = [
         dict(row)
@@ -2037,11 +2195,19 @@ def _phase_contrast_summary(phase_rows: list[dict[str, Any]]) -> str:
                 for row in trace_only_taxonomy_rows
             )
         )
-        parts.append(
-            f"trace-only phases {trace_only_summary} keep the same taxonomy visible, but reviewer closure stays open "
-            "until payload-backed evidence is promoted"
+        parts.extend(
+            normalize_fragment_rows(
+                PHASE_CONTRAST_FRAGMENT_FAMILY,
+                [
+                    {
+                        "fragment_key": "trace_only_taxonomy_visibility_open",
+                        "params": {"phases": trace_only_summary},
+                    }
+                ],
+                display_locale="en_US",
+            )
         )
-    return " | ".join(part for part in parts if str(part).strip()) or "no complete-vs-partial phase contrast recorded"
+    return normalize_fragment_rows(PHASE_CONTRAST_FRAGMENT_FAMILY, parts, display_locale="en_US")
 
 
 def _coverage_bucket_display(bucket: str) -> str:

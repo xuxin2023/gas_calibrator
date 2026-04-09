@@ -13,7 +13,9 @@ from .phase_taxonomy_contract import (
 )
 from .reviewer_fragments_contract import (
     BLOCKER_FRAGMENT_FAMILY,
+    BOUNDARY_FRAGMENT_FAMILY,
     GAP_REASON_FRAGMENT_FAMILY,
+    NON_CLAIM_FRAGMENT_FAMILY,
     READINESS_IMPACT_FRAGMENT_FAMILY,
     REVIEWER_FRAGMENTS_CONTRACT_VERSION,
     REVIEWER_NEXT_STEP_FRAGMENT_FAMILY,
@@ -1673,10 +1675,20 @@ def _enrich_recognition_readiness_artifact(
     linked_artifact_summary = " | ".join(
         _dedupe(str(item.get("artifact_type") or item.get("anchor_label") or "").strip() for item in linked_artifact_refs)
     )
-    boundary_digest = " | ".join(
-        str(item).strip() for item in list(raw.get("boundary_statements") or []) if str(item).strip()
+    boundary_fragments = _normalize_boundary_fragments(
+        list(raw.get("boundary_fragments") or []) or raw.get("boundary_statements") or []
     )
-    non_claim_digest = " | ".join(str(item).strip() for item in list(raw.get("non_claim") or []) if str(item).strip())
+    boundary_digest = fragment_summary(
+        boundary_fragments,
+        default=" | ".join(str(item).strip() for item in list(raw.get("boundary_statements") or []) if str(item).strip()),
+    )
+    non_claim_fragments = _normalize_non_claim_fragments(
+        list(raw.get("non_claim_fragments") or []) or raw.get("non_claim") or []
+    )
+    non_claim_digest = fragment_summary(
+        non_claim_fragments,
+        default=" | ".join(str(item).strip() for item in list(raw.get("non_claim") or []) if str(item).strip()),
+    )
     digest = dict(raw.get("digest") or {})
     digest["readiness_status"] = readiness_status
     if missing_evidence:
@@ -1741,7 +1753,11 @@ def _enrich_recognition_readiness_artifact(
     raw["blocker_fragment_keys"] = _dedupe([*fragment_rows_to_keys(artifact_blocker_fragments), *linked_blocker_fragment_keys])
     raw["next_required_artifacts"] = next_required_artifacts
     raw["readiness_status"] = readiness_status
+    raw["boundary_fragments"] = boundary_fragments
+    raw["boundary_fragment_keys"] = fragment_rows_to_keys(boundary_fragments)
     raw["boundary_digest"] = boundary_digest
+    raw["non_claim_fragments"] = non_claim_fragments
+    raw["non_claim_fragment_keys"] = fragment_rows_to_keys(non_claim_fragments)
     raw["non_claim_digest"] = non_claim_digest
     raw["reviewer_next_step_digest"] = reviewer_next_step_digest
     raw["reviewer_next_step_fragments"] = reviewer_next_step_fragments
@@ -1772,6 +1788,7 @@ def _enrich_recognition_readiness_artifact(
                 f"readiness impact: {linked_readiness_impact_summary}" if linked_readiness_impact_summary else "",
                 f"reviewer next step: {reviewer_next_step_digest}" if reviewer_next_step_digest else "",
                 f"next required artifacts: {' | '.join(next_required_artifacts)}" if next_required_artifacts else "",
+                f"boundary: {boundary_digest}" if boundary_digest else "",
             ],
         )
         review_surface["detail_lines"] = _merge_unique_lines(
@@ -1790,6 +1807,7 @@ def _enrich_recognition_readiness_artifact(
                 f"blockers: {' | '.join(blockers)}" if blockers else "",
                 f"next required artifacts: {' | '.join(next_required_artifacts)}" if next_required_artifacts else "",
                 f"reviewer next step: {reviewer_next_step_digest}" if reviewer_next_step_digest else "",
+                f"boundary: {boundary_digest}" if boundary_digest else "",
                 f"non-claim digest: {non_claim_digest}" if non_claim_digest else "",
             ],
         )
@@ -2085,6 +2103,22 @@ def _preseal_partial_gap_summary(
             for item in rows
             if str(item.get("route_phase") or "").strip()
         )
+    )
+
+
+def _normalize_boundary_fragments(values: Any) -> list[dict[str, Any]]:
+    return normalize_fragment_rows(
+        BOUNDARY_FRAGMENT_FAMILY,
+        values,
+        display_locale="en_US",
+    )
+
+
+def _normalize_non_claim_fragments(values: Any) -> list[dict[str, Any]]:
+    return normalize_fragment_rows(
+        NON_CLAIM_FRAGMENT_FAMILY,
+        values,
+        display_locale="en_US",
     )
 
 
