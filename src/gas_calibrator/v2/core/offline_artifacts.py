@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 from typing import Any, Iterable, Optional
@@ -41,6 +41,7 @@ from .measurement_phase_coverage import (
     MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME,
     build_measurement_phase_coverage_report,
 )
+from .models import CalibrationPoint, SamplingResult
 
 
 OFFLINE_ARTIFACT_SCHEMA_VERSION = "1.0"
@@ -145,6 +146,267 @@ def _augment_measurement_trace_events(
             }
         )
     return rows + supplemental_events
+
+
+def _has_phase_samples(
+    samples: Iterable[Any],
+    *,
+    phase_name: str,
+    route_family: str,
+) -> bool:
+    phase_token = str(phase_name or "").strip().lower()
+    route_token = str(route_family or "").strip().lower()
+    for sample in list(samples or []):
+        if not isinstance(sample, SamplingResult):
+            continue
+        point = getattr(sample, "point", None)
+        route_text = str(getattr(point, "route", "") or "").strip().lower()
+        pressure_mode = str(getattr(point, "effective_pressure_mode", "") or "").strip().lower()
+        sample_route = (
+            "water"
+            if route_text == "h2o"
+            else "ambient"
+            if pressure_mode == "ambient_open" or "ambient" in route_text
+            else "system"
+            if not route_text
+            else "gas"
+        )
+        phase_text = str(getattr(sample, "point_phase", "") or "").strip().lower()
+        sample_phase = (
+            "ambient_diagnostic"
+            if "diagnostic" in phase_text or (sample_route == "ambient" and "sample" not in phase_text)
+            else "recovery_retry"
+            if any(token in phase_text for token in ("recovery", "retry", "abort"))
+            else "pressure_stable"
+            if "pressure" in phase_text
+            else "preseal"
+            if "preseal" in phase_text or ("seal" in phase_text and "sample" not in phase_text)
+            else "sample_ready"
+        )
+        if sample_route == route_token and sample_phase == phase_token:
+            return True
+    return False
+
+
+def _synthetic_payload_sample(
+    *,
+    point: CalibrationPoint,
+    timestamp: datetime,
+    point_phase: str,
+    sample_index: int,
+    stability_time_s: float,
+    frame_usable: bool = True,
+    frame_status: str = "simulation_payload_synthetic",
+    co2_ppm: float | None = 398.0,
+    h2o_mmol: float | None = None,
+    co2_ratio_f: float | None = 0.998,
+    co2_ratio_raw: float | None = 0.999,
+    h2o_ratio_f: float | None = None,
+    h2o_ratio_raw: float | None = None,
+    ref_signal: float | None = 3400.0,
+    co2_signal: float | None = 4300.0,
+    h2o_signal: float | None = None,
+    pressure_hpa: float | None = 1001.0,
+    analyzer_pressure_kpa: float | None = 100.1,
+    point_tag: str | None = None,
+) -> SamplingResult:
+    return SamplingResult(
+        point=point,
+        analyzer_id="ga01",
+        timestamp=timestamp,
+        co2_ppm=co2_ppm,
+        h2o_mmol=h2o_mmol,
+        h2o_signal=h2o_signal,
+        co2_signal=co2_signal,
+        co2_ratio_f=co2_ratio_f,
+        co2_ratio_raw=co2_ratio_raw,
+        h2o_ratio_f=h2o_ratio_f,
+        h2o_ratio_raw=h2o_ratio_raw,
+        ref_signal=ref_signal,
+        temperature_c=25.0,
+        pressure_hpa=pressure_hpa,
+        pressure_gauge_hpa=pressure_hpa,
+        pressure_reference_status="simulation_synthetic_reference",
+        thermometer_temp_c=24.9,
+        thermometer_reference_status="simulation_synthetic_reference",
+        dew_point_c=5.2 if point.route == "h2o" else None,
+        analyzer_pressure_kpa=analyzer_pressure_kpa,
+        analyzer_chamber_temp_c=25.1,
+        case_temp_c=25.8,
+        frame_has_data=True,
+        frame_usable=frame_usable,
+        frame_status=frame_status,
+        point_phase=point_phase,
+        point_tag=point_tag or str(point.pressure_target_label or point.route or point_phase or "synthetic"),
+        sample_index=sample_index,
+        stability_time_s=stability_time_s,
+        total_time_s=max(stability_time_s, 12.0),
+    )
+
+
+def _augment_measurement_trace_samples(
+    samples: list[Any],
+    *,
+    trace_profile: str,
+) -> tuple[list[Any], dict[str, Any]]:
+    rows = list(samples or [])
+    if str(trace_profile or "").strip() != "measurement_trace_rich_v1":
+        return rows, {
+            "contains_synthetic_channel_injection": False,
+            "synthetic_payload_rows": 0,
+            "synthetic_payload_phases": [],
+        }
+
+    injected_rows: list[SamplingResult] = []
+    injected_phases: list[str] = []
+    base_time = datetime(2026, 4, 9, 1, 0, tzinfo=timezone.utc)
+
+    if not _has_phase_samples(rows, phase_name="ambient_diagnostic", route_family="ambient"):
+        ambient_point = CalibrationPoint(
+            index=991,
+            temperature_c=25.0,
+            co2_ppm=398.0,
+            pressure_hpa=None,
+            route="co2",
+            pressure_mode="ambient_open",
+            pressure_target_label="ambient",
+            pressure_selection_token="ambient",
+        )
+        injected_rows.extend(
+            [
+                _synthetic_payload_sample(
+                    point=ambient_point,
+                    timestamp=base_time,
+                    point_phase="ambient_diagnostic",
+                    sample_index=1,
+                    stability_time_s=1.0,
+                    point_tag="synthetic_ambient_diagnostic",
+                    co2_ppm=398.0,
+                    co2_ratio_f=None,
+                    co2_ratio_raw=None,
+                    co2_signal=None,
+                    pressure_hpa=1002.0,
+                ),
+                _synthetic_payload_sample(
+                    point=ambient_point,
+                    timestamp=base_time + timedelta(seconds=7),
+                    point_phase="ambient_diagnostic",
+                    sample_index=2,
+                    stability_time_s=7.0,
+                    point_tag="synthetic_ambient_diagnostic",
+                    co2_ppm=397.8,
+                    co2_ratio_f=None,
+                    co2_ratio_raw=None,
+                    co2_signal=None,
+                    pressure_hpa=1001.8,
+                ),
+            ]
+        )
+        injected_phases.append("ambient/ambient_diagnostic")
+
+    if not _has_phase_samples(rows, phase_name="sample_ready", route_family="ambient"):
+        ambient_sample_point = CalibrationPoint(
+            index=992,
+            temperature_c=25.0,
+            co2_ppm=399.0,
+            pressure_hpa=None,
+            route="co2",
+            pressure_mode="ambient_open",
+            pressure_target_label="ambient",
+            pressure_selection_token="ambient",
+        )
+        injected_rows.extend(
+            [
+                _synthetic_payload_sample(
+                    point=ambient_sample_point,
+                    timestamp=base_time + timedelta(seconds=15),
+                    point_phase="sample_ready",
+                    sample_index=1,
+                    stability_time_s=1.0,
+                    point_tag="synthetic_ambient_sample_ready",
+                    co2_ppm=399.0,
+                    co2_ratio_f=None,
+                    co2_ratio_raw=None,
+                    co2_signal=None,
+                    pressure_hpa=1001.5,
+                ),
+                _synthetic_payload_sample(
+                    point=ambient_sample_point,
+                    timestamp=base_time + timedelta(seconds=23),
+                    point_phase="sample_ready",
+                    sample_index=2,
+                    stability_time_s=8.0,
+                    point_tag="synthetic_ambient_sample_ready",
+                    co2_ppm=398.9,
+                    co2_ratio_f=None,
+                    co2_ratio_raw=None,
+                    co2_signal=None,
+                    pressure_hpa=1001.4,
+                ),
+            ]
+        )
+        injected_phases.append("ambient/sample_ready")
+
+    if not _has_phase_samples(rows, phase_name="recovery_retry", route_family="system"):
+        recovery_point = CalibrationPoint(
+            index=993,
+            temperature_c=25.0,
+            co2_ppm=None,
+            pressure_hpa=1000.0,
+            route="",
+            pressure_mode="",
+            pressure_target_label="recovery",
+            pressure_selection_token="",
+        )
+        injected_rows.extend(
+            [
+                _synthetic_payload_sample(
+                    point=recovery_point,
+                    timestamp=base_time + timedelta(seconds=31),
+                    point_phase="recovery_retry",
+                    sample_index=1,
+                    stability_time_s=1.0,
+                    frame_usable=False,
+                    frame_status="simulation_payload_synthetic_recovery",
+                    point_tag="synthetic_recovery_retry",
+                    co2_ppm=397.5,
+                    co2_ratio_f=None,
+                    co2_ratio_raw=None,
+                    co2_signal=None,
+                    pressure_hpa=1000.2,
+                    analyzer_pressure_kpa=None,
+                ),
+                _synthetic_payload_sample(
+                    point=recovery_point,
+                    timestamp=base_time + timedelta(seconds=35),
+                    point_phase="recovery_retry",
+                    sample_index=2,
+                    stability_time_s=5.0,
+                    frame_usable=True,
+                    frame_status="simulation_payload_synthetic_recovery",
+                    point_tag="synthetic_recovery_retry",
+                    co2_ppm=397.9,
+                    co2_ratio_f=None,
+                    co2_ratio_raw=None,
+                    co2_signal=None,
+                    pressure_hpa=1000.0,
+                    analyzer_pressure_kpa=None,
+                ),
+            ]
+        )
+        injected_phases.append("system/recovery_retry")
+
+    if not injected_rows:
+        return rows, {
+            "contains_synthetic_channel_injection": False,
+            "synthetic_payload_rows": 0,
+            "synthetic_payload_phases": [],
+        }
+    return rows + injected_rows, {
+        "contains_synthetic_channel_injection": True,
+        "synthetic_payload_rows": len(injected_rows),
+        "synthetic_payload_phases": injected_phases,
+    }
 
 
 def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
@@ -895,17 +1157,25 @@ def export_run_offline_artifacts(
         _load_route_trace_events(run_dir),
         trace_profile=trace_profile,
     )
+    measurement_samples, synthetic_payload_details = _augment_measurement_trace_samples(
+        samples,
+        trace_profile=trace_profile,
+    )
     synthetic_trace_provenance = {
         "summary": (
             "simulation-generated trace only; richer non-default trace profiles remain simulation/headless and do not claim real-device provenance"
             if not trace_profile
             else (
                 f"simulation-generated trace only; trace profile {trace_profile} adds synthetic phase coverage "
-                "for reviewer evidence and does not claim real-device provenance"
+                "and synthetic sample payload reviewer evidence without claiming real-device provenance"
             )
         ),
-        "contains_synthetic_channel_injection": False,
+        "contains_synthetic_channel_injection": bool(
+            synthetic_payload_details.get("contains_synthetic_channel_injection", False)
+        ),
         "trace_profile": trace_profile or "simulation_generated",
+        "synthetic_payload_rows": int(synthetic_payload_details.get("synthetic_payload_rows", 0) or 0),
+        "synthetic_payload_phases": list(synthetic_payload_details.get("synthetic_payload_phases") or []),
     }
     measurement_artifact_paths = {
         "multi_source_stability_evidence": str(run_dir / MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME),
@@ -918,7 +1188,7 @@ def export_run_offline_artifacts(
     }
     multi_source_stability_evidence = build_multi_source_stability_evidence(
         run_id=run_id,
-        samples=samples,
+        samples=measurement_samples,
         point_summaries=point_summaries,
         route_trace_events=route_trace_events,
         artifact_paths=measurement_artifact_paths,
@@ -934,7 +1204,7 @@ def export_run_offline_artifacts(
     )
     state_transition_evidence = build_state_transition_evidence(
         run_id=run_id,
-        samples=samples,
+        samples=measurement_samples,
         point_summaries=point_summaries,
         route_trace_events=route_trace_events,
         artifact_paths=measurement_artifact_paths,
@@ -950,7 +1220,7 @@ def export_run_offline_artifacts(
     )
     measurement_phase_coverage_report = build_measurement_phase_coverage_report(
         run_id=run_id,
-        samples=samples,
+        samples=measurement_samples,
         point_summaries=point_summaries,
         route_trace_events=route_trace_events,
         multi_source_stability_evidence=multi_source_stability_evidence,

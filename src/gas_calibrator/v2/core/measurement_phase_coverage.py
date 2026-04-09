@@ -142,10 +142,14 @@ def build_measurement_phase_coverage_report(
         )
         phase_rows.append(row)
 
-    actual_count = sum(1 for row in phase_rows if row.get("evidence_source") == "actual_simulated_run")
-    model_only_count = sum(1 for row in phase_rows if row.get("evidence_source") == "model_only")
-    test_only_count = sum(1 for row in phase_rows if row.get("evidence_source") == "test_only")
-    gap_count = sum(1 for row in phase_rows if row.get("evidence_source") == "gap")
+    payload_backed_count = sum(
+        1 for row in phase_rows if row.get("coverage_bucket") == "actual_simulated_run_with_payload"
+    )
+    sample_backed_count = sum(1 for row in phase_rows if row.get("coverage_bucket") == "actual_simulated_run")
+    trace_only_count = sum(1 for row in phase_rows if row.get("coverage_bucket") == "trace_only_not_evaluated")
+    model_only_count = sum(1 for row in phase_rows if row.get("coverage_bucket") == "model_only")
+    test_only_count = sum(1 for row in phase_rows if row.get("coverage_bucket") == "test_only")
+    gap_count = sum(1 for row in phase_rows if row.get("coverage_bucket") == "gap")
     routes = _dedupe(row.get("route_family") for row in phase_rows)
     phases = _dedupe(row.get("phase_name") for row in phase_rows)
     signal_families = _dedupe(
@@ -154,30 +158,53 @@ def build_measurement_phase_coverage_report(
         for group_name, payload in dict(row.get("signal_group_coverage") or {}).items()
         if str(dict(payload).get("coverage_status") or "") not in {"", "gap"}
     )
-    evidence_sources = _dedupe(row.get("evidence_source") for row in phase_rows)
+    evidence_sources = _dedupe(row.get("coverage_bucket") or row.get("evidence_source") for row in phase_rows)
     decision_results = _dedupe(row.get("decision_result") for row in phase_rows)
     policy_versions = _dedupe(row.get("policy_version") for row in phase_rows)
+    payload_phase_summary = " | ".join(
+        f"{row['route_family']}/{row['phase_name']}"
+        for row in phase_rows
+        if row.get("coverage_bucket") == "actual_simulated_run_with_payload"
+    ) or "no payload-backed simulated phase evidence"
     actual_summary = " | ".join(
         f"{row['route_family']}/{row['phase_name']}"
         for row in phase_rows
-        if row.get("evidence_source") == "actual_simulated_run"
-    ) or "no actual simulated phase evidence"
+        if row.get("coverage_bucket") in {"actual_simulated_run", "actual_simulated_run_with_payload"}
+    ) or "no sample-backed simulated phase evidence"
+    trace_only_summary = " | ".join(
+        f"{row['route_family']}/{row['phase_name']}"
+        for row in phase_rows
+        if row.get("coverage_bucket") == "trace_only_not_evaluated"
+    ) or "no trace-only phase buckets"
     gap_summary = " | ".join(
         f"{row['route_family']}/{row['phase_name']}"
         for row in phase_rows
-        if row.get("evidence_source") in {"gap", "model_only", "test_only"}
+        if row.get("coverage_bucket") in {"gap", "model_only", "test_only"}
     ) or "no phase coverage gaps"
     coverage_summary = " | ".join(
-        f"{row['route_family']}/{row['phase_name']}={row['evidence_source']}"
+        f"{row['route_family']}/{row['phase_name']}={row['coverage_bucket']}"
         for row in phase_rows
     )
+    payload_completeness_summary = " | ".join(
+        f"{key} {value}"
+        for key, value in _count_rows_by_key(phase_rows, "payload_completeness").items()
+    ) or "--"
+    provenance_summary = " | ".join(
+        f"{key} {value}"
+        for key, value in _count_rows_by_key(phase_rows, "evidence_provenance").items()
+    ) or "--"
     digest = {
         "summary": (
             "Step 2 tail / Stage 3 bridge | measurement phase coverage | "
-            f"actual {actual_count} | model-only {model_only_count} | test-only {test_only_count} | gap {gap_count}"
+            f"payload-backed {payload_backed_count} | sample-backed {sample_backed_count} | "
+            f"trace-only {trace_only_count} | model-only {model_only_count} | test-only {test_only_count} | gap {gap_count}"
         ),
         "actual_phase_summary": actual_summary,
+        "payload_phase_summary": payload_phase_summary,
+        "trace_only_phase_summary": trace_only_summary,
         "coverage_summary": coverage_summary,
+        "payload_completeness_summary": payload_completeness_summary,
+        "provenance_summary": provenance_summary,
         "gap_summary": gap_summary,
         "boundary_summary": " | ".join(CANONICAL_BOUNDARY_STATEMENTS),
     }
@@ -191,13 +218,17 @@ def build_measurement_phase_coverage_report(
         "summary_text": digest["summary"],
         "summary_lines": [
             digest["summary"],
-            f"actual simulated phases: {actual_summary}",
+            f"payload-backed phases: {payload_phase_summary}",
+            f"sample-backed phases: {actual_summary}",
+            f"trace-only phases: {trace_only_summary}",
             f"coverage digest: {coverage_summary}",
+            f"payload completeness: {payload_completeness_summary}",
             f"phase gaps: {gap_summary}",
         ],
         "detail_lines": [
             f"route families: {', '.join(routes) or '--'}",
             f"phase buckets: {', '.join(phases) or '--'}",
+            f"provenance summary: {provenance_summary}",
             f"synthetic provenance: {dict(synthetic_trace_provenance or {}).get('summary', 'simulation trace only')}",
             *[f"boundary: {line}" for line in CANONICAL_BOUNDARY_STATEMENTS],
         ],
@@ -213,7 +244,7 @@ def build_measurement_phase_coverage_report(
         "artifact_paths": dict(artifact_path_map),
     }
     raw = {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "artifact_type": "measurement_phase_coverage_report",
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "run_id": str(run_id or ""),
@@ -227,7 +258,7 @@ def build_measurement_phase_coverage_report(
         "digest": digest,
         "review_surface": review_surface,
         "artifact_paths": artifact_path_map,
-        "overall_status": "diagnostic_only" if actual_count == 0 else "degraded" if gap_count else "passed",
+        "overall_status": "diagnostic_only" if (payload_backed_count + sample_backed_count + trace_only_count) == 0 else "degraded" if gap_count else "passed",
     }
     return {
         "available": True,
@@ -262,28 +293,54 @@ def _build_phase_row(
     actual_run_evidence_present = bool(sample_rows or trace_rows or stability_row or transition_row)
     fallback_source = str(definition.get("fallback_evidence_source") or "model_only")
     route_in_scope = route_family in configured_routes or route_family == "system"
-    if actual_run_evidence_present:
-        evidence_source = "actual_simulated_run"
-    elif route_family == "system":
-        evidence_source = fallback_source
-    elif route_in_scope:
-        evidence_source = fallback_source
-    else:
-        evidence_source = "gap"
-
     signal_group_coverage, available_channels, missing_channels = _phase_signal_coverage(
         phase_name=phase_name,
         route_family=route_family,
         sample_rows=sample_rows,
     )
+    available_signal_layers = [
+        group_name
+        for group_name, payload in signal_group_coverage.items()
+        if str(dict(payload).get("coverage_status") or "") in {"complete", "partial"}
+    ]
+    missing_signal_layers = [
+        group_name
+        for group_name, payload in signal_group_coverage.items()
+        if str(dict(payload).get("coverage_status") or "") == "gap"
+    ]
+    payload_completeness = _payload_completeness(
+        sample_rows=sample_rows,
+        signal_group_coverage=signal_group_coverage,
+    )
+    coverage_bucket = _coverage_bucket(
+        actual_run_evidence_present=actual_run_evidence_present,
+        sample_rows=sample_rows,
+        payload_completeness=payload_completeness,
+        fallback_source=fallback_source,
+        route_in_scope=route_in_scope,
+        route_family=route_family,
+    )
+    evidence_provenance = _evidence_provenance(
+        sample_rows=sample_rows,
+        trace_rows=trace_rows,
+        stability_row=stability_row,
+        transition_row=transition_row,
+        coverage_bucket=coverage_bucket,
+    )
+    missing_layer_reasons = _missing_layer_reasons(
+        signal_group_coverage=signal_group_coverage,
+        sample_rows=sample_rows,
+        actual_run_evidence_present=actual_run_evidence_present,
+        coverage_bucket=coverage_bucket,
+    )
     decision_result = str(
         stability_row.get("decision_result")
         or transition_row.get("decision_result")
-        or ("trace_only_no_shadow_window" if actual_run_evidence_present else f"{evidence_source}_coverage")
+        or ("trace_only_no_shadow_window" if actual_run_evidence_present and not sample_rows else f"{coverage_bucket}_coverage")
     )
     hold_time_summary = _hold_time_summary(stability_row, actual_run_evidence_present=actual_run_evidence_present)
     summary = (
-        f"{route_family}/{phase_name} | {evidence_source} | "
+        f"{route_family}/{phase_name} | {coverage_bucket} | payload {payload_completeness} | "
         f"decision {decision_result} | hold {hold_time_summary}"
     )
     return {
@@ -291,8 +348,13 @@ def _build_phase_row(
         "route_family": route_family,
         "phase_route_key": f"{route_family}:{phase_name}",
         "actual_run_evidence_present": actual_run_evidence_present,
-        "evidence_source": evidence_source,
+        "evidence_source": coverage_bucket,
+        "coverage_bucket": coverage_bucket,
+        "payload_completeness": payload_completeness,
         "signal_group_coverage": signal_group_coverage,
+        "available_signal_layers": available_signal_layers,
+        "missing_signal_layers": missing_signal_layers,
+        "missing_layer_reasons": missing_layer_reasons,
         "available_channels": available_channels,
         "missing_channels": missing_channels,
         "policy_version": str(
@@ -301,11 +363,19 @@ def _build_phase_row(
             or transition_row.get("policy_version")
             or "--"
         ),
+        "evidence_provenance": evidence_provenance,
+        "boundary_digest": " | ".join(CANONICAL_BOUNDARY_STATEMENTS),
         "decision_result": decision_result,
         "decision_summary": str(
             stability_row.get("decision_result")
             or transition_row.get("decision_result")
-            or ("actual trace without shadow window" if actual_run_evidence_present else f"{evidence_source} phase coverage")
+            or (
+                "actual simulated payload coverage"
+                if sample_rows
+                else "actual trace without payload coverage"
+                if actual_run_evidence_present
+                else f"{coverage_bucket} phase coverage"
+            )
         ),
         "hold_time_summary": hold_time_summary,
         "linked_artifacts": {
@@ -391,7 +461,7 @@ def _phase_signal_coverage(
             group_name: {
                 "coverage_status": "gap",
                 "available_channels": [],
-                "missing_channels": _required_channels_for_route(group_name, route_family),
+                "missing_channels": _required_channels_for_phase(group_name, route_family, phase_name),
             }
             for group_name in SIGNAL_GROUP_ORDER
         }
@@ -405,7 +475,7 @@ def _phase_signal_coverage(
     available_all: list[str] = []
     missing_all: list[str] = []
     for group_name in SIGNAL_GROUP_ORDER:
-        expected = _required_channels_for_route(group_name, route_family)
+        expected = _required_channels_for_phase(group_name, route_family, phase_name)
         available = [
             channel
             for channel in SIGNAL_GROUP_CHANNELS[group_name]
@@ -432,7 +502,7 @@ def _phase_signal_coverage(
     return coverage, _dedupe(available_all), _dedupe(missing_all)
 
 
-def _required_channels_for_route(group_name: str, route_family: str) -> list[str]:
+def _required_channels_for_phase(group_name: str, route_family: str, phase_name: str) -> list[str]:
     if route_family == "water":
         requirements = {
             "reference": ["temperature_c", "dew_point_c", "pressure_hpa"],
@@ -450,6 +520,14 @@ def _required_channels_for_route(group_name: str, route_family: str) -> list[str
         }
         return list(requirements.get(group_name, []))
     if route_family == "system":
+        requirements = {
+            "reference": ["temperature_c", "pressure_hpa"],
+            "analyzer_raw": ["ref_signal", "frame_status"],
+            "output": ["co2_ppm"],
+            "data_quality": ["frame_has_data", "frame_usable", "point_phase"],
+        }
+        if phase_name == "recovery_retry":
+            return list(requirements.get(group_name, []))
         return []
     requirements = {
         "reference": ["temperature_c", "pressure_hpa"],
@@ -469,17 +547,110 @@ def _hold_time_summary(stability_row: dict[str, Any], *, actual_run_evidence_pre
     return "trace_only_not_evaluated" if actual_run_evidence_present else "not_applicable"
 
 
+def _payload_completeness(
+    *,
+    sample_rows: list[SamplingResult],
+    signal_group_coverage: dict[str, dict[str, Any]],
+) -> str:
+    if not sample_rows:
+        return "trace_only"
+    statuses = [
+        str(dict(signal_group_coverage.get(group_name) or {}).get("coverage_status") or "gap")
+        for group_name in SIGNAL_GROUP_ORDER
+    ]
+    if statuses and all(status == "complete" for status in statuses):
+        return "complete"
+    if any(status in {"complete", "partial"} for status in statuses):
+        return "partial"
+    return "minimal"
+
+
+def _coverage_bucket(
+    *,
+    actual_run_evidence_present: bool,
+    sample_rows: list[SamplingResult],
+    payload_completeness: str,
+    fallback_source: str,
+    route_in_scope: bool,
+    route_family: str,
+) -> str:
+    if sample_rows:
+        return "actual_simulated_run_with_payload" if payload_completeness == "complete" else "actual_simulated_run"
+    if actual_run_evidence_present:
+        return "trace_only_not_evaluated"
+    if route_family == "system":
+        return fallback_source
+    if route_in_scope:
+        return fallback_source
+    return "gap"
+
+
+def _evidence_provenance(
+    *,
+    sample_rows: list[SamplingResult],
+    trace_rows: list[dict[str, Any]],
+    stability_row: dict[str, Any],
+    transition_row: dict[str, Any],
+    coverage_bucket: str,
+) -> str:
+    if sample_rows:
+        sample_tags = " ".join(
+            str(
+                getattr(sample, "frame_status", "")
+                or getattr(sample, "point_tag", "")
+                or getattr(sample, "analyzer_id", "")
+                or ""
+            )
+            for sample in sample_rows
+        ).lower()
+        return "synthetic_sample_payload" if "synthetic" in sample_tags else "actual_simulated_payload"
+    if trace_rows or stability_row or transition_row:
+        trace_text = " ".join(
+            str(item.get(key) or "")
+            for item in trace_rows
+            for key in ("message", "result", "action", "point_tag")
+        ).lower()
+        return "synthetic_trace_only" if "synthetic" in trace_text else "simulated_trace_only"
+    if coverage_bucket == "model_only":
+        return "model_only"
+    if coverage_bucket == "test_only":
+        return "test_only"
+    return "gap"
+
+
+def _missing_layer_reasons(
+    *,
+    signal_group_coverage: dict[str, dict[str, Any]],
+    sample_rows: list[SamplingResult],
+    actual_run_evidence_present: bool,
+    coverage_bucket: str,
+) -> dict[str, str]:
+    rows: dict[str, str] = {}
+    for group_name, payload in signal_group_coverage.items():
+        if str(dict(payload).get("coverage_status") or "") != "gap":
+            continue
+        if sample_rows:
+            rows[group_name] = "synthetic/actual simulated payload for this layer is still missing required channels"
+        elif actual_run_evidence_present:
+            rows[group_name] = "phase currently has trace bucket only; no simulated sample payload captured for this layer"
+        elif coverage_bucket in {"model_only", "test_only"}:
+            rows[group_name] = f"{coverage_bucket} coverage only; this layer has not been promoted into simulated payload evidence"
+        else:
+            rows[group_name] = "no simulated evidence captured for this layer"
+    return rows
+
+
 def _phase_name_from_sample(sample: SamplingResult) -> str:
     route_family = _route_family_from_sample(sample)
     phase_text = str(getattr(sample, "point_phase", "") or "").strip().lower()
+    if "recovery" in phase_text or "retry" in phase_text or "abort" in phase_text:
+        return "recovery_retry"
     if route_family == "ambient":
-        return "ambient_diagnostic"
+        return "sample_ready" if "sample" in phase_text else "ambient_diagnostic"
     if "preseal" in phase_text or "seal" in phase_text:
         return "preseal"
     if "pressure" in phase_text:
         return "pressure_stable"
-    if "recovery" in phase_text or "retry" in phase_text or "abort" in phase_text:
-        return "recovery_retry"
     return "sample_ready"
 
 
@@ -562,11 +733,16 @@ def _render_markdown(*, raw: dict[str, Any]) -> str:
     for row in phase_rows:
         lines.append(
             f"- {row.get('route_family', '--')}/{row.get('phase_name', '--')}: "
-            f"{row.get('evidence_source', '--')} | decision {row.get('decision_result', '--')} | "
+            f"{row.get('coverage_bucket', '--')} | payload {row.get('payload_completeness', '--')} | "
+            f"provenance {row.get('evidence_provenance', '--')} | decision {row.get('decision_result', '--')} | "
             f"hold {row.get('hold_time_summary', '--')}"
         )
         lines.append(
-            f"  available {', '.join(list(row.get('available_channels') or [])[:6]) or '--'} | "
+            f"  layers available {', '.join(list(row.get('available_signal_layers') or [])[:6]) or '--'} | "
+            f"missing {', '.join(list(row.get('missing_signal_layers') or [])[:6]) or '--'}"
+        )
+        lines.append(
+            f"  channels available {', '.join(list(row.get('available_channels') or [])[:6]) or '--'} | "
             f"missing {', '.join(list(row.get('missing_channels') or [])[:6]) or '--'}"
         )
     lines.extend(
@@ -589,3 +765,13 @@ def _dedupe(values: Iterable[Any]) -> list[str]:
         if text and text not in rows:
             rows.append(text)
     return rows
+
+
+def _count_rows_by_key(rows: list[dict[str, Any]], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        text = str(dict(row or {}).get(key) or "").strip()
+        if not text:
+            continue
+        counts[text] = int(counts.get(text, 0) or 0) + 1
+    return counts
