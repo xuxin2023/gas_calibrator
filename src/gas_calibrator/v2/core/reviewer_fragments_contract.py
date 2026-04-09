@@ -17,6 +17,9 @@ GAP_REASON_FRAGMENT_FAMILY = "gap_reason"
 READINESS_IMPACT_FRAGMENT_FAMILY = "readiness_impact"
 BLOCKER_FRAGMENT_FAMILY = "blocker"
 REVIEWER_NEXT_STEP_FRAGMENT_FAMILY = "reviewer_next_step"
+BOUNDARY_FRAGMENT_FAMILY = "boundary"
+NON_CLAIM_FRAGMENT_FAMILY = "non_claim"
+PHASE_CONTRAST_FRAGMENT_FAMILY = "phase_contrast"
 
 _TOKEN_RE = re.compile(r"[^0-9a-z\u4e00-\u9fff]+")
 
@@ -47,12 +50,18 @@ _FRAGMENT_REGISTRY: dict[str, dict[str, dict[str, Any]]] = {
     GAP_REASON_FRAGMENT_FAMILY: {},
     READINESS_IMPACT_FRAGMENT_FAMILY: {},
     BLOCKER_FRAGMENT_FAMILY: {},
+    BOUNDARY_FRAGMENT_FAMILY: {},
+    NON_CLAIM_FRAGMENT_FAMILY: {},
+    PHASE_CONTRAST_FRAGMENT_FAMILY: {},
 }
 
 _ALIAS_INDEX: dict[str, dict[str, str]] = {
     GAP_REASON_FRAGMENT_FAMILY: {},
     READINESS_IMPACT_FRAGMENT_FAMILY: {},
     BLOCKER_FRAGMENT_FAMILY: {},
+    BOUNDARY_FRAGMENT_FAMILY: {},
+    NON_CLAIM_FRAGMENT_FAMILY: {},
+    PHASE_CONTRAST_FRAGMENT_FAMILY: {},
     REVIEWER_NEXT_STEP_FRAGMENT_FAMILY: {},
 }
 
@@ -267,6 +276,401 @@ _FRAGMENT_REGISTRY[BLOCKER_FRAGMENT_FAMILY].update(
     }
 )
 
+_FRAGMENT_REGISTRY[BOUNDARY_FRAGMENT_FAMILY].update(
+    {
+        "step2_tail_stage3_bridge": _entry(
+            BOUNDARY_FRAGMENT_FAMILY,
+            "step2_tail_stage3_bridge",
+            i18n_key="reviewer_fragments.boundary.step2_tail_stage3_bridge",
+            zh_label="Step 2 收尾 / Step 3 桥接边界",
+            en_label="Step 2 tail / Stage 3 bridge",
+            aliases=("step 2 tail / stage 3 bridge",),
+        ),
+        "step2_reviewer_readiness_only": _entry(
+            BOUNDARY_FRAGMENT_FAMILY,
+            "step2_reviewer_readiness_only",
+            i18n_key="reviewer_fragments.boundary.step2_reviewer_readiness_only",
+            zh_label="仅用于 Step 2 审阅就绪度",
+            en_label="Step 2 reviewer readiness only",
+            aliases=("step 2 reviewer readiness only",),
+        ),
+        "simulation_offline_headless_only": _entry(
+            BOUNDARY_FRAGMENT_FAMILY,
+            "simulation_offline_headless_only",
+            i18n_key="reviewer_fragments.boundary.simulation_offline_headless_only",
+            zh_label="仅限 simulation / offline / headless",
+            en_label="simulation / offline / headless only",
+            aliases=("simulation / offline / headless only",),
+        ),
+        "file_artifact_first_reviewer_evidence": _entry(
+            BOUNDARY_FRAGMENT_FAMILY,
+            "file_artifact_first_reviewer_evidence",
+            i18n_key="reviewer_fragments.boundary.file_artifact_first_reviewer_evidence",
+            zh_label="以文件工件为先的审阅证据链",
+            en_label="file-artifact-first reviewer evidence",
+            aliases=("file-artifact-first reviewer evidence",),
+        ),
+        "not_real_acceptance_boundary": _entry(
+            BOUNDARY_FRAGMENT_FAMILY,
+            "not_real_acceptance_boundary",
+            i18n_key="reviewer_fragments.boundary.not_real_acceptance_boundary",
+            zh_label="不是 real acceptance",
+            en_label="not real acceptance",
+            aliases=("not real acceptance",),
+        ),
+        "cannot_replace_real_metrology_validation": _entry(
+            BOUNDARY_FRAGMENT_FAMILY,
+            "cannot_replace_real_metrology_validation",
+            i18n_key="reviewer_fragments.boundary.cannot_replace_real_metrology_validation",
+            zh_label="不能替代真实计量验证",
+            en_label="cannot replace real metrology validation",
+            aliases=("cannot replace real metrology validation",),
+        ),
+        "shadow_evaluation_only": _entry(
+            BOUNDARY_FRAGMENT_FAMILY,
+            "shadow_evaluation_only",
+            i18n_key="reviewer_fragments.boundary.shadow_evaluation_only",
+            zh_label="仅 shadow evaluation",
+            en_label="shadow evaluation only",
+            aliases=("shadow evaluation only",),
+        ),
+        "does_not_modify_live_sampling_gate": _entry(
+            BOUNDARY_FRAGMENT_FAMILY,
+            "does_not_modify_live_sampling_gate",
+            i18n_key="reviewer_fragments.boundary.does_not_modify_live_sampling_gate",
+            zh_label="默认不改动 live sampling gate",
+            en_label="does not modify live sampling gate by default",
+            aliases=("does not modify live sampling gate by default",),
+        ),
+        "preseal_partial_honesty_boundary": _entry(
+            BOUNDARY_FRAGMENT_FAMILY,
+            "preseal_partial_honesty_boundary",
+            i18n_key="reviewer_fragments.boundary.preseal_partial_honesty_boundary",
+            zh_label="preseal partial 是 setup / conditioning 证据的诚实边界，不代表已释放测量输出",
+            en_label="preseal partial is an honesty boundary for setup / conditioning evidence and does not imply released measurement output",
+            aliases=(
+                "preseal partial is an honesty boundary for setup / conditioning evidence and does not imply released measurement output",
+            ),
+        ),
+        "pressure_stable_complete_synthetic_only": _entry(
+            BOUNDARY_FRAGMENT_FAMILY,
+            "pressure_stable_complete_synthetic_only",
+            i18n_key="reviewer_fragments.boundary.pressure_stable_complete_synthetic_only",
+            zh_label="pressure-stable complete 仍仅是 synthetic reviewer evidence，不代表 real acceptance",
+            en_label="pressure-stable complete remains synthetic reviewer evidence only and does not imply real acceptance",
+            aliases=("pressure-stable complete remains synthetic reviewer evidence only and does not imply real acceptance",),
+        ),
+        "trace_only_reviewer_boundary": _entry(
+            BOUNDARY_FRAGMENT_FAMILY,
+            "trace_only_reviewer_boundary",
+            i18n_key="reviewer_fragments.boundary.trace_only_reviewer_boundary",
+            zh_label="trace-only 阶段证据仍仅供审阅，待 payload-backed 层补齐后再推进",
+            en_label="trace-only phase evidence remains reviewer-only until payload-backed layers are promoted",
+            aliases=("trace-only phase evidence remains reviewer-only until payload-backed layers are promoted",),
+        ),
+        "measurement_core_step2_boundary": _entry(
+            BOUNDARY_FRAGMENT_FAMILY,
+            "measurement_core_step2_boundary",
+            i18n_key="reviewer_fragments.boundary.measurement_core_step2_boundary",
+            zh_label="measurement-core 审阅证据保持在 Step 2 simulation-only 边界内",
+            en_label="measurement-core reviewer evidence stays within Step 2 simulation-only boundaries",
+            aliases=("measurement-core reviewer evidence stays within step 2 simulation-only boundaries",),
+        ),
+    }
+)
+
+_FRAGMENT_REGISTRY[NON_CLAIM_FRAGMENT_FAMILY].update(
+    {
+        "simulation_synthetic_reviewer_evidence_only": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "simulation_synthetic_reviewer_evidence_only",
+            i18n_key="reviewer_fragments.non_claim.simulation_synthetic_reviewer_evidence_only",
+            zh_label="仅为 simulation / synthetic reviewer evidence",
+            en_label="simulation / synthetic reviewer evidence only",
+            aliases=("simulation / synthetic reviewer evidence only",),
+        ),
+        "not_real_acceptance": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "not_real_acceptance",
+            i18n_key="reviewer_fragments.non_claim.not_real_acceptance",
+            zh_label="不是 real acceptance",
+            en_label="not real acceptance",
+            aliases=("not real acceptance",),
+        ),
+        "not_live_gate": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "not_live_gate",
+            i18n_key="reviewer_fragments.non_claim.not_live_gate",
+            zh_label="不驱动 live gate",
+            en_label="not live gate",
+            aliases=("not live gate",),
+        ),
+        "not_compliance_claim": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "not_compliance_claim",
+            i18n_key="reviewer_fragments.non_claim.not_compliance_claim",
+            zh_label="不是 compliance claim",
+            en_label="not compliance claim",
+            aliases=("not compliance claim",),
+        ),
+        "not_accreditation_claim": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "not_accreditation_claim",
+            i18n_key="reviewer_fragments.non_claim.not_accreditation_claim",
+            zh_label="不是 accreditation claim",
+            en_label="not accreditation claim",
+            aliases=("not accreditation claim",),
+        ),
+        "scope_package_stub_only": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "scope_package_stub_only",
+            i18n_key="reviewer_fragments.non_claim.scope_package_stub_only",
+            zh_label="scope package 仍是 stub-only",
+            en_label="scope package stub only",
+            aliases=("scope package stub only",),
+        ),
+        "not_formal_scope_statement": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "not_formal_scope_statement",
+            i18n_key="reviewer_fragments.non_claim.not_formal_scope_statement",
+            zh_label="不是正式 scope statement",
+            en_label="not a formal scope statement",
+            aliases=("not a formal scope statement",),
+        ),
+        "decision_rule_profile_stub_only": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "decision_rule_profile_stub_only",
+            i18n_key="reviewer_fragments.non_claim.decision_rule_profile_stub_only",
+            zh_label="decision rule profile 仍是 stub-only",
+            en_label="decision rule profile stub only",
+            aliases=("decision rule profile stub only",),
+        ),
+        "not_release_gate": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "not_release_gate",
+            i18n_key="reviewer_fragments.non_claim.not_release_gate",
+            zh_label="不是 release gate",
+            en_label="not a release gate",
+            aliases=("not a release gate",),
+        ),
+        "not_live_acceptance": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "not_live_acceptance",
+            i18n_key="reviewer_fragments.non_claim.not_live_acceptance",
+            zh_label="不是 live acceptance",
+            en_label="not live acceptance",
+            aliases=("not live acceptance",),
+        ),
+        "reference_registry_stub_only": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "reference_registry_stub_only",
+            i18n_key="reviewer_fragments.non_claim.reference_registry_stub_only",
+            zh_label="reference registry 仍是 stub-only",
+            en_label="reference registry stub only",
+            aliases=("reference registry stub only",),
+        ),
+        "not_released_metrology_chain": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "not_released_metrology_chain",
+            i18n_key="reviewer_fragments.non_claim.not_released_metrology_chain",
+            zh_label="不是已发布的 metrology chain",
+            en_label="not a released metrology chain",
+            aliases=("not a released metrology chain",),
+        ),
+        "certificate_evidence_not_closed": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "certificate_evidence_not_closed",
+            i18n_key="reviewer_fragments.non_claim.certificate_evidence_not_closed",
+            zh_label="certificate 证据尚未闭合",
+            en_label="certificate evidence not closed",
+            aliases=("certificate evidence not closed",),
+        ),
+        "traceability_chain_stub_only": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "traceability_chain_stub_only",
+            i18n_key="reviewer_fragments.non_claim.traceability_chain_stub_only",
+            zh_label="traceability chain 仍是 stub-only",
+            en_label="traceability chain stub only",
+            aliases=("traceability chain stub only",),
+        ),
+        "certificate_backed_release_chain_not_closed": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "certificate_backed_release_chain_not_closed",
+            i18n_key="reviewer_fragments.non_claim.certificate_backed_release_chain_not_closed",
+            zh_label="certificate-backed release chain 尚未闭合",
+            en_label="certificate-backed release chain not closed",
+            aliases=("certificate-backed release chain not closed",),
+        ),
+        "not_real_metrology_release_evidence": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "not_real_metrology_release_evidence",
+            i18n_key="reviewer_fragments.non_claim.not_real_metrology_release_evidence",
+            zh_label="不是实际计量发布证据",
+            en_label="not real metrology release evidence",
+            aliases=("not real metrology release evidence",),
+        ),
+        "not_released_uncertainty_budget": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "not_released_uncertainty_budget",
+            i18n_key="reviewer_fragments.non_claim.not_released_uncertainty_budget",
+            zh_label="不是已发布的不确定度预算",
+            en_label="not a released uncertainty budget",
+            aliases=("not a released uncertainty budget",),
+        ),
+        "uncertainty_stub_only": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "uncertainty_stub_only",
+            i18n_key="reviewer_fragments.non_claim.uncertainty_stub_only",
+            zh_label="不确定度仍是 stub-only",
+            en_label="uncertainty stub only",
+            aliases=("uncertainty stub only",),
+        ),
+        "not_final_uncertainty_report": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "not_final_uncertainty_report",
+            i18n_key="reviewer_fragments.non_claim.not_final_uncertainty_report",
+            zh_label="不是最终 uncertainty report",
+            en_label="not a final uncertainty report",
+            aliases=("not a final uncertainty report",),
+        ),
+        "simulation_not_close_uncertainty": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "simulation_not_close_uncertainty",
+            i18n_key="reviewer_fragments.non_claim.simulation_not_close_uncertainty",
+            zh_label="simulation 不会闭合 uncertainty",
+            en_label="simulation does not close uncertainty",
+            aliases=("simulation does not close uncertainty",),
+        ),
+        "method_confirmation_protocol_stub_only": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "method_confirmation_protocol_stub_only",
+            i18n_key="reviewer_fragments.non_claim.method_confirmation_protocol_stub_only",
+            zh_label="method confirmation protocol 仍是 stub-only",
+            en_label="method confirmation protocol stub only",
+            aliases=("method confirmation protocol stub only",),
+        ),
+        "not_closed_method_confirmation_report": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "not_closed_method_confirmation_report",
+            i18n_key="reviewer_fragments.non_claim.not_closed_method_confirmation_report",
+            zh_label="不是闭环的 method confirmation report",
+            en_label="not a closed method confirmation report",
+            aliases=("not a closed method confirmation report",),
+        ),
+        "simulation_not_close_method_confirmation": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "simulation_not_close_method_confirmation",
+            i18n_key="reviewer_fragments.non_claim.simulation_not_close_method_confirmation",
+            zh_label="simulation 不会闭合 method confirmation",
+            en_label="simulation does not close method confirmation",
+            aliases=("simulation does not close method confirmation",),
+        ),
+        "method_confirmation_matrix_stub_only": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "method_confirmation_matrix_stub_only",
+            i18n_key="reviewer_fragments.non_claim.method_confirmation_matrix_stub_only",
+            zh_label="method confirmation matrix 仍是 stub-only",
+            en_label="method confirmation matrix stub only",
+            aliases=("method confirmation matrix stub only",),
+        ),
+        "not_method_confirmation_closure": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "not_method_confirmation_closure",
+            i18n_key="reviewer_fragments.non_claim.not_method_confirmation_closure",
+            zh_label="不是 method confirmation closure",
+            en_label="not method confirmation closure",
+            aliases=("not method confirmation closure",),
+        ),
+        "software_traceability_matrix_only": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "software_traceability_matrix_only",
+            i18n_key="reviewer_fragments.non_claim.software_traceability_matrix_only",
+            zh_label="仅 software traceability matrix",
+            en_label="software traceability matrix only",
+            aliases=("software traceability matrix only",),
+        ),
+        "not_formal_software_qualification_report": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "not_formal_software_qualification_report",
+            i18n_key="reviewer_fragments.non_claim.not_formal_software_qualification_report",
+            zh_label="不是正式 software qualification report",
+            en_label="not a formal software qualification report",
+            aliases=("not a formal software qualification report",),
+        ),
+        "release_manifest_stub_only": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "release_manifest_stub_only",
+            i18n_key="reviewer_fragments.non_claim.release_manifest_stub_only",
+            zh_label="release manifest 仍是 stub-only",
+            en_label="release manifest stub only",
+            aliases=("release manifest stub only",),
+        ),
+        "not_released_validation_record": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "not_released_validation_record",
+            i18n_key="reviewer_fragments.non_claim.not_released_validation_record",
+            zh_label="不是已发布的 validation record",
+            en_label="not a released validation record",
+            aliases=("not a released validation record",),
+        ),
+        "readiness_registry_only": _entry(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            "readiness_registry_only",
+            i18n_key="reviewer_fragments.non_claim.readiness_registry_only",
+            zh_label="仅 readiness registry",
+            en_label="readiness registry only",
+            aliases=("readiness registry only",),
+        ),
+    }
+)
+
+_FRAGMENT_REGISTRY[PHASE_CONTRAST_FRAGMENT_FAMILY].update(
+    {
+        "preseal_partial_vs_pressure_stable_complete_detail": _entry(
+            PHASE_CONTRAST_FRAGMENT_FAMILY,
+            "preseal_partial_vs_pressure_stable_complete_detail",
+            i18n_key="reviewer_fragments.phase_contrast.preseal_partial_vs_pressure_stable_complete_detail",
+            zh_label="{route} 路由中，preseal 因仍缺 {preseal_missing} 而保持 payload-partial；同路 pressure_stable 在 {stable_available} 全部就位后可达到 payload-complete；因此 preseal 的方法 {preseal_method}、不确定度 {preseal_uncertainty}、溯源 {preseal_traceability} 继续保持打开，而 pressure_stable 已将方法 {stable_method}、不确定度 {stable_uncertainty}、溯源 {stable_traceability} 作为 synthetic reviewer linkage 暴露出来",
+            en_label="{route} route: preseal stays payload-partial because missing {preseal_missing}; same-route pressure_stable reaches payload-complete because {stable_available} are all available; preseal keeps method {preseal_method}, uncertainty {preseal_uncertainty}, and traceability {preseal_traceability} open, while pressure_stable already exposes method {stable_method}, uncertainty {stable_uncertainty}, and traceability {stable_traceability} as synthetic reviewer linkage",
+            parameter_names=(
+                "route",
+                "preseal_missing",
+                "stable_available",
+                "preseal_method",
+                "preseal_uncertainty",
+                "preseal_traceability",
+                "stable_method",
+                "stable_uncertainty",
+                "stable_traceability",
+            ),
+        ),
+        "preseal_partial_vs_pressure_stable_complete": _entry(
+            PHASE_CONTRAST_FRAGMENT_FAMILY,
+            "preseal_partial_vs_pressure_stable_complete",
+            i18n_key="reviewer_fragments.phase_contrast.preseal_partial_vs_pressure_stable_complete",
+            zh_label="preseal 因 setup / conditioning 证据仍需显式保留 {preseal_missing} 而维持 payload-partial；pressure_stable 则在 {stable_available} 全部就位后可以达到 payload-complete，并挂接更完整的方法 / 不确定度 / 溯源审阅链",
+            en_label="preseal stays payload-partial because setup / conditioning evidence still keeps {preseal_missing} explicit; pressure_stable can reach payload-complete once {stable_available} are all available and can therefore anchor richer method / uncertainty / traceability reviewer linkage",
+            parameter_names=("preseal_missing", "stable_available"),
+        ),
+        "payload_backed_ambient_recovery_anchor_visibility": _entry(
+            PHASE_CONTRAST_FRAGMENT_FAMILY,
+            "payload_backed_ambient_recovery_anchor_visibility",
+            i18n_key="reviewer_fragments.phase_contrast.payload_backed_ambient_recovery_anchor_visibility",
+            zh_label="payload-backed 的 ambient/recovery 阶段 {phases} 会继续把方法 {method}、不确定度 {uncertainty}、溯源 {traceability} 作为 synthetic reviewer anchor 暴露出来，同时保持 Step 2 证据边界不变",
+            en_label="payload-backed ambient/recovery phases {phases} keep method {method}, uncertainty {uncertainty}, and traceability {traceability} visible as synthetic reviewer anchors without changing Step 2 evidence boundaries",
+            parameter_names=("phases", "method", "uncertainty", "traceability"),
+        ),
+        "trace_only_taxonomy_visibility_open": _entry(
+            PHASE_CONTRAST_FRAGMENT_FAMILY,
+            "trace_only_taxonomy_visibility_open",
+            i18n_key="reviewer_fragments.phase_contrast.trace_only_taxonomy_visibility_open",
+            zh_label="trace-only 阶段 {phases} 仍保持同一套 taxonomy 可见，但在提升为 payload-backed 证据前，审阅闭环不会关闭",
+            en_label="trace-only phases {phases} keep the same taxonomy visible, but reviewer closure stays open until payload-backed evidence is promoted",
+            parameter_names=("phases",),
+        ),
+    }
+)
+
 
 def _normalize_lookup_value(value: Any) -> str:
     text = str(value or "").strip().lower()
@@ -339,6 +743,61 @@ _BLOCKER_PATTERNS: tuple[tuple[re.Pattern[str], str, tuple[str, ...]], ...] = (
     (re.compile(r"^linked traceability nodes remain stub-only: (?P<items>.+)$", re.IGNORECASE), "linked_traceability_nodes_stub_only", ("items",)),
 )
 
+_PHASE_CONTRAST_PATTERNS: tuple[tuple[re.Pattern[str], str, tuple[str, ...]], ...] = (
+    (
+        re.compile(
+            r"^(?P<route>.+?) route: preseal stays payload-partial because missing (?P<preseal_missing>.+?); "
+            r"same-route pressure_stable reaches payload-complete because (?P<stable_available>.+?) are all available; "
+            r"preseal keeps method (?P<preseal_method>.+?), uncertainty (?P<preseal_uncertainty>.+?), and traceability "
+            r"(?P<preseal_traceability>.+?) open, while pressure_stable already exposes method (?P<stable_method>.+?), "
+            r"uncertainty (?P<stable_uncertainty>.+?), and traceability (?P<stable_traceability>.+?) as synthetic reviewer linkage$",
+            re.IGNORECASE,
+        ),
+        "preseal_partial_vs_pressure_stable_complete_detail",
+        (
+            "route",
+            "preseal_missing",
+            "stable_available",
+            "preseal_method",
+            "preseal_uncertainty",
+            "preseal_traceability",
+            "stable_method",
+            "stable_uncertainty",
+            "stable_traceability",
+        ),
+    ),
+    (
+        re.compile(
+            r"^preseal stays payload-partial because setup / conditioning evidence still keeps "
+            r"(?P<preseal_missing>.+?) explicit; pressure_stable can reach payload-complete once "
+            r"(?P<stable_available>.+?) are all available and can therefore anchor richer method / uncertainty / "
+            r"traceability reviewer linkage$",
+            re.IGNORECASE,
+        ),
+        "preseal_partial_vs_pressure_stable_complete",
+        ("preseal_missing", "stable_available"),
+    ),
+    (
+        re.compile(
+            r"^payload-backed ambient/recovery phases (?P<phases>.+?) keep method (?P<method>.+?), uncertainty "
+            r"(?P<uncertainty>.+?), and traceability (?P<traceability>.+?) visible as synthetic reviewer anchors "
+            r"without changing step 2 evidence boundaries$",
+            re.IGNORECASE,
+        ),
+        "payload_backed_ambient_recovery_anchor_visibility",
+        ("phases", "method", "uncertainty", "traceability"),
+    ),
+    (
+        re.compile(
+            r"^trace-only phases (?P<phases>.+?) keep the same taxonomy visible, but reviewer closure stays open until "
+            r"payload-backed evidence is promoted$",
+            re.IGNORECASE,
+        ),
+        "trace_only_taxonomy_visibility_open",
+        ("phases",),
+    ),
+)
+
 
 def _infer_fragment_row(family: str, value: Any) -> tuple[str, dict[str, Any]]:
     text = str(value or "").strip()
@@ -350,6 +809,7 @@ def _infer_fragment_row(family: str, value: Any) -> tuple[str, dict[str, Any]]:
         GAP_REASON_FRAGMENT_FAMILY: _GAP_REASON_PATTERNS,
         READINESS_IMPACT_FRAGMENT_FAMILY: _READINESS_IMPACT_PATTERNS,
         BLOCKER_FRAGMENT_FAMILY: _BLOCKER_PATTERNS,
+        PHASE_CONTRAST_FRAGMENT_FAMILY: _PHASE_CONTRAST_PATTERNS,
     }.get(family, ())
     for pattern, canonical_key, field_names in patterns:
         match = pattern.match(text)
