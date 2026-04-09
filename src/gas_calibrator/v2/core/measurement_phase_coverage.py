@@ -228,7 +228,7 @@ _PHASE_GAP_NAVIGATION_PROFILES: dict[tuple[str, str], dict[str, Any]] = {
         "reviewer_next_step_digest": (
             "Confirm the water preseal window method first, then add the preseal pressure/temperature "
             "uncertainty inputs, then tie the humidity and dew-point references into the traceability stub "
-            "while keeping preseal explicit as payload-partial."
+            "while keeping preseal partial explicit as payload-partial."
         ),
     },
     ("gas", "preseal"): {
@@ -252,7 +252,7 @@ _PHASE_GAP_NAVIGATION_PROFILES: dict[tuple[str, str], dict[str, Any]] = {
         "reviewer_next_step_digest": (
             "Confirm the gas preseal window method first, then add the preseal pressure/temperature "
             "uncertainty inputs, then tie the standard-gas and pressure references into the traceability stub "
-            "while keeping preseal explicit as payload-partial."
+            "while keeping preseal partial explicit as payload-partial."
         ),
     },
     ("water", "pressure_stable"): {
@@ -1416,22 +1416,16 @@ def _phase_navigation_profile(route_family: str, phase_name: str) -> dict[str, A
 
 def _phase_linked_method_confirmation_items(*, route_family: str, phase_name: str, coverage_bucket: str) -> list[str]:
     profile = _phase_navigation_profile(route_family, phase_name)
-    if coverage_bucket in {"model_only", "test_only", "gap"}:
-        return []
     return list(profile.get("linked_method_confirmation_items") or [])
 
 
 def _phase_linked_uncertainty_inputs(*, route_family: str, phase_name: str, coverage_bucket: str) -> list[str]:
     profile = _phase_navigation_profile(route_family, phase_name)
-    if coverage_bucket in {"model_only", "test_only", "gap"}:
-        return []
     return list(profile.get("linked_uncertainty_inputs") or [])
 
 
 def _phase_linked_traceability_stub_nodes(*, route_family: str, phase_name: str, coverage_bucket: str) -> list[str]:
     profile = _phase_navigation_profile(route_family, phase_name)
-    if coverage_bucket in {"model_only", "test_only", "gap"}:
-        return []
     return list(profile.get("linked_traceability_stub_nodes") or [])
 
 

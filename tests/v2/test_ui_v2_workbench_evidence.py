@@ -159,11 +159,13 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
         for line in list(report_payload["recognition_readiness_evidence"]["detail_lines"] or [])
     )
     assert any(
-        "Linked method confirmation items" in str(line)
+        "关联方法确认条目" in str(line)
+        and "Water preseal window definition" in str(line)
         for line in list(report_payload["recognition_readiness_evidence"]["detail_lines"] or [])
     )
     assert any(
-        "Linked uncertainty inputs" in str(line)
+        "关联不确定度输入" in str(line)
+        and "Preseal pressure term" in str(line)
         for line in list(report_payload["measurement_core_evidence"]["summary_lines"] or [])
     )
     assert report_payload["publish_primary_latest_allowed"] is False

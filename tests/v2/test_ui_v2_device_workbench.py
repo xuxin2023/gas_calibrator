@@ -110,7 +110,8 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
         for line in list(workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["summary_lines"] or [])
     )
     assert any(
-        "Linked uncertainty inputs" in str(line)
+        "关联不确定度输入" in str(line)
+        and "Preseal pressure term" in str(line)
         for line in list(workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["summary_lines"] or [])
     )
     assert workbench["workbench"]["live_snapshot_evidence"]["point_taxonomy_summary"]["pressure_mode_summary"] == (
@@ -130,7 +131,8 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
     )
     assert any(
         str(section.get("id") or "") == "recognition_readiness"
-        and "Linked method confirmation items" in str(section.get("body_text") or "")
+        and "关联方法确认条目" in str(section.get("body_text") or "")
+        and "Water preseal window definition" in str(section.get("body_text") or "")
         for section in list(workbench["engineer_summary"]["sections"] or [])
     )
     assert workbench["history"]["items"] == []
@@ -386,7 +388,8 @@ def test_workbench_supports_view_layering_history_and_quick_scenarios(tmp_path: 
     )
     assert any(
         str(item.get("id") or "") == "measurement_core"
-        and "Linked uncertainty inputs" in str(item.get("body_text") or "")
+        and "关联不确定度输入" in str(item.get("body_text") or "")
+        and "Reference gas value" in str(item.get("body_text") or "")
         for item in snapshot["engineer_summary"]["sections"]
     )
     assert "workbench_route_trace" in snapshot["evidence"]["simulation_context"]
