@@ -471,6 +471,9 @@ def test_review_center_surfaces_recognition_readiness_governance_items(tmp_path:
     assert any("审阅下一步" in str(line) for line in list(audit_item.get("detail_lineage_summary") or []))
     assert any("下一步补证工件" in str(line) for line in list(uncertainty_item.get("detail_lineage_summary") or []))
     assert any("仍缺证据" in str(line) for line in list(certificate_item.get("detail_lineage_summary") or []))
+    assert any("Ambient baseline stabilization rule" in str(line) for line in list(scope_item.get("detail_lineage_summary") or []))
+    assert any("Ambient stabilization window" in str(line) for line in list(uncertainty_item.get("detail_lineage_summary") or []))
+    assert any("Software event log chain" in str(line) for line in list(audit_item.get("detail_lineage_summary") or []))
     for item in readiness_items:
         detail_text = str(item.get("detail_text") or "").lower()
         assert "real acceptance ready" not in detail_text

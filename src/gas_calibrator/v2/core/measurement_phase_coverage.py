@@ -661,7 +661,6 @@ def build_measurement_phase_coverage_report(
         _dedupe(
             artifact_name
             for row in phase_rows
-            if row.get("coverage_bucket") != _PAYLOAD_COMPLETE_BUCKET
             for artifact_name in list(row.get("next_required_artifacts") or [])
         )
     ) or "no next artifact escalation recorded"
@@ -689,7 +688,6 @@ def build_measurement_phase_coverage_report(
             )
             for row in phase_rows
             if list(row.get("linked_method_confirmation_items") or [])
-            and row.get("coverage_bucket") != _PAYLOAD_COMPLETE_BUCKET
         )
     ) or "no linked method confirmation items recorded"
     linked_uncertainty_input_summary = " | ".join(
@@ -700,7 +698,6 @@ def build_measurement_phase_coverage_report(
             )
             for row in phase_rows
             if list(row.get("linked_uncertainty_inputs") or [])
-            and row.get("coverage_bucket") != _PAYLOAD_COMPLETE_BUCKET
         )
     ) or "no linked uncertainty inputs recorded"
     linked_traceability_stub_summary = " | ".join(
@@ -711,7 +708,6 @@ def build_measurement_phase_coverage_report(
             )
             for row in phase_rows
             if list(row.get("linked_traceability_stub_nodes") or [])
-            and row.get("coverage_bucket") != _PAYLOAD_COMPLETE_BUCKET
         )
     ) or "no linked traceability stub nodes recorded"
     gap_index_summary = " | ".join(
@@ -722,7 +718,6 @@ def build_measurement_phase_coverage_report(
             )
             for row in phase_rows
             if str(row.get("gap_classification") or "").strip()
-            and row.get("coverage_bucket") != _PAYLOAD_COMPLETE_BUCKET
         )
     ) or "no gap index recorded"
     reviewer_next_step_summary = " | ".join(
@@ -730,7 +725,6 @@ def build_measurement_phase_coverage_report(
             str(row.get("reviewer_next_step_digest") or "").strip()
             for row in phase_rows
             if str(row.get("reviewer_next_step_digest") or "").strip()
-            and row.get("coverage_bucket") != _PAYLOAD_COMPLETE_BUCKET
         )
     ) or "no reviewer next-step guidance recorded"
     phase_contrast_summary = _phase_contrast_summary(phase_rows)

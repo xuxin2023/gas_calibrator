@@ -985,6 +985,12 @@ def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -
     assert uncertainty_summary["linked_uncertainty_inputs"]
     assert audit_digest["reviewer_next_step_digest"]
     assert scope_summary["gap_reason"]
+    assert "ambient/ambient_diagnostic" in list(scope_summary.get("linked_measurement_phases") or [])
+    assert "ambient/sample_ready" in list(scope_summary.get("linked_measurement_phases") or [])
+    assert "system/recovery_retry" in list(audit_digest.get("linked_measurement_phases") or [])
+    assert "Ambient baseline stabilization rule" in list(scope_summary.get("linked_method_confirmation_items") or [])
+    assert "Ambient stabilization window" in list(uncertainty_summary.get("linked_uncertainty_inputs") or [])
+    assert "Software event log chain" in list(audit_digest.get("linked_traceability_nodes") or [])
     if "preseal_partial_gap_summary" in scope_summary["digest"]:
         assert scope_summary["digest"]["preseal_partial_gap_summary"]
     assert "next_required_artifacts_summary" in audit_digest["digest"]

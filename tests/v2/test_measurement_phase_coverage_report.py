@@ -212,6 +212,12 @@ def test_measurement_phase_coverage_report_preserves_signal_group_gaps_honestly(
     assert ambient_row["signal_group_coverage"]["analyzer_raw"]["available_channels"] == ["ref_signal"]
     assert ambient_row["signal_group_coverage"]["data_quality"]["coverage_status"] == "complete"
     assert ambient_row["evidence_provenance"] == "actual_simulated_payload"
+    assert ambient_row["gap_classification"] == "ambient_baseline_payload_complete_anchor"
+    assert ambient_row["gap_severity"] == "info"
+    assert "Ambient baseline stabilization rule" in list(ambient_row.get("linked_method_confirmation_items") or [])
+    assert "Ambient pressure baseline" in list(ambient_row.get("linked_uncertainty_inputs") or [])
+    assert "Ambient environment reference chain" in list(ambient_row.get("linked_traceability_stub_nodes") or [])
+    assert "synthetic baseline anchor" in str(ambient_row.get("reviewer_next_step_digest") or "")
     assert water_row["signal_group_coverage"]["analyzer_raw"]["coverage_status"] == "partial"
     assert water_row["coverage_bucket"] == "actual_simulated_run_with_payload_partial"
     assert water_row["payload_completeness"] == "partial"
@@ -272,6 +278,24 @@ def test_measurement_phase_coverage_report_marks_trace_only_rich_profile_honestl
     assert rows_by_key["ambient:sample_ready"]["coverage_bucket"] == "trace_only_not_evaluated"
     assert rows_by_key["system:recovery_retry"]["coverage_bucket"] == "trace_only_not_evaluated"
     assert rows_by_key["ambient:ambient_diagnostic"]["payload_completeness"] == "trace_only"
+    assert rows_by_key["ambient:ambient_diagnostic"]["gap_classification"] == "ambient_baseline_trace_only_gap"
+    assert rows_by_key["ambient:sample_ready"]["gap_classification"] == "ambient_sample_ready_trace_only_gap"
+    assert rows_by_key["system:recovery_retry"]["gap_classification"] == "recovery_retry_trace_only_gap"
+    assert rows_by_key["ambient:ambient_diagnostic"]["gap_severity"] == "medium"
+    assert rows_by_key["system:recovery_retry"]["gap_severity"] == "medium"
+    assert "Ambient baseline stabilization rule" in list(
+        rows_by_key["ambient:ambient_diagnostic"].get("linked_method_confirmation_items") or []
+    )
+    assert "Ambient stabilization window" in list(
+        rows_by_key["ambient:sample_ready"].get("linked_uncertainty_inputs") or []
+    )
+    assert "Software event log chain" in list(
+        rows_by_key["system:recovery_retry"].get("linked_traceability_stub_nodes") or []
+    )
+    assert "trace into payload-backed reviewer evidence" in str(
+        rows_by_key["ambient:ambient_diagnostic"].get("reviewer_next_step_digest") or ""
+    )
+    assert "software validation" in str(rows_by_key["system:recovery_retry"].get("reviewer_next_step_digest") or "").lower()
     assert rows_by_key["system:recovery_retry"]["evidence_provenance"] == "synthetic_trace_only"
     assert rows_by_key["ambient:ambient_diagnostic"]["signal_group_coverage"]["reference"]["coverage_status"] == "gap"
     assert rows_by_key["system:recovery_retry"]["missing_signal_layers"] == [
@@ -362,6 +386,20 @@ def test_measurement_phase_coverage_report_promotes_rich_phase_payloads_to_paylo
     assert rows_by_key["system:recovery_retry"]["coverage_bucket"] == "actual_simulated_run_with_payload_complete"
     assert rows_by_key["ambient:ambient_diagnostic"]["payload_completeness"] == "complete"
     assert rows_by_key["system:recovery_retry"]["payload_completeness"] == "complete"
+    assert rows_by_key["ambient:ambient_diagnostic"]["gap_classification"] == "ambient_baseline_payload_complete_anchor"
+    assert rows_by_key["ambient:sample_ready"]["gap_classification"] == "ambient_sample_ready_payload_complete_anchor"
+    assert rows_by_key["system:recovery_retry"]["gap_classification"] == "recovery_retry_payload_complete_anchor"
+    assert "Ambient baseline stabilization rule" in list(
+        rows_by_key["ambient:ambient_diagnostic"].get("linked_method_confirmation_items") or []
+    )
+    assert "Ambient stabilization window" in list(
+        rows_by_key["ambient:sample_ready"].get("linked_uncertainty_inputs") or []
+    )
+    assert "Software event log chain" in list(
+        rows_by_key["system:recovery_retry"].get("linked_traceability_stub_nodes") or []
+    )
+    assert "synthetic release anchor" in str(rows_by_key["ambient:sample_ready"].get("reviewer_next_step_digest") or "")
+    assert "software-validation anchor" in str(rows_by_key["system:recovery_retry"].get("reviewer_next_step_digest") or "")
     assert rows_by_key["system:recovery_retry"]["available_signal_layers"] == [
         "reference",
         "analyzer_raw",
@@ -378,6 +416,10 @@ def test_measurement_phase_coverage_report_promotes_rich_phase_payloads_to_paylo
         "ambient/ambient_diagnostic | ambient/sample_ready | system/recovery_retry"
     )
     assert report["raw"]["digest"]["payload_partial_phase_summary"] == "no payload-partial simulated phase evidence"
+    assert "Ambient baseline stabilization rule" in str(report["raw"]["digest"]["linked_method_confirmation_summary"] or "")
+    assert "Ambient stabilization window" in str(report["raw"]["digest"]["linked_uncertainty_input_summary"] or "")
+    assert "Software event log chain" in str(report["raw"]["digest"]["linked_traceability_stub_summary"] or "")
+    assert "payload-backed ambient/recovery phases" in str(report["raw"]["digest"]["phase_contrast_summary"] or "")
 
 
 def test_measurement_phase_coverage_report_distinguishes_partial_vs_complete_richer_phase_links() -> None:
