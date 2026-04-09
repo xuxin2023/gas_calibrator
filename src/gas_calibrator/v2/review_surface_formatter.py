@@ -2,7 +2,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from .ui_v2.i18n import display_phase, display_route, t
+from .core.phase_taxonomy_contract import (
+    GAP_CLASSIFICATION_FAMILY,
+    GAP_SEVERITY_FAMILY,
+    METHOD_CONFIRMATION_FAMILY,
+    TRACEABILITY_NODE_FAMILY,
+    UNCERTAINTY_INPUT_FAMILY,
+    normalize_phase_taxonomy_row,
+    taxonomy_text_replacements,
+)
+from .ui_v2.i18n import display_phase, display_route, display_taxonomy_value, display_taxonomy_values, t
 
 _OFFLINE_DIAGNOSTIC_DISPLAY_LABELS = {
     "artifacts": "\u5de5\u4ef6",
@@ -336,6 +345,8 @@ def humanize_review_surface_text(summary_value: str) -> str:
     text = humanize_review_center_coverage_text(text)
     for source, (key, default) in _MEASUREMENT_BUCKET_LABELS.items():
         text = text.replace(source, t(key, default=default))
+    for source, target in taxonomy_text_replacements():
+        text = text.replace(source, target)
     for source, target in _REVIEW_SURFACE_INLINE_REPLACEMENTS:
         text = text.replace(source, target)
     if ":" in text:
@@ -391,6 +402,173 @@ def _display_route_phase(row: dict[str, Any]) -> str:
 
 def _display_text_list(values: list[Any]) -> str:
     return " | ".join(str(item).strip() for item in list(values or []) if str(item).strip()) or t("common.none")
+
+
+def _normalize_measurement_phase_row(row: dict[str, Any]) -> dict[str, Any]:
+    return normalize_phase_taxonomy_row(dict(row or {}), display_locale="en_US")
+
+
+def _display_taxonomy_list(
+    family: str,
+    *,
+    key_values: list[Any] | None = None,
+    display_values: list[Any] | None = None,
+) -> str:
+    values = list(key_values or []) or list(display_values or [])
+    labels = display_taxonomy_values(family, values)
+    return " | ".join(labels) if labels else t("common.none")
+
+
+def _display_gap_classification(row: dict[str, Any]) -> str:
+    payload = _normalize_measurement_phase_row(row)
+    return display_taxonomy_value(
+        GAP_CLASSIFICATION_FAMILY,
+        payload.get("gap_classification"),
+        default=str(payload.get("gap_classification") or t("common.none")),
+    )
+
+
+def _display_gap_severity(row: dict[str, Any]) -> str:
+    payload = _normalize_measurement_phase_row(row)
+    return display_taxonomy_value(
+        GAP_SEVERITY_FAMILY,
+        payload.get("gap_severity"),
+        default=str(payload.get("gap_severity") or t("common.none")),
+    )
+
+
+def _display_reviewer_next_step(row: dict[str, Any]) -> str:
+    payload = _normalize_measurement_phase_row(row)
+    return humanize_review_surface_text(str(payload.get("reviewer_next_step_digest") or t("common.none")))
+
+
+def _phase_field_summary(
+    rows: list[dict[str, Any]],
+    *,
+    family: str,
+    key_field_name: str,
+    display_field_name: str,
+) -> str:
+    return " | ".join(
+        _dedupe(
+            f"{_display_route_phase(row)}: {_display_taxonomy_list(family, key_values=list(row.get(key_field_name) or []), display_values=list(row.get(display_field_name) or []))}"
+            for row in rows
+            if list(row.get(key_field_name) or []) or list(row.get(display_field_name) or [])
+        )
+    ) or t("common.none")
+
+
+def _gap_index_summary(rows: list[dict[str, Any]]) -> str:
+    return " | ".join(
+        _dedupe(
+            f"{_display_route_phase(row)}: {_display_gap_classification(row)} / {_display_gap_severity(row)}"
+            for row in rows
+            if str(row.get("gap_classification") or "").strip()
+        )
+    ) or t("common.none")
+
+
+def _reviewer_next_step_summary(rows: list[dict[str, Any]]) -> str:
+    return " | ".join(_dedupe(_display_reviewer_next_step(row) for row in rows if str(row.get("reviewer_next_step_digest") or "").strip())) or t("common.none")
+
+
+def _localized_phase_contrast_summary(rows: list[dict[str, Any]], fallback: str) -> str:
+    parts: list[str] = []
+    preseal_row = next(
+        (
+            row
+            for row in rows
+            if str(row.get("phase_name") or "").strip() == "preseal"
+            and str(row.get("coverage_bucket") or "").strip() == "actual_simulated_run_with_payload_partial"
+        ),
+        {},
+    )
+    pressure_row = next(
+        (
+            row
+            for row in rows
+            if str(row.get("phase_name") or "").strip() == "pressure_stable"
+            and str(row.get("coverage_bucket") or "").strip() == "actual_simulated_run_with_payload_complete"
+        ),
+        {},
+    )
+    if preseal_row and pressure_row:
+        preseal_missing = _display_measurement_layer_list(list(preseal_row.get("missing_signal_layers") or []))
+        pressure_available = _display_measurement_layer_list(list(pressure_row.get("available_signal_layers") or []))
+        parts.append(
+            t(
+                "results.review_center.detail.measurement.phase_contrast_preseal_vs_stable",
+                preseal=display_phase("preseal", default="preseal"),
+                stable=display_phase("pressure_stable", default="pressure_stable"),
+                missing=preseal_missing,
+                available=pressure_available,
+                default=f"preseal 保持 payload-partial，因为 {preseal_missing} 仍需明确；pressure_stable 在 {pressure_available} 全部具备时可达到 payload-complete，并可挂接更完整的方法/不确定度/溯源审阅链。",
+            )
+        )
+    payload_backed_rows = [
+        row
+        for row in rows
+        if str(row.get("phase_name") or "").strip() in {"ambient_diagnostic", "sample_ready", "recovery_retry"}
+        and str(row.get("coverage_bucket") or "").strip() == "actual_simulated_run_with_payload_complete"
+    ]
+    if payload_backed_rows:
+        phases = " | ".join(_dedupe(_display_route_phase(row) for row in payload_backed_rows))
+        method_summary = " | ".join(
+            _dedupe(
+                label
+                for row in payload_backed_rows
+                for label in display_taxonomy_values(
+                    METHOD_CONFIRMATION_FAMILY,
+                    list(row.get("linked_method_confirmation_item_keys") or row.get("linked_method_confirmation_items") or []),
+                )
+            )
+        ) or t("common.none")
+        uncertainty_summary = " | ".join(
+            _dedupe(
+                label
+                for row in payload_backed_rows
+                for label in display_taxonomy_values(
+                    UNCERTAINTY_INPUT_FAMILY,
+                    list(row.get("linked_uncertainty_input_keys") or row.get("linked_uncertainty_inputs") or []),
+                )
+            )
+        ) or t("common.none")
+        traceability_summary = " | ".join(
+            _dedupe(
+                label
+                for row in payload_backed_rows
+                for label in display_taxonomy_values(
+                    TRACEABILITY_NODE_FAMILY,
+                    list(row.get("linked_traceability_node_keys") or row.get("linked_traceability_nodes") or row.get("linked_traceability_stub_nodes") or []),
+                )
+            )
+        ) or t("common.none")
+        parts.append(
+            t(
+                "results.review_center.detail.measurement.phase_contrast_payload_backed",
+                phases=phases,
+                method=method_summary,
+                uncertainty=uncertainty_summary,
+                traceability=traceability_summary,
+                default=f"payload-backed ambient/recovery 阶段 {phases} 会继续公开方法 {method_summary}、不确定度 {uncertainty_summary} 与溯源 {traceability_summary}，但仍然保持 Step 2 仿真审阅边界。",
+            )
+        )
+    trace_only_rows = [
+        row
+        for row in rows
+        if str(row.get("phase_name") or "").strip() in {"ambient_diagnostic", "sample_ready", "recovery_retry"}
+        and str(row.get("payload_completeness") or "").strip() == "trace_only"
+    ]
+    if trace_only_rows:
+        phases = " | ".join(_dedupe(_display_route_phase(row) for row in trace_only_rows))
+        parts.append(
+            t(
+                "results.review_center.detail.measurement.phase_contrast_trace_only",
+                phases=phases,
+                default=f"仅 trace 阶段 {phases} 仍保持相同 taxonomy 可见，但在提升为 payload-backed 证据前，审阅闭环不会关闭。",
+            )
+        )
+    return " | ".join(part for part in parts if str(part).strip()) or humanize_review_surface_text(fallback)
 
 
 def build_measurement_review_digest_lines(payload: dict[str, Any]) -> dict[str, list[str]]:

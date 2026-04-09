@@ -1370,14 +1370,32 @@ class ResultsGateway:
                 "linked_measurement_gaps": [
                     dict(item) for item in list(evidence_payload.get("linked_measurement_gaps") or []) if isinstance(item, dict)
                 ],
+                "linked_method_confirmation_item_keys": list(
+                    evidence_payload.get("linked_method_confirmation_item_keys") or []
+                ),
                 "linked_method_confirmation_items": list(evidence_payload.get("linked_method_confirmation_items") or []),
+                "linked_uncertainty_input_keys": list(evidence_payload.get("linked_uncertainty_input_keys") or []),
                 "linked_uncertainty_inputs": list(evidence_payload.get("linked_uncertainty_inputs") or []),
+                "linked_traceability_node_keys": list(evidence_payload.get("linked_traceability_node_keys") or []),
                 "linked_traceability_nodes": list(evidence_payload.get("linked_traceability_nodes") or []),
+                "linked_gap_classification_keys": list(evidence_payload.get("linked_gap_classification_keys") or []),
+                "linked_gap_severity_keys": list(evidence_payload.get("linked_gap_severity_keys") or []),
                 "next_required_artifacts": list(evidence_payload.get("next_required_artifacts") or []),
                 "blockers": list(evidence_payload.get("blockers") or []),
                 "gap_reason": str(evidence_payload.get("gap_reason") or digest.get("gap_reason") or ""),
+                "gap_classification_label": str(
+                    evidence_payload.get("gap_classification_label") or digest.get("gap_classification_label") or ""
+                ),
+                "gap_severity_label": str(
+                    evidence_payload.get("gap_severity_label") or digest.get("gap_severity_label") or ""
+                ),
                 "reviewer_next_step_digest": str(
                     evidence_payload.get("reviewer_next_step_digest") or digest.get("reviewer_next_step_digest") or ""
+                ),
+                "reviewer_next_step_template_key": str(
+                    evidence_payload.get("reviewer_next_step_template_key")
+                    or digest.get("reviewer_next_step_template_key")
+                    or ""
                 ),
                 "boundary_digest": str(evidence_payload.get("boundary_digest") or digest.get("boundary_digest") or ""),
                 "non_claim_digest": str(evidence_payload.get("non_claim_digest") or digest.get("non_claim_digest") or ""),

@@ -4,6 +4,13 @@ from datetime import datetime, timezone
 from typing import Any, Iterable
 
 from .models import SamplingResult
+from .phase_taxonomy_contract import (
+    GAP_CLASSIFICATION_FAMILY,
+    GAP_SEVERITY_FAMILY,
+    TAXONOMY_CONTRACT_VERSION,
+    normalize_phase_taxonomy_row,
+    normalize_taxonomy_keys,
+)
 
 SCOPE_DEFINITION_PACK_FILENAME = "scope_definition_pack.json"
 SCOPE_DEFINITION_PACK_MARKDOWN_FILENAME = "scope_definition_pack.md"
@@ -1497,10 +1504,13 @@ def _enrich_recognition_readiness_artifact(
     linked_artifact_refs = [dict(item) for item in list(raw.get("linked_artifact_refs") or []) if isinstance(item, dict)]
     if not linked_artifact_refs:
         linked_artifact_refs = _artifact_refs_from_map(linked_artifact_map)
-    linked_measurement_phase_artifacts = _measurement_phase_refs_for_artifact(
-        phase_coverage_payload=phase_coverage_payload,
-        artifact_type=artifact_type,
-    )
+    linked_measurement_phase_artifacts = [
+        normalize_phase_taxonomy_row(item, display_locale="en_US")
+        for item in _measurement_phase_refs_for_artifact(
+            phase_coverage_payload=phase_coverage_payload,
+            artifact_type=artifact_type,
+        )
+    ]
     linked_measurement_phases = _dedupe(
         str(item.get("route_phase") or "").strip() for item in linked_measurement_phase_artifacts if str(item.get("route_phase") or "").strip()
     )
@@ -1516,6 +1526,14 @@ def _enrich_recognition_readiness_artifact(
     linked_traceability_nodes = _linked_value_summary(
         linked_measurement_phase_artifacts,
         "linked_traceability_nodes",
+    )
+    linked_gap_classification_keys = normalize_taxonomy_keys(
+        GAP_CLASSIFICATION_FAMILY,
+        [item.get("gap_classification") for item in linked_measurement_gaps],
+    )
+    linked_gap_severity_keys = normalize_taxonomy_keys(
+        GAP_SEVERITY_FAMILY,
+        [item.get("gap_severity") for item in linked_measurement_gaps],
     )
     missing_evidence = _normalize_text_list(
         raw.get("missing_evidence")
@@ -1568,6 +1586,20 @@ def _enrich_recognition_readiness_artifact(
         linked_measurement_phase_artifacts,
         "linked_traceability_nodes",
     )
+    linked_gap_classification_summary = " | ".join(
+        _dedupe(
+            f"{str(item.get('route_phase') or '').strip()}: {str(item.get('gap_classification') or '').strip()}"
+            for item in linked_measurement_gaps
+            if str(item.get("route_phase") or "").strip() and str(item.get("gap_classification") or "").strip()
+        )
+    )
+    linked_gap_severity_summary = " | ".join(
+        _dedupe(
+            f"{str(item.get('route_phase') or '').strip()}: {str(item.get('gap_severity') or '').strip()}"
+            for item in linked_measurement_gaps
+            if str(item.get("route_phase") or "").strip() and str(item.get("gap_severity") or "").strip()
+        )
+    )
     preseal_partial_gap_summary = _preseal_partial_gap_summary(
         artifact_type=artifact_type,
         linked_measurement_phase_artifacts=linked_measurement_phase_artifacts,
@@ -1601,6 +1633,10 @@ def _enrich_recognition_readiness_artifact(
         digest["linked_uncertainty_inputs_summary"] = linked_uncertainty_input_summary
     if linked_traceability_node_summary:
         digest["linked_traceability_nodes_summary"] = linked_traceability_node_summary
+    if linked_gap_classification_summary:
+        digest["linked_gap_classification_summary"] = linked_gap_classification_summary
+    if linked_gap_severity_summary:
+        digest["linked_gap_severity_summary"] = linked_gap_severity_summary
     if preseal_partial_gap_summary:
         digest["preseal_partial_gap_summary"] = preseal_partial_gap_summary
     if gap_reason:
@@ -1615,6 +1651,7 @@ def _enrich_recognition_readiness_artifact(
         digest["non_claim_digest"] = non_claim_digest
     raw["anchor_id"] = anchor_id
     raw["anchor_label"] = anchor_label
+    raw["taxonomy_contract_version"] = TAXONOMY_CONTRACT_VERSION
     raw["linked_artifact_refs"] = linked_artifact_refs
     raw["linked_measurement_phase_artifacts"] = linked_measurement_phase_artifacts
     raw["linked_measurement_phases"] = linked_measurement_phases
@@ -1622,6 +1659,8 @@ def _enrich_recognition_readiness_artifact(
     raw["linked_method_confirmation_items"] = linked_method_confirmation_items
     raw["linked_uncertainty_inputs"] = linked_uncertainty_inputs
     raw["linked_traceability_nodes"] = linked_traceability_nodes
+    raw["linked_gap_classification_keys"] = linked_gap_classification_keys
+    raw["linked_gap_severity_keys"] = linked_gap_severity_keys
     raw["linked_measurement_gap_summary"] = linked_measurement_gap_summary
     raw["preseal_partial_gap_summary"] = preseal_partial_gap_summary
     raw["gap_reason"] = gap_reason
@@ -1713,37 +1752,45 @@ def _measurement_phase_refs_for_artifact(
         if not any(str(item.get("artifact_type") or "").strip() == str(artifact_type or "").strip() for item in linked_refs):
             continue
         refs.append(
-            {
-                "artifact_type": "measurement_phase_coverage_report",
-                "phase_route_key": str(row.get("phase_route_key") or "").strip(),
-                "route_family": str(row.get("route_family") or "").strip(),
-                "phase_name": str(row.get("phase_name") or "").strip(),
-                "route_phase": (
-                    f"{str(row.get('route_family') or '').strip()}/{str(row.get('phase_name') or '').strip()}".strip("/")
-                ),
-                "anchor_id": str(row.get("anchor_id") or "").strip(),
-                "anchor_label": str(row.get("anchor_label") or "").strip(),
-                "coverage_bucket": str(row.get("coverage_bucket") or "").strip(),
-                "coverage_bucket_display": str(row.get("coverage_bucket_display") or row.get("coverage_bucket") or "").strip(),
-                "payload_completeness": str(row.get("payload_completeness") or "").strip(),
-                "available_signal_layers": list(row.get("available_signal_layers") or []),
-                "missing_signal_layers": list(row.get("missing_signal_layers") or []),
-                "missing_reason_digest": str(row.get("missing_reason_digest") or "").strip(),
-                "evidence_provenance": str(row.get("evidence_provenance") or "").strip(),
-                "readiness_impact_digest": str(row.get("readiness_impact_digest") or "").strip(),
-                "gap_classification": str(row.get("gap_classification") or "").strip(),
-                "gap_severity": str(row.get("gap_severity") or "").strip(),
-                "linked_method_confirmation_items": list(row.get("linked_method_confirmation_items") or []),
-                "linked_uncertainty_inputs": list(row.get("linked_uncertainty_inputs") or []),
-                "linked_traceability_nodes": list(row.get("linked_traceability_stub_nodes") or []),
-                "linked_readiness_summary": str(row.get("linked_readiness_summary") or "").strip(),
-                "blockers": list(row.get("blockers") or []),
-                "next_required_artifacts": list(row.get("next_required_artifacts") or []),
-                "gap_reason": str(row.get("missing_reason_digest") or row.get("readiness_impact_digest") or "").strip(),
-                "reviewer_next_step_digest": str(row.get("reviewer_next_step_digest") or "").strip(),
-                "reviewer_guidance_digest": str(row.get("reviewer_guidance_digest") or "").strip(),
-                "comparison_digest": str(row.get("comparison_digest") or "").strip(),
-            }
+            normalize_phase_taxonomy_row(
+                {
+                    "artifact_type": "measurement_phase_coverage_report",
+                    "phase_route_key": str(row.get("phase_route_key") or "").strip(),
+                    "route_family": str(row.get("route_family") or "").strip(),
+                    "phase_name": str(row.get("phase_name") or "").strip(),
+                    "route_phase": (
+                        f"{str(row.get('route_family') or '').strip()}/{str(row.get('phase_name') or '').strip()}".strip("/")
+                    ),
+                    "anchor_id": str(row.get("anchor_id") or "").strip(),
+                    "anchor_label": str(row.get("anchor_label") or "").strip(),
+                    "coverage_bucket": str(row.get("coverage_bucket") or "").strip(),
+                    "coverage_bucket_display": str(row.get("coverage_bucket_display") or row.get("coverage_bucket") or "").strip(),
+                    "payload_completeness": str(row.get("payload_completeness") or "").strip(),
+                    "available_signal_layers": list(row.get("available_signal_layers") or []),
+                    "missing_signal_layers": list(row.get("missing_signal_layers") or []),
+                    "missing_reason_digest": str(row.get("missing_reason_digest") or "").strip(),
+                    "evidence_provenance": str(row.get("evidence_provenance") or "").strip(),
+                    "readiness_impact_digest": str(row.get("readiness_impact_digest") or "").strip(),
+                    "gap_classification": str(row.get("gap_classification") or "").strip(),
+                    "gap_severity": str(row.get("gap_severity") or "").strip(),
+                    "linked_method_confirmation_items": list(row.get("linked_method_confirmation_items") or []),
+                    "linked_method_confirmation_item_keys": list(row.get("linked_method_confirmation_item_keys") or []),
+                    "linked_uncertainty_inputs": list(row.get("linked_uncertainty_inputs") or []),
+                    "linked_uncertainty_input_keys": list(row.get("linked_uncertainty_input_keys") or []),
+                    "linked_traceability_nodes": list(row.get("linked_traceability_nodes") or []),
+                    "linked_traceability_node_keys": list(row.get("linked_traceability_node_keys") or []),
+                    "linked_traceability_stub_nodes": list(row.get("linked_traceability_stub_nodes") or []),
+                    "linked_readiness_summary": str(row.get("linked_readiness_summary") or "").strip(),
+                    "blockers": list(row.get("blockers") or []),
+                    "next_required_artifacts": list(row.get("next_required_artifacts") or []),
+                    "gap_reason": str(row.get("missing_reason_digest") or row.get("readiness_impact_digest") or "").strip(),
+                    "reviewer_next_step_digest": str(row.get("reviewer_next_step_digest") or "").strip(),
+                    "reviewer_next_step_template_key": str(row.get("reviewer_next_step_template_key") or "").strip(),
+                    "reviewer_guidance_digest": str(row.get("reviewer_guidance_digest") or "").strip(),
+                    "comparison_digest": str(row.get("comparison_digest") or "").strip(),
+                },
+                display_locale="en_US",
+            )
         )
     return refs
 
@@ -1782,7 +1829,7 @@ def _linked_measurement_gap_summary(rows: list[dict[str, Any]]) -> str:
 def _linked_measurement_gap_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     gap_rows: list[dict[str, Any]] = []
     for item in rows:
-        payload = dict(item or {})
+        payload = normalize_phase_taxonomy_row(dict(item or {}), display_locale="en_US")
         if str(payload.get("coverage_bucket") or "").strip() == "actual_simulated_run_with_payload_complete":
             continue
         route_phase = str(payload.get("route_phase") or "").strip()
@@ -1796,7 +1843,9 @@ def _linked_measurement_gap_rows(rows: list[dict[str, Any]]) -> list[dict[str, A
                     payload.get("coverage_bucket_display") or payload.get("coverage_bucket") or ""
                 ).strip(),
                 "gap_classification": str(payload.get("gap_classification") or "").strip(),
+                "gap_classification_label": str(payload.get("gap_classification_label") or "").strip(),
                 "gap_severity": str(payload.get("gap_severity") or "").strip(),
+                "gap_severity_label": str(payload.get("gap_severity_label") or "").strip(),
                 "missing_signal_layers": list(payload.get("missing_signal_layers") or []),
                 "gap_reason": str(
                     payload.get("gap_reason")
@@ -1804,12 +1853,16 @@ def _linked_measurement_gap_rows(rows: list[dict[str, Any]]) -> list[dict[str, A
                     or payload.get("readiness_impact_digest")
                     or ""
                 ).strip(),
+                "linked_method_confirmation_item_keys": list(payload.get("linked_method_confirmation_item_keys") or []),
                 "linked_method_confirmation_items": list(payload.get("linked_method_confirmation_items") or []),
+                "linked_uncertainty_input_keys": list(payload.get("linked_uncertainty_input_keys") or []),
                 "linked_uncertainty_inputs": list(payload.get("linked_uncertainty_inputs") or []),
+                "linked_traceability_node_keys": list(payload.get("linked_traceability_node_keys") or []),
                 "linked_traceability_nodes": list(payload.get("linked_traceability_nodes") or []),
                 "blockers": list(payload.get("blockers") or []),
                 "next_required_artifacts": list(payload.get("next_required_artifacts") or []),
                 "reviewer_next_step_digest": str(payload.get("reviewer_next_step_digest") or "").strip(),
+                "reviewer_next_step_template_key": str(payload.get("reviewer_next_step_template_key") or "").strip(),
             }
         )
     return gap_rows

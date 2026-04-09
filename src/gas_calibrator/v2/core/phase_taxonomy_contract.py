@@ -751,6 +751,332 @@ _TAXONOMY_REGISTRY[REVIEWER_NEXT_STEP_TEMPLATE_FAMILY].update(
     }
 )
 
+_TAXONOMY_REGISTRY[REVIEWER_NEXT_STEP_TEMPLATE_FAMILY].update(
+    {
+        "water_sample_ready_payload_complete_anchor": _entry(
+            REVIEWER_NEXT_STEP_TEMPLATE_FAMILY,
+            "water_sample_ready_payload_complete_anchor",
+            i18n_key="taxonomy.reviewer_next_step.water_sample_ready_payload_complete_anchor",
+            zh_label="使用水路 sample-ready payload 作为仿真审阅释放证据，并将不确定度与溯源闭环继续保留在 readiness-only 工件中。",
+            en_label="Use the water sample-ready payload as synthetic reviewer release evidence, then keep uncertainty and traceability closure in readiness-only artifacts.",
+        ),
+        "water_sample_ready_trace_promotion": _entry(
+            REVIEWER_NEXT_STEP_TEMPLATE_FAMILY,
+            "water_sample_ready_trace_promotion",
+            i18n_key="taxonomy.reviewer_next_step.water_sample_ready_trace_promotion",
+            zh_label="先把水路 sample-ready trace 提升为 payload-backed 审阅证据，再关闭停留、不确定度与溯源缺口。",
+            en_label="Promote the water sample-ready trace into payload-backed reviewer evidence before closing dwell, uncertainty, and traceability gaps.",
+        ),
+        "water_sample_ready_gap_closeout": _entry(
+            REVIEWER_NEXT_STEP_TEMPLATE_FAMILY,
+            "water_sample_ready_gap_closeout",
+            i18n_key="taxonomy.reviewer_next_step.water_sample_ready_gap_closeout",
+            zh_label="先确认水路 sample-ready 停留与释放方法条目，再补齐湿度/压力不确定度输入，并把释放参考接入溯源骨架，同时保持该阶段仅用于审阅。",
+            en_label="Confirm water sample-ready dwell and release method items first, then add humidity/pressure uncertainty inputs, then tie the release references into the traceability stub while keeping this phase reviewer-only.",
+        ),
+        "gas_sample_ready_payload_complete_anchor": _entry(
+            REVIEWER_NEXT_STEP_TEMPLATE_FAMILY,
+            "gas_sample_ready_payload_complete_anchor",
+            i18n_key="taxonomy.reviewer_next_step.gas_sample_ready_payload_complete_anchor",
+            zh_label="使用气路 sample-ready payload 作为仿真审阅释放证据，并将不确定度与溯源闭环继续保留在 readiness-only 工件中。",
+            en_label="Use the gas sample-ready payload as synthetic reviewer release evidence, then keep uncertainty and traceability closure in readiness-only artifacts.",
+        ),
+        "gas_sample_ready_trace_promotion": _entry(
+            REVIEWER_NEXT_STEP_TEMPLATE_FAMILY,
+            "gas_sample_ready_trace_promotion",
+            i18n_key="taxonomy.reviewer_next_step.gas_sample_ready_trace_promotion",
+            zh_label="先把气路 sample-ready trace 提升为 payload-backed 审阅证据，再关闭停留、不确定度与溯源缺口。",
+            en_label="Promote the gas sample-ready trace into payload-backed reviewer evidence before closing dwell, uncertainty, and traceability gaps.",
+        ),
+        "gas_sample_ready_gap_closeout": _entry(
+            REVIEWER_NEXT_STEP_TEMPLATE_FAMILY,
+            "gas_sample_ready_gap_closeout",
+            i18n_key="taxonomy.reviewer_next_step.gas_sample_ready_gap_closeout",
+            zh_label="先确认气路 sample-ready 停留与释放方法条目，再补齐标准气/压力不确定度输入，并把释放参考接入溯源骨架，同时保持该阶段仅用于审阅。",
+            en_label="Confirm gas sample-ready dwell and release method items first, then add reference-gas/pressure uncertainty inputs, then tie the release references into the traceability stub while keeping this phase reviewer-only.",
+        ),
+        "recovery_retry_payload_complete_anchor": _entry(
+            REVIEWER_NEXT_STEP_TEMPLATE_FAMILY,
+            "recovery_retry_payload_complete_anchor",
+            i18n_key="taxonomy.reviewer_next_step.recovery_retry_payload_complete_anchor",
+            zh_label="使用 recovery/retry payload 作为仿真软件验证锚点，并将发布与审计闭环继续保留在 readiness-only 工件中。",
+            en_label="Use the recovery/retry payload as the synthetic software-validation anchor, then keep release and audit closure in readiness-only artifacts.",
+        ),
+        "recovery_retry_trace_promotion": _entry(
+            REVIEWER_NEXT_STEP_TEMPLATE_FAMILY,
+            "recovery_retry_trace_promotion",
+            i18n_key="taxonomy.reviewer_next_step.recovery_retry_trace_promotion",
+            zh_label="先把 recovery/retry trace 提升为 payload-backed 审阅证据，再关闭软件验证、时序与审计轨迹缺口。",
+            en_label="Promote the recovery/retry trace into payload-backed reviewer evidence before closing software validation, timing, and audit-trace gaps.",
+        ),
+        "recovery_retry_test_only_hold": _entry(
+            REVIEWER_NEXT_STEP_TEMPLATE_FAMILY,
+            "recovery_retry_test_only_hold",
+            i18n_key="taxonomy.reviewer_next_step.recovery_retry_test_only_hold",
+            zh_label="在仿真 payload 捕获到重试时序、故障捕获与审计轨迹关联前，保持 recovery/retry 仅处于 test-only 审阅覆盖。",
+            en_label="Keep recovery/retry in test-only reviewer coverage until synthetic payload captures retry timing, fault capture, and audit-trace linkage.",
+        ),
+        "recovery_retry_gap_closeout": _entry(
+            REVIEWER_NEXT_STEP_TEMPLATE_FAMILY,
+            "recovery_retry_gap_closeout",
+            i18n_key="taxonomy.reviewer_next_step.recovery_retry_gap_closeout",
+            zh_label="先确认 recovery/retry 方法条目，再补齐重试时序不确定度输入，并把软件事件日志与审计参考接入溯源骨架，同时保持该阶段仅用于审阅。",
+            en_label="Confirm recovery/retry method items first, then add retry timing uncertainty inputs, then tie the software event log and audit references into the traceability stub while keeping this phase reviewer-only.",
+        ),
+        "generic_payload_complete_readiness_only": _entry(
+            REVIEWER_NEXT_STEP_TEMPLATE_FAMILY,
+            "generic_payload_complete_readiness_only",
+            i18n_key="taxonomy.reviewer_next_step.generic_payload_complete_readiness_only",
+            zh_label="将该阶段继续作为仿真审阅证据链接到 readiness 工件，不作为真实 acceptance 证据。",
+            en_label="Keep this phase linked to readiness artifacts as synthetic reviewer evidence only.",
+        ),
+        "generic_trace_promotion": _entry(
+            REVIEWER_NEXT_STEP_TEMPLATE_FAMILY,
+            "generic_trace_promotion",
+            i18n_key="taxonomy.reviewer_next_step.generic_trace_promotion",
+            zh_label="先把该仅 trace 阶段提升为 payload-backed 审阅证据，再关闭下游 readiness 缺口。",
+            en_label="Promote this trace-only phase into payload-backed reviewer evidence before closing downstream readiness gaps.",
+        ),
+        "generic_boundary_documentation": _entry(
+            REVIEWER_NEXT_STEP_TEMPLATE_FAMILY,
+            "generic_boundary_documentation",
+            i18n_key="taxonomy.reviewer_next_step.generic_boundary_documentation",
+            zh_label="保持当前审阅边界明确，并记录下一个缺失工件。",
+            en_label="Keep the current reviewer boundary explicit and document the next missing artifact.",
+        ),
+    }
+)
+
+_PHASE_TAXONOMY_PROFILES.update(
+    {
+        ("ambient", "ambient_diagnostic"): {
+            "linked_method_confirmation_item_keys": [
+                "ambient_baseline_stabilization_rule",
+                "ambient_diagnostic_decision_threshold",
+                "ambient_diagnostic_drift_review",
+            ],
+            "linked_uncertainty_input_keys": [
+                "ambient_pressure_baseline",
+                "ambient_humidity_baseline",
+                "ambient_temperature_baseline",
+            ],
+            "linked_traceability_node_keys": [
+                "ambient_environment_reference_chain",
+                "ambient_pressure_reference_link",
+                "ambient_climate_baseline_stub",
+            ],
+            "gap_classification": {
+                _PAYLOAD_COMPLETE_BUCKET: "ambient_baseline_payload_complete_anchor",
+                "trace_only_not_evaluated": "ambient_baseline_trace_only_gap",
+                "model_only": "ambient_baseline_model_only_gap",
+                "gap": "ambient_baseline_gap",
+                "default": "ambient_baseline_reviewer_gap",
+            },
+            "gap_severity": {
+                _PAYLOAD_COMPLETE_BUCKET: "info",
+                "trace_only_not_evaluated": "medium",
+                "model_only": "medium",
+                "gap": "high",
+                "default": "medium",
+            },
+            "reviewer_next_step_template_key": {
+                _PAYLOAD_COMPLETE_BUCKET: "ambient_diagnostic_payload_complete_anchor",
+                "trace_only_not_evaluated": "ambient_diagnostic_trace_promotion",
+                "default": "ambient_diagnostic_gap_closeout",
+            },
+        },
+        ("water", "preseal"): {
+            "linked_method_confirmation_item_keys": [
+                "water_preseal_window_definition",
+                "water_route_conditioning_repeatability",
+                "water_preseal_release_criteria",
+            ],
+            "linked_uncertainty_input_keys": [
+                "humidity_reference_window",
+                "preseal_pressure_term",
+                "preseal_temperature_term",
+            ],
+            "linked_traceability_node_keys": [
+                "humidity_reference_chain",
+                "dew_point_reference_link",
+                "preseal_conditioning_window_stub",
+            ],
+            "gap_classification": "conditioning_window_partial_payload",
+            "gap_severity": "high",
+            "reviewer_next_step_template_key": "water_preseal_partial_gap_closeout",
+        },
+        ("gas", "preseal"): {
+            "linked_method_confirmation_item_keys": [
+                "gas_preseal_window_definition",
+                "gas_route_conditioning_repeatability",
+                "gas_preseal_release_criteria",
+            ],
+            "linked_uncertainty_input_keys": [
+                "reference_gas_window",
+                "preseal_pressure_term",
+                "preseal_temperature_term",
+            ],
+            "linked_traceability_node_keys": [
+                "standard_gas_chain",
+                "pressure_reference_link",
+                "preseal_conditioning_window_stub",
+            ],
+            "gap_classification": "conditioning_window_partial_payload",
+            "gap_severity": "high",
+            "reviewer_next_step_template_key": "gas_preseal_partial_gap_closeout",
+        },
+        ("water", "pressure_stable"): {
+            "linked_method_confirmation_item_keys": ["water_pressure_stabilization_hold_confirmation"],
+            "linked_uncertainty_input_keys": ["humidity_reference", "pressure_reference", "temperature_reference"],
+            "linked_traceability_node_keys": ["humidity_reference_chain", "dew_point_reference_link", "pressure_reference_link"],
+            "gap_classification": "payload_complete_synthetic_reviewer_anchor",
+            "gap_severity": "info",
+            "reviewer_next_step_template_key": "water_pressure_stable_payload_complete_anchor",
+        },
+        ("gas", "pressure_stable"): {
+            "linked_method_confirmation_item_keys": ["gas_pressure_stabilization_hold_confirmation"],
+            "linked_uncertainty_input_keys": ["reference_gas_value", "pressure_reference", "temperature_reference"],
+            "linked_traceability_node_keys": ["standard_gas_chain", "pressure_reference_link", "temperature_reference_link"],
+            "gap_classification": "payload_complete_synthetic_reviewer_anchor",
+            "gap_severity": "info",
+            "reviewer_next_step_template_key": "gas_pressure_stable_payload_complete_anchor",
+        },
+        ("ambient", "sample_ready"): {
+            "linked_method_confirmation_item_keys": [
+                "ambient_sample_ready_dwell_confirmation",
+                "ambient_sample_release_criteria",
+            ],
+            "linked_uncertainty_input_keys": [
+                "ambient_stabilization_window",
+                "ambient_pressure_drift_allowance",
+            ],
+            "linked_traceability_node_keys": [
+                "ambient_environment_reference_chain",
+                "sample_release_trace_stub",
+            ],
+            "gap_classification": {
+                _PAYLOAD_COMPLETE_BUCKET: "ambient_sample_ready_payload_complete_anchor",
+                "trace_only_not_evaluated": "ambient_sample_ready_trace_only_gap",
+                "model_only": "ambient_sample_ready_model_only_gap",
+                "gap": "ambient_sample_ready_gap",
+                "default": "ambient_sample_ready_reviewer_gap",
+            },
+            "gap_severity": {
+                _PAYLOAD_COMPLETE_BUCKET: "info",
+                "trace_only_not_evaluated": "medium",
+                "model_only": "medium",
+                "gap": "high",
+                "default": "medium",
+            },
+            "reviewer_next_step_template_key": {
+                _PAYLOAD_COMPLETE_BUCKET: "ambient_sample_ready_payload_complete_anchor",
+                "trace_only_not_evaluated": "ambient_sample_ready_trace_promotion",
+                "default": "ambient_sample_ready_gap_closeout",
+            },
+        },
+        ("water", "sample_ready"): {
+            "linked_method_confirmation_item_keys": [
+                "water_sample_ready_dwell_confirmation",
+                "water_sample_release_criteria",
+            ],
+            "linked_uncertainty_input_keys": [
+                "humidity_stabilization_window",
+                "pressure_settling_allowance",
+            ],
+            "linked_traceability_node_keys": [
+                "humidity_reference_chain",
+                "sample_release_trace_stub",
+            ],
+            "gap_classification": {
+                _PAYLOAD_COMPLETE_BUCKET: "water_sample_ready_payload_complete_anchor",
+                "trace_only_not_evaluated": "water_sample_ready_trace_only_gap",
+                "model_only": "water_sample_ready_model_only_gap",
+                "gap": "water_sample_ready_gap",
+                "default": "water_sample_ready_reviewer_gap",
+            },
+            "gap_severity": {
+                _PAYLOAD_COMPLETE_BUCKET: "info",
+                "trace_only_not_evaluated": "medium",
+                "model_only": "medium",
+                "gap": "high",
+                "default": "medium",
+            },
+            "reviewer_next_step_template_key": {
+                _PAYLOAD_COMPLETE_BUCKET: "water_sample_ready_payload_complete_anchor",
+                "trace_only_not_evaluated": "water_sample_ready_trace_promotion",
+                "default": "water_sample_ready_gap_closeout",
+            },
+        },
+        ("gas", "sample_ready"): {
+            "linked_method_confirmation_item_keys": [
+                "gas_sample_ready_dwell_confirmation",
+                "gas_sample_release_criteria",
+            ],
+            "linked_uncertainty_input_keys": [
+                "reference_gas_stabilization_window",
+                "pressure_settling_allowance",
+            ],
+            "linked_traceability_node_keys": [
+                "standard_gas_chain",
+                "sample_release_trace_stub",
+            ],
+            "gap_classification": {
+                _PAYLOAD_COMPLETE_BUCKET: "gas_sample_ready_payload_complete_anchor",
+                "trace_only_not_evaluated": "gas_sample_ready_trace_only_gap",
+                "model_only": "gas_sample_ready_model_only_gap",
+                "gap": "gas_sample_ready_gap",
+                "default": "gas_sample_ready_reviewer_gap",
+            },
+            "gap_severity": {
+                _PAYLOAD_COMPLETE_BUCKET: "info",
+                "trace_only_not_evaluated": "medium",
+                "model_only": "medium",
+                "gap": "high",
+                "default": "medium",
+            },
+            "reviewer_next_step_template_key": {
+                _PAYLOAD_COMPLETE_BUCKET: "gas_sample_ready_payload_complete_anchor",
+                "trace_only_not_evaluated": "gas_sample_ready_trace_promotion",
+                "default": "gas_sample_ready_gap_closeout",
+            },
+        },
+        ("system", "recovery_retry"): {
+            "linked_method_confirmation_item_keys": [
+                "recovery_retry_scenario_confirmation",
+                "safe_recovery_procedure_confirmation",
+            ],
+            "linked_uncertainty_input_keys": [
+                "retry_timing_tolerance",
+                "fault_capture_debounce_window",
+            ],
+            "linked_traceability_node_keys": [
+                "software_event_log_chain",
+                "recovery_audit_trail_stub",
+            ],
+            "gap_classification": {
+                _PAYLOAD_COMPLETE_BUCKET: "recovery_retry_payload_complete_anchor",
+                "trace_only_not_evaluated": "recovery_retry_trace_only_gap",
+                "test_only": "recovery_retry_test_only_gap",
+                "gap": "recovery_retry_gap",
+                "default": "recovery_retry_reviewer_gap",
+            },
+            "gap_severity": {
+                _PAYLOAD_COMPLETE_BUCKET: "info",
+                "trace_only_not_evaluated": "medium",
+                "test_only": "medium",
+                "gap": "high",
+                "default": "medium",
+            },
+            "reviewer_next_step_template_key": {
+                _PAYLOAD_COMPLETE_BUCKET: "recovery_retry_payload_complete_anchor",
+                "trace_only_not_evaluated": "recovery_retry_trace_promotion",
+                "test_only": "recovery_retry_test_only_hold",
+                "default": "recovery_retry_gap_closeout",
+            },
+        },
+    }
+)
+
 def _normalize_lookup_value(value: Any) -> str:
     if isinstance(value, dict):
         for key in (
@@ -897,3 +1223,197 @@ def _phase_profile_value(
         if key and key in value:
             return value[key]
     return None
+
+
+def phase_method_confirmation_keys(*, route_family: str, phase_name: str) -> list[str]:
+    return normalize_taxonomy_keys(
+        METHOD_CONFIRMATION_FAMILY,
+        phase_taxonomy_profile(route_family, phase_name).get("linked_method_confirmation_item_keys") or [],
+    )
+
+
+def phase_uncertainty_input_keys(*, route_family: str, phase_name: str) -> list[str]:
+    return normalize_taxonomy_keys(
+        UNCERTAINTY_INPUT_FAMILY,
+        phase_taxonomy_profile(route_family, phase_name).get("linked_uncertainty_input_keys") or [],
+    )
+
+
+def phase_traceability_node_keys(*, route_family: str, phase_name: str) -> list[str]:
+    return normalize_taxonomy_keys(
+        TRACEABILITY_NODE_FAMILY,
+        phase_taxonomy_profile(route_family, phase_name).get("linked_traceability_node_keys") or [],
+    )
+
+
+def phase_gap_classification_key(
+    *,
+    route_family: str,
+    phase_name: str,
+    coverage_bucket: str,
+    payload_completeness: str,
+) -> str:
+    profile = phase_taxonomy_profile(route_family, phase_name)
+    profile_value = _phase_profile_value(
+        profile=profile,
+        field_name="gap_classification",
+        coverage_bucket=coverage_bucket,
+        payload_completeness=payload_completeness,
+    )
+    canonical_key = normalize_taxonomy_key(GAP_CLASSIFICATION_FAMILY, profile_value)
+    if canonical_key:
+        return canonical_key
+    if coverage_bucket == _PAYLOAD_COMPLETE_BUCKET:
+        return "payload_complete_synthetic_reviewer_anchor"
+    if payload_completeness == "trace_only":
+        return "trace_only_reviewer_gap"
+    if coverage_bucket in {"model_only", "test_only", "gap"}:
+        return f"{coverage_bucket}_reviewer_gap"
+    return "payload_partial_reviewer_gap"
+
+
+def phase_gap_severity_key(
+    *,
+    route_family: str,
+    phase_name: str,
+    coverage_bucket: str,
+    payload_completeness: str,
+) -> str:
+    profile = phase_taxonomy_profile(route_family, phase_name)
+    profile_value = _phase_profile_value(
+        profile=profile,
+        field_name="gap_severity",
+        coverage_bucket=coverage_bucket,
+        payload_completeness=payload_completeness,
+    )
+    canonical_key = normalize_taxonomy_key(GAP_SEVERITY_FAMILY, profile_value)
+    if canonical_key:
+        return canonical_key
+    if coverage_bucket == _PAYLOAD_COMPLETE_BUCKET:
+        return "info"
+    if payload_completeness == "trace_only":
+        return "medium"
+    if coverage_bucket in {"model_only", "test_only", "gap"}:
+        return "medium"
+    return "high"
+
+
+def phase_reviewer_next_step_template_key(
+    *,
+    route_family: str,
+    phase_name: str,
+    coverage_bucket: str,
+    payload_completeness: str,
+) -> str:
+    profile = phase_taxonomy_profile(route_family, phase_name)
+    profile_value = _phase_profile_value(
+        profile=profile,
+        field_name="reviewer_next_step_template_key",
+        coverage_bucket=coverage_bucket,
+        payload_completeness=payload_completeness,
+    )
+    canonical_key = normalize_taxonomy_key(REVIEWER_NEXT_STEP_TEMPLATE_FAMILY, profile_value)
+    if canonical_key:
+        return canonical_key
+    if coverage_bucket == _PAYLOAD_COMPLETE_BUCKET:
+        return "generic_payload_complete_readiness_only"
+    if payload_completeness == "trace_only":
+        return "generic_trace_promotion"
+    return "generic_boundary_documentation"
+
+
+def reviewer_next_step_text(template_key: str, *, locale: str = "en_US") -> str:
+    return taxonomy_display_label(
+        REVIEWER_NEXT_STEP_TEMPLATE_FAMILY,
+        template_key,
+        locale=locale,
+        default="",
+    )
+
+
+def normalize_phase_taxonomy_row(
+    row: dict[str, Any],
+    *,
+    display_locale: str = "en_US",
+) -> dict[str, Any]:
+    payload = dict(row or {})
+    method_keys = normalize_taxonomy_keys(
+        METHOD_CONFIRMATION_FAMILY,
+        payload.get("linked_method_confirmation_item_keys") or payload.get("linked_method_confirmation_items") or [],
+    )
+    uncertainty_keys = normalize_taxonomy_keys(
+        UNCERTAINTY_INPUT_FAMILY,
+        payload.get("linked_uncertainty_input_keys") or payload.get("linked_uncertainty_inputs") or [],
+    )
+    traceability_keys = normalize_taxonomy_keys(
+        TRACEABILITY_NODE_FAMILY,
+        payload.get("linked_traceability_node_keys")
+        or payload.get("linked_traceability_nodes")
+        or payload.get("linked_traceability_stub_nodes")
+        or [],
+    )
+    payload["taxonomy_contract_version"] = TAXONOMY_CONTRACT_VERSION
+    payload["linked_method_confirmation_item_keys"] = method_keys
+    payload["linked_uncertainty_input_keys"] = uncertainty_keys
+    payload["linked_traceability_node_keys"] = traceability_keys
+    payload["linked_method_confirmation_items"] = taxonomy_display_labels(
+        METHOD_CONFIRMATION_FAMILY,
+        method_keys,
+        locale=display_locale,
+    )
+    payload["linked_uncertainty_inputs"] = taxonomy_display_labels(
+        UNCERTAINTY_INPUT_FAMILY,
+        uncertainty_keys,
+        locale=display_locale,
+    )
+    traceability_labels = taxonomy_display_labels(
+        TRACEABILITY_NODE_FAMILY,
+        traceability_keys,
+        locale=display_locale,
+    )
+    payload["linked_traceability_nodes"] = traceability_labels
+    if "linked_traceability_stub_nodes" in payload or traceability_labels:
+        payload["linked_traceability_stub_nodes"] = traceability_labels
+
+    gap_classification = normalize_taxonomy_key(
+        GAP_CLASSIFICATION_FAMILY,
+        payload.get("gap_classification"),
+        default=str(payload.get("gap_classification") or "").strip(),
+    )
+    gap_severity = normalize_taxonomy_key(
+        GAP_SEVERITY_FAMILY,
+        payload.get("gap_severity"),
+        default=str(payload.get("gap_severity") or "").strip(),
+    )
+    payload["gap_classification"] = gap_classification
+    payload["gap_classification_label"] = taxonomy_display_label(
+        GAP_CLASSIFICATION_FAMILY,
+        gap_classification,
+        locale=display_locale,
+        default=gap_classification,
+    )
+    payload["gap_severity"] = gap_severity
+    payload["gap_severity_label"] = taxonomy_display_label(
+        GAP_SEVERITY_FAMILY,
+        gap_severity,
+        locale=display_locale,
+        default=gap_severity,
+    )
+    payload["reviewer_next_step_template_key"] = str(
+        payload.get("reviewer_next_step_template_key") or ""
+    ).strip() or phase_reviewer_next_step_template_key(
+        route_family=str(payload.get("route_family") or "").strip(),
+        phase_name=str(payload.get("phase_name") or "").strip(),
+        coverage_bucket=str(payload.get("coverage_bucket") or "").strip(),
+        payload_completeness=str(payload.get("payload_completeness") or "").strip(),
+    )
+    rendered_reviewer_next_step = reviewer_next_step_text(
+        str(payload.get("reviewer_next_step_template_key") or ""),
+        locale=display_locale,
+    )
+    if rendered_reviewer_next_step:
+        payload["reviewer_next_step_digest"] = rendered_reviewer_next_step
+    return payload
+
+
+_rebuild_alias_index()

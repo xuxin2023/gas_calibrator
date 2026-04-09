@@ -6,6 +6,8 @@ from pathlib import Path
 import re
 from typing import Any
 
+from ..core.phase_taxonomy_contract import taxonomy_display_label, taxonomy_i18n_key
+
 DEFAULT_LOCALE = "zh_CN"
 FALLBACK_LOCALE = "en_US"
 LOCALES_DIR = Path(__file__).resolve().parent / "locales"
@@ -144,6 +146,36 @@ def display_winner_status(value: Any, *, locale: str | None = None, default: str
 
 def display_suite_failure_type(value: Any, *, locale: str | None = None, default: str | None = None) -> str:
     return display_enum("suite_failure_type", value, locale=locale, default=default)
+
+
+def display_taxonomy_value(
+    family: str,
+    value: Any,
+    *,
+    locale: str | None = None,
+    default: str | None = None,
+) -> str:
+    preferred = str(locale or _current_locale or DEFAULT_LOCALE)
+    i18n_key = taxonomy_i18n_key(family, value)
+    fallback = taxonomy_display_label(family, value, locale=preferred, default=default)
+    if i18n_key:
+        return t(i18n_key, locale=preferred, default=fallback)
+    return fallback
+
+
+def display_taxonomy_values(
+    family: str,
+    values: list[Any] | tuple[Any, ...] | None,
+    *,
+    locale: str | None = None,
+    default: str | None = None,
+) -> list[str]:
+    rows: list[str] = []
+    for value in list(values or []):
+        label = display_taxonomy_value(family, value, locale=locale, default=default)
+        if label and label not in rows:
+            rows.append(label)
+    return rows
 
 
 def display_bool(value: bool, *, locale: str | None = None) -> str:

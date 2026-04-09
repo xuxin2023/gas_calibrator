@@ -5,6 +5,18 @@ from typing import Any, Iterable
 
 from .models import SamplingResult
 from .multi_source_stability import CANONICAL_BOUNDARY_STATEMENTS, SIGNAL_GROUP_CHANNELS, SIGNAL_GROUP_ORDER
+from .phase_taxonomy_contract import (
+    TAXONOMY_CONTRACT_VERSION,
+    normalize_phase_taxonomy_row,
+    phase_gap_classification_key,
+    phase_gap_severity_key,
+    phase_method_confirmation_keys,
+    phase_reviewer_next_step_template_key,
+    phase_taxonomy_profile,
+    phase_traceability_node_keys,
+    phase_uncertainty_input_keys,
+    reviewer_next_step_text,
+)
 
 
 MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME = "measurement_phase_coverage_report.json"
@@ -1092,12 +1104,13 @@ def _build_phase_row(
         ).items()
         if str(path_value or "").strip()
     ] + [dict(item) for item in linked_readiness_artifact_refs]
-    return {
+    row = {
         "phase_name": phase_name,
         "route_family": route_family,
         "phase_route_key": f"{route_family}:{phase_name}",
         "anchor_id": anchor_id,
         "anchor_label": f"{route_family}/{phase_name} phase coverage",
+        "taxonomy_contract_version": TAXONOMY_CONTRACT_VERSION,
         "actual_run_evidence_present": actual_run_evidence_present,
         "evidence_source": coverage_bucket,
         "coverage_bucket": coverage_bucket,
@@ -1144,6 +1157,12 @@ def _build_phase_row(
         "phase_boundary_digest": phase_boundary_digest,
         "gap_classification": gap_classification,
         "gap_severity": gap_severity,
+        "reviewer_next_step_template_key": phase_reviewer_next_step_template_key(
+            route_family=route_family,
+            phase_name=phase_name,
+            coverage_bucket=coverage_bucket,
+            payload_completeness=payload_completeness,
+        ),
         "linked_method_confirmation_items": linked_method_confirmation_items,
         "linked_uncertainty_inputs": linked_uncertainty_inputs,
         "linked_traceability_stub_nodes": linked_traceability_stub_nodes,
@@ -1162,6 +1181,7 @@ def _build_phase_row(
         "reviewer_note": str(definition.get("reviewer_note") or ""),
         "digest": summary,
     }
+    return normalize_phase_taxonomy_row(row, display_locale="en_US")
 
 
 def _configured_route_families(
@@ -1639,7 +1659,7 @@ def _phase_boundary_digest(*, phase_name: str, coverage_bucket: str, payload_com
 
 
 def _phase_navigation_profile(route_family: str, phase_name: str) -> dict[str, Any]:
-    return dict(_PHASE_GAP_NAVIGATION_PROFILES.get((str(route_family or "").strip(), str(phase_name or "").strip())) or {})
+    return phase_taxonomy_profile(str(route_family or "").strip(), str(phase_name or "").strip())
 
 
 def _phase_profile_value(
@@ -1663,18 +1683,45 @@ def _phase_profile_value(
 
 
 def _phase_linked_method_confirmation_items(*, route_family: str, phase_name: str, coverage_bucket: str) -> list[str]:
-    profile = _phase_navigation_profile(route_family, phase_name)
-    return list(profile.get("linked_method_confirmation_items") or [])
+    return normalize_phase_taxonomy_row(
+        {
+            "route_family": route_family,
+            "phase_name": phase_name,
+            "linked_method_confirmation_item_keys": phase_method_confirmation_keys(
+                route_family=route_family,
+                phase_name=phase_name,
+            ),
+        },
+        display_locale="en_US",
+    ).get("linked_method_confirmation_items", [])
 
 
 def _phase_linked_uncertainty_inputs(*, route_family: str, phase_name: str, coverage_bucket: str) -> list[str]:
-    profile = _phase_navigation_profile(route_family, phase_name)
-    return list(profile.get("linked_uncertainty_inputs") or [])
+    return normalize_phase_taxonomy_row(
+        {
+            "route_family": route_family,
+            "phase_name": phase_name,
+            "linked_uncertainty_input_keys": phase_uncertainty_input_keys(
+                route_family=route_family,
+                phase_name=phase_name,
+            ),
+        },
+        display_locale="en_US",
+    ).get("linked_uncertainty_inputs", [])
 
 
 def _phase_linked_traceability_stub_nodes(*, route_family: str, phase_name: str, coverage_bucket: str) -> list[str]:
-    profile = _phase_navigation_profile(route_family, phase_name)
-    return list(profile.get("linked_traceability_stub_nodes") or [])
+    return normalize_phase_taxonomy_row(
+        {
+            "route_family": route_family,
+            "phase_name": phase_name,
+            "linked_traceability_node_keys": phase_traceability_node_keys(
+                route_family=route_family,
+                phase_name=phase_name,
+            ),
+        },
+        display_locale="en_US",
+    ).get("linked_traceability_stub_nodes", [])
 
 
 def _phase_gap_classification(
@@ -1684,22 +1731,12 @@ def _phase_gap_classification(
     coverage_bucket: str,
     payload_completeness: str,
 ) -> str:
-    profile = _phase_navigation_profile(route_family, phase_name)
-    profile_value = _phase_profile_value(
-        profile=profile,
-        field_name="gap_classification",
+    return phase_gap_classification_key(
+        route_family=route_family,
+        phase_name=phase_name,
         coverage_bucket=coverage_bucket,
         payload_completeness=payload_completeness,
     )
-    if str(profile_value or "").strip():
-        return str(profile_value or "").strip()
-    if coverage_bucket == _PAYLOAD_COMPLETE_BUCKET:
-        return "payload_complete_synthetic_reviewer_anchor"
-    if payload_completeness == "trace_only":
-        return "trace_only_reviewer_gap"
-    if coverage_bucket in {"model_only", "test_only", "gap"}:
-        return f"{coverage_bucket}_reviewer_gap"
-    return "payload_partial_reviewer_gap"
 
 
 def _phase_gap_severity(
@@ -1709,22 +1746,12 @@ def _phase_gap_severity(
     coverage_bucket: str,
     payload_completeness: str,
 ) -> str:
-    profile = _phase_navigation_profile(route_family, phase_name)
-    profile_value = _phase_profile_value(
-        profile=profile,
-        field_name="gap_severity",
+    return phase_gap_severity_key(
+        route_family=route_family,
+        phase_name=phase_name,
         coverage_bucket=coverage_bucket,
         payload_completeness=payload_completeness,
     )
-    if str(profile_value or "").strip():
-        return str(profile_value or "").strip()
-    if coverage_bucket == _PAYLOAD_COMPLETE_BUCKET:
-        return "info"
-    if payload_completeness == "trace_only":
-        return "medium"
-    if coverage_bucket in {"model_only", "test_only", "gap"}:
-        return "medium"
-    return "high"
 
 
 def _phase_reviewer_next_step_digest(
@@ -1737,19 +1764,15 @@ def _phase_reviewer_next_step_digest(
     linked_uncertainty_inputs: list[str],
     linked_traceability_stub_nodes: list[str],
 ) -> str:
-    profile = _phase_navigation_profile(route_family, phase_name)
-    profile_value = _phase_profile_value(
-        profile=profile,
-        field_name="reviewer_next_step_digest",
+    template_key = phase_reviewer_next_step_template_key(
+        route_family=route_family,
+        phase_name=phase_name,
         coverage_bucket=coverage_bucket,
         payload_completeness=payload_completeness,
     )
-    if str(profile_value or "").strip():
-        return str(profile_value or "").strip()
-    if coverage_bucket == _PAYLOAD_COMPLETE_BUCKET:
-        return "Keep this phase linked to readiness artifacts as synthetic reviewer evidence only."
-    if payload_completeness == "trace_only":
-        return "Promote this trace-only phase into payload-backed reviewer evidence before closing downstream readiness gaps."
+    rendered = reviewer_next_step_text(template_key, locale="en_US")
+    if rendered:
+        return rendered
     parts = []
     if linked_method_confirmation_items:
         parts.append(f"confirm method items: {', '.join(linked_method_confirmation_items)}")
@@ -1757,7 +1780,7 @@ def _phase_reviewer_next_step_digest(
         parts.append(f"add uncertainty inputs: {', '.join(linked_uncertainty_inputs)}")
     if linked_traceability_stub_nodes:
         parts.append(f"anchor traceability nodes: {', '.join(linked_traceability_stub_nodes)}")
-    return " | ".join(parts) or "Keep the current reviewer boundary explicit and document the next missing artifact."
+    return " | ".join(parts) or reviewer_next_step_text("generic_boundary_documentation", locale="en_US")
 
 
 def _phase_reviewer_guidance_digest(
