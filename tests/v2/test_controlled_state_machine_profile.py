@@ -133,7 +133,9 @@ def test_state_transition_evidence_captures_recovery_trace_and_boundaries() -> N
         str(row.get("decision_result") or "") == "fault_capture_recovery"
         for row in raw["phase_decision_logs"]
     )
-    assert raw["illegal_transitions"] == []
+    assert raw["illegal_transitions"]
+    assert all(item["allowed"] is False for item in raw["illegal_transitions"])
+    assert any(str(item.get("recovery_marker") or "") == "retry_or_recovery" for item in raw["illegal_transitions"])
     assert raw["review_surface"]["anchor_id"] == "state-transition-evidence"
     assert "actual_simulated_run" in raw["review_surface"]["evidence_source_filters"]
     assert "gas" in raw["review_surface"]["route_filters"]
