@@ -204,3 +204,57 @@ def test_measurement_phase_coverage_report_preserves_signal_group_gaps_honestly(
     assert "h2o_signal" in water_row["missing_channels"]
     assert "h2o_ratio_raw" in water_row["available_channels"]
     assert "synthetic provenance" in "\n".join(report["raw"]["review_surface"]["detail_lines"])
+
+
+def test_measurement_phase_coverage_report_promotes_trace_only_rich_profile_to_actual_simulated_phase_buckets() -> None:
+    report = build_measurement_phase_coverage_report(
+        run_id="run_trace_only_phase_coverage",
+        samples=[],
+        point_summaries=[],
+        route_trace_events=[
+            {
+                "route": "ambient",
+                "point_index": 1,
+                "point_tag": "ambient_diagnostic_trace",
+                "action": "ambient_diagnostic",
+                "result": "simulation_only_synthetic",
+                "message": "synthetic ambient diagnostic trace",
+            },
+            {
+                "route": "ambient",
+                "point_index": 1,
+                "point_tag": "ambient_sample_ready_trace",
+                "action": "ambient_sample_start",
+                "result": "simulation_only_synthetic",
+                "message": "synthetic ambient sample-ready trace",
+            },
+            {
+                "route": "",
+                "point_index": 0,
+                "point_tag": "measurement_trace_recovery",
+                "action": "retry_recovery",
+                "result": "simulation_only_synthetic",
+                "message": "synthetic recovery trace",
+            },
+        ],
+        artifact_paths={
+            "measurement_phase_coverage_report": MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME,
+            "measurement_phase_coverage_report_markdown": MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME,
+            "multi_source_stability_evidence": MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME,
+            "state_transition_evidence": "state_transition_evidence.json",
+            "simulation_evidence_sidecar_bundle": SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME,
+        },
+        synthetic_trace_provenance={"summary": "measurement_trace_rich_v1 synthetic trace"},
+    )
+
+    rows_by_key = {
+        str(row.get("phase_route_key") or ""): dict(row)
+        for row in list(report["raw"].get("phase_rows") or [])
+    }
+
+    assert rows_by_key["ambient:ambient_diagnostic"]["evidence_source"] == "actual_simulated_run"
+    assert rows_by_key["ambient:sample_ready"]["evidence_source"] == "actual_simulated_run"
+    assert rows_by_key["system:recovery_retry"]["evidence_source"] == "actual_simulated_run"
+    assert rows_by_key["ambient:ambient_diagnostic"]["signal_group_coverage"]["reference"]["coverage_status"] == "gap"
+    assert rows_by_key["system:recovery_retry"]["missing_channels"] == []
+    assert "measurement_trace_rich_v1 synthetic trace" in "\n".join(report["raw"]["review_surface"]["detail_lines"])

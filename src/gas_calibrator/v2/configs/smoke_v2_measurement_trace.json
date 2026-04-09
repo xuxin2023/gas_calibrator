@@ -108,6 +108,7 @@
     "co2_map_group2": {}
   },
   "workflow": {
+    "profile_name": "measurement_trace_rich_v1",
     "collect_only": true,
     "collect_only_fast_path": false,
     "missing_pressure_policy": "carry_forward",

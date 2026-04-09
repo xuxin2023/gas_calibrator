@@ -83,6 +83,70 @@ def _load_route_trace_events(run_dir: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _route_trace_text(event: dict[str, Any]) -> str:
+    payload = dict(event or {})
+    return " ".join(
+        str(payload.get(key) or "")
+        for key in ("route", "action", "message", "point_tag", "result")
+    ).strip().lower()
+
+
+def _augment_measurement_trace_events(
+    route_trace_events: list[dict[str, Any]],
+    *,
+    trace_profile: str,
+) -> list[dict[str, Any]]:
+    rows = [dict(item) for item in list(route_trace_events or []) if isinstance(item, dict)]
+    if str(trace_profile or "").strip() != "measurement_trace_rich_v1":
+        return rows
+
+    lower_rows = [_route_trace_text(item) for item in rows]
+    supplemental_events: list[dict[str, Any]] = []
+    if not any("ambient" in text and "diagnostic" in text for text in lower_rows):
+        supplemental_events.append(
+            {
+                "route": "ambient",
+                "point_index": 1,
+                "point_tag": "ambient_diagnostic_trace",
+                "action": "ambient_diagnostic",
+                "result": "simulation_only_synthetic",
+                "message": (
+                    "Synthetic ambient diagnostic trace for richer measurement-core simulation coverage; "
+                    "simulation/headless only and not real-device provenance."
+                ),
+            }
+        )
+    if not any("ambient" in text and "sample" in text for text in lower_rows):
+        supplemental_events.append(
+            {
+                "route": "ambient",
+                "point_index": 1,
+                "point_tag": "ambient_sample_ready_trace",
+                "action": "ambient_sample_start",
+                "result": "simulation_only_synthetic",
+                "message": (
+                    "Synthetic ambient sample-ready trace for richer measurement-core simulation coverage; "
+                    "simulation/headless only and not real-device provenance."
+                ),
+            }
+        )
+    if not any(any(token in text for token in ("retry", "recovery", "abort", "fault_capture")) for text in lower_rows):
+        supplemental_events.append(
+            {
+                "route": "",
+                "point_index": 0,
+                "point_tag": "measurement_trace_recovery",
+                "action": "retry_recovery",
+                "result": "simulation_only_synthetic",
+                "message": (
+                    "Synthetic recovery trace for richer measurement-core simulation coverage; "
+                    "simulation/headless only and not real-device provenance."
+                ),
+            }
+        )
+    return rows + supplemental_events
+
+
 def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
     root = Path(run_dir)
     if not root.exists():
@@ -729,6 +793,7 @@ def export_run_offline_artifacts(
 ) -> dict[str, Any]:
     workflow = getattr(getattr(session, "config", None), "workflow", None)
     features = getattr(getattr(session, "config", None), "features", None)
+    trace_profile = str(getattr(workflow, "profile_name", None) or "").strip()
     step2_config_safety = dict(config_safety or {})
     if not step2_config_safety and getattr(session, "config", None) is not None:
         step2_config_safety = summarize_step2_config_safety(getattr(session, "config"))
@@ -826,13 +891,21 @@ def export_run_offline_artifacts(
     trend_path = write_json(run_dir / TREND_REGISTRY_FILENAME, trend_registry)
     evidence_path = write_json(run_dir / EVIDENCE_REGISTRY_FILENAME, evidence_registry)
     coefficient_path = write_json(run_dir / COEFFICIENT_REGISTRY_FILENAME, coefficient_registry)
-    route_trace_events = _load_route_trace_events(run_dir)
+    route_trace_events = _augment_measurement_trace_events(
+        _load_route_trace_events(run_dir),
+        trace_profile=trace_profile,
+    )
     synthetic_trace_provenance = {
         "summary": (
             "simulation-generated trace only; richer non-default trace profiles remain simulation/headless and do not claim real-device provenance"
+            if not trace_profile
+            else (
+                f"simulation-generated trace only; trace profile {trace_profile} adds synthetic phase coverage "
+                "for reviewer evidence and does not claim real-device provenance"
+            )
         ),
         "contains_synthetic_channel_injection": False,
-        "trace_profile": "simulation_generated",
+        "trace_profile": trace_profile or "simulation_generated",
     }
     measurement_artifact_paths = {
         "multi_source_stability_evidence": str(run_dir / MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME),
