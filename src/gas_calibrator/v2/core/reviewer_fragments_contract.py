@@ -959,13 +959,13 @@ def fragment_display_label(
             locale=locale,
             default=default or str(value or "").strip(),
         )
-        return _render_template(rendered, params)
+        return _render_template(rendered, params, locale=locale)
     if not entry:
         if default is not None:
-            return _render_template(default, params)
-        return _render_template(str(value or "").strip(), params)
+            return _render_template(default, params, locale=locale)
+        return _render_template(str(value or "").strip(), params, locale=locale)
     template = str(entry.get("en_label") or default or "") if str(locale or "").lower().startswith("en") else str(entry.get("zh_label") or default or "")
-    return _render_template(template, params)
+    return _render_template(template, params, locale=locale)
 
 
 def build_fragment_row(
@@ -998,12 +998,102 @@ def build_fragment_row(
         "fragment_family": family_name,
         "fragment_key": canonical_key,
         "canonical_key": canonical_key,
+        "canonical_fragment_id": f"{family_name}:{canonical_key}" if family_name and canonical_key else "",
         "i18n_key": fragment_i18n_key(family_name, canonical_key or input_value),
         "params": merged_params,
         "text": rendered_text,
         "display_text": rendered_text,
         "reviewer_fragments_contract_version": REVIEWER_FRAGMENTS_CONTRACT_VERSION,
     }
+
+
+def fragment_canonical_id(family: str, value: Any, *, default: str | None = None) -> str:
+    family_name = str(family or "").strip()
+    canonical_key = normalize_fragment_key(family_name, value, default=default or "")
+    if not family_name or not canonical_key:
+        return str(default or "")
+    return f"{family_name}:{canonical_key}"
+
+
+def build_fragment_filter_row(
+    family: str,
+    value: Any,
+    *,
+    params: dict[str, Any] | None = None,
+    display_locale: str = "en_US",
+    default_text: str | None = None,
+) -> dict[str, Any]:
+    row = build_fragment_row(
+        family,
+        value,
+        params=params,
+        display_locale=display_locale,
+        default_text=default_text,
+    )
+    canonical_fragment_id = str(
+        row.get("canonical_fragment_id")
+        or fragment_canonical_id(
+            str(row.get("fragment_family") or family or ""),
+            row.get("fragment_key") or value,
+            default="",
+        )
+        or ""
+    ).strip()
+    return {
+        "id": canonical_fragment_id,
+        "canonical_fragment_id": canonical_fragment_id,
+        "fragment_family": str(row.get("fragment_family") or family or "").strip(),
+        "fragment_key": str(row.get("fragment_key") or "").strip(),
+        "canonical_key": str(row.get("canonical_key") or row.get("fragment_key") or "").strip(),
+        "i18n_key": str(row.get("i18n_key") or "").strip(),
+        "params": dict(row.get("params") or {}),
+        "label": str(row.get("display_text") or row.get("text") or default_text or "").strip(),
+        "display_text": str(row.get("display_text") or row.get("text") or default_text or "").strip(),
+        "text": str(row.get("text") or row.get("display_text") or default_text or "").strip(),
+        "reviewer_fragments_contract_version": REVIEWER_FRAGMENTS_CONTRACT_VERSION,
+    }
+
+
+def normalize_fragment_filter_rows(
+    family: str,
+    values: Iterable[Any] | None,
+    *,
+    display_locale: str = "en_US",
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, tuple[tuple[str, str], ...]]] = set()
+    for value in _as_value_list(values):
+        params = dict(value.get("params") or {}) if isinstance(value, dict) else {}
+        row = build_fragment_filter_row(
+            family,
+            value,
+            params=params,
+            display_locale=display_locale,
+            default_text=str(dict(value or {}).get("text") or "") if isinstance(value, dict) else None,
+        )
+        canonical_fragment_id = str(row.get("canonical_fragment_id") or row.get("id") or "").strip()
+        if not canonical_fragment_id:
+            continue
+        params_signature = tuple(sorted((str(key).strip(), _stringify_param(item)) for key, item in dict(row.get("params") or {}).items()))
+        signature = (canonical_fragment_id, params_signature)
+        if signature in seen:
+            continue
+        seen.add(signature)
+        rows.append(row)
+    return rows
+
+
+def fragment_filter_rows_to_ids(rows: Iterable[dict[str, Any]] | None) -> list[str]:
+    values: list[str] = []
+    for row in list(rows or []):
+        canonical_fragment_id = str(
+            dict(row or {}).get("canonical_fragment_id")
+            or dict(row or {}).get("id")
+            or ""
+        ).strip()
+        if canonical_fragment_id and canonical_fragment_id not in values:
+            values.append(canonical_fragment_id)
+    return values
 
 
 def normalize_fragment_rows(

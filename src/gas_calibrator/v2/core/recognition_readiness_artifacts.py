@@ -20,9 +20,11 @@ from .reviewer_fragments_contract import (
     REVIEWER_FRAGMENTS_CONTRACT_VERSION,
     REVIEWER_NEXT_STEP_FRAGMENT_FAMILY,
     build_fragment_row,
+    fragment_filter_rows_to_ids,
     fragment_rows_to_keys,
     fragment_rows_to_texts,
     fragment_summary,
+    normalize_fragment_filter_rows,
     normalize_fragment_rows,
 )
 
@@ -1452,7 +1454,10 @@ def _summary_raw(
             "signal_family_filters": [],
             "decision_result_filters": [],
             "policy_version_filters": [],
-            "boundary_filters": list(RECOGNITION_READINESS_BOUNDARY_STATEMENTS),
+            "boundary_filter_rows": [],
+            "boundary_filters": [],
+            "non_claim_filter_rows": [],
+            "non_claim_filters": [],
             "evidence_source_filters": ["simulated_protocol", "reviewer_readiness_only"],
             "artifact_paths": dict(artifact_paths),
         },

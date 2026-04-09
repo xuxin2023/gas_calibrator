@@ -6,7 +6,10 @@ from typing import Any, Iterable
 from .models import SamplingResult
 from .multi_source_stability import CANONICAL_BOUNDARY_STATEMENTS, SIGNAL_GROUP_CHANNELS, SIGNAL_GROUP_ORDER
 from .phase_taxonomy_contract import (
+    METHOD_CONFIRMATION_FAMILY,
     TAXONOMY_CONTRACT_VERSION,
+    TRACEABILITY_NODE_FAMILY,
+    UNCERTAINTY_INPUT_FAMILY,
     normalize_phase_taxonomy_row,
     phase_gap_classification_key,
     phase_gap_severity_key,
@@ -27,9 +30,11 @@ from .reviewer_fragments_contract import (
     REVIEWER_FRAGMENTS_CONTRACT_VERSION,
     REVIEWER_NEXT_STEP_FRAGMENT_FAMILY,
     build_fragment_row,
+    fragment_filter_rows_to_ids,
     fragment_rows_to_keys,
     fragment_rows_to_texts,
     fragment_summary,
+    normalize_fragment_filter_rows,
     normalize_fragment_rows,
 )
 
@@ -785,6 +790,25 @@ def build_measurement_phase_coverage_report(
         non_claim_fragments,
         default=" | ".join(_MEASUREMENT_NON_CLAIM_STATEMENTS),
     )
+    boundary_filter_rows = normalize_fragment_filter_rows(
+        BOUNDARY_FRAGMENT_FAMILY,
+        boundary_fragments,
+        display_locale="en_US",
+    )
+    non_claim_filter_rows = normalize_fragment_filter_rows(
+        NON_CLAIM_FRAGMENT_FAMILY,
+        non_claim_fragments,
+        display_locale="en_US",
+    )
+    phase_contrast_filter_rows = normalize_fragment_filter_rows(
+        PHASE_CONTRAST_FRAGMENT_FAMILY,
+        phase_contrast_fragments,
+        display_locale="en_US",
+    )
+    combined_boundary_filter_rows = _combined_fragment_filter_rows(
+        boundary_filter_rows,
+        non_claim_filter_rows,
+    )
     digest = {
         "summary": (
             "Step 2 tail / Stage 3 bridge | measurement phase coverage | "
@@ -871,7 +895,12 @@ def build_measurement_phase_coverage_report(
         "signal_family_filters": signal_families,
         "decision_result_filters": decision_results,
         "policy_version_filters": policy_versions,
-        "boundary_filters": fragment_rows_to_texts(boundary_fragments),
+        "boundary_filter_rows": combined_boundary_filter_rows,
+        "boundary_filters": fragment_filter_rows_to_ids(combined_boundary_filter_rows),
+        "non_claim_filter_rows": non_claim_filter_rows,
+        "non_claim_filters": fragment_filter_rows_to_ids(non_claim_filter_rows),
+        "phase_contrast_filter_rows": phase_contrast_filter_rows,
+        "phase_contrast_filters": fragment_filter_rows_to_ids(phase_contrast_filter_rows),
         "evidence_source_filters": evidence_sources,
         "linked_anchor_refs": _dedupe(
             str(ref.get("anchor_id") or "")
@@ -910,9 +939,13 @@ def build_measurement_phase_coverage_report(
         "boundary_statements": list(CANONICAL_BOUNDARY_STATEMENTS),
         "boundary_fragments": boundary_fragments,
         "boundary_fragment_keys": fragment_rows_to_keys(boundary_fragments),
+        "boundary_filter_rows": combined_boundary_filter_rows,
+        "boundary_filters": fragment_filter_rows_to_ids(combined_boundary_filter_rows),
         "non_claim": list(_MEASUREMENT_NON_CLAIM_STATEMENTS),
         "non_claim_fragments": non_claim_fragments,
         "non_claim_fragment_keys": fragment_rows_to_keys(non_claim_fragments),
+        "non_claim_filter_rows": non_claim_filter_rows,
+        "non_claim_filters": fragment_filter_rows_to_ids(non_claim_filter_rows),
         "phase_rows": phase_rows,
         "phase_index": {str(row.get("phase_route_key") or ""): dict(row) for row in phase_rows},
         "synthetic_trace_provenance": dict(synthetic_trace_provenance or {}),
@@ -945,7 +978,10 @@ def build_measurement_phase_coverage_report(
                 "non_claim_fragments": [dict(item) for item in list(row.get("non_claim_fragments") or []) if isinstance(item, dict)],
                 "non_claim_fragment_keys": list(row.get("non_claim_fragment_keys") or []),
                 "linked_method_confirmation_items": list(row.get("linked_method_confirmation_items") or []),
+                "linked_method_confirmation_item_keys": list(row.get("linked_method_confirmation_item_keys") or []),
+                "linked_uncertainty_input_keys": list(row.get("linked_uncertainty_input_keys") or []),
                 "linked_uncertainty_inputs": list(row.get("linked_uncertainty_inputs") or []),
+                "linked_traceability_node_keys": list(row.get("linked_traceability_node_keys") or []),
                 "linked_traceability_nodes": list(row.get("linked_traceability_stub_nodes") or []),
                 "blockers": list(row.get("blockers") or []),
                 "blocker_fragments": [dict(item) for item in list(row.get("blocker_fragments") or []) if isinstance(item, dict)],
@@ -966,10 +1002,25 @@ def build_measurement_phase_coverage_report(
             for row in phase_rows
             for item in list(row.get("linked_method_confirmation_items") or [])
         ),
+        "linked_method_confirmation_item_keys": _dedupe(
+            item
+            for row in phase_rows
+            for item in list(row.get("linked_method_confirmation_item_keys") or [])
+        ),
+        "linked_uncertainty_input_keys": _dedupe(
+            item
+            for row in phase_rows
+            for item in list(row.get("linked_uncertainty_input_keys") or [])
+        ),
         "linked_uncertainty_inputs": _dedupe(
             item
             for row in phase_rows
             for item in list(row.get("linked_uncertainty_inputs") or [])
+        ),
+        "linked_traceability_node_keys": _dedupe(
+            item
+            for row in phase_rows
+            for item in list(row.get("linked_traceability_node_keys") or [])
         ),
         "linked_traceability_nodes": _dedupe(
             item
@@ -979,6 +1030,8 @@ def build_measurement_phase_coverage_report(
         "reviewer_next_step_digest": reviewer_next_step_summary,
         "phase_contrast_fragments": phase_contrast_fragments,
         "phase_contrast_fragment_keys": fragment_rows_to_keys(phase_contrast_fragments),
+        "phase_contrast_filter_rows": phase_contrast_filter_rows,
+        "phase_contrast_filters": fragment_filter_rows_to_ids(phase_contrast_filter_rows),
         "next_required_artifacts": _dedupe(
             artifact_name
             for row in phase_rows
@@ -1091,15 +1144,27 @@ def _build_phase_row(
             if isinstance(ref, dict)
         )
     ) or "--"
+    linked_method_confirmation_item_keys = phase_method_confirmation_keys(
+        route_family=route_family,
+        phase_name=phase_name,
+    )
     linked_method_confirmation_items = _phase_linked_method_confirmation_items(
         route_family=route_family,
         phase_name=phase_name,
         coverage_bucket=coverage_bucket,
     )
+    linked_uncertainty_input_keys = phase_uncertainty_input_keys(
+        route_family=route_family,
+        phase_name=phase_name,
+    )
     linked_uncertainty_inputs = _phase_linked_uncertainty_inputs(
         route_family=route_family,
         phase_name=phase_name,
         coverage_bucket=coverage_bucket,
+    )
+    linked_traceability_node_keys = phase_traceability_node_keys(
+        route_family=route_family,
+        phase_name=phase_name,
     )
     linked_traceability_stub_nodes = _phase_linked_traceability_stub_nodes(
         route_family=route_family,
@@ -1296,8 +1361,11 @@ def _build_phase_row(
             coverage_bucket=coverage_bucket,
             payload_completeness=payload_completeness,
         ),
+        "linked_method_confirmation_item_keys": linked_method_confirmation_item_keys,
         "linked_method_confirmation_items": linked_method_confirmation_items,
+        "linked_uncertainty_input_keys": linked_uncertainty_input_keys,
         "linked_uncertainty_inputs": linked_uncertainty_inputs,
+        "linked_traceability_node_keys": linked_traceability_node_keys,
         "linked_traceability_stub_nodes": linked_traceability_stub_nodes,
         "blockers": blockers,
         "blocker_fragments": blocker_fragments,
@@ -1722,6 +1790,56 @@ def _dedupe(values: Iterable[Any]) -> list[str]:
     return rows
 
 
+def _measurement_layer_param(values: Iterable[Any] | None) -> dict[str, Any]:
+    return {
+        "kind": "measurement_layer_list",
+        "values": _dedupe(values or []),
+    }
+
+
+def _taxonomy_list_param(family: str, values: Iterable[Any] | None) -> dict[str, Any]:
+    return {
+        "kind": "taxonomy_list",
+        "family": str(family or "").strip(),
+        "values": _dedupe(values or []),
+    }
+
+
+def _route_phase_list_param(rows: Iterable[dict[str, Any]] | None) -> dict[str, Any]:
+    values: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for row in list(rows or []):
+        payload = dict(row or {})
+        route = str(payload.get("route_family") or "").strip()
+        phase = str(payload.get("phase_name") or "").strip()
+        if not route or not phase:
+            continue
+        signature = (route, phase)
+        if signature in seen:
+            continue
+        seen.add(signature)
+        values.append({"route": route, "phase": phase})
+    return {"kind": "route_phase_list", "values": values}
+
+
+def _combined_fragment_filter_rows(*row_groups: Iterable[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row_group in row_groups:
+        for item in list(row_group or []):
+            payload = dict(item or {})
+            canonical_fragment_id = str(
+                payload.get("canonical_fragment_id")
+                or payload.get("id")
+                or ""
+            ).strip()
+            if not canonical_fragment_id or canonical_fragment_id in seen:
+                continue
+            seen.add(canonical_fragment_id)
+            rows.append(payload)
+    return rows
+
+
 def _count_rows_by_key(rows: list[dict[str, Any]], key: str) -> dict[str, int]:
     counts: dict[str, int] = {}
     for row in rows:
@@ -2043,29 +2161,39 @@ def _phase_comparison_fragments(*, row: dict[str, Any] | None, comparison_row: d
     if str(stable_row.get("coverage_bucket") or "").strip() != _PAYLOAD_COMPLETE_BUCKET:
         return []
     route_family = str(phase_row.get("route_family") or "").strip() or str(stable_row.get("route_family") or "").strip()
-    preseal_missing = ", ".join(list(phase_row.get("missing_signal_layers") or [])) or "--"
-    stable_available = ", ".join(list(stable_row.get("available_signal_layers") or [])) or "--"
-    preseal_method = ", ".join(list(phase_row.get("linked_method_confirmation_items") or [])) or "--"
-    preseal_uncertainty = ", ".join(list(phase_row.get("linked_uncertainty_inputs") or [])) or "--"
-    preseal_traceability = ", ".join(list(phase_row.get("linked_traceability_stub_nodes") or [])) or "--"
-    stable_method = ", ".join(list(stable_row.get("linked_method_confirmation_items") or [])) or "--"
-    stable_uncertainty = ", ".join(list(stable_row.get("linked_uncertainty_inputs") or [])) or "--"
-    stable_traceability = ", ".join(list(stable_row.get("linked_traceability_stub_nodes") or [])) or "--"
     return normalize_fragment_rows(
         PHASE_CONTRAST_FRAGMENT_FAMILY,
         [
             {
                 "fragment_key": "preseal_partial_vs_pressure_stable_complete_detail",
                 "params": {
-                    "route": route_family,
-                    "preseal_missing": preseal_missing,
-                    "stable_available": stable_available,
-                    "preseal_method": preseal_method,
-                    "preseal_uncertainty": preseal_uncertainty,
-                    "preseal_traceability": preseal_traceability,
-                    "stable_method": stable_method,
-                    "stable_uncertainty": stable_uncertainty,
-                    "stable_traceability": stable_traceability,
+                    "route": {"kind": "route", "value": route_family},
+                    "preseal_missing": _measurement_layer_param(list(phase_row.get("missing_signal_layers") or [])),
+                    "stable_available": _measurement_layer_param(list(stable_row.get("available_signal_layers") or [])),
+                    "preseal_method": _taxonomy_list_param(
+                        METHOD_CONFIRMATION_FAMILY,
+                        list(phase_row.get("linked_method_confirmation_item_keys") or []),
+                    ),
+                    "preseal_uncertainty": _taxonomy_list_param(
+                        UNCERTAINTY_INPUT_FAMILY,
+                        list(phase_row.get("linked_uncertainty_input_keys") or []),
+                    ),
+                    "preseal_traceability": _taxonomy_list_param(
+                        TRACEABILITY_NODE_FAMILY,
+                        list(phase_row.get("linked_traceability_node_keys") or []),
+                    ),
+                    "stable_method": _taxonomy_list_param(
+                        METHOD_CONFIRMATION_FAMILY,
+                        list(stable_row.get("linked_method_confirmation_item_keys") or []),
+                    ),
+                    "stable_uncertainty": _taxonomy_list_param(
+                        UNCERTAINTY_INPUT_FAMILY,
+                        list(stable_row.get("linked_uncertainty_input_keys") or []),
+                    ),
+                    "stable_traceability": _taxonomy_list_param(
+                        TRACEABILITY_NODE_FAMILY,
+                        list(stable_row.get("linked_traceability_node_keys") or []),
+                    ),
                 },
             }
         ],
@@ -2109,8 +2237,6 @@ def _phase_contrast_fragments(phase_rows: list[dict[str, Any]]) -> list[dict[str
         {},
     )
     if preseal_row and pressure_row:
-        preseal_missing = ", ".join(list(preseal_row.get("missing_signal_layers") or [])) or "--"
-        pressure_available = ", ".join(list(pressure_row.get("available_signal_layers") or [])) or "--"
         parts.extend(
             normalize_fragment_rows(
                 PHASE_CONTRAST_FRAGMENT_FAMILY,
@@ -2118,8 +2244,8 @@ def _phase_contrast_fragments(phase_rows: list[dict[str, Any]]) -> list[dict[str
                     {
                         "fragment_key": "preseal_partial_vs_pressure_stable_complete",
                         "params": {
-                            "preseal_missing": preseal_missing,
-                            "stable_available": pressure_available,
+                            "preseal_missing": _measurement_layer_param(list(preseal_row.get("missing_signal_layers") or [])),
+                            "stable_available": _measurement_layer_param(list(pressure_row.get("available_signal_layers") or [])),
                         },
                     }
                 ],
@@ -2134,36 +2260,6 @@ def _phase_contrast_fragments(phase_rows: list[dict[str, Any]]) -> list[dict[str
         and str(row.get("coverage_bucket") or "").strip() == _PAYLOAD_COMPLETE_BUCKET
     ]
     if payload_backed_taxonomy_rows:
-        route_phase_summary = " | ".join(
-            _dedupe(
-                f"{str(row.get('route_family') or '').strip()}/{str(row.get('phase_name') or '').strip()}".strip("/")
-                for row in payload_backed_taxonomy_rows
-            )
-        )
-        method_summary = " | ".join(
-            _dedupe(
-                item
-                for row in payload_backed_taxonomy_rows
-                for item in list(row.get("linked_method_confirmation_items") or [])
-                if str(item).strip()
-            )
-        ) or "--"
-        uncertainty_summary = " | ".join(
-            _dedupe(
-                item
-                for row in payload_backed_taxonomy_rows
-                for item in list(row.get("linked_uncertainty_inputs") or [])
-                if str(item).strip()
-            )
-        ) or "--"
-        traceability_summary = " | ".join(
-            _dedupe(
-                item
-                for row in payload_backed_taxonomy_rows
-                for item in list(row.get("linked_traceability_stub_nodes") or [])
-                if str(item).strip()
-            )
-        ) or "--"
         parts.extend(
             normalize_fragment_rows(
                 PHASE_CONTRAST_FRAGMENT_FAMILY,
@@ -2171,10 +2267,31 @@ def _phase_contrast_fragments(phase_rows: list[dict[str, Any]]) -> list[dict[str
                     {
                         "fragment_key": "payload_backed_ambient_recovery_anchor_visibility",
                         "params": {
-                            "phases": route_phase_summary,
-                            "method": method_summary,
-                            "uncertainty": uncertainty_summary,
-                            "traceability": traceability_summary,
+                            "phases": _route_phase_list_param(payload_backed_taxonomy_rows),
+                            "method": _taxonomy_list_param(
+                                METHOD_CONFIRMATION_FAMILY,
+                                [
+                                    item
+                                    for row in payload_backed_taxonomy_rows
+                                    for item in list(row.get("linked_method_confirmation_item_keys") or [])
+                                ],
+                            ),
+                            "uncertainty": _taxonomy_list_param(
+                                UNCERTAINTY_INPUT_FAMILY,
+                                [
+                                    item
+                                    for row in payload_backed_taxonomy_rows
+                                    for item in list(row.get("linked_uncertainty_input_keys") or [])
+                                ],
+                            ),
+                            "traceability": _taxonomy_list_param(
+                                TRACEABILITY_NODE_FAMILY,
+                                [
+                                    item
+                                    for row in payload_backed_taxonomy_rows
+                                    for item in list(row.get("linked_traceability_node_keys") or [])
+                                ],
+                            ),
                         },
                     }
                 ],
@@ -2189,19 +2306,13 @@ def _phase_contrast_fragments(phase_rows: list[dict[str, Any]]) -> list[dict[str
         and str(row.get("payload_completeness") or "").strip() == "trace_only"
     ]
     if trace_only_taxonomy_rows:
-        trace_only_summary = " | ".join(
-            _dedupe(
-                f"{str(row.get('route_family') or '').strip()}/{str(row.get('phase_name') or '').strip()}".strip("/")
-                for row in trace_only_taxonomy_rows
-            )
-        )
         parts.extend(
             normalize_fragment_rows(
                 PHASE_CONTRAST_FRAGMENT_FAMILY,
                 [
                     {
                         "fragment_key": "trace_only_taxonomy_visibility_open",
-                        "params": {"phases": trace_only_summary},
+                        "params": {"phases": _route_phase_list_param(trace_only_taxonomy_rows)},
                     }
                 ],
                 display_locale="en_US",

@@ -14,6 +14,12 @@ FALLBACK_LOCALE = "en_US"
 LOCALES_DIR = Path(__file__).resolve().parent / "locales"
 _TOKEN_RE = re.compile(r"[^a-z0-9]+")
 _current_locale = DEFAULT_LOCALE
+_MEASUREMENT_LAYER_DEFAULTS = {
+    "reference": {"zh_CN": "参考层", "en_US": "reference layer"},
+    "analyzer_raw": {"zh_CN": "分析仪原始层", "en_US": "analyzer raw layer"},
+    "output": {"zh_CN": "输出层", "en_US": "output layer"},
+    "data_quality": {"zh_CN": "数据质量层", "en_US": "data quality layer"},
+}
 
 
 @lru_cache(maxsize=8)
@@ -179,6 +185,85 @@ def display_taxonomy_values(
     return rows
 
 
+def _display_measurement_layer(value: Any, *, locale: str | None = None, default: str | None = None) -> str:
+    preferred = str(locale or _current_locale or DEFAULT_LOCALE)
+    token = _normalize_token(value)
+    defaults = _MEASUREMENT_LAYER_DEFAULTS.get(token, {})
+    fallback = default if default is not None else str(
+        defaults.get(preferred)
+        or defaults.get(FALLBACK_LOCALE)
+        or str(value or "").replace("_", " ").strip()
+        or "--"
+    )
+    return t(
+        f"results.review_center.detail.measurement.layer.{token}",
+        locale=preferred,
+        default=fallback,
+    )
+
+
+def _localize_fragment_param_value(value: Any, *, locale: str | None = None) -> Any:
+    preferred = str(locale or _current_locale or DEFAULT_LOCALE)
+    if isinstance(value, dict):
+        kind = str(value.get("kind") or "").strip().lower()
+        if kind == "measurement_layer_list":
+            labels = [
+                _display_measurement_layer(item, locale=preferred)
+                for item in list(value.get("values") or [])
+                if str(item or "").strip()
+            ]
+            return " / ".join(labels) if labels else "--"
+        if kind == "taxonomy_list":
+            family = str(value.get("family") or "").strip()
+            labels = display_taxonomy_values(family, list(value.get("values") or []), locale=preferred)
+            return " / ".join(labels) if labels else "--"
+        if kind == "route_phase_list":
+            labels = []
+            for item in list(value.get("values") or []):
+                payload = dict(item or {}) if isinstance(item, dict) else {}
+                route_label = display_route(payload.get("route"), locale=preferred, default=str(payload.get("route") or "--"))
+                phase_label = display_phase(payload.get("phase"), locale=preferred, default=str(payload.get("phase") or "--"))
+                label = f"{route_label}/{phase_label}".strip("/")
+                if label and label not in labels:
+                    labels.append(label)
+            return " | ".join(labels) if labels else "--"
+        if kind == "route":
+            return display_route(value.get("value"), locale=preferred, default=str(value.get("value") or "--"))
+        if kind == "phase":
+            return display_phase(value.get("value"), locale=preferred, default=str(value.get("value") or "--"))
+        if kind == "text_list":
+            labels = []
+            for item in list(value.get("values") or []):
+                localized = _localize_fragment_param_value(item, locale=preferred)
+                text = str(localized or "").strip()
+                if text and text not in labels:
+                    labels.append(text)
+            return " / ".join(labels) if labels else "--"
+        return {
+            key: _localize_fragment_param_value(item, locale=preferred)
+            for key, item in value.items()
+            if str(key).strip()
+        }
+    if isinstance(value, (list, tuple, set)):
+        labels = []
+        for item in value:
+            localized = _localize_fragment_param_value(item, locale=preferred)
+            text = str(localized or "").strip()
+            if text and text not in labels:
+                labels.append(text)
+        return " / ".join(labels) if labels else "--"
+    return value
+
+
+def _localize_fragment_params(params: dict[str, Any] | None, *, locale: str | None = None) -> dict[str, Any]:
+    preferred = str(locale or _current_locale or DEFAULT_LOCALE)
+    return {
+        str(key): _localize_fragment_param_value(value, locale=preferred)
+        for key, value in dict(params or {}).items()
+        if str(key).strip()
+    }
+
+
 def display_fragment_value(
     family: str,
     value: Any,
@@ -188,10 +273,11 @@ def display_fragment_value(
     default: str | None = None,
 ) -> str:
     preferred = str(locale or _current_locale or DEFAULT_LOCALE)
+    localized_params = _localize_fragment_params(params, locale=preferred)
     i18n_key = fragment_i18n_key(family, value)
-    fallback = fragment_display_label(family, value, locale=preferred, params=params, default=default)
+    fallback = fragment_display_label(family, value, locale=preferred, params=localized_params, default=default)
     if i18n_key:
-        return t(i18n_key, locale=preferred, default=fallback, **dict(params or {}))
+        return t(i18n_key, locale=preferred, default=fallback, **localized_params)
     return fallback
 
 
