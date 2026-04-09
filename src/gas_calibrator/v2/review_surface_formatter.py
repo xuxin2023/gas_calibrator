@@ -381,6 +381,15 @@ def _dedupe_lines(lines: list[str]) -> list[str]:
     return rows
 
 
+def _dedupe(values: Any) -> list[str]:
+    rows: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if text and text not in rows:
+            rows.append(text)
+    return rows
+
+
 def _display_measurement_layer_list(layers: list[Any]) -> str:
     values = []
     for layer in list(layers or []):
@@ -742,6 +751,51 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
     raw = dict(payload.get("raw") or payload or {})
     digest = dict(raw.get("digest") or payload.get("digest") or {})
     title = str(dict(raw.get("review_surface") or payload.get("review_surface") or {}).get("title_text") or raw.get("artifact_type") or "--")
+    phase_rows = [
+        _normalize_measurement_phase_row(dict(item))
+        for item in list(raw.get("linked_measurement_phase_artifacts") or [])
+        if isinstance(item, dict)
+    ]
+    gap_rows = [dict(item) for item in list(raw.get("linked_measurement_gaps") or []) if isinstance(item, dict)]
+    linked_method_summary = _phase_field_summary(
+        phase_rows,
+        family=METHOD_CONFIRMATION_FAMILY,
+        key_field_name="linked_method_confirmation_item_keys",
+        display_field_name="linked_method_confirmation_items",
+    )
+    linked_uncertainty_summary = _phase_field_summary(
+        phase_rows,
+        family=UNCERTAINTY_INPUT_FAMILY,
+        key_field_name="linked_uncertainty_input_keys",
+        display_field_name="linked_uncertainty_inputs",
+    )
+    linked_traceability_summary = _phase_field_summary(
+        phase_rows,
+        family=TRACEABILITY_NODE_FAMILY,
+        key_field_name="linked_traceability_node_keys",
+        display_field_name="linked_traceability_nodes",
+    )
+    linked_gap_classification_summary = " | ".join(
+        _dedupe(
+            f"{str(row.get('route_phase') or '').strip()}: {display_taxonomy_value(GAP_CLASSIFICATION_FAMILY, row.get('gap_classification'), default=str(row.get('gap_classification_label') or row.get('gap_classification') or t('common.none')))}"
+            for row in gap_rows
+            if str(row.get("route_phase") or "").strip()
+        )
+    ) or str(digest.get("linked_gap_classification_summary") or t("common.none"))
+    linked_gap_severity_summary = " | ".join(
+        _dedupe(
+            f"{str(row.get('route_phase') or '').strip()}: {display_taxonomy_value(GAP_SEVERITY_FAMILY, row.get('gap_severity'), default=str(row.get('gap_severity_label') or row.get('gap_severity') or t('common.none')))}"
+            for row in gap_rows
+            if str(row.get("route_phase") or "").strip()
+        )
+    ) or str(digest.get("linked_gap_severity_summary") or t("common.none"))
+    reviewer_next_step_summary = " | ".join(
+        _dedupe(
+            humanize_review_surface_text(str(row.get("reviewer_next_step_digest") or "").strip())
+            for row in gap_rows
+            if str(row.get("reviewer_next_step_digest") or "").strip()
+        )
+    ) or humanize_review_surface_text(str(digest.get("reviewer_next_step_digest") or t("common.none")))
     summary_lines = [
         f"{title}: {humanize_review_surface_text(str(digest.get('summary') or ''))}".strip(": "),
         t(
@@ -756,22 +810,22 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
         ),
         t(
             "results.review_center.detail.readiness.linked_method_items_line",
-            value=str(digest.get("linked_method_confirmation_items_summary") or t("common.none")),
+            value=linked_method_summary,
             default=f"关联方法确认条目：{str(digest.get('linked_method_confirmation_items_summary') or t('common.none'))}",
         ),
         t(
             "results.review_center.detail.readiness.linked_uncertainty_inputs_line",
-            value=str(digest.get("linked_uncertainty_inputs_summary") or t("common.none")),
+            value=linked_uncertainty_summary,
             default=f"关联不确定度输入：{str(digest.get('linked_uncertainty_inputs_summary') or t('common.none'))}",
         ),
         t(
             "results.review_center.detail.readiness.linked_traceability_nodes_line",
-            value=str(digest.get("linked_traceability_nodes_summary") or t("common.none")),
+            value=linked_traceability_summary,
             default=f"关联溯源节点：{str(digest.get('linked_traceability_nodes_summary') or t('common.none'))}",
         ),
         t(
             "results.review_center.detail.readiness.reviewer_next_step_line",
-            value=str(digest.get("reviewer_next_step_digest") or t("common.none")),
+            value=reviewer_next_step_summary,
             default=f"审阅下一步：{str(digest.get('reviewer_next_step_digest') or t('common.none'))}",
         ),
     ]
@@ -808,17 +862,17 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
         ),
         t(
             "results.review_center.detail.readiness.linked_method_items_line",
-            value=str(digest.get("linked_method_confirmation_items_summary") or t("common.none")),
+            value=linked_method_summary,
             default=f"关联方法确认条目：{str(digest.get('linked_method_confirmation_items_summary') or t('common.none'))}",
         ),
         t(
             "results.review_center.detail.readiness.linked_uncertainty_inputs_line",
-            value=str(digest.get("linked_uncertainty_inputs_summary") or t("common.none")),
+            value=linked_uncertainty_summary,
             default=f"关联不确定度输入：{str(digest.get('linked_uncertainty_inputs_summary') or t('common.none'))}",
         ),
         t(
             "results.review_center.detail.readiness.linked_traceability_nodes_line",
-            value=str(digest.get("linked_traceability_nodes_summary") or t("common.none")),
+            value=linked_traceability_summary,
             default=f"关联溯源节点：{str(digest.get('linked_traceability_nodes_summary') or t('common.none'))}",
         ),
         t(
@@ -833,7 +887,7 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
         ),
         t(
             "results.review_center.detail.readiness.reviewer_next_step_line",
-            value=str(digest.get("reviewer_next_step_digest") or t("common.none")),
+            value=reviewer_next_step_summary,
             default=f"审阅下一步：{str(digest.get('reviewer_next_step_digest') or t('common.none'))}",
         ),
         t(
