@@ -20,6 +20,7 @@ from ...core.multi_source_stability import (
     SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME,
 )
 from ...core.measurement_phase_coverage import MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME
+from ...core import recognition_readiness_artifacts as recognition_readiness
 from ...core.offline_artifacts import build_point_taxonomy_handoff
 from ...core.device_factory import DeviceFactory, DeviceType
 from ...qc.qc_report import build_qc_evidence_section, build_qc_reviewer_card

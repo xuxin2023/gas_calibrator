@@ -34,6 +34,7 @@ from ...core.multi_source_stability import (
     MULTI_SOURCE_STABILITY_EVIDENCE_MARKDOWN_FILENAME,
 )
 from ...core.measurement_phase_coverage import MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME
+from ...core import recognition_readiness_artifacts as recognition_readiness
 from ...core.offline_artifacts import build_point_taxonomy_handoff
 from ...domain.mode_models import ModeProfile, RunMode
 from ...review_surface_formatter import (
@@ -1340,6 +1341,10 @@ class AppFacade:
         state_transition_evidence = dict(payload.get("state_transition_evidence", {}) or {})
         simulation_evidence_sidecar_bundle = dict(payload.get("simulation_evidence_sidecar_bundle", {}) or {})
         measurement_phase_coverage_report = dict(payload.get("measurement_phase_coverage_report", {}) or {})
+        scope_readiness_summary = dict(payload.get("scope_readiness_summary", {}) or {})
+        certificate_readiness_summary = dict(payload.get("certificate_readiness_summary", {}) or {})
+        uncertainty_method_readiness_summary = dict(payload.get("uncertainty_method_readiness_summary", {}) or {})
+        audit_readiness_digest = dict(payload.get("audit_readiness_digest", {}) or {})
 
         sample_count = 0
         point_summary_count = 0
@@ -1417,6 +1422,18 @@ class AppFacade:
         )
         measurement_phase_payload_completeness_text = self._humanize_ui_summary(
             str(measurement_phase_coverage_digest.get("payload_completeness_summary") or "--")
+        )
+        scope_readiness_text = self._humanize_ui_summary(
+            str(dict(scope_readiness_summary.get("digest") or {}).get("summary") or "--")
+        )
+        certificate_readiness_text = self._humanize_ui_summary(
+            str(dict(certificate_readiness_summary.get("digest") or {}).get("summary") or "--")
+        )
+        uncertainty_method_readiness_text = self._humanize_ui_summary(
+            str(dict(uncertainty_method_readiness_summary.get("digest") or {}).get("summary") or "--")
+        )
+        audit_readiness_text = self._humanize_ui_summary(
+            str(dict(audit_readiness_digest.get("digest") or {}).get("summary") or "--")
         )
         sidecar_store_summary = " | ".join(
             f"{key} {len(list(value or []))}"
@@ -1531,6 +1548,10 @@ class AppFacade:
             multi_source_stability_evidence=multi_source_stability_evidence,
             state_transition_evidence=state_transition_evidence,
             measurement_phase_coverage_report=measurement_phase_coverage_report,
+            scope_readiness_summary=scope_readiness_summary,
+            certificate_readiness_summary=certificate_readiness_summary,
+            uncertainty_method_readiness_summary=uncertainty_method_readiness_summary,
+            audit_readiness_digest=audit_readiness_digest,
         )
         review_digest = self._build_review_digest(
             suite_summary=suite_summary,
@@ -1725,6 +1746,50 @@ class AppFacade:
                     if simulation_evidence_sidecar_bundle
                     else []
                 ),
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.scope_readiness",
+                            value=scope_readiness_text,
+                            default=f"认可范围 / decision rule readiness: {scope_readiness_text}",
+                        )
+                    ]
+                    if scope_readiness_summary
+                    else []
+                ),
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.reference_certificate_readiness",
+                            value=certificate_readiness_text,
+                            default=f"reference / certificate readiness: {certificate_readiness_text}",
+                        )
+                    ]
+                    if certificate_readiness_summary
+                    else []
+                ),
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.uncertainty_method_readiness",
+                            value=uncertainty_method_readiness_text,
+                            default=f"uncertainty / method readiness: {uncertainty_method_readiness_text}",
+                        )
+                    ]
+                    if uncertainty_method_readiness_summary
+                    else []
+                ),
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.software_audit_readiness",
+                            value=audit_readiness_text,
+                            default=f"software validation / audit readiness: {audit_readiness_text}",
+                        )
+                    ]
+                    if audit_readiness_digest
+                    else []
+                ),
                 t("facade.results.result_summary.workbench_evidence", value=workbench_evidence_text),
             ]
         )
@@ -1758,6 +1823,10 @@ class AppFacade:
             "state_transition_evidence": state_transition_evidence,
             "simulation_evidence_sidecar_bundle": simulation_evidence_sidecar_bundle,
             "measurement_phase_coverage_report": measurement_phase_coverage_report,
+            "scope_readiness_summary": scope_readiness_summary,
+            "certificate_readiness_summary": certificate_readiness_summary,
+            "uncertainty_method_readiness_summary": uncertainty_method_readiness_summary,
+            "audit_readiness_digest": audit_readiness_digest,
             "review_digest": review_digest,
             "review_digest_text": str(review_digest.get("summary_text", "") or ""),
             "review_center": review_center,
@@ -1857,6 +1926,10 @@ class AppFacade:
         multi_source_stability_evidence: dict[str, Any],
         state_transition_evidence: dict[str, Any],
         measurement_phase_coverage_report: dict[str, Any],
+        scope_readiness_summary: dict[str, Any],
+        certificate_readiness_summary: dict[str, Any],
+        uncertainty_method_readiness_summary: dict[str, Any],
+        audit_readiness_digest: dict[str, Any],
     ) -> dict[str, Any]:
         evidence_items, review_diagnostics = self._collect_review_evidence(
             suite_summary=suite_summary,
@@ -1869,6 +1942,10 @@ class AppFacade:
             multi_source_stability_evidence=multi_source_stability_evidence,
             state_transition_evidence=state_transition_evidence,
             measurement_phase_coverage_report=measurement_phase_coverage_report,
+            scope_readiness_summary=scope_readiness_summary,
+            certificate_readiness_summary=certificate_readiness_summary,
+            uncertainty_method_readiness_summary=uncertainty_method_readiness_summary,
+            audit_readiness_digest=audit_readiness_digest,
         )
         index_summary = self._build_review_index_summary(evidence_items, diagnostics=review_diagnostics)
         readiness_text = self._humanize_ui_summary(
@@ -2093,6 +2170,13 @@ class AppFacade:
                             default="measurement phase coverage",
                         ),
                     },
+                    {
+                        "id": "readiness_governance",
+                        "label": t(
+                            "results.review_center.type.readiness_governance",
+                            default="认可就绪治理骨架",
+                        ),
+                    },
                 ],
                 "status_options": [
                     {"id": "all", "label": t("results.review_center.filter.all_statuses")},
@@ -2289,6 +2373,10 @@ class AppFacade:
         multi_source_stability_evidence: dict[str, Any],
         state_transition_evidence: dict[str, Any],
         measurement_phase_coverage_report: dict[str, Any],
+        scope_readiness_summary: dict[str, Any],
+        certificate_readiness_summary: dict[str, Any],
+        uncertainty_method_readiness_summary: dict[str, Any],
+        audit_readiness_digest: dict[str, Any],
         force_refresh: bool = False,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         started_at = time.perf_counter()
@@ -2424,6 +2512,46 @@ class AppFacade:
             )
             if item:
                 items.append(item)
+        readiness_summary_payloads = [
+            (
+                recognition_readiness.SCOPE_READINESS_SUMMARY_FILENAME,
+                dict(scope_readiness_summary or {}),
+            ),
+            (
+                recognition_readiness.CERTIFICATE_READINESS_SUMMARY_FILENAME,
+                dict(certificate_readiness_summary or {}),
+            ),
+            (
+                recognition_readiness.UNCERTAINTY_METHOD_READINESS_SUMMARY_FILENAME,
+                dict(uncertainty_method_readiness_summary or {}),
+            ),
+            (
+                recognition_readiness.AUDIT_READINESS_DIGEST_FILENAME,
+                dict(audit_readiness_digest or {}),
+            ),
+        ]
+        for filename, fallback_payload in readiness_summary_payloads:
+            explicit_path = str(
+                dict(fallback_payload.get("artifact_paths") or {}).get(Path(filename).stem)
+                or fallback_payload.get("path")
+                or ""
+            ).strip()
+            readiness_paths = self._review_artifact_paths(
+                filename,
+                roots=run_roots,
+                explicit_paths=[Path(explicit_path)] if explicit_path else None,
+                limit=8,
+                metrics=diagnostics,
+                force_refresh=force_refresh,
+            )
+            for path in readiness_paths:
+                item = self._parse_review_artifact(
+                    path,
+                    evidence_type="readiness_governance",
+                    fallback_payload=fallback_payload,
+                )
+                if item:
+                    items.append(item)
 
         analytics_path = str(analytics_summary.get("path") or analytics_summary.get("analytics_summary_json") or "")
         lineage_path = str(lineage_summary.get("path") or lineage_summary.get("lineage_summary_json") or "")
@@ -2854,6 +2982,8 @@ class AppFacade:
             return self._build_state_transition_review_item(payload, path)
         if evidence_type == "measurement_phase_coverage":
             return self._build_measurement_phase_coverage_review_item(payload, path)
+        if evidence_type == "readiness_governance":
+            return self._build_readiness_governance_review_item(payload, path)
         return None
 
     def _build_suite_review_item(
@@ -3789,6 +3919,73 @@ class AppFacade:
             phase_filters=list(review_surface.get("phase_filters") or []),
             artifact_role_filters=["diagnostic_analysis"],
             evidence_category_filters=["measurement_core", "phase_coverage"],
+            boundary_filters=list(review_surface.get("boundary_filters") or []),
+            anchor_id=str(review_surface.get("anchor_id") or ""),
+            anchor_label=str(review_surface.get("anchor_label") or ""),
+            route_filters=list(review_surface.get("route_filters") or []),
+            signal_family_filters=list(review_surface.get("signal_family_filters") or []),
+            decision_result_filters=list(review_surface.get("decision_result_filters") or []),
+            policy_version_filters=list(review_surface.get("policy_version_filters") or []),
+            evidence_source_filters=list(review_surface.get("evidence_source_filters") or []),
+        )
+
+    def _build_readiness_governance_review_item(self, payload: dict[str, Any], path: Path) -> dict[str, Any]:
+        review_surface = dict(payload.get("review_surface") or {})
+        digest = dict(payload.get("digest") or {})
+        summary = self._humanize_ui_summary(
+            str(
+                digest.get("summary")
+                or review_surface.get("summary_text")
+                or payload.get("overall_status")
+                or "recognition readiness governance"
+            )
+        )
+        detail_lines = [
+            f"{t('results.review_center.detail.summary')}: {summary}",
+            f"{t('results.review_center.detail.status')}: {t(f'results.review_center.status.{str(payload.get('overall_status') or 'diagnostic_only')}', default=str(payload.get('overall_status') or 'diagnostic_only'))}",
+            f"{t('results.review_center.detail.source')}: {display_evidence_source(payload.get('evidence_source'), default=str(payload.get('evidence_source') or 'simulated_protocol'))}",
+            f"{t('results.review_center.detail.state')}: {display_evidence_state(payload.get('evidence_state'), default=str(payload.get('evidence_state') or 'reviewer_readiness_only'))}",
+            f"{t('results.review_center.detail.path')}: {path}",
+            *[str(item) for item in list(review_surface.get("summary_lines") or []) if str(item).strip()],
+            *[str(item) for item in list(review_surface.get("detail_lines") or []) if str(item).strip()],
+            t("results.review_center.disclaimer"),
+        ]
+        artifact_paths = [
+            str(path),
+            *[
+                str(item)
+                for item in dict(payload.get("artifact_paths") or {}).values()
+                if str(item).strip()
+            ],
+        ]
+        return self._review_entry(
+            evidence_type="readiness_governance",
+            path=path,
+            generated_at=payload.get("generated_at"),
+            summary=summary,
+            detail_text="\n".join(detail_lines),
+            raw_status=str(payload.get("overall_status") or "diagnostic_only"),
+            status=str(payload.get("overall_status") or "diagnostic_only"),
+            source_kind="run",
+            evidence_source=str(payload.get("evidence_source") or "simulated_protocol"),
+            evidence_state=str(payload.get("evidence_state") or "reviewer_readiness_only"),
+            not_real_acceptance_evidence=bool(payload.get("not_real_acceptance_evidence", True)),
+            key_fields=[
+                str(digest.get("current_coverage_summary") or ""),
+                str(digest.get("missing_evidence_summary") or ""),
+                str(digest.get("blocker_summary") or ""),
+                str(digest.get("artifact_hash_summary") or ""),
+            ],
+            artifact_paths=artifact_paths,
+            detail_analytics_summary=list(review_surface.get("summary_lines") or []),
+            detail_lineage_summary=[
+                str(digest.get("missing_evidence_summary") or ""),
+                *[str(item) for item in list(review_surface.get("detail_lines") or []) if str(item).strip()],
+            ],
+            phase_filters=list(review_surface.get("phase_filters") or []),
+            artifact_role_filters=["diagnostic_analysis"],
+            standard_family_filters=list(review_surface.get("standard_family_filters") or []),
+            evidence_category_filters=list(payload.get("evidence_categories") or []),
             boundary_filters=list(review_surface.get("boundary_filters") or []),
             anchor_id=str(review_surface.get("anchor_id") or ""),
             anchor_label=str(review_surface.get("anchor_label") or ""),

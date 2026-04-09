@@ -42,6 +42,7 @@ from .measurement_phase_coverage import (
     build_measurement_phase_coverage_report,
 )
 from .models import CalibrationPoint, SamplingResult
+from . import recognition_readiness_artifacts as recognition_readiness
 
 
 OFFLINE_ARTIFACT_SCHEMA_VERSION = "1.0"
@@ -1249,6 +1250,81 @@ def export_run_offline_artifacts(
         run_dir / SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME,
         simulation_evidence_sidecar_bundle,
     )
+    recognition_readiness_artifact_paths = {
+        **measurement_artifact_paths,
+        "acceptance_plan": str(acceptance_path),
+        "analytics_summary": str(analytics_path),
+        "lineage_summary": str(lineage_path),
+        "evidence_registry": str(evidence_path),
+        "scope_definition_pack": str(run_dir / recognition_readiness.SCOPE_DEFINITION_PACK_FILENAME),
+        "scope_definition_pack_markdown": str(run_dir / recognition_readiness.SCOPE_DEFINITION_PACK_MARKDOWN_FILENAME),
+        "decision_rule_profile": str(run_dir / recognition_readiness.DECISION_RULE_PROFILE_FILENAME),
+        "decision_rule_profile_markdown": str(run_dir / recognition_readiness.DECISION_RULE_PROFILE_MARKDOWN_FILENAME),
+        "scope_readiness_summary": str(run_dir / recognition_readiness.SCOPE_READINESS_SUMMARY_FILENAME),
+        "scope_readiness_summary_markdown": str(run_dir / recognition_readiness.SCOPE_READINESS_SUMMARY_MARKDOWN_FILENAME),
+        "reference_asset_registry": str(run_dir / recognition_readiness.REFERENCE_ASSET_REGISTRY_FILENAME),
+        "reference_asset_registry_markdown": str(run_dir / recognition_readiness.REFERENCE_ASSET_REGISTRY_MARKDOWN_FILENAME),
+        "certificate_readiness_summary": str(run_dir / recognition_readiness.CERTIFICATE_READINESS_SUMMARY_FILENAME),
+        "certificate_readiness_summary_markdown": str(
+            run_dir / recognition_readiness.CERTIFICATE_READINESS_SUMMARY_MARKDOWN_FILENAME
+        ),
+        "metrology_traceability_stub": str(run_dir / recognition_readiness.METROLOGY_TRACEABILITY_STUB_FILENAME),
+        "metrology_traceability_stub_markdown": str(
+            run_dir / recognition_readiness.METROLOGY_TRACEABILITY_STUB_MARKDOWN_FILENAME
+        ),
+        "uncertainty_budget_stub": str(run_dir / recognition_readiness.UNCERTAINTY_BUDGET_STUB_FILENAME),
+        "uncertainty_budget_stub_markdown": str(run_dir / recognition_readiness.UNCERTAINTY_BUDGET_STUB_MARKDOWN_FILENAME),
+        "method_confirmation_protocol": str(run_dir / recognition_readiness.METHOD_CONFIRMATION_PROTOCOL_FILENAME),
+        "method_confirmation_protocol_markdown": str(
+            run_dir / recognition_readiness.METHOD_CONFIRMATION_PROTOCOL_MARKDOWN_FILENAME
+        ),
+        "method_confirmation_matrix": str(run_dir / recognition_readiness.METHOD_CONFIRMATION_MATRIX_FILENAME),
+        "method_confirmation_matrix_markdown": str(
+            run_dir / recognition_readiness.METHOD_CONFIRMATION_MATRIX_MARKDOWN_FILENAME
+        ),
+        "uncertainty_method_readiness_summary": str(
+            run_dir / recognition_readiness.UNCERTAINTY_METHOD_READINESS_SUMMARY_FILENAME
+        ),
+        "uncertainty_method_readiness_summary_markdown": str(
+            run_dir / recognition_readiness.UNCERTAINTY_METHOD_READINESS_SUMMARY_MARKDOWN_FILENAME
+        ),
+        "software_validation_traceability_matrix": str(
+            run_dir / recognition_readiness.SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_FILENAME
+        ),
+        "software_validation_traceability_matrix_markdown": str(
+            run_dir / recognition_readiness.SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_MARKDOWN_FILENAME
+        ),
+        "release_validation_manifest": str(run_dir / recognition_readiness.RELEASE_VALIDATION_MANIFEST_FILENAME),
+        "release_validation_manifest_markdown": str(
+            run_dir / recognition_readiness.RELEASE_VALIDATION_MANIFEST_MARKDOWN_FILENAME
+        ),
+        "audit_readiness_digest": str(run_dir / recognition_readiness.AUDIT_READINESS_DIGEST_FILENAME),
+        "audit_readiness_digest_markdown": str(run_dir / recognition_readiness.AUDIT_READINESS_DIGEST_MARKDOWN_FILENAME),
+    }
+    recognition_readiness_artifacts = recognition_readiness.build_recognition_readiness_artifacts(
+        run_id=run_id,
+        samples=measurement_samples,
+        point_summaries=point_summaries,
+        versions=versions,
+        acceptance_plan=acceptance_plan,
+        analytics_summary=analytics_summary,
+        lineage_summary=lineage_summary,
+        evidence_registry=evidence_registry,
+        multi_source_stability_evidence=multi_source_stability_evidence,
+        state_transition_evidence=state_transition_evidence,
+        simulation_evidence_sidecar_bundle=simulation_evidence_sidecar_bundle,
+        measurement_phase_coverage_report=measurement_phase_coverage_report,
+        artifact_paths=recognition_readiness_artifact_paths,
+    )
+    recognition_readiness_written_paths: dict[str, tuple[Path, Path]] = {}
+    for artifact_key, bundle in recognition_readiness_artifacts.items():
+        json_path = write_json(
+            run_dir / str(bundle.get("filename") or f"{artifact_key}.json"),
+            dict(bundle.get("raw") or {}),
+        )
+        markdown_path = run_dir / str(bundle.get("markdown_filename") or f"{artifact_key}.md")
+        markdown_path.write_text(str(bundle.get("markdown") or ""), encoding="utf-8")
+        recognition_readiness_written_paths[str(artifact_key)] = (json_path, markdown_path)
 
     statuses = {
         "acceptance_plan": _artifact_status_payload("execution_summary", acceptance_path),
@@ -1288,6 +1364,25 @@ def export_run_offline_artifacts(
     }
     if spectral_quality_path is not None:
         statuses["spectral_quality_summary"] = _artifact_status_payload("diagnostic_analysis", spectral_quality_path)
+    recognition_readiness_roles = {
+        "scope_definition_pack": "execution_summary",
+        "decision_rule_profile": "execution_summary",
+        "scope_readiness_summary": "diagnostic_analysis",
+        "reference_asset_registry": "execution_summary",
+        "certificate_readiness_summary": "diagnostic_analysis",
+        "metrology_traceability_stub": "execution_summary",
+        "uncertainty_budget_stub": "execution_summary",
+        "method_confirmation_protocol": "execution_summary",
+        "method_confirmation_matrix": "execution_summary",
+        "uncertainty_method_readiness_summary": "diagnostic_analysis",
+        "software_validation_traceability_matrix": "execution_summary",
+        "release_validation_manifest": "execution_summary",
+        "audit_readiness_digest": "diagnostic_analysis",
+    }
+    for artifact_key, (json_path, markdown_path) in recognition_readiness_written_paths.items():
+        role = recognition_readiness_roles.get(str(artifact_key), "execution_summary")
+        statuses[str(artifact_key)] = _artifact_status_payload(role, json_path)
+        statuses[f"{artifact_key}_markdown"] = _artifact_status_payload("formal_analysis", markdown_path)
     summary_stats = {
         "acceptance_plan": acceptance_plan,
         "acceptance_readiness_summary": acceptance_plan.get("readiness_summary", {}),
@@ -1342,6 +1437,19 @@ def export_run_offline_artifacts(
         },
         "measurement_phase_coverage_report_digest": dict(measurement_phase_coverage_report.get("digest") or {}),
     }
+    for artifact_key, bundle in recognition_readiness_artifacts.items():
+        json_path, markdown_path = recognition_readiness_written_paths[str(artifact_key)]
+        bundle_raw = dict(bundle.get("raw") or {})
+        bundle_digest = dict(bundle.get("digest") or {})
+        summary_stats[str(artifact_key)] = {
+            "path": str(json_path),
+            "markdown_path": str(markdown_path),
+            "artifact_type": str(bundle_raw.get("artifact_type") or artifact_key),
+            "overall_status": str(bundle_raw.get("overall_status") or bundle_raw.get("readiness_status") or ""),
+            "review_surface": dict(bundle_raw.get("review_surface") or {}),
+            "digest": bundle_digest,
+        }
+        summary_stats[f"{artifact_key}_digest"] = bundle_digest
     if analytics_summary.get("point_taxonomy_summary"):
         summary_stats["point_taxonomy_summary"] = dict(analytics_summary.get("point_taxonomy_summary") or {})
     if analytics_summary.get("offline_diagnostic_adapter_summary"):
@@ -1400,6 +1508,19 @@ def export_run_offline_artifacts(
             "boundary_summary": str(dict(measurement_phase_coverage_report.get("digest") or {}).get("boundary_summary") or ""),
         },
     }
+    for artifact_key, bundle in recognition_readiness_artifacts.items():
+        json_path, markdown_path = recognition_readiness_written_paths[str(artifact_key)]
+        bundle_raw = dict(bundle.get("raw") or {})
+        bundle_digest = dict(bundle.get("digest") or {})
+        manifest_sections[str(artifact_key)] = {
+            "path": str(json_path),
+            "markdown_path": str(markdown_path),
+            "artifact_type": str(bundle_raw.get("artifact_type") or artifact_key),
+            "summary": str(bundle_digest.get("summary") or ""),
+            "overall_status": str(bundle_raw.get("overall_status") or bundle_raw.get("readiness_status") or ""),
+            "boundary_summary": " | ".join(list(bundle_raw.get("boundary_statements") or [])),
+            "review_surface": dict(bundle_raw.get("review_surface") or {}),
+        }
     if spectral_quality_summary:
         manifest_sections["spectral_quality"] = _spectral_quality_digest(spectral_quality_summary)
         manifest_sections["spectral_quality"]["not_real_acceptance_evidence"] = bool(
@@ -1424,6 +1545,11 @@ def export_run_offline_artifacts(
             str(simulation_evidence_sidecar_bundle_path),
             str(measurement_phase_coverage_path),
             str(measurement_phase_coverage_markdown_path),
+            *[
+                str(path)
+                for paths in recognition_readiness_written_paths.values()
+                for path in paths
+            ],
             *([str(spectral_quality_path)] if spectral_quality_path is not None else []),
         ],
     }

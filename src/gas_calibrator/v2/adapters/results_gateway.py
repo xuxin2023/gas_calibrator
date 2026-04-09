@@ -29,6 +29,7 @@ from ..core.measurement_phase_coverage import (
     MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME,
     MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME,
 )
+from ..core import recognition_readiness_artifacts as recognition_readiness
 from ..core.offline_artifacts import build_point_taxonomy_handoff, summarize_offline_diagnostic_adapters
 from ..core.phase_transition_bridge_reviewer_artifact_entry import (
     PHASE_TRANSITION_BRIDGE_REVIEWER_ARTIFACT_KEY,
@@ -188,6 +189,48 @@ class ResultsGateway:
                 workbench_action_report,
                 workbench_action_snapshot,
             )
+        scope_readiness_summary = self.load_json(recognition_readiness.SCOPE_READINESS_SUMMARY_FILENAME)
+        if not scope_readiness_summary:
+            scope_readiness_summary = self._read_summary_section(
+                "scope_readiness_summary",
+                summary,
+                evidence_registry,
+                analytics_summary,
+                workbench_action_report,
+                workbench_action_snapshot,
+            )
+        certificate_readiness_summary = self.load_json(recognition_readiness.CERTIFICATE_READINESS_SUMMARY_FILENAME)
+        if not certificate_readiness_summary:
+            certificate_readiness_summary = self._read_summary_section(
+                "certificate_readiness_summary",
+                summary,
+                evidence_registry,
+                analytics_summary,
+                workbench_action_report,
+                workbench_action_snapshot,
+            )
+        uncertainty_method_readiness_summary = self.load_json(
+            recognition_readiness.UNCERTAINTY_METHOD_READINESS_SUMMARY_FILENAME
+        )
+        if not uncertainty_method_readiness_summary:
+            uncertainty_method_readiness_summary = self._read_summary_section(
+                "uncertainty_method_readiness_summary",
+                summary,
+                evidence_registry,
+                analytics_summary,
+                workbench_action_report,
+                workbench_action_snapshot,
+            )
+        audit_readiness_digest = self.load_json(recognition_readiness.AUDIT_READINESS_DIGEST_FILENAME)
+        if not audit_readiness_digest:
+            audit_readiness_digest = self._read_summary_section(
+                "audit_readiness_digest",
+                summary,
+                evidence_registry,
+                analytics_summary,
+                workbench_action_report,
+                workbench_action_snapshot,
+            )
         evidence_source = self._resolve_current_run_evidence_source(workbench_evidence_summary, workbench_action_report)
         evidence_state = str(
             workbench_evidence_summary.get("evidence_state")
@@ -223,6 +266,10 @@ class ResultsGateway:
             state_transition_evidence=state_transition_evidence,
             simulation_evidence_sidecar_bundle=simulation_evidence_sidecar_bundle,
             measurement_phase_coverage_report=measurement_phase_coverage_report,
+            scope_readiness_summary=scope_readiness_summary,
+            certificate_readiness_summary=certificate_readiness_summary,
+            uncertainty_method_readiness_summary=uncertainty_method_readiness_summary,
+            audit_readiness_digest=audit_readiness_digest,
         )
         return {
             "summary": summary,
@@ -264,6 +311,10 @@ class ResultsGateway:
             "state_transition_evidence": state_transition_evidence,
             "simulation_evidence_sidecar_bundle": simulation_evidence_sidecar_bundle,
             "measurement_phase_coverage_report": measurement_phase_coverage_report,
+            "scope_readiness_summary": scope_readiness_summary,
+            "certificate_readiness_summary": certificate_readiness_summary,
+            "uncertainty_method_readiness_summary": uncertainty_method_readiness_summary,
+            "audit_readiness_digest": audit_readiness_digest,
             "result_summary_text": result_summary_text,
             "evidence_source": evidence_source,
             "evidence_state": evidence_state,
@@ -284,6 +335,10 @@ class ResultsGateway:
         state_transition_evidence = dict(payload.get("state_transition_evidence", {}) or {})
         simulation_evidence_sidecar_bundle = dict(payload.get("simulation_evidence_sidecar_bundle", {}) or {})
         measurement_phase_coverage_report = dict(payload.get("measurement_phase_coverage_report", {}) or {})
+        scope_readiness_summary = dict(payload.get("scope_readiness_summary", {}) or {})
+        certificate_readiness_summary = dict(payload.get("certificate_readiness_summary", {}) or {})
+        uncertainty_method_readiness_summary = dict(payload.get("uncertainty_method_readiness_summary", {}) or {})
+        audit_readiness_digest = dict(payload.get("audit_readiness_digest", {}) or {})
 
         def _artifact_path(value: Any) -> Path:
             candidate = Path(str(value or "").strip())
@@ -502,6 +557,22 @@ class ResultsGateway:
                 row,
                 measurement_phase_coverage_report=measurement_phase_coverage_report,
             )
+            row = self._decorate_scope_readiness_summary_row(
+                row,
+                scope_readiness_summary=scope_readiness_summary,
+            )
+            row = self._decorate_certificate_readiness_summary_row(
+                row,
+                certificate_readiness_summary=certificate_readiness_summary,
+            )
+            row = self._decorate_uncertainty_method_readiness_summary_row(
+                row,
+                uncertainty_method_readiness_summary=uncertainty_method_readiness_summary,
+            )
+            row = self._decorate_audit_readiness_digest_row(
+                row,
+                audit_readiness_digest=audit_readiness_digest,
+            )
             files.append(row)
         return {
             "run_dir": str(self.run_dir),
@@ -522,6 +593,10 @@ class ResultsGateway:
             "state_transition_evidence": state_transition_evidence,
             "simulation_evidence_sidecar_bundle": simulation_evidence_sidecar_bundle,
             "measurement_phase_coverage_report": measurement_phase_coverage_report,
+            "scope_readiness_summary": scope_readiness_summary,
+            "certificate_readiness_summary": certificate_readiness_summary,
+            "uncertainty_method_readiness_summary": uncertainty_method_readiness_summary,
+            "audit_readiness_digest": audit_readiness_digest,
             "phase_transition_bridge_reviewer_artifact_entry": dict(reviewer_artifact_entry),
             "stage_admission_review_pack_artifact_entry": dict(stage_admission_review_pack_entry),
             "engineering_isolation_admission_checklist_artifact_entry": dict(
@@ -619,6 +694,10 @@ class ResultsGateway:
         state_transition_evidence: dict[str, Any] | None,
         simulation_evidence_sidecar_bundle: dict[str, Any] | None,
         measurement_phase_coverage_report: dict[str, Any] | None,
+        scope_readiness_summary: dict[str, Any] | None,
+        certificate_readiness_summary: dict[str, Any] | None,
+        uncertainty_method_readiness_summary: dict[str, Any] | None,
+        audit_readiness_digest: dict[str, Any] | None,
     ) -> str:
         summary_payload = dict(summary or {})
         stats = dict(summary_payload.get("stats", {}) or {})
@@ -632,6 +711,10 @@ class ResultsGateway:
         transition_summary = dict(state_transition_evidence or {})
         sidecar_summary = dict(simulation_evidence_sidecar_bundle or {})
         phase_coverage_summary = dict(measurement_phase_coverage_report or {})
+        scope_readiness_payload = dict(scope_readiness_summary or {})
+        certificate_readiness_payload = dict(certificate_readiness_summary or {})
+        uncertainty_method_payload = dict(uncertainty_method_readiness_summary or {})
+        audit_readiness_payload = dict(audit_readiness_digest or {})
 
         role_parts: list[str] = []
         for role in ("execution_summary", "execution_rows", "diagnostic_analysis", "formal_analysis"):
@@ -848,6 +931,19 @@ class ResultsGateway:
                     or "future database intake / sidecar-ready"
                 )
             )
+        readiness_pairs = [
+            ("scope readiness", dict(scope_readiness_payload.get("digest") or {}).get("summary")),
+            ("reference/certificate readiness", dict(certificate_readiness_payload.get("digest") or {}).get("summary")),
+            (
+                "uncertainty/method readiness",
+                dict(uncertainty_method_payload.get("digest") or {}).get("summary"),
+            ),
+            ("software validation / audit readiness", dict(audit_readiness_payload.get("digest") or {}).get("summary")),
+        ]
+        for label, value in readiness_pairs:
+            text = str(value or "").strip()
+            if text:
+                lines.append(f"{label}: {text}")
 
         return "\n".join(line for line in lines if str(line).strip())
 
@@ -1094,6 +1190,66 @@ class ResultsGateway:
             json_filename=MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME,
             markdown_filename=MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME,
             entry_key="measurement_phase_coverage_report_entry",
+        )
+
+    @classmethod
+    def _decorate_scope_readiness_summary_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        scope_readiness_summary: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=scope_readiness_summary,
+            json_filename=recognition_readiness.SCOPE_READINESS_SUMMARY_FILENAME,
+            markdown_filename=recognition_readiness.SCOPE_READINESS_SUMMARY_MARKDOWN_FILENAME,
+            entry_key="scope_readiness_summary_entry",
+        )
+
+    @classmethod
+    def _decorate_certificate_readiness_summary_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        certificate_readiness_summary: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=certificate_readiness_summary,
+            json_filename=recognition_readiness.CERTIFICATE_READINESS_SUMMARY_FILENAME,
+            markdown_filename=recognition_readiness.CERTIFICATE_READINESS_SUMMARY_MARKDOWN_FILENAME,
+            entry_key="certificate_readiness_summary_entry",
+        )
+
+    @classmethod
+    def _decorate_uncertainty_method_readiness_summary_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        uncertainty_method_readiness_summary: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=uncertainty_method_readiness_summary,
+            json_filename=recognition_readiness.UNCERTAINTY_METHOD_READINESS_SUMMARY_FILENAME,
+            markdown_filename=recognition_readiness.UNCERTAINTY_METHOD_READINESS_SUMMARY_MARKDOWN_FILENAME,
+            entry_key="uncertainty_method_readiness_summary_entry",
+        )
+
+    @classmethod
+    def _decorate_audit_readiness_digest_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        audit_readiness_digest: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=audit_readiness_digest,
+            json_filename=recognition_readiness.AUDIT_READINESS_DIGEST_FILENAME,
+            markdown_filename=recognition_readiness.AUDIT_READINESS_DIGEST_MARKDOWN_FILENAME,
+            entry_key="audit_readiness_digest_entry",
         )
 
     @staticmethod
