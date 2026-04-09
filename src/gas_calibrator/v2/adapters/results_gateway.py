@@ -64,6 +64,7 @@ from ..core.stage3_standards_alignment_matrix_artifact_entry import (
     build_stage3_standards_alignment_matrix_artifact_entry,
 )
 from ..review_surface_formatter import (
+    collect_boundary_digest_lines,
     build_measurement_review_digest_lines,
     build_readiness_review_digest_lines,
     build_offline_diagnostic_detail_item_line,
@@ -1329,11 +1330,7 @@ class ResultsGateway:
         if not review_surface and not digest:
             return artifact_row
         is_markdown = path_name == markdown_filename
-        boundary_summary = " | ".join(
-            str(item).strip()
-            for item in list(review_surface.get("boundary_filters") or evidence_payload.get("boundary_statements") or [])
-            if str(item).strip()
-        )
+        boundary_summary = " | ".join(collect_boundary_digest_lines(evidence_payload))
         role_status_display = " | ".join(
             part
             for part in (
@@ -1392,8 +1389,12 @@ class ResultsGateway:
                 "gap_reason_fragment_keys": list(evidence_payload.get("gap_reason_fragment_keys") or []),
                 "boundary_fragments": [dict(item) for item in list(evidence_payload.get("boundary_fragments") or []) if isinstance(item, dict)],
                 "boundary_fragment_keys": list(evidence_payload.get("boundary_fragment_keys") or []),
+                "boundary_filter_rows": [dict(item) for item in list(evidence_payload.get("boundary_filter_rows") or review_surface.get("boundary_filter_rows") or []) if isinstance(item, dict)],
+                "boundary_filters": list(evidence_payload.get("boundary_filters") or review_surface.get("boundary_filters") or []),
                 "non_claim_fragments": [dict(item) for item in list(evidence_payload.get("non_claim_fragments") or []) if isinstance(item, dict)],
                 "non_claim_fragment_keys": list(evidence_payload.get("non_claim_fragment_keys") or []),
+                "non_claim_filter_rows": [dict(item) for item in list(evidence_payload.get("non_claim_filter_rows") or review_surface.get("non_claim_filter_rows") or []) if isinstance(item, dict)],
+                "non_claim_filters": list(evidence_payload.get("non_claim_filters") or review_surface.get("non_claim_filters") or []),
                 "linked_readiness_impact_summary": str(
                     evidence_payload.get("linked_readiness_impact_summary")
                     or digest.get("linked_readiness_impact_summary")
@@ -1421,6 +1422,8 @@ class ResultsGateway:
                 "non_claim_digest": str(evidence_payload.get("non_claim_digest") or digest.get("non_claim_digest") or ""),
                 "phase_contrast_fragments": [dict(item) for item in list(evidence_payload.get("phase_contrast_fragments") or []) if isinstance(item, dict)],
                 "phase_contrast_fragment_keys": list(evidence_payload.get("phase_contrast_fragment_keys") or []),
+                "phase_contrast_filter_rows": [dict(item) for item in list(evidence_payload.get("phase_contrast_filter_rows") or review_surface.get("phase_contrast_filter_rows") or []) if isinstance(item, dict)],
+                "phase_contrast_filters": list(evidence_payload.get("phase_contrast_filters") or review_surface.get("phase_contrast_filters") or []),
                 "phase_contrast_summary": str(
                     evidence_payload.get("phase_contrast_summary")
                     or dict(digest).get("phase_contrast_summary")

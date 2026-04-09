@@ -907,6 +907,10 @@ def normalize_fragment_key(family: str, value: Any, *, default: str | None = Non
     family_name = str(family or "").strip()
     if not family_name:
         return str(default or "")
+    text_value = str(value or "").strip()
+    canonical_prefix = f"{family_name}:"
+    if text_value.lower().startswith(canonical_prefix.lower()):
+        return str(text_value[len(canonical_prefix):].strip() or default or "")
     if family_name == REVIEWER_NEXT_STEP_FRAGMENT_FAMILY:
         normalized = normalize_taxonomy_key(REVIEWER_NEXT_STEP_TEMPLATE_FAMILY, value, default="")
         return str(normalized or default or "")

@@ -1694,6 +1694,20 @@ def _enrich_recognition_readiness_artifact(
         non_claim_fragments,
         default=" | ".join(str(item).strip() for item in list(raw.get("non_claim") or []) if str(item).strip()),
     )
+    boundary_filter_rows = normalize_fragment_filter_rows(
+        BOUNDARY_FRAGMENT_FAMILY,
+        boundary_fragments,
+        display_locale="en_US",
+    )
+    non_claim_filter_rows = normalize_fragment_filter_rows(
+        NON_CLAIM_FRAGMENT_FAMILY,
+        non_claim_fragments,
+        display_locale="en_US",
+    )
+    combined_boundary_filter_rows = _combined_fragment_filter_rows(
+        boundary_filter_rows,
+        non_claim_filter_rows,
+    )
     digest = dict(raw.get("digest") or {})
     digest["readiness_status"] = readiness_status
     if missing_evidence:
@@ -1761,9 +1775,13 @@ def _enrich_recognition_readiness_artifact(
     raw["boundary_fragments"] = boundary_fragments
     raw["boundary_fragment_keys"] = fragment_rows_to_keys(boundary_fragments)
     raw["boundary_digest"] = boundary_digest
+    raw["boundary_filter_rows"] = combined_boundary_filter_rows
+    raw["boundary_filters"] = fragment_filter_rows_to_ids(combined_boundary_filter_rows)
     raw["non_claim_fragments"] = non_claim_fragments
     raw["non_claim_fragment_keys"] = fragment_rows_to_keys(non_claim_fragments)
     raw["non_claim_digest"] = non_claim_digest
+    raw["non_claim_filter_rows"] = non_claim_filter_rows
+    raw["non_claim_filters"] = fragment_filter_rows_to_ids(non_claim_filter_rows)
     raw["reviewer_next_step_digest"] = reviewer_next_step_digest
     raw["reviewer_next_step_fragments"] = reviewer_next_step_fragments
     raw["reviewer_next_step_fragment_keys"] = fragment_rows_to_keys(reviewer_next_step_fragments) or linked_reviewer_next_step_fragment_keys
@@ -1784,6 +1802,10 @@ def _enrich_recognition_readiness_artifact(
                 *[str(item.get("anchor_id") or "") for item in linked_measurement_phase_artifacts],
             ]
         )
+        review_surface["boundary_filter_rows"] = combined_boundary_filter_rows
+        review_surface["boundary_filters"] = fragment_filter_rows_to_ids(combined_boundary_filter_rows)
+        review_surface["non_claim_filter_rows"] = non_claim_filter_rows
+        review_surface["non_claim_filters"] = fragment_filter_rows_to_ids(non_claim_filter_rows)
         review_surface["summary_lines"] = _merge_unique_lines(
             list(review_surface.get("summary_lines") or []),
             [
@@ -2125,6 +2147,24 @@ def _normalize_non_claim_fragments(values: Any) -> list[dict[str, Any]]:
         values,
         display_locale="en_US",
     )
+
+
+def _combined_fragment_filter_rows(*row_groups: Iterable[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row_group in row_groups:
+        for item in list(row_group or []):
+            payload = dict(item or {})
+            canonical_fragment_id = str(
+                payload.get("canonical_fragment_id")
+                or payload.get("id")
+                or ""
+            ).strip()
+            if not canonical_fragment_id or canonical_fragment_id in seen:
+                continue
+            seen.add(canonical_fragment_id)
+            rows.append(payload)
+    return rows
 
 
 def _normalize_text_list(value: Any) -> list[str]:

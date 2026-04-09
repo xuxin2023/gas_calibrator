@@ -34,6 +34,13 @@ from ...core.multi_source_stability import (
     MULTI_SOURCE_STABILITY_EVIDENCE_MARKDOWN_FILENAME,
 )
 from ...core.measurement_phase_coverage import MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME
+from ...core.reviewer_fragments_contract import (
+    BOUNDARY_FRAGMENT_FAMILY,
+    NON_CLAIM_FRAGMENT_FAMILY,
+    PHASE_CONTRAST_FRAGMENT_FAMILY,
+    fragment_filter_rows_to_ids,
+    normalize_fragment_filter_rows,
+)
 from ...core import recognition_readiness_artifacts as recognition_readiness
 from ...core.offline_artifacts import build_point_taxonomy_handoff
 from ...domain.mode_models import ModeProfile, RunMode
@@ -64,6 +71,7 @@ from ..i18n import (
     display_device_status,
     display_evidence_source,
     display_evidence_state,
+    display_fragment_value,
     display_phase,
     display_presence,
     display_reference_quality,
@@ -103,7 +111,117 @@ _REVIEW_CENTER_PHASE_OPTION_LABELS = {
 
 
 def _available_reviewer_artifact_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [dict(item) for item in entries if isinstance(item, dict) and bool(item.get("available", False))]
+    return [
+        _apply_fragment_filter_contract(dict(item))
+        for item in entries
+        if isinstance(item, dict) and bool(item.get("available", False))
+    ]
+
+
+def _dedupe_fragment_filter_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in list(rows or []):
+        payload = dict(item or {})
+        canonical_fragment_id = str(
+            payload.get("canonical_fragment_id")
+            or payload.get("id")
+            or ""
+        ).strip()
+        if not canonical_fragment_id or canonical_fragment_id in seen:
+            continue
+        seen.add(canonical_fragment_id)
+        deduped.append(payload)
+    return deduped
+
+
+def _normalize_boundary_filter_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    current = dict(payload or {})
+    return _dedupe_fragment_filter_rows(
+        [
+            *normalize_fragment_filter_rows(
+                BOUNDARY_FRAGMENT_FAMILY,
+                list(current.get("boundary_filter_rows") or [])
+                or list(current.get("boundary_fragments") or [])
+                or list(current.get("boundary_filters") or [])
+                or list(current.get("boundary_statements") or []),
+                display_locale="en_US",
+            ),
+            *normalize_fragment_filter_rows(
+                NON_CLAIM_FRAGMENT_FAMILY,
+                list(current.get("non_claim_filter_rows") or [])
+                or list(current.get("non_claim_fragments") or [])
+                or list(current.get("non_claim_filters") or [])
+                or list(current.get("non_claim") or [])
+                or list(current.get("boundary_filters") or []),
+                display_locale="en_US",
+            ),
+        ]
+    )
+
+
+def _normalize_phase_contrast_filter_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    current = dict(payload or {})
+    return _dedupe_fragment_filter_rows(
+        normalize_fragment_filter_rows(
+            PHASE_CONTRAST_FRAGMENT_FAMILY,
+            list(current.get("phase_contrast_filter_rows") or [])
+            or list(current.get("phase_contrast_fragments") or [])
+            or list(current.get("comparison_fragments") or [])
+            or list(current.get("phase_contrast_filters") or []),
+            display_locale="en_US",
+        )
+    )
+
+
+def _apply_fragment_filter_contract(payload: dict[str, Any]) -> dict[str, Any]:
+    current = dict(payload or {})
+    boundary_filter_rows = _normalize_boundary_filter_rows(current)
+    non_claim_filter_rows = _dedupe_fragment_filter_rows(
+        normalize_fragment_filter_rows(
+            NON_CLAIM_FRAGMENT_FAMILY,
+            list(current.get("non_claim_filter_rows") or [])
+            or list(current.get("non_claim_fragments") or [])
+            or list(current.get("non_claim_filters") or [])
+            or list(current.get("non_claim") or []),
+            display_locale="en_US",
+        )
+    )
+    phase_contrast_filter_rows = _normalize_phase_contrast_filter_rows(current)
+    current["boundary_filter_rows"] = boundary_filter_rows
+    current["boundary_filters"] = fragment_filter_rows_to_ids(boundary_filter_rows)
+    current["non_claim_filter_rows"] = non_claim_filter_rows
+    current["non_claim_filters"] = fragment_filter_rows_to_ids(non_claim_filter_rows)
+    current["phase_contrast_filter_rows"] = phase_contrast_filter_rows
+    current["phase_contrast_filters"] = fragment_filter_rows_to_ids(phase_contrast_filter_rows)
+    return current
+
+
+def _build_fragment_filter_options(
+    rows: list[dict[str, Any]],
+    *,
+    all_label_key: str,
+    all_label_default: str,
+) -> list[dict[str, str]]:
+    return [
+        {"id": "all", "label": t(all_label_key, default=all_label_default)}
+    ] + [
+        {
+            "id": str(item.get("canonical_fragment_id") or item.get("id") or ""),
+            "label": str(
+                item.get("label")
+                or item.get("display_text")
+                or display_fragment_value(
+                    str(item.get("fragment_family") or BOUNDARY_FRAGMENT_FAMILY),
+                    item.get("fragment_key"),
+                    params=dict(item.get("params") or {}),
+                    default=str(item.get("text") or ""),
+                )
+            ),
+        }
+        for item in _dedupe_fragment_filter_rows(rows)
+        if str(item.get("canonical_fragment_id") or item.get("id") or "").strip()
+    ]
 
 
 def _build_reviewer_filter_options(entries: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]]:
@@ -112,7 +230,14 @@ def _build_reviewer_filter_options(entries: list[dict[str, Any]]) -> dict[str, l
     artifact_role_values = _dedupe_entry_filter_values(available_entries, "artifact_role_filters")
     standard_family_values = _dedupe_entry_filter_values(available_entries, "standard_family_filters")
     evidence_category_values = _dedupe_entry_filter_values(available_entries, "evidence_category_filters")
-    boundary_values = _dedupe_entry_filter_values(available_entries, "boundary_filters")
+    boundary_rows = _dedupe_fragment_filter_rows(
+        [
+            row
+            for entry in available_entries
+            for row in list(_apply_fragment_filter_contract(entry).get("boundary_filter_rows") or [])
+            if isinstance(row, dict)
+        ]
+    )
     anchor_options = [
         {
             "id": str(item.get("anchor_id") or ""),
@@ -150,10 +275,11 @@ def _build_reviewer_filter_options(entries: list[dict[str, Any]]) -> dict[str, l
             {"id": "all", "label": t("results.review_center.filter.all_evidence_categories", default="全部证据类别")}
         ]
         + [{"id": value, "label": value} for value in evidence_category_values],
-        "boundary_options": [
-            {"id": "all", "label": t("results.review_center.filter.all_boundaries", default="全部边界")}
-        ]
-        + [{"id": value, "label": humanize_review_surface_text(value)} for value in boundary_values],
+        "boundary_options": _build_fragment_filter_options(
+            boundary_rows,
+            all_label_key="results.review_center.filter.all_boundaries",
+            all_label_default="全部边界",
+        ),
         "anchor_options": [
             {"id": "all", "label": t("results.review_center.filter.all_anchors", default="全部锚点")}
         ]
@@ -198,7 +324,14 @@ def _build_measurement_core_filter_options(items: list[dict[str, Any]]) -> dict[
     phase_values = _dedupe_item_filter_values(items, "phase_filters")
     artifact_role_values = _dedupe_item_filter_values(items, "artifact_role_filters")
     evidence_category_values = _dedupe_item_filter_values(items, "evidence_category_filters")
-    boundary_values = _dedupe_item_filter_values(items, "boundary_filters")
+    boundary_rows = _dedupe_fragment_filter_rows(
+        [
+            row
+            for item in items
+            for row in list(_apply_fragment_filter_contract(item).get("boundary_filter_rows") or [])
+            if isinstance(row, dict)
+        ]
+    )
     anchor_values = [
         {
             "id": str(item.get("anchor_id") or ""),
@@ -2064,8 +2197,26 @@ class AppFacade:
                 stage3_standards_alignment_matrix_artifact_entry,
             ]
         )
+        evidence_items = [
+            _apply_fragment_filter_contract(dict(item))
+            for item in evidence_items
+            if isinstance(item, dict)
+        ]
         reviewer_filter_options = _build_reviewer_filter_options(reviewer_artifact_entries)
         measurement_filter_options = _build_measurement_core_filter_options(evidence_items)
+        measurement_boundary_rows = _dedupe_fragment_filter_rows(
+            [
+                row
+                for item in evidence_items
+                for row in list(item.get("boundary_filter_rows") or [])
+                if isinstance(row, dict)
+            ]
+        )
+        measurement_filter_options["boundary_options"] = _build_fragment_filter_options(
+            measurement_boundary_rows,
+            all_label_key="results.review_center.filter.all_boundaries",
+            all_label_default="全部边界",
+        )
         return {
             "latest": latest_items,
             "operator_focus": {
