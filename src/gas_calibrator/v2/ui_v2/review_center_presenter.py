@@ -238,7 +238,25 @@ def _entry_matches_reviewer_filters(
 def _matches_list_filter(values: Any, selected_value: str) -> bool:
     if selected_value in {"", "all"}:
         return True
-    rows = {str(item).strip() for item in list(values or []) if str(item).strip()}
+    rows: set[str] = set()
+    for item in list(values or []):
+        if isinstance(item, dict):
+            payload = dict(item or {})
+            for candidate in (
+                payload.get("canonical_fragment_id"),
+                payload.get("id"),
+                payload.get("fragment_key"),
+                payload.get("canonical_key"),
+                payload.get("text"),
+                payload.get("label"),
+            ):
+                text = str(candidate or "").strip()
+                if text:
+                    rows.add(text)
+        else:
+            text = str(item or "").strip()
+            if text:
+                rows.add(text)
     return selected_value in rows
 
 

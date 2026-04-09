@@ -395,8 +395,8 @@ def test_review_center_surfaces_measurement_phase_payload_and_trace_only_summary
                     "trace_only_not_evaluated",
                 ],
                 "boundary_filters": [
-                    "simulation / offline / headless only",
-                    "shadow evaluation only",
+                    "boundary:simulation_offline_headless_only",
+                    "boundary:shadow_evaluation_only",
                 ],
                 "anchor_id": "measurement-phase-coverage-report",
                 "anchor_label": "Measurement phase coverage report",
@@ -458,7 +458,7 @@ def test_review_center_surfaces_recognition_readiness_governance_items(tmp_path:
     assert "uncertainty / method confirmation readiness" in str(uncertainty_item.get("summary") or "")
     assert "software validation / audit readiness" in str(audit_item.get("summary") or "")
     assert "recognition_readiness" in list(scope_item.get("evidence_category_filters") or [])
-    assert "simulation / offline / headless only" in list(scope_item.get("boundary_filters") or [])
+    assert "boundary:simulation_offline_headless_only" in list(scope_item.get("boundary_filters") or [])
     assert "reviewer_readiness_only" in list(scope_item.get("evidence_source_filters") or [])
     assert any(
         "formal scope approval chain is not closed" in str(line)

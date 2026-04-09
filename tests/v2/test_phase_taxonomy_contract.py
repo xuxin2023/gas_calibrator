@@ -40,8 +40,11 @@ from gas_calibrator.v2.core.reviewer_fragments_contract import (
     READINESS_IMPACT_FRAGMENT_FAMILY,
     REVIEWER_FRAGMENTS_CONTRACT_VERSION,
     REVIEWER_NEXT_STEP_FRAGMENT_FAMILY,
+    build_fragment_filter_row,
     build_fragment_row,
+    fragment_filter_rows_to_ids,
     normalize_fragment_key,
+    normalize_fragment_rows,
 )
 from gas_calibrator.v2.review_surface_formatter import (
     build_measurement_review_digest_lines,
@@ -200,6 +203,14 @@ def test_reviewer_fragments_contract_normalizes_aliases_and_labels() -> None:
         "not accreditation claim",
     ) == "not_accreditation_claim"
     assert normalize_fragment_key(
+        NON_CLAIM_FRAGMENT_FAMILY,
+        "not compliance certification",
+    ) == "not_compliance_claim"
+    assert normalize_fragment_key(
+        BOUNDARY_FRAGMENT_FAMILY,
+        "boundary:shadow_evaluation_only",
+    ) == "shadow_evaluation_only"
+    assert normalize_fragment_key(
         PHASE_CONTRAST_FRAGMENT_FAMILY,
         "trace-only phases ambient/pressure_stable keep the same taxonomy visible, but reviewer closure stays open until payload-backed evidence is promoted",
     ) == "trace_only_taxonomy_visibility_open"
@@ -236,6 +247,34 @@ def test_reviewer_fragments_contract_normalizes_aliases_and_labels() -> None:
         "ambient_diagnostic_trace_promotion",
         locale="zh_CN",
     ) == t("taxonomy.reviewer_next_step.ambient_diagnostic_trace_promotion", locale="zh_CN")
+    boundary_filter_row = build_fragment_filter_row(
+        BOUNDARY_FRAGMENT_FAMILY,
+        "shadow evaluation only",
+        display_locale="en_US",
+    )
+    assert boundary_filter_row["canonical_fragment_id"] == "boundary:shadow_evaluation_only"
+    assert fragment_filter_rows_to_ids([boundary_filter_row]) == ["boundary:shadow_evaluation_only"]
+    contrast_params = {
+        "preseal_missing": {"kind": "measurement_layer_list", "values": ["output"]},
+        "stable_available": {"kind": "measurement_layer_list", "values": ["reference", "output"]},
+    }
+    contrast_zh = display_fragment_value(
+        PHASE_CONTRAST_FRAGMENT_FAMILY,
+        "preseal_partial_vs_pressure_stable_complete",
+        params=contrast_params,
+        locale="zh_CN",
+    )
+    contrast_en = display_fragment_value(
+        PHASE_CONTRAST_FRAGMENT_FAMILY,
+        "preseal_partial_vs_pressure_stable_complete",
+        params=contrast_params,
+        locale="en_US",
+    )
+    assert "输出层" in contrast_zh
+    assert "参考层" in contrast_zh
+    assert "output" not in contrast_zh.lower()
+    assert "reference layer" in contrast_en
+    assert "output layer" in contrast_en
 
 
 def test_taxonomy_contract_preserves_partial_complete_and_payload_backed_phase_differences() -> None:
@@ -395,6 +434,18 @@ def test_taxonomy_contract_preserves_partial_complete_and_payload_backed_phase_d
     assert "payload_backed_ambient_recovery_anchor_visibility" in list(
         report["raw"].get("phase_contrast_fragment_keys") or []
     )
+    assert "boundary:shadow_evaluation_only" in list(report["raw"].get("boundary_filters") or [])
+    assert "non_claim:not_real_acceptance" in list(report["raw"].get("boundary_filters") or [])
+    assert "phase_contrast:preseal_partial_vs_pressure_stable_complete" in list(
+        report["raw"].get("phase_contrast_filters") or []
+    )
+    preseal_contrast_row = next(
+        item
+        for item in list(report["raw"].get("phase_contrast_filter_rows") or [])
+        if str(item.get("canonical_fragment_id") or "") == "phase_contrast:preseal_partial_vs_pressure_stable_complete"
+    )
+    assert dict(preseal_contrast_row.get("params") or {}).get("preseal_missing")
+    assert dict(preseal_contrast_row.get("params") or {}).get("stable_available")
     set_locale("zh_CN")
     localized_lines = build_measurement_review_digest_lines(report)
     localized_text = "\n".join(
@@ -490,6 +541,9 @@ def test_structured_fragment_locale_catalog_and_boundary_digest_lines_stay_consi
     assert "shadow_evaluation_only" in list(measurement_entry.get("boundary_fragment_keys") or [])
     assert "not_real_acceptance" in list(measurement_entry.get("non_claim_fragment_keys") or [])
     assert "not_accreditation_claim" in list(scope_entry.get("non_claim_fragment_keys") or [])
+    assert "boundary:shadow_evaluation_only" in list(measurement_entry.get("boundary_filters") or [])
+    assert "non_claim:not_real_acceptance" in list(measurement_entry.get("boundary_filters") or [])
+    assert "non_claim:not_accreditation_claim" in list(scope_entry.get("boundary_filters") or [])
 
     boundary_lines = collect_boundary_digest_lines(measurement_entry, scope_entry)
     shadow_boundary = display_fragment_value(

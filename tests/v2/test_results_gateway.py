@@ -1001,6 +1001,13 @@ def test_results_gateway_exposes_measurement_core_evidence_artifacts(tmp_path: P
     assert phase_coverage_json_row["measurement_phase_coverage_report_entry"]["boundary_fragment_keys"]
     assert phase_coverage_json_row["measurement_phase_coverage_report_entry"]["non_claim_fragment_keys"]
     assert phase_coverage_json_row["measurement_phase_coverage_report_entry"]["phase_contrast_fragment_keys"]
+    assert "boundary:shadow_evaluation_only" in list(
+        phase_coverage_json_row["measurement_phase_coverage_report_entry"]["boundary_filters"]
+    )
+    assert any(
+        str(item.get("canonical_fragment_id") or "").startswith("phase_contrast:")
+        for item in list(phase_coverage_json_row["measurement_phase_coverage_report_entry"]["phase_contrast_filter_rows"] or [])
+    )
     assert "Ambient baseline stabilization rule" in list(
         phase_coverage_json_row["measurement_phase_coverage_report_entry"]["linked_method_confirmation_items"]
     )

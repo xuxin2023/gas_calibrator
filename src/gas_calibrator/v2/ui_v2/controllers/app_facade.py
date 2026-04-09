@@ -355,9 +355,11 @@ def _build_measurement_core_filter_options(items: list[dict[str, Any]]) -> dict[
         "evidence_category_options": [
             {"id": "all", "label": t("results.review_center.filter.all_evidence_categories", default="鍏ㄩ儴璇佹嵁绫诲埆")}
         ] + [{"id": value, "label": value} for value in evidence_category_values],
-        "boundary_options": [
-            {"id": "all", "label": t("results.review_center.filter.all_boundaries", default="鍏ㄩ儴杈圭晫")}
-        ] + [{"id": value, "label": humanize_review_surface_text(value)} for value in boundary_values],
+        "boundary_options": _build_fragment_filter_options(
+            boundary_rows,
+            all_label_key="results.review_center.filter.all_boundaries",
+            all_label_default="全部边界",
+        ),
         "anchor_options": [
             {"id": "all", "label": t("results.review_center.filter.all_anchors", default="鍏ㄩ儴閿氱偣")}
         ] + anchor_values,
@@ -3930,6 +3932,7 @@ class AppFacade:
             phase_filters=list(review_surface.get("phase_filters") or []),
             artifact_role_filters=["diagnostic_analysis"],
             evidence_category_filters=["measurement_core", "shadow_stability"],
+            boundary_filter_rows=[dict(item) for item in list(review_surface.get("boundary_filter_rows") or []) if isinstance(item, dict)],
             boundary_filters=list(review_surface.get("boundary_filters") or []),
             anchor_id=str(review_surface.get("anchor_id") or ""),
             anchor_label=str(review_surface.get("anchor_label") or ""),
@@ -3938,6 +3941,10 @@ class AppFacade:
             decision_result_filters=list(review_surface.get("decision_result_filters") or []),
             policy_version_filters=list(review_surface.get("policy_version_filters") or []),
             evidence_source_filters=list(review_surface.get("evidence_source_filters") or []),
+            non_claim_filter_rows=[dict(item) for item in list(review_surface.get("non_claim_filter_rows") or []) if isinstance(item, dict)],
+            non_claim_filters=list(review_surface.get("non_claim_filters") or []),
+            phase_contrast_filter_rows=[dict(item) for item in list(review_surface.get("phase_contrast_filter_rows") or []) if isinstance(item, dict)],
+            phase_contrast_filters=list(review_surface.get("phase_contrast_filters") or []),
         )
 
     def _build_state_transition_review_item(self, payload: dict[str, Any], path: Path) -> dict[str, Any]:
@@ -3995,6 +4002,7 @@ class AppFacade:
             phase_filters=list(review_surface.get("phase_filters") or []),
             artifact_role_filters=["diagnostic_analysis"],
             evidence_category_filters=["measurement_core", "controlled_transition"],
+            boundary_filter_rows=[dict(item) for item in list(review_surface.get("boundary_filter_rows") or []) if isinstance(item, dict)],
             boundary_filters=list(review_surface.get("boundary_filters") or []),
             anchor_id=str(review_surface.get("anchor_id") or ""),
             anchor_label=str(review_surface.get("anchor_label") or ""),
@@ -4003,6 +4011,10 @@ class AppFacade:
             decision_result_filters=list(review_surface.get("decision_result_filters") or []),
             policy_version_filters=list(review_surface.get("policy_version_filters") or []),
             evidence_source_filters=list(review_surface.get("evidence_source_filters") or []),
+            non_claim_filter_rows=[dict(item) for item in list(review_surface.get("non_claim_filter_rows") or []) if isinstance(item, dict)],
+            non_claim_filters=list(review_surface.get("non_claim_filters") or []),
+            phase_contrast_filter_rows=[dict(item) for item in list(review_surface.get("phase_contrast_filter_rows") or []) if isinstance(item, dict)],
+            phase_contrast_filters=list(review_surface.get("phase_contrast_filters") or []),
         )
 
     def _build_measurement_phase_coverage_review_item(
@@ -4072,6 +4084,7 @@ class AppFacade:
             phase_filters=list(review_surface.get("phase_filters") or []),
             artifact_role_filters=["diagnostic_analysis"],
             evidence_category_filters=["measurement_core", "phase_coverage"],
+            boundary_filter_rows=[dict(item) for item in list(review_surface.get("boundary_filter_rows") or []) if isinstance(item, dict)],
             boundary_filters=list(review_surface.get("boundary_filters") or []),
             anchor_id=str(review_surface.get("anchor_id") or ""),
             anchor_label=str(review_surface.get("anchor_label") or ""),
@@ -4080,6 +4093,10 @@ class AppFacade:
             decision_result_filters=list(review_surface.get("decision_result_filters") or []),
             policy_version_filters=list(review_surface.get("policy_version_filters") or []),
             evidence_source_filters=list(review_surface.get("evidence_source_filters") or []),
+            non_claim_filter_rows=[dict(item) for item in list(review_surface.get("non_claim_filter_rows") or []) if isinstance(item, dict)],
+            non_claim_filters=list(review_surface.get("non_claim_filters") or []),
+            phase_contrast_filter_rows=[dict(item) for item in list(review_surface.get("phase_contrast_filter_rows") or []) if isinstance(item, dict)],
+            phase_contrast_filters=list(review_surface.get("phase_contrast_filters") or []),
         )
 
     def _build_readiness_governance_review_item(self, payload: dict[str, Any], path: Path) -> dict[str, Any]:
@@ -4144,6 +4161,7 @@ class AppFacade:
             artifact_role_filters=["diagnostic_analysis"],
             standard_family_filters=list(review_surface.get("standard_family_filters") or []),
             evidence_category_filters=list(payload.get("evidence_categories") or []),
+            boundary_filter_rows=[dict(item) for item in list(review_surface.get("boundary_filter_rows") or []) if isinstance(item, dict)],
             boundary_filters=list(review_surface.get("boundary_filters") or []),
             anchor_id=str(review_surface.get("anchor_id") or ""),
             anchor_label=str(review_surface.get("anchor_label") or ""),
@@ -4152,6 +4170,10 @@ class AppFacade:
             decision_result_filters=list(review_surface.get("decision_result_filters") or []),
             policy_version_filters=list(review_surface.get("policy_version_filters") or []),
             evidence_source_filters=list(review_surface.get("evidence_source_filters") or []),
+            non_claim_filter_rows=[dict(item) for item in list(review_surface.get("non_claim_filter_rows") or []) if isinstance(item, dict)],
+            non_claim_filters=list(review_surface.get("non_claim_filters") or []),
+            phase_contrast_filter_rows=[dict(item) for item in list(review_surface.get("phase_contrast_filter_rows") or []) if isinstance(item, dict)],
+            phase_contrast_filters=list(review_surface.get("phase_contrast_filters") or []),
         )
 
     def _review_entry(
@@ -4179,6 +4201,7 @@ class AppFacade:
         artifact_role_filters: Optional[list[str]] = None,
         standard_family_filters: Optional[list[str]] = None,
         evidence_category_filters: Optional[list[str]] = None,
+        boundary_filter_rows: Optional[list[dict[str, Any]]] = None,
         boundary_filters: Optional[list[str]] = None,
         anchor_id: str = "",
         anchor_label: str = "",
@@ -4187,12 +4210,16 @@ class AppFacade:
         decision_result_filters: Optional[list[str]] = None,
         policy_version_filters: Optional[list[str]] = None,
         evidence_source_filters: Optional[list[str]] = None,
+        non_claim_filter_rows: Optional[list[dict[str, Any]]] = None,
+        non_claim_filters: Optional[list[str]] = None,
+        phase_contrast_filter_rows: Optional[list[dict[str, Any]]] = None,
+        phase_contrast_filters: Optional[list[str]] = None,
     ) -> dict[str, Any]:
         sort_key, display_time = self._review_time(generated_at, path)
         source_label = Path(path).parent.name or Path(path).name
         source_dir = str(Path(path).parent)
         normalized_source_kind = str(source_kind or "run").strip().lower() or "run"
-        return {
+        entry = {
             "available": True,
             "type": evidence_type,
             "type_display": t(
@@ -4248,6 +4275,7 @@ class AppFacade:
             "evidence_category_filters": [
                 str(item).strip() for item in list(evidence_category_filters or []) if str(item).strip()
             ],
+            "boundary_filter_rows": [dict(item) for item in list(boundary_filter_rows or []) if isinstance(item, dict)],
             "boundary_filters": [str(item).strip() for item in list(boundary_filters or []) if str(item).strip()],
             "anchor_id": str(anchor_id or "").strip(),
             "anchor_label": str(anchor_label or "").strip(),
@@ -4264,7 +4292,14 @@ class AppFacade:
             "evidence_source_filters": [
                 str(item).strip() for item in list(evidence_source_filters or []) if str(item).strip()
             ],
+            "non_claim_filter_rows": [dict(item) for item in list(non_claim_filter_rows or []) if isinstance(item, dict)],
+            "non_claim_filters": [str(item).strip() for item in list(non_claim_filters or []) if str(item).strip()],
+            "phase_contrast_filter_rows": [
+                dict(item) for item in list(phase_contrast_filter_rows or []) if isinstance(item, dict)
+            ],
+            "phase_contrast_filters": [str(item).strip() for item in list(phase_contrast_filters or []) if str(item).strip()],
         }
+        return _apply_fragment_filter_contract(entry)
 
     def _build_review_index_summary(
         self,

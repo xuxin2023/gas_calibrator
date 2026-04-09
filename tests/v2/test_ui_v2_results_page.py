@@ -149,7 +149,7 @@ def test_results_page_renders_measurement_core_review_filters() -> None:
                         "selected_artifact_role": "diagnostic_analysis",
                         "selected_standard_family": "all",
                         "selected_evidence_category": "measurement_core",
-                        "selected_boundary": "shadow evaluation only",
+                        "selected_boundary": "boundary:shadow_evaluation_only",
                         "selected_anchor": "multi-source-stability-evidence",
                         "selected_route": "gas",
                         "selected_signal_family": "analyzer_raw",
@@ -170,7 +170,15 @@ def test_results_page_renders_measurement_core_review_filters() -> None:
                         "artifact_role_options": [{"id": "diagnostic_analysis", "label": "diagnostic_analysis"}],
                         "standard_family_options": [{"id": "all", "label": "All Standard Families"}],
                         "evidence_category_options": [{"id": "measurement_core", "label": "measurement_core"}],
-                        "boundary_options": [{"id": "shadow evaluation only", "label": "shadow evaluation only"}],
+                        "boundary_options": [
+                            {
+                                "id": "boundary:shadow_evaluation_only",
+                                "label": t(
+                                    "reviewer_fragments.boundary.shadow_evaluation_only",
+                                    default="仅影子评估",
+                                ),
+                            }
+                        ],
                         "anchor_options": [
                             {"id": "multi-source-stability-evidence", "label": "multi-source-stability-evidence"}
                         ],
@@ -195,7 +203,10 @@ def test_results_page_renders_measurement_core_review_filters() -> None:
                             "detail_risk": "review-only",
                             "detail_key_fields": ["shadow_gas_v1", "analyzer_raw", "partial_coverage_gap"],
                             "detail_artifact_paths": ["D:/tmp/run_2/multi_source_stability_evidence.json"],
-                            "detail_acceptance_hint": "shadow evaluation only",
+                            "detail_acceptance_hint": t(
+                                "reviewer_fragments.boundary.shadow_evaluation_only",
+                                default="仅影子评估",
+                            ),
                             "detail_qc_summary": [],
                             "detail_qc_cards": [],
                             "detail_analytics_summary": [],
@@ -204,7 +215,7 @@ def test_results_page_renders_measurement_core_review_filters() -> None:
                             "phase_filters": ["pressure_stable"],
                             "artifact_role_filters": ["diagnostic_analysis"],
                             "evidence_category_filters": ["measurement_core"],
-                            "boundary_filters": ["shadow evaluation only"],
+                            "boundary_filters": ["boundary:shadow_evaluation_only"],
                             "route_filters": ["gas"],
                             "signal_family_filters": ["analyzer_raw"],
                             "decision_result_filters": ["partial_coverage_gap"],
@@ -225,7 +236,10 @@ def test_results_page_renders_measurement_core_review_filters() -> None:
                             "detail_risk": "review-only",
                             "detail_key_fields": ["shadow_water_v1", "output", "stable_shadow_pass"],
                             "detail_artifact_paths": ["D:/tmp/run_2/ignored.json"],
-                            "detail_acceptance_hint": "shadow evaluation only",
+                            "detail_acceptance_hint": t(
+                                "reviewer_fragments.boundary.shadow_evaluation_only",
+                                default="仅影子评估",
+                            ),
                             "detail_qc_summary": [],
                             "detail_qc_cards": [],
                             "detail_analytics_summary": [],
@@ -234,7 +248,7 @@ def test_results_page_renders_measurement_core_review_filters() -> None:
                             "phase_filters": ["preseal"],
                             "artifact_role_filters": ["diagnostic_analysis"],
                             "evidence_category_filters": ["measurement_core"],
-                            "boundary_filters": ["shadow evaluation only"],
+                            "boundary_filters": ["boundary:shadow_evaluation_only"],
                             "route_filters": ["water"],
                             "signal_family_filters": ["output"],
                             "decision_result_filters": ["stable_shadow_pass"],
@@ -255,7 +269,7 @@ def test_results_page_renders_measurement_core_review_filters() -> None:
         assert len(page.review_center.tree.get_children()) == 1
         assert "partial coverage" in page.review_center.detail_summary_var.get()
         assert "multi_source_stability_evidence.json" in page.review_center.detail_artifacts_var.get()
-        assert "shadow evaluation only" in page.review_center.detail_acceptance_var.get()
+        assert "影子" in page.review_center.detail_acceptance_var.get()
         assert tuple(page.review_center.route_filter["values"]) == ("gas",)
         assert tuple(page.review_center.signal_family_filter["values"]) == ("analyzer_raw",)
         assert tuple(page.review_center.decision_result_filter["values"]) == ("partial_coverage_gap",)

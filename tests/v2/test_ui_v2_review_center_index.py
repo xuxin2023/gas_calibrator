@@ -1890,7 +1890,7 @@ def test_review_center_view_filters_stage3_reviewer_artifacts_by_phase_role_fami
     role_view = build_review_center_view(payload, selected_artifact_role="formal_analysis")
     family_view = build_review_center_view(payload, selected_standard_family="ISO/IEC 17025")
     category_view = build_review_center_view(payload, selected_evidence_category=required_category)
-    boundary_view = build_review_center_view(payload, selected_boundary="not accreditation claim")
+    boundary_view = build_review_center_view(payload, selected_boundary="non_claim:not_accreditation_claim")
     anchor_view = build_review_center_view(payload, selected_anchor=plan_entry["anchor_id"])
 
     assert [item["artifact_key"] for item in phase_view["reviewer_artifact_entries"]] == [
