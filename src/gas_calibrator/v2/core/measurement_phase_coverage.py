@@ -157,7 +157,16 @@ _READINESS_ARTIFACT_ANCHORS: dict[str, dict[str, str]] = {
 }
 
 _PHASE_READINESS_ARTIFACT_TYPES: dict[str, tuple[str, ...]] = {
-    "ambient_diagnostic": ("scope_definition_pack", "scope_readiness_summary", "decision_rule_profile"),
+    "ambient_diagnostic": (
+        "scope_definition_pack",
+        "scope_readiness_summary",
+        "decision_rule_profile",
+        "metrology_traceability_stub",
+        "uncertainty_budget_stub",
+        "method_confirmation_protocol",
+        "method_confirmation_matrix",
+        "uncertainty_method_readiness_summary",
+    ),
     "preseal": (
         "scope_definition_pack",
         "scope_readiness_summary",
@@ -180,8 +189,11 @@ _PHASE_READINESS_ARTIFACT_TYPES: dict[str, tuple[str, ...]] = {
         "scope_definition_pack",
         "scope_readiness_summary",
         "decision_rule_profile",
+        "metrology_traceability_stub",
+        "uncertainty_budget_stub",
         "method_confirmation_protocol",
         "method_confirmation_matrix",
+        "uncertainty_method_readiness_summary",
     ),
     "recovery_retry": (
         "software_validation_traceability_matrix",
@@ -191,22 +203,68 @@ _PHASE_READINESS_ARTIFACT_TYPES: dict[str, tuple[str, ...]] = {
 }
 
 _PHASE_READINESS_IMPACT_AREAS: dict[str, str] = {
-    "ambient_diagnostic": "scope / decision",
+    "ambient_diagnostic": "scope / decision / method / uncertainty / traceability",
     "preseal": "scope / method / uncertainty / traceability",
     "pressure_stable": "uncertainty / traceability / certificate",
-    "sample_ready": "scope / method",
-    "recovery_retry": "software validation / audit",
+    "sample_ready": "scope / method / uncertainty / traceability",
+    "recovery_retry": "software validation / audit / method / uncertainty / traceability",
 }
 
 _PHASE_READINESS_DIMENSIONS: dict[str, tuple[str, ...]] = {
-    "ambient_diagnostic": ("scope", "decision rule"),
+    "ambient_diagnostic": ("scope", "decision rule", "method confirmation", "uncertainty inputs", "traceability stub"),
     "preseal": ("scope", "decision rule", "method confirmation", "uncertainty inputs", "traceability stub"),
     "pressure_stable": ("reference asset / certificate", "traceability", "uncertainty / method"),
-    "sample_ready": ("scope", "method confirmation"),
-    "recovery_retry": ("software validation", "audit"),
+    "sample_ready": ("scope", "method confirmation", "uncertainty inputs", "traceability stub"),
+    "recovery_retry": ("software validation", "audit", "method confirmation", "uncertainty inputs", "traceability stub"),
 }
 
 _PHASE_GAP_NAVIGATION_PROFILES: dict[tuple[str, str], dict[str, Any]] = {
+    ("ambient", "ambient_diagnostic"): {
+        "linked_method_confirmation_items": [
+            "Ambient baseline stabilization rule",
+            "Ambient diagnostic decision threshold",
+            "Ambient diagnostic drift review",
+        ],
+        "linked_uncertainty_inputs": [
+            "Ambient pressure baseline",
+            "Ambient humidity baseline",
+            "Ambient temperature baseline",
+        ],
+        "linked_traceability_stub_nodes": [
+            "Ambient environment reference chain",
+            "Ambient pressure reference link",
+            "Ambient climate baseline stub",
+        ],
+        "gap_classification": {
+            _PAYLOAD_COMPLETE_BUCKET: "ambient_baseline_payload_complete_anchor",
+            "trace_only_not_evaluated": "ambient_baseline_trace_only_gap",
+            "model_only": "ambient_baseline_model_only_gap",
+            "gap": "ambient_baseline_gap",
+            "default": "ambient_baseline_reviewer_gap",
+        },
+        "gap_severity": {
+            _PAYLOAD_COMPLETE_BUCKET: "info",
+            "trace_only_not_evaluated": "medium",
+            "model_only": "medium",
+            "gap": "high",
+            "default": "medium",
+        },
+        "reviewer_next_step_digest": {
+            _PAYLOAD_COMPLETE_BUCKET: (
+                "Use the ambient diagnostic payload as the synthetic baseline anchor, then keep ambient method, "
+                "uncertainty, and traceability closure in readiness-only artifacts."
+            ),
+            "trace_only_not_evaluated": (
+                "Promote the ambient diagnostic trace into payload-backed reviewer evidence before closing ambient "
+                "baseline method, uncertainty, and traceability gaps."
+            ),
+            "default": (
+                "Confirm ambient diagnostic baseline method items first, then add ambient pressure/humidity/temperature "
+                "uncertainty inputs, then tie the ambient references into the traceability stub while keeping this "
+                "phase reviewer-only."
+            ),
+        },
+    },
     ("water", "preseal"): {
         "linked_method_confirmation_items": [
             "Water preseal window definition",
@@ -284,6 +342,182 @@ _PHASE_GAP_NAVIGATION_PROFILES: dict[tuple[str, str], dict[str, Any]] = {
             "Use the gas pressure-stable payload as the synthetic reviewer anchor, then keep certificate and "
             "traceability closure in readiness-only artifacts until released reference evidence exists."
         ),
+    },
+    ("ambient", "sample_ready"): {
+        "linked_method_confirmation_items": [
+            "Ambient sample-ready dwell confirmation",
+            "Ambient sample release criteria",
+        ],
+        "linked_uncertainty_inputs": [
+            "Ambient stabilization window",
+            "Ambient pressure drift allowance",
+        ],
+        "linked_traceability_stub_nodes": [
+            "Ambient environment reference chain",
+            "Sample release trace stub",
+        ],
+        "gap_classification": {
+            _PAYLOAD_COMPLETE_BUCKET: "ambient_sample_ready_payload_complete_anchor",
+            "trace_only_not_evaluated": "ambient_sample_ready_trace_only_gap",
+            "model_only": "ambient_sample_ready_model_only_gap",
+            "gap": "ambient_sample_ready_gap",
+            "default": "ambient_sample_ready_reviewer_gap",
+        },
+        "gap_severity": {
+            _PAYLOAD_COMPLETE_BUCKET: "info",
+            "trace_only_not_evaluated": "medium",
+            "model_only": "medium",
+            "gap": "high",
+            "default": "medium",
+        },
+        "reviewer_next_step_digest": {
+            _PAYLOAD_COMPLETE_BUCKET: (
+                "Use the ambient sample-ready payload as the synthetic release anchor, then keep scope, method, "
+                "uncertainty, and traceability closure in readiness-only artifacts."
+            ),
+            "trace_only_not_evaluated": (
+                "Promote the ambient sample-ready trace into payload-backed reviewer evidence before closing dwell, "
+                "uncertainty, and traceability gaps."
+            ),
+            "default": (
+                "Confirm ambient sample-ready dwell and release method items first, then add stabilization uncertainty "
+                "inputs, then tie the ambient release references into the traceability stub while keeping this phase "
+                "reviewer-only."
+            ),
+        },
+    },
+    ("water", "sample_ready"): {
+        "linked_method_confirmation_items": [
+            "Water sample-ready dwell confirmation",
+            "Water sample release criteria",
+        ],
+        "linked_uncertainty_inputs": [
+            "Humidity stabilization window",
+            "Pressure settling allowance",
+        ],
+        "linked_traceability_stub_nodes": [
+            "Humidity reference chain",
+            "Sample release trace stub",
+        ],
+        "gap_classification": {
+            _PAYLOAD_COMPLETE_BUCKET: "water_sample_ready_payload_complete_anchor",
+            "trace_only_not_evaluated": "water_sample_ready_trace_only_gap",
+            "model_only": "water_sample_ready_model_only_gap",
+            "gap": "water_sample_ready_gap",
+            "default": "water_sample_ready_reviewer_gap",
+        },
+        "gap_severity": {
+            _PAYLOAD_COMPLETE_BUCKET: "info",
+            "trace_only_not_evaluated": "medium",
+            "model_only": "medium",
+            "gap": "high",
+            "default": "medium",
+        },
+        "reviewer_next_step_digest": {
+            _PAYLOAD_COMPLETE_BUCKET: (
+                "Use the water sample-ready payload as synthetic reviewer release evidence, then keep uncertainty and "
+                "traceability closure in readiness-only artifacts."
+            ),
+            "trace_only_not_evaluated": (
+                "Promote the water sample-ready trace into payload-backed reviewer evidence before closing dwell, "
+                "uncertainty, and traceability gaps."
+            ),
+            "default": (
+                "Confirm water sample-ready dwell and release method items first, then add humidity/pressure "
+                "uncertainty inputs, then tie the release references into the traceability stub while keeping this "
+                "phase reviewer-only."
+            ),
+        },
+    },
+    ("gas", "sample_ready"): {
+        "linked_method_confirmation_items": [
+            "Gas sample-ready dwell confirmation",
+            "Gas sample release criteria",
+        ],
+        "linked_uncertainty_inputs": [
+            "Reference gas stabilization window",
+            "Pressure settling allowance",
+        ],
+        "linked_traceability_stub_nodes": [
+            "Standard gas chain",
+            "Sample release trace stub",
+        ],
+        "gap_classification": {
+            _PAYLOAD_COMPLETE_BUCKET: "gas_sample_ready_payload_complete_anchor",
+            "trace_only_not_evaluated": "gas_sample_ready_trace_only_gap",
+            "model_only": "gas_sample_ready_model_only_gap",
+            "gap": "gas_sample_ready_gap",
+            "default": "gas_sample_ready_reviewer_gap",
+        },
+        "gap_severity": {
+            _PAYLOAD_COMPLETE_BUCKET: "info",
+            "trace_only_not_evaluated": "medium",
+            "model_only": "medium",
+            "gap": "high",
+            "default": "medium",
+        },
+        "reviewer_next_step_digest": {
+            _PAYLOAD_COMPLETE_BUCKET: (
+                "Use the gas sample-ready payload as synthetic reviewer release evidence, then keep uncertainty and "
+                "traceability closure in readiness-only artifacts."
+            ),
+            "trace_only_not_evaluated": (
+                "Promote the gas sample-ready trace into payload-backed reviewer evidence before closing dwell, "
+                "uncertainty, and traceability gaps."
+            ),
+            "default": (
+                "Confirm gas sample-ready dwell and release method items first, then add reference-gas/pressure "
+                "uncertainty inputs, then tie the release references into the traceability stub while keeping this "
+                "phase reviewer-only."
+            ),
+        },
+    },
+    ("system", "recovery_retry"): {
+        "linked_method_confirmation_items": [
+            "Recovery retry scenario confirmation",
+            "Safe recovery procedure confirmation",
+        ],
+        "linked_uncertainty_inputs": [
+            "Retry timing tolerance",
+            "Fault capture debounce window",
+        ],
+        "linked_traceability_stub_nodes": [
+            "Software event log chain",
+            "Recovery audit trail stub",
+        ],
+        "gap_classification": {
+            _PAYLOAD_COMPLETE_BUCKET: "recovery_retry_payload_complete_anchor",
+            "trace_only_not_evaluated": "recovery_retry_trace_only_gap",
+            "test_only": "recovery_retry_test_only_gap",
+            "gap": "recovery_retry_gap",
+            "default": "recovery_retry_reviewer_gap",
+        },
+        "gap_severity": {
+            _PAYLOAD_COMPLETE_BUCKET: "info",
+            "trace_only_not_evaluated": "medium",
+            "test_only": "medium",
+            "gap": "high",
+            "default": "medium",
+        },
+        "reviewer_next_step_digest": {
+            _PAYLOAD_COMPLETE_BUCKET: (
+                "Use the recovery/retry payload as the synthetic software-validation anchor, then keep release and "
+                "audit closure in readiness-only artifacts."
+            ),
+            "trace_only_not_evaluated": (
+                "Promote the recovery/retry trace into payload-backed reviewer evidence before closing software "
+                "validation, timing, and audit-trace gaps."
+            ),
+            "test_only": (
+                "Keep recovery/retry in test-only reviewer coverage until synthetic payload captures retry timing, "
+                "fault capture, and audit-trace linkage."
+            ),
+            "default": (
+                "Confirm recovery/retry method items first, then add retry timing uncertainty inputs, then tie the "
+                "software event log and audit references into the traceability stub while keeping this phase "
+                "reviewer-only."
+            ),
+        },
     },
 }
 
@@ -1414,6 +1648,26 @@ def _phase_navigation_profile(route_family: str, phase_name: str) -> dict[str, A
     return dict(_PHASE_GAP_NAVIGATION_PROFILES.get((str(route_family or "").strip(), str(phase_name or "").strip())) or {})
 
 
+def _phase_profile_value(
+    *,
+    profile: dict[str, Any],
+    field_name: str,
+    coverage_bucket: str,
+    payload_completeness: str,
+) -> Any:
+    value = profile.get(field_name)
+    if not isinstance(value, dict):
+        return value
+    for key in (
+        str(coverage_bucket or "").strip(),
+        str(payload_completeness or "").strip(),
+        "default",
+    ):
+        if key and key in value:
+            return value[key]
+    return None
+
+
 def _phase_linked_method_confirmation_items(*, route_family: str, phase_name: str, coverage_bucket: str) -> list[str]:
     profile = _phase_navigation_profile(route_family, phase_name)
     return list(profile.get("linked_method_confirmation_items") or [])
@@ -1437,8 +1691,14 @@ def _phase_gap_classification(
     payload_completeness: str,
 ) -> str:
     profile = _phase_navigation_profile(route_family, phase_name)
-    if profile and str(profile.get("gap_classification") or "").strip():
-        return str(profile.get("gap_classification") or "").strip()
+    profile_value = _phase_profile_value(
+        profile=profile,
+        field_name="gap_classification",
+        coverage_bucket=coverage_bucket,
+        payload_completeness=payload_completeness,
+    )
+    if str(profile_value or "").strip():
+        return str(profile_value or "").strip()
     if coverage_bucket == _PAYLOAD_COMPLETE_BUCKET:
         return "payload_complete_synthetic_reviewer_anchor"
     if payload_completeness == "trace_only":
@@ -1456,8 +1716,14 @@ def _phase_gap_severity(
     payload_completeness: str,
 ) -> str:
     profile = _phase_navigation_profile(route_family, phase_name)
-    if profile and str(profile.get("gap_severity") or "").strip():
-        return str(profile.get("gap_severity") or "").strip()
+    profile_value = _phase_profile_value(
+        profile=profile,
+        field_name="gap_severity",
+        coverage_bucket=coverage_bucket,
+        payload_completeness=payload_completeness,
+    )
+    if str(profile_value or "").strip():
+        return str(profile_value or "").strip()
     if coverage_bucket == _PAYLOAD_COMPLETE_BUCKET:
         return "info"
     if payload_completeness == "trace_only":
@@ -1478,8 +1744,14 @@ def _phase_reviewer_next_step_digest(
     linked_traceability_stub_nodes: list[str],
 ) -> str:
     profile = _phase_navigation_profile(route_family, phase_name)
-    if profile and str(profile.get("reviewer_next_step_digest") or "").strip():
-        return str(profile.get("reviewer_next_step_digest") or "").strip()
+    profile_value = _phase_profile_value(
+        profile=profile,
+        field_name="reviewer_next_step_digest",
+        coverage_bucket=coverage_bucket,
+        payload_completeness=payload_completeness,
+    )
+    if str(profile_value or "").strip():
+        return str(profile_value or "").strip()
     if coverage_bucket == _PAYLOAD_COMPLETE_BUCKET:
         return "Keep this phase linked to readiness artifacts as synthetic reviewer evidence only."
     if payload_completeness == "trace_only":
@@ -1588,8 +1860,7 @@ def _phase_contrast_summary(phase_rows: list[dict[str, Any]]) -> str:
     explicit = " | ".join(
         _dedupe(str(row.get("comparison_digest") or "").strip() for row in list(phase_rows or []) if isinstance(row, dict))
     )
-    if explicit:
-        return explicit
+    parts: list[str] = [explicit] if explicit else []
     preseal_row = next(
         (
             dict(row)
@@ -1613,12 +1884,73 @@ def _phase_contrast_summary(phase_rows: list[dict[str, Any]]) -> str:
     if preseal_row and pressure_row:
         preseal_missing = ", ".join(list(preseal_row.get("missing_signal_layers") or [])) or "--"
         pressure_available = ", ".join(list(pressure_row.get("available_signal_layers") or [])) or "--"
-        return (
+        parts.append(
             "preseal stays payload-partial because setup / conditioning evidence still keeps "
             f"{preseal_missing} explicit; pressure_stable can reach payload-complete once {pressure_available} are all "
             "available and can therefore anchor richer method / uncertainty / traceability reviewer linkage"
         )
-    return "no complete-vs-partial phase contrast recorded"
+    payload_backed_taxonomy_rows = [
+        dict(row)
+        for row in list(phase_rows or [])
+        if isinstance(row, dict)
+        and str(row.get("phase_name") or "").strip() in {"ambient_diagnostic", "sample_ready", "recovery_retry"}
+        and str(row.get("coverage_bucket") or "").strip() == _PAYLOAD_COMPLETE_BUCKET
+    ]
+    if payload_backed_taxonomy_rows:
+        route_phase_summary = " | ".join(
+            _dedupe(
+                f"{str(row.get('route_family') or '').strip()}/{str(row.get('phase_name') or '').strip()}".strip("/")
+                for row in payload_backed_taxonomy_rows
+            )
+        )
+        method_summary = " | ".join(
+            _dedupe(
+                item
+                for row in payload_backed_taxonomy_rows
+                for item in list(row.get("linked_method_confirmation_items") or [])
+                if str(item).strip()
+            )
+        ) or "--"
+        uncertainty_summary = " | ".join(
+            _dedupe(
+                item
+                for row in payload_backed_taxonomy_rows
+                for item in list(row.get("linked_uncertainty_inputs") or [])
+                if str(item).strip()
+            )
+        ) or "--"
+        traceability_summary = " | ".join(
+            _dedupe(
+                item
+                for row in payload_backed_taxonomy_rows
+                for item in list(row.get("linked_traceability_stub_nodes") or [])
+                if str(item).strip()
+            )
+        ) or "--"
+        parts.append(
+            f"payload-backed ambient/recovery phases {route_phase_summary} keep method {method_summary}, "
+            f"uncertainty {uncertainty_summary}, and traceability {traceability_summary} visible as synthetic reviewer "
+            "anchors without changing Step 2 evidence boundaries"
+        )
+    trace_only_taxonomy_rows = [
+        dict(row)
+        for row in list(phase_rows or [])
+        if isinstance(row, dict)
+        and str(row.get("phase_name") or "").strip() in {"ambient_diagnostic", "sample_ready", "recovery_retry"}
+        and str(row.get("payload_completeness") or "").strip() == "trace_only"
+    ]
+    if trace_only_taxonomy_rows:
+        trace_only_summary = " | ".join(
+            _dedupe(
+                f"{str(row.get('route_family') or '').strip()}/{str(row.get('phase_name') or '').strip()}".strip("/")
+                for row in trace_only_taxonomy_rows
+            )
+        )
+        parts.append(
+            f"trace-only phases {trace_only_summary} keep the same taxonomy visible, but reviewer closure stays open "
+            "until payload-backed evidence is promoted"
+        )
+    return " | ".join(part for part in parts if str(part).strip()) or "no complete-vs-partial phase contrast recorded"
 
 
 def _coverage_bucket_display(bucket: str) -> str:
