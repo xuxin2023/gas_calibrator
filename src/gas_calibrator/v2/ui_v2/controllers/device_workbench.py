@@ -359,6 +359,73 @@ class DeviceWorkbenchController:
             },
         }
 
+    def _load_recognition_readiness_evidence(self) -> dict[str, Any]:
+        gateway = getattr(self.facade, "results_gateway", None)
+        if gateway is None:
+            return {}
+        scope_summary = dict(gateway.load_json(recognition_readiness.SCOPE_READINESS_SUMMARY_FILENAME) or {})
+        certificate_summary = dict(
+            gateway.load_json(recognition_readiness.CERTIFICATE_READINESS_SUMMARY_FILENAME) or {}
+        )
+        uncertainty_summary = dict(
+            gateway.load_json(recognition_readiness.UNCERTAINTY_METHOD_READINESS_SUMMARY_FILENAME) or {}
+        )
+        audit_summary = dict(gateway.load_json(recognition_readiness.AUDIT_READINESS_DIGEST_FILENAME) or {})
+        payloads = {
+            "scope_readiness_summary": scope_summary,
+            "certificate_readiness_summary": certificate_summary,
+            "uncertainty_method_readiness_summary": uncertainty_summary,
+            "audit_readiness_digest": audit_summary,
+        }
+        if not any(payloads.values()):
+            return {}
+
+        summary_lines: list[str] = []
+        detail_lines: list[str] = []
+        boundary_lines: list[str] = []
+        artifact_paths: dict[str, str] = {}
+        for payload in payloads.values():
+            if not payload:
+                continue
+            review_surface = dict(payload.get("review_surface") or {})
+            digest = dict(payload.get("digest") or {})
+            title_text = str(review_surface.get("title_text") or payload.get("artifact_type") or "--").strip()
+            summary_text = str(digest.get("summary") or review_surface.get("summary_text") or "").strip()
+            if title_text and summary_text:
+                summary_line = f"{title_text}: {summary_text}"
+                if summary_line not in summary_lines:
+                    summary_lines.append(summary_line)
+            for field_name, label in (
+                ("current_coverage_summary", "current coverage"),
+                ("missing_evidence_summary", "missing evidence"),
+                ("blocker_summary", "blockers"),
+                ("decision_rule_profile_summary", "decision rule"),
+            ):
+                value = str(digest.get(field_name) or "").strip()
+                if not value:
+                    continue
+                detail_line = f"{title_text} {label}: {value}"
+                if detail_line not in detail_lines:
+                    detail_lines.append(detail_line)
+            for item in list(payload.get("boundary_statements") or []):
+                text = str(item).strip()
+                if text and text not in boundary_lines:
+                    boundary_lines.append(text)
+            for label, path in dict(payload.get("artifact_paths") or {}).items():
+                path_text = str(path or "").strip()
+                if path_text:
+                    artifact_paths[str(label)] = path_text
+
+        return {
+            "available": True,
+            "summary_line": " | ".join(summary_lines) if summary_lines else t("common.none"),
+            "summary_lines": summary_lines,
+            "detail_lines": detail_lines,
+            "boundary_lines": boundary_lines,
+            "artifact_paths": artifact_paths,
+            **payloads,
+        }
+
     @staticmethod
     def _review_lines(value: Any) -> list[str]:
         if isinstance(value, (list, tuple)):
@@ -2126,6 +2193,7 @@ class DeviceWorkbenchController:
         config_governance_payload = self._config_governance_payload(config_safety, config_safety_review)
         point_taxonomy_summary = self._point_taxonomy_snapshot()
         measurement_core_evidence = self._load_measurement_core_evidence()
+        recognition_readiness_evidence = self._load_recognition_readiness_evidence()
         engineer_summary = self._build_engineer_summary(
             analyzer_snapshot=analyzer_snapshot,
             pace_snapshot=pace_snapshot,
@@ -2145,6 +2213,7 @@ class DeviceWorkbenchController:
             config_safety_review=config_safety_review,
             point_taxonomy_summary=point_taxonomy_summary,
             measurement_core_evidence=measurement_core_evidence,
+            recognition_readiness_evidence=recognition_readiness_evidence,
         )
         return {
             "meta": {
@@ -2248,6 +2317,7 @@ class DeviceWorkbenchController:
                     "config_safety_review": config_safety_review,
                     "point_taxonomy_summary": point_taxonomy_summary,
                     "measurement_core_evidence": measurement_core_evidence,
+                    "recognition_readiness_evidence": recognition_readiness_evidence,
                 },
                 "qc_review_summary": dict(qc_review_summary),
                 "qc_reviewer_card": dict(qc_review_summary.get("reviewer_card") or {}),
@@ -2273,6 +2343,7 @@ class DeviceWorkbenchController:
                 "config_safety_review": config_safety_review,
                 "point_taxonomy_summary": point_taxonomy_summary,
                 "measurement_core_evidence": measurement_core_evidence,
+                "recognition_readiness_evidence": recognition_readiness_evidence,
             },
             "history": history_payload,
             "operator_summary": operator_summary,
@@ -3629,6 +3700,7 @@ class DeviceWorkbenchController:
         config_safety_review: dict[str, Any],
         point_taxonomy_summary: dict[str, Any],
         measurement_core_evidence: dict[str, Any],
+        recognition_readiness_evidence: dict[str, Any],
     ) -> dict[str, Any]:
         diagnostics = {
             "reference_quality": reference_quality,
@@ -3793,6 +3865,7 @@ class DeviceWorkbenchController:
         diagnostics["config_safety_review"] = dict(config_safety_review)
         diagnostics["point_taxonomy_summary"] = dict(point_taxonomy_summary)
         diagnostics["measurement_core_evidence"] = dict(measurement_core_evidence)
+        diagnostics["recognition_readiness_evidence"] = dict(recognition_readiness_evidence)
         suite_state_display = self._engineer_data_state_display(suite_state)
         analytics_state_display = self._engineer_data_state_display(analytics_state)
         lineage_state_display = self._engineer_data_state_display(lineage_state)
@@ -3881,6 +3954,22 @@ class DeviceWorkbenchController:
             for item in list(measurement_core_evidence.get("boundary_lines") or [])
             if str(item).strip()
         ]
+        recognition_readiness_summary = str(recognition_readiness_evidence.get("summary_line") or t("common.none"))
+        recognition_readiness_lines = [
+            str(item)
+            for item in list(recognition_readiness_evidence.get("summary_lines") or [])
+            if str(item).strip()
+        ]
+        recognition_readiness_detail_lines = [
+            str(item)
+            for item in list(recognition_readiness_evidence.get("detail_lines") or [])
+            if str(item).strip()
+        ]
+        recognition_readiness_boundaries = [
+            str(item)
+            for item in list(recognition_readiness_evidence.get("boundary_lines") or [])
+            if str(item).strip()
+        ]
         cards = [
             {
                 "title": t("pages.devices.workbench.engineer_card.reference"),
@@ -3937,6 +4026,13 @@ class DeviceWorkbenchController:
             {
                 "title": t("pages.devices.workbench.engineer_card.measurement_core", default="measurement-core readiness"),
                 "summary": measurement_core_summary,
+            },
+            {
+                "title": t(
+                    "pages.devices.workbench.engineer_card.recognition_readiness",
+                    default="认可就绪治理骨架",
+                ),
+                "summary": recognition_readiness_summary,
             },
         ]
         device_lines = [
@@ -4311,6 +4407,28 @@ class DeviceWorkbenchController:
                 "expanded": bool(measurement_core_evidence.get("available", False)),
             },
             {
+                "id": "recognition_readiness",
+                "title": t(
+                    "pages.devices.workbench.engineer_section.recognition_readiness.title",
+                    default="认可就绪治理骨架",
+                ),
+                "summary": recognition_readiness_summary,
+                "body_text": "\n".join(
+                    [
+                        *recognition_readiness_lines,
+                        *recognition_readiness_detail_lines,
+                        *recognition_readiness_boundaries,
+                        *[
+                            f"{label}: {path}"
+                            for label, path in dict(recognition_readiness_evidence.get("artifact_paths") or {}).items()
+                            if str(path or "").strip()
+                        ],
+                    ]
+                )
+                or t("common.none"),
+                "expanded": bool(recognition_readiness_evidence.get("available", False)),
+            },
+            {
                 "id": "suite_analytics",
                 "title": t("pages.devices.workbench.engineer_section.suite_analytics.title"),
                 "summary": t("pages.devices.workbench.engineer_section.suite_analytics.summary"),
@@ -4624,6 +4742,9 @@ class DeviceWorkbenchController:
         evidence_config_safety_review = dict(snapshot.get("evidence", {}).get("config_safety_review", {}) or {})
         point_taxonomy_summary = dict(snapshot.get("evidence", {}).get("point_taxonomy_summary", {}) or {})
         measurement_core_evidence = dict(snapshot.get("evidence", {}).get("measurement_core_evidence", {}) or {})
+        recognition_readiness_evidence = dict(
+            snapshot.get("evidence", {}).get("recognition_readiness_evidence", {}) or {}
+        )
         config_governance_payload = self._config_governance_payload(
             evidence_config_safety,
             evidence_config_safety_review,
@@ -4666,6 +4787,7 @@ class DeviceWorkbenchController:
             "config_safety_review": evidence_config_safety_review,
             "point_taxonomy_summary": point_taxonomy_summary,
             "measurement_core_evidence": measurement_core_evidence,
+            "recognition_readiness_evidence": recognition_readiness_evidence,
             "operator_summary": operator_summary,
             "history": list(history_payload.get("items", []) or []),
             "history_filters": dict(history_payload.get("filters", {}) or {}),
@@ -4728,6 +4850,7 @@ class DeviceWorkbenchController:
             "config_safety_review": evidence_config_safety_review,
             "point_taxonomy_summary": point_taxonomy_summary,
             "measurement_core_evidence": measurement_core_evidence,
+            "recognition_readiness_evidence": recognition_readiness_evidence,
             "paths": {
                 "report_json": str(report_json_path),
                 "report_markdown": str(report_md_path),
@@ -4757,6 +4880,7 @@ class DeviceWorkbenchController:
             "config_safety_review": evidence_config_safety_review,
             "point_taxonomy_summary": point_taxonomy_summary,
             "measurement_core_evidence": measurement_core_evidence,
+            "recognition_readiness_evidence": recognition_readiness_evidence,
             "snapshot_compare": snapshot_compare,
             "snapshot": self.build_snapshot(),
         }
@@ -4834,6 +4958,37 @@ class DeviceWorkbenchController:
             ]
             if str(line).strip()
         ) or f"- {t('common.none')}"
+        recognition_readiness_payload = dict(report_payload.get("recognition_readiness_evidence", {}) or {})
+        recognition_readiness_summary_lines = [
+            str(item)
+            for item in list(recognition_readiness_payload.get("summary_lines") or [])
+            if str(item).strip()
+        ]
+        recognition_readiness_detail_lines = [
+            str(item)
+            for item in list(recognition_readiness_payload.get("detail_lines") or [])
+            if str(item).strip()
+        ]
+        recognition_readiness_boundary_lines = [
+            str(item)
+            for item in list(recognition_readiness_payload.get("boundary_lines") or [])
+            if str(item).strip()
+        ]
+        recognition_readiness_artifact_paths = dict(recognition_readiness_payload.get("artifact_paths") or {})
+        recognition_readiness_lines = "\n".join(
+            f"- {line}"
+            for line in [
+                *recognition_readiness_summary_lines,
+                *recognition_readiness_detail_lines,
+                *recognition_readiness_boundary_lines,
+                *[
+                    f"{label}: {path}"
+                    for label, path in recognition_readiness_artifact_paths.items()
+                    if str(path or "").strip()
+                ],
+            ]
+            if str(line).strip()
+        ) or f"- {t('common.none')}"
         return "\n".join(
             [
                 f"# {t('pages.devices.workbench.report.title')}",
@@ -4873,6 +5028,10 @@ class DeviceWorkbenchController:
                 f"## {t('pages.devices.workbench.report.measurement_core', default='measurement-core readiness')}",
                 "",
                 measurement_core_lines,
+                "",
+                f"## {t('pages.devices.workbench.report.recognition_readiness', default='认可就绪治理骨架')}",
+                "",
+                recognition_readiness_lines,
                 "",
                 f"## {t('pages.devices.workbench.report.action_history')}",
                 "",
