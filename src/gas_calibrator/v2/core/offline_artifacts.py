@@ -245,6 +245,26 @@ def _synthetic_payload_sample(
     )
 
 
+def _measurement_trace_route_point(
+    *,
+    index: int,
+    route: str,
+    pressure_hpa: float,
+    pressure_target_label: str,
+) -> CalibrationPoint:
+    return CalibrationPoint(
+        index=index,
+        temperature_c=25.0,
+        co2_ppm=400.0 if route != "h2o" else None,
+        humidity_pct=45.0 if route == "h2o" else None,
+        pressure_hpa=pressure_hpa,
+        route=route,
+        pressure_mode="sealed",
+        pressure_target_label=pressure_target_label,
+        pressure_selection_token=pressure_target_label,
+    )
+
+
 def _augment_measurement_trace_samples(
     samples: list[Any],
     *,
@@ -347,6 +367,218 @@ def _augment_measurement_trace_samples(
             ]
         )
         injected_phases.append("ambient/sample_ready")
+
+    if not _has_phase_samples(rows, phase_name="preseal", route_family="water"):
+        water_preseal_point = _measurement_trace_route_point(
+            index=994,
+            route="h2o",
+            pressure_hpa=1002.0,
+            pressure_target_label="water_preseal",
+        )
+        injected_rows.extend(
+            [
+                _synthetic_payload_sample(
+                    point=water_preseal_point,
+                    timestamp=base_time + timedelta(seconds=28),
+                    point_phase="preseal",
+                    sample_index=1,
+                    stability_time_s=2.0,
+                    frame_status="simulation_payload_synthetic_preseal_partial",
+                    point_tag="synthetic_water_preseal_partial_payload",
+                    co2_ppm=None,
+                    h2o_mmol=None,
+                    co2_ratio_f=None,
+                    co2_ratio_raw=None,
+                    h2o_ratio_f=None,
+                    h2o_ratio_raw=0.681,
+                    ref_signal=3388.0,
+                    co2_signal=None,
+                    h2o_signal=2384.0,
+                    pressure_hpa=1002.0,
+                    analyzer_pressure_kpa=100.2,
+                ),
+                _synthetic_payload_sample(
+                    point=water_preseal_point,
+                    timestamp=base_time + timedelta(seconds=34),
+                    point_phase="preseal",
+                    sample_index=2,
+                    stability_time_s=8.0,
+                    frame_status="simulation_payload_synthetic_preseal_partial",
+                    point_tag="synthetic_water_preseal_partial_payload",
+                    co2_ppm=None,
+                    h2o_mmol=None,
+                    co2_ratio_f=None,
+                    co2_ratio_raw=None,
+                    h2o_ratio_f=None,
+                    h2o_ratio_raw=0.684,
+                    ref_signal=3391.0,
+                    co2_signal=None,
+                    h2o_signal=2392.0,
+                    pressure_hpa=1001.8,
+                    analyzer_pressure_kpa=100.1,
+                ),
+            ]
+        )
+        injected_phases.append("water/preseal")
+
+    if not _has_phase_samples(rows, phase_name="preseal", route_family="gas"):
+        gas_preseal_point = _measurement_trace_route_point(
+            index=995,
+            route="co2",
+            pressure_hpa=1000.0,
+            pressure_target_label="gas_preseal",
+        )
+        injected_rows.extend(
+            [
+                _synthetic_payload_sample(
+                    point=gas_preseal_point,
+                    timestamp=base_time + timedelta(seconds=40),
+                    point_phase="preseal",
+                    sample_index=1,
+                    stability_time_s=2.0,
+                    frame_status="simulation_payload_synthetic_preseal_partial",
+                    point_tag="synthetic_gas_preseal_partial_payload",
+                    co2_ppm=None,
+                    h2o_mmol=None,
+                    co2_ratio_f=None,
+                    co2_ratio_raw=0.9987,
+                    h2o_ratio_f=None,
+                    h2o_ratio_raw=None,
+                    ref_signal=3412.0,
+                    co2_signal=4294.0,
+                    h2o_signal=None,
+                    pressure_hpa=1000.0,
+                    analyzer_pressure_kpa=100.0,
+                ),
+                _synthetic_payload_sample(
+                    point=gas_preseal_point,
+                    timestamp=base_time + timedelta(seconds=46),
+                    point_phase="preseal",
+                    sample_index=2,
+                    stability_time_s=8.0,
+                    frame_status="simulation_payload_synthetic_preseal_partial",
+                    point_tag="synthetic_gas_preseal_partial_payload",
+                    co2_ppm=None,
+                    h2o_mmol=None,
+                    co2_ratio_f=None,
+                    co2_ratio_raw=0.9991,
+                    h2o_ratio_f=None,
+                    h2o_ratio_raw=None,
+                    ref_signal=3416.0,
+                    co2_signal=4302.0,
+                    h2o_signal=None,
+                    pressure_hpa=999.8,
+                    analyzer_pressure_kpa=99.9,
+                ),
+            ]
+        )
+        injected_phases.append("gas/preseal")
+
+    if not _has_phase_samples(rows, phase_name="pressure_stable", route_family="water"):
+        water_pressure_point = _measurement_trace_route_point(
+            index=996,
+            route="h2o",
+            pressure_hpa=1003.0,
+            pressure_target_label="water_pressure_stable",
+        )
+        injected_rows.extend(
+            [
+                _synthetic_payload_sample(
+                    point=water_pressure_point,
+                    timestamp=base_time + timedelta(seconds=52),
+                    point_phase="pressure_stable",
+                    sample_index=1,
+                    stability_time_s=5.0,
+                    frame_status="simulation_payload_synthetic_pressure_stable",
+                    point_tag="synthetic_water_pressure_stable_complete",
+                    co2_ppm=None,
+                    h2o_mmol=0.742,
+                    co2_ratio_f=None,
+                    co2_ratio_raw=None,
+                    h2o_ratio_f=0.704,
+                    h2o_ratio_raw=0.701,
+                    ref_signal=3398.0,
+                    co2_signal=None,
+                    h2o_signal=2411.0,
+                    pressure_hpa=1003.0,
+                    analyzer_pressure_kpa=100.3,
+                ),
+                _synthetic_payload_sample(
+                    point=water_pressure_point,
+                    timestamp=base_time + timedelta(seconds=60),
+                    point_phase="pressure_stable",
+                    sample_index=2,
+                    stability_time_s=13.0,
+                    frame_status="simulation_payload_synthetic_pressure_stable",
+                    point_tag="synthetic_water_pressure_stable_complete",
+                    co2_ppm=None,
+                    h2o_mmol=0.744,
+                    co2_ratio_f=None,
+                    co2_ratio_raw=None,
+                    h2o_ratio_f=0.706,
+                    h2o_ratio_raw=0.703,
+                    ref_signal=3403.0,
+                    co2_signal=None,
+                    h2o_signal=2418.0,
+                    pressure_hpa=1002.7,
+                    analyzer_pressure_kpa=100.2,
+                ),
+            ]
+        )
+        injected_phases.append("water/pressure_stable")
+
+    if not _has_phase_samples(rows, phase_name="pressure_stable", route_family="gas"):
+        gas_pressure_point = _measurement_trace_route_point(
+            index=997,
+            route="co2",
+            pressure_hpa=1001.5,
+            pressure_target_label="gas_pressure_stable",
+        )
+        injected_rows.extend(
+            [
+                _synthetic_payload_sample(
+                    point=gas_pressure_point,
+                    timestamp=base_time + timedelta(seconds=66),
+                    point_phase="pressure_stable",
+                    sample_index=1,
+                    stability_time_s=5.0,
+                    frame_status="simulation_payload_synthetic_pressure_stable",
+                    point_tag="synthetic_gas_pressure_stable_complete",
+                    co2_ppm=400.8,
+                    h2o_mmol=None,
+                    co2_ratio_f=0.9996,
+                    co2_ratio_raw=0.9993,
+                    h2o_ratio_f=None,
+                    h2o_ratio_raw=None,
+                    ref_signal=3421.0,
+                    co2_signal=4310.0,
+                    h2o_signal=None,
+                    pressure_hpa=1001.5,
+                    analyzer_pressure_kpa=100.2,
+                ),
+                _synthetic_payload_sample(
+                    point=gas_pressure_point,
+                    timestamp=base_time + timedelta(seconds=74),
+                    point_phase="pressure_stable",
+                    sample_index=2,
+                    stability_time_s=13.0,
+                    frame_status="simulation_payload_synthetic_pressure_stable",
+                    point_tag="synthetic_gas_pressure_stable_complete",
+                    co2_ppm=401.1,
+                    h2o_mmol=None,
+                    co2_ratio_f=0.9999,
+                    co2_ratio_raw=0.9995,
+                    h2o_ratio_f=None,
+                    h2o_ratio_raw=None,
+                    ref_signal=3425.0,
+                    co2_signal=4317.0,
+                    h2o_signal=None,
+                    pressure_hpa=1001.3,
+                    analyzer_pressure_kpa=100.1,
+                ),
+            ]
+        )
+        injected_phases.append("gas/pressure_stable")
 
     if not _has_phase_samples(rows, phase_name="recovery_retry", route_family="system"):
         recovery_point = CalibrationPoint(

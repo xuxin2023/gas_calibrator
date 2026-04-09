@@ -84,6 +84,78 @@ _PHASE_ACTIONS: dict[str, tuple[str, ...]] = {
     "recovery_retry": ("retry", "recovery", "abort", "fault_capture", "safe_recovery"),
 }
 
+_PAYLOAD_COMPLETE_BUCKET = "actual_simulated_run_with_payload_complete"
+_PAYLOAD_PARTIAL_BUCKET = "actual_simulated_run_with_payload_partial"
+_PAYLOAD_BACKED_BUCKETS = {_PAYLOAD_COMPLETE_BUCKET, _PAYLOAD_PARTIAL_BUCKET}
+
+_READINESS_ARTIFACT_ANCHORS: dict[str, dict[str, str]] = {
+    "scope_readiness_summary": {
+        "artifact_type": "scope_readiness_summary",
+        "anchor_id": "scope-readiness-summary",
+        "anchor_label": "Scope readiness summary",
+    },
+    "decision_rule_profile": {
+        "artifact_type": "decision_rule_profile",
+        "anchor_id": "decision-rule-profile",
+        "anchor_label": "Decision rule profile",
+    },
+    "certificate_readiness_summary": {
+        "artifact_type": "certificate_readiness_summary",
+        "anchor_id": "certificate-readiness-summary",
+        "anchor_label": "Certificate readiness summary",
+    },
+    "metrology_traceability_stub": {
+        "artifact_type": "metrology_traceability_stub",
+        "anchor_id": "metrology-traceability-stub",
+        "anchor_label": "Metrology traceability stub",
+    },
+    "uncertainty_budget_stub": {
+        "artifact_type": "uncertainty_budget_stub",
+        "anchor_id": "uncertainty-budget-stub",
+        "anchor_label": "Uncertainty budget stub",
+    },
+    "method_confirmation_matrix": {
+        "artifact_type": "method_confirmation_matrix",
+        "anchor_id": "method-confirmation-matrix",
+        "anchor_label": "Method confirmation matrix",
+    },
+    "uncertainty_method_readiness_summary": {
+        "artifact_type": "uncertainty_method_readiness_summary",
+        "anchor_id": "uncertainty-method-readiness-summary",
+        "anchor_label": "Uncertainty / method readiness summary",
+    },
+    "software_validation_traceability_matrix": {
+        "artifact_type": "software_validation_traceability_matrix",
+        "anchor_id": "software-validation-traceability-matrix",
+        "anchor_label": "Software validation traceability matrix",
+    },
+    "audit_readiness_digest": {
+        "artifact_type": "audit_readiness_digest",
+        "anchor_id": "audit-readiness-digest",
+        "anchor_label": "Audit readiness digest",
+    },
+}
+
+_PHASE_READINESS_ARTIFACT_TYPES: dict[str, tuple[str, ...]] = {
+    "ambient_diagnostic": ("scope_readiness_summary", "decision_rule_profile"),
+    "preseal": ("scope_readiness_summary", "method_confirmation_matrix", "uncertainty_budget_stub"),
+    "pressure_stable": (
+        "uncertainty_method_readiness_summary",
+        "metrology_traceability_stub",
+        "certificate_readiness_summary",
+    ),
+    "sample_ready": ("scope_readiness_summary", "method_confirmation_matrix"),
+    "recovery_retry": ("software_validation_traceability_matrix", "audit_readiness_digest"),
+}
+
+_PHASE_READINESS_IMPACT_AREAS: dict[str, str] = {
+    "ambient_diagnostic": "scope / decision",
+    "preseal": "scope / method / uncertainty",
+    "pressure_stable": "uncertainty / traceability / certificate",
+    "sample_ready": "scope / method",
+    "recovery_retry": "software validation / audit",
+}
+
 
 def build_measurement_phase_coverage_report(
     *,
@@ -142,10 +214,9 @@ def build_measurement_phase_coverage_report(
         )
         phase_rows.append(row)
 
-    payload_backed_count = sum(
-        1 for row in phase_rows if row.get("coverage_bucket") == "actual_simulated_run_with_payload"
-    )
-    sample_backed_count = sum(1 for row in phase_rows if row.get("coverage_bucket") == "actual_simulated_run")
+    payload_complete_count = sum(1 for row in phase_rows if row.get("coverage_bucket") == _PAYLOAD_COMPLETE_BUCKET)
+    payload_partial_count = sum(1 for row in phase_rows if row.get("coverage_bucket") == _PAYLOAD_PARTIAL_BUCKET)
+    payload_backed_count = payload_complete_count + payload_partial_count
     trace_only_count = sum(1 for row in phase_rows if row.get("coverage_bucket") == "trace_only_not_evaluated")
     model_only_count = sum(1 for row in phase_rows if row.get("coverage_bucket") == "model_only")
     test_only_count = sum(1 for row in phase_rows if row.get("coverage_bucket") == "test_only")
@@ -164,12 +235,22 @@ def build_measurement_phase_coverage_report(
     payload_phase_summary = " | ".join(
         f"{row['route_family']}/{row['phase_name']}"
         for row in phase_rows
-        if row.get("coverage_bucket") == "actual_simulated_run_with_payload"
+        if row.get("coverage_bucket") in _PAYLOAD_BACKED_BUCKETS
     ) or "no payload-backed simulated phase evidence"
+    payload_complete_phase_summary = " | ".join(
+        f"{row['route_family']}/{row['phase_name']}"
+        for row in phase_rows
+        if row.get("coverage_bucket") == _PAYLOAD_COMPLETE_BUCKET
+    ) or "no payload-complete simulated phase evidence"
+    payload_partial_phase_summary = " | ".join(
+        f"{row['route_family']}/{row['phase_name']}"
+        for row in phase_rows
+        if row.get("coverage_bucket") == _PAYLOAD_PARTIAL_BUCKET
+    ) or "no payload-partial simulated phase evidence"
     actual_summary = " | ".join(
         f"{row['route_family']}/{row['phase_name']}"
         for row in phase_rows
-        if row.get("coverage_bucket") in {"actual_simulated_run", "actual_simulated_run_with_payload"}
+        if row.get("coverage_bucket") in _PAYLOAD_BACKED_BUCKETS
     ) or "no sample-backed simulated phase evidence"
     trace_only_summary = " | ".join(
         f"{row['route_family']}/{row['phase_name']}"
@@ -185,6 +266,10 @@ def build_measurement_phase_coverage_report(
         f"{row['route_family']}/{row['phase_name']}={row['coverage_bucket']}"
         for row in phase_rows
     )
+    coverage_display_summary = " | ".join(
+        f"{row['route_family']}/{row['phase_name']}={row['coverage_bucket_display']}"
+        for row in phase_rows
+    )
     payload_completeness_summary = " | ".join(
         f"{key} {value}"
         for key, value in _count_rows_by_key(phase_rows, "payload_completeness").items()
@@ -193,19 +278,46 @@ def build_measurement_phase_coverage_report(
         f"{key} {value}"
         for key, value in _count_rows_by_key(phase_rows, "evidence_provenance").items()
     ) or "--"
+    readiness_impact_summary = " | ".join(
+        f"{row['route_family']}/{row['phase_name']}: {row['readiness_impact_digest']}"
+        for row in phase_rows
+        if row.get("coverage_bucket") != _PAYLOAD_COMPLETE_BUCKET
+    ) or "no open readiness impacts from measurement-core phases"
+    next_required_artifacts_summary = " | ".join(
+        _dedupe(
+            artifact_name
+            for row in phase_rows
+            if row.get("coverage_bucket") != _PAYLOAD_COMPLETE_BUCKET
+            for artifact_name in list(row.get("next_required_artifacts") or [])
+        )
+    ) or "no next artifact escalation recorded"
+    linked_readiness_summary = " | ".join(
+        _dedupe(
+            str(ref.get("anchor_label") or ref.get("artifact_type") or "").strip()
+            for row in phase_rows
+            for ref in list(row.get("linked_readiness_artifact_refs") or [])
+            if isinstance(ref, dict)
+        )
+    ) or "no linked readiness anchors"
     digest = {
         "summary": (
             "Step 2 tail / Stage 3 bridge | measurement phase coverage | "
-            f"payload-backed {payload_backed_count} | sample-backed {sample_backed_count} | "
+            f"payload-complete {payload_complete_count} | payload-partial {payload_partial_count} | "
             f"trace-only {trace_only_count} | model-only {model_only_count} | test-only {test_only_count} | gap {gap_count}"
         ),
         "actual_phase_summary": actual_summary,
         "payload_phase_summary": payload_phase_summary,
+        "payload_complete_phase_summary": payload_complete_phase_summary,
+        "payload_partial_phase_summary": payload_partial_phase_summary,
         "trace_only_phase_summary": trace_only_summary,
         "coverage_summary": coverage_summary,
+        "coverage_display_summary": coverage_display_summary,
         "payload_completeness_summary": payload_completeness_summary,
         "provenance_summary": provenance_summary,
         "gap_summary": gap_summary,
+        "readiness_impact_summary": readiness_impact_summary,
+        "next_required_artifacts_summary": next_required_artifacts_summary,
+        "linked_readiness_summary": linked_readiness_summary,
         "boundary_summary": " | ".join(CANONICAL_BOUNDARY_STATEMENTS),
     }
     review_surface = {
@@ -219,16 +331,20 @@ def build_measurement_phase_coverage_report(
         "summary_lines": [
             digest["summary"],
             f"payload-backed phases: {payload_phase_summary}",
-            f"sample-backed phases: {actual_summary}",
+            f"payload-complete phases: {payload_complete_phase_summary}",
+            f"payload-partial phases: {payload_partial_phase_summary}",
             f"trace-only phases: {trace_only_summary}",
-            f"coverage digest: {coverage_summary}",
+            f"coverage digest: {coverage_display_summary}",
             f"payload completeness: {payload_completeness_summary}",
             f"phase gaps: {gap_summary}",
+            f"next artifacts: {next_required_artifacts_summary}",
         ],
         "detail_lines": [
             f"route families: {', '.join(routes) or '--'}",
             f"phase buckets: {', '.join(phases) or '--'}",
             f"provenance summary: {provenance_summary}",
+            f"linked readiness anchors: {linked_readiness_summary}",
+            f"readiness impact: {readiness_impact_summary}",
             f"synthetic provenance: {dict(synthetic_trace_provenance or {}).get('summary', 'simulation trace only')}",
             *[f"boundary: {line}" for line in CANONICAL_BOUNDARY_STATEMENTS],
         ],
@@ -241,6 +357,12 @@ def build_measurement_phase_coverage_report(
         "policy_version_filters": policy_versions,
         "boundary_filters": list(CANONICAL_BOUNDARY_STATEMENTS),
         "evidence_source_filters": evidence_sources,
+        "linked_anchor_refs": _dedupe(
+            str(ref.get("anchor_id") or "")
+            for row in phase_rows
+            for ref in list(row.get("linked_readiness_artifact_refs") or [])
+            if isinstance(ref, dict)
+        ),
         "artifact_paths": dict(artifact_path_map),
     }
     raw = {
@@ -258,7 +380,13 @@ def build_measurement_phase_coverage_report(
         "digest": digest,
         "review_surface": review_surface,
         "artifact_paths": artifact_path_map,
-        "overall_status": "diagnostic_only" if (payload_backed_count + sample_backed_count + trace_only_count) == 0 else "degraded" if gap_count else "passed",
+        "overall_status": (
+            "diagnostic_only"
+            if (payload_backed_count + trace_only_count) == 0
+            else "degraded"
+            if (payload_partial_count + trace_only_count + model_only_count + test_only_count + gap_count)
+            else "passed"
+        ),
     }
     return {
         "available": True,
@@ -344,13 +472,50 @@ def _build_phase_row(
         f"{route_family}/{phase_name} | {coverage_bucket} | payload {payload_completeness} | "
         f"decision {decision_result} | hold {hold_time_summary}"
     )
+    anchor_id = f"measurement-phase-{route_family}-{phase_name.replace('_', '-')}"
+    linked_readiness_artifact_refs = _phase_readiness_artifact_refs(phase_name)
+    next_required_artifacts = [
+        str(ref.get("artifact_type") or "").strip()
+        for ref in linked_readiness_artifact_refs
+        if isinstance(ref, dict) and str(ref.get("artifact_type") or "").strip()
+    ]
+    blockers = _phase_blockers(
+        phase_name=phase_name,
+        payload_completeness=payload_completeness,
+        actual_run_evidence_present=actual_run_evidence_present,
+        missing_signal_layers=missing_signal_layers,
+        coverage_bucket=coverage_bucket,
+    )
+    readiness_impact_digest = _phase_readiness_impact_digest(
+        phase_name=phase_name,
+        payload_completeness=payload_completeness,
+        missing_signal_layers=missing_signal_layers,
+        coverage_bucket=coverage_bucket,
+    )
+    linked_artifact_refs = [
+        {
+            "artifact_type": artifact_name,
+            "path": str(path_value or ""),
+        }
+        for artifact_name, path_value in dict(
+            {
+                "multi_source_stability_evidence": str(artifact_paths.get("multi_source_stability_evidence") or ""),
+                "state_transition_evidence": str(artifact_paths.get("state_transition_evidence") or ""),
+                "simulation_evidence_sidecar_bundle": str(artifact_paths.get("simulation_evidence_sidecar_bundle") or ""),
+            }
+        ).items()
+        if str(path_value or "").strip()
+    ] + [dict(item) for item in linked_readiness_artifact_refs]
     return {
         "phase_name": phase_name,
         "route_family": route_family,
         "phase_route_key": f"{route_family}:{phase_name}",
+        "anchor_id": anchor_id,
+        "anchor_label": f"{route_family}/{phase_name} phase coverage",
         "actual_run_evidence_present": actual_run_evidence_present,
         "evidence_source": coverage_bucket,
         "coverage_bucket": coverage_bucket,
+        "coverage_bucket_display": _coverage_bucket_display(coverage_bucket),
         "payload_completeness": payload_completeness,
         "signal_group_coverage": signal_group_coverage,
         "available_signal_layers": available_signal_layers,
@@ -366,12 +531,20 @@ def _build_phase_row(
         ),
         "evidence_provenance": evidence_provenance,
         "boundary_digest": " | ".join(CANONICAL_BOUNDARY_STATEMENTS),
+        "non_claim_digest": (
+            "simulation / synthetic reviewer evidence only | "
+            "not real acceptance | not live gate | not compliance claim | not accreditation claim"
+        ),
         "decision_result": decision_result,
         "decision_summary": str(
             stability_row.get("decision_result")
             or transition_row.get("decision_result")
             or (
-                "actual simulated payload coverage"
+                "actual simulated payload-complete coverage"
+                if coverage_bucket == _PAYLOAD_COMPLETE_BUCKET
+                else "actual simulated payload-partial coverage"
+                if coverage_bucket == _PAYLOAD_PARTIAL_BUCKET
+                else "actual simulated payload coverage"
                 if sample_rows
                 else "actual trace without payload coverage"
                 if actual_run_evidence_present
@@ -379,11 +552,16 @@ def _build_phase_row(
             )
         ),
         "hold_time_summary": hold_time_summary,
+        "readiness_impact_digest": readiness_impact_digest,
+        "blockers": blockers,
+        "next_required_artifacts": next_required_artifacts,
+        "linked_readiness_artifact_refs": linked_readiness_artifact_refs,
         "linked_artifacts": {
             "multi_source_stability_evidence": str(artifact_paths.get("multi_source_stability_evidence") or ""),
             "state_transition_evidence": str(artifact_paths.get("state_transition_evidence") or ""),
             "simulation_evidence_sidecar_bundle": str(artifact_paths.get("simulation_evidence_sidecar_bundle") or ""),
         },
+        "linked_artifact_refs": linked_artifact_refs,
         "reviewer_note": str(definition.get("reviewer_note") or ""),
         "digest": summary,
     }
@@ -577,7 +755,7 @@ def _coverage_bucket(
     route_family: str,
 ) -> str:
     if sample_rows:
-        return "actual_simulated_run_with_payload" if payload_completeness == "complete" else "actual_simulated_run"
+        return _PAYLOAD_COMPLETE_BUCKET if payload_completeness == "complete" else _PAYLOAD_PARTIAL_BUCKET
     if actual_run_evidence_present:
         return "trace_only_not_evaluated"
     if route_family == "system":
@@ -747,6 +925,14 @@ def _render_markdown(*, raw: dict[str, Any]) -> str:
             f"  channels available {', '.join(list(row.get('available_channels') or [])[:6]) or '--'} | "
             f"missing {', '.join(list(row.get('missing_channels') or [])[:6]) or '--'}"
         )
+        lines.append(
+            f"  readiness impact {row.get('readiness_impact_digest', '--')} | "
+            f"next artifacts {', '.join(list(row.get('next_required_artifacts') or [])[:6]) or '--'}"
+        )
+        lines.append(
+            f"  blockers {', '.join(list(row.get('blockers') or [])[:6]) or '--'} | "
+            f"non-claim {row.get('non_claim_digest', '--')}"
+        )
     lines.extend(
         [
             "",
@@ -777,3 +963,72 @@ def _count_rows_by_key(rows: list[dict[str, Any]], key: str) -> dict[str, int]:
             continue
         counts[text] = int(counts.get(text, 0) or 0) + 1
     return counts
+
+
+def _coverage_bucket_display(bucket: str) -> str:
+    mapping = {
+        _PAYLOAD_COMPLETE_BUCKET: "payload_complete",
+        _PAYLOAD_PARTIAL_BUCKET: "payload_partial",
+        "trace_only_not_evaluated": "trace_only",
+        "model_only": "model_only",
+        "test_only": "test_only",
+        "gap": "gap",
+    }
+    return str(mapping.get(str(bucket or "").strip(), bucket or "")).strip() or "gap"
+
+
+def _phase_readiness_artifact_refs(phase_name: str) -> list[dict[str, str]]:
+    refs: list[dict[str, str]] = []
+    for artifact_type in _PHASE_READINESS_ARTIFACT_TYPES.get(str(phase_name or "").strip(), ()):
+        payload = dict(_READINESS_ARTIFACT_ANCHORS.get(artifact_type) or {})
+        if payload:
+            refs.append(payload)
+    return refs
+
+
+def _phase_readiness_impact_digest(
+    *,
+    phase_name: str,
+    payload_completeness: str,
+    missing_signal_layers: list[str],
+    coverage_bucket: str,
+) -> str:
+    impact_area = _PHASE_READINESS_IMPACT_AREAS.get(str(phase_name or "").strip(), "readiness")
+    if coverage_bucket == _PAYLOAD_COMPLETE_BUCKET:
+        return f"{impact_area} linkage available from synthetic payload-backed reviewer evidence"
+    if payload_completeness == "partial":
+        return (
+            f"{impact_area} remains open because payload is partial and "
+            f"missing layers stay explicit: {', '.join(missing_signal_layers) or '--'}"
+        )
+    if payload_completeness == "trace_only":
+        return f"{impact_area} remains open because this phase is still trace-only and not payload-evaluated"
+    if coverage_bucket in {"model_only", "test_only", "gap"}:
+        return f"{impact_area} remains open because this phase has only {coverage_bucket} reviewer coverage"
+    return f"{impact_area} remains open because payload evidence is not complete"
+
+
+def _phase_blockers(
+    *,
+    phase_name: str,
+    payload_completeness: str,
+    actual_run_evidence_present: bool,
+    missing_signal_layers: list[str],
+    coverage_bucket: str,
+) -> list[str]:
+    blockers = []
+    if payload_completeness == "partial":
+        blockers.append(
+            "payload stays partial so reviewer evidence cannot be overstated as phase-complete measurement evidence"
+        )
+    elif payload_completeness == "trace_only":
+        blockers.append("phase is still trace-only; simulated payload layers have not been promoted yet")
+    elif coverage_bucket in {"model_only", "test_only", "gap"}:
+        blockers.append(f"phase remains {coverage_bucket}; richer simulated payload evidence is still missing")
+    elif actual_run_evidence_present and coverage_bucket != _PAYLOAD_COMPLETE_BUCKET:
+        blockers.append("actual simulated evidence exists but payload completeness remains open")
+    if missing_signal_layers:
+        blockers.append(f"missing signal layers: {', '.join(missing_signal_layers)}")
+    if str(phase_name or "").strip() == "preseal":
+        blockers.append("preseal remains setup/conditioning evidence and does not imply released measurement output")
+    return _dedupe(blockers)
