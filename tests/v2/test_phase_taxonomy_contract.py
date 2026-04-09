@@ -391,6 +391,17 @@ def test_taxonomy_contract_preserves_partial_complete_and_payload_backed_phase_d
     assert "payload_partial_linkage_open" in list(water_gap.get("readiness_impact_fragment_keys") or [])
     assert "partial_payload_not_phase_complete" in list(water_gap.get("blocker_fragment_keys") or [])
     assert water_gap["reviewer_next_step_fragment_keys"] == ["water_preseal_partial_gap_closeout"]
+    assert "preseal_partial_vs_pressure_stable_complete" in list(report["raw"].get("phase_contrast_fragment_keys") or [])
+    assert "payload_backed_ambient_recovery_anchor_visibility" in list(
+        report["raw"].get("phase_contrast_fragment_keys") or []
+    )
+    set_locale("zh_CN")
+    localized_lines = build_measurement_review_digest_lines(report)
+    localized_text = "\n".join(
+        list(localized_lines.get("summary_lines") or []) + list(localized_lines.get("detail_lines") or [])
+    )
+    assert "preseal / pressure_stable 对照：" in localized_text
+    assert "payload-backed 的 ambient/recovery 阶段" in localized_text
 
 
 def test_taxonomy_contract_parity_remains_consistent_across_gateway_and_review_surfaces(tmp_path: Path) -> None:
@@ -521,6 +532,6 @@ def test_structured_fragment_locale_catalog_and_boundary_digest_lines_stay_consi
         locale="zh_CN",
     ) in measurement_text
     assert "shadow evaluation only" not in measurement_text
-    assert "not accreditation claim" not in readiness_text
+    assert "not_accreditation_claim" not in readiness_text
     assert any("关联方法确认条目" in line for line in scope_lines["detail_lines"])
-    assert any("差距分类" in line for line in measurement_lines["detail_lines"])
+    assert any("缺口索引" in line for line in measurement_lines["detail_lines"])

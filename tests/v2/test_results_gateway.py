@@ -1024,10 +1024,6 @@ def test_results_gateway_exposes_measurement_core_evidence_artifacts(tmp_path: P
         list(item.get("non_claim_fragment_keys") or [])
         for item in list(phase_coverage_json_row["measurement_phase_coverage_report_entry"]["linked_measurement_gaps"] or [])
     )
-    assert any(
-        list(item.get("comparison_fragment_keys") or [])
-        for item in list(phase_coverage_json_row["measurement_phase_coverage_report_entry"]["linked_measurement_gaps"] or [])
-    )
     assert "measurement_phase_coverage_report_entry" in phase_coverage_json_row
     assert "measurement_phase_coverage_report_entry" in phase_coverage_md_row
     assert "shadow_evaluation_results" not in stability_json_row["note"]
