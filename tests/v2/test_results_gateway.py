@@ -986,7 +986,7 @@ def test_results_gateway_exposes_measurement_core_evidence_artifacts(tmp_path: P
     assert phase_coverage_json_row["artifact_key"] == "measurement_phase_coverage_report"
     assert phase_coverage_md_row["artifact_key"] == "measurement_phase_coverage_report_markdown"
     assert phase_coverage_json_row["artifact_role"] == "diagnostic_analysis"
-    assert "shadow evaluation only" in stability_json_row["role_status_display"]
+    assert "仅供影子评估" in stability_json_row["role_status_display"]
     assert "does not modify live sampling gate by default" in stability_json_row["note"]
     assert "fixed canonical states" in transition_json_row["note"]
     assert "Future database intake only" in sidecar_row["note"]

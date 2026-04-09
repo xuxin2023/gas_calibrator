@@ -24,10 +24,10 @@ PHASE_CONTRAST_FRAGMENT_FAMILY = "phase_contrast"
 _TOKEN_RE = re.compile(r"[^0-9a-z\u4e00-\u9fff]+")
 
 _MEASUREMENT_LAYER_LABELS = {
-    "reference": {"zh_CN": "\u53c2\u8003\u5c42", "en_US": "reference"},
-    "analyzer_raw": {"zh_CN": "\u5206\u6790\u4eea\u539f\u59cb\u5c42", "en_US": "analyzer raw"},
-    "output": {"zh_CN": "\u8f93\u51fa\u5c42", "en_US": "output"},
-    "data_quality": {"zh_CN": "\u6570\u636e\u8d28\u91cf\u5c42", "en_US": "data quality"},
+    "reference": {"zh_CN": "\u53c2\u8003\u5c42", "en_US": "reference layer"},
+    "analyzer_raw": {"zh_CN": "\u5206\u6790\u4eea\u539f\u59cb\u5c42", "en_US": "analyzer raw layer"},
+    "output": {"zh_CN": "\u8f93\u51fa\u5c42", "en_US": "output layer"},
+    "data_quality": {"zh_CN": "\u6570\u636e\u8d28\u91cf\u5c42", "en_US": "data quality layer"},
 }
 
 

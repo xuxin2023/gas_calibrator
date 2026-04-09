@@ -1986,10 +1986,10 @@
         "spectral_status": "Spectral Status",
         "measurement": {
           "layer": {
-            "reference": "reference",
-            "analyzer_raw": "analyzer raw",
-            "output": "output",
-            "data_quality": "data quality"
+        "reference": "reference layer",
+        "analyzer_raw": "analyzer raw layer",
+        "output": "output layer",
+        "data_quality": "data quality layer"
           },
           "bucket": {
             "payload_complete": "payload-complete",
