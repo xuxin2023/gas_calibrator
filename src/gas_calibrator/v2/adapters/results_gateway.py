@@ -1366,8 +1366,19 @@ class ResultsGateway:
                 "linked_measurement_phase_artifacts": [
                     dict(item) for item in list(evidence_payload.get("linked_measurement_phase_artifacts") or []) if isinstance(item, dict)
                 ],
+                "linked_measurement_phases": list(evidence_payload.get("linked_measurement_phases") or []),
+                "linked_measurement_gaps": [
+                    dict(item) for item in list(evidence_payload.get("linked_measurement_gaps") or []) if isinstance(item, dict)
+                ],
+                "linked_method_confirmation_items": list(evidence_payload.get("linked_method_confirmation_items") or []),
+                "linked_uncertainty_inputs": list(evidence_payload.get("linked_uncertainty_inputs") or []),
+                "linked_traceability_nodes": list(evidence_payload.get("linked_traceability_nodes") or []),
                 "next_required_artifacts": list(evidence_payload.get("next_required_artifacts") or []),
                 "blockers": list(evidence_payload.get("blockers") or []),
+                "gap_reason": str(evidence_payload.get("gap_reason") or digest.get("gap_reason") or ""),
+                "reviewer_next_step_digest": str(
+                    evidence_payload.get("reviewer_next_step_digest") or digest.get("reviewer_next_step_digest") or ""
+                ),
                 "boundary_digest": str(evidence_payload.get("boundary_digest") or digest.get("boundary_digest") or ""),
                 "non_claim_digest": str(evidence_payload.get("non_claim_digest") or digest.get("non_claim_digest") or ""),
             },

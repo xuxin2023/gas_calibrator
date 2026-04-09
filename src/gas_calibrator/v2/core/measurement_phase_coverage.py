@@ -162,9 +162,11 @@ _PHASE_READINESS_ARTIFACT_TYPES: dict[str, tuple[str, ...]] = {
         "scope_definition_pack",
         "scope_readiness_summary",
         "decision_rule_profile",
+        "metrology_traceability_stub",
         "uncertainty_budget_stub",
         "method_confirmation_protocol",
         "method_confirmation_matrix",
+        "uncertainty_method_readiness_summary",
     ),
     "pressure_stable": (
         "reference_asset_registry",
@@ -190,7 +192,7 @@ _PHASE_READINESS_ARTIFACT_TYPES: dict[str, tuple[str, ...]] = {
 
 _PHASE_READINESS_IMPACT_AREAS: dict[str, str] = {
     "ambient_diagnostic": "scope / decision",
-    "preseal": "scope / method / uncertainty",
+    "preseal": "scope / method / uncertainty / traceability",
     "pressure_stable": "uncertainty / traceability / certificate",
     "sample_ready": "scope / method",
     "recovery_retry": "software validation / audit",
@@ -198,10 +200,91 @@ _PHASE_READINESS_IMPACT_AREAS: dict[str, str] = {
 
 _PHASE_READINESS_DIMENSIONS: dict[str, tuple[str, ...]] = {
     "ambient_diagnostic": ("scope", "decision rule"),
-    "preseal": ("scope", "decision rule", "method confirmation", "uncertainty inputs"),
+    "preseal": ("scope", "decision rule", "method confirmation", "uncertainty inputs", "traceability stub"),
     "pressure_stable": ("reference asset / certificate", "traceability", "uncertainty / method"),
     "sample_ready": ("scope", "method confirmation"),
     "recovery_retry": ("software validation", "audit"),
+}
+
+_PHASE_GAP_NAVIGATION_PROFILES: dict[tuple[str, str], dict[str, Any]] = {
+    ("water", "preseal"): {
+        "linked_method_confirmation_items": [
+            "Water preseal window definition",
+            "Water route conditioning repeatability",
+            "Water preseal release criteria",
+        ],
+        "linked_uncertainty_inputs": [
+            "Humidity reference window",
+            "Preseal pressure term",
+            "Preseal temperature term",
+        ],
+        "linked_traceability_stub_nodes": [
+            "Humidity reference chain",
+            "Dew-point reference link",
+            "Preseal conditioning window stub",
+        ],
+        "gap_classification": "conditioning_window_partial_payload",
+        "gap_severity": "high",
+        "reviewer_next_step_digest": (
+            "Confirm the water preseal window method first, then add the preseal pressure/temperature "
+            "uncertainty inputs, then tie the humidity and dew-point references into the traceability stub "
+            "while keeping preseal explicit as payload-partial."
+        ),
+    },
+    ("gas", "preseal"): {
+        "linked_method_confirmation_items": [
+            "Gas preseal window definition",
+            "Gas route conditioning repeatability",
+            "Gas preseal release criteria",
+        ],
+        "linked_uncertainty_inputs": [
+            "Reference gas window",
+            "Preseal pressure term",
+            "Preseal temperature term",
+        ],
+        "linked_traceability_stub_nodes": [
+            "Standard gas chain",
+            "Pressure reference link",
+            "Preseal conditioning window stub",
+        ],
+        "gap_classification": "conditioning_window_partial_payload",
+        "gap_severity": "high",
+        "reviewer_next_step_digest": (
+            "Confirm the gas preseal window method first, then add the preseal pressure/temperature "
+            "uncertainty inputs, then tie the standard-gas and pressure references into the traceability stub "
+            "while keeping preseal explicit as payload-partial."
+        ),
+    },
+    ("water", "pressure_stable"): {
+        "linked_method_confirmation_items": ["Water pressure stabilization hold confirmation"],
+        "linked_uncertainty_inputs": ["Humidity reference", "Pressure reference", "Temperature reference"],
+        "linked_traceability_stub_nodes": [
+            "Humidity reference chain",
+            "Dew-point reference link",
+            "Pressure reference link",
+        ],
+        "gap_classification": "payload_complete_synthetic_reviewer_anchor",
+        "gap_severity": "info",
+        "reviewer_next_step_digest": (
+            "Use the water pressure-stable payload as the synthetic reviewer anchor, then keep certificate and "
+            "traceability closure in readiness-only artifacts until released reference evidence exists."
+        ),
+    },
+    ("gas", "pressure_stable"): {
+        "linked_method_confirmation_items": ["Gas pressure stabilization hold confirmation"],
+        "linked_uncertainty_inputs": ["Reference gas value", "Pressure reference", "Temperature reference"],
+        "linked_traceability_stub_nodes": [
+            "Standard gas chain",
+            "Pressure reference link",
+            "Temperature reference link",
+        ],
+        "gap_classification": "payload_complete_synthetic_reviewer_anchor",
+        "gap_severity": "info",
+        "reviewer_next_step_digest": (
+            "Use the gas pressure-stable payload as the synthetic reviewer anchor, then keep certificate and "
+            "traceability closure in readiness-only artifacts until released reference evidence exists."
+        ),
+    },
 }
 
 
@@ -332,6 +415,14 @@ def build_measurement_phase_coverage_report(
         for row in phase_rows
         if row.get("coverage_bucket") != _PAYLOAD_COMPLETE_BUCKET
     ) or "no open readiness impacts from measurement-core phases"
+    blocker_summary = " | ".join(
+        _dedupe(
+            f"{row['route_family']}/{row['phase_name']}: {', '.join(list(row.get('blockers') or []))}"
+            for row in phase_rows
+            if row.get("coverage_bucket") != _PAYLOAD_COMPLETE_BUCKET
+            and list(row.get("blockers") or [])
+        )
+    ) or "no reviewer blockers recorded"
     next_required_artifacts_summary = " | ".join(
         _dedupe(
             artifact_name
@@ -356,6 +447,58 @@ def build_measurement_phase_coverage_report(
             and str(row.get("coverage_bucket") or "").strip() == _PAYLOAD_PARTIAL_BUCKET
         )
     ) or "no preseal payload-partial reviewer guidance recorded"
+    linked_method_confirmation_summary = " | ".join(
+        _dedupe(
+            (
+                f"{row['route_family']}/{row['phase_name']}: "
+                f"{', '.join(list(row.get('linked_method_confirmation_items') or []))}"
+            )
+            for row in phase_rows
+            if list(row.get("linked_method_confirmation_items") or [])
+            and row.get("coverage_bucket") != _PAYLOAD_COMPLETE_BUCKET
+        )
+    ) or "no linked method confirmation items recorded"
+    linked_uncertainty_input_summary = " | ".join(
+        _dedupe(
+            (
+                f"{row['route_family']}/{row['phase_name']}: "
+                f"{', '.join(list(row.get('linked_uncertainty_inputs') or []))}"
+            )
+            for row in phase_rows
+            if list(row.get("linked_uncertainty_inputs") or [])
+            and row.get("coverage_bucket") != _PAYLOAD_COMPLETE_BUCKET
+        )
+    ) or "no linked uncertainty inputs recorded"
+    linked_traceability_stub_summary = " | ".join(
+        _dedupe(
+            (
+                f"{row['route_family']}/{row['phase_name']}: "
+                f"{', '.join(list(row.get('linked_traceability_stub_nodes') or []))}"
+            )
+            for row in phase_rows
+            if list(row.get("linked_traceability_stub_nodes") or [])
+            and row.get("coverage_bucket") != _PAYLOAD_COMPLETE_BUCKET
+        )
+    ) or "no linked traceability stub nodes recorded"
+    gap_index_summary = " | ".join(
+        _dedupe(
+            (
+                f"{row['route_family']}/{row['phase_name']}: "
+                f"{str(row.get('gap_classification') or '--')} / {str(row.get('gap_severity') or '--')}"
+            )
+            for row in phase_rows
+            if str(row.get("gap_classification") or "").strip()
+            and row.get("coverage_bucket") != _PAYLOAD_COMPLETE_BUCKET
+        )
+    ) or "no gap index recorded"
+    reviewer_next_step_summary = " | ".join(
+        _dedupe(
+            str(row.get("reviewer_next_step_digest") or "").strip()
+            for row in phase_rows
+            if str(row.get("reviewer_next_step_digest") or "").strip()
+            and row.get("coverage_bucket") != _PAYLOAD_COMPLETE_BUCKET
+        )
+    ) or "no reviewer next-step guidance recorded"
     phase_contrast_summary = _phase_contrast_summary(phase_rows)
     digest = {
         "summary": (
@@ -374,9 +517,15 @@ def build_measurement_phase_coverage_report(
         "provenance_summary": provenance_summary,
         "gap_summary": gap_summary,
         "readiness_impact_summary": readiness_impact_summary,
+        "blocker_summary": blocker_summary,
         "next_required_artifacts_summary": next_required_artifacts_summary,
         "linked_readiness_summary": linked_readiness_summary,
         "preseal_partial_guidance_summary": preseal_partial_guidance_summary,
+        "linked_method_confirmation_summary": linked_method_confirmation_summary,
+        "linked_uncertainty_input_summary": linked_uncertainty_input_summary,
+        "linked_traceability_stub_summary": linked_traceability_stub_summary,
+        "gap_index_summary": gap_index_summary,
+        "reviewer_next_step_summary": reviewer_next_step_summary,
         "phase_contrast_summary": phase_contrast_summary,
         "boundary_summary": " | ".join(CANONICAL_BOUNDARY_STATEMENTS),
     }
@@ -397,8 +546,13 @@ def build_measurement_phase_coverage_report(
             f"coverage digest: {coverage_display_summary}",
             f"payload completeness: {payload_completeness_summary}",
             f"phase gaps: {gap_summary}",
+            f"blockers: {blocker_summary}",
             f"next artifacts: {next_required_artifacts_summary}",
             f"preseal partial guidance: {preseal_partial_guidance_summary}",
+            f"linked method confirmation items: {linked_method_confirmation_summary}",
+            f"linked uncertainty inputs: {linked_uncertainty_input_summary}",
+            f"linked traceability stub nodes: {linked_traceability_stub_summary}",
+            f"reviewer next steps: {reviewer_next_step_summary}",
             f"phase contrast: {phase_contrast_summary}",
         ],
         "detail_lines": [
@@ -407,6 +561,7 @@ def build_measurement_phase_coverage_report(
             f"provenance summary: {provenance_summary}",
             f"linked readiness anchors: {linked_readiness_summary}",
             f"readiness impact: {readiness_impact_summary}",
+            f"gap index: {gap_index_summary}",
             *[
                 f"{str(row.get('phase_route_key') or '--')} guidance: {str(row.get('reviewer_guidance_digest') or '--')}"
                 for row in phase_rows
@@ -582,12 +737,51 @@ def _build_phase_row(
             if isinstance(ref, dict)
         )
     ) or "--"
+    linked_method_confirmation_items = _phase_linked_method_confirmation_items(
+        route_family=route_family,
+        phase_name=phase_name,
+        coverage_bucket=coverage_bucket,
+    )
+    linked_uncertainty_inputs = _phase_linked_uncertainty_inputs(
+        route_family=route_family,
+        phase_name=phase_name,
+        coverage_bucket=coverage_bucket,
+    )
+    linked_traceability_stub_nodes = _phase_linked_traceability_stub_nodes(
+        route_family=route_family,
+        phase_name=phase_name,
+        coverage_bucket=coverage_bucket,
+    )
+    gap_classification = _phase_gap_classification(
+        route_family=route_family,
+        phase_name=phase_name,
+        coverage_bucket=coverage_bucket,
+        payload_completeness=payload_completeness,
+    )
+    gap_severity = _phase_gap_severity(
+        route_family=route_family,
+        phase_name=phase_name,
+        coverage_bucket=coverage_bucket,
+        payload_completeness=payload_completeness,
+    )
+    reviewer_next_step_digest = _phase_reviewer_next_step_digest(
+        route_family=route_family,
+        phase_name=phase_name,
+        coverage_bucket=coverage_bucket,
+        payload_completeness=payload_completeness,
+        linked_method_confirmation_items=linked_method_confirmation_items,
+        linked_uncertainty_inputs=linked_uncertainty_inputs,
+        linked_traceability_stub_nodes=linked_traceability_stub_nodes,
+    )
     blockers = _phase_blockers(
         phase_name=phase_name,
         payload_completeness=payload_completeness,
         actual_run_evidence_present=actual_run_evidence_present,
         missing_signal_layers=missing_signal_layers,
         coverage_bucket=coverage_bucket,
+        linked_method_confirmation_items=linked_method_confirmation_items,
+        linked_uncertainty_inputs=linked_uncertainty_inputs,
+        linked_traceability_stub_nodes=linked_traceability_stub_nodes,
     )
     impacted_readiness_dimensions = _phase_readiness_dimensions(phase_name)
     missing_reason_digest = _missing_reason_digest(missing_layer_reasons)
@@ -611,7 +805,12 @@ def _build_phase_row(
         missing_signal_layers=missing_signal_layers,
         missing_reason_digest=missing_reason_digest,
         readiness_impact_digest=readiness_impact_digest,
+        linked_method_confirmation_items=linked_method_confirmation_items,
+        linked_uncertainty_inputs=linked_uncertainty_inputs,
+        linked_traceability_stub_nodes=linked_traceability_stub_nodes,
+        blockers=blockers,
         next_required_artifacts=next_required_artifacts,
+        reviewer_next_step_digest=reviewer_next_step_digest,
         phase_boundary_digest=phase_boundary_digest,
     )
     linked_artifact_refs = [
@@ -678,6 +877,11 @@ def _build_phase_row(
         "impacted_readiness_dimensions": impacted_readiness_dimensions,
         "readiness_impact_digest": readiness_impact_digest,
         "phase_boundary_digest": phase_boundary_digest,
+        "gap_classification": gap_classification,
+        "gap_severity": gap_severity,
+        "linked_method_confirmation_items": linked_method_confirmation_items,
+        "linked_uncertainty_inputs": linked_uncertainty_inputs,
+        "linked_traceability_stub_nodes": linked_traceability_stub_nodes,
         "blockers": blockers,
         "next_required_artifacts": next_required_artifacts,
         "linked_readiness_artifact_refs": linked_readiness_artifact_refs,
@@ -688,6 +892,7 @@ def _build_phase_row(
             "simulation_evidence_sidecar_bundle": str(artifact_paths.get("simulation_evidence_sidecar_bundle") or ""),
         },
         "linked_artifact_refs": linked_artifact_refs,
+        "reviewer_next_step_digest": reviewer_next_step_digest,
         "reviewer_guidance_digest": reviewer_guidance_digest,
         "reviewer_note": str(definition.get("reviewer_note") or ""),
         "digest": summary,
@@ -1064,6 +1269,15 @@ def _render_markdown(*, raw: dict[str, Any]) -> str:
             f"  blockers {', '.join(list(row.get('blockers') or [])[:6]) or '--'} | "
             f"non-claim {row.get('non_claim_digest', '--')}"
         )
+        lines.append(
+            f"  method items {', '.join(list(row.get('linked_method_confirmation_items') or [])[:6]) or '--'} | "
+            f"uncertainty inputs {', '.join(list(row.get('linked_uncertainty_inputs') or [])[:6]) or '--'}"
+        )
+        lines.append(
+            f"  traceability nodes {', '.join(list(row.get('linked_traceability_stub_nodes') or [])[:6]) or '--'} | "
+            f"gap {row.get('gap_classification', '--')} / {row.get('gap_severity', '--')}"
+        )
+        lines.append(f"  reviewer next step {row.get('reviewer_next_step_digest', '--')}")
     lines.extend(
         [
             "",
@@ -1159,6 +1373,96 @@ def _phase_boundary_digest(*, phase_name: str, coverage_bucket: str, payload_com
     return "measurement-core reviewer evidence stays within Step 2 simulation-only boundaries"
 
 
+def _phase_navigation_profile(route_family: str, phase_name: str) -> dict[str, Any]:
+    return dict(_PHASE_GAP_NAVIGATION_PROFILES.get((str(route_family or "").strip(), str(phase_name or "").strip())) or {})
+
+
+def _phase_linked_method_confirmation_items(*, route_family: str, phase_name: str, coverage_bucket: str) -> list[str]:
+    profile = _phase_navigation_profile(route_family, phase_name)
+    if coverage_bucket in {"model_only", "test_only", "gap"}:
+        return []
+    return list(profile.get("linked_method_confirmation_items") or [])
+
+
+def _phase_linked_uncertainty_inputs(*, route_family: str, phase_name: str, coverage_bucket: str) -> list[str]:
+    profile = _phase_navigation_profile(route_family, phase_name)
+    if coverage_bucket in {"model_only", "test_only", "gap"}:
+        return []
+    return list(profile.get("linked_uncertainty_inputs") or [])
+
+
+def _phase_linked_traceability_stub_nodes(*, route_family: str, phase_name: str, coverage_bucket: str) -> list[str]:
+    profile = _phase_navigation_profile(route_family, phase_name)
+    if coverage_bucket in {"model_only", "test_only", "gap"}:
+        return []
+    return list(profile.get("linked_traceability_stub_nodes") or [])
+
+
+def _phase_gap_classification(
+    *,
+    route_family: str,
+    phase_name: str,
+    coverage_bucket: str,
+    payload_completeness: str,
+) -> str:
+    profile = _phase_navigation_profile(route_family, phase_name)
+    if profile and str(profile.get("gap_classification") or "").strip():
+        return str(profile.get("gap_classification") or "").strip()
+    if coverage_bucket == _PAYLOAD_COMPLETE_BUCKET:
+        return "payload_complete_synthetic_reviewer_anchor"
+    if payload_completeness == "trace_only":
+        return "trace_only_reviewer_gap"
+    if coverage_bucket in {"model_only", "test_only", "gap"}:
+        return f"{coverage_bucket}_reviewer_gap"
+    return "payload_partial_reviewer_gap"
+
+
+def _phase_gap_severity(
+    *,
+    route_family: str,
+    phase_name: str,
+    coverage_bucket: str,
+    payload_completeness: str,
+) -> str:
+    profile = _phase_navigation_profile(route_family, phase_name)
+    if profile and str(profile.get("gap_severity") or "").strip():
+        return str(profile.get("gap_severity") or "").strip()
+    if coverage_bucket == _PAYLOAD_COMPLETE_BUCKET:
+        return "info"
+    if payload_completeness == "trace_only":
+        return "medium"
+    if coverage_bucket in {"model_only", "test_only", "gap"}:
+        return "medium"
+    return "high"
+
+
+def _phase_reviewer_next_step_digest(
+    *,
+    route_family: str,
+    phase_name: str,
+    coverage_bucket: str,
+    payload_completeness: str,
+    linked_method_confirmation_items: list[str],
+    linked_uncertainty_inputs: list[str],
+    linked_traceability_stub_nodes: list[str],
+) -> str:
+    profile = _phase_navigation_profile(route_family, phase_name)
+    if profile and str(profile.get("reviewer_next_step_digest") or "").strip():
+        return str(profile.get("reviewer_next_step_digest") or "").strip()
+    if coverage_bucket == _PAYLOAD_COMPLETE_BUCKET:
+        return "Keep this phase linked to readiness artifacts as synthetic reviewer evidence only."
+    if payload_completeness == "trace_only":
+        return "Promote this trace-only phase into payload-backed reviewer evidence before closing downstream readiness gaps."
+    parts = []
+    if linked_method_confirmation_items:
+        parts.append(f"confirm method items: {', '.join(linked_method_confirmation_items)}")
+    if linked_uncertainty_inputs:
+        parts.append(f"add uncertainty inputs: {', '.join(linked_uncertainty_inputs)}")
+    if linked_traceability_stub_nodes:
+        parts.append(f"anchor traceability nodes: {', '.join(linked_traceability_stub_nodes)}")
+    return " | ".join(parts) or "Keep the current reviewer boundary explicit and document the next missing artifact."
+
+
 def _phase_reviewer_guidance_digest(
     *,
     route_family: str,
@@ -1168,18 +1472,28 @@ def _phase_reviewer_guidance_digest(
     missing_signal_layers: list[str],
     missing_reason_digest: str,
     readiness_impact_digest: str,
+    linked_method_confirmation_items: list[str],
+    linked_uncertainty_inputs: list[str],
+    linked_traceability_stub_nodes: list[str],
+    blockers: list[str],
     next_required_artifacts: list[str],
+    reviewer_next_step_digest: str,
     phase_boundary_digest: str,
 ) -> str:
     route_phase = f"{str(route_family or '').strip()}/{str(phase_name or '').strip()}".strip("/")
     available_text = ", ".join(list(available_signal_layers or [])) or "--"
     missing_text = ", ".join(list(missing_signal_layers or [])) or "--"
+    method_text = ", ".join(list(linked_method_confirmation_items or [])) or "--"
+    uncertainty_text = ", ".join(list(linked_uncertainty_inputs or [])) or "--"
+    traceability_text = ", ".join(list(linked_traceability_stub_nodes or [])) or "--"
+    blocker_text = " | ".join(list(blockers or [])) or "--"
     next_text = " | ".join(list(next_required_artifacts or [])) or "--"
     bucket_text = _coverage_bucket_display(coverage_bucket)
     return (
         f"{route_phase}={bucket_text} | available {available_text} | missing {missing_text} | "
-        f"reason {missing_reason_digest} | impact {readiness_impact_digest} | next {next_text} | "
-        f"boundary {phase_boundary_digest}"
+        f"reason {missing_reason_digest} | impact {readiness_impact_digest} | method {method_text} | "
+        f"uncertainty {uncertainty_text} | traceability {traceability_text} | blockers {blocker_text} | "
+        f"next {next_text} | reviewer next step {reviewer_next_step_digest} | boundary {phase_boundary_digest}"
     )
 
 
@@ -1224,9 +1538,18 @@ def _phase_comparison_digest(*, row: dict[str, Any] | None, comparison_row: dict
     route_family = str(phase_row.get("route_family") or "").strip() or str(stable_row.get("route_family") or "").strip()
     preseal_missing = ", ".join(list(phase_row.get("missing_signal_layers") or [])) or "--"
     stable_available = ", ".join(list(stable_row.get("available_signal_layers") or [])) or "--"
+    preseal_method = ", ".join(list(phase_row.get("linked_method_confirmation_items") or [])) or "--"
+    preseal_uncertainty = ", ".join(list(phase_row.get("linked_uncertainty_inputs") or [])) or "--"
+    preseal_traceability = ", ".join(list(phase_row.get("linked_traceability_stub_nodes") or [])) or "--"
+    stable_method = ", ".join(list(stable_row.get("linked_method_confirmation_items") or [])) or "--"
+    stable_uncertainty = ", ".join(list(stable_row.get("linked_uncertainty_inputs") or [])) or "--"
+    stable_traceability = ", ".join(list(stable_row.get("linked_traceability_stub_nodes") or [])) or "--"
     return (
         f"{route_family} route: preseal stays payload-partial because missing {preseal_missing}; "
-        f"same-route pressure_stable reaches payload-complete because {stable_available} are all available"
+        f"same-route pressure_stable reaches payload-complete because {stable_available} are all available; "
+        f"preseal keeps method {preseal_method}, uncertainty {preseal_uncertainty}, and traceability "
+        f"{preseal_traceability} open, while pressure_stable already exposes method {stable_method}, "
+        f"uncertainty {stable_uncertainty}, and traceability {stable_traceability} as synthetic reviewer linkage"
     )
 
 
@@ -1261,7 +1584,8 @@ def _phase_contrast_summary(phase_rows: list[dict[str, Any]]) -> str:
         pressure_available = ", ".join(list(pressure_row.get("available_signal_layers") or [])) or "--"
         return (
             "preseal stays payload-partial because setup / conditioning evidence still keeps "
-            f"{preseal_missing} explicit; pressure_stable can reach payload-complete once {pressure_available} are all available"
+            f"{preseal_missing} explicit; pressure_stable can reach payload-complete once {pressure_available} are all "
+            "available and can therefore anchor richer method / uncertainty / traceability reviewer linkage"
         )
     return "no complete-vs-partial phase contrast recorded"
 
@@ -1318,6 +1642,9 @@ def _phase_blockers(
     actual_run_evidence_present: bool,
     missing_signal_layers: list[str],
     coverage_bucket: str,
+    linked_method_confirmation_items: list[str],
+    linked_uncertainty_inputs: list[str],
+    linked_traceability_stub_nodes: list[str],
 ) -> list[str]:
     blockers = []
     if payload_completeness == "partial":
@@ -1332,6 +1659,12 @@ def _phase_blockers(
         blockers.append("actual simulated evidence exists but payload completeness remains open")
     if missing_signal_layers:
         blockers.append(f"missing signal layers: {', '.join(missing_signal_layers)}")
+    if linked_method_confirmation_items and coverage_bucket != _PAYLOAD_COMPLETE_BUCKET:
+        blockers.append(f"linked method confirmation items remain open: {', '.join(linked_method_confirmation_items)}")
+    if linked_uncertainty_inputs and coverage_bucket != _PAYLOAD_COMPLETE_BUCKET:
+        blockers.append(f"linked uncertainty inputs remain open: {', '.join(linked_uncertainty_inputs)}")
+    if linked_traceability_stub_nodes and coverage_bucket != _PAYLOAD_COMPLETE_BUCKET:
+        blockers.append(f"linked traceability nodes remain stub-only: {', '.join(linked_traceability_stub_nodes)}")
     if str(phase_name or "").strip() == "preseal":
         blockers.append("preseal partial is an honesty boundary, not a measurement-core bug")
         blockers.append("preseal remains setup/conditioning evidence and does not imply released measurement output")
