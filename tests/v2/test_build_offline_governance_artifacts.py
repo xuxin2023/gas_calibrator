@@ -942,6 +942,10 @@ def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -
     assert scope_summary["review_surface"]["anchor_id"] == "scope-readiness-summary"
     assert "formal scope approval chain is not closed" in scope_summary["missing_evidence"]
     assert "not compliance claim" in scope_summary["boundary_statements"]
+    assert scope_pack["anchor_id"] == "scope-definition-pack"
+    assert scope_pack["linked_artifact_refs"]
+    assert scope_pack["next_required_artifacts"]
+    assert scope_pack["boundary_digest"]
     assert any(
         str(item.get("certificate_status") or "").startswith("missing")
         for item in list(reference_registry.get("assets") or [])
@@ -949,6 +953,9 @@ def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -
     assert certificate_summary["artifact_type"] == "certificate_readiness_summary"
     assert "certificate missing" in certificate_summary["digest"]["current_coverage_summary"]
     assert "no released certificate files attached" in certificate_summary["missing_evidence"]
+    assert reference_registry["linked_artifact_refs"]
+    assert reference_registry["blockers"]
+    assert reference_registry["next_required_artifacts"]
     assert uncertainty_stub["artifact_type"] == "uncertainty_budget_stub"
     assert any(
         str(item.get("combined_uncertainty_status") or "") == "not_closed"
@@ -963,10 +970,14 @@ def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -
     assert software_matrix["artifact_type"] == "software_validation_traceability_matrix"
     assert audit_digest["artifact_type"] == "audit_readiness_digest"
     assert "file-artifact-first reviewer digest" in audit_digest["digest"]["summary"]
+    assert audit_digest["linked_measurement_phase_artifacts"]
+    assert "linked_measurement_phase_summary" in audit_digest["digest"]
+    assert "next_required_artifacts_summary" in audit_digest["digest"]
 
     for payload_item in (scope_summary, certificate_summary, uncertainty_summary, audit_digest):
         assert payload_item["review_surface"]["summary_text"]
         assert payload_item["review_surface"]["artifact_paths"]
+        assert payload_item["review_surface"]["anchor_refs"]
         assert "not real acceptance" in payload_item["boundary_statements"]
         rendered = json.dumps(payload_item, ensure_ascii=False).lower()
         assert "real acceptance ready" not in rendered

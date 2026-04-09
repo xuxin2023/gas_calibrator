@@ -890,6 +890,16 @@ class ResultsGateway:
             if phase_coverage_summary
             else ""
         )
+        measurement_core_payload_complete_text = (
+            str(phase_coverage_digest.get("payload_complete_phase_summary") or "").strip()
+            if phase_coverage_summary
+            else ""
+        )
+        measurement_core_payload_partial_text = (
+            str(phase_coverage_digest.get("payload_partial_phase_summary") or "").strip()
+            if phase_coverage_summary
+            else ""
+        )
         measurement_core_trace_only_text = (
             str(phase_coverage_digest.get("trace_only_phase_summary") or "").strip()
             if phase_coverage_summary
@@ -897,6 +907,11 @@ class ResultsGateway:
         )
         measurement_core_payload_completeness_text = (
             str(phase_coverage_digest.get("payload_completeness_summary") or "").strip()
+            if phase_coverage_summary
+            else ""
+        )
+        measurement_core_next_artifacts_text = (
+            str(phase_coverage_digest.get("next_required_artifacts_summary") or "").strip()
             if phase_coverage_summary
             else ""
         )
@@ -917,10 +932,16 @@ class ResultsGateway:
             lines.append(f"measurement-core phase coverage: {measurement_core_phase_coverage_text}")
         if measurement_core_payload_phase_text:
             lines.append(f"measurement-core payload-backed phases: {measurement_core_payload_phase_text}")
+        if measurement_core_payload_complete_text:
+            lines.append(f"measurement-core payload-complete phases: {measurement_core_payload_complete_text}")
+        if measurement_core_payload_partial_text:
+            lines.append(f"measurement-core payload-partial phases: {measurement_core_payload_partial_text}")
         if measurement_core_trace_only_text:
             lines.append(f"measurement-core trace-only phases: {measurement_core_trace_only_text}")
         if measurement_core_payload_completeness_text:
             lines.append(f"measurement-core payload completeness: {measurement_core_payload_completeness_text}")
+        if measurement_core_next_artifacts_text:
+            lines.append(f"measurement-core next artifacts: {measurement_core_next_artifacts_text}")
         if measurement_core_sidecar_text or dict(simulation_evidence_sidecar_bundle or {}):
             sidecar_contract_text = str(sidecar_summary.get("reviewer_note") or "").strip()
             lines.append(
@@ -941,6 +962,16 @@ class ResultsGateway:
             ("software validation / audit readiness", dict(audit_readiness_payload.get("digest") or {}).get("summary")),
         ]
         for label, value in readiness_pairs:
+            text = str(value or "").strip()
+            if text:
+                lines.append(f"{label}: {text}")
+        readiness_detail_pairs = [
+            ("scope readiness next artifacts", dict(scope_readiness_payload.get("digest") or {}).get("next_required_artifacts_summary")),
+            ("reference/certificate linked phases", dict(certificate_readiness_payload.get("digest") or {}).get("linked_measurement_phase_summary")),
+            ("uncertainty/method linked phases", dict(uncertainty_method_payload.get("digest") or {}).get("linked_measurement_phase_summary")),
+            ("software validation / audit next artifacts", dict(audit_readiness_payload.get("digest") or {}).get("next_required_artifacts_summary")),
+        ]
+        for label, value in readiness_detail_pairs:
             text = str(value or "").strip()
             if text:
                 lines.append(f"{label}: {text}")
@@ -1331,5 +1362,16 @@ class ResultsGateway:
                 "digest": digest,
                 "artifact_paths": dict(evidence_payload.get("artifact_paths") or {}),
                 "overall_status": str(evidence_payload.get("overall_status") or ""),
+                "anchor_id": str(evidence_payload.get("anchor_id") or review_surface.get("anchor_id") or ""),
+                "anchor_label": str(evidence_payload.get("anchor_label") or review_surface.get("anchor_label") or ""),
+                "readiness_status": str(evidence_payload.get("readiness_status") or digest.get("readiness_status") or ""),
+                "linked_artifact_refs": [dict(item) for item in list(evidence_payload.get("linked_artifact_refs") or []) if isinstance(item, dict)],
+                "linked_measurement_phase_artifacts": [
+                    dict(item) for item in list(evidence_payload.get("linked_measurement_phase_artifacts") or []) if isinstance(item, dict)
+                ],
+                "next_required_artifacts": list(evidence_payload.get("next_required_artifacts") or []),
+                "blockers": list(evidence_payload.get("blockers") or []),
+                "boundary_digest": str(evidence_payload.get("boundary_digest") or digest.get("boundary_digest") or ""),
+                "non_claim_digest": str(evidence_payload.get("non_claim_digest") or digest.get("non_claim_digest") or ""),
             },
         }

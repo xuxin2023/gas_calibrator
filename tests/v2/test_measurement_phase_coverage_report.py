@@ -130,7 +130,7 @@ def test_measurement_phase_coverage_report_tracks_actual_model_test_and_gap() ->
     assert raw["artifact_paths"]["measurement_phase_coverage_report_markdown"].endswith(
         MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME
     )
-    assert rows_by_key["gas:sample_ready"]["coverage_bucket"] == "actual_simulated_run_with_payload"
+    assert rows_by_key["gas:sample_ready"]["coverage_bucket"] == "actual_simulated_run_with_payload_complete"
     assert rows_by_key["gas:sample_ready"]["payload_completeness"] == "complete"
     assert rows_by_key["gas:sample_ready"]["available_signal_layers"] == [
         "reference",
@@ -143,14 +143,11 @@ def test_measurement_phase_coverage_report_tracks_actual_model_test_and_gap() ->
     assert rows_by_key["gas:preseal"]["payload_completeness"] == "not_available"
     assert rows_by_key["water:preseal"]["coverage_bucket"] == "gap"
     assert rows_by_key["system:recovery_retry"]["coverage_bucket"] == "test_only"
-    assert raw["review_surface"]["evidence_source_filters"] == [
-        "gap",
-        "model_only",
-        "actual_simulated_run_with_payload",
-        "test_only",
-    ]
-    assert "payload-backed" in raw["digest"]["summary"]
+    assert "actual_simulated_run_with_payload_complete" in raw["review_surface"]["evidence_source_filters"]
+    assert "payload-complete" in raw["digest"]["summary"]
     assert raw["digest"]["payload_phase_summary"] == "gas/sample_ready"
+    assert raw["digest"]["payload_complete_phase_summary"] == "gas/sample_ready"
+    assert raw["digest"]["payload_partial_phase_summary"] == "no payload-partial simulated phase evidence"
     assert raw["digest"]["trace_only_phase_summary"] == "no trace-only phase buckets"
     assert "Step 2 tail / Stage 3 bridge" in raw["digest"]["summary"]
     assert "shadow evaluation only" in raw["boundary_statements"]
@@ -209,18 +206,19 @@ def test_measurement_phase_coverage_report_preserves_signal_group_gaps_honestly(
     water_row = rows_by_key["water:preseal"]
 
     assert ambient_row["actual_run_evidence_present"] is True
-    assert ambient_row["coverage_bucket"] == "actual_simulated_run_with_payload"
+    assert ambient_row["coverage_bucket"] == "actual_simulated_run_with_payload_complete"
     assert ambient_row["payload_completeness"] == "complete"
     assert ambient_row["signal_group_coverage"]["reference"]["coverage_status"] == "complete"
     assert ambient_row["signal_group_coverage"]["analyzer_raw"]["available_channels"] == ["ref_signal"]
     assert ambient_row["signal_group_coverage"]["data_quality"]["coverage_status"] == "complete"
     assert ambient_row["evidence_provenance"] == "actual_simulated_payload"
     assert water_row["signal_group_coverage"]["analyzer_raw"]["coverage_status"] == "partial"
-    assert water_row["coverage_bucket"] == "actual_simulated_run"
+    assert water_row["coverage_bucket"] == "actual_simulated_run_with_payload_partial"
     assert water_row["payload_completeness"] == "partial"
     assert "h2o_signal" in water_row["missing_channels"]
     assert "h2o_ratio_raw" in water_row["available_channels"]
     assert water_row["missing_signal_layers"] == []
+    assert any("payload stays partial" in str(item) for item in list(water_row["blockers"] or []))
     assert "synthetic provenance" in "\n".join(report["raw"]["review_surface"]["detail_lines"])
 
 
@@ -359,9 +357,9 @@ def test_measurement_phase_coverage_report_promotes_rich_phase_payloads_to_paylo
         for row in list(report["raw"].get("phase_rows") or [])
     }
 
-    assert rows_by_key["ambient:ambient_diagnostic"]["coverage_bucket"] == "actual_simulated_run_with_payload"
-    assert rows_by_key["ambient:sample_ready"]["coverage_bucket"] == "actual_simulated_run_with_payload"
-    assert rows_by_key["system:recovery_retry"]["coverage_bucket"] == "actual_simulated_run_with_payload"
+    assert rows_by_key["ambient:ambient_diagnostic"]["coverage_bucket"] == "actual_simulated_run_with_payload_complete"
+    assert rows_by_key["ambient:sample_ready"]["coverage_bucket"] == "actual_simulated_run_with_payload_complete"
+    assert rows_by_key["system:recovery_retry"]["coverage_bucket"] == "actual_simulated_run_with_payload_complete"
     assert rows_by_key["ambient:ambient_diagnostic"]["payload_completeness"] == "complete"
     assert rows_by_key["system:recovery_retry"]["payload_completeness"] == "complete"
     assert rows_by_key["system:recovery_retry"]["available_signal_layers"] == [
@@ -376,3 +374,95 @@ def test_measurement_phase_coverage_report_promotes_rich_phase_payloads_to_paylo
     assert report["raw"]["digest"]["payload_phase_summary"] == (
         "ambient/ambient_diagnostic | ambient/sample_ready | system/recovery_retry"
     )
+    assert report["raw"]["digest"]["payload_complete_phase_summary"] == (
+        "ambient/ambient_diagnostic | ambient/sample_ready | system/recovery_retry"
+    )
+    assert report["raw"]["digest"]["payload_partial_phase_summary"] == "no payload-partial simulated phase evidence"
+
+
+def test_measurement_phase_coverage_report_distinguishes_partial_vs_complete_richer_phase_links() -> None:
+    water_point = _point(20, route="h2o")
+    gas_point = _point(21, route="co2")
+    samples = [
+        _sample(
+            water_point,
+            seconds=0,
+            point_phase="preseal",
+            point_tag="synthetic_water_preseal_partial_payload",
+            frame_status="simulation_payload_synthetic_preseal_partial",
+            h2o_mmol=None,
+            h2o_ratio_f=None,
+        ),
+        _sample(
+            water_point,
+            seconds=8,
+            point_phase="preseal",
+            point_tag="synthetic_water_preseal_partial_payload",
+            frame_status="simulation_payload_synthetic_preseal_partial",
+            h2o_mmol=None,
+            h2o_ratio_f=None,
+        ),
+        _sample(
+            gas_point,
+            seconds=0,
+            point_phase="pressure_stable",
+            point_tag="synthetic_gas_pressure_stable_complete",
+            frame_status="simulation_payload_synthetic_pressure_stable",
+        ),
+        _sample(
+            gas_point,
+            seconds=8,
+            point_phase="pressure_stable",
+            point_tag="synthetic_gas_pressure_stable_complete",
+            frame_status="simulation_payload_synthetic_pressure_stable",
+        ),
+    ]
+
+    report = build_measurement_phase_coverage_report(
+        run_id="run_partial_complete_richer_phase_links",
+        samples=samples,
+        point_summaries=[],
+        artifact_paths={
+            "measurement_phase_coverage_report": MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME,
+            "measurement_phase_coverage_report_markdown": MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME,
+            "multi_source_stability_evidence": MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME,
+            "state_transition_evidence": "state_transition_evidence.json",
+            "simulation_evidence_sidecar_bundle": SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME,
+        },
+        synthetic_trace_provenance={"summary": "measurement_trace_rich_v1 synthetic payload"},
+    )
+
+    rows_by_key = {
+        str(row.get("phase_route_key") or ""): dict(row)
+        for row in list(report["raw"].get("phase_rows") or [])
+    }
+    water_preseal_row = rows_by_key["water:preseal"]
+    gas_pressure_row = rows_by_key["gas:pressure_stable"]
+
+    assert water_preseal_row["coverage_bucket"] == "actual_simulated_run_with_payload_partial"
+    assert water_preseal_row["payload_completeness"] == "partial"
+    assert water_preseal_row["missing_signal_layers"] == ["output"]
+    assert water_preseal_row["evidence_provenance"] == "synthetic_sample_payload"
+    assert "scope_definition_pack" in list(water_preseal_row.get("next_required_artifacts") or [])
+    assert "method_confirmation_matrix" in list(water_preseal_row.get("next_required_artifacts") or [])
+    assert any(
+        str(item.get("artifact_type") or "") == "uncertainty_budget_stub"
+        for item in list(water_preseal_row.get("linked_readiness_artifact_refs") or [])
+    )
+    assert "not live gate" in str(water_preseal_row.get("non_claim_digest") or "")
+
+    assert gas_pressure_row["coverage_bucket"] == "actual_simulated_run_with_payload_complete"
+    assert gas_pressure_row["payload_completeness"] == "complete"
+    assert gas_pressure_row["missing_signal_layers"] == []
+    assert any(
+        str(item.get("artifact_type") or "") == "reference_asset_registry"
+        for item in list(gas_pressure_row.get("linked_readiness_artifact_refs") or [])
+    )
+    assert any(
+        str(item.get("artifact_type") or "") == "uncertainty_method_readiness_summary"
+        for item in list(gas_pressure_row.get("linked_readiness_artifact_refs") or [])
+    )
+
+    assert report["raw"]["digest"]["payload_complete_phase_summary"] == "gas/pressure_stable"
+    assert report["raw"]["digest"]["payload_partial_phase_summary"] == "water/preseal"
+    assert "scope_definition_pack" in str(report["raw"]["digest"]["next_required_artifacts_summary"] or "")

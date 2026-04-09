@@ -334,30 +334,36 @@ def test_review_center_surfaces_measurement_phase_payload_and_trace_only_summary
             "digest": {
                 "summary": (
                     "Step 2 tail / Stage 3 bridge | measurement phase coverage | "
-                    "payload-backed 3 | sample-backed 3 | trace-only 1 | model-only 0 | test-only 0 | gap 0"
+                    "payload-complete 3 | payload-partial 0 | trace-only 1 | model-only 0 | test-only 0 | gap 0"
                 ),
                 "payload_phase_summary": (
                     "ambient/ambient_diagnostic | ambient/sample_ready | system/recovery_retry"
                 ),
+                "payload_complete_phase_summary": (
+                    "ambient/ambient_diagnostic | ambient/sample_ready | system/recovery_retry"
+                ),
+                "payload_partial_phase_summary": "no payload-partial simulated phase evidence",
                 "actual_phase_summary": (
                     "ambient/ambient_diagnostic | ambient/sample_ready | ambient/pressure_stable | system/recovery_retry"
                 ),
                 "trace_only_phase_summary": "ambient/pressure_stable",
                 "coverage_summary": (
-                    "ambient/ambient_diagnostic=actual_simulated_run_with_payload | "
-                    "ambient/sample_ready=actual_simulated_run_with_payload | "
+                    "ambient/ambient_diagnostic=actual_simulated_run_with_payload_complete | "
+                    "ambient/sample_ready=actual_simulated_run_with_payload_complete | "
                     "ambient/pressure_stable=trace_only_not_evaluated | "
-                    "system/recovery_retry=actual_simulated_run_with_payload"
+                    "system/recovery_retry=actual_simulated_run_with_payload_complete"
                 ),
                 "gap_summary": "no uncovered phases",
             },
             "review_surface": {
                 "summary_text": (
                     "Step 2 tail / Stage 3 bridge | measurement phase coverage | "
-                    "payload-backed 3 | sample-backed 3 | trace-only 1 | model-only 0 | test-only 0 | gap 0"
+                    "payload-complete 3 | payload-partial 0 | trace-only 1 | model-only 0 | test-only 0 | gap 0"
                 ),
                 "summary_lines": [
                     "payload-backed phases: ambient/ambient_diagnostic | ambient/sample_ready | system/recovery_retry",
+                    "payload-complete phases: ambient/ambient_diagnostic | ambient/sample_ready | system/recovery_retry",
+                    "payload-partial phases: no payload-partial simulated phase evidence",
                     "trace-only phases: ambient/pressure_stable",
                     "payload completeness: complete 3 | trace_only 1",
                 ],
@@ -380,12 +386,12 @@ def test_review_center_surfaces_measurement_phase_payload_and_trace_only_summary
                 "route_filters": ["ambient", "system"],
                 "signal_family_filters": ["reference", "analyzer_raw", "output", "data_quality"],
                 "decision_result_filters": [
-                    "actual_simulated_run_with_payload",
+                    "actual_simulated_run_with_payload_complete",
                     "trace_only_not_evaluated",
                 ],
                 "policy_version_filters": ["measurement_trace_rich_v1"],
                 "evidence_source_filters": [
-                    "actual_simulated_run_with_payload",
+                    "actual_simulated_run_with_payload_complete",
                     "trace_only_not_evaluated",
                 ],
                 "boundary_filters": [
@@ -407,10 +413,15 @@ def test_review_center_surfaces_measurement_phase_payload_and_trace_only_summary
         item for item in review_center["evidence_items"] if item.get("type") == "measurement_phase_coverage"
     )
 
-    assert "payload-backed 3" in str(measurement_item.get("summary") or "")
+    assert "payload-complete 3" in str(measurement_item.get("summary") or "")
     assert "trace-only 1" in str(measurement_item.get("summary") or "")
     assert any(
         "payload-backed phases: ambient/ambient_diagnostic | ambient/sample_ready | system/recovery_retry"
+        in str(line)
+        for line in list(measurement_item.get("detail_analytics_summary") or [])
+    )
+    assert any(
+        "payload-complete phases: ambient/ambient_diagnostic | ambient/sample_ready | system/recovery_retry"
         in str(line)
         for line in list(measurement_item.get("detail_analytics_summary") or [])
     )
@@ -422,7 +433,7 @@ def test_review_center_surfaces_measurement_phase_payload_and_trace_only_summary
         "synthetic provenance: richer measurement trace remains simulation-only" in str(line)
         for line in list(measurement_item.get("detail_lineage_summary") or [])
     )
-    assert "actual_simulated_run_with_payload" in list(measurement_item.get("evidence_source_filters") or [])
+    assert "actual_simulated_run_with_payload_complete" in list(measurement_item.get("evidence_source_filters") or [])
     assert "trace_only_not_evaluated" in list(measurement_item.get("evidence_source_filters") or [])
     assert measurement_item.get("anchor_id") == "measurement-phase-coverage-report"
     assert "acceptance_level" not in str(measurement_item.get("detail_text") or "")
@@ -460,6 +471,14 @@ def test_review_center_surfaces_recognition_readiness_governance_items(tmp_path:
     assert any(
         "formal scope approval chain is not closed" in str(line)
         for line in list(scope_item.get("detail_lineage_summary") or [])
+    )
+    assert any(
+        "linked measurement phases" in str(line).lower()
+        for line in list(scope_item.get("detail_lineage_summary") or [])
+    )
+    assert any(
+        "next required artifacts" in str(line).lower()
+        for line in list(uncertainty_item.get("detail_lineage_summary") or [])
     )
     assert any(
         "missing evidence" in str(line).lower() for line in list(certificate_item.get("detail_lineage_summary") or [])

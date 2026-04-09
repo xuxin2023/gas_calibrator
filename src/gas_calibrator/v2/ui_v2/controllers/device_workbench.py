@@ -314,11 +314,24 @@ class DeviceWorkbenchController:
             str(transition_digest.get("summary") or "").strip(),
             str(phase_coverage_digest.get("summary") or "").strip(),
             str(phase_coverage_digest.get("payload_phase_summary") or "").strip(),
+            str(phase_coverage_digest.get("payload_complete_phase_summary") or "").strip(),
+            str(phase_coverage_digest.get("payload_partial_phase_summary") or "").strip(),
             str(phase_coverage_digest.get("trace_only_phase_summary") or "").strip(),
             str(phase_coverage_digest.get("payload_completeness_summary") or "").strip(),
+            str(phase_coverage_digest.get("next_required_artifacts_summary") or "").strip(),
             str(sidecar.get("reviewer_note") or "").strip(),
         ]
         summary_lines = [line for line in summary_lines if line]
+        detail_lines = [
+            str(phase_coverage_digest.get("readiness_impact_summary") or "").strip(),
+            str(phase_coverage_digest.get("linked_readiness_summary") or "").strip(),
+        ]
+        detail_lines.extend(
+            str(item).strip()
+            for item in list(dict(phase_coverage.get("review_surface") or {}).get("detail_lines") or [])
+            if str(item).strip()
+        )
+        detail_lines = [line for line in detail_lines if line]
         boundary_lines = [
             str(item).strip()
             for item in list(
@@ -334,6 +347,7 @@ class DeviceWorkbenchController:
             "available": True,
             "summary_line": " | ".join(summary_lines) if summary_lines else t("common.none"),
             "summary_lines": summary_lines,
+            "detail_lines": detail_lines,
             "boundary_lines": boundary_lines,
             "multi_source_stability_evidence": stability,
             "state_transition_evidence": transition,
@@ -400,6 +414,8 @@ class DeviceWorkbenchController:
                 ("missing_evidence_summary", "missing evidence"),
                 ("blocker_summary", "blockers"),
                 ("decision_rule_profile_summary", "decision rule"),
+                ("linked_measurement_phase_summary", "linked measurement phases"),
+                ("next_required_artifacts_summary", "next artifacts"),
             ):
                 value = str(digest.get(field_name) or "").strip()
                 if not value:

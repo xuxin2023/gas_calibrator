@@ -89,6 +89,11 @@ _PAYLOAD_PARTIAL_BUCKET = "actual_simulated_run_with_payload_partial"
 _PAYLOAD_BACKED_BUCKETS = {_PAYLOAD_COMPLETE_BUCKET, _PAYLOAD_PARTIAL_BUCKET}
 
 _READINESS_ARTIFACT_ANCHORS: dict[str, dict[str, str]] = {
+    "scope_definition_pack": {
+        "artifact_type": "scope_definition_pack",
+        "anchor_id": "scope-definition-pack",
+        "anchor_label": "Scope definition pack",
+    },
     "scope_readiness_summary": {
         "artifact_type": "scope_readiness_summary",
         "anchor_id": "scope-readiness-summary",
@@ -104,6 +109,11 @@ _READINESS_ARTIFACT_ANCHORS: dict[str, dict[str, str]] = {
         "anchor_id": "certificate-readiness-summary",
         "anchor_label": "Certificate readiness summary",
     },
+    "reference_asset_registry": {
+        "artifact_type": "reference_asset_registry",
+        "anchor_id": "reference-asset-registry",
+        "anchor_label": "Reference asset registry",
+    },
     "metrology_traceability_stub": {
         "artifact_type": "metrology_traceability_stub",
         "anchor_id": "metrology-traceability-stub",
@@ -113,6 +123,11 @@ _READINESS_ARTIFACT_ANCHORS: dict[str, dict[str, str]] = {
         "artifact_type": "uncertainty_budget_stub",
         "anchor_id": "uncertainty-budget-stub",
         "anchor_label": "Uncertainty budget stub",
+    },
+    "method_confirmation_protocol": {
+        "artifact_type": "method_confirmation_protocol",
+        "anchor_id": "method-confirmation-protocol",
+        "anchor_label": "Method confirmation protocol",
     },
     "method_confirmation_matrix": {
         "artifact_type": "method_confirmation_matrix",
@@ -129,6 +144,11 @@ _READINESS_ARTIFACT_ANCHORS: dict[str, dict[str, str]] = {
         "anchor_id": "software-validation-traceability-matrix",
         "anchor_label": "Software validation traceability matrix",
     },
+    "release_validation_manifest": {
+        "artifact_type": "release_validation_manifest",
+        "anchor_id": "release-validation-manifest",
+        "anchor_label": "Release validation manifest",
+    },
     "audit_readiness_digest": {
         "artifact_type": "audit_readiness_digest",
         "anchor_id": "audit-readiness-digest",
@@ -137,15 +157,35 @@ _READINESS_ARTIFACT_ANCHORS: dict[str, dict[str, str]] = {
 }
 
 _PHASE_READINESS_ARTIFACT_TYPES: dict[str, tuple[str, ...]] = {
-    "ambient_diagnostic": ("scope_readiness_summary", "decision_rule_profile"),
-    "preseal": ("scope_readiness_summary", "method_confirmation_matrix", "uncertainty_budget_stub"),
-    "pressure_stable": (
-        "uncertainty_method_readiness_summary",
-        "metrology_traceability_stub",
-        "certificate_readiness_summary",
+    "ambient_diagnostic": ("scope_definition_pack", "scope_readiness_summary", "decision_rule_profile"),
+    "preseal": (
+        "scope_definition_pack",
+        "scope_readiness_summary",
+        "decision_rule_profile",
+        "uncertainty_budget_stub",
+        "method_confirmation_protocol",
+        "method_confirmation_matrix",
     ),
-    "sample_ready": ("scope_readiness_summary", "method_confirmation_matrix"),
-    "recovery_retry": ("software_validation_traceability_matrix", "audit_readiness_digest"),
+    "pressure_stable": (
+        "reference_asset_registry",
+        "certificate_readiness_summary",
+        "metrology_traceability_stub",
+        "uncertainty_budget_stub",
+        "method_confirmation_matrix",
+        "uncertainty_method_readiness_summary",
+    ),
+    "sample_ready": (
+        "scope_definition_pack",
+        "scope_readiness_summary",
+        "decision_rule_profile",
+        "method_confirmation_protocol",
+        "method_confirmation_matrix",
+    ),
+    "recovery_retry": (
+        "software_validation_traceability_matrix",
+        "release_validation_manifest",
+        "audit_readiness_digest",
+    ),
 }
 
 _PHASE_READINESS_IMPACT_AREAS: dict[str, str] = {

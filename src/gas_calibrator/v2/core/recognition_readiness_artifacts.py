@@ -49,6 +49,166 @@ RECOGNITION_READINESS_BOUNDARY_STATEMENTS = [
     "cannot replace real metrology validation",
 ]
 
+_RECOGNITION_ARTIFACT_ANCHORS: dict[str, dict[str, str]] = {
+    "scope_definition_pack": {"anchor_id": "scope-definition-pack", "anchor_label": "Scope definition pack"},
+    "decision_rule_profile": {"anchor_id": "decision-rule-profile", "anchor_label": "Decision rule profile"},
+    "scope_readiness_summary": {"anchor_id": "scope-readiness-summary", "anchor_label": "Scope readiness summary"},
+    "reference_asset_registry": {"anchor_id": "reference-asset-registry", "anchor_label": "Reference asset registry"},
+    "certificate_readiness_summary": {
+        "anchor_id": "certificate-readiness-summary",
+        "anchor_label": "Certificate readiness summary",
+    },
+    "metrology_traceability_stub": {
+        "anchor_id": "metrology-traceability-stub",
+        "anchor_label": "Metrology traceability stub",
+    },
+    "uncertainty_budget_stub": {"anchor_id": "uncertainty-budget-stub", "anchor_label": "Uncertainty budget stub"},
+    "method_confirmation_protocol": {
+        "anchor_id": "method-confirmation-protocol",
+        "anchor_label": "Method confirmation protocol",
+    },
+    "method_confirmation_matrix": {
+        "anchor_id": "method-confirmation-matrix",
+        "anchor_label": "Method confirmation matrix",
+    },
+    "uncertainty_method_readiness_summary": {
+        "anchor_id": "uncertainty-method-readiness-summary",
+        "anchor_label": "Uncertainty / method readiness summary",
+    },
+    "software_validation_traceability_matrix": {
+        "anchor_id": "software-validation-traceability-matrix",
+        "anchor_label": "Software validation traceability matrix",
+    },
+    "release_validation_manifest": {
+        "anchor_id": "release-validation-manifest",
+        "anchor_label": "Release validation manifest",
+    },
+    "audit_readiness_digest": {"anchor_id": "audit-readiness-digest", "anchor_label": "Audit readiness digest"},
+    "measurement_phase_coverage_report": {
+        "anchor_id": "measurement-phase-coverage-report",
+        "anchor_label": "Measurement phase coverage report",
+    },
+    "multi_source_stability_evidence": {
+        "anchor_id": "multi-source-stability-evidence",
+        "anchor_label": "Multi-source stability evidence",
+    },
+    "state_transition_evidence": {
+        "anchor_id": "state-transition-evidence",
+        "anchor_label": "State transition evidence",
+    },
+    "simulation_evidence_sidecar_bundle": {
+        "anchor_id": "simulation-evidence-sidecar-bundle",
+        "anchor_label": "Simulation evidence sidecar bundle",
+    },
+}
+
+_RECOGNITION_NEXT_ARTIFACT_DEFAULTS: dict[str, list[str]] = {
+    "scope_definition_pack": ["decision_rule_profile", "scope_readiness_summary"],
+    "decision_rule_profile": ["scope_readiness_summary", "method_confirmation_matrix"],
+    "scope_readiness_summary": ["reference_asset_registry", "method_confirmation_matrix"],
+    "reference_asset_registry": ["certificate_readiness_summary", "metrology_traceability_stub"],
+    "certificate_readiness_summary": ["metrology_traceability_stub", "reference_asset_registry"],
+    "metrology_traceability_stub": ["certificate_readiness_summary", "uncertainty_method_readiness_summary"],
+    "uncertainty_budget_stub": ["method_confirmation_protocol", "uncertainty_method_readiness_summary"],
+    "method_confirmation_protocol": ["method_confirmation_matrix", "uncertainty_method_readiness_summary"],
+    "method_confirmation_matrix": ["uncertainty_method_readiness_summary", "software_validation_traceability_matrix"],
+    "uncertainty_method_readiness_summary": ["certificate_readiness_summary", "audit_readiness_digest"],
+    "software_validation_traceability_matrix": ["release_validation_manifest", "audit_readiness_digest"],
+    "release_validation_manifest": ["audit_readiness_digest"],
+    "audit_readiness_digest": ["release_validation_manifest"],
+}
+
+_RECOGNITION_BLOCKER_DEFAULTS: dict[str, list[str]] = {
+    "scope_definition_pack": [
+        "scope package remains reviewer-facing only",
+        "formal scope approval chain is not closed",
+    ],
+    "decision_rule_profile": [
+        "decision rule profile does not drive live gate",
+        "release / accreditation semantics remain explicitly out of scope",
+    ],
+    "reference_asset_registry": [
+        "reference registry is still a stub and not a released traceability chain",
+        "certificate-backed asset closure is missing",
+    ],
+    "certificate_readiness_summary": [
+        "certificate files and intermediate checks remain missing",
+        "traceability chain stays reviewer-facing only",
+    ],
+    "metrology_traceability_stub": [
+        "certificate-backed release chain is not closed",
+        "traceability rows remain stub-only",
+    ],
+    "uncertainty_budget_stub": [
+        "uncertainty sources are placeholders only",
+        "simulation does not close released uncertainty budgets",
+    ],
+    "method_confirmation_protocol": [
+        "protocol remains placeholder-only",
+        "simulation does not close method confirmation evidence",
+    ],
+    "method_confirmation_matrix": [
+        "matrix rows remain reviewer-only and not released method confirmation evidence",
+    ],
+    "uncertainty_method_readiness_summary": [
+        "uncertainty / method readiness remains open until missing evidence is closed outside Step 2",
+    ],
+    "software_validation_traceability_matrix": [
+        "software traceability matrix remains reviewer-facing only",
+        "no live release qualification claim is produced here",
+    ],
+    "release_validation_manifest": [
+        "artifact hash closure is still stub-only",
+        "manifest is not a released validation record",
+    ],
+    "audit_readiness_digest": [
+        "audit digest remains a reviewer traceability skeleton only",
+        "no formal audit conclusion is produced here",
+    ],
+}
+
+_RECOGNITION_MISSING_EVIDENCE_DEFAULTS: dict[str, list[str]] = {
+    "scope_definition_pack": [
+        "formal scope approval chain is not closed",
+        "real acceptance evidence remains out of scope",
+    ],
+    "decision_rule_profile": [
+        "no live decision gate is attached",
+        "released decision-rule evidence remains out of scope",
+    ],
+    "reference_asset_registry": [
+        "certificate files and intermediate checks are still missing",
+    ],
+    "certificate_readiness_summary": [
+        "no released certificate files attached",
+        "no intermediate check execution evidence attached",
+    ],
+    "metrology_traceability_stub": [
+        "traceability chain is not backed by released certificates",
+    ],
+    "uncertainty_budget_stub": [
+        "input uncertainties and combined budgets remain placeholders only",
+    ],
+    "method_confirmation_protocol": [
+        "real method confirmation datasets remain out of scope",
+    ],
+    "method_confirmation_matrix": [
+        "trace-only and partial measurement phases still require follow-up evidence",
+    ],
+    "uncertainty_method_readiness_summary": [
+        "released uncertainty and method confirmation evidence is still missing",
+    ],
+    "software_validation_traceability_matrix": [
+        "formal software qualification artifacts are not attached here",
+    ],
+    "release_validation_manifest": [
+        "signed artifact-hash closure remains deferred",
+    ],
+    "audit_readiness_digest": [
+        "formal audit closure remains out of scope",
+    ],
+}
+
 
 def build_recognition_readiness_artifacts(
     *,
@@ -80,7 +240,15 @@ def build_recognition_readiness_artifacts(
     path_map = _artifact_path_map(dict(artifact_paths or {}))
 
     route_families = _route_families(sample_rows, point_rows, phase_coverage_payload)
-    payload_backed_phases = _phase_pairs(phase_coverage_payload, include={"actual_simulated_run_with_payload"})
+    payload_complete_phases = _phase_pairs(
+        phase_coverage_payload,
+        include={"actual_simulated_run_with_payload_complete"},
+    )
+    payload_partial_phases = _phase_pairs(
+        phase_coverage_payload,
+        include={"actual_simulated_run_with_payload_partial"},
+    )
+    payload_backed_phases = _dedupe([*payload_complete_phases, *payload_partial_phases])
     trace_only_phases = _phase_pairs(phase_coverage_payload, include={"trace_only_not_evaluated"})
     gap_phases = _phase_pairs(phase_coverage_payload, include={"model_only", "test_only", "gap"})
     phase_digest = dict(phase_coverage_payload.get("digest") or {})
@@ -195,7 +363,7 @@ def build_recognition_readiness_artifacts(
         path_map=path_map,
     )
 
-    return {
+    artifacts = {
         "scope_definition_pack": scope_definition_pack,
         "decision_rule_profile": decision_rule_profile,
         "scope_readiness_summary": scope_readiness_summary,
@@ -210,6 +378,10 @@ def build_recognition_readiness_artifacts(
         "release_validation_manifest": release_validation_manifest,
         "audit_readiness_digest": audit_readiness_digest,
     }
+    return _enrich_recognition_readiness_artifacts(
+        artifacts=artifacts,
+        phase_coverage_payload=phase_coverage_payload,
+    )
 
 
 def _build_scope_definition_pack(
@@ -1284,6 +1456,237 @@ def _summary_raw(
         "markdown": markdown,
         "digest": dict(digest),
     }
+
+
+def _enrich_recognition_readiness_artifacts(
+    *,
+    artifacts: dict[str, dict[str, Any]],
+    phase_coverage_payload: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    enriched: dict[str, dict[str, Any]] = {}
+    for artifact_name, artifact_payload in artifacts.items():
+        payload = dict(artifact_payload or {})
+        raw = dict(payload.get("raw") or {})
+        if not raw:
+            enriched[artifact_name] = payload
+            continue
+        raw = _enrich_recognition_readiness_artifact(
+            raw=raw,
+            phase_coverage_payload=phase_coverage_payload,
+        )
+        payload["raw"] = raw
+        payload["digest"] = dict(raw.get("digest") or payload.get("digest") or {})
+        payload["markdown"] = _append_readiness_markdown_section(str(payload.get("markdown") or ""), raw=raw)
+        enriched[artifact_name] = payload
+    return enriched
+
+
+def _enrich_recognition_readiness_artifact(
+    *,
+    raw: dict[str, Any],
+    phase_coverage_payload: dict[str, Any],
+) -> dict[str, Any]:
+    artifact_type = str(raw.get("artifact_type") or "").strip()
+    review_surface = dict(raw.get("review_surface") or {})
+    anchor_meta = _artifact_anchor(artifact_type)
+    anchor_id = str(raw.get("anchor_id") or review_surface.get("anchor_id") or anchor_meta.get("anchor_id") or "").strip()
+    anchor_label = str(
+        raw.get("anchor_label") or review_surface.get("anchor_label") or anchor_meta.get("anchor_label") or artifact_type
+    ).strip()
+    linked_artifact_map = dict(raw.get("linked_artifacts") or raw.get("linked_run_artifacts") or {})
+    linked_artifact_refs = [dict(item) for item in list(raw.get("linked_artifact_refs") or []) if isinstance(item, dict)]
+    if not linked_artifact_refs:
+        linked_artifact_refs = _artifact_refs_from_map(linked_artifact_map)
+    linked_measurement_phase_artifacts = _measurement_phase_refs_for_artifact(
+        phase_coverage_payload=phase_coverage_payload,
+        artifact_type=artifact_type,
+    )
+    missing_evidence = _normalize_text_list(
+        raw.get("missing_evidence")
+        or _RECOGNITION_MISSING_EVIDENCE_DEFAULTS.get(artifact_type)
+        or []
+    )
+    blockers = _normalize_text_list(
+        raw.get("blockers")
+        or _RECOGNITION_BLOCKER_DEFAULTS.get(artifact_type)
+        or []
+    )
+    next_required_artifacts = _normalize_text_list(
+        raw.get("next_required_artifacts")
+        or _RECOGNITION_NEXT_ARTIFACT_DEFAULTS.get(artifact_type)
+        or []
+    )
+    readiness_status = str(raw.get("readiness_status") or "").strip() or f"{artifact_type}_readiness_stub"
+    linked_measurement_phase_summary = _phase_route_summary(linked_measurement_phase_artifacts)
+    linked_artifact_summary = " | ".join(
+        _dedupe(str(item.get("artifact_type") or item.get("anchor_label") or "").strip() for item in linked_artifact_refs)
+    )
+    boundary_digest = " | ".join(
+        str(item).strip() for item in list(raw.get("boundary_statements") or []) if str(item).strip()
+    )
+    non_claim_digest = " | ".join(str(item).strip() for item in list(raw.get("non_claim") or []) if str(item).strip())
+    digest = dict(raw.get("digest") or {})
+    digest["readiness_status"] = readiness_status
+    if missing_evidence:
+        digest["missing_evidence_summary"] = " | ".join(missing_evidence)
+    if blockers:
+        digest["blocker_summary"] = " | ".join(blockers)
+    if next_required_artifacts:
+        digest["next_required_artifacts_summary"] = " | ".join(next_required_artifacts)
+    if linked_measurement_phase_summary:
+        digest["linked_measurement_phase_summary"] = linked_measurement_phase_summary
+    if linked_artifact_summary:
+        digest["linked_artifact_summary"] = linked_artifact_summary
+    if boundary_digest:
+        digest["boundary_digest"] = boundary_digest
+    if non_claim_digest:
+        digest["non_claim_digest"] = non_claim_digest
+    raw["anchor_id"] = anchor_id
+    raw["anchor_label"] = anchor_label
+    raw["linked_artifact_refs"] = linked_artifact_refs
+    raw["linked_measurement_phase_artifacts"] = linked_measurement_phase_artifacts
+    raw["missing_evidence"] = missing_evidence
+    raw["blockers"] = blockers
+    raw["next_required_artifacts"] = next_required_artifacts
+    raw["readiness_status"] = readiness_status
+    raw["boundary_digest"] = boundary_digest
+    raw["non_claim_digest"] = non_claim_digest
+    raw["digest"] = digest
+    if review_surface:
+        review_surface["anchor_id"] = anchor_id
+        review_surface["anchor_label"] = anchor_label
+        review_surface["phase_filters"] = _dedupe(
+            [*list(review_surface.get("phase_filters") or []), *[str(item.get("phase_name") or "") for item in linked_measurement_phase_artifacts]]
+        )
+        review_surface["route_filters"] = _dedupe(
+            [*list(review_surface.get("route_filters") or []), *[str(item.get("route_family") or "") for item in linked_measurement_phase_artifacts]]
+        )
+        review_surface["anchor_refs"] = _dedupe(
+            [
+                *list(review_surface.get("anchor_refs") or []),
+                *[str(item.get("anchor_id") or "") for item in linked_artifact_refs],
+                *[str(item.get("anchor_id") or "") for item in linked_measurement_phase_artifacts],
+            ]
+        )
+        review_surface["summary_lines"] = _merge_unique_lines(
+            list(review_surface.get("summary_lines") or []),
+            [
+                f"readiness status: {readiness_status}",
+                f"linked measurement phases: {linked_measurement_phase_summary}" if linked_measurement_phase_summary else "",
+                f"next required artifacts: {' | '.join(next_required_artifacts)}" if next_required_artifacts else "",
+            ],
+        )
+        review_surface["detail_lines"] = _merge_unique_lines(
+            list(review_surface.get("detail_lines") or []),
+            [
+                f"linked artifacts: {linked_artifact_summary}" if linked_artifact_summary else "",
+                f"linked measurement phases: {linked_measurement_phase_summary}" if linked_measurement_phase_summary else "",
+                f"missing evidence: {' | '.join(missing_evidence)}" if missing_evidence else "",
+                f"blockers: {' | '.join(blockers)}" if blockers else "",
+                f"next required artifacts: {' | '.join(next_required_artifacts)}" if next_required_artifacts else "",
+                f"non-claim digest: {non_claim_digest}" if non_claim_digest else "",
+            ],
+        )
+        raw["review_surface"] = review_surface
+    return raw
+
+
+def _artifact_anchor(artifact_type: str) -> dict[str, str]:
+    return dict(_RECOGNITION_ARTIFACT_ANCHORS.get(str(artifact_type or "").strip()) or {})
+
+
+def _artifact_refs_from_map(linked_artifact_map: dict[str, Any]) -> list[dict[str, str]]:
+    refs: list[dict[str, str]] = []
+    for artifact_type, path in dict(linked_artifact_map or {}).items():
+        path_text = str(path or "").strip()
+        anchor_meta = _artifact_anchor(str(artifact_type or "").strip())
+        refs.append(
+            {
+                "artifact_type": str(artifact_type or "").strip(),
+                "path": path_text,
+                "anchor_id": str(anchor_meta.get("anchor_id") or "").strip(),
+                "anchor_label": str(anchor_meta.get("anchor_label") or str(artifact_type or "")).strip(),
+            }
+        )
+    return refs
+
+
+def _measurement_phase_refs_for_artifact(
+    *,
+    phase_coverage_payload: dict[str, Any],
+    artifact_type: str,
+) -> list[dict[str, Any]]:
+    phase_rows = [dict(item) for item in list(phase_coverage_payload.get("phase_rows") or []) if isinstance(item, dict)]
+    refs: list[dict[str, Any]] = []
+    for row in phase_rows:
+        linked_refs = [dict(item) for item in list(row.get("linked_readiness_artifact_refs") or []) if isinstance(item, dict)]
+        if not any(str(item.get("artifact_type") or "").strip() == str(artifact_type or "").strip() for item in linked_refs):
+            continue
+        refs.append(
+            {
+                "artifact_type": "measurement_phase_coverage_report",
+                "phase_route_key": str(row.get("phase_route_key") or "").strip(),
+                "route_family": str(row.get("route_family") or "").strip(),
+                "phase_name": str(row.get("phase_name") or "").strip(),
+                "route_phase": (
+                    f"{str(row.get('route_family') or '').strip()}/{str(row.get('phase_name') or '').strip()}".strip("/")
+                ),
+                "anchor_id": str(row.get("anchor_id") or "").strip(),
+                "anchor_label": str(row.get("anchor_label") or "").strip(),
+                "coverage_bucket": str(row.get("coverage_bucket") or "").strip(),
+                "coverage_bucket_display": str(row.get("coverage_bucket_display") or row.get("coverage_bucket") or "").strip(),
+                "payload_completeness": str(row.get("payload_completeness") or "").strip(),
+                "available_signal_layers": list(row.get("available_signal_layers") or []),
+                "missing_signal_layers": list(row.get("missing_signal_layers") or []),
+                "evidence_provenance": str(row.get("evidence_provenance") or "").strip(),
+                "readiness_impact_digest": str(row.get("readiness_impact_digest") or "").strip(),
+                "next_required_artifacts": list(row.get("next_required_artifacts") or []),
+            }
+        )
+    return refs
+
+
+def _phase_route_summary(rows: list[dict[str, Any]]) -> str:
+    return " | ".join(
+        _dedupe(
+            (
+                f"{str(item.get('route_phase') or '').strip()}="
+                f"{str(item.get('coverage_bucket_display') or item.get('coverage_bucket') or '').strip()}"
+            )
+            for item in rows
+            if str(item.get("route_phase") or "").strip()
+        )
+    )
+
+
+def _normalize_text_list(value: Any) -> list[str]:
+    if isinstance(value, (list, tuple, set)):
+        return _dedupe(str(item).strip() for item in value if str(item).strip())
+    text = str(value or "").strip()
+    return [text] if text else []
+
+
+def _merge_unique_lines(existing: list[str], extra: list[str]) -> list[str]:
+    return _dedupe([*list(existing or []), *[str(item).strip() for item in extra if str(item).strip()]])
+
+
+def _append_readiness_markdown_section(markdown: str, *, raw: dict[str, Any]) -> str:
+    base = str(markdown or "").rstrip()
+    lines = [
+        "",
+        "## Readiness Linkage",
+        "",
+        f"- anchor_id: {str(raw.get('anchor_id') or '--')}",
+        f"- readiness_status: {str(raw.get('readiness_status') or '--')}",
+        f"- linked_artifact_refs: {' | '.join(_dedupe(str(item.get('artifact_type') or '') for item in list(raw.get('linked_artifact_refs') or []) if isinstance(item, dict))) or '--'}",
+        f"- linked_measurement_phases: {_phase_route_summary(list(raw.get('linked_measurement_phase_artifacts') or [])) or '--'}",
+        f"- missing_evidence: {' | '.join(list(raw.get('missing_evidence') or [])) or '--'}",
+        f"- blockers: {' | '.join(list(raw.get('blockers') or [])) or '--'}",
+        f"- next_required_artifacts: {' | '.join(list(raw.get('next_required_artifacts') or [])) or '--'}",
+        f"- boundary_digest: {str(raw.get('boundary_digest') or '--')}",
+        f"- non_claim_digest: {str(raw.get('non_claim_digest') or '--')}",
+    ]
+    return (base + "\n" + "\n".join(lines).rstrip() + "\n").lstrip()
 
 
 def _asset_row(

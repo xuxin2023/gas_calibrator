@@ -150,6 +150,14 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
         "scope package + decision rule profile" in str(line)
         for line in list(report_payload["recognition_readiness_evidence"]["summary_lines"] or [])
     )
+    assert any(
+        "linked measurement phases" in str(line).lower()
+        for line in list(report_payload["recognition_readiness_evidence"]["detail_lines"] or [])
+    )
+    assert any(
+        "next artifacts" in str(line).lower()
+        for line in list(report_payload["recognition_readiness_evidence"]["detail_lines"] or [])
+    )
     assert report_payload["publish_primary_latest_allowed"] is False
     assert report_payload["artifact_role"] == "diagnostic_analysis"
     assert report_payload["risk_level"] in {"medium", "high"}

@@ -1417,11 +1417,20 @@ class AppFacade:
         measurement_phase_payload_text = self._humanize_ui_summary(
             str(measurement_phase_coverage_digest.get("payload_phase_summary") or "--")
         )
+        measurement_phase_payload_complete_text = self._humanize_ui_summary(
+            str(measurement_phase_coverage_digest.get("payload_complete_phase_summary") or "--")
+        )
+        measurement_phase_payload_partial_text = self._humanize_ui_summary(
+            str(measurement_phase_coverage_digest.get("payload_partial_phase_summary") or "--")
+        )
         measurement_phase_trace_only_text = self._humanize_ui_summary(
             str(measurement_phase_coverage_digest.get("trace_only_phase_summary") or "--")
         )
         measurement_phase_payload_completeness_text = self._humanize_ui_summary(
             str(measurement_phase_coverage_digest.get("payload_completeness_summary") or "--")
+        )
+        measurement_phase_next_artifacts_text = self._humanize_ui_summary(
+            str(measurement_phase_coverage_digest.get("next_required_artifacts_summary") or "--")
         )
         scope_readiness_text = self._humanize_ui_summary(
             str(dict(scope_readiness_summary.get("digest") or {}).get("summary") or "--")
@@ -1483,6 +1492,20 @@ class AppFacade:
             if measurement_phase_coverage_report and measurement_phase_payload_text != "--"
             else "",
             t(
+                "facade.results.result_summary.measurement_core_payload_complete",
+                value=measurement_phase_payload_complete_text,
+                default=f"payload-complete simulated phases: {measurement_phase_payload_complete_text}",
+            )
+            if measurement_phase_coverage_report and measurement_phase_payload_complete_text != "--"
+            else "",
+            t(
+                "facade.results.result_summary.measurement_core_payload_partial",
+                value=measurement_phase_payload_partial_text,
+                default=f"payload-partial simulated phases: {measurement_phase_payload_partial_text}",
+            )
+            if measurement_phase_coverage_report and measurement_phase_payload_partial_text != "--"
+            else "",
+            t(
                 "facade.results.result_summary.measurement_core_trace_only",
                 value=measurement_phase_trace_only_text,
                 default=f"trace-only phases: {measurement_phase_trace_only_text}",
@@ -1495,6 +1518,13 @@ class AppFacade:
                 default=f"payload completeness: {measurement_phase_payload_completeness_text}",
             )
             if measurement_phase_coverage_report and measurement_phase_payload_completeness_text != "--"
+            else "",
+            t(
+                "facade.results.result_summary.measurement_core_next_artifacts",
+                value=measurement_phase_next_artifacts_text,
+                default=f"next required artifacts: {measurement_phase_next_artifacts_text}",
+            )
+            if measurement_phase_coverage_report and measurement_phase_next_artifacts_text != "--"
             else "",
             t(
                 "facade.results.result_summary.measurement_core_sidecar_contract",
@@ -3905,15 +3935,20 @@ class AppFacade:
             not_real_acceptance_evidence=bool(payload.get("not_real_acceptance_evidence", True)),
             key_fields=[
                 str(digest.get("payload_phase_summary") or ""),
+                str(digest.get("payload_complete_phase_summary") or ""),
+                str(digest.get("payload_partial_phase_summary") or ""),
                 str(digest.get("actual_phase_summary") or ""),
                 str(digest.get("trace_only_phase_summary") or ""),
                 str(digest.get("coverage_summary") or ""),
                 str(digest.get("gap_summary") or ""),
+                str(digest.get("next_required_artifacts_summary") or ""),
             ],
             artifact_paths=artifact_paths,
             detail_analytics_summary=list(review_surface.get("summary_lines") or []),
             detail_lineage_summary=[
                 str(digest.get("gap_summary") or ""),
+                str(digest.get("readiness_impact_summary") or ""),
+                str(digest.get("linked_readiness_summary") or ""),
                 *[str(item) for item in list(review_surface.get("detail_lines") or []) if str(item).strip()],
             ],
             phase_filters=list(review_surface.get("phase_filters") or []),
@@ -3975,11 +4010,15 @@ class AppFacade:
                 str(digest.get("missing_evidence_summary") or ""),
                 str(digest.get("blocker_summary") or ""),
                 str(digest.get("artifact_hash_summary") or ""),
+                str(digest.get("linked_measurement_phase_summary") or ""),
+                str(digest.get("next_required_artifacts_summary") or ""),
             ],
             artifact_paths=artifact_paths,
             detail_analytics_summary=list(review_surface.get("summary_lines") or []),
             detail_lineage_summary=[
                 str(digest.get("missing_evidence_summary") or ""),
+                str(digest.get("linked_measurement_phase_summary") or ""),
+                str(digest.get("next_required_artifacts_summary") or ""),
                 *[str(item) for item in list(review_surface.get("detail_lines") or []) if str(item).strip()],
             ],
             phase_filters=list(review_surface.get("phase_filters") or []),
