@@ -447,10 +447,20 @@ def test_measurement_phase_coverage_report_distinguishes_partial_vs_complete_ric
     assert "honesty boundary" in str(water_preseal_row.get("phase_boundary_digest") or "")
     assert "scope / method / uncertainty" not in str(water_preseal_row.get("non_claim_digest") or "")
     assert "boundary" in str(water_preseal_row.get("reviewer_guidance_digest") or "")
+    assert water_preseal_row["gap_classification"] == "conditioning_window_partial_payload"
+    assert water_preseal_row["gap_severity"] == "high"
+    assert "Water preseal window definition" in list(water_preseal_row.get("linked_method_confirmation_items") or [])
+    assert "Humidity reference window" in list(water_preseal_row.get("linked_uncertainty_inputs") or [])
+    assert "Humidity reference chain" in list(water_preseal_row.get("linked_traceability_stub_nodes") or [])
+    assert "traceability stub" in str(water_preseal_row.get("reviewer_next_step_digest") or "")
     assert "scope_definition_pack" in list(water_preseal_row.get("next_required_artifacts") or [])
     assert "method_confirmation_matrix" in list(water_preseal_row.get("next_required_artifacts") or [])
     assert any(
         str(item.get("artifact_type") or "") == "uncertainty_budget_stub"
+        for item in list(water_preseal_row.get("linked_readiness_artifact_refs") or [])
+    )
+    assert any(
+        str(item.get("artifact_type") or "") == "metrology_traceability_stub"
         for item in list(water_preseal_row.get("linked_readiness_artifact_refs") or [])
     )
     assert "not live gate" in str(water_preseal_row.get("non_claim_digest") or "")
@@ -459,6 +469,11 @@ def test_measurement_phase_coverage_report_distinguishes_partial_vs_complete_ric
     assert gas_pressure_row["payload_completeness"] == "complete"
     assert gas_pressure_row["missing_signal_layers"] == []
     assert "synthetic reviewer evidence only" in str(gas_pressure_row.get("phase_boundary_digest") or "")
+    assert gas_pressure_row["gap_classification"] == "payload_complete_synthetic_reviewer_anchor"
+    assert gas_pressure_row["gap_severity"] == "info"
+    assert "Gas pressure stabilization hold confirmation" in list(gas_pressure_row.get("linked_method_confirmation_items") or [])
+    assert "Reference gas value" in list(gas_pressure_row.get("linked_uncertainty_inputs") or [])
+    assert "Standard gas chain" in list(gas_pressure_row.get("linked_traceability_stub_nodes") or [])
     assert any(
         str(item.get("artifact_type") or "") == "reference_asset_registry"
         for item in list(gas_pressure_row.get("linked_readiness_artifact_refs") or [])
@@ -471,4 +486,80 @@ def test_measurement_phase_coverage_report_distinguishes_partial_vs_complete_ric
     assert report["raw"]["digest"]["payload_complete_phase_summary"] == "gas/pressure_stable"
     assert report["raw"]["digest"]["payload_partial_phase_summary"] == "water/preseal"
     assert "scope_definition_pack" in str(report["raw"]["digest"]["next_required_artifacts_summary"] or "")
+    assert "Water preseal window definition" in str(report["raw"]["digest"]["linked_method_confirmation_summary"] or "")
+    assert "Humidity reference window" in str(report["raw"]["digest"]["linked_uncertainty_input_summary"] or "")
+    assert "Humidity reference chain" in str(report["raw"]["digest"]["linked_traceability_stub_summary"] or "")
+    assert "conditioning_window_partial_payload / high" in str(report["raw"]["digest"]["gap_index_summary"] or "")
+    assert "traceability stub" in str(report["raw"]["digest"]["reviewer_next_step_summary"] or "")
     assert "preseal stays payload-partial" in str(report["raw"]["digest"]["phase_contrast_summary"] or "")
+
+
+def test_measurement_phase_coverage_report_tracks_gas_preseal_partial_gap_navigation() -> None:
+    gas_point = _point(22, route="co2")
+    water_point = _point(23, route="h2o")
+    samples = [
+        _sample(
+            gas_point,
+            seconds=0,
+            point_phase="preseal",
+            point_tag="synthetic_gas_preseal_partial_payload",
+            frame_status="simulation_payload_synthetic_preseal_partial",
+            co2_ppm=None,
+            co2_ratio_f=None,
+        ),
+        _sample(
+            gas_point,
+            seconds=8,
+            point_phase="preseal",
+            point_tag="synthetic_gas_preseal_partial_payload",
+            frame_status="simulation_payload_synthetic_preseal_partial",
+            co2_ppm=None,
+            co2_ratio_f=None,
+        ),
+        _sample(
+            water_point,
+            seconds=0,
+            point_phase="pressure_stable",
+            point_tag="synthetic_water_pressure_stable_complete",
+            frame_status="simulation_payload_synthetic_pressure_stable",
+        ),
+        _sample(
+            water_point,
+            seconds=8,
+            point_phase="pressure_stable",
+            point_tag="synthetic_water_pressure_stable_complete",
+            frame_status="simulation_payload_synthetic_pressure_stable",
+        ),
+    ]
+
+    report = build_measurement_phase_coverage_report(
+        run_id="run_gas_preseal_partial_gap_navigation",
+        samples=samples,
+        point_summaries=[],
+        artifact_paths={
+            "measurement_phase_coverage_report": MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME,
+            "measurement_phase_coverage_report_markdown": MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME,
+            "multi_source_stability_evidence": MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME,
+            "state_transition_evidence": "state_transition_evidence.json",
+            "simulation_evidence_sidecar_bundle": SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME,
+        },
+        synthetic_trace_provenance={"summary": "measurement_trace_rich_v1 synthetic payload"},
+    )
+
+    rows_by_key = {
+        str(row.get("phase_route_key") or ""): dict(row)
+        for row in list(report["raw"].get("phase_rows") or [])
+    }
+    gas_preseal_row = rows_by_key["gas:preseal"]
+
+    assert gas_preseal_row["coverage_bucket"] == "actual_simulated_run_with_payload_partial"
+    assert gas_preseal_row["payload_completeness"] == "partial"
+    assert gas_preseal_row["missing_signal_layers"] == ["output"]
+    assert gas_preseal_row["gap_classification"] == "conditioning_window_partial_payload"
+    assert gas_preseal_row["gap_severity"] == "high"
+    assert "Gas preseal window definition" in list(gas_preseal_row.get("linked_method_confirmation_items") or [])
+    assert "Reference gas window" in list(gas_preseal_row.get("linked_uncertainty_inputs") or [])
+    assert "Standard gas chain" in list(gas_preseal_row.get("linked_traceability_stub_nodes") or [])
+    assert "preseal partial" in str(gas_preseal_row.get("reviewer_next_step_digest") or "").lower()
+    assert "analyzer_raw" not in list(gas_preseal_row.get("missing_signal_layers") or [])
+    assert "released measurement output" in str(gas_preseal_row.get("phase_boundary_digest") or "")

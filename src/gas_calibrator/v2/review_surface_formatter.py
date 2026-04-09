@@ -128,10 +128,27 @@ _REVIEW_SURFACE_PREFIX_LABELS = {
         "payload \u5b8c\u6574\u5ea6",
     ),
     "phase gaps": ("results.review_center.detail.measurement.phase_gaps", "\u9636\u6bb5\u7f3a\u53e3"),
+    "blockers": ("results.review_center.detail.measurement.blockers", "\u5f53\u524d\u963b\u585e"),
     "next artifacts": ("results.review_center.detail.measurement.next_artifacts", "\u4e0b\u4e00\u6b65\u8865\u8bc1\u5de5\u4ef6"),
     "preseal partial guidance": (
         "results.review_center.detail.measurement.preseal_partial_guidance",
         "preseal \u90e8\u5206 payload \u63d0\u793a",
+    ),
+    "linked method confirmation items": (
+        "results.review_center.detail.measurement.linked_method_items",
+        "\u5173\u8054\u65b9\u6cd5\u786e\u8ba4\u6761\u76ee",
+    ),
+    "linked uncertainty inputs": (
+        "results.review_center.detail.measurement.linked_uncertainty_inputs",
+        "\u5173\u8054\u4e0d\u786e\u5b9a\u5ea6\u8f93\u5165",
+    ),
+    "linked traceability stub nodes": (
+        "results.review_center.detail.measurement.linked_traceability_nodes",
+        "\u5173\u8054\u6eaf\u6e90\u8282\u70b9",
+    ),
+    "reviewer next steps": (
+        "results.review_center.detail.measurement.reviewer_next_steps",
+        "\u5ba1\u9605\u4e0b\u4e00\u6b65",
     ),
     "phase contrast": (
         "results.review_center.detail.measurement.phase_contrast",
@@ -163,17 +180,35 @@ _REVIEW_SURFACE_PREFIX_LABELS = {
         "results.review_center.detail.readiness.linked_measurement_gaps",
         "\u5173\u8054\u6d4b\u91cf\u7f3a\u53e3",
     ),
+    "gap index": ("results.review_center.detail.measurement.gap_index", "\u7f3a\u53e3\u7d22\u5f15"),
     "preseal partial gap": (
         "results.review_center.detail.readiness.preseal_partial_gap",
         "preseal \u90e8\u5206 payload \u7f3a\u53e3",
     ),
     "linked artifacts": ("results.review_center.detail.readiness.linked_artifacts", "\u5173\u8054\u5de5\u4ef6"),
+    "linked method confirmation items": (
+        "results.review_center.detail.readiness.linked_method_items",
+        "\u5173\u8054\u65b9\u6cd5\u786e\u8ba4\u6761\u76ee",
+    ),
+    "linked uncertainty inputs": (
+        "results.review_center.detail.readiness.linked_uncertainty_inputs",
+        "\u5173\u8054\u4e0d\u786e\u5b9a\u5ea6\u8f93\u5165",
+    ),
+    "linked traceability nodes": (
+        "results.review_center.detail.readiness.linked_traceability_nodes",
+        "\u5173\u8054\u6eaf\u6e90\u8282\u70b9",
+    ),
     "missing evidence": ("results.review_center.detail.readiness.missing_evidence", "\u4ecd\u7f3a\u8bc1\u636e"),
     "blockers": ("results.review_center.detail.readiness.blockers", "\u5f53\u524d\u963b\u585e"),
+    "gap reason": ("results.review_center.detail.readiness.gap_reason", "\u7f3a\u53e3\u539f\u56e0"),
     "readiness status": ("results.review_center.detail.readiness.status", "\u5c31\u7eea\u72b6\u6001"),
     "next required artifacts": (
         "results.review_center.detail.readiness.next_artifacts",
         "\u4e0b\u4e00\u6b65\u8865\u8bc1\u5de5\u4ef6",
+    ),
+    "reviewer next step": (
+        "results.review_center.detail.readiness.reviewer_next_step",
+        "\u5ba1\u9605\u4e0b\u4e00\u6b65",
     ),
     "non-claim digest": (
         "results.review_center.detail.readiness.non_claim",
@@ -354,6 +389,10 @@ def _display_route_phase(row: dict[str, Any]) -> str:
     return f"{route}/{phase}"
 
 
+def _display_text_list(values: list[Any]) -> str:
+    return " | ".join(str(item).strip() for item in list(values or []) if str(item).strip()) or t("common.none")
+
+
 def build_measurement_review_digest_lines(payload: dict[str, Any]) -> dict[str, list[str]]:
     raw = dict(payload.get("raw") or payload or {})
     digest = dict(raw.get("digest") or payload.get("digest") or {})
@@ -381,9 +420,34 @@ def build_measurement_review_digest_lines(payload: dict[str, Any]) -> dict[str, 
             default=f"下一步补证工件：{str(digest.get('next_required_artifacts_summary') or t('common.none'))}",
         ),
         t(
+            "results.review_center.detail.measurement.blockers_line",
+            value=str(digest.get("blocker_summary") or t("common.none")),
+            default=f"当前阻塞：{str(digest.get('blocker_summary') or t('common.none'))}",
+        ),
+        t(
             "results.review_center.detail.measurement.preseal_partial_guidance_line",
             value=str(digest.get("preseal_partial_guidance_summary") or t("common.none")),
             default=f"preseal 部分 payload 提示：{str(digest.get('preseal_partial_guidance_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.measurement.linked_method_items_line",
+            value=str(digest.get("linked_method_confirmation_summary") or t("common.none")),
+            default=f"关联方法确认条目：{str(digest.get('linked_method_confirmation_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.measurement.linked_uncertainty_inputs_line",
+            value=str(digest.get("linked_uncertainty_input_summary") or t("common.none")),
+            default=f"关联不确定度输入：{str(digest.get('linked_uncertainty_input_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.measurement.linked_traceability_nodes_line",
+            value=str(digest.get("linked_traceability_stub_summary") or t("common.none")),
+            default=f"关联溯源节点：{str(digest.get('linked_traceability_stub_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.measurement.reviewer_next_steps_line",
+            value=str(digest.get("reviewer_next_step_summary") or t("common.none")),
+            default=f"审阅下一步：{str(digest.get('reviewer_next_step_summary') or t('common.none'))}",
         ),
         t(
             "results.review_center.detail.measurement.phase_contrast_line",
@@ -401,6 +465,11 @@ def build_measurement_review_digest_lines(payload: dict[str, Any]) -> dict[str, 
             "results.review_center.detail.measurement.linked_readiness_line",
             value=str(digest.get("linked_readiness_summary") or t("common.none")),
             default=f"关联就绪工件：{str(digest.get('linked_readiness_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.measurement.gap_index_line",
+            value=str(digest.get("gap_index_summary") or t("common.none")),
+            default=f"缺口索引：{str(digest.get('gap_index_summary') or t('common.none'))}",
         ),
     ]
     for row in phase_rows:
@@ -424,6 +493,26 @@ def build_measurement_review_digest_lines(payload: dict[str, Any]) -> dict[str, 
                     f"；影响 {str(row.get('readiness_impact_digest') or t('common.none'))}"
                     f"；下一步 {'、'.join(str(item).strip() for item in list(row.get('next_required_artifacts') or []) if str(item).strip()) or t('common.none')}"
                     f"；边界 {str(row.get('phase_boundary_digest') or t('common.none'))}"
+                ),
+            )
+        )
+        detail_lines.append(
+            t(
+                "results.review_center.detail.measurement.phase_navigation_line",
+                phase=route_phase,
+                method=_display_text_list(list(row.get("linked_method_confirmation_items") or [])),
+                uncertainty=_display_text_list(list(row.get("linked_uncertainty_inputs") or [])),
+                traceability=_display_text_list(list(row.get("linked_traceability_stub_nodes") or [])),
+                blockers=_display_text_list(list(row.get("blockers") or [])),
+                next=_display_text_list(list(row.get("next_required_artifacts") or [])),
+                reviewer_next_step=str(row.get("reviewer_next_step_digest") or t("common.none")),
+                default=(
+                    f"{route_phase}：方法 {_display_text_list(list(row.get('linked_method_confirmation_items') or []))}"
+                    f"；不确定度 {_display_text_list(list(row.get('linked_uncertainty_inputs') or []))}"
+                    f"；溯源 {_display_text_list(list(row.get('linked_traceability_stub_nodes') or []))}"
+                    f"；阻塞 {_display_text_list(list(row.get('blockers') or []))}"
+                    f"；下一步 {_display_text_list(list(row.get('next_required_artifacts') or []))}"
+                    f"；审阅下一步 {str(row.get('reviewer_next_step_digest') or t('common.none'))}"
                 ),
             )
         )
@@ -482,9 +571,34 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
             default=f"preseal 部分 payload 缺口：{str(digest.get('preseal_partial_gap_summary') or t('common.none'))}",
         ),
         t(
+            "results.review_center.detail.readiness.linked_method_items_line",
+            value=str(digest.get("linked_method_confirmation_items_summary") or t("common.none")),
+            default=f"关联方法确认条目：{str(digest.get('linked_method_confirmation_items_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.readiness.linked_uncertainty_inputs_line",
+            value=str(digest.get("linked_uncertainty_inputs_summary") or t("common.none")),
+            default=f"关联不确定度输入：{str(digest.get('linked_uncertainty_inputs_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.readiness.linked_traceability_nodes_line",
+            value=str(digest.get("linked_traceability_nodes_summary") or t("common.none")),
+            default=f"关联溯源节点：{str(digest.get('linked_traceability_nodes_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.readiness.gap_reason_line",
+            value=str(digest.get("gap_reason") or t("common.none")),
+            default=f"缺口原因：{str(digest.get('gap_reason') or t('common.none'))}",
+        ),
+        t(
             "results.review_center.detail.readiness.next_artifacts_line",
             value=str(digest.get("next_required_artifacts_summary") or t("common.none")),
             default=f"下一步补证工件：{str(digest.get('next_required_artifacts_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.readiness.reviewer_next_step_line",
+            value=str(digest.get("reviewer_next_step_digest") or t("common.none")),
+            default=f"审阅下一步：{str(digest.get('reviewer_next_step_digest') or t('common.none'))}",
         ),
         t(
             "results.review_center.detail.readiness.non_claim_line",

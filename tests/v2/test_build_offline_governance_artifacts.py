@@ -919,6 +919,9 @@ def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -
     certificate_summary = json.loads(
         (run_dir / recognition_readiness.CERTIFICATE_READINESS_SUMMARY_FILENAME).read_text(encoding="utf-8")
     )
+    traceability_stub = json.loads(
+        (run_dir / recognition_readiness.METROLOGY_TRACEABILITY_STUB_FILENAME).read_text(encoding="utf-8")
+    )
     uncertainty_stub = json.loads(
         (run_dir / recognition_readiness.UNCERTAINTY_BUDGET_STUB_FILENAME).read_text(encoding="utf-8")
     )
@@ -971,11 +974,24 @@ def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -
     assert audit_digest["artifact_type"] == "audit_readiness_digest"
     assert "file-artifact-first reviewer digest" in audit_digest["digest"]["summary"]
     assert audit_digest["linked_measurement_phase_artifacts"]
+    assert audit_digest["linked_measurement_phases"]
+    assert audit_digest["linked_measurement_gaps"]
     assert "linked_measurement_phase_summary" in audit_digest["digest"]
     assert "linked_measurement_gap_summary" in scope_summary["digest"]
+    assert "linked_method_confirmation_items_summary" in scope_summary["digest"]
+    assert "linked_uncertainty_inputs_summary" in scope_summary["digest"]
+    assert "linked_traceability_nodes_summary" in uncertainty_summary["digest"]
+    assert uncertainty_summary["linked_method_confirmation_items"]
+    assert uncertainty_summary["linked_uncertainty_inputs"]
+    assert audit_digest["reviewer_next_step_digest"]
+    assert scope_summary["gap_reason"]
     if "preseal_partial_gap_summary" in scope_summary["digest"]:
         assert scope_summary["digest"]["preseal_partial_gap_summary"]
     assert "next_required_artifacts_summary" in audit_digest["digest"]
+    assert traceability_stub["linked_traceability_nodes"]
+    assert "traceability" in str(traceability_stub.get("gap_reason") or "").lower() or str(
+        traceability_stub["digest"].get("gap_reason") or ""
+    ).lower()
 
     for payload_item in (scope_summary, certificate_summary, uncertainty_summary, audit_digest):
         assert payload_item["review_surface"]["summary_text"]

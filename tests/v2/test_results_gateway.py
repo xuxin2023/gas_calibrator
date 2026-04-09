@@ -993,6 +993,10 @@ def test_results_gateway_exposes_measurement_core_evidence_artifacts(tmp_path: P
     assert "richer simulation coverage only" in phase_coverage_json_row["note"]
     assert "payload-complete" in phase_coverage_json_row["measurement_phase_coverage_report_entry"]["digest"]["summary"]
     assert phase_coverage_json_row["measurement_phase_coverage_report_entry"]["linked_artifact_refs"]
+    assert phase_coverage_json_row["measurement_phase_coverage_report_entry"]["linked_method_confirmation_items"]
+    assert phase_coverage_json_row["measurement_phase_coverage_report_entry"]["linked_uncertainty_inputs"]
+    assert phase_coverage_json_row["measurement_phase_coverage_report_entry"]["linked_traceability_nodes"]
+    assert phase_coverage_json_row["measurement_phase_coverage_report_entry"]["reviewer_next_step_digest"]
     assert "next_required_artifacts" in phase_coverage_json_row["measurement_phase_coverage_report_entry"]
     assert "measurement_phase_coverage_report_entry" in phase_coverage_json_row
     assert "measurement_phase_coverage_report_entry" in phase_coverage_md_row
@@ -1072,6 +1076,10 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
         audit_row["audit_readiness_digest_entry"]["review_surface"]["anchor_id"]
         == "audit-readiness-digest"
     )
+    assert scope_row["scope_readiness_summary_entry"]["linked_method_confirmation_items"]
+    assert uncertainty_row["uncertainty_method_readiness_summary_entry"]["linked_uncertainty_inputs"]
+    assert audit_row["audit_readiness_digest_entry"]["linked_measurement_gaps"]
+    assert audit_row["audit_readiness_digest_entry"]["reviewer_next_step_digest"]
     for row in (scope_row, certificate_row, uncertainty_row, audit_row):
         note_text = str(row.get("note") or "").lower()
         assert "compliance" not in note_text
