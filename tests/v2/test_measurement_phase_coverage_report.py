@@ -224,7 +224,7 @@ def test_measurement_phase_coverage_report_preserves_signal_group_gaps_honestly(
     assert "h2o_signal" in water_row["missing_channels"]
     assert "h2o_ratio_raw" in water_row["available_channels"]
     assert water_row["missing_signal_layers"] == []
-    assert any("payload stays partial" in str(item) for item in list(water_row["blockers"] or []))
+    assert "partial_payload_not_phase_complete" in list(water_row.get("blocker_fragment_keys") or [])
     assert "synthetic provenance" in "\n".join(report["raw"]["review_surface"]["detail_lines"])
 
 
