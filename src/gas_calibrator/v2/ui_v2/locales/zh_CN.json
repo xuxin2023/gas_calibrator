@@ -312,12 +312,14 @@
       "overview": "运行概览",
       "algorithm_compare": "算法对比",
       "result_summary": "结果摘要",
+      "measurement_core": "measurement-core 摘要",
       "coefficient_summary": "系数摘要",
       "ai_summary": "AI 摘要",
       "residual_distribution": "残差分布",
       "no_overview": "暂无运行概览。",
       "no_algorithm_summary": "暂无算法摘要。",
       "no_result_summary": "暂无结果摘要。",
+      "no_measurement_core_summary": "暂无 measurement-core 摘要。",
       "no_coefficient_summary": "暂无系数摘要。",
       "no_ai_summary": "暂无 AI 摘要。",
       "review_center": "审阅中心"
@@ -1567,6 +1569,10 @@
         "taxonomy_preseal": "前封气：{value}",
         "taxonomy_postseal": "后封气：{value}",
         "taxonomy_stale_gauge": "压力参考陈旧：{value}",
+        "measurement_core_stability": "多源判稳 shadow：{value}",
+        "measurement_core_transition": "受控状态机 trace：{value}",
+        "measurement_core_phase_coverage": "measurement-core phase coverage：{value}",
+        "measurement_core_sidecar_contract": "sidecar-ready 合同：{value}",
         "workbench_evidence": "工作台诊断证据：{value}"
       }
     },
@@ -1869,6 +1875,11 @@
         "evidence_category": "证据类别",
         "boundary": "边界",
         "anchor": "锚点",
+        "route": "路由",
+        "signal_family": "信号家族",
+        "decision_result": "判定结果",
+        "policy_version": "策略版本",
+        "evidence_source": "证据来源",
         "count": "显示 {visible}/{total} 条",
         "all_types": "全部类型",
         "all_statuses": "全部状态",
@@ -1884,7 +1895,12 @@
         "all_standard_families": "全部标准家族",
         "all_evidence_categories": "全部证据类别",
         "all_boundaries": "全部边界",
-        "all_anchors": "全部锚点"
+        "all_anchors": "全部锚点",
+        "all_routes": "全部路由",
+        "all_signal_families": "全部信号家族",
+        "all_decision_results": "全部判定结果",
+        "all_policy_versions": "全部策略版本",
+        "all_evidence_sources": "全部证据来源"
       },
       "role": {
         "operator": "操作员",
@@ -1985,7 +2001,8 @@
         "resilience": "导出韧性",
         "workbench": "工作台",
         "analytics": "分析",
-        "offline_diagnostic": "离线诊断"
+        "offline_diagnostic": "离线诊断",
+        "measurement_phase_coverage": "measurement phase coverage"
       },
     "source_kind": {
       "run": "Run 证据",

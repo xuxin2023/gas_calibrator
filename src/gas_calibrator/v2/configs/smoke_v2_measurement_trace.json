@@ -1,0 +1,223 @@
+{
+  "devices": {
+    "pressure_controller": {
+      "enabled": true,
+      "port": "SIM-PACE5000",
+      "baud": 9600,
+      "timeout": 1.0,
+      "line_ending": "LF",
+      "query_line_endings": [
+        "LF",
+        "CRLF",
+        "CR"
+      ],
+      "pressure_queries": [
+        ":SENS:PRES:INL?",
+        ":SENS:PRES:CONT?",
+        ":SENS:PRES?",
+        ":MEAS:PRES?"
+      ]
+    },
+    "pressure_gauge": {
+      "enabled": true,
+      "port": "SIM-PARO",
+      "baud": 9600,
+      "timeout": 1.0,
+      "response_timeout_s": 2.2,
+      "dest_id": "01"
+    },
+    "dewpoint_meter": {
+      "enabled": true,
+      "port": "SIM-DEWPOINT",
+      "baud": 9600,
+      "station": "001"
+    },
+    "humidity_generator": {
+      "enabled": true,
+      "port": "SIM-GRZ5013",
+      "baud": 9600
+    },
+    "gas_analyzer": {
+      "enabled": true,
+      "port": "SIM-GA01",
+      "baud": 115200,
+      "device_id": "001",
+      "mode": 2,
+      "active_send": true,
+      "ftd_hz": 10,
+      "average_filter": 49,
+      "average_co2": 1,
+      "average_h2o": 1
+    },
+    "temperature_chamber": {
+      "enabled": true,
+      "port": "SIM-TEMP-CHAMBER",
+      "baud": 9600,
+      "addr": 1
+    },
+    "relay": {
+      "enabled": true,
+      "port": "SIM-RELAY-A",
+      "baud": 38400,
+      "addr": 1
+    },
+    "relay_8": {
+      "enabled": true,
+      "port": "SIM-RELAY-B",
+      "baud": 38400,
+      "addr": 1
+    }
+  },
+  "valves": {
+    "co2_path": 7,
+    "co2_path_group2": 16,
+    "gas_main": 11,
+    "h2o_path": 8,
+    "flow_switch": 10,
+    "hold": 9,
+    "relay_map": {
+      "7": {
+        "device": "relay",
+        "channel": 15
+      },
+      "8": {
+        "device": "relay_8",
+        "channel": 8
+      },
+      "9": {
+        "device": "relay_8",
+        "channel": 1
+      },
+      "10": {
+        "device": "relay_8",
+        "channel": 2
+      },
+      "11": {
+        "device": "relay_8",
+        "channel": 3
+      },
+      "16": {
+        "device": "relay",
+        "channel": 16
+      }
+    },
+    "co2_map": {
+      "0": 1,
+      "400": 3
+    },
+    "co2_map_group2": {}
+  },
+  "workflow": {
+    "collect_only": true,
+    "collect_only_fast_path": false,
+    "missing_pressure_policy": "carry_forward",
+    "h2o_carry_forward": true,
+    "restore_baseline_on_finish": true,
+    "route_mode": "h2o_then_co2",
+    "selected_temps_c": [
+      25.0
+    ],
+    "temperature_descending": false,
+    "skip_co2_ppm": [],
+    "humidity_generator": {
+      "ensure_run": true,
+      "min_flow_lpm": 0.1,
+      "tries": 1,
+      "wait_s": 0.2,
+      "poll_s": 0.05
+    },
+    "pressure": {
+      "pressurize_high_hpa": 1000.0,
+      "pressurize_wait_after_vent_off_s": 0.0,
+      "pressurize_timeout_s": 1.0,
+      "post_stable_sample_delay_s": 0.0,
+      "co2_post_stable_sample_delay_s": 0.0,
+      "co2_post_h2o_vent_off_wait_s": 0.0,
+      "vent_time_s": 0.0,
+      "vent_transition_timeout_s": 1.0,
+      "continuous_atmosphere_hold": true,
+      "vent_hold_interval_s": 0.1,
+      "stabilize_timeout_s": 2.0
+    },
+    "sampling": {
+      "count": 2,
+      "stable_count": 2,
+      "interval_s": 0.05,
+      "h2o_interval_s": 0.05,
+      "co2_interval_s": 0.05
+    },
+    "stability": {
+      "temperature": {
+        "tol": 1.0,
+        "window_s": 0.5,
+        "soak_after_reach_s": 0.0,
+        "timeout_s": 2.0,
+        "precondition_next_group_enabled": false,
+        "command_offset_c": 0.0,
+        "analyzer_chamber_temp_enabled": false,
+        "analyzer_chamber_temp_window_s": 0.5,
+        "analyzer_chamber_temp_span_c": 2.0,
+        "analyzer_chamber_temp_timeout_s": 2.0,
+        "analyzer_chamber_temp_first_valid_timeout_s": 0.5,
+        "analyzer_chamber_temp_poll_s": 0.1
+      },
+      "humidity_generator": {
+        "enabled": true,
+        "temp_tol_c": 2.0,
+        "rh_tol_pct": 8.0,
+        "rh_stable_window_s": 0.5,
+        "rh_stable_span_pct": 2.0,
+        "precondition_next_group_enabled": false,
+        "reach_confirm_count": 1,
+        "window_s": 0.5,
+        "timeout_s": 2.0,
+        "dewpoint_timeout_s": 2.0,
+        "poll_s": 0.1
+      },
+      "h2o_route": {
+        "preseal_soak_s": 0.1
+      },
+      "co2_route": {
+        "preseal_soak_s": 0.1,
+        "first_point_preseal_soak_s": 0.1,
+        "post_h2o_zero_ppm_soak_s": 0.1
+      },
+      "sensor": {
+        "enabled": true,
+        "co2_tol": 1000000.0,
+        "h2o_tol": 1000000.0,
+        "read_interval_s": 0.1,
+        "window_s": 0.5,
+        "timeout_s": 2.0,
+        "poll_s": 0.1
+      },
+      "dewpoint": {
+        "target_tol_c": 0.2,
+        "temp_match_tol_c": 0.55,
+        "rh_match_tol_pct": 5.5,
+        "window_s": 0.5,
+        "stability_tol_c": 1.0,
+        "timeout_s": 2.0,
+        "poll_s": 0.1,
+        "fluct_tol_c": 0.09,
+        "stable_decimals": 1
+      }
+    },
+    "water_first_all_temps": false,
+    "water_first_temp_gte": 100
+  },
+  "paths": {
+    "points_excel": "smoke_points_measurement_trace.json",
+    "output_dir": "../output/smoke_v2_measurement_trace",
+    "logs_dir": "../logs"
+  },
+  "coefficients": {
+    "enabled": false,
+    "auto_fit": false,
+    "model": "ratio_poly_rt_p",
+    "order": 2,
+    "fit_h2o": false,
+    "save_residuals": false,
+    "min_samples": 0
+  }
+}

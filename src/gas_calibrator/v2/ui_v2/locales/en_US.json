@@ -312,12 +312,14 @@
       "overview": "Run Overview",
       "algorithm_compare": "Algorithm Compare",
       "result_summary": "Result Summary",
+      "measurement_core": "Measurement-Core Summary",
       "coefficient_summary": "Coefficient Summary",
       "ai_summary": "AI Summary",
       "residual_distribution": "Residual Distribution",
       "no_overview": "No run overview yet.",
       "no_algorithm_summary": "No algorithm summary yet.",
       "no_result_summary": "No result summary yet.",
+      "no_measurement_core_summary": "No measurement-core summary yet.",
       "no_coefficient_summary": "No coefficient summary yet.",
       "no_ai_summary": "No AI summary yet.",
       "review_center": "Review Center"
@@ -1568,6 +1570,10 @@
         "taxonomy_preseal": "Pre-seal: {value}",
         "taxonomy_postseal": "Post-seal: {value}",
         "taxonomy_stale_gauge": "Pressure gauge stale metrics: {value}",
+        "measurement_core_stability": "Multi-source stability shadow: {value}",
+        "measurement_core_transition": "Controlled state trace: {value}",
+        "measurement_core_phase_coverage": "Measurement-core phase coverage: {value}",
+        "measurement_core_sidecar_contract": "Sidecar-ready contract: {value}",
         "workbench_evidence": "Workbench diagnostic evidence: {value}"
       }
     },
@@ -1874,6 +1880,7 @@
         "signal_family": "Signal Family",
         "decision_result": "Decision Result",
         "policy_version": "Policy Version",
+        "evidence_source": "Evidence Source",
         "count": "Showing {visible}/{total}",
         "all_types": "All Types",
         "all_statuses": "All Statuses",
@@ -1893,7 +1900,8 @@
         "all_routes": "All Routes",
         "all_signal_families": "All Signal Families",
         "all_decision_results": "All Decision Results",
-        "all_policy_versions": "All Policy Versions"
+        "all_policy_versions": "All Policy Versions",
+        "all_evidence_sources": "All Evidence Sources"
       },
       "role": {
         "operator": "Operator",
@@ -1994,7 +2002,8 @@
         "resilience": "Resilience",
         "workbench": "Workbench",
         "analytics": "Analytics",
-        "offline_diagnostic": "Offline Diagnostic"
+        "offline_diagnostic": "Offline Diagnostic",
+        "measurement_phase_coverage": "Measurement Phase Coverage"
       },
     "source_kind": {
       "run": "Run Evidence",
