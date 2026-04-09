@@ -19,6 +19,10 @@ from gas_calibrator.v2.core.engineering_isolation_admission_checklist import (
 from gas_calibrator.v2.core.stage3_real_validation_plan import (
     STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME,
 )
+from gas_calibrator.v2.core.measurement_phase_coverage import (
+    MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME,
+    MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME,
+)
 from gas_calibrator.v2.scripts.build_offline_governance_artifacts import rebuild_run
 from gas_calibrator.v2.ui_v2.i18n import t
 from gas_calibrator.v2.ui_v2.widgets.review_center_panel import ReviewCenterPanel
@@ -28,6 +32,11 @@ if str(SUPPORT_DIR) not in sys.path:
     sys.path.insert(0, str(SUPPORT_DIR))
 
 from ui_v2_support import build_fake_facade, make_root
+
+
+def _write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def _build_phase_transition_bridge_payload() -> dict:
@@ -302,6 +311,122 @@ def test_review_center_aggregates_multi_evidence_and_acceptance_readiness(tmp_pa
     assert follow_up_review_center["diagnostics"]["cache_hit"] is True
     reports = facade.get_reports_snapshot(results_snapshot=results)
     assert reports["review_center"]["evidence_items"]
+
+
+def test_review_center_surfaces_measurement_phase_payload_and_trace_only_summary(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    json_path = str((run_dir / MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME).resolve())
+    markdown_path = str((run_dir / MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME).resolve())
+    _write_json(
+        run_dir / MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME,
+        {
+            "artifact_type": "measurement_phase_coverage_report",
+            "generated_at": "2026-04-09T12:00:00+00:00",
+            "overall_status": "diagnostic_only",
+            "evidence_source": "simulated",
+            "evidence_state": "shadow_only",
+            "not_real_acceptance_evidence": True,
+            "artifact_paths": {
+                "measurement_phase_coverage_report": json_path,
+                "measurement_phase_coverage_report_markdown": markdown_path,
+            },
+            "digest": {
+                "summary": (
+                    "Step 2 tail / Stage 3 bridge | measurement phase coverage | "
+                    "payload-backed 3 | sample-backed 3 | trace-only 1 | model-only 0 | test-only 0 | gap 0"
+                ),
+                "payload_phase_summary": (
+                    "ambient/ambient_diagnostic | ambient/sample_ready | system/recovery_retry"
+                ),
+                "actual_phase_summary": (
+                    "ambient/ambient_diagnostic | ambient/sample_ready | ambient/pressure_stable | system/recovery_retry"
+                ),
+                "trace_only_phase_summary": "ambient/pressure_stable",
+                "coverage_summary": (
+                    "ambient/ambient_diagnostic=actual_simulated_run_with_payload | "
+                    "ambient/sample_ready=actual_simulated_run_with_payload | "
+                    "ambient/pressure_stable=trace_only_not_evaluated | "
+                    "system/recovery_retry=actual_simulated_run_with_payload"
+                ),
+                "gap_summary": "no uncovered phases",
+            },
+            "review_surface": {
+                "summary_text": (
+                    "Step 2 tail / Stage 3 bridge | measurement phase coverage | "
+                    "payload-backed 3 | sample-backed 3 | trace-only 1 | model-only 0 | test-only 0 | gap 0"
+                ),
+                "summary_lines": [
+                    "payload-backed phases: ambient/ambient_diagnostic | ambient/sample_ready | system/recovery_retry",
+                    "trace-only phases: ambient/pressure_stable",
+                    "payload completeness: complete 3 | trace_only 1",
+                ],
+                "detail_lines": [
+                    "provenance summary: synthetic_sample_payload 3 | synthetic_trace_only 1",
+                    "synthetic provenance: richer measurement trace remains simulation-only and does not claim real-device provenance",
+                    "boundary: Step 2 tail / Stage 3 bridge",
+                    "boundary: simulation / offline / headless only",
+                    "boundary: not real acceptance",
+                    "boundary: cannot replace real metrology validation",
+                    "boundary: shadow evaluation only",
+                    "boundary: does not modify live sampling gate by default",
+                ],
+                "phase_filters": [
+                    "ambient_diagnostic",
+                    "sample_ready",
+                    "pressure_stable",
+                    "recovery_retry",
+                ],
+                "route_filters": ["ambient", "system"],
+                "signal_family_filters": ["reference", "analyzer_raw", "output", "data_quality"],
+                "decision_result_filters": [
+                    "actual_simulated_run_with_payload",
+                    "trace_only_not_evaluated",
+                ],
+                "policy_version_filters": ["measurement_trace_rich_v1"],
+                "evidence_source_filters": [
+                    "actual_simulated_run_with_payload",
+                    "trace_only_not_evaluated",
+                ],
+                "boundary_filters": [
+                    "simulation / offline / headless only",
+                    "shadow evaluation only",
+                ],
+                "anchor_id": "measurement-phase-coverage-report",
+                "anchor_label": "Measurement phase coverage report",
+            },
+        },
+    )
+    (run_dir / MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME).write_text(
+        "# measurement phase coverage\n",
+        encoding="utf-8",
+    )
+
+    review_center = facade.build_results_snapshot()["review_center"]
+    measurement_item = next(
+        item for item in review_center["evidence_items"] if item.get("type") == "measurement_phase_coverage"
+    )
+
+    assert "payload-backed 3" in str(measurement_item.get("summary") or "")
+    assert "trace-only 1" in str(measurement_item.get("summary") or "")
+    assert any(
+        "payload-backed phases: ambient/ambient_diagnostic | ambient/sample_ready | system/recovery_retry"
+        in str(line)
+        for line in list(measurement_item.get("detail_analytics_summary") or [])
+    )
+    assert any(
+        "trace-only phases: ambient/pressure_stable" in str(line)
+        for line in list(measurement_item.get("detail_analytics_summary") or [])
+    )
+    assert any(
+        "synthetic provenance: richer measurement trace remains simulation-only" in str(line)
+        for line in list(measurement_item.get("detail_lineage_summary") or [])
+    )
+    assert "actual_simulated_run_with_payload" in list(measurement_item.get("evidence_source_filters") or [])
+    assert "trace_only_not_evaluated" in list(measurement_item.get("evidence_source_filters") or [])
+    assert measurement_item.get("anchor_id") == "measurement-phase-coverage-report"
+    assert "acceptance_level" not in str(measurement_item.get("detail_text") or "")
+    assert "compliance" not in str(measurement_item.get("detail_text") or "").lower()
 
 
 def test_review_center_panel_filters_by_type_status_and_source_without_implying_real_acceptance() -> None:
