@@ -9,6 +9,11 @@ from gas_calibrator.v2.core.multi_source_stability import (
     MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME,
     SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME,
 )
+from gas_calibrator.v2.core.phase_taxonomy_contract import (
+    METHOD_CONFIRMATION_FAMILY,
+    UNCERTAINTY_INPUT_FAMILY,
+)
+from gas_calibrator.v2.ui_v2.i18n import display_taxonomy_value
 
 SUPPORT_DIR = Path(__file__).resolve().parent
 if str(SUPPORT_DIR) not in sys.path:
@@ -160,12 +165,12 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
     )
     assert any(
         "关联方法确认条目" in str(line)
-        and "Water preseal window definition" in str(line)
+        and display_taxonomy_value(METHOD_CONFIRMATION_FAMILY, "water_preseal_window_definition") in str(line)
         for line in list(report_payload["recognition_readiness_evidence"]["detail_lines"] or [])
     )
     assert any(
         "关联不确定度输入" in str(line)
-        and "Preseal pressure term" in str(line)
+        and display_taxonomy_value(UNCERTAINTY_INPUT_FAMILY, "preseal_pressure_term") in str(line)
         for line in list(report_payload["measurement_core_evidence"]["summary_lines"] or [])
     )
     assert report_payload["publish_primary_latest_allowed"] is False

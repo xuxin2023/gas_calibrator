@@ -856,6 +856,7 @@ def build_measurement_phase_coverage_report(
         "run_id": str(run_id or ""),
         "artifact_role": "diagnostic_analysis",
         "evidence_source": "simulated",
+        "taxonomy_contract_version": TAXONOMY_CONTRACT_VERSION,
         "not_real_acceptance_evidence": True,
         "boundary_statements": list(CANONICAL_BOUNDARY_STATEMENTS),
         "phase_rows": phase_rows,

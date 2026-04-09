@@ -6,7 +6,8 @@ import sys
 from gas_calibrator.v2.config import summarize_step2_config_safety
 from gas_calibrator.v2.core.measurement_phase_coverage import MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME
 from gas_calibrator.v2.core.multi_source_stability import MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME
-from gas_calibrator.v2.ui_v2.i18n import t
+from gas_calibrator.v2.core.phase_taxonomy_contract import UNCERTAINTY_INPUT_FAMILY
+from gas_calibrator.v2.ui_v2.i18n import display_taxonomy_value, t
 
 SUPPORT_DIR = Path(__file__).resolve().parent
 if str(SUPPORT_DIR) not in sys.path:
@@ -111,7 +112,7 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
     )
     assert any(
         "关联不确定度输入" in str(line)
-        and "Preseal pressure term" in str(line)
+        and display_taxonomy_value(UNCERTAINTY_INPUT_FAMILY, "preseal_pressure_term") in str(line)
         for line in list(workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["summary_lines"] or [])
     )
     assert workbench["workbench"]["live_snapshot_evidence"]["point_taxonomy_summary"]["pressure_mode_summary"] == (
