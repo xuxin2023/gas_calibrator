@@ -588,6 +588,7 @@ def build_measurement_review_digest_lines(payload: dict[str, Any]) -> dict[str, 
         for item in list(raw.get("phase_rows") or payload.get("phase_rows") or [])
         if isinstance(item, dict)
     ]
+    gap_rows: list[dict[str, Any]] = []
     linked_method_summary = _phase_field_summary(
         phase_rows,
         family=METHOD_CONFIRMATION_FAMILY,
@@ -689,6 +690,9 @@ def build_measurement_review_digest_lines(payload: dict[str, Any]) -> dict[str, 
     ]
     for row in phase_rows:
         route_phase = _display_route_phase(row)
+        next_artifacts_text = _display_text_list(list(row.get("next_required_artifacts") or []))
+        blockers_text = _display_text_list(list(row.get("blockers") or []))
+        reviewer_next_step_text = _display_reviewer_next_step(row)
         detail_lines.append(
             t(
                 "results.review_center.detail.measurement.phase_guidance_line",
@@ -715,12 +719,26 @@ def build_measurement_review_digest_lines(payload: dict[str, Any]) -> dict[str, 
             t(
                 "results.review_center.detail.measurement.phase_navigation_line",
                 phase=route_phase,
-                method=_display_text_list(list(row.get("linked_method_confirmation_items") or [])),
-                uncertainty=_display_text_list(list(row.get("linked_uncertainty_inputs") or [])),
-                traceability=_display_text_list(list(row.get("linked_traceability_stub_nodes") or [])),
-                blockers=_display_text_list(list(row.get("blockers") or [])),
-                next=_display_text_list(list(row.get("next_required_artifacts") or [])),
-                reviewer_next_step=str(row.get("reviewer_next_step_digest") or t("common.none")),
+                method=_display_taxonomy_list(
+                    METHOD_CONFIRMATION_FAMILY,
+                    key_values=list(row.get("linked_method_confirmation_item_keys") or []),
+                    display_values=list(row.get("linked_method_confirmation_items") or []),
+                ),
+                uncertainty=_display_taxonomy_list(
+                    UNCERTAINTY_INPUT_FAMILY,
+                    key_values=list(row.get("linked_uncertainty_input_keys") or []),
+                    display_values=list(row.get("linked_uncertainty_inputs") or []),
+                ),
+                traceability=_display_taxonomy_list(
+                    TRACEABILITY_NODE_FAMILY,
+                    key_values=list(row.get("linked_traceability_node_keys") or []),
+                    display_values=list(
+                        row.get("linked_traceability_nodes") or row.get("linked_traceability_stub_nodes") or []
+                    ),
+                ),
+                blockers=blockers_text,
+                next=next_artifacts_text,
+                reviewer_next_step=reviewer_next_step_text,
                 default=(
                     f"{route_phase}：方法 {_display_text_list(list(row.get('linked_method_confirmation_items') or []))}"
                     f"；不确定度 {_display_text_list(list(row.get('linked_uncertainty_inputs') or []))}"
@@ -731,16 +749,55 @@ def build_measurement_review_digest_lines(payload: dict[str, Any]) -> dict[str, 
                 ),
             )
         )
+        if str(row.get("gap_classification") or "").strip() or str(row.get("gap_severity") or "").strip():
+            detail_lines.append(
+                t(
+                    "results.review_center.detail.measurement.phase_gap_line",
+                    phase=route_phase,
+                    classification=_display_gap_classification(row),
+                    severity=_display_gap_severity(row),
+                    default=(
+                        f"{route_phase}：差距分类 {_display_gap_classification(row)}"
+                        f"；差距等级 {_display_gap_severity(row)}"
+                    ),
+                )
+            )
         comparison_digest = str(row.get("comparison_digest") or "").strip()
         if comparison_digest:
             detail_lines.append(
                 t(
                     "results.review_center.detail.measurement.phase_comparison_line",
                     phase=route_phase,
-                    value=comparison_digest,
+                    value=humanize_review_surface_text(comparison_digest),
                     default=f"{route_phase} 对照：{comparison_digest}",
                 )
             )
+    for row in gap_rows:
+        route_phase = str(row.get("route_phase") or "").strip()
+        if not route_phase:
+            continue
+        detail_lines.append(
+            t(
+                "results.review_center.detail.measurement.phase_gap_line",
+                phase=route_phase,
+                classification=display_taxonomy_value(
+                    GAP_CLASSIFICATION_FAMILY,
+                    row.get("gap_classification"),
+                    default=str(row.get("gap_classification_label") or row.get("gap_classification") or t("common.none")),
+                ),
+                severity=display_taxonomy_value(
+                    GAP_SEVERITY_FAMILY,
+                    row.get("gap_severity"),
+                    default=str(row.get("gap_severity_label") or row.get("gap_severity") or t("common.none")),
+                ),
+                default=(
+                    f"{route_phase}：差距分类 "
+                    f"{display_taxonomy_value(GAP_CLASSIFICATION_FAMILY, row.get('gap_classification'), default=str(row.get('gap_classification_label') or row.get('gap_classification') or t('common.none')))}"
+                    f"；差距等级 "
+                    f"{display_taxonomy_value(GAP_SEVERITY_FAMILY, row.get('gap_severity'), default=str(row.get('gap_severity_label') or row.get('gap_severity') or t('common.none')))}"
+                ),
+            )
+        )
     return {
         "summary_lines": _dedupe_lines(summary_lines),
         "detail_lines": _dedupe_lines(detail_lines),
@@ -874,6 +931,16 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
             "results.review_center.detail.readiness.linked_traceability_nodes_line",
             value=linked_traceability_summary,
             default=f"关联溯源节点：{str(digest.get('linked_traceability_nodes_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.readiness.linked_gap_classification_line",
+            value=linked_gap_classification_summary,
+            default=f"关联差距分类：{linked_gap_classification_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.linked_gap_severity_line",
+            value=linked_gap_severity_summary,
+            default=f"关联差距等级：{linked_gap_severity_summary}",
         ),
         t(
             "results.review_center.detail.readiness.gap_reason_line",
