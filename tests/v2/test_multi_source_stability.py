@@ -9,6 +9,7 @@ from gas_calibrator.v2.core.multi_source_stability import (
     build_multi_source_stability_evidence,
     build_simulation_evidence_sidecar_bundle,
 )
+from gas_calibrator.v2.core.measurement_phase_coverage import build_measurement_phase_coverage_report
 
 
 def _point(
@@ -192,20 +193,42 @@ def test_simulation_evidence_sidecar_bundle_stays_contract_only() -> None:
     ]
     stability = build_multi_source_stability_evidence(run_id="run_sidecar", samples=samples, point_summaries=point_summaries)
     transition = build_state_transition_evidence(run_id="run_sidecar", samples=samples, point_summaries=point_summaries)
+    phase_coverage = build_measurement_phase_coverage_report(
+        run_id="run_sidecar",
+        samples=samples,
+        point_summaries=point_summaries,
+        multi_source_stability_evidence=stability,
+        state_transition_evidence=transition,
+    )
 
     bundle = build_simulation_evidence_sidecar_bundle(
         run_id="run_sidecar",
         multi_source_stability_evidence=stability,
         state_transition_evidence=transition,
+        measurement_phase_coverage_report=phase_coverage,
         artifact_paths={"simulation_evidence_sidecar_bundle": SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME},
+        synthetic_trace_provenance={
+            "summary": "synthetic simulation trace only",
+            "contains_synthetic_channel_injection": False,
+            "trace_profile": "smoke_v2_measurement_trace",
+        },
     )
 
+    assert bundle["schema_version"] == "1.1"
+    assert bundle["bundle_type"] == "simulation_evidence_sidecar_bundle"
     assert bundle["artifact_type"] == "simulation_evidence_sidecar_bundle"
     assert bundle["artifact_paths"]["simulation_evidence_sidecar_bundle"].endswith(
         SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME
     )
     assert bundle["stores"]["stability_windows"]
     assert bundle["stores"]["state_transition_logs"]
+    assert bundle["phase_index"]
+    assert bundle["policy_registry_summary"]["stability_policy_versions"] >= 1
+    assert "Step 2 tail / Stage 3 bridge" in bundle["coverage_digest"]["summary"]
+    assert bundle["coverage_digest"]["actual_phase_summary"] != "--"
+    assert bundle["primary_evidence_chain"] is False
+    assert bundle["future_database_intake_ready"] is True
+    assert bundle["synthetic_trace_provenance"]["trace_profile"] == "smoke_v2_measurement_trace"
     assert "future database intake / sidecar-ready" in bundle["boundary_statements"]
     assert "not the primary evidence chain" in bundle["boundary_statements"]
     assert "simulation / offline / headless only" in bundle["digest"]["summary"]

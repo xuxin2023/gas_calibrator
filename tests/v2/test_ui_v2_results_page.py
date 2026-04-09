@@ -22,6 +22,7 @@ def test_results_page_displays_artifact_sections() -> None:
                 "result_summary_text": "结果文件：已生成",
                 "coefficient_summary_text": "calibration_coefficients.xlsx",
                 "qc_summary_text": "质控摘要：运行门禁 warn | 点级门禁 warn\n证据边界：仅供 simulation/offline 审阅，不代表 real acceptance evidence。",
+                "measurement_core_summary_text": "measurement-core phase coverage: ambient / preseal / pressure_stable / sample_ready",
                 "ai_summary_text": "# AI 运行摘要\n运行状态稳定。",
                 "review_center": {
                     "operator_focus": {"summary": "最近执行健康"},
@@ -100,6 +101,7 @@ def test_results_page_displays_artifact_sections() -> None:
         assert "coefficients" in page.coefficient_summary.get("1.0", "end")
         assert "质控摘要" in page.qc_summary.get("1.0", "end")
         assert "不代表 real acceptance evidence" in page.qc_summary.get("1.0", "end")
+        assert "measurement-core phase coverage" in page.measurement_core_summary.get("1.0", "end")
         assert "运行状态稳定" in page.ai_summary.get("1.0", "end")
         assert page.review_center.risk_var.get()
         assert len(page.review_center.source_tree.get_children()) == 1
@@ -126,6 +128,7 @@ def test_results_page_renders_measurement_core_review_filters() -> None:
                 "result_summary_text": "multi-source stability shadow ready",
                 "coefficient_summary_text": "coefficients",
                 "qc_summary_text": "simulation-only",
+                "measurement_core_summary_text": "measurement-core phase coverage: pressure_stable only",
                 "ai_summary_text": "shadow evaluation only",
                 "review_center": {
                     "operator_focus": {"summary": "operator"},
@@ -151,6 +154,7 @@ def test_results_page_renders_measurement_core_review_filters() -> None:
                         "selected_signal_family": "analyzer_raw",
                         "selected_decision_result": "partial_coverage_gap",
                         "selected_policy_version": "shadow_gas_v1",
+                        "selected_evidence_source": "actual_simulated_run",
                         "type_options": [
                             {"id": "all", "label": "All Types"},
                             {"id": "stability", "label": "Stability"},
@@ -173,6 +177,9 @@ def test_results_page_renders_measurement_core_review_filters() -> None:
                         "signal_family_options": [{"id": "analyzer_raw", "label": "analyzer_raw"}],
                         "decision_result_options": [{"id": "partial_coverage_gap", "label": "partial_coverage_gap"}],
                         "policy_version_options": [{"id": "shadow_gas_v1", "label": "shadow_gas_v1"}],
+                        "evidence_source_options": [
+                            {"id": "actual_simulated_run", "label": "actual_simulated_run"}
+                        ],
                     },
                     "evidence_items": [
                         {
@@ -201,6 +208,7 @@ def test_results_page_renders_measurement_core_review_filters() -> None:
                             "signal_family_filters": ["analyzer_raw"],
                             "decision_result_filters": ["partial_coverage_gap"],
                             "policy_version_filters": ["shadow_gas_v1"],
+                            "evidence_source_filters": ["actual_simulated_run"],
                             "anchor_id": "multi-source-stability-evidence",
                             "anchor_label": "multi-source-stability-evidence",
                         },
@@ -230,6 +238,7 @@ def test_results_page_renders_measurement_core_review_filters() -> None:
                             "signal_family_filters": ["output"],
                             "decision_result_filters": ["stable_shadow_pass"],
                             "policy_version_filters": ["shadow_water_v1"],
+                            "evidence_source_filters": ["model_only"],
                             "anchor_id": "multi-source-stability-evidence",
                             "anchor_label": "multi-source-stability-evidence",
                         }
@@ -250,5 +259,7 @@ def test_results_page_renders_measurement_core_review_filters() -> None:
         assert tuple(page.review_center.signal_family_filter["values"]) == ("analyzer_raw",)
         assert tuple(page.review_center.decision_result_filter["values"]) == ("partial_coverage_gap",)
         assert tuple(page.review_center.policy_version_filter["values"]) == ("shadow_gas_v1",)
+        assert tuple(page.review_center.evidence_source_filter["values"]) == ("actual_simulated_run",)
+        assert "pressure_stable only" in page.measurement_core_summary.get("1.0", "end")
     finally:
         root.destroy()

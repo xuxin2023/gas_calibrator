@@ -28,6 +28,10 @@ from gas_calibrator.v2.core.multi_source_stability import (
     MULTI_SOURCE_STABILITY_EVIDENCE_MARKDOWN_FILENAME,
     SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME,
 )
+from gas_calibrator.v2.core.measurement_phase_coverage import (
+    MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME,
+    MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME,
+)
 from gas_calibrator.v2.ui_v2.artifact_registry_governance import build_role_by_key
 from gas_calibrator.v2.scripts.build_offline_governance_artifacts import rebuild_run
 
@@ -931,16 +935,21 @@ def test_results_gateway_exposes_measurement_core_evidence_artifacts(tmp_path: P
     transition_json_path = str((run_dir / STATE_TRANSITION_EVIDENCE_FILENAME).resolve())
     transition_md_path = str((run_dir / STATE_TRANSITION_EVIDENCE_MARKDOWN_FILENAME).resolve())
     sidecar_path = str((run_dir / SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME).resolve())
+    phase_coverage_json_path = str((run_dir / MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME).resolve())
+    phase_coverage_md_path = str((run_dir / MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME).resolve())
 
     assert Path(stability_json_path).exists()
     assert Path(stability_md_path).exists()
     assert Path(transition_json_path).exists()
     assert Path(transition_md_path).exists()
     assert Path(sidecar_path).exists()
+    assert Path(phase_coverage_json_path).exists()
+    assert Path(phase_coverage_md_path).exists()
 
     assert results_payload["multi_source_stability_evidence"]["artifact_type"] == "multi_source_stability_evidence"
     assert results_payload["state_transition_evidence"]["artifact_type"] == "state_transition_evidence"
     assert results_payload["simulation_evidence_sidecar_bundle"]["artifact_type"] == "simulation_evidence_sidecar_bundle"
+    assert results_payload["measurement_phase_coverage_report"]["artifact_type"] == "measurement_phase_coverage_report"
     assert "shadow evaluation only" in results_payload["multi_source_stability_evidence"]["boundary_statements"]
     assert "does not modify live sampling gate by default" in results_payload["state_transition_evidence"][
         "boundary_statements"
@@ -948,12 +957,18 @@ def test_results_gateway_exposes_measurement_core_evidence_artifacts(tmp_path: P
     assert "future database intake / sidecar-ready" in results_payload["simulation_evidence_sidecar_bundle"][
         "boundary_statements"
     ]
+    assert "measurement-core phase coverage" in results_payload["result_summary_text"]
+    assert "sidecar-ready contract" in results_payload["result_summary_text"]
+    assert "measurement-core phase coverage" in reports_payload["result_summary_text"]
+    assert "sidecar-ready contract" in reports_payload["result_summary_text"]
 
     stability_json_row = rows_by_path[stability_json_path]
     stability_md_row = rows_by_path[stability_md_path]
     transition_json_row = rows_by_path[transition_json_path]
     transition_md_row = rows_by_path[transition_md_path]
     sidecar_row = rows_by_path[sidecar_path]
+    phase_coverage_json_row = rows_by_path[phase_coverage_json_path]
+    phase_coverage_md_row = rows_by_path[phase_coverage_md_path]
 
     assert stability_json_row["artifact_key"] == "multi_source_stability_evidence"
     assert stability_json_row["artifact_role"] == "diagnostic_analysis"
@@ -962,10 +977,17 @@ def test_results_gateway_exposes_measurement_core_evidence_artifacts(tmp_path: P
     assert transition_md_row["artifact_key"] == "state_transition_evidence_markdown"
     assert sidecar_row["artifact_key"] == "simulation_evidence_sidecar_bundle"
     assert sidecar_row["artifact_role"] == "execution_summary"
+    assert phase_coverage_json_row["artifact_key"] == "measurement_phase_coverage_report"
+    assert phase_coverage_md_row["artifact_key"] == "measurement_phase_coverage_report_markdown"
+    assert phase_coverage_json_row["artifact_role"] == "diagnostic_analysis"
     assert "shadow evaluation only" in stability_json_row["role_status_display"]
     assert "does not modify live sampling gate by default" in stability_json_row["note"]
     assert "fixed canonical states" in transition_json_row["note"]
     assert "Future database intake only" in sidecar_row["note"]
+    assert "richer simulation coverage only" in phase_coverage_json_row["note"]
+    assert "measurement_phase_coverage_report_entry" in phase_coverage_json_row
+    assert "measurement_phase_coverage_report_entry" in phase_coverage_md_row
     assert "shadow_evaluation_results" not in stability_json_row["note"]
     assert "live_gate" not in stability_json_row["note"]
     assert "compliance" not in sidecar_row["note"].lower()
+    assert "acceptance_level" not in phase_coverage_json_row["note"]

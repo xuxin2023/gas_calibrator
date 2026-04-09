@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import sys
 
 from gas_calibrator.v2.config import summarize_step2_config_safety
+from gas_calibrator.v2.core.measurement_phase_coverage import MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME
 from gas_calibrator.v2.core.multi_source_stability import MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME
 from gas_calibrator.v2.ui_v2.i18n import t
 
@@ -96,6 +97,9 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
     assert workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["artifact_paths"][
         "multi_source_stability_evidence"
     ].endswith(MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME)
+    assert workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["artifact_paths"][
+        "measurement_phase_coverage_report"
+    ].endswith(MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME)
     assert workbench["workbench"]["live_snapshot_evidence"]["point_taxonomy_summary"]["pressure_mode_summary"] == (
         "ambient_open 2"
     )
@@ -345,6 +349,11 @@ def test_workbench_supports_view_layering_history_and_quick_scenarios(tmp_path: 
     assert any(
         str(item.get("id") or "") == "measurement_core"
         and MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME in str(item.get("body_text") or "")
+        for item in snapshot["engineer_summary"]["sections"]
+    )
+    assert any(
+        str(item.get("id") or "") == "measurement_core"
+        and MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME in str(item.get("body_text") or "")
         for item in snapshot["engineer_summary"]["sections"]
     )
     assert "workbench_route_trace" in snapshot["evidence"]["simulation_context"]

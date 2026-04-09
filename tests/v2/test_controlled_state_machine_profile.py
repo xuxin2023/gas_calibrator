@@ -98,6 +98,22 @@ def test_state_transition_evidence_captures_recovery_trace_and_boundaries() -> N
         run_id="run_trace",
         samples=samples,
         point_summaries=point_summaries,
+        route_trace_events=[
+            {
+                "point_index": 1,
+                "route": "co2",
+                "phase": "pressure_stable",
+                "event": "retry",
+                "point_tag": "sealed_gas",
+            },
+            {
+                "point_index": 1,
+                "route": "co2",
+                "phase": "sample_ready",
+                "event": "recovered",
+                "point_tag": "sealed_gas",
+            },
+        ],
         artifact_paths={
             "state_transition_evidence": STATE_TRANSITION_EVIDENCE_FILENAME,
             "state_transition_evidence_markdown": STATE_TRANSITION_EVIDENCE_MARKDOWN_FILENAME,
@@ -113,9 +129,14 @@ def test_state_transition_evidence_captures_recovery_trace_and_boundaries() -> N
     )
     assert "FAULT_CAPTURE" in states
     assert "SAFE_RECOVERY" in states
-    assert raw["phase_decision_logs"][0]["decision_result"] == "fault_capture_recovery"
+    assert any(
+        str(row.get("decision_result") or "") == "fault_capture_recovery"
+        for row in raw["phase_decision_logs"]
+    )
     assert raw["illegal_transitions"] == []
     assert raw["review_surface"]["anchor_id"] == "state-transition-evidence"
+    assert "actual_simulated_run" in raw["review_surface"]["evidence_source_filters"]
+    assert "gas" in raw["review_surface"]["route_filters"]
     assert "shadow evaluation only" in raw["boundary_statements"]
     assert "does not modify live sampling gate by default" in raw["boundary_statements"]
     assert "not real acceptance" in evidence["markdown"]
