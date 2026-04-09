@@ -356,9 +356,7 @@ def build_measurement_phase_coverage_report(
             and str(row.get("coverage_bucket") or "").strip() == _PAYLOAD_PARTIAL_BUCKET
         )
     ) or "no preseal payload-partial reviewer guidance recorded"
-    phase_contrast_summary = " | ".join(
-        _dedupe(str(row.get("comparison_digest") or "").strip() for row in phase_rows)
-    ) or "no complete-vs-partial phase contrast recorded"
+    phase_contrast_summary = _phase_contrast_summary(phase_rows)
     digest = {
         "summary": (
             "Step 2 tail / Stage 3 bridge | measurement phase coverage | "
@@ -1230,6 +1228,42 @@ def _phase_comparison_digest(*, row: dict[str, Any] | None, comparison_row: dict
         f"{route_family} route: preseal stays payload-partial because missing {preseal_missing}; "
         f"same-route pressure_stable reaches payload-complete because {stable_available} are all available"
     )
+
+
+def _phase_contrast_summary(phase_rows: list[dict[str, Any]]) -> str:
+    explicit = " | ".join(
+        _dedupe(str(row.get("comparison_digest") or "").strip() for row in list(phase_rows or []) if isinstance(row, dict))
+    )
+    if explicit:
+        return explicit
+    preseal_row = next(
+        (
+            dict(row)
+            for row in list(phase_rows or [])
+            if isinstance(row, dict)
+            and str(row.get("phase_name") or "").strip() == "preseal"
+            and str(row.get("coverage_bucket") or "").strip() == _PAYLOAD_PARTIAL_BUCKET
+        ),
+        {},
+    )
+    pressure_row = next(
+        (
+            dict(row)
+            for row in list(phase_rows or [])
+            if isinstance(row, dict)
+            and str(row.get("phase_name") or "").strip() == "pressure_stable"
+            and str(row.get("coverage_bucket") or "").strip() == _PAYLOAD_COMPLETE_BUCKET
+        ),
+        {},
+    )
+    if preseal_row and pressure_row:
+        preseal_missing = ", ".join(list(preseal_row.get("missing_signal_layers") or [])) or "--"
+        pressure_available = ", ".join(list(pressure_row.get("available_signal_layers") or [])) or "--"
+        return (
+            "preseal stays payload-partial because setup / conditioning evidence still keeps "
+            f"{preseal_missing} explicit; pressure_stable can reach payload-complete once {pressure_available} are all available"
+        )
+    return "no complete-vs-partial phase contrast recorded"
 
 
 def _coverage_bucket_display(bucket: str) -> str:

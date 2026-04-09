@@ -972,6 +972,9 @@ def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -
     assert "file-artifact-first reviewer digest" in audit_digest["digest"]["summary"]
     assert audit_digest["linked_measurement_phase_artifacts"]
     assert "linked_measurement_phase_summary" in audit_digest["digest"]
+    assert "linked_measurement_gap_summary" in scope_summary["digest"]
+    if "preseal_partial_gap_summary" in scope_summary["digest"]:
+        assert scope_summary["digest"]["preseal_partial_gap_summary"]
     assert "next_required_artifacts_summary" in audit_digest["digest"]
 
     for payload_item in (scope_summary, certificate_summary, uncertainty_summary, audit_digest):

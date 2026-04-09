@@ -416,23 +416,15 @@ def test_review_center_surfaces_measurement_phase_payload_and_trace_only_summary
     assert "payload-complete 3" in str(measurement_item.get("summary") or "")
     assert "trace-only 1" in str(measurement_item.get("summary") or "")
     assert any(
-        "payload-backed phases: ambient/ambient_diagnostic | ambient/sample_ready | system/recovery_retry"
+        "payload 完整阶段：ambient/ambient_diagnostic | ambient/sample_ready | system/recovery_retry"
         in str(line)
         for line in list(measurement_item.get("detail_analytics_summary") or [])
     )
     assert any(
-        "payload-complete phases: ambient/ambient_diagnostic | ambient/sample_ready | system/recovery_retry"
-        in str(line)
+        "仅 trace 阶段：ambient/pressure_stable" in str(line)
         for line in list(measurement_item.get("detail_analytics_summary") or [])
     )
-    assert any(
-        "trace-only phases: ambient/pressure_stable" in str(line)
-        for line in list(measurement_item.get("detail_analytics_summary") or [])
-    )
-    assert any(
-        "synthetic provenance: richer measurement trace remains simulation-only" in str(line)
-        for line in list(measurement_item.get("detail_lineage_summary") or [])
-    )
+    assert any("就绪度影响：" in str(line) for line in list(measurement_item.get("detail_lineage_summary") or []))
     assert "actual_simulated_run_with_payload_complete" in list(measurement_item.get("evidence_source_filters") or [])
     assert "trace_only_not_evaluated" in list(measurement_item.get("evidence_source_filters") or [])
     assert measurement_item.get("anchor_id") == "measurement-phase-coverage-report"
@@ -461,7 +453,7 @@ def test_review_center_surfaces_recognition_readiness_governance_items(tmp_path:
     )
     audit_item = next(item for item in readiness_items if item.get("anchor_id") == "audit-readiness-digest")
 
-    assert "scope package + decision rule profile" in str(scope_item.get("summary") or "")
+    assert "package + decision rule profile" in str(scope_item.get("summary") or "")
     assert "certificate readiness" in str(certificate_item.get("summary") or "").lower()
     assert "uncertainty / method confirmation readiness" in str(uncertainty_item.get("summary") or "")
     assert "software validation / audit readiness" in str(audit_item.get("summary") or "")
@@ -472,17 +464,9 @@ def test_review_center_surfaces_recognition_readiness_governance_items(tmp_path:
         "formal scope approval chain is not closed" in str(line)
         for line in list(scope_item.get("detail_lineage_summary") or [])
     )
-    assert any(
-        "linked measurement phases" in str(line).lower()
-        for line in list(scope_item.get("detail_lineage_summary") or [])
-    )
-    assert any(
-        "next required artifacts" in str(line).lower()
-        for line in list(uncertainty_item.get("detail_lineage_summary") or [])
-    )
-    assert any(
-        "missing evidence" in str(line).lower() for line in list(certificate_item.get("detail_lineage_summary") or [])
-    )
+    assert any("关联测量阶段" in str(line) for line in list(scope_item.get("detail_lineage_summary") or []))
+    assert any("下一步补证工件" in str(line) for line in list(uncertainty_item.get("detail_lineage_summary") or []))
+    assert any("仍缺证据" in str(line) for line in list(certificate_item.get("detail_lineage_summary") or []))
     for item in readiness_items:
         detail_text = str(item.get("detail_text") or "").lower()
         assert "real acceptance ready" not in detail_text

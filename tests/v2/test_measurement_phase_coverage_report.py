@@ -442,7 +442,11 @@ def test_measurement_phase_coverage_report_distinguishes_partial_vs_complete_ric
     assert water_preseal_row["coverage_bucket"] == "actual_simulated_run_with_payload_partial"
     assert water_preseal_row["payload_completeness"] == "partial"
     assert water_preseal_row["missing_signal_layers"] == ["output"]
+    assert "conditioning window" in str(water_preseal_row.get("missing_reason_digest") or "")
     assert water_preseal_row["evidence_provenance"] == "synthetic_sample_payload"
+    assert "honesty boundary" in str(water_preseal_row.get("phase_boundary_digest") or "")
+    assert "scope / method / uncertainty" not in str(water_preseal_row.get("non_claim_digest") or "")
+    assert "boundary" in str(water_preseal_row.get("reviewer_guidance_digest") or "")
     assert "scope_definition_pack" in list(water_preseal_row.get("next_required_artifacts") or [])
     assert "method_confirmation_matrix" in list(water_preseal_row.get("next_required_artifacts") or [])
     assert any(
@@ -454,6 +458,7 @@ def test_measurement_phase_coverage_report_distinguishes_partial_vs_complete_ric
     assert gas_pressure_row["coverage_bucket"] == "actual_simulated_run_with_payload_complete"
     assert gas_pressure_row["payload_completeness"] == "complete"
     assert gas_pressure_row["missing_signal_layers"] == []
+    assert "synthetic reviewer evidence only" in str(gas_pressure_row.get("phase_boundary_digest") or "")
     assert any(
         str(item.get("artifact_type") or "") == "reference_asset_registry"
         for item in list(gas_pressure_row.get("linked_readiness_artifact_refs") or [])
@@ -466,3 +471,4 @@ def test_measurement_phase_coverage_report_distinguishes_partial_vs_complete_ric
     assert report["raw"]["digest"]["payload_complete_phase_summary"] == "gas/pressure_stable"
     assert report["raw"]["digest"]["payload_partial_phase_summary"] == "water/preseal"
     assert "scope_definition_pack" in str(report["raw"]["digest"]["next_required_artifacts_summary"] or "")
+    assert "preseal stays payload-partial" in str(report["raw"]["digest"]["phase_contrast_summary"] or "")

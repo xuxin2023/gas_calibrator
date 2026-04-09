@@ -958,12 +958,13 @@ def test_results_gateway_exposes_measurement_core_evidence_artifacts(tmp_path: P
     assert "future database intake / sidecar-ready" in results_payload["simulation_evidence_sidecar_bundle"][
         "boundary_statements"
     ]
-    assert "measurement-core phase coverage" in results_payload["result_summary_text"]
-    assert "measurement-core payload-backed phases" in results_payload["result_summary_text"]
-    assert "measurement-core payload completeness" in results_payload["result_summary_text"]
+    assert "measurement phase coverage" in results_payload["result_summary_text"]
+    assert "payload 完整阶段" in results_payload["result_summary_text"]
+    assert "下一步补证工件" in results_payload["result_summary_text"]
     assert "sidecar-ready contract" in results_payload["result_summary_text"]
-    assert "measurement-core phase coverage" in reports_payload["result_summary_text"]
-    assert "measurement-core payload-backed phases" in reports_payload["result_summary_text"]
+    assert "measurement phase coverage" in reports_payload["result_summary_text"]
+    assert "payload 完整阶段" in reports_payload["result_summary_text"]
+    assert "下一步补证工件" in reports_payload["result_summary_text"]
     assert "sidecar-ready contract" in reports_payload["result_summary_text"]
     assert "payload_phase_summary" in results_payload["simulation_evidence_sidecar_bundle"]["coverage_digest"]
 
@@ -1033,12 +1034,12 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
         assert results_payload[key]["artifact_type"] == key
         assert results_payload[key]["not_real_acceptance_evidence"] is True
 
-    assert "scope readiness" in results_payload["result_summary_text"]
-    assert "reference/certificate readiness" in results_payload["result_summary_text"]
-    assert "uncertainty/method readiness" in results_payload["result_summary_text"]
-    assert "software validation / audit readiness" in results_payload["result_summary_text"]
-    assert "scope readiness" in reports_payload["result_summary_text"]
-    assert "software validation / audit readiness" in reports_payload["result_summary_text"]
+    assert "Scope Readiness Summary" in results_payload["result_summary_text"]
+    assert "当前覆盖：" in results_payload["result_summary_text"]
+    assert "仍缺证据：" in results_payload["result_summary_text"]
+    assert "当前阻塞：" in results_payload["result_summary_text"]
+    assert "Scope Readiness Summary" in reports_payload["result_summary_text"]
+    assert "当前阻塞：" in reports_payload["result_summary_text"]
 
     scope_row = rows_by_path[scope_json_path]
     certificate_row = rows_by_path[certificate_json_path]
