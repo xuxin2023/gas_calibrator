@@ -405,6 +405,22 @@ def build_measurement_phase_coverage_report(
         ),
         "artifact_paths": dict(artifact_path_map),
     }
+    linked_artifact_refs = _dedupe_artifact_refs(
+        [
+            {
+                "artifact_type": artifact_name,
+                "path": str(path_value or ""),
+            }
+            for artifact_name, path_value in artifact_path_map.items()
+            if str(path_value or "").strip()
+        ]
+        + [
+            dict(ref)
+            for row in phase_rows
+            for ref in list(row.get("linked_readiness_artifact_refs") or [])
+            if isinstance(ref, dict)
+        ]
+    )
     raw = {
         "schema_version": "1.1",
         "artifact_type": "measurement_phase_coverage_report",
@@ -420,6 +436,12 @@ def build_measurement_phase_coverage_report(
         "digest": digest,
         "review_surface": review_surface,
         "artifact_paths": artifact_path_map,
+        "linked_artifact_refs": linked_artifact_refs,
+        "next_required_artifacts": _dedupe(
+            artifact_name
+            for row in phase_rows
+            for artifact_name in list(row.get("next_required_artifacts") or [])
+        ),
         "overall_status": (
             "diagnostic_only"
             if (payload_backed_count + trace_only_count) == 0
@@ -1003,6 +1025,25 @@ def _count_rows_by_key(rows: list[dict[str, Any]], key: str) -> dict[str, int]:
             continue
         counts[text] = int(counts.get(text, 0) or 0) + 1
     return counts
+
+
+def _dedupe_artifact_refs(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
+    deduped: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for item in rows:
+        payload = dict(item or {})
+        key = (
+            str(payload.get("artifact_type") or "").strip(),
+            str(payload.get("path") or "").strip(),
+            str(payload.get("anchor_id") or "").strip(),
+        )
+        if not any(key):
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(payload)
+    return deduped
 
 
 def _coverage_bucket_display(bucket: str) -> str:

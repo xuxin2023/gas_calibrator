@@ -276,7 +276,7 @@ def test_results_page_renders_recognition_readiness_summary_lines() -> None:
                 "overview_text": "run_3",
                 "algorithm_compare_text": "amt",
                 "result_summary_text": (
-                    "scope readiness: Step 2 reviewer readiness | scope package + decision rule profile | payload-backed 0 | trace-only 0 | gap 9\n"
+                    "scope readiness: Step 2 reviewer readiness | scope package + decision rule profile | payload-complete 0 | payload-partial 0 | trace-only 0 | gap 9\n"
                     "reference/certificate readiness: reference asset / certificate readiness | assets 8 | certificate gaps 7 | intermediate-check gaps 7\n"
                     "uncertainty/method readiness: uncertainty / method confirmation readiness | matrix rows 4 | missing evidence 4\n"
                     "software validation / audit readiness: software validation / audit readiness | trace rows 3 | file-artifact-first reviewer digest"

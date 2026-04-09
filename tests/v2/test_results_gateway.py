@@ -990,7 +990,9 @@ def test_results_gateway_exposes_measurement_core_evidence_artifacts(tmp_path: P
     assert "fixed canonical states" in transition_json_row["note"]
     assert "Future database intake only" in sidecar_row["note"]
     assert "richer simulation coverage only" in phase_coverage_json_row["note"]
-    assert "payload-backed" in phase_coverage_json_row["measurement_phase_coverage_report_entry"]["digest"]["summary"]
+    assert "payload-complete" in phase_coverage_json_row["measurement_phase_coverage_report_entry"]["digest"]["summary"]
+    assert phase_coverage_json_row["measurement_phase_coverage_report_entry"]["linked_artifact_refs"]
+    assert "next_required_artifacts" in phase_coverage_json_row["measurement_phase_coverage_report_entry"]
     assert "measurement_phase_coverage_report_entry" in phase_coverage_json_row
     assert "measurement_phase_coverage_report_entry" in phase_coverage_md_row
     assert "shadow_evaluation_results" not in stability_json_row["note"]
