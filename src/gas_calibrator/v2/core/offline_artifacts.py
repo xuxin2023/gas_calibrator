@@ -36,6 +36,11 @@ from .multi_source_stability import (
     build_multi_source_stability_evidence,
     build_simulation_evidence_sidecar_bundle,
 )
+from .measurement_phase_coverage import (
+    MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME,
+    MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME,
+    build_measurement_phase_coverage_report,
+)
 
 
 OFFLINE_ARTIFACT_SCHEMA_VERSION = "1.0"
@@ -58,6 +63,24 @@ def write_json(path: str | Path, payload: dict[str, Any]) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return target
+
+
+def _load_route_trace_events(run_dir: Path) -> list[dict[str, Any]]:
+    path = Path(run_dir) / "route_trace.jsonl"
+    if not path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            text = str(line or "").strip()
+            if not text:
+                continue
+            payload = json.loads(text)
+            if isinstance(payload, dict):
+                rows.append(payload)
+    except Exception:
+        return []
+    return rows
 
 
 def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
@@ -803,17 +826,28 @@ def export_run_offline_artifacts(
     trend_path = write_json(run_dir / TREND_REGISTRY_FILENAME, trend_registry)
     evidence_path = write_json(run_dir / EVIDENCE_REGISTRY_FILENAME, evidence_registry)
     coefficient_path = write_json(run_dir / COEFFICIENT_REGISTRY_FILENAME, coefficient_registry)
+    route_trace_events = _load_route_trace_events(run_dir)
+    synthetic_trace_provenance = {
+        "summary": (
+            "simulation-generated trace only; richer non-default trace profiles remain simulation/headless and do not claim real-device provenance"
+        ),
+        "contains_synthetic_channel_injection": False,
+        "trace_profile": "simulation_generated",
+    }
     measurement_artifact_paths = {
         "multi_source_stability_evidence": str(run_dir / MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME),
         "multi_source_stability_evidence_markdown": str(run_dir / MULTI_SOURCE_STABILITY_EVIDENCE_MARKDOWN_FILENAME),
         "state_transition_evidence": str(run_dir / STATE_TRANSITION_EVIDENCE_FILENAME),
         "state_transition_evidence_markdown": str(run_dir / STATE_TRANSITION_EVIDENCE_MARKDOWN_FILENAME),
         "simulation_evidence_sidecar_bundle": str(run_dir / SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME),
+        "measurement_phase_coverage_report": str(run_dir / MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME),
+        "measurement_phase_coverage_report_markdown": str(run_dir / MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME),
     }
     multi_source_stability_evidence = build_multi_source_stability_evidence(
         run_id=run_id,
         samples=samples,
         point_summaries=point_summaries,
+        route_trace_events=route_trace_events,
         artifact_paths=measurement_artifact_paths,
     )
     multi_source_stability_evidence_path = write_json(
@@ -829,6 +863,7 @@ def export_run_offline_artifacts(
         run_id=run_id,
         samples=samples,
         point_summaries=point_summaries,
+        route_trace_events=route_trace_events,
         artifact_paths=measurement_artifact_paths,
     )
     state_transition_evidence_path = write_json(
@@ -840,11 +875,32 @@ def export_run_offline_artifacts(
         str(state_transition_evidence.get("markdown") or ""),
         encoding="utf-8",
     )
+    measurement_phase_coverage_report = build_measurement_phase_coverage_report(
+        run_id=run_id,
+        samples=samples,
+        point_summaries=point_summaries,
+        route_trace_events=route_trace_events,
+        multi_source_stability_evidence=multi_source_stability_evidence,
+        state_transition_evidence=state_transition_evidence,
+        artifact_paths=measurement_artifact_paths,
+        synthetic_trace_provenance=synthetic_trace_provenance,
+    )
+    measurement_phase_coverage_path = write_json(
+        run_dir / MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME,
+        dict(measurement_phase_coverage_report.get("raw") or {}),
+    )
+    measurement_phase_coverage_markdown_path = run_dir / MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME
+    measurement_phase_coverage_markdown_path.write_text(
+        str(measurement_phase_coverage_report.get("markdown") or ""),
+        encoding="utf-8",
+    )
     simulation_evidence_sidecar_bundle = build_simulation_evidence_sidecar_bundle(
         run_id=run_id,
         multi_source_stability_evidence=multi_source_stability_evidence,
         state_transition_evidence=state_transition_evidence,
+        measurement_phase_coverage_report=measurement_phase_coverage_report,
         artifact_paths=measurement_artifact_paths,
+        synthetic_trace_provenance=synthetic_trace_provenance,
     )
     simulation_evidence_sidecar_bundle_path = write_json(
         run_dir / SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME,
@@ -877,6 +933,14 @@ def export_run_offline_artifacts(
         "simulation_evidence_sidecar_bundle": _artifact_status_payload(
             "execution_summary",
             simulation_evidence_sidecar_bundle_path,
+        ),
+        "measurement_phase_coverage_report": _artifact_status_payload(
+            "diagnostic_analysis",
+            measurement_phase_coverage_path,
+        ),
+        "measurement_phase_coverage_report_markdown": _artifact_status_payload(
+            "diagnostic_analysis",
+            measurement_phase_coverage_markdown_path,
         ),
     }
     if spectral_quality_path is not None:
@@ -927,6 +991,13 @@ def export_run_offline_artifacts(
             },
             "boundary_statements": list(simulation_evidence_sidecar_bundle.get("boundary_statements") or []),
         },
+        "measurement_phase_coverage_report": {
+            "path": str(measurement_phase_coverage_path),
+            "markdown_path": str(measurement_phase_coverage_markdown_path),
+            "overall_status": str(dict(measurement_phase_coverage_report.get("raw") or {}).get("overall_status") or ""),
+            "review_surface": dict(dict(measurement_phase_coverage_report.get("raw") or {}).get("review_surface") or {}),
+        },
+        "measurement_phase_coverage_report_digest": dict(measurement_phase_coverage_report.get("digest") or {}),
     }
     if analytics_summary.get("point_taxonomy_summary"):
         summary_stats["point_taxonomy_summary"] = dict(analytics_summary.get("point_taxonomy_summary") or {})
@@ -976,6 +1047,15 @@ def export_run_offline_artifacts(
             },
             "boundary_summary": " | ".join(list(simulation_evidence_sidecar_bundle.get("boundary_statements") or [])),
         },
+        "measurement_phase_coverage_report": {
+            "path": str(measurement_phase_coverage_path),
+            "markdown_path": str(measurement_phase_coverage_markdown_path),
+            "summary": str(dict(measurement_phase_coverage_report.get("digest") or {}).get("summary") or ""),
+            "actual_phase_summary": str(dict(measurement_phase_coverage_report.get("digest") or {}).get("actual_phase_summary") or ""),
+            "coverage_summary": str(dict(measurement_phase_coverage_report.get("digest") or {}).get("coverage_summary") or ""),
+            "gap_summary": str(dict(measurement_phase_coverage_report.get("digest") or {}).get("gap_summary") or ""),
+            "boundary_summary": str(dict(measurement_phase_coverage_report.get("digest") or {}).get("boundary_summary") or ""),
+        },
     }
     if spectral_quality_summary:
         manifest_sections["spectral_quality"] = _spectral_quality_digest(spectral_quality_summary)
@@ -999,6 +1079,8 @@ def export_run_offline_artifacts(
             str(state_transition_evidence_path),
             str(state_transition_markdown_path),
             str(simulation_evidence_sidecar_bundle_path),
+            str(measurement_phase_coverage_path),
+            str(measurement_phase_coverage_markdown_path),
             *([str(spectral_quality_path)] if spectral_quality_path is not None else []),
         ],
     }

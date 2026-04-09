@@ -210,6 +210,8 @@ class ResultStore:
             "state_transition_evidence",
             "state_transition_evidence_digest",
             "simulation_evidence_sidecar_bundle",
+            "measurement_phase_coverage_report",
+            "measurement_phase_coverage_report_digest",
         ):
             value = stats.get(key)
             if not isinstance(value, dict) or not value:

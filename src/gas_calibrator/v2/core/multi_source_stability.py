@@ -169,10 +169,12 @@ def build_multi_source_stability_evidence(
     run_id: str,
     samples: Iterable[SamplingResult],
     point_summaries: Iterable[dict[str, Any]] | None = None,
+    route_trace_events: Iterable[dict[str, Any]] | None = None,
     artifact_paths: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     sample_rows = [sample for sample in list(samples or []) if isinstance(sample, SamplingResult)]
     summary_rows = [dict(item) for item in list(point_summaries or []) if isinstance(item, dict)]
+    trace_rows = [dict(item) for item in list(route_trace_events or []) if isinstance(item, dict)]
     windows = _build_windows(sample_rows, summary_rows)
     policy_versions = _policy_versions_for_windows(windows)
     evaluations = [_evaluate_window(window) for window in windows]
@@ -198,7 +200,12 @@ def build_multi_source_stability_evidence(
         for group_name in SIGNAL_GROUP_ORDER
     }
     routes = _dedupe(item.get("route_family") for item in evaluations)
-    phases = _dedupe(item.get("phase_policy") for item in evaluations)
+    phases = _dedupe(
+        [
+            *[item.get("phase_policy") for item in evaluations],
+            *_trace_phase_filters(trace_rows),
+        ]
+    )
     policy_version_filters = _dedupe(item.get("policy_version") for item in evaluations)
     decision_result_filters = _dedupe(item.get("decision_result") for item in evaluations)
     signal_family_filters = _dedupe(
@@ -208,6 +215,11 @@ def build_multi_source_stability_evidence(
     )
     overall_status = _overall_status_from_evaluations(evaluations)
     coverage_status = _coverage_status_from_groups(signal_group_coverage)
+    phase_bucket_summary = _phase_bucket_summary(evaluations, trace_rows)
+    route_family_summary = " | ".join(
+        f"{key} {value}"
+        for key, value in _count_by_key(evaluations, "route_family").items()
+    ) or "--"
     digest = {
         "summary": (
             f"Step 2 tail / Stage 3 bridge | shadow evaluation only | "
@@ -215,6 +227,8 @@ def build_multi_source_stability_evidence(
             f"coverage {coverage_status}"
         ),
         "policy_summary": " | ".join(policy_version_filters) or "--",
+        "phase_bucket_summary": phase_bucket_summary,
+        "route_family_summary": route_family_summary,
         "coverage_summary": " | ".join(
             f"{group_name} {dict(signal_group_coverage.get(group_name) or {}).get('coverage_status', 'missing')}"
             for group_name in SIGNAL_GROUP_ORDER
@@ -247,6 +261,8 @@ def build_multi_source_stability_evidence(
         "summary_lines": [
             digest["summary"],
             f"policy versions: {digest['policy_summary']}",
+            f"phase buckets: {digest['phase_bucket_summary']}",
+            f"routes: {digest['route_family_summary']}",
             f"decision summary: {digest['decision_summary']}",
             f"coverage: {digest['coverage_summary']}",
         ],
@@ -264,6 +280,7 @@ def build_multi_source_stability_evidence(
         "decision_result_filters": decision_result_filters,
         "policy_version_filters": policy_version_filters,
         "boundary_filters": list(CANONICAL_BOUNDARY_STATEMENTS),
+        "evidence_source_filters": ["actual_simulated_run" if trace_rows or evaluations else "gap"],
         "artifact_paths": dict(artifact_path_map),
     }
     markdown = _render_markdown(
@@ -315,10 +332,13 @@ def build_simulation_evidence_sidecar_bundle(
     run_id: str,
     multi_source_stability_evidence: dict[str, Any] | None,
     state_transition_evidence: dict[str, Any] | None,
+    measurement_phase_coverage_report: dict[str, Any] | None = None,
     artifact_paths: dict[str, Any] | None = None,
+    synthetic_trace_provenance: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     stability_raw = dict((multi_source_stability_evidence or {}).get("raw") or {})
     transition_raw = dict((state_transition_evidence or {}).get("raw") or {})
+    phase_coverage_raw = dict((measurement_phase_coverage_report or {}).get("raw") or measurement_phase_coverage_report or {})
     paths = {
         "simulation_evidence_sidecar_bundle": str(
             dict(artifact_paths or {}).get("simulation_evidence_sidecar_bundle")
@@ -332,12 +352,21 @@ def build_simulation_evidence_sidecar_bundle(
             dict(artifact_paths or {}).get("state_transition_evidence")
             or "state_transition_evidence.json"
         ),
+        "measurement_phase_coverage_report": str(
+            dict(artifact_paths or {}).get("measurement_phase_coverage_report")
+            or "measurement_phase_coverage_report.json"
+        ),
     }
+    coverage_digest = dict(phase_coverage_raw.get("digest") or {})
+    policy_versions = list(stability_raw.get("policy_versions") or [])
+    phase_index = dict(phase_coverage_raw.get("phase_index") or {})
     return {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
+        "bundle_type": "simulation_evidence_sidecar_bundle",
         "artifact_type": "simulation_evidence_sidecar_bundle",
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "run_id": str(run_id or ""),
+        "generated_from_run_id": str(run_id or ""),
         "title_text": "Simulation Evidence Sidecar Bundle",
         "reviewer_note": (
             "Step 2 tail / Stage 3 bridge sidecar-ready contract. "
@@ -348,6 +377,12 @@ def build_simulation_evidence_sidecar_bundle(
             "future database intake / sidecar-ready",
             "not the primary evidence chain",
         ],
+        "non_claim_boundary": [
+            "not accreditation claim",
+            "not compliance certification",
+            "not real acceptance",
+            "cannot replace real metrology validation",
+        ],
         "artifact_paths": paths,
         "stores": {
             "stability_policy_versions": list(stability_raw.get("policy_versions") or []),
@@ -357,11 +392,40 @@ def build_simulation_evidence_sidecar_bundle(
             "shadow_evaluation_results": list(stability_raw.get("shadow_evaluation_results") or []),
             "state_transition_logs": list(transition_raw.get("state_transition_logs") or []),
             "phase_decision_logs": list(transition_raw.get("phase_decision_logs") or []),
+            "phase_coverage_rows": list(phase_coverage_raw.get("phase_rows") or []),
         },
         "artifact_refs": {
             "multi_source_stability_evidence": paths["multi_source_stability_evidence"],
             "state_transition_evidence": paths["state_transition_evidence"],
+            "measurement_phase_coverage_report": paths["measurement_phase_coverage_report"],
         },
+        "phase_index": phase_index,
+        "policy_registry_summary": {
+            "stability_policy_versions": len(policy_versions),
+            "policy_versions": [
+                str(dict(item or {}).get("policy_version") or "")
+                for item in policy_versions
+                if str(dict(item or {}).get("policy_version") or "").strip()
+            ],
+            "controlled_state_profile": "controlled_flex_v1",
+        },
+        "synthetic_trace_provenance": {
+            "summary": str(
+                dict(synthetic_trace_provenance or {}).get("summary")
+                or "simulation-generated trace only; no real-device provenance claimed"
+            ),
+            "contains_synthetic_channel_injection": bool(
+                dict(synthetic_trace_provenance or {}).get("contains_synthetic_channel_injection", False)
+            ),
+            "trace_profile": str(dict(synthetic_trace_provenance or {}).get("trace_profile") or "simulation_generated"),
+        },
+        "coverage_digest": {
+            "summary": str(coverage_digest.get("summary") or stability_raw.get("coverage_status") or "--"),
+            "actual_phase_summary": str(coverage_digest.get("actual_phase_summary") or "--"),
+            "gap_summary": str(coverage_digest.get("gap_summary") or "--"),
+        },
+        "primary_evidence_chain": False,
+        "future_database_intake_ready": True,
         "digest": {
             "summary": (
                 "sidecar-ready contract only | future database intake | "
@@ -369,6 +433,7 @@ def build_simulation_evidence_sidecar_bundle(
             ),
             "stability_windows": len(list(stability_raw.get("stability_windows") or [])),
             "transition_logs": len(list(transition_raw.get("state_transition_logs") or [])),
+            "phase_rows": len(list(phase_coverage_raw.get("phase_rows") or [])),
         },
     }
 
@@ -787,11 +852,45 @@ def _phase_policy_for_sample(sample: SamplingResult) -> str:
 
 def _phase_policy_from_text(value: str) -> str:
     text = str(value or "").strip().lower()
+    if "diagnostic" in text or "ambient" in text:
+        return "ambient_diagnostic"
+    if "recovery" in text or "retry" in text or "abort" in text:
+        return "recovery_retry"
     if "preseal" in text or "seal" in text:
         return "preseal"
     if "pressure" in text:
         return "pressure_stable"
     return "sample_ready"
+
+
+def _trace_phase_filters(route_trace_events: list[dict[str, Any]]) -> list[str]:
+    rows: list[str] = []
+    for event in route_trace_events:
+        text = " ".join(str(event.get(key) or "") for key in ("action", "message", "route")).strip().lower()
+        if not text:
+            continue
+        if "ambient" in text or "diagnostic" in text:
+            rows.append("ambient_diagnostic")
+        if any(token in text for token in ("retry", "recovery", "abort", "fault_capture")):
+            rows.append("recovery_retry")
+        if any(token in text for token in ("set_pressure", "wait_post_pressure", "pressure stabilized")):
+            rows.append("pressure_stable")
+        if any(token in text for token in ("sample_start", "sample_end", "sampling")):
+            rows.append("sample_ready")
+        if any(token in text for token in ("pre-seal", "preseal", "wait_route_ready", "wait_dewpoint", "wait_route_soak", "seal_route")):
+            rows.append("preseal")
+    return _dedupe(rows)
+
+
+def _phase_bucket_summary(evaluations: list[dict[str, Any]], route_trace_events: list[dict[str, Any]]) -> str:
+    counts: dict[str, int] = {}
+    for item in evaluations:
+        key = str(item.get("phase_policy") or "").strip()
+        if key:
+            counts[key] = counts.get(key, 0) + 1
+    for key in _trace_phase_filters(route_trace_events):
+        counts[key] = max(1, int(counts.get(key, 0) or 0))
+    return " | ".join(f"{key} {value}" for key, value in counts.items()) or "--"
 
 
 def _available_channels(samples: list[SamplingResult], channels: Iterable[str]) -> list[str]:

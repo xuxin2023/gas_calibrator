@@ -25,6 +25,10 @@ from ..core.multi_source_stability import (
     MULTI_SOURCE_STABILITY_EVIDENCE_MARKDOWN_FILENAME,
     SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME,
 )
+from ..core.measurement_phase_coverage import (
+    MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME,
+    MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME,
+)
 from ..core.offline_artifacts import build_point_taxonomy_handoff, summarize_offline_diagnostic_adapters
 from ..core.phase_transition_bridge_reviewer_artifact_entry import (
     PHASE_TRANSITION_BRIDGE_REVIEWER_ARTIFACT_KEY,
@@ -174,6 +178,16 @@ class ResultsGateway:
                 workbench_action_report,
                 workbench_action_snapshot,
             )
+        measurement_phase_coverage_report = self.load_json(MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME)
+        if not measurement_phase_coverage_report:
+            measurement_phase_coverage_report = self._read_summary_section(
+                "measurement_phase_coverage_report",
+                summary,
+                evidence_registry,
+                analytics_summary,
+                workbench_action_report,
+                workbench_action_snapshot,
+            )
         evidence_source = self._resolve_current_run_evidence_source(workbench_evidence_summary, workbench_action_report)
         evidence_state = str(
             workbench_evidence_summary.get("evidence_state")
@@ -208,6 +222,7 @@ class ResultsGateway:
             multi_source_stability_evidence=multi_source_stability_evidence,
             state_transition_evidence=state_transition_evidence,
             simulation_evidence_sidecar_bundle=simulation_evidence_sidecar_bundle,
+            measurement_phase_coverage_report=measurement_phase_coverage_report,
         )
         return {
             "summary": summary,
@@ -248,6 +263,7 @@ class ResultsGateway:
             "multi_source_stability_evidence": multi_source_stability_evidence,
             "state_transition_evidence": state_transition_evidence,
             "simulation_evidence_sidecar_bundle": simulation_evidence_sidecar_bundle,
+            "measurement_phase_coverage_report": measurement_phase_coverage_report,
             "result_summary_text": result_summary_text,
             "evidence_source": evidence_source,
             "evidence_state": evidence_state,
@@ -267,6 +283,7 @@ class ResultsGateway:
         multi_source_stability_evidence = dict(payload.get("multi_source_stability_evidence", {}) or {})
         state_transition_evidence = dict(payload.get("state_transition_evidence", {}) or {})
         simulation_evidence_sidecar_bundle = dict(payload.get("simulation_evidence_sidecar_bundle", {}) or {})
+        measurement_phase_coverage_report = dict(payload.get("measurement_phase_coverage_report", {}) or {})
 
         def _artifact_path(value: Any) -> Path:
             candidate = Path(str(value or "").strip())
@@ -481,6 +498,10 @@ class ResultsGateway:
                 row,
                 simulation_evidence_sidecar_bundle=simulation_evidence_sidecar_bundle,
             )
+            row = self._decorate_measurement_phase_coverage_row(
+                row,
+                measurement_phase_coverage_report=measurement_phase_coverage_report,
+            )
             files.append(row)
         return {
             "run_dir": str(self.run_dir),
@@ -500,6 +521,7 @@ class ResultsGateway:
             "multi_source_stability_evidence": multi_source_stability_evidence,
             "state_transition_evidence": state_transition_evidence,
             "simulation_evidence_sidecar_bundle": simulation_evidence_sidecar_bundle,
+            "measurement_phase_coverage_report": measurement_phase_coverage_report,
             "phase_transition_bridge_reviewer_artifact_entry": dict(reviewer_artifact_entry),
             "stage_admission_review_pack_artifact_entry": dict(stage_admission_review_pack_entry),
             "engineering_isolation_admission_checklist_artifact_entry": dict(

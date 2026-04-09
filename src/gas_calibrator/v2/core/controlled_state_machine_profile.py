@@ -169,23 +169,39 @@ def build_state_transition_evidence(
     run_id: str,
     samples: Iterable[SamplingResult],
     point_summaries: Iterable[dict[str, Any]] | None = None,
+    route_trace_events: Iterable[dict[str, Any]] | None = None,
     artifact_paths: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     sample_rows = [sample for sample in list(samples or []) if isinstance(sample, SamplingResult)]
     summary_rows = [dict(item) for item in list(point_summaries or []) if isinstance(item, dict)]
-    trace = _build_runtime_trace(sample_rows, summary_rows)
-    phase_decision_logs = _build_phase_decision_logs(sample_rows, summary_rows)
+    route_rows = [dict(item) for item in list(route_trace_events or []) if isinstance(item, dict)]
+    trace = _build_runtime_trace(sample_rows, summary_rows, route_rows)
+    phase_decision_logs = _build_phase_decision_logs(sample_rows, summary_rows, route_rows)
     illegal_transitions = [
         dict(item)
         for item in trace
         if not bool(item.get("allowed", False))
     ]
     status = "passed" if trace and not illegal_transitions else "degraded" if trace else "diagnostic_only"
+    phase_summary = " | ".join(
+        f"{key} {value}"
+        for key, value in _count_by_key(phase_decision_logs, "phase_policy").items()
+    ) or "--"
+    route_summary = " | ".join(
+        f"{key} {value}"
+        for key, value in _count_by_key(phase_decision_logs, "route_family").items()
+    ) or "--"
+    evidence_source_filters = _dedupe(
+        item.get("evidence_source")
+        for item in phase_decision_logs
+    ) or ["model_only"]
     digest = {
         "summary": (
             "Step 2 tail / Stage 3 bridge | controlled-flex trace | "
             f"events {len(trace)} | illegal {len(illegal_transitions)}"
         ),
+        "phase_summary": phase_summary,
+        "route_summary": route_summary,
         "transition_summary": " | ".join(
             f"{item.get('from_state', '--')}->{item.get('to_state', '--')}" for item in trace[:6]
         )
@@ -216,6 +232,8 @@ def build_state_transition_evidence(
         "summary_text": digest["summary"],
         "summary_lines": [
             digest["summary"],
+            f"phase buckets: {digest['phase_summary']}",
+            f"route families: {digest['route_summary']}",
             f"transitions: {digest['transition_summary']}",
             f"recovery: {digest['recovery_summary']}",
         ],
@@ -231,6 +249,7 @@ def build_state_transition_evidence(
         "decision_result_filters": _dedupe(item.get("decision_result") for item in phase_decision_logs),
         "policy_version_filters": ["controlled_flex_v1"],
         "boundary_filters": list(CANONICAL_BOUNDARY_STATEMENTS),
+        "evidence_source_filters": evidence_source_filters,
         "artifact_paths": dict(artifact_path_map),
     }
     markdown = _render_markdown(trace=trace, review_surface=review_surface, artifact_paths=artifact_path_map)
@@ -264,12 +283,16 @@ def build_state_transition_evidence(
     }
 
 
-def _build_runtime_trace(samples: list[SamplingResult], point_summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _build_runtime_trace(
+    samples: list[SamplingResult],
+    point_summaries: list[dict[str, Any]],
+    route_trace_events: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     trace: list[dict[str, Any]] = []
     sequence = 0
     base_path = ["INIT", "DEVICE_READY", "PLAN_COMPILED"]
     sequence = _append_trace(trace, base_path, sequence=sequence, reason="bootstrap", point_index=0, route_family="system")
-    points = _point_order(samples, point_summaries)
+    points = _point_order(samples, point_summaries, route_trace_events)
     for item in points:
         point_index = int(item.get("point_index", 0) or 0)
         route_family = str(item.get("route_family") or "gas")
@@ -295,9 +318,13 @@ def _build_runtime_trace(samples: list[SamplingResult], point_summaries: list[di
     return trace
 
 
-def _build_phase_decision_logs(samples: list[SamplingResult], point_summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _build_phase_decision_logs(
+    samples: list[SamplingResult],
+    point_summaries: list[dict[str, Any]],
+    route_trace_events: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for item in _point_order(samples, point_summaries):
+    for item in _point_order(samples, point_summaries, route_trace_events):
         rows.append(
             {
                 "point_index": int(item.get("point_index", 0) or 0),
@@ -306,8 +333,38 @@ def _build_phase_decision_logs(samples: list[SamplingResult], point_summaries: l
                 "decision_result": str(item.get("decision_result") or "trace_only"),
                 "active_states": list(item.get("state_path") or []),
                 "recovery_marker": str(item.get("recovery_marker") or ""),
+                "evidence_source": "actual_simulated_run" if bool(item.get("observed_in_trace")) else "model_only",
             }
         )
+    seen = {
+        (
+            int(item.get("point_index", 0) or 0),
+            str(item.get("route_family") or ""),
+            str(item.get("phase_policy") or ""),
+            str(item.get("decision_result") or ""),
+        )
+        for item in rows
+    }
+    for event in route_trace_events:
+        route_family = _route_family(str(event.get("route") or ""), pressure_mode="")
+        point_index = int(event.get("point_index", 0) or 0)
+        for phase_policy in _phase_policies_from_trace_event(event):
+            decision_result = "fault_capture_recovery" if phase_policy == "recovery_retry" else "actual_trace_observed"
+            key = (point_index, route_family, phase_policy, decision_result)
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(
+                {
+                    "point_index": point_index,
+                    "route_family": route_family,
+                    "phase_policy": phase_policy,
+                    "decision_result": decision_result,
+                    "active_states": [],
+                    "recovery_marker": "retry_or_recovery" if phase_policy == "recovery_retry" else "",
+                    "evidence_source": "actual_simulated_run",
+                }
+            )
     return rows
 
 
@@ -345,19 +402,29 @@ def _append_trace(
     return sequence
 
 
-def _point_order(samples: list[SamplingResult], point_summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    by_point: dict[int, dict[str, Any]] = {}
+def _point_order(
+    samples: list[SamplingResult],
+    point_summaries: list[dict[str, Any]],
+    route_trace_events: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    by_point: dict[tuple[int, str, str], dict[str, Any]] = {}
+    encounter_order: list[tuple[int, str, str]] = []
     for sample in samples:
         point = getattr(sample, "point", None)
         point_index = int(getattr(point, "index", 0) or 0)
         route_family = _route_family_from_point(point)
+        point_tag = str(getattr(sample, "point_tag", "") or getattr(point, "pressure_display_label", "") or getattr(point, "route", "") or "--")
+        key = (point_index, route_family, point_tag)
+        if key not in by_point:
+            encounter_order.append(key)
         entry = by_point.setdefault(
-            point_index,
+            key,
             {
                 "point_index": point_index,
                 "route_family": route_family,
                 "phase_policy": _phase_policy_from_text(str(getattr(sample, "point_phase", "") or "sample_ready")),
                 "point": point,
+                "point_tag": point_tag,
                 "summary": {},
                 "has_usable_raw": any(
                     getattr(sample, channel, None) not in (None, "")
@@ -367,8 +434,10 @@ def _point_order(samples: list[SamplingResult], point_summaries: list[dict[str, 
                     getattr(sample, channel, None) not in (None, "")
                     for channel in ("co2_ppm", "h2o_mmol", "co2_ratio_f", "h2o_ratio_f")
                 ),
+                "observed_in_trace": False,
             },
         )
+        entry["phase_policy"] = _phase_policy_from_text(str(getattr(sample, "point_phase", "") or entry.get("phase_policy") or "sample_ready"))
         entry["has_usable_raw"] = bool(entry.get("has_usable_raw")) or any(
             getattr(sample, channel, None) not in (None, "")
             for channel in ("co2_ratio_raw", "h2o_ratio_raw", "ref_signal", "co2_signal", "h2o_signal")
@@ -382,22 +451,66 @@ def _point_order(samples: list[SamplingResult], point_summaries: list[dict[str, 
         stats_payload = dict(summary.get("stats") or {})
         point_index = int(point_payload.get("index", 0) or 0)
         route_family = _route_family(str(point_payload.get("route") or ""), pressure_mode=str(point_payload.get("pressure_mode") or ""))
+        point_tag = str(
+            point_payload.get("pressure_target_label")
+            or point_payload.get("pressure_selection_token")
+            or point_payload.get("route")
+            or "--"
+        )
+        key = (point_index, route_family, point_tag)
+        if key not in by_point:
+            encounter_order.append(key)
         entry = by_point.setdefault(
-            point_index,
+            key,
             {
                 "point_index": point_index,
                 "route_family": route_family,
                 "phase_policy": _phase_policy_from_text(str(stats_payload.get("point_phase") or "sample_ready")),
                 "point": None,
+                "point_tag": point_tag,
                 "summary": dict(summary),
                 "has_usable_raw": False,
                 "has_output": False,
+                "observed_in_trace": False,
             },
         )
         entry["summary"] = dict(summary)
+        if str(stats_payload.get("point_phase") or "").strip():
+            entry["phase_policy"] = _phase_policy_from_text(str(stats_payload.get("point_phase") or ""))
+    for event in route_trace_events:
+        route_family = _route_family(str(event.get("route") or ""), pressure_mode="")
+        point_index = int(event.get("point_index", 0) or 0)
+        point_tag = str(event.get("point_tag") or "--")
+        key = (point_index, route_family, point_tag)
+        if key not in by_point:
+            encounter_order.append(key)
+        entry = by_point.setdefault(
+            key,
+            {
+                "point_index": point_index,
+                "route_family": route_family,
+                "phase_policy": "sample_ready",
+                "point": None,
+                "point_tag": point_tag,
+                "summary": {},
+                "has_usable_raw": False,
+                "has_output": False,
+                "observed_in_trace": True,
+            },
+        )
+        entry["observed_in_trace"] = True
+        phase_candidates = _phase_policies_from_trace_event(event)
+        if phase_candidates:
+            entry["phase_policy"] = phase_candidates[-1]
     rows: list[dict[str, Any]] = []
-    for point_index in sorted(key for key in by_point if key > 0):
-        item = dict(by_point.get(point_index) or {})
+    positive_keys = [key for key in encounter_order if key in by_point and int(key[0] or 0) > 0]
+    ordered_keys = sorted(
+        positive_keys,
+        key=lambda item: (int(item[0] or 0), positive_keys.index(item)),
+    )
+    max_point_index = max((int(key[0] or 0) for key in ordered_keys), default=0)
+    for key in ordered_keys:
+        item = dict(by_point.get(key) or {})
         point = item.get("point")
         summary = dict(item.get("summary") or {})
         state_path = _active_state_path_for_point(point)
@@ -413,7 +526,11 @@ def _point_order(samples: list[SamplingResult], point_summaries: list[dict[str, 
             state_path.extend(["FAULT_CAPTURE", "SAFE_RECOVERY"])
             recovery_marker = "retry_or_recovery"
             decision_result = "fault_capture_recovery"
-        if point_index < max(by_point):
+        if bool(item.get("observed_in_trace")) and str(item.get("phase_policy") or "") == "recovery_retry":
+            state_path.extend(["FAULT_CAPTURE", "SAFE_RECOVERY"])
+            recovery_marker = recovery_marker or "retry_or_recovery"
+            decision_result = "fault_capture_recovery"
+        if key != ordered_keys[-1] and point_index < max_point_index:
             state_path.append("NEXT_POINT")
         rows.append(
             {
@@ -424,6 +541,7 @@ def _point_order(samples: list[SamplingResult], point_summaries: list[dict[str, 
                 "reason": "point_path",
                 "recovery_marker": recovery_marker,
                 "decision_result": decision_result,
+                "observed_in_trace": bool(item.get("observed_in_trace")),
             }
         )
     if not rows:
@@ -475,11 +593,41 @@ def _route_family(route_text: str, *, pressure_mode: str = "") -> str:
 
 def _phase_policy_from_text(value: str) -> str:
     text = str(value or "").strip().lower()
+    if "diagnostic" in text or "ambient" in text:
+        return "ambient_diagnostic"
+    if "recovery" in text or "retry" in text or "abort" in text:
+        return "recovery_retry"
     if "preseal" in text or "seal" in text:
         return "preseal"
     if "pressure" in text:
         return "pressure_stable"
     return "sample_ready"
+
+
+def _phase_policies_from_trace_event(event: dict[str, Any]) -> list[str]:
+    text = " ".join(str(event.get(key) or "") for key in ("action", "message", "route")).strip().lower()
+    rows: list[str] = []
+    if "ambient" in text or "diagnostic" in text:
+        rows.append("ambient_diagnostic")
+    if any(token in text for token in ("retry", "recovery", "abort", "fault_capture")):
+        rows.append("recovery_retry")
+    if any(token in text for token in ("set_pressure", "wait_post_pressure", "pressure stabilized")):
+        rows.append("pressure_stable")
+    if any(token in text for token in ("sample_start", "sample_end", "sampling")):
+        rows.append("sample_ready")
+    if any(token in text for token in ("pre-seal", "preseal", "wait_route_ready", "wait_dewpoint", "wait_route_soak", "seal_route")):
+        rows.append("preseal")
+    return _dedupe(rows)
+
+
+def _count_by_key(rows: Iterable[dict[str, Any]], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        value = str(dict(row or {}).get(key) or "").strip()
+        if not value:
+            continue
+        counts[value] = counts.get(value, 0) + 1
+    return counts
 
 
 def _render_markdown(
