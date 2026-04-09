@@ -290,6 +290,14 @@ def _render_template(template: str, params: dict[str, Any] | None) -> str:
     return str(template or "").format_map(payload).strip()
 
 
+def _as_value_list(values: Any) -> list[Any]:
+    if values is None:
+        return []
+    if isinstance(values, (str, bytes, dict)):
+        return [values]
+    return list(values)
+
+
 def _rebuild_alias_index() -> None:
     for family, items in _FRAGMENT_REGISTRY.items():
         alias_map = _ALIAS_INDEX.setdefault(family, {})
@@ -469,7 +477,7 @@ def normalize_fragment_rows(
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     seen: set[tuple[str, str, tuple[tuple[str, str], ...]]] = set()
-    for value in list(values or []):
+    for value in _as_value_list(values):
         row = build_fragment_row(family, value, display_locale=display_locale)
         text = str(row.get("text") or "").strip()
         canonical_key = str(row.get("canonical_key") or "").strip()

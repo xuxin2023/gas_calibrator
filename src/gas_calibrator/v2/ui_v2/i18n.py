@@ -203,7 +203,12 @@ def display_fragment_values(
     default: str | None = None,
 ) -> list[str]:
     rows: list[str] = []
-    for value in list(values or []):
+    source_values: list[Any]
+    if isinstance(values, (str, bytes, dict)):
+        source_values = [values]
+    else:
+        source_values = list(values or [])
+    for value in source_values:
         params = dict(value.get("params") or {}) if isinstance(value, dict) else {}
         label = display_fragment_value(
             family,

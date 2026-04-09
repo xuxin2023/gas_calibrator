@@ -1098,7 +1098,6 @@ def _build_phase_row(
         default=_missing_reason_digest(missing_layer_reasons),
     )
     readiness_impact_fragments = _phase_readiness_impact_fragments(
-        phase_name=phase_name,
         payload_completeness=payload_completeness,
         impacted_readiness_dimensions=impacted_readiness_dimensions,
         missing_signal_layers=missing_signal_layers,

@@ -30,12 +30,21 @@ from gas_calibrator.v2.core.phase_taxonomy_contract import (
     taxonomy_display_label,
     taxonomy_i18n_key,
 )
+from gas_calibrator.v2.core.reviewer_fragments_contract import (
+    BLOCKER_FRAGMENT_FAMILY,
+    GAP_REASON_FRAGMENT_FAMILY,
+    READINESS_IMPACT_FRAGMENT_FAMILY,
+    REVIEWER_FRAGMENTS_CONTRACT_VERSION,
+    REVIEWER_NEXT_STEP_FRAGMENT_FAMILY,
+    build_fragment_row,
+    normalize_fragment_key,
+)
 from gas_calibrator.v2.review_surface_formatter import (
     build_measurement_review_digest_lines,
     build_readiness_review_digest_lines,
 )
 from gas_calibrator.v2.scripts.build_offline_governance_artifacts import rebuild_run
-from gas_calibrator.v2.ui_v2.i18n import display_taxonomy_value
+from gas_calibrator.v2.ui_v2.i18n import display_fragment_value, display_taxonomy_value
 
 SUPPORT_DIR = Path(__file__).resolve().parent
 if str(SUPPORT_DIR) not in sys.path:
@@ -168,6 +177,35 @@ def test_taxonomy_contract_normalizes_aliases_and_phase_profiles() -> None:
     assert normalized["reviewer_next_step_template_key"] == "ambient_diagnostic_payload_complete_anchor"
 
 
+def test_reviewer_fragments_contract_normalizes_aliases_and_labels() -> None:
+    assert normalize_fragment_key(
+        BLOCKER_FRAGMENT_FAMILY,
+        "payload stays partial so reviewer evidence cannot be overstated as phase-complete measurement evidence",
+    ) == "partial_payload_not_phase_complete"
+    assert normalize_fragment_key(
+        GAP_REASON_FRAGMENT_FAMILY,
+        "output: conditioning window remains setup evidence until same-route pressure_stable closes full payload-backed output capture",
+    ) == "conditioning_window_output_layer_open"
+    assert normalize_fragment_key(
+        READINESS_IMPACT_FRAGMENT_FAMILY,
+        "scope, method confirmation remains open because this phase is still trace-only and not payload-evaluated",
+    ) == "trace_only_linkage_open"
+    next_step_en = display_fragment_value(
+        REVIEWER_NEXT_STEP_FRAGMENT_FAMILY,
+        "water_preseal_partial_gap_closeout",
+        locale="en_US",
+    )
+    next_step_zh = display_fragment_value(
+        REVIEWER_NEXT_STEP_FRAGMENT_FAMILY,
+        "water_preseal_partial_gap_closeout",
+        locale="zh_CN",
+    )
+    assert normalize_fragment_key(REVIEWER_NEXT_STEP_FRAGMENT_FAMILY, next_step_en) == "water_preseal_partial_gap_closeout"
+    assert next_step_en
+    assert next_step_zh
+    assert next_step_zh != next_step_en
+
+
 def test_taxonomy_contract_preserves_partial_complete_and_payload_backed_phase_differences() -> None:
     ambient_point = _point(10, route="co2", pressure_hpa=None, pressure_mode="ambient_open")
     recovery_point = _point(11, route="", pressure_hpa=1000.0, pressure_mode="")
@@ -278,7 +316,9 @@ def test_taxonomy_contract_preserves_partial_complete_and_payload_backed_phase_d
     gas_pressure_row = rows_by_key["gas:pressure_stable"]
 
     assert report["raw"]["taxonomy_contract_version"] == TAXONOMY_CONTRACT_VERSION
+    assert report["raw"]["reviewer_fragments_contract_version"] == REVIEWER_FRAGMENTS_CONTRACT_VERSION
     assert ambient_row["taxonomy_contract_version"] == TAXONOMY_CONTRACT_VERSION
+    assert ambient_row["reviewer_fragments_contract_version"] == REVIEWER_FRAGMENTS_CONTRACT_VERSION
     assert ambient_row["payload_completeness"] == "complete"
     assert ambient_row["gap_classification"] == "ambient_baseline_payload_complete_anchor"
     assert ambient_row["linked_method_confirmation_item_keys"] == [
@@ -289,6 +329,7 @@ def test_taxonomy_contract_preserves_partial_complete_and_payload_backed_phase_d
     assert sample_ready_row["gap_classification"] == "ambient_sample_ready_payload_complete_anchor"
     assert recovery_row["gap_classification"] == "recovery_retry_payload_complete_anchor"
     assert recovery_row["reviewer_next_step_template_key"] == "recovery_retry_payload_complete_anchor"
+    assert recovery_row["reviewer_next_step_fragment_keys"] == ["recovery_retry_payload_complete_anchor"]
 
     assert water_preseal_row["payload_completeness"] == "partial"
     assert water_preseal_row["gap_classification"] == "conditioning_window_partial_payload"
@@ -297,6 +338,10 @@ def test_taxonomy_contract_preserves_partial_complete_and_payload_backed_phase_d
     assert "humidity_reference_window" in water_preseal_row["linked_uncertainty_input_keys"]
     assert "humidity_reference_chain" in water_preseal_row["linked_traceability_node_keys"]
     assert water_preseal_row["reviewer_next_step_template_key"] == "water_preseal_partial_gap_closeout"
+    assert water_preseal_row["gap_reason_fragment_keys"] == ["conditioning_window_output_layer_open"]
+    assert "payload_partial_linkage_open" in list(water_preseal_row.get("readiness_impact_fragment_keys") or [])
+    assert "partial_payload_not_phase_complete" in list(water_preseal_row.get("blocker_fragment_keys") or [])
+    assert water_preseal_row["reviewer_next_step_fragment_keys"] == ["water_preseal_partial_gap_closeout"]
     assert "analyzer_raw" not in list(water_preseal_row.get("missing_signal_layers") or [])
 
     assert gas_pressure_row["payload_completeness"] == "complete"
@@ -306,6 +351,14 @@ def test_taxonomy_contract_preserves_partial_complete_and_payload_backed_phase_d
     assert "reference_gas_value" in gas_pressure_row["linked_uncertainty_input_keys"]
     assert "standard_gas_chain" in gas_pressure_row["linked_traceability_node_keys"]
     assert gas_pressure_row["reviewer_next_step_template_key"] == "gas_pressure_stable_payload_complete_anchor"
+    assert gas_pressure_row["reviewer_next_step_fragment_keys"] == ["gas_pressure_stable_payload_complete_anchor"]
+
+    linked_gap_rows = list(report["raw"].get("linked_measurement_gaps") or [])
+    water_gap = next(item for item in linked_gap_rows if str(item.get("phase_route_key") or "") == "water:preseal")
+    assert water_gap["gap_reason_fragment_keys"] == ["conditioning_window_output_layer_open"]
+    assert "payload_partial_linkage_open" in list(water_gap.get("readiness_impact_fragment_keys") or [])
+    assert "partial_payload_not_phase_complete" in list(water_gap.get("blocker_fragment_keys") or [])
+    assert water_gap["reviewer_next_step_fragment_keys"] == ["water_preseal_partial_gap_closeout"]
 
 
 def test_taxonomy_contract_parity_remains_consistent_across_gateway_and_review_surfaces(tmp_path: Path) -> None:
@@ -327,8 +380,18 @@ def test_taxonomy_contract_parity_remains_consistent_across_gateway_and_review_s
     assert audit_entry["linked_measurement_gaps"]
     assert scope_entry["taxonomy_contract_version"] == TAXONOMY_CONTRACT_VERSION
     assert audit_entry["taxonomy_contract_version"] == TAXONOMY_CONTRACT_VERSION
+    assert scope_entry["reviewer_fragments_contract_version"] == REVIEWER_FRAGMENTS_CONTRACT_VERSION
+    assert audit_entry["reviewer_fragments_contract_version"] == REVIEWER_FRAGMENTS_CONTRACT_VERSION
     assert "ambient_baseline_gap" in list(scope_entry.get("linked_gap_classification_keys") or [])
     assert "recovery_retry_test_only_gap" in list(audit_entry.get("linked_gap_classification_keys") or [])
+    scope_gap = next(
+        item
+        for item in list(scope_entry.get("linked_measurement_gaps") or [])
+        if str(item.get("route_phase") or "") == "ambient/ambient_diagnostic"
+    )
+    assert list(scope_gap.get("gap_reason_fragment_keys") or [])
+    assert list(scope_gap.get("blocker_fragment_keys") or [])
+    assert list(scope_gap.get("reviewer_next_step_fragment_keys") or [])
 
     measurement_lines = build_measurement_review_digest_lines(measurement_entry)
     scope_lines = build_readiness_review_digest_lines(scope_entry)
@@ -346,6 +409,11 @@ def test_taxonomy_contract_parity_remains_consistent_across_gateway_and_review_s
         GAP_CLASSIFICATION_FAMILY,
         "recovery_retry_test_only_gap",
     )
+    blocker_label = display_fragment_value(
+        BLOCKER_FRAGMENT_FAMILY,
+        "linked_method_items_open",
+        params={"items": "Ambient baseline stabilization rule"},
+    )
     scope_joined = "\n".join(scope_lines["detail_lines"])
     measurement_joined = "\n".join(measurement_lines["detail_lines"])
     audit_joined = "\n".join(audit_lines["detail_lines"])
@@ -355,7 +423,9 @@ def test_taxonomy_contract_parity_remains_consistent_across_gateway_and_review_s
     assert gap_label in measurement_joined
     assert gap_label in scope_joined
     assert audit_gap_label in audit_joined
+    assert blocker_label in measurement_joined or blocker_label in scope_joined
     assert "ambient_baseline_stabilization_rule" not in measurement_joined
     assert "ambient_baseline_gap" not in scope_joined
+    assert "linked method confirmation items remain open" not in scope_joined
     assert any("关联方法确认条目" in line for line in scope_lines["detail_lines"])
     assert any("差距分类" in line for line in measurement_lines["detail_lines"])

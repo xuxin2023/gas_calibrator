@@ -482,9 +482,48 @@ def _display_gap_severity(row: dict[str, Any]) -> str:
     )
 
 
+def _display_gap_reason(row: dict[str, Any]) -> str:
+    payload = _normalize_measurement_phase_row(row)
+    return _display_fragment_list(
+        GAP_REASON_FRAGMENT_FAMILY,
+        fragment_rows=list(payload.get("gap_reason_fragments") or []),
+        fragment_keys=list(payload.get("gap_reason_fragment_keys") or []),
+        text_values=[payload.get("gap_reason") or payload.get("missing_reason_digest")],
+        default_text=str(payload.get("gap_reason") or payload.get("missing_reason_digest") or ""),
+    )
+
+
+def _display_readiness_impact(row: dict[str, Any]) -> str:
+    payload = _normalize_measurement_phase_row(row)
+    return _display_fragment_list(
+        READINESS_IMPACT_FRAGMENT_FAMILY,
+        fragment_rows=list(payload.get("readiness_impact_fragments") or []),
+        fragment_keys=list(payload.get("readiness_impact_fragment_keys") or []),
+        text_values=[payload.get("readiness_impact_digest")],
+        default_text=str(payload.get("readiness_impact_digest") or ""),
+    )
+
+
+def _display_blockers(row: dict[str, Any]) -> str:
+    payload = _normalize_measurement_phase_row(row)
+    return _display_fragment_list(
+        BLOCKER_FRAGMENT_FAMILY,
+        fragment_rows=list(payload.get("blocker_fragments") or []),
+        fragment_keys=list(payload.get("blocker_fragment_keys") or []),
+        text_values=list(payload.get("blockers") or []),
+        default_text=" | ".join(str(item).strip() for item in list(payload.get("blockers") or []) if str(item).strip()),
+    )
+
+
 def _display_reviewer_next_step(row: dict[str, Any]) -> str:
     payload = _normalize_measurement_phase_row(row)
-    return humanize_review_surface_text(str(payload.get("reviewer_next_step_digest") or t("common.none")))
+    return _display_fragment_list(
+        REVIEWER_NEXT_STEP_FRAGMENT_FAMILY,
+        fragment_rows=list(payload.get("reviewer_next_step_fragments") or []),
+        fragment_keys=list(payload.get("reviewer_next_step_fragment_keys") or [payload.get("reviewer_next_step_template_key")]),
+        text_values=[payload.get("reviewer_next_step_digest")],
+        default_text=str(payload.get("reviewer_next_step_digest") or ""),
+    )
 
 
 def _phase_field_summary(
@@ -514,7 +553,14 @@ def _gap_index_summary(rows: list[dict[str, Any]]) -> str:
 
 
 def _reviewer_next_step_summary(rows: list[dict[str, Any]]) -> str:
-    return " | ".join(_dedupe(_display_reviewer_next_step(row) for row in rows if str(row.get("reviewer_next_step_digest") or "").strip())) or t("common.none")
+    return " | ".join(
+        _dedupe(
+            _display_reviewer_next_step(row)
+            for row in rows
+            if list(row.get("reviewer_next_step_fragments") or [])
+            or str(row.get("reviewer_next_step_digest") or "").strip()
+        )
+    ) or t("common.none")
 
 
 def _localized_phase_contrast_summary(rows: list[dict[str, Any]], fallback: str) -> str:
@@ -624,7 +670,7 @@ def build_measurement_review_digest_lines(payload: dict[str, Any]) -> dict[str, 
         for item in list(raw.get("phase_rows") or payload.get("phase_rows") or [])
         if isinstance(item, dict)
     ]
-    gap_rows: list[dict[str, Any]] = []
+    gap_rows = [dict(item) for item in list(raw.get("linked_measurement_gaps") or payload.get("linked_measurement_gaps") or []) if isinstance(item, dict)]
     linked_method_summary = _phase_field_summary(
         phase_rows,
         family=METHOD_CONFIRMATION_FAMILY,
@@ -645,6 +691,24 @@ def build_measurement_review_digest_lines(payload: dict[str, Any]) -> dict[str, 
     )
     gap_index_summary = _gap_index_summary(phase_rows)
     reviewer_next_step_summary = _reviewer_next_step_summary(phase_rows)
+    readiness_impact_summary = " | ".join(
+        _dedupe(
+            f"{_display_route_phase(row)}: {_display_readiness_impact(row)}"
+            for row in phase_rows
+            if str(row.get("coverage_bucket") or "").strip() != "actual_simulated_run_with_payload_complete"
+        )
+    ) or humanize_review_surface_text(str(digest.get("readiness_impact_summary") or t("common.none")))
+    blocker_summary = " | ".join(
+        _dedupe(
+            f"{_display_route_phase(row)}: {_display_blockers(row)}"
+            for row in phase_rows
+            if str(row.get("coverage_bucket") or "").strip() != "actual_simulated_run_with_payload_complete"
+            and (
+                list(row.get("blocker_fragments") or [])
+                or list(row.get("blockers") or [])
+            )
+        )
+    ) or humanize_review_surface_text(str(digest.get("blocker_summary") or t("common.none")))
     phase_contrast_summary = _localized_phase_contrast_summary(
         phase_rows,
         str(digest.get("phase_contrast_summary") or ""),
@@ -673,8 +737,8 @@ def build_measurement_review_digest_lines(payload: dict[str, Any]) -> dict[str, 
         ),
         t(
             "results.review_center.detail.measurement.blockers_line",
-            value=str(digest.get("blocker_summary") or t("common.none")),
-            default=f"当前阻塞：{str(digest.get('blocker_summary') or t('common.none'))}",
+            value=blocker_summary,
+            default=f"当前阻塞：{blocker_summary}",
         ),
         t(
             "results.review_center.detail.measurement.preseal_partial_guidance_line",
@@ -710,8 +774,8 @@ def build_measurement_review_digest_lines(payload: dict[str, Any]) -> dict[str, 
     detail_lines = [
         t(
             "results.review_center.detail.measurement.readiness_impact_line",
-            value=str(digest.get("readiness_impact_summary") or t("common.none")),
-            default=f"就绪度影响：{str(digest.get('readiness_impact_summary') or t('common.none'))}",
+            value=readiness_impact_summary,
+            default=f"就绪度影响：{readiness_impact_summary}",
         ),
         t(
             "results.review_center.detail.measurement.linked_readiness_line",
@@ -727,7 +791,9 @@ def build_measurement_review_digest_lines(payload: dict[str, Any]) -> dict[str, 
     for row in phase_rows:
         route_phase = _display_route_phase(row)
         next_artifacts_text = _display_text_list(list(row.get("next_required_artifacts") or []))
-        blockers_text = _display_text_list(list(row.get("blockers") or []))
+        blockers_text = _display_blockers(row)
+        gap_reason_text = _display_gap_reason(row)
+        readiness_impact_text = _display_readiness_impact(row)
         reviewer_next_step_text = _display_reviewer_next_step(row)
         detail_lines.append(
             t(
@@ -736,16 +802,16 @@ def build_measurement_review_digest_lines(payload: dict[str, Any]) -> dict[str, 
                 bucket=_display_measurement_bucket(row.get("coverage_bucket_display") or row.get("coverage_bucket")),
                 available=_display_measurement_layer_list(list(row.get("available_signal_layers") or [])),
                 missing=_display_measurement_layer_list(list(row.get("missing_signal_layers") or [])),
-                reason=str(row.get("missing_reason_digest") or t("common.none")),
-                impact=str(row.get("readiness_impact_digest") or t("common.none")),
+                reason=gap_reason_text,
+                impact=readiness_impact_text,
                 next="、".join(str(item).strip() for item in list(row.get("next_required_artifacts") or []) if str(item).strip()) or t("common.none"),
                 boundary=str(row.get("phase_boundary_digest") or t("common.none")),
                 default=(
                     f"{route_phase}：桶位 {_display_measurement_bucket(row.get('coverage_bucket_display') or row.get('coverage_bucket'))}"
                     f"；已有 {_display_measurement_layer_list(list(row.get('available_signal_layers') or []))}"
                     f"；仍缺 {_display_measurement_layer_list(list(row.get('missing_signal_layers') or []))}"
-                    f"；原因 {str(row.get('missing_reason_digest') or t('common.none'))}"
-                    f"；影响 {str(row.get('readiness_impact_digest') or t('common.none'))}"
+                    f"；原因 {gap_reason_text}"
+                    f"；影响 {readiness_impact_text}"
                     f"；下一步 {'、'.join(str(item).strip() for item in list(row.get('next_required_artifacts') or []) if str(item).strip()) or t('common.none')}"
                     f"；边界 {str(row.get('phase_boundary_digest') or t('common.none'))}"
                 ),
@@ -779,9 +845,9 @@ def build_measurement_review_digest_lines(payload: dict[str, Any]) -> dict[str, 
                     f"{route_phase}：方法 {_display_text_list(list(row.get('linked_method_confirmation_items') or []))}"
                     f"；不确定度 {_display_text_list(list(row.get('linked_uncertainty_inputs') or []))}"
                     f"；溯源 {_display_text_list(list(row.get('linked_traceability_stub_nodes') or []))}"
-                    f"；阻塞 {_display_text_list(list(row.get('blockers') or []))}"
+                    f"；阻塞 {blockers_text}"
                     f"；下一步 {_display_text_list(list(row.get('next_required_artifacts') or []))}"
-                    f"；审阅下一步 {str(row.get('reviewer_next_step_digest') or t('common.none'))}"
+                    f"；审阅下一步 {reviewer_next_step_text}"
                 ),
             )
         )
@@ -882,11 +948,39 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
             if str(row.get("route_phase") or "").strip()
         )
     ) or str(digest.get("linked_gap_severity_summary") or t("common.none"))
+    linked_gap_reason_summary = " | ".join(
+        _dedupe(
+            f"{str(row.get('route_phase') or '').strip()}: {_display_gap_reason(row)}"
+            for row in gap_rows
+            if str(row.get("route_phase") or "").strip()
+        )
+    ) or humanize_review_surface_text(str(digest.get("gap_reason") or t("common.none")))
+    linked_readiness_impact_summary = " | ".join(
+        _dedupe(
+            f"{str(row.get('route_phase') or '').strip()}: {_display_readiness_impact(row)}"
+            for row in gap_rows
+            if str(row.get("route_phase") or "").strip()
+        )
+    ) or humanize_review_surface_text(
+        str(raw.get("linked_readiness_impact_summary") or digest.get("linked_readiness_impact_summary") or t("common.none"))
+    )
+    blocker_summary = " | ".join(
+        _dedupe(
+            f"{str(row.get('route_phase') or '').strip()}: {_display_blockers(row)}"
+            for row in gap_rows
+            if str(row.get("route_phase") or "").strip()
+            and (
+                list(row.get("blocker_fragments") or [])
+                or list(row.get("blockers") or [])
+            )
+        )
+    ) or humanize_review_surface_text(str(digest.get("blocker_summary") or t("common.none")))
     reviewer_next_step_summary = " | ".join(
         _dedupe(
-            humanize_review_surface_text(str(row.get("reviewer_next_step_digest") or "").strip())
+            _display_reviewer_next_step(row)
             for row in gap_rows
-            if str(row.get("reviewer_next_step_digest") or "").strip()
+            if list(row.get("reviewer_next_step_fragments") or [])
+            or str(row.get("reviewer_next_step_digest") or "").strip()
         )
     ) or humanize_review_surface_text(str(digest.get("reviewer_next_step_digest") or t("common.none")))
     summary_lines = [
@@ -900,6 +994,11 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
             "results.review_center.detail.readiness.linked_measurement_gap_line",
             value=str(digest.get("linked_measurement_gap_summary") or t("common.none")),
             default=f"关联测量缺口：{str(digest.get('linked_measurement_gap_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.readiness.readiness_impact_line",
+            value=linked_readiness_impact_summary,
+            default=f"就绪度影响：{linked_readiness_impact_summary}",
         ),
         t(
             "results.review_center.detail.readiness.linked_method_items_line",
@@ -935,8 +1034,8 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
         ),
         t(
             "results.review_center.detail.readiness.blockers_line",
-            value=str(digest.get("blocker_summary") or t("common.none")),
-            default=f"当前阻塞：{str(digest.get('blocker_summary') or t('common.none'))}",
+            value=blocker_summary,
+            default=f"当前阻塞：{blocker_summary}",
         ),
         t(
             "results.review_center.detail.readiness.linked_measurement_line",
@@ -947,6 +1046,11 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
             "results.review_center.detail.readiness.linked_measurement_gap_line",
             value=str(digest.get("linked_measurement_gap_summary") or t("common.none")),
             default=f"关联测量缺口：{str(digest.get('linked_measurement_gap_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.readiness.readiness_impact_line",
+            value=linked_readiness_impact_summary,
+            default=f"就绪度影响：{linked_readiness_impact_summary}",
         ),
         t(
             "results.review_center.detail.readiness.preseal_partial_gap_line",
@@ -980,8 +1084,8 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
         ),
         t(
             "results.review_center.detail.readiness.gap_reason_line",
-            value=str(digest.get("gap_reason") or t("common.none")),
-            default=f"缺口原因：{str(digest.get('gap_reason') or t('common.none'))}",
+            value=linked_gap_reason_summary,
+            default=f"缺口原因：{linked_gap_reason_summary}",
         ),
         t(
             "results.review_center.detail.readiness.next_artifacts_line",

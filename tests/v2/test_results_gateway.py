@@ -997,6 +997,7 @@ def test_results_gateway_exposes_measurement_core_evidence_artifacts(tmp_path: P
     assert phase_coverage_json_row["measurement_phase_coverage_report_entry"]["linked_uncertainty_inputs"]
     assert phase_coverage_json_row["measurement_phase_coverage_report_entry"]["linked_traceability_nodes"]
     assert phase_coverage_json_row["measurement_phase_coverage_report_entry"]["reviewer_next_step_digest"]
+    assert phase_coverage_json_row["measurement_phase_coverage_report_entry"]["reviewer_fragments_contract_version"]
     assert "Ambient baseline stabilization rule" in list(
         phase_coverage_json_row["measurement_phase_coverage_report_entry"]["linked_method_confirmation_items"]
     )
@@ -1004,6 +1005,14 @@ def test_results_gateway_exposes_measurement_core_evidence_artifacts(tmp_path: P
         phase_coverage_json_row["measurement_phase_coverage_report_entry"]["linked_traceability_nodes"]
     )
     assert "next_required_artifacts" in phase_coverage_json_row["measurement_phase_coverage_report_entry"]
+    assert any(
+        list(item.get("gap_reason_fragment_keys") or [])
+        for item in list(phase_coverage_json_row["measurement_phase_coverage_report_entry"]["linked_measurement_gaps"] or [])
+    )
+    assert any(
+        list(item.get("reviewer_next_step_fragment_keys") or [])
+        for item in list(phase_coverage_json_row["measurement_phase_coverage_report_entry"]["linked_measurement_gaps"] or [])
+    )
     assert "measurement_phase_coverage_report_entry" in phase_coverage_json_row
     assert "measurement_phase_coverage_report_entry" in phase_coverage_md_row
     assert "shadow_evaluation_results" not in stability_json_row["note"]
@@ -1086,6 +1095,7 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
     assert uncertainty_row["uncertainty_method_readiness_summary_entry"]["linked_uncertainty_inputs"]
     assert audit_row["audit_readiness_digest_entry"]["linked_measurement_gaps"]
     assert audit_row["audit_readiness_digest_entry"]["reviewer_next_step_digest"]
+    assert audit_row["audit_readiness_digest_entry"]["reviewer_fragments_contract_version"]
     assert "Ambient baseline stabilization rule" in list(
         scope_row["scope_readiness_summary_entry"]["linked_method_confirmation_items"]
     )
@@ -1093,6 +1103,8 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
         uncertainty_row["uncertainty_method_readiness_summary_entry"]["linked_uncertainty_inputs"]
     )
     assert "Software event log chain" in list(audit_row["audit_readiness_digest_entry"]["linked_traceability_nodes"])
+    assert list(scope_row["scope_readiness_summary_entry"].get("gap_reason_fragment_keys") or [])
+    assert list(audit_row["audit_readiness_digest_entry"].get("reviewer_next_step_fragment_keys") or [])
     for row in (scope_row, certificate_row, uncertainty_row, audit_row):
         note_text = str(row.get("note") or "").lower()
         assert "compliance" not in note_text

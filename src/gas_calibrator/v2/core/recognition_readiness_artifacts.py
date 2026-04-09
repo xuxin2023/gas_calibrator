@@ -1567,9 +1567,11 @@ def _enrich_recognition_readiness_artifact(
         or []
     )
     measurement_blockers = _normalize_text_list(
-        f"{str(item.get('route_phase') or '--')}: {fragment_summary(item.get('blocker_fragments') or [], default=' | '.join(list(item.get('blockers') or [])) or '--')}"
-        for item in linked_measurement_gaps
-        if list(item.get("blocker_fragments") or []) or list(item.get("blockers") or [])
+        [
+            f"{str(item.get('route_phase') or '--')}: {fragment_summary(item.get('blocker_fragments') or [], default=' | '.join(list(item.get('blockers') or [])) or '--')}"
+            for item in linked_measurement_gaps
+            if list(item.get("blocker_fragments") or []) or list(item.get("blockers") or [])
+        ]
     )
     blockers = _normalize_text_list([*artifact_blockers, *measurement_blockers])
     next_required_artifacts = _normalize_text_list(
@@ -1619,18 +1621,45 @@ def _enrich_recognition_readiness_artifact(
             if str(item.get("route_phase") or "").strip() and str(item.get("gap_severity") or "").strip()
         )
     )
+    linked_gap_reason_fragments = [
+        dict(fragment)
+        for item in linked_measurement_gaps
+        for fragment in list(item.get("gap_reason_fragments") or [])
+        if isinstance(fragment, dict)
+    ]
+    linked_gap_reason_fragment_keys = fragment_rows_to_keys(linked_gap_reason_fragments)
+    linked_blocker_fragments = [
+        dict(fragment)
+        for item in linked_measurement_gaps
+        for fragment in list(item.get("blocker_fragments") or [])
+        if isinstance(fragment, dict)
+    ]
+    linked_blocker_fragment_keys = fragment_rows_to_keys(linked_blocker_fragments)
+    linked_reviewer_next_step_fragments = [
+        dict(fragment)
+        for item in linked_measurement_gaps
+        for fragment in list(item.get("reviewer_next_step_fragments") or [])
+        if isinstance(fragment, dict)
+    ]
+    linked_reviewer_next_step_fragment_keys = fragment_rows_to_keys(linked_reviewer_next_step_fragments)
     preseal_partial_gap_summary = _preseal_partial_gap_summary(
         artifact_type=artifact_type,
         linked_measurement_phase_artifacts=linked_measurement_phase_artifacts,
     )
     gap_reason_fragments = normalize_fragment_rows(
         GAP_REASON_FRAGMENT_FAMILY,
-        raw.get("gap_reason_fragments") or raw.get("gap_reason") or [],
+        list(raw.get("gap_reason_fragments") or [])
+        or linked_gap_reason_fragments
+        or raw.get("gap_reason")
+        or [],
         display_locale="en_US",
     )
     reviewer_next_step_fragments = normalize_fragment_rows(
         REVIEWER_NEXT_STEP_FRAGMENT_FAMILY,
-        raw.get("reviewer_next_step_fragments") or raw.get("reviewer_next_step_digest") or [],
+        list(raw.get("reviewer_next_step_fragments") or [])
+        or linked_reviewer_next_step_fragments
+        or raw.get("reviewer_next_step_digest")
+        or [],
         display_locale="en_US",
     )
     gap_reason = linked_measurement_gap_summary or fragment_summary(
