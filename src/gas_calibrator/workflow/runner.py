@@ -4583,12 +4583,17 @@ class CalibrationRunner:
             self.set_status("初始化：恢复初始状态")
             self._emit_stage_event(current="初始化", wait_reason="恢复初始状态")
             self._startup_preflight_reset()
-            self.set_status("初始化：启动压力预检查")
-            self._emit_stage_event(current="初始化", wait_reason="启动压力预检查")
-            self._startup_pressure_precheck(points)
-            self.set_status("初始化：压力传感器单点校准")
-            self._emit_stage_event(current="初始化", wait_reason="压力传感器单点校准")
-            self._startup_pressure_sensor_calibration(points)
+            if self._skip_startup_pressure_work_for_current_selection():
+                self.set_status("初始化：跳过启动压力工作（当前大气压）")
+                self._emit_stage_event(current="初始化", wait_reason="跳过启动压力工作（当前大气压）")
+                self.log("Startup pressure work skipped: ambient-only pressure selection")
+            else:
+                self.set_status("初始化：启动压力预检查")
+                self._emit_stage_event(current="初始化", wait_reason="启动压力预检查")
+                self._startup_pressure_precheck(points)
+                self.set_status("初始化：压力传感器单点校准")
+                self._emit_stage_event(current="初始化", wait_reason="压力传感器单点校准")
+                self._startup_pressure_sensor_calibration(points)
             self.set_status("初始化完成，准备进入点位流程")
             self._emit_stage_event(current="初始化完成", wait_reason="准备进入点位流程")
             self._run_points(points)
@@ -5393,6 +5398,9 @@ class CalibrationRunner:
         include_ambient = any(self._is_ambient_pressure_selection_value(value) for value in normalized)
         include_numeric = any(not self._is_ambient_pressure_selection_value(value) for value in normalized)
         return include_ambient and not include_numeric
+
+    def _skip_startup_pressure_work_for_current_selection(self) -> bool:
+        return self._selected_pressure_points_is_ambient_only()
 
     def _point_matches_selected_pressure(
         self,

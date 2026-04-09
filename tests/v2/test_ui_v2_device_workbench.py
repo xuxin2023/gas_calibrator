@@ -120,7 +120,7 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
         for section in list(workbench["engineer_summary"]["sections"] or [])
     )
     assert any(
-        "scope package + decision rule profile" in str(section.get("summary") or "")
+        "工件范围" in str(section.get("summary") or "") or "Scope Readiness Summary" in str(section.get("summary") or "")
         for section in list(workbench["engineer_summary"]["sections"] or [])
         if section.get("id") == "recognition_readiness"
     )
