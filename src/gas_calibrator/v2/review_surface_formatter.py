@@ -1160,6 +1160,514 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
     }
 
 
+def build_measurement_review_digest_lines(payload: dict[str, Any]) -> dict[str, list[str]]:
+    raw = dict(payload.get("raw") or payload or {})
+    digest = dict(raw.get("digest") or payload.get("digest") or {})
+    phase_rows = [
+        _normalize_measurement_phase_row(dict(item))
+        for item in list(raw.get("phase_rows") or payload.get("phase_rows") or [])
+        if isinstance(item, dict)
+    ]
+    gap_rows = [
+        dict(item)
+        for item in list(raw.get("linked_measurement_gaps") or payload.get("linked_measurement_gaps") or [])
+        if isinstance(item, dict)
+    ]
+    linked_method_summary = _phase_field_summary(
+        phase_rows,
+        family=METHOD_CONFIRMATION_FAMILY,
+        key_field_name="linked_method_confirmation_item_keys",
+        display_field_name="linked_method_confirmation_items",
+    )
+    linked_uncertainty_summary = _phase_field_summary(
+        phase_rows,
+        family=UNCERTAINTY_INPUT_FAMILY,
+        key_field_name="linked_uncertainty_input_keys",
+        display_field_name="linked_uncertainty_inputs",
+    )
+    linked_traceability_summary = _phase_field_summary(
+        phase_rows,
+        family=TRACEABILITY_NODE_FAMILY,
+        key_field_name="linked_traceability_node_keys",
+        display_field_name="linked_traceability_stub_nodes",
+    )
+    gap_index_summary = _gap_index_summary(phase_rows)
+    reviewer_next_step_summary = _reviewer_next_step_summary(phase_rows)
+    readiness_impact_summary = " | ".join(
+        _dedupe(
+            f"{_display_route_phase(row)}: {_display_readiness_impact(row)}"
+            for row in phase_rows
+            if str(row.get("coverage_bucket") or "").strip() != "actual_simulated_run_with_payload_complete"
+        )
+    ) or humanize_review_surface_text(str(digest.get("readiness_impact_summary") or t("common.none")))
+    blocker_summary = " | ".join(
+        _dedupe(
+            f"{_display_route_phase(row)}: {_display_blockers(row)}"
+            for row in phase_rows
+            if str(row.get("coverage_bucket") or "").strip() != "actual_simulated_run_with_payload_complete"
+            and (list(row.get("blocker_fragments") or []) or list(row.get("blockers") or []))
+        )
+    ) or humanize_review_surface_text(str(digest.get("blocker_summary") or t("common.none")))
+    phase_contrast_fallback = _localized_phase_contrast_summary(
+        phase_rows,
+        str(digest.get("phase_contrast_summary") or ""),
+    )
+    phase_contrast_summary = _display_phase_contrast_summary(raw, phase_contrast_fallback)
+    boundary_summary = _display_boundary_summary(raw)
+    non_claim_summary = _display_non_claim_summary(raw)
+
+    summary_lines = [
+        humanize_review_surface_text(str(digest.get("summary") or "")),
+        t(
+            "results.review_center.detail.measurement.payload_complete_phases_line",
+            value=str(digest.get("payload_complete_phase_summary") or t("common.none")),
+            default=f"payload complete phases: {str(digest.get('payload_complete_phase_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.measurement.payload_partial_phases_line",
+            value=str(digest.get("payload_partial_phase_summary") or t("common.none")),
+            default=f"payload partial phases: {str(digest.get('payload_partial_phase_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.measurement.trace_only_phases_line",
+            value=str(digest.get("trace_only_phase_summary") or t("common.none")),
+            default=f"trace-only phases: {str(digest.get('trace_only_phase_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.measurement.next_artifacts_line",
+            value=str(digest.get("next_required_artifacts_summary") or t("common.none")),
+            default=f"next required artifacts: {str(digest.get('next_required_artifacts_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.measurement.blockers_line",
+            value=blocker_summary,
+            default=f"current blockers: {blocker_summary}",
+        ),
+        t(
+            "results.review_center.detail.measurement.preseal_partial_guidance_line",
+            value=str(digest.get("preseal_partial_guidance_summary") or t("common.none")),
+            default=f"preseal partial guidance: {str(digest.get('preseal_partial_guidance_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.measurement.linked_method_items_line",
+            value=linked_method_summary,
+            default=f"linked method confirmation items: {linked_method_summary}",
+        ),
+        t(
+            "results.review_center.detail.measurement.linked_uncertainty_inputs_line",
+            value=linked_uncertainty_summary,
+            default=f"linked uncertainty inputs: {linked_uncertainty_summary}",
+        ),
+        t(
+            "results.review_center.detail.measurement.linked_traceability_nodes_line",
+            value=linked_traceability_summary,
+            default=f"linked traceability nodes: {linked_traceability_summary}",
+        ),
+        t(
+            "results.review_center.detail.measurement.reviewer_next_steps_line",
+            value=reviewer_next_step_summary,
+            default=f"reviewer next steps: {reviewer_next_step_summary}",
+        ),
+        t(
+            "results.review_center.detail.measurement.phase_contrast_line",
+            value=phase_contrast_summary,
+            default=f"preseal / pressure_stable contrast: {phase_contrast_summary}",
+        ),
+        t(
+            "results.review_center.detail.measurement.boundary_line",
+            value=boundary_summary,
+            default=f"{t('results.review_center.detail.boundary', default='边界')}：{boundary_summary}",
+        ),
+        t(
+            "results.review_center.detail.measurement.non_claim_line",
+            value=non_claim_summary,
+            default=f"{t('results.review_center.detail.readiness.non_claim', default='非声明边界')}：{non_claim_summary}",
+        ),
+    ]
+
+    detail_lines = [
+        t(
+            "results.review_center.detail.measurement.readiness_impact_line",
+            value=readiness_impact_summary,
+            default=f"readiness impact: {readiness_impact_summary}",
+        ),
+        t(
+            "results.review_center.detail.measurement.linked_readiness_line",
+            value=str(digest.get("linked_readiness_summary") or t("common.none")),
+            default=f"linked readiness artifacts: {str(digest.get('linked_readiness_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.measurement.gap_index_line",
+            value=gap_index_summary,
+            default=f"gap index: {gap_index_summary}",
+        ),
+        t(
+            "results.review_center.detail.measurement.boundary_line",
+            value=boundary_summary,
+            default=f"{t('results.review_center.detail.boundary', default='边界')}：{boundary_summary}",
+        ),
+        t(
+            "results.review_center.detail.measurement.non_claim_line",
+            value=non_claim_summary,
+            default=f"{t('results.review_center.detail.readiness.non_claim', default='非声明边界')}：{non_claim_summary}",
+        ),
+    ]
+
+    for row in phase_rows:
+        route_phase = _display_route_phase(row)
+        next_artifacts_text = _display_text_list(list(row.get("next_required_artifacts") or []))
+        blockers_text = _display_blockers(row)
+        gap_reason_text = _display_gap_reason(row)
+        readiness_impact_text = _display_readiness_impact(row)
+        reviewer_next_step_text = _display_reviewer_next_step(row)
+        row_boundary_text = _display_boundary_summary(row)
+        row_non_claim_text = _display_non_claim_summary(row)
+        detail_lines.append(
+            t(
+                "results.review_center.detail.measurement.phase_guidance_line",
+                phase=route_phase,
+                bucket=_display_measurement_bucket(row.get("coverage_bucket_display") or row.get("coverage_bucket")),
+                available=_display_measurement_layer_list(list(row.get("available_signal_layers") or [])),
+                missing=_display_measurement_layer_list(list(row.get("missing_signal_layers") or [])),
+                reason=gap_reason_text,
+                impact=readiness_impact_text,
+                next="、".join(
+                    str(item).strip() for item in list(row.get("next_required_artifacts") or []) if str(item).strip()
+                )
+                or t("common.none"),
+                boundary=row_boundary_text,
+                default=(
+                    f"{route_phase}: bucket {_display_measurement_bucket(row.get('coverage_bucket_display') or row.get('coverage_bucket'))}; "
+                    f"available {_display_measurement_layer_list(list(row.get('available_signal_layers') or []))}; "
+                    f"missing {_display_measurement_layer_list(list(row.get('missing_signal_layers') or []))}; "
+                    f"reason {gap_reason_text}; impact {readiness_impact_text}; "
+                    f"next {'、'.join(str(item).strip() for item in list(row.get('next_required_artifacts') or []) if str(item).strip()) or t('common.none')}; "
+                    f"boundary {row_boundary_text}"
+                ),
+            )
+        )
+        detail_lines.append(
+            t(
+                "results.review_center.detail.measurement.phase_navigation_line",
+                phase=route_phase,
+                method=_display_taxonomy_list(
+                    METHOD_CONFIRMATION_FAMILY,
+                    key_values=list(row.get("linked_method_confirmation_item_keys") or []),
+                    display_values=list(row.get("linked_method_confirmation_items") or []),
+                ),
+                uncertainty=_display_taxonomy_list(
+                    UNCERTAINTY_INPUT_FAMILY,
+                    key_values=list(row.get("linked_uncertainty_input_keys") or []),
+                    display_values=list(row.get("linked_uncertainty_inputs") or []),
+                ),
+                traceability=_display_taxonomy_list(
+                    TRACEABILITY_NODE_FAMILY,
+                    key_values=list(row.get("linked_traceability_node_keys") or []),
+                    display_values=list(row.get("linked_traceability_nodes") or row.get("linked_traceability_stub_nodes") or []),
+                ),
+                blockers=blockers_text,
+                next=next_artifacts_text,
+                reviewer_next_step=reviewer_next_step_text,
+                default=(
+                    f"{route_phase}: method {_display_text_list(list(row.get('linked_method_confirmation_items') or []))}; "
+                    f"uncertainty {_display_text_list(list(row.get('linked_uncertainty_inputs') or []))}; "
+                    f"traceability {_display_text_list(list(row.get('linked_traceability_stub_nodes') or []))}; "
+                    f"blockers {blockers_text}; next {next_artifacts_text}; reviewer next step {reviewer_next_step_text}"
+                ),
+            )
+        )
+        if str(row.get("gap_classification") or "").strip() or str(row.get("gap_severity") or "").strip():
+            detail_lines.append(
+                t(
+                    "results.review_center.detail.measurement.phase_gap_line",
+                    phase=route_phase,
+                    classification=_display_gap_classification(row),
+                    severity=_display_gap_severity(row),
+                    default=(
+                        f"{route_phase}: gap classification {_display_gap_classification(row)}; "
+                        f"gap severity {_display_gap_severity(row)}"
+                    ),
+                )
+            )
+        comparison_digest = str(row.get("comparison_digest") or "").strip()
+        if comparison_digest:
+            comparison_summary = _display_phase_contrast_summary(row, comparison_digest)
+            detail_lines.append(
+                t(
+                    "results.review_center.detail.measurement.phase_comparison_line",
+                    phase=route_phase,
+                    value=comparison_summary,
+                    default=f"{route_phase} contrast: {comparison_summary}",
+                )
+            )
+        if row_non_claim_text and row_non_claim_text != t("common.none"):
+            detail_lines.append(
+                t(
+                    "results.review_center.detail.measurement.phase_non_claim_line",
+                    phase=route_phase,
+                    value=row_non_claim_text,
+                    default=(
+                        f"{route_phase} {t('results.review_center.detail.readiness.non_claim', default='非声明边界')}："
+                        f"{row_non_claim_text}"
+                    ),
+                )
+            )
+
+    for row in gap_rows:
+        route_phase = str(row.get("route_phase") or "").strip()
+        if not route_phase:
+            continue
+        detail_lines.append(
+            t(
+                "results.review_center.detail.measurement.phase_gap_line",
+                phase=route_phase,
+                classification=display_taxonomy_value(
+                    GAP_CLASSIFICATION_FAMILY,
+                    row.get("gap_classification"),
+                    default=str(row.get("gap_classification_label") or row.get("gap_classification") or t("common.none")),
+                ),
+                severity=display_taxonomy_value(
+                    GAP_SEVERITY_FAMILY,
+                    row.get("gap_severity"),
+                    default=str(row.get("gap_severity_label") or row.get("gap_severity") or t("common.none")),
+                ),
+                default=(
+                    f"{route_phase}: gap classification "
+                    f"{display_taxonomy_value(GAP_CLASSIFICATION_FAMILY, row.get('gap_classification'), default=str(row.get('gap_classification_label') or row.get('gap_classification') or t('common.none')))}; "
+                    f"gap severity "
+                    f"{display_taxonomy_value(GAP_SEVERITY_FAMILY, row.get('gap_severity'), default=str(row.get('gap_severity_label') or row.get('gap_severity') or t('common.none')))}"
+                ),
+            )
+        )
+    return {
+        "summary_lines": _dedupe_lines(summary_lines),
+        "detail_lines": _dedupe_lines(detail_lines),
+    }
+
+
+def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, list[str]]:
+    raw = dict(payload.get("raw") or payload or {})
+    digest = dict(raw.get("digest") or payload.get("digest") or {})
+    title = str(
+        dict(raw.get("review_surface") or payload.get("review_surface") or {}).get("title_text")
+        or raw.get("artifact_type")
+        or "--"
+    )
+    phase_rows = [
+        _normalize_measurement_phase_row(dict(item))
+        for item in list(raw.get("linked_measurement_phase_artifacts") or [])
+        if isinstance(item, dict)
+    ]
+    gap_rows = [dict(item) for item in list(raw.get("linked_measurement_gaps") or []) if isinstance(item, dict)]
+    linked_method_summary = _phase_field_summary(
+        phase_rows,
+        family=METHOD_CONFIRMATION_FAMILY,
+        key_field_name="linked_method_confirmation_item_keys",
+        display_field_name="linked_method_confirmation_items",
+    )
+    linked_uncertainty_summary = _phase_field_summary(
+        phase_rows,
+        family=UNCERTAINTY_INPUT_FAMILY,
+        key_field_name="linked_uncertainty_input_keys",
+        display_field_name="linked_uncertainty_inputs",
+    )
+    linked_traceability_summary = _phase_field_summary(
+        phase_rows,
+        family=TRACEABILITY_NODE_FAMILY,
+        key_field_name="linked_traceability_node_keys",
+        display_field_name="linked_traceability_nodes",
+    )
+    linked_gap_classification_summary = " | ".join(
+        _dedupe(
+            f"{str(row.get('route_phase') or '').strip()}: {display_taxonomy_value(GAP_CLASSIFICATION_FAMILY, row.get('gap_classification'), default=str(row.get('gap_classification_label') or row.get('gap_classification') or t('common.none')))}"
+            for row in gap_rows
+            if str(row.get("route_phase") or "").strip()
+        )
+    ) or str(digest.get("linked_gap_classification_summary") or t("common.none"))
+    linked_gap_severity_summary = " | ".join(
+        _dedupe(
+            f"{str(row.get('route_phase') or '').strip()}: {display_taxonomy_value(GAP_SEVERITY_FAMILY, row.get('gap_severity'), default=str(row.get('gap_severity_label') or row.get('gap_severity') or t('common.none')))}"
+            for row in gap_rows
+            if str(row.get("route_phase") or "").strip()
+        )
+    ) or str(digest.get("linked_gap_severity_summary") or t("common.none"))
+    linked_gap_reason_summary = " | ".join(
+        _dedupe(
+            f"{str(row.get('route_phase') or '').strip()}: {_display_gap_reason(row)}"
+            for row in gap_rows
+            if str(row.get("route_phase") or "").strip()
+        )
+    ) or humanize_review_surface_text(str(digest.get("gap_reason") or t("common.none")))
+    linked_readiness_impact_summary = " | ".join(
+        _dedupe(
+            f"{str(row.get('route_phase') or '').strip()}: {_display_readiness_impact(row)}"
+            for row in gap_rows
+            if str(row.get("route_phase") or "").strip()
+        )
+    ) or humanize_review_surface_text(
+        str(raw.get("linked_readiness_impact_summary") or digest.get("linked_readiness_impact_summary") or t("common.none"))
+    )
+    blocker_summary = " | ".join(
+        _dedupe(
+            f"{str(row.get('route_phase') or '').strip()}: {_display_blockers(row)}"
+            for row in gap_rows
+            if str(row.get("route_phase") or "").strip()
+            and (list(row.get("blocker_fragments") or []) or list(row.get("blockers") or []))
+        )
+    ) or humanize_review_surface_text(str(digest.get("blocker_summary") or t("common.none")))
+    reviewer_next_step_summary = " | ".join(
+        _dedupe(
+            _display_reviewer_next_step(row)
+            for row in gap_rows
+            if list(row.get("reviewer_next_step_fragments") or [])
+            or str(row.get("reviewer_next_step_digest") or "").strip()
+        )
+    ) or humanize_review_surface_text(str(digest.get("reviewer_next_step_digest") or t("common.none")))
+    boundary_summary = _display_boundary_summary(raw)
+    non_claim_summary = _display_non_claim_summary(raw)
+
+    summary_lines = [
+        f"{title}: {humanize_review_surface_text(str(digest.get('summary') or ''))}".strip(": "),
+        t(
+            "results.review_center.detail.readiness.linked_measurement_line",
+            value=str(digest.get("linked_measurement_phase_summary") or t("common.none")),
+            default=f"linked measurement phases: {str(digest.get('linked_measurement_phase_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.readiness.linked_measurement_gap_line",
+            value=str(digest.get("linked_measurement_gap_summary") or t("common.none")),
+            default=f"linked measurement gaps: {str(digest.get('linked_measurement_gap_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.readiness.readiness_impact_line",
+            value=linked_readiness_impact_summary,
+            default=f"readiness impact: {linked_readiness_impact_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.linked_method_items_line",
+            value=linked_method_summary,
+            default=f"linked method confirmation items: {linked_method_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.linked_uncertainty_inputs_line",
+            value=linked_uncertainty_summary,
+            default=f"linked uncertainty inputs: {linked_uncertainty_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.linked_traceability_nodes_line",
+            value=linked_traceability_summary,
+            default=f"linked traceability nodes: {linked_traceability_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.reviewer_next_step_line",
+            value=reviewer_next_step_summary,
+            default=f"reviewer next step: {reviewer_next_step_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.boundary_line",
+            value=boundary_summary,
+            default=f"{t('results.review_center.detail.boundary', default='边界')}：{boundary_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.non_claim_line",
+            value=non_claim_summary,
+            default=f"{t('results.review_center.detail.readiness.non_claim', default='非声明边界')}：{non_claim_summary}",
+        ),
+    ]
+
+    detail_lines = [
+        t(
+            "results.review_center.detail.readiness.current_coverage_line",
+            value=str(digest.get("current_coverage_summary") or t("common.none")),
+            default=f"current coverage: {str(digest.get('current_coverage_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.readiness.missing_evidence_line",
+            value=str(digest.get("missing_evidence_summary") or t("common.none")),
+            default=f"missing evidence: {str(digest.get('missing_evidence_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.readiness.blockers_line",
+            value=blocker_summary,
+            default=f"current blockers: {blocker_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.linked_measurement_line",
+            value=str(digest.get("linked_measurement_phase_summary") or t("common.none")),
+            default=f"linked measurement phases: {str(digest.get('linked_measurement_phase_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.readiness.linked_measurement_gap_line",
+            value=str(digest.get("linked_measurement_gap_summary") or t("common.none")),
+            default=f"linked measurement gaps: {str(digest.get('linked_measurement_gap_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.readiness.readiness_impact_line",
+            value=linked_readiness_impact_summary,
+            default=f"readiness impact: {linked_readiness_impact_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.preseal_partial_gap_line",
+            value=str(digest.get("preseal_partial_gap_summary") or t("common.none")),
+            default=f"preseal partial gap: {str(digest.get('preseal_partial_gap_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.readiness.linked_method_items_line",
+            value=linked_method_summary,
+            default=f"linked method confirmation items: {linked_method_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.linked_uncertainty_inputs_line",
+            value=linked_uncertainty_summary,
+            default=f"linked uncertainty inputs: {linked_uncertainty_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.linked_traceability_nodes_line",
+            value=linked_traceability_summary,
+            default=f"linked traceability nodes: {linked_traceability_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.linked_gap_classification_line",
+            value=linked_gap_classification_summary,
+            default=f"linked gap classification: {linked_gap_classification_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.linked_gap_severity_line",
+            value=linked_gap_severity_summary,
+            default=f"linked gap severity: {linked_gap_severity_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.gap_reason_line",
+            value=linked_gap_reason_summary,
+            default=f"gap reason: {linked_gap_reason_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.next_artifacts_line",
+            value=str(digest.get("next_required_artifacts_summary") or t("common.none")),
+            default=f"next required artifacts: {str(digest.get('next_required_artifacts_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.readiness.reviewer_next_step_line",
+            value=reviewer_next_step_summary,
+            default=f"reviewer next step: {reviewer_next_step_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.boundary_line",
+            value=boundary_summary,
+            default=f"{t('results.review_center.detail.boundary', default='边界')}：{boundary_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.non_claim_line",
+            value=non_claim_summary,
+            default=f"{t('results.review_center.detail.readiness.non_claim', default='非声明边界')}：{non_claim_summary}",
+        ),
+    ]
+    return {
+        "summary_lines": _dedupe_lines(summary_lines),
+        "detail_lines": _dedupe_lines(detail_lines),
+    }
+
+
 def build_review_scope_selection_line(
     *,
     scope: Any,

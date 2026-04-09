@@ -2033,10 +2033,13 @@
           "phase_contrast_line": "Preseal vs pressure-stable contrast: {value}",
           "readiness_impact_line": "Readiness impact: {value}",
           "linked_readiness_line": "Linked readiness artifacts: {value}",
+          "boundary_line": "Boundary: {value}",
+          "non_claim_line": "Non-claim boundary: {value}",
           "phase_guidance_line": "{phase}: bucket {bucket}; available {available}; missing {missing}; reason {reason}; impact {impact}; next {next}; boundary {boundary}",
           "phase_navigation_line": "{phase}: method {method}; uncertainty {uncertainty}; traceability {traceability}; blockers {blockers}; next {next}; reviewer next step {reviewer_next_step}",
           "gap_index_line": "Gap index: {value}",
-          "phase_comparison_line": "{phase} contrast: {value}"
+          "phase_comparison_line": "{phase} contrast: {value}",
+          "phase_non_claim_line": "{phase} non-claim boundary: {value}"
         },
         "readiness": {
           "status": "Readiness status",
@@ -2065,6 +2068,7 @@
           "gap_reason_line": "Gap reason: {value}",
           "next_artifacts_line": "Next artifacts: {value}",
           "reviewer_next_step_line": "Reviewer next step: {value}",
+          "boundary_line": "Boundary: {value}",
           "non_claim_line": "Non-claim boundary: {value}"
         },
         "boundary": "Boundary"
@@ -2143,6 +2147,133 @@
       "reviewer_source_summary": "Source: {source}\nFiltered evidence: {visible}/{total}\nScope: {scope}\nRisk: {risk}\nGaps: {gaps}",
       "approver_source_summary": "Source: {source}\nOffline readiness hint: {readiness}\nFiltered evidence: {visible}/{total}\nRisk: {risk}\nThis view is offline/simulated only and does not represent real acceptance"
     }
+    }
+  },
+  "taxonomy": {
+    "reviewer_next_step": {
+      "ambient_diagnostic_gap_closeout": "Confirm ambient diagnostic baseline method items first, then add ambient pressure/humidity/temperature uncertainty inputs, then tie the ambient references into the traceability stub while keeping this phase reviewer-only.",
+      "ambient_diagnostic_payload_complete_anchor": "Use the ambient diagnostic payload as the synthetic baseline anchor, then keep ambient method, uncertainty, and traceability closure in readiness-only artifacts.",
+      "ambient_diagnostic_trace_promotion": "Promote the ambient diagnostic trace into payload-backed reviewer evidence before closing ambient baseline method, uncertainty, and traceability gaps.",
+      "ambient_sample_ready_gap_closeout": "Confirm ambient sample-ready dwell and release method items first, then add stabilization uncertainty inputs, then tie the ambient release references into the traceability stub while keeping this phase reviewer-only.",
+      "ambient_sample_ready_payload_complete_anchor": "Use the ambient sample-ready payload as the synthetic release anchor, then keep scope, method, uncertainty, and traceability closure in readiness-only artifacts.",
+      "ambient_sample_ready_trace_promotion": "Promote the ambient sample-ready trace into payload-backed reviewer evidence before closing dwell, uncertainty, and traceability gaps.",
+      "gas_preseal_partial_gap_closeout": "Confirm the gas preseal window method first, then add the preseal pressure/temperature uncertainty inputs, then tie the standard-gas and pressure references into the traceability stub while keeping preseal partial explicit as payload-partial.",
+      "gas_pressure_stable_payload_complete_anchor": "Use the gas pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists.",
+      "gas_sample_ready_gap_closeout": "Confirm gas sample-ready dwell and release method items first, then add reference-gas/pressure uncertainty inputs, then tie the release references into the traceability stub while keeping this phase reviewer-only.",
+      "gas_sample_ready_payload_complete_anchor": "Use the gas sample-ready payload as synthetic reviewer release evidence, then keep uncertainty and traceability closure in readiness-only artifacts.",
+      "gas_sample_ready_trace_promotion": "Promote the gas sample-ready trace into payload-backed reviewer evidence before closing dwell, uncertainty, and traceability gaps.",
+      "generic_boundary_documentation": "Keep the current reviewer boundary explicit and document the next missing artifact.",
+      "generic_payload_complete_readiness_only": "Keep this phase linked to readiness artifacts as synthetic reviewer evidence only.",
+      "generic_trace_promotion": "Promote this trace-only phase into payload-backed reviewer evidence before closing downstream readiness gaps.",
+      "recovery_retry_gap_closeout": "Confirm recovery/retry method items first, then add retry timing uncertainty inputs, then tie the software event log and audit references into the traceability stub while keeping this phase reviewer-only.",
+      "recovery_retry_payload_complete_anchor": "Use the recovery/retry payload as the synthetic software-validation anchor, then keep release and audit closure in readiness-only artifacts.",
+      "recovery_retry_test_only_hold": "Keep recovery/retry in test-only reviewer coverage until synthetic payload captures retry timing, fault capture, and audit-trace linkage.",
+      "recovery_retry_trace_promotion": "Promote the recovery/retry trace into payload-backed reviewer evidence before closing software validation, timing, and audit-trace gaps.",
+      "water_preseal_partial_gap_closeout": "Confirm the water preseal window method first, then add the preseal pressure/temperature uncertainty inputs, then tie the humidity and dew-point references into the traceability stub while keeping preseal partial explicit as payload-partial.",
+      "water_pressure_stable_payload_complete_anchor": "Use the water pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists.",
+      "water_sample_ready_gap_closeout": "Confirm water sample-ready dwell and release method items first, then add humidity/pressure uncertainty inputs, then tie the release references into the traceability stub while keeping this phase reviewer-only.",
+      "water_sample_ready_payload_complete_anchor": "Use the water sample-ready payload as synthetic reviewer release evidence, then keep uncertainty and traceability closure in readiness-only artifacts.",
+      "water_sample_ready_trace_promotion": "Promote the water sample-ready trace into payload-backed reviewer evidence before closing dwell, uncertainty, and traceability gaps."
+    }
+  },
+  "reviewer_fragments": {
+    "gap_reason": {
+      "conditioning_window_output_layer_open": "Conditioning window remains setup evidence so the output layer stays open: {details}",
+      "missing_layer_reason_explicit": "Missing-layer reason: {details}",
+      "partial_payload_boundary_open": "Payload remains partial and the open layers stay explicit: {missing_layers}",
+      "reviewer_coverage_only_gap": "This phase currently has only {coverage_bucket_label} reviewer coverage",
+      "trace_only_not_payload_evaluated": "This phase is still trace-only and payload-backed evidence has not been promoted yet"
+    },
+    "readiness_impact": {
+      "payload_backed_linkage_available": "{dimensions} linkage is available from synthetic payload-backed reviewer evidence",
+      "payload_evidence_not_complete": "{dimensions} remains open because payload evidence is not complete",
+      "payload_partial_linkage_open": "{dimensions} remains open because payload is partial and missing layers stay explicit: {missing_layers}",
+      "reviewer_coverage_only_linkage_open": "{dimensions} remains open because this phase has only {coverage_bucket_label} reviewer coverage",
+      "trace_only_linkage_open": "{dimensions} remains open because this phase is still trace-only and not payload-evaluated"
+    },
+    "blocker": {
+      "actual_simulated_payload_still_open": "Actual simulated evidence exists but payload completeness remains open",
+      "artifact_hash_stub_only": "Artifact hash closure is still stub-only",
+      "audit_digest_traceability_skeleton": "Audit digest remains a reviewer traceability skeleton only",
+      "certificate_backed_chain_open": "Certificate-backed reference chain is not closed",
+      "certificate_files_missing": "Certificate files and intermediate checks remain missing",
+      "coverage_bucket_richer_payload_missing": "Phase remains {coverage_bucket_label}; richer simulated payload evidence is still missing",
+      "decision_rule_not_live_gate": "Decision rule profile does not drive live gate",
+      "formal_scope_approval_open": "Formal scope approval chain is not closed",
+      "linked_method_items_open": "Linked method confirmation items remain open: {items}",
+      "linked_traceability_nodes_stub_only": "Linked traceability nodes remain stub-only: {items}",
+      "linked_uncertainty_inputs_open": "Linked uncertainty inputs remain open: {items}",
+      "manifest_not_released_validation_record": "Manifest is not a released validation record",
+      "method_matrix_reviewer_only": "Matrix rows remain reviewer-only and not released method confirmation evidence",
+      "missing_signal_layers_explicit": "Missing signal layers: {missing_layers}",
+      "no_formal_audit_conclusion": "No formal audit conclusion is produced here",
+      "no_live_release_qualification_claim": "No live release qualification claim is produced here",
+      "partial_payload_not_phase_complete": "Payload stays partial so reviewer evidence cannot be overstated as phase-complete measurement evidence",
+      "preseal_honesty_boundary": "Preseal partial is an honesty boundary, not a measurement-core bug",
+      "preseal_setup_conditioning_only": "Preseal remains setup/conditioning evidence and does not imply released measurement output",
+      "protocol_placeholder_only": "Protocol remains placeholder-only",
+      "reference_registry_stub_only": "Reference registry is still a stub and not a released traceability chain",
+      "release_accreditation_out_of_scope": "Release / accreditation semantics remain explicitly out of scope",
+      "scope_package_reviewer_only": "Scope package remains reviewer-facing only",
+      "simulation_not_close_method_confirmation": "Simulation does not close method confirmation evidence",
+      "simulation_not_close_uncertainty_budget": "Simulation does not close released uncertainty budgets",
+      "software_traceability_reviewer_only": "Software traceability matrix remains reviewer-facing only",
+      "trace_only_payload_not_promoted": "Phase is still trace-only; simulated payload layers have not been promoted yet",
+      "traceability_stub_only": "Traceability chain stays reviewer-facing only",
+      "uncertainty_method_readiness_open": "Uncertainty / method readiness remains open until missing evidence is closed outside Step 2",
+      "uncertainty_placeholder_only": "Uncertainty sources are placeholders only"
+    },
+    "boundary": {
+      "cannot_replace_real_metrology_validation": "cannot replace real metrology validation",
+      "does_not_modify_live_sampling_gate": "does not modify live sampling gate by default",
+      "file_artifact_first_reviewer_evidence": "file-artifact-first reviewer evidence",
+      "measurement_core_step2_boundary": "measurement-core reviewer evidence stays within Step 2 simulation-only boundaries",
+      "not_real_acceptance_boundary": "not real acceptance",
+      "preseal_partial_honesty_boundary": "preseal partial is an honesty boundary for setup / conditioning evidence and does not imply released measurement output",
+      "pressure_stable_complete_synthetic_only": "pressure-stable complete remains synthetic reviewer evidence only and does not imply real acceptance",
+      "shadow_evaluation_only": "shadow evaluation only",
+      "simulation_offline_headless_only": "simulation / offline / headless only",
+      "step2_reviewer_readiness_only": "Step 2 reviewer readiness only",
+      "step2_tail_stage3_bridge": "Step 2 tail / Stage 3 bridge",
+      "trace_only_reviewer_boundary": "trace-only phase evidence remains reviewer-only until payload-backed layers are promoted"
+    },
+    "non_claim": {
+      "certificate_backed_release_chain_not_closed": "certificate-backed release chain not closed",
+      "certificate_evidence_not_closed": "certificate evidence not closed",
+      "decision_rule_profile_stub_only": "decision rule profile stub only",
+      "method_confirmation_matrix_stub_only": "method confirmation matrix stub only",
+      "method_confirmation_protocol_stub_only": "method confirmation protocol stub only",
+      "not_accreditation_claim": "not accreditation claim",
+      "not_closed_method_confirmation_report": "not a closed method confirmation report",
+      "not_compliance_claim": "not compliance claim",
+      "not_final_uncertainty_report": "not a final uncertainty report",
+      "not_formal_scope_statement": "not a formal scope statement",
+      "not_formal_software_qualification_report": "not a formal software qualification report",
+      "not_live_acceptance": "not live acceptance",
+      "not_live_gate": "not live gate",
+      "not_method_confirmation_closure": "not method confirmation closure",
+      "not_real_acceptance": "not real acceptance",
+      "not_real_metrology_release_evidence": "not real metrology release evidence",
+      "not_release_gate": "not a release gate",
+      "not_released_metrology_chain": "not a released metrology chain",
+      "not_released_uncertainty_budget": "not a released uncertainty budget",
+      "not_released_validation_record": "not a released validation record",
+      "readiness_registry_only": "readiness registry only",
+      "reference_registry_stub_only": "reference registry stub only",
+      "release_manifest_stub_only": "release manifest stub only",
+      "scope_package_stub_only": "scope package stub only",
+      "simulation_not_close_method_confirmation": "simulation does not close method confirmation",
+      "simulation_not_close_uncertainty": "simulation does not close uncertainty",
+      "simulation_synthetic_reviewer_evidence_only": "simulation / synthetic reviewer evidence only",
+      "software_traceability_matrix_only": "software traceability matrix only",
+      "traceability_chain_stub_only": "traceability chain stub only",
+      "uncertainty_stub_only": "uncertainty stub only"
+    },
+    "phase_contrast": {
+      "payload_backed_ambient_recovery_anchor_visibility": "payload-backed ambient/recovery phases {phases} keep method {method}, uncertainty {uncertainty}, and traceability {traceability} visible as synthetic reviewer anchors without changing Step 2 evidence boundaries",
+      "preseal_partial_vs_pressure_stable_complete": "preseal stays payload-partial because setup / conditioning evidence still keeps {preseal_missing} explicit; pressure_stable can reach payload-complete once {stable_available} are all available and can therefore anchor richer method / uncertainty / traceability reviewer linkage",
+      "preseal_partial_vs_pressure_stable_complete_detail": "{route} route: preseal stays payload-partial because missing {preseal_missing}; same-route pressure_stable reaches payload-complete because {stable_available} are all available; preseal keeps method {preseal_method}, uncertainty {preseal_uncertainty}, and traceability {preseal_traceability} open, while pressure_stable already exposes method {stable_method}, uncertainty {stable_uncertainty}, and traceability {stable_traceability} as synthetic reviewer linkage",
+      "trace_only_taxonomy_visibility_open": "trace-only phases {phases} keep the same taxonomy visible, but reviewer closure stays open until payload-backed evidence is promoted"
     }
   }
 }

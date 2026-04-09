@@ -43,6 +43,7 @@ from ...review_surface_formatter import (
     build_offline_diagnostic_detail_line,
     build_offline_diagnostic_detail_item_line,
     build_offline_diagnostic_scope_line_from_counts,
+    collect_boundary_digest_lines,
     collect_offline_diagnostic_detail_lines,
     humanize_offline_diagnostic_detail_value,
     humanize_offline_diagnostic_summary_value,
@@ -152,7 +153,7 @@ def _build_reviewer_filter_options(entries: list[dict[str, Any]]) -> dict[str, l
         "boundary_options": [
             {"id": "all", "label": t("results.review_center.filter.all_boundaries", default="全部边界")}
         ]
-        + [{"id": value, "label": value} for value in boundary_values],
+        + [{"id": value, "label": humanize_review_surface_text(value)} for value in boundary_values],
         "anchor_options": [
             {"id": "all", "label": t("results.review_center.filter.all_anchors", default="全部锚点")}
         ]
@@ -223,7 +224,7 @@ def _build_measurement_core_filter_options(items: list[dict[str, Any]]) -> dict[
         ] + [{"id": value, "label": value} for value in evidence_category_values],
         "boundary_options": [
             {"id": "all", "label": t("results.review_center.filter.all_boundaries", default="鍏ㄩ儴杈圭晫")}
-        ] + [{"id": value, "label": value} for value in boundary_values],
+        ] + [{"id": value, "label": humanize_review_surface_text(value)} for value in boundary_values],
         "anchor_options": [
             {"id": "all", "label": t("results.review_center.filter.all_anchors", default="鍏ㄩ儴閿氱偣")}
         ] + anchor_values,
@@ -1454,17 +1455,16 @@ class AppFacade:
         sidecar_note_text = self._humanize_ui_summary(
             str(simulation_evidence_sidecar_bundle.get("reviewer_note") or "--")
         )
-        measurement_core_boundary_lines: list[str] = []
-        for measurement_payload in (
-            measurement_phase_coverage_report,
-            multi_source_stability_evidence,
-            state_transition_evidence,
-            simulation_evidence_sidecar_bundle,
-        ):
-            for item in list(dict(measurement_payload or {}).get("boundary_statements") or []):
-                text = self._humanize_ui_summary(str(item or ""))
-                if text and text not in measurement_core_boundary_lines:
-                    measurement_core_boundary_lines.append(text)
+        measurement_core_boundary_lines = [
+            self._humanize_ui_summary(str(item))
+            for item in collect_boundary_digest_lines(
+                measurement_phase_coverage_report,
+                multi_source_stability_evidence,
+                state_transition_evidence,
+                simulation_evidence_sidecar_bundle,
+            )
+            if str(item).strip()
+        ]
         measurement_review_lines = build_measurement_review_digest_lines(measurement_phase_coverage_report)
         measurement_core_summary_lines = [
             self._humanize_ui_summary(

@@ -27,6 +27,7 @@ from ...qc.qc_report import build_qc_evidence_section, build_qc_reviewer_card
 from ...review_surface_formatter import (
     build_measurement_review_digest_lines,
     build_readiness_review_digest_lines,
+    collect_boundary_digest_lines,
     humanize_review_surface_text,
 )
 from ...sim.devices import SimulatedDeviceMatrix
@@ -324,17 +325,12 @@ class DeviceWorkbenchController:
         summary_lines = [line for line in summary_lines if line]
         detail_lines = [str(item).strip() for item in list(localized_measurement_lines.get("detail_lines") or []) if str(item).strip()]
         detail_lines = [line for line in detail_lines if line]
-        boundary_lines = [
-            str(item).strip()
-            for item in list(
-                phase_coverage.get("boundary_statements")
-                or stability.get("boundary_statements")
-                or transition.get("boundary_statements")
-                or sidecar.get("boundary_statements")
-                or []
-            )
-            if str(item).strip()
-        ]
+        boundary_lines = collect_boundary_digest_lines(
+            phase_coverage,
+            stability,
+            transition,
+            sidecar,
+        )
         return {
             "available": True,
             "summary_line": " | ".join(summary_lines) if summary_lines else t("common.none"),
@@ -402,7 +398,7 @@ class DeviceWorkbenchController:
                 text = str(line).strip()
                 if text and text not in detail_lines:
                     detail_lines.append(text)
-            for item in list(payload.get("boundary_statements") or []):
+            for item in collect_boundary_digest_lines(payload):
                 text = str(item).strip()
                 if text and text not in boundary_lines:
                     boundary_lines.append(text)
