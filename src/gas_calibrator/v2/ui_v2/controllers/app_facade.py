@@ -209,14 +209,14 @@ def _build_fragment_filter_options(
         {
             "id": str(item.get("canonical_fragment_id") or item.get("id") or ""),
             "label": str(
-                item.get("label")
-                or item.get("display_text")
-                or display_fragment_value(
+                display_fragment_value(
                     str(item.get("fragment_family") or BOUNDARY_FRAGMENT_FAMILY),
                     item.get("fragment_key"),
                     params=dict(item.get("params") or {}),
                     default=str(item.get("text") or ""),
                 )
+                or item.get("label")
+                or item.get("display_text")
             ),
         }
         for item in _dedupe_fragment_filter_rows(rows)
