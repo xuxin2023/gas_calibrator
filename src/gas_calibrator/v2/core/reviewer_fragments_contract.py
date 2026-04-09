@@ -23,6 +23,13 @@ PHASE_CONTRAST_FRAGMENT_FAMILY = "phase_contrast"
 
 _TOKEN_RE = re.compile(r"[^0-9a-z\u4e00-\u9fff]+")
 
+_MEASUREMENT_LAYER_LABELS = {
+    "reference": {"zh_CN": "\u53c2\u8003\u5c42", "en_US": "reference"},
+    "analyzer_raw": {"zh_CN": "\u5206\u6790\u4eea\u539f\u59cb\u5c42", "en_US": "analyzer raw"},
+    "output": {"zh_CN": "\u8f93\u51fa\u5c42", "en_US": "output"},
+    "data_quality": {"zh_CN": "\u6570\u636e\u8d28\u91cf\u5c42", "en_US": "data quality"},
+}
+
 
 def _entry(
     family: str,
@@ -376,6 +383,22 @@ _FRAGMENT_REGISTRY[BOUNDARY_FRAGMENT_FAMILY].update(
             en_label="measurement-core reviewer evidence stays within Step 2 simulation-only boundaries",
             aliases=("measurement-core reviewer evidence stays within step 2 simulation-only boundaries",),
         ),
+        "readiness_mapping_only": _entry(
+            BOUNDARY_FRAGMENT_FAMILY,
+            "readiness_mapping_only",
+            i18n_key="reviewer_fragments.boundary.readiness_mapping_only",
+            zh_label="\u4ec5\u7528\u4e8e readiness mapping",
+            en_label="readiness mapping only",
+            aliases=("readiness mapping only",),
+        ),
+        "engineering_isolation_dependency": _entry(
+            BOUNDARY_FRAGMENT_FAMILY,
+            "engineering_isolation_dependency",
+            i18n_key="reviewer_fragments.boundary.engineering_isolation_dependency",
+            zh_label="\u4ecd\u4f9d\u8d56 engineering-isolation \u8854\u63a5",
+            en_label="engineering-isolation dependency",
+            aliases=("engineering-isolation dependency",),
+        ),
     }
 )
 
@@ -411,7 +434,7 @@ _FRAGMENT_REGISTRY[NON_CLAIM_FRAGMENT_FAMILY].update(
             i18n_key="reviewer_fragments.non_claim.not_compliance_claim",
             zh_label="不是 compliance claim",
             en_label="not compliance claim",
-            aliases=("not compliance claim",),
+            aliases=("not compliance claim", "not compliance certification"),
         ),
         "not_accreditation_claim": _entry(
             NON_CLAIM_FRAGMENT_FAMILY,
@@ -677,11 +700,63 @@ def _normalize_lookup_value(value: Any) -> str:
     return _TOKEN_RE.sub("_", text).strip("_")
 
 
-def _stringify_param(value: Any) -> str:
+def _display_measurement_layer_token(value: Any, *, locale: str) -> str:
+    token = str(value or "").strip()
+    labels = _MEASUREMENT_LAYER_LABELS.get(token, {})
+    if str(locale or "").lower().startswith("en"):
+        return str(labels.get("en_US") or token)
+    return str(labels.get("zh_CN") or token)
+
+
+def _render_param_value(value: Any, *, locale: str) -> str:
+    if isinstance(value, dict):
+        kind = str(value.get("kind") or "").strip().lower()
+        if kind == "measurement_layer_list":
+            values = list(value.get("values") or [])
+            return ", ".join(
+                _display_measurement_layer_token(item, locale=locale)
+                for item in values
+                if str(item).strip()
+            ) or "--"
+        if kind == "taxonomy_list":
+            family = str(value.get("family") or "").strip()
+            values = list(value.get("values") or [])
+            return " | ".join(
+                taxonomy_display_label(family, item, locale=locale, default=str(item or "").strip())
+                for item in values
+                if str(item).strip()
+            ) or "--"
+        if kind == "route_phase_list":
+            values = list(value.get("values") or [])
+            return " | ".join(
+                "/".join(
+                    part
+                    for part in (
+                        str(dict(item).get("route") or "").strip(),
+                        str(dict(item).get("phase") or "").strip(),
+                    )
+                    if part
+                )
+                for item in values
+                if isinstance(item, dict)
+            ) or "--"
+        if kind == "route":
+            return str(value.get("value") or "").strip() or "--"
+        if kind == "text_list":
+            values = list(value.get("values") or [])
+            return " | ".join(str(item).strip() for item in values if str(item).strip()) or "--"
     if isinstance(value, (list, tuple, set)):
-        return ", ".join(str(item).strip() for item in value if str(item).strip()) or "--"
+        return ", ".join(
+            _render_param_value(item, locale=locale)
+            for item in value
+            if str(item).strip()
+        ) or "--"
     text = str(value or "").strip()
     return text or "--"
+
+
+def _stringify_param(value: Any) -> str:
+    return _render_param_value(value, locale="en_US")
 
 
 class _SafeFormatDict(dict[str, str]):
@@ -689,8 +764,10 @@ class _SafeFormatDict(dict[str, str]):
         return "{" + key + "}"
 
 
-def _render_template(template: str, params: dict[str, Any] | None) -> str:
-    payload = _SafeFormatDict({key: _stringify_param(value) for key, value in dict(params or {}).items()})
+def _render_template(template: str, params: dict[str, Any] | None, *, locale: str = "zh_CN") -> str:
+    payload = _SafeFormatDict(
+        {key: _render_param_value(value, locale=locale) for key, value in dict(params or {}).items()}
+    )
     return str(template or "").format_map(payload).strip()
 
 
