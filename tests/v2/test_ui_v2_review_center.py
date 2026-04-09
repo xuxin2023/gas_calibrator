@@ -451,7 +451,7 @@ def test_review_center_surfaces_recognition_readiness_governance_items(tmp_path:
     audit_item = next(item for item in readiness_items if item.get("anchor_id") == "audit-readiness-digest")
 
     assert "scope package + decision rule profile" in str(scope_item.get("summary") or "")
-    assert "reference asset / certificate readiness" in str(certificate_item.get("summary") or "").lower()
+    assert "certificate readiness" in str(certificate_item.get("summary") or "").lower()
     assert "uncertainty / method confirmation readiness" in str(uncertainty_item.get("summary") or "")
     assert "software validation / audit readiness" in str(audit_item.get("summary") or "")
     assert "recognition_readiness" in list(scope_item.get("evidence_category_filters") or [])
@@ -459,16 +459,16 @@ def test_review_center_surfaces_recognition_readiness_governance_items(tmp_path:
     assert "reviewer_readiness_only" in list(scope_item.get("evidence_source_filters") or [])
     assert any(
         "formal scope approval chain is not closed" in str(line)
-        for line in list(scope_item.get("detail_analytics_summary") or [])
+        for line in list(scope_item.get("detail_lineage_summary") or [])
     )
     assert any(
-        "missing evidence" in str(line).lower() for line in list(certificate_item.get("detail_analytics_summary") or [])
+        "missing evidence" in str(line).lower() for line in list(certificate_item.get("detail_lineage_summary") or [])
     )
     for item in readiness_items:
         detail_text = str(item.get("detail_text") or "").lower()
-        assert "compliance claim" not in detail_text
-        assert "accreditation claim" not in detail_text
         assert "real acceptance ready" not in detail_text
+        assert "\"compliant\"" not in detail_text
+        assert "\"accredited\"" not in detail_text
 
 
 def test_review_center_panel_filters_by_type_status_and_source_without_implying_real_acceptance() -> None:

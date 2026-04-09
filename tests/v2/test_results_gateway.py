@@ -1050,18 +1050,25 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
     assert scope_row["artifact_role"] == "diagnostic_analysis"
     assert "Step 2 reviewer readiness only" in scope_row["role_status_display"]
     assert "formal scope approval" in scope_row["note"]
-    assert "missing certificates" not in certificate_row["note"].lower()
+    assert "missing certificates" in certificate_row["note"].lower()
+    assert "pass results" in certificate_row["note"].lower()
     assert "traceability skeleton" in audit_row["note"].lower()
-    assert scope_row["scope_readiness_summary_entry"]["anchor_id"] == "scope-readiness-summary"
     assert (
-        certificate_row["certificate_readiness_summary_entry"]["anchor_id"]
+        scope_row["scope_readiness_summary_entry"]["review_surface"]["anchor_id"]
+        == "scope-readiness-summary"
+    )
+    assert (
+        certificate_row["certificate_readiness_summary_entry"]["review_surface"]["anchor_id"]
         == "certificate-readiness-summary"
     )
     assert (
-        uncertainty_row["uncertainty_method_readiness_summary_entry"]["anchor_id"]
+        uncertainty_row["uncertainty_method_readiness_summary_entry"]["review_surface"]["anchor_id"]
         == "uncertainty-method-readiness-summary"
     )
-    assert audit_row["audit_readiness_digest_entry"]["anchor_id"] == "audit-readiness-digest"
+    assert (
+        audit_row["audit_readiness_digest_entry"]["review_surface"]["anchor_id"]
+        == "audit-readiness-digest"
+    )
     for row in (scope_row, certificate_row, uncertainty_row, audit_row):
         note_text = str(row.get("note") or "").lower()
         assert "compliance" not in note_text
