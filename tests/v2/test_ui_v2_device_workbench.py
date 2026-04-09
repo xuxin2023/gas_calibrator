@@ -100,6 +100,11 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
     assert workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["artifact_paths"][
         "measurement_phase_coverage_report"
     ].endswith(MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME)
+    assert workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["available"] is True
+    assert (
+        "scope_readiness_summary"
+        in workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["artifact_paths"]
+    )
     assert any(
         "payload" in str(line).lower()
         for line in list(workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["summary_lines"] or [])
@@ -109,6 +114,16 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
     )
     assert workbench["evidence"]["point_taxonomy_summary"]["flush_gate_summary"] == "pass 1 | veto 1 | rebound 1"
     assert workbench["evidence"]["measurement_core_evidence"]["available"] is True
+    assert workbench["evidence"]["recognition_readiness_evidence"]["available"] is True
+    assert any(
+        section["id"] == "recognition_readiness"
+        for section in list(workbench["engineer_summary"]["sections"] or [])
+    )
+    assert any(
+        "scope package + decision rule profile" in str(section.get("summary") or "")
+        for section in list(workbench["engineer_summary"]["sections"] or [])
+        if section.get("id") == "recognition_readiness"
+    )
     assert workbench["history"]["items"] == []
     assert workbench["workbench"]["preset_center"]["groups"]
     assert workbench["workbench"]["preset_center"]["manager"]["supports_import_export"] is True

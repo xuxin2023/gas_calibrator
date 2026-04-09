@@ -429,6 +429,48 @@ def test_review_center_surfaces_measurement_phase_payload_and_trace_only_summary
     assert "compliance" not in str(measurement_item.get("detail_text") or "").lower()
 
 
+def test_review_center_surfaces_recognition_readiness_governance_items(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    rebuild_run(Path(facade.result_store.run_dir))
+
+    review_center = facade.build_results_snapshot()["review_center"]
+    readiness_items = [
+        item for item in list(review_center.get("evidence_items") or []) if item.get("type") == "readiness_governance"
+    ]
+
+    assert len(readiness_items) >= 4
+    assert any(option["id"] == "readiness_governance" for option in review_center["filters"]["type_options"])
+
+    scope_item = next(item for item in readiness_items if item.get("anchor_id") == "scope-readiness-summary")
+    certificate_item = next(
+        item for item in readiness_items if item.get("anchor_id") == "certificate-readiness-summary"
+    )
+    uncertainty_item = next(
+        item for item in readiness_items if item.get("anchor_id") == "uncertainty-method-readiness-summary"
+    )
+    audit_item = next(item for item in readiness_items if item.get("anchor_id") == "audit-readiness-digest")
+
+    assert "scope package + decision rule profile" in str(scope_item.get("summary") or "")
+    assert "reference asset / certificate readiness" in str(certificate_item.get("summary") or "").lower()
+    assert "uncertainty / method confirmation readiness" in str(uncertainty_item.get("summary") or "")
+    assert "software validation / audit readiness" in str(audit_item.get("summary") or "")
+    assert "recognition_readiness" in list(scope_item.get("evidence_category_filters") or [])
+    assert "simulation / offline / headless only" in list(scope_item.get("boundary_filters") or [])
+    assert "reviewer_readiness_only" in list(scope_item.get("evidence_source_filters") or [])
+    assert any(
+        "formal scope approval chain is not closed" in str(line)
+        for line in list(scope_item.get("detail_analytics_summary") or [])
+    )
+    assert any(
+        "missing evidence" in str(line).lower() for line in list(certificate_item.get("detail_analytics_summary") or [])
+    )
+    for item in readiness_items:
+        detail_text = str(item.get("detail_text") or "").lower()
+        assert "compliance claim" not in detail_text
+        assert "accreditation claim" not in detail_text
+        assert "real acceptance ready" not in detail_text
+
+
 def test_review_center_panel_filters_by_type_status_and_source_without_implying_real_acceptance() -> None:
     root = make_root()
     try:

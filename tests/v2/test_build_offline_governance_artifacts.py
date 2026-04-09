@@ -32,6 +32,7 @@ from gas_calibrator.v2.core.stage3_standards_alignment_matrix import (
     STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME,
     STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME,
 )
+from gas_calibrator.v2.core import recognition_readiness_artifacts as recognition_readiness
 from gas_calibrator.v2.scripts.build_offline_governance_artifacts import main, rebuild_run, rebuild_suite
 
 SUPPORT_DIR = Path(__file__).resolve().parent
@@ -867,3 +868,128 @@ def test_main_reports_clear_error_for_non_run_directory(tmp_path: Path, capsys) 
     captured = capsys.readouterr()
     assert code == 2
     assert "not a formal V2 run directory" in captured.err
+
+
+def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+
+    payload = rebuild_run(run_dir)
+
+    expected_filenames = (
+        recognition_readiness.SCOPE_DEFINITION_PACK_FILENAME,
+        recognition_readiness.SCOPE_DEFINITION_PACK_MARKDOWN_FILENAME,
+        recognition_readiness.DECISION_RULE_PROFILE_FILENAME,
+        recognition_readiness.DECISION_RULE_PROFILE_MARKDOWN_FILENAME,
+        recognition_readiness.SCOPE_READINESS_SUMMARY_FILENAME,
+        recognition_readiness.SCOPE_READINESS_SUMMARY_MARKDOWN_FILENAME,
+        recognition_readiness.REFERENCE_ASSET_REGISTRY_FILENAME,
+        recognition_readiness.REFERENCE_ASSET_REGISTRY_MARKDOWN_FILENAME,
+        recognition_readiness.CERTIFICATE_READINESS_SUMMARY_FILENAME,
+        recognition_readiness.CERTIFICATE_READINESS_SUMMARY_MARKDOWN_FILENAME,
+        recognition_readiness.METROLOGY_TRACEABILITY_STUB_FILENAME,
+        recognition_readiness.METROLOGY_TRACEABILITY_STUB_MARKDOWN_FILENAME,
+        recognition_readiness.UNCERTAINTY_BUDGET_STUB_FILENAME,
+        recognition_readiness.UNCERTAINTY_BUDGET_STUB_MARKDOWN_FILENAME,
+        recognition_readiness.METHOD_CONFIRMATION_PROTOCOL_FILENAME,
+        recognition_readiness.METHOD_CONFIRMATION_PROTOCOL_MARKDOWN_FILENAME,
+        recognition_readiness.METHOD_CONFIRMATION_MATRIX_FILENAME,
+        recognition_readiness.METHOD_CONFIRMATION_MATRIX_MARKDOWN_FILENAME,
+        recognition_readiness.UNCERTAINTY_METHOD_READINESS_SUMMARY_FILENAME,
+        recognition_readiness.UNCERTAINTY_METHOD_READINESS_SUMMARY_MARKDOWN_FILENAME,
+        recognition_readiness.SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_FILENAME,
+        recognition_readiness.SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_MARKDOWN_FILENAME,
+        recognition_readiness.RELEASE_VALIDATION_MANIFEST_FILENAME,
+        recognition_readiness.RELEASE_VALIDATION_MANIFEST_MARKDOWN_FILENAME,
+        recognition_readiness.AUDIT_READINESS_DIGEST_FILENAME,
+        recognition_readiness.AUDIT_READINESS_DIGEST_MARKDOWN_FILENAME,
+    )
+
+    for filename in expected_filenames:
+        assert (run_dir / filename).exists(), filename
+
+    scope_pack = json.loads((run_dir / recognition_readiness.SCOPE_DEFINITION_PACK_FILENAME).read_text(encoding="utf-8"))
+    decision_rule = json.loads((run_dir / recognition_readiness.DECISION_RULE_PROFILE_FILENAME).read_text(encoding="utf-8"))
+    scope_summary = json.loads(
+        (run_dir / recognition_readiness.SCOPE_READINESS_SUMMARY_FILENAME).read_text(encoding="utf-8")
+    )
+    reference_registry = json.loads(
+        (run_dir / recognition_readiness.REFERENCE_ASSET_REGISTRY_FILENAME).read_text(encoding="utf-8")
+    )
+    certificate_summary = json.loads(
+        (run_dir / recognition_readiness.CERTIFICATE_READINESS_SUMMARY_FILENAME).read_text(encoding="utf-8")
+    )
+    uncertainty_stub = json.loads(
+        (run_dir / recognition_readiness.UNCERTAINTY_BUDGET_STUB_FILENAME).read_text(encoding="utf-8")
+    )
+    method_matrix = json.loads(
+        (run_dir / recognition_readiness.METHOD_CONFIRMATION_MATRIX_FILENAME).read_text(encoding="utf-8")
+    )
+    uncertainty_summary = json.loads(
+        (run_dir / recognition_readiness.UNCERTAINTY_METHOD_READINESS_SUMMARY_FILENAME).read_text(encoding="utf-8")
+    )
+    software_matrix = json.loads(
+        (run_dir / recognition_readiness.SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_FILENAME).read_text(encoding="utf-8")
+    )
+    audit_digest = json.loads((run_dir / recognition_readiness.AUDIT_READINESS_DIGEST_FILENAME).read_text(encoding="utf-8"))
+
+    assert scope_pack["artifact_type"] == "scope_definition_pack"
+    assert scope_pack["not_real_acceptance_evidence"] is True
+    assert "not accreditation claim" in scope_pack["boundary_statements"]
+    assert decision_rule["artifact_type"] == "decision_rule_profile"
+    assert decision_rule["current_stage_applicability"] == "step2_reviewer_readiness_only"
+    assert scope_summary["artifact_type"] == "scope_readiness_summary"
+    assert scope_summary["review_surface"]["anchor_id"] == "scope-readiness-summary"
+    assert "formal scope approval chain is not closed" in scope_summary["missing_evidence"]
+    assert "not compliance claim" in scope_summary["boundary_statements"]
+    assert any(
+        str(item.get("certificate_status") or "").startswith("missing")
+        for item in list(reference_registry.get("assets") or [])
+    )
+    assert certificate_summary["artifact_type"] == "certificate_readiness_summary"
+    assert "certificate missing" in certificate_summary["digest"]["current_coverage_summary"]
+    assert "no released certificate files attached" in certificate_summary["missing_evidence"]
+    assert uncertainty_stub["artifact_type"] == "uncertainty_budget_stub"
+    assert uncertainty_stub["combined_uncertainty_status"] == "stub_only"
+    assert any(
+        str(item.get("current_coverage") or "")
+        in {"trace_only", "gap", "payload_backed", "payload_backed_partial", "stub_only"}
+        for item in list(method_matrix.get("matrix_rows") or [])
+    )
+    assert uncertainty_summary["artifact_type"] == "uncertainty_method_readiness_summary"
+    assert "missing evidence" in uncertainty_summary["digest"]["summary"]
+    assert software_matrix["artifact_type"] == "software_validation_traceability_matrix"
+    assert audit_digest["artifact_type"] == "audit_readiness_digest"
+    assert "file-artifact-first reviewer digest" in audit_digest["digest"]["summary"]
+
+    for payload_item in (scope_summary, certificate_summary, uncertainty_summary, audit_digest):
+        assert payload_item["review_surface"]["summary_text"]
+        assert payload_item["review_surface"]["artifact_paths"]
+        assert "not real acceptance" in payload_item["boundary_statements"]
+        rendered = json.dumps(payload_item, ensure_ascii=False).lower()
+        assert "real acceptance ready" not in rendered
+        assert "\"compliant\"" not in rendered
+        assert "\"accredited\"" not in rendered
+
+    assert payload["summary_stats"]["scope_readiness_summary"]["artifact_type"] == "scope_readiness_summary"
+    assert payload["summary_stats"]["certificate_readiness_summary"]["artifact_type"] == "certificate_readiness_summary"
+    assert (
+        payload["summary_stats"]["uncertainty_method_readiness_summary"]["artifact_type"]
+        == "uncertainty_method_readiness_summary"
+    )
+    assert payload["summary_stats"]["audit_readiness_digest"]["artifact_type"] == "audit_readiness_digest"
+    assert payload["manifest_sections"]["scope_readiness_summary"]["review_surface"]["anchor_id"] == (
+        "scope-readiness-summary"
+    )
+    assert payload["manifest_sections"]["certificate_readiness_summary"]["review_surface"]["anchor_id"] == (
+        "certificate-readiness-summary"
+    )
+    assert payload["manifest_sections"]["uncertainty_method_readiness_summary"]["review_surface"]["anchor_id"] == (
+        "uncertainty-method-readiness-summary"
+    )
+    assert payload["manifest_sections"]["audit_readiness_digest"]["review_surface"]["anchor_id"] == (
+        "audit-readiness-digest"
+    )
+    remembered = {str(item) for item in list(payload.get("remembered_files") or [])}
+    assert str(run_dir / recognition_readiness.SCOPE_READINESS_SUMMARY_FILENAME) in remembered
+    assert str(run_dir / recognition_readiness.AUDIT_READINESS_DIGEST_MARKDOWN_FILENAME) in remembered

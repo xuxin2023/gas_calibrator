@@ -265,3 +265,58 @@ def test_results_page_renders_measurement_core_review_filters() -> None:
         assert "payload completeness" in page.measurement_core_summary.get("1.0", "end")
     finally:
         root.destroy()
+
+
+def test_results_page_renders_recognition_readiness_summary_lines() -> None:
+    root = make_root()
+    try:
+        page = ResultsPage(root)
+        page.render(
+            {
+                "overview_text": "run_3",
+                "algorithm_compare_text": "amt",
+                "result_summary_text": (
+                    "scope readiness: Step 2 reviewer readiness | scope package + decision rule profile | payload-backed 0 | trace-only 0 | gap 9\n"
+                    "reference/certificate readiness: reference asset / certificate readiness | assets 8 | certificate gaps 7 | intermediate-check gaps 7\n"
+                    "uncertainty/method readiness: uncertainty / method confirmation readiness | matrix rows 4 | missing evidence 4\n"
+                    "software validation / audit readiness: software validation / audit readiness | trace rows 3 | file-artifact-first reviewer digest"
+                ),
+                "coefficient_summary_text": "coefficients",
+                "qc_summary_text": "simulation-only",
+                "measurement_core_summary_text": "measurement-core phase coverage: ambient",
+                "ai_summary_text": "review only",
+                "review_center": {
+                    "operator_focus": {"summary": "operator"},
+                    "reviewer_focus": {"summary": "reviewer"},
+                    "approver_focus": {"summary": "approver"},
+                    "risk_summary": {"level": "medium", "level_display": "medium", "summary": "review only"},
+                    "acceptance_readiness": {"summary": "not real acceptance"},
+                    "analytics_summary": {"summary": "analytics"},
+                    "lineage_summary": {"summary": "lineage"},
+                    "index_summary": {"summary": "index", "sources": []},
+                    "filters": {
+                        "selected_type": "all",
+                        "selected_status": "all",
+                        "selected_time": "all",
+                        "selected_source": "all",
+                        "type_options": [{"id": "all", "label": "all"}],
+                        "status_options": [{"id": "all", "label": "all"}],
+                        "time_options": [{"id": "all", "label": "all"}],
+                        "source_options": [{"id": "all", "label": "all"}],
+                    },
+                    "evidence_items": [],
+                    "detail_hint": "ready",
+                    "empty_detail": "none",
+                    "disclaimer": "not real acceptance",
+                },
+                "residuals": {"series": []},
+            }
+        )
+
+        rendered = page.result_summary.get("1.0", "end")
+        assert "scope package + decision rule profile" in rendered
+        assert "reference asset / certificate readiness" in rendered
+        assert "uncertainty / method confirmation readiness" in rendered
+        assert "software validation / audit readiness" in rendered
+    finally:
+        root.destroy()

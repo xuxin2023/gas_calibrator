@@ -123,10 +123,32 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
     assert report_payload["measurement_core_evidence"]["measurement_phase_coverage_report"]["artifact_type"] == (
         "measurement_phase_coverage_report"
     )
+    assert report_payload["recognition_readiness_evidence"]["available"] is True
+    assert (
+        report_payload["recognition_readiness_evidence"]["scope_readiness_summary"]["artifact_type"]
+        == "scope_readiness_summary"
+    )
+    assert (
+        report_payload["recognition_readiness_evidence"]["certificate_readiness_summary"]["artifact_type"]
+        == "certificate_readiness_summary"
+    )
+    assert (
+        report_payload["recognition_readiness_evidence"]["uncertainty_method_readiness_summary"]["artifact_type"]
+        == "uncertainty_method_readiness_summary"
+    )
+    assert (
+        report_payload["recognition_readiness_evidence"]["audit_readiness_digest"]["artifact_type"]
+        == "audit_readiness_digest"
+    )
     assert "shadow evaluation only" in report_payload["measurement_core_evidence"]["boundary_lines"]
+    assert "not accreditation claim" in report_payload["recognition_readiness_evidence"]["boundary_lines"]
     assert any(
         "payload" in str(line).lower()
         for line in list(report_payload["measurement_core_evidence"]["summary_lines"] or [])
+    )
+    assert any(
+        "scope package + decision rule profile" in str(line)
+        for line in list(report_payload["recognition_readiness_evidence"]["summary_lines"] or [])
     )
     assert report_payload["publish_primary_latest_allowed"] is False
     assert report_payload["artifact_role"] == "diagnostic_analysis"
@@ -158,15 +180,22 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
     assert snapshot_payload["measurement_core_evidence"]["artifact_paths"][
         "measurement_phase_coverage_report"
     ].endswith(MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME)
+    assert snapshot_payload["recognition_readiness_evidence"]["available"] is True
+    assert (
+        "scope_readiness_summary"
+        in snapshot_payload["recognition_readiness_evidence"]["artifact_paths"]
+    )
     assert report_payload["reference_quality"]["thermometer_reference_status"] == "stale"
     assert report_payload["simulation_context"]["workbench_reports"]
     assert "压力语义" in report_md_path.read_text(encoding="utf-8")
     assert "冲洗门禁" in report_md_path.read_text(encoding="utf-8")
 
     assert "measurement-core readiness" in report_md_path.read_text(encoding="utf-8")
+    assert "认可就绪治理骨架" in report_md_path.read_text(encoding="utf-8")
     assert MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME in report_md_path.read_text(encoding="utf-8")
     assert STATE_TRANSITION_EVIDENCE_FILENAME in report_md_path.read_text(encoding="utf-8")
     assert MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME in report_md_path.read_text(encoding="utf-8")
+    assert "scope_readiness_summary" in report_md_path.read_text(encoding="utf-8")
 
     exports = summary_payload["stats"]["artifact_exports"]
     assert exports["workbench_action_report_json"]["role"] == "diagnostic_analysis"
@@ -233,6 +262,13 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
     assert results_snapshot["state_transition_evidence"]["artifact_type"] == "state_transition_evidence"
     assert results_snapshot["simulation_evidence_sidecar_bundle"]["artifact_type"] == "simulation_evidence_sidecar_bundle"
     assert results_snapshot["measurement_phase_coverage_report"]["artifact_type"] == "measurement_phase_coverage_report"
+    assert results_snapshot["scope_readiness_summary"]["artifact_type"] == "scope_readiness_summary"
+    assert results_snapshot["certificate_readiness_summary"]["artifact_type"] == "certificate_readiness_summary"
+    assert (
+        results_snapshot["uncertainty_method_readiness_summary"]["artifact_type"]
+        == "uncertainty_method_readiness_summary"
+    )
+    assert results_snapshot["audit_readiness_digest"]["artifact_type"] == "audit_readiness_digest"
     assert "payload" in str(results_snapshot["measurement_core_summary_text"]).lower()
     assert results_snapshot["review_digest"]["items"]["workbench"]["available"] is True
     assert "diagnostic_analysis" in results_snapshot["artifact_role_summary"]

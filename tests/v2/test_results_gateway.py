@@ -32,6 +32,7 @@ from gas_calibrator.v2.core.measurement_phase_coverage import (
     MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME,
     MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME,
 )
+from gas_calibrator.v2.core import recognition_readiness_artifacts as recognition_readiness
 from gas_calibrator.v2.ui_v2.artifact_registry_governance import build_role_by_key
 from gas_calibrator.v2.scripts.build_offline_governance_artifacts import rebuild_run
 
@@ -996,3 +997,73 @@ def test_results_gateway_exposes_measurement_core_evidence_artifacts(tmp_path: P
     assert "live_gate" not in stability_json_row["note"]
     assert "compliance" not in sidecar_row["note"].lower()
     assert "acceptance_level" not in phase_coverage_json_row["note"]
+
+
+def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+    gateway = ResultsGateway(
+        run_dir,
+        output_files_provider=facade.service.get_output_files,
+    )
+
+    results_payload = gateway.read_results_payload()
+    reports_payload = gateway.read_reports_payload()
+    rows_by_path = {
+        str(Path(str(row.get("path") or "")).resolve()): dict(row)
+        for row in reports_payload["files"]
+    }
+
+    scope_json_path = str((run_dir / recognition_readiness.SCOPE_READINESS_SUMMARY_FILENAME).resolve())
+    certificate_json_path = str((run_dir / recognition_readiness.CERTIFICATE_READINESS_SUMMARY_FILENAME).resolve())
+    uncertainty_json_path = str(
+        (run_dir / recognition_readiness.UNCERTAINTY_METHOD_READINESS_SUMMARY_FILENAME).resolve()
+    )
+    audit_json_path = str((run_dir / recognition_readiness.AUDIT_READINESS_DIGEST_FILENAME).resolve())
+
+    for key in (
+        "scope_readiness_summary",
+        "certificate_readiness_summary",
+        "uncertainty_method_readiness_summary",
+        "audit_readiness_digest",
+    ):
+        assert results_payload[key]["artifact_type"] == key
+        assert results_payload[key]["not_real_acceptance_evidence"] is True
+
+    assert "scope readiness" in results_payload["result_summary_text"]
+    assert "reference/certificate readiness" in results_payload["result_summary_text"]
+    assert "uncertainty/method readiness" in results_payload["result_summary_text"]
+    assert "software validation / audit readiness" in results_payload["result_summary_text"]
+    assert "scope readiness" in reports_payload["result_summary_text"]
+    assert "software validation / audit readiness" in reports_payload["result_summary_text"]
+
+    scope_row = rows_by_path[scope_json_path]
+    certificate_row = rows_by_path[certificate_json_path]
+    uncertainty_row = rows_by_path[uncertainty_json_path]
+    audit_row = rows_by_path[audit_json_path]
+
+    assert scope_row["artifact_key"] == "scope_readiness_summary"
+    assert certificate_row["artifact_key"] == "certificate_readiness_summary"
+    assert uncertainty_row["artifact_key"] == "uncertainty_method_readiness_summary"
+    assert audit_row["artifact_key"] == "audit_readiness_digest"
+    assert scope_row["artifact_role"] == "diagnostic_analysis"
+    assert "Step 2 reviewer readiness only" in scope_row["role_status_display"]
+    assert "formal scope approval" in scope_row["note"]
+    assert "missing certificates" not in certificate_row["note"].lower()
+    assert "traceability skeleton" in audit_row["note"].lower()
+    assert scope_row["scope_readiness_summary_entry"]["anchor_id"] == "scope-readiness-summary"
+    assert (
+        certificate_row["certificate_readiness_summary_entry"]["anchor_id"]
+        == "certificate-readiness-summary"
+    )
+    assert (
+        uncertainty_row["uncertainty_method_readiness_summary_entry"]["anchor_id"]
+        == "uncertainty-method-readiness-summary"
+    )
+    assert audit_row["audit_readiness_digest_entry"]["anchor_id"] == "audit-readiness-digest"
+    for row in (scope_row, certificate_row, uncertainty_row, audit_row):
+        note_text = str(row.get("note") or "").lower()
+        assert "compliance" not in note_text
+        assert "accreditation" not in note_text
+        assert "acceptance_level" not in note_text
