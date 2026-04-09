@@ -19,6 +19,7 @@ from ...core.multi_source_stability import (
     MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME,
     SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME,
 )
+from ...core.measurement_phase_coverage import MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME
 from ...core.offline_artifacts import build_point_taxonomy_handoff
 from ...core.device_factory import DeviceFactory, DeviceType
 from ...qc.qc_report import build_qc_evidence_section, build_qc_reviewer_card
@@ -301,20 +302,24 @@ class DeviceWorkbenchController:
         stability = dict(gateway.load_json(MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME) or {})
         transition = dict(gateway.load_json(STATE_TRANSITION_EVIDENCE_FILENAME) or {})
         sidecar = dict(gateway.load_json(SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME) or {})
-        if not stability and not transition and not sidecar:
+        phase_coverage = dict(gateway.load_json(MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME) or {})
+        if not stability and not transition and not sidecar and not phase_coverage:
             return {}
         stability_digest = dict(stability.get("digest") or {})
         transition_digest = dict(transition.get("digest") or {})
+        phase_coverage_digest = dict(phase_coverage.get("digest") or {})
         summary_lines = [
             str(stability_digest.get("summary") or "").strip(),
             str(transition_digest.get("summary") or "").strip(),
+            str(phase_coverage_digest.get("summary") or "").strip(),
             str(sidecar.get("reviewer_note") or "").strip(),
         ]
         summary_lines = [line for line in summary_lines if line]
         boundary_lines = [
             str(item).strip()
             for item in list(
-                stability.get("boundary_statements")
+                phase_coverage.get("boundary_statements")
+                or stability.get("boundary_statements")
                 or transition.get("boundary_statements")
                 or sidecar.get("boundary_statements")
                 or []
@@ -329,6 +334,7 @@ class DeviceWorkbenchController:
             "multi_source_stability_evidence": stability,
             "state_transition_evidence": transition,
             "simulation_evidence_sidecar_bundle": sidecar,
+            "measurement_phase_coverage_report": phase_coverage,
             "artifact_paths": {
                 "multi_source_stability_evidence": str(
                     dict(stability.get("artifact_paths") or {}).get("multi_source_stability_evidence")
@@ -341,6 +347,10 @@ class DeviceWorkbenchController:
                 "simulation_evidence_sidecar_bundle": str(
                     dict(sidecar.get("artifact_paths") or {}).get("simulation_evidence_sidecar_bundle")
                     or gateway.run_dir / SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME
+                ),
+                "measurement_phase_coverage_report": str(
+                    dict(phase_coverage.get("artifact_paths") or {}).get("measurement_phase_coverage_report")
+                    or gateway.run_dir / MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME
                 ),
             },
         }
@@ -4809,6 +4819,10 @@ class DeviceWorkbenchController:
                         (
                             "simulation_evidence_sidecar_bundle",
                             measurement_core_artifact_paths.get("simulation_evidence_sidecar_bundle"),
+                        ),
+                        (
+                            "measurement_phase_coverage_report",
+                            measurement_core_artifact_paths.get("measurement_phase_coverage_report"),
                         ),
                     )
                     if str(path or "").strip()

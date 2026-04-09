@@ -49,6 +49,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
         self._signal_family_lookup: dict[str, str] = {}
         self._decision_result_lookup: dict[str, str] = {}
         self._policy_version_lookup: dict[str, str] = {}
+        self._evidence_source_lookup: dict[str, str] = {}
         self._time_windows: dict[str, float | None] = {}
         self._active_view: dict[str, Any] = {}
         self._selected_source_id = "all"
@@ -78,6 +79,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
         self.signal_family_filter_var = tk.StringVar(value="")
         self.decision_result_filter_var = tk.StringVar(value="")
         self.policy_version_filter_var = tk.StringVar(value="")
+        self.evidence_source_filter_var = tk.StringVar(value="")
         self.count_var = tk.StringVar(value="")
         ttk.Label(toolbar, text=t("results.review_center.filter.type"), style="Muted.TLabel").grid(row=0, column=0, sticky="w")
         self.type_filter = ttk.Combobox(toolbar, textvariable=self.type_filter_var, state="readonly", width=16)
@@ -136,6 +138,19 @@ class ReviewCenterPanel(ttk.LabelFrame):
         self.policy_version_filter = ttk.Combobox(toolbar, textvariable=self.policy_version_filter_var, state="readonly", width=24)
         self.policy_version_filter.grid(row=2, column=7, sticky="w", padx=(6, 12), pady=(4, 0))
         self.policy_version_filter.bind("<<ComboboxSelected>>", self._on_filter_changed, add="+")
+        ttk.Label(
+            toolbar,
+            text=t("results.review_center.filter.evidence_source", default="证据来源"),
+            style="Muted.TLabel",
+        ).grid(row=2, column=8, sticky="w", pady=(4, 0))
+        self.evidence_source_filter = ttk.Combobox(
+            toolbar,
+            textvariable=self.evidence_source_filter_var,
+            state="readonly",
+            width=22,
+        )
+        self.evidence_source_filter.grid(row=2, column=9, sticky="w", padx=(6, 12), pady=(4, 0))
+        self.evidence_source_filter.bind("<<ComboboxSelected>>", self._on_filter_changed, add="+")
 
         self.index_var = tk.StringVar(value="")
         ttk.Label(
@@ -584,6 +599,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
         signal_family_options = [dict(item) for item in list(filters.get("signal_family_options", []) or [])]
         decision_result_options = [dict(item) for item in list(filters.get("decision_result_options", []) or [])]
         policy_version_options = [dict(item) for item in list(filters.get("policy_version_options", []) or [])]
+        evidence_source_options = [dict(item) for item in list(filters.get("evidence_source_options", []) or [])]
         self._type_lookup = {str(item.get("label") or ""): str(item.get("id") or "") for item in type_options}
         self._status_lookup = {str(item.get("label") or ""): str(item.get("id") or "") for item in status_options}
         self._time_lookup = {str(item.get("label") or ""): str(item.get("id") or "") for item in time_options}
@@ -621,6 +637,10 @@ class ReviewCenterPanel(ttk.LabelFrame):
         self._policy_version_lookup = {
             str(item.get("label") or ""): str(item.get("id") or "")
             for item in policy_version_options
+        }
+        self._evidence_source_lookup = {
+            str(item.get("label") or ""): str(item.get("id") or "")
+            for item in evidence_source_options
         }
         self._time_windows = {
             str(item.get("id") or ""): (
@@ -672,6 +692,11 @@ class ReviewCenterPanel(ttk.LabelFrame):
             for item in policy_version_options
             if str(item.get("label") or "").strip()
         ]
+        evidence_source_labels = [
+            str(item.get("label") or "")
+            for item in evidence_source_options
+            if str(item.get("label") or "").strip()
+        ]
         self.type_filter.configure(values=type_labels)
         self.status_filter.configure(values=status_labels)
         self.time_filter.configure(values=time_labels)
@@ -686,6 +711,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
         self.signal_family_filter.configure(values=signal_family_labels)
         self.decision_result_filter.configure(values=decision_result_labels)
         self.policy_version_filter.configure(values=policy_version_labels)
+        self.evidence_source_filter.configure(values=evidence_source_labels)
         default_type = next(
             (
                 str(item.get("label") or "")
@@ -806,6 +832,14 @@ class ReviewCenterPanel(ttk.LabelFrame):
             ),
             policy_version_labels[0] if policy_version_labels else "",
         )
+        default_evidence_source = next(
+            (
+                str(item.get("label") or "")
+                for item in evidence_source_options
+                if str(item.get("id") or "") == str(filters.get("selected_evidence_source") or "all")
+            ),
+            evidence_source_labels[0] if evidence_source_labels else "",
+        )
         if default_phase:
             self.phase_filter_var.set(default_phase)
         if default_artifact_role:
@@ -826,6 +860,8 @@ class ReviewCenterPanel(ttk.LabelFrame):
             self.decision_result_filter_var.set(default_decision_result)
         if default_policy_version:
             self.policy_version_filter_var.set(default_policy_version)
+        if default_evidence_source:
+            self.evidence_source_filter_var.set(default_evidence_source)
 
     def _on_filter_changed(self, _event: tk.Event[tk.Misc] | None = None) -> None:
         self._apply_filters()
@@ -863,6 +899,10 @@ class ReviewCenterPanel(ttk.LabelFrame):
             str(self.policy_version_filter_var.get() or ""),
             "all",
         )
+        selected_evidence_source = self._evidence_source_lookup.get(
+            str(self.evidence_source_filter_var.get() or ""),
+            "all",
+        )
         self._active_view = build_review_center_view(
             self._payload,
             selected_type=selected_type,
@@ -880,6 +920,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
             selected_signal_family=selected_signal_family,
             selected_decision_result=selected_decision_result,
             selected_policy_version=selected_policy_version,
+            selected_evidence_source=selected_evidence_source,
             now_ts=time.time(),
         )
         rows = [dict(item) for item in list(self._active_view.get("items", []) or [])]

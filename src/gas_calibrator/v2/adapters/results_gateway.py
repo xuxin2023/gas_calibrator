@@ -618,6 +618,7 @@ class ResultsGateway:
         multi_source_stability_evidence: dict[str, Any] | None,
         state_transition_evidence: dict[str, Any] | None,
         simulation_evidence_sidecar_bundle: dict[str, Any] | None,
+        measurement_phase_coverage_report: dict[str, Any] | None,
     ) -> str:
         summary_payload = dict(summary or {})
         stats = dict(summary_payload.get("stats", {}) or {})
@@ -630,6 +631,7 @@ class ResultsGateway:
         stability_summary = dict(multi_source_stability_evidence or {})
         transition_summary = dict(state_transition_evidence or {})
         sidecar_summary = dict(simulation_evidence_sidecar_bundle or {})
+        phase_coverage_summary = dict(measurement_phase_coverage_report or {})
 
         role_parts: list[str] = []
         for role in ("execution_summary", "execution_rows", "diagnostic_analysis", "formal_analysis"):
@@ -769,6 +771,7 @@ class ResultsGateway:
 
         stability_digest = dict(stability_summary.get("digest") or {})
         transition_digest = dict(transition_summary.get("digest") or {})
+        phase_coverage_digest = dict(phase_coverage_summary.get("digest") or {})
         measurement_core_stability_text = (
             str(
                 stability_digest.get("summary")
@@ -789,6 +792,16 @@ class ResultsGateway:
             if transition_summary
             else ""
         )
+        measurement_core_phase_coverage_text = (
+            str(
+                phase_coverage_digest.get("summary")
+                or phase_coverage_summary.get("summary")
+                or phase_coverage_summary.get("overall_status")
+                or "--"
+            )
+            if phase_coverage_summary
+            else ""
+        )
         measurement_core_sidecar_text = (
             " | ".join(
                 f"{key} {len(list(value or []))}"
@@ -797,44 +810,22 @@ class ResultsGateway:
             if sidecar_summary
             else ""
         )
-        # Keep newly-added measurement-core summary lines readable without refactoring the whole legacy summary block.
-        stability_summary = {}
-        transition_summary = {}
-        sidecar_summary = {}
-        if stability_summary:
-            lines.append(
-                "澶氭簮鍒ょǔ shadow: "
-                + str(
-                    stability_digest.get("summary")
-                    or stability_summary.get("summary")
-                    or stability_summary.get("coverage_status")
-                    or "--"
-                )
-            )
-        if transition_summary:
-            lines.append(
-                "鍙楁帶鐘舵€佹満 trace: "
-                + str(
-                    transition_digest.get("summary")
-                    or transition_summary.get("summary")
-                    or transition_summary.get("overall_status")
-                    or "--"
-                )
-            )
-        if sidecar_summary:
-            sidecar_store_text = " | ".join(
-                f"{key} {len(list(value or []))}"
-                for key, value in dict(sidecar_summary.get("stores") or {}).items()
-            )
-            lines.append(f"sidecar-ready 鍚堝悓: {sidecar_store_text or 'future database intake / sidecar-ready'}")
 
         if measurement_core_stability_text:
             lines.append(f"measurement-core shadow: {measurement_core_stability_text}")
         if measurement_core_transition_text:
             lines.append(f"controlled state trace: {measurement_core_transition_text}")
+        if measurement_core_phase_coverage_text:
+            lines.append(f"measurement-core phase coverage: {measurement_core_phase_coverage_text}")
         if measurement_core_sidecar_text or dict(simulation_evidence_sidecar_bundle or {}):
+            sidecar_contract_text = str(sidecar_summary.get("reviewer_note") or "").strip()
             lines.append(
-                f"sidecar-ready stores: {measurement_core_sidecar_text or 'future database intake / sidecar-ready'}"
+                "sidecar-ready contract: "
+                + (
+                    measurement_core_sidecar_text
+                    or sidecar_contract_text
+                    or "future database intake / sidecar-ready"
+                )
             )
 
         return "\n".join(line for line in lines if str(line).strip())
@@ -1067,6 +1058,21 @@ class ResultsGateway:
             json_filename=STATE_TRANSITION_EVIDENCE_FILENAME,
             markdown_filename=STATE_TRANSITION_EVIDENCE_MARKDOWN_FILENAME,
             entry_key="state_transition_evidence_entry",
+        )
+
+    @classmethod
+    def _decorate_measurement_phase_coverage_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        measurement_phase_coverage_report: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=measurement_phase_coverage_report,
+            json_filename=MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME,
+            markdown_filename=MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME,
+            entry_key="measurement_phase_coverage_report_entry",
         )
 
     @staticmethod

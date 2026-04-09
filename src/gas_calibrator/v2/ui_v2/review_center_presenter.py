@@ -36,6 +36,7 @@ def build_review_center_view(
     selected_signal_family: str = "all",
     selected_decision_result: str = "all",
     selected_policy_version: str = "all",
+    selected_evidence_source: str = "all",
     now_ts: float | None = None,
 ) -> dict[str, Any]:
     base_payload = dict(payload or {})
@@ -59,6 +60,7 @@ def build_review_center_view(
         selected_signal_family=selected_signal_family,
         selected_decision_result=selected_decision_result,
         selected_policy_version=selected_policy_version,
+        selected_evidence_source=selected_evidence_source,
         time_windows=_time_windows(base_payload),
         now_ts=now_ts,
     )
@@ -381,6 +383,7 @@ def _filter_review_items(
     selected_signal_family: str,
     selected_decision_result: str,
     selected_policy_version: str,
+    selected_evidence_source: str,
     time_windows: dict[str, float | None],
     now_ts: float | None,
 ) -> list[dict[str, Any]]:
@@ -413,6 +416,8 @@ def _filter_review_items(
         if not _matches_list_filter(item.get("decision_result_filters"), selected_decision_result):
             continue
         if not _matches_list_filter(item.get("policy_version_filters"), selected_policy_version):
+            continue
+        if not _matches_list_filter(item.get("evidence_source_filters"), selected_evidence_source):
             continue
         if not _matches_time_filter(item, selected_time, time_windows=time_windows, now_ts=now_ts):
             continue

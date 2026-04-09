@@ -48,6 +48,13 @@ class ResultsPage(ttk.Frame):
             columnspan=2,
             height=8,
         )
+        self.measurement_core_summary = self._section(
+            body,
+            3,
+            2,
+            t("pages.results.measurement_core", default="measurement-core 摘要"),
+            height=8,
+        )
 
     def _section(
         self,
@@ -84,6 +91,13 @@ class ResultsPage(ttk.Frame):
         self._set_text(self.result_summary, str(snapshot.get("result_summary_text", "") or t("pages.results.no_result_summary")))
         self._set_text(self.coefficient_summary, str(snapshot.get("coefficient_summary_text", "") or t("pages.results.no_coefficient_summary")))
         self._set_text(self.qc_summary, str(snapshot.get("qc_summary_text", "") or t("pages.results.no_qc_summary", default="暂无质控审阅摘要")))
+        self._set_text(
+            self.measurement_core_summary,
+            str(
+                snapshot.get("measurement_core_summary_text", "")
+                or t("pages.results.no_measurement_core_summary", default="暂无 measurement-core 摘要")
+            ),
+        )
         self.review_center.render(dict(snapshot.get("review_center", {}) or {}))
         self.ai_summary.set_text(str(snapshot.get("ai_summary_text", "") or t("pages.results.no_ai_summary")))
         self.residual_chart.render(dict(snapshot.get("residuals", {}) or {}))
