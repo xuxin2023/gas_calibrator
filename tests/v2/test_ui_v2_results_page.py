@@ -22,7 +22,7 @@ def test_results_page_displays_artifact_sections() -> None:
                 "result_summary_text": "结果文件：已生成",
                 "coefficient_summary_text": "calibration_coefficients.xlsx",
                 "qc_summary_text": "质控摘要：运行门禁 warn | 点级门禁 warn\n证据边界：仅供 simulation/offline 审阅，不代表 real acceptance evidence。",
-                "measurement_core_summary_text": "measurement-core phase coverage: ambient / preseal / pressure_stable / sample_ready",
+                "measurement_core_summary_text": "measurement-core phase coverage: ambient / preseal / pressure_stable / sample_ready\npayload-backed simulated phases: ambient / sample_ready",
                 "ai_summary_text": "# AI 运行摘要\n运行状态稳定。",
                 "review_center": {
                     "operator_focus": {"summary": "最近执行健康"},
@@ -102,6 +102,7 @@ def test_results_page_displays_artifact_sections() -> None:
         assert "质控摘要" in page.qc_summary.get("1.0", "end")
         assert "不代表 real acceptance evidence" in page.qc_summary.get("1.0", "end")
         assert "measurement-core phase coverage" in page.measurement_core_summary.get("1.0", "end")
+        assert "payload-backed simulated phases" in page.measurement_core_summary.get("1.0", "end")
         assert "运行状态稳定" in page.ai_summary.get("1.0", "end")
         assert page.review_center.risk_var.get()
         assert len(page.review_center.source_tree.get_children()) == 1
@@ -128,7 +129,7 @@ def test_results_page_renders_measurement_core_review_filters() -> None:
                 "result_summary_text": "multi-source stability shadow ready",
                 "coefficient_summary_text": "coefficients",
                 "qc_summary_text": "simulation-only",
-                "measurement_core_summary_text": "measurement-core phase coverage: pressure_stable only",
+                "measurement_core_summary_text": "measurement-core phase coverage: pressure_stable only\npayload completeness: complete 1 | trace_only 0",
                 "ai_summary_text": "shadow evaluation only",
                 "review_center": {
                     "operator_focus": {"summary": "operator"},
@@ -261,5 +262,6 @@ def test_results_page_renders_measurement_core_review_filters() -> None:
         assert tuple(page.review_center.policy_version_filter["values"]) == ("shadow_gas_v1",)
         assert tuple(page.review_center.evidence_source_filter["values"]) == ("actual_simulated_run",)
         assert "pressure_stable only" in page.measurement_core_summary.get("1.0", "end")
+        assert "payload completeness" in page.measurement_core_summary.get("1.0", "end")
     finally:
         root.destroy()

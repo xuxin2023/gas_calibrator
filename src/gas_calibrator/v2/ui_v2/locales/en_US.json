@@ -1573,6 +1573,9 @@
         "measurement_core_stability": "Multi-source stability shadow: {value}",
         "measurement_core_transition": "Controlled state trace: {value}",
         "measurement_core_phase_coverage": "Measurement-core phase coverage: {value}",
+        "measurement_core_payload_phases": "Payload-backed simulated phases: {value}",
+        "measurement_core_trace_only": "Trace-only phases: {value}",
+        "measurement_core_payload_completeness": "Payload completeness: {value}",
         "measurement_core_sidecar_contract": "Sidecar-ready contract: {value}",
         "workbench_evidence": "Workbench diagnostic evidence: {value}"
       }

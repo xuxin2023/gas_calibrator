@@ -130,16 +130,28 @@ def test_measurement_phase_coverage_report_tracks_actual_model_test_and_gap() ->
     assert raw["artifact_paths"]["measurement_phase_coverage_report_markdown"].endswith(
         MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME
     )
-    assert rows_by_key["gas:sample_ready"]["evidence_source"] == "actual_simulated_run"
-    assert rows_by_key["gas:preseal"]["evidence_source"] == "model_only"
-    assert rows_by_key["water:preseal"]["evidence_source"] == "gap"
-    assert rows_by_key["system:recovery_retry"]["evidence_source"] == "test_only"
+    assert rows_by_key["gas:sample_ready"]["coverage_bucket"] == "actual_simulated_run_with_payload"
+    assert rows_by_key["gas:sample_ready"]["payload_completeness"] == "complete"
+    assert rows_by_key["gas:sample_ready"]["available_signal_layers"] == [
+        "reference",
+        "analyzer_raw",
+        "output",
+        "data_quality",
+    ]
+    assert rows_by_key["gas:sample_ready"]["evidence_provenance"] == "actual_simulated_payload"
+    assert rows_by_key["gas:preseal"]["coverage_bucket"] == "model_only"
+    assert rows_by_key["gas:preseal"]["payload_completeness"] == "not_available"
+    assert rows_by_key["water:preseal"]["coverage_bucket"] == "gap"
+    assert rows_by_key["system:recovery_retry"]["coverage_bucket"] == "test_only"
     assert raw["review_surface"]["evidence_source_filters"] == [
         "gap",
         "model_only",
-        "actual_simulated_run",
+        "actual_simulated_run_with_payload",
         "test_only",
     ]
+    assert "payload-backed" in raw["digest"]["summary"]
+    assert raw["digest"]["payload_phase_summary"] == "gas/sample_ready"
+    assert raw["digest"]["trace_only_phase_summary"] == "no trace-only phase buckets"
     assert "Step 2 tail / Stage 3 bridge" in raw["digest"]["summary"]
     assert "shadow evaluation only" in raw["boundary_statements"]
     assert "does not modify live sampling gate by default" in raw["boundary_statements"]
@@ -197,16 +209,22 @@ def test_measurement_phase_coverage_report_preserves_signal_group_gaps_honestly(
     water_row = rows_by_key["water:preseal"]
 
     assert ambient_row["actual_run_evidence_present"] is True
+    assert ambient_row["coverage_bucket"] == "actual_simulated_run_with_payload"
+    assert ambient_row["payload_completeness"] == "complete"
     assert ambient_row["signal_group_coverage"]["reference"]["coverage_status"] == "complete"
     assert ambient_row["signal_group_coverage"]["analyzer_raw"]["available_channels"] == ["ref_signal"]
     assert ambient_row["signal_group_coverage"]["data_quality"]["coverage_status"] == "complete"
+    assert ambient_row["evidence_provenance"] == "actual_simulated_payload"
     assert water_row["signal_group_coverage"]["analyzer_raw"]["coverage_status"] == "partial"
+    assert water_row["coverage_bucket"] == "actual_simulated_run"
+    assert water_row["payload_completeness"] == "partial"
     assert "h2o_signal" in water_row["missing_channels"]
     assert "h2o_ratio_raw" in water_row["available_channels"]
+    assert water_row["missing_signal_layers"] == []
     assert "synthetic provenance" in "\n".join(report["raw"]["review_surface"]["detail_lines"])
 
 
-def test_measurement_phase_coverage_report_promotes_trace_only_rich_profile_to_actual_simulated_phase_buckets() -> None:
+def test_measurement_phase_coverage_report_marks_trace_only_rich_profile_honestly() -> None:
     report = build_measurement_phase_coverage_report(
         run_id="run_trace_only_phase_coverage",
         samples=[],
@@ -252,9 +270,109 @@ def test_measurement_phase_coverage_report_promotes_trace_only_rich_profile_to_a
         for row in list(report["raw"].get("phase_rows") or [])
     }
 
-    assert rows_by_key["ambient:ambient_diagnostic"]["evidence_source"] == "actual_simulated_run"
-    assert rows_by_key["ambient:sample_ready"]["evidence_source"] == "actual_simulated_run"
-    assert rows_by_key["system:recovery_retry"]["evidence_source"] == "actual_simulated_run"
+    assert rows_by_key["ambient:ambient_diagnostic"]["coverage_bucket"] == "trace_only_not_evaluated"
+    assert rows_by_key["ambient:sample_ready"]["coverage_bucket"] == "trace_only_not_evaluated"
+    assert rows_by_key["system:recovery_retry"]["coverage_bucket"] == "trace_only_not_evaluated"
+    assert rows_by_key["ambient:ambient_diagnostic"]["payload_completeness"] == "trace_only"
+    assert rows_by_key["system:recovery_retry"]["evidence_provenance"] == "synthetic_trace_only"
     assert rows_by_key["ambient:ambient_diagnostic"]["signal_group_coverage"]["reference"]["coverage_status"] == "gap"
-    assert rows_by_key["system:recovery_retry"]["missing_channels"] == []
+    assert rows_by_key["system:recovery_retry"]["missing_signal_layers"] == [
+        "reference",
+        "analyzer_raw",
+        "output",
+        "data_quality",
+    ]
     assert "measurement_trace_rich_v1 synthetic trace" in "\n".join(report["raw"]["review_surface"]["detail_lines"])
+    assert "trace-only" in report["raw"]["digest"]["summary"]
+
+
+def test_measurement_phase_coverage_report_promotes_rich_phase_payloads_to_payload_backed_buckets() -> None:
+    ambient_point = _point(10, route="co2", pressure_hpa=None, pressure_mode="ambient_open")
+    recovery_point = _point(11, route="", pressure_hpa=1000.0, pressure_mode="")
+    samples = [
+        _sample(
+            ambient_point,
+            seconds=0,
+            point_phase="ambient_diagnostic",
+            point_tag="synthetic_ambient_diagnostic",
+            frame_status="simulation_payload_synthetic",
+            pressure_hpa=1001.4,
+            co2_signal=None,
+            co2_ratio_f=None,
+            co2_ratio_raw=None,
+        ),
+        _sample(
+            ambient_point,
+            seconds=8,
+            point_phase="sample_ready",
+            point_tag="synthetic_ambient_sample_ready",
+            frame_status="simulation_payload_synthetic",
+            pressure_hpa=1001.2,
+            co2_signal=None,
+            co2_ratio_f=None,
+            co2_ratio_raw=None,
+        ),
+        _sample(
+            recovery_point,
+            seconds=0,
+            point_phase="recovery_retry",
+            point_tag="synthetic_recovery_retry",
+            frame_status="simulation_payload_synthetic_recovery",
+            pressure_hpa=1000.1,
+            co2_signal=None,
+            co2_ratio_f=None,
+            co2_ratio_raw=None,
+            frame_usable=False,
+        ),
+        _sample(
+            recovery_point,
+            seconds=5,
+            point_phase="recovery_retry",
+            point_tag="synthetic_recovery_retry",
+            frame_status="simulation_payload_synthetic_recovery",
+            pressure_hpa=1000.0,
+            co2_signal=None,
+            co2_ratio_f=None,
+            co2_ratio_raw=None,
+        ),
+    ]
+
+    report = build_measurement_phase_coverage_report(
+        run_id="run_payload_promotion",
+        samples=samples,
+        point_summaries=[],
+        artifact_paths={
+            "measurement_phase_coverage_report": MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME,
+            "measurement_phase_coverage_report_markdown": MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME,
+            "multi_source_stability_evidence": MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME,
+            "state_transition_evidence": "state_transition_evidence.json",
+            "simulation_evidence_sidecar_bundle": SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME,
+        },
+        synthetic_trace_provenance={
+            "summary": "measurement_trace_rich_v1 synthetic payload",
+            "contains_synthetic_channel_injection": True,
+        },
+    )
+
+    rows_by_key = {
+        str(row.get("phase_route_key") or ""): dict(row)
+        for row in list(report["raw"].get("phase_rows") or [])
+    }
+
+    assert rows_by_key["ambient:ambient_diagnostic"]["coverage_bucket"] == "actual_simulated_run_with_payload"
+    assert rows_by_key["ambient:sample_ready"]["coverage_bucket"] == "actual_simulated_run_with_payload"
+    assert rows_by_key["system:recovery_retry"]["coverage_bucket"] == "actual_simulated_run_with_payload"
+    assert rows_by_key["ambient:ambient_diagnostic"]["payload_completeness"] == "complete"
+    assert rows_by_key["system:recovery_retry"]["payload_completeness"] == "complete"
+    assert rows_by_key["system:recovery_retry"]["available_signal_layers"] == [
+        "reference",
+        "analyzer_raw",
+        "output",
+        "data_quality",
+    ]
+    assert rows_by_key["system:recovery_retry"]["missing_signal_layers"] == []
+    assert rows_by_key["system:recovery_retry"]["evidence_provenance"] == "synthetic_sample_payload"
+    assert "shadow evaluation only" in rows_by_key["system:recovery_retry"]["boundary_digest"]
+    assert report["raw"]["digest"]["payload_phase_summary"] == (
+        "ambient/ambient_diagnostic | ambient/sample_ready | system/recovery_retry"
+    )

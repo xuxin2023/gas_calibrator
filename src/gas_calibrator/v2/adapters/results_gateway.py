@@ -802,6 +802,21 @@ class ResultsGateway:
             if phase_coverage_summary
             else ""
         )
+        measurement_core_payload_phase_text = (
+            str(phase_coverage_digest.get("payload_phase_summary") or "").strip()
+            if phase_coverage_summary
+            else ""
+        )
+        measurement_core_trace_only_text = (
+            str(phase_coverage_digest.get("trace_only_phase_summary") or "").strip()
+            if phase_coverage_summary
+            else ""
+        )
+        measurement_core_payload_completeness_text = (
+            str(phase_coverage_digest.get("payload_completeness_summary") or "").strip()
+            if phase_coverage_summary
+            else ""
+        )
         measurement_core_sidecar_text = (
             " | ".join(
                 f"{key} {len(list(value or []))}"
@@ -817,6 +832,12 @@ class ResultsGateway:
             lines.append(f"controlled state trace: {measurement_core_transition_text}")
         if measurement_core_phase_coverage_text:
             lines.append(f"measurement-core phase coverage: {measurement_core_phase_coverage_text}")
+        if measurement_core_payload_phase_text:
+            lines.append(f"measurement-core payload-backed phases: {measurement_core_payload_phase_text}")
+        if measurement_core_trace_only_text:
+            lines.append(f"measurement-core trace-only phases: {measurement_core_trace_only_text}")
+        if measurement_core_payload_completeness_text:
+            lines.append(f"measurement-core payload completeness: {measurement_core_payload_completeness_text}")
         if measurement_core_sidecar_text or dict(simulation_evidence_sidecar_bundle or {}):
             sidecar_contract_text = str(sidecar_summary.get("reviewer_note") or "").strip()
             lines.append(

@@ -311,6 +311,7 @@ def _build_phase_row(
     payload_completeness = _payload_completeness(
         sample_rows=sample_rows,
         signal_group_coverage=signal_group_coverage,
+        actual_run_evidence_present=actual_run_evidence_present,
     )
     coverage_bucket = _coverage_bucket(
         actual_run_evidence_present=actual_run_evidence_present,
@@ -551,9 +552,10 @@ def _payload_completeness(
     *,
     sample_rows: list[SamplingResult],
     signal_group_coverage: dict[str, dict[str, Any]],
+    actual_run_evidence_present: bool,
 ) -> str:
     if not sample_rows:
-        return "trace_only"
+        return "trace_only" if actual_run_evidence_present else "not_available"
     statuses = [
         str(dict(signal_group_coverage.get(group_name) or {}).get("coverage_status") or "gap")
         for group_name in SIGNAL_GROUP_ORDER

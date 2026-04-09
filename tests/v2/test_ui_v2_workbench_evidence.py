@@ -124,6 +124,10 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
         "measurement_phase_coverage_report"
     )
     assert "shadow evaluation only" in report_payload["measurement_core_evidence"]["boundary_lines"]
+    assert any(
+        "payload" in str(line).lower()
+        for line in list(report_payload["measurement_core_evidence"]["summary_lines"] or [])
+    )
     assert report_payload["publish_primary_latest_allowed"] is False
     assert report_payload["artifact_role"] == "diagnostic_analysis"
     assert report_payload["risk_level"] in {"medium", "high"}
@@ -229,6 +233,7 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
     assert results_snapshot["state_transition_evidence"]["artifact_type"] == "state_transition_evidence"
     assert results_snapshot["simulation_evidence_sidecar_bundle"]["artifact_type"] == "simulation_evidence_sidecar_bundle"
     assert results_snapshot["measurement_phase_coverage_report"]["artifact_type"] == "measurement_phase_coverage_report"
+    assert "payload" in str(results_snapshot["measurement_core_summary_text"]).lower()
     assert results_snapshot["review_digest"]["items"]["workbench"]["available"] is True
     assert "diagnostic_analysis" in results_snapshot["artifact_role_summary"]
 

@@ -958,9 +958,13 @@ def test_results_gateway_exposes_measurement_core_evidence_artifacts(tmp_path: P
         "boundary_statements"
     ]
     assert "measurement-core phase coverage" in results_payload["result_summary_text"]
+    assert "measurement-core payload-backed phases" in results_payload["result_summary_text"]
+    assert "measurement-core payload completeness" in results_payload["result_summary_text"]
     assert "sidecar-ready contract" in results_payload["result_summary_text"]
     assert "measurement-core phase coverage" in reports_payload["result_summary_text"]
+    assert "measurement-core payload-backed phases" in reports_payload["result_summary_text"]
     assert "sidecar-ready contract" in reports_payload["result_summary_text"]
+    assert "payload_phase_summary" in results_payload["simulation_evidence_sidecar_bundle"]["coverage_digest"]
 
     stability_json_row = rows_by_path[stability_json_path]
     stability_md_row = rows_by_path[stability_md_path]
@@ -985,6 +989,7 @@ def test_results_gateway_exposes_measurement_core_evidence_artifacts(tmp_path: P
     assert "fixed canonical states" in transition_json_row["note"]
     assert "Future database intake only" in sidecar_row["note"]
     assert "richer simulation coverage only" in phase_coverage_json_row["note"]
+    assert "payload-backed" in phase_coverage_json_row["measurement_phase_coverage_report_entry"]["digest"]["summary"]
     assert "measurement_phase_coverage_report_entry" in phase_coverage_json_row
     assert "measurement_phase_coverage_report_entry" in phase_coverage_md_row
     assert "shadow_evaluation_results" not in stability_json_row["note"]

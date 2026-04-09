@@ -226,6 +226,9 @@ def test_simulation_evidence_sidecar_bundle_stays_contract_only() -> None:
     assert bundle["policy_registry_summary"]["stability_policy_versions"] >= 1
     assert "Step 2 tail / Stage 3 bridge" in bundle["coverage_digest"]["summary"]
     assert bundle["coverage_digest"]["actual_phase_summary"] != "--"
+    assert "payload_phase_summary" in bundle["coverage_digest"]
+    assert "trace_only_phase_summary" in bundle["coverage_digest"]
+    assert "payload_completeness_summary" in bundle["coverage_digest"]
     assert bundle["primary_evidence_chain"] is False
     assert bundle["future_database_intake_ready"] is True
     assert bundle["synthetic_trace_provenance"]["trace_profile"] == "smoke_v2_measurement_trace"

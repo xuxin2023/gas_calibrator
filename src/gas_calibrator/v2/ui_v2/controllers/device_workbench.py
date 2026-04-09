@@ -312,6 +312,9 @@ class DeviceWorkbenchController:
             str(stability_digest.get("summary") or "").strip(),
             str(transition_digest.get("summary") or "").strip(),
             str(phase_coverage_digest.get("summary") or "").strip(),
+            str(phase_coverage_digest.get("payload_phase_summary") or "").strip(),
+            str(phase_coverage_digest.get("trace_only_phase_summary") or "").strip(),
+            str(phase_coverage_digest.get("payload_completeness_summary") or "").strip(),
             str(sidecar.get("reviewer_note") or "").strip(),
         ]
         summary_lines = [line for line in summary_lines if line]

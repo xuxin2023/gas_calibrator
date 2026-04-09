@@ -1409,6 +1409,15 @@ class AppFacade:
         measurement_phase_coverage_text = self._humanize_ui_summary(
             str(measurement_phase_coverage_digest.get("summary") or "--")
         )
+        measurement_phase_payload_text = self._humanize_ui_summary(
+            str(measurement_phase_coverage_digest.get("payload_phase_summary") or "--")
+        )
+        measurement_phase_trace_only_text = self._humanize_ui_summary(
+            str(measurement_phase_coverage_digest.get("trace_only_phase_summary") or "--")
+        )
+        measurement_phase_payload_completeness_text = self._humanize_ui_summary(
+            str(measurement_phase_coverage_digest.get("payload_completeness_summary") or "--")
+        )
         sidecar_store_summary = " | ".join(
             f"{key} {len(list(value or []))}"
             for key, value in dict(simulation_evidence_sidecar_bundle.get("stores") or {}).items()
@@ -1448,6 +1457,27 @@ class AppFacade:
                 default=f"measurement-core phase coverage: {measurement_phase_coverage_text}",
             )
             if measurement_phase_coverage_report
+            else "",
+            t(
+                "facade.results.result_summary.measurement_core_payload_phases",
+                value=measurement_phase_payload_text,
+                default=f"payload-backed simulated phases: {measurement_phase_payload_text}",
+            )
+            if measurement_phase_coverage_report and measurement_phase_payload_text != "--"
+            else "",
+            t(
+                "facade.results.result_summary.measurement_core_trace_only",
+                value=measurement_phase_trace_only_text,
+                default=f"trace-only phases: {measurement_phase_trace_only_text}",
+            )
+            if measurement_phase_coverage_report and measurement_phase_trace_only_text != "--"
+            else "",
+            t(
+                "facade.results.result_summary.measurement_core_payload_completeness",
+                value=measurement_phase_payload_completeness_text,
+                default=f"payload completeness: {measurement_phase_payload_completeness_text}",
+            )
+            if measurement_phase_coverage_report and measurement_phase_payload_completeness_text != "--"
             else "",
             t(
                 "facade.results.result_summary.measurement_core_sidecar_contract",
@@ -3744,7 +3774,9 @@ class AppFacade:
             evidence_state=str(payload.get("evidence_state") or "shadow_only"),
             not_real_acceptance_evidence=bool(payload.get("not_real_acceptance_evidence", True)),
             key_fields=[
+                str(digest.get("payload_phase_summary") or ""),
                 str(digest.get("actual_phase_summary") or ""),
+                str(digest.get("trace_only_phase_summary") or ""),
                 str(digest.get("coverage_summary") or ""),
                 str(digest.get("gap_summary") or ""),
             ],

@@ -422,6 +422,9 @@ def build_simulation_evidence_sidecar_bundle(
         "coverage_digest": {
             "summary": str(coverage_digest.get("summary") or stability_raw.get("coverage_status") or "--"),
             "actual_phase_summary": str(coverage_digest.get("actual_phase_summary") or "--"),
+            "payload_phase_summary": str(coverage_digest.get("payload_phase_summary") or "--"),
+            "trace_only_phase_summary": str(coverage_digest.get("trace_only_phase_summary") or "--"),
+            "payload_completeness_summary": str(coverage_digest.get("payload_completeness_summary") or "--"),
             "gap_summary": str(coverage_digest.get("gap_summary") or "--"),
         },
         "primary_evidence_chain": False,

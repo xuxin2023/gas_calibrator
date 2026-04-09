@@ -100,6 +100,10 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
     assert workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["artifact_paths"][
         "measurement_phase_coverage_report"
     ].endswith(MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME)
+    assert any(
+        "payload" in str(line).lower()
+        for line in list(workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["summary_lines"] or [])
+    )
     assert workbench["workbench"]["live_snapshot_evidence"]["point_taxonomy_summary"]["pressure_mode_summary"] == (
         "ambient_open 2"
     )
