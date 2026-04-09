@@ -24,6 +24,11 @@ from ...core import recognition_readiness_artifacts as recognition_readiness
 from ...core.offline_artifacts import build_point_taxonomy_handoff
 from ...core.device_factory import DeviceFactory, DeviceType
 from ...qc.qc_report import build_qc_evidence_section, build_qc_reviewer_card
+from ...review_surface_formatter import (
+    build_measurement_review_digest_lines,
+    build_readiness_review_digest_lines,
+    humanize_review_surface_text,
+)
 from ...sim.devices import SimulatedDeviceMatrix
 from ..i18n import (
     display_artifact_role,
@@ -309,28 +314,15 @@ class DeviceWorkbenchController:
         stability_digest = dict(stability.get("digest") or {})
         transition_digest = dict(transition.get("digest") or {})
         phase_coverage_digest = dict(phase_coverage.get("digest") or {})
+        localized_measurement_lines = build_measurement_review_digest_lines(phase_coverage)
         summary_lines = [
-            str(stability_digest.get("summary") or "").strip(),
-            str(transition_digest.get("summary") or "").strip(),
-            str(phase_coverage_digest.get("summary") or "").strip(),
-            str(phase_coverage_digest.get("payload_phase_summary") or "").strip(),
-            str(phase_coverage_digest.get("payload_complete_phase_summary") or "").strip(),
-            str(phase_coverage_digest.get("payload_partial_phase_summary") or "").strip(),
-            str(phase_coverage_digest.get("trace_only_phase_summary") or "").strip(),
-            str(phase_coverage_digest.get("payload_completeness_summary") or "").strip(),
-            str(phase_coverage_digest.get("next_required_artifacts_summary") or "").strip(),
+            humanize_review_surface_text(str(stability_digest.get("summary") or "").strip()),
+            humanize_review_surface_text(str(transition_digest.get("summary") or "").strip()),
+            *[str(item).strip() for item in list(localized_measurement_lines.get("summary_lines") or []) if str(item).strip()],
             str(sidecar.get("reviewer_note") or "").strip(),
         ]
         summary_lines = [line for line in summary_lines if line]
-        detail_lines = [
-            str(phase_coverage_digest.get("readiness_impact_summary") or "").strip(),
-            str(phase_coverage_digest.get("linked_readiness_summary") or "").strip(),
-        ]
-        detail_lines.extend(
-            str(item).strip()
-            for item in list(dict(phase_coverage.get("review_surface") or {}).get("detail_lines") or [])
-            if str(item).strip()
-        )
+        detail_lines = [str(item).strip() for item in list(localized_measurement_lines.get("detail_lines") or []) if str(item).strip()]
         detail_lines = [line for line in detail_lines if line]
         boundary_lines = [
             str(item).strip()
@@ -401,28 +393,15 @@ class DeviceWorkbenchController:
         for payload in payloads.values():
             if not payload:
                 continue
-            review_surface = dict(payload.get("review_surface") or {})
-            digest = dict(payload.get("digest") or {})
-            title_text = str(review_surface.get("title_text") or payload.get("artifact_type") or "--").strip()
-            summary_text = str(digest.get("summary") or review_surface.get("summary_text") or "").strip()
-            if title_text and summary_text:
-                summary_line = f"{title_text}: {summary_text}"
-                if summary_line not in summary_lines:
-                    summary_lines.append(summary_line)
-            for field_name, label in (
-                ("current_coverage_summary", "current coverage"),
-                ("missing_evidence_summary", "missing evidence"),
-                ("blocker_summary", "blockers"),
-                ("decision_rule_profile_summary", "decision rule"),
-                ("linked_measurement_phase_summary", "linked measurement phases"),
-                ("next_required_artifacts_summary", "next artifacts"),
-            ):
-                value = str(digest.get(field_name) or "").strip()
-                if not value:
-                    continue
-                detail_line = f"{title_text} {label}: {value}"
-                if detail_line not in detail_lines:
-                    detail_lines.append(detail_line)
+            localized_lines = build_readiness_review_digest_lines(payload)
+            for line in list(localized_lines.get("summary_lines") or []):
+                text = str(line).strip()
+                if text and text not in summary_lines:
+                    summary_lines.append(text)
+            for line in list(localized_lines.get("detail_lines") or []):
+                text = str(line).strip()
+                if text and text not in detail_lines:
+                    detail_lines.append(text)
             for item in list(payload.get("boundary_statements") or []):
                 text = str(item).strip()
                 if text and text not in boundary_lines:

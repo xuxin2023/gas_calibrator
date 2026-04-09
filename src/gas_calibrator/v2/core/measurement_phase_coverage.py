@@ -196,6 +196,14 @@ _PHASE_READINESS_IMPACT_AREAS: dict[str, str] = {
     "recovery_retry": "software validation / audit",
 }
 
+_PHASE_READINESS_DIMENSIONS: dict[str, tuple[str, ...]] = {
+    "ambient_diagnostic": ("scope", "decision rule"),
+    "preseal": ("scope", "decision rule", "method confirmation", "uncertainty inputs"),
+    "pressure_stable": ("reference asset / certificate", "traceability", "uncertainty / method"),
+    "sample_ready": ("scope", "method confirmation"),
+    "recovery_retry": ("software validation", "audit"),
+}
+
 
 def build_measurement_phase_coverage_report(
     *,
@@ -253,6 +261,7 @@ def build_measurement_phase_coverage_report(
             artifact_paths=artifact_path_map,
         )
         phase_rows.append(row)
+    phase_rows = _enrich_phase_rows_for_reviewer_guidance(phase_rows)
 
     payload_complete_count = sum(1 for row in phase_rows if row.get("coverage_bucket") == _PAYLOAD_COMPLETE_BUCKET)
     payload_partial_count = sum(1 for row in phase_rows if row.get("coverage_bucket") == _PAYLOAD_PARTIAL_BUCKET)
@@ -339,6 +348,17 @@ def build_measurement_phase_coverage_report(
             if isinstance(ref, dict)
         )
     ) or "no linked readiness anchors"
+    preseal_partial_guidance_summary = " | ".join(
+        _dedupe(
+            str(row.get("reviewer_guidance_digest") or "").strip()
+            for row in phase_rows
+            if str(row.get("phase_name") or "").strip() == "preseal"
+            and str(row.get("coverage_bucket") or "").strip() == _PAYLOAD_PARTIAL_BUCKET
+        )
+    ) or "no preseal payload-partial reviewer guidance recorded"
+    phase_contrast_summary = " | ".join(
+        _dedupe(str(row.get("comparison_digest") or "").strip() for row in phase_rows)
+    ) or "no complete-vs-partial phase contrast recorded"
     digest = {
         "summary": (
             "Step 2 tail / Stage 3 bridge | measurement phase coverage | "
@@ -358,6 +378,8 @@ def build_measurement_phase_coverage_report(
         "readiness_impact_summary": readiness_impact_summary,
         "next_required_artifacts_summary": next_required_artifacts_summary,
         "linked_readiness_summary": linked_readiness_summary,
+        "preseal_partial_guidance_summary": preseal_partial_guidance_summary,
+        "phase_contrast_summary": phase_contrast_summary,
         "boundary_summary": " | ".join(CANONICAL_BOUNDARY_STATEMENTS),
     }
     review_surface = {
@@ -378,6 +400,8 @@ def build_measurement_phase_coverage_report(
             f"payload completeness: {payload_completeness_summary}",
             f"phase gaps: {gap_summary}",
             f"next artifacts: {next_required_artifacts_summary}",
+            f"preseal partial guidance: {preseal_partial_guidance_summary}",
+            f"phase contrast: {phase_contrast_summary}",
         ],
         "detail_lines": [
             f"route families: {', '.join(routes) or '--'}",
@@ -385,6 +409,17 @@ def build_measurement_phase_coverage_report(
             f"provenance summary: {provenance_summary}",
             f"linked readiness anchors: {linked_readiness_summary}",
             f"readiness impact: {readiness_impact_summary}",
+            *[
+                f"{str(row.get('phase_route_key') or '--')} guidance: {str(row.get('reviewer_guidance_digest') or '--')}"
+                for row in phase_rows
+                if str(row.get("reviewer_guidance_digest") or "").strip()
+                and str(row.get("phase_name") or "").strip() in {"preseal", "pressure_stable"}
+            ],
+            *[
+                f"{str(row.get('phase_route_key') or '--')} comparison: {str(row.get('comparison_digest') or '--')}"
+                for row in phase_rows
+                if str(row.get("comparison_digest") or "").strip()
+            ],
             f"synthetic provenance: {dict(synthetic_trace_provenance or {}).get('summary', 'simulation trace only')}",
             *[f"boundary: {line}" for line in CANONICAL_BOUNDARY_STATEMENTS],
         ],
@@ -519,6 +554,7 @@ def _build_phase_row(
         coverage_bucket=coverage_bucket,
     )
     missing_layer_reasons = _missing_layer_reasons(
+        phase_name=phase_name,
         signal_group_coverage=signal_group_coverage,
         sample_rows=sample_rows,
         actual_run_evidence_present=actual_run_evidence_present,
@@ -541,6 +577,13 @@ def _build_phase_row(
         for ref in linked_readiness_artifact_refs
         if isinstance(ref, dict) and str(ref.get("artifact_type") or "").strip()
     ]
+    linked_readiness_summary = " | ".join(
+        _dedupe(
+            str(ref.get("anchor_label") or ref.get("artifact_type") or "").strip()
+            for ref in linked_readiness_artifact_refs
+            if isinstance(ref, dict)
+        )
+    ) or "--"
     blockers = _phase_blockers(
         phase_name=phase_name,
         payload_completeness=payload_completeness,
@@ -548,11 +591,30 @@ def _build_phase_row(
         missing_signal_layers=missing_signal_layers,
         coverage_bucket=coverage_bucket,
     )
+    impacted_readiness_dimensions = _phase_readiness_dimensions(phase_name)
+    missing_reason_digest = _missing_reason_digest(missing_layer_reasons)
     readiness_impact_digest = _phase_readiness_impact_digest(
         phase_name=phase_name,
         payload_completeness=payload_completeness,
+        impacted_readiness_dimensions=impacted_readiness_dimensions,
         missing_signal_layers=missing_signal_layers,
         coverage_bucket=coverage_bucket,
+    )
+    phase_boundary_digest = _phase_boundary_digest(
+        phase_name=phase_name,
+        coverage_bucket=coverage_bucket,
+        payload_completeness=payload_completeness,
+    )
+    reviewer_guidance_digest = _phase_reviewer_guidance_digest(
+        route_family=route_family,
+        phase_name=phase_name,
+        coverage_bucket=coverage_bucket,
+        available_signal_layers=available_signal_layers,
+        missing_signal_layers=missing_signal_layers,
+        missing_reason_digest=missing_reason_digest,
+        readiness_impact_digest=readiness_impact_digest,
+        next_required_artifacts=next_required_artifacts,
+        phase_boundary_digest=phase_boundary_digest,
     )
     linked_artifact_refs = [
         {
@@ -583,6 +645,7 @@ def _build_phase_row(
         "available_signal_layers": available_signal_layers,
         "missing_signal_layers": missing_signal_layers,
         "missing_layer_reasons": missing_layer_reasons,
+        "missing_reason_digest": missing_reason_digest,
         "available_channels": available_channels,
         "missing_channels": missing_channels,
         "policy_version": str(
@@ -614,16 +677,20 @@ def _build_phase_row(
             )
         ),
         "hold_time_summary": hold_time_summary,
+        "impacted_readiness_dimensions": impacted_readiness_dimensions,
         "readiness_impact_digest": readiness_impact_digest,
+        "phase_boundary_digest": phase_boundary_digest,
         "blockers": blockers,
         "next_required_artifacts": next_required_artifacts,
         "linked_readiness_artifact_refs": linked_readiness_artifact_refs,
+        "linked_readiness_summary": linked_readiness_summary,
         "linked_artifacts": {
             "multi_source_stability_evidence": str(artifact_paths.get("multi_source_stability_evidence") or ""),
             "state_transition_evidence": str(artifact_paths.get("state_transition_evidence") or ""),
             "simulation_evidence_sidecar_bundle": str(artifact_paths.get("simulation_evidence_sidecar_bundle") or ""),
         },
         "linked_artifact_refs": linked_artifact_refs,
+        "reviewer_guidance_digest": reviewer_guidance_digest,
         "reviewer_note": str(definition.get("reviewer_note") or ""),
         "digest": summary,
     }
@@ -862,6 +929,7 @@ def _evidence_provenance(
 
 def _missing_layer_reasons(
     *,
+    phase_name: str,
     signal_group_coverage: dict[str, dict[str, Any]],
     sample_rows: list[SamplingResult],
     actual_run_evidence_present: bool,
@@ -872,7 +940,10 @@ def _missing_layer_reasons(
         if str(dict(payload).get("coverage_status") or "") != "gap":
             continue
         if sample_rows:
-            rows[group_name] = "synthetic/actual simulated payload for this layer is still missing required channels"
+            rows[group_name] = _sample_backed_missing_layer_reason(
+                phase_name=phase_name,
+                layer_name=group_name,
+            )
         elif actual_run_evidence_present:
             rows[group_name] = "phase currently has trace bucket only; no simulated sample payload captured for this layer"
         elif coverage_bucket in {"model_only", "test_only"}:
@@ -1046,6 +1117,121 @@ def _dedupe_artifact_refs(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
     return deduped
 
 
+def _sample_backed_missing_layer_reason(*, phase_name: str, layer_name: str) -> str:
+    if str(phase_name or "").strip() == "preseal" and str(layer_name or "").strip() == "output":
+        return (
+            "preseal remains a conditioning window, so released measurement output stays intentionally open in "
+            "synthetic reviewer evidence"
+        )
+    if str(phase_name or "").strip() == "preseal" and str(layer_name or "").strip() == "analyzer_raw":
+        return (
+            "preseal does not claim a released analyzer frame; promoting this layer would overstate setup evidence"
+        )
+    if str(phase_name or "").strip() == "preseal":
+        return (
+            "preseal synthetic payload is intentionally scoped to setup / conditioning evidence, so this layer stays "
+            "open until later released measurement phases"
+        )
+    return "synthetic/actual simulated payload for this layer is still missing required channels"
+
+
+def _phase_readiness_dimensions(phase_name: str) -> list[str]:
+    return list(_PHASE_READINESS_DIMENSIONS.get(str(phase_name or "").strip(), ("readiness",)))
+
+
+def _missing_reason_digest(missing_layer_reasons: dict[str, str]) -> str:
+    return " | ".join(
+        f"{layer_name}: {reason}"
+        for layer_name, reason in dict(missing_layer_reasons or {}).items()
+        if str(layer_name).strip() and str(reason).strip()
+    ) or "--"
+
+
+def _phase_boundary_digest(*, phase_name: str, coverage_bucket: str, payload_completeness: str) -> str:
+    phase_name = str(phase_name or "").strip()
+    if phase_name == "preseal":
+        return (
+            "preseal partial is an honesty boundary for setup / conditioning evidence and does not imply released "
+            "measurement output"
+        )
+    if phase_name == "pressure_stable" and coverage_bucket == _PAYLOAD_COMPLETE_BUCKET:
+        return "pressure-stable complete remains synthetic reviewer evidence only and does not imply real acceptance"
+    if payload_completeness == "trace_only":
+        return "trace-only phase evidence remains reviewer-only until payload-backed layers are promoted"
+    return "measurement-core reviewer evidence stays within Step 2 simulation-only boundaries"
+
+
+def _phase_reviewer_guidance_digest(
+    *,
+    route_family: str,
+    phase_name: str,
+    coverage_bucket: str,
+    available_signal_layers: list[str],
+    missing_signal_layers: list[str],
+    missing_reason_digest: str,
+    readiness_impact_digest: str,
+    next_required_artifacts: list[str],
+    phase_boundary_digest: str,
+) -> str:
+    route_phase = f"{str(route_family or '').strip()}/{str(phase_name or '').strip()}".strip("/")
+    available_text = ", ".join(list(available_signal_layers or [])) or "--"
+    missing_text = ", ".join(list(missing_signal_layers or [])) or "--"
+    next_text = " | ".join(list(next_required_artifacts or [])) or "--"
+    bucket_text = _coverage_bucket_display(coverage_bucket)
+    return (
+        f"{route_phase}={bucket_text} | available {available_text} | missing {missing_text} | "
+        f"reason {missing_reason_digest} | impact {readiness_impact_digest} | next {next_text} | "
+        f"boundary {phase_boundary_digest}"
+    )
+
+
+def _enrich_phase_rows_for_reviewer_guidance(phase_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows = [dict(item) for item in list(phase_rows or []) if isinstance(item, dict)]
+    by_key = {
+        (str(row.get("route_family") or "").strip(), str(row.get("phase_name") or "").strip()): row
+        for row in rows
+    }
+    for row in rows:
+        route_family = str(row.get("route_family") or "").strip()
+        phase_name = str(row.get("phase_name") or "").strip()
+        if phase_name != "preseal":
+            continue
+        comparison_row = by_key.get((route_family, "pressure_stable"))
+        comparison_digest = _phase_comparison_digest(row=row, comparison_row=comparison_row)
+        if comparison_digest:
+            row["comparison_digest"] = comparison_digest
+    for row in rows:
+        if str(row.get("phase_name") or "").strip() != "pressure_stable":
+            continue
+        comparison_row = by_key.get((str(row.get("route_family") or "").strip(), "preseal"))
+        comparison_digest = _phase_comparison_digest(row=comparison_row, comparison_row=row)
+        if comparison_digest:
+            row["comparison_digest"] = comparison_digest
+    return rows
+
+
+def _phase_comparison_digest(*, row: dict[str, Any] | None, comparison_row: dict[str, Any] | None) -> str:
+    phase_row = dict(row or {})
+    stable_row = dict(comparison_row or {})
+    if not phase_row or not stable_row:
+        return ""
+    if str(phase_row.get("phase_name") or "").strip() != "preseal":
+        return ""
+    if str(phase_row.get("coverage_bucket") or "").strip() != _PAYLOAD_PARTIAL_BUCKET:
+        return ""
+    if str(stable_row.get("phase_name") or "").strip() != "pressure_stable":
+        return ""
+    if str(stable_row.get("coverage_bucket") or "").strip() != _PAYLOAD_COMPLETE_BUCKET:
+        return ""
+    route_family = str(phase_row.get("route_family") or "").strip() or str(stable_row.get("route_family") or "").strip()
+    preseal_missing = ", ".join(list(phase_row.get("missing_signal_layers") or [])) or "--"
+    stable_available = ", ".join(list(stable_row.get("available_signal_layers") or [])) or "--"
+    return (
+        f"{route_family} route: preseal stays payload-partial because missing {preseal_missing}; "
+        f"same-route pressure_stable reaches payload-complete because {stable_available} are all available"
+    )
+
+
 def _coverage_bucket_display(bucket: str) -> str:
     mapping = {
         _PAYLOAD_COMPLETE_BUCKET: "payload_complete",
@@ -1071,22 +1257,24 @@ def _phase_readiness_impact_digest(
     *,
     phase_name: str,
     payload_completeness: str,
+    impacted_readiness_dimensions: list[str],
     missing_signal_layers: list[str],
     coverage_bucket: str,
 ) -> str:
     impact_area = _PHASE_READINESS_IMPACT_AREAS.get(str(phase_name or "").strip(), "readiness")
+    dimension_text = ", ".join(list(impacted_readiness_dimensions or [])) or impact_area
     if coverage_bucket == _PAYLOAD_COMPLETE_BUCKET:
-        return f"{impact_area} linkage available from synthetic payload-backed reviewer evidence"
+        return f"{dimension_text} linkage is available from synthetic payload-backed reviewer evidence"
     if payload_completeness == "partial":
         return (
-            f"{impact_area} remains open because payload is partial and "
+            f"{dimension_text} remains open because payload is partial and "
             f"missing layers stay explicit: {', '.join(missing_signal_layers) or '--'}"
         )
     if payload_completeness == "trace_only":
-        return f"{impact_area} remains open because this phase is still trace-only and not payload-evaluated"
+        return f"{dimension_text} remains open because this phase is still trace-only and not payload-evaluated"
     if coverage_bucket in {"model_only", "test_only", "gap"}:
-        return f"{impact_area} remains open because this phase has only {coverage_bucket} reviewer coverage"
-    return f"{impact_area} remains open because payload evidence is not complete"
+        return f"{dimension_text} remains open because this phase has only {coverage_bucket} reviewer coverage"
+    return f"{dimension_text} remains open because payload evidence is not complete"
 
 
 def _phase_blockers(
@@ -1111,5 +1299,6 @@ def _phase_blockers(
     if missing_signal_layers:
         blockers.append(f"missing signal layers: {', '.join(missing_signal_layers)}")
     if str(phase_name or "").strip() == "preseal":
+        blockers.append("preseal partial is an honesty boundary, not a measurement-core bug")
         blockers.append("preseal remains setup/conditioning evidence and does not imply released measurement output")
     return _dedupe(blockers)

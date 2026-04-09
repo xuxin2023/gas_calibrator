@@ -1518,6 +1518,11 @@ def _enrich_recognition_readiness_artifact(
     )
     readiness_status = str(raw.get("readiness_status") or "").strip() or f"{artifact_type}_readiness_stub"
     linked_measurement_phase_summary = _phase_route_summary(linked_measurement_phase_artifacts)
+    linked_measurement_gap_summary = _linked_measurement_gap_summary(linked_measurement_phase_artifacts)
+    preseal_partial_gap_summary = _preseal_partial_gap_summary(
+        artifact_type=artifact_type,
+        linked_measurement_phase_artifacts=linked_measurement_phase_artifacts,
+    )
     linked_artifact_summary = " | ".join(
         _dedupe(str(item.get("artifact_type") or item.get("anchor_label") or "").strip() for item in linked_artifact_refs)
     )
@@ -1535,6 +1540,10 @@ def _enrich_recognition_readiness_artifact(
         digest["next_required_artifacts_summary"] = " | ".join(next_required_artifacts)
     if linked_measurement_phase_summary:
         digest["linked_measurement_phase_summary"] = linked_measurement_phase_summary
+    if linked_measurement_gap_summary:
+        digest["linked_measurement_gap_summary"] = linked_measurement_gap_summary
+    if preseal_partial_gap_summary:
+        digest["preseal_partial_gap_summary"] = preseal_partial_gap_summary
     if linked_artifact_summary:
         digest["linked_artifact_summary"] = linked_artifact_summary
     if boundary_digest:
@@ -1545,6 +1554,8 @@ def _enrich_recognition_readiness_artifact(
     raw["anchor_label"] = anchor_label
     raw["linked_artifact_refs"] = linked_artifact_refs
     raw["linked_measurement_phase_artifacts"] = linked_measurement_phase_artifacts
+    raw["linked_measurement_gap_summary"] = linked_measurement_gap_summary
+    raw["preseal_partial_gap_summary"] = preseal_partial_gap_summary
     raw["missing_evidence"] = missing_evidence
     raw["blockers"] = blockers
     raw["next_required_artifacts"] = next_required_artifacts
@@ -1573,6 +1584,7 @@ def _enrich_recognition_readiness_artifact(
             [
                 f"readiness status: {readiness_status}",
                 f"linked measurement phases: {linked_measurement_phase_summary}" if linked_measurement_phase_summary else "",
+                f"linked measurement gaps: {linked_measurement_gap_summary}" if linked_measurement_gap_summary else "",
                 f"next required artifacts: {' | '.join(next_required_artifacts)}" if next_required_artifacts else "",
             ],
         )
@@ -1581,6 +1593,8 @@ def _enrich_recognition_readiness_artifact(
             [
                 f"linked artifacts: {linked_artifact_summary}" if linked_artifact_summary else "",
                 f"linked measurement phases: {linked_measurement_phase_summary}" if linked_measurement_phase_summary else "",
+                f"linked measurement gaps: {linked_measurement_gap_summary}" if linked_measurement_gap_summary else "",
+                f"preseal partial gap: {preseal_partial_gap_summary}" if preseal_partial_gap_summary else "",
                 f"missing evidence: {' | '.join(missing_evidence)}" if missing_evidence else "",
                 f"blockers: {' | '.join(blockers)}" if blockers else "",
                 f"next required artifacts: {' | '.join(next_required_artifacts)}" if next_required_artifacts else "",
@@ -1638,9 +1652,14 @@ def _measurement_phase_refs_for_artifact(
                 "payload_completeness": str(row.get("payload_completeness") or "").strip(),
                 "available_signal_layers": list(row.get("available_signal_layers") or []),
                 "missing_signal_layers": list(row.get("missing_signal_layers") or []),
+                "missing_reason_digest": str(row.get("missing_reason_digest") or "").strip(),
                 "evidence_provenance": str(row.get("evidence_provenance") or "").strip(),
                 "readiness_impact_digest": str(row.get("readiness_impact_digest") or "").strip(),
+                "linked_readiness_summary": str(row.get("linked_readiness_summary") or "").strip(),
+                "blockers": list(row.get("blockers") or []),
                 "next_required_artifacts": list(row.get("next_required_artifacts") or []),
+                "reviewer_guidance_digest": str(row.get("reviewer_guidance_digest") or "").strip(),
+                "comparison_digest": str(row.get("comparison_digest") or "").strip(),
             }
         )
     return refs
@@ -1652,6 +1671,67 @@ def _phase_route_summary(rows: list[dict[str, Any]]) -> str:
             (
                 f"{str(item.get('route_phase') or '').strip()}="
                 f"{str(item.get('coverage_bucket_display') or item.get('coverage_bucket') or '').strip()}"
+            )
+            for item in rows
+            if str(item.get("route_phase") or "").strip()
+        )
+    )
+
+
+def _linked_measurement_gap_summary(rows: list[dict[str, Any]]) -> str:
+    return " | ".join(
+        _dedupe(
+            (
+                f"{str(item.get('route_phase') or '').strip()}: "
+                f"{str(item.get('missing_reason_digest') or item.get('readiness_impact_digest') or '').strip()}"
+            )
+            for item in rows
+            if str(item.get("route_phase") or "").strip()
+            and (
+                str(item.get("missing_reason_digest") or "").strip()
+                or str(item.get("readiness_impact_digest") or "").strip()
+            )
+            and str(item.get("coverage_bucket") or "").strip() != "actual_simulated_run_with_payload_complete"
+        )
+    )
+
+
+_RECOGNITION_PRESEAL_PARTIAL_HINTS: dict[str, str] = {
+    "scope_definition_pack": (
+        "scope boundary stays reviewer-only until preseal conditioning evidence can be tied to released output criteria"
+    ),
+    "decision_rule_profile": (
+        "decision-rule wording remains constrained because preseal does not yet claim released measurement output"
+    ),
+    "scope_readiness_summary": "scope readiness cannot be promoted while preseal remains a partial conditioning window",
+    "uncertainty_budget_stub": "uncertainty inputs stay stub-only while preseal output terms remain open",
+    "method_confirmation_protocol": "method protocol steps stay reviewer-only while preseal remains setup evidence",
+    "method_confirmation_matrix": "method rows stay open because preseal evidence does not yet close released output terms",
+}
+
+
+def _preseal_partial_gap_summary(
+    *,
+    artifact_type: str,
+    linked_measurement_phase_artifacts: list[dict[str, Any]],
+) -> str:
+    hint = str(_RECOGNITION_PRESEAL_PARTIAL_HINTS.get(str(artifact_type or "").strip()) or "").strip()
+    if not hint:
+        return ""
+    rows = [
+        dict(item)
+        for item in list(linked_measurement_phase_artifacts or [])
+        if str(item.get("phase_name") or "").strip() == "preseal"
+        and str(item.get("coverage_bucket") or "").strip() == "actual_simulated_run_with_payload_partial"
+    ]
+    if not rows:
+        return ""
+    return " | ".join(
+        _dedupe(
+            (
+                f"{str(item.get('route_phase') or '').strip()}: "
+                f"{str(item.get('missing_reason_digest') or item.get('reviewer_guidance_digest') or '').strip()} | "
+                f"{hint}"
             )
             for item in rows
             if str(item.get("route_phase") or "").strip()
@@ -1680,6 +1760,8 @@ def _append_readiness_markdown_section(markdown: str, *, raw: dict[str, Any]) ->
         f"- readiness_status: {str(raw.get('readiness_status') or '--')}",
         f"- linked_artifact_refs: {' | '.join(_dedupe(str(item.get('artifact_type') or '') for item in list(raw.get('linked_artifact_refs') or []) if isinstance(item, dict))) or '--'}",
         f"- linked_measurement_phases: {_phase_route_summary(list(raw.get('linked_measurement_phase_artifacts') or [])) or '--'}",
+        f"- linked_measurement_gaps: {str(raw.get('linked_measurement_gap_summary') or '--')}",
+        f"- preseal_partial_gap: {str(raw.get('preseal_partial_gap_summary') or '--')}",
         f"- missing_evidence: {' | '.join(list(raw.get('missing_evidence') or [])) or '--'}",
         f"- blockers: {' | '.join(list(raw.get('blockers') or [])) or '--'}",
         f"- next_required_artifacts: {' | '.join(list(raw.get('next_required_artifacts') or [])) or '--'}",

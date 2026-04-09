@@ -38,6 +38,8 @@ from ...core import recognition_readiness_artifacts as recognition_readiness
 from ...core.offline_artifacts import build_point_taxonomy_handoff
 from ...domain.mode_models import ModeProfile, RunMode
 from ...review_surface_formatter import (
+    build_measurement_review_digest_lines,
+    build_readiness_review_digest_lines,
     build_offline_diagnostic_detail_line,
     build_offline_diagnostic_detail_item_line,
     build_offline_diagnostic_scope_line_from_counts,
@@ -45,6 +47,7 @@ from ...review_surface_formatter import (
     humanize_offline_diagnostic_detail_value,
     humanize_offline_diagnostic_summary_value,
     humanize_review_center_coverage_text,
+    humanize_review_surface_text,
     normalize_offline_diagnostic_line,
     offline_diagnostic_scope_label,
 )
@@ -1462,77 +1465,40 @@ class AppFacade:
                 text = self._humanize_ui_summary(str(item or ""))
                 if text and text not in measurement_core_boundary_lines:
                     measurement_core_boundary_lines.append(text)
+        measurement_review_lines = build_measurement_review_digest_lines(measurement_phase_coverage_report)
         measurement_core_summary_lines = [
-            t(
+            self._humanize_ui_summary(
+                t(
                 "facade.results.result_summary.measurement_core_stability",
                 value=stability_text,
                 default=f"multi-source stability shadow: {stability_text}",
+                )
             )
             if multi_source_stability_evidence
             else "",
-            t(
+            self._humanize_ui_summary(
+                t(
                 "facade.results.result_summary.measurement_core_transition",
                 value=state_transition_text,
                 default=f"controlled state trace: {state_transition_text}",
+                )
             )
             if state_transition_evidence
             else "",
-            t(
-                "facade.results.result_summary.measurement_core_phase_coverage",
-                value=measurement_phase_coverage_text,
-                default=f"measurement-core phase coverage: {measurement_phase_coverage_text}",
-            )
-            if measurement_phase_coverage_report
-            else "",
-            t(
-                "facade.results.result_summary.measurement_core_payload_phases",
-                value=measurement_phase_payload_text,
-                default=f"payload-backed simulated phases: {measurement_phase_payload_text}",
-            )
-            if measurement_phase_coverage_report and measurement_phase_payload_text != "--"
-            else "",
-            t(
-                "facade.results.result_summary.measurement_core_payload_complete",
-                value=measurement_phase_payload_complete_text,
-                default=f"payload-complete simulated phases: {measurement_phase_payload_complete_text}",
-            )
-            if measurement_phase_coverage_report and measurement_phase_payload_complete_text != "--"
-            else "",
-            t(
-                "facade.results.result_summary.measurement_core_payload_partial",
-                value=measurement_phase_payload_partial_text,
-                default=f"payload-partial simulated phases: {measurement_phase_payload_partial_text}",
-            )
-            if measurement_phase_coverage_report and measurement_phase_payload_partial_text != "--"
-            else "",
-            t(
-                "facade.results.result_summary.measurement_core_trace_only",
-                value=measurement_phase_trace_only_text,
-                default=f"trace-only phases: {measurement_phase_trace_only_text}",
-            )
-            if measurement_phase_coverage_report and measurement_phase_trace_only_text != "--"
-            else "",
-            t(
-                "facade.results.result_summary.measurement_core_payload_completeness",
-                value=measurement_phase_payload_completeness_text,
-                default=f"payload completeness: {measurement_phase_payload_completeness_text}",
-            )
-            if measurement_phase_coverage_report and measurement_phase_payload_completeness_text != "--"
-            else "",
-            t(
-                "facade.results.result_summary.measurement_core_next_artifacts",
-                value=measurement_phase_next_artifacts_text,
-                default=f"next required artifacts: {measurement_phase_next_artifacts_text}",
-            )
-            if measurement_phase_coverage_report and measurement_phase_next_artifacts_text != "--"
-            else "",
-            t(
+            *[self._humanize_ui_summary(str(line)) for line in list(measurement_review_lines.get("summary_lines") or [])],
+            *[
+                self._humanize_ui_summary(str(line))
+                for line in list(measurement_review_lines.get("detail_lines") or [])[:4]
+            ],
+            self._humanize_ui_summary(
+                t(
                 "facade.results.result_summary.measurement_core_sidecar_contract",
                 value=(sidecar_store_summary or sidecar_note_text or "future database intake / sidecar-ready"),
                 default=(
                     "sidecar-ready contract: "
                     + (sidecar_store_summary or sidecar_note_text or "future database intake / sidecar-ready")
                 ),
+                )
             )
             if simulation_evidence_sidecar_bundle
             else "",
@@ -3895,6 +3861,7 @@ class AppFacade:
     ) -> dict[str, Any]:
         review_surface = dict(payload.get("review_surface") or {})
         digest = dict(payload.get("digest") or {})
+        localized_review_lines = build_measurement_review_digest_lines(payload)
         summary = self._humanize_ui_summary(
             str(
                 digest.get("summary")
@@ -3909,8 +3876,8 @@ class AppFacade:
             f"{t('results.review_center.detail.source')}: {display_evidence_source(payload.get('evidence_source'), default=str(payload.get('evidence_source') or 'simulated'))}",
             f"{t('results.review_center.detail.state')}: {display_evidence_state(payload.get('evidence_state'), default=str(payload.get('evidence_state') or 'shadow_only'))}",
             f"{t('results.review_center.detail.path')}: {path}",
-            *[str(item) for item in list(review_surface.get("summary_lines") or []) if str(item).strip()],
-            *[str(item) for item in list(review_surface.get("detail_lines") or []) if str(item).strip()],
+            *[str(item) for item in list(localized_review_lines.get("summary_lines") or []) if str(item).strip()],
+            *[str(item) for item in list(localized_review_lines.get("detail_lines") or []) if str(item).strip()],
             t("results.review_center.disclaimer"),
         ]
         artifact_paths = [
@@ -3944,12 +3911,12 @@ class AppFacade:
                 str(digest.get("next_required_artifacts_summary") or ""),
             ],
             artifact_paths=artifact_paths,
-            detail_analytics_summary=list(review_surface.get("summary_lines") or []),
+            detail_analytics_summary=list(localized_review_lines.get("summary_lines") or []),
             detail_lineage_summary=[
-                str(digest.get("gap_summary") or ""),
-                str(digest.get("readiness_impact_summary") or ""),
-                str(digest.get("linked_readiness_summary") or ""),
-                *[str(item) for item in list(review_surface.get("detail_lines") or []) if str(item).strip()],
+                self._humanize_ui_summary(str(digest.get("gap_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("readiness_impact_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("linked_readiness_summary") or "")),
+                *[str(item) for item in list(localized_review_lines.get("detail_lines") or []) if str(item).strip()],
             ],
             phase_filters=list(review_surface.get("phase_filters") or []),
             artifact_role_filters=["diagnostic_analysis"],
@@ -3967,6 +3934,7 @@ class AppFacade:
     def _build_readiness_governance_review_item(self, payload: dict[str, Any], path: Path) -> dict[str, Any]:
         review_surface = dict(payload.get("review_surface") or {})
         digest = dict(payload.get("digest") or {})
+        localized_review_lines = build_readiness_review_digest_lines(payload)
         summary = self._humanize_ui_summary(
             str(
                 digest.get("summary")
@@ -3981,8 +3949,8 @@ class AppFacade:
             f"{t('results.review_center.detail.source')}: {display_evidence_source(payload.get('evidence_source'), default=str(payload.get('evidence_source') or 'simulated_protocol'))}",
             f"{t('results.review_center.detail.state')}: {display_evidence_state(payload.get('evidence_state'), default=str(payload.get('evidence_state') or 'reviewer_readiness_only'))}",
             f"{t('results.review_center.detail.path')}: {path}",
-            *[str(item) for item in list(review_surface.get("summary_lines") or []) if str(item).strip()],
-            *[str(item) for item in list(review_surface.get("detail_lines") or []) if str(item).strip()],
+            *[str(item) for item in list(localized_review_lines.get("summary_lines") or []) if str(item).strip()],
+            *[str(item) for item in list(localized_review_lines.get("detail_lines") or []) if str(item).strip()],
             t("results.review_center.disclaimer"),
         ]
         artifact_paths = [
@@ -4014,12 +3982,12 @@ class AppFacade:
                 str(digest.get("next_required_artifacts_summary") or ""),
             ],
             artifact_paths=artifact_paths,
-            detail_analytics_summary=list(review_surface.get("summary_lines") or []),
+            detail_analytics_summary=list(localized_review_lines.get("summary_lines") or []),
             detail_lineage_summary=[
-                str(digest.get("missing_evidence_summary") or ""),
-                str(digest.get("linked_measurement_phase_summary") or ""),
-                str(digest.get("next_required_artifacts_summary") or ""),
-                *[str(item) for item in list(review_surface.get("detail_lines") or []) if str(item).strip()],
+                self._humanize_ui_summary(str(digest.get("missing_evidence_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("linked_measurement_phase_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("next_required_artifacts_summary") or "")),
+                *[str(item) for item in list(localized_review_lines.get("detail_lines") or []) if str(item).strip()],
             ],
             phase_filters=list(review_surface.get("phase_filters") or []),
             artifact_role_filters=["diagnostic_analysis"],
@@ -5646,7 +5614,7 @@ class AppFacade:
         }
         for source, target in replacements.items():
             normalized = re.sub(rf"\b{re.escape(source)}\b", target, normalized, flags=re.IGNORECASE)
-        return normalized
+        return humanize_review_surface_text(normalized)
 
     def _apply_run_mode(
         self,

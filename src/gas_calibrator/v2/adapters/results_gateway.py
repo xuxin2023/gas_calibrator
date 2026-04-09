@@ -64,9 +64,12 @@ from ..core.stage3_standards_alignment_matrix_artifact_entry import (
     build_stage3_standards_alignment_matrix_artifact_entry,
 )
 from ..review_surface_formatter import (
+    build_measurement_review_digest_lines,
+    build_readiness_review_digest_lines,
     build_offline_diagnostic_detail_item_line,
     build_offline_diagnostic_scope_line,
     collect_offline_diagnostic_detail_lines,
+    humanize_review_surface_text,
     humanize_offline_diagnostic_summary_value,
     normalize_offline_diagnostic_line,
     offline_diagnostic_scope_label,
@@ -923,58 +926,52 @@ class ResultsGateway:
             if sidecar_summary
             else ""
         )
+        measurement_review_lines = build_measurement_review_digest_lines(phase_coverage_summary)
 
         if measurement_core_stability_text:
-            lines.append(f"measurement-core shadow: {measurement_core_stability_text}")
+            lines.append(
+                humanize_review_surface_text(
+                    t(
+                        "facade.results.result_summary.measurement_core_stability",
+                        value=measurement_core_stability_text,
+                        default=f"multi-source stability shadow: {measurement_core_stability_text}",
+                    )
+                )
+            )
         if measurement_core_transition_text:
-            lines.append(f"controlled state trace: {measurement_core_transition_text}")
+            lines.append(
+                humanize_review_surface_text(
+                    t(
+                        "facade.results.result_summary.measurement_core_transition",
+                        value=measurement_core_transition_text,
+                        default=f"controlled state trace: {measurement_core_transition_text}",
+                    )
+                )
+            )
         if measurement_core_phase_coverage_text:
-            lines.append(f"measurement-core phase coverage: {measurement_core_phase_coverage_text}")
-        if measurement_core_payload_phase_text:
-            lines.append(f"measurement-core payload-backed phases: {measurement_core_payload_phase_text}")
-        if measurement_core_payload_complete_text:
-            lines.append(f"measurement-core payload-complete phases: {measurement_core_payload_complete_text}")
-        if measurement_core_payload_partial_text:
-            lines.append(f"measurement-core payload-partial phases: {measurement_core_payload_partial_text}")
-        if measurement_core_trace_only_text:
-            lines.append(f"measurement-core trace-only phases: {measurement_core_trace_only_text}")
-        if measurement_core_payload_completeness_text:
-            lines.append(f"measurement-core payload completeness: {measurement_core_payload_completeness_text}")
-        if measurement_core_next_artifacts_text:
-            lines.append(f"measurement-core next artifacts: {measurement_core_next_artifacts_text}")
+            lines.extend(measurement_review_lines.get("summary_lines") or [])
+            lines.extend((measurement_review_lines.get("detail_lines") or [])[:4])
         if measurement_core_sidecar_text or dict(simulation_evidence_sidecar_bundle or {}):
             sidecar_contract_text = str(sidecar_summary.get("reviewer_note") or "").strip()
             lines.append(
-                "sidecar-ready contract: "
-                + (
-                    measurement_core_sidecar_text
-                    or sidecar_contract_text
-                    or "future database intake / sidecar-ready"
+                humanize_review_surface_text(
+                    "sidecar-ready contract: "
+                    + (
+                        measurement_core_sidecar_text
+                        or sidecar_contract_text
+                        or "future database intake / sidecar-ready"
+                    )
                 )
             )
-        readiness_pairs = [
-            ("scope readiness", dict(scope_readiness_payload.get("digest") or {}).get("summary")),
-            ("reference/certificate readiness", dict(certificate_readiness_payload.get("digest") or {}).get("summary")),
-            (
-                "uncertainty/method readiness",
-                dict(uncertainty_method_payload.get("digest") or {}).get("summary"),
-            ),
-            ("software validation / audit readiness", dict(audit_readiness_payload.get("digest") or {}).get("summary")),
-        ]
-        for label, value in readiness_pairs:
-            text = str(value or "").strip()
-            if text:
-                lines.append(f"{label}: {text}")
-        readiness_detail_pairs = [
-            ("scope readiness next artifacts", dict(scope_readiness_payload.get("digest") or {}).get("next_required_artifacts_summary")),
-            ("reference/certificate linked phases", dict(certificate_readiness_payload.get("digest") or {}).get("linked_measurement_phase_summary")),
-            ("uncertainty/method linked phases", dict(uncertainty_method_payload.get("digest") or {}).get("linked_measurement_phase_summary")),
-            ("software validation / audit next artifacts", dict(audit_readiness_payload.get("digest") or {}).get("next_required_artifacts_summary")),
-        ]
-        for label, value in readiness_detail_pairs:
-            text = str(value or "").strip()
-            if text:
-                lines.append(f"{label}: {text}")
+        for readiness_payload in (
+            scope_readiness_payload,
+            certificate_readiness_payload,
+            uncertainty_method_payload,
+            audit_readiness_payload,
+        ):
+            localized_lines = build_readiness_review_digest_lines(readiness_payload)
+            lines.extend(localized_lines.get("summary_lines") or [])
+            lines.extend((localized_lines.get("detail_lines") or [])[:3])
 
         return "\n".join(line for line in lines if str(line).strip())
 
