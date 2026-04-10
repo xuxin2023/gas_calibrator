@@ -35,6 +35,7 @@ from tools.absorbance_debugger.options import (
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 REFERENCE_RUN_ZIP = REPO_ROOT / "logs" / "run_20260407_185002.zip"
+HISTORICAL_RUN_ZIP = REPO_ROOT / "logs" / "run_20260403_014845.zip"
 
 
 def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
@@ -269,9 +270,9 @@ def test_cross_run_batch_interface_can_run(monkeypatch, tmp_path: Path) -> None:
         output_dir.mkdir(parents=True, exist_ok=True)
         overview = pd.DataFrame(
             [
-                {"analyzer_id": "GA01", "old_chain_rmse": 5.0, "new_chain_rmse": 7.0, "winner_overall": "old_chain", "winner_zero": "old_chain", "winner_temp_stability": "old_chain", "winner_low_range": "old_chain", "winner_main_range": "old_chain"},
-                {"analyzer_id": "GA02", "old_chain_rmse": 6.0, "new_chain_rmse": 4.0 if stem == "run_a" else 5.0, "winner_overall": "new_chain", "winner_zero": "new_chain", "winner_temp_stability": "new_chain", "winner_low_range": "new_chain", "winner_main_range": "new_chain"},
-                {"analyzer_id": "GA03", "old_chain_rmse": 5.5, "new_chain_rmse": 4.5, "winner_overall": "new_chain", "winner_zero": "new_chain", "winner_temp_stability": "new_chain", "winner_low_range": "new_chain", "winner_main_range": "new_chain"},
+                {"analyzer_id": "GA01", "old_chain_rmse": 5.0, "new_chain_rmse": 7.0, "old_zero_rmse": 2.0, "new_zero_rmse": 3.0, "old_temp_stability_metric": 1.0, "new_temp_stability_metric": 2.0, "winner_overall": "old_chain", "winner_zero": "old_chain", "winner_temp_stability": "old_chain", "winner_low_range": "old_chain", "winner_main_range": "old_chain"},
+                {"analyzer_id": "GA02", "old_chain_rmse": 6.0, "new_chain_rmse": 4.0 if stem == "run_a" else 5.0, "old_zero_rmse": 2.5, "new_zero_rmse": 1.7, "old_temp_stability_metric": 1.4, "new_temp_stability_metric": 1.0, "winner_overall": "new_chain", "winner_zero": "new_chain", "winner_temp_stability": "new_chain", "winner_low_range": "new_chain", "winner_main_range": "new_chain"},
+                {"analyzer_id": "GA03", "old_chain_rmse": 5.5, "new_chain_rmse": 4.5, "old_zero_rmse": 1.8, "new_zero_rmse": 1.5, "old_temp_stability_metric": 1.2, "new_temp_stability_metric": 0.9, "winner_overall": "new_chain", "winner_zero": "new_chain", "winner_temp_stability": "new_chain", "winner_low_range": "new_chain", "winner_main_range": "new_chain"},
             ]
         )
         selection = pd.DataFrame(
@@ -286,6 +287,9 @@ def test_cross_run_batch_interface_can_run(monkeypatch, tmp_path: Path) -> None:
             "validation_table": pd.DataFrame(),
             "comparison_outputs": {"overview_summary": overview},
             "model_results": {"selection": selection},
+            "invalid_pressure_summary": pd.DataFrame([{"summary_scope": "overall", "invalid_point_count": 3, "invalid_sample_count": 30}]),
+            "run_role_assessment": pd.DataFrame([{"assessment_scope": "run_summary", "has_high_temp_zero_anchor_candidate": stem == "run_b", "recommended_role": "mixed role"}]),
+            "config": DebuggerConfig(input_path=output_dir, output_dir=output_dir),
             "ga01_special_note": "GA01 still looks like a high-temp zero-anchor issue.",
         }
 
@@ -293,9 +297,57 @@ def test_cross_run_batch_interface_can_run(monkeypatch, tmp_path: Path) -> None:
     result = run_debugger_batch((run_a, run_b), output_dir=tmp_path / "batch")
 
     assert (Path(result["output_dir"]) / "step_09_cross_run_summary.csv").exists()
+    assert (Path(result["output_dir"]) / "step_09_cross_run_by_analyzer.csv").exists()
+    assert (Path(result["output_dir"]) / "step_09_cross_run_auto_conclusions.csv").exists()
     assert (Path(result["output_dir"]) / "step_09_cross_run_plots.png").exists()
     assert "GA02" in result["reproducibility_note"]
     assert set(result["cross_run_summary"]["run_name"]) == {"run_a", "run_b"}
+    assert "invalid_pressure_excluded_count" in result["cross_run_summary"].columns
+    assert set(result["cross_run_by_analyzer"]["analyzer_id"]) == {"GA01", "GA02", "GA03"}
+
+
+def test_historical_run_detects_high_temp_anchor_and_invalid_500hpa(tmp_path: Path) -> None:
+    output_dir = tmp_path / "historical_absorbance_debug"
+
+    result = run_debugger(
+        HISTORICAL_RUN_ZIP,
+        output_dir=output_dir,
+        ratio_source="raw",
+        temperature_source="corr",
+        pressure_source="corr",
+    )
+
+    assert (output_dir / "step_08z_run_role_assessment.csv").exists()
+    role = pd.read_csv(output_dir / "step_08z_run_role_assessment.csv")
+    run_row = role[role["assessment_scope"] == "run_summary"].iloc[0]
+    assert bool(run_row["has_high_temp_zero_anchor_candidate"]) is True
+    assert "high-temperature zero anchor candidate" in str(run_row["high_temp_zero_anchor_note"])
+
+    invalid_summary = pd.read_csv(output_dir / "step_02x_invalid_pressure_summary.csv")
+    overall_invalid = invalid_summary[invalid_summary["summary_scope"] == "overall"].iloc[0]
+    assert int(overall_invalid["invalid_point_count"]) > 0
+
+    overview = pd.read_csv(output_dir / "step_08_overview_summary.csv")
+    assert "GA04" in set(overview["analyzer_id"])
+
+    report_md = (output_dir / "report.md").read_text(encoding="utf-8")
+    assert "this run provides a high-temperature zero anchor candidate" in report_md
+
+
+def test_historical_run_bundle_contains_40c_zero_candidate() -> None:
+    bundle = RunBundle(HISTORICAL_RUN_ZIP)
+    artifacts = discover_run_artifacts(bundle)
+    points_raw = bundle.read_csv(artifacts.files["points_readable"])
+    temp_col = "温箱目标温度C"
+    ppm_col = "目标二氧化碳浓度ppm"
+    pressure_col = "目标压力hPa"
+    points = points_raw.copy()
+    mask = (
+        pd.to_numeric(points[temp_col], errors="coerce").eq(40.0)
+        & pd.to_numeric(points[ppm_col], errors="coerce").eq(0.0)
+        & pd.to_numeric(points[pressure_col], errors="coerce").isna()
+    )
+    assert bool(mask.any()) is True
 
 
 def test_run_bundle_discovers_zip_and_extracted_directory(tmp_path: Path) -> None:

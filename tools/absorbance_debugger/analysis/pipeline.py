@@ -284,7 +284,11 @@ def _normalize_samples(samples_raw: pd.DataFrame, points: pd.DataFrame, analyzer
                 frame[bool_column] = frame[bool_column].map(_safe_bool)
         frame = frame.merge(point_summary, on=["point_title", "point_row"], how="left")
         frame["temp_std_c"] = frame["temp_std_c"].fillna(frame["temp_std_c_mean"])
-        frame["pressure_gauge_hpa"] = frame["pressure_gauge_hpa"].fillna(frame["pressure_gauge_hpa_mean"])
+        frame["pressure_gauge_hpa"] = (
+            frame["pressure_gauge_hpa"]
+            .fillna(frame["pressure_gauge_hpa_mean"])
+            .fillna(frame["pressure_ctrl_hpa_mean"])
+        )
         frame["pressure_std_hpa"] = frame["pressure_gauge_hpa"]
         frame["pressure_dev_raw_hpa"] = frame["pressure_dev_kpa"] * 10.0
         required_fields = [
