@@ -368,6 +368,286 @@ def build_artifact_compatibility_overview(
     }
 
 
+def regenerate_artifact_compatibility_sidecars(run_dir: Path) -> dict[str, Any]:
+    run_dir = Path(run_dir)
+    summary = _load_json_dict(run_dir / "summary.json")
+    manifest = _load_json_dict(run_dir / "manifest.json")
+    results = _load_json_dict(run_dir / "results.json")
+    output_files = list(dict(summary or {}).get("stats", {}).get("output_files", []) or [])
+    role_catalog = dict(dict(manifest or {}).get("artifacts", {}) or {}).get("role_catalog", {})
+    bundle = build_artifact_compatibility_bundle(
+        run_dir,
+        summary=summary,
+        manifest=manifest,
+        results=results,
+        output_files=output_files,
+        role_catalog=role_catalog if isinstance(role_catalog, dict) else None,
+    )
+    written_paths = write_artifact_compatibility_sidecars(run_dir, bundle)
+    return {
+        "run_dir": str(run_dir.resolve()),
+        "written_paths": {
+            key: {"json_path": str(paths[0]), "markdown_path": str(paths[1])}
+            for key, paths in written_paths.items()
+        },
+        "primary_evidence_rewritten": False,
+        "regenerate_scope": "reviewer_index_sidecar_only",
+        "run_artifact_index": dict(bundle.get("run_artifact_index", {}).get("raw") or {}),
+        "artifact_contract_catalog": dict(bundle.get("artifact_contract_catalog", {}).get("raw") or {}),
+        "compatibility_scan_summary": dict(bundle.get("compatibility_scan_summary", {}).get("raw") or {}),
+        "reindex_manifest": dict(bundle.get("reindex_manifest", {}).get("raw") or {}),
+    }
+
+
+def _build_run_artifact_index_payload(
+    *,
+    run_dir: Path,
+    run_id: str,
+    current_reader_mode: str,
+    compatibility_status: str,
+    status_counts: dict[str, int],
+    version_source_counts: dict[str, int],
+    canonical_reader_count: int,
+    regenerate_recommended: bool,
+    linked_surface_visibility: list[str],
+    entries: list[dict[str, Any]],
+    summary_line: str,
+    detail_lines: list[str],
+    boundary_payload: dict[str, Any],
+    non_claim_payload: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "schema_version": ARTIFACT_COMPATIBILITY_SCHEMA_VERSION,
+        "index_schema_version": ARTIFACT_COMPATIBILITY_INDEX_SCHEMA_VERSION,
+        "artifact_type": "run_artifact_index",
+        "run_id": run_id,
+        "run_dir": str(run_dir.resolve()),
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "generated_by_tool": ARTIFACT_COMPATIBILITY_BUNDLE_TOOL,
+        "current_reader_mode": current_reader_mode,
+        "current_reader_mode_display": _display_reader_mode(current_reader_mode),
+        "compatibility_status": compatibility_status,
+        "compatibility_status_display": _display_compatibility_status(compatibility_status),
+        "compatibility_status_counts": status_counts,
+        "schema_version_source_counts": version_source_counts,
+        "canonical_reader_available_count": canonical_reader_count,
+        "parent_run_count": 1,
+        "artifact_count": len(entries),
+        "regenerate_recommended": regenerate_recommended,
+        "linked_surface_visibility": linked_surface_visibility,
+        "summary": summary_line,
+        "detail_lines": detail_lines,
+        "entries": entries,
+        "regenerate_scope": "reviewer_index_sidecar_only",
+        "primary_evidence_rewritten": False,
+        "primary_evidence_preserved": True,
+        "canonical_reader_available": canonical_reader_count > 0,
+        "evidence_source": "simulated_protocol",
+        "evidence_state": "shadow_only",
+        "not_real_acceptance_evidence": True,
+        "artifact_paths": _self_artifact_paths(run_dir, "run_artifact_index"),
+        **boundary_payload,
+        **non_claim_payload,
+    }
+
+
+def _build_contract_catalog_payload(
+    *,
+    run_dir: Path,
+    run_id: str,
+    current_reader_mode: str,
+    compatibility_status: str,
+    compatibility_read_count: int,
+    missing_regenerable_count: int,
+    regenerate_recommended: bool,
+    boundary_payload: dict[str, Any],
+    non_claim_payload: dict[str, Any],
+    contract_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "schema_version": ARTIFACT_COMPATIBILITY_SCHEMA_VERSION,
+        "index_schema_version": ARTIFACT_COMPATIBILITY_INDEX_SCHEMA_VERSION,
+        "artifact_type": "artifact_contract_catalog",
+        "run_id": run_id,
+        "run_dir": str(run_dir.resolve()),
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "generated_by_tool": ARTIFACT_COMPATIBILITY_BUNDLE_TOOL,
+        "current_reader_mode": current_reader_mode,
+        "current_reader_mode_display": _display_reader_mode(current_reader_mode),
+        "compatibility_status": compatibility_status,
+        "compatibility_status_display": _display_compatibility_status(compatibility_status),
+        "regenerate_recommended": regenerate_recommended,
+        "parent_run_count": 1,
+        "artifact_count": len(contract_rows),
+        "contract_row_count": len(contract_rows),
+        "summary": (
+            f"contracts {len(contract_rows)} | compatibility-read {compatibility_read_count} | "
+            f"missing-sidecar {missing_regenerable_count}"
+        ),
+        "detail_lines": [
+            f"contracts: {len(contract_rows)}",
+            f"compatibility-read entries: {compatibility_read_count}",
+            f"missing regenerable sidecars: {missing_regenerable_count}",
+        ],
+        "contract_rows": contract_rows,
+        "linked_surface_visibility": ["results", "review_center"],
+        "regenerate_scope": "reviewer_index_sidecar_only",
+        "primary_evidence_rewritten": False,
+        "primary_evidence_preserved": True,
+        "evidence_source": "simulated_protocol",
+        "evidence_state": "shadow_only",
+        "not_real_acceptance_evidence": True,
+        "artifact_paths": _self_artifact_paths(run_dir, "artifact_contract_catalog"),
+        **boundary_payload,
+        **non_claim_payload,
+    }
+
+
+def _build_scan_summary_payload(
+    *,
+    run_dir: Path,
+    run_id: str,
+    current_reader_mode: str,
+    compatibility_status: str,
+    status_counts: dict[str, int],
+    version_source_counts: dict[str, int],
+    canonical_reader_count: int,
+    regenerate_recommended: bool,
+    linked_surface_visibility: list[str],
+    summary_line: str,
+    detail_lines: list[str],
+    boundary_payload: dict[str, Any],
+    non_claim_payload: dict[str, Any],
+) -> dict[str, Any]:
+    review_surface = {
+        "title_text": "历史工件兼容 / 重索引",
+        "summary_text": summary_line,
+        "summary_lines": [
+            f"读取方式: {_display_reader_mode(current_reader_mode)}",
+            f"兼容状态: {_display_compatibility_status(compatibility_status)}",
+            (
+                "建议动作: 仅重建 reviewer/index sidecar"
+                if regenerate_recommended
+                else "建议动作: 当前 compatibility sidecar 可直接复用"
+            ),
+        ],
+        "detail_lines": detail_lines,
+        "reviewer_note": "regenerate/reindex 仅作用于 reviewer/index sidecar，不改写原始主证据",
+        "phase_filters": ["step2_tail_stage3_bridge"],
+        "artifact_role_filters": ["diagnostic_analysis", "execution_summary"],
+        "evidence_category_filters": ["artifact_compatibility", "reviewer_sidecar"],
+        "boundary_filter_rows": [dict(item) for item in list(boundary_payload.get("boundary_filter_rows") or [])],
+        "boundary_filters": list(boundary_payload.get("boundary_filters") or []),
+        "non_claim_filter_rows": [dict(item) for item in list(non_claim_payload.get("non_claim_filter_rows") or [])],
+        "non_claim_filters": list(non_claim_payload.get("non_claim_filters") or []),
+        "evidence_source_filters": ["simulated_protocol"],
+        "anchor_id": _SCAN_ANCHOR_ID,
+        "anchor_label": _SCAN_ANCHOR_LABEL,
+    }
+    return {
+        "schema_version": ARTIFACT_COMPATIBILITY_SCHEMA_VERSION,
+        "index_schema_version": ARTIFACT_COMPATIBILITY_INDEX_SCHEMA_VERSION,
+        "artifact_type": "compatibility_scan_summary",
+        "run_id": run_id,
+        "run_dir": str(run_dir.resolve()),
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "generated_by_tool": ARTIFACT_COMPATIBILITY_BUNDLE_TOOL,
+        "summary": summary_line,
+        "detail_lines": detail_lines,
+        "status_counts": status_counts,
+        "version_source_counts": version_source_counts,
+        "current_reader_mode": current_reader_mode,
+        "current_reader_mode_display": _display_reader_mode(current_reader_mode),
+        "compatibility_status": compatibility_status,
+        "compatibility_status_display": _display_compatibility_status(compatibility_status),
+        "canonical_reader_available": canonical_reader_count > 0,
+        "canonical_reader_available_count": canonical_reader_count,
+        "parent_run_count": 1,
+        "artifact_count": int(sum(status_counts.values()) or 0),
+        "regenerate_recommended": regenerate_recommended,
+        "linked_surface_visibility": linked_surface_visibility,
+        "compatibility_non_claim": "compatibility / regenerate sidecar 不是 real acceptance evidence。",
+        "review_surface": review_surface,
+        "digest": {
+            "summary": summary_line,
+            "reader_mode_summary": _display_reader_mode(current_reader_mode),
+            "compatibility_status_summary": _display_compatibility_status(compatibility_status),
+            "status_count_summary": _count_summary(status_counts, display=_display_compatibility_status),
+            "version_source_summary": _count_summary(version_source_counts),
+            "regenerate_summary": (
+                "建议执行 sidecar regenerate / reindex"
+                if regenerate_recommended
+                else "当前 sidecar 已就绪"
+            ),
+            "boundary_summary": str(boundary_payload.get("boundary_digest") or ""),
+            "non_claim_summary": str(non_claim_payload.get("non_claim_digest") or ""),
+        },
+        "regenerate_scope": "reviewer_index_sidecar_only",
+        "primary_evidence_rewritten": False,
+        "primary_evidence_preserved": True,
+        "evidence_source": "simulated_protocol",
+        "evidence_state": "shadow_only",
+        "not_real_acceptance_evidence": True,
+        "artifact_paths": _self_artifact_paths(run_dir, "compatibility_scan_summary"),
+        **boundary_payload,
+        **non_claim_payload,
+    }
+
+
+def _build_reindex_manifest_payload(
+    *,
+    run_dir: Path,
+    run_id: str,
+    current_reader_mode: str,
+    compatibility_status: str,
+    regenerate_recommended: bool,
+    linked_surface_visibility: list[str],
+    boundary_payload: dict[str, Any],
+    non_claim_payload: dict[str, Any],
+) -> dict[str, Any]:
+    detail_lines = [
+        f"读取方式: {_display_reader_mode(current_reader_mode)}",
+        f"兼容状态: {_display_compatibility_status(compatibility_status)}",
+        "作用范围: 仅重建 reviewer/index sidecar",
+        "保护边界: 不改写 summary / manifest / results 等原始主证据",
+        (
+            "建议: 当前 run 建议执行轻量 reindex/regenerate"
+            if regenerate_recommended
+            else "建议: 当前 sidecar 已齐备，仅在索引变化时再生成"
+        ),
+    ]
+    return {
+        "schema_version": ARTIFACT_COMPATIBILITY_SCHEMA_VERSION,
+        "index_schema_version": ARTIFACT_COMPATIBILITY_INDEX_SCHEMA_VERSION,
+        "artifact_type": "reindex_manifest",
+        "run_id": run_id,
+        "run_dir": str(run_dir.resolve()),
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "generated_by_tool": ARTIFACT_COMPATIBILITY_BUNDLE_TOOL,
+        "current_reader_mode": current_reader_mode,
+        "current_reader_mode_display": _display_reader_mode(current_reader_mode),
+        "compatibility_status": compatibility_status,
+        "compatibility_status_display": _display_compatibility_status(compatibility_status),
+        "regenerate_recommended": regenerate_recommended,
+        "parent_run_count": 1,
+        "summary": "reindex / regenerate 仅作用于 reviewer/index sidecar",
+        "detail_lines": detail_lines,
+        "linked_surface_visibility": linked_surface_visibility,
+        "reindex_allowed": True,
+        "reindex_scope": "reviewer_index_sidecar_only",
+        "regenerate_scope": "reviewer_index_sidecar_only",
+        "primary_evidence_preserved": True,
+        "primary_evidence_rewritten": False,
+        "canonical_reader_available": True,
+        "evidence_source": "simulated_protocol",
+        "evidence_state": "shadow_only",
+        "not_real_acceptance_evidence": True,
+        "artifact_paths": _self_artifact_paths(run_dir, "reindex_manifest"),
+        **boundary_payload,
+        **non_claim_payload,
+    }
+
+
 def _normalize_artifact_compatibility_payloads(
     payloads: dict[str, dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
@@ -396,6 +676,7 @@ def _normalize_artifact_compatibility_payloads(
             {
                 "schema_contract_summary": str(overview.get("schema_contract_summary_display") or ""),
                 "regenerate_summary": str(overview.get("regenerate_recommendation_display") or ""),
+                "rollup_summary": str(overview.get("rollup_summary_display") or ""),
                 "boundary_summary": str(overview.get("boundary_digest") or ""),
                 "non_claim_summary": str(overview.get("non_claim_digest") or ""),
                 "non_primary_chain_summary": str(overview.get("non_primary_chain_display") or ""),
@@ -419,6 +700,9 @@ def _normalize_artifact_compatibility_payloads(
         compatibility_scan_summary["digest"] = digest
         compatibility_scan_summary["review_surface"] = review_surface
         compatibility_scan_summary["compatibility_overview"] = dict(overview)
+        compatibility_scan_summary["compatibility_rollup"] = dict(
+            overview.get("compatibility_rollup") or {}
+        )
         normalized["compatibility_scan_summary"] = compatibility_scan_summary
     return {artifact_key: dict(bundle_item or {}) for artifact_key, bundle_item in normalized.items()}
 
@@ -1444,3 +1728,331 @@ def _load_json_dict(path: Path) -> dict[str, Any]:
     except Exception:
         return {}
     return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _collect_linked_surface_visibility(*value_groups: Any) -> list[str]:
+    rows: list[str] = []
+    seen: set[str] = set()
+    for group in value_groups:
+        for item in list(group or []):
+            if isinstance(item, dict):
+                nested = item.get("linked_surface_visibility")
+                if nested is not None:
+                    for nested_item in list(nested or []):
+                        text = str(nested_item or "").strip()
+                        if text and text not in seen:
+                            seen.add(text)
+                            rows.append(text)
+                    continue
+            text = str(item or "").strip()
+            if text and text not in seen:
+                seen.add(text)
+                rows.append(text)
+    return rows
+
+
+def _resolve_generated_at(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def _first_non_empty_text(*values: Any) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def build_artifact_compatibility_rollup(
+    *,
+    run_reports: Iterable[dict[str, Any]],
+    rollup_scope: str,
+    generated_by_tool: str = HISTORICAL_ARTIFACT_ROLLUP_TOOL,
+    generated_at: str | None = None,
+) -> dict[str, Any]:
+    runs = [dict(report or {}) for report in list(run_reports or []) if isinstance(report, dict)]
+    reader_mode_counts = _count_by_key(runs, "current_reader_mode")
+    compatibility_status_counts = _count_by_key(runs, "compatibility_status")
+    artifact_count = sum(int(dict(run or {}).get("artifact_count", 0) or 0) for run in runs)
+    compatible_run_count = sum(
+        1
+        for run in runs
+        if not bool(run.get("regenerate_recommended", False))
+        and str(run.get("current_reader_mode") or "").strip() == "canonical_direct"
+    )
+    legacy_run_count = sum(
+        1
+        for run in runs
+        if bool(run.get("regenerate_recommended", False))
+        or str(run.get("current_reader_mode") or "").strip() != "canonical_direct"
+    )
+    regenerate_recommended_count = sum(
+        1 for run in runs if bool(run.get("regenerate_recommended", False))
+    )
+    linked_surface_visibility = _collect_linked_surface_visibility(
+        *(run.get("linked_surface_visibility") for run in runs)
+    )
+    boundary_digest = _first_non_empty_text(*(run.get("boundary_digest") for run in runs))
+    non_claim_digest = _first_non_empty_text(*(run.get("non_claim_digest") for run in runs))
+    generated_at_value = _resolve_generated_at(
+        generated_at,
+        *(run.get("generated_at") for run in runs),
+    )
+    summary = " | ".join(
+        part
+        for part in (
+            f"compatibility rollup {str(rollup_scope or 'batch').strip() or 'batch'}",
+            f"runs {len(runs)}",
+            f"artifacts {artifact_count}",
+            f"legacy {legacy_run_count}",
+            f"regenerate {regenerate_recommended_count}",
+        )
+        if str(part).strip()
+    )
+    return {
+        "index_schema_version": ARTIFACT_COMPATIBILITY_INDEX_SCHEMA_VERSION,
+        "generated_at": generated_at_value,
+        "generated_by_tool": str(generated_by_tool or HISTORICAL_ARTIFACT_ROLLUP_TOOL).strip()
+        or HISTORICAL_ARTIFACT_ROLLUP_TOOL,
+        "rollup_scope": str(rollup_scope or "batch").strip() or "batch",
+        "parent_run_count": len(runs),
+        "artifact_count": artifact_count,
+        "compatible_run_count": compatible_run_count,
+        "legacy_run_count": legacy_run_count,
+        "regenerate_recommended_count": regenerate_recommended_count,
+        "reader_mode_counts": reader_mode_counts,
+        "compatibility_status_counts": compatibility_status_counts,
+        "linked_surface_visibility": linked_surface_visibility,
+        "boundary_digest": boundary_digest,
+        "non_claim_digest": non_claim_digest,
+        "primary_evidence_rewritten": False,
+        "rollup_summary_display": summary,
+        "summary": summary,
+        "summary_lines": [
+            summary,
+            f"reader modes: {_count_summary(reader_mode_counts, display=_display_reader_mode)}",
+            f"compatibility: {_count_summary(compatibility_status_counts, display=_display_compatibility_status)}",
+        ],
+        "detail_lines": [
+            f"surfaces: {', '.join(linked_surface_visibility) or '--'}",
+            f"boundary: {boundary_digest or '--'}",
+            f"non-claim: {non_claim_digest or '--'}",
+            "primary evidence rewritten: false",
+        ],
+    }
+
+
+def build_artifact_compatibility_overview(
+    *,
+    run_artifact_index: dict[str, Any] | None,
+    artifact_contract_catalog: dict[str, Any] | None,
+    compatibility_scan_summary: dict[str, Any] | None,
+    reindex_manifest: dict[str, Any] | None,
+) -> dict[str, Any]:
+    run_artifact_index = dict(run_artifact_index or {})
+    artifact_contract_catalog = dict(artifact_contract_catalog or {})
+    compatibility_scan_summary = dict(compatibility_scan_summary or {})
+    reindex_manifest = dict(reindex_manifest or {})
+    entries = [
+        dict(entry)
+        for entry in list(run_artifact_index.get("entries") or [])
+        if isinstance(entry, dict)
+    ]
+    contract_rows = [
+        dict(row)
+        for row in list(artifact_contract_catalog.get("contract_rows") or [])
+        if isinstance(row, dict)
+    ]
+    schema_or_contract_version_counts = _count_by_key(entries, "schema_or_contract_version")
+    current_reader_mode = str(
+        compatibility_scan_summary.get("current_reader_mode")
+        or run_artifact_index.get("current_reader_mode")
+        or reindex_manifest.get("current_reader_mode")
+        or ""
+    ).strip()
+    current_reader_mode_display = str(
+        compatibility_scan_summary.get("current_reader_mode_display")
+        or run_artifact_index.get("current_reader_mode_display")
+        or reindex_manifest.get("current_reader_mode_display")
+        or _display_reader_mode(current_reader_mode)
+    ).strip() or "--"
+    compatibility_status = str(
+        compatibility_scan_summary.get("compatibility_status")
+        or run_artifact_index.get("compatibility_status")
+        or reindex_manifest.get("compatibility_status")
+        or ""
+    ).strip()
+    compatibility_status_display = str(
+        compatibility_scan_summary.get("compatibility_status_display")
+        or run_artifact_index.get("compatibility_status_display")
+        or reindex_manifest.get("compatibility_status_display")
+        or _display_compatibility_status(compatibility_status)
+    ).strip() or "--"
+    regenerate_recommended = bool(
+        compatibility_scan_summary.get(
+            "regenerate_recommended",
+            run_artifact_index.get(
+                "regenerate_recommended",
+                reindex_manifest.get("regenerate_recommended", False),
+            ),
+        )
+    )
+    regenerate_scope = str(
+        compatibility_scan_summary.get("regenerate_scope")
+        or run_artifact_index.get("regenerate_scope")
+        or reindex_manifest.get("regenerate_scope")
+        or "reviewer_index_sidecar_only"
+    ).strip()
+    primary_evidence_rewritten = bool(
+        compatibility_scan_summary.get(
+            "primary_evidence_rewritten",
+            run_artifact_index.get(
+                "primary_evidence_rewritten",
+                reindex_manifest.get("primary_evidence_rewritten", False),
+            ),
+        )
+    )
+    boundary_digest = str(
+        compatibility_scan_summary.get("boundary_digest")
+        or run_artifact_index.get("boundary_digest")
+        or artifact_contract_catalog.get("boundary_digest")
+        or reindex_manifest.get("boundary_digest")
+        or ""
+    ).strip()
+    non_claim_digest = str(
+        compatibility_scan_summary.get("non_claim_digest")
+        or run_artifact_index.get("non_claim_digest")
+        or artifact_contract_catalog.get("non_claim_digest")
+        or reindex_manifest.get("non_claim_digest")
+        or ""
+    ).strip()
+    observed_contract_versions = sorted(
+        version
+        for version in schema_or_contract_version_counts
+        if str(version or "").strip()
+    )
+    observed_contract_version_summary = _count_summary(schema_or_contract_version_counts)
+    linked_surface_visibility = _collect_linked_surface_visibility(
+        entries,
+        compatibility_scan_summary.get("linked_surface_visibility"),
+        run_artifact_index.get("linked_surface_visibility"),
+        artifact_contract_catalog.get("linked_surface_visibility"),
+        reindex_manifest.get("linked_surface_visibility"),
+    )
+    generated_at = _resolve_generated_at(
+        compatibility_scan_summary.get("generated_at"),
+        run_artifact_index.get("generated_at"),
+        artifact_contract_catalog.get("generated_at"),
+        reindex_manifest.get("generated_at"),
+    )
+    compatibility_rollup = build_artifact_compatibility_rollup(
+        run_reports=[
+            {
+                "run_id": str(
+                    compatibility_scan_summary.get("run_id")
+                    or run_artifact_index.get("run_id")
+                    or artifact_contract_catalog.get("run_id")
+                    or reindex_manifest.get("run_id")
+                    or ""
+                ).strip(),
+                "run_dir": str(
+                    compatibility_scan_summary.get("run_dir")
+                    or run_artifact_index.get("run_dir")
+                    or artifact_contract_catalog.get("run_dir")
+                    or reindex_manifest.get("run_dir")
+                    or ""
+                ).strip(),
+                "current_reader_mode": current_reader_mode,
+                "compatibility_status": compatibility_status,
+                "regenerate_recommended": regenerate_recommended,
+                "artifact_count": len(entries),
+                "contract_row_count": len(contract_rows),
+                "linked_surface_visibility": linked_surface_visibility,
+                "boundary_digest": boundary_digest,
+                "non_claim_digest": non_claim_digest,
+                "primary_evidence_rewritten": primary_evidence_rewritten,
+                "generated_at": generated_at,
+            }
+        ],
+        rollup_scope="run-dir",
+        generated_by_tool=str(
+            compatibility_scan_summary.get("generated_by_tool")
+            or run_artifact_index.get("generated_by_tool")
+            or artifact_contract_catalog.get("generated_by_tool")
+            or reindex_manifest.get("generated_by_tool")
+            or ARTIFACT_COMPATIBILITY_BUNDLE_TOOL
+        ).strip()
+        or ARTIFACT_COMPATIBILITY_BUNDLE_TOOL,
+        generated_at=generated_at,
+    )
+    regenerate_recommendation_display = (
+        "仅重建 reviewer/index sidecar"
+        if regenerate_recommended
+        else "当前 compatibility sidecar 可直接复用"
+    )
+    non_primary_boundary_display = "仅重建 reviewer/index sidecar，不改写 summary.json / manifest.json / results.json"
+    non_primary_chain_display = "compatibility / regenerate sidecar 仍属于 non-primary evidence chain"
+    summary_line = str(
+        compatibility_scan_summary.get("summary")
+        or run_artifact_index.get("summary")
+        or compatibility_scan_summary.get("summary_line")
+        or ""
+    ).strip()
+    return {
+        "compatibility_schema_version": ARTIFACT_COMPATIBILITY_SCHEMA_VERSION,
+        "index_schema_version": ARTIFACT_COMPATIBILITY_INDEX_SCHEMA_VERSION,
+        "generated_at": generated_at,
+        "generated_by_tool": ARTIFACT_COMPATIBILITY_BUNDLE_TOOL,
+        "observed_artifact_count": len(entries),
+        "contract_row_count": len(contract_rows),
+        "schema_or_contract_version_counts": schema_or_contract_version_counts,
+        "observed_contract_versions": observed_contract_versions,
+        "observed_contract_version_summary": observed_contract_version_summary,
+        "schema_contract_summary_display": (
+            f"compatibility bundle {ARTIFACT_COMPATIBILITY_SCHEMA_VERSION} | observed {observed_contract_version_summary}"
+        ),
+        "current_reader_mode": current_reader_mode,
+        "current_reader_mode_display": current_reader_mode_display,
+        "compatibility_status": compatibility_status,
+        "compatibility_status_display": compatibility_status_display,
+        "regenerate_recommended": regenerate_recommended,
+        "regenerate_scope": regenerate_scope,
+        "regenerate_recommendation_display": regenerate_recommendation_display,
+        "primary_evidence_rewritten": primary_evidence_rewritten,
+        "linked_surface_visibility": linked_surface_visibility,
+        "non_primary_boundary_display": non_primary_boundary_display,
+        "non_primary_chain_display": non_primary_chain_display,
+        "boundary_digest": boundary_digest,
+        "non_claim_digest": non_claim_digest,
+        "compatibility_rollup": compatibility_rollup,
+        "rollup_scope": str(compatibility_rollup.get("rollup_scope") or "run-dir"),
+        "rollup_summary_display": str(
+            compatibility_rollup.get("rollup_summary_display")
+            or compatibility_rollup.get("summary")
+            or ""
+        ).strip(),
+        "summary": summary_line,
+        "summary_lines": [
+            f"合同/Schema: compatibility bundle {ARTIFACT_COMPATIBILITY_SCHEMA_VERSION} | observed {observed_contract_version_summary}",
+            f"读取方式: {current_reader_mode_display}",
+            f"兼容状态: {compatibility_status_display}",
+            f"建议动作: {regenerate_recommendation_display}",
+            f"主证据改写: {str(primary_evidence_rewritten).lower()}",
+            str(compatibility_rollup.get("rollup_summary_display") or ""),
+        ],
+        "detail_lines": [
+            f"边界摘要: {boundary_digest or '--'}",
+            f"非主张摘要: {non_claim_digest or '--'}",
+            f"non-primary 边界: {non_primary_boundary_display}",
+            f"证据链声明: {non_primary_chain_display}",
+            *[
+                str(item).strip()
+                for item in list(compatibility_rollup.get("detail_lines") or [])
+                if str(item).strip()
+            ],
+        ],
+    }

@@ -262,6 +262,11 @@ class ResultsGateway:
         compatibility_scan_summary = dict(compatibility_payloads.get("compatibility_scan_summary") or {})
         reindex_manifest = dict(compatibility_payloads.get("reindex_manifest") or {})
         compatibility_overview = dict(compatibility_scan_summary.get("compatibility_overview") or {})
+        compatibility_rollup = dict(
+            compatibility_scan_summary.get("compatibility_rollup")
+            or compatibility_overview.get("compatibility_rollup")
+            or {}
+        )
         evidence_source = self._resolve_current_run_evidence_source(workbench_evidence_summary, workbench_action_report)
         evidence_state = str(
             workbench_evidence_summary.get("evidence_state")
@@ -351,6 +356,7 @@ class ResultsGateway:
             "artifact_contract_catalog": artifact_contract_catalog,
             "compatibility_scan_summary": compatibility_scan_summary,
             "compatibility_overview": compatibility_overview,
+            "compatibility_rollup": compatibility_rollup,
             "reindex_manifest": reindex_manifest,
             "result_summary_text": result_summary_text,
             "evidence_source": evidence_source,
@@ -380,6 +386,7 @@ class ResultsGateway:
         artifact_contract_catalog = dict(payload.get("artifact_contract_catalog", {}) or {})
         compatibility_scan_summary = dict(payload.get("compatibility_scan_summary", {}) or {})
         compatibility_overview = dict(payload.get("compatibility_overview", {}) or {})
+        compatibility_rollup = dict(payload.get("compatibility_rollup", {}) or {})
         reindex_manifest = dict(payload.get("reindex_manifest", {}) or {})
         compatibility_lookup = self._build_artifact_compatibility_lookup(run_artifact_index)
 
@@ -649,6 +656,7 @@ class ResultsGateway:
             "artifact_contract_catalog": artifact_contract_catalog,
             "compatibility_scan_summary": compatibility_scan_summary,
             "compatibility_overview": compatibility_overview,
+            "compatibility_rollup": compatibility_rollup,
             "reindex_manifest": reindex_manifest,
             "phase_transition_bridge_reviewer_artifact_entry": dict(reviewer_artifact_entry),
             "stage_admission_review_pack_artifact_entry": dict(stage_admission_review_pack_entry),
@@ -771,6 +779,11 @@ class ResultsGateway:
         audit_readiness_payload = dict(audit_readiness_digest or {})
         compatibility_summary = dict(compatibility_scan_summary or {})
         compatibility_overview = dict(compatibility_summary.get("compatibility_overview") or {})
+        compatibility_rollup = dict(
+            compatibility_summary.get("compatibility_rollup")
+            or compatibility_overview.get("compatibility_rollup")
+            or {}
+        )
 
         role_parts: list[str] = []
         for role in ("execution_summary", "execution_rows", "diagnostic_analysis", "formal_analysis"):
@@ -949,6 +962,19 @@ class ResultsGateway:
                         "facade.results.result_summary.artifact_compatibility_summary",
                         value=str(compatibility_summary.get("summary") or ""),
                         default=f"兼容摘要: {str(compatibility_summary.get('summary') or '')}",
+                    )
+                )
+            rollup_summary = str(
+                compatibility_rollup.get("rollup_summary_display")
+                or compatibility_overview.get("rollup_summary_display")
+                or ""
+            ).strip()
+            if rollup_summary:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.artifact_compatibility_rollup",
+                        value=rollup_summary,
+                        default=f"compatibility rollup: {rollup_summary}",
                     )
                 )
             recommendation_text = str(

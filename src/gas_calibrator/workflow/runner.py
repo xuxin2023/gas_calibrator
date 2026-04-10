@@ -4662,6 +4662,33 @@ class CalibrationRunner:
             groups.append(current)
         return groups
 
+    def _h2o_source_groups_for_temperature(self, points: List[CalibrationPoint]) -> List[List[CalibrationPoint]]:
+        groups = self._group_h2o_points([point for point in points if point.is_h2o_point])
+        selected = self._normalize_selected_pressure_points(
+            self.cfg.get("workflow", {}).get("selected_pressure_points")
+        )
+        if selected is None:
+            return groups
+
+        ambient_only = self._selected_pressure_points_is_ambient_only(selected)
+        filtered_groups: List[List[CalibrationPoint]] = []
+        for group in groups:
+            matched = [
+                point
+                for point in group
+                if self._point_matches_selected_pressure(point, selected=selected)
+            ]
+            if matched:
+                if ambient_only:
+                    matched = [self._ambient_pressure_reference_point(point) for point in matched]
+                filtered_groups.append(matched)
+                continue
+            if ambient_only and group:
+                # Ambient-only execution should still keep the H2O route even when
+                # the point matrix only defines sealed source rows for that setpoint.
+                filtered_groups.append([self._ambient_pressure_reference_point(group[0])])
+        return filtered_groups
+
     def _co2_source_points(self, points: List[CalibrationPoint]) -> List[CalibrationPoint]:
         out: List[CalibrationPoint] = []
         seen: set[Tuple[float, str]] = set()
@@ -5156,11 +5183,8 @@ class CalibrationRunner:
         elif is_subzero:
             self.log(f"Temperature group {temp}C: sub-zero, skip H2O route")
         else:
-            h2o_points = self._filter_execution_points_by_selected_pressure(
-                [point for point in points if point.is_h2o_point]
-            )
             h2o_pressure_points = self._h2o_pressure_points_for_temperature(points)
-            h2o_groups = self._group_h2o_points(h2o_points)
+            h2o_groups = self._h2o_source_groups_for_temperature(points)
 
         gas_sources: List[CalibrationPoint] = []
         pressure_points: List[CalibrationPoint] = []
@@ -10924,10 +10948,10 @@ class CalibrationRunner:
         return bool(self._wf("workflow.stability.gas_route_dewpoint_gate_enabled", False))
 
     def _gas_route_dewpoint_gate_policy(self) -> str:
-        policy = str(self._wf("workflow.stability.gas_route_dewpoint_gate_policy", "reject") or "reject")
+        policy = str(self._wf("workflow.stability.gas_route_dewpoint_gate_policy", "warn") or "warn")
         normalized = policy.strip().lower()
         if normalized not in {"reject", "warn", "pass"}:
-            return "reject"
+            return "warn"
         return normalized
 
     def _water_route_dewpoint_gate_enabled(self) -> bool:

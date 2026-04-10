@@ -2505,6 +2505,7 @@ def test_wait_co2_route_soak_fails_when_dewpoint_gate_times_out(monkeypatch, tmp
                 "stability": {
                     "co2_route": {"preseal_soak_s": 2},
                     "gas_route_dewpoint_gate_enabled": True,
+                    "gas_route_dewpoint_gate_policy": "reject",
                     "gas_route_dewpoint_gate_window_s": 2.0,
                     "gas_route_dewpoint_gate_max_total_wait_s": 4.0,
                     "gas_route_dewpoint_gate_poll_s": 1.0,
@@ -2568,6 +2569,7 @@ def test_wait_first_co2_route_soak_uses_after_soak_timeout_budget(
                         "first_point_preseal_soak_s": 5,
                     },
                     "gas_route_dewpoint_gate_enabled": True,
+                    "gas_route_dewpoint_gate_policy": "reject",
                     "gas_route_dewpoint_gate_window_s": 4.0,
                     "gas_route_dewpoint_gate_max_total_wait_s": 3.0,
                     "gas_route_dewpoint_gate_poll_s": 1.0,
@@ -3403,6 +3405,46 @@ def test_run_temperature_group_ambient_only_filters_h2o_group_rows_before_execut
     assert calls[0]["lead_pressure_hpa"] is None
     assert calls[0]["lead_pressure_mode"] == "ambient_open"
     assert all(call["pressure_modes"] == ["ambient_open"] for call in calls)
+
+
+def test_run_temperature_group_ambient_only_without_explicit_h2o_rows_still_runs_h2o(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {"workflow": {"route_mode": "h2o_only", "selected_pressure_points": ["ambient"]}},
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    calls: list[dict[str, object]] = []
+
+    runner._run_h2o_group = types.MethodType(
+        lambda self, group, pressure_points=None, next_route_context=None: calls.append(
+            {
+                "lead_index": int(group[0].index),
+                "lead_pressure_hpa": self._as_float(getattr(group[0], "target_pressure_hpa", None)),
+                "lead_pressure_mode": self._pressure_mode_for_point(group[0]),
+                "pressure_modes": [self._pressure_mode_for_point(ref) for ref in (pressure_points or [])],
+                "lead_rh": self._as_float(getattr(group[0], "hgen_rh_pct", None)),
+            }
+        ),
+        runner,
+    )
+    runner._run_co2_point = types.MethodType(lambda self, point, pressure_points=None, next_route_context=None: None, runner)
+
+    points = [
+        CalibrationPoint(index=21, temp_chamber_c=0.0, co2_ppm=None, hgen_temp_c=0.0, hgen_rh_pct=50.0, target_pressure_hpa=1100.0, dewpoint_c=-9.16, h2o_mmol=3.0233, raw_h2o="sealed-1100"),
+    ]
+
+    runner._run_temperature_group(points)
+    logger.close()
+
+    assert len(calls) == 1
+    assert calls[0]["lead_index"] == 21
+    assert calls[0]["lead_pressure_hpa"] is None
+    assert calls[0]["lead_pressure_mode"] == "ambient_open"
+    assert calls[0]["lead_rh"] == 50.0
+    assert calls[0]["pressure_modes"] == ["ambient_open"]
 
 
 def test_wait_after_pressure_stable_co2_starts_sampling_immediately_and_traces_begin(tmp_path: Path) -> None:

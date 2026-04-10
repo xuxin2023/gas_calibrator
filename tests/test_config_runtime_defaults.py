@@ -113,7 +113,7 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["pressure"]["transition_gauge_response_timeout_s"] == 1.5
     assert cfg["workflow"]["pressure"]["fast_gauge_read_retries"] == 1
     assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_enabled"] is True
-    assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_policy"] == "reject"
+    assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_policy"] == "warn"
     assert cfg["workflow"]["stability"]["water_route_dewpoint_gate_enabled"] is False
     assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_window_s"] == 60.0
     assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_max_total_wait_s"] == 1080.0
