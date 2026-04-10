@@ -191,6 +191,7 @@ def build_water_zero_anchor_features(
             "temp_use_mean_c": "temp_use_c",
         }
     )
+    merged["temp_use_mean_c"] = merged["temp_use_c"]
 
     rows: list[pd.DataFrame] = []
     for analyzer_id, analyzer_df in merged.groupby("analyzer_id", dropna=False):

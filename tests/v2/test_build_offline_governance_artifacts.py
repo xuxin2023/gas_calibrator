@@ -963,6 +963,32 @@ def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -
         recognition_readiness.UNCERTAINTY_METHOD_READINESS_SUMMARY_MARKDOWN_FILENAME,
         recognition_readiness.SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_FILENAME,
         recognition_readiness.SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_MARKDOWN_FILENAME,
+        recognition_readiness.REQUIREMENT_DESIGN_CODE_TEST_LINKS_FILENAME,
+        recognition_readiness.REQUIREMENT_DESIGN_CODE_TEST_LINKS_MARKDOWN_FILENAME,
+        recognition_readiness.VALIDATION_EVIDENCE_INDEX_FILENAME,
+        recognition_readiness.VALIDATION_EVIDENCE_INDEX_MARKDOWN_FILENAME,
+        recognition_readiness.CHANGE_IMPACT_SUMMARY_FILENAME,
+        recognition_readiness.CHANGE_IMPACT_SUMMARY_MARKDOWN_FILENAME,
+        recognition_readiness.ROLLBACK_READINESS_SUMMARY_FILENAME,
+        recognition_readiness.ROLLBACK_READINESS_SUMMARY_MARKDOWN_FILENAME,
+        recognition_readiness.ARTIFACT_HASH_REGISTRY_FILENAME,
+        recognition_readiness.ARTIFACT_HASH_REGISTRY_MARKDOWN_FILENAME,
+        recognition_readiness.AUDIT_EVENT_STORE_FILENAME,
+        recognition_readiness.AUDIT_EVENT_STORE_MARKDOWN_FILENAME,
+        recognition_readiness.ENVIRONMENT_FINGERPRINT_FILENAME,
+        recognition_readiness.ENVIRONMENT_FINGERPRINT_MARKDOWN_FILENAME,
+        recognition_readiness.CONFIG_FINGERPRINT_FILENAME,
+        recognition_readiness.CONFIG_FINGERPRINT_MARKDOWN_FILENAME,
+        recognition_readiness.RELEASE_INPUT_DIGEST_FILENAME,
+        recognition_readiness.RELEASE_INPUT_DIGEST_MARKDOWN_FILENAME,
+        recognition_readiness.RELEASE_MANIFEST_FILENAME,
+        recognition_readiness.RELEASE_MANIFEST_MARKDOWN_FILENAME,
+        recognition_readiness.RELEASE_SCOPE_SUMMARY_FILENAME,
+        recognition_readiness.RELEASE_SCOPE_SUMMARY_MARKDOWN_FILENAME,
+        recognition_readiness.RELEASE_BOUNDARY_DIGEST_FILENAME,
+        recognition_readiness.RELEASE_BOUNDARY_DIGEST_MARKDOWN_FILENAME,
+        recognition_readiness.RELEASE_EVIDENCE_PACK_INDEX_FILENAME,
+        recognition_readiness.RELEASE_EVIDENCE_PACK_INDEX_MARKDOWN_FILENAME,
         recognition_readiness.RELEASE_VALIDATION_MANIFEST_FILENAME,
         recognition_readiness.RELEASE_VALIDATION_MANIFEST_MARKDOWN_FILENAME,
         recognition_readiness.AUDIT_READINESS_DIGEST_FILENAME,
@@ -1037,6 +1063,48 @@ def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -
     )
     software_matrix = json.loads(
         (run_dir / recognition_readiness.SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_FILENAME).read_text(encoding="utf-8")
+    )
+    requirement_design_code_test_links = json.loads(
+        (run_dir / recognition_readiness.REQUIREMENT_DESIGN_CODE_TEST_LINKS_FILENAME).read_text(encoding="utf-8")
+    )
+    validation_evidence_index = json.loads(
+        (run_dir / recognition_readiness.VALIDATION_EVIDENCE_INDEX_FILENAME).read_text(encoding="utf-8")
+    )
+    change_impact_summary = json.loads(
+        (run_dir / recognition_readiness.CHANGE_IMPACT_SUMMARY_FILENAME).read_text(encoding="utf-8")
+    )
+    rollback_readiness_summary = json.loads(
+        (run_dir / recognition_readiness.ROLLBACK_READINESS_SUMMARY_FILENAME).read_text(encoding="utf-8")
+    )
+    artifact_hash_registry = json.loads(
+        (run_dir / recognition_readiness.ARTIFACT_HASH_REGISTRY_FILENAME).read_text(encoding="utf-8")
+    )
+    audit_event_store = json.loads(
+        (run_dir / recognition_readiness.AUDIT_EVENT_STORE_FILENAME).read_text(encoding="utf-8")
+    )
+    environment_fingerprint = json.loads(
+        (run_dir / recognition_readiness.ENVIRONMENT_FINGERPRINT_FILENAME).read_text(encoding="utf-8")
+    )
+    config_fingerprint = json.loads(
+        (run_dir / recognition_readiness.CONFIG_FINGERPRINT_FILENAME).read_text(encoding="utf-8")
+    )
+    release_input_digest = json.loads(
+        (run_dir / recognition_readiness.RELEASE_INPUT_DIGEST_FILENAME).read_text(encoding="utf-8")
+    )
+    release_manifest = json.loads(
+        (run_dir / recognition_readiness.RELEASE_MANIFEST_FILENAME).read_text(encoding="utf-8")
+    )
+    release_scope_summary = json.loads(
+        (run_dir / recognition_readiness.RELEASE_SCOPE_SUMMARY_FILENAME).read_text(encoding="utf-8")
+    )
+    release_boundary_digest = json.loads(
+        (run_dir / recognition_readiness.RELEASE_BOUNDARY_DIGEST_FILENAME).read_text(encoding="utf-8")
+    )
+    release_evidence_pack_index = json.loads(
+        (run_dir / recognition_readiness.RELEASE_EVIDENCE_PACK_INDEX_FILENAME).read_text(encoding="utf-8")
+    )
+    release_validation_manifest = json.loads(
+        (run_dir / recognition_readiness.RELEASE_VALIDATION_MANIFEST_FILENAME).read_text(encoding="utf-8")
     )
     audit_digest = json.loads((run_dir / recognition_readiness.AUDIT_READINESS_DIGEST_FILENAME).read_text(encoding="utf-8"))
 

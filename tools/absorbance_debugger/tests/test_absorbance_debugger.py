@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import zipfile
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -14,7 +15,17 @@ from tools.absorbance_debugger.analysis.absorbance_models import (
     active_model_specs,
     evaluate_absorbance_models,
 )
+from tools.absorbance_debugger.analysis.lineage_audit import (
+    build_new_chain_input_audit,
+    build_old_water_correction_audit,
+)
 from tools.absorbance_debugger.analysis.pipeline import _identify_invalid_pressure_points
+from tools.absorbance_debugger.analysis.water_zero_anchor import (
+    build_water_anchor_compare,
+    build_water_zero_anchor_features,
+    build_water_zero_anchor_point_variants,
+    fit_water_zero_anchor_models,
+)
 from tools.absorbance_debugger.analysis.zero_residual import (
     build_zero_residual_point_variants,
     fit_zero_residual_models,
@@ -56,6 +67,13 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
     assert (output_dir / "step_05y_zero_residual_models.csv").exists()
     assert (output_dir / "step_05y_zero_residual_selection.csv").exists()
     assert (output_dir / "step_05y_zero_residual_plot.png").exists()
+    assert (output_dir / "step_00y_old_water_correction_audit.md").exists()
+    assert (output_dir / "step_00y_old_water_correction_sources.csv").exists()
+    assert (output_dir / "step_00z_new_chain_input_audit.csv").exists()
+    assert (output_dir / "step_05w_water_zero_anchor_features.csv").exists()
+    assert (output_dir / "step_05w_water_zero_anchor_models.csv").exists()
+    assert (output_dir / "step_05w_water_zero_anchor_selection.csv").exists()
+    assert (output_dir / "step_05w_water_zero_anchor_plot.png").exists()
     assert (output_dir / "step_06_absorbance_model_candidates.csv").exists()
     assert (output_dir / "step_06_absorbance_model_scores.csv").exists()
     assert (output_dir / "step_06_absorbance_model_selection.csv").exists()
@@ -80,6 +98,9 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
     assert (output_dir / "step_08x_valid_only_zero_special.csv").exists()
     assert (output_dir / "step_08x_valid_only_auto_conclusions.csv").exists()
     assert (output_dir / "step_08x_default_chain_before_after.csv").exists()
+    assert (output_dir / "step_08w_water_anchor_compare.csv").exists()
+    assert (output_dir / "step_08w_water_anchor_compare_plots.png").exists()
+    assert (output_dir / "step_04w_pressure_data_assessment.csv").exists()
     assert (output_dir / "step_08y_ga01_residual_profile.csv").exists()
     assert (output_dir / "step_08y_ga01_residual_profile_plots.png").exists()
     assert (output_dir / "step_08_old_vs_new_compare.xlsx").exists()
@@ -154,6 +175,59 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
     assert point_models == selected_models
 
 
+def test_old_water_correction_audit_and_new_chain_input_audit_can_run(tmp_path: Path) -> None:
+    markdown, sources, summary = build_old_water_correction_audit()
+
+    assert "Old Water Correction Audit" in markdown
+    assert isinstance(summary, list)
+    assert isinstance(sources, pd.DataFrame)
+
+    config = DebuggerConfig(input_path=tmp_path, output_dir=tmp_path)
+    selected_source_summary = pd.DataFrame(
+        [
+            {
+                "analyzer_id": "GA01",
+                "selected_ratio_source": "ratio_co2_raw",
+                "selected_source_pair": "raw/raw",
+                "zero_residual_mode": "linear",
+            }
+        ]
+    )
+    samples_core = pd.DataFrame(
+        [
+            {
+                "analyzer": "GA01",
+                "ratio_h2o_raw": 0.11,
+                "ratio_h2o_filt": 0.10,
+                "h2o_signal": 1.0,
+                "h2o_density": 2.0,
+                "h2o_mmol": 3.0,
+            }
+        ]
+    )
+    zero_residual_selection = pd.DataFrame(
+        [
+            {
+                "analyzer_id": "GA01",
+                "ratio_source": "ratio_co2_raw",
+                "selected_zero_residual_model": "linear",
+            }
+        ]
+    )
+
+    audit = build_new_chain_input_audit(
+        config=config,
+        selected_source_summary=selected_source_summary,
+        samples_core=samples_core,
+        zero_residual_selection=zero_residual_selection,
+    )
+
+    assert not audit.empty
+    assert audit["uses_h2o_ratio"].eq(False).all()
+    assert audit["uses_water_baseline_or_anchor"].eq(False).all()
+    assert "ratio_h2o_raw" in audit.iloc[0]["available_h2o_fields_in_samples"]
+
+
 def test_zero_residual_fit_and_compare_can_run(tmp_path: Path) -> None:
     config = DebuggerConfig(input_path=tmp_path, output_dir=tmp_path)
     points = pd.DataFrame(
@@ -208,6 +282,164 @@ def test_zero_residual_fit_and_compare_can_run(tmp_path: Path) -> None:
     none_zero = variants[(variants["zero_residual_mode"] == "none") & (variants["target_co2_ppm"] == 0)]["A_mean"].to_numpy()
     quad_zero = variants[(variants["zero_residual_mode"] == "quadratic") & (variants["target_co2_ppm"] == 0)]["A_mean"].to_numpy()
     assert np.sqrt(np.mean(np.square(quad_zero))) < np.sqrt(np.mean(np.square(none_zero)))
+
+
+def test_water_zero_anchor_feature_extraction_and_compare_can_run(tmp_path: Path) -> None:
+    config = DebuggerConfig(input_path=tmp_path, output_dir=tmp_path)
+    base_points = pd.DataFrame(
+        [
+            {
+                "analyzer": "GA01",
+                "point_title": f"p{idx}",
+                "point_row": idx,
+                "point_tag": f"p{idx}",
+                "temp_set_c": temp_c,
+                "target_co2_ppm": target_ppm,
+                "ratio_source": "ratio_co2_raw",
+                "temp_source": "temp_corr_c",
+                "pressure_source": "pressure_corr_hpa",
+                "r0_model": "quadratic",
+                "temp_use_mean_c": temp_c,
+                "A_mean": absorbance,
+                "A_std": 0.01,
+                "A_from_mean": absorbance,
+                "A_alt_mean": absorbance / config.p_ref_hpa,
+            }
+            for idx, (temp_c, target_ppm, absorbance) in enumerate(
+                [
+                    (-20.0, 0.0, 0.6),
+                    (-10.0, 0.0, 0.4),
+                    (0.0, 0.0, 0.3),
+                    (20.0, 0.0, 0.15),
+                    (20.0, 100.0, 5.0),
+                    (30.0, 300.0, 11.0),
+                ],
+                start=1,
+            )
+        ]
+    )
+    zero_variants = build_zero_residual_point_variants(base_points, {}, replace(config, enable_zero_residual_correction=False))
+    filtered_samples = pd.DataFrame(
+        [
+            {
+                "analyzer": "GA01",
+                "point_title": f"p{idx}",
+                "point_row": idx,
+                "temp_set_c": temp_c,
+                "target_co2_ppm": target_ppm,
+                "ratio_h2o_raw": h2o_ratio,
+                "ratio_h2o_filt": h2o_ratio * 0.98,
+                "h2o_signal": 1.0 + idx,
+                "h2o_density": 2.0 + idx,
+                "sample_index": 1,
+            }
+            for idx, (temp_c, target_ppm, h2o_ratio) in enumerate(
+                [
+                    (-20.0, 0.0, 0.21),
+                    (-10.0, 0.0, 0.22),
+                    (0.0, 0.0, 0.25),
+                    (20.0, 0.0, 0.31),
+                    (20.0, 100.0, 0.34),
+                    (30.0, 300.0, 0.39),
+                ],
+                start=1,
+            )
+        ]
+    )
+
+    features = build_water_zero_anchor_features(zero_variants, filtered_samples)
+    models, selection, lookup = fit_water_zero_anchor_models(features, config)
+    variants = build_water_zero_anchor_point_variants(features, lookup, config)
+
+    assert not features.empty
+    assert not models.empty
+    assert not selection.empty
+    assert {"none", "linear", "quadratic"} & set(variants["water_zero_anchor_mode"])
+    assert "delta_h2o_ratio_vs_subzero_anchor" in features.columns
+    assert features["feature_status"].ne("feature_unavailable").any()
+
+    baseline_outputs = {
+        "overview_summary": pd.DataFrame(
+            [
+                {
+                    "analyzer_id": "GA01",
+                    "old_chain_rmse": 1.0,
+                    "new_chain_rmse": 2.0,
+                    "old_zero_rmse": 0.5,
+                    "new_zero_rmse": 0.9,
+                    "old_temp_stability_metric": 0.3,
+                    "new_temp_stability_metric": 0.8,
+                    "new_chain_max_abs_error": 3.0,
+                }
+            ]
+        ),
+        "by_concentration_range": pd.DataFrame(
+            [
+                {"analyzer_id": "GA01", "concentration_range": "0~200 ppm", "new_rmse": 1.2},
+                {"analyzer_id": "GA01", "concentration_range": "200~1000 ppm", "new_rmse": 2.4},
+            ]
+        ),
+        "by_temperature": pd.DataFrame(
+            [
+                {"analyzer_id": "GA01", "temp_c": 40.0, "new_rmse": 4.0},
+            ]
+        ),
+    }
+    water_outputs = {
+        "overview_summary": pd.DataFrame(
+            [
+                {
+                    "analyzer_id": "GA01",
+                    "old_chain_rmse": 1.0,
+                    "new_chain_rmse": 1.8,
+                    "old_zero_rmse": 0.5,
+                    "new_zero_rmse": 0.6,
+                    "old_temp_stability_metric": 0.3,
+                    "new_temp_stability_metric": 0.5,
+                    "new_chain_max_abs_error": 2.5,
+                }
+            ]
+        ),
+        "by_concentration_range": pd.DataFrame(
+            [
+                {"analyzer_id": "GA01", "concentration_range": "0~200 ppm", "new_rmse": 1.0},
+                {"analyzer_id": "GA01", "concentration_range": "200~1000 ppm", "new_rmse": 2.1},
+            ]
+        ),
+        "by_temperature": pd.DataFrame(
+            [
+                {"analyzer_id": "GA01", "temp_c": 40.0, "new_rmse": 3.6},
+            ]
+        ),
+    }
+    baseline_selection = pd.DataFrame(
+        [
+            {
+                "analyzer_id": "GA01",
+                "selected_source_pair": "raw/raw",
+                "zero_residual_mode": "none",
+                "water_zero_anchor_mode": "none",
+                "water_zero_anchor_model_label": "No water zero-anchor correction",
+                "water_feature_status": "subzero_and_zeroC_available",
+            }
+        ]
+    )
+    water_selection = pd.DataFrame(
+        [
+            {
+                "analyzer_id": "GA01",
+                "selected_source_pair": "raw/raw",
+                "zero_residual_mode": "none",
+                "water_zero_anchor_mode": "linear",
+                "water_zero_anchor_model_label": "Linear water zero-anchor correction",
+                "water_feature_status": "subzero_and_zeroC_available",
+                "selection_reason": "Selected linear.",
+            }
+        ]
+    )
+    compare = build_water_anchor_compare(baseline_outputs, water_outputs, baseline_selection, water_selection)
+    assert not compare.empty
+    assert compare.iloc[0]["winner_zero"] == "water_zero_anchor_chain"
 
 
 def test_piecewise_model_continuity_and_selection_can_run(tmp_path: Path) -> None:
@@ -464,6 +696,8 @@ def test_gui_passes_selection_parameters(monkeypatch, tmp_path: Path) -> None:
     gui.model_selection_strategy.set("grouped_loo")
     gui.enable_zero_residual_correction.set("1")
     gui.zero_residual_models.set("quadratic")
+    gui.enable_water_zero_anchor_correction.set("1")
+    gui.water_zero_anchor_models.set("linear")
     gui.enable_piecewise_model.set("1")
     gui.piecewise_boundary_ppm.set("180")
     gui.invalid_pressure_targets_hpa.set("500,530")
@@ -491,6 +725,8 @@ def test_gui_passes_selection_parameters(monkeypatch, tmp_path: Path) -> None:
     assert captured["enable_composite_score"] is False
     assert captured["enable_zero_residual_correction"] is True
     assert captured["zero_residual_models"] == "quadratic"
+    assert captured["enable_water_zero_anchor_correction"] is True
+    assert captured["water_zero_anchor_models"] == "linear"
     assert captured["enable_piecewise_model"] is True
     assert captured["piecewise_boundary_ppm"] == 180.0
     assert captured["run_r0_source_consistency_compare"] is False
