@@ -1611,6 +1611,7 @@
         "release_scope_summary": "Release scope: {value}",
         "release_boundary_summary": "Non-claim boundary: {value}",
         "release_evidence_pack_index": "Evidence pack: {value}",
+        "software_validation_boundary": "Software validation boundary: reviewer-only / simulation-only / not real acceptance evidence / not ready for formal claim",
         "uncertainty_overview": "Uncertainty overview: {value}",
         "uncertainty_budget_completeness": "Budget completeness: {value}",
         "uncertainty_top_contributors": "Top uncertainty contributors: {value}",

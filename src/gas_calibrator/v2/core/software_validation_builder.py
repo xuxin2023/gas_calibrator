@@ -358,6 +358,14 @@ def build_software_validation_wp5_artifacts(
         "This chain expresses requirement -> design -> code -> test -> artifact linkage in file-backed sidecars. "
         "No real signature, approval, anti-tamper, database default path, or primary-evidence rewrite is introduced."
     )
+    release_manifest_reviewer_note = (
+        "Release manifest stays reviewer-facing and Step 2 only. It summarizes release scope, linked validation, "
+        "and current boundaries, but it is not formal release approval, not real acceptance evidence, and not a formal compliance claim."
+    )
+    audit_readiness_reviewer_note = (
+        "Traceability skeleton, artifact hash registry, and release boundary summaries stay reviewer-facing in Step 2. "
+        "No real audit ledger, anti-tamper guarantee, or formal release approval is introduced."
+    )
     reviewer_actions = [
         "Confirm the linked scope, decision rule, uncertainty case, and method confirmation protocol are the intended Step 2 inputs.",
         "Check parity, resilience, and smoke linkage before using the pack for reviewer mapping.",
@@ -1128,7 +1136,7 @@ def build_software_validation_wp5_artifacts(
         markdown_filename=filenames["release_manifest_markdown"],
         artifact_role="execution_summary",
         title_text="Release Manifest",
-        reviewer_note=reviewer_note,
+        reviewer_note=release_manifest_reviewer_note,
         summary_text="Release manifest prepared for Step 2 reviewer mapping only.",
         summary_lines=[
             f"release_id: {release_id}",
@@ -1171,7 +1179,7 @@ def build_software_validation_wp5_artifacts(
             "not_real_acceptance_evidence": True,
             "not_ready_for_formal_claim": True,
             "reviewer_actions": list(reviewer_actions),
-            "reviewer_note": reviewer_note,
+            "reviewer_note": release_manifest_reviewer_note,
             "limitation_note": limitation_note,
             "non_claim_note": non_claim_note,
         },
@@ -1204,7 +1212,7 @@ def build_software_validation_wp5_artifacts(
         markdown_filename=filenames["audit_readiness_digest_markdown"],
         artifact_role="diagnostic_analysis",
         title_text="Audit Readiness Digest",
-        reviewer_note=reviewer_note,
+        reviewer_note=audit_readiness_reviewer_note,
         summary_text="Software validation and audit readiness remain reviewer-only in Step 2.",
         summary_lines=[
             f"traceability completeness: {traceability_completeness}",
@@ -1232,7 +1240,7 @@ def build_software_validation_wp5_artifacts(
             "parity_status": parity_status,
             "resilience_status": resilience_status,
             "smoke_status": smoke_status,
-            "reviewer_note": reviewer_note,
+            "reviewer_note": audit_readiness_reviewer_note,
             "limitation_note": limitation_note,
             "non_claim_note": non_claim_note,
         },
