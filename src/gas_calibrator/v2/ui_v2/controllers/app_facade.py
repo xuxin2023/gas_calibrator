@@ -1488,6 +1488,7 @@ class AppFacade:
         artifact_contract_catalog = dict(payload.get("artifact_contract_catalog", {}) or {})
         compatibility_scan_summary = dict(payload.get("compatibility_scan_summary", {}) or {})
         compatibility_overview = dict(payload.get("compatibility_overview", {}) or {})
+        compatibility_rollup = dict(payload.get("compatibility_rollup", {}) or {})
         reindex_manifest = dict(payload.get("reindex_manifest", {}) or {})
 
         sample_count = 0
@@ -1989,6 +1990,15 @@ class AppFacade:
                     default="兼容建议: {value}",
                 ),
                 t(
+                    "facade.results.result_summary.artifact_compatibility_rollup",
+                    value=str(
+                        compatibility_rollup.get("rollup_summary_display")
+                        or compatibility_overview.get("rollup_summary_display")
+                        or "--"
+                    ),
+                    default="compatibility rollup: {value}",
+                ),
+                t(
                     "facade.results.result_summary.artifact_compatibility_boundary",
                     value=str(
                         compatibility_overview.get("non_primary_boundary_display")
@@ -2048,6 +2058,7 @@ class AppFacade:
             "artifact_contract_catalog": artifact_contract_catalog,
             "compatibility_scan_summary": compatibility_scan_summary,
             "compatibility_overview": compatibility_overview,
+            "compatibility_rollup": compatibility_rollup,
             "reindex_manifest": reindex_manifest,
             "review_digest": review_digest,
             "review_digest_text": str(review_digest.get("summary_text", "") or ""),
@@ -2154,6 +2165,11 @@ class AppFacade:
         audit_readiness_digest: dict[str, Any],
         compatibility_scan_summary: dict[str, Any],
     ) -> dict[str, Any]:
+        compatibility_rollup = dict(
+            dict(compatibility_scan_summary or {}).get("compatibility_rollup")
+            or dict(dict(compatibility_scan_summary or {}).get("compatibility_overview") or {}).get("compatibility_rollup")
+            or {}
+        )
         evidence_items, review_diagnostics = self._collect_review_evidence(
             suite_summary=suite_summary,
             suite_analytics_summary=suite_analytics_summary,
@@ -2171,7 +2187,11 @@ class AppFacade:
             audit_readiness_digest=audit_readiness_digest,
             compatibility_scan_summary=compatibility_scan_summary,
         )
-        index_summary = self._build_review_index_summary(evidence_items, diagnostics=review_diagnostics)
+        index_summary = self._build_review_index_summary(
+            evidence_items,
+            diagnostics=review_diagnostics,
+            compatibility_rollup=compatibility_rollup,
+        )
         readiness_text = self._humanize_ui_summary(
             str(acceptance_readiness_summary.get("summary_display") or acceptance_readiness_summary.get("summary") or t("common.none"))
         )
@@ -2231,6 +2251,9 @@ class AppFacade:
                 lineage_text=self._humanize_ui_summary(lineage_text),
                 source_kind_summary=source_kind_summary,
                 coverage_summary=coverage_summary,
+                compatibility_summary=self._humanize_ui_summary(
+                    str(compatibility_rollup.get("rollup_summary_display") or t("common.none"))
+                ),
             )
             for item in evidence_items
         ]
@@ -2490,6 +2513,7 @@ class AppFacade:
         lineage_text: str,
         source_kind_summary: str,
         coverage_summary: str,
+        compatibility_summary: str,
     ) -> dict[str, Any]:
         payload = dict(item or {})
         item_status = str(payload.get("status") or "diagnostic_only")
@@ -2538,8 +2562,8 @@ class AppFacade:
         )
         detail_fallbacks = {
             "detail_qc_summary": [],
-            "detail_analytics_summary": [analytics_text, source_kind_summary],
-            "detail_lineage_summary": [lineage_text, coverage_summary],
+            "detail_analytics_summary": [analytics_text, source_kind_summary, compatibility_summary],
+            "detail_lineage_summary": [lineage_text, coverage_summary, compatibility_summary],
             "detail_spectral_summary": [t("results.spectral_quality.none")],
         }
         detail_qc_cards = self._normalize_review_cards(payload.get("detail_qc_cards"))
@@ -4228,6 +4252,11 @@ class AppFacade:
         review_surface = dict(payload.get("review_surface") or {})
         digest = dict(payload.get("digest") or {})
         compatibility_overview = dict(payload.get("compatibility_overview") or {})
+        compatibility_rollup = dict(
+            payload.get("compatibility_rollup")
+            or compatibility_overview.get("compatibility_rollup")
+            or {}
+        )
         summary = self._humanize_ui_summary(
             str(
                 digest.get("summary")
@@ -4259,6 +4288,10 @@ class AppFacade:
             detail_lines.append(
                 f"兼容建议: {str(compatibility_overview.get('regenerate_recommendation_display') or '--')}"
             )
+        if str(compatibility_rollup.get("rollup_summary_display") or "").strip():
+            detail_lines.append(
+                f"compatibility rollup: {str(compatibility_rollup.get('rollup_summary_display') or '--')}"
+            )
         if str(compatibility_overview.get("non_primary_boundary_display") or "").strip():
             detail_lines.append(
                 f"兼容边界: {str(compatibility_overview.get('non_primary_boundary_display') or '--')}"
@@ -4287,6 +4320,7 @@ class AppFacade:
                 str(payload.get("current_reader_mode_display") or payload.get("current_reader_mode") or ""),
                 str(payload.get("compatibility_status_display") or payload.get("compatibility_status") or ""),
                 str(compatibility_overview.get("schema_contract_summary_display") or ""),
+                str(compatibility_rollup.get("rollup_summary_display") or ""),
                 str(digest.get("regenerate_summary") or ""),
             ],
             artifact_paths=artifact_paths,
@@ -4515,6 +4549,7 @@ class AppFacade:
         items: list[dict[str, Any]],
         *,
         diagnostics: Optional[dict[str, Any]] = None,
+        compatibility_rollup: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         expected_types = ("suite", "parity", "resilience", "workbench", "analytics")
         source_groups: dict[str, dict[str, Any]] = {}
@@ -4673,6 +4708,10 @@ class AppFacade:
                 f"budget {normalized_diagnostics['scan_budget_used']}"
             ),
         )
+        compatibility_rollup_payload = dict(compatibility_rollup or {})
+        compatibility_summary = self._humanize_ui_summary(
+            str(compatibility_rollup_payload.get("rollup_summary_display") or t("common.none"))
+        )
         summary_text = t(
             "results.review_center.index.summary",
             runs=len(source_labels),
@@ -4703,13 +4742,21 @@ class AppFacade:
             },
             "diagnostics": normalized_diagnostics,
             "diagnostics_summary": diagnostics_summary,
+            "compatibility_rollup": compatibility_rollup_payload,
+            "compatibility_summary": compatibility_summary,
             "coverage_gaps_display": coverage_gaps_display,
             "source_kind_summary": source_kind_summary,
             "coverage_summary": coverage_summary,
             "sources": sources[:8],
             "summary": "\n".join(
                 fragment
-                for fragment in (summary_text, source_kind_summary, coverage_summary, diagnostics_summary)
+                for fragment in (
+                    summary_text,
+                    source_kind_summary,
+                    coverage_summary,
+                    compatibility_summary,
+                    diagnostics_summary,
+                )
                 if str(fragment or "").strip()
             ),
         }

@@ -1696,3 +1696,100 @@ class ResultsGateway:
                 ),
             },
         }
+
+
+def _results_gateway_decorate_artifact_compatibility_row(
+    row: dict[str, Any],
+    *,
+    compatibility_lookup: dict[str, dict[str, Any]],
+    compatibility_scan_summary: dict[str, Any],
+) -> dict[str, Any]:
+    payload = dict(row or {})
+    key_by_path = str(payload.get("path") or "").strip()
+    key_by_name = Path(key_by_path).name if key_by_path else str(payload.get("name") or "").strip()
+    compatibility_entry = dict(compatibility_lookup.get(key_by_path) or compatibility_lookup.get(key_by_name) or {})
+    if not compatibility_entry:
+        return payload
+    summary_payload = dict(compatibility_scan_summary or {})
+    compatibility_overview = dict(summary_payload.get("compatibility_overview") or {})
+    compatibility_rollup = dict(
+        summary_payload.get("compatibility_rollup")
+        or compatibility_overview.get("compatibility_rollup")
+        or {}
+    )
+    compatibility_status = str(
+        compatibility_entry.get("compatibility_status_display")
+        or compatibility_entry.get("compatibility_status")
+        or "--"
+    )
+    reader_mode = str(
+        compatibility_entry.get("reader_mode_display")
+        or compatibility_entry.get("reader_mode")
+        or "--"
+    )
+    version_text = str(compatibility_entry.get("schema_or_contract_version") or "--")
+    schema_contract_summary = str(
+        compatibility_overview.get("schema_contract_summary_display")
+        or summary_payload.get("schema_or_contract_version_summary")
+        or version_text
+    ).strip()
+    recommendation_text = str(
+        compatibility_overview.get("regenerate_recommendation_display")
+        or ""
+    ).strip()
+    rollup_summary = str(
+        compatibility_rollup.get("rollup_summary_display")
+        or compatibility_overview.get("rollup_summary_display")
+        or ""
+    ).strip()
+    entry_lines = [
+        f"版本 {version_text}",
+        f"状态 {compatibility_status}",
+        f"读取 {reader_mode}",
+    ]
+    if schema_contract_summary:
+        entry_lines.append(f"合同/Schema {schema_contract_summary}")
+    if rollup_summary:
+        entry_lines.append(f"rollup {rollup_summary}")
+    if bool(compatibility_entry.get("regenerate_recommended", False)):
+        entry_lines.append("建议再生成 reviewer/index sidecar")
+    if recommendation_text:
+        entry_lines.append(f"建议 {recommendation_text}")
+    note_parts = [
+        str(payload.get("note") or "").strip(),
+        " | ".join(entry_lines),
+    ]
+    if bool(summary_payload.get("regenerate_recommended", False)):
+        note_parts.append("不改写原始主证据")
+    role_status_display = " | ".join(
+        part
+        for part in (
+            str(payload.get("role_status_display") or "").strip(),
+            f"Schema {version_text}",
+            compatibility_status,
+            reader_mode,
+        )
+        if str(part).strip()
+    )
+    return {
+        **payload,
+        "note": " | ".join(part for part in note_parts if str(part).strip()),
+        "role_status_display": role_status_display or str(payload.get("role_status_display") or ""),
+        "schema_or_contract_version": version_text,
+        "compatibility_status": str(compatibility_entry.get("compatibility_status") or ""),
+        "compatibility_status_display": compatibility_status,
+        "reader_mode": str(compatibility_entry.get("reader_mode") or ""),
+        "reader_mode_display": reader_mode,
+        "canonical_reader_available": bool(compatibility_entry.get("canonical_reader_available", False)),
+        "regenerate_recommended": bool(compatibility_entry.get("regenerate_recommended", False)),
+        "compatibility_boundary_digest": str(compatibility_entry.get("boundary_digest") or ""),
+        "compatibility_non_claim_digest": str(compatibility_entry.get("non_claim_digest") or ""),
+        "compatibility_overview": compatibility_overview,
+        "compatibility_rollup": compatibility_rollup,
+        "artifact_compatibility_entry": compatibility_entry,
+    }
+
+
+ResultsGateway._decorate_artifact_compatibility_row = staticmethod(
+    _results_gateway_decorate_artifact_compatibility_row
+)

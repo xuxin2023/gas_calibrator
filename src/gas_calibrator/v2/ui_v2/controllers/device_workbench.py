@@ -313,6 +313,11 @@ class DeviceWorkbenchController:
         phase_coverage = dict(payload.get("measurement_phase_coverage_report") or {})
         compatibility_summary = dict(payload.get("compatibility_scan_summary") or {})
         compatibility_overview = dict(compatibility_summary.get("compatibility_overview") or {})
+        compatibility_rollup = dict(
+            compatibility_summary.get("compatibility_rollup")
+            or compatibility_overview.get("compatibility_rollup")
+            or {}
+        )
         run_artifact_index = dict(payload.get("run_artifact_index") or {})
         if not stability and not transition and not sidecar and not phase_coverage:
             return {}
@@ -347,6 +352,8 @@ class DeviceWorkbenchController:
             )
         if str(compatibility_overview.get("schema_contract_summary_display") or "").strip():
             summary_lines.append(str(compatibility_overview.get("schema_contract_summary_display") or "").strip())
+        if str(compatibility_rollup.get("rollup_summary_display") or "").strip():
+            summary_lines.append(str(compatibility_rollup.get("rollup_summary_display") or "").strip())
         summary_lines = [line for line in summary_lines if line]
         detail_lines = [str(item).strip() for item in list(localized_measurement_lines.get("detail_lines") or []) if str(item).strip()]
         if compatibility_summary:
@@ -363,6 +370,8 @@ class DeviceWorkbenchController:
             )
             if bool(compatibility_summary.get("regenerate_recommended", False)):
                 detail_lines.append("建议轻量 regenerate/reindex，仅重建 reviewer/index sidecar")
+        if str(compatibility_rollup.get("rollup_summary_display") or "").strip():
+            detail_lines.append(str(compatibility_rollup.get("rollup_summary_display") or "").strip())
         detail_lines = [line for line in detail_lines if line]
         boundary_lines = collect_boundary_digest_lines(
             phase_coverage,
@@ -394,6 +403,7 @@ class DeviceWorkbenchController:
             "simulation_evidence_sidecar_bundle": sidecar,
             "measurement_phase_coverage_report": phase_coverage,
             "compatibility_scan_summary": compatibility_summary,
+            "compatibility_rollup": compatibility_rollup,
             "run_artifact_index": run_artifact_index,
             "compatibility_entries": compatibility_entries,
             "artifact_paths": {
@@ -435,6 +445,11 @@ class DeviceWorkbenchController:
         audit_summary = dict(payload.get("audit_readiness_digest") or {})
         compatibility_summary = dict(payload.get("compatibility_scan_summary") or {})
         compatibility_overview = dict(compatibility_summary.get("compatibility_overview") or {})
+        compatibility_rollup = dict(
+            compatibility_summary.get("compatibility_rollup")
+            or compatibility_overview.get("compatibility_rollup")
+            or {}
+        )
         payloads = {
             "scope_readiness_summary": scope_summary,
             "certificate_readiness_summary": certificate_summary,
@@ -490,6 +505,8 @@ class DeviceWorkbenchController:
                 )
             if str(compatibility_overview.get("schema_contract_summary_display") or "").strip():
                 summary_lines.append(str(compatibility_overview.get("schema_contract_summary_display") or "").strip())
+            if str(compatibility_rollup.get("rollup_summary_display") or "").strip():
+                summary_lines.append(str(compatibility_rollup.get("rollup_summary_display") or "").strip())
             for line in list(compatibility_summary.get("detail_lines") or [])[:2]:
                 text = str(line).strip()
                 if text and text not in detail_lines:
@@ -498,6 +515,8 @@ class DeviceWorkbenchController:
                 text = str(line).strip()
                 if text and text not in detail_lines:
                     detail_lines.append(text)
+            if str(compatibility_rollup.get("rollup_summary_display") or "").strip():
+                detail_lines.append(str(compatibility_rollup.get("rollup_summary_display") or "").strip())
             for item in list(compatibility_summary.get("boundary_statements") or []):
                 text = str(item).strip()
                 if text and text not in boundary_lines:
@@ -517,6 +536,7 @@ class DeviceWorkbenchController:
             "detail_lines": detail_lines,
             "boundary_lines": boundary_lines,
             "artifact_paths": artifact_paths,
+            "compatibility_rollup": compatibility_rollup,
             "compatibility_scan_summary": compatibility_summary,
             **payloads,
         }
