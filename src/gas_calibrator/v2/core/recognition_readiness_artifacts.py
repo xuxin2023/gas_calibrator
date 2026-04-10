@@ -36,8 +36,12 @@ SCOPE_READINESS_SUMMARY_FILENAME = "scope_readiness_summary.json"
 SCOPE_READINESS_SUMMARY_MARKDOWN_FILENAME = "scope_readiness_summary.md"
 REFERENCE_ASSET_REGISTRY_FILENAME = "reference_asset_registry.json"
 REFERENCE_ASSET_REGISTRY_MARKDOWN_FILENAME = "reference_asset_registry.md"
+CERTIFICATE_LIFECYCLE_SUMMARY_FILENAME = "certificate_lifecycle_summary.json"
+CERTIFICATE_LIFECYCLE_SUMMARY_MARKDOWN_FILENAME = "certificate_lifecycle_summary.md"
 CERTIFICATE_READINESS_SUMMARY_FILENAME = "certificate_readiness_summary.json"
 CERTIFICATE_READINESS_SUMMARY_MARKDOWN_FILENAME = "certificate_readiness_summary.md"
+PRE_RUN_READINESS_GATE_FILENAME = "pre_run_readiness_gate.json"
+PRE_RUN_READINESS_GATE_MARKDOWN_FILENAME = "pre_run_readiness_gate.md"
 METROLOGY_TRACEABILITY_STUB_FILENAME = "metrology_traceability_stub.json"
 METROLOGY_TRACEABILITY_STUB_MARKDOWN_FILENAME = "metrology_traceability_stub.md"
 UNCERTAINTY_BUDGET_STUB_FILENAME = "uncertainty_budget_stub.json"
@@ -57,7 +61,9 @@ AUDIT_READINESS_DIGEST_MARKDOWN_FILENAME = "audit_readiness_digest.md"
 
 RECOGNITION_READINESS_SUMMARY_FILENAMES = (
     SCOPE_READINESS_SUMMARY_FILENAME,
+    CERTIFICATE_LIFECYCLE_SUMMARY_FILENAME,
     CERTIFICATE_READINESS_SUMMARY_FILENAME,
+    PRE_RUN_READINESS_GATE_FILENAME,
     UNCERTAINTY_METHOD_READINESS_SUMMARY_FILENAME,
     AUDIT_READINESS_DIGEST_FILENAME,
 )
@@ -77,9 +83,17 @@ _RECOGNITION_ARTIFACT_ANCHORS: dict[str, dict[str, str]] = {
     "decision_rule_profile": {"anchor_id": "decision-rule-profile", "anchor_label": "Decision rule profile"},
     "scope_readiness_summary": {"anchor_id": "scope-readiness-summary", "anchor_label": "Scope readiness summary"},
     "reference_asset_registry": {"anchor_id": "reference-asset-registry", "anchor_label": "Reference asset registry"},
+    "certificate_lifecycle_summary": {
+        "anchor_id": "certificate-lifecycle-summary",
+        "anchor_label": "Certificate lifecycle summary",
+    },
     "certificate_readiness_summary": {
         "anchor_id": "certificate-readiness-summary",
         "anchor_label": "Certificate readiness summary",
+    },
+    "pre_run_readiness_gate": {
+        "anchor_id": "pre-run-readiness-gate",
+        "anchor_label": "Pre-run readiness gate",
     },
     "metrology_traceability_stub": {
         "anchor_id": "metrology-traceability-stub",
@@ -129,8 +143,10 @@ _RECOGNITION_NEXT_ARTIFACT_DEFAULTS: dict[str, list[str]] = {
     "scope_definition_pack": ["decision_rule_profile", "scope_readiness_summary"],
     "decision_rule_profile": ["scope_readiness_summary", "method_confirmation_matrix"],
     "scope_readiness_summary": ["reference_asset_registry", "method_confirmation_matrix"],
-    "reference_asset_registry": ["certificate_readiness_summary", "metrology_traceability_stub"],
-    "certificate_readiness_summary": ["metrology_traceability_stub", "reference_asset_registry"],
+    "reference_asset_registry": ["certificate_lifecycle_summary", "pre_run_readiness_gate"],
+    "certificate_lifecycle_summary": ["certificate_readiness_summary", "pre_run_readiness_gate"],
+    "certificate_readiness_summary": ["pre_run_readiness_gate", "metrology_traceability_stub"],
+    "pre_run_readiness_gate": ["metrology_traceability_stub", "certificate_readiness_summary"],
     "metrology_traceability_stub": ["certificate_readiness_summary", "uncertainty_method_readiness_summary"],
     "uncertainty_budget_stub": ["method_confirmation_protocol", "uncertainty_method_readiness_summary"],
     "method_confirmation_protocol": ["method_confirmation_matrix", "uncertainty_method_readiness_summary"],
@@ -154,9 +170,17 @@ _RECOGNITION_BLOCKER_DEFAULTS: dict[str, list[str]] = {
         "reference registry is still a stub and not a released traceability chain",
         "certificate-backed asset closure is missing",
     ],
+    "certificate_lifecycle_summary": [
+        "certificate lifecycle remains reviewer stub only",
+        "lot binding / intermediate check / out-of-tolerance closure is not released for formal claim",
+    ],
     "certificate_readiness_summary": [
         "certificate files and intermediate checks remain missing",
         "traceability chain stays reviewer-facing only",
+    ],
+    "pre_run_readiness_gate": [
+        "pre-run gate is advisory only and cannot drive live equipment",
+        "formal claim gate remains disabled in Step 2",
     ],
     "metrology_traceability_stub": [
         "certificate-backed release chain is not closed",
@@ -202,9 +226,17 @@ _RECOGNITION_MISSING_EVIDENCE_DEFAULTS: dict[str, list[str]] = {
     "reference_asset_registry": [
         "certificate files and intermediate checks are still missing",
     ],
+    "certificate_lifecycle_summary": [
+        "released lifecycle records and lot bindings remain incomplete",
+        "internal/external lifecycle closure remains reviewer mapping only",
+    ],
     "certificate_readiness_summary": [
         "no released certificate files attached",
         "no intermediate check execution evidence attached",
+    ],
+    "pre_run_readiness_gate": [
+        "advisory gate cannot be used as formal compliance or acceptance evidence",
+        "blocking items must still be closed outside Step 2",
     ],
     "metrology_traceability_stub": [
         "traceability chain is not backed by released certificates",
@@ -327,13 +359,32 @@ def build_recognition_readiness_artifacts(
     )
     reference_asset_registry = _build_reference_asset_registry(
         run_id=run_id,
+        scope_definition_pack=scope_definition_pack,
+        decision_rule_profile=decision_rule_profile,
         sample_digest=sample_digest,
         payload_backed_phases=payload_backed_phases,
+        path_map=path_map,
+    )
+    certificate_lifecycle_summary = _build_certificate_lifecycle_summary(
+        run_id=run_id,
+        scope_definition_pack=scope_definition_pack,
+        decision_rule_profile=decision_rule_profile,
+        reference_asset_registry=reference_asset_registry,
         path_map=path_map,
     )
     certificate_readiness_summary = _build_certificate_readiness_summary(
         run_id=run_id,
         reference_asset_registry=reference_asset_registry,
+        certificate_lifecycle_summary=certificate_lifecycle_summary,
+        path_map=path_map,
+    )
+    pre_run_readiness_gate = _build_pre_run_readiness_gate(
+        run_id=run_id,
+        scope_definition_pack=scope_definition_pack,
+        decision_rule_profile=decision_rule_profile,
+        reference_asset_registry=reference_asset_registry,
+        certificate_lifecycle_summary=certificate_lifecycle_summary,
+        certificate_readiness_summary=certificate_readiness_summary,
         path_map=path_map,
     )
     metrology_traceability_stub = _build_metrology_traceability_stub(
@@ -398,7 +449,9 @@ def build_recognition_readiness_artifacts(
         "decision_rule_profile": decision_rule_profile,
         "scope_readiness_summary": scope_readiness_summary,
         "reference_asset_registry": reference_asset_registry,
+        "certificate_lifecycle_summary": certificate_lifecycle_summary,
         "certificate_readiness_summary": certificate_readiness_summary,
+        "pre_run_readiness_gate": pre_run_readiness_gate,
         "metrology_traceability_stub": metrology_traceability_stub,
         "uncertainty_budget_stub": uncertainty_budget_stub,
         "method_confirmation_protocol": method_confirmation_protocol,
