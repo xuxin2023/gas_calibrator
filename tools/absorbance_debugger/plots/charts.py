@@ -876,6 +876,63 @@ def plot_ga01_residual_profile(data: pd.DataFrame, output_path: Path) -> None:
     _finalize(fig, output_path)
 
 
+def plot_legacy_water_replay(data: pd.DataFrame, output_path: Path) -> None:
+    """Plot gap-closure and zero-point gains for legacy water replay modes."""
+
+    if data.empty:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No legacy water replay data available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+
+    plot_data = data[data["water_lineage_mode"] != "none"].copy()
+    analyzers = sorted(plot_data["analyzer_id"].dropna().unique().tolist())
+    modes = [
+        "simplified_subzero_anchor",
+        "legacy_h2o_summary_selection",
+        "legacy_h2o_summary_selection_plus_zero_ppm_rows",
+    ]
+    if not analyzers:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No non-baseline replay modes available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+
+    fig, axes = plt.subplots(2, 1, figsize=(12, 8), squeeze=False)
+    width = 0.22
+    x = np.arange(len(analyzers), dtype=float)
+    for idx, mode in enumerate(modes):
+        subset = plot_data[plot_data["water_lineage_mode"] == mode].set_index("analyzer_id").reindex(analyzers)
+        axes[0, 0].bar(
+            x + (idx - 1) * width,
+            pd.to_numeric(subset["gap_closed_ratio_vs_current_new_chain"], errors="coerce"),
+            width=width,
+            label=mode,
+        )
+        axes[1, 0].bar(
+            x + (idx - 1) * width,
+            pd.to_numeric(subset["delta_vs_none_zero"], errors="coerce"),
+            width=width,
+            label=mode,
+        )
+    axes[0, 0].axhline(0.0, color="black", linewidth=0.8)
+    axes[0, 0].set_title("Gap Closed Ratio vs Current New Chain")
+    axes[0, 0].set_ylabel("ratio")
+    axes[0, 0].grid(alpha=0.2, axis="y")
+    axes[0, 0].legend(fontsize=8)
+
+    axes[1, 0].axhline(0.0, color="black", linewidth=0.8)
+    axes[1, 0].set_title("Zero RMSE Gain vs None")
+    axes[1, 0].set_ylabel("ppm gain")
+    axes[1, 0].grid(alpha=0.2, axis="y")
+    axes[1, 0].legend(fontsize=8)
+
+    for ax in axes[:, 0]:
+        ax.set_xticks(x)
+        ax.set_xticklabels(analyzers)
+    _finalize(fig, output_path)
+
+
 def plot_cross_run_summary(data: pd.DataFrame, output_path: Path) -> None:
     """Plot old-vs-new RMSE across runs for each analyzer."""
 

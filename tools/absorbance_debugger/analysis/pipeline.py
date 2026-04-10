@@ -28,6 +28,7 @@ from .diagnostics import (
 )
 from .run_assessment import build_run_role_assessment
 from .lineage_audit import build_new_chain_input_audit, build_old_water_correction_audit
+from .legacy_water_replay import run_legacy_water_replay_diagnostic
 from .pressure_assessment import build_pressure_data_assessment
 from .water_zero_anchor import (
     build_water_anchor_compare,
@@ -44,6 +45,7 @@ from ..parsers.schema import (
     SAMPLE_COLUMNS,
     analyzer_prefix,
     build_analyzer_column,
+    classify_mode2_semantics,
     normalize_analyzer_label,
 )
 from ..plots.charts import (
@@ -71,6 +73,7 @@ from ..plots.charts import (
     plot_temperature_fit,
     plot_timeseries_base_final,
     plot_upper_bound_vs_deployable,
+    plot_legacy_water_replay,
     plot_water_anchor_compare,
     plot_water_zero_anchor_models,
     plot_zero_compare,
@@ -147,6 +150,8 @@ def _configured_analyzers(runtime_cfg: dict[str, Any], sample_columns: Iterable[
                 "label": label,
                 "runtime_name": cfg.get("name") or label,
                 "runtime_device_id": cfg.get("device_id"),
+                "runtime_software_version": cfg.get("software_version"),
+                "runtime_mode2_semantic_hint": cfg.get("mode2_semantic_hint") or cfg.get("semantic_hint"),
             }
         )
     return out
@@ -261,6 +266,8 @@ def _normalize_samples(samples_raw: pd.DataFrame, points: pd.DataFrame, analyzer
         frame["analyzer_slot"] = analyzer["slot"]
         frame["device_id_runtime"] = analyzer["runtime_device_id"]
         frame["runtime_name"] = analyzer["runtime_name"]
+        frame["runtime_software_version"] = analyzer.get("runtime_software_version")
+        frame["runtime_mode2_semantic_hint"] = analyzer.get("runtime_mode2_semantic_hint")
         for field_name in ANALYZER_FIELDS:
             csv_column = build_analyzer_column(analyzer["slot"], field_name)
             frame[field_name] = samples_raw[csv_column] if csv_column in samples_raw.columns else pd.Series(np.nan, index=samples_raw.index)
@@ -313,6 +320,18 @@ def _normalize_samples(samples_raw: pd.DataFrame, points: pd.DataFrame, analyzer
         frame["analyzer_data_complete"] = frame[required_fields].notna().all(axis=1)
         if "usable_frame" in frame.columns:
             frame["analyzer_data_complete"] = frame["analyzer_data_complete"] & frame["usable_frame"].fillna(True)
+        semantic_meta = frame.apply(
+            lambda row: classify_mode2_semantics(
+                raw_message=row.get("raw_message"),
+                mode2_field_count=row.get("mode2_field_count"),
+                software_version=row.get("runtime_software_version"),
+                semantic_hint=row.get("runtime_mode2_semantic_hint"),
+            ),
+            axis=1,
+        )
+        semantic_frame = pd.DataFrame(list(semantic_meta), index=frame.index)
+        for column in semantic_frame.columns:
+            frame[column] = semantic_frame[column]
         long_frames.append(frame)
     if not long_frames:
         raise ValueError("No analyzer data columns were detected in the samples CSV")
@@ -323,9 +342,9 @@ def _normalize_samples(samples_raw: pd.DataFrame, points: pd.DataFrame, analyzer
     return samples
 
 
-def _filter_samples(samples: pd.DataFrame, config: DebuggerConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _filter_samples(samples: pd.DataFrame, config: DebuggerConfig, *, co2_only: bool = True) -> tuple[pd.DataFrame, pd.DataFrame]:
     reasons = pd.DataFrame(index=samples.index)
-    reasons["route_not_co2"] = np.where(samples["route"] != "co2", "route_not_co2", "")
+    reasons["route_not_co2"] = np.where(co2_only & (samples["route"] != "co2"), "route_not_co2", "")
     point_quality = samples["point_quality"].fillna("").astype(str).str.strip().str.lower()
     point_quality_blocking = (
         samples["point_quality_blocking"].map(_safe_bool).fillna(False)
@@ -1758,6 +1777,9 @@ def _report_tables(
     water_zero_anchor_models: pd.DataFrame,
     water_zero_anchor_selection: pd.DataFrame,
     water_anchor_compare: pd.DataFrame,
+    legacy_water_replay_summary: pd.DataFrame,
+    legacy_water_replay_stage_metrics: pd.DataFrame,
+    legacy_water_replay_conclusions: pd.DataFrame,
     pressure_data_assessment: pd.DataFrame,
     model_results: dict[str, pd.DataFrame],
     comparison_outputs: dict[str, pd.DataFrame | list[str]],
@@ -1853,6 +1875,9 @@ def _report_tables(
         "water_zero_anchor_models": water_zero_anchor_models,
         "water_zero_anchor_selection": water_zero_anchor_selection,
         "water_anchor_compare": water_anchor_compare,
+        "legacy_water_replay_summary": legacy_water_replay_summary,
+        "legacy_water_replay_stage_metrics": legacy_water_replay_stage_metrics,
+        "legacy_water_replay_conclusions": legacy_water_replay_conclusions,
         "absorbance_model_scores": absorbance_model_scores,
         "absorbance_model_selection": absorbance_model_selection,
         "piecewise_model_selection": model_results.get("piecewise_selection", pd.DataFrame()),
@@ -1973,6 +1998,7 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
     _frame_to_csv(config.output_dir / "step_01_samples_core.csv", samples_core)
     _frame_to_csv(config.output_dir / "step_01x_analyzer_scope.csv", analyzer_scope)
 
+    water_lineage_samples, _water_lineage_excluded = _filter_samples(samples_core, config, co2_only=False)
     filtered_pre_invalid, excluded_initial = _filter_samples(samples_core, config)
     _frame_to_csv(config.output_dir / "step_02_samples_filtered.csv", filtered_pre_invalid)
 
@@ -2091,6 +2117,20 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         zero_residual_selection=zero_residual_selection,
     )
     _frame_to_csv(config.output_dir / "step_00z_new_chain_input_audit.csv", new_chain_input_audit)
+    old_ratio_residuals = _load_old_ratio_residuals(bundle)
+    legacy_water_replay = run_legacy_water_replay_diagnostic(
+        water_lineage_samples=water_lineage_samples,
+        absorbance_samples=absorbance_samples,
+        zero_residual_point_variants=absorbance_point_variants,
+        fixed_selection=model_results["selection"],
+        old_ratio_residuals=old_ratio_residuals,
+        config=config,
+    )
+    _frame_to_csv(config.output_dir / "step_05y_legacy_water_replay_detail.csv", legacy_water_replay["detail"])
+    _frame_to_csv(config.output_dir / "step_05y_legacy_water_replay_summary.csv", legacy_water_replay["summary"])
+    _frame_to_csv(config.output_dir / "step_05y_legacy_water_replay_stage_metrics.csv", legacy_water_replay["stage_metrics"])
+    plot_legacy_water_replay(legacy_water_replay["detail"], config.output_dir / "step_05y_legacy_water_replay_plot.png")
+    _frame_to_csv(config.output_dir / "step_08y_legacy_water_replay_conclusions.csv", legacy_water_replay["conclusions"])
     water_point_variants = build_water_zero_anchor_point_variants(
         water_zero_anchor_features,
         water_zero_anchor_lookup,
@@ -2277,6 +2317,9 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
             "water_models": water_zero_anchor_models,
             "water_selection": water_zero_anchor_selection,
             "water_compare": water_anchor_compare,
+            "legacy_water_replay": legacy_water_replay["detail"],
+            "legacy_water_stage": legacy_water_replay["stage_metrics"],
+            "legacy_water_concl": legacy_water_replay["conclusions"],
             "pressure_assess": pressure_data_assessment,
             "abs_model_selection": model_results["selection"],
             "abs_model_scores": model_results["scores"],
@@ -2321,6 +2364,9 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         water_zero_anchor_models=water_zero_anchor_models,
         water_zero_anchor_selection=water_zero_anchor_selection,
         water_anchor_compare=water_anchor_compare,
+        legacy_water_replay_summary=legacy_water_replay["summary"],
+        legacy_water_replay_stage_metrics=legacy_water_replay["stage_metrics"],
+        legacy_water_replay_conclusions=legacy_water_replay["conclusions"],
         pressure_data_assessment=pressure_data_assessment,
         model_results=model_results,
         comparison_outputs=comparison_outputs,
@@ -2360,6 +2406,9 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
             "water_models": water_zero_anchor_models,
             "water_selection": water_zero_anchor_selection,
             "water_compare": water_anchor_compare,
+            "legacy_water_replay": legacy_water_replay["detail"],
+            "legacy_water_stage": legacy_water_replay["stage_metrics"],
+            "legacy_water_concl": legacy_water_replay["conclusions"],
             "abs_model_scores": model_results["scores"],
             "abs_model_selection": model_results["selection"],
             "abs_model_coeffs": model_results["coefficients"],
@@ -2410,6 +2459,7 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         "water_zero_anchor_models": water_zero_anchor_models,
         "water_zero_anchor_selection": water_zero_anchor_selection,
         "water_anchor_compare": water_anchor_compare,
+        "legacy_water_replay": legacy_water_replay,
         "pressure_data_assessment": pressure_data_assessment,
         "run_role_assessment": run_role_assessment,
         "analyzer_scope": analyzer_scope,
