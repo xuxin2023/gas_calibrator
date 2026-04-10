@@ -2701,6 +2701,583 @@ def _build_method_confirmation_protocol(
     }
 
 
+def build_method_confirmation_wp4_artifacts(
+    *,
+    run_id: str,
+    scope_definition_pack: dict[str, Any],
+    decision_rule_profile: dict[str, Any],
+    reference_asset_registry: dict[str, Any],
+    certificate_lifecycle_summary: dict[str, Any],
+    pre_run_readiness_gate: dict[str, Any],
+    budget_case: dict[str, Any],
+    uncertainty_golden_cases: dict[str, Any],
+    uncertainty_report_pack: dict[str, Any],
+    uncertainty_digest: dict[str, Any],
+    uncertainty_rollup: dict[str, Any],
+    uncertainty_budget_stub: dict[str, Any],
+    route_families: list[str],
+    payload_backed_phases: list[str],
+    trace_only_phases: list[str],
+    gap_phases: list[str],
+    path_map: dict[str, str],
+) -> dict[str, dict[str, Any]]:
+    scope_raw = dict(scope_definition_pack.get("raw") or {})
+    decision_raw = dict(decision_rule_profile.get("raw") or {})
+    reference_raw = dict(reference_asset_registry.get("raw") or {})
+    certificate_raw = dict(certificate_lifecycle_summary.get("raw") or {})
+    gate_raw = dict(pre_run_readiness_gate.get("raw") or {})
+    budget_raw = dict(budget_case.get("raw") or {})
+    golden_raw = dict(uncertainty_golden_cases.get("raw") or {})
+    report_raw = dict(uncertainty_report_pack.get("raw") or {})
+    digest_raw = dict(uncertainty_digest.get("raw") or {})
+    rollup_raw = dict(uncertainty_rollup.get("raw") or {})
+    scope_id = str(scope_raw.get("scope_id") or f"{run_id}-step2-scope-package")
+    scope_name = str(scope_raw.get("scope_name") or "Step 2 simulation reviewer scope package")
+    decision_rule_id = str(decision_raw.get("decision_rule_id") or "step2_readiness_reviewer_rule_v1")
+    protocol_id = f"{run_id}-method-confirmation-protocol"
+    protocol_version = "v1.2-step2-reviewer"
+    validation_matrix_version = "v1.2-step2-validation-matrix"
+    limitation_note = "当前仅生成 simulation-only / reviewer-facing / file-artifact-first 的方法确认骨架。"
+    non_claim_note = "当前仅用于 readiness mapping，不构成 formal claim，也不是 real acceptance evidence。"
+    reviewer_note = "当前协议、矩阵与 verification 仅面向 reviewer / engineer / quality 视图。"
+    budget_cases = [dict(item) for item in list(budget_raw.get("budget_case") or budget_raw.get("budget_cases") or [])]
+    golden_cases = [dict(item) for item in list(golden_raw.get("golden_cases") or [])]
+    reference_assets = [dict(item) for item in list(reference_raw.get("assets") or [])]
+    certificate_rows = [
+        dict(item)
+        for item in list(
+            certificate_raw.get("certificate_rows")
+            or certificate_raw.get("certificates")
+            or certificate_raw.get("certificate_lifecycle_rows")
+            or []
+        )
+    ]
+    route_profiles = _method_confirmation_route_profiles(
+        run_id=run_id,
+        scope_id=scope_id,
+        decision_rule_id=decision_rule_id,
+        route_families=route_families,
+        budget_cases=budget_cases,
+        golden_cases=golden_cases,
+        reference_assets=reference_assets,
+        certificate_rows=certificate_rows,
+        payload_backed_phases=payload_backed_phases,
+        trace_only_phases=trace_only_phases,
+        gap_phases=gap_phases,
+        validation_matrix_version=validation_matrix_version,
+    )
+    validation_rows: list[dict[str, Any]] = []
+    route_rollups: list[dict[str, Any]] = []
+    validation_runs: list[dict[str, Any]] = []
+    for profile in route_profiles:
+        rows = _method_confirmation_validation_rows(profile=profile)
+        validation_rows.extend(rows)
+        route_rollups.append(_method_confirmation_route_rollup(profile=profile, rows=rows))
+        validation_runs.append(
+            _method_confirmation_validation_run(
+                run_id=run_id,
+                protocol_id=protocol_id,
+                protocol_version=protocol_version,
+                path_map=path_map,
+                gate_raw=gate_raw,
+                profile=profile,
+            )
+        )
+    current_coverage = [
+        str(item.get("current_evidence_coverage") or "").strip()
+        for item in route_rollups
+        if str(item.get("current_evidence_coverage") or "").strip()
+    ]
+    top_gaps = _dedupe(str(item.get("gap_note") or "").strip() for item in validation_rows if str(item.get("gap_note") or "").strip())[
+        :6
+    ]
+    reviewer_actions = _dedupe(
+        str(item.get("reviewer_action") or "").strip()
+        for item in validation_rows
+        if str(item.get("reviewer_action") or "").strip()
+    )[:6]
+    protocol_overview = (
+        f"protocol {protocol_id} | scope {scope_id} | decision rule {decision_rule_id} | "
+        f"routes {len(route_profiles)} | dimensions {len(METHOD_CONFIRMATION_VALIDATION_DIMENSIONS)}"
+    )
+    matrix_completeness_summary = " | ".join(
+        str(item.get("matrix_completeness_summary") or "").strip()
+        for item in route_rollups
+        if str(item.get("matrix_completeness_summary") or "").strip()
+    )
+    current_coverage_summary = " | ".join(current_coverage)
+    top_gaps_summary = " | ".join(top_gaps)
+    reviewer_action_summary = " | ".join(reviewer_actions)
+    readiness_status_summary = "ready_for_readiness_mapping | reviewer-only | simulated"
+    scope_reference_assets_summary = " | ".join(
+        _dedupe(str(item.get("asset_id") or "").strip() for item in reference_assets if str(item.get("asset_id") or "").strip())
+    )
+    decision_rule_dependency_summary = (
+        f"{decision_rule_id} | uncertainty {str(report_raw.get('report_rule') or 'step2_readiness_mapping_only')}"
+    )
+    required_evidence_categories_summary = "scope / decision rule / reference assets / certificate lifecycle / pre-run gate / uncertainty"
+    artifact_paths = _method_confirmation_artifact_paths(path_map)
+    common_body = _method_confirmation_common_body(
+        protocol_id=protocol_id,
+        protocol_version=protocol_version,
+        scope_id=scope_id,
+        decision_rule_id=decision_rule_id,
+        uncertainty_case_id=str(route_profiles[0].get("uncertainty_case_id") or "multi-route-readiness-set")
+        if route_profiles
+        else "multi-route-readiness-set",
+        validation_matrix_version=validation_matrix_version,
+        limitation_note=limitation_note,
+        non_claim_note=non_claim_note,
+        reviewer_note=reviewer_note,
+        path_map=path_map,
+    )
+    base_digest = _method_confirmation_digest(
+        summary="方法确认骨架 / reviewer-only / readiness mapping only",
+        scope_name=scope_name,
+        decision_rule_id=decision_rule_id,
+        current_coverage_summary=current_coverage_summary,
+        top_gaps_summary=top_gaps_summary,
+        reviewer_action_summary=reviewer_action_summary,
+        non_claim_note=non_claim_note,
+        protocol_overview_summary=protocol_overview,
+        matrix_completeness_summary=matrix_completeness_summary,
+        readiness_status_summary=readiness_status_summary,
+        scope_reference_assets_summary=scope_reference_assets_summary,
+        decision_rule_dependency_summary=decision_rule_dependency_summary,
+        required_evidence_categories_summary=required_evidence_categories_summary,
+    )
+    return _build_method_confirmation_wp4_bundle_set(
+        run_id=run_id,
+        base_digest=base_digest,
+        common_body=common_body,
+        route_profiles=route_profiles,
+        validation_rows=validation_rows,
+        route_rollups=route_rollups,
+        validation_runs=validation_runs,
+        protocol_overview=protocol_overview,
+        matrix_completeness_summary=matrix_completeness_summary,
+        current_coverage=current_coverage,
+        current_coverage_summary=current_coverage_summary,
+        top_gaps=top_gaps,
+        top_gaps_summary=top_gaps_summary,
+        reviewer_actions=reviewer_actions,
+        reviewer_action_summary=reviewer_action_summary,
+        readiness_status_summary=readiness_status_summary,
+        non_claim_note=non_claim_note,
+        artifact_paths=artifact_paths,
+        path_map=path_map,
+        rollup_raw=rollup_raw,
+        digest_raw=digest_raw,
+        uncertainty_budget_stub=uncertainty_budget_stub,
+    )
+
+
+def _method_confirmation_artifact_paths(path_map: dict[str, str]) -> dict[str, str]:
+    return {
+        "method_confirmation_protocol": path_map["method_confirmation_protocol"],
+        "method_confirmation_protocol_markdown": path_map["method_confirmation_protocol_markdown"],
+        "method_confirmation_matrix": path_map["method_confirmation_matrix"],
+        "method_confirmation_matrix_markdown": path_map["method_confirmation_matrix_markdown"],
+        "route_specific_validation_matrix": path_map["route_specific_validation_matrix"],
+        "route_specific_validation_matrix_markdown": path_map["route_specific_validation_matrix_markdown"],
+        "validation_run_set": path_map["validation_run_set"],
+        "validation_run_set_markdown": path_map["validation_run_set_markdown"],
+        "verification_digest": path_map["verification_digest"],
+        "verification_digest_markdown": path_map["verification_digest_markdown"],
+        "verification_rollup": path_map["verification_rollup"],
+        "verification_rollup_markdown": path_map["verification_rollup_markdown"],
+        "reference_asset_registry": path_map["reference_asset_registry"],
+        "certificate_lifecycle_summary": path_map["certificate_lifecycle_summary"],
+        "pre_run_readiness_gate": path_map["pre_run_readiness_gate"],
+        "uncertainty_budget_stub": path_map["uncertainty_budget_stub"],
+        "budget_case": path_map["budget_case"],
+        "uncertainty_golden_cases": path_map["uncertainty_golden_cases"],
+        "uncertainty_report_pack": path_map["uncertainty_report_pack"],
+        "uncertainty_digest": path_map["uncertainty_digest"],
+        "uncertainty_rollup": path_map["uncertainty_rollup"],
+    }
+
+
+def _method_confirmation_common_body(
+    *,
+    protocol_id: str,
+    protocol_version: str,
+    scope_id: str,
+    decision_rule_id: str,
+    uncertainty_case_id: str,
+    validation_matrix_version: str,
+    limitation_note: str,
+    non_claim_note: str,
+    reviewer_note: str,
+    path_map: dict[str, str],
+) -> dict[str, Any]:
+    return {
+        "protocol_id": protocol_id,
+        "protocol_version": protocol_version,
+        "scope_id": scope_id,
+        "decision_rule_id": decision_rule_id,
+        "uncertainty_case_id": uncertainty_case_id,
+        "measurand": "multi-route",
+        "route_type": "mixed",
+        "environment_mode": "simulation_only",
+        "analyzer_model": "step2-reviewer-placeholder",
+        "validation_matrix_version": validation_matrix_version,
+        "validation_dimensions": list(METHOD_CONFIRMATION_VALIDATION_DIMENSIONS),
+        "validation_status": "reviewer_placeholder_only",
+        "reviewer_only": True,
+        "readiness_mapping_only": True,
+        "ready_for_readiness_mapping": True,
+        "not_real_acceptance_evidence": True,
+        "not_ready_for_formal_claim": True,
+        "primary_evidence_rewritten": False,
+        "limitation_note": limitation_note,
+        "non_claim_note": non_claim_note,
+        "reviewer_note": reviewer_note,
+        "required_evidence_categories": [
+            "scope_definition_pack",
+            "decision_rule_profile",
+            "reference_asset_registry",
+            "certificate_lifecycle_summary",
+            "pre_run_readiness_gate",
+            "uncertainty_report_pack",
+            "verification_digest",
+        ],
+        "linked_artifacts": {
+            "scope_definition_pack": path_map["scope_definition_pack"],
+            "decision_rule_profile": path_map["decision_rule_profile"],
+            "reference_asset_registry": path_map["reference_asset_registry"],
+            "certificate_lifecycle_summary": path_map["certificate_lifecycle_summary"],
+            "pre_run_readiness_gate": path_map["pre_run_readiness_gate"],
+            "uncertainty_budget_stub": path_map["uncertainty_budget_stub"],
+            "budget_case": path_map["budget_case"],
+            "uncertainty_golden_cases": path_map["uncertainty_golden_cases"],
+            "uncertainty_report_pack": path_map["uncertainty_report_pack"],
+            "uncertainty_digest": path_map["uncertainty_digest"],
+            "uncertainty_rollup": path_map["uncertainty_rollup"],
+        },
+    }
+
+
+def _method_confirmation_digest(
+    *,
+    summary: str,
+    scope_name: str,
+    decision_rule_id: str,
+    current_coverage_summary: str,
+    top_gaps_summary: str,
+    reviewer_action_summary: str,
+    non_claim_note: str,
+    protocol_overview_summary: str,
+    matrix_completeness_summary: str,
+    readiness_status_summary: str,
+    scope_reference_assets_summary: str,
+    decision_rule_dependency_summary: str,
+    required_evidence_categories_summary: str,
+) -> dict[str, Any]:
+    return {
+        "summary": summary,
+        "scope_overview_summary": scope_name,
+        "decision_rule_summary": f"{decision_rule_id} | reviewer dependency mapping only",
+        "conformity_boundary_summary": non_claim_note,
+        "current_coverage_summary": current_coverage_summary,
+        "missing_evidence_summary": top_gaps_summary,
+        "reviewer_action_summary": reviewer_action_summary,
+        "reviewer_next_step_digest": reviewer_action_summary,
+        "non_claim_digest": non_claim_note,
+        "protocol_overview_summary": protocol_overview_summary,
+        "matrix_completeness_summary": matrix_completeness_summary,
+        "current_evidence_coverage_summary": current_coverage_summary,
+        "top_gaps_summary": top_gaps_summary,
+        "readiness_status_summary": readiness_status_summary,
+        "scope_reference_assets_summary": scope_reference_assets_summary,
+        "decision_rule_dependency_summary": decision_rule_dependency_summary,
+        "required_evidence_categories_summary": required_evidence_categories_summary,
+        "warning_summary": "reviewer-only / simulated / placeholder evidence rows",
+    }
+
+
+def _method_confirmation_bundle(
+    *,
+    run_id: str,
+    artifact_type: str,
+    filename: str,
+    markdown_filename: str,
+    artifact_role: str,
+    title_text: str,
+    summary_text: str,
+    summary_lines: list[str],
+    detail_lines: list[str],
+    artifact_paths: dict[str, str],
+    digest: dict[str, Any],
+    body: dict[str, Any],
+) -> dict[str, Any]:
+    anchor = _artifact_anchor(artifact_type)
+    raw = {
+        "schema_version": "step2-method-confirmation-wp4-v1",
+        "artifact_type": artifact_type,
+        "generated_at": _now_iso(),
+        "run_id": run_id,
+        "artifact_role": artifact_role,
+        "evidence_source": "simulated",
+        "evidence_state": "reviewer_readiness_only",
+        "not_real_acceptance_evidence": True,
+        "boundary_statements": list(RECOGNITION_READINESS_BOUNDARY_STATEMENTS),
+        "anchor_id": str(anchor.get("anchor_id") or ""),
+        "anchor_label": str(anchor.get("anchor_label") or artifact_type),
+        "artifact_paths": dict(artifact_paths),
+        "digest": dict(digest),
+        "review_surface": {
+            "title_text": title_text,
+            "role_text": artifact_role,
+            "reviewer_note": str(body.get("reviewer_note") or ""),
+            "summary_text": summary_text,
+            "summary_lines": [line for line in summary_lines if str(line).strip()],
+            "detail_lines": [line for line in detail_lines if str(line).strip()],
+            "anchor_id": str(anchor.get("anchor_id") or ""),
+            "anchor_label": str(anchor.get("anchor_label") or artifact_type),
+            "phase_filters": ["step2_tail_recognition_ready"],
+            "route_filters": [str(item.get("route_family") or "") for item in list(body.get("route_specific_protocols") or [])],
+            "signal_family_filters": [],
+            "decision_result_filters": [],
+            "policy_version_filters": [],
+            "boundary_filter_rows": [],
+            "boundary_filters": [],
+            "non_claim_filter_rows": [],
+            "non_claim_filters": [],
+            "evidence_source_filters": ["simulated", "reviewer_readiness_only"],
+            "artifact_paths": dict(artifact_paths),
+        },
+        "evidence_categories": ["recognition_readiness", "method_confirmation_readiness", "verification_readiness"],
+        **body,
+    }
+    markdown = _render_markdown(
+        title_text,
+        [
+            f"- summary: {summary_text}",
+            *[f"- {line}" for line in summary_lines if str(line).strip()],
+            *[f"- {line}" for line in detail_lines if str(line).strip()],
+        ],
+    )
+    return {
+        "available": True,
+        "artifact_type": artifact_type,
+        "filename": filename,
+        "markdown_filename": markdown_filename,
+        "raw": raw,
+        "markdown": markdown,
+        "digest": dict(digest),
+    }
+
+
+def _build_method_confirmation_wp4_bundle_set(
+    *,
+    run_id: str,
+    base_digest: dict[str, Any],
+    common_body: dict[str, Any],
+    route_profiles: list[dict[str, Any]],
+    validation_rows: list[dict[str, Any]],
+    route_rollups: list[dict[str, Any]],
+    validation_runs: list[dict[str, Any]],
+    protocol_overview: str,
+    matrix_completeness_summary: str,
+    current_coverage: list[str],
+    current_coverage_summary: str,
+    top_gaps: list[str],
+    top_gaps_summary: str,
+    reviewer_actions: list[str],
+    reviewer_action_summary: str,
+    readiness_status_summary: str,
+    non_claim_note: str,
+    artifact_paths: dict[str, str],
+    path_map: dict[str, str],
+    rollup_raw: dict[str, Any],
+    digest_raw: dict[str, Any],
+    uncertainty_budget_stub: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    matrix_body = {
+        **common_body,
+        "route_specific_protocols": route_profiles,
+        "matrix_rows": validation_rows,
+        "rows": validation_rows,
+        "route_rollups": route_rollups,
+        "current_evidence_coverage": current_coverage,
+        "top_gaps": top_gaps,
+        "reviewer_actions": reviewer_actions,
+    }
+    verification_body = {
+        **common_body,
+        "protocol_overview": protocol_overview,
+        "route_rollups": route_rollups,
+        "matrix_completeness_summary": matrix_completeness_summary,
+        "current_evidence_coverage": current_coverage,
+        "top_gaps": top_gaps,
+        "reviewer_actions": reviewer_actions,
+        "readiness_status": "ready_for_readiness_mapping",
+    }
+    protocol = _method_confirmation_bundle(
+        run_id=run_id,
+        artifact_type="method_confirmation_protocol",
+        filename=METHOD_CONFIRMATION_PROTOCOL_FILENAME,
+        markdown_filename=METHOD_CONFIRMATION_PROTOCOL_MARKDOWN_FILENAME,
+        artifact_role="execution_summary",
+        title_text="Method Confirmation Protocol",
+        summary_text="方法确认协议骨架，仅用于 reviewer 侧 readiness mapping。",
+        summary_lines=[
+            f"protocol overview: {protocol_overview}",
+            f"matrix completeness: {matrix_completeness_summary}",
+            f"current evidence coverage: {current_coverage_summary}",
+            f"reviewer actions: {reviewer_action_summary}",
+        ],
+        detail_lines=[
+            f"linked uncertainty budget stub: {str(dict(uncertainty_budget_stub.get('digest') or {}).get('summary') or '--')}",
+            f"linked route matrix: {path_map['route_specific_validation_matrix']}",
+            f"linked verification digest: {path_map['verification_digest']}",
+            f"non-claim: {non_claim_note}",
+        ],
+        artifact_paths=artifact_paths,
+        digest={**base_digest, "summary": "方法确认协议骨架 / reviewer-only / readiness mapping only"},
+        body={**common_body, "route_specific_protocols": route_profiles, "protocol_overview": protocol_overview},
+    )
+    legacy_matrix = _method_confirmation_bundle(
+        run_id=run_id,
+        artifact_type="method_confirmation_matrix",
+        filename=METHOD_CONFIRMATION_MATRIX_FILENAME,
+        markdown_filename=METHOD_CONFIRMATION_MATRIX_MARKDOWN_FILENAME,
+        artifact_role="execution_summary",
+        title_text="Method Confirmation Matrix",
+        summary_text="方法确认矩阵仍为 placeholder/example evidence rows，不得解释为真实方法确认结论。",
+        summary_lines=[
+            f"protocol overview: {protocol_overview}",
+            f"matrix completeness: {matrix_completeness_summary}",
+            f"current evidence coverage: {current_coverage_summary}",
+            f"top gaps: {top_gaps_summary}",
+        ],
+        detail_lines=[
+            f"reviewer actions: {reviewer_action_summary}",
+            f"linked uncertainty report: {path_map['uncertainty_report_pack']}",
+            f"linked pre-run gate: {path_map['pre_run_readiness_gate']}",
+            f"non-claim: {non_claim_note}",
+        ],
+        artifact_paths=artifact_paths,
+        digest={**base_digest, "summary": "方法确认矩阵骨架 / reviewer-only / example evidence rows"},
+        body=matrix_body,
+    )
+    route_matrix = _method_confirmation_bundle(
+        run_id=run_id,
+        artifact_type="route_specific_validation_matrix",
+        filename=ROUTE_SPECIFIC_VALIDATION_MATRIX_FILENAME,
+        markdown_filename=ROUTE_SPECIFIC_VALIDATION_MATRIX_MARKDOWN_FILENAME,
+        artifact_role="execution_summary",
+        title_text="Route Specific Validation Matrix",
+        summary_text="CO2 气路、H2O 水路与 ambient/diagnostic mode 仅生成 reviewer-facing skeleton。",
+        summary_lines=[
+            f"protocol overview: {protocol_overview}",
+            f"matrix completeness: {matrix_completeness_summary}",
+            f"current evidence coverage: {current_coverage_summary}",
+            f"readiness status: {readiness_status_summary}",
+        ],
+        detail_lines=[
+            f"top gaps: {top_gaps_summary}",
+            f"reviewer actions: {reviewer_action_summary}",
+            f"golden linkage source: {path_map['uncertainty_golden_cases']}",
+            f"non-claim: {non_claim_note}",
+        ],
+        artifact_paths=artifact_paths,
+        digest={**base_digest, "summary": "route specific validation matrix / reviewer-only / simulated"},
+        body={**matrix_body, "route_specific_validation_matrix": validation_rows},
+    )
+    validation_run_set = _method_confirmation_bundle(
+        run_id=run_id,
+        artifact_type="validation_run_set",
+        filename=VALIDATION_RUN_SET_FILENAME,
+        markdown_filename=VALIDATION_RUN_SET_MARKDOWN_FILENAME,
+        artifact_role="execution_summary",
+        title_text="Validation Run Set",
+        summary_text="validation_run_set 与 golden linkage 仅保留 reviewer-only / simulated skeleton。",
+        summary_lines=[
+            f"protocol overview: {protocol_overview}",
+            f"linked run ids: {run_id}",
+            f"matrix completeness: {matrix_completeness_summary}",
+            f"current evidence coverage: {current_coverage_summary}",
+        ],
+        detail_lines=[
+            f"reference assets: {str(base_digest.get('scope_reference_assets_summary') or '--')}",
+            f"certificate lifecycle: {path_map['certificate_lifecycle_summary']}",
+            f"uncertainty refs: {path_map['uncertainty_report_pack']} | {path_map['uncertainty_rollup']}",
+            f"non-claim: {non_claim_note}",
+        ],
+        artifact_paths=artifact_paths,
+        digest={**base_digest, "summary": "validation run set / reviewer linkage only"},
+        body={
+            **common_body,
+            "route_specific_protocols": route_profiles,
+            "validation_run_set": validation_runs,
+            "linked_run_ids": [run_id],
+            "golden_dataset_id": str(route_profiles[0].get("golden_dataset_id") or "") if route_profiles else "",
+        },
+    )
+    verification_digest = _method_confirmation_bundle(
+        run_id=run_id,
+        artifact_type="verification_digest",
+        filename=VERIFICATION_DIGEST_FILENAME,
+        markdown_filename=VERIFICATION_DIGEST_MARKDOWN_FILENAME,
+        artifact_role="diagnostic_analysis",
+        title_text="Verification Digest",
+        summary_text="verification_digest 仅汇总 reviewer-facing 覆盖、缺口和动作，不能形成 formal claim。",
+        summary_lines=[
+            f"protocol overview: {protocol_overview}",
+            f"matrix completeness: {matrix_completeness_summary}",
+            f"current evidence coverage: {current_coverage_summary}",
+            f"top gaps: {top_gaps_summary}",
+            f"reviewer actions: {reviewer_action_summary}",
+        ],
+        detail_lines=[
+            f"readiness status: {readiness_status_summary}",
+            f"linked uncertainty digest: {str(digest_raw.get('summary') or '--')}",
+            f"linked uncertainty rollup: {str(rollup_raw.get('rollup_summary_display') or '--')}",
+            f"non-claim: {non_claim_note}",
+        ],
+        artifact_paths=artifact_paths,
+        digest={**base_digest, "summary": "verification digest / reviewer-only / not formal claim"},
+        body=verification_body,
+    )
+    verification_rollup = _method_confirmation_bundle(
+        run_id=run_id,
+        artifact_type="verification_rollup",
+        filename=VERIFICATION_ROLLUP_FILENAME,
+        markdown_filename=VERIFICATION_ROLLUP_MARKDOWN_FILENAME,
+        artifact_role="diagnostic_analysis",
+        title_text="Verification Rollup",
+        summary_text="verification_rollup 汇总 method confirmation / validation matrix / golden linkage 状态，但仍保持 reviewer-only、simulation-only、non-claim。",
+        summary_lines=[
+            f"protocol overview: {protocol_overview}",
+            f"matrix completeness: {matrix_completeness_summary}",
+            f"current evidence coverage: {current_coverage_summary}",
+            f"top gaps: {top_gaps_summary}",
+            f"reviewer actions: {reviewer_action_summary}",
+        ],
+        detail_lines=[
+            f"readiness status: {readiness_status_summary}",
+            f"validation run set: {path_map['validation_run_set']}",
+            f"linked uncertainty rollup: {path_map['uncertainty_rollup']}",
+            f"non-claim: {non_claim_note}",
+        ],
+        artifact_paths=artifact_paths,
+        digest={
+            **base_digest,
+            "summary": "verification rollup / reviewer-only / simulated",
+            "rollup_summary_display": matrix_completeness_summary,
+        },
+        body={**verification_body, "rollup_summary_display": matrix_completeness_summary},
+    )
+    return {
+        "method_confirmation_protocol": protocol,
+        "method_confirmation_matrix": legacy_matrix,
+        "route_specific_validation_matrix": route_matrix,
+        "validation_run_set": validation_run_set,
+        "verification_digest": verification_digest,
+        "verification_rollup": verification_rollup,
+    }
 def _build_method_confirmation_matrix(
     *,
     run_id: str,
@@ -2788,15 +3365,285 @@ def _build_method_confirmation_matrix(
     }
 
 
+def _method_confirmation_route_profiles(
+    *,
+    run_id: str,
+    scope_id: str,
+    decision_rule_id: str,
+    route_families: list[str],
+    budget_cases: list[dict[str, Any]],
+    golden_cases: list[dict[str, Any]],
+    reference_assets: list[dict[str, Any]],
+    certificate_rows: list[dict[str, Any]],
+    payload_backed_phases: list[str],
+    trace_only_phases: list[str],
+    gap_phases: list[str],
+    validation_matrix_version: str,
+) -> list[dict[str, Any]]:
+    route_meta = {
+        "gas": ("CO2 气路", "CO2", "gas", "simulation_only", "GC-CO2-step2-reviewer"),
+        "water": ("H2O 水路", "H2O", "water", "simulation_only", "GC-H2O-step2-reviewer"),
+        "ambient": ("ambient/diagnostic mode", "ambient_diagnostic", "ambient", "diagnostic_mode", "GC-ambient-step2-reviewer"),
+    }
+    rows: list[dict[str, Any]] = []
+    for family in _dedupe([*list(route_families or []), "gas", "water", "ambient"]):
+        if family not in route_meta:
+            continue
+        route_label, measurand, route_type, environment_mode, analyzer_model = route_meta[family]
+        matched_case = next(
+            (
+                dict(item)
+                for item in budget_cases
+                if str(item.get("route_type") or "") == route_type
+                and str(item.get("measurand") or "") == measurand
+            ),
+            {},
+        )
+        uncertainty_case_id = str(
+            matched_case.get("uncertainty_case_id") or f"{run_id}-{family}-method-confirmation-placeholder"
+        )
+        matched_golden = next(
+            (
+                dict(item)
+                for item in golden_cases
+                if str(item.get("uncertainty_case_id") or "") == uncertainty_case_id
+            ),
+            {},
+        )
+        rows.append(
+            {
+                "route_family": family,
+                "route_label": route_label,
+                "scope_id": scope_id,
+                "decision_rule_id": decision_rule_id,
+                "uncertainty_case_id": uncertainty_case_id,
+                "golden_dataset_id": str(
+                    matched_golden.get("golden_dataset_id") or f"{uncertainty_case_id}-golden-dataset"
+                ),
+                "measurand": measurand,
+                "route_type": route_type,
+                "environment_mode": environment_mode,
+                "analyzer_model": analyzer_model,
+                "validation_matrix_version": validation_matrix_version,
+                "reference_asset_ids": _method_confirmation_asset_refs(family, reference_assets),
+                "certificate_lifecycle_refs": _method_confirmation_certificate_refs(family, certificate_rows),
+                "payload_backed_phases": _method_confirmation_route_phases(family, payload_backed_phases),
+                "trace_only_phases": _method_confirmation_route_phases(family, trace_only_phases),
+                "gap_phases": _method_confirmation_route_phases(family, gap_phases),
+            }
+        )
+    return rows
+
+
+def _method_confirmation_route_phases(route_family: str, phases: list[str]) -> list[str]:
+    prefix = f"{route_family}/"
+    return [
+        str(item).split("/", 1)[1]
+        for item in list(phases or [])
+        if str(item).strip().startswith(prefix) and "/" in str(item)
+    ]
+
+
+def _method_confirmation_asset_refs(route_family: str, assets: list[dict[str, Any]]) -> list[str]:
+    allowed_types = {
+        "gas": {"standard_gas", "pressure_controller", "pressure_gauge", "analyzer_under_test"},
+        "water": {"humidity_generator", "dewpoint_meter", "temp_chamber", "analyzer_under_test"},
+        "ambient": {"thermometer", "temp_chamber", "pressure_gauge", "analyzer_under_test"},
+    }.get(route_family, set())
+    return _dedupe(
+        str(item.get("asset_id") or "").strip()
+        for item in assets
+        if str(item.get("asset_type") or "").strip() in allowed_types and str(item.get("asset_id") or "").strip()
+    )
+
+
+def _method_confirmation_certificate_refs(route_family: str, certificate_rows: list[dict[str, Any]]) -> list[str]:
+    allowed_types = {
+        "gas": {"standard_gas", "pressure_controller", "pressure_gauge", "analyzer_under_test"},
+        "water": {"humidity_generator", "dewpoint_meter", "temp_chamber", "analyzer_under_test"},
+        "ambient": {"thermometer", "temp_chamber", "pressure_gauge", "analyzer_under_test"},
+    }.get(route_family, set())
+    return _dedupe(
+        str(item.get("certificate_id") or "").strip()
+        for item in certificate_rows
+        if str(item.get("asset_type") or "").strip() in allowed_types and str(item.get("certificate_id") or "").strip()
+    )
+
+
+def _method_confirmation_validation_rows(*, profile: dict[str, Any]) -> list[dict[str, Any]]:
+    route_label = str(profile.get("route_label") or "--")
+    payload_backed = list(profile.get("payload_backed_phases") or [])
+    trace_only = list(profile.get("trace_only_phases") or [])
+    gap_phases = list(profile.get("gap_phases") or [])
+    rows: list[dict[str, Any]] = []
+    for dimension in METHOD_CONFIRMATION_VALIDATION_DIMENSIONS:
+        rows.append(
+            {
+                "dimension_key": dimension,
+                "dimension_label": dimension,
+                "protocol_id": f"{route_label}-reviewer-protocol",
+                "protocol_version": str(profile.get("validation_matrix_version") or ""),
+                "scope_id": str(profile.get("scope_id") or ""),
+                "decision_rule_id": str(profile.get("decision_rule_id") or ""),
+                "uncertainty_case_id": str(profile.get("uncertainty_case_id") or ""),
+                "measurand": str(profile.get("measurand") or ""),
+                "route_type": str(profile.get("route_type") or ""),
+                "environment_mode": str(profile.get("environment_mode") or ""),
+                "analyzer_model": str(profile.get("analyzer_model") or ""),
+                "validation_matrix_version": str(profile.get("validation_matrix_version") or ""),
+                "validation_dimensions": list(METHOD_CONFIRMATION_VALIDATION_DIMENSIONS),
+                "validation_status": "reviewer_placeholder_only",
+                "reviewer_only": True,
+                "readiness_mapping_only": True,
+                "ready_for_readiness_mapping": True,
+                "not_real_acceptance_evidence": True,
+                "not_ready_for_formal_claim": True,
+                "primary_evidence_rewritten": False,
+                "route_label": route_label,
+                "current_evidence_coverage": (
+                    f"{route_label} | payload-backed {len(payload_backed)} | trace-only {len(trace_only)} | "
+                    f"gap {len(gap_phases)} | placeholder/example evidence rows only"
+                ),
+                "gap_note": _method_confirmation_gap_note(route_label, dimension),
+                "missing_evidence": _method_confirmation_gap_note(route_label, dimension),
+                "reviewer_action": _method_confirmation_reviewer_action(route_label, dimension),
+                "current_coverage": (
+                    f"{route_label} | payload-backed {len(payload_backed)} | trace-only {len(trace_only)} | "
+                    f"gap {len(gap_phases)} | placeholder/example evidence rows only"
+                ),
+                "limitation_note": "当前仅保留 reviewer-facing placeholder / skeleton / example evidence rows。",
+                "non_claim_note": "不构成真实方法确认、formal claim 或 real acceptance evidence。",
+                "reviewer_note": "仅用于 Step 2 reviewer-facing validation matrix 展示。",
+            }
+        )
+    return rows
+
+
+def _method_confirmation_route_rollup(*, profile: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
+    route_label = str(profile.get("route_label") or "--")
+    return {
+        "route_label": route_label,
+        "route_type": str(profile.get("route_type") or ""),
+        "measurand": str(profile.get("measurand") or ""),
+        "matrix_completeness_summary": (
+            f"{route_label} {len(rows)}/{len(METHOD_CONFIRMATION_VALIDATION_DIMENSIONS)} 个维度已生成 skeleton，占位证据全部保持 reviewer-only"
+        ),
+        "current_evidence_coverage": (
+            f"{route_label} | payload-backed {len(list(profile.get('payload_backed_phases') or []))} | "
+            f"trace-only {len(list(profile.get('trace_only_phases') or []))} | "
+            f"gap {len(list(profile.get('gap_phases') or []))} | not real method confirmation"
+        ),
+    }
+
+
+def _method_confirmation_gap_note(route_label: str, dimension: str) -> str:
+    return {
+        "linearity": f"{route_label} 缺少真实线性确认数据与 released reference closure。",
+        "repeatability": f"{route_label} 缺少真实重复测量批次；当前仅保留 simulation example rows。",
+        "reproducibility": f"{route_label} 尚未引入跨批次/跨环境真实 reproducibility 证据。",
+        "drift": f"{route_label} 尚无时间分离的真实 drift closure；当前只有 reviewer digest skeleton。",
+        "temperature_effect": f"{route_label} 温度影响仅做占位映射，未形成真实方法确认结论。",
+        "pressure_effect": f"{route_label} 压力影响仍停留在 simulation-only mapping。",
+        "route_switch_effect": f"{route_label} 路由切换影响仅留 placeholder，不代表已完成真实切换验证。",
+        "seal_ingress_sensitivity": f"{route_label} 密封/渗入敏感度仍为 skeleton，不可视作真实 ingress confirmation。",
+        "freshness_check": f"{route_label} freshness 仅映射 reviewer 检查项，未形成 released freshness evidence。",
+        "writeback_verification": f"{route_label} writeback verification 仅保留 file-artifact-first 占位，不代表真实写回验证通过。",
+    }[dimension]
+
+
+def _method_confirmation_reviewer_action(route_label: str, dimension: str) -> str:
+    return {
+        "linearity": f"复核 {route_label} 的 scope / decision rule / uncertainty linkage，并继续保持 real method confirmation 关闭。",
+        "repeatability": f"为 {route_label} 保留 reviewer 占位行，等待未来真实重复测量 acceptance 方案。",
+        "reproducibility": f"补 reviewer-facing reproducibility skeleton，禁止写成 formal compliance claim。",
+        "drift": f"把 {route_label} drift 与 historical trend / report pack 的 reviewer linkage 对齐。",
+        "temperature_effect": f"把温度影响占位项与 certificate / pre-run gate / uncertainty refs 对齐。",
+        "pressure_effect": f"把压力影响占位项与 pressure-related reference assets / uncertainty case 对齐。",
+        "route_switch_effect": f"复核 {route_label} 路由切换 placeholder 行，仅输出 reviewer action，不给真实通过结论。",
+        "seal_ingress_sensitivity": f"复核 {route_label} seal / ingress skeleton 与 preseal/readiness mapping 的边界提示。",
+        "freshness_check": f"保留 freshness reviewer 检查项，继续禁止 real acceptance 解释。",
+        "writeback_verification": f"把 writeback reviewer 占位项与 golden / report pack linkage 对齐，不改 primary evidence。",
+    }[dimension]
+
+
+def _method_confirmation_validation_run(
+    *,
+    run_id: str,
+    protocol_id: str,
+    protocol_version: str,
+    path_map: dict[str, str],
+    gate_raw: dict[str, Any],
+    profile: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "validation_case_id": f"{protocol_id}-{str(profile.get('route_family') or 'route')}",
+        "protocol_id": protocol_id,
+        "protocol_version": protocol_version,
+        "scope_id": str(profile.get("scope_id") or ""),
+        "decision_rule_id": str(profile.get("decision_rule_id") or ""),
+        "uncertainty_case_id": str(profile.get("uncertainty_case_id") or ""),
+        "measurand": str(profile.get("measurand") or ""),
+        "route_type": str(profile.get("route_type") or ""),
+        "environment_mode": str(profile.get("environment_mode") or "simulation_only"),
+        "analyzer_model": str(profile.get("analyzer_model") or "step2-reviewer-placeholder"),
+        "validation_matrix_version": str(profile.get("validation_matrix_version") or ""),
+        "validation_dimensions": list(METHOD_CONFIRMATION_VALIDATION_DIMENSIONS),
+        "validation_status": "reviewer_placeholder_only",
+        "reviewer_only": True,
+        "readiness_mapping_only": True,
+        "ready_for_readiness_mapping": True,
+        "not_real_acceptance_evidence": True,
+        "not_ready_for_formal_claim": True,
+        "primary_evidence_rewritten": False,
+        "golden_dataset_id": str(profile.get("golden_dataset_id") or ""),
+        "linked_run_ids": [run_id],
+        "linked_artifacts": {
+            "method_confirmation_protocol": path_map["method_confirmation_protocol"],
+            "route_specific_validation_matrix": path_map["route_specific_validation_matrix"],
+            "validation_run_set": path_map["validation_run_set"],
+            "verification_digest": path_map["verification_digest"],
+            "verification_rollup": path_map["verification_rollup"],
+        },
+        "reference_assets": list(profile.get("reference_asset_ids") or []),
+        "certificate_lifecycle_refs": list(profile.get("certificate_lifecycle_refs") or []),
+        "pre_run_gate_refs": [
+            str(gate_raw.get("gate_id") or f"{run_id}-pre-run-readiness-gate"),
+            path_map["pre_run_readiness_gate"],
+        ],
+        "uncertainty_refs": {
+            "uncertainty_budget_stub": path_map["uncertainty_budget_stub"],
+            "budget_case": path_map["budget_case"],
+            "uncertainty_golden_cases": path_map["uncertainty_golden_cases"],
+            "uncertainty_report_pack": path_map["uncertainty_report_pack"],
+            "uncertainty_digest": path_map["uncertainty_digest"],
+            "uncertainty_rollup": path_map["uncertainty_rollup"],
+            "uncertainty_case_id": str(profile.get("uncertainty_case_id") or ""),
+        },
+        "limitation_note": "当前 validation_run_set 仅保留 reviewer-only skeleton。",
+        "non_claim_note": "当前仅用于 readiness mapping，不构成 formal claim，也不是 real acceptance evidence。",
+        "reviewer_note": "当前 validation linkage 不会重写 primary evidence。",
+    }
 def _build_uncertainty_method_readiness_summary(
     *,
     run_id: str,
     uncertainty_budget_stub: dict[str, Any],
     method_confirmation_protocol: dict[str, Any],
     method_confirmation_matrix: dict[str, Any],
+    route_specific_validation_matrix: dict[str, Any] | None = None,
+    verification_digest: dict[str, Any] | None = None,
     path_map: dict[str, str],
 ) -> dict[str, Any]:
-    matrix_rows = [dict(item) for item in list(dict(method_confirmation_matrix.get("raw") or {}).get("rows") or [])]
+    route_matrix_raw = dict((route_specific_validation_matrix or {}).get("raw") or {})
+    verification_digest_payload = dict((verification_digest or {}).get("digest") or {})
+    matrix_rows = [
+        dict(item)
+        for item in list(
+            route_matrix_raw.get("matrix_rows")
+            or route_matrix_raw.get("rows")
+            or dict(method_confirmation_matrix.get("raw") or {}).get("rows")
+            or []
+        )
+    ]
     missing_evidence = _dedupe(str(item.get("missing_evidence") or "").strip() for item in matrix_rows)
     digest = {
         "summary": (
@@ -2805,8 +3652,14 @@ def _build_uncertainty_method_readiness_summary(
         ),
         "budget_summary": str(dict(uncertainty_budget_stub.get("digest") or {}).get("summary") or "--"),
         "protocol_summary": str(dict(method_confirmation_protocol.get("digest") or {}).get("summary") or "--"),
-        "matrix_summary": str(dict(method_confirmation_matrix.get("digest") or {}).get("summary") or "--"),
+        "matrix_summary": str(
+            route_matrix_raw.get("matrix_completeness_summary")
+            or dict((route_specific_validation_matrix or {}).get("digest") or {}).get("summary")
+            or dict(method_confirmation_matrix.get("digest") or {}).get("summary")
+            or "--"
+        ),
         "missing_evidence_summary": " | ".join(missing_evidence),
+        "verification_summary": str(verification_digest_payload.get("summary") or "--"),
     }
     return _summary_raw(
         run_id=run_id,
@@ -2822,12 +3675,15 @@ def _build_uncertainty_method_readiness_summary(
             f"uncertainty budget: {digest['budget_summary']}",
             f"method protocol: {digest['protocol_summary']}",
             f"method matrix: {digest['matrix_summary']}",
+            f"verification digest: {digest['verification_summary']}",
         ],
         detail_lines=[
             f"missing evidence: {digest['missing_evidence_summary']}",
             f"uncertainty_budget_stub: {path_map['uncertainty_budget_stub']}",
             f"method_confirmation_protocol: {path_map['method_confirmation_protocol']}",
             f"method_confirmation_matrix: {path_map['method_confirmation_matrix']}",
+            f"route_specific_validation_matrix: {path_map['route_specific_validation_matrix']}",
+            f"verification_digest: {path_map['verification_digest']}",
             *[f"boundary: {line}" for line in RECOGNITION_READINESS_BOUNDARY_STATEMENTS],
         ],
         anchor_id="uncertainty-method-readiness-summary",
@@ -2840,6 +3696,10 @@ def _build_uncertainty_method_readiness_summary(
             "method_confirmation_protocol_markdown": path_map["method_confirmation_protocol_markdown"],
             "method_confirmation_matrix": path_map["method_confirmation_matrix"],
             "method_confirmation_matrix_markdown": path_map["method_confirmation_matrix_markdown"],
+            "route_specific_validation_matrix": path_map["route_specific_validation_matrix"],
+            "route_specific_validation_matrix_markdown": path_map["route_specific_validation_matrix_markdown"],
+            "verification_digest": path_map["verification_digest"],
+            "verification_digest_markdown": path_map["verification_digest_markdown"],
             "uncertainty_method_readiness_summary": path_map["uncertainty_method_readiness_summary"],
             "uncertainty_method_readiness_summary_markdown": path_map["uncertainty_method_readiness_summary_markdown"],
         },
@@ -3776,6 +4636,10 @@ _RECOGNITION_PRESEAL_PARTIAL_HINTS: dict[str, str] = {
     "uncertainty_budget_stub": "uncertainty inputs stay stub-only while preseal output terms remain open",
     "method_confirmation_protocol": "method protocol steps stay reviewer-only while preseal remains setup evidence",
     "method_confirmation_matrix": "method rows stay open because preseal evidence does not yet close released output terms",
+    "route_specific_validation_matrix": "route-specific validation rows stay reviewer-only while preseal remains a partial conditioning window",
+    "validation_run_set": "validation linkage stays skeleton-only while preseal evidence does not close released output terms",
+    "verification_digest": "verification digest remains reviewer-facing while preseal still carries open readiness gaps",
+    "verification_rollup": "verification rollup stays non-claim while preseal remains a partial conditioning window",
     "uncertainty_method_readiness_summary": "uncertainty + method readiness stays open while preseal remains a partial conditioning window",
 }
 
@@ -4032,6 +4896,14 @@ def _artifact_path_map(artifact_paths: dict[str, Any]) -> dict[str, str]:
         "method_confirmation_protocol_markdown": METHOD_CONFIRMATION_PROTOCOL_MARKDOWN_FILENAME,
         "method_confirmation_matrix": METHOD_CONFIRMATION_MATRIX_FILENAME,
         "method_confirmation_matrix_markdown": METHOD_CONFIRMATION_MATRIX_MARKDOWN_FILENAME,
+        "route_specific_validation_matrix": ROUTE_SPECIFIC_VALIDATION_MATRIX_FILENAME,
+        "route_specific_validation_matrix_markdown": ROUTE_SPECIFIC_VALIDATION_MATRIX_MARKDOWN_FILENAME,
+        "validation_run_set": VALIDATION_RUN_SET_FILENAME,
+        "validation_run_set_markdown": VALIDATION_RUN_SET_MARKDOWN_FILENAME,
+        "verification_digest": VERIFICATION_DIGEST_FILENAME,
+        "verification_digest_markdown": VERIFICATION_DIGEST_MARKDOWN_FILENAME,
+        "verification_rollup": VERIFICATION_ROLLUP_FILENAME,
+        "verification_rollup_markdown": VERIFICATION_ROLLUP_MARKDOWN_FILENAME,
         "uncertainty_method_readiness_summary": UNCERTAINTY_METHOD_READINESS_SUMMARY_FILENAME,
         "uncertainty_method_readiness_summary_markdown": UNCERTAINTY_METHOD_READINESS_SUMMARY_MARKDOWN_FILENAME,
         "software_validation_traceability_matrix": SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_FILENAME,
