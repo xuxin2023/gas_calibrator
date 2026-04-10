@@ -118,10 +118,10 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_window_s"] == 60.0
     assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_max_total_wait_s"] == 1080.0
     assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_poll_s"] == 2.0
-    assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_tail_span_max_c"] == 0.35
-    assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_tail_slope_abs_max_c_per_s"] == 0.003
+    assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_tail_span_max_c"] == 0.45
+    assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_tail_slope_abs_max_c_per_s"] == 0.005
     assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_rebound_window_s"] == 180.0
-    assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_rebound_min_rise_c"] == 1.0
+    assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_rebound_min_rise_c"] == 1.3
     assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_log_interval_s"] == 15.0
     assert cfg["workflow"]["stability"]["dewpoint"]["enabled"] is True
     assert cfg["workflow"]["stability"]["dewpoint"]["rh_match_tol_pct"] == 3.3

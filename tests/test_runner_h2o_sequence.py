@@ -2687,6 +2687,19 @@ def test_wait_co2_route_soak_warn_policy_allows_following_pressure_seal(
     assert "co2_precondition_dewpoint_gate_end" in trace_stages
 
 
+def test_gas_route_dewpoint_gate_cfg_uses_relaxed_runtime_defaults(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+
+    cfg = runner._gas_route_dewpoint_gate_cfg()
+    logger.close()
+
+    assert cfg["policy"] == "warn"
+    assert cfg["tail_span_max_c"] == 0.45
+    assert cfg["tail_slope_abs_max_c_per_s"] == 0.005
+    assert cfg["rebound_min_rise_c"] == 1.3
+
+
 def test_build_point_summary_row_includes_co2_precondition_dewpoint_gate_fields(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)

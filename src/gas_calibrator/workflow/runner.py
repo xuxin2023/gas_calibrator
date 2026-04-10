@@ -10969,13 +10969,13 @@ class CalibrationRunner:
             "poll_s": max(0.2, float(self._wf("workflow.stability.gas_route_dewpoint_gate_poll_s", 2.0) or 2.0)),
             "tail_span_max_c": max(
                 0.0,
-                float(self._wf("workflow.stability.gas_route_dewpoint_gate_tail_span_max_c", 0.35) or 0.35),
+                float(self._wf("workflow.stability.gas_route_dewpoint_gate_tail_span_max_c", 0.45) or 0.45),
             ),
             "tail_slope_abs_max_c_per_s": max(
                 0.0,
                 float(
-                    self._wf("workflow.stability.gas_route_dewpoint_gate_tail_slope_abs_max_c_per_s", 0.003)
-                    or 0.003
+                    self._wf("workflow.stability.gas_route_dewpoint_gate_tail_slope_abs_max_c_per_s", 0.005)
+                    or 0.005
                 ),
             ),
             "rebound_window_s": max(
@@ -10984,7 +10984,7 @@ class CalibrationRunner:
             ),
             "rebound_min_rise_c": max(
                 0.0,
-                float(self._wf("workflow.stability.gas_route_dewpoint_gate_rebound_min_rise_c", 1.0) or 1.0),
+                float(self._wf("workflow.stability.gas_route_dewpoint_gate_rebound_min_rise_c", 1.3) or 1.3),
             ),
             "log_interval_s": max(
                 1.0,

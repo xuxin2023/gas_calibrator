@@ -1574,9 +1574,14 @@
         "measurement_core_phase_coverage": "measurement-core phase coverage：{value}",
         "measurement_core_payload_phases": "payload-backed 仿真阶段：{value}",
         "measurement_core_trace_only": "trace-only 阶段：{value}",
-        "measurement_core_payload_completeness": "payload 完整度：{value}",
-        "measurement_core_sidecar_contract": "sidecar-ready 合同：{value}",
-        "workbench_evidence": "工作台诊断证据：{value}"
+      "measurement_core_payload_completeness": "payload 完整度：{value}",
+      "measurement_core_sidecar_contract": "sidecar-ready 合同：{value}",
+      "workbench_evidence": "工作台诊断证据：{value}",
+      "artifact_compatibility_contracts": "工件合同/Schema：{value}",
+      "artifact_compatibility_recommendation": "兼容性建议：{value}",
+      "artifact_compatibility_rollup": "兼容性 rollup：{value}",
+      "artifact_compatibility_boundary": "兼容性边界：{value}",
+      "artifact_compatibility_non_claim": "兼容性 non-claim：{value}"
       }
     },
     "route_status": {

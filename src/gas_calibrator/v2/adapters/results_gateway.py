@@ -974,7 +974,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.artifact_compatibility_rollup",
                         value=rollup_summary,
-                        default=f"compatibility rollup: {rollup_summary}",
+                        default=f"兼容性 rollup：{rollup_summary}",
                     )
                 )
             recommendation_text = str(
@@ -1750,7 +1750,13 @@ def _results_gateway_decorate_artifact_compatibility_row(
     if schema_contract_summary:
         entry_lines.append(f"合同/Schema {schema_contract_summary}")
     if rollup_summary:
-        entry_lines.append(f"rollup {rollup_summary}")
+        entry_lines.append(
+            t(
+                "facade.results.result_summary.artifact_compatibility_rollup",
+                value=rollup_summary,
+                default=f"兼容性 rollup：{rollup_summary}",
+            )
+        )
     if bool(compatibility_entry.get("regenerate_recommended", False)):
         entry_lines.append("建议再生成 reviewer/index sidecar")
     if recommendation_text:

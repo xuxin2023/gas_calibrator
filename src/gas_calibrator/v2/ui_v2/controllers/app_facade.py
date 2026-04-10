@@ -1996,7 +1996,7 @@ class AppFacade:
                         or compatibility_overview.get("rollup_summary_display")
                         or "--"
                     ),
-                    default="compatibility rollup: {value}",
+                    default="兼容性 rollup：{value}",
                 ),
                 t(
                     "facade.results.result_summary.artifact_compatibility_boundary",
@@ -4290,7 +4290,11 @@ class AppFacade:
             )
         if str(compatibility_rollup.get("rollup_summary_display") or "").strip():
             detail_lines.append(
-                f"compatibility rollup: {str(compatibility_rollup.get('rollup_summary_display') or '--')}"
+                t(
+                    "facade.results.result_summary.artifact_compatibility_rollup",
+                    value=str(compatibility_rollup.get("rollup_summary_display") or "--"),
+                    default="兼容性 rollup：{value}",
+                )
             )
         if str(compatibility_overview.get("non_primary_boundary_display") or "").strip():
             detail_lines.append(
@@ -4710,7 +4714,11 @@ class AppFacade:
         )
         compatibility_rollup_payload = dict(compatibility_rollup or {})
         compatibility_summary = self._humanize_ui_summary(
-            str(compatibility_rollup_payload.get("rollup_summary_display") or t("common.none"))
+            t(
+                "facade.results.result_summary.artifact_compatibility_rollup",
+                value=str(compatibility_rollup_payload.get("rollup_summary_display") or t("common.none")),
+                default="兼容性 rollup：{value}",
+            )
         )
         summary_text = t(
             "results.review_center.index.summary",
