@@ -223,6 +223,8 @@ def _design_matrix(
             columns.append(_feature_column(frame, "K_feature"))
         elif term == "K^2":
             columns.append(np.square(_feature_column(frame, "K_feature")))
+        elif term == "A*K":
+            columns.append(absorbance * _feature_column(frame, "K_feature"))
         elif term == "R":
             columns.append(_feature_column(frame, "ratio_feature"))
         elif term == "R^2":
