@@ -74,6 +74,7 @@ from ..core.stage3_standards_alignment_matrix_artifact_entry import (
     STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_ARTIFACT_KEY,
     build_stage3_standards_alignment_matrix_artifact_entry,
 )
+from .method_confirmation_gateway import MethodConfirmationGateway
 from .recognition_scope_gateway import RecognitionScopeGateway
 from .uncertainty_gateway import UncertaintyGateway
 from ..review_surface_formatter import (
@@ -303,6 +304,24 @@ class ResultsGateway:
         uncertainty_report_pack = dict(uncertainty_payload.get("uncertainty_report_pack") or {})
         uncertainty_digest = dict(uncertainty_payload.get("uncertainty_digest") or {})
         uncertainty_rollup = dict(uncertainty_payload.get("uncertainty_rollup") or {})
+        method_confirmation_payload = MethodConfirmationGateway(
+            self.run_dir,
+            summary=summary if isinstance(summary, dict) else None,
+            analytics_summary=analytics_summary if isinstance(analytics_summary, dict) else None,
+            evidence_registry=evidence_registry if isinstance(evidence_registry, dict) else None,
+            workbench_action_report=workbench_action_report if isinstance(workbench_action_report, dict) else None,
+            workbench_action_snapshot=workbench_action_snapshot if isinstance(workbench_action_snapshot, dict) else None,
+            scope_readiness_summary=scope_readiness_summary,
+            compatibility_scan_summary=compatibility_scan_summary,
+        ).read_payload()
+        method_confirmation_protocol = dict(method_confirmation_payload.get("method_confirmation_protocol") or {})
+        method_confirmation_matrix = dict(method_confirmation_payload.get("method_confirmation_matrix") or {})
+        route_specific_validation_matrix = dict(
+            method_confirmation_payload.get("route_specific_validation_matrix") or {}
+        )
+        validation_run_set = dict(method_confirmation_payload.get("validation_run_set") or {})
+        verification_digest = dict(method_confirmation_payload.get("verification_digest") or {})
+        verification_rollup = dict(method_confirmation_payload.get("verification_rollup") or {})
         evidence_source = self._resolve_current_run_evidence_source(workbench_evidence_summary, workbench_action_report)
         evidence_state = str(
             workbench_evidence_summary.get("evidence_state")
@@ -345,6 +364,12 @@ class ResultsGateway:
             scope_readiness_summary=scope_readiness_summary,
             certificate_readiness_summary=certificate_readiness_summary,
             pre_run_readiness_gate=pre_run_readiness_gate,
+            method_confirmation_protocol=method_confirmation_protocol,
+            method_confirmation_matrix=method_confirmation_matrix,
+            route_specific_validation_matrix=route_specific_validation_matrix,
+            validation_run_set=validation_run_set,
+            verification_digest=verification_digest,
+            verification_rollup=verification_rollup,
             uncertainty_report_pack=uncertainty_report_pack,
             uncertainty_digest=uncertainty_digest,
             uncertainty_rollup=uncertainty_rollup,
@@ -400,6 +425,12 @@ class ResultsGateway:
             "scope_readiness_summary": scope_readiness_summary,
             "certificate_readiness_summary": certificate_readiness_summary,
             "pre_run_readiness_gate": pre_run_readiness_gate,
+            "method_confirmation_protocol": method_confirmation_protocol,
+            "method_confirmation_matrix": method_confirmation_matrix,
+            "route_specific_validation_matrix": route_specific_validation_matrix,
+            "validation_run_set": validation_run_set,
+            "verification_digest": verification_digest,
+            "verification_rollup": verification_rollup,
             "uncertainty_model": uncertainty_model,
             "uncertainty_input_set": uncertainty_input_set,
             "sensitivity_coefficient_set": sensitivity_coefficient_set,
@@ -444,6 +475,12 @@ class ResultsGateway:
         scope_readiness_summary = dict(payload.get("scope_readiness_summary", {}) or {})
         certificate_readiness_summary = dict(payload.get("certificate_readiness_summary", {}) or {})
         pre_run_readiness_gate = dict(payload.get("pre_run_readiness_gate", {}) or {})
+        method_confirmation_protocol = dict(payload.get("method_confirmation_protocol", {}) or {})
+        method_confirmation_matrix = dict(payload.get("method_confirmation_matrix", {}) or {})
+        route_specific_validation_matrix = dict(payload.get("route_specific_validation_matrix", {}) or {})
+        validation_run_set = dict(payload.get("validation_run_set", {}) or {})
+        verification_digest = dict(payload.get("verification_digest", {}) or {})
+        verification_rollup = dict(payload.get("verification_rollup", {}) or {})
         uncertainty_model = dict(payload.get("uncertainty_model", {}) or {})
         uncertainty_input_set = dict(payload.get("uncertainty_input_set", {}) or {})
         sensitivity_coefficient_set = dict(payload.get("sensitivity_coefficient_set", {}) or {})
@@ -713,6 +750,30 @@ class ResultsGateway:
                 row,
                 pre_run_readiness_gate=pre_run_readiness_gate,
             )
+            row = self._decorate_method_confirmation_protocol_row(
+                row,
+                method_confirmation_protocol=method_confirmation_protocol,
+            )
+            row = self._decorate_method_confirmation_matrix_row(
+                row,
+                method_confirmation_matrix=method_confirmation_matrix,
+            )
+            row = self._decorate_route_specific_validation_matrix_row(
+                row,
+                route_specific_validation_matrix=route_specific_validation_matrix,
+            )
+            row = self._decorate_validation_run_set_row(
+                row,
+                validation_run_set=validation_run_set,
+            )
+            row = self._decorate_verification_digest_row(
+                row,
+                verification_digest=verification_digest,
+            )
+            row = self._decorate_verification_rollup_row(
+                row,
+                verification_rollup=verification_rollup,
+            )
             row = self._decorate_uncertainty_model_row(
                 row,
                 uncertainty_model=uncertainty_model,
@@ -780,6 +841,12 @@ class ResultsGateway:
             "scope_readiness_summary": scope_readiness_summary,
             "certificate_readiness_summary": certificate_readiness_summary,
             "pre_run_readiness_gate": pre_run_readiness_gate,
+            "method_confirmation_protocol": method_confirmation_protocol,
+            "method_confirmation_matrix": method_confirmation_matrix,
+            "route_specific_validation_matrix": route_specific_validation_matrix,
+            "validation_run_set": validation_run_set,
+            "verification_digest": verification_digest,
+            "verification_rollup": verification_rollup,
             "uncertainty_model": uncertainty_model,
             "uncertainty_input_set": uncertainty_input_set,
             "sensitivity_coefficient_set": sensitivity_coefficient_set,
@@ -901,6 +968,12 @@ class ResultsGateway:
         scope_readiness_summary: dict[str, Any] | None,
         certificate_readiness_summary: dict[str, Any] | None,
         pre_run_readiness_gate: dict[str, Any] | None,
+        method_confirmation_protocol: dict[str, Any] | None,
+        method_confirmation_matrix: dict[str, Any] | None,
+        route_specific_validation_matrix: dict[str, Any] | None,
+        validation_run_set: dict[str, Any] | None,
+        verification_digest: dict[str, Any] | None,
+        verification_rollup: dict[str, Any] | None,
         uncertainty_report_pack: dict[str, Any] | None,
         uncertainty_digest: dict[str, Any] | None,
         uncertainty_rollup: dict[str, Any] | None,
@@ -928,6 +1001,12 @@ class ResultsGateway:
         scope_readiness_payload = dict(scope_readiness_summary or {})
         certificate_readiness_payload = dict(certificate_readiness_summary or {})
         pre_run_gate_payload = dict(pre_run_readiness_gate or {})
+        method_confirmation_protocol_payload = dict(method_confirmation_protocol or {})
+        method_confirmation_matrix_payload = dict(method_confirmation_matrix or {})
+        route_specific_validation_matrix_payload = dict(route_specific_validation_matrix or {})
+        validation_run_set_payload = dict(validation_run_set or {})
+        verification_digest_payload = dict(verification_digest or {})
+        verification_rollup_payload = dict(verification_rollup or {})
         uncertainty_report_payload = dict(uncertainty_report_pack or {})
         uncertainty_digest_payload = dict(uncertainty_digest or {})
         uncertainty_rollup_payload = dict(uncertainty_rollup or {})
@@ -1418,6 +1497,114 @@ class ResultsGateway:
                     )
                 )
 
+        verification_digest_text = dict(
+            verification_rollup_payload.get("digest")
+            or verification_digest_payload.get("digest")
+            or route_specific_validation_matrix_payload.get("digest")
+            or {}
+        )
+        if (
+            method_confirmation_protocol_payload
+            or method_confirmation_matrix_payload
+            or route_specific_validation_matrix_payload
+            or validation_run_set_payload
+            or verification_digest_payload
+            or verification_rollup_payload
+        ):
+            protocol_overview_text = str(
+                verification_digest_text.get("protocol_overview_summary")
+                or dict(method_confirmation_protocol_payload.get("digest") or {}).get("summary")
+                or method_confirmation_protocol_payload.get("protocol_id")
+                or ""
+            ).strip()
+            if protocol_overview_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.method_confirmation_overview",
+                        value=protocol_overview_text,
+                        default=f"方法确认概览：{protocol_overview_text}",
+                    )
+                )
+            matrix_completeness_text = str(
+                verification_rollup_payload.get("rollup_summary_display")
+                or verification_digest_text.get("matrix_completeness_summary")
+                or ""
+            ).strip()
+            if matrix_completeness_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.validation_matrix_completeness",
+                        value=matrix_completeness_text,
+                        default=f"验证矩阵完整度：{matrix_completeness_text}",
+                    )
+                )
+            current_evidence_coverage_text = str(
+                verification_digest_text.get("current_evidence_coverage_summary")
+                or verification_digest_text.get("current_coverage_summary")
+                or ""
+            ).strip()
+            if current_evidence_coverage_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.validation_current_evidence_coverage",
+                        value=current_evidence_coverage_text,
+                        default=f"当前证据覆盖：{current_evidence_coverage_text}",
+                    )
+                )
+            top_gaps_text = str(
+                verification_digest_text.get("top_gaps_summary")
+                or verification_digest_text.get("missing_evidence_summary")
+                or ""
+            ).strip()
+            if top_gaps_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.validation_top_gaps",
+                        value=top_gaps_text,
+                        default=f"主要缺口：{top_gaps_text}",
+                    )
+                )
+            reviewer_actions_text = str(
+                verification_digest_text.get("reviewer_action_summary")
+                or ""
+            ).strip()
+            if reviewer_actions_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.validation_reviewer_actions",
+                        value=reviewer_actions_text,
+                        default=f"审阅动作：{reviewer_actions_text}",
+                    )
+                )
+            method_non_claim_text = str(
+                verification_rollup_payload.get("non_claim_note")
+                or verification_digest_payload.get("non_claim_note")
+                or verification_digest_text.get("non_claim_digest")
+                or ""
+            ).strip()
+            if method_non_claim_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.method_confirmation_non_claim",
+                        value=method_non_claim_text,
+                        default=f"方法确认 non-claim：{method_non_claim_text}",
+                    )
+                )
+            readiness_status_text = str(
+                verification_rollup_payload.get("readiness_status_summary")
+                or verification_digest_text.get("readiness_status_summary")
+                or route_specific_validation_matrix_payload.get("validation_status")
+                or ""
+            ).strip()
+            if readiness_status_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.verification_readiness_status",
+                        value=readiness_status_text,
+                        default=f"验证就绪状态：{readiness_status_text}",
+                    )
+                )
+
         stability_digest = dict(stability_summary.get("digest") or {})
         transition_digest = dict(transition_summary.get("digest") or {})
         phase_coverage_digest = dict(phase_coverage_summary.get("digest") or {})
@@ -1891,6 +2078,96 @@ class ResultsGateway:
             json_filename=recognition_readiness.PRE_RUN_READINESS_GATE_FILENAME,
             markdown_filename=recognition_readiness.PRE_RUN_READINESS_GATE_MARKDOWN_FILENAME,
             entry_key="pre_run_readiness_gate_entry",
+        )
+
+    @classmethod
+    def _decorate_method_confirmation_protocol_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        method_confirmation_protocol: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=method_confirmation_protocol,
+            json_filename=recognition_readiness.METHOD_CONFIRMATION_PROTOCOL_FILENAME,
+            markdown_filename=recognition_readiness.METHOD_CONFIRMATION_PROTOCOL_MARKDOWN_FILENAME,
+            entry_key="method_confirmation_protocol_entry",
+        )
+
+    @classmethod
+    def _decorate_method_confirmation_matrix_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        method_confirmation_matrix: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=method_confirmation_matrix,
+            json_filename=recognition_readiness.METHOD_CONFIRMATION_MATRIX_FILENAME,
+            markdown_filename=recognition_readiness.METHOD_CONFIRMATION_MATRIX_MARKDOWN_FILENAME,
+            entry_key="method_confirmation_matrix_entry",
+        )
+
+    @classmethod
+    def _decorate_route_specific_validation_matrix_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        route_specific_validation_matrix: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=route_specific_validation_matrix,
+            json_filename=recognition_readiness.ROUTE_SPECIFIC_VALIDATION_MATRIX_FILENAME,
+            markdown_filename=recognition_readiness.ROUTE_SPECIFIC_VALIDATION_MATRIX_MARKDOWN_FILENAME,
+            entry_key="route_specific_validation_matrix_entry",
+        )
+
+    @classmethod
+    def _decorate_validation_run_set_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        validation_run_set: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=validation_run_set,
+            json_filename=recognition_readiness.VALIDATION_RUN_SET_FILENAME,
+            markdown_filename=recognition_readiness.VALIDATION_RUN_SET_MARKDOWN_FILENAME,
+            entry_key="validation_run_set_entry",
+        )
+
+    @classmethod
+    def _decorate_verification_digest_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        verification_digest: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=verification_digest,
+            json_filename=recognition_readiness.VERIFICATION_DIGEST_FILENAME,
+            markdown_filename=recognition_readiness.VERIFICATION_DIGEST_MARKDOWN_FILENAME,
+            entry_key="verification_digest_entry",
+        )
+
+    @classmethod
+    def _decorate_verification_rollup_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        verification_rollup: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=verification_rollup,
+            json_filename=recognition_readiness.VERIFICATION_ROLLUP_FILENAME,
+            markdown_filename=recognition_readiness.VERIFICATION_ROLLUP_MARKDOWN_FILENAME,
+            entry_key="verification_rollup_entry",
         )
 
     @classmethod
