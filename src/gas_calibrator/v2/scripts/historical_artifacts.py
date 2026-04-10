@@ -358,6 +358,7 @@ def _build_operation_report(
         generated_by_tool=HISTORICAL_ARTIFACT_ROLLUP_TOOL,
     )
     readiness_status_counts = _summarize_counts(runs, "readiness_status")
+    pre_run_gate_status_counts = _summarize_counts(runs, "pre_run_gate_status")
     recognition_scope_rollup = {
         "schema_version": "step2-recognition-scope-batch-rollup-v1",
         "generated_by_tool": HISTORICAL_ARTIFACT_ROLLUP_TOOL,
@@ -371,7 +372,9 @@ def _build_operation_report(
             sum(1 for row in runs if bool(row.get("compatibility_adapter", False)))
         ),
         "readiness_status_counts": readiness_status_counts,
+        "pre_run_gate_status_counts": pre_run_gate_status_counts,
         "summary_lines": [
+            "pre-run gate: " + " | ".join(f"{key} {value}" for key, value in pre_run_gate_status_counts.items()),
             f"认可范围包运行数：{len(runs)}",
             f"canonical 直读：{int(sum(1 for row in runs if bool(row.get('canonical_direct', False))))}",
             f"兼容适配读取：{int(sum(1 for row in runs if bool(row.get('compatibility_adapter', False))))}",
@@ -398,6 +401,10 @@ def _build_operation_report(
         "primary_evidence_rewritten": False,
         "reader_mode_counts": _summarize_counts(runs, "current_reader_mode"),
         "compatibility_status_counts": _summarize_counts(runs, "compatibility_status"),
+        "pre_run_gate_status_counts": pre_run_gate_status_counts,
+        "ready_for_readiness_mapping_count": sum(
+            1 for row in runs if bool(row.get("ready_for_readiness_mapping", False))
+        ),
         "regenerate_recommended_count": sum(
             1 for row in runs if bool(row.get("regenerate_recommended", False))
         ),

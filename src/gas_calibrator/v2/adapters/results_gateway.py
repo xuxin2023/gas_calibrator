@@ -1185,35 +1185,65 @@ class ResultsGateway:
                 or ""
             ).strip()
             if reference_asset_text:
-                lines.append(f"asset readiness overview: {reference_asset_text}")
+                lines.append(
+                    t(
+                        "facade.results.result_summary.asset_readiness_overview",
+                        value=reference_asset_text,
+                        default=f"asset readiness overview: {reference_asset_text}",
+                    )
+                )
             certificate_lifecycle_text = str(
                 dict(certificate_lifecycle_payload.get("digest") or {}).get("certificate_lifecycle_overview")
                 or dict(certificate_lifecycle_payload.get("digest") or {}).get("summary")
                 or ""
             ).strip()
             if certificate_lifecycle_text:
-                lines.append(f"certificate lifecycle overview: {certificate_lifecycle_text}")
+                lines.append(
+                    t(
+                        "facade.results.result_summary.certificate_lifecycle_overview",
+                        value=certificate_lifecycle_text,
+                        default=f"certificate lifecycle overview: {certificate_lifecycle_text}",
+                    )
+                )
             pre_run_gate_text = str(
                 dict(pre_run_gate_payload.get("digest") or {}).get("pre_run_gate_status")
                 or pre_run_gate_payload.get("gate_status")
                 or ""
             ).strip()
             if pre_run_gate_text:
-                lines.append(f"pre-run readiness gate: {pre_run_gate_text}")
+                lines.append(
+                    t(
+                        "facade.results.result_summary.pre_run_readiness_gate",
+                        value=pre_run_gate_text,
+                        default=f"pre-run readiness gate: {pre_run_gate_text}",
+                    )
+                )
             blocking_text = str(
                 scope_rollup.get("blocking_digest")
                 or dict(pre_run_gate_payload.get("digest") or {}).get("blocker_summary")
                 or ""
             ).strip()
             if blocking_text:
-                lines.append(f"blocking digest: {blocking_text}")
+                lines.append(
+                    t(
+                        "facade.results.result_summary.pre_run_blocking_digest",
+                        value=blocking_text,
+                        default=f"blocking digest: {blocking_text}",
+                    )
+                )
             warning_text = str(
                 scope_rollup.get("warning_digest")
                 or dict(pre_run_gate_payload.get("digest") or {}).get("warning_summary")
                 or ""
             ).strip()
             if warning_text:
-                lines.append(f"warning digest: {warning_text}")
+                lines.append(
+                    t(
+                        "facade.results.result_summary.pre_run_warning_digest",
+                        value=warning_text,
+                        default=f"warning digest: {warning_text}",
+                    )
+                )
 
         stability_digest = dict(stability_summary.get("digest") or {})
         transition_digest = dict(transition_summary.get("digest") or {})

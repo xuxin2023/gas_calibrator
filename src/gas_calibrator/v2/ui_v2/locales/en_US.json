@@ -1575,20 +1575,25 @@
         "measurement_core_phase_coverage": "Measurement-core phase coverage: {value}",
         "measurement_core_payload_phases": "Payload-backed simulated phases: {value}",
         "measurement_core_trace_only": "Trace-only phases: {value}",
-      "measurement_core_payload_completeness": "Payload completeness: {value}",
-      "measurement_core_sidecar_contract": "Sidecar-ready contract: {value}",
-      "workbench_evidence": "Workbench diagnostic evidence: {value}",
-      "artifact_compatibility_contracts": "Artifact contract/Schema: {value}",
-      "artifact_compatibility_recommendation": "Compatibility recommendation: {value}",
-      "artifact_compatibility_rollup": "Compatibility rollup: {value}",
-      "artifact_compatibility_boundary": "Compatibility boundary: {value}",
-      "artifact_compatibility_non_claim": "Compatibility non-claim: {value}",
-      "scope_package": "Scope package: {value}",
-      "decision_rule_profile": "Decision rule profile: {value}",
-      "conformity_boundary": "Conformity boundary: {value}",
-      "recognition_scope_repository": "Scope repository: {value}",
-      "recognition_scope_rollup": "Scope/rule rollup: {value}",
-      "scope_non_claim": "Non-claim boundary: {value}"
+        "measurement_core_payload_completeness": "Payload completeness: {value}",
+        "measurement_core_sidecar_contract": "Sidecar-ready contract: {value}",
+        "workbench_evidence": "Workbench diagnostic evidence: {value}",
+        "artifact_compatibility_contracts": "Artifact contract/Schema: {value}",
+        "artifact_compatibility_recommendation": "Compatibility recommendation: {value}",
+        "artifact_compatibility_rollup": "Compatibility rollup: {value}",
+        "artifact_compatibility_boundary": "Compatibility boundary: {value}",
+        "artifact_compatibility_non_claim": "Compatibility non-claim: {value}",
+        "scope_package": "Scope package: {value}",
+        "decision_rule_profile": "Decision rule profile: {value}",
+        "conformity_boundary": "Conformity boundary: {value}",
+        "recognition_scope_repository": "Scope repository: {value}",
+        "recognition_scope_rollup": "Scope/rule rollup: {value}",
+        "scope_non_claim": "Non-claim boundary: {value}",
+        "asset_readiness_overview": "Asset readiness overview: {value}",
+        "certificate_lifecycle_overview": "Certificate lifecycle overview: {value}",
+        "pre_run_readiness_gate": "Pre-run readiness gate: {value}",
+        "pre_run_blocking_digest": "Blocking digest: {value}",
+        "pre_run_warning_digest": "Warning digest: {value}"
       }
     },
     "route_status": {
@@ -1997,10 +2002,10 @@
         "spectral_status": "Spectral Status",
         "measurement": {
           "layer": {
-        "reference": "reference layer",
-        "analyzer_raw": "analyzer raw layer",
-        "output": "output layer",
-        "data_quality": "data quality layer"
+            "reference": "reference layer",
+            "analyzer_raw": "analyzer raw layer",
+            "output": "output layer",
+            "data_quality": "data quality layer"
           },
           "bucket": {
             "payload_complete": "payload-complete",
@@ -2085,7 +2090,14 @@
           "next_artifacts_line": "Next artifacts: {value}",
           "reviewer_next_step_line": "Reviewer next step: {value}",
           "boundary_line": "Boundary: {value}",
-          "non_claim_line": "Non-claim boundary: {value}"
+          "non_claim_line": "Non-claim boundary: {value}",
+          "asset_readiness_overview_line": "Asset readiness overview: {value}",
+          "certificate_lifecycle_overview_line": "Certificate lifecycle overview: {value}",
+          "pre_run_gate_status_line": "Pre-run gate status: {value}",
+          "scope_reference_assets_line": "Scope reference assets: {value}",
+          "decision_rule_dependency_line": "Decision rule dependencies: {value}",
+          "warning_items_line": "Warning items: {value}",
+          "reviewer_action_summary_line": "Reviewer actions: {value}"
         },
         "boundary": "Boundary"
       },
@@ -2112,12 +2124,12 @@
         "offline_diagnostic": "Offline Diagnostic",
         "measurement_phase_coverage": "Measurement Phase Coverage"
       },
-    "source_kind": {
-      "run": "Run Evidence",
-      "suite": "Suite Evidence",
-      "workbench": "Workbench Evidence",
-      "mixed": "Mixed Sources"
-    },
+      "source_kind": {
+        "run": "Run Evidence",
+        "suite": "Suite Evidence",
+        "workbench": "Workbench Evidence",
+        "mixed": "Mixed Sources"
+      },
       "status": {
         "passed": "Passed",
         "failed": "Failed",
@@ -2137,12 +2149,12 @@
         "missing_type_count": "{type} missing {count}",
         "source_drilldown_summary": "Active source {source} | latest {latest} | coverage {coverage} | gaps {gaps} | scope {scope} | filtered {visible}/{total}"
       },
-    "scope": {
-      "readiness_summary": "Offline source {source} | coverage {coverage} | gaps {gaps} | filtered {visible}/{total} | simulated/offline review only, not real acceptance",
-      "analytics_summary": "Source {source} | {summary}",
-      "lineage_summary": "Source {source} | {summary}",
-      "no_detail": "No extra detail for the current source and filter."
-    },
+      "scope": {
+        "readiness_summary": "Offline source {source} | coverage {coverage} | gaps {gaps} | filtered {visible}/{total} | simulated/offline review only, not real acceptance",
+        "analytics_summary": "Source {source} | {summary}",
+        "lineage_summary": "Source {source} | {summary}",
+        "no_detail": "No extra detail for the current source and filter."
+      },
       "analytics": {
         "summary_line": "coverage {coverage} | reference {reference} | exports {exports} | lineage {lineage}"
       },
@@ -2155,14 +2167,14 @@
         "low": "Low",
         "summary": "{level} | failed {failed} | degraded {degraded} | diagnostic {diagnostic} | missing {missing} | coverage {coverage}"
       },
-    "focus": {
-      "operator_summary": "Execution health: {health}\nLatest suite: {suite}\nLatest workbench: {workbench}\nLatest analytics: {analytics}\nCurrent risk: {risk}\nCross-run sources: {runs}, complete bundles {complete}",
-      "reviewer_summary": "Evidence completeness: {completeness}\nLatest parity: {parity}\nLatest resilience: {resilience}\nLatest analytics: {analytics}\nNotes pending: {notes}\nCoverage gaps: {coverage}\nRisk level: {risk}",
-      "approver_summary": "Acceptance readiness: {readiness}\nPromotion: {promotion}\nOpen conditions: {missing}\nComplete cross-run bundles: {complete}\nCurrent gaps: {coverage}\nCurrent risk: {risk}",
-      "operator_source_summary": "Offline source: {source}\nLatest time: {latest}\nCoverage: {coverage}\nGaps: {gaps}\nSimulated/replay/diagnostic review only, not real acceptance",
-      "reviewer_source_summary": "Source: {source}\nFiltered evidence: {visible}/{total}\nScope: {scope}\nRisk: {risk}\nGaps: {gaps}",
-      "approver_source_summary": "Source: {source}\nOffline readiness hint: {readiness}\nFiltered evidence: {visible}/{total}\nRisk: {risk}\nThis view is offline/simulated only and does not represent real acceptance"
-    }
+      "focus": {
+        "operator_summary": "Execution health: {health}\nLatest suite: {suite}\nLatest workbench: {workbench}\nLatest analytics: {analytics}\nCurrent risk: {risk}\nCross-run sources: {runs}, complete bundles {complete}",
+        "reviewer_summary": "Evidence completeness: {completeness}\nLatest parity: {parity}\nLatest resilience: {resilience}\nLatest analytics: {analytics}\nNotes pending: {notes}\nCoverage gaps: {coverage}\nRisk level: {risk}",
+        "approver_summary": "Acceptance readiness: {readiness}\nPromotion: {promotion}\nOpen conditions: {missing}\nComplete cross-run bundles: {complete}\nCurrent gaps: {coverage}\nCurrent risk: {risk}",
+        "operator_source_summary": "Offline source: {source}\nLatest time: {latest}\nCoverage: {coverage}\nGaps: {gaps}\nSimulated/replay/diagnostic review only, not real acceptance",
+        "reviewer_source_summary": "Source: {source}\nFiltered evidence: {visible}/{total}\nScope: {scope}\nRisk: {risk}\nGaps: {gaps}",
+        "approver_source_summary": "Source: {source}\nOffline readiness hint: {readiness}\nFiltered evidence: {visible}/{total}\nRisk: {risk}\nThis view is offline/simulated only and does not represent real acceptance"
+      }
     }
   },
   "taxonomy": {

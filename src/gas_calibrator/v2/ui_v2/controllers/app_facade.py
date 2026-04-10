@@ -2098,27 +2098,57 @@ class AppFacade:
                     else []
                 ),
                 *(
-                    [f"asset readiness overview: {reference_asset_registry_text}"]
+                    [
+                        t(
+                            "facade.results.result_summary.asset_readiness_overview",
+                            value=reference_asset_registry_text,
+                            default=f"asset readiness overview: {reference_asset_registry_text}",
+                        )
+                    ]
                     if reference_asset_registry
                     else []
                 ),
                 *(
-                    [f"certificate lifecycle overview: {certificate_lifecycle_text}"]
+                    [
+                        t(
+                            "facade.results.result_summary.certificate_lifecycle_overview",
+                            value=certificate_lifecycle_text,
+                            default=f"certificate lifecycle overview: {certificate_lifecycle_text}",
+                        )
+                    ]
                     if certificate_lifecycle_summary
                     else []
                 ),
                 *(
-                    [f"pre-run readiness gate: {pre_run_readiness_gate_text}"]
+                    [
+                        t(
+                            "facade.results.result_summary.pre_run_readiness_gate",
+                            value=pre_run_readiness_gate_text,
+                            default=f"pre-run readiness gate: {pre_run_readiness_gate_text}",
+                        )
+                    ]
                     if pre_run_readiness_gate
                     else []
                 ),
                 *(
-                    [f"blocking digest: {pre_run_blocking_text}"]
+                    [
+                        t(
+                            "facade.results.result_summary.pre_run_blocking_digest",
+                            value=pre_run_blocking_text,
+                            default=f"blocking digest: {pre_run_blocking_text}",
+                        )
+                    ]
                     if pre_run_readiness_gate
                     else []
                 ),
                 *(
-                    [f"warning digest: {pre_run_warning_text}"]
+                    [
+                        t(
+                            "facade.results.result_summary.pre_run_warning_digest",
+                            value=pre_run_warning_text,
+                            default=f"warning digest: {pre_run_warning_text}",
+                        )
+                    ]
                     if pre_run_readiness_gate
                     else []
                 ),

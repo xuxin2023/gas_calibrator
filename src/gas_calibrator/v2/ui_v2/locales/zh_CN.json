@@ -630,8 +630,8 @@
           "fault_injection": "故障注入",
           "reference_quality_summary": "参考质量摘要",
           "route_relay_summary": "路由/继电器摘要",
-          "snapshot_compare": "快照对比"
-          ,"measurement_core": "measurement-core readiness"
+          "snapshot_compare": "快照对比",
+          "measurement_core": "measurement-core readiness"
         },
         "enum": {
           "action_result": {
@@ -1071,8 +1071,8 @@
           "suite_analytics_summary": "{suite} | {status} | {analytics} | 血缘 {lineage}",
           "artifact_lineage": "工件 / 血缘",
           "artifact_lineage_summary": "角色 {role} | 来源 {source} | 状态 {state}",
-          "point_taxonomy": "点位语义"
-          ,"measurement_core": "measurement-core readiness"
+          "point_taxonomy": "点位语义",
+          "measurement_core": "measurement-core readiness"
         },
         "engineer_block": {
           "route": "路由健康",
@@ -1574,20 +1574,25 @@
         "measurement_core_phase_coverage": "measurement-core phase coverage：{value}",
         "measurement_core_payload_phases": "payload-backed 仿真阶段：{value}",
         "measurement_core_trace_only": "trace-only 阶段：{value}",
-      "measurement_core_payload_completeness": "payload 完整度：{value}",
-      "measurement_core_sidecar_contract": "sidecar-ready 合同：{value}",
-      "workbench_evidence": "工作台诊断证据：{value}",
-      "artifact_compatibility_contracts": "工件合同/Schema：{value}",
-      "artifact_compatibility_recommendation": "兼容性建议：{value}",
-      "artifact_compatibility_rollup": "兼容性 rollup：{value}",
-      "artifact_compatibility_boundary": "兼容性边界：{value}",
-      "artifact_compatibility_non_claim": "兼容性 non-claim：{value}",
-      "scope_package": "认可范围包：{value}",
-      "decision_rule_profile": "决策规则：{value}",
-      "conformity_boundary": "符合性边界：{value}",
-      "recognition_scope_repository": "范围仓储：{value}",
-      "recognition_scope_rollup": "范围/规则 rollup：{value}",
-      "scope_non_claim": "非声明边界：{value}"
+        "measurement_core_payload_completeness": "payload 完整度：{value}",
+        "measurement_core_sidecar_contract": "sidecar-ready 合同：{value}",
+        "workbench_evidence": "工作台诊断证据：{value}",
+        "artifact_compatibility_contracts": "工件合同/Schema：{value}",
+        "artifact_compatibility_recommendation": "兼容性建议：{value}",
+        "artifact_compatibility_rollup": "兼容性 rollup：{value}",
+        "artifact_compatibility_boundary": "兼容性边界：{value}",
+        "artifact_compatibility_non_claim": "兼容性 non-claim：{value}",
+        "scope_package": "认可范围包：{value}",
+        "decision_rule_profile": "决策规则：{value}",
+        "conformity_boundary": "符合性边界：{value}",
+        "recognition_scope_repository": "范围仓储：{value}",
+        "recognition_scope_rollup": "范围/规则 rollup：{value}",
+        "scope_non_claim": "非声明边界：{value}",
+        "asset_readiness_overview": "???????{value}",
+        "certificate_lifecycle_overview": "?????????{value}",
+        "pre_run_readiness_gate": "???????{value}",
+        "pre_run_blocking_digest": "?????{value}",
+        "pre_run_warning_digest": "?????{value}"
       }
     },
     "route_status": {
@@ -2080,7 +2085,14 @@
           "gap_reason_line": "缺口原因：{value}",
           "next_artifacts_line": "下一步补证工件：{value}",
           "reviewer_next_step_line": "审阅下一步：{value}",
-          "non_claim_line": "非声明边界：{value}"
+          "non_claim_line": "非声明边界：{value}",
+          "asset_readiness_overview_line": "???????{value}",
+          "certificate_lifecycle_overview_line": "?????????{value}",
+          "pre_run_gate_status_line": "???????{value}",
+          "scope_reference_assets_line": "?????????{value}",
+          "decision_rule_dependency_line": "???????{value}",
+          "warning_items_line": "????{value}",
+          "reviewer_action_summary_line": "???????{value}"
         },
         "boundary": "边界"
       },
@@ -2107,12 +2119,12 @@
         "offline_diagnostic": "离线诊断",
         "measurement_phase_coverage": "measurement phase coverage"
       },
-    "source_kind": {
-      "run": "Run 证据",
-      "suite": "Suite 证据",
-      "workbench": "工作台证据",
-      "mixed": "混合来源"
-    },
+      "source_kind": {
+        "run": "Run 证据",
+        "suite": "Suite 证据",
+        "workbench": "工作台证据",
+        "mixed": "混合来源"
+      },
       "status": {
         "passed": "通过",
         "failed": "失败",
@@ -2132,23 +2144,23 @@
         "missing_type_count": "{type} 缺 {count}",
         "source_drilldown_summary": "当前来源 {source} | 最近 {latest} | 覆盖 {coverage} | 缺口 {gaps} | 范围 {scope} | 当前筛选 {visible}/{total}"
       },
-    "scope": {
-      "readiness_summary": "离线来源 {source} | 覆盖 {coverage} | 缺口 {gaps} | 当前筛选 {visible}/{total} | 仅供 simulated/offline 审阅，非真实 acceptance",
-      "analytics_summary": "来源 {source} | {summary}",
-      "lineage_summary": "来源 {source} | {summary}",
-      "no_detail": "当前来源与筛选条件下暂无更多详情。"
-    },
-    "lineage": {
-      "summary_line": "配置 {config} | 点位 {points} | 配置档 {profile}"
-    },
-    "focus": {
-      "operator_summary": "执行健康：{health}\n最近 suite：{suite}\n最近工作台证据：{workbench}\n最近 analytics：{analytics}\n当前风险：{risk}\n跨 run 来源：{runs}，完整证据束 {complete}",
-      "reviewer_summary": "证据完整度：{completeness}\n最近 parity：{parity}\n最近 resilience：{resilience}\n最近 analytics：{analytics}\n待补说明：{notes}\n覆盖缺口：{coverage}\n风险等级：{risk}",
-      "approver_summary": "验收就绪度：{readiness}\n推进状态：{promotion}\n未闭环条件：{missing}\n完整 cross-run 证据束：{complete}\n当前缺口：{coverage}\n当前风险：{risk}",
-      "operator_source_summary": "离线来源：{source}\n最近时间：{latest}\n覆盖：{coverage}\n缺口：{gaps}\n仅供 simulated/replay/diagnostic 审阅，非真实 acceptance",
-      "reviewer_source_summary": "来源：{source}\n当前筛选证据：{visible}/{total}\n来源范围：{scope}\n当前风险：{risk}\n缺口：{gaps}",
-      "approver_source_summary": "来源：{source}\n离线就绪提示：{readiness}\n当前筛选证据：{visible}/{total}\n当前风险：{risk}\n该视角仅供 offline/simulated 审阅，不代表真实 acceptance"
-    },
+      "scope": {
+        "readiness_summary": "离线来源 {source} | 覆盖 {coverage} | 缺口 {gaps} | 当前筛选 {visible}/{total} | 仅供 simulated/offline 审阅，非真实 acceptance",
+        "analytics_summary": "来源 {source} | {summary}",
+        "lineage_summary": "来源 {source} | {summary}",
+        "no_detail": "当前来源与筛选条件下暂无更多详情。"
+      },
+      "lineage": {
+        "summary_line": "配置 {config} | 点位 {points} | 配置档 {profile}"
+      },
+      "focus": {
+        "operator_summary": "执行健康：{health}\n最近 suite：{suite}\n最近工作台证据：{workbench}\n最近 analytics：{analytics}\n当前风险：{risk}\n跨 run 来源：{runs}，完整证据束 {complete}",
+        "reviewer_summary": "证据完整度：{completeness}\n最近 parity：{parity}\n最近 resilience：{resilience}\n最近 analytics：{analytics}\n待补说明：{notes}\n覆盖缺口：{coverage}\n风险等级：{risk}",
+        "approver_summary": "验收就绪度：{readiness}\n推进状态：{promotion}\n未闭环条件：{missing}\n完整 cross-run 证据束：{complete}\n当前缺口：{coverage}\n当前风险：{risk}",
+        "operator_source_summary": "离线来源：{source}\n最近时间：{latest}\n覆盖：{coverage}\n缺口：{gaps}\n仅供 simulated/replay/diagnostic 审阅，非真实 acceptance",
+        "reviewer_source_summary": "来源：{source}\n当前筛选证据：{visible}/{total}\n来源范围：{scope}\n当前风险：{risk}\n缺口：{gaps}",
+        "approver_source_summary": "来源：{source}\n离线就绪提示：{readiness}\n当前筛选证据：{visible}/{total}\n当前风险：{risk}\n该视角仅供 offline/simulated 审阅，不代表真实 acceptance"
+      },
       "analytics": {
         "summary_line": "覆盖 {coverage} | 参考 {reference} | 导出 {exports} | 血缘 {lineage}"
       },
