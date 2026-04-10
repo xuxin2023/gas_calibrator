@@ -18,6 +18,7 @@ from ..adapters.method_confirmation_gateway import MethodConfirmationGateway
 from ..adapters.recognition_scope_gateway import RecognitionScopeGateway
 from ..adapters.software_validation_gateway import SoftwareValidationGateway
 from ..adapters.uncertainty_gateway import UncertaintyGateway
+from ..adapters.wp6_gateway import Wp6Gateway
 from ._cli_safety import build_step2_historical_cli_lines
 
 
@@ -193,6 +194,20 @@ def _build_run_report(
         software_validation_payload.get("release_evidence_pack_index") or {}
     )
     software_validation_rollup = dict(software_validation_payload.get("software_validation_rollup") or {})
+    wp6_payload = Wp6Gateway(
+        run_dir,
+        summary=summary_payload,
+        scope_readiness_summary=(
+            dict(summary_payload.get("scope_readiness_summary") or {})
+            or dict(dict(summary_payload.get("stats") or {}).get("scope_readiness_summary") or {})
+        ),
+        compatibility_scan_summary=compatibility_scan_summary,
+    ).read_payload()
+    pt_ilc_registry = dict(wp6_payload.get("pt_ilc_registry") or {})
+    comparison_evidence_pack = dict(wp6_payload.get("comparison_evidence_pack") or {})
+    scope_comparison_view = dict(wp6_payload.get("scope_comparison_view") or {})
+    comparison_digest_payload = dict(wp6_payload.get("comparison_digest") or {})
+    comparison_rollup = dict(wp6_payload.get("comparison_rollup") or {})
     reference_asset_digest = dict(reference_asset_registry.get("digest") or {})
     certificate_lifecycle_digest = dict(certificate_lifecycle_summary.get("digest") or {})
     pre_run_gate_digest = dict(pre_run_readiness_gate.get("digest") or {})
@@ -441,6 +456,11 @@ def _build_run_report(
         "linked_hash_registry": dict(release_manifest.get("linked_hash_registry") or {}),
         "linked_test_suites": list(release_manifest.get("linked_test_suites") or []),
         "software_validation_rollup": software_validation_rollup,
+        "pt_ilc_registry": pt_ilc_registry,
+        "comparison_evidence_pack": comparison_evidence_pack,
+        "scope_comparison_view": scope_comparison_view,
+        "comparison_digest": comparison_digest_payload,
+        "comparison_rollup": comparison_rollup,
         "current_evidence_coverage": str(
             verification_digest.get("current_evidence_coverage_summary")
             or verification_digest.get("current_coverage_summary")
