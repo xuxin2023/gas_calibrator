@@ -78,6 +78,7 @@ from .method_confirmation_gateway import MethodConfirmationGateway
 from .recognition_scope_gateway import RecognitionScopeGateway
 from .software_validation_gateway import SoftwareValidationGateway
 from .uncertainty_gateway import UncertaintyGateway
+from .wp6_gateway import Wp6Gateway
 from ..review_surface_formatter import (
     collect_boundary_digest_lines,
     build_measurement_review_digest_lines,
@@ -361,6 +362,22 @@ class ResultsGateway:
             software_validation_payload.get("release_validation_manifest") or {}
         )
         software_validation_rollup = dict(software_validation_payload.get("software_validation_rollup") or {})
+        wp6_payload = Wp6Gateway(
+            self.run_dir,
+            summary=summary if isinstance(summary, dict) else None,
+            analytics_summary=analytics_summary if isinstance(analytics_summary, dict) else None,
+            evidence_registry=evidence_registry if isinstance(evidence_registry, dict) else None,
+            workbench_action_report=workbench_action_report if isinstance(workbench_action_report, dict) else None,
+            workbench_action_snapshot=workbench_action_snapshot if isinstance(workbench_action_snapshot, dict) else None
+            scope_readiness_summary=scope_readiness_summary,
+            compatibility_scan_summary=compatibility_scan_summary,
+        ).read_payload()
+        pt_ilc_registry = dict(wp6_payload.get("pt_ilc_registry") or {})
+        external_comparison_importer = dict(wp6_payload.get("external_comparison_importer") or {})
+        comparison_evidence_pack = dict(wp6_payload.get("comparison_evidence_pack") or {})
+        scope_comparison_view = dict(wp6_payload.get("scope_comparison_view") or {})
+        comparison_digest = dict(wp6_payload.get("comparison_digest") or {})
+        comparison_rollup = dict(wp6_payload.get("comparison_rollup") or {})
         evidence_source = self._resolve_current_run_evidence_source(workbench_evidence_summary, workbench_action_report)
         evidence_state = str(
             workbench_evidence_summary.get("evidence_state")
@@ -494,6 +511,12 @@ class ResultsGateway:
             "release_evidence_pack_index": release_evidence_pack_index,
             "release_validation_manifest": release_validation_manifest,
             "software_validation_rollup": software_validation_rollup,
+            "pt_ilc_registry": pt_ilc_registry,
+            "external_comparison_importer": external_comparison_importer,
+            "comparison_evidence_pack": comparison_evidence_pack,
+            "scope_comparison_view": scope_comparison_view,
+            "comparison_digest": comparison_digest,
+            "comparison_rollup": comparison_rollup,
             "uncertainty_model": uncertainty_model,
             "uncertainty_input_set": uncertainty_input_set,
             "sensitivity_coefficient_set": sensitivity_coefficient_set,
@@ -1045,6 +1068,12 @@ class ResultsGateway:
             "release_evidence_pack_index": release_evidence_pack_index,
             "release_validation_manifest": release_validation_manifest,
             "software_validation_rollup": software_validation_rollup,
+            "pt_ilc_registry": pt_ilc_registry,
+            "external_comparison_importer": external_comparison_importer,
+            "comparison_evidence_pack": comparison_evidence_pack,
+            "scope_comparison_view": scope_comparison_view,
+            "comparison_digest": comparison_digest,
+            "comparison_rollup": comparison_rollup,
             "uncertainty_model": uncertainty_model,
             "uncertainty_input_set": uncertainty_input_set,
             "sensitivity_coefficient_set": sensitivity_coefficient_set,
