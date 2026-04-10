@@ -118,6 +118,7 @@ def _selected_legacy_none_points(
         columns={
             "analyzer_id": "analyzer",
             "selected_ratio_source": "fixed_ratio_source",
+            "selected_source_pair": "fixed_selected_source_pair",
             "best_absorbance_model": "fixed_best_model",
             "best_model_family": "fixed_model_family",
             "zero_residual_mode": "fixed_zero_residual_mode",
@@ -126,7 +127,17 @@ def _selected_legacy_none_points(
         }
     )
     merged = legacy_feature_frame[legacy_feature_frame["water_lineage_mode"] == "none"].copy()
-    merged = merged.merge(fixed, on="analyzer", how="inner")
+    missing_fixed_columns = [
+        column_name
+        for column_name in fixed.columns
+        if column_name != "analyzer" and column_name not in merged.columns
+    ]
+    if missing_fixed_columns:
+        merged = merged.merge(
+            fixed[["analyzer", *missing_fixed_columns]],
+            on="analyzer",
+            how="inner",
+        )
     mask = (
         (merged["ratio_source"] == merged["fixed_ratio_source"])
         & (merged["zero_residual_mode"] == merged["fixed_zero_residual_mode"])
