@@ -732,15 +732,18 @@ def run_fixed_chain_ppm_family_challenge(
         family_specs = _family_specs_for_analyzer(str(fixed_row.get("best_absorbance_model") or ""), active_lookup)
         for family_spec in family_specs:
             spec = family_spec.to_absorbance_spec()
-            _score_row, _coeff_rows, residual_rows = _fit_one_candidate(
-                analyzer_df=analyzer_frame,
-                spec=spec,
-                strategy=config.model_selection_strategy,
-                score_weights=config.composite_weight_map(),
-                legacy_score_weights=config.legacy_composite_weight_map(),
-                enable_composite_score=config.enable_composite_score,
-                absorbance_column=absorbance_proxy,
-            )
+            try:
+                _score_row, _coeff_rows, residual_rows = _fit_one_candidate(
+                    analyzer_df=analyzer_frame,
+                    spec=spec,
+                    strategy=config.model_selection_strategy,
+                    score_weights=config.composite_weight_map(),
+                    legacy_score_weights=config.legacy_composite_weight_map(),
+                    enable_composite_score=config.enable_composite_score,
+                    absorbance_column=absorbance_proxy,
+                )
+            except Exception:
+                continue
             prediction_table, actual_scope = _prediction_tables(residual_rows, requested_scope)
             compare = analyzer_frame.merge(
                 prediction_table,

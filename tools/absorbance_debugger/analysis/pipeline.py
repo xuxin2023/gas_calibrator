@@ -2134,6 +2134,18 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
     _frame_to_csv(config.output_dir / "step_05y_legacy_water_replay_stage_metrics.csv", legacy_water_replay["stage_metrics"])
     plot_legacy_water_replay(legacy_water_replay["detail"], config.output_dir / "step_05y_legacy_water_replay_plot.png")
     _frame_to_csv(config.output_dir / "step_08y_legacy_water_replay_conclusions.csv", legacy_water_replay["conclusions"])
+    ppm_family_challenge = run_fixed_chain_ppm_family_challenge(
+        filtered_samples=filtered,
+        legacy_water_feature_frame=legacy_water_replay["feature_frame"],
+        fixed_selection=model_results["selection"],
+        old_ratio_residuals=old_ratio_residuals,
+        legacy_water_summary=legacy_water_replay["summary"],
+        config=config,
+    )
+    _frame_to_csv(config.output_dir / "step_06y_ppm_family_challenge_detail.csv", ppm_family_challenge["detail"])
+    _frame_to_csv(config.output_dir / "step_06y_ppm_family_challenge_summary.csv", ppm_family_challenge["summary"])
+    plot_ppm_family_challenge(ppm_family_challenge["detail"], config.output_dir / "step_06y_ppm_family_challenge_plot.png")
+    _frame_to_csv(config.output_dir / "step_08y_ppm_family_challenge_conclusions.csv", ppm_family_challenge["conclusions"])
     water_point_variants = build_water_zero_anchor_point_variants(
         water_zero_anchor_features,
         water_zero_anchor_lookup,
@@ -2323,6 +2335,9 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
             "legacy_water_replay": legacy_water_replay["detail"],
             "legacy_water_stage": legacy_water_replay["stage_metrics"],
             "legacy_water_concl": legacy_water_replay["conclusions"],
+            "ppm_family_detail": ppm_family_challenge["detail"],
+            "ppm_family_summary": ppm_family_challenge["summary"],
+            "ppm_family_concl": ppm_family_challenge["conclusions"],
             "pressure_assess": pressure_data_assessment,
             "abs_model_selection": model_results["selection"],
             "abs_model_scores": model_results["scores"],
@@ -2412,6 +2427,9 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
             "legacy_water_replay": legacy_water_replay["detail"],
             "legacy_water_stage": legacy_water_replay["stage_metrics"],
             "legacy_water_concl": legacy_water_replay["conclusions"],
+            "ppm_family_detail": ppm_family_challenge["detail"],
+            "ppm_family_summary": ppm_family_challenge["summary"],
+            "ppm_family_concl": ppm_family_challenge["conclusions"],
             "abs_model_scores": model_results["scores"],
             "abs_model_selection": model_results["selection"],
             "abs_model_coeffs": model_results["coefficients"],
@@ -2463,6 +2481,7 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         "water_zero_anchor_selection": water_zero_anchor_selection,
         "water_anchor_compare": water_anchor_compare,
         "legacy_water_replay": legacy_water_replay,
+        "ppm_family_challenge": ppm_family_challenge,
         "pressure_data_assessment": pressure_data_assessment,
         "run_role_assessment": run_role_assessment,
         "analyzer_scope": analyzer_scope,

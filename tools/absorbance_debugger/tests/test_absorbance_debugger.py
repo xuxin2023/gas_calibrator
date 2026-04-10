@@ -23,6 +23,9 @@ from tools.absorbance_debugger.analysis.legacy_water_replay import (
     build_legacy_water_replay_features,
     load_legacy_water_replay_rules,
 )
+from tools.absorbance_debugger.analysis.ppm_family_challenge import (
+    run_fixed_chain_ppm_family_challenge,
+)
 from tools.absorbance_debugger.analysis.pipeline import _identify_invalid_pressure_points
 from tools.absorbance_debugger.analysis.water_zero_anchor import (
     build_water_anchor_compare,
@@ -94,6 +97,9 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
     assert (output_dir / "step_06y_piecewise_model_coefficients.csv").exists()
     assert (output_dir / "step_06y_piecewise_model_plots.png").exists()
     assert (output_dir / "step_06y_weight_sensitivity_compare.csv").exists()
+    assert (output_dir / "step_06y_ppm_family_challenge_detail.csv").exists()
+    assert (output_dir / "step_06y_ppm_family_challenge_summary.csv").exists()
+    assert (output_dir / "step_06y_ppm_family_challenge_plot.png").exists()
     assert (output_dir / "step_02x_invalid_pressure_points.csv").exists()
     assert (output_dir / "step_02x_invalid_pressure_summary.csv").exists()
     assert (output_dir / "step_02x_invalid_pressure_plots.png").exists()
@@ -122,6 +128,7 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
     assert (output_dir / "step_08_point_reconciliation.csv").exists()
     assert (output_dir / "step_08_auto_conclusions.csv").exists()
     assert (output_dir / "step_08y_legacy_water_replay_conclusions.csv").exists()
+    assert (output_dir / "step_08y_ppm_family_challenge_conclusions.csv").exists()
     assert (output_dir / "report.md").exists()
     assert (output_dir / "report.html").exists()
     assert (output_dir / "report.xlsx").exists()
@@ -187,8 +194,12 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
     legacy_detail = pd.read_csv(output_dir / "step_05y_legacy_water_replay_detail.csv")
     legacy_stage = pd.read_csv(output_dir / "step_05y_legacy_water_replay_stage_metrics.csv")
     legacy_conclusions = pd.read_csv(output_dir / "step_08y_legacy_water_replay_conclusions.csv")
+    legacy_summary = pd.read_csv(output_dir / "step_05y_legacy_water_replay_summary.csv")
     assert {
         "analyzer_id",
+        "mode2_semantic_profile",
+        "mode2_legacy_raw_compare_safe",
+        "mode2_is_baseline_bearing_profile",
         "selected_source_pair",
         "fixed_best_model",
         "fixed_model_family",
@@ -213,6 +224,12 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
         "delta_vs_none_low",
         "delta_vs_none_main",
         "gap_closed_ratio_vs_current_new_chain",
+        "gap_closed_ratio_raw",
+        "gap_closed_ratio_capped_0_100",
+        "crossed_old_chain_flag",
+        "overclosure_ratio",
+        "laggard_only_weighted_gap_closed_ratio_capped",
+        "laggard_only_analyzer_count",
     } <= set(legacy_detail.columns)
     assert set(legacy_detail["water_lineage_mode"]) == {
         "none",
@@ -245,11 +262,20 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
 
     assert {"layer", "metric_name", "metric_value", "gain_vs_none"} <= set(legacy_stage.columns)
     assert {"zero_temp", "absorbance", "final_ppm"} <= set(legacy_stage["layer"])
-    assert {"residual_spread_before_replay", "residual_spread_after_replay", "gap_closed_ratio_vs_current_new_chain"} <= set(
+    assert {"residual_spread_before_replay", "residual_spread_after_replay", "gap_closed_ratio_vs_current_new_chain", "gap_closed_ratio_capped_0_100"} <= set(
         legacy_stage["metric_name"]
     )
 
-    assert {"question_id", "question", "answer", "evidence", "recommended_mode"} <= set(legacy_conclusions.columns)
+    assert {
+        "summary_scope",
+        "mode2_semantic_profile",
+        "mode2_legacy_raw_compare_safe",
+        "mode2_is_baseline_bearing_profile",
+        "gap_closed_ratio_capped_0_100",
+        "laggard_only_weighted_gap_closed_ratio_capped",
+        "laggard_only_analyzer_count",
+    } <= set(legacy_summary.columns)
+    assert {"question_id", "question", "answer", "evidence", "recommended_mode", "mode2_semantic_profile"} <= set(legacy_conclusions.columns)
     assert {
         "legacy_gap_closure",
         "dominant_layer",
@@ -257,6 +283,58 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
         "statement_support",
         "remaining_main_causes",
     } <= set(legacy_conclusions["question_id"])
+
+    ppm_detail = pd.read_csv(output_dir / "step_06y_ppm_family_challenge_detail.csv")
+    ppm_summary = pd.read_csv(output_dir / "step_06y_ppm_family_challenge_summary.csv")
+    ppm_conclusions = pd.read_csv(output_dir / "step_08y_ppm_family_challenge_conclusions.csv")
+    assert {
+        "analyzer_id",
+        "mode2_semantic_profile",
+        "mode2_legacy_raw_compare_safe",
+        "mode2_is_baseline_bearing_profile",
+        "selected_source_pair",
+        "fixed_absorbance_proxy",
+        "fixed_zero_residual_mode",
+        "fixed_prediction_scope",
+        "fixed_water_lineage_mode",
+        "ppm_family_mode",
+        "uses_humidity_cross_terms",
+        "humidity_feature_set",
+        "overall_rmse",
+        "zero_rmse",
+        "low_range_rmse",
+        "main_range_rmse",
+        "temp_bias_spread",
+        "old_chain_overall_rmse",
+        "gap_to_old_overall",
+        "gap_to_old_zero",
+        "delta_vs_current_fixed_family_overall",
+        "delta_vs_current_fixed_family_zero",
+        "delta_vs_current_fixed_family_low",
+        "delta_vs_current_fixed_family_main",
+        "gap_closed_ratio_vs_current_fixed_family_raw",
+        "gap_closed_ratio_vs_current_fixed_family_capped",
+        "crossed_old_chain_flag",
+    } <= set(ppm_detail.columns)
+    assert {
+        "current_fixed_family",
+        "v5_abs_k_minimal",
+        "legacy_humidity_cross_D",
+        "legacy_humidity_cross_E",
+    } <= set(ppm_detail["ppm_family_mode"])
+    current_fixed = ppm_detail[ppm_detail["ppm_family_mode"] == "current_fixed_family"]
+    fixed_ppm_check = current_fixed.merge(
+        selection[["analyzer_id", "best_absorbance_model", "best_model_family", "selected_source_pair", "zero_residual_mode", "selected_prediction_scope"]],
+        on="analyzer_id",
+        how="left",
+    )
+    assert (fixed_ppm_check["fixed_best_model"] == fixed_ppm_check["best_absorbance_model"]).all()
+    assert (fixed_ppm_check["fixed_model_family"] == fixed_ppm_check["best_model_family"]).all()
+    assert (fixed_ppm_check["selected_source_pair_x"] == fixed_ppm_check["selected_source_pair_y"]).all()
+    assert (fixed_ppm_check["fixed_zero_residual_mode"] == fixed_ppm_check["zero_residual_mode"]).all()
+    assert (fixed_ppm_check["fixed_prediction_scope"] == fixed_ppm_check["selected_prediction_scope"]).all()
+    assert {"summary_scope", "mode2_semantic_profile", "ppm_family_mode", "laggard_only_weighted_gap_closed_ratio_capped"} <= set(ppm_summary.columns)
+    assert {"question_id", "question", "answer", "evidence", "recommended_ppm_family_mode", "mode2_semantic_profile"} <= set(ppm_conclusions.columns)
 
 
 def test_old_water_correction_audit_and_new_chain_input_audit_can_run(tmp_path: Path) -> None:
@@ -659,6 +737,136 @@ def test_legacy_h2o_summary_selection_includes_repo_selected_co2_rows() -> None:
     assert bool(plus_zero_row["uses_co2_zero_ppm_rows"]) is True
     assert int(plus_zero_row["zero_ppm_anchor_row_count"]) == 1
     assert abs(float(plus_zero_row["delta_h2o_ratio_vs_legacy_summary_anchor"]) + 0.10) < 1.0e-9
+
+
+def _synthetic_ppm_family_inputs(config: DebuggerConfig) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    analyzers = (
+        ("GA01", "legacy_ratio_raw_profile", True, False, "raw/raw"),
+        ("GA02", "baseline_bearing_profile", False, True, "filt/filt"),
+    )
+    filtered_rows: list[dict[str, object]] = []
+    legacy_rows: list[dict[str, object]] = []
+    selection_rows: list[dict[str, object]] = []
+    old_rows: list[dict[str, object]] = []
+    point_row = 1
+    for analyzer_id, profile, legacy_safe, baseline_bearing, source_pair in analyzers:
+        selection_rows.append(
+            {
+                "analyzer_id": analyzer_id,
+                "selected_ratio_source": "ratio_co2_raw" if source_pair == "raw/raw" else "ratio_co2_filt",
+                "selected_source_pair": source_pair,
+                "best_absorbance_model": "model_a_linear",
+                "best_model_family": "single_range",
+                "zero_residual_mode": "none",
+                "selected_prediction_scope": "overall_fit",
+                "absorbance_column": "A_mean",
+            }
+        )
+        for temp_c in (-20.0, 0.0, 20.0, 40.0):
+            for step, base_a in enumerate((0.4, 0.9, 1.5, 2.4), start=1):
+                humidity = (temp_c + 20.0) / 60.0 + step * 0.04
+                a_value = base_a + (0.05 if analyzer_id == "GA02" else 0.0)
+                target_ppm = 60.0 * a_value + 140.0 * humidity + 90.0 * a_value * humidity + 18.0 * humidity * humidity
+                point_title = f"{analyzer_id}_p{point_row}"
+                legacy_rows.append(
+                    {
+                        "analyzer": analyzer_id,
+                        "water_lineage_mode": "none",
+                        "point_title": point_title,
+                        "point_row": point_row,
+                        "temp_set_c": temp_c,
+                        "target_co2_ppm": target_ppm,
+                        "temp_use_mean_c": temp_c,
+                        "pressure_use_mean_hpa": 1013.25,
+                        "ratio_source": "ratio_co2_raw" if source_pair == "raw/raw" else "ratio_co2_filt",
+                        "zero_residual_mode": "none",
+                        "ratio_in_mean": 0.55 - a_value * 0.02,
+                        "A_mean": a_value,
+                        "A_from_mean": a_value,
+                        "A_alt_mean": a_value / config.p_ref_hpa,
+                        "h2o_ratio_raw_mean": humidity,
+                        "h2o_ratio_filt_mean": humidity * 0.97,
+                        "water_ratio_mean": humidity,
+                        "delta_h2o_ratio_vs_subzero_anchor": humidity - 0.10,
+                        "delta_h2o_ratio_vs_zeroC_anchor": humidity - 0.16,
+                        "delta_h2o_ratio_vs_legacy_summary_anchor": humidity - 0.14,
+                        "delta_h2o_ratio_vs_legacy_zero_ppm_anchor": humidity - 0.12,
+                    }
+                )
+                filtered_rows.append(
+                    {
+                        "analyzer": analyzer_id,
+                        "mode2_semantic_profile": profile,
+                        "mode2_legacy_raw_compare_safe": legacy_safe,
+                        "mode2_is_baseline_bearing_profile": baseline_bearing,
+                    }
+                )
+                old_prediction = target_ppm + (4.0 if analyzer_id == "GA01" else 2.0)
+                old_rows.append(
+                    {
+                        "analyzer": analyzer_id,
+                        "point_row": point_row,
+                        "point_title": point_title,
+                        "old_prediction_ppm": old_prediction,
+                        "old_residual_ppm": old_prediction - target_ppm,
+                    }
+                )
+                point_row += 1
+    return (
+        pd.DataFrame(filtered_rows),
+        pd.DataFrame(legacy_rows),
+        pd.DataFrame(selection_rows),
+        pd.DataFrame(old_rows),
+    )
+
+
+def test_fixed_chain_ppm_family_challenge_prefers_humidity_cross_terms_on_humid_data(tmp_path: Path) -> None:
+    config = DebuggerConfig(input_path=tmp_path, output_dir=tmp_path)
+    filtered_samples, legacy_feature_frame, fixed_selection, old_ratio_residuals = _synthetic_ppm_family_inputs(config)
+
+    result = run_fixed_chain_ppm_family_challenge(
+        filtered_samples=filtered_samples,
+        legacy_water_feature_frame=legacy_feature_frame,
+        fixed_selection=fixed_selection,
+        old_ratio_residuals=old_ratio_residuals,
+        legacy_water_summary=pd.DataFrame(),
+        config=config,
+    )
+
+    detail = result["detail"]
+    ga01 = detail[detail["analyzer_id"] == "GA01"].set_index("ppm_family_mode")
+    assert float(ga01.loc["legacy_humidity_cross_D", "delta_vs_current_fixed_family_overall"]) > 0.0
+    assert float(ga01.loc["v5_abs_k_minimal", "delta_vs_current_fixed_family_overall"]) > 0.0
+    assert bool(ga01.loc["legacy_humidity_cross_D", "uses_humidity_cross_terms"]) is True
+
+
+def test_fixed_chain_ppm_family_challenge_keeps_deployable_winner_and_layers_profiles(tmp_path: Path) -> None:
+    config = DebuggerConfig(input_path=tmp_path, output_dir=tmp_path)
+    filtered_samples, legacy_feature_frame, fixed_selection, old_ratio_residuals = _synthetic_ppm_family_inputs(config)
+    fixed_selection_before = fixed_selection.copy(deep=True)
+
+    result = run_fixed_chain_ppm_family_challenge(
+        filtered_samples=filtered_samples,
+        legacy_water_feature_frame=legacy_feature_frame,
+        fixed_selection=fixed_selection,
+        old_ratio_residuals=old_ratio_residuals,
+        legacy_water_summary=pd.DataFrame(),
+        config=config,
+    )
+
+    pd.testing.assert_frame_equal(fixed_selection, fixed_selection_before)
+    current_rows = result["detail"][result["detail"]["ppm_family_mode"] == "current_fixed_family"]
+    merged = current_rows.merge(
+        fixed_selection_before[["analyzer_id", "best_absorbance_model", "best_model_family", "selected_source_pair", "zero_residual_mode", "selected_prediction_scope"]],
+        on="analyzer_id",
+        how="left",
+    )
+    assert (merged["fixed_best_model"] == merged["best_absorbance_model"]).all()
+    assert (merged["fixed_model_family"] == merged["best_model_family"]).all()
+    assert (merged["selected_source_pair_x"] == merged["selected_source_pair_y"]).all()
+    assert (merged["fixed_zero_residual_mode"] == merged["zero_residual_mode"]).all()
+    assert (merged["fixed_prediction_scope"] == merged["selected_prediction_scope"]).all()
+    assert {"legacy_ratio_raw_profile", "baseline_bearing_profile"} <= set(result["summary"]["mode2_semantic_profile"])
 
 
 def test_v5_mode2_semantics_are_marked_as_baseline_bearing_profile() -> None:
