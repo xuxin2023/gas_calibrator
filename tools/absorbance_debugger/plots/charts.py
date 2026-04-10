@@ -820,14 +820,48 @@ def plot_cross_run_summary(data: pd.DataFrame, output_path: Path) -> None:
     fig, axes = plt.subplots(max(len(analyzers), 1), 1, figsize=(11, 3.5 * max(len(analyzers), 1)), squeeze=False)
     for row_idx, analyzer in enumerate(analyzers):
         ax = axes[row_idx, 0]
-        subset = data[data["analyzer_id"] == analyzer].sort_values("run_name")
+        run_key = "run_id" if "run_id" in data.columns else "run_name"
+        old_key = "old_overall_rmse" if "old_overall_rmse" in data.columns else "old_chain_rmse"
+        new_key = "new_overall_rmse" if "new_overall_rmse" in data.columns else "new_chain_rmse"
+        subset = data[data["analyzer_id"] == analyzer].sort_values(run_key)
         x = np.arange(len(subset), dtype=float)
-        ax.plot(x, subset["old_chain_rmse"], marker="o", label="old_chain_rmse")
-        ax.plot(x, subset["new_chain_rmse"], marker="o", label="new_chain_rmse")
+        ax.plot(x, subset[old_key], marker="o", label="old_chain_rmse")
+        ax.plot(x, subset[new_key], marker="o", label="new_chain_rmse")
         ax.set_xticks(x)
-        ax.set_xticklabels(subset["run_name"], rotation=20, ha="right")
+        ax.set_xticklabels(subset[run_key], rotation=20, ha="right")
         ax.set_title(f"{analyzer} cross-run RMSE")
         ax.set_ylabel("RMSE (ppm)")
         ax.grid(alpha=0.2)
+        ax.legend(fontsize=8)
+    _finalize(fig, output_path)
+
+
+def plot_merged_zero_anchor_compare(data: pd.DataFrame, output_path: Path) -> None:
+    """Plot baseline vs merged-zero-anchor metrics."""
+
+    if data.empty:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No merged zero-anchor comparison available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+
+    analyzers = sorted(data["analyzer_id"].dropna().unique().tolist())
+    ordered = data.set_index("analyzer_id").reindex(analyzers)
+    x = np.arange(len(analyzers), dtype=float)
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4.8), squeeze=False)
+    axes[0, 0].bar(x - 0.18, ordered["baseline_new_chain_rmse"], width=0.36, label="baseline")
+    axes[0, 0].bar(x + 0.18, ordered["merged_anchor_new_chain_rmse"], width=0.36, label="merged")
+    axes[0, 0].plot(x, ordered["old_chain_rmse"], color="black", marker="o", linewidth=1.2, label="old")
+    axes[0, 0].set_title("Overall RMSE")
+    axes[0, 1].bar(x - 0.18, ordered["baseline_zero_rmse"], width=0.36, label="baseline")
+    axes[0, 1].bar(x + 0.18, ordered["merged_zero_rmse"], width=0.36, label="merged")
+    axes[0, 1].set_title("Zero RMSE")
+    axes[0, 2].bar(x - 0.18, ordered["baseline_high_temp_zero_rmse"], width=0.36, label="baseline")
+    axes[0, 2].bar(x + 0.18, ordered["merged_high_temp_zero_rmse"], width=0.36, label="merged")
+    axes[0, 2].set_title("40C / 0 ppm zero RMSE")
+    for ax in axes[0]:
+        ax.set_xticks(x)
+        ax.set_xticklabels(analyzers)
+        ax.grid(alpha=0.2, axis="y")
         ax.legend(fontsize=8)
     _finalize(fig, output_path)

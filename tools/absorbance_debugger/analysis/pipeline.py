@@ -26,6 +26,7 @@ from .diagnostics import (
     build_root_cause_ranking,
     build_upper_bound_vs_deployable_compare,
 )
+from .run_assessment import build_run_role_assessment
 from .zero_residual import build_zero_residual_point_variants, fit_zero_residual_models
 from ..io.run_bundle import RunBundle, discover_run_artifacts
 from ..models.config import DebuggerConfig
@@ -311,7 +312,14 @@ def _normalize_samples(samples_raw: pd.DataFrame, points: pd.DataFrame, analyzer
 def _filter_samples(samples: pd.DataFrame, config: DebuggerConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
     reasons = pd.DataFrame(index=samples.index)
     reasons["route_not_co2"] = np.where(samples["route"] != "co2", "route_not_co2", "")
-    reasons["point_quality_fail"] = np.where(samples["point_quality"] != "pass", "point_quality_fail", "")
+    point_quality = samples["point_quality"].fillna("").astype(str).str.strip().str.lower()
+    point_quality_blocking = (
+        samples["point_quality_blocking"].map(_safe_bool).fillna(False)
+        if "point_quality_blocking" in samples.columns
+        else pd.Series(False, index=samples.index)
+    )
+    point_quality_fail_mask = ((point_quality != "") & (point_quality != "pass")) | point_quality_blocking
+    reasons["point_quality_fail"] = np.where(point_quality_fail_mask, "point_quality_fail", "")
     reasons["warning_only_analyzer"] = np.where(
         samples["analyzer"].isin(config.warning_only_analyzers),
         "warning_only_analyzer",
@@ -333,6 +341,78 @@ def _filter_samples(samples: pd.DataFrame, config: DebuggerConfig) -> tuple[pd.D
     filtered = samples[samples["exclude_reason"] == ""].copy()
     excluded = samples[samples["exclude_reason"] != ""].copy()
     return filtered, excluded
+
+
+def _invalid_target_pressure_mask(series: pd.Series, config: DebuggerConfig) -> pd.Series:
+    values = pd.to_numeric(series, errors="coerce")
+    mask = pd.Series(False, index=series.index)
+    for target_hpa in config.invalid_pressure_targets_hpa:
+        mask |= (values - float(target_hpa)).abs() <= float(config.invalid_pressure_tolerance_hpa)
+    return mask
+
+
+def _resolve_analyzer_scope(
+    samples: pd.DataFrame,
+    points: pd.DataFrame,
+    config: DebuggerConfig,
+) -> tuple[DebuggerConfig, pd.DataFrame]:
+    co2_points = points[
+        (points["stage"].astype(str).str.lower() == "co2")
+        & pd.to_numeric(points["target_co2_ppm"], errors="coerce").notna()
+    ][["point_title", "point_row"]].drop_duplicates()
+    total_co2_points = int(len(co2_points))
+    rows: list[dict[str, Any]] = []
+    promoted: list[str] = []
+
+    for analyzer_id, subset in samples.groupby("analyzer"):
+        co2_subset = subset[subset["route"] == "co2"].copy()
+        complete_ratio = float(co2_subset["analyzer_data_complete"].mean()) if not co2_subset.empty else 0.0
+        point_count = int(co2_subset[["point_title", "point_row"]].drop_duplicates().shape[0]) if not co2_subset.empty else 0
+        point_coverage = float(point_count / total_co2_points) if total_co2_points > 0 else 0.0
+        scope_before = (
+            "main"
+            if analyzer_id in config.analyzer_whitelist
+            else "warning_only"
+            if analyzer_id in config.warning_only_analyzers
+            else "other"
+        )
+        can_promote = (
+            analyzer_id in config.warning_only_analyzers
+            and point_count == total_co2_points
+            and complete_ratio >= 0.95
+        )
+        if can_promote:
+            promoted.append(str(analyzer_id))
+        rows.append(
+            {
+                "analyzer_id": analyzer_id,
+                "scope_before": scope_before,
+                "scope_after": "main" if can_promote or analyzer_id in config.analyzer_whitelist else scope_before,
+                "co2_point_count": point_count,
+                "total_co2_point_count": total_co2_points,
+                "co2_point_coverage": point_coverage,
+                "co2_sample_count": int(len(co2_subset)),
+                "complete_sample_ratio": complete_ratio,
+                "promoted_to_main": can_promote,
+                "scope_reason": (
+                    "promoted because historical run provides full CO2 coverage with complete analyzer frames"
+                    if can_promote
+                    else "configured main analyzer"
+                    if analyzer_id in config.analyzer_whitelist
+                    else "kept warning-only"
+                    if analyzer_id in config.warning_only_analyzers
+                    else "not in configured analyzer scope"
+                ),
+            }
+        )
+
+    scope = pd.DataFrame(rows).sort_values(["analyzer_id"], ignore_index=True)
+    if not promoted:
+        return config, scope
+    new_main = tuple(sorted(set(config.analyzer_whitelist) | set(promoted)))
+    new_warning = tuple(analyzer for analyzer in config.warning_only_analyzers if analyzer not in promoted)
+    scope.loc[scope["analyzer_id"].isin(promoted), "scope_after"] = "main"
+    return replace(config, analyzer_whitelist=new_main, warning_only_analyzers=new_warning), scope
 
 
 def _apply_temperature_pressure_corrections(
@@ -1252,34 +1332,48 @@ def _run_loss_diagnostics(
     }
 
 
-def _build_validation_table(points: pd.DataFrame, filtered: pd.DataFrame) -> pd.DataFrame:
-    zero_points = points[points["stage"].astype(str).str.lower() == "co2"].copy()
-    zero_points = zero_points[zero_points["target_co2_ppm"] == 0]
+def _build_validation_table(points: pd.DataFrame, filtered: pd.DataFrame, config: DebuggerConfig) -> pd.DataFrame:
+    co2_points = points[points["stage"].astype(str).str.lower() == "co2"].copy()
+    zero_points = co2_points[pd.to_numeric(co2_points["target_co2_ppm"], errors="coerce") == 0]
+    zero_temps = sorted(pd.to_numeric(zero_points["temp_set_c"], errors="coerce").dropna().unique().tolist())
+    has_40c_zero = bool(
+        (
+            (pd.to_numeric(zero_points["temp_set_c"], errors="coerce") == 40.0)
+            & ~_invalid_target_pressure_mask(zero_points["target_pressure_hpa"], config)
+        ).any()
+    )
+    invalid_pressure_hits = int(_invalid_target_pressure_mask(co2_points["target_pressure_hpa"], config).sum()) if not co2_points.empty else 0
     return pd.DataFrame(
         [
             {
-                "check_name": "identified_48_points",
-                "expected": 48,
+                "check_name": "identified_points",
+                "expected": ">0",
                 "observed": int(len(points)),
-                "passed": int(len(points)) == 48,
+                "passed": int(len(points)) > 0,
             },
             {
                 "check_name": "identified_zero_ppm_temperatures",
-                "expected": "[-20,-10,0,10,20,30]",
-                "observed": json.dumps(sorted(zero_points["temp_set_c"].dropna().unique().tolist())),
-                "passed": sorted(zero_points["temp_set_c"].dropna().unique().tolist()) == [-20.0, -10.0, 0.0, 10.0, 20.0, 30.0],
+                "expected": "at least one 0 ppm temperature",
+                "observed": json.dumps(zero_temps),
+                "passed": len(zero_temps) > 0,
             },
             {
-                "check_name": "identified_missing_40c_zero_ppm",
-                "expected": True,
-                "observed": 40.0 not in sorted(zero_points["temp_set_c"].dropna().unique().tolist()),
-                "passed": 40.0 not in sorted(zero_points["temp_set_c"].dropna().unique().tolist()),
+                "check_name": "high_temp_zero_anchor_candidate",
+                "expected": "diagnostic",
+                "observed": has_40c_zero,
+                "passed": True,
             },
             {
-                "check_name": "main_results_only_ga01_to_ga03",
-                "expected": "GA01,GA02,GA03",
+                "check_name": "legacy_invalid_pressure_hits_from_targets",
+                "expected": "diagnostic",
+                "observed": invalid_pressure_hits,
+                "passed": True,
+            },
+            {
+                "check_name": "main_results_match_scope",
+                "expected": ",".join(sorted(config.analyzer_whitelist)),
                 "observed": ",".join(sorted(filtered["analyzer"].dropna().unique().tolist())),
-                "passed": sorted(filtered["analyzer"].dropna().unique().tolist()) == ["GA01", "GA02", "GA03"],
+                "passed": sorted(filtered["analyzer"].dropna().unique().tolist()) == sorted(config.analyzer_whitelist),
             },
         ]
     )
@@ -1736,6 +1830,7 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
     points = _normalize_points(points_raw)
     analyzers = _configured_analyzers(runtime_cfg, samples_raw.columns)
     samples_core = _normalize_samples(samples_raw, points, analyzers)
+    config, analyzer_scope = _resolve_analyzer_scope(samples_core, points, config)
 
     run_summary = {
         "run_name": artifacts.run_name,
@@ -1745,6 +1840,8 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         "points_machine_row_count": int(len(points_machine_raw)),
         "sample_row_count": int(len(samples_raw)),
         "analyzers_detected": [item["label"] for item in analyzers],
+        "analyzers_main_scope": list(config.analyzer_whitelist),
+        "analyzers_warning_scope": list(config.warning_only_analyzers),
     }
 
     _frame_to_csv(config.output_dir / "step_00_run_inventory.csv", inventory)
@@ -1753,6 +1850,7 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         encoding="utf-8",
     )
     _frame_to_csv(config.output_dir / "step_01_samples_core.csv", samples_core)
+    _frame_to_csv(config.output_dir / "step_01x_analyzer_scope.csv", analyzer_scope)
 
     filtered_pre_invalid, excluded_initial = _filter_samples(samples_core, config)
     _frame_to_csv(config.output_dir / "step_02_samples_filtered.csv", filtered_pre_invalid)
@@ -1770,7 +1868,7 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
 
     filtered_valid = filtered_valid_candidates.copy() if config.invalid_pressure_mode == "hard_exclude" else filtered_full.copy()
     _frame_to_csv(config.output_dir / "step_02x_samples_valid_only.csv", filtered_valid)
-    validation_table = _build_validation_table(points, filtered_valid)
+    validation_table = _build_validation_table(points, filtered_valid, config)
 
     filtered, temp_coeffs, temp_residuals, _, pressure_coeffs, pressure_compare, _ = _apply_temperature_pressure_corrections(
         filtered_valid,
@@ -1894,14 +1992,38 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
     main_point_reconciliation = point_reconciliation if config.use_valid_only_main_conclusion else full_point_reconciliation
     main_comparison_outputs = comparison_outputs if config.use_valid_only_main_conclusion else full_comparison_outputs
     ga01_profile, ga01_special_note = build_ga01_residual_profile(main_point_reconciliation, model_results)
+    run_role_assessment, run_role_note = build_run_role_assessment(
+        run_name=artifacts.run_name,
+        points=points,
+        filtered_valid=filtered_valid,
+        overview_summary=main_comparison_outputs["overview_summary"],
+        invalid_pressure_summary=invalid_pressure_summary,
+        analyzer_scope=analyzer_scope,
+    )
+    _frame_to_csv(config.output_dir / "step_08z_run_role_assessment.csv", run_role_assessment)
     _frame_to_csv(config.output_dir / "step_08y_ga01_residual_profile.csv", ga01_profile)
     plot_ga01_residual_profile(ga01_profile, config.output_dir / "step_08y_ga01_residual_profile_plots.png")
+    run_role_row = run_role_assessment[run_role_assessment["assessment_scope"] == "run_summary"].iloc[0]
     auto_extra_rows = pd.DataFrame(
         [
             {
                 "category": "GA01 special note",
                 "winner": "diagnostic",
                 "summary": ga01_special_note,
+            },
+            {
+                "category": "run role",
+                "winner": "diagnostic",
+                "summary": run_role_note,
+            },
+            {
+                "category": "high-temperature zero anchor",
+                "winner": "diagnostic",
+                "summary": (
+                    "this run provides a high-temperature zero anchor candidate"
+                    if bool(run_role_row.get("has_high_temp_zero_anchor_candidate", False))
+                    else "this run does not provide an ambient 40C / 0 ppm high-temperature zero anchor candidate"
+                ),
             },
             {
                 "category": "GA02/GA03 reproducibility note",
