@@ -405,11 +405,11 @@ class TestWp6ArtifactCompatibilityRegistration:
     def test_wp6_keys_in_surface_visibility(self) -> None:
         from gas_calibrator.v2.core.artifact_compatibility import _surface_visibility
         from gas_calibrator.v2.core import recognition_readiness_artifacts as rr
-        # _surface_visibility takes artifact_key; verify WP6 keys are recognized
+        # _surface_visibility takes keyword args; verify WP6 keys are recognized
         for key in ("pt_ilc_registry", "external_comparison_importer",
                      "comparison_evidence_pack", "scope_comparison_view",
                      "comparison_digest", "comparison_rollup"):
-            surfaces = _surface_visibility(key)
+            surfaces = _surface_visibility(artifact_key=key, artifact_role="diagnostic_analysis")
             assert "review_center" in surfaces, f"WP6 key {key} not visible in review_center"
             assert "workbench" in surfaces, f"WP6 key {key} not visible in workbench"
 
@@ -418,9 +418,6 @@ class TestWp6OfflineArtifactsIntegration:
     """WP6 artifacts must be in offline_artifacts path_map and role_map."""
 
     def test_wp6_paths_in_offline_artifact_paths(self) -> None:
-        from gas_calibrator.v2.core.offline_artifacts import build_offline_governance_artifacts
-        # Verify the function exists and references WP6 filenames
-        # (actual write test requires a full run_dir setup, so we test the path_map keys)
         from gas_calibrator.v2.core import recognition_readiness_artifacts as rr
         # Verify WP6 filename constants exist in recognition_readiness
         assert hasattr(rr, "PT_ILC_REGISTRY_FILENAME")
