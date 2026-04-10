@@ -6,7 +6,7 @@ Unicode escape sequences.
 
 from __future__ import annotations
 
-from typing import Dict
+from typing import Any, Dict
 
 
 POINT_COLUMNS: Dict[str, str] = {
@@ -141,3 +141,88 @@ def analyzer_slot_from_label(label: str) -> int:
     if not digits:
         raise ValueError(f"Unable to infer analyzer slot from {label!r}")
     return int(digits)
+
+
+def parse_mode2_payload(raw_message: Any) -> list[str]:
+    """Split one MODE2 raw message into cleaned tokens."""
+
+    text = str(raw_message or "").strip()
+    if not text:
+        return []
+    if "YGAS," not in text:
+        return []
+    text = text[text.find("YGAS,") :]
+    if "<" in text and ">" in text:
+        start = text.rfind("YGAS,")
+        if start >= 0:
+            text = text[start:]
+    cleaned = text.strip().strip("<>[](){}")
+    tokens = [token.strip() for token in cleaned.split(",")]
+    return [token for token in tokens if token]
+
+
+def classify_mode2_semantics(
+    *,
+    raw_message: Any,
+    mode2_field_count: Any,
+    software_version: Any = None,
+    semantic_hint: Any = None,
+) -> dict[str, Any]:
+    """Classify whether one MODE2 frame should be treated as legacy or baseline-bearing."""
+
+    hint_text = str(semantic_hint or "").strip().lower()
+    version_text = str(software_version or "").strip().lower()
+    tokens = parse_mode2_payload(raw_message)
+    token_count = len(tokens)
+    parsed_field_count = None
+    try:
+        parsed_field_count = int(float(mode2_field_count))
+    except Exception:
+        parsed_field_count = None
+
+    def _result(profile: str, source: str, note: str, legacy_safe: bool) -> dict[str, Any]:
+        return {
+            "mode2_semantic_profile": profile,
+            "mode2_profile_source": source,
+            "mode2_semantic_note": note,
+            "mode2_is_baseline_bearing_profile": profile == "baseline_bearing_profile",
+            "mode2_is_legacy_ratio_raw_profile": profile == "legacy_ratio_raw_profile",
+            "mode2_legacy_raw_compare_safe": legacy_safe,
+            "mode2_token_count": token_count,
+            "mode2_effective_field_count": parsed_field_count if parsed_field_count is not None else token_count,
+        }
+
+    if any(token in hint_text for token in ("baseline", "v5", "plus", "ratio_filt", "baseline_filt")):
+        return _result(
+            "baseline_bearing_profile",
+            "semantic_hint",
+            "Explicit metadata says MODE2 columns 7/8/9/10 should be treated as ratio_filt + baseline_filt lineage.",
+            False,
+        )
+    if version_text in {"v5_plus", "v5", "v5+", "post_v5"}:
+        return _result(
+            "baseline_bearing_profile",
+            "software_version",
+            "Runtime metadata identifies this analyzer as V5-style MODE2, so raw/raw lineage is not assumed safe.",
+            False,
+        )
+    if version_text in {"pre_v5", "pre-v5", "legacy", "v4"}:
+        return _result(
+            "legacy_ratio_raw_profile",
+            "software_version",
+            "Runtime metadata identifies this analyzer as legacy/pre-V5 MODE2, so raw/raw lineage is explicitly allowed.",
+            True,
+        )
+    if token_count and token_count < 16:
+        return _result(
+            "short_or_legacy_like_profile",
+            "raw_message_shape",
+            "MODE2 payload is shorter than the current 16-field profile; keep it outside V5 baseline-bearing assumptions.",
+            False,
+        )
+    return _result(
+        "mode2_semantics_unknown",
+        "metadata_guard",
+        "No explicit pre-V5 or V5-style metadata was found, so debugger keeps this MODE2 lineage marked as unknown.",
+        False,
+    )
