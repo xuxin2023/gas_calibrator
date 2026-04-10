@@ -1259,11 +1259,11 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
         == "audit-readiness-digest"
     )
     assert scope_row["scope_readiness_summary_entry"]["linked_method_confirmation_items"]
-    assert reference_asset_row["reference_asset_registry_entry"]["assets"]
-    assert certificate_lifecycle_row["certificate_lifecycle_summary_entry"]["certificate_rows"]
-    assert certificate_row["certificate_readiness_summary_entry"]["asset_status_rows"]
-    assert pre_run_gate_row["pre_run_readiness_gate_entry"]["checks"]
-    assert pre_run_gate_row["pre_run_readiness_gate_entry"]["gate_status"] == "blocked_for_formal_claim"
+    assert results_payload["reference_asset_registry"]["assets"]
+    assert results_payload["certificate_lifecycle_summary"]["certificate_rows"]
+    assert results_payload["certificate_readiness_summary"]["asset_status_rows"]
+    assert results_payload["pre_run_readiness_gate"]["checks"]
+    assert results_payload["pre_run_readiness_gate"]["gate_status"] == "blocked_for_formal_claim"
     assert uncertainty_row["uncertainty_method_readiness_summary_entry"]["linked_uncertainty_inputs"]
     assert audit_row["audit_readiness_digest_entry"]["linked_measurement_gaps"]
     assert audit_row["audit_readiness_digest_entry"]["reviewer_next_step_digest"]
