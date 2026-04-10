@@ -1581,7 +1581,13 @@
       "artifact_compatibility_recommendation": "兼容性建议：{value}",
       "artifact_compatibility_rollup": "兼容性 rollup：{value}",
       "artifact_compatibility_boundary": "兼容性边界：{value}",
-      "artifact_compatibility_non_claim": "兼容性 non-claim：{value}"
+      "artifact_compatibility_non_claim": "兼容性 non-claim：{value}",
+      "scope_package": "认可范围包：{value}",
+      "decision_rule_profile": "决策规则：{value}",
+      "conformity_boundary": "符合性边界：{value}",
+      "recognition_scope_repository": "范围仓储：{value}",
+      "recognition_scope_rollup": "范围/规则 rollup：{value}",
+      "scope_non_claim": "非声明边界：{value}"
       }
     },
     "route_status": {
@@ -2033,6 +2039,11 @@
           "linked_method_items_line": "关联方法确认条目：{value}",
           "linked_uncertainty_inputs_line": "关联不确定度输入：{value}",
           "linked_traceability_nodes_line": "关联溯源节点：{value}",
+          "scope_overview_line": "认可范围概览：{value}",
+          "decision_rule_line": "决策规则概览：{value}",
+          "conformity_boundary_line": "符合性边界：{value}",
+          "standard_family_line": "标准族：{value}",
+          "required_evidence_categories_line": "要求证据类别：{value}",
           "reviewer_next_steps_line": "审阅下一步：{value}",
           "phase_contrast_line": "preseal / pressure_stable 对照：{value}",
           "readiness_impact_line": "就绪度影响：{value}",

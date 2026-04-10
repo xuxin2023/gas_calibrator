@@ -451,10 +451,13 @@ class DeviceWorkbenchController:
         if gateway is None:
             return {}
         payload = dict(gateway.read_results_payload() or {})
+        scope_definition_pack = dict(payload.get("scope_definition_pack") or {})
+        decision_rule_profile = dict(payload.get("decision_rule_profile") or {})
         scope_summary = dict(payload.get("scope_readiness_summary") or {})
         certificate_summary = dict(payload.get("certificate_readiness_summary") or {})
         uncertainty_summary = dict(payload.get("uncertainty_method_readiness_summary") or {})
         audit_summary = dict(payload.get("audit_readiness_digest") or {})
+        recognition_scope_rollup = dict(payload.get("recognition_scope_rollup") or {})
         compatibility_summary = dict(payload.get("compatibility_scan_summary") or {})
         compatibility_overview = dict(compatibility_summary.get("compatibility_overview") or {})
         compatibility_rollup = dict(
@@ -463,6 +466,8 @@ class DeviceWorkbenchController:
             or {}
         )
         payloads = {
+            "scope_definition_pack": scope_definition_pack,
+            "decision_rule_profile": decision_rule_profile,
             "scope_readiness_summary": scope_summary,
             "certificate_readiness_summary": certificate_summary,
             "uncertainty_method_readiness_summary": uncertainty_summary,
@@ -552,6 +557,18 @@ class DeviceWorkbenchController:
                 path_text = str(path or "").strip()
                 if path_text:
                     artifact_paths[str(label)] = path_text
+        if recognition_scope_rollup:
+            for line in list(recognition_scope_rollup.get("summary_lines") or []):
+                text = str(line).strip()
+                if text and text not in summary_lines:
+                    summary_lines.append(text)
+            for line in list(recognition_scope_rollup.get("detail_lines") or []):
+                text = str(line).strip()
+                if text and text not in detail_lines:
+                    detail_lines.append(text)
+            extra_boundary = str(recognition_scope_rollup.get("conformity_boundary_display") or "").strip()
+            if extra_boundary and extra_boundary not in boundary_lines:
+                boundary_lines.append(extra_boundary)
 
         return {
             "available": True,
@@ -560,6 +577,7 @@ class DeviceWorkbenchController:
             "detail_lines": detail_lines,
             "boundary_lines": boundary_lines,
             "artifact_paths": artifact_paths,
+            "recognition_scope_rollup": recognition_scope_rollup,
             "compatibility_rollup": compatibility_rollup,
             "compatibility_scan_summary": compatibility_summary,
             **payloads,

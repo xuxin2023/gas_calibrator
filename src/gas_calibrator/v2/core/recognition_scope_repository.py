@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -10,6 +11,7 @@ RECOGNITION_SCOPE_REPOSITORY_SCHEMA_VERSION = "step2-recognition-scope-repositor
 RECOGNITION_SCOPE_REPOSITORY_MODE = "file_artifact_first"
 RECOGNITION_SCOPE_GATEWAY_MODE = "file_backed_default"
 RECOGNITION_SCOPE_DB_READY_MODE = "db_ready_stub"
+RECOGNITION_SCOPE_REPOSITORY_TOOL = "recognition_scope_gateway"
 
 _LINKED_SURFACES = ["results", "review_center", "workbench", "historical_artifacts"]
 
@@ -158,6 +160,57 @@ class FileBackedRecognitionScopeRepository:
         payload["review_surface"] = {**review_surface, **dict(payload.get("review_surface") or {})}
         payload["repository_mode"] = RECOGNITION_SCOPE_REPOSITORY_MODE
         payload["gateway_mode"] = RECOGNITION_SCOPE_GATEWAY_MODE
+        payload["scope_export_pack"] = dict(
+            payload.get("scope_export_pack")
+            or payload.get("scope_package")
+            or {
+                "scope_id": str(payload.get("scope_id") or ""),
+                "scope_name": str(payload.get("scope_name") or title_text),
+                "scope_version": str(payload.get("scope_version") or payload.get("schema_version") or "1.0"),
+                "ready_for_readiness_mapping": bool(
+                    payload.get("ready_for_readiness_mapping", str(payload.get("readiness_status") or "") == "ready_for_readiness_mapping")
+                ),
+                "not_ready_for_formal_claim": bool(payload.get("not_ready_for_formal_claim", True)),
+                "gap_note": str(payload.get("gap_note") or dict(payload.get("digest") or {}).get("missing_evidence_summary") or ""),
+                "limitation_note": str(payload.get("limitation_note") or ""),
+                "non_claim_note": str(payload.get("non_claim_note") or dict(payload.get("digest") or {}).get("non_claim_digest") or ""),
+            }
+        )
+        payload["scope_overview"] = dict(
+            payload.get("scope_overview")
+            or {
+                "summary": str(
+                    dict(payload.get("digest") or {}).get("scope_overview_summary")
+                    or dict(payload.get("digest") or {}).get("summary")
+                    or "--"
+                ),
+                "readiness_status": str(payload.get("readiness_status") or "ready_for_readiness_mapping"),
+                "decision_rule_id": str(payload.get("decision_rule_id") or ""),
+            }
+        )
+        payload["decision_rule_overview"] = dict(
+            payload.get("decision_rule_overview")
+            or {
+                "summary": str(
+                    dict(payload.get("digest") or {}).get("decision_rule_summary")
+                    or payload.get("decision_rule_id")
+                    or "--"
+                ),
+                "readiness_status": str(payload.get("readiness_status") or "ready_for_readiness_mapping"),
+            }
+        )
+        payload["conformity_boundary"] = dict(
+            payload.get("conformity_boundary")
+            or {
+                "summary": str(
+                    dict(payload.get("digest") or {}).get("conformity_boundary_summary")
+                    or payload.get("non_claim_note")
+                    or "--"
+                ),
+                "reviewer_gate": dict(payload.get("reviewer_gate") or {}),
+                "not_ready_for_formal_claim": bool(payload.get("not_ready_for_formal_claim", True)),
+            }
+        )
         payload["primary_evidence_rewritten"] = False
         payload["not_real_acceptance_evidence"] = bool(payload.get("not_real_acceptance_evidence", True))
         return payload
@@ -176,17 +229,40 @@ class FileBackedRecognitionScopeRepository:
         )
         scope_digest = dict(scope_payload.get("digest") or {})
         decision_digest = dict(decision_payload.get("digest") or {})
+        generated_at = str(
+            scope_payload.get("generated_at")
+            or decision_payload.get("generated_at")
+            or datetime.now(timezone.utc).isoformat()
+        )
+        readiness_status = str(
+            scope_payload.get("readiness_status")
+            or decision_payload.get("readiness_status")
+            or "ready_for_readiness_mapping"
+        )
+        regenerate_recommended = bool(
+            compatibility_overview.get("regenerate_recommended")
+            or self.compatibility_scan_summary.get("regenerate_recommended", False)
+        )
         summary_lines = [
             f"认可范围包：{str(scope_digest.get('scope_overview_summary') or scope_digest.get('summary') or '--')}",
             f"决策规则：{str(decision_digest.get('decision_rule_summary') or decision_payload.get('decision_rule_id') or '--')}",
             f"符合性边界：{str(decision_digest.get('conformity_boundary_summary') or scope_payload.get('non_claim_note') or '--')}",
             f"读取路径：{reader_mode_display}",
-            f"就绪状态：{str(scope_payload.get('readiness_status') or decision_payload.get('readiness_status') or 'ready_for_readiness_mapping')}",
+            f"就绪状态：{readiness_status}",
         ]
         return {
             "schema_version": RECOGNITION_SCOPE_REPOSITORY_SCHEMA_VERSION,
+            "index_schema_version": RECOGNITION_SCOPE_REPOSITORY_SCHEMA_VERSION,
             "run_id": str(scope_payload.get("run_id") or decision_payload.get("run_id") or self.run_dir.name),
             "run_dir": str(self.run_dir),
+            "generated_at": generated_at,
+            "generated_by_tool": RECOGNITION_SCOPE_REPOSITORY_TOOL,
+            "rollup_scope": "run-dir",
+            "parent_run_count": 1,
+            "artifact_count": 2,
+            "compatible_run_count": 1 if reader_mode == "canonical_direct" else 0,
+            "legacy_run_count": 1 if reader_mode == "compatibility_adapter" else 0,
+            "regenerate_recommended_count": 1 if regenerate_recommended else 0,
             "repository_mode": RECOGNITION_SCOPE_REPOSITORY_MODE,
             "gateway_mode": RECOGNITION_SCOPE_GATEWAY_MODE,
             "db_ready_stub": {
@@ -208,12 +284,21 @@ class FileBackedRecognitionScopeRepository:
                 or "--"
             ),
             "non_claim_note": str(decision_payload.get("non_claim_note") or scope_payload.get("non_claim_note") or "--"),
-            "readiness_status": str(scope_payload.get("readiness_status") or decision_payload.get("readiness_status") or "ready_for_readiness_mapping"),
-            "linked_surface_visibility": list(_LINKED_SURFACES),
-            "regenerate_recommended": bool(
-                compatibility_overview.get("regenerate_recommended")
-                or self.compatibility_scan_summary.get("regenerate_recommended", False)
+            "standard_family": list(scope_payload.get("standard_family") or decision_payload.get("standard_family") or []),
+            "required_evidence_categories": list(
+                scope_payload.get("required_evidence_categories")
+                or decision_payload.get("required_evidence_categories")
+                or []
             ),
+            "linked_existing_artifacts": dict(scope_payload.get("linked_artifacts") or decision_payload.get("artifact_paths") or {}),
+            "current_evidence_coverage": list(
+                scope_payload.get("current_evidence_coverage")
+                or decision_payload.get("current_evidence_coverage")
+                or []
+            ),
+            "readiness_status": readiness_status,
+            "linked_surface_visibility": list(_LINKED_SURFACES),
+            "regenerate_recommended": regenerate_recommended,
             "primary_evidence_rewritten": False,
             "not_real_acceptance_evidence": True,
             "rollup_summary_display": " | ".join(part for part in summary_lines[:4] if str(part).strip()),

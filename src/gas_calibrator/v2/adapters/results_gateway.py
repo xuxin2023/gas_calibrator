@@ -398,6 +398,8 @@ class ResultsGateway:
         state_transition_evidence = dict(payload.get("state_transition_evidence", {}) or {})
         simulation_evidence_sidecar_bundle = dict(payload.get("simulation_evidence_sidecar_bundle", {}) or {})
         measurement_phase_coverage_report = dict(payload.get("measurement_phase_coverage_report", {}) or {})
+        scope_definition_pack = dict(payload.get("scope_definition_pack", {}) or {})
+        decision_rule_profile = dict(payload.get("decision_rule_profile", {}) or {})
         scope_readiness_summary = dict(payload.get("scope_readiness_summary", {}) or {})
         certificate_readiness_summary = dict(payload.get("certificate_readiness_summary", {}) or {})
         uncertainty_method_readiness_summary = dict(payload.get("uncertainty_method_readiness_summary", {}) or {})
@@ -407,6 +409,7 @@ class ResultsGateway:
         compatibility_scan_summary = dict(payload.get("compatibility_scan_summary", {}) or {})
         compatibility_overview = dict(payload.get("compatibility_overview", {}) or {})
         compatibility_rollup = dict(payload.get("compatibility_rollup", {}) or {})
+        recognition_scope_rollup = dict(payload.get("recognition_scope_rollup", {}) or {})
         reindex_manifest = dict(payload.get("reindex_manifest", {}) or {})
         compatibility_lookup = self._build_artifact_compatibility_lookup(run_artifact_index)
 
@@ -632,6 +635,14 @@ class ResultsGateway:
                 row,
                 measurement_phase_coverage_report=measurement_phase_coverage_report,
             )
+            row = self._decorate_scope_definition_pack_row(
+                row,
+                scope_definition_pack=scope_definition_pack,
+            )
+            row = self._decorate_decision_rule_profile_row(
+                row,
+                decision_rule_profile=decision_rule_profile,
+            )
             row = self._decorate_scope_readiness_summary_row(
                 row,
                 scope_readiness_summary=scope_readiness_summary,
@@ -668,6 +679,8 @@ class ResultsGateway:
             "state_transition_evidence": state_transition_evidence,
             "simulation_evidence_sidecar_bundle": simulation_evidence_sidecar_bundle,
             "measurement_phase_coverage_report": measurement_phase_coverage_report,
+            "scope_definition_pack": scope_definition_pack,
+            "decision_rule_profile": decision_rule_profile,
             "scope_readiness_summary": scope_readiness_summary,
             "certificate_readiness_summary": certificate_readiness_summary,
             "uncertainty_method_readiness_summary": uncertainty_method_readiness_summary,
@@ -677,6 +690,7 @@ class ResultsGateway:
             "compatibility_scan_summary": compatibility_scan_summary,
             "compatibility_overview": compatibility_overview,
             "compatibility_rollup": compatibility_rollup,
+            "recognition_scope_rollup": recognition_scope_rollup,
             "reindex_manifest": reindex_manifest,
             "phase_transition_bridge_reviewer_artifact_entry": dict(reviewer_artifact_entry),
             "stage_admission_review_pack_artifact_entry": dict(stage_admission_review_pack_entry),
@@ -775,11 +789,14 @@ class ResultsGateway:
         state_transition_evidence: dict[str, Any] | None,
         simulation_evidence_sidecar_bundle: dict[str, Any] | None,
         measurement_phase_coverage_report: dict[str, Any] | None,
+        scope_definition_pack: dict[str, Any] | None,
+        decision_rule_profile: dict[str, Any] | None,
         scope_readiness_summary: dict[str, Any] | None,
         certificate_readiness_summary: dict[str, Any] | None,
         uncertainty_method_readiness_summary: dict[str, Any] | None,
         audit_readiness_digest: dict[str, Any] | None,
         compatibility_scan_summary: dict[str, Any] | None,
+        recognition_scope_rollup: dict[str, Any] | None,
     ) -> str:
         summary_payload = dict(summary or {})
         stats = dict(summary_payload.get("stats", {}) or {})
@@ -793,6 +810,8 @@ class ResultsGateway:
         transition_summary = dict(state_transition_evidence or {})
         sidecar_summary = dict(simulation_evidence_sidecar_bundle or {})
         phase_coverage_summary = dict(measurement_phase_coverage_report or {})
+        scope_definition_payload = dict(scope_definition_pack or {})
+        decision_rule_payload = dict(decision_rule_profile or {})
         scope_readiness_payload = dict(scope_readiness_summary or {})
         certificate_readiness_payload = dict(certificate_readiness_summary or {})
         uncertainty_method_payload = dict(uncertainty_method_readiness_summary or {})
@@ -804,6 +823,7 @@ class ResultsGateway:
             or compatibility_overview.get("compatibility_rollup")
             or {}
         )
+        scope_rollup = dict(recognition_scope_rollup or {})
 
         role_parts: list[str] = []
         for role in ("execution_summary", "execution_rows", "diagnostic_analysis", "formal_analysis"):
@@ -1043,6 +1063,89 @@ class ResultsGateway:
                     )
                 )
 
+        if scope_definition_payload or decision_rule_payload or scope_rollup:
+            scope_overview_text = str(
+                scope_rollup.get("scope_overview_display")
+                or dict(scope_definition_payload.get("digest") or {}).get("scope_overview_summary")
+                or dict(scope_definition_payload.get("scope_overview") or {}).get("summary")
+                or ""
+            ).strip()
+            if scope_overview_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.scope_package",
+                        value=scope_overview_text,
+                        default=f"认可范围包：{scope_overview_text}",
+                    )
+                )
+            decision_rule_text = str(
+                scope_rollup.get("decision_rule_display")
+                or dict(decision_rule_payload.get("digest") or {}).get("decision_rule_summary")
+                or decision_rule_payload.get("decision_rule_id")
+                or ""
+            ).strip()
+            if decision_rule_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.decision_rule_profile",
+                        value=decision_rule_text,
+                        default=f"决策规则：{decision_rule_text}",
+                    )
+                )
+            conformity_boundary_text = str(
+                scope_rollup.get("conformity_boundary_display")
+                or dict(decision_rule_payload.get("digest") or {}).get("conformity_boundary_summary")
+                or decision_rule_payload.get("non_claim_note")
+                or scope_definition_payload.get("non_claim_note")
+                or ""
+            ).strip()
+            if conformity_boundary_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.conformity_boundary",
+                        value=conformity_boundary_text,
+                        default=f"符合性边界：{conformity_boundary_text}",
+                    )
+                )
+            repository_text = " / ".join(
+                part
+                for part in (
+                    str(scope_rollup.get("repository_mode") or "").strip(),
+                    str(scope_rollup.get("gateway_mode") or "").strip(),
+                )
+                if part
+            ).strip()
+            if repository_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.recognition_scope_repository",
+                        value=repository_text,
+                        default=f"范围仓储：{repository_text}",
+                    )
+                )
+            if str(scope_rollup.get("rollup_summary_display") or "").strip():
+                lines.append(
+                    t(
+                        "facade.results.result_summary.recognition_scope_rollup",
+                        value=str(scope_rollup.get("rollup_summary_display") or "").strip(),
+                        default="范围/规则 rollup：{value}",
+                    )
+                )
+            scope_non_claim_text = str(
+                scope_rollup.get("non_claim_note")
+                or decision_rule_payload.get("non_claim_note")
+                or scope_definition_payload.get("non_claim_note")
+                or ""
+            ).strip()
+            if scope_non_claim_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.scope_non_claim",
+                        value=scope_non_claim_text,
+                        default=f"非声明边界：{scope_non_claim_text}",
+                    )
+                )
+
         stability_digest = dict(stability_summary.get("digest") or {})
         transition_digest = dict(transition_summary.get("digest") or {})
         phase_coverage_digest = dict(phase_coverage_summary.get("digest") or {})
@@ -1152,6 +1255,8 @@ class ResultsGateway:
                 )
             )
         for readiness_payload in (
+            scope_definition_payload,
+            decision_rule_payload,
             scope_readiness_payload,
             certificate_readiness_payload,
             uncertainty_method_payload,
@@ -1421,6 +1526,36 @@ class ResultsGateway:
             json_filename=recognition_readiness.SCOPE_READINESS_SUMMARY_FILENAME,
             markdown_filename=recognition_readiness.SCOPE_READINESS_SUMMARY_MARKDOWN_FILENAME,
             entry_key="scope_readiness_summary_entry",
+        )
+
+    @classmethod
+    def _decorate_scope_definition_pack_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        scope_definition_pack: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=scope_definition_pack,
+            json_filename=recognition_readiness.SCOPE_DEFINITION_PACK_FILENAME,
+            markdown_filename=recognition_readiness.SCOPE_DEFINITION_PACK_MARKDOWN_FILENAME,
+            entry_key="scope_definition_pack_entry",
+        )
+
+    @classmethod
+    def _decorate_decision_rule_profile_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        decision_rule_profile: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=decision_rule_profile,
+            json_filename=recognition_readiness.DECISION_RULE_PROFILE_FILENAME,
+            markdown_filename=recognition_readiness.DECISION_RULE_PROFILE_MARKDOWN_FILENAME,
+            entry_key="decision_rule_profile_entry",
         )
 
     @classmethod

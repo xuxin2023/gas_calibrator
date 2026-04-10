@@ -1034,8 +1034,57 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
             or str(row.get("reviewer_next_step_digest") or "").strip()
         )
     ) or humanize_review_surface_text(str(digest.get("reviewer_next_step_digest") or t("common.none")))
+    scope_overview_summary = humanize_review_surface_text(
+        str(
+            digest.get("scope_overview_summary")
+            or dict(raw.get("scope_overview") or {}).get("summary")
+            or t("common.none")
+        )
+    )
+    decision_rule_summary = humanize_review_surface_text(
+        str(
+            digest.get("decision_rule_summary")
+            or dict(raw.get("decision_rule_overview") or {}).get("summary")
+            or raw.get("decision_rule_id")
+            or t("common.none")
+        )
+    )
+    conformity_boundary_summary = humanize_review_surface_text(
+        str(
+            digest.get("conformity_boundary_summary")
+            or dict(raw.get("conformity_boundary") or {}).get("summary")
+            or raw.get("non_claim_note")
+            or digest.get("non_claim_digest")
+            or t("common.none")
+        )
+    )
+    standard_family_summary = humanize_review_surface_text(
+        " | ".join(str(item).strip() for item in list(raw.get("standard_family") or []) if str(item).strip())
+        or str(digest.get("standard_family_summary") or t("common.none"))
+    )
+    required_evidence_categories_summary = humanize_review_surface_text(
+        " | ".join(
+            str(item).strip() for item in list(raw.get("required_evidence_categories") or []) if str(item).strip()
+        )
+        or str(digest.get("required_evidence_categories_summary") or t("common.none"))
+    )
     summary_lines = [
         f"{title}: {humanize_review_surface_text(str(digest.get('summary') or ''))}".strip(": "),
+        t(
+            "results.review_center.detail.readiness.scope_overview_line",
+            value=scope_overview_summary,
+            default=f"认可范围概览：{scope_overview_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.decision_rule_line",
+            value=decision_rule_summary,
+            default=f"决策规则概览：{decision_rule_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.conformity_boundary_line",
+            value=conformity_boundary_summary,
+            default=f"符合性边界：{conformity_boundary_summary}",
+        ),
         t(
             "results.review_center.detail.readiness.linked_measurement_line",
             value=str(digest.get("linked_measurement_phase_summary") or t("common.none")),
@@ -1077,6 +1126,16 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
             "results.review_center.detail.readiness.current_coverage_line",
             value=str(digest.get("current_coverage_summary") or t("common.none")),
             default=f"当前覆盖：{str(digest.get('current_coverage_summary') or t('common.none'))}",
+        ),
+        t(
+            "results.review_center.detail.readiness.standard_family_line",
+            value=standard_family_summary,
+            default=f"标准族：{standard_family_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.required_evidence_categories_line",
+            value=required_evidence_categories_summary,
+            default=f"要求证据类别：{required_evidence_categories_summary}",
         ),
         t(
             "results.review_center.detail.readiness.missing_evidence_line",

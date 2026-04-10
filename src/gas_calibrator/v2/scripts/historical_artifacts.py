@@ -14,6 +14,7 @@ from ..core.artifact_compatibility import (
     load_or_build_artifact_compatibility_payloads,
     regenerate_artifact_compatibility_sidecars,
 )
+from ..adapters.recognition_scope_gateway import RecognitionScopeGateway
 from ._cli_safety import build_step2_historical_cli_lines
 
 
@@ -121,6 +122,25 @@ def _build_run_report(
         or compatibility_overview.get("compatibility_rollup")
         or {}
     )
+    summary_payload = {}
+    summary_path = run_dir / "summary.json"
+    if summary_path.exists():
+        try:
+            summary_payload = dict(json.loads(summary_path.read_text(encoding="utf-8")))
+        except Exception:
+            summary_payload = {}
+    recognition_scope_payload = RecognitionScopeGateway(
+        run_dir,
+        summary=summary_payload,
+        scope_readiness_summary=(
+            dict(summary_payload.get("scope_readiness_summary") or {})
+            or dict(dict(summary_payload.get("stats") or {}).get("scope_readiness_summary") or {})
+        ),
+        compatibility_scan_summary=compatibility_scan_summary,
+    ).read_payload()
+    recognition_scope_rollup = dict(recognition_scope_payload.get("recognition_scope_rollup") or {})
+    scope_definition_pack = dict(recognition_scope_payload.get("scope_definition_pack") or {})
+    decision_rule_profile = dict(recognition_scope_payload.get("decision_rule_profile") or {})
     current_reader_mode = str(
         compatibility_overview.get("current_reader_mode")
         or compatibility_scan_summary.get("current_reader_mode")
@@ -216,6 +236,34 @@ def _build_run_report(
         "non_primary_chain": str(compatibility_overview.get("non_primary_chain_display") or ""),
         "boundary_digest": str(compatibility_overview.get("boundary_digest") or ""),
         "non_claim_digest": str(compatibility_overview.get("non_claim_digest") or ""),
+        "scope_overview": str(
+            recognition_scope_rollup.get("scope_overview_display")
+            or dict(scope_definition_pack.get("digest") or {}).get("scope_overview_summary")
+            or "--"
+        ),
+        "decision_rule_overview": str(
+            recognition_scope_rollup.get("decision_rule_display")
+            or dict(decision_rule_profile.get("digest") or {}).get("decision_rule_summary")
+            or "--"
+        ),
+        "conformity_boundary": str(
+            recognition_scope_rollup.get("conformity_boundary_display")
+            or dict(decision_rule_profile.get("digest") or {}).get("conformity_boundary_summary")
+            or "--"
+        ),
+        "readiness_status": str(
+            recognition_scope_rollup.get("readiness_status")
+            or scope_definition_pack.get("readiness_status")
+            or decision_rule_profile.get("readiness_status")
+            or "ready_for_readiness_mapping"
+        ),
+        "scope_non_claim_note": str(
+            recognition_scope_rollup.get("non_claim_note")
+            or decision_rule_profile.get("non_claim_note")
+            or scope_definition_pack.get("non_claim_note")
+            or "--"
+        ),
+        "recognition_scope_rollup": recognition_scope_rollup,
         "compatibility_rollup": compatibility_rollup,
         "rollup_summary": str(
             compatibility_rollup.get("rollup_summary_display")
@@ -242,6 +290,27 @@ def _build_operation_report(
         rollup_scope=rollup_scope,
         generated_by_tool=HISTORICAL_ARTIFACT_ROLLUP_TOOL,
     )
+    readiness_status_counts = _summarize_counts(runs, "readiness_status")
+    recognition_scope_rollup = {
+        "schema_version": "step2-recognition-scope-batch-rollup-v1",
+        "generated_by_tool": HISTORICAL_ARTIFACT_ROLLUP_TOOL,
+        "generated_at": str(compatibility_rollup.get("generated_at") or ""),
+        "rollup_scope": rollup_scope,
+        "parent_run_count": len(runs),
+        "canonical_direct_count": int(
+            sum(1 for row in runs if bool(row.get("canonical_direct", False)))
+        ),
+        "compatibility_adapter_count": int(
+            sum(1 for row in runs if bool(row.get("compatibility_adapter", False)))
+        ),
+        "readiness_status_counts": readiness_status_counts,
+        "summary_lines": [
+            f"认可范围包运行数：{len(runs)}",
+            f"canonical 直读：{int(sum(1 for row in runs if bool(row.get('canonical_direct', False))))}",
+            f"兼容适配读取：{int(sum(1 for row in runs if bool(row.get('compatibility_adapter', False))))}",
+            "就绪状态：" + " | ".join(f"{key} {value}" for key, value in readiness_status_counts.items()),
+        ],
+    }
     return {
         "operation": command,
         "run_count": len(runs),
@@ -268,6 +337,7 @@ def _build_operation_report(
         "linked_surface_visibility": list(compatibility_rollup.get("linked_surface_visibility") or []),
         "summary_lines": list(compatibility_rollup.get("summary_lines") or []),
         "detail_lines": list(compatibility_rollup.get("detail_lines") or []),
+        "recognition_scope_rollup": recognition_scope_rollup,
         "compatibility_rollup": compatibility_rollup,
         "runs": runs,
     }

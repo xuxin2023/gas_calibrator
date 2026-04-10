@@ -1480,6 +1480,8 @@ class AppFacade:
         state_transition_evidence = dict(payload.get("state_transition_evidence", {}) or {})
         simulation_evidence_sidecar_bundle = dict(payload.get("simulation_evidence_sidecar_bundle", {}) or {})
         measurement_phase_coverage_report = dict(payload.get("measurement_phase_coverage_report", {}) or {})
+        scope_definition_pack = dict(payload.get("scope_definition_pack", {}) or {})
+        decision_rule_profile = dict(payload.get("decision_rule_profile", {}) or {})
         scope_readiness_summary = dict(payload.get("scope_readiness_summary", {}) or {})
         certificate_readiness_summary = dict(payload.get("certificate_readiness_summary", {}) or {})
         uncertainty_method_readiness_summary = dict(payload.get("uncertainty_method_readiness_summary", {}) or {})
@@ -1489,6 +1491,7 @@ class AppFacade:
         compatibility_scan_summary = dict(payload.get("compatibility_scan_summary", {}) or {})
         compatibility_overview = dict(payload.get("compatibility_overview", {}) or {})
         compatibility_rollup = dict(payload.get("compatibility_rollup", {}) or {})
+        recognition_scope_rollup = dict(payload.get("recognition_scope_rollup", {}) or {})
         reindex_manifest = dict(payload.get("reindex_manifest", {}) or {})
 
         sample_count = 0
@@ -1589,6 +1592,55 @@ class AppFacade:
         audit_readiness_text = self._humanize_ui_summary(
             str(dict(audit_readiness_digest.get("digest") or {}).get("summary") or "--")
         )
+        scope_definition_digest = dict(scope_definition_pack.get("digest") or {})
+        decision_rule_digest = dict(decision_rule_profile.get("digest") or {})
+        scope_package_text = self._humanize_ui_summary(
+            str(
+                recognition_scope_rollup.get("scope_overview_display")
+                or scope_definition_digest.get("scope_overview_summary")
+                or dict(scope_definition_pack.get("scope_overview") or {}).get("summary")
+                or "--"
+            )
+        )
+        decision_rule_profile_text = self._humanize_ui_summary(
+            str(
+                recognition_scope_rollup.get("decision_rule_display")
+                or decision_rule_digest.get("decision_rule_summary")
+                or decision_rule_profile.get("decision_rule_id")
+                or "--"
+            )
+        )
+        conformity_boundary_text = self._humanize_ui_summary(
+            str(
+                recognition_scope_rollup.get("conformity_boundary_display")
+                or decision_rule_digest.get("conformity_boundary_summary")
+                or decision_rule_profile.get("non_claim_note")
+                or scope_definition_pack.get("non_claim_note")
+                or "--"
+            )
+        )
+        recognition_scope_repository_text = self._humanize_ui_summary(
+            " / ".join(
+                part
+                for part in (
+                    str(recognition_scope_rollup.get("repository_mode") or "").strip(),
+                    str(recognition_scope_rollup.get("gateway_mode") or "").strip(),
+                )
+                if part
+            )
+            or "--"
+        )
+        recognition_scope_rollup_text = self._humanize_ui_summary(
+            str(recognition_scope_rollup.get("rollup_summary_display") or "--")
+        )
+        scope_non_claim_text = self._humanize_ui_summary(
+            str(
+                recognition_scope_rollup.get("non_claim_note")
+                or decision_rule_profile.get("non_claim_note")
+                or scope_definition_pack.get("non_claim_note")
+                or "--"
+            )
+        )
         sidecar_store_summary = " | ".join(
             f"{key} {len(list(value or []))}"
             for key, value in dict(simulation_evidence_sidecar_bundle.get("stores") or {}).items()
@@ -1685,11 +1737,14 @@ class AppFacade:
             multi_source_stability_evidence=multi_source_stability_evidence,
             state_transition_evidence=state_transition_evidence,
             measurement_phase_coverage_report=measurement_phase_coverage_report,
+            scope_definition_pack=scope_definition_pack,
+            decision_rule_profile=decision_rule_profile,
             scope_readiness_summary=scope_readiness_summary,
             certificate_readiness_summary=certificate_readiness_summary,
             uncertainty_method_readiness_summary=uncertainty_method_readiness_summary,
             audit_readiness_digest=audit_readiness_digest,
             compatibility_scan_summary=compatibility_scan_summary,
+            recognition_scope_rollup=recognition_scope_rollup,
         )
         review_digest = self._build_review_digest(
             suite_summary=suite_summary,
@@ -1780,6 +1835,36 @@ class AppFacade:
                         )
                     ]
                     if compatibility_scan_summary
+                    else []
+                ),
+                *(
+                    [t("facade.results.result_summary.scope_package", value=scope_package_text)]
+                    if scope_definition_pack or recognition_scope_rollup
+                    else []
+                ),
+                *(
+                    [t("facade.results.result_summary.decision_rule_profile", value=decision_rule_profile_text)]
+                    if decision_rule_profile or recognition_scope_rollup
+                    else []
+                ),
+                *(
+                    [t("facade.results.result_summary.conformity_boundary", value=conformity_boundary_text)]
+                    if decision_rule_profile or scope_definition_pack or recognition_scope_rollup
+                    else []
+                ),
+                *(
+                    [t("facade.results.result_summary.recognition_scope_repository", value=recognition_scope_repository_text)]
+                    if recognition_scope_rollup
+                    else []
+                ),
+                *(
+                    [t("facade.results.result_summary.recognition_scope_rollup", value=recognition_scope_rollup_text)]
+                    if recognition_scope_rollup
+                    else []
+                ),
+                *(
+                    [t("facade.results.result_summary.scope_non_claim", value=scope_non_claim_text)]
+                    if decision_rule_profile or scope_definition_pack or recognition_scope_rollup
                     else []
                 ),
                 *(
@@ -2050,6 +2135,8 @@ class AppFacade:
             "state_transition_evidence": state_transition_evidence,
             "simulation_evidence_sidecar_bundle": simulation_evidence_sidecar_bundle,
             "measurement_phase_coverage_report": measurement_phase_coverage_report,
+            "scope_definition_pack": scope_definition_pack,
+            "decision_rule_profile": decision_rule_profile,
             "scope_readiness_summary": scope_readiness_summary,
             "certificate_readiness_summary": certificate_readiness_summary,
             "uncertainty_method_readiness_summary": uncertainty_method_readiness_summary,
@@ -2059,6 +2146,7 @@ class AppFacade:
             "compatibility_scan_summary": compatibility_scan_summary,
             "compatibility_overview": compatibility_overview,
             "compatibility_rollup": compatibility_rollup,
+            "recognition_scope_rollup": recognition_scope_rollup,
             "reindex_manifest": reindex_manifest,
             "review_digest": review_digest,
             "review_digest_text": str(review_digest.get("summary_text", "") or ""),
@@ -2159,11 +2247,14 @@ class AppFacade:
         multi_source_stability_evidence: dict[str, Any],
         state_transition_evidence: dict[str, Any],
         measurement_phase_coverage_report: dict[str, Any],
+        scope_definition_pack: dict[str, Any],
+        decision_rule_profile: dict[str, Any],
         scope_readiness_summary: dict[str, Any],
         certificate_readiness_summary: dict[str, Any],
         uncertainty_method_readiness_summary: dict[str, Any],
         audit_readiness_digest: dict[str, Any],
         compatibility_scan_summary: dict[str, Any],
+        recognition_scope_rollup: dict[str, Any],
     ) -> dict[str, Any]:
         compatibility_rollup = dict(
             dict(compatibility_scan_summary or {}).get("compatibility_rollup")
@@ -2181,6 +2272,8 @@ class AppFacade:
             multi_source_stability_evidence=multi_source_stability_evidence,
             state_transition_evidence=state_transition_evidence,
             measurement_phase_coverage_report=measurement_phase_coverage_report,
+            scope_definition_pack=scope_definition_pack,
+            decision_rule_profile=decision_rule_profile,
             scope_readiness_summary=scope_readiness_summary,
             certificate_readiness_summary=certificate_readiness_summary,
             uncertainty_method_readiness_summary=uncertainty_method_readiness_summary,
@@ -2191,6 +2284,7 @@ class AppFacade:
             evidence_items,
             diagnostics=review_diagnostics,
             compatibility_rollup=compatibility_rollup,
+            recognition_scope_rollup=recognition_scope_rollup,
         )
         readiness_text = self._humanize_ui_summary(
             str(acceptance_readiness_summary.get("summary_display") or acceptance_readiness_summary.get("summary") or t("common.none"))
@@ -2252,7 +2346,15 @@ class AppFacade:
                 source_kind_summary=source_kind_summary,
                 coverage_summary=coverage_summary,
                 compatibility_summary=self._humanize_ui_summary(
-                    str(compatibility_rollup.get("rollup_summary_display") or t("common.none"))
+                    "\n".join(
+                        fragment
+                        for fragment in (
+                            str(compatibility_rollup.get("rollup_summary_display") or "").strip(),
+                            str(index_summary.get("recognition_scope_summary") or "").strip(),
+                        )
+                        if fragment
+                    )
+                    or t("common.none")
                 ),
             )
             for item in evidence_items
@@ -2647,6 +2749,8 @@ class AppFacade:
         multi_source_stability_evidence: dict[str, Any],
         state_transition_evidence: dict[str, Any],
         measurement_phase_coverage_report: dict[str, Any],
+        scope_definition_pack: dict[str, Any],
+        decision_rule_profile: dict[str, Any],
         scope_readiness_summary: dict[str, Any],
         certificate_readiness_summary: dict[str, Any],
         uncertainty_method_readiness_summary: dict[str, Any],
@@ -2809,6 +2913,14 @@ class AppFacade:
             if item:
                 items.append(item)
         readiness_summary_payloads = [
+            (
+                recognition_readiness.SCOPE_DEFINITION_PACK_FILENAME,
+                dict(scope_definition_pack or {}),
+            ),
+            (
+                recognition_readiness.DECISION_RULE_PROFILE_FILENAME,
+                dict(decision_rule_profile or {}),
+            ),
             (
                 recognition_readiness.SCOPE_READINESS_SUMMARY_FILENAME,
                 dict(scope_readiness_summary or {}),
@@ -4393,6 +4505,11 @@ class AppFacade:
             evidence_state=str(payload.get("evidence_state") or "reviewer_readiness_only"),
             not_real_acceptance_evidence=bool(payload.get("not_real_acceptance_evidence", True)),
             key_fields=[
+                str(digest.get("scope_overview_summary") or ""),
+                str(digest.get("decision_rule_summary") or ""),
+                str(digest.get("conformity_boundary_summary") or ""),
+                str(digest.get("standard_family_summary") or ""),
+                str(digest.get("required_evidence_categories_summary") or ""),
                 str(digest.get("current_coverage_summary") or ""),
                 str(digest.get("missing_evidence_summary") or ""),
                 str(digest.get("blocker_summary") or ""),
@@ -4558,6 +4675,7 @@ class AppFacade:
         *,
         diagnostics: Optional[dict[str, Any]] = None,
         compatibility_rollup: Optional[dict[str, Any]] = None,
+        recognition_scope_rollup: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         expected_types = ("suite", "parity", "resilience", "workbench", "analytics")
         source_groups: dict[str, dict[str, Any]] = {}
@@ -4724,6 +4842,14 @@ class AppFacade:
                 default="兼容性 rollup：{value}",
             )
         )
+        recognition_scope_rollup_payload = dict(recognition_scope_rollup or {})
+        recognition_scope_summary = self._humanize_ui_summary(
+            t(
+                "facade.results.result_summary.recognition_scope_rollup",
+                value=str(recognition_scope_rollup_payload.get("rollup_summary_display") or t("common.none")),
+                default="范围/规则 rollup：{value}",
+            )
+        )
         summary_text = t(
             "results.review_center.index.summary",
             runs=len(source_labels),
@@ -4756,6 +4882,8 @@ class AppFacade:
             "diagnostics_summary": diagnostics_summary,
             "compatibility_rollup": compatibility_rollup_payload,
             "compatibility_summary": compatibility_summary,
+            "recognition_scope_rollup": recognition_scope_rollup_payload,
+            "recognition_scope_summary": recognition_scope_summary,
             "coverage_gaps_display": coverage_gaps_display,
             "source_kind_summary": source_kind_summary,
             "coverage_summary": coverage_summary,
@@ -4767,6 +4895,7 @@ class AppFacade:
                     source_kind_summary,
                     coverage_summary,
                     compatibility_summary,
+                    recognition_scope_summary,
                     diagnostics_summary,
                 )
                 if str(fragment or "").strip()

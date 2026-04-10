@@ -446,7 +446,7 @@ def _build_scope_definition_pack(
             "ISO/IEC 17025",
             "ISO gas standards" if "gas" in route_families else "",
             "WMO / GAW" if {"gas", "ambient"} & set(route_families) else "",
-            "CNAS / ?????",
+            "CNAS-CL01 / CNAS laboratory accreditation guidance",
         ]
     )
     required_evidence_categories = _dedupe(
@@ -648,6 +648,17 @@ def _build_scope_definition_pack(
             "limitation_note": limitation_note,
             "non_claim_note": non_claim_note,
         },
+        "scope_export_pack": {
+            "scope_id": f"{run_id}-step2-scope-package",
+            "scope_name": "Step 2 simulation reviewer scope package",
+            "scope_version": str(version_payload.get("profile_version") or version_payload.get("config_version") or "scope-v1"),
+            "environment_mode": "simulation_offline_headless",
+            "ready_for_readiness_mapping": True,
+            "not_ready_for_formal_claim": True,
+            "gap_note": gap_note,
+            "limitation_note": limitation_note,
+            "non_claim_note": non_claim_note,
+        },
         "scope_overview": {
             "summary": f"{' / '.join(measurands)} | {' | '.join(route_families) or '--'} | simulation_offline_headless",
             "readiness_status": readiness_mapping_status,
@@ -717,7 +728,7 @@ def _build_decision_rule_profile(
     standard_families = _dedupe(
         [
             "ISO/IEC 17025",
-            "CNAS / ?????",
+            "CNAS-CL01 / CNAS laboratory accreditation guidance",
             "ISO gas standards" if "gas" in route_families else "",
             "WMO / GAW" if {"gas", "ambient"} & set(route_families) else "",
         ]
@@ -759,8 +770,8 @@ def _build_decision_rule_profile(
     conformity_statement_profile = {
         "profile_id": "step2_reviewer_conformity_boundary_v1",
         "statement_template": (
-            "?? Step 2 simulation/offline reviewer digest?????? readiness mapping?",
-            "??? formal compliance claim?accreditation claim ? final pass-fail metrology conclusion?",
+            "Step 2 simulation/offline reviewer digest only supports readiness mapping and reviewer digest; "
+            "it cannot be used for formal compliance claims, accreditation claims, or final metrology pass/fail conclusions."
         ),
         "allowed_statement_scope": ["readiness_mapping", "reviewer_digest"],
         "prohibited_statement_scope": list(reviewer_gate["deny_outputs"]),
