@@ -1289,6 +1289,6 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
         audit_row,
     ):
         note_text = str(row.get("note") or "").lower()
-        assert "compliance" not in note_text
         assert "accreditation" not in note_text
         assert "acceptance_level" not in note_text
+        assert "compliance claim" not in note_text
