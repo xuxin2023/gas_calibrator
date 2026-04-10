@@ -262,8 +262,11 @@ def test_review_center_aggregates_multi_evidence_and_acceptance_readiness(tmp_pa
     assert review_center["index_summary"]["diagnostics_summary"]
     assert review_center["index_summary"]["compatibility_rollup"]["rollup_scope"] == "run-dir"
     assert review_center["index_summary"]["compatibility_rollup"]["primary_evidence_rewritten"] is False
+    assert review_center["index_summary"]["recognition_scope_rollup"]["repository_mode"] == "file_artifact_first"
+    assert review_center["index_summary"]["recognition_scope_rollup"]["gateway_mode"] == "file_backed_default"
     assert "兼容性 rollup" in str(review_center["index_summary"]["compatibility_summary"] or "")
     assert "兼容性 rollup" in str(review_center["index_summary"]["summary"] or "")
+    assert "范围/规则 rollup" in str(review_center["index_summary"]["summary"] or "")
     assert review_center["filters"]["source_options"]
     assert review_center["filters"]["time_options"]
     assert set(diagnostics) >= {"cache_hit", "scanned_root_count", "scanned_candidate_count", "elapsed_ms", "scan_budget_used"}
@@ -281,6 +284,9 @@ def test_review_center_aggregates_multi_evidence_and_acceptance_readiness(tmp_pa
     compatibility_item = next(
         item for item in review_center["evidence_items"] if item["type"] == "artifact_compatibility"
     )
+    readiness_items = [
+        item for item in review_center["evidence_items"] if item["type"] == "readiness_governance"
+    ]
     assert analytics_item["detail_analytics_summary"]
     assert analytics_item["detail_qc_summary"]
     assert analytics_item["detail_qc_cards"]
@@ -312,6 +318,11 @@ def test_review_center_aggregates_multi_evidence_and_acceptance_readiness(tmp_pa
     assert any("兼容性 rollup" in str(item) for item in list(compatibility_item.get("detail_key_fields") or []))
     assert "兼容性 rollup" in compatibility_item["detail_text"]
     assert "current_reader_mode" not in compatibility_item["detail_text"]
+    assert readiness_items
+    assert any("认可范围概览" in str(item.get("detail_text") or "") for item in readiness_items)
+    assert any("决策规则概览" in str(item.get("detail_text") or "") for item in readiness_items)
+    assert any("符合性边界" in str(item.get("detail_text") or "") for item in readiness_items)
+    assert all("required_evidence_categories" not in str(item.get("detail_text") or "") for item in readiness_items)
     assert compatibility_item["status"] == "diagnostic_only"
     assert any(item["id"] == "analytics" for item in review_center["filters"]["type_options"])
     assert any(item["id"] == "artifact_compatibility" for item in review_center["filters"]["type_options"])

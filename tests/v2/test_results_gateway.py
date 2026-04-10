@@ -197,9 +197,20 @@ def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> No
         "workbench",
     ]
     assert results_payload["reindex_manifest"]["regenerate_scope"] == "reviewer_index_sidecar_only"
+    assert results_payload["scope_definition_pack"]["scope_export_pack"]["ready_for_readiness_mapping"] is True
+    assert results_payload["scope_definition_pack"]["not_real_acceptance_evidence"] is True
+    assert results_payload["decision_rule_profile"]["decision_rule_id"]
+    assert results_payload["decision_rule_profile"]["acceptance_contract"]["non_primary_evidence_chain"] is True
+    assert results_payload["recognition_scope_rollup"]["repository_mode"] == "file_artifact_first"
+    assert results_payload["recognition_scope_rollup"]["gateway_mode"] == "file_backed_default"
+    assert results_payload["recognition_scope_rollup"]["db_ready_stub"]["not_in_default_chain"] is True
+    assert results_payload["recognition_scope_rollup"]["primary_evidence_rewritten"] is False
     assert "compatibility bundle" in results_payload["result_summary_text"]
     assert "工件兼容" in results_payload["result_summary_text"]
     assert "兼容性 rollup" in results_payload["result_summary_text"]
+    assert "认可范围包" in results_payload["result_summary_text"]
+    assert "决策规则" in results_payload["result_summary_text"]
+    assert "符合性边界" in results_payload["result_summary_text"]
     assert "配置安全" in results_payload["result_summary_text"]
     assert "工作台诊断证据" in results_payload["result_summary_text"]
     assert results_payload["output_files"]
@@ -225,6 +236,21 @@ def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> No
     assert compatibility_row["compatibility_rollup"]["rollup_scope"] == "run-dir"
     assert "兼容性 rollup" in str(compatibility_row["note"])
     assert "current_reader_mode" not in str(compatibility_row["note"])
+    scope_row = next(
+        row
+        for row in reports_payload["files"]
+        if Path(str(row.get("path") or "")).name == recognition_readiness.SCOPE_DEFINITION_PACK_FILENAME
+    )
+    decision_row = next(
+        row
+        for row in reports_payload["files"]
+        if Path(str(row.get("path") or "")).name == recognition_readiness.DECISION_RULE_PROFILE_FILENAME
+    )
+    assert "scope" in str(scope_row["name"]).lower()
+    assert "formal" not in str(scope_row["note"]).lower() or "not" in str(scope_row["note"]).lower()
+    assert "current_reader_mode" not in str(scope_row["note"])
+    assert "decision" in str(decision_row["name"]).lower()
+    assert "current_reader_mode" not in str(decision_row["note"])
     assert "配置安全" in reports_payload["result_summary_text"]
     assert "工作台诊断证据" in reports_payload["result_summary_text"]
 
@@ -321,9 +347,12 @@ def test_results_gateway_builds_legacy_compatibility_payload_without_rewriting_p
     assert payload["compatibility_rollup"]["index_schema_version"] == ARTIFACT_COMPATIBILITY_INDEX_SCHEMA_VERSION
     assert payload["compatibility_rollup"]["legacy_run_count"] == 1
     assert payload["compatibility_rollup"]["regenerate_recommended_count"] == 1
+    assert payload["recognition_scope_rollup"]["compatibility_adapter"] is True
+    assert payload["recognition_scope_rollup"]["primary_evidence_rewritten"] is False
     assert "compatibility bundle" in payload["result_summary_text"]
     assert "工件兼容" in payload["result_summary_text"]
     assert "兼容性 rollup" in payload["result_summary_text"]
+    assert "认可范围包" in payload["result_summary_text"]
     assert not (run_dir / RUN_ARTIFACT_INDEX_FILENAME).exists()
     assert not (run_dir / REINDEX_MANIFEST_FILENAME).exists()
     assert summary_path.read_text(encoding="utf-8") == summary_text_before

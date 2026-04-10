@@ -118,9 +118,20 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
         "scope_readiness_summary"
         in workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["artifact_paths"]
     )
+    assert (
+        "scope_definition_pack"
+        in workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["artifact_paths"]
+    )
+    assert (
+        "decision_rule_profile"
+        in workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["artifact_paths"]
+    )
     assert workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["compatibility_rollup"][
         "rollup_scope"
     ] == "run-dir"
+    assert workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["recognition_scope_rollup"][
+        "repository_mode"
+    ] == "file_artifact_first"
     assert any(
         "payload" in str(line).lower()
         for line in list(workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["summary_lines"] or [])
@@ -178,6 +189,22 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
     assert any(
         "兼容性 rollup" in str(line)
         for line in list(workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["summary_lines"] or [])
+    )
+    assert any(
+        "认可范围概览" in str(line)
+        for line in list(workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["summary_lines"] or [])
+    )
+    assert any(
+        "决策规则概览" in str(line)
+        for line in list(workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["summary_lines"] or [])
+    )
+    assert any(
+        "范围/规则 rollup" in str(line)
+        for line in list(workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["summary_lines"] or [])
+    )
+    assert all(
+        "scope_overview_summary" not in str(line)
+        for line in list(workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["detail_lines"] or [])
     )
     assert workbench["history"]["items"] == []
     assert workbench["workbench"]["preset_center"]["groups"]

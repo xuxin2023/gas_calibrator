@@ -1582,7 +1582,13 @@
       "artifact_compatibility_recommendation": "Compatibility recommendation: {value}",
       "artifact_compatibility_rollup": "Compatibility rollup: {value}",
       "artifact_compatibility_boundary": "Compatibility boundary: {value}",
-      "artifact_compatibility_non_claim": "Compatibility non-claim: {value}"
+      "artifact_compatibility_non_claim": "Compatibility non-claim: {value}",
+      "scope_package": "Scope package: {value}",
+      "decision_rule_profile": "Decision rule profile: {value}",
+      "conformity_boundary": "Conformity boundary: {value}",
+      "recognition_scope_repository": "Scope repository: {value}",
+      "recognition_scope_rollup": "Scope/rule rollup: {value}",
+      "scope_non_claim": "Non-claim boundary: {value}"
       }
     },
     "route_status": {
@@ -2034,6 +2040,11 @@
           "linked_method_items_line": "Linked method confirmation items: {value}",
           "linked_uncertainty_inputs_line": "Linked uncertainty inputs: {value}",
           "linked_traceability_nodes_line": "Linked traceability nodes: {value}",
+          "scope_overview_line": "Scope overview: {value}",
+          "decision_rule_line": "Decision rule overview: {value}",
+          "conformity_boundary_line": "Conformity boundary: {value}",
+          "standard_family_line": "Standard family: {value}",
+          "required_evidence_categories_line": "Required evidence categories: {value}",
           "reviewer_next_steps_line": "Reviewer next steps: {value}",
           "phase_contrast_line": "Preseal vs pressure-stable contrast: {value}",
           "readiness_impact_line": "Readiness impact: {value}",

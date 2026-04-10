@@ -360,6 +360,42 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert payload["summary_stats"]["offline_diagnostic_adapter_summary"]["found"] is True
     assert payload["summary_stats"]["step2_readiness_summary"]["overall_status"] == "not_ready"
     assert payload["summary_stats"]["step2_readiness_digest"]["overall_status"] == "not_ready"
+
+
+def test_rebuild_run_generates_scope_package_and_decision_rule_contracts(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+
+    rebuild_run(run_dir)
+
+    scope_payload = json.loads(
+        (run_dir / recognition_readiness.SCOPE_DEFINITION_PACK_FILENAME).read_text(encoding="utf-8")
+    )
+    decision_payload = json.loads(
+        (run_dir / recognition_readiness.DECISION_RULE_PROFILE_FILENAME).read_text(encoding="utf-8")
+    )
+
+    assert scope_payload["scope_id"]
+    assert scope_payload["scope_name"]
+    assert scope_payload["scope_version"]
+    assert scope_payload["scope_export_pack"]["ready_for_readiness_mapping"] is True
+    assert scope_payload["scope_export_pack"]["not_ready_for_formal_claim"] is True
+    assert scope_payload["standard_family"]
+    assert scope_payload["required_evidence_categories"]
+    assert scope_payload["evidence_source"] == "simulated_protocol"
+    assert scope_payload["not_real_acceptance_evidence"] is True
+    assert scope_payload["non_claim_note"]
+
+    assert decision_payload["decision_rule_id"]
+    assert decision_payload["source_standard_or_method"]
+    assert decision_payload["acceptance_limit"]["mode"] == "readiness_mapping_only"
+    assert decision_payload["reviewer_gate"]["mode"] == "reviewer_digest_only"
+    assert "formal_compliance_claim" in decision_payload["reviewer_gate"]["deny_outputs"]
+    assert decision_payload["acceptance_contract"]["repository_mode"] == "file_artifact_first"
+    assert decision_payload["acceptance_contract"]["non_primary_evidence_chain"] is True
+    assert decision_payload["statement_template"]
+    assert decision_payload["not_real_acceptance_evidence"] is True
+    assert decision_payload["non_claim_note"]
     assert payload["summary_stats"]["step2_readiness_digest"]["ready_for_engineering_isolation"] is False
     assert payload["summary_stats"]["step2_readiness_digest"]["real_acceptance_ready"] is False
     assert payload["summary_stats"]["step2_readiness_digest"]["gate_status_counts"]["not_ready"] == 1

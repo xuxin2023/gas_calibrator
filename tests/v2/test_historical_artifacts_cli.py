@@ -93,6 +93,10 @@ def test_historical_scan_supports_single_run_dir_and_root_dir(tmp_path: Path, ca
     assert single_report["runs"][0]["index_schema_version"] == ARTIFACT_COMPATIBILITY_INDEX_SCHEMA_VERSION
     assert single_report["runs"][0]["compatibility_rollup"]["rollup_scope"] == "run-dir"
     assert single_report["runs"][0]["compatibility_rollup"]["primary_evidence_rewritten"] is False
+    assert single_report["runs"][0]["scope_overview"]
+    assert single_report["runs"][0]["decision_rule_overview"]
+    assert single_report["runs"][0]["conformity_boundary"]
+    assert single_report["runs"][0]["recognition_scope_rollup"]["repository_mode"] == "file_artifact_first"
 
     assert historical_artifacts.main(["scan", "--root-dir", str(root_dir)]) == 0
     batch_stdout = capsys.readouterr().out
@@ -107,6 +111,8 @@ def test_historical_scan_supports_single_run_dir_and_root_dir(tmp_path: Path, ca
     assert batch_report["compatibility_rollup"]["compatible_run_count"] == 1
     assert batch_report["compatibility_rollup"]["legacy_run_count"] == 1
     assert batch_report["compatibility_rollup"]["regenerate_recommended_count"] == 2
+    assert batch_report["recognition_scope_rollup"]["rollup_scope"] == "root-dir"
+    assert batch_report["recognition_scope_rollup"]["readiness_status_counts"]
     reader_modes = {row["run_dir"]: row["current_reader_mode"] for row in batch_report["runs"]}
     assert reader_modes[str(legacy_run.resolve())] == "compatibility_adapter"
     assert reader_modes[str(canonical_run.resolve())] == "canonical_direct"
@@ -130,6 +136,8 @@ def test_historical_export_summary_writes_json_report(tmp_path: Path, capsys) ->
     assert payload["runs"][0]["schema_contract_summary"]
     assert payload["runs"][0]["observed_contract_version_summary"]
     assert payload["runs"][0]["primary_evidence_rewritten"] is False
+    assert payload["runs"][0]["recognition_scope_rollup"]["index_schema_version"]
+    assert payload["runs"][0]["scope_non_claim_note"]
 
 
 def test_historical_regenerate_dry_run_does_not_write_sidecars_or_rewrite_primary_evidence(
@@ -174,6 +182,7 @@ def test_historical_reindex_writes_sidecars_only_and_keeps_primary_evidence(tmp_
         "review_center",
         "workbench",
     ]
+    assert run_report["recognition_scope_rollup"]["primary_evidence_rewritten"] is False
     assert run_report["written_paths"]["run_artifact_index"]["json_path"].endswith(RUN_ARTIFACT_INDEX_FILENAME)
     assert (run_dir / RUN_ARTIFACT_INDEX_FILENAME).exists()
     assert (run_dir / ARTIFACT_CONTRACT_CATALOG_FILENAME).exists()
