@@ -65,6 +65,11 @@ def render_report_markdown(report: Mapping[str, object]) -> str:
     lines.append("")
     lines.append("## 7. Old vs new comparison")
     lines.append(_table_to_markdown(report["residual_summary"], max_rows=20))
+    if report["comparison_conclusions"]:
+        lines.append("")
+        lines.append("### Conclusion")
+        for item in report["comparison_conclusions"]:
+            lines.append(f"- {item}")
     lines.append("")
     lines.append("## 8. Base/final mode")
     lines.append(f"- Enabled: `{report['base_final_enabled']}`")

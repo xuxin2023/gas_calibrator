@@ -714,6 +714,25 @@ def _report_tables(
         & (r0_coeffs["temp_source"] == config.default_temp_source)
         & (r0_coeffs["model_name"] == config.default_r0_model)
     ].copy()
+    conclusions: list[str] = []
+    for analyzer in sorted(residual_summary["analyzer"].dropna().unique().tolist()):
+        subset = residual_summary[residual_summary["analyzer"] == analyzer]
+        old_row = subset[subset["model_name"] == "old_ratio_poly_simplified"]
+        new_row = subset[subset["model_name"] == "new_abs_linear"]
+        if old_row.empty or new_row.empty:
+            continue
+        old_rmse = float(old_row.iloc[0]["rmse_ppm"])
+        new_rmse = float(new_row.iloc[0]["rmse_ppm"])
+        if new_rmse < old_rmse:
+            conclusions.append(
+                f"{analyzer}: the current diagnostic absorbance-linear branch outperformed the archived ratio model "
+                f"({new_rmse:.2f} ppm vs {old_rmse:.2f} ppm RMSE)."
+            )
+        else:
+            conclusions.append(
+                f"{analyzer}: the archived ratio model still fits better than the current diagnostic absorbance-linear branch "
+                f"({old_rmse:.2f} ppm vs {new_rmse:.2f} ppm RMSE)."
+            )
     return {
         "run_name": bundle.source_path.stem,
         "input_path": str(bundle.source_path),
@@ -739,6 +758,7 @@ def _report_tables(
         "pressure_coefficients": pressure_coeffs,
         "r0_coefficients": main_r0,
         "residual_summary": residual_summary,
+        "comparison_conclusions": conclusions,
         "base_final_enabled": base_final_enabled,
         "base_final_source": base_final_source,
         "limitations": [
@@ -746,6 +766,7 @@ def _report_tables(
             "Pressure handling is offset-only in V1 of this debugger; it does not fit a full pressure polynomial yet.",
             "GA04 is detected but excluded from the main fit path by default because the run marks it missing for most points.",
             "Base/final is sample-order based and stays disabled by default for static calibration review.",
+            "The new-chain ppm comparison currently uses a simple linear diagnostic fit on A_mean, not a production-grade absorbance calibration model.",
         ],
         "next_steps": [
             "Add a 40 C / 0 ppm CO2 point so R0(T) can be anchored instead of extrapolated there.",
@@ -765,6 +786,7 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
 
     runtime_cfg = bundle.read_json(artifacts.files["runtime_config"])
     points_raw = bundle.read_csv(artifacts.files["points_readable"])
+    points_machine_raw = bundle.read_csv(artifacts.files["points"])
     samples_raw = bundle.read_csv(artifacts.files["samples"])
     pressure_summary = (
         bundle.read_csv(artifacts.files["pressure_offset_summary"])
@@ -782,6 +804,7 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         "input_path": str(config.input_path),
         "output_dir": str(config.output_dir),
         "point_count": int(len(points)),
+        "points_machine_row_count": int(len(points_machine_raw)),
         "sample_row_count": int(len(samples_raw)),
         "analyzers_detected": [item["label"] for item in analyzers],
     }
