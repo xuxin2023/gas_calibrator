@@ -349,7 +349,10 @@ def build_legacy_water_replay_features(
 
         co2_zero_mask = (
             (anchor_base["route"] == "co2")
-            & pd.to_numeric(anchor_base["target_co2_ppm"], errors="coerce").sub(0.0).abs().le(float(rules.co2_zero_ppm_tolerance))
+            & pd.to_numeric(anchor_base["target_co2_ppm"], errors="coerce")
+            .sub(float(rules.co2_zero_ppm_target))
+            .abs()
+            .le(float(rules.co2_zero_ppm_tolerance))
         )
         subzero_mask = co2_zero_mask & pd.to_numeric(anchor_base["temp_set_c"], errors="coerce").lt(0.0)
         zero_c_mask = co2_zero_mask & pd.to_numeric(anchor_base["temp_set_c"], errors="coerce").eq(0.0)
@@ -1174,6 +1177,7 @@ def _conclusion_rows(detail_df: pd.DataFrame, summary_df: pd.DataFrame, stage_df
 def run_legacy_water_replay_diagnostic(
     *,
     water_lineage_samples: pd.DataFrame,
+    comparison_samples: pd.DataFrame,
     absorbance_samples: pd.DataFrame,
     zero_residual_point_variants: pd.DataFrame,
     fixed_selection: pd.DataFrame,
@@ -1188,9 +1192,7 @@ def run_legacy_water_replay_diagnostic(
     replay_points, replay_fits = apply_legacy_water_replay(feature_frame)
     replay_model_results = fit_fixed_absorbance_replay_models(replay_points, fixed_selection, config)
     selected_sample_points = _selected_sample_points(absorbance_samples, fixed_selection, config)
-    point_raw = build_point_raw_summary(
-        water_lineage_samples[water_lineage_samples["route"].astype(str).str.lower() == "co2"].copy()
-    )
+    point_raw = build_point_raw_summary(comparison_samples)
     compare = _build_compare_frame(
         point_raw,
         selected_sample_points,

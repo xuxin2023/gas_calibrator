@@ -2120,6 +2120,7 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
     old_ratio_residuals = _load_old_ratio_residuals(bundle)
     legacy_water_replay = run_legacy_water_replay_diagnostic(
         water_lineage_samples=water_lineage_samples,
+        comparison_samples=filtered,
         absorbance_samples=absorbance_samples,
         zero_residual_point_variants=absorbance_point_variants,
         fixed_selection=model_results["selection"],
