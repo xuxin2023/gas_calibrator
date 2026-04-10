@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Iterable
 
 from .models import SamplingResult
@@ -78,6 +79,32 @@ UNCERTAINTY_METHOD_READINESS_SUMMARY_FILENAME = "uncertainty_method_readiness_su
 UNCERTAINTY_METHOD_READINESS_SUMMARY_MARKDOWN_FILENAME = "uncertainty_method_readiness_summary.md"
 SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_FILENAME = "software_validation_traceability_matrix.json"
 SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_MARKDOWN_FILENAME = "software_validation_traceability_matrix.md"
+REQUIREMENT_DESIGN_CODE_TEST_LINKS_FILENAME = "requirement_design_code_test_links.json"
+REQUIREMENT_DESIGN_CODE_TEST_LINKS_MARKDOWN_FILENAME = "requirement_design_code_test_links.md"
+VALIDATION_EVIDENCE_INDEX_FILENAME = "validation_evidence_index.json"
+VALIDATION_EVIDENCE_INDEX_MARKDOWN_FILENAME = "validation_evidence_index.md"
+CHANGE_IMPACT_SUMMARY_FILENAME = "change_impact_summary.json"
+CHANGE_IMPACT_SUMMARY_MARKDOWN_FILENAME = "change_impact_summary.md"
+ROLLBACK_READINESS_SUMMARY_FILENAME = "rollback_readiness_summary.json"
+ROLLBACK_READINESS_SUMMARY_MARKDOWN_FILENAME = "rollback_readiness_summary.md"
+ARTIFACT_HASH_REGISTRY_FILENAME = "artifact_hash_registry.json"
+ARTIFACT_HASH_REGISTRY_MARKDOWN_FILENAME = "artifact_hash_registry.md"
+AUDIT_EVENT_STORE_FILENAME = "audit_event_store.json"
+AUDIT_EVENT_STORE_MARKDOWN_FILENAME = "audit_event_store.md"
+ENVIRONMENT_FINGERPRINT_FILENAME = "environment_fingerprint.json"
+ENVIRONMENT_FINGERPRINT_MARKDOWN_FILENAME = "environment_fingerprint.md"
+CONFIG_FINGERPRINT_FILENAME = "config_fingerprint.json"
+CONFIG_FINGERPRINT_MARKDOWN_FILENAME = "config_fingerprint.md"
+RELEASE_INPUT_DIGEST_FILENAME = "release_input_digest.json"
+RELEASE_INPUT_DIGEST_MARKDOWN_FILENAME = "release_input_digest.md"
+RELEASE_MANIFEST_FILENAME = "release_manifest.json"
+RELEASE_MANIFEST_MARKDOWN_FILENAME = "release_manifest.md"
+RELEASE_SCOPE_SUMMARY_FILENAME = "release_scope_summary.json"
+RELEASE_SCOPE_SUMMARY_MARKDOWN_FILENAME = "release_scope_summary.md"
+RELEASE_BOUNDARY_DIGEST_FILENAME = "release_boundary_digest.json"
+RELEASE_BOUNDARY_DIGEST_MARKDOWN_FILENAME = "release_boundary_digest.md"
+RELEASE_EVIDENCE_PACK_INDEX_FILENAME = "release_evidence_pack_index.json"
+RELEASE_EVIDENCE_PACK_INDEX_MARKDOWN_FILENAME = "release_evidence_pack_index.md"
 RELEASE_VALIDATION_MANIFEST_FILENAME = "release_validation_manifest.json"
 RELEASE_VALIDATION_MANIFEST_MARKDOWN_FILENAME = "release_validation_manifest.md"
 AUDIT_READINESS_DIGEST_FILENAME = "audit_readiness_digest.json"
@@ -98,6 +125,7 @@ RECOGNITION_READINESS_SUMMARY_FILENAMES = (
     UNCERTAINTY_METHOD_READINESS_SUMMARY_FILENAME,
     AUDIT_READINESS_DIGEST_FILENAME,
 )
+from .software_validation_builder import build_software_validation_wp5_artifacts
 from .uncertainty_builder import build_uncertainty_wp3_artifacts
 
 RECOGNITION_READINESS_BOUNDARY_STATEMENTS = [
@@ -4932,6 +4960,32 @@ def _artifact_path_map(artifact_paths: dict[str, Any]) -> dict[str, str]:
         "uncertainty_method_readiness_summary_markdown": UNCERTAINTY_METHOD_READINESS_SUMMARY_MARKDOWN_FILENAME,
         "software_validation_traceability_matrix": SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_FILENAME,
         "software_validation_traceability_matrix_markdown": SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_MARKDOWN_FILENAME,
+        "requirement_design_code_test_links": REQUIREMENT_DESIGN_CODE_TEST_LINKS_FILENAME,
+        "requirement_design_code_test_links_markdown": REQUIREMENT_DESIGN_CODE_TEST_LINKS_MARKDOWN_FILENAME,
+        "validation_evidence_index": VALIDATION_EVIDENCE_INDEX_FILENAME,
+        "validation_evidence_index_markdown": VALIDATION_EVIDENCE_INDEX_MARKDOWN_FILENAME,
+        "change_impact_summary": CHANGE_IMPACT_SUMMARY_FILENAME,
+        "change_impact_summary_markdown": CHANGE_IMPACT_SUMMARY_MARKDOWN_FILENAME,
+        "rollback_readiness_summary": ROLLBACK_READINESS_SUMMARY_FILENAME,
+        "rollback_readiness_summary_markdown": ROLLBACK_READINESS_SUMMARY_MARKDOWN_FILENAME,
+        "artifact_hash_registry": ARTIFACT_HASH_REGISTRY_FILENAME,
+        "artifact_hash_registry_markdown": ARTIFACT_HASH_REGISTRY_MARKDOWN_FILENAME,
+        "audit_event_store": AUDIT_EVENT_STORE_FILENAME,
+        "audit_event_store_markdown": AUDIT_EVENT_STORE_MARKDOWN_FILENAME,
+        "environment_fingerprint": ENVIRONMENT_FINGERPRINT_FILENAME,
+        "environment_fingerprint_markdown": ENVIRONMENT_FINGERPRINT_MARKDOWN_FILENAME,
+        "config_fingerprint": CONFIG_FINGERPRINT_FILENAME,
+        "config_fingerprint_markdown": CONFIG_FINGERPRINT_MARKDOWN_FILENAME,
+        "release_input_digest": RELEASE_INPUT_DIGEST_FILENAME,
+        "release_input_digest_markdown": RELEASE_INPUT_DIGEST_MARKDOWN_FILENAME,
+        "release_manifest": RELEASE_MANIFEST_FILENAME,
+        "release_manifest_markdown": RELEASE_MANIFEST_MARKDOWN_FILENAME,
+        "release_scope_summary": RELEASE_SCOPE_SUMMARY_FILENAME,
+        "release_scope_summary_markdown": RELEASE_SCOPE_SUMMARY_MARKDOWN_FILENAME,
+        "release_boundary_digest": RELEASE_BOUNDARY_DIGEST_FILENAME,
+        "release_boundary_digest_markdown": RELEASE_BOUNDARY_DIGEST_MARKDOWN_FILENAME,
+        "release_evidence_pack_index": RELEASE_EVIDENCE_PACK_INDEX_FILENAME,
+        "release_evidence_pack_index_markdown": RELEASE_EVIDENCE_PACK_INDEX_MARKDOWN_FILENAME,
         "release_validation_manifest": RELEASE_VALIDATION_MANIFEST_FILENAME,
         "release_validation_manifest_markdown": RELEASE_VALIDATION_MANIFEST_MARKDOWN_FILENAME,
         "audit_readiness_digest": AUDIT_READINESS_DIGEST_FILENAME,
