@@ -1402,27 +1402,32 @@ def _comparison_tables(
     selected_sources = model_results.get("selected_source_summary", pd.DataFrame()).rename(
         columns={"analyzer_id": "analyzer"}
     )
-    selected_samples = absorbance_samples.merge(
-        selected_sources[["analyzer", "selected_ratio_source"]],
-        left_on=["analyzer", "ratio_source"],
-        right_on=["analyzer", "selected_ratio_source"],
-        how="inner",
-    )
-    selected_samples = selected_samples[
-        (selected_samples["temp_source"] == config.default_temp_source)
-        & (selected_samples["pressure_source"] == config.default_pressure_source)
-        & (selected_samples["r0_model"] == config.default_r0_model)
-    ].copy()
-    selected_sample_points = (
-        selected_samples.groupby(["analyzer", "point_title", "point_row"], dropna=False)
-        .agg(
-            A_raw=("A_raw", "mean"),
-            pressure_source=("pressure_source", "first"),
-            temperature_source=("temp_source", "first"),
-            ratio_source_selected=("ratio_source", "first"),
+    if {"analyzer", "selected_ratio_source"} <= set(selected_sources.columns):
+        selected_samples = absorbance_samples.merge(
+            selected_sources[["analyzer", "selected_ratio_source"]],
+            left_on=["analyzer", "ratio_source"],
+            right_on=["analyzer", "selected_ratio_source"],
+            how="inner",
         )
-        .reset_index()
-    )
+        selected_samples = selected_samples[
+            (selected_samples["temp_source"] == config.default_temp_source)
+            & (selected_samples["pressure_source"] == config.default_pressure_source)
+            & (selected_samples["r0_model"] == config.default_r0_model)
+        ].copy()
+        selected_sample_points = (
+            selected_samples.groupby(["analyzer", "point_title", "point_row"], dropna=False)
+            .agg(
+                A_raw=("A_raw", "mean"),
+                pressure_source=("pressure_source", "first"),
+                temperature_source=("temp_source", "first"),
+                ratio_source_selected=("ratio_source", "first"),
+            )
+            .reset_index()
+        )
+    else:
+        selected_sample_points = pd.DataFrame(
+            columns=["analyzer", "point_title", "point_row", "A_raw", "pressure_source", "temperature_source", "ratio_source_selected"]
+        )
     compare = point_raw.copy()
     compare = compare.merge(
         selected_sample_points,
@@ -1693,6 +1698,9 @@ def _report_tables(
     invalid_pressure_points: pd.DataFrame,
     invalid_pressure_summary: pd.DataFrame,
     before_after_summary: pd.DataFrame,
+    run_role_assessment: pd.DataFrame,
+    analyzer_scope: pd.DataFrame,
+    run_role_note: str,
     ga01_profile: pd.DataFrame,
     ga01_special_note: str,
     base_final_enabled: bool,
@@ -1788,22 +1796,49 @@ def _report_tables(
         "appendix_overview_summary": comparison_outputs_full["overview_summary"],
         "appendix_auto_conclusions": comparison_outputs_full["auto_conclusions"],
         "before_after_summary": before_after_summary,
+        "run_role_assessment": run_role_assessment,
+        "analyzer_scope": analyzer_scope,
+        "run_role_note": run_role_note,
         "ga01_profile": ga01_profile,
         "ga01_special_note": ga01_special_note,
         "base_final_enabled": base_final_enabled,
         "base_final_source": base_final_source,
         "limitations": [
-            "40 C has no 0 ppm CO2 point in this run, so it is excluded from R0(T) fitting and used only as an extrapolation check.",
+            (
+                "40 C has no ambient 0 ppm CO2 point in this run, so it is excluded from R0(T) fitting and used only as an extrapolation check."
+                if not bool(
+                    run_role_assessment[
+                        run_role_assessment["assessment_scope"] == "run_summary"
+                    ]["has_high_temp_zero_anchor_candidate"].iloc[0]
+                )
+                else "This run includes an ambient 40 C / 0 ppm point, so it can be used as a high-temperature zero-anchor candidate in offline diagnostics."
+            ),
             "Pressure handling is offset-only in V1 of this debugger; it does not fit a full pressure polynomial yet.",
             "Legacy-invalid 500 hPa pressure bins are hard-excluded from the valid-only main chain when detected.",
-            "GA04 is detected but excluded from the main fit path by default because the run marks it missing for most points.",
+            (
+                "GA04 was promoted into the main fit path because this run provides complete CO2 coverage for GA04."
+                if "GA04" in list(config.analyzer_whitelist)
+                else "GA04 is detected but excluded from the main fit path by default because the run marks it missing for most points."
+            ),
             "Base/final is sample-order based and stays disabled by default for static calibration review.",
             "The new-chain comparison now uses grouped validation, ΔA0(T), and piecewise-range candidates, but it is still limited by this run's sparse temperature-zero coverage and single-pressure emphasis.",
         ],
         "next_steps": [
-            "Add a 40 C / 0 ppm CO2 point so R0(T) can be anchored instead of extrapolated there.",
+            (
+                "Use this run's ambient 40 C / 0 ppm point only as an offline high-temperature anchor experiment before making any production decision."
+                if bool(
+                    run_role_assessment[
+                        run_role_assessment["assessment_scope"] == "run_summary"
+                    ]["has_high_temp_zero_anchor_candidate"].iloc[0]
+                )
+                else "Add a 40 C / 0 ppm CO2 point so R0(T) can be anchored instead of extrapolated there."
+            ),
             "Keep validating the zero-residual layer and piecewise low/main-range model on multiple historical runs before drawing production conclusions.",
-            "Repair or re-enable GA04 data availability before adding it to the main absorbance fit set.",
+            (
+                "Keep GA04 in the offline comparison set for this historical package and verify whether the same completeness holds on other runs."
+                if "GA04" in list(config.analyzer_whitelist)
+                else "Repair or re-enable GA04 data availability before adding it to the main absorbance fit set."
+            ),
             "If the absorbance model improves zero drift but still loses overall, add an external validation run before considering any production migration.",
         ],
     }
@@ -2136,6 +2171,9 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         invalid_pressure_points=invalid_pressure_points,
         invalid_pressure_summary=invalid_pressure_summary,
         before_after_summary=before_after_summary,
+        run_role_assessment=run_role_assessment,
+        analyzer_scope=analyzer_scope,
+        run_role_note=run_role_note,
         ga01_profile=ga01_profile,
         ga01_special_note=ga01_special_note,
         base_final_enabled=config.enable_base_final,
@@ -2162,6 +2200,8 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
             "piecewise_selection": model_results.get("piecewise_selection", pd.DataFrame()),
             "weight_sensitivity": model_results.get("weight_sensitivity_compare", pd.DataFrame()),
             "selected_sources": model_results["selected_source_summary"],
+            "run_role": run_role_assessment,
+            "analyzer_scope": analyzer_scope,
             "order_compare": diagnostic_results["order_compare"],
             "source_consistency": diagnostic_results["source_consistency"],
             "pressure_branch": diagnostic_results["pressure_branch_compare"],
@@ -2195,6 +2235,13 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         "comparison_outputs": main_comparison_outputs,
         "point_reconciliation": main_point_reconciliation,
         "selected_source_summary": model_results["selected_source_summary"],
+        "invalid_pressure_summary": invalid_pressure_summary,
+        "invalid_pressure_points": invalid_pressure_points,
+        "run_role_assessment": run_role_assessment,
+        "analyzer_scope": analyzer_scope,
+        "config": config,
+        "run_name": artifacts.run_name,
+        "input_path": str(config.input_path),
         "ga01_profile": ga01_profile,
         "ga01_special_note": ga01_special_note,
     }

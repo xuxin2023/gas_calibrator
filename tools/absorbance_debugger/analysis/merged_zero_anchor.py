@@ -14,7 +14,15 @@ from ..io.run_bundle import RunBundle
 from ..plots.charts import plot_merged_zero_anchor_compare
 
 
+def _analyzer_slice(frame: pd.DataFrame, analyzer_id: str) -> pd.DataFrame:
+    if frame.empty or "analyzer_id" not in frame.columns:
+        return frame.iloc[0:0].copy()
+    return frame[frame["analyzer_id"] == analyzer_id].copy()
+
+
 def _metric_at_high_temp(point_reconciliation: pd.DataFrame) -> float:
+    if point_reconciliation.empty or "temp_c" not in point_reconciliation.columns or "target_ppm" not in point_reconciliation.columns:
+        return float("nan")
     subset = point_reconciliation[
         (pd.to_numeric(point_reconciliation["temp_c"], errors="coerce") == 40.0)
         & (pd.to_numeric(point_reconciliation["target_ppm"], errors="coerce") == 0.0)
@@ -106,10 +114,10 @@ def build_merged_zero_anchor_compare(
                 "baseline_temp_stability_metric": base_row.get("new_temp_stability_metric", np.nan),
                 "merged_temp_stability_metric": merged_row.get("new_temp_stability_metric", np.nan),
                 "baseline_high_temp_zero_rmse": _metric_at_high_temp(
-                    base_result.get("point_reconciliation", pd.DataFrame()).query("analyzer_id == @analyzer_id")
+                    _analyzer_slice(base_result.get("point_reconciliation", pd.DataFrame()), analyzer_id)
                 ),
                 "merged_high_temp_zero_rmse": _metric_at_high_temp(
-                    merged_point_reconciliation.query("analyzer_id == @analyzer_id")
+                    _analyzer_slice(merged_point_reconciliation, analyzer_id)
                 ),
                 "gap_to_old_baseline": gap_baseline,
                 "gap_to_old_merged": gap_merged,

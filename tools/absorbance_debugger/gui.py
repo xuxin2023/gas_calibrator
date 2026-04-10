@@ -57,6 +57,7 @@ class AbsorbanceDebuggerGui:
             "GA01": StringVar(value="1"),
             "GA02": StringVar(value="1"),
             "GA03": StringVar(value="1"),
+            "GA04": StringVar(value="1"),
         }
 
         self._build_ui()
@@ -71,7 +72,7 @@ class AbsorbanceDebuggerGui:
         ttk.Label(frame, text="Analyzers").grid(row=2, column=0, sticky="w", pady=(10, 4))
         analyzer_frame = ttk.Frame(frame)
         analyzer_frame.grid(row=2, column=1, columnspan=2, sticky="w", pady=(10, 4))
-        for idx, analyzer_id in enumerate(("GA01", "GA02", "GA03")):
+        for idx, analyzer_id in enumerate(("GA01", "GA02", "GA03", "GA04")):
             ttk.Checkbutton(
                 analyzer_frame,
                 text=analyzer_id,
@@ -313,8 +314,25 @@ class AbsorbanceDebuggerGui:
             ]
             self.selected_sources_text.set("Selected sources: " + ", ".join(parts))
         elif "reproducibility_note" in result:
-            self.selected_sources_text.set(str(result["reproducibility_note"]))
+            lines = [str(result["reproducibility_note"])]
+            for run_result in result.get("run_results", []):
+                invalid_summary = run_result.get("invalid_pressure_summary")
+                if invalid_summary is not None and hasattr(invalid_summary, "empty") and not invalid_summary.empty:
+                    overall = invalid_summary[invalid_summary["summary_scope"] == "overall"]
+                    if not overall.empty:
+                        lines.append(
+                            f"{run_result.get('run_name', '')}: invalid pressure excluded {int(overall.iloc[0]['invalid_point_count'])} point(s)"
+                        )
+            self.selected_sources_text.set(" | ".join(lines))
         else:
+            invalid_summary = result.get("invalid_pressure_summary")
+            if invalid_summary is not None and hasattr(invalid_summary, "empty") and not invalid_summary.empty:
+                overall = invalid_summary[invalid_summary["summary_scope"] == "overall"]
+                if not overall.empty:
+                    self.selected_sources_text.set(
+                        f"Selected sources: not available. Invalid pressure excluded {int(overall.iloc[0]['invalid_point_count'])} point(s)."
+                    )
+                    return
             self.selected_sources_text.set("Selected sources: not available.")
         if self.auto_open_report.get() == "1" and artifact_path.exists():
             webbrowser.open(artifact_path.resolve().as_uri())

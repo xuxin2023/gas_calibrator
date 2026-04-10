@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from .analysis.merged_zero_anchor import build_merged_zero_anchor_compare
 from .analysis.pipeline import execute_pipeline
 from .analysis.cross_run import build_cross_run_summary
 from .plots.charts import plot_cross_run_summary
@@ -153,21 +154,56 @@ def run_debugger_batch(
     if not run_results and failure_rows:
         raise RuntimeError(f"All cross-run analyses failed: {failure_rows[0]['failure_reason']}")
 
-    summary, reproducibility_note = build_cross_run_summary(run_results)
+    summary, by_analyzer, auto_conclusions, reproducibility_note = build_cross_run_summary(run_results)
     if failure_rows:
         summary = pd.concat([summary, pd.DataFrame(failure_rows)], ignore_index=True, sort=False) if not summary.empty else pd.DataFrame(failure_rows)
     summary_path = resolved_output / "step_09_cross_run_summary.csv"
+    by_analyzer_path = resolved_output / "step_09_cross_run_by_analyzer.csv"
+    auto_conclusions_path = resolved_output / "step_09_cross_run_auto_conclusions.csv"
     plot_path = resolved_output / "step_09_cross_run_plots.png"
     summary.to_csv(summary_path, index=False, encoding="utf-8-sig")
+    by_analyzer.to_csv(by_analyzer_path, index=False, encoding="utf-8-sig")
+    auto_conclusions.to_csv(auto_conclusions_path, index=False, encoding="utf-8-sig")
     plot_cross_run_summary(summary[summary["analyzer_id"].ne("")].copy() if "analyzer_id" in summary.columns else summary, plot_path)
     (resolved_output / "step_09_cross_run_note.json").write_text(
         json.dumps({"reproducibility_note": reproducibility_note}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    merged_zero_anchor_compare = pd.DataFrame()
+    base_result = next((item for item in run_results if str(item.get("run_name", "")) == "run_20260407_185002"), None)
+    anchor_result = next(
+        (
+            item
+            for item in run_results
+            if str(item.get("run_name", "")) != "run_20260407_185002"
+            and not getattr(item.get("run_role_assessment", pd.DataFrame()), "empty", True)
+            and bool(
+                item["run_role_assessment"][
+                    item["run_role_assessment"]["assessment_scope"] == "run_summary"
+                ]["has_high_temp_zero_anchor_candidate"].iloc[0]
+            )
+        ),
+        None,
+    )
+    if base_result is not None and anchor_result is not None:
+        merged_zero_anchor_compare = build_merged_zero_anchor_compare(
+            base_result=base_result,
+            anchor_result=anchor_result,
+            output_dir=resolved_output,
+        )
+        if not merged_zero_anchor_compare.empty:
+            merged_zero_anchor_compare.to_csv(
+                resolved_output / "step_05z_merged_zero_anchor_compare.csv",
+                index=False,
+                encoding="utf-8-sig",
+            )
     return {
         "output_dir": resolved_output,
         "run_results": run_results,
         "cross_run_summary": summary,
+        "cross_run_by_analyzer": by_analyzer,
+        "cross_run_auto_conclusions": auto_conclusions,
+        "merged_zero_anchor_compare": merged_zero_anchor_compare,
         "reproducibility_note": reproducibility_note,
         "cross_run_summary_path": summary_path,
     }

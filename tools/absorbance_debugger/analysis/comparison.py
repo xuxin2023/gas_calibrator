@@ -277,12 +277,16 @@ def build_comparison_outputs(
                 }
             )
 
+    def _sorted_frame(rows: list[dict[str, Any]], sort_keys: list[str]) -> pd.DataFrame:
+        frame = pd.DataFrame(rows)
+        return frame.sort_values(sort_keys, ignore_index=True) if not frame.empty else frame
+
     overview_df = pd.DataFrame(overview_rows)
-    by_temp_df = pd.DataFrame(by_temp_rows).sort_values(["analyzer_id", "temp_c"], ignore_index=True)
-    by_range_df = pd.DataFrame(by_range_rows).sort_values(["analyzer_id", "concentration_range"], ignore_index=True)
-    zero_df = pd.DataFrame(zero_rows).sort_values(["analyzer_id", "temp_c"], ignore_index=True)
-    regression_overall_df = pd.DataFrame(regression_overall_rows).sort_values(["analyzer_id", "chain_name"], ignore_index=True)
-    regression_by_temp_df = pd.DataFrame(regression_by_temp_rows).sort_values(["analyzer_id", "temp_c", "chain_name"], ignore_index=True)
+    by_temp_df = _sorted_frame(by_temp_rows, ["analyzer_id", "temp_c"])
+    by_range_df = _sorted_frame(by_range_rows, ["analyzer_id", "concentration_range"])
+    zero_df = _sorted_frame(zero_rows, ["analyzer_id", "temp_c"])
+    regression_overall_df = _sorted_frame(regression_overall_rows, ["analyzer_id", "chain_name"])
+    regression_by_temp_df = _sorted_frame(regression_by_temp_rows, ["analyzer_id", "temp_c", "chain_name"])
 
     def _category_winner(column_name: str) -> str:
         values = overview_df[column_name].astype(str).tolist() if not overview_df.empty else []
