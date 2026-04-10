@@ -597,6 +597,60 @@ def plot_upper_bound_vs_deployable(data: pd.DataFrame, output_path: Path) -> Non
         ax.set_xticklabels(subset["chain_context"].astype(str).tolist())
         ax.set_title(f"{analyzer} upper bound vs deployable")
         ax.set_ylabel("RMSE (ppm)")
-        ax.grid(alpha=0.2, axis="y")
-        ax.legend()
+    ax.grid(alpha=0.2, axis="y")
+    ax.legend()
+    _finalize(fig, output_path)
+
+
+def plot_invalid_pressure_points(data: pd.DataFrame, output_path: Path) -> None:
+    """Plot invalid-pressure hits and their pressure evidence."""
+
+    if data.empty:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No invalid-pressure points were detected", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+
+    analyzers = sorted(data["analyzer_id"].dropna().unique().tolist())
+    fig, axes = plt.subplots(max(len(analyzers), 1), 1, figsize=(10, 3.2 * max(len(analyzers), 1)), squeeze=False)
+    for row_idx, analyzer in enumerate(analyzers):
+        ax = axes[row_idx, 0]
+        subset = data[data["analyzer_id"] == analyzer].reset_index(drop=True)
+        x = np.arange(len(subset))
+        ax.scatter(x, subset["pressure_std_hpa_mean"], label="pressure_std_hpa_mean", s=36)
+        ax.scatter(x, subset["pressure_corr_hpa_mean"], label="pressure_corr_hpa_mean", s=36)
+        if "target_pressure_hpa_if_available" in subset.columns:
+            ax.scatter(x, subset["target_pressure_hpa_if_available"], label="target_pressure_hpa", s=36, marker="x")
+        ax.set_xticks(x)
+        ax.set_xticklabels([str(value) for value in subset["point_title"]], rotation=20, ha="right")
+        ax.set_title(f"{analyzer} invalid pressure evidence")
+        ax.set_ylabel("hPa")
+        ax.grid(alpha=0.2)
+        ax.legend(fontsize=8)
+    _finalize(fig, output_path)
+
+
+def plot_default_chain_before_after(data: pd.DataFrame, output_path: Path) -> None:
+    """Plot new-chain RMSE before/after rule freeze and valid-only exclusion."""
+
+    analyzers = sorted(data["analyzer_id"].dropna().unique().tolist()) if not data.empty else []
+    fig, ax = plt.subplots(figsize=(max(8, 2.8 * max(len(analyzers), 1)), 4.6))
+    if not analyzers:
+        ax.text(0.5, 0.5, "No before/after comparison data available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+
+    x = np.arange(len(analyzers), dtype=float)
+    width = 0.24
+    ordered = data.set_index("analyzer_id").reindex(analyzers)
+    ax.bar(x - width, ordered["new_chain_rmse_before_default_full_data"], width=width, label="before default (full)")
+    ax.bar(x, ordered["new_chain_rmse_after_default_full_data"], width=width, label="after default (full)")
+    ax.bar(x + width, ordered["new_chain_rmse_after_default_valid_only"], width=width, label="after default (valid-only)")
+    ax.plot(x, ordered["old_chain_rmse_valid_only"], color="#1b5e20", marker="o", linewidth=1.4, label="old_chain valid-only")
+    ax.set_xticks(x)
+    ax.set_xticklabels(analyzers)
+    ax.set_title("Default-chain tightening before/after")
+    ax.set_ylabel("RMSE (ppm)")
+    ax.grid(alpha=0.2, axis="y")
+    ax.legend(fontsize=8)
     _finalize(fig, output_path)

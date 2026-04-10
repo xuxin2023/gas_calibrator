@@ -333,17 +333,26 @@ def evaluate_scenario_groups(
     return pd.DataFrame(rows)
 
 
+def _selected_source_subset(branch_points: pd.DataFrame, selected_source_map: dict[str, str] | None) -> pd.DataFrame:
+    if not selected_source_map:
+        return branch_points.copy()
+    subset = branch_points.copy()
+    subset["selected_source_pair"] = subset["analyzer"].map(selected_source_map)
+    return subset[subset["selected_source_pair"] == subset["source_pair_label"]].copy()
+
+
 def build_order_compare(
     branch_points: pd.DataFrame,
     config: Any,
     point_raw: pd.DataFrame,
     old_df: pd.DataFrame,
+    selected_source_map: dict[str, str] | None = None,
 ) -> pd.DataFrame:
-    subset = branch_points[
-        (branch_points["ratio_in_source"] == config.default_ratio_source)
-        & (branch_points["r0_fit_source"] == config.default_ratio_source)
-        & (branch_points["temp_source"] == config.default_temp_source)
-        & (branch_points["pressure_branch"] == config.default_pressure_branch_label())
+    subset = _selected_source_subset(branch_points, selected_source_map)
+    subset = subset[
+        (subset["source_pair_kind"] == "matched")
+        & (subset["temp_source"] == config.default_temp_source)
+        & (subset["pressure_branch"] == config.default_pressure_branch_label())
     ].copy()
     summary = evaluate_scenario_groups(subset, ["order_mode"], config, point_raw, old_df)
     if summary.empty:
@@ -371,7 +380,7 @@ def build_order_compare(
         summary.loc[mask, "recommended_default_order"] = (
             "samplewise_log_first" if sample_rmse <= mean_rmse else "mean_first_log"
         )
-    return summary.sort_values(["analyzer_id", "order_mode"], ignore_index=True)
+    return summary.drop_duplicates(subset=["analyzer_id", "order_mode"]).sort_values(["analyzer_id", "order_mode"], ignore_index=True)
 
 
 def build_r0_source_consistency_compare(
@@ -407,14 +416,15 @@ def build_pressure_branch_compare(
     config: Any,
     point_raw: pd.DataFrame,
     old_df: pd.DataFrame,
+    selected_source_map: dict[str, str] | None = None,
 ) -> pd.DataFrame:
     alt_branch = config.default_alt_pressure_branch_label()
-    subset = branch_points[
-        (branch_points["order_mode"] == "samplewise_log_first")
-        & (branch_points["ratio_in_source"] == config.default_ratio_source)
-        & (branch_points["r0_fit_source"] == config.default_ratio_source)
-        & (branch_points["temp_source"] == config.default_temp_source)
-        & (branch_points["pressure_branch"].isin(["no_pressure_norm", "pressure_std", "pressure_corr", alt_branch]))
+    subset = _selected_source_subset(branch_points, selected_source_map)
+    subset = subset[
+        (subset["order_mode"] == "samplewise_log_first")
+        & (subset["source_pair_kind"] == "matched")
+        & (subset["temp_source"] == config.default_temp_source)
+        & (subset["pressure_branch"].isin(["no_pressure_norm", "pressure_std", "pressure_corr", alt_branch]))
     ].copy()
     summary = evaluate_scenario_groups(subset, ["pressure_branch", "pressure_branch_label", "pressure_source_used"], config, point_raw, old_df)
     if summary.empty:
@@ -444,12 +454,13 @@ def build_upper_bound_vs_deployable_compare(
     config: Any,
     point_raw: pd.DataFrame,
     old_df: pd.DataFrame,
+    selected_source_map: dict[str, str] | None = None,
 ) -> pd.DataFrame:
-    subset = branch_points[
-        (branch_points["order_mode"] == "samplewise_log_first")
-        & (branch_points["ratio_in_source"] == config.default_ratio_source)
-        & (branch_points["r0_fit_source"] == config.default_ratio_source)
-        & (branch_points["chain_context"].isin(["physics_upper_bound", "deployable_chain"]))
+    subset = _selected_source_subset(branch_points, selected_source_map)
+    subset = subset[
+        (subset["order_mode"] == "samplewise_log_first")
+        & (subset["source_pair_kind"] == "matched")
+        & (subset["chain_context"].isin(["physics_upper_bound", "deployable_chain"]))
     ].copy()
     summary = evaluate_scenario_groups(subset, ["chain_context", "temp_source", "pressure_branch", "pressure_source_used"], config, point_raw, old_df)
     if summary.empty:

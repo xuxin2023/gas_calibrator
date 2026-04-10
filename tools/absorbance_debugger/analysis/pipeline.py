@@ -775,14 +775,192 @@ def _base_final(absorbance_samples: pd.DataFrame, config: DebuggerConfig) -> tup
     return timeseries, point_summary, base_final_source
 
 
+def _main_branch_points(absorbance_points: pd.DataFrame, config: DebuggerConfig, ratio_source: str) -> pd.DataFrame:
+    return absorbance_points[
+        (absorbance_points["ratio_source"] == ratio_source)
+        & (absorbance_points["temp_source"] == config.default_temp_source)
+        & (absorbance_points["pressure_source"] == config.default_pressure_source)
+        & (absorbance_points["r0_model"] == config.default_r0_model)
+    ].copy()
+
+
+def _run_one_matched_source(
+    absorbance_points: pd.DataFrame,
+    config: DebuggerConfig,
+    ratio_source: str,
+) -> dict[str, pd.DataFrame]:
+    branch_points = _main_branch_points(absorbance_points, config, ratio_source)
+    branch_config = replace(config, default_ratio_source=ratio_source)
+    model_results = evaluate_absorbance_models(branch_points, branch_config, absorbance_column="A_mean")
+    source_pair_label = branch_config.matched_source_pair_label(ratio_source)
+    branch_id = "__".join((ratio_source, config.default_temp_source, config.default_pressure_source, config.default_r0_model))
+    for key in ("candidates", "scores", "selection", "coefficients", "residuals", "best_predictions"):
+        frame = model_results[key]
+        if frame.empty:
+            continue
+        frame["selected_ratio_source"] = ratio_source
+        frame["selected_source_pair"] = source_pair_label
+        frame["source_pair_label"] = source_pair_label
+        frame["source_pair_kind"] = "matched"
+        frame["source_policy"] = config.default_source_policy
+        frame["matched_selection_policy"] = config.matched_selection_policy
+        frame["default_absorbance_order"] = config.default_absorbance_order
+        frame["default_pressure_branch"] = config.default_pressure_branch_label()
+        frame["branch_id"] = branch_id
+    return model_results
+
+
+def _select_best_matched_source(
+    per_source_results: list[dict[str, pd.DataFrame]],
+    config: DebuggerConfig,
+) -> dict[str, pd.DataFrame]:
+    frames = {
+        name: pd.concat([result[name] for result in per_source_results if not result[name].empty], ignore_index=True)
+        if any(not result[name].empty for result in per_source_results)
+        else pd.DataFrame()
+        for name in ("candidates", "scores", "selection", "coefficients", "residuals", "best_predictions")
+    }
+
+    scores = frames["scores"].copy()
+    selection_candidates = frames["selection"].copy()
+    if scores.empty or selection_candidates.empty:
+        return {
+            "candidates": frames["candidates"],
+            "scores": scores,
+            "selection": selection_candidates,
+            "coefficients": frames["coefficients"],
+            "residuals": frames["residuals"],
+            "best_predictions": frames["best_predictions"],
+            "selected_source_summary": pd.DataFrame(),
+        }
+
+    scores = scores.rename(columns={"model_rank": "model_rank_within_source", "is_selected_model": "is_selected_within_source"})
+    if "model_rank_within_source" not in scores.columns:
+        scores["model_rank_within_source"] = np.nan
+    if "is_selected_within_source" not in scores.columns:
+        scores["is_selected_within_source"] = False
+
+    final_selection_rows: list[dict[str, Any]] = []
+    for analyzer_id, analyzer_df in selection_candidates.groupby("analyzer_id"):
+        chosen = analyzer_df.sort_values(
+            ["composite_score", "selected_prediction_scope", "best_absorbance_model", "selected_source_pair"],
+            ignore_index=True,
+        ).iloc[0]
+        final_selection_rows.append(
+            {
+                **chosen.to_dict(),
+                "default_absorbance_order": config.default_absorbance_order,
+                "default_source_policy": config.default_source_policy,
+                "matched_selection_policy": config.matched_selection_policy,
+                "default_pressure_branch": config.default_pressure_branch_label(),
+                "selection_reason": (
+                    f"Selected matched source {chosen['selected_source_pair']} and {chosen['best_absorbance_model']} "
+                    f"by lowest composite_score={float(chosen['composite_score']):.6g} on {chosen['selected_prediction_scope']}; "
+                    f"mixed source pairs are excluded from the main chain."
+                ),
+            }
+        )
+
+        analyzer_scores = scores[scores["analyzer_id"] == analyzer_id].sort_values(
+            ["composite_score", "validation_rmse", "overall_rmse", "overall_max_abs_error", "selected_source_pair", "model_id"],
+            ignore_index=True,
+        )
+        for rank, row in enumerate(analyzer_scores.itertuples(index=False), start=1):
+            mask = (
+                (scores["analyzer_id"] == analyzer_id)
+                & (scores["selected_source_pair"] == row.selected_source_pair)
+                & (scores["model_id"] == row.model_id)
+            )
+            scores.loc[mask, "model_rank"] = rank
+            scores.loc[mask, "is_selected_model"] = (
+                (row.selected_source_pair == chosen["selected_source_pair"])
+                and (row.model_id == chosen["best_absorbance_model"])
+            )
+            scores.loc[mask, "is_selected_source"] = row.selected_source_pair == chosen["selected_source_pair"]
+
+    final_selection = pd.DataFrame(final_selection_rows).sort_values(["analyzer_id"], ignore_index=True)
+
+    for frame_name in ("candidates", "coefficients", "residuals"):
+        frame = frames[frame_name].copy()
+        if frame.empty:
+            frames[frame_name] = frame
+            continue
+        if "is_selected_model" in frame.columns:
+            frame = frame.rename(columns={"is_selected_model": "is_selected_within_source"})
+        frame["is_selected_within_source"] = frame.get("is_selected_within_source", False)
+        frame["is_selected_model"] = False
+        frame["is_selected_source"] = False
+        for row in final_selection.itertuples(index=False):
+            source_mask = (frame["analyzer_id"] == row.analyzer_id) & (frame["selected_source_pair"] == row.selected_source_pair)
+            frame.loc[source_mask, "is_selected_source"] = True
+            if "model_id" in frame.columns:
+                model_mask = source_mask & (frame["model_id"] == row.best_absorbance_model)
+                frame.loc[model_mask, "is_selected_model"] = True
+        frames[frame_name] = frame
+
+    best_predictions = frames["best_predictions"].copy()
+    if not best_predictions.empty:
+        best_predictions = best_predictions.merge(
+            final_selection[
+                [
+                    "analyzer_id",
+                    "selected_source_pair",
+                    "selected_ratio_source",
+                    "best_absorbance_model",
+                    "best_absorbance_model_label",
+                    "composite_score",
+                    "selection_reason",
+                    "selected_prediction_scope",
+                    "default_absorbance_order",
+                    "default_source_policy",
+                    "matched_selection_policy",
+                    "default_pressure_branch",
+                ]
+            ],
+            on=["analyzer_id", "selected_source_pair"],
+            how="inner",
+            suffixes=("", "_final"),
+        )
+        best_predictions["selected_ratio_source"] = best_predictions["selected_ratio_source_final"].combine_first(best_predictions["selected_ratio_source"])
+        best_predictions["best_absorbance_model"] = best_predictions["best_absorbance_model_final"].combine_first(best_predictions["best_absorbance_model"])
+        best_predictions["best_absorbance_model_label"] = best_predictions["best_absorbance_model_label_final"].combine_first(best_predictions["best_absorbance_model_label"])
+        best_predictions["composite_score"] = best_predictions["composite_score_final"].combine_first(best_predictions["composite_score"])
+        best_predictions["selection_reason"] = best_predictions["selection_reason_final"].combine_first(best_predictions["selection_reason"])
+        best_predictions["selected_prediction_scope"] = best_predictions["selected_prediction_scope_final"].combine_first(best_predictions["selected_prediction_scope"])
+        best_predictions["default_absorbance_order"] = best_predictions["default_absorbance_order_final"].combine_first(best_predictions["default_absorbance_order"])
+        best_predictions["matched_selection_policy"] = best_predictions["matched_selection_policy_final"].combine_first(best_predictions["matched_selection_policy"])
+        best_predictions["default_pressure_branch"] = best_predictions["default_pressure_branch_final"].combine_first(best_predictions["default_pressure_branch"])
+        if "default_source_policy" in best_predictions.columns:
+            best_predictions["default_source_policy"] = best_predictions["default_source_policy_final"].combine_first(best_predictions["default_source_policy"])
+        else:
+            best_predictions["default_source_policy"] = best_predictions["default_source_policy_final"]
+        drop_cols = [column for column in best_predictions.columns if column.endswith("_final")]
+        if drop_cols:
+            best_predictions = best_predictions.drop(columns=drop_cols)
+    frames["scores"] = scores.sort_values(["analyzer_id", "model_rank", "selected_source_pair", "model_id"], ignore_index=True)
+    frames["selection"] = final_selection
+    frames["best_predictions"] = best_predictions.sort_values(["analyzer_id", "point_row"], ignore_index=True)
+    frames["selected_source_summary"] = final_selection[
+        ["analyzer_id", "selected_ratio_source", "selected_source_pair", "default_absorbance_order", "default_pressure_branch"]
+    ].copy()
+    return frames
+
+
 def _fit_absorbance_models(
     absorbance_points: pd.DataFrame,
     config: DebuggerConfig,
     output_dir: Path,
+    *,
+    write_outputs: bool = True,
 ) -> dict[str, pd.DataFrame]:
-    default_points = absorbance_points[absorbance_points["branch_id"] == config.default_branch_id()].copy()
-    absorbance_column = "A_from_mean" if config.absorbance_order_mode == "mean_first_log" else "A_mean"
-    model_results = evaluate_absorbance_models(default_points, config, absorbance_column=absorbance_column)
+    per_source_results = [
+        _run_one_matched_source(absorbance_points, config, ratio_source)
+        for ratio_source in config.matched_ratio_sources()
+    ]
+    model_results = _select_best_matched_source(per_source_results, config)
+    if not write_outputs:
+        return model_results
+
     _frame_to_csv(output_dir / "step_06_absorbance_model_candidates.csv", model_results["candidates"])
     _frame_to_csv(output_dir / "step_06_absorbance_model_scores.csv", model_results["scores"])
     _frame_to_csv(output_dir / "step_06_absorbance_model_selection.csv", model_results["selection"])
@@ -838,25 +1016,31 @@ def _run_loss_diagnostics(
     r0_lookup: dict[tuple[str, str, str, str], Any],
     config: DebuggerConfig,
     validation_table: pd.DataFrame,
+    selected_source_summary: pd.DataFrame,
     output_dir: Path,
 ) -> dict[str, Any]:
     point_raw = build_point_raw_summary(filtered)
     old = _load_old_ratio_residuals(bundle)
     branch_points = build_diagnostic_absorbance_points(filtered, r0_lookup, config)
+    selected_source_map = (
+        selected_source_summary.set_index("analyzer_id")["selected_source_pair"].to_dict()
+        if selected_source_summary is not None and not selected_source_summary.empty
+        else {}
+    )
 
-    order_compare = build_order_compare(branch_points, config, point_raw, old)
+    order_compare = build_order_compare(branch_points, config, point_raw, old, selected_source_map=selected_source_map)
     source_consistency = (
         build_r0_source_consistency_compare(branch_points, config, point_raw, old)
         if config.run_r0_source_consistency_compare
         else pd.DataFrame()
     )
     pressure_branch_compare = (
-        build_pressure_branch_compare(branch_points, config, point_raw, old)
+        build_pressure_branch_compare(branch_points, config, point_raw, old, selected_source_map=selected_source_map)
         if config.run_pressure_branch_compare
         else pd.DataFrame()
     )
     upper_bound_vs_deployable = (
-        build_upper_bound_vs_deployable_compare(branch_points, config, point_raw, old)
+        build_upper_bound_vs_deployable_compare(branch_points, config, point_raw, old, selected_source_map=selected_source_map)
         if config.run_upper_bound_compare
         else pd.DataFrame()
     )
@@ -961,10 +1145,23 @@ def _comparison_tables(
         )
         .reset_index()
     )
-    default_points = absorbance_points[absorbance_points["branch_id"] == config.default_branch_id()].copy()
-    default_samples = absorbance_samples[absorbance_samples["branch_id"] == config.default_branch_id()].copy()
-    default_sample_points = (
-        default_samples.groupby(["analyzer", "point_title", "point_row"], dropna=False)
+    selected_sources = model_results.get("selected_source_summary", pd.DataFrame()).rename(
+        columns={"analyzer_id": "analyzer"}
+    )
+    selected_points = absorbance_points.merge(
+        selected_sources[["analyzer", "selected_ratio_source"]],
+        left_on=["analyzer", "ratio_source"],
+        right_on=["analyzer", "selected_ratio_source"],
+        how="inner",
+    )
+    selected_samples = absorbance_samples.merge(
+        selected_sources[["analyzer", "selected_ratio_source"]],
+        left_on=["analyzer", "ratio_source"],
+        right_on=["analyzer", "selected_ratio_source"],
+        how="inner",
+    )
+    selected_sample_points = (
+        selected_samples.groupby(["analyzer", "point_title", "point_row"], dropna=False)
         .agg(
             A_raw=("A_raw", "mean"),
             pressure_source=("pressure_source", "first"),
@@ -974,7 +1171,7 @@ def _comparison_tables(
         .reset_index()
     )
     compare = point_raw.merge(
-        default_points[
+        selected_points[
             [
                 "analyzer",
                 "point_title",
@@ -990,7 +1187,7 @@ def _comparison_tables(
         how="left",
     )
     compare = compare.merge(
-        default_sample_points,
+        selected_sample_points,
         on=["analyzer", "point_title", "point_row"],
         how="left",
     )
@@ -1018,6 +1215,10 @@ def _comparison_tables(
                     "best_validation_error_ppm",
                     "selected_pred_ppm",
                     "selected_error_ppm",
+                    "selected_source_pair",
+                    "selected_ratio_source",
+                    "default_absorbance_order",
+                    "default_pressure_branch",
                 ]
             ].rename(columns={"analyzer_id": "analyzer"}),
             on=["analyzer", "point_title", "point_row"],
@@ -1034,6 +1235,10 @@ def _comparison_tables(
         compare["best_validation_error_ppm"] = np.nan
         compare["selected_pred_ppm"] = np.nan
         compare["selected_error_ppm"] = np.nan
+        compare["selected_source_pair"] = np.nan
+        compare["selected_ratio_source"] = np.nan
+        compare["default_absorbance_order"] = config.default_absorbance_order
+        compare["default_pressure_branch"] = config.default_pressure_branch_label()
 
     compare["new_pred_ppm"] = compare["selected_pred_ppm"]
     compare["old_pred_ppm"] = compare["old_prediction_ppm"]
@@ -1073,11 +1278,15 @@ def _comparison_tables(
             "ratio_co2_filt": "filt",
         }
     ).fillna(config.default_ratio_label())
-    compare["absorbance_order_mode_selected"] = (
-        config.absorbance_order_mode
-        if config.absorbance_order_mode != "compare_both"
-        else "samplewise_log_first"
+    compare["selected_source_pair"] = compare["selected_source_pair"].fillna(
+        compare["selected_ratio_source"].map(
+            {
+                "ratio_co2_raw": "raw/raw",
+                "ratio_co2_filt": "filt/filt",
+            }
+        )
     )
+    compare["absorbance_order_mode_selected"] = compare["default_absorbance_order"].fillna(config.default_absorbance_order)
 
     point_reconciliation = compare.rename(
         columns={
@@ -1103,6 +1312,7 @@ def _comparison_tables(
             "pressure_source",
             "temperature_source",
             "ratio_source_selected",
+            "selected_source_pair",
             "absorbance_order_mode_selected",
             "best_absorbance_model",
             "best_absorbance_model_label",
@@ -1122,19 +1332,105 @@ def _comparison_tables(
     return point_reconciliation, comparison_outputs
 
 
+def _fit_legacy_default_absorbance_models(
+    absorbance_points: pd.DataFrame,
+    config: DebuggerConfig,
+) -> dict[str, pd.DataFrame]:
+    legacy_config = replace(
+        config,
+        default_source_policy="legacy_single_source_default",
+        matched_selection_policy="fixed_default_ratio_source",
+    )
+    per_source_results = [_run_one_matched_source(absorbance_points, legacy_config, config.default_ratio_source)]
+    return _select_best_matched_source(per_source_results, legacy_config)
+
+
+def _first_overview_value(frame: pd.DataFrame, analyzer_id: str, column: str) -> float:
+    subset = frame[frame["analyzer_id"] == analyzer_id]
+    if subset.empty or column not in subset.columns:
+        return math.nan
+    value = pd.to_numeric(subset.iloc[0][column], errors="coerce")
+    return float(value) if pd.notna(value) else math.nan
+
+
+def _first_text_value(frame: pd.DataFrame, analyzer_id: str, column: str) -> str:
+    subset = frame[frame["analyzer_id"] == analyzer_id]
+    if subset.empty or column not in subset.columns:
+        return ""
+    value = subset.iloc[0][column]
+    return "" if pd.isna(value) else str(value)
+
+
+def _build_before_after_summary(
+    legacy_comparison: dict[str, pd.DataFrame | list[str]],
+    tightened_full_comparison: dict[str, pd.DataFrame | list[str]],
+    valid_only_comparison: dict[str, pd.DataFrame | list[str]],
+    legacy_model_results: dict[str, pd.DataFrame],
+    tightened_full_model_results: dict[str, pd.DataFrame],
+    valid_only_model_results: dict[str, pd.DataFrame],
+    excluded_invalid: pd.DataFrame,
+) -> pd.DataFrame:
+    analyzers = sorted(
+        set(legacy_comparison["overview_summary"]["analyzer_id"].tolist())
+        | set(tightened_full_comparison["overview_summary"]["analyzer_id"].tolist())
+        | set(valid_only_comparison["overview_summary"]["analyzer_id"].tolist())
+    )
+    rows: list[dict[str, Any]] = []
+    for analyzer_id in analyzers:
+        old_full = _first_overview_value(legacy_comparison["overview_summary"], analyzer_id, "old_chain_rmse")
+        old_valid = _first_overview_value(valid_only_comparison["overview_summary"], analyzer_id, "old_chain_rmse")
+        new_before = _first_overview_value(legacy_comparison["overview_summary"], analyzer_id, "new_chain_rmse")
+        new_after_full = _first_overview_value(tightened_full_comparison["overview_summary"], analyzer_id, "new_chain_rmse")
+        new_after_valid = _first_overview_value(valid_only_comparison["overview_summary"], analyzer_id, "new_chain_rmse")
+        gap_before = new_before - old_full if math.isfinite(new_before) and math.isfinite(old_full) else math.nan
+        gap_after_full = new_after_full - old_full if math.isfinite(new_after_full) and math.isfinite(old_full) else math.nan
+        gap_after_valid = new_after_valid - old_valid if math.isfinite(new_after_valid) and math.isfinite(old_valid) else math.nan
+        excluded_subset = excluded_invalid[excluded_invalid["analyzer"] == analyzer_id] if not excluded_invalid.empty else excluded_invalid
+        rows.append(
+            {
+                "analyzer_id": analyzer_id,
+                "before_default_source_pair": _first_text_value(legacy_model_results["selection"], analyzer_id, "selected_source_pair"),
+                "after_default_source_pair_full_data": _first_text_value(tightened_full_model_results["selection"], analyzer_id, "selected_source_pair"),
+                "after_default_source_pair_valid_only": _first_text_value(valid_only_model_results["selection"], analyzer_id, "selected_source_pair"),
+                "old_chain_rmse_full_data": old_full,
+                "new_chain_rmse_before_default_full_data": new_before,
+                "new_chain_rmse_after_default_full_data": new_after_full,
+                "old_chain_rmse_valid_only": old_valid,
+                "new_chain_rmse_after_default_valid_only": new_after_valid,
+                "gap_before_default_full_data": gap_before,
+                "gap_after_default_full_data": gap_after_full,
+                "gap_after_default_valid_only": gap_after_valid,
+                "tighten_improvement_rmse": new_before - new_after_full if math.isfinite(new_before) and math.isfinite(new_after_full) else math.nan,
+                "valid_only_improvement_rmse": new_after_full - new_after_valid if math.isfinite(new_after_full) and math.isfinite(new_after_valid) else math.nan,
+                "gap_shrink_after_valid_only": gap_before - gap_after_valid if math.isfinite(gap_before) and math.isfinite(gap_after_valid) else math.nan,
+                "excluded_invalid_pressure_point_count": int(excluded_subset[["point_title", "point_row"]].drop_duplicates().shape[0]) if not excluded_subset.empty else 0,
+                "excluded_invalid_pressure_sample_count": int(len(excluded_subset)) if not excluded_subset.empty else 0,
+                "new_chain_improved_after_tighten": bool(math.isfinite(new_before) and math.isfinite(new_after_full) and new_after_full < new_before),
+                "new_chain_improved_after_valid_only": bool(math.isfinite(new_after_full) and math.isfinite(new_after_valid) and new_after_valid < new_after_full),
+                "old_vs_new_gap_shrank_after_valid_only": bool(math.isfinite(gap_before) and math.isfinite(gap_after_valid) and gap_after_valid < gap_before),
+            }
+        )
+    return pd.DataFrame(rows).sort_values(["analyzer_id"], ignore_index=True)
+
+
 def _report_tables(
     config: DebuggerConfig,
     bundle: RunBundle,
     output_dir: Path,
     points: pd.DataFrame,
     filtered: pd.DataFrame,
+    filtered_full: pd.DataFrame,
     temp_coeffs: pd.DataFrame,
     pressure_coeffs: pd.DataFrame,
     r0_coeffs: pd.DataFrame,
     model_results: dict[str, pd.DataFrame],
     comparison_outputs: dict[str, pd.DataFrame | list[str]],
+    comparison_outputs_full: dict[str, pd.DataFrame | list[str]],
     diagnostic_results: dict[str, Any],
     validation_table: pd.DataFrame,
+    invalid_pressure_points: pd.DataFrame,
+    invalid_pressure_summary: pd.DataFrame,
+    before_after_summary: pd.DataFrame,
     base_final_enabled: bool,
     base_final_source: str,
 ) -> dict[str, Any]:
@@ -1142,8 +1438,10 @@ def _report_tables(
     zero_temps = sorted(co2_points[co2_points["target_co2_ppm"] == 0]["temp_set_c"].dropna().unique().tolist())
     co2_temps = sorted(co2_points["temp_set_c"].dropna().unique().tolist())
     missing_zero_temps = [temp for temp in co2_temps if temp not in zero_temps]
+    selected_sources = model_results["selected_source_summary"]
+    selected_ratio_sources = tuple(selected_sources["selected_ratio_source"].dropna().unique().tolist())
     main_r0 = r0_coeffs[
-        (r0_coeffs["ratio_source"] == config.default_ratio_source)
+        r0_coeffs["ratio_source"].isin(selected_ratio_sources if selected_ratio_sources else (config.default_ratio_source,))
         & (r0_coeffs["temp_source"] == config.default_temp_source)
         & (r0_coeffs["model_name"] == config.default_r0_model)
     ].copy()
@@ -1166,10 +1464,22 @@ def _report_tables(
         "h2o_point_count": int(len(points) - len(co2_points)),
         "main_analyzers": list(config.analyzer_whitelist),
         "warning_only_analyzers": list(config.warning_only_analyzers),
-        "detected_analyzers": sorted(filtered["analyzer"].dropna().unique().tolist()),
+        "detected_analyzers": sorted(filtered_full["analyzer"].dropna().unique().tolist()),
         "co2_temperatures": co2_temps,
         "zero_temperatures": zero_temps,
         "missing_zero_temperatures": missing_zero_temps,
+        "rule_freeze": [
+            f"default_absorbance_order = {config.default_absorbance_order}",
+            f"default_source_policy = {config.default_source_policy}",
+            f"matched_selection_policy = {config.matched_selection_policy}",
+            f"default_pressure_branch = {config.default_pressure_branch_label()}",
+            f"invalid_pressure_targets_hpa = {list(config.invalid_pressure_targets_hpa)}",
+            f"invalid_pressure_tolerance_hpa = {config.invalid_pressure_tolerance_hpa}",
+            f"invalid_pressure_mode = {config.invalid_pressure_mode}",
+            f"use_valid_only_main_conclusion = {config.use_valid_only_main_conclusion}",
+            "full-data result is appendix only",
+            "valid-only result is main conclusion",
+        ],
         "formulas": {
             "Temperature correction (selected)": "temp_corr_c = q0 + q1*temp_cavity_c + q2*temp_cavity_c^2",
             "Pressure correction": "pressure_corr_hpa = pressure_dev_raw_hpa + offset_hpa",
@@ -1185,6 +1495,9 @@ def _report_tables(
             "Absorbance model E": "ppm = b0 + b1*A + b2*A^2 + b3*T + b4*A*T",
         },
         "validation_table": validation_table,
+        "selected_source_summary": selected_sources,
+        "invalid_pressure_points": invalid_pressure_points,
+        "invalid_pressure_summary": invalid_pressure_summary,
         "temperature_coefficients": temp_coeffs,
         "pressure_coefficients": pressure_coeffs,
         "r0_coefficients": main_r0,
@@ -1204,11 +1517,15 @@ def _report_tables(
         "regression_overall": regression_overall,
         "auto_conclusions": auto_conclusions,
         "comparison_conclusions": conclusion_lines,
+        "appendix_overview_summary": comparison_outputs_full["overview_summary"],
+        "appendix_auto_conclusions": comparison_outputs_full["auto_conclusions"],
+        "before_after_summary": before_after_summary,
         "base_final_enabled": base_final_enabled,
         "base_final_source": base_final_source,
         "limitations": [
             "40 C has no 0 ppm CO2 point in this run, so it is excluded from R0(T) fitting and used only as an extrapolation check.",
             "Pressure handling is offset-only in V1 of this debugger; it does not fit a full pressure polynomial yet.",
+            "Legacy-invalid 500 hPa pressure bins are hard-excluded from the valid-only main chain when detected.",
             "GA04 is detected but excluded from the main fit path by default because the run marks it missing for most points.",
             "Base/final is sample-order based and stays disabled by default for static calibration review.",
             "The new-chain comparison now uses grouped validation of bounded absorbance candidates, but it is still limited by this run's sparse temperature-zero coverage and single-pressure emphasis.",
