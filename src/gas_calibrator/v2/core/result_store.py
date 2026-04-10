@@ -212,6 +212,11 @@ class ResultStore:
             "simulation_evidence_sidecar_bundle",
             "measurement_phase_coverage_report",
             "measurement_phase_coverage_report_digest",
+            "run_artifact_index",
+            "artifact_contract_catalog",
+            "compatibility_scan_summary",
+            "compatibility_scan_summary_digest",
+            "reindex_manifest",
         ):
             value = stats.get(key)
             if not isinstance(value, dict) or not value:

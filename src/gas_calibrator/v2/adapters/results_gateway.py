@@ -29,6 +29,17 @@ from ..core.measurement_phase_coverage import (
     MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME,
     MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME,
 )
+from ..core.artifact_compatibility import (
+    ARTIFACT_CONTRACT_CATALOG_FILENAME,
+    ARTIFACT_CONTRACT_CATALOG_MARKDOWN_FILENAME,
+    COMPATIBILITY_SCAN_SUMMARY_FILENAME,
+    COMPATIBILITY_SCAN_SUMMARY_MARKDOWN_FILENAME,
+    REINDEX_MANIFEST_FILENAME,
+    REINDEX_MANIFEST_MARKDOWN_FILENAME,
+    RUN_ARTIFACT_INDEX_FILENAME,
+    RUN_ARTIFACT_INDEX_MARKDOWN_FILENAME,
+    load_or_build_artifact_compatibility_payloads,
+)
 from ..core import recognition_readiness_artifacts as recognition_readiness
 from ..core.offline_artifacts import build_point_taxonomy_handoff, summarize_offline_diagnostic_adapters
 from ..core.phase_transition_bridge_reviewer_artifact_entry import (
@@ -93,6 +104,8 @@ class ResultsGateway:
 
     def read_results_payload(self) -> dict[str, Any]:
         summary = self.load_json("summary.json")
+        manifest = self.load_json("manifest.json")
+        results = self.load_json("results.json")
         analytics_summary = self.load_json("analytics_summary.json")
         evidence_registry = self.load_json("evidence_registry.json")
         workbench_action_report = self.load_json("workbench_action_report.json")
@@ -235,6 +248,19 @@ class ResultsGateway:
                 workbench_action_report,
                 workbench_action_snapshot,
             )
+        role_catalog = dict(dict(manifest or {}).get("artifacts", {}) or {}).get("role_catalog", {})
+        compatibility_payloads = load_or_build_artifact_compatibility_payloads(
+            self.run_dir,
+            summary=summary if isinstance(summary, dict) else None,
+            manifest=manifest if isinstance(manifest, dict) else None,
+            results=results if isinstance(results, dict) else None,
+            output_files=self.list_output_files(),
+            role_catalog=role_catalog if isinstance(role_catalog, dict) else None,
+        )
+        run_artifact_index = dict(compatibility_payloads.get("run_artifact_index") or {})
+        artifact_contract_catalog = dict(compatibility_payloads.get("artifact_contract_catalog") or {})
+        compatibility_scan_summary = dict(compatibility_payloads.get("compatibility_scan_summary") or {})
+        reindex_manifest = dict(compatibility_payloads.get("reindex_manifest") or {})
         evidence_source = self._resolve_current_run_evidence_source(workbench_evidence_summary, workbench_action_report)
         evidence_state = str(
             workbench_evidence_summary.get("evidence_state")
@@ -274,11 +300,12 @@ class ResultsGateway:
             certificate_readiness_summary=certificate_readiness_summary,
             uncertainty_method_readiness_summary=uncertainty_method_readiness_summary,
             audit_readiness_digest=audit_readiness_digest,
+            compatibility_scan_summary=compatibility_scan_summary,
         )
         return {
             "summary": summary,
-            "manifest": self.load_json("manifest.json"),
-            "results": self.load_json("results.json"),
+            "manifest": manifest,
+            "results": results,
             "acceptance_plan": self.load_json("acceptance_plan.json"),
             "analytics_summary": analytics_summary,
             "spectral_quality_summary": self.load_json("spectral_quality_summary.json"),
@@ -319,6 +346,10 @@ class ResultsGateway:
             "certificate_readiness_summary": certificate_readiness_summary,
             "uncertainty_method_readiness_summary": uncertainty_method_readiness_summary,
             "audit_readiness_digest": audit_readiness_digest,
+            "run_artifact_index": run_artifact_index,
+            "artifact_contract_catalog": artifact_contract_catalog,
+            "compatibility_scan_summary": compatibility_scan_summary,
+            "reindex_manifest": reindex_manifest,
             "result_summary_text": result_summary_text,
             "evidence_source": evidence_source,
             "evidence_state": evidence_state,
@@ -343,6 +374,11 @@ class ResultsGateway:
         certificate_readiness_summary = dict(payload.get("certificate_readiness_summary", {}) or {})
         uncertainty_method_readiness_summary = dict(payload.get("uncertainty_method_readiness_summary", {}) or {})
         audit_readiness_digest = dict(payload.get("audit_readiness_digest", {}) or {})
+        run_artifact_index = dict(payload.get("run_artifact_index", {}) or {})
+        artifact_contract_catalog = dict(payload.get("artifact_contract_catalog", {}) or {})
+        compatibility_scan_summary = dict(payload.get("compatibility_scan_summary", {}) or {})
+        reindex_manifest = dict(payload.get("reindex_manifest", {}) or {})
+        compatibility_lookup = self._build_artifact_compatibility_lookup(run_artifact_index)
 
         def _artifact_path(value: Any) -> Path:
             candidate = Path(str(value or "").strip())
@@ -557,6 +593,11 @@ class ResultsGateway:
                 row,
                 simulation_evidence_sidecar_bundle=simulation_evidence_sidecar_bundle,
             )
+            row = self._decorate_artifact_compatibility_row(
+                row,
+                compatibility_lookup=compatibility_lookup,
+                compatibility_scan_summary=compatibility_scan_summary,
+            )
             row = self._decorate_measurement_phase_coverage_row(
                 row,
                 measurement_phase_coverage_report=measurement_phase_coverage_report,
@@ -601,6 +642,10 @@ class ResultsGateway:
             "certificate_readiness_summary": certificate_readiness_summary,
             "uncertainty_method_readiness_summary": uncertainty_method_readiness_summary,
             "audit_readiness_digest": audit_readiness_digest,
+            "run_artifact_index": run_artifact_index,
+            "artifact_contract_catalog": artifact_contract_catalog,
+            "compatibility_scan_summary": compatibility_scan_summary,
+            "reindex_manifest": reindex_manifest,
             "phase_transition_bridge_reviewer_artifact_entry": dict(reviewer_artifact_entry),
             "stage_admission_review_pack_artifact_entry": dict(stage_admission_review_pack_entry),
             "engineering_isolation_admission_checklist_artifact_entry": dict(

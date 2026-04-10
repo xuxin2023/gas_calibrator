@@ -41,6 +41,10 @@ from .measurement_phase_coverage import (
     MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME,
     build_measurement_phase_coverage_report,
 )
+from .artifact_compatibility import (
+    build_artifact_compatibility_bundle,
+    write_artifact_compatibility_sidecars,
+)
 from .models import CalibrationPoint, SamplingResult
 from . import recognition_readiness_artifacts as recognition_readiness
 
@@ -1557,6 +1561,34 @@ def export_run_offline_artifacts(
         markdown_path = run_dir / str(bundle.get("markdown_filename") or f"{artifact_key}.md")
         markdown_path.write_text(str(bundle.get("markdown") or ""), encoding="utf-8")
         recognition_readiness_written_paths[str(artifact_key)] = (json_path, markdown_path)
+    compatibility_bundle = build_artifact_compatibility_bundle(
+        run_dir,
+        summary={"run_id": run_id},
+        manifest={},
+        results={"run_id": run_id},
+        output_files=[
+            str(acceptance_path),
+            str(analytics_path),
+            str(lineage_path),
+            str(trend_path),
+            str(evidence_path),
+            str(coefficient_path),
+            str(multi_source_stability_evidence_path),
+            str(multi_source_stability_markdown_path),
+            str(state_transition_evidence_path),
+            str(state_transition_markdown_path),
+            str(simulation_evidence_sidecar_bundle_path),
+            str(measurement_phase_coverage_path),
+            str(measurement_phase_coverage_markdown_path),
+            *[
+                str(path)
+                for paths in recognition_readiness_written_paths.values()
+                for path in paths
+            ],
+            *([str(spectral_quality_path)] if spectral_quality_path is not None else []),
+        ],
+    )
+    compatibility_written_paths = write_artifact_compatibility_sidecars(run_dir, compatibility_bundle)
 
     statuses = {
         "acceptance_plan": _artifact_status_payload("execution_summary", acceptance_path),
@@ -1615,6 +1647,13 @@ def export_run_offline_artifacts(
         role = recognition_readiness_roles.get(str(artifact_key), "execution_summary")
         statuses[str(artifact_key)] = _artifact_status_payload(role, json_path)
         statuses[f"{artifact_key}_markdown"] = _artifact_status_payload("formal_analysis", markdown_path)
+    for artifact_key, bundle in compatibility_bundle.items():
+        json_path, markdown_path = compatibility_written_paths[str(artifact_key)]
+        statuses[str(artifact_key)] = _artifact_status_payload(str(bundle.get("json_role") or "execution_summary"), json_path)
+        statuses[f"{artifact_key}_markdown"] = _artifact_status_payload(
+            str(bundle.get("markdown_role") or "formal_analysis"),
+            markdown_path,
+        )
     summary_stats = {
         "acceptance_plan": acceptance_plan,
         "acceptance_readiness_summary": acceptance_plan.get("readiness_summary", {}),
@@ -1682,6 +1721,26 @@ def export_run_offline_artifacts(
             "digest": bundle_digest,
         }
         summary_stats[f"{artifact_key}_digest"] = bundle_digest
+    for artifact_key, bundle in compatibility_bundle.items():
+        json_path, markdown_path = compatibility_written_paths[str(artifact_key)]
+        bundle_raw = dict(bundle.get("raw") or {})
+        bundle_digest = dict(bundle_raw.get("digest") or {})
+        summary_stats[str(artifact_key)] = {
+            "path": str(json_path),
+            "markdown_path": str(markdown_path),
+            "artifact_type": str(bundle_raw.get("artifact_type") or artifact_key),
+            "compatibility_status": str(bundle_raw.get("compatibility_status") or ""),
+            "current_reader_mode": str(bundle_raw.get("current_reader_mode") or ""),
+            "canonical_reader_available": bool(bundle_raw.get("canonical_reader_available", True)),
+            "regenerate_recommended": bool(bundle_raw.get("regenerate_recommended", False)),
+            "linked_surface_visibility": list(bundle_raw.get("linked_surface_visibility") or []),
+            "boundary_digest": str(bundle_raw.get("boundary_digest") or ""),
+            "non_claim_digest": str(bundle_raw.get("non_claim_digest") or ""),
+            "review_surface": dict(bundle_raw.get("review_surface") or {}),
+            "digest": bundle_digest,
+        }
+        if bundle_digest:
+            summary_stats[f"{artifact_key}_digest"] = bundle_digest
     if analytics_summary.get("point_taxonomy_summary"):
         summary_stats["point_taxonomy_summary"] = dict(analytics_summary.get("point_taxonomy_summary") or {})
     if analytics_summary.get("offline_diagnostic_adapter_summary"):
@@ -1753,6 +1812,22 @@ def export_run_offline_artifacts(
             "boundary_summary": " | ".join(list(bundle_raw.get("boundary_statements") or [])),
             "review_surface": dict(bundle_raw.get("review_surface") or {}),
         }
+    for artifact_key, bundle in compatibility_bundle.items():
+        json_path, markdown_path = compatibility_written_paths[str(artifact_key)]
+        bundle_raw = dict(bundle.get("raw") or {})
+        bundle_digest = dict(bundle_raw.get("digest") or {})
+        manifest_sections[str(artifact_key)] = {
+            "path": str(json_path),
+            "markdown_path": str(markdown_path),
+            "artifact_type": str(bundle_raw.get("artifact_type") or artifact_key),
+            "summary": str(bundle_digest.get("summary") or bundle_raw.get("summary") or ""),
+            "compatibility_status": str(bundle_raw.get("compatibility_status") or ""),
+            "current_reader_mode": str(bundle_raw.get("current_reader_mode") or ""),
+            "regenerate_recommended": bool(bundle_raw.get("regenerate_recommended", False)),
+            "boundary_summary": str(bundle_raw.get("boundary_digest") or ""),
+            "non_claim_summary": str(bundle_raw.get("non_claim_digest") or ""),
+            "review_surface": dict(bundle_raw.get("review_surface") or {}),
+        }
     if spectral_quality_summary:
         manifest_sections["spectral_quality"] = _spectral_quality_digest(spectral_quality_summary)
         manifest_sections["spectral_quality"]["not_real_acceptance_evidence"] = bool(
@@ -1780,6 +1855,11 @@ def export_run_offline_artifacts(
             *[
                 str(path)
                 for paths in recognition_readiness_written_paths.values()
+                for path in paths
+            ],
+            *[
+                str(path)
+                for paths in compatibility_written_paths.values()
                 for path in paths
             ],
             *([str(spectral_quality_path)] if spectral_quality_path is not None else []),
