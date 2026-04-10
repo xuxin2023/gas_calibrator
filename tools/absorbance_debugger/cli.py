@@ -13,6 +13,7 @@ from .options import (
     normalize_pressure_source,
     normalize_ratio_source,
     normalize_temp_source,
+    parse_numeric_csv,
 )
 
 
@@ -66,6 +67,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Absorbance model validation strategy: auto, grouped_loo, or grouped_kfold.",
     )
     parser.add_argument(
+        "--invalid-pressure-targets-hpa",
+        default="500",
+        help="Comma-separated pressure bins that are legacy-invalid and must be excluded from the main chain.",
+    )
+    parser.add_argument(
+        "--invalid-pressure-tolerance-hpa",
+        type=float,
+        default=30.0,
+        help="Tolerance used to detect legacy-invalid pressure bins.",
+    )
+    parser.add_argument(
+        "--disable-hard-invalid-pressure-exclude",
+        action="store_true",
+        help="Keep legacy-invalid pressure bins for diagnostics instead of hard-excluding them from the main chain.",
+    )
+    parser.add_argument(
+        "--full-data-main-conclusion",
+        action="store_true",
+        help="Use full-data instead of valid-only as the main conclusion surface.",
+    )
+    parser.add_argument(
         "--no-composite-score",
         action="store_true",
         help="Disable the weighted composite score and fall back to validation RMSE selection.",
@@ -92,6 +114,10 @@ def main(argv: list[str] | None = None) -> int:
         absorbance_order_mode=normalize_absorbance_order_mode(args.absorbance_order_mode),
         model_selection_strategy=normalize_model_selection_strategy(args.model_selection_strategy),
         enable_composite_score=not bool(args.no_composite_score),
+        invalid_pressure_targets_hpa=parse_numeric_csv(args.invalid_pressure_targets_hpa),
+        invalid_pressure_tolerance_hpa=float(args.invalid_pressure_tolerance_hpa),
+        invalid_pressure_mode="diagnostic_only" if bool(args.disable_hard_invalid_pressure_exclude) else "hard_exclude",
+        use_valid_only_main_conclusion=not bool(args.full_data_main_conclusion),
         eps=float(args.eps),
         p_min_hpa=float(args.p_min_hpa),
         p_ref_hpa=float(args.p_ref_hpa),

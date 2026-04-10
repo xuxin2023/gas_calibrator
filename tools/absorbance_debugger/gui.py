@@ -34,12 +34,17 @@ class AbsorbanceDebuggerGui:
         self.ratio_source = StringVar(value="raw")
         self.absorbance_order_mode = StringVar(value="samplewise_log_first")
         self.model_selection_strategy = StringVar(value="auto")
+        self.invalid_pressure_targets_hpa = StringVar(value="500")
+        self.invalid_pressure_tolerance_hpa = StringVar(value="30")
         self.enable_composite_score = StringVar(value="1")
         self.run_source_consistency_compare = StringVar(value="1")
         self.run_pressure_branch_compare = StringVar(value="1")
         self.run_upper_bound_compare = StringVar(value="1")
+        self.hard_invalid_pressure_exclude = StringVar(value="1")
+        self.use_valid_only_main_conclusion = StringVar(value="1")
         self.auto_open_report = StringVar(value="1")
         self.status_text = StringVar(value="Ready.")
+        self.selected_sources_text = StringVar(value="Selected sources: not run yet.")
         self.last_report_path: Path | None = None
 
         self.ga_vars = {
@@ -75,9 +80,11 @@ class AbsorbanceDebuggerGui:
         self._combo_row(frame, 6, "Ratio source", self.ratio_source, ("raw", "filt"))
         self._combo_row(frame, 7, "Order mode", self.absorbance_order_mode, ("samplewise_log_first", "mean_first_log", "compare_both"))
         self._combo_row(frame, 8, "Model strategy", self.model_selection_strategy, ("auto", "grouped_loo", "grouped_kfold"))
+        self._entry_row(frame, 9, "Invalid pressures", self.invalid_pressure_targets_hpa)
+        self._entry_row(frame, 10, "Invalid tol (hPa)", self.invalid_pressure_tolerance_hpa)
 
         option_frame = ttk.Frame(frame)
-        option_frame.grid(row=9, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        option_frame.grid(row=11, column=0, columnspan=3, sticky="w", pady=(10, 0))
         ttk.Checkbutton(
             option_frame,
             text="Enable composite score",
@@ -108,28 +115,49 @@ class AbsorbanceDebuggerGui:
         ).pack(side=LEFT, padx=(14, 0))
 
         option_frame_2 = ttk.Frame(frame)
-        option_frame_2.grid(row=10, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        option_frame_2.grid(row=12, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        ttk.Checkbutton(
+            option_frame_2,
+            text="Hard-exclude invalid pressure bins",
+            variable=self.hard_invalid_pressure_exclude,
+            onvalue="1",
+            offvalue="0",
+        ).pack(side=LEFT)
+        ttk.Checkbutton(
+            option_frame_2,
+            text="Use valid-only as main conclusion",
+            variable=self.use_valid_only_main_conclusion,
+            onvalue="1",
+            offvalue="0",
+        ).pack(side=LEFT, padx=(14, 0))
         ttk.Checkbutton(
             option_frame_2,
             text="Open report after run",
             variable=self.auto_open_report,
             onvalue="1",
             offvalue="0",
-        ).pack(side=LEFT)
+        ).pack(side=LEFT, padx=(14, 0))
 
         action_frame = ttk.Frame(frame)
-        action_frame.grid(row=11, column=0, columnspan=3, sticky="ew", pady=(18, 0))
+        action_frame.grid(row=13, column=0, columnspan=3, sticky="ew", pady=(18, 0))
         self.start_button = ttk.Button(action_frame, text="Start analysis", command=self._start_analysis)
         self.start_button.pack(side=LEFT)
         self.open_button = ttk.Button(action_frame, text="Open report.html", command=self._open_report, state="disabled")
         self.open_button.pack(side=LEFT, padx=(10, 0))
 
         ttk.Label(frame, textvariable=self.status_text, wraplength=700).grid(
-            row=12,
+            row=14,
             column=0,
             columnspan=3,
             sticky="w",
             pady=(16, 0),
+        )
+        ttk.Label(frame, textvariable=self.selected_sources_text, wraplength=700).grid(
+            row=15,
+            column=0,
+            columnspan=3,
+            sticky="w",
+            pady=(10, 0),
         )
 
         frame.columnconfigure(1, weight=1)
@@ -184,10 +212,14 @@ class AbsorbanceDebuggerGui:
             pressure_source = normalize_pressure_source(self.pressure_source.get())
             absorbance_order_mode = normalize_absorbance_order_mode(self.absorbance_order_mode.get())
             model_selection_strategy = normalize_model_selection_strategy(self.model_selection_strategy.get())
+            invalid_pressure_targets_hpa = self.invalid_pressure_targets_hpa.get().strip()
+            invalid_pressure_tolerance_hpa = float(self.invalid_pressure_tolerance_hpa.get().strip())
             enable_composite_score = self.enable_composite_score.get() == "1"
             run_source_consistency_compare = self.run_source_consistency_compare.get() == "1"
             run_pressure_branch_compare = self.run_pressure_branch_compare.get() == "1"
             run_upper_bound_compare = self.run_upper_bound_compare.get() == "1"
+            hard_invalid_pressure_exclude = self.hard_invalid_pressure_exclude.get() == "1"
+            use_valid_only_main_conclusion = self.use_valid_only_main_conclusion.get() == "1"
         except Exception as exc:
             messagebox.showerror("Absorbance Debugger", str(exc))
             return
@@ -216,20 +248,33 @@ class AbsorbanceDebuggerGui:
                     run_r0_source_consistency_compare=run_source_consistency_compare,
                     run_pressure_branch_compare=run_pressure_branch_compare,
                     run_upper_bound_compare=run_upper_bound_compare,
+                    invalid_pressure_targets_hpa=invalid_pressure_targets_hpa,
+                    invalid_pressure_tolerance_hpa=invalid_pressure_tolerance_hpa,
+                    invalid_pressure_mode="hard_exclude" if hard_invalid_pressure_exclude else "diagnostic_only",
+                    use_valid_only_main_conclusion=use_valid_only_main_conclusion,
                     p_ref_hpa=p_ref_hpa,
                 )
                 report_path = Path(result["output_dir"]) / "report.html"
                 self.last_report_path = report_path
-                self.root.after(0, lambda: self._finish_success(report_path))
+                self.root.after(0, lambda: self._finish_success(report_path, result))
             except Exception as exc:  # pragma: no cover - UI error surface
                 self.root.after(0, lambda: self._finish_error(exc))
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _finish_success(self, report_path: Path) -> None:
+    def _finish_success(self, report_path: Path, result: dict[str, object]) -> None:
         self.start_button.configure(state="normal")
         self.open_button.configure(state="normal")
         self.status_text.set(f"Analysis finished. Report: {report_path}")
+        selection = result.get("selected_source_summary")
+        if selection is not None and hasattr(selection, "empty") and not selection.empty:
+            parts = [
+                f"{row['analyzer_id']}={row['selected_source_pair']}"
+                for row in selection.to_dict(orient="records")
+            ]
+            self.selected_sources_text.set("Selected sources: " + ", ".join(parts))
+        else:
+            self.selected_sources_text.set("Selected sources: not available.")
         if self.auto_open_report.get() == "1" and report_path.exists():
             webbrowser.open(report_path.resolve().as_uri())
 

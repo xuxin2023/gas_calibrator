@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import shutil
+from dataclasses import replace
 from itertools import product
 from pathlib import Path
 from typing import Any, Iterable
@@ -42,10 +43,12 @@ from ..plots.charts import (
     plot_absorbance_model_residual_vs_target,
     plot_absorbance_model_residual_vs_temp,
     plot_branch_metric_compare,
+    plot_default_chain_before_after,
     plot_error_boxplot,
     plot_error_hist,
     plot_error_vs_target_ppm,
     plot_error_vs_temp,
+    plot_invalid_pressure_points,
     plot_per_temp_compare,
     plot_pressure_compare,
     plot_ratio_series,
@@ -323,6 +326,166 @@ def _filter_samples(samples: pd.DataFrame, config: DebuggerConfig) -> tuple[pd.D
     filtered = samples[samples["exclude_reason"] == ""].copy()
     excluded = samples[samples["exclude_reason"] != ""].copy()
     return filtered, excluded
+
+
+def _apply_temperature_pressure_corrections(
+    filtered: pd.DataFrame,
+    pressure_summary: pd.DataFrame | None,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, Any], pd.DataFrame, pd.DataFrame, dict[str, float]]:
+    corrected = filtered.copy()
+    temp_coeffs, temp_residuals, temp_lookup = _fit_temperature(corrected)
+    corrected["temp_corr_c"] = corrected.apply(
+        lambda row: temp_lookup[(row["analyzer"], "quadratic")].evaluate([row["temp_cavity_c"]])[0],
+        axis=1,
+    )
+    pressure_coeffs, offsets = _pressure_offsets(corrected, pressure_summary)
+    corrected["offset_hpa"] = corrected["analyzer"].map(offsets)
+    corrected["pressure_corr_hpa"] = corrected["pressure_dev_raw_hpa"] + corrected["offset_hpa"]
+    pressure_compare = corrected[
+        [
+            "analyzer",
+            "point_title",
+            "point_row",
+            "sample_index",
+            "pressure_std_hpa",
+            "pressure_dev_raw_hpa",
+            "pressure_corr_hpa",
+        ]
+    ].copy()
+    pressure_compare["diff_raw_hpa"] = pressure_compare["pressure_dev_raw_hpa"] - pressure_compare["pressure_std_hpa"]
+    pressure_compare["diff_corr_hpa"] = pressure_compare["pressure_corr_hpa"] - pressure_compare["pressure_std_hpa"]
+    return corrected, temp_coeffs, temp_residuals, temp_lookup, pressure_coeffs, pressure_compare, offsets
+
+
+def _first_finite(series: pd.Series) -> float | None:
+    values = pd.to_numeric(series, errors="coerce").dropna()
+    if values.empty:
+        return None
+    return float(values.iloc[0])
+
+
+def _invalid_pressure_reason(
+    target_pressure_hpa: float | None,
+    pressure_std_hpa_mean: float | None,
+    pressure_corr_hpa_mean: float | None,
+    config: DebuggerConfig,
+) -> str:
+    tol = float(config.invalid_pressure_tolerance_hpa)
+    for target_hpa in config.invalid_pressure_targets_hpa:
+        if target_pressure_hpa is not None and math.isfinite(target_pressure_hpa):
+            if abs(target_pressure_hpa - float(target_hpa)) <= tol:
+                return f"legacy_invalid_pressure_target_{float(target_hpa):g}hpa"
+            continue
+        if pressure_std_hpa_mean is not None and math.isfinite(pressure_std_hpa_mean):
+            if abs(pressure_std_hpa_mean - float(target_hpa)) <= tol:
+                return f"legacy_invalid_pressure_std_mean_{float(target_hpa):g}hpa"
+        if pressure_corr_hpa_mean is not None and math.isfinite(pressure_corr_hpa_mean):
+            if abs(pressure_corr_hpa_mean - float(target_hpa)) <= tol:
+                return f"legacy_invalid_pressure_corr_mean_{float(target_hpa):g}hpa"
+    return ""
+
+
+def _identify_invalid_pressure_points(
+    filtered: pd.DataFrame,
+    config: DebuggerConfig,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    point_summary = (
+        filtered.groupby(
+            ["analyzer", "point_title", "point_row", "route", "temp_set_c", "target_co2_ppm"],
+            dropna=False,
+        )
+        .agg(
+            target_pressure_hpa_if_available=("target_pressure_hpa", _first_finite),
+            pressure_std_hpa_mean=("pressure_std_hpa", "mean"),
+            pressure_corr_hpa_mean=("pressure_corr_hpa", "mean"),
+            sample_count=("sample_index", "count"),
+        )
+        .reset_index()
+    )
+    point_summary = point_summary.rename(
+        columns={
+            "analyzer": "analyzer_id",
+            "temp_set_c": "temp_c",
+        }
+    )
+    point_summary["invalid_reason"] = point_summary.apply(
+        lambda row: _invalid_pressure_reason(
+            _safe_float(row["target_pressure_hpa_if_available"]),
+            _safe_float(row["pressure_std_hpa_mean"]),
+            _safe_float(row["pressure_corr_hpa_mean"]),
+            config,
+        ),
+        axis=1,
+    )
+    point_summary["excluded_from_main_analysis"] = (
+        point_summary["invalid_reason"].ne("") & (config.invalid_pressure_mode == "hard_exclude")
+    )
+    invalid_points = point_summary[point_summary["invalid_reason"].ne("")].copy()
+    if invalid_points.empty:
+        summary = pd.DataFrame(
+            [
+                {
+                    "summary_scope": "overall",
+                    "analyzer_id": "",
+                    "invalid_point_count": 0,
+                    "invalid_sample_count": 0,
+                    "invalid_reason_list": "",
+                    "pressure_targets_hpa": json.dumps(list(config.invalid_pressure_targets_hpa)),
+                    "tolerance_hpa": float(config.invalid_pressure_tolerance_hpa),
+                    "invalid_pressure_mode": config.invalid_pressure_mode,
+                }
+            ]
+        )
+        filtered_valid = filtered.copy()
+        excluded_invalid = filtered.iloc[0:0].copy()
+        return invalid_points, summary, filtered_valid, excluded_invalid
+
+    invalid_keys = invalid_points[invalid_points["excluded_from_main_analysis"]][["analyzer_id", "point_title", "point_row", "invalid_reason"]].copy()
+    invalid_keys = invalid_keys.rename(columns={"analyzer_id": "analyzer"})
+    excluded_invalid = filtered.merge(
+        invalid_keys,
+        on=["analyzer", "point_title", "point_row"],
+        how="inner",
+    )
+    if not excluded_invalid.empty:
+        excluded_invalid["exclude_reason"] = excluded_invalid["invalid_reason"].astype(str)
+    filtered_valid = filtered.merge(
+        invalid_keys[["analyzer", "point_title", "point_row"]],
+        on=["analyzer", "point_title", "point_row"],
+        how="left",
+        indicator=True,
+    )
+    filtered_valid = filtered_valid[filtered_valid["_merge"] == "left_only"].drop(columns="_merge").copy()
+
+    summary_rows: list[dict[str, Any]] = [
+        {
+            "summary_scope": "overall",
+            "analyzer_id": "",
+            "invalid_point_count": int(len(invalid_points)),
+            "invalid_sample_count": int(len(excluded_invalid)),
+            "invalid_reason_list": "|".join(sorted(invalid_points["invalid_reason"].unique().tolist())),
+            "pressure_targets_hpa": json.dumps(list(config.invalid_pressure_targets_hpa)),
+            "tolerance_hpa": float(config.invalid_pressure_tolerance_hpa),
+            "invalid_pressure_mode": config.invalid_pressure_mode,
+        }
+    ]
+    for analyzer_id, subset in invalid_points.groupby("analyzer_id"):
+        excluded_count = int(
+            len(excluded_invalid[excluded_invalid["analyzer"] == analyzer_id])
+        )
+        summary_rows.append(
+            {
+                "summary_scope": "analyzer",
+                "analyzer_id": analyzer_id,
+                "invalid_point_count": int(len(subset)),
+                "invalid_sample_count": excluded_count,
+                "invalid_reason_list": "|".join(sorted(subset["invalid_reason"].unique().tolist())),
+                "pressure_targets_hpa": json.dumps(list(config.invalid_pressure_targets_hpa)),
+                "tolerance_hpa": float(config.invalid_pressure_tolerance_hpa),
+                "invalid_pressure_mode": config.invalid_pressure_mode,
+            }
+        )
+    return invalid_points, pd.DataFrame(summary_rows), filtered_valid, excluded_invalid
 
 
 def _fit_temperature(filtered: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, Any]]:

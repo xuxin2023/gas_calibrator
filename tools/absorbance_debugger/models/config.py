@@ -24,11 +24,18 @@ class DebuggerConfig:
     default_pressure_source: str = "pressure_corr_hpa"
     default_r0_model: str = "quadratic"
     absorbance_order_mode: str = "samplewise_log_first"
+    default_absorbance_order: str = "samplewise_log_first"
+    default_source_policy: str = "matched_only"
+    matched_selection_policy: str = "per_analyzer_best_among_matched"
     model_selection_strategy: str = "auto_grouped"
     enable_composite_score: bool = True
     run_r0_source_consistency_compare: bool = True
     run_pressure_branch_compare: bool = True
     run_upper_bound_compare: bool = True
+    invalid_pressure_targets_hpa: tuple[float, ...] = (500.0,)
+    invalid_pressure_tolerance_hpa: float = 30.0
+    invalid_pressure_mode: str = "hard_exclude"
+    use_valid_only_main_conclusion: bool = True
     composite_weights: tuple[tuple[str, float], ...] = (
         ("overall_rmse", 0.35),
         ("zero_rmse", 0.30),
@@ -82,6 +89,16 @@ class DebuggerConfig:
         """Return composite score weights as a regular mapping."""
 
         return {key: float(value) for key, value in self.composite_weights}
+
+    def matched_source_pair_label(self, ratio_source: str) -> str:
+        """Return the matched source-pair label for one ratio source."""
+
+        return "raw/raw" if ratio_source == "ratio_co2_raw" else "filt/filt"
+
+    def matched_ratio_sources(self) -> tuple[str, ...]:
+        """Return the ratio sources that are eligible for the main matched-only chain."""
+
+        return tuple(source for source in self.ratio_sources if source in {"ratio_co2_raw", "ratio_co2_filt"})
 
 
 @dataclass(frozen=True)

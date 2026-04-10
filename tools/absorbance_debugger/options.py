@@ -45,6 +45,13 @@ ABSORBANCE_ORDER_MODE_MAP = {
     "compare_both": "compare_both",
 }
 
+INVALID_PRESSURE_MODE_MAP = {
+    "hard_exclude": "hard_exclude",
+    "hard": "hard_exclude",
+    "diagnostic_only": "diagnostic_only",
+    "diagnostic": "diagnostic_only",
+}
+
 
 def _normalize(text: str, mapping: dict[str, str], label: str) -> str:
     key = str(text or "").strip().lower()
@@ -82,3 +89,21 @@ def normalize_absorbance_order_mode(text: str) -> str:
     """Normalize CLI or GUI absorbance order mode text."""
 
     return _normalize(text, ABSORBANCE_ORDER_MODE_MAP, "absorbance order mode")
+
+
+def normalize_invalid_pressure_mode(text: str) -> str:
+    """Normalize invalid-pressure handling mode text."""
+
+    return _normalize(text, INVALID_PRESSURE_MODE_MAP, "invalid pressure mode")
+
+
+def parse_numeric_csv(text: str) -> tuple[float, ...]:
+    """Parse a comma-separated numeric list."""
+
+    values: list[float] = []
+    for part in str(text or "").split(","):
+        item = part.strip()
+        if not item:
+            continue
+        values.append(float(item))
+    return tuple(values)
