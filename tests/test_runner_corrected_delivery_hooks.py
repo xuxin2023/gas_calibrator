@@ -61,7 +61,7 @@ def test_run_calls_startup_pressure_calibration_and_postrun_delivery_in_order(tm
     logger.close()
 
 
-def test_run_skips_startup_pressure_work_when_ambient_only_selected(tmp_path: Path, monkeypatch) -> None:
+def test_run_calls_startup_pressure_work_when_ambient_only_selected(tmp_path: Path, monkeypatch) -> None:
     points_path = tmp_path / "points.xlsx"
     points_path.write_text("stub", encoding="utf-8")
     cfg = {
@@ -96,9 +96,7 @@ def test_run_skips_startup_pressure_work_when_ambient_only_selected(tmp_path: Pa
 
     runner.run()
 
-    assert "startup_pressure_precheck" not in order
-    assert "startup_pressure_sensor_calibration" not in order
-    assert order.index("startup_preflight_reset") < order.index("run_points")
+    assert order.index("startup_preflight_reset") < order.index("startup_pressure_precheck") < order.index("startup_pressure_sensor_calibration") < order.index("run_points")
     logger.close()
 
 
