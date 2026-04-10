@@ -453,8 +453,11 @@ class DeviceWorkbenchController:
         payload = dict(gateway.read_results_payload() or {})
         scope_definition_pack = dict(payload.get("scope_definition_pack") or {})
         decision_rule_profile = dict(payload.get("decision_rule_profile") or {})
+        reference_asset_registry = dict(payload.get("reference_asset_registry") or {})
+        certificate_lifecycle_summary = dict(payload.get("certificate_lifecycle_summary") or {})
         scope_summary = dict(payload.get("scope_readiness_summary") or {})
         certificate_summary = dict(payload.get("certificate_readiness_summary") or {})
+        pre_run_readiness_gate = dict(payload.get("pre_run_readiness_gate") or {})
         uncertainty_summary = dict(payload.get("uncertainty_method_readiness_summary") or {})
         audit_summary = dict(payload.get("audit_readiness_digest") or {})
         recognition_scope_rollup = dict(payload.get("recognition_scope_rollup") or {})
@@ -468,8 +471,11 @@ class DeviceWorkbenchController:
         payloads = {
             "scope_definition_pack": scope_definition_pack,
             "decision_rule_profile": decision_rule_profile,
+            "reference_asset_registry": reference_asset_registry,
+            "certificate_lifecycle_summary": certificate_lifecycle_summary,
             "scope_readiness_summary": scope_summary,
             "certificate_readiness_summary": certificate_summary,
+            "pre_run_readiness_gate": pre_run_readiness_gate,
             "uncertainty_method_readiness_summary": uncertainty_summary,
             "audit_readiness_digest": audit_summary,
         }
