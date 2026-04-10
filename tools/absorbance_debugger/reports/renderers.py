@@ -157,7 +157,7 @@ def render_report_markdown(report: Mapping[str, object]) -> str:
     lines.append(_table_to_markdown(report["appendix_auto_conclusions"], max_rows=10))
     lines.append("")
     lines.append("## 15. Automatic conclusion page")
-    lines.append(_table_to_markdown(report["auto_conclusions"], max_rows=10))
+    lines.append(_table_to_markdown(report["auto_conclusions"], max_rows=16))
     lines.append("")
     lines.append("## 16. Base/final mode")
     lines.append(f"- Enabled: `{report['base_final_enabled']}`")

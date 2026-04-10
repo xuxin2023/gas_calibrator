@@ -2060,4 +2060,6 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         "comparison_outputs": main_comparison_outputs,
         "point_reconciliation": main_point_reconciliation,
         "selected_source_summary": model_results["selected_source_summary"],
+        "ga01_profile": ga01_profile,
+        "ga01_special_note": ga01_special_note,
     }
