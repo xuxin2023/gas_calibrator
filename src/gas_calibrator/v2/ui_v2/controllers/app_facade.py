@@ -1482,8 +1482,11 @@ class AppFacade:
         measurement_phase_coverage_report = dict(payload.get("measurement_phase_coverage_report", {}) or {})
         scope_definition_pack = dict(payload.get("scope_definition_pack", {}) or {})
         decision_rule_profile = dict(payload.get("decision_rule_profile", {}) or {})
+        reference_asset_registry = dict(payload.get("reference_asset_registry", {}) or {})
+        certificate_lifecycle_summary = dict(payload.get("certificate_lifecycle_summary", {}) or {})
         scope_readiness_summary = dict(payload.get("scope_readiness_summary", {}) or {})
         certificate_readiness_summary = dict(payload.get("certificate_readiness_summary", {}) or {})
+        pre_run_readiness_gate = dict(payload.get("pre_run_readiness_gate", {}) or {})
         uncertainty_method_readiness_summary = dict(payload.get("uncertainty_method_readiness_summary", {}) or {})
         audit_readiness_digest = dict(payload.get("audit_readiness_digest", {}) or {})
         run_artifact_index = dict(payload.get("run_artifact_index", {}) or {})
@@ -1583,14 +1586,50 @@ class AppFacade:
         scope_readiness_text = self._humanize_ui_summary(
             str(dict(scope_readiness_summary.get("digest") or {}).get("summary") or "--")
         )
+        reference_asset_registry_text = self._humanize_ui_summary(
+            str(
+                dict(reference_asset_registry.get("digest") or {}).get("asset_readiness_overview")
+                or dict(reference_asset_registry.get("digest") or {}).get("summary")
+                or "--"
+            )
+        )
+        certificate_lifecycle_text = self._humanize_ui_summary(
+            str(
+                dict(certificate_lifecycle_summary.get("digest") or {}).get("certificate_lifecycle_overview")
+                or dict(certificate_lifecycle_summary.get("digest") or {}).get("summary")
+                or "--"
+            )
+        )
         certificate_readiness_text = self._humanize_ui_summary(
             str(dict(certificate_readiness_summary.get("digest") or {}).get("summary") or "--")
+        )
+        pre_run_readiness_gate_text = self._humanize_ui_summary(
+            str(
+                dict(pre_run_readiness_gate.get("digest") or {}).get("pre_run_gate_status")
+                or pre_run_readiness_gate.get("gate_status")
+                or dict(pre_run_readiness_gate.get("digest") or {}).get("summary")
+                or "--"
+            )
         )
         uncertainty_method_readiness_text = self._humanize_ui_summary(
             str(dict(uncertainty_method_readiness_summary.get("digest") or {}).get("summary") or "--")
         )
         audit_readiness_text = self._humanize_ui_summary(
             str(dict(audit_readiness_digest.get("digest") or {}).get("summary") or "--")
+        )
+        pre_run_blocking_text = self._humanize_ui_summary(
+            str(
+                recognition_scope_rollup.get("blocking_digest")
+                or dict(pre_run_readiness_gate.get("digest") or {}).get("blocker_summary")
+                or "--"
+            )
+        )
+        pre_run_warning_text = self._humanize_ui_summary(
+            str(
+                recognition_scope_rollup.get("warning_digest")
+                or dict(pre_run_readiness_gate.get("digest") or {}).get("warning_summary")
+                or "--"
+            )
         )
         scope_definition_digest = dict(scope_definition_pack.get("digest") or {})
         decision_rule_digest = dict(decision_rule_profile.get("digest") or {})
@@ -1739,8 +1778,11 @@ class AppFacade:
             measurement_phase_coverage_report=measurement_phase_coverage_report,
             scope_definition_pack=scope_definition_pack,
             decision_rule_profile=decision_rule_profile,
+            reference_asset_registry=reference_asset_registry,
+            certificate_lifecycle_summary=certificate_lifecycle_summary,
             scope_readiness_summary=scope_readiness_summary,
             certificate_readiness_summary=certificate_readiness_summary,
+            pre_run_readiness_gate=pre_run_readiness_gate,
             uncertainty_method_readiness_summary=uncertainty_method_readiness_summary,
             audit_readiness_digest=audit_readiness_digest,
             compatibility_scan_summary=compatibility_scan_summary,
@@ -2055,6 +2097,31 @@ class AppFacade:
                     if audit_readiness_digest
                     else []
                 ),
+                *(
+                    [f"asset readiness overview: {reference_asset_registry_text}"]
+                    if reference_asset_registry
+                    else []
+                ),
+                *(
+                    [f"certificate lifecycle overview: {certificate_lifecycle_text}"]
+                    if certificate_lifecycle_summary
+                    else []
+                ),
+                *(
+                    [f"pre-run readiness gate: {pre_run_readiness_gate_text}"]
+                    if pre_run_readiness_gate
+                    else []
+                ),
+                *(
+                    [f"blocking digest: {pre_run_blocking_text}"]
+                    if pre_run_readiness_gate
+                    else []
+                ),
+                *(
+                    [f"warning digest: {pre_run_warning_text}"]
+                    if pre_run_readiness_gate
+                    else []
+                ),
                 t("facade.results.result_summary.workbench_evidence", value=workbench_evidence_text),
             ]
         )
@@ -2137,8 +2204,11 @@ class AppFacade:
             "measurement_phase_coverage_report": measurement_phase_coverage_report,
             "scope_definition_pack": scope_definition_pack,
             "decision_rule_profile": decision_rule_profile,
+            "reference_asset_registry": reference_asset_registry,
+            "certificate_lifecycle_summary": certificate_lifecycle_summary,
             "scope_readiness_summary": scope_readiness_summary,
             "certificate_readiness_summary": certificate_readiness_summary,
+            "pre_run_readiness_gate": pre_run_readiness_gate,
             "uncertainty_method_readiness_summary": uncertainty_method_readiness_summary,
             "audit_readiness_digest": audit_readiness_digest,
             "run_artifact_index": run_artifact_index,
@@ -2249,8 +2319,11 @@ class AppFacade:
         measurement_phase_coverage_report: dict[str, Any],
         scope_definition_pack: dict[str, Any],
         decision_rule_profile: dict[str, Any],
+        reference_asset_registry: dict[str, Any],
+        certificate_lifecycle_summary: dict[str, Any],
         scope_readiness_summary: dict[str, Any],
         certificate_readiness_summary: dict[str, Any],
+        pre_run_readiness_gate: dict[str, Any],
         uncertainty_method_readiness_summary: dict[str, Any],
         audit_readiness_digest: dict[str, Any],
         compatibility_scan_summary: dict[str, Any],
@@ -2274,8 +2347,11 @@ class AppFacade:
             measurement_phase_coverage_report=measurement_phase_coverage_report,
             scope_definition_pack=scope_definition_pack,
             decision_rule_profile=decision_rule_profile,
+            reference_asset_registry=reference_asset_registry,
+            certificate_lifecycle_summary=certificate_lifecycle_summary,
             scope_readiness_summary=scope_readiness_summary,
             certificate_readiness_summary=certificate_readiness_summary,
+            pre_run_readiness_gate=pre_run_readiness_gate,
             uncertainty_method_readiness_summary=uncertainty_method_readiness_summary,
             audit_readiness_digest=audit_readiness_digest,
             compatibility_scan_summary=compatibility_scan_summary,
@@ -2751,8 +2827,11 @@ class AppFacade:
         measurement_phase_coverage_report: dict[str, Any],
         scope_definition_pack: dict[str, Any],
         decision_rule_profile: dict[str, Any],
+        reference_asset_registry: dict[str, Any],
+        certificate_lifecycle_summary: dict[str, Any],
         scope_readiness_summary: dict[str, Any],
         certificate_readiness_summary: dict[str, Any],
+        pre_run_readiness_gate: dict[str, Any],
         uncertainty_method_readiness_summary: dict[str, Any],
         audit_readiness_digest: dict[str, Any],
         compatibility_scan_summary: dict[str, Any],
@@ -2922,12 +3001,24 @@ class AppFacade:
                 dict(decision_rule_profile or {}),
             ),
             (
+                recognition_readiness.REFERENCE_ASSET_REGISTRY_FILENAME,
+                dict(reference_asset_registry or {}),
+            ),
+            (
+                recognition_readiness.CERTIFICATE_LIFECYCLE_SUMMARY_FILENAME,
+                dict(certificate_lifecycle_summary or {}),
+            ),
+            (
                 recognition_readiness.SCOPE_READINESS_SUMMARY_FILENAME,
                 dict(scope_readiness_summary or {}),
             ),
             (
                 recognition_readiness.CERTIFICATE_READINESS_SUMMARY_FILENAME,
                 dict(certificate_readiness_summary or {}),
+            ),
+            (
+                recognition_readiness.PRE_RUN_READINESS_GATE_FILENAME,
+                dict(pre_run_readiness_gate or {}),
             ),
             (
                 recognition_readiness.UNCERTAINTY_METHOD_READINESS_SUMMARY_FILENAME,

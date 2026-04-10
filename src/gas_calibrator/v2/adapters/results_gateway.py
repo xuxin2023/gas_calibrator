@@ -409,8 +409,11 @@ class ResultsGateway:
         measurement_phase_coverage_report = dict(payload.get("measurement_phase_coverage_report", {}) or {})
         scope_definition_pack = dict(payload.get("scope_definition_pack", {}) or {})
         decision_rule_profile = dict(payload.get("decision_rule_profile", {}) or {})
+        reference_asset_registry = dict(payload.get("reference_asset_registry", {}) or {})
+        certificate_lifecycle_summary = dict(payload.get("certificate_lifecycle_summary", {}) or {})
         scope_readiness_summary = dict(payload.get("scope_readiness_summary", {}) or {})
         certificate_readiness_summary = dict(payload.get("certificate_readiness_summary", {}) or {})
+        pre_run_readiness_gate = dict(payload.get("pre_run_readiness_gate", {}) or {})
         uncertainty_method_readiness_summary = dict(payload.get("uncertainty_method_readiness_summary", {}) or {})
         audit_readiness_digest = dict(payload.get("audit_readiness_digest", {}) or {})
         run_artifact_index = dict(payload.get("run_artifact_index", {}) or {})
@@ -652,6 +655,14 @@ class ResultsGateway:
                 row,
                 decision_rule_profile=decision_rule_profile,
             )
+            row = self._decorate_reference_asset_registry_row(
+                row,
+                reference_asset_registry=reference_asset_registry,
+            )
+            row = self._decorate_certificate_lifecycle_summary_row(
+                row,
+                certificate_lifecycle_summary=certificate_lifecycle_summary,
+            )
             row = self._decorate_scope_readiness_summary_row(
                 row,
                 scope_readiness_summary=scope_readiness_summary,
@@ -659,6 +670,10 @@ class ResultsGateway:
             row = self._decorate_certificate_readiness_summary_row(
                 row,
                 certificate_readiness_summary=certificate_readiness_summary,
+            )
+            row = self._decorate_pre_run_readiness_gate_row(
+                row,
+                pre_run_readiness_gate=pre_run_readiness_gate,
             )
             row = self._decorate_uncertainty_method_readiness_summary_row(
                 row,
@@ -690,8 +705,11 @@ class ResultsGateway:
             "measurement_phase_coverage_report": measurement_phase_coverage_report,
             "scope_definition_pack": scope_definition_pack,
             "decision_rule_profile": decision_rule_profile,
+            "reference_asset_registry": reference_asset_registry,
+            "certificate_lifecycle_summary": certificate_lifecycle_summary,
             "scope_readiness_summary": scope_readiness_summary,
             "certificate_readiness_summary": certificate_readiness_summary,
+            "pre_run_readiness_gate": pre_run_readiness_gate,
             "uncertainty_method_readiness_summary": uncertainty_method_readiness_summary,
             "audit_readiness_digest": audit_readiness_digest,
             "run_artifact_index": run_artifact_index,
@@ -1161,6 +1179,42 @@ class ResultsGateway:
                     )
                 )
 
+            reference_asset_text = str(
+                dict(reference_asset_payload.get("digest") or {}).get("asset_readiness_overview")
+                or dict(reference_asset_payload.get("digest") or {}).get("summary")
+                or ""
+            ).strip()
+            if reference_asset_text:
+                lines.append(f"asset readiness overview: {reference_asset_text}")
+            certificate_lifecycle_text = str(
+                dict(certificate_lifecycle_payload.get("digest") or {}).get("certificate_lifecycle_overview")
+                or dict(certificate_lifecycle_payload.get("digest") or {}).get("summary")
+                or ""
+            ).strip()
+            if certificate_lifecycle_text:
+                lines.append(f"certificate lifecycle overview: {certificate_lifecycle_text}")
+            pre_run_gate_text = str(
+                dict(pre_run_gate_payload.get("digest") or {}).get("pre_run_gate_status")
+                or pre_run_gate_payload.get("gate_status")
+                or ""
+            ).strip()
+            if pre_run_gate_text:
+                lines.append(f"pre-run readiness gate: {pre_run_gate_text}")
+            blocking_text = str(
+                scope_rollup.get("blocking_digest")
+                or dict(pre_run_gate_payload.get("digest") or {}).get("blocker_summary")
+                or ""
+            ).strip()
+            if blocking_text:
+                lines.append(f"blocking digest: {blocking_text}")
+            warning_text = str(
+                scope_rollup.get("warning_digest")
+                or dict(pre_run_gate_payload.get("digest") or {}).get("warning_summary")
+                or ""
+            ).strip()
+            if warning_text:
+                lines.append(f"warning digest: {warning_text}")
+
         stability_digest = dict(stability_summary.get("digest") or {})
         transition_digest = dict(transition_summary.get("digest") or {})
         phase_coverage_digest = dict(phase_coverage_summary.get("digest") or {})
@@ -1272,8 +1326,11 @@ class ResultsGateway:
         for readiness_payload in (
             scope_definition_payload,
             decision_rule_payload,
+            reference_asset_payload,
+            certificate_lifecycle_payload,
             scope_readiness_payload,
             certificate_readiness_payload,
+            pre_run_gate_payload,
             uncertainty_method_payload,
             audit_readiness_payload,
         ):
@@ -1574,6 +1631,36 @@ class ResultsGateway:
         )
 
     @classmethod
+    def _decorate_reference_asset_registry_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        reference_asset_registry: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=reference_asset_registry,
+            json_filename=recognition_readiness.REFERENCE_ASSET_REGISTRY_FILENAME,
+            markdown_filename=recognition_readiness.REFERENCE_ASSET_REGISTRY_MARKDOWN_FILENAME,
+            entry_key="reference_asset_registry_entry",
+        )
+
+    @classmethod
+    def _decorate_certificate_lifecycle_summary_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        certificate_lifecycle_summary: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=certificate_lifecycle_summary,
+            json_filename=recognition_readiness.CERTIFICATE_LIFECYCLE_SUMMARY_FILENAME,
+            markdown_filename=recognition_readiness.CERTIFICATE_LIFECYCLE_SUMMARY_MARKDOWN_FILENAME,
+            entry_key="certificate_lifecycle_summary_entry",
+        )
+
+    @classmethod
     def _decorate_certificate_readiness_summary_row(
         cls,
         row: dict[str, Any],
@@ -1586,6 +1673,21 @@ class ResultsGateway:
             json_filename=recognition_readiness.CERTIFICATE_READINESS_SUMMARY_FILENAME,
             markdown_filename=recognition_readiness.CERTIFICATE_READINESS_SUMMARY_MARKDOWN_FILENAME,
             entry_key="certificate_readiness_summary_entry",
+        )
+
+    @classmethod
+    def _decorate_pre_run_readiness_gate_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        pre_run_readiness_gate: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=pre_run_readiness_gate,
+            json_filename=recognition_readiness.PRE_RUN_READINESS_GATE_FILENAME,
+            markdown_filename=recognition_readiness.PRE_RUN_READINESS_GATE_MARKDOWN_FILENAME,
+            entry_key="pre_run_readiness_gate_entry",
         )
 
     @classmethod
