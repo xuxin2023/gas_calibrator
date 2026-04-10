@@ -27,6 +27,14 @@ from .diagnostics import (
     build_upper_bound_vs_deployable_compare,
 )
 from .run_assessment import build_run_role_assessment
+from .lineage_audit import build_new_chain_input_audit, build_old_water_correction_audit
+from .pressure_assessment import build_pressure_data_assessment
+from .water_zero_anchor import (
+    build_water_anchor_compare,
+    build_water_zero_anchor_features,
+    build_water_zero_anchor_point_variants,
+    fit_water_zero_anchor_models,
+)
 from .zero_residual import build_zero_residual_point_variants, fit_zero_residual_models
 from ..io.run_bundle import RunBundle, discover_run_artifacts
 from ..models.config import DebuggerConfig
@@ -63,6 +71,8 @@ from ..plots.charts import (
     plot_temperature_fit,
     plot_timeseries_base_final,
     plot_upper_bound_vs_deployable,
+    plot_water_anchor_compare,
+    plot_water_zero_anchor_models,
     plot_zero_compare,
     plot_zero_drift,
     plot_zero_residual_models,
@@ -912,7 +922,10 @@ def _run_one_matched_source(
         name: []
         for name in ("candidates", "scores", "selection", "coefficients", "residuals", "best_predictions")
     }
-    for _, zero_subset in branch_points.groupby("zero_residual_mode", dropna=False):
+    group_columns = ["zero_residual_mode"]
+    if "water_zero_anchor_mode" in branch_points.columns:
+        group_columns.append("water_zero_anchor_mode")
+    for _, zero_subset in branch_points.groupby(group_columns, dropna=False):
         model_results = evaluate_absorbance_models(zero_subset, branch_config, absorbance_column="A_mean")
         model_results = _annotate_model_result_frames(model_results, branch_config, ratio_source)
         for key in frames:

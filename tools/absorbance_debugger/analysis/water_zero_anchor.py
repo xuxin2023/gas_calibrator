@@ -184,11 +184,10 @@ def build_water_zero_anchor_features(
         on=["analyzer", "point_title", "point_row", "temp_set_c", "target_co2_ppm"],
         how="left",
     ).copy()
+    merged["analyzer_id"] = merged["analyzer"]
     merged = merged.rename(
         columns={
-            "analyzer": "analyzer_id",
             "A_mean": "A_zero_ready",
-            "target_co2_ppm": "target_ppm",
             "temp_use_mean_c": "temp_use_c",
         }
     )
@@ -197,15 +196,17 @@ def build_water_zero_anchor_features(
     for analyzer_id, analyzer_df in merged.groupby("analyzer_id", dropna=False):
         anchor_base = analyzer_df[
             [
+                "analyzer",
+                "analyzer_id",
                 "point_title",
                 "point_row",
                 "temp_set_c",
-                "target_ppm",
+                "target_co2_ppm",
                 "h2o_ratio_raw_mean",
                 "h2o_ratio_filt_mean",
             ]
         ].drop_duplicates().copy()
-        zero_base = anchor_base[pd.to_numeric(anchor_base["target_ppm"], errors="coerce") == 0].copy()
+        zero_base = anchor_base[pd.to_numeric(anchor_base["target_co2_ppm"], errors="coerce") == 0].copy()
         subzero = zero_base[pd.to_numeric(zero_base["temp_set_c"], errors="coerce") < 0].copy()
         zero_c = zero_base[pd.to_numeric(zero_base["temp_set_c"], errors="coerce") == 0].sort_values(
             ["point_row", "point_title"],
@@ -274,7 +275,7 @@ def build_water_zero_anchor_features(
     combined = pd.concat(rows, ignore_index=True) if rows else merged
     combined = combined.rename(columns={"A_zero_ready": "A_mean"})
     combined["A_zero_obs"] = np.where(
-        pd.to_numeric(combined["target_ppm"], errors="coerce") == 0,
+        pd.to_numeric(combined["target_co2_ppm"], errors="coerce") == 0,
         pd.to_numeric(combined["A_mean"], errors="coerce"),
         np.nan,
     )
@@ -293,7 +294,7 @@ def fit_water_zero_anchor_models(
     if feature_frame.empty:
         return pd.DataFrame(), pd.DataFrame(), {}
 
-    zero_features = feature_frame[pd.to_numeric(feature_frame["target_ppm"], errors="coerce") == 0].copy()
+    zero_features = feature_frame[pd.to_numeric(feature_frame["target_co2_ppm"], errors="coerce") == 0].copy()
     fit_rows: list[dict[str, Any]] = []
     selection_rows: list[dict[str, Any]] = []
     fit_lookup: dict[tuple[str, str, str, str], WaterZeroAnchorFit] = {}
@@ -361,7 +362,10 @@ def fit_water_zero_anchor_models(
                 )
                 continue
             fit_lookup[(str(analyzer_id), str(ratio_source), str(zero_mode), model_id)] = fit
-            fit_rows_metrics = _metrics(fit.evaluate(subset.dropna(subset=["temp_use_c"])) - pd.to_numeric(subset.dropna(subset=["temp_use_c"])["A_zero_obs"], errors="coerce"))
+            working = subset.dropna(subset=["temp_use_c"]).copy()
+            fit_rows_metrics = _metrics(
+                fit.evaluate(working) - pd.to_numeric(working["A_zero_obs"], errors="coerce")
+            )
             candidate_rows.append(
                 {
                     "analyzer_id": analyzer_id,
@@ -459,6 +463,7 @@ def build_water_zero_anchor_point_variants(
                 WATER_ZERO_ANCHOR_NONE_LABEL if mode == "none" else WATER_ZERO_ANCHOR_MODEL_LABELS.get(mode, mode)
             )
             work["with_water_zero_anchor_correction"] = mode != "none"
+            work["water_feature_status"] = work.get("feature_status", "feature_unavailable")
             if mode == "none":
                 delta = np.zeros(len(work), dtype=float)
             else:

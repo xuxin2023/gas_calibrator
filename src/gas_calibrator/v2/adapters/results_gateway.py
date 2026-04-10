@@ -76,6 +76,7 @@ from ..core.stage3_standards_alignment_matrix_artifact_entry import (
 )
 from .method_confirmation_gateway import MethodConfirmationGateway
 from .recognition_scope_gateway import RecognitionScopeGateway
+from .software_validation_gateway import SoftwareValidationGateway
 from .uncertainty_gateway import UncertaintyGateway
 from ..review_surface_formatter import (
     collect_boundary_digest_lines,
@@ -322,6 +323,44 @@ class ResultsGateway:
         validation_run_set = dict(method_confirmation_payload.get("validation_run_set") or {})
         verification_digest = dict(method_confirmation_payload.get("verification_digest") or {})
         verification_rollup = dict(method_confirmation_payload.get("verification_rollup") or {})
+        software_validation_payload = SoftwareValidationGateway(
+            self.run_dir,
+            summary=summary if isinstance(summary, dict) else None,
+            analytics_summary=analytics_summary if isinstance(analytics_summary, dict) else None,
+            evidence_registry=evidence_registry if isinstance(evidence_registry, dict) else None,
+            workbench_action_report=workbench_action_report if isinstance(workbench_action_report, dict) else None,
+            workbench_action_snapshot=workbench_action_snapshot if isinstance(workbench_action_snapshot, dict) else None,
+            scope_readiness_summary=scope_readiness_summary,
+            compatibility_scan_summary=compatibility_scan_summary,
+        ).read_payload()
+        software_validation_traceability_matrix = dict(
+            software_validation_payload.get("software_validation_traceability_matrix") or {}
+        )
+        requirement_design_code_test_links = dict(
+            software_validation_payload.get("requirement_design_code_test_links") or {}
+        )
+        validation_evidence_index = dict(
+            software_validation_payload.get("validation_evidence_index") or {}
+        )
+        change_impact_summary = dict(software_validation_payload.get("change_impact_summary") or {})
+        rollback_readiness_summary = dict(
+            software_validation_payload.get("rollback_readiness_summary") or {}
+        )
+        artifact_hash_registry = dict(software_validation_payload.get("artifact_hash_registry") or {})
+        audit_event_store = dict(software_validation_payload.get("audit_event_store") or {})
+        environment_fingerprint = dict(software_validation_payload.get("environment_fingerprint") or {})
+        config_fingerprint = dict(software_validation_payload.get("config_fingerprint") or {})
+        release_input_digest = dict(software_validation_payload.get("release_input_digest") or {})
+        release_manifest = dict(software_validation_payload.get("release_manifest") or {})
+        release_scope_summary = dict(software_validation_payload.get("release_scope_summary") or {})
+        release_boundary_digest = dict(software_validation_payload.get("release_boundary_digest") or {})
+        release_evidence_pack_index = dict(
+            software_validation_payload.get("release_evidence_pack_index") or {}
+        )
+        release_validation_manifest = dict(
+            software_validation_payload.get("release_validation_manifest") or {}
+        )
+        software_validation_rollup = dict(software_validation_payload.get("software_validation_rollup") or {})
         evidence_source = self._resolve_current_run_evidence_source(workbench_evidence_summary, workbench_action_report)
         evidence_state = str(
             workbench_evidence_summary.get("evidence_state")
@@ -374,6 +413,14 @@ class ResultsGateway:
             uncertainty_digest=uncertainty_digest,
             uncertainty_rollup=uncertainty_rollup,
             uncertainty_method_readiness_summary=uncertainty_method_readiness_summary,
+            software_validation_traceability_matrix=software_validation_traceability_matrix,
+            artifact_hash_registry=artifact_hash_registry,
+            environment_fingerprint=environment_fingerprint,
+            release_manifest=release_manifest,
+            release_scope_summary=release_scope_summary,
+            release_boundary_digest=release_boundary_digest,
+            release_evidence_pack_index=release_evidence_pack_index,
+            software_validation_rollup=software_validation_rollup,
             audit_readiness_digest=audit_readiness_digest,
             compatibility_scan_summary=compatibility_scan_summary,
             recognition_scope_rollup=recognition_scope_rollup,
@@ -431,6 +478,22 @@ class ResultsGateway:
             "validation_run_set": validation_run_set,
             "verification_digest": verification_digest,
             "verification_rollup": verification_rollup,
+            "software_validation_traceability_matrix": software_validation_traceability_matrix,
+            "requirement_design_code_test_links": requirement_design_code_test_links,
+            "validation_evidence_index": validation_evidence_index,
+            "change_impact_summary": change_impact_summary,
+            "rollback_readiness_summary": rollback_readiness_summary,
+            "artifact_hash_registry": artifact_hash_registry,
+            "audit_event_store": audit_event_store,
+            "environment_fingerprint": environment_fingerprint,
+            "config_fingerprint": config_fingerprint,
+            "release_input_digest": release_input_digest,
+            "release_manifest": release_manifest,
+            "release_scope_summary": release_scope_summary,
+            "release_boundary_digest": release_boundary_digest,
+            "release_evidence_pack_index": release_evidence_pack_index,
+            "release_validation_manifest": release_validation_manifest,
+            "software_validation_rollup": software_validation_rollup,
             "uncertainty_model": uncertainty_model,
             "uncertainty_input_set": uncertainty_input_set,
             "sensitivity_coefficient_set": sensitivity_coefficient_set,
@@ -978,6 +1041,14 @@ class ResultsGateway:
         uncertainty_digest: dict[str, Any] | None,
         uncertainty_rollup: dict[str, Any] | None,
         uncertainty_method_readiness_summary: dict[str, Any] | None,
+        software_validation_traceability_matrix: dict[str, Any] | None,
+        artifact_hash_registry: dict[str, Any] | None,
+        environment_fingerprint: dict[str, Any] | None,
+        release_manifest: dict[str, Any] | None,
+        release_scope_summary: dict[str, Any] | None,
+        release_boundary_digest: dict[str, Any] | None,
+        release_evidence_pack_index: dict[str, Any] | None,
+        software_validation_rollup: dict[str, Any] | None,
         audit_readiness_digest: dict[str, Any] | None,
         compatibility_scan_summary: dict[str, Any] | None,
         recognition_scope_rollup: dict[str, Any] | None,
@@ -1011,6 +1082,14 @@ class ResultsGateway:
         uncertainty_digest_payload = dict(uncertainty_digest or {})
         uncertainty_rollup_payload = dict(uncertainty_rollup or {})
         uncertainty_method_payload = dict(uncertainty_method_readiness_summary or {})
+        software_validation_traceability_payload = dict(software_validation_traceability_matrix or {})
+        artifact_hash_registry_payload = dict(artifact_hash_registry or {})
+        environment_fingerprint_payload = dict(environment_fingerprint or {})
+        release_manifest_payload = dict(release_manifest or {})
+        release_scope_payload = dict(release_scope_summary or {})
+        release_boundary_payload = dict(release_boundary_digest or {})
+        release_evidence_payload = dict(release_evidence_pack_index or {})
+        software_validation_rollup_payload = dict(software_validation_rollup or {})
         audit_readiness_payload = dict(audit_readiness_digest or {})
         compatibility_summary = dict(compatibility_scan_summary or {})
         compatibility_overview = dict(compatibility_summary.get("compatibility_overview") or {})

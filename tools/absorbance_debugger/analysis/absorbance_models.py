@@ -346,6 +346,12 @@ def _fit_one_candidate(
         "zero_residual_mode",
         "zero_residual_model_label",
         "with_zero_residual_correction",
+        "water_zero_anchor_mode",
+        "water_zero_anchor_model_label",
+        "with_water_zero_anchor_correction",
+        "water_zero_anchor_delta",
+        "water_feature_status",
+        "A_before_water_zero_anchor",
         "selected_source_pair",
         "selected_ratio_source",
         "source_pair_label",
@@ -378,6 +384,10 @@ def _fit_one_candidate(
             "zero_residual_mode",
             "zero_residual_model_label",
             "with_zero_residual_correction",
+            "water_zero_anchor_mode",
+            "water_zero_anchor_model_label",
+            "with_water_zero_anchor_correction",
+            "water_feature_status",
             "selected_source_pair",
             "selected_ratio_source",
             "source_pair_label",
@@ -416,12 +426,18 @@ def _fit_one_candidate(
             "zero_residual_mode",
             "zero_residual_model_label",
             "with_zero_residual_correction",
+            "water_zero_anchor_mode",
+            "water_zero_anchor_model_label",
+            "with_water_zero_anchor_correction",
             "selected_source_pair",
             "selected_ratio_source",
             "source_pair_label",
             "source_pair_kind",
             "delta_a0_t",
             "A_uncorrected_mean",
+            "water_zero_anchor_delta",
+            "A_before_water_zero_anchor",
+            "water_feature_status",
         ):
             if extra_column in candidate_df.columns:
                 base[extra_column] = row[extra_column]
@@ -485,6 +501,12 @@ def evaluate_absorbance_models(
         branch_points["zero_residual_mode"] = "none"
         branch_points["zero_residual_model_label"] = "No zero residual correction"
         branch_points["with_zero_residual_correction"] = False
+    if "water_zero_anchor_mode" not in branch_points.columns:
+        branch_points["water_zero_anchor_mode"] = "none"
+        branch_points["water_zero_anchor_model_label"] = "No water zero-anchor correction"
+        branch_points["with_water_zero_anchor_correction"] = False
+    if "water_feature_status" not in branch_points.columns:
+        branch_points["water_feature_status"] = "feature_unavailable"
 
     score_rows: list[dict[str, Any]] = []
     coefficient_rows: list[dict[str, Any]] = []
@@ -572,6 +594,10 @@ def evaluate_absorbance_models(
                 "zero_residual_mode": best_row.get("zero_residual_mode", "none"),
                 "zero_residual_model_label": best_row.get("zero_residual_model_label", "No zero residual correction"),
                 "with_zero_residual_correction": best_row.get("with_zero_residual_correction", False),
+                "water_zero_anchor_mode": best_row.get("water_zero_anchor_mode", "none"),
+                "water_zero_anchor_model_label": best_row.get("water_zero_anchor_model_label", "No water zero-anchor correction"),
+                "with_water_zero_anchor_correction": best_row.get("with_water_zero_anchor_correction", False),
+                "water_feature_status": best_row.get("water_feature_status", "feature_unavailable"),
                 "piecewise_boundary_ppm": best_row.get("piecewise_boundary_ppm", math.nan),
                 "piecewise_boundary_absorbance": best_row.get("piecewise_boundary_absorbance", math.nan),
                 "best_single_range_model": single_best.iloc[0]["model_id"] if not single_best.empty else "",
@@ -654,6 +680,10 @@ def evaluate_absorbance_models(
             "zero_residual_mode",
             "zero_residual_model_label",
             "with_zero_residual_correction",
+            "water_zero_anchor_mode",
+            "water_zero_anchor_model_label",
+            "with_water_zero_anchor_correction",
+            "water_feature_status",
             "piecewise_boundary_ppm",
             "piecewise_boundary_absorbance",
             "best_overall_fit_pred_ppm",
@@ -710,6 +740,10 @@ def evaluate_absorbance_models(
                     "zero_residual_mode",
                     "zero_residual_model_label",
                     "with_zero_residual_correction",
+                    "water_zero_anchor_mode",
+                    "water_zero_anchor_model_label",
+                    "with_water_zero_anchor_correction",
+                    "water_feature_status",
                     "piecewise_boundary_ppm",
                     "piecewise_boundary_absorbance",
                 ]
