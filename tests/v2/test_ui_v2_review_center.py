@@ -245,7 +245,7 @@ def test_review_center_aggregates_multi_evidence_and_acceptance_readiness(tmp_pa
     risk_summary = review_center["risk_summary"]
     diagnostics = dict(review_center.get("diagnostics", {}) or {})
 
-    assert {"suite", "parity", "resilience", "workbench", "analytics"} <= evidence_types
+    assert {"suite", "parity", "resilience", "workbench", "analytics", "artifact_compatibility"} <= evidence_types
     assert review_center["acceptance_readiness"]["simulated_only"] is True
     assert review_center["operator_focus"]["summary"]
     assert review_center["reviewer_focus"]["summary"]
@@ -274,6 +274,9 @@ def test_review_center_aggregates_multi_evidence_and_acceptance_readiness(tmp_pa
     analytics_item = next(item for item in review_center["evidence_items"] if item["type"] == "analytics")
     suite_item = next(item for item in review_center["evidence_items"] if item["type"] == "suite")
     workbench_item = next(item for item in review_center["evidence_items"] if item["type"] == "workbench")
+    compatibility_item = next(
+        item for item in review_center["evidence_items"] if item["type"] == "artifact_compatibility"
+    )
     assert analytics_item["detail_analytics_summary"]
     assert analytics_item["detail_qc_summary"]
     assert analytics_item["detail_qc_cards"]
@@ -299,7 +302,10 @@ def test_review_center_aggregates_multi_evidence_and_acceptance_readiness(tmp_pa
         str(review_center["index_summary"]["coverage_summary"] or "") in str(line)
         for line in list(suite_item["detail_lineage_summary"])
     )
+    assert "reviewer/index sidecar" in compatibility_item["detail_text"]
+    assert compatibility_item["status"] == "diagnostic_only"
     assert any(item["id"] == "analytics" for item in review_center["filters"]["type_options"])
+    assert any(item["id"] == "artifact_compatibility" for item in review_center["filters"]["type_options"])
     assert any(item["id"] == "run" for item in review_center["filters"]["source_options"])
     assert any(item["id"] == "30d" for item in review_center["filters"]["time_options"])
     assert any(

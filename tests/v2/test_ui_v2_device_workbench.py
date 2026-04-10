@@ -101,6 +101,12 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
     assert workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["artifact_paths"][
         "measurement_phase_coverage_report"
     ].endswith(MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME)
+    assert workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["artifact_paths"][
+        "compatibility_scan_summary"
+    ].endswith("compatibility_scan_summary.json")
+    assert workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["artifact_paths"][
+        "run_artifact_index"
+    ].endswith("run_artifact_index.json")
     assert workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["available"] is True
     assert (
         "scope_readiness_summary"
@@ -108,6 +114,10 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
     )
     assert any(
         "payload" in str(line).lower()
+        for line in list(workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["summary_lines"] or [])
+    )
+    assert any(
+        "工件兼容" in str(line)
         for line in list(workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["summary_lines"] or [])
     )
     assert any(
@@ -135,6 +145,10 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
         and "关联方法确认条目" in str(section.get("body_text") or "")
         and "Water preseal window definition" in str(section.get("body_text") or "")
         for section in list(workbench["engineer_summary"]["sections"] or [])
+    )
+    assert any(
+        "工件兼容" in str(line)
+        for line in list(workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["summary_lines"] or [])
     )
     assert workbench["history"]["items"] == []
     assert workbench["workbench"]["preset_center"]["groups"]

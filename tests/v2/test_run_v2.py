@@ -160,10 +160,15 @@ def test_run_v2_headless_logs_step2_config_safety(monkeypatch, capsys) -> None:
                 (),
                 {
                     "_config_safety": {
-                        "review_lines": [
-                            "配置安全提醒 1 项：检测到 non-default 工程配置。",
-                        ],
+                        "classification": "simulation_real_port_inventory_risk",
+                        "simulation_only": True,
+                        "real_port_device_count": 1,
+                        "engineering_only_flag_count": 0,
                         "execution_gate": {
+                            "status": "blocked",
+                            "requires_dual_unlock": True,
+                            "allow_unsafe_step2_config_flag": False,
+                            "allow_unsafe_step2_config_env": False,
                             "summary": "Step 2 默认工作流已拦截当前配置；必须显式双重解锁。",
                         },
                     }
@@ -179,8 +184,11 @@ def test_run_v2_headless_logs_step2_config_safety(monkeypatch, capsys) -> None:
     captured = capsys.readouterr().out
 
     assert result == 0
-    assert "[Step2 config safety]" in captured
+    assert "[Step2 safety]" in captured
+    assert "[Step2 gate]" in captured
+    assert "[Step2 boundary]" in captured
     assert "[Step2 execution gate]" in captured
+    assert "classification=simulation_real_port_inventory_risk" in captured
     assert "Step 2 默认工作流已拦截当前配置" in captured
 
 

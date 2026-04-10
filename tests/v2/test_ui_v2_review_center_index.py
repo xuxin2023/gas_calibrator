@@ -169,7 +169,7 @@ def test_review_center_builds_cross_run_index_from_recent_runs(tmp_path: Path) -
     assert review_center["index_summary"]["diagnostics_summary"]
     assert review_center["filters"]["source_options"]
     assert {"review_run_a", "review_run_b"} <= source_labels
-    assert {"suite", "parity", "resilience", "workbench", "analytics"} <= types
+    assert {"suite", "parity", "resilience", "workbench", "analytics", "artifact_compatibility"} <= types
     assert any(item["source_label"] == "review_run_a" for item in review_center["index_summary"]["sources"])
     assert all(str(item.get("coverage_display") or "").strip() for item in review_center["index_summary"]["sources"])
     assert all(str(item.get("gaps_display") or "").strip() for item in review_center["index_summary"]["sources"])

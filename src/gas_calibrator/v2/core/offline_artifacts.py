@@ -1561,32 +1561,48 @@ def export_run_offline_artifacts(
         markdown_path = run_dir / str(bundle.get("markdown_filename") or f"{artifact_key}.md")
         markdown_path.write_text(str(bundle.get("markdown") or ""), encoding="utf-8")
         recognition_readiness_written_paths[str(artifact_key)] = (json_path, markdown_path)
+    compatibility_output_files = [
+        str(acceptance_path),
+        str(analytics_path),
+        str(lineage_path),
+        str(trend_path),
+        str(evidence_path),
+        str(coefficient_path),
+        str(multi_source_stability_evidence_path),
+        str(multi_source_stability_markdown_path),
+        str(state_transition_evidence_path),
+        str(state_transition_markdown_path),
+        str(simulation_evidence_sidecar_bundle_path),
+        str(measurement_phase_coverage_path),
+        str(measurement_phase_coverage_markdown_path),
+        *[
+            str(path)
+            for paths in recognition_readiness_written_paths.values()
+            for path in paths
+        ],
+        *([str(spectral_quality_path)] if spectral_quality_path is not None else []),
+    ]
     compatibility_bundle = build_artifact_compatibility_bundle(
         run_dir,
         summary={"run_id": run_id},
         manifest={},
         results={"run_id": run_id},
-        output_files=[
-            str(acceptance_path),
-            str(analytics_path),
-            str(lineage_path),
-            str(trend_path),
-            str(evidence_path),
-            str(coefficient_path),
-            str(multi_source_stability_evidence_path),
-            str(multi_source_stability_markdown_path),
-            str(state_transition_evidence_path),
-            str(state_transition_markdown_path),
-            str(simulation_evidence_sidecar_bundle_path),
-            str(measurement_phase_coverage_path),
-            str(measurement_phase_coverage_markdown_path),
-            *[
-                str(path)
-                for paths in recognition_readiness_written_paths.values()
-                for path in paths
-            ],
-            *([str(spectral_quality_path)] if spectral_quality_path is not None else []),
-        ],
+        output_files=compatibility_output_files,
+    )
+    compatibility_written_paths = write_artifact_compatibility_sidecars(run_dir, compatibility_bundle)
+    compatibility_output_files.extend(
+        [
+            str(path)
+            for paths in compatibility_written_paths.values()
+            for path in paths
+        ]
+    )
+    compatibility_bundle = build_artifact_compatibility_bundle(
+        run_dir,
+        summary={"run_id": run_id},
+        manifest={},
+        results={"run_id": run_id},
+        output_files=compatibility_output_files,
     )
     compatibility_written_paths = write_artifact_compatibility_sidecars(run_dir, compatibility_bundle)
 

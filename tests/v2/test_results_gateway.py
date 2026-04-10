@@ -3,6 +3,11 @@ import json
 import sys
 
 from gas_calibrator.v2.adapters.results_gateway import ResultsGateway
+from gas_calibrator.v2.core.artifact_compatibility import (
+    COMPATIBILITY_SCAN_SUMMARY_FILENAME,
+    REINDEX_MANIFEST_FILENAME,
+    RUN_ARTIFACT_INDEX_FILENAME,
+)
 from gas_calibrator.v2.core.stage_admission_review_pack import (
     STAGE_ADMISSION_REVIEW_PACK_FILENAME,
     STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME,
@@ -179,6 +184,10 @@ def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> No
     assert results_payload["acceptance_level"] == "offline_regression"
     assert results_payload["promotion_state"] == "dry_run_only"
     assert "simulated_protocol" in results_payload["result_summary_text"]
+    assert results_payload["run_artifact_index"]["artifact_type"] == "run_artifact_index"
+    assert results_payload["compatibility_scan_summary"]["artifact_type"] == "compatibility_scan_summary"
+    assert results_payload["reindex_manifest"]["regenerate_scope"] == "reviewer_index_sidecar_only"
+    assert "工件兼容" in results_payload["result_summary_text"]
     assert "配置安全" in results_payload["result_summary_text"]
     assert "工作台诊断证据" in results_payload["result_summary_text"]
     assert results_payload["output_files"]
@@ -192,6 +201,12 @@ def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> No
     assert reports_payload["config_safety"]["classification"] == "simulation_real_port_inventory_risk"
     assert reports_payload["config_safety_review"]["execution_gate"]["status"] == "blocked"
     assert reports_payload["config_governance_handoff"]["blocked_reason_details"]
+    compatibility_row = next(
+        row for row in reports_payload["files"] if Path(str(row.get("path") or "")).name == COMPATIBILITY_SCAN_SUMMARY_FILENAME
+    )
+    assert compatibility_row["compatibility_status"]
+    assert compatibility_row["reader_mode_display"]
+    assert compatibility_row["note"]
     assert "配置安全" in reports_payload["result_summary_text"]
     assert "工作台诊断证据" in reports_payload["result_summary_text"]
 
@@ -243,6 +258,53 @@ def test_results_gateway_reads_top_level_handoffs_when_stats_sections_are_missin
     assert reports_payload["artifact_role_summary"]["execution_summary"]["status_counts"]["ok"] == 9
     assert reports_payload["workbench_evidence_summary"]["summary_line"] == "top-level workbench summary"
     assert reports_payload["config_governance_handoff"]["execution_gate"]["status"] == "unlocked_override"
+
+
+def test_results_gateway_builds_legacy_compatibility_payload_without_rewriting_primary_evidence(tmp_path: Path) -> None:
+    run_dir = tmp_path / "legacy_run"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    summary_path = run_dir / "summary.json"
+    manifest_path = run_dir / "manifest.json"
+    results_path = run_dir / "results.json"
+    summary_payload = {
+        "run_id": "legacy-run",
+        "stats": {
+            "sample_count": 0,
+            "point_summaries": [],
+        },
+    }
+    manifest_payload = {
+        "run_id": "legacy-run",
+        "artifacts": {
+            "role_catalog": {
+                "execution_summary": ["manifest", "run_summary"],
+                "execution_rows": ["results_json"],
+            }
+        },
+    }
+    results_payload = {
+        "run_id": "legacy-run",
+        "samples": [],
+        "point_summaries": [],
+    }
+    summary_text_before = json.dumps(summary_payload, ensure_ascii=False, indent=2) + "\n"
+    summary_path.write_text(summary_text_before, encoding="utf-8")
+    manifest_path.write_text(json.dumps(manifest_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    results_path.write_text(json.dumps(results_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+    gateway = ResultsGateway(run_dir)
+    payload = gateway.read_results_payload()
+    reports_payload = gateway.read_reports_payload()
+
+    assert payload["compatibility_scan_summary"]["compatibility_status"] == "compatibility_read"
+    assert payload["compatibility_scan_summary"]["regenerate_recommended"] is True
+    assert "工件兼容" in payload["result_summary_text"]
+    assert not (run_dir / RUN_ARTIFACT_INDEX_FILENAME).exists()
+    assert not (run_dir / REINDEX_MANIFEST_FILENAME).exists()
+    assert summary_path.read_text(encoding="utf-8") == summary_text_before
+    summary_row = next(row for row in reports_payload["files"] if Path(str(row.get("path") or "")).name == "summary.json")
+    assert summary_row["compatibility_status"] == "compatibility_read"
+    assert summary_row["regenerate_recommended"] is True
 
 
 def test_results_gateway_surfaces_point_taxonomy_summary(tmp_path: Path) -> None:

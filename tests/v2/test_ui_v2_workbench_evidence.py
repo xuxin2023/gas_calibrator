@@ -207,10 +207,24 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
     assert snapshot_payload["measurement_core_evidence"]["artifact_paths"][
         "measurement_phase_coverage_report"
     ].endswith(MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME)
+    assert snapshot_payload["measurement_core_evidence"]["artifact_paths"]["compatibility_scan_summary"].endswith(
+        "compatibility_scan_summary.json"
+    )
+    assert snapshot_payload["measurement_core_evidence"]["artifact_paths"]["run_artifact_index"].endswith(
+        "run_artifact_index.json"
+    )
     assert snapshot_payload["recognition_readiness_evidence"]["available"] is True
     assert (
         "scope_readiness_summary"
         in snapshot_payload["recognition_readiness_evidence"]["artifact_paths"]
+    )
+    assert any(
+        "工件兼容" in str(line)
+        for line in list(snapshot_payload["measurement_core_evidence"]["summary_lines"] or [])
+    )
+    assert any(
+        "工件兼容" in str(line)
+        for line in list(snapshot_payload["recognition_readiness_evidence"]["summary_lines"] or [])
     )
     assert report_payload["reference_quality"]["thermometer_reference_status"] == "stale"
     assert report_payload["simulation_context"]["workbench_reports"]

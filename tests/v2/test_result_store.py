@@ -3,6 +3,12 @@ import json
 from pathlib import Path
 
 from gas_calibrator.v2.config import AppConfig
+from gas_calibrator.v2.core.artifact_compatibility import (
+    ARTIFACT_CONTRACT_CATALOG_FILENAME,
+    COMPATIBILITY_SCAN_SUMMARY_FILENAME,
+    REINDEX_MANIFEST_FILENAME,
+    RUN_ARTIFACT_INDEX_FILENAME,
+)
 from gas_calibrator.v2.core.models import CalibrationPhase, CalibrationPoint, CalibrationStatus, SamplingResult
 from gas_calibrator.v2.core.result_store import ResultStore
 from gas_calibrator.v2.core.session import RunSession
@@ -321,10 +327,19 @@ def test_result_store_exports_offline_acceptance_and_analytics_artifacts(tmp_pat
     assert (store.run_dir / "lineage_summary.json").exists()
     assert (store.run_dir / "evidence_registry.json").exists()
     assert (store.run_dir / "coefficient_registry.json").exists()
+    assert (store.run_dir / RUN_ARTIFACT_INDEX_FILENAME).exists()
+    assert (store.run_dir / ARTIFACT_CONTRACT_CATALOG_FILENAME).exists()
+    assert (store.run_dir / COMPATIBILITY_SCAN_SUMMARY_FILENAME).exists()
+    assert (store.run_dir / REINDEX_MANIFEST_FILENAME).exists()
     assert payload["summary_stats"]["acceptance_plan"]["ready_for_promotion"] is False
     assert payload["summary_stats"]["analytics_summary"]["analyzer_coverage"]["coverage_text"] == "1/1"
     assert payload["summary_stats"]["point_taxonomy_summary"]["pressure_summary"] == "1000.0 1"
     assert payload["summary_stats"]["point_taxonomy_summary"]["pressure_mode_summary"] == "sealed_controlled 1"
+    assert payload["summary_stats"]["compatibility_scan_summary"]["regenerate_recommended"] is False
+    assert payload["summary_stats"]["run_artifact_index"]["path"].endswith(RUN_ARTIFACT_INDEX_FILENAME)
+    assert payload["manifest_sections"]["reindex_manifest"]["regenerate_recommended"] is False
     analytics_summary = json.loads((store.run_dir / "analytics_summary.json").read_text(encoding="utf-8"))
+    reindex_manifest = json.loads((store.run_dir / REINDEX_MANIFEST_FILENAME).read_text(encoding="utf-8"))
     assert analytics_summary["point_taxonomy_summary"]["pressure_summary"] == "1000.0 1"
     assert analytics_summary["point_taxonomy_summary"]["pressure_target_label_summary"] == "1000hPa 1"
+    assert reindex_manifest["primary_evidence_rewritten"] is False

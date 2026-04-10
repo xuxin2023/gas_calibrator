@@ -180,6 +180,31 @@ def test_write_report_backfills_config_safety_review(tmp_path: Path, monkeypatch
     assert payload["config_safety_review"]["summary"]
 
 
+def test_step2_config_report_sections_include_cli_safety_lines() -> None:
+    sections = test_v2_device._step2_config_report_sections(
+        {
+            "_config_safety": {
+                "classification": "simulation_real_port_inventory_risk",
+                "summary": "device script safety",
+                "simulation_only": True,
+                "real_port_device_count": 1,
+                "engineering_only_flag_count": 0,
+                "execution_gate": {
+                    "status": "blocked",
+                    "requires_dual_unlock": True,
+                    "allow_unsafe_step2_config_flag": False,
+                    "allow_unsafe_step2_config_env": False,
+                    "summary": "Step 2 默认工作流已拦截当前配置；必须显式双重解锁。",
+                },
+            }
+        }
+    )
+
+    assert sections["config_safety_review"]["execution_gate"]["status"] == "blocked"
+    assert any("[Step2 safety]" in line for line in sections["cli_safety_lines"])
+    assert any("[Step2 gate]" in line for line in sections["cli_safety_lines"])
+
+
 def test_build_runtime_config_relocates_compare_paths_from_old_base(monkeypatch, tmp_path: Path) -> None:
     old_base = tmp_path / "old_repo"
     current_base = tmp_path / "gas_calibrator"

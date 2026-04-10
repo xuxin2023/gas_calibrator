@@ -2,6 +2,7 @@ import json
 from types import SimpleNamespace
 
 from gas_calibrator.v2.scripts import test_v2_safe
+from gas_calibrator.v2.scripts._cli_safety import build_step2_cli_safety_lines
 from gas_calibrator.v2.sim.devices import GRZ5013Fake, RelayFake, TemperatureChamberFake, ThermometerFake
 
 
@@ -87,3 +88,25 @@ def test_write_report_backfills_config_safety_review(tmp_path, monkeypatch) -> N
     assert payload["config_safety"]["classification"] == "simulation_real_port_inventory_risk"
     assert payload["config_safety_review"]["execution_gate"]["status"] == "blocked"
     assert payload["config_safety_review"]["summary"]
+
+
+def test_cli_safety_lines_keep_step2_gate_readable() -> None:
+    lines = build_step2_cli_safety_lines(
+        {
+            "classification": "simulation_real_port_inventory_risk",
+            "simulation_only": True,
+            "real_port_device_count": 1,
+            "engineering_only_flag_count": 0,
+            "execution_gate": {
+                "status": "blocked",
+                "requires_dual_unlock": True,
+                "allow_unsafe_step2_config_flag": False,
+                "allow_unsafe_step2_config_env": False,
+                "summary": "Step 2 默认工作流已拦截当前配置；必须显式双重解锁。",
+            },
+        }
+    )
+
+    assert any("[Step2 safety]" in line for line in lines)
+    assert any("[Step2 gate]" in line and "requires_dual_unlock=true" in line for line in lines)
+    assert any("[Step2 boundary]" in line and "real_com=1" in line for line in lines)
