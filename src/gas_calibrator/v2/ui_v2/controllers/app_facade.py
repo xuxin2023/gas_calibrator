@@ -4324,7 +4324,11 @@ class AppFacade:
                 str(payload.get("current_reader_mode_display") or payload.get("current_reader_mode") or ""),
                 str(payload.get("compatibility_status_display") or payload.get("compatibility_status") or ""),
                 str(compatibility_overview.get("schema_contract_summary_display") or ""),
-                str(compatibility_rollup.get("rollup_summary_display") or ""),
+                t(
+                    "facade.results.result_summary.artifact_compatibility_rollup",
+                    value=str(compatibility_rollup.get("rollup_summary_display") or ""),
+                    default="兼容性 rollup：{value}",
+                ),
                 str(digest.get("regenerate_summary") or ""),
             ],
             artifact_paths=artifact_paths,

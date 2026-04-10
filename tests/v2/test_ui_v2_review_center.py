@@ -260,6 +260,10 @@ def test_review_center_aggregates_multi_evidence_and_acceptance_readiness(tmp_pa
     assert review_center["index_summary"]["source_kind_summary"]
     assert review_center["index_summary"]["coverage_summary"]
     assert review_center["index_summary"]["diagnostics_summary"]
+    assert review_center["index_summary"]["compatibility_rollup"]["rollup_scope"] == "run-dir"
+    assert review_center["index_summary"]["compatibility_rollup"]["primary_evidence_rewritten"] is False
+    assert "兼容性 rollup" in str(review_center["index_summary"]["compatibility_summary"] or "")
+    assert "兼容性 rollup" in str(review_center["index_summary"]["summary"] or "")
     assert review_center["filters"]["source_options"]
     assert review_center["filters"]["time_options"]
     assert set(diagnostics) >= {"cache_hit", "scanned_root_count", "scanned_candidate_count", "elapsed_ms", "scan_budget_used"}
@@ -305,6 +309,8 @@ def test_review_center_aggregates_multi_evidence_and_acceptance_readiness(tmp_pa
     assert "reviewer/index sidecar" in compatibility_item["detail_text"]
     assert "compatibility bundle" in compatibility_item["detail_text"]
     assert any("compatibility bundle" in str(item) for item in list(compatibility_item.get("detail_key_fields") or []))
+    assert any("兼容性 rollup" in str(item) for item in list(compatibility_item.get("detail_key_fields") or []))
+    assert "兼容性 rollup" in compatibility_item["detail_text"]
     assert "current_reader_mode" not in compatibility_item["detail_text"]
     assert compatibility_item["status"] == "diagnostic_only"
     assert any(item["id"] == "analytics" for item in review_center["filters"]["type_options"])

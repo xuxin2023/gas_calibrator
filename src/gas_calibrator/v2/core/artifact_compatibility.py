@@ -1781,15 +1781,9 @@ def build_artifact_compatibility_rollup(
     compatible_run_count = sum(
         1
         for run in runs
-        if not bool(run.get("regenerate_recommended", False))
-        and str(run.get("current_reader_mode") or "").strip() == "canonical_direct"
+        if str(run.get("current_reader_mode") or "").strip() == "canonical_direct"
     )
-    legacy_run_count = sum(
-        1
-        for run in runs
-        if bool(run.get("regenerate_recommended", False))
-        or str(run.get("current_reader_mode") or "").strip() != "canonical_direct"
-    )
+    legacy_run_count = max(0, len(runs) - compatible_run_count)
     regenerate_recommended_count = sum(
         1 for run in runs if bool(run.get("regenerate_recommended", False))
     )

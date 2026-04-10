@@ -107,11 +107,20 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
     assert workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["artifact_paths"][
         "run_artifact_index"
     ].endswith("run_artifact_index.json")
+    assert workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["compatibility_rollup"][
+        "rollup_scope"
+    ] == "run-dir"
+    assert workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["compatibility_rollup"][
+        "primary_evidence_rewritten"
+    ] is False
     assert workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["available"] is True
     assert (
         "scope_readiness_summary"
         in workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["artifact_paths"]
     )
+    assert workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["compatibility_rollup"][
+        "rollup_scope"
+    ] == "run-dir"
     assert any(
         "payload" in str(line).lower()
         for line in list(workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["summary_lines"] or [])
@@ -127,6 +136,10 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
     )
     assert any(
         "compatibility bundle" in str(line)
+        for line in list(workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["summary_lines"] or [])
+    )
+    assert any(
+        "兼容性 rollup" in str(line)
         for line in list(workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["summary_lines"] or [])
     )
     assert all(
@@ -160,6 +173,10 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
     )
     assert any(
         "compatibility bundle" in str(line)
+        for line in list(workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["summary_lines"] or [])
+    )
+    assert any(
+        "兼容性 rollup" in str(line)
         for line in list(workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["summary_lines"] or [])
     )
     assert workbench["history"]["items"] == []

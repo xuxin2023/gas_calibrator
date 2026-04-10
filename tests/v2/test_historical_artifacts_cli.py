@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from gas_calibrator.v2.core.artifact_compatibility import (
+    ARTIFACT_COMPATIBILITY_INDEX_SCHEMA_VERSION,
     ARTIFACT_CONTRACT_CATALOG_FILENAME,
     COMPATIBILITY_SCAN_SUMMARY_FILENAME,
     REINDEX_MANIFEST_FILENAME,
@@ -81,10 +82,17 @@ def test_historical_scan_supports_single_run_dir_and_root_dir(tmp_path: Path, ca
     single_report = _parse_last_json(capsys.readouterr().out)
 
     assert single_report["run_count"] == 1
+    assert single_report["index_schema_version"] == ARTIFACT_COMPATIBILITY_INDEX_SCHEMA_VERSION
+    assert single_report["rollup_scope"] == "run-dir"
+    assert single_report["compatibility_rollup"]["parent_run_count"] == 1
+    assert single_report["compatibility_rollup"]["artifact_count"] >= 3
     assert single_report["primary_evidence_rewritten"] is False
     assert single_report["runs"][0]["current_reader_mode"] == "compatibility_adapter"
     assert single_report["runs"][0]["regenerate_recommended"] is True
     assert single_report["runs"][0]["primary_evidence_rewritten"] is False
+    assert single_report["runs"][0]["index_schema_version"] == ARTIFACT_COMPATIBILITY_INDEX_SCHEMA_VERSION
+    assert single_report["runs"][0]["compatibility_rollup"]["rollup_scope"] == "run-dir"
+    assert single_report["runs"][0]["compatibility_rollup"]["primary_evidence_rewritten"] is False
 
     assert historical_artifacts.main(["scan", "--root-dir", str(root_dir)]) == 0
     batch_stdout = capsys.readouterr().out
@@ -94,6 +102,11 @@ def test_historical_scan_supports_single_run_dir_and_root_dir(tmp_path: Path, ca
     assert "real-COM 0" in batch_stdout
     assert batch_report["run_count"] == 2
     assert batch_report["target_mode"] == "batch"
+    assert batch_report["rollup_scope"] == "root-dir"
+    assert batch_report["compatibility_rollup"]["parent_run_count"] == 2
+    assert batch_report["compatibility_rollup"]["compatible_run_count"] == 1
+    assert batch_report["compatibility_rollup"]["legacy_run_count"] == 1
+    assert batch_report["compatibility_rollup"]["regenerate_recommended_count"] == 1
     reader_modes = {row["run_dir"]: row["current_reader_mode"] for row in batch_report["runs"]}
     assert reader_modes[str(legacy_run.resolve())] == "compatibility_adapter"
     assert reader_modes[str(canonical_run.resolve())] == "canonical_direct"
@@ -112,6 +125,8 @@ def test_historical_export_summary_writes_json_report(tmp_path: Path, capsys) ->
 
     assert "[historical-artifacts] summary_path=" in stdout
     assert payload["run_count"] == 1
+    assert payload["index_schema_version"] == ARTIFACT_COMPATIBILITY_INDEX_SCHEMA_VERSION
+    assert payload["compatibility_rollup"]["rollup_scope"] == "run-dir"
     assert payload["runs"][0]["schema_contract_summary"]
     assert payload["runs"][0]["observed_contract_version_summary"]
     assert payload["runs"][0]["primary_evidence_rewritten"] is False
@@ -148,9 +163,17 @@ def test_historical_reindex_writes_sidecars_only_and_keeps_primary_evidence(tmp_
 
     assert report["primary_evidence_rewritten"] is False
     assert run_report["primary_evidence_rewritten"] is False
+    assert report["index_schema_version"] == ARTIFACT_COMPATIBILITY_INDEX_SCHEMA_VERSION
+    assert report["compatibility_rollup"]["regenerate_recommended_count"] == 1
     assert run_report["regenerate_scope"] == "reviewer_index_sidecar_only"
     assert run_report["boundary_digest"]
     assert run_report["non_claim_digest"]
+    assert run_report["compatibility_rollup"]["primary_evidence_rewritten"] is False
+    assert run_report["compatibility_rollup"]["linked_surface_visibility"] == [
+        "results",
+        "review_center",
+        "workbench",
+    ]
     assert run_report["written_paths"]["run_artifact_index"]["json_path"].endswith(RUN_ARTIFACT_INDEX_FILENAME)
     assert (run_dir / RUN_ARTIFACT_INDEX_FILENAME).exists()
     assert (run_dir / ARTIFACT_CONTRACT_CATALOG_FILENAME).exists()

@@ -4,6 +4,7 @@ import sys
 
 from gas_calibrator.v2.adapters.results_gateway import ResultsGateway
 from gas_calibrator.v2.core.artifact_compatibility import (
+    ARTIFACT_COMPATIBILITY_INDEX_SCHEMA_VERSION,
     COMPATIBILITY_SCAN_SUMMARY_FILENAME,
     REINDEX_MANIFEST_FILENAME,
     RUN_ARTIFACT_INDEX_FILENAME,
@@ -188,9 +189,17 @@ def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> No
     assert results_payload["compatibility_scan_summary"]["artifact_type"] == "compatibility_scan_summary"
     assert results_payload["compatibility_overview"]["schema_contract_summary_display"]
     assert results_payload["compatibility_overview"]["primary_evidence_rewritten"] is False
+    assert results_payload["compatibility_rollup"]["index_schema_version"] == ARTIFACT_COMPATIBILITY_INDEX_SCHEMA_VERSION
+    assert results_payload["compatibility_rollup"]["rollup_scope"] == "run-dir"
+    assert results_payload["compatibility_rollup"]["linked_surface_visibility"] == [
+        "results",
+        "review_center",
+        "workbench",
+    ]
     assert results_payload["reindex_manifest"]["regenerate_scope"] == "reviewer_index_sidecar_only"
     assert "compatibility bundle" in results_payload["result_summary_text"]
     assert "工件兼容" in results_payload["result_summary_text"]
+    assert "兼容性 rollup" in results_payload["result_summary_text"]
     assert "配置安全" in results_payload["result_summary_text"]
     assert "工作台诊断证据" in results_payload["result_summary_text"]
     assert results_payload["output_files"]
@@ -204,6 +213,8 @@ def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> No
     assert reports_payload["config_safety"]["classification"] == "simulation_real_port_inventory_risk"
     assert reports_payload["config_safety_review"]["execution_gate"]["status"] == "blocked"
     assert reports_payload["config_governance_handoff"]["blocked_reason_details"]
+    assert reports_payload["compatibility_rollup"]["index_schema_version"] == ARTIFACT_COMPATIBILITY_INDEX_SCHEMA_VERSION
+    assert reports_payload["compatibility_rollup"]["primary_evidence_rewritten"] is False
     compatibility_row = next(
         row for row in reports_payload["files"] if Path(str(row.get("path") or "")).name == COMPATIBILITY_SCAN_SUMMARY_FILENAME
     )
@@ -211,6 +222,8 @@ def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> No
     assert compatibility_row["reader_mode_display"]
     assert compatibility_row["note"]
     assert "Schema" in str(compatibility_row["role_status_display"])
+    assert compatibility_row["compatibility_rollup"]["rollup_scope"] == "run-dir"
+    assert "兼容性 rollup" in str(compatibility_row["note"])
     assert "current_reader_mode" not in str(compatibility_row["note"])
     assert "配置安全" in reports_payload["result_summary_text"]
     assert "工作台诊断证据" in reports_payload["result_summary_text"]
@@ -305,14 +318,19 @@ def test_results_gateway_builds_legacy_compatibility_payload_without_rewriting_p
     assert payload["compatibility_scan_summary"]["regenerate_recommended"] is True
     assert payload["compatibility_overview"]["current_reader_mode"] == "compatibility_adapter"
     assert payload["compatibility_overview"]["primary_evidence_rewritten"] is False
+    assert payload["compatibility_rollup"]["index_schema_version"] == ARTIFACT_COMPATIBILITY_INDEX_SCHEMA_VERSION
+    assert payload["compatibility_rollup"]["legacy_run_count"] == 1
+    assert payload["compatibility_rollup"]["regenerate_recommended_count"] == 1
     assert "compatibility bundle" in payload["result_summary_text"]
     assert "工件兼容" in payload["result_summary_text"]
+    assert "兼容性 rollup" in payload["result_summary_text"]
     assert not (run_dir / RUN_ARTIFACT_INDEX_FILENAME).exists()
     assert not (run_dir / REINDEX_MANIFEST_FILENAME).exists()
     assert summary_path.read_text(encoding="utf-8") == summary_text_before
     summary_row = next(row for row in reports_payload["files"] if Path(str(row.get("path") or "")).name == "summary.json")
     assert summary_row["compatibility_status"] == "compatibility_read"
     assert summary_row["regenerate_recommended"] is True
+    assert summary_row["compatibility_rollup"]["legacy_run_count"] == 1
 
 
 def test_results_gateway_surfaces_point_taxonomy_summary(tmp_path: Path) -> None:
