@@ -348,6 +348,7 @@ def build_order_compare(
     summary = evaluate_scenario_groups(subset, ["order_mode"], config, point_raw, old_df)
     if summary.empty:
         return summary
+    summary["samplewise_log_first_is_better"] = False
     summary["significant_order_gain"] = False
     summary["improvement_vs_meanfirst_rmse"] = 0.0
     summary["improvement_vs_meanfirst_pct"] = 0.0
@@ -363,6 +364,7 @@ def build_order_compare(
         improvement_pct = (improvement / mean_rmse * 100.0) if math.isfinite(mean_rmse) and mean_rmse else 0.0
         significant = improvement > max(0.5, mean_rmse * 0.05)
         mask = summary["analyzer_id"] == analyzer_id
+        summary.loc[mask, "samplewise_log_first_is_better"] = sample_rmse < mean_rmse
         summary.loc[mask, "significant_order_gain"] = significant
         summary.loc[mask, "improvement_vs_meanfirst_rmse"] = improvement
         summary.loc[mask, "improvement_vs_meanfirst_pct"] = improvement_pct
@@ -417,13 +419,23 @@ def build_pressure_branch_compare(
     summary = evaluate_scenario_groups(subset, ["pressure_branch", "pressure_branch_label", "pressure_source_used"], config, point_raw, old_df)
     if summary.empty:
         return summary
+    summary["pressure_branch_report"] = summary["pressure_branch_label"]
     summary["branch_rank"] = 0
     summary["recommended_pressure_branch"] = ""
+    summary["pressure_branch_note"] = ""
     for analyzer_id, analyzer_df in summary.groupby("analyzer_id"):
         ordered = analyzer_df.sort_values("new_chain_rmse").reset_index()
         for rank, idx in enumerate(ordered["index"].tolist(), start=1):
             summary.loc[idx, "branch_rank"] = rank
         summary.loc[summary["analyzer_id"] == analyzer_id, "recommended_pressure_branch"] = ordered.iloc[0]["pressure_branch"]
+        note = ""
+        if ordered.iloc[0]["pressure_branch"] == "no_pressure_norm":
+            note = "no_pressure_norm is the current diagnostic best branch on this run."
+        elif ordered.iloc[0]["pressure_branch"] == "pressure_std":
+            note = "pressure_std is steadier than pressure_corr on this run."
+        elif ordered.iloc[0]["pressure_branch"] == "pressure_corr":
+            note = "pressure_corr remains the best deployable pressure branch on this run."
+        summary.loc[summary["analyzer_id"] == analyzer_id, "pressure_branch_note"] = note
     return summary.sort_values(["analyzer_id", "branch_rank"], ignore_index=True)
 
 
@@ -446,6 +458,7 @@ def build_upper_bound_vs_deployable_compare(
     summary["best_model_deployable"] = ""
     summary["best_model_consistent"] = False
     summary["upper_bound_beats_deployable"] = False
+    summary["context_diagnosis"] = ""
     for analyzer_id, analyzer_df in summary.groupby("analyzer_id"):
         upper = analyzer_df[analyzer_df["chain_context"] == "physics_upper_bound"]
         deploy = analyzer_df[analyzer_df["chain_context"] == "deployable_chain"]
@@ -460,6 +473,14 @@ def build_upper_bound_vs_deployable_compare(
         summary.loc[mask, "best_model_deployable"] = deploy_model
         summary.loc[mask, "best_model_consistent"] = consistent
         summary.loc[mask, "upper_bound_beats_deployable"] = upper_better
+        diagnosis = (
+            "deployable_temperature_pressure_gap"
+            if upper_better
+            else "absorbance_ppm_model_gap"
+            if math.isfinite(upper_rmse) and math.isfinite(float(upper.iloc[0]['old_chain_rmse'])) and upper_rmse > float(upper.iloc[0]["old_chain_rmse"])
+            else "no_clear_context_gap"
+        )
+        summary.loc[mask, "context_diagnosis"] = diagnosis
     return summary.sort_values(["analyzer_id", "chain_context"], ignore_index=True)
 
 
@@ -587,7 +608,7 @@ def build_root_cause_ranking(
 
     add_issue(
         "base_final_not_primary_bottleneck",
-        0.5,
+        0.05,
         "The main old-vs-new comparison is driven by static point fits; base/final remains a secondary diagnostic branch here.",
         "Do not spend the next cycle on FIR or continuous smoothing before the static absorbance model and branch definitions are fixed.",
     )

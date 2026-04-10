@@ -10,6 +10,7 @@ from tools.absorbance_debugger import gui as gui_module
 from tools.absorbance_debugger.app import run_debugger
 from tools.absorbance_debugger.io.run_bundle import RunBundle, discover_run_artifacts
 from tools.absorbance_debugger.options import (
+    normalize_absorbance_order_mode,
     normalize_model_selection_strategy,
     normalize_pressure_source,
     normalize_ratio_source,
@@ -40,6 +41,11 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
     assert (output_dir / "step_06_absorbance_model_selection.csv").exists()
     assert (output_dir / "step_06_absorbance_model_coefficients.csv").exists()
     assert (output_dir / "step_06_absorbance_model_residuals.csv").exists()
+    assert (output_dir / "step_06x_absorbance_order_compare.csv").exists()
+    assert (output_dir / "step_05x_r0_source_consistency.csv").exists()
+    assert (output_dir / "step_04x_pressure_branch_compare.csv").exists()
+    assert (output_dir / "step_08x_upper_bound_vs_deployable.csv").exists()
+    assert (output_dir / "step_08x_root_cause_ranking.csv").exists()
     assert (output_dir / "step_08_old_vs_new_compare.xlsx").exists()
     assert (output_dir / "step_08_overview_summary.csv").exists()
     assert (output_dir / "step_08_by_temperature.csv").exists()
@@ -69,6 +75,26 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
     scores = pd.read_csv(output_dir / "step_06_absorbance_model_scores.csv")
     assert {"model_id", "validation_rmse", "overall_rmse", "composite_score", "model_rank"} <= set(scores.columns)
     assert scores["model_rank"].notna().all()
+
+    order_compare = pd.read_csv(output_dir / "step_06x_absorbance_order_compare.csv")
+    assert {"order_mode", "samplewise_log_first_is_better", "significant_order_gain"} <= set(order_compare.columns)
+    assert set(order_compare["order_mode"]) == {"samplewise_log_first", "mean_first_log"}
+
+    source_compare = pd.read_csv(output_dir / "step_05x_r0_source_consistency.csv")
+    assert {"source_pair_label", "mixed_source_invalid_for_production_default"} <= set(source_compare.columns)
+    assert {"raw/raw", "filt/filt", "raw/filt", "filt/raw"} <= set(source_compare["source_pair_label"])
+
+    pressure_branch = pd.read_csv(output_dir / "step_04x_pressure_branch_compare.csv")
+    assert {"pressure_branch", "branch_rank", "recommended_pressure_branch"} <= set(pressure_branch.columns)
+    assert {"no_pressure_norm", "pressure_std", "pressure_corr"} <= set(pressure_branch["pressure_branch"])
+
+    upper_vs_deployable = pd.read_csv(output_dir / "step_08x_upper_bound_vs_deployable.csv")
+    assert {"chain_context", "best_model_upper_bound", "best_model_deployable", "best_model_consistent"} <= set(upper_vs_deployable.columns)
+    assert {"physics_upper_bound", "deployable_chain"} <= set(upper_vs_deployable["chain_context"])
+
+    root_causes = pd.read_csv(output_dir / "step_08x_root_cause_ranking.csv")
+    assert {"rank", "issue_name", "severity", "evidence", "recommended_action"} <= set(root_causes.columns)
+    assert "weak_absorbance_ppm_model" in set(root_causes["issue_name"])
 
     point_reconciliation = pd.read_csv(output_dir / "step_08_point_reconciliation.csv")
     assert {"old_pred_ppm", "new_pred_ppm", "old_error", "new_error", "winner_for_point"} <= set(point_reconciliation.columns)
@@ -112,6 +138,8 @@ def test_option_normalizers_accept_gui_and_cli_tokens() -> None:
     assert normalize_temp_source("corr") == "temp_corr_c"
     assert normalize_pressure_source("P_std") == "pressure_std_hpa"
     assert normalize_pressure_source("corr") == "pressure_corr_hpa"
+    assert normalize_absorbance_order_mode("samplewise") == "samplewise_log_first"
+    assert normalize_absorbance_order_mode("compare_both") == "compare_both"
     assert normalize_model_selection_strategy("auto") == "auto_grouped"
     assert normalize_model_selection_strategy("grouped_loo") == "grouped_loo"
 
@@ -141,8 +169,12 @@ def test_gui_passes_selection_parameters(monkeypatch, tmp_path: Path) -> None:
     gui.ratio_source.set("filt")
     gui.temperature_source.set("T_std")
     gui.pressure_source.set("P_std")
+    gui.absorbance_order_mode.set("mean_first_log")
     gui.model_selection_strategy.set("grouped_loo")
     gui.enable_composite_score.set("0")
+    gui.run_source_consistency_compare.set("0")
+    gui.run_pressure_branch_compare.set("1")
+    gui.run_upper_bound_compare.set("0")
     gui.auto_open_report.set("0")
 
     monkeypatch.setattr(gui_module, "run_debugger", fake_run_debugger)
@@ -155,8 +187,12 @@ def test_gui_passes_selection_parameters(monkeypatch, tmp_path: Path) -> None:
     assert captured["ratio_source"] == "ratio_co2_filt"
     assert captured["temperature_source"] == "temp_std_c"
     assert captured["pressure_source"] == "pressure_std_hpa"
+    assert captured["absorbance_order_mode"] == "mean_first_log"
     assert captured["model_selection_strategy"] == "grouped_loo"
     assert captured["enable_composite_score"] is False
+    assert captured["run_r0_source_consistency_compare"] is False
+    assert captured["run_pressure_branch_compare"] is True
+    assert captured["run_upper_bound_compare"] is False
     assert captured["p_ref_hpa"] == 1009.5
 
 

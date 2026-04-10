@@ -725,7 +725,7 @@ def _run_loss_diagnostics(
     )
     plot_branch_metric_compare(
         pressure_branch_compare,
-        "pressure_branch",
+        "pressure_branch_report",
         output_dir / "step_04x_pressure_branch_plots.png",
         title="Pressure branch comparison",
     )

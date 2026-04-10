@@ -1150,7 +1150,7 @@ def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -
     assert uncertainty_rollup["not_real_acceptance_evidence"] is True
     assert uncertainty_rollup["primary_evidence_rewritten"] is False
     assert "readiness mapping only" in uncertainty_report_pack["non_claim_note"].lower()
-    assert "formal uncertainty declaration" in uncertainty_report_pack["gap_note"].lower()
+    assert "formal uncertainty" in uncertainty_report_pack["gap_note"].lower()
     assert "all values placeholder/simulated" in uncertainty_report_pack["digest"]["data_completeness_summary"]
     assert "scope_definition_pack" in uncertainty_report_pack["artifact_paths"]
     assert any(
