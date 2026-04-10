@@ -984,6 +984,11 @@ def _stage_rows(compare: pd.DataFrame, detail_df: pd.DataFrame) -> pd.DataFrame:
             if not none_detail.empty and pd.notna(detail.get("final_residual_spread")) and pd.notna(none_detail.get("final_residual_spread"))
             else math.nan
         )
+        residual_spread_before = (
+            float(none_detail.get("final_residual_spread"))
+            if not none_detail.empty and pd.notna(none_detail.get("final_residual_spread"))
+            else math.nan
+        )
         metrics_to_emit = [
             ("zero_temp", "zero_rmse", detail.get("zero_rmse"), math.nan),
             ("zero_temp", "temp_bias_spread", detail.get("temp_bias_spread"), math.nan),
@@ -991,6 +996,7 @@ def _stage_rows(compare: pd.DataFrame, detail_df: pd.DataFrame) -> pd.DataFrame:
             ("absorbance", "A_mean_zero_rmse", detail.get("A_mean_zero_rmse"), math.nan),
             ("absorbance", "A_zero_ready_zero_rmse", detail.get("A_zero_ready_zero_rmse"), math.nan),
             ("absorbance", "baseline_like_stability_proxy", detail.get("baseline_like_stability_proxy"), math.nan),
+            ("absorbance", "residual_spread_before_replay", residual_spread_before, math.nan),
             ("absorbance", "residual_spread_after_replay", detail.get("final_residual_spread"), math.nan),
             ("absorbance", "residual_spread_gain_vs_none", absorbance_residual_gain, absorbance_residual_gain),
             ("final_ppm", "overall_rmse", detail.get("overall_rmse"), detail.get("delta_vs_none_overall")),
@@ -1174,6 +1180,106 @@ def _conclusion_rows(detail_df: pd.DataFrame, summary_df: pd.DataFrame, stage_df
     return pd.DataFrame(rows)
 
 
+def _conclusion_rows_clean(detail_df: pd.DataFrame, summary_df: pd.DataFrame, stage_df: pd.DataFrame) -> pd.DataFrame:
+    if detail_df.empty:
+        return pd.DataFrame()
+    legacy_modes = detail_df[
+        detail_df["water_lineage_mode"].isin(
+            {"legacy_h2o_summary_selection", "legacy_h2o_summary_selection_plus_zero_ppm_rows"}
+        )
+    ].copy()
+    best_legacy = legacy_modes.sort_values(
+        ["gap_closed_ratio_vs_current_new_chain", "delta_vs_none_overall", "delta_vs_none_zero"],
+        ascending=[False, False, False],
+        na_position="last",
+        ignore_index=True,
+    ).head(1)
+    best_row = best_legacy.iloc[0] if not best_legacy.empty else detail_df.iloc[0]
+    best_mean = summary_df[
+        (summary_df["summary_scope"] == "aggregate_mode_mean")
+        & (summary_df["water_lineage_mode"] == best_row["water_lineage_mode"])
+    ]
+    mean_gap_closed = (
+        float(pd.to_numeric(best_mean.iloc[0]["gap_closed_ratio_vs_current_new_chain"], errors="coerce"))
+        if not best_mean.empty
+        else math.nan
+    )
+    most_dependent = (
+        legacy_modes.sort_values("gap_closed_ratio_vs_current_new_chain", ascending=False, na_position="last").iloc[0]["analyzer_id"]
+        if not legacy_modes.empty
+        else ""
+    )
+    layer_focus = _layer_focus(detail_df, stage_df)
+    remaining_gap = (
+        float(pd.to_numeric(best_row.get("gap_to_old_overall"), errors="coerce"))
+        if pd.notna(best_row.get("gap_to_old_overall"))
+        else math.nan
+    )
+    significant = pd.notna(mean_gap_closed) and mean_gap_closed >= 0.15
+    support_statement = pd.notna(mean_gap_closed) and mean_gap_closed > 0.0 and pd.notna(remaining_gap) and remaining_gap > 0.0
+    rows = [
+        {
+            "question_id": "legacy_gap_closure",
+            "question": "Did legacy water-lineage replay significantly shrink the gap to old_chain?",
+            "answer": "yes" if significant else "partial_or_no",
+            "evidence": (
+                f"best_mode={best_row['water_lineage_mode']}; mean_gap_closed_ratio={mean_gap_closed:.4f}"
+                if pd.notna(mean_gap_closed)
+                else "insufficient_data"
+            ),
+            "recommended_mode": best_row["water_lineage_mode"],
+        },
+        {
+            "question_id": "dominant_layer",
+            "question": "Did the gains land more in the zero/temp layer or the final ppm layer?",
+            "answer": layer_focus,
+            "evidence": "Stage metrics compare zero-point stability gains against final ppm RMSE/gap closure gains.",
+            "recommended_mode": best_row["water_lineage_mode"],
+        },
+        {
+            "question_id": "most_dependent_analyzer",
+            "question": "Which of GA01 / GA02 / GA03 depends most on legacy water replay?",
+            "answer": str(most_dependent),
+            "evidence": "Chosen by the largest gap_closed_ratio_vs_current_new_chain among legacy modes.",
+            "recommended_mode": best_row["water_lineage_mode"],
+        },
+        {
+            "question_id": "statement_support",
+            "question": "Does the evidence support 'missing legacy water-lineage consumption is a real contributor, but not the sole cause'?",
+            "answer": "supported" if support_statement else "not_supported_or_inconclusive",
+            "evidence": (
+                f"mean_gap_closed_ratio={mean_gap_closed:.4f}; remaining_gap_to_old_overall={remaining_gap:.4f}"
+                if pd.notna(mean_gap_closed) and pd.notna(remaining_gap)
+                else "insufficient_data"
+            ),
+            "recommended_mode": best_row["water_lineage_mode"],
+        },
+        {
+            "question_id": "remaining_main_causes",
+            "question": "If a material gap remains, what are the main residual causes?",
+            "answer": (
+                "weak_absorbance_ppm_model|40℃ / 0 ppm 缺失，高温 R0(T) 未锚定"
+                if pd.notna(remaining_gap) and remaining_gap > 0.0
+                else "remaining_gap_not_obvious"
+            ),
+            "evidence": "Legacy replay is diagnostic-only and does not remove the baseline weak ppm model / missing 40C zero-anchor risks.",
+            "recommended_mode": best_row["water_lineage_mode"],
+        },
+        {
+            "question_id": "headline",
+            "question": "headline",
+            "answer": (
+                f"{best_row['water_lineage_mode']} closed {mean_gap_closed:.2%} of the current-new-chain gap on average"
+                if pd.notna(mean_gap_closed)
+                else "insufficient_data"
+            ),
+            "evidence": f"best_mode={best_row['water_lineage_mode']}",
+            "recommended_mode": best_row["water_lineage_mode"],
+        },
+    ]
+    return pd.DataFrame(rows)
+
+
 def run_legacy_water_replay_diagnostic(
     *,
     water_lineage_samples: pd.DataFrame,
@@ -1203,7 +1309,7 @@ def run_legacy_water_replay_diagnostic(
     detail = _detail_rows(compare, fixed_selection)
     summary = _summary_rows(detail)
     stage_metrics = _stage_rows(compare, detail)
-    conclusions = _conclusion_rows(detail, summary, stage_metrics)
+    conclusions = _conclusion_rows_clean(detail, summary, stage_metrics)
     return {
         "rules": rules,
         "feature_frame": feature_frame,

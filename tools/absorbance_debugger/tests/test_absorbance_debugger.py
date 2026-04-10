@@ -19,6 +19,10 @@ from tools.absorbance_debugger.analysis.lineage_audit import (
     build_new_chain_input_audit,
     build_old_water_correction_audit,
 )
+from tools.absorbance_debugger.analysis.legacy_water_replay import (
+    build_legacy_water_replay_features,
+    load_legacy_water_replay_rules,
+)
 from tools.absorbance_debugger.analysis.pipeline import _identify_invalid_pressure_points
 from tools.absorbance_debugger.analysis.water_zero_anchor import (
     build_water_anchor_compare,
@@ -42,6 +46,7 @@ from tools.absorbance_debugger.options import (
     normalize_temp_source,
     parse_path_list,
 )
+from tools.absorbance_debugger.parsers.schema import classify_mode2_semantics
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -67,6 +72,10 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
     assert (output_dir / "step_05y_zero_residual_models.csv").exists()
     assert (output_dir / "step_05y_zero_residual_selection.csv").exists()
     assert (output_dir / "step_05y_zero_residual_plot.png").exists()
+    assert (output_dir / "step_05y_legacy_water_replay_detail.csv").exists()
+    assert (output_dir / "step_05y_legacy_water_replay_summary.csv").exists()
+    assert (output_dir / "step_05y_legacy_water_replay_stage_metrics.csv").exists()
+    assert (output_dir / "step_05y_legacy_water_replay_plot.png").exists()
     assert (output_dir / "step_00y_old_water_correction_audit.md").exists()
     assert (output_dir / "step_00y_old_water_correction_sources.csv").exists()
     assert (output_dir / "step_00z_new_chain_input_audit.csv").exists()
@@ -112,6 +121,7 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
     assert (output_dir / "step_08_regression_by_temperature.csv").exists()
     assert (output_dir / "step_08_point_reconciliation.csv").exists()
     assert (output_dir / "step_08_auto_conclusions.csv").exists()
+    assert (output_dir / "step_08y_legacy_water_replay_conclusions.csv").exists()
     assert (output_dir / "report.md").exists()
     assert (output_dir / "report.html").exists()
     assert (output_dir / "report.xlsx").exists()
@@ -173,6 +183,80 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
         .to_dict()
     )
     assert point_models == selected_models
+
+    legacy_detail = pd.read_csv(output_dir / "step_05y_legacy_water_replay_detail.csv")
+    legacy_stage = pd.read_csv(output_dir / "step_05y_legacy_water_replay_stage_metrics.csv")
+    legacy_conclusions = pd.read_csv(output_dir / "step_08y_legacy_water_replay_conclusions.csv")
+    assert {
+        "analyzer_id",
+        "selected_source_pair",
+        "fixed_best_model",
+        "fixed_model_family",
+        "fixed_zero_residual_mode",
+        "fixed_prediction_scope",
+        "water_lineage_mode",
+        "uses_co2_temp_groups",
+        "uses_co2_zero_ppm_rows",
+        "uses_subzero_zero_water_anchor",
+        "subzero_anchor_row_count",
+        "zero_ppm_anchor_row_count",
+        "overall_rmse",
+        "zero_rmse",
+        "low_range_rmse",
+        "main_range_rmse",
+        "temp_bias_spread",
+        "old_chain_overall_rmse",
+        "gap_to_old_overall",
+        "gap_to_old_zero",
+        "delta_vs_none_overall",
+        "delta_vs_none_zero",
+        "delta_vs_none_low",
+        "delta_vs_none_main",
+        "gap_closed_ratio_vs_current_new_chain",
+    } <= set(legacy_detail.columns)
+    assert set(legacy_detail["water_lineage_mode"]) == {
+        "none",
+        "simplified_subzero_anchor",
+        "legacy_h2o_summary_selection",
+        "legacy_h2o_summary_selection_plus_zero_ppm_rows",
+    }
+    assert legacy_detail.groupby("analyzer_id")["water_lineage_mode"].nunique().eq(4).all()
+
+    fixed_check = legacy_detail.merge(
+        selection[
+            [
+                "analyzer_id",
+                "selected_source_pair",
+                "best_absorbance_model",
+                "best_model_family",
+                "zero_residual_mode",
+                "selected_prediction_scope",
+            ]
+        ],
+        on="analyzer_id",
+        how="left",
+        suffixes=("_legacy", "_selection"),
+    )
+    assert (fixed_check["selected_source_pair_legacy"] == fixed_check["selected_source_pair_selection"]).all()
+    assert (fixed_check["fixed_best_model"] == fixed_check["best_absorbance_model"]).all()
+    assert (fixed_check["fixed_model_family"] == fixed_check["best_model_family"]).all()
+    assert (fixed_check["fixed_zero_residual_mode"] == fixed_check["zero_residual_mode"]).all()
+    assert (fixed_check["fixed_prediction_scope"] == fixed_check["selected_prediction_scope"]).all()
+
+    assert {"layer", "metric_name", "metric_value", "gain_vs_none"} <= set(legacy_stage.columns)
+    assert {"zero_temp", "absorbance", "final_ppm"} <= set(legacy_stage["layer"])
+    assert {"residual_spread_before_replay", "residual_spread_after_replay", "gap_closed_ratio_vs_current_new_chain"} <= set(
+        legacy_stage["metric_name"]
+    )
+
+    assert {"question_id", "question", "answer", "evidence", "recommended_mode"} <= set(legacy_conclusions.columns)
+    assert {
+        "legacy_gap_closure",
+        "dominant_layer",
+        "most_dependent_analyzer",
+        "statement_support",
+        "remaining_main_causes",
+    } <= set(legacy_conclusions["question_id"])
 
 
 def test_old_water_correction_audit_and_new_chain_input_audit_can_run(tmp_path: Path) -> None:
@@ -440,6 +524,154 @@ def test_water_zero_anchor_feature_extraction_and_compare_can_run(tmp_path: Path
     compare = build_water_anchor_compare(baseline_outputs, water_outputs, baseline_selection, water_selection)
     assert not compare.empty
     assert compare.iloc[0]["winner_zero"] == "water_zero_anchor_chain"
+
+
+def test_legacy_h2o_summary_selection_includes_repo_selected_co2_rows() -> None:
+    rules = load_legacy_water_replay_rules(REPO_ROOT)
+    fixed_points = pd.DataFrame(
+        [
+            {
+                "analyzer": "GA01",
+                "point_title": "co2_main",
+                "point_row": 1,
+                "temp_set_c": 20.0,
+                "target_co2_ppm": 300.0,
+                "ratio_source": "ratio_co2_raw",
+                "fixed_zero_residual_mode": "none",
+                "temp_use_mean_c": 20.0,
+                "A_mean": 1.25,
+            }
+        ]
+    )
+    water_lineage_samples = pd.DataFrame(
+        [
+            {
+                "analyzer": "GA01",
+                "point_title": "co2_main",
+                "point_row": 1,
+                "temp_set_c": 20.0,
+                "target_co2_ppm": 300.0,
+                "route": "co2",
+                "stage": "co2_phase",
+                "point_tag": "co2_main",
+                "ratio_h2o_raw": 0.50,
+                "ratio_h2o_filt": 0.49,
+                "h2o_signal": 2.0,
+                "h2o_density": 3.0,
+                "sample_index": 1,
+            },
+            {
+                "analyzer": "GA01",
+                "point_title": "h2o_phase",
+                "point_row": 2,
+                "temp_set_c": 20.0,
+                "target_co2_ppm": 300.0,
+                "route": "h2o",
+                "stage": "h2o_phase",
+                "point_tag": "h2o_phase",
+                "ratio_h2o_raw": 0.30,
+                "ratio_h2o_filt": 0.29,
+                "h2o_signal": 2.1,
+                "h2o_density": 3.1,
+                "sample_index": 1,
+            },
+            {
+                "analyzer": "GA01",
+                "point_title": "co2_m20",
+                "point_row": 3,
+                "temp_set_c": -20.0,
+                "target_co2_ppm": 50.0,
+                "route": "co2",
+                "stage": "co2_phase",
+                "point_tag": "co2_m20",
+                "ratio_h2o_raw": 0.10,
+                "ratio_h2o_filt": 0.09,
+                "h2o_signal": 2.2,
+                "h2o_density": 3.2,
+                "sample_index": 1,
+            },
+            {
+                "analyzer": "GA01",
+                "point_title": "co2_m10",
+                "point_row": 4,
+                "temp_set_c": -10.0,
+                "target_co2_ppm": 80.0,
+                "route": "co2",
+                "stage": "co2_phase",
+                "point_tag": "co2_m10",
+                "ratio_h2o_raw": 0.20,
+                "ratio_h2o_filt": 0.19,
+                "h2o_signal": 2.3,
+                "h2o_density": 3.3,
+                "sample_index": 1,
+            },
+            {
+                "analyzer": "GA01",
+                "point_title": "co2_0",
+                "point_row": 5,
+                "temp_set_c": 0.0,
+                "target_co2_ppm": 120.0,
+                "route": "co2",
+                "stage": "co2_phase",
+                "point_tag": "co2_0",
+                "ratio_h2o_raw": 0.40,
+                "ratio_h2o_filt": 0.39,
+                "h2o_signal": 2.4,
+                "h2o_density": 3.4,
+                "sample_index": 1,
+            },
+            {
+                "analyzer": "GA01",
+                "point_title": "co2_zero_10",
+                "point_row": 6,
+                "temp_set_c": 10.0,
+                "target_co2_ppm": 0.0,
+                "route": "co2",
+                "stage": "co2_phase",
+                "point_tag": "co2_zero_10",
+                "ratio_h2o_raw": 0.60,
+                "ratio_h2o_filt": 0.59,
+                "h2o_signal": 2.5,
+                "h2o_density": 3.5,
+                "sample_index": 1,
+            },
+        ]
+    )
+
+    features = build_legacy_water_replay_features(fixed_points, water_lineage_samples, rules)
+
+    assert set(features["water_lineage_mode"]) == {
+        "none",
+        "simplified_subzero_anchor",
+        "legacy_h2o_summary_selection",
+        "legacy_h2o_summary_selection_plus_zero_ppm_rows",
+    }
+    legacy_row = features[features["water_lineage_mode"] == "legacy_h2o_summary_selection"].iloc[0]
+    plus_zero_row = features[features["water_lineage_mode"] == "legacy_h2o_summary_selection_plus_zero_ppm_rows"].iloc[0]
+
+    assert bool(legacy_row["uses_co2_temp_groups"]) is True
+    assert bool(legacy_row["uses_co2_zero_ppm_rows"]) is False
+    assert int(legacy_row["legacy_summary_anchor_row_count"]) == 4
+    assert int(legacy_row["zero_ppm_anchor_row_count"]) == 1
+    assert abs(float(legacy_row["delta_h2o_ratio_vs_legacy_summary_anchor"]) - 0.25) < 1.0e-9
+
+    assert bool(plus_zero_row["uses_co2_temp_groups"]) is True
+    assert bool(plus_zero_row["uses_co2_zero_ppm_rows"]) is True
+    assert int(plus_zero_row["zero_ppm_anchor_row_count"]) == 1
+    assert abs(float(plus_zero_row["delta_h2o_ratio_vs_legacy_summary_anchor"]) - 0.18) < 1.0e-9
+
+
+def test_v5_mode2_semantics_are_marked_as_baseline_bearing_profile() -> None:
+    result = classify_mode2_semantics(
+        raw_message="YGAS,014,0000.000,04.632,-479.741,04.173,1.5318,1.5306,0.7231,0.7231,03718,05683,02687,-17.61,-17.11,106.32",
+        mode2_field_count=16,
+        software_version="v5_plus",
+    )
+
+    assert result["mode2_semantic_profile"] == "baseline_bearing_profile"
+    assert result["mode2_profile_source"] == "software_version"
+    assert bool(result["mode2_is_baseline_bearing_profile"]) is True
+    assert bool(result["mode2_legacy_raw_compare_safe"]) is False
 
 
 def test_piecewise_model_continuity_and_selection_can_run(tmp_path: Path) -> None:
