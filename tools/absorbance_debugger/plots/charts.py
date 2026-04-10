@@ -1,0 +1,242 @@
+"""Matplotlib chart helpers."""
+
+from __future__ import annotations
+
+import math
+from pathlib import Path
+from typing import Iterable
+
+import matplotlib
+
+matplotlib.use("Agg")
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+
+def _finalize(fig: plt.Figure, output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_temperature_fit(data: pd.DataFrame, fit_table: pd.DataFrame, output_path: Path) -> None:
+    """Plot temp_cavity versus temp_std with fitted lines."""
+
+    analyzers = sorted(data["analyzer"].dropna().unique().tolist())
+    if not analyzers:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No temperature-fit data available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+
+    fig, axes = plt.subplots(len(analyzers), 1, figsize=(8, 3.5 * len(analyzers)), squeeze=False)
+    for row_idx, analyzer in enumerate(analyzers):
+        ax = axes[row_idx, 0]
+        subset = data[data["analyzer"] == analyzer]
+        ax.scatter(subset["temp_cavity_c"], subset["temp_std_c"], s=16, alpha=0.6, label="samples")
+        x_line = np.linspace(subset["temp_cavity_c"].min(), subset["temp_cavity_c"].max(), 200)
+        for model_name in ("linear", "quadratic"):
+            fit_row = fit_table[
+                (fit_table["analyzer"] == analyzer)
+                & (fit_table["model_name"] == model_name)
+            ]
+            if fit_row.empty:
+                continue
+            coeffs = fit_row.iloc[0]["coefficients_desc"]
+            y_line = np.polyval(np.asarray(coeffs, dtype=float), x_line)
+            ax.plot(x_line, y_line, label=model_name)
+        ax.set_title(f"{analyzer} temperature correction")
+        ax.set_xlabel("temp_cavity_c")
+        ax.set_ylabel("temp_std_c")
+        ax.legend()
+        ax.grid(alpha=0.2)
+    _finalize(fig, output_path)
+
+
+def plot_pressure_compare(data: pd.DataFrame, output_path: Path) -> None:
+    """Plot raw and corrected pressure against reference pressure."""
+
+    analyzers = sorted(data["analyzer"].dropna().unique().tolist())
+    if not analyzers:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No pressure data available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+
+    fig, axes = plt.subplots(len(analyzers), 1, figsize=(8, 3.5 * len(analyzers)), squeeze=False)
+    for row_idx, analyzer in enumerate(analyzers):
+        ax = axes[row_idx, 0]
+        subset = data[data["analyzer"] == analyzer].sort_values(["point_row", "sample_index"])
+        x = np.arange(len(subset))
+        ax.plot(x, subset["pressure_std_hpa"], label="pressure_std_hpa", linewidth=1.6)
+        ax.plot(x, subset["pressure_dev_raw_hpa"], label="pressure_dev_raw_hpa", linewidth=1.2)
+        ax.plot(x, subset["pressure_corr_hpa"], label="pressure_corr_hpa", linewidth=1.2)
+        ax.set_title(f"{analyzer} pressure comparison")
+        ax.set_xlabel("sample order")
+        ax.set_ylabel("hPa")
+        ax.grid(alpha=0.2)
+        ax.legend()
+    _finalize(fig, output_path)
+
+
+def plot_r0_fit(observations: pd.DataFrame, fit_table: pd.DataFrame, output_path: Path) -> None:
+    """Plot R0(T) fits for raw and filtered ratios."""
+
+    analyzers = sorted(observations["analyzer"].dropna().unique().tolist())
+    if not analyzers:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No R0 observations available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+
+    fig, axes = plt.subplots(len(analyzers), 2, figsize=(12, 3.6 * len(analyzers)), squeeze=False)
+    for row_idx, analyzer in enumerate(analyzers):
+        subset = observations[observations["analyzer"] == analyzer]
+        for col_idx, ratio_source in enumerate(("ratio_co2_raw", "ratio_co2_filt")):
+            ax = axes[row_idx, col_idx]
+            ratio_subset = subset[subset["ratio_source"] == ratio_source]
+            ax.scatter(ratio_subset["temp_use_c"], ratio_subset["ratio_value"], s=20, alpha=0.7, label="zero-gas samples")
+            if not ratio_subset.empty:
+                x_line = np.linspace(ratio_subset["temp_use_c"].min(), ratio_subset["temp_use_c"].max(), 200)
+                for model_name in ("linear", "quadratic", "cubic"):
+                    fit_row = fit_table[
+                        (fit_table["analyzer"] == analyzer)
+                        & (fit_table["ratio_source"] == ratio_source)
+                        & (fit_table["temp_source"] == "temp_corr_c")
+                        & (fit_table["model_name"] == model_name)
+                    ]
+                    if fit_row.empty:
+                        continue
+                    coeffs = fit_row.iloc[0]["coefficients_desc"]
+                    ax.plot(x_line, np.polyval(np.asarray(coeffs, dtype=float), x_line), label=model_name)
+            ax.set_title(f"{analyzer} {ratio_source}")
+            ax.set_xlabel("temperature (C)")
+            ax.set_ylabel("R0(T)")
+            ax.grid(alpha=0.2)
+            ax.legend()
+    _finalize(fig, output_path)
+
+
+def plot_timeseries_base_final(data: pd.DataFrame, output_path: Path, enabled: bool) -> None:
+    """Plot default-branch absorbance timeseries."""
+
+    analyzers = sorted(data["analyzer"].dropna().unique().tolist())
+    if not analyzers:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No absorbance timeseries available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+
+    fig, axes = plt.subplots(len(analyzers), 1, figsize=(10, 3.4 * len(analyzers)), squeeze=False)
+    for row_idx, analyzer in enumerate(analyzers):
+        ax = axes[row_idx, 0]
+        subset = data[data["analyzer"] == analyzer].sort_values(["point_row", "sample_index"])
+        x = np.arange(len(subset))
+        ax.plot(x, subset["absorbance_raw"], label="A_raw", linewidth=1.3)
+        if enabled and "a_base" in subset.columns:
+            ax.plot(x, subset["a_base"], label="A_base", linewidth=1.2)
+            ax.plot(x, subset["a_final"], label="A_final", linewidth=1.2)
+        else:
+            ax.text(
+                0.98,
+                0.92,
+                "base/final disabled",
+                transform=ax.transAxes,
+                ha="right",
+                va="top",
+                fontsize=9,
+                bbox={"facecolor": "white", "alpha": 0.7, "edgecolor": "none"},
+            )
+        ax.set_title(f"{analyzer} absorbance timeseries")
+        ax.set_xlabel("sample order")
+        ax.set_ylabel("absorbance")
+        ax.grid(alpha=0.2)
+        ax.legend()
+    _finalize(fig, output_path)
+
+
+def plot_absorbance_compare(data: pd.DataFrame, value_col: str, y_label: str, output_path: Path) -> None:
+    """Scatter target ppm against one diagnostic value, colored by temperature."""
+
+    analyzers = sorted(data["analyzer"].dropna().unique().tolist())
+    if not analyzers:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No comparison data available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+
+    fig, axes = plt.subplots(len(analyzers), 1, figsize=(8, 3.4 * len(analyzers)), squeeze=False)
+    temps = sorted(data["temp_set_c"].dropna().unique().tolist())
+    cmap = plt.get_cmap("viridis", max(len(temps), 1))
+    for row_idx, analyzer in enumerate(analyzers):
+        ax = axes[row_idx, 0]
+        subset = data[data["analyzer"] == analyzer]
+        for temp_idx, temp in enumerate(temps):
+            one_temp = subset[subset["temp_set_c"] == temp]
+            if one_temp.empty:
+                continue
+            ax.scatter(
+                one_temp["target_co2_ppm"],
+                one_temp[value_col],
+                label=f"{temp:.0f} C",
+                color=cmap(temp_idx),
+                s=28,
+                alpha=0.75,
+            )
+        ax.set_title(f"{analyzer} target ppm vs {value_col}")
+        ax.set_xlabel("target_co2_ppm")
+        ax.set_ylabel(y_label)
+        ax.grid(alpha=0.2)
+        ax.legend(ncol=4, fontsize=8)
+    _finalize(fig, output_path)
+
+
+def plot_zero_drift(data: pd.DataFrame, value_col: str, y_label: str, output_path: Path) -> None:
+    """Plot zero-gas drift across temperatures."""
+
+    analyzers = sorted(data["analyzer"].dropna().unique().tolist())
+    if not analyzers:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No zero-gas points available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+
+    fig, ax = plt.subplots(figsize=(8, 4.2))
+    for analyzer in analyzers:
+        subset = data[data["analyzer"] == analyzer].sort_values("temp_set_c")
+        ax.plot(subset["temp_set_c"], subset[value_col], marker="o", linewidth=1.2, label=analyzer)
+    ax.set_title(f"Zero-gas drift: {value_col}")
+    ax.set_xlabel("temperature (C)")
+    ax.set_ylabel(y_label)
+    ax.grid(alpha=0.2)
+    ax.legend()
+    _finalize(fig, output_path)
+
+
+def plot_ratio_series(data: pd.DataFrame, output_path: Path) -> None:
+    """Plot point-order comparison between raw ratio, filtered ratio, and absorbance."""
+
+    analyzers = sorted(data["analyzer"].dropna().unique().tolist())
+    if not analyzers:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No ratio series available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+
+    fig, axes = plt.subplots(len(analyzers), 1, figsize=(10, 3.2 * len(analyzers)), squeeze=False)
+    for row_idx, analyzer in enumerate(analyzers):
+        ax = axes[row_idx, 0]
+        subset = data[data["analyzer"] == analyzer].sort_values(["temp_set_c", "target_co2_ppm"])
+        x = np.arange(len(subset))
+        ax.plot(x, subset["ratio_co2_raw_mean"], label="ratio_co2_raw_mean", linewidth=1.2)
+        ax.plot(x, subset["ratio_co2_filt_mean"], label="ratio_co2_filt_mean", linewidth=1.2)
+        ax.plot(x, subset["a_mean"], label="A_mean", linewidth=1.2)
+        ax.set_title(f"{analyzer} raw ratio / filt ratio / A_mean")
+        ax.set_xlabel("point order")
+        ax.set_ylabel("diagnostic value")
+        ax.grid(alpha=0.2)
+        ax.legend()
+    _finalize(fig, output_path)
