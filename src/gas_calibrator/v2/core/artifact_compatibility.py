@@ -629,3 +629,485 @@ def _build_reindex_manifest_payload(
         "reviewer_fragments_contract_version": REVIEWER_FRAGMENTS_CONTRACT_VERSION,
         "artifact_paths": _self_artifact_paths(run_dir, "reindex_manifest"),
     }
+
+
+def _build_base_entry(
+    path: Path,
+    *,
+    run_dir: Path,
+    run_id: str,
+    role_catalog: dict[str, Any],
+) -> dict[str, Any]:
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        candidate = run_dir / candidate
+    identity = infer_artifact_identity(candidate, role_catalog=role_catalog)
+    artifact_name = candidate.name
+    payload = _load_json_dict(candidate) if candidate.suffix.lower() == ".json" and candidate.exists() else {}
+    schema_or_contract_version, schema_version_source = _schema_version_from_payload(
+        artifact_name=artifact_name,
+        artifact_key=str(identity.get("artifact_key") or ""),
+        payload=payload,
+        present_on_disk=candidate.exists(),
+    )
+    return {
+        "run_id": run_id,
+        "run_dir": str(run_dir.resolve()),
+        "artifact_name": artifact_name,
+        "artifact_path": str(candidate.resolve()),
+        "artifact_key": str(identity.get("artifact_key") or ""),
+        "artifact_role": str(identity.get("artifact_role") or "unclassified"),
+        "schema_or_contract_version": schema_or_contract_version,
+        "schema_version_source": schema_version_source,
+        "present_on_disk": bool(candidate.exists()),
+        "payload": payload,
+    }
+
+
+def _finalize_entry(
+    entry: dict[str, Any],
+    *,
+    run_mode: str,
+    pair_lookup: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    artifact_name = str(entry.get("artifact_name") or "")
+    artifact_key = str(entry.get("artifact_key") or "")
+    base_key = artifact_key[:-9] if artifact_key.endswith("_markdown") else artifact_key
+    paired = dict(pair_lookup.get(base_key) or {})
+    present_on_disk = bool(entry.get("present_on_disk", False))
+    schema_or_contract_version = str(entry.get("schema_or_contract_version") or "")
+    schema_version_source = str(entry.get("schema_version_source") or "")
+    if not schema_or_contract_version and paired:
+        schema_or_contract_version = str(paired.get("schema_or_contract_version") or "")
+        if schema_or_contract_version:
+            schema_version_source = str(paired.get("schema_version_source") or "paired")
+
+    canonical_reader_available = bool(
+        artifact_key
+        or artifact_name in REGENERABLE_SIDECAR_FILENAMES
+        or artifact_name in KNOWN_REPORT_ARTIFACTS
+    )
+    regenerable_sidecar = artifact_name in REGENERABLE_SIDECAR_FILENAMES
+    primary_evidence = not regenerable_sidecar
+    if not present_on_disk and regenerable_sidecar:
+        compatibility_status = "missing_regenerable"
+        reader_mode = "regenerate_sidecar"
+    elif not present_on_disk and canonical_reader_available:
+        compatibility_status = "missing_primary"
+        reader_mode = run_mode if run_mode in READER_MODE_LABELS else "compatibility_adapter"
+    elif artifact_name in REGENERABLE_SIDECAR_FILENAMES:
+        compatibility_status = "canonical_current"
+        reader_mode = "canonical_index"
+    elif artifact_name in CANONICAL_SURFACE_FILENAMES and schema_or_contract_version:
+        compatibility_status = "canonical_current"
+        reader_mode = "canonical_direct"
+    elif canonical_reader_available:
+        compatibility_status = "compatibility_read"
+        reader_mode = "compatibility_adapter" if run_mode != "scan_only" else "observed_only"
+    else:
+        compatibility_status = "unclassified_observed"
+        reader_mode = "observed_only"
+    regenerate_recommended = bool(
+        compatibility_status in {"compatibility_read", "missing_regenerable"}
+        or (run_mode == "compatibility_adapter" and canonical_reader_available)
+    )
+    boundary_payload = _compatibility_boundary_payload()
+    non_claim_payload = _compatibility_non_claim_payload()
+    return {
+        **{key: value for key, value in entry.items() if key != "payload"},
+        "schema_or_contract_version": schema_or_contract_version,
+        "schema_version_source": schema_version_source or ("missing" if not schema_or_contract_version else "explicit"),
+        "compatibility_status": compatibility_status,
+        "compatibility_status_display": _display_compatibility_status(compatibility_status),
+        "reader_mode": reader_mode,
+        "reader_mode_display": _display_reader_mode(reader_mode),
+        "canonical_reader_available": canonical_reader_available,
+        "regenerate_recommended": regenerate_recommended,
+        "linked_surface_visibility": _surface_visibility(
+            artifact_key=artifact_key,
+            artifact_role=str(entry.get("artifact_role") or "unclassified"),
+        ),
+        "primary_evidence": primary_evidence,
+        "regenerable_sidecar": regenerable_sidecar,
+        "boundary_digest": boundary_payload.get("digest"),
+        "non_claim_digest": non_claim_payload.get("digest"),
+    }
+
+
+def _build_contract_rows(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, str], dict[str, Any]] = {}
+    for entry in entries:
+        artifact_key = str(entry.get("artifact_key") or entry.get("artifact_name") or "").strip()
+        artifact_role = str(entry.get("artifact_role") or "unclassified")
+        if not artifact_key:
+            continue
+        group = grouped.setdefault(
+            (artifact_key, artifact_role),
+            {
+                "artifact_key": artifact_key,
+                "artifact_role": artifact_role,
+                "artifact_names": [],
+                "artifact_paths": [],
+                "schema_versions": [],
+                "compatibility_statuses": [],
+                "canonical_reader_available": False,
+                "regenerate_recommended": False,
+                "linked_surface_visibility": [],
+            },
+        )
+        artifact_name = str(entry.get("artifact_name") or "")
+        artifact_path = str(entry.get("artifact_path") or "")
+        version = str(entry.get("schema_or_contract_version") or "")
+        status = str(entry.get("compatibility_status") or "")
+        if artifact_name and artifact_name not in group["artifact_names"]:
+            group["artifact_names"].append(artifact_name)
+        if artifact_path and artifact_path not in group["artifact_paths"]:
+            group["artifact_paths"].append(artifact_path)
+        if version and version not in group["schema_versions"]:
+            group["schema_versions"].append(version)
+        if status and status not in group["compatibility_statuses"]:
+            group["compatibility_statuses"].append(status)
+        group["canonical_reader_available"] = bool(
+            group["canonical_reader_available"] or entry.get("canonical_reader_available", False)
+        )
+        group["regenerate_recommended"] = bool(
+            group["regenerate_recommended"] or entry.get("regenerate_recommended", False)
+        )
+        for surface in list(entry.get("linked_surface_visibility") or []):
+            text = str(surface or "").strip()
+            if text and text not in group["linked_surface_visibility"]:
+                group["linked_surface_visibility"].append(text)
+    return sorted(
+        grouped.values(),
+        key=lambda item: (str(item.get("artifact_role") or ""), str(item.get("artifact_key") or "")),
+    )
+
+
+def _collect_candidate_paths(
+    run_dir: Path,
+    *,
+    summary: dict[str, Any] | None,
+    manifest: dict[str, Any] | None,
+    results: dict[str, Any] | None,
+    output_files: Iterable[Any] | None,
+) -> list[Path]:
+    candidates: list[Path] = []
+    seen: set[str] = set()
+
+    def _remember(value: Any) -> None:
+        candidate = _coerce_candidate_path(run_dir, value)
+        if candidate is None:
+            return
+        key = str(candidate).lower()
+        if key in seen:
+            return
+        seen.add(key)
+        candidates.append(candidate)
+
+    for filename in list(KNOWN_REPORT_ARTIFACTS) + list(REGENERABLE_SIDECAR_FILENAMES):
+        _remember(run_dir / filename)
+    if run_dir.exists():
+        for path in run_dir.iterdir():
+            if path.is_file():
+                _remember(path)
+    for payload in (summary, manifest, results):
+        for path in _collect_explicit_paths(payload):
+            _remember(path)
+    for path in list(output_files or []):
+        _remember(path)
+    return candidates
+
+
+def _collect_explicit_paths(payload: Any) -> list[Any]:
+    rows: list[Any] = []
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            key_text = str(key or "").strip().lower()
+            if key_text in {"path", "markdown_path", "report_path"}:
+                rows.append(value)
+                continue
+            if key_text == "artifact_paths" and isinstance(value, dict):
+                rows.extend(value.values())
+                continue
+            if key_text in {"output_files", "primary_artifact_paths", "supporting_artifact_paths"}:
+                rows.extend(list(value or []))
+                continue
+            rows.extend(_collect_explicit_paths(value))
+    elif isinstance(payload, list):
+        for item in payload:
+            rows.extend(_collect_explicit_paths(item))
+    return rows
+
+
+def _coerce_candidate_path(run_dir: Path, value: Any) -> Path | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    candidate = Path(text)
+    if not candidate.is_absolute():
+        candidate = run_dir / candidate
+    if candidate.exists() and candidate.is_dir():
+        return None
+    if not candidate.exists() and not candidate.suffix:
+        return None
+    return candidate
+
+
+def _schema_version_from_payload(
+    *,
+    artifact_name: str,
+    artifact_key: str,
+    payload: dict[str, Any],
+    present_on_disk: bool,
+) -> tuple[str, str]:
+    for key in (
+        "schema_version",
+        "contract_version",
+        "taxonomy_contract_version",
+        "reviewer_fragments_contract_version",
+    ):
+        value = str(payload.get(key) or "").strip()
+        if value:
+            return value, "explicit"
+    if present_on_disk and (artifact_key or artifact_name in KNOWN_REPORT_ARTIFACTS or artifact_name in REGENERABLE_SIDECAR_FILENAMES):
+        return "inferred-unversioned", "inferred"
+    return "", "missing"
+
+
+def _resolve_run_id(
+    run_dir: Path,
+    *,
+    summary: dict[str, Any] | None,
+    manifest: dict[str, Any] | None,
+    results: dict[str, Any] | None,
+) -> str:
+    for payload in (summary, manifest, results):
+        value = str(dict(payload or {}).get("run_id") or "").strip()
+        if value:
+            return value
+    return run_dir.name
+
+
+def _count_by_key(rows: Iterable[dict[str, Any]], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        value = str(dict(row or {}).get(key) or "").strip() or "missing"
+        counts[value] = int(counts.get(value, 0) or 0) + 1
+    return counts
+
+
+def _surface_visibility(*, artifact_key: str, artifact_role: str) -> list[str]:
+    surfaces = ["results"]
+    if artifact_role in {"execution_summary", "diagnostic_analysis", "formal_analysis"}:
+        surfaces.append("review_center")
+    if artifact_key in {
+        "run_artifact_index",
+        "artifact_contract_catalog",
+        "compatibility_scan_summary",
+        "reindex_manifest",
+        "multi_source_stability_evidence",
+        "state_transition_evidence",
+        "simulation_evidence_sidecar_bundle",
+        "measurement_phase_coverage_report",
+        "scope_readiness_summary",
+        "certificate_readiness_summary",
+        "uncertainty_method_readiness_summary",
+        "audit_readiness_digest",
+    }:
+        if "review_center" not in surfaces:
+            surfaces.append("review_center")
+        surfaces.append("workbench")
+    return surfaces
+
+
+def _self_artifact_paths(run_dir: Path, artifact_key: str) -> dict[str, str]:
+    definition = COMPATIBILITY_BUNDLE_DEFINITIONS.get(str(artifact_key), {})
+    if not definition:
+        return {}
+    return {
+        str(artifact_key): str((run_dir / str(definition.get("filename") or "")).resolve()),
+        f"{artifact_key}_markdown": str((run_dir / str(definition.get("markdown_filename") or "")).resolve()),
+    }
+
+
+def _compatibility_boundary_payload() -> dict[str, Any]:
+    fragment_keys = [
+        "step2_tail_stage3_bridge",
+        "step2_reviewer_readiness_only",
+        "simulation_offline_headless_only",
+        "file_artifact_first_reviewer_evidence",
+        "not_real_acceptance_boundary",
+        "does_not_modify_live_sampling_gate",
+    ]
+    fragment_rows = normalize_fragment_rows(BOUNDARY_FRAGMENT_FAMILY, fragment_keys, display_locale="zh_CN")
+    filter_rows = normalize_fragment_filter_rows(BOUNDARY_FRAGMENT_FAMILY, fragment_keys, display_locale="zh_CN")
+    digest = " | ".join(
+        [
+            "Step 2 收尾 / Step 3 桥接边界",
+            "仅用于 Step 2 审阅就绪度",
+            "仅限 simulation / offline / headless",
+            "以文件工件为先的审阅证据链",
+            "compatibility / reindex / regenerate 仅重建 reviewer/index sidecar",
+            "不改写原始主证据",
+        ]
+    )
+    return {
+        "boundary_fragments": fragment_rows,
+        "boundary_fragment_keys": fragment_keys,
+        "boundary_statements": [
+            "compatibility / reindex / regenerate 仅重建 reviewer/index sidecar",
+            "不改写原始主证据",
+        ],
+        "filter_rows": filter_rows,
+        "filter_ids": fragment_filter_rows_to_ids(filter_rows),
+        "digest": digest,
+    }
+
+
+def _compatibility_non_claim_payload() -> dict[str, Any]:
+    fragment_keys = [
+        "simulation_synthetic_reviewer_evidence_only",
+        "not_real_acceptance",
+        "not_live_gate",
+        "not_release_gate",
+        "not_live_acceptance",
+        "not_compliance_claim",
+        "not_accreditation_claim",
+    ]
+    fragment_rows = normalize_fragment_rows(NON_CLAIM_FRAGMENT_FAMILY, fragment_keys, display_locale="zh_CN")
+    filter_rows = normalize_fragment_filter_rows(NON_CLAIM_FRAGMENT_FAMILY, fragment_keys, display_locale="zh_CN")
+    digest = " | ".join(
+        [
+            "仅为 simulation / synthetic reviewer evidence",
+            "不是 real acceptance",
+            "不是 live gate",
+            "不是 live acceptance",
+            "不是 compliance claim",
+            "不是 accreditation claim",
+        ]
+    )
+    return {
+        "non_claim_fragments": fragment_rows,
+        "non_claim_fragment_keys": fragment_keys,
+        "non_claim": [],
+        "filter_rows": filter_rows,
+        "filter_ids": fragment_filter_rows_to_ids(filter_rows),
+        "digest": digest,
+    }
+
+
+def _scan_summary_line(
+    *,
+    current_reader_mode: str,
+    compatibility_status: str,
+    regenerate_recommended: bool,
+) -> str:
+    if current_reader_mode == "canonical_direct" and not regenerate_recommended:
+        return "当前 run 已具备 canonical contract 直读，compatibility index sidecar 已就位"
+    if current_reader_mode == "compatibility_adapter":
+        return "当前 run 以旧格式 compatibility adapter 兼容读取，建议再生成 reviewer/index sidecar"
+    return (
+        "当前 run 已完成 compatibility 扫描"
+        + ("，建议再生成 reviewer/index sidecar" if regenerate_recommended else "")
+        + f"；状态：{_display_compatibility_status(compatibility_status)}"
+    )
+
+
+def _display_compatibility_status(value: Any) -> str:
+    status = str(value or "").strip()
+    return COMPATIBILITY_STATUS_LABELS.get(status, status or "--")
+
+
+def _display_reader_mode(value: Any) -> str:
+    mode = str(value or "").strip()
+    return READER_MODE_LABELS.get(mode, mode or "--")
+
+
+def _build_run_artifact_index_markdown(payload: dict[str, Any]) -> str:
+    lines = [
+        "# Run Artifact Index",
+        "",
+        f"- run_id: {payload.get('run_id')}",
+        f"- reader_mode: {payload.get('current_reader_mode')}",
+        f"- compatibility_status: {payload.get('compatibility_status')}",
+        f"- regenerate_recommended: {payload.get('regenerate_recommended')}",
+        f"- summary: {payload.get('summary')}",
+        "",
+        "| artifact | version | compatibility | regenerate | surfaces |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for entry in list(payload.get("entries") or []):
+        lines.append(
+            "| {artifact} | {version} | {status} | {regenerate} | {surfaces} |".format(
+                artifact=str(entry.get("artifact_name") or "--"),
+                version=str(entry.get("schema_or_contract_version") or "--"),
+                status=str(entry.get("compatibility_status") or "--"),
+                regenerate="yes" if bool(entry.get("regenerate_recommended", False)) else "no",
+                surfaces=", ".join(list(entry.get("linked_surface_visibility") or [])) or "--",
+            )
+        )
+    lines.extend(["", f"boundary: {payload.get('boundary_digest')}", f"non_claim: {payload.get('non_claim_digest')}"])
+    return "\n".join(lines) + "\n"
+
+
+def _build_contract_catalog_markdown(payload: dict[str, Any]) -> str:
+    lines = [
+        "# Artifact Contract Catalog",
+        "",
+        f"- run_id: {payload.get('run_id')}",
+        f"- summary: {payload.get('summary')}",
+        "",
+        "| artifact_key | role | versions | compatibility |",
+        "| --- | --- | --- | --- |",
+    ]
+    for row in list(payload.get("contract_rows") or []):
+        lines.append(
+            "| {artifact_key} | {role} | {versions} | {statuses} |".format(
+                artifact_key=str(row.get("artifact_key") or "--"),
+                role=str(row.get("artifact_role") or "--"),
+                versions=", ".join(list(row.get("schema_versions") or [])) or "--",
+                statuses=", ".join(list(row.get("compatibility_statuses") or [])) or "--",
+            )
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _build_scan_summary_markdown(payload: dict[str, Any]) -> str:
+    lines = [
+        "# Compatibility Scan Summary",
+        "",
+        f"- run_id: {payload.get('run_id')}",
+        f"- summary: {payload.get('summary')}",
+        f"- reader_mode: {payload.get('current_reader_mode')}",
+        f"- compatibility_status: {payload.get('compatibility_status')}",
+        f"- regenerate_recommended: {payload.get('regenerate_recommended')}",
+        "",
+    ]
+    for line in list(payload.get("detail_lines") or []):
+        lines.append(f"- {line}")
+    lines.extend(["", f"- boundary: {payload.get('boundary_digest')}", f"- non_claim: {payload.get('non_claim_digest')}"])
+    return "\n".join(lines) + "\n"
+
+
+def _build_reindex_manifest_markdown(payload: dict[str, Any]) -> str:
+    lines = [
+        "# Reindex Manifest",
+        "",
+        f"- run_id: {payload.get('run_id')}",
+        f"- regenerate_scope: {payload.get('regenerate_scope')}",
+        f"- primary_evidence_preserved: {payload.get('primary_evidence_preserved')}",
+        f"- primary_evidence_rewritten: {payload.get('primary_evidence_rewritten')}",
+        "",
+    ]
+    for line in list(payload.get("detail_lines") or []):
+        lines.append(f"- {line}")
+    lines.extend(["", f"- boundary: {payload.get('boundary_digest')}", f"- non_claim: {payload.get('non_claim_digest')}"])
+    return "\n".join(lines) + "\n"
+
+
+def _load_json_dict(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return dict(payload) if isinstance(payload, dict) else {}
