@@ -1264,7 +1264,7 @@ class ResultsGateway:
         ):
             localized_lines = build_readiness_review_digest_lines(readiness_payload)
             lines.extend(localized_lines.get("summary_lines") or [])
-            lines.extend((localized_lines.get("detail_lines") or [])[:3])
+            lines.extend((localized_lines.get("detail_lines") or [])[:5])
 
         return "\n".join(line for line in lines if str(line).strip())
 
