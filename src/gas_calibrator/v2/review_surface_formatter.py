@@ -1380,6 +1380,25 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
     reviewer_action_summary = humanize_review_surface_text(
         str(digest.get("reviewer_action_summary") or t("common.none"))
     )
+    protocol_overview_summary = humanize_review_surface_text(
+        str(digest.get("protocol_overview_summary") or t("common.none"))
+    )
+    matrix_completeness_summary = humanize_review_surface_text(
+        str(digest.get("matrix_completeness_summary") or t("common.none"))
+    )
+    current_evidence_coverage_summary = humanize_review_surface_text(
+        str(
+            digest.get("current_evidence_coverage_summary")
+            or digest.get("current_coverage_summary")
+            or t("common.none")
+        )
+    )
+    top_gaps_summary = humanize_review_surface_text(
+        str(digest.get("top_gaps_summary") or digest.get("missing_evidence_summary") or t("common.none"))
+    )
+    readiness_status_summary = humanize_review_surface_text(
+        str(digest.get("readiness_status_summary") or raw.get("validation_status") or t("common.none"))
+    )
     uncertainty_overview_summary = humanize_review_surface_text(
         str(digest.get("uncertainty_overview_summary") or raw.get("overview_display") or "")
     )
@@ -1479,6 +1498,31 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
             value=reviewer_action_summary,
             default=f"Reviewer actions: {reviewer_action_summary}",
         ),
+        t(
+            "results.review_center.detail.readiness.protocol_overview_line",
+            value=protocol_overview_summary,
+            default=f"方法确认概览：{protocol_overview_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.validation_matrix_completeness_line",
+            value=matrix_completeness_summary,
+            default=f"验证矩阵完整度：{matrix_completeness_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.current_evidence_coverage_line",
+            value=current_evidence_coverage_summary,
+            default=f"当前证据覆盖：{current_evidence_coverage_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.top_gaps_line",
+            value=top_gaps_summary,
+            default=f"主要缺口：{top_gaps_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.readiness_status_line",
+            value=readiness_status_summary,
+            default=f"验证就绪状态：{readiness_status_summary}",
+        ),
         *(
             [
                 t(
@@ -1563,8 +1607,33 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
         ),
         t(
             "results.review_center.detail.readiness.current_coverage_line",
-            value=str(digest.get("current_coverage_summary") or t("common.none")),
-            default=f"current coverage: {str(digest.get('current_coverage_summary') or t('common.none'))}",
+            value=current_evidence_coverage_summary,
+            default=f"current coverage: {current_evidence_coverage_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.protocol_overview_line",
+            value=protocol_overview_summary,
+            default=f"Method confirmation overview: {protocol_overview_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.validation_matrix_completeness_line",
+            value=matrix_completeness_summary,
+            default=f"Validation matrix completeness: {matrix_completeness_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.current_evidence_coverage_line",
+            value=current_evidence_coverage_summary,
+            default=f"Current evidence coverage: {current_evidence_coverage_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.top_gaps_line",
+            value=top_gaps_summary,
+            default=f"Top gaps: {top_gaps_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.readiness_status_line",
+            value=readiness_status_summary,
+            default=f"Readiness status: {readiness_status_summary}",
         ),
         t(
             "results.review_center.detail.readiness.standard_family_line",

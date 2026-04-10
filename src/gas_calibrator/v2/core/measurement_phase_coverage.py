@@ -224,6 +224,26 @@ _READINESS_ARTIFACT_ANCHORS: dict[str, dict[str, str]] = {
         "anchor_id": "method-confirmation-matrix",
         "anchor_label": "Method confirmation matrix",
     },
+    "route_specific_validation_matrix": {
+        "artifact_type": "route_specific_validation_matrix",
+        "anchor_id": "route-specific-validation-matrix",
+        "anchor_label": "Route specific validation matrix",
+    },
+    "validation_run_set": {
+        "artifact_type": "validation_run_set",
+        "anchor_id": "validation-run-set",
+        "anchor_label": "Validation run set",
+    },
+    "verification_digest": {
+        "artifact_type": "verification_digest",
+        "anchor_id": "verification-digest",
+        "anchor_label": "Verification digest",
+    },
+    "verification_rollup": {
+        "artifact_type": "verification_rollup",
+        "anchor_id": "verification-rollup",
+        "anchor_label": "Verification rollup",
+    },
     "uncertainty_method_readiness_summary": {
         "artifact_type": "uncertainty_method_readiness_summary",
         "anchor_id": "uncertainty-method-readiness-summary",
@@ -263,6 +283,10 @@ _PHASE_READINESS_ARTIFACT_TYPES: dict[str, tuple[str, ...]] = {
         "uncertainty_budget_stub",
         "method_confirmation_protocol",
         "method_confirmation_matrix",
+        "route_specific_validation_matrix",
+        "validation_run_set",
+        "verification_digest",
+        "verification_rollup",
         "uncertainty_method_readiness_summary",
     ),
     "preseal": (
@@ -281,6 +305,10 @@ _PHASE_READINESS_ARTIFACT_TYPES: dict[str, tuple[str, ...]] = {
         "uncertainty_budget_stub",
         "method_confirmation_protocol",
         "method_confirmation_matrix",
+        "route_specific_validation_matrix",
+        "validation_run_set",
+        "verification_digest",
+        "verification_rollup",
         "uncertainty_method_readiness_summary",
     ),
     "pressure_stable": (
@@ -299,6 +327,10 @@ _PHASE_READINESS_ARTIFACT_TYPES: dict[str, tuple[str, ...]] = {
         "metrology_traceability_stub",
         "uncertainty_budget_stub",
         "method_confirmation_matrix",
+        "route_specific_validation_matrix",
+        "validation_run_set",
+        "verification_digest",
+        "verification_rollup",
         "uncertainty_method_readiness_summary",
     ),
     "sample_ready": (
@@ -317,9 +349,15 @@ _PHASE_READINESS_ARTIFACT_TYPES: dict[str, tuple[str, ...]] = {
         "uncertainty_budget_stub",
         "method_confirmation_protocol",
         "method_confirmation_matrix",
+        "route_specific_validation_matrix",
+        "validation_run_set",
+        "verification_digest",
+        "verification_rollup",
         "uncertainty_method_readiness_summary",
     ),
     "recovery_retry": (
+        "verification_digest",
+        "verification_rollup",
         "software_validation_traceability_matrix",
         "release_validation_manifest",
         "audit_readiness_digest",
@@ -327,25 +365,53 @@ _PHASE_READINESS_ARTIFACT_TYPES: dict[str, tuple[str, ...]] = {
 }
 
 _PHASE_READINESS_IMPACT_AREAS: dict[str, str] = {
-    "ambient_diagnostic": "scope / decision / method / uncertainty / traceability",
-    "preseal": "scope / method / uncertainty / traceability",
-    "pressure_stable": "uncertainty / traceability / certificate / lifecycle / pre-run gate",
-    "sample_ready": "scope / method / uncertainty / traceability",
-    "recovery_retry": "software validation / audit / method / uncertainty / traceability",
+    "ambient_diagnostic": "scope / decision / method / validation / uncertainty / traceability",
+    "preseal": "scope / method / validation / uncertainty / traceability",
+    "pressure_stable": "validation / uncertainty / traceability / certificate / lifecycle / pre-run gate",
+    "sample_ready": "scope / method / validation / uncertainty / traceability",
+    "recovery_retry": "software validation / verification / audit / method / uncertainty / traceability",
 }
 
 _PHASE_READINESS_DIMENSIONS: dict[str, tuple[str, ...]] = {
-    "ambient_diagnostic": ("scope", "decision rule", "method confirmation", "uncertainty inputs", "traceability stub"),
-    "preseal": ("scope", "decision rule", "method confirmation", "uncertainty inputs", "traceability stub"),
+    "ambient_diagnostic": (
+        "scope",
+        "decision rule",
+        "method confirmation",
+        "validation matrix",
+        "uncertainty inputs",
+        "traceability stub",
+    ),
+    "preseal": (
+        "scope",
+        "decision rule",
+        "method confirmation",
+        "validation matrix",
+        "uncertainty inputs",
+        "traceability stub",
+    ),
     "pressure_stable": (
         "reference asset / certificate",
         "certificate lifecycle",
         "pre-run readiness gate",
+        "validation matrix",
         "traceability",
         "uncertainty / method",
     ),
-    "sample_ready": ("scope", "method confirmation", "uncertainty inputs", "traceability stub"),
-    "recovery_retry": ("software validation", "audit", "method confirmation", "uncertainty inputs", "traceability stub"),
+    "sample_ready": (
+        "scope",
+        "method confirmation",
+        "validation matrix",
+        "uncertainty inputs",
+        "traceability stub",
+    ),
+    "recovery_retry": (
+        "software validation",
+        "verification digest",
+        "audit",
+        "method confirmation",
+        "uncertainty inputs",
+        "traceability stub",
+    ),
 }
 
 _PHASE_GAP_NAVIGATION_PROFILES: dict[tuple[str, str], dict[str, Any]] = {

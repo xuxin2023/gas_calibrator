@@ -1487,6 +1487,12 @@ class AppFacade:
         scope_readiness_summary = dict(payload.get("scope_readiness_summary", {}) or {})
         certificate_readiness_summary = dict(payload.get("certificate_readiness_summary", {}) or {})
         pre_run_readiness_gate = dict(payload.get("pre_run_readiness_gate", {}) or {})
+        method_confirmation_protocol = dict(payload.get("method_confirmation_protocol", {}) or {})
+        method_confirmation_matrix = dict(payload.get("method_confirmation_matrix", {}) or {})
+        route_specific_validation_matrix = dict(payload.get("route_specific_validation_matrix", {}) or {})
+        validation_run_set = dict(payload.get("validation_run_set", {}) or {})
+        verification_digest = dict(payload.get("verification_digest", {}) or {})
+        verification_rollup = dict(payload.get("verification_rollup", {}) or {})
         uncertainty_model = dict(payload.get("uncertainty_model", {}) or {})
         uncertainty_input_set = dict(payload.get("uncertainty_input_set", {}) or {})
         sensitivity_coefficient_set = dict(payload.get("sensitivity_coefficient_set", {}) or {})
@@ -1673,6 +1679,60 @@ class AppFacade:
         uncertainty_method_readiness_text = self._humanize_ui_summary(
             str(dict(uncertainty_method_readiness_summary.get("digest") or {}).get("summary") or "--")
         )
+        verification_digest_values = dict(
+            verification_rollup.get("digest")
+            or verification_digest.get("digest")
+            or route_specific_validation_matrix.get("digest")
+            or {}
+        )
+        method_confirmation_overview_text = self._humanize_ui_summary(
+            str(
+                verification_digest_values.get("protocol_overview_summary")
+                or dict(method_confirmation_protocol.get("digest") or {}).get("summary")
+                or method_confirmation_protocol.get("protocol_id")
+                or "--"
+            )
+        )
+        validation_matrix_completeness_text = self._humanize_ui_summary(
+            str(
+                verification_rollup.get("rollup_summary_display")
+                or verification_digest_values.get("matrix_completeness_summary")
+                or "--"
+            )
+        )
+        validation_current_evidence_coverage_text = self._humanize_ui_summary(
+            str(
+                verification_digest_values.get("current_evidence_coverage_summary")
+                or verification_digest_values.get("current_coverage_summary")
+                or "--"
+            )
+        )
+        validation_top_gaps_text = self._humanize_ui_summary(
+            str(
+                verification_digest_values.get("top_gaps_summary")
+                or verification_digest_values.get("missing_evidence_summary")
+                or "--"
+            )
+        )
+        validation_reviewer_actions_text = self._humanize_ui_summary(
+            str(verification_digest_values.get("reviewer_action_summary") or "--")
+        )
+        verification_non_claim_text = self._humanize_ui_summary(
+            str(
+                verification_rollup.get("non_claim_note")
+                or verification_digest.get("non_claim_note")
+                or verification_digest_values.get("non_claim_digest")
+                or "--"
+            )
+        )
+        verification_readiness_status_text = self._humanize_ui_summary(
+            str(
+                verification_rollup.get("readiness_status_summary")
+                or verification_digest_values.get("readiness_status_summary")
+                or route_specific_validation_matrix.get("validation_status")
+                or "--"
+            )
+        )
         audit_readiness_text = self._humanize_ui_summary(
             str(dict(audit_readiness_digest.get("digest") or {}).get("summary") or "--")
         )
@@ -1842,6 +1902,12 @@ class AppFacade:
             scope_readiness_summary=scope_readiness_summary,
             certificate_readiness_summary=certificate_readiness_summary,
             pre_run_readiness_gate=pre_run_readiness_gate,
+            method_confirmation_protocol=method_confirmation_protocol,
+            method_confirmation_matrix=method_confirmation_matrix,
+            route_specific_validation_matrix=route_specific_validation_matrix,
+            validation_run_set=validation_run_set,
+            verification_digest=verification_digest,
+            verification_rollup=verification_rollup,
             uncertainty_report_pack=uncertainty_report_pack,
             uncertainty_digest=uncertainty_digest,
             uncertainty_rollup=uncertainty_rollup,
@@ -2140,6 +2206,90 @@ class AppFacade:
                 *(
                     [
                         t(
+                            "facade.results.result_summary.method_confirmation_overview",
+                            value=method_confirmation_overview_text,
+                            default=f"方法确认概览：{method_confirmation_overview_text}",
+                        )
+                    ]
+                    if (
+                        method_confirmation_protocol
+                        or method_confirmation_matrix
+                        or route_specific_validation_matrix
+                        or validation_run_set
+                        or verification_digest
+                        or verification_rollup
+                    )
+                    else []
+                ),
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.validation_matrix_completeness",
+                            value=validation_matrix_completeness_text,
+                            default=f"验证矩阵完整度：{validation_matrix_completeness_text}",
+                        )
+                    ]
+                    if route_specific_validation_matrix or verification_digest or verification_rollup
+                    else []
+                ),
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.validation_current_evidence_coverage",
+                            value=validation_current_evidence_coverage_text,
+                            default=f"当前证据覆盖：{validation_current_evidence_coverage_text}",
+                        )
+                    ]
+                    if route_specific_validation_matrix or verification_digest or verification_rollup
+                    else []
+                ),
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.validation_top_gaps",
+                            value=validation_top_gaps_text,
+                            default=f"主要缺口：{validation_top_gaps_text}",
+                        )
+                    ]
+                    if route_specific_validation_matrix or verification_digest or verification_rollup
+                    else []
+                ),
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.validation_reviewer_actions",
+                            value=validation_reviewer_actions_text,
+                            default=f"审阅动作：{validation_reviewer_actions_text}",
+                        )
+                    ]
+                    if route_specific_validation_matrix or verification_digest or verification_rollup
+                    else []
+                ),
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.method_confirmation_non_claim",
+                            value=verification_non_claim_text,
+                            default=f"方法确认 non-claim：{verification_non_claim_text}",
+                        )
+                    ]
+                    if route_specific_validation_matrix or verification_digest or verification_rollup
+                    else []
+                ),
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.verification_readiness_status",
+                            value=verification_readiness_status_text,
+                            default=f"验证就绪状态：{verification_readiness_status_text}",
+                        )
+                    ]
+                    if route_specific_validation_matrix or verification_digest or verification_rollup
+                    else []
+                ),
+                *(
+                    [
+                        t(
                             "facade.results.result_summary.uncertainty_overview",
                             value=uncertainty_overview_text,
                             default=f"不确定度概览：{uncertainty_overview_text}",
@@ -2367,6 +2517,12 @@ class AppFacade:
             "scope_readiness_summary": scope_readiness_summary,
             "certificate_readiness_summary": certificate_readiness_summary,
             "pre_run_readiness_gate": pre_run_readiness_gate,
+            "method_confirmation_protocol": method_confirmation_protocol,
+            "method_confirmation_matrix": method_confirmation_matrix,
+            "route_specific_validation_matrix": route_specific_validation_matrix,
+            "validation_run_set": validation_run_set,
+            "verification_digest": verification_digest,
+            "verification_rollup": verification_rollup,
             "uncertainty_model": uncertainty_model,
             "uncertainty_input_set": uncertainty_input_set,
             "sensitivity_coefficient_set": sensitivity_coefficient_set,
@@ -2490,6 +2646,12 @@ class AppFacade:
         scope_readiness_summary: dict[str, Any],
         certificate_readiness_summary: dict[str, Any],
         pre_run_readiness_gate: dict[str, Any],
+        method_confirmation_protocol: dict[str, Any],
+        method_confirmation_matrix: dict[str, Any],
+        route_specific_validation_matrix: dict[str, Any],
+        validation_run_set: dict[str, Any],
+        verification_digest: dict[str, Any],
+        verification_rollup: dict[str, Any],
         uncertainty_report_pack: dict[str, Any],
         uncertainty_digest: dict[str, Any],
         uncertainty_rollup: dict[str, Any],
@@ -2521,6 +2683,12 @@ class AppFacade:
             scope_readiness_summary=scope_readiness_summary,
             certificate_readiness_summary=certificate_readiness_summary,
             pre_run_readiness_gate=pre_run_readiness_gate,
+            method_confirmation_protocol=method_confirmation_protocol,
+            method_confirmation_matrix=method_confirmation_matrix,
+            route_specific_validation_matrix=route_specific_validation_matrix,
+            validation_run_set=validation_run_set,
+            verification_digest=verification_digest,
+            verification_rollup=verification_rollup,
             uncertainty_report_pack=uncertainty_report_pack,
             uncertainty_digest=uncertainty_digest,
             uncertainty_rollup=uncertainty_rollup,
@@ -2533,6 +2701,7 @@ class AppFacade:
             diagnostics=review_diagnostics,
             compatibility_rollup=compatibility_rollup,
             recognition_scope_rollup=recognition_scope_rollup,
+            verification_rollup=verification_rollup,
             uncertainty_rollup=uncertainty_rollup,
         )
         readiness_text = self._humanize_ui_summary(
@@ -3005,6 +3174,12 @@ class AppFacade:
         scope_readiness_summary: dict[str, Any],
         certificate_readiness_summary: dict[str, Any],
         pre_run_readiness_gate: dict[str, Any],
+        method_confirmation_protocol: dict[str, Any],
+        method_confirmation_matrix: dict[str, Any],
+        route_specific_validation_matrix: dict[str, Any],
+        validation_run_set: dict[str, Any],
+        verification_digest: dict[str, Any],
+        verification_rollup: dict[str, Any],
         uncertainty_report_pack: dict[str, Any],
         uncertainty_digest: dict[str, Any],
         uncertainty_rollup: dict[str, Any],
@@ -3195,6 +3370,30 @@ class AppFacade:
             (
                 recognition_readiness.PRE_RUN_READINESS_GATE_FILENAME,
                 dict(pre_run_readiness_gate or {}),
+            ),
+            (
+                recognition_readiness.METHOD_CONFIRMATION_PROTOCOL_FILENAME,
+                dict(method_confirmation_protocol or {}),
+            ),
+            (
+                recognition_readiness.METHOD_CONFIRMATION_MATRIX_FILENAME,
+                dict(method_confirmation_matrix or {}),
+            ),
+            (
+                recognition_readiness.ROUTE_SPECIFIC_VALIDATION_MATRIX_FILENAME,
+                dict(route_specific_validation_matrix or {}),
+            ),
+            (
+                recognition_readiness.VALIDATION_RUN_SET_FILENAME,
+                dict(validation_run_set or {}),
+            ),
+            (
+                recognition_readiness.VERIFICATION_DIGEST_FILENAME,
+                dict(verification_digest or {}),
+            ),
+            (
+                recognition_readiness.VERIFICATION_ROLLUP_FILENAME,
+                dict(verification_rollup or {}),
             ),
             (
                 recognition_readiness.UNCERTAINTY_REPORT_PACK_FILENAME,
@@ -4789,6 +4988,11 @@ class AppFacade:
                 str(digest.get("conformity_boundary_summary") or ""),
                 str(digest.get("standard_family_summary") or ""),
                 str(digest.get("required_evidence_categories_summary") or ""),
+                str(digest.get("protocol_overview_summary") or ""),
+                str(digest.get("matrix_completeness_summary") or ""),
+                str(digest.get("current_evidence_coverage_summary") or ""),
+                str(digest.get("top_gaps_summary") or ""),
+                str(digest.get("readiness_status_summary") or ""),
                 str(digest.get("current_coverage_summary") or ""),
                 str(digest.get("missing_evidence_summary") or ""),
                 str(digest.get("blocker_summary") or ""),
@@ -4802,6 +5006,11 @@ class AppFacade:
                 self._humanize_ui_summary(str(digest.get("missing_evidence_summary") or "")),
                 self._humanize_ui_summary(str(digest.get("linked_measurement_phase_summary") or "")),
                 self._humanize_ui_summary(str(digest.get("next_required_artifacts_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("protocol_overview_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("matrix_completeness_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("current_evidence_coverage_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("top_gaps_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("readiness_status_summary") or "")),
                 *[str(item) for item in list(localized_review_lines.get("detail_lines") or []) if str(item).strip()],
             ],
             phase_filters=list(review_surface.get("phase_filters") or []),
@@ -4955,6 +5164,7 @@ class AppFacade:
         diagnostics: Optional[dict[str, Any]] = None,
         compatibility_rollup: Optional[dict[str, Any]] = None,
         recognition_scope_rollup: Optional[dict[str, Any]] = None,
+        verification_rollup: Optional[dict[str, Any]] = None,
         uncertainty_rollup: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         expected_types = ("suite", "parity", "resilience", "workbench", "analytics")
@@ -5130,6 +5340,18 @@ class AppFacade:
                 default="范围/规则 rollup：{value}",
             )
         )
+        verification_rollup_payload = dict(verification_rollup or {})
+        verification_summary = self._humanize_ui_summary(
+            t(
+                "facade.results.result_summary.verification_rollup",
+                value=str(
+                    verification_rollup_payload.get("rollup_summary_display")
+                    or dict(verification_rollup_payload.get("digest") or {}).get("matrix_completeness_summary")
+                    or t("common.none")
+                ),
+                default="验证 rollup：{value}",
+            )
+        )
         uncertainty_rollup_payload = dict(uncertainty_rollup or {})
         uncertainty_summary = self._humanize_ui_summary(
             t(
@@ -5176,6 +5398,8 @@ class AppFacade:
             "compatibility_summary": compatibility_summary,
             "recognition_scope_rollup": recognition_scope_rollup_payload,
             "recognition_scope_summary": recognition_scope_summary,
+            "verification_rollup": verification_rollup_payload,
+            "verification_summary": verification_summary,
             "uncertainty_rollup": uncertainty_rollup_payload,
             "uncertainty_summary": uncertainty_summary,
             "coverage_gaps_display": coverage_gaps_display,
@@ -5190,6 +5414,7 @@ class AppFacade:
                     coverage_summary,
                     compatibility_summary,
                     recognition_scope_summary,
+                    verification_summary,
                     uncertainty_summary,
                     diagnostics_summary,
                 )

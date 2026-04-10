@@ -2754,6 +2754,8 @@ def build_method_confirmation_wp4_artifacts(
     ]
     route_profiles = _method_confirmation_route_profiles(
         run_id=run_id,
+        protocol_id=protocol_id,
+        protocol_version=protocol_version,
         scope_id=scope_id,
         decision_rule_id=decision_rule_id,
         route_families=route_families,
@@ -3368,6 +3370,8 @@ def _build_method_confirmation_matrix(
 def _method_confirmation_route_profiles(
     *,
     run_id: str,
+    protocol_id: str,
+    protocol_version: str,
     scope_id: str,
     decision_rule_id: str,
     route_families: list[str],
@@ -3414,6 +3418,8 @@ def _method_confirmation_route_profiles(
             {
                 "route_family": family,
                 "route_label": route_label,
+                "protocol_id": protocol_id,
+                "protocol_version": protocol_version,
                 "scope_id": scope_id,
                 "decision_rule_id": decision_rule_id,
                 "uncertainty_case_id": uncertainty_case_id,
@@ -3446,9 +3452,17 @@ def _method_confirmation_route_phases(route_family: str, phases: list[str]) -> l
 
 def _method_confirmation_asset_refs(route_family: str, assets: list[dict[str, Any]]) -> list[str]:
     allowed_types = {
-        "gas": {"standard_gas", "pressure_controller", "pressure_gauge", "analyzer_under_test"},
-        "water": {"humidity_generator", "dewpoint_meter", "temp_chamber", "analyzer_under_test"},
-        "ambient": {"thermometer", "temp_chamber", "pressure_gauge", "analyzer_under_test"},
+        "gas": {"standard_gas", "pressure_controller", "pressure_gauge", "digital_pressure_gauge", "analyzer_under_test"},
+        "water": {"humidity_generator", "dewpoint_meter", "temp_chamber", "temperature_chamber", "analyzer_under_test"},
+        "ambient": {
+            "thermometer",
+            "digital_thermometer",
+            "temp_chamber",
+            "temperature_chamber",
+            "pressure_gauge",
+            "digital_pressure_gauge",
+            "analyzer_under_test",
+        },
     }.get(route_family, set())
     return _dedupe(
         str(item.get("asset_id") or "").strip()
@@ -3459,9 +3473,17 @@ def _method_confirmation_asset_refs(route_family: str, assets: list[dict[str, An
 
 def _method_confirmation_certificate_refs(route_family: str, certificate_rows: list[dict[str, Any]]) -> list[str]:
     allowed_types = {
-        "gas": {"standard_gas", "pressure_controller", "pressure_gauge", "analyzer_under_test"},
-        "water": {"humidity_generator", "dewpoint_meter", "temp_chamber", "analyzer_under_test"},
-        "ambient": {"thermometer", "temp_chamber", "pressure_gauge", "analyzer_under_test"},
+        "gas": {"standard_gas", "pressure_controller", "pressure_gauge", "digital_pressure_gauge", "analyzer_under_test"},
+        "water": {"humidity_generator", "dewpoint_meter", "temp_chamber", "temperature_chamber", "analyzer_under_test"},
+        "ambient": {
+            "thermometer",
+            "digital_thermometer",
+            "temp_chamber",
+            "temperature_chamber",
+            "pressure_gauge",
+            "digital_pressure_gauge",
+            "analyzer_under_test",
+        },
     }.get(route_family, set())
     return _dedupe(
         str(item.get("certificate_id") or "").strip()
@@ -3481,8 +3503,10 @@ def _method_confirmation_validation_rows(*, profile: dict[str, Any]) -> list[dic
             {
                 "dimension_key": dimension,
                 "dimension_label": dimension,
-                "protocol_id": f"{route_label}-reviewer-protocol",
-                "protocol_version": str(profile.get("validation_matrix_version") or ""),
+                "protocol_id": str(profile.get("protocol_id") or f"{route_label}-reviewer-protocol"),
+                "protocol_version": str(
+                    profile.get("protocol_version") or profile.get("validation_matrix_version") or ""
+                ),
                 "scope_id": str(profile.get("scope_id") or ""),
                 "decision_rule_id": str(profile.get("decision_rule_id") or ""),
                 "uncertainty_case_id": str(profile.get("uncertainty_case_id") or ""),

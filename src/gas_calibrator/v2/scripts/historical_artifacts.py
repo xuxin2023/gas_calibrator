@@ -14,6 +14,7 @@ from ..core.artifact_compatibility import (
     load_or_build_artifact_compatibility_payloads,
     regenerate_artifact_compatibility_sidecars,
 )
+from ..adapters.method_confirmation_gateway import MethodConfirmationGateway
 from ..adapters.recognition_scope_gateway import RecognitionScopeGateway
 from ..adapters.uncertainty_gateway import UncertaintyGateway
 from ._cli_safety import build_step2_historical_cli_lines
@@ -157,6 +158,19 @@ def _build_run_report(
     uncertainty_report_pack = dict(uncertainty_payload.get("uncertainty_report_pack") or {})
     uncertainty_digest_payload = dict(uncertainty_payload.get("uncertainty_digest") or {})
     uncertainty_rollup = dict(uncertainty_payload.get("uncertainty_rollup") or {})
+    method_confirmation_payload = MethodConfirmationGateway(
+        run_dir,
+        summary=summary_payload,
+        scope_readiness_summary=(
+            dict(summary_payload.get("scope_readiness_summary") or {})
+            or dict(dict(summary_payload.get("stats") or {}).get("scope_readiness_summary") or {})
+        ),
+        compatibility_scan_summary=compatibility_scan_summary,
+    ).read_payload()
+    method_confirmation_protocol = dict(method_confirmation_payload.get("method_confirmation_protocol") or {})
+    route_specific_validation_matrix = dict(method_confirmation_payload.get("route_specific_validation_matrix") or {})
+    verification_digest_payload = dict(method_confirmation_payload.get("verification_digest") or {})
+    verification_rollup = dict(method_confirmation_payload.get("verification_rollup") or {})
     reference_asset_digest = dict(reference_asset_registry.get("digest") or {})
     certificate_lifecycle_digest = dict(certificate_lifecycle_summary.get("digest") or {})
     pre_run_gate_digest = dict(pre_run_readiness_gate.get("digest") or {})
@@ -164,6 +178,12 @@ def _build_run_report(
         uncertainty_rollup.get("digest")
         or uncertainty_digest_payload.get("digest")
         or uncertainty_report_pack.get("digest")
+        or {}
+    )
+    verification_digest = dict(
+        verification_rollup.get("digest")
+        or verification_digest_payload.get("digest")
+        or route_specific_validation_matrix.get("digest")
         or {}
     )
     asset_readiness_overview = str(
@@ -218,6 +238,11 @@ def _build_run_report(
         "ready_for_readiness_mapping"
         if bool(uncertainty_rollup.get("ready_for_readiness_mapping", True))
         else "placeholder_only"
+    )
+    verification_readiness_status = str(
+        verification_rollup.get("readiness_status_summary")
+        or verification_digest.get("readiness_status_summary")
+        or "ready_for_readiness_mapping"
     )
     return {
         "run_id": str(
@@ -329,6 +354,51 @@ def _build_run_report(
             or scope_definition_pack.get("non_claim_note")
             or "--"
         ),
+        "method_confirmation_overview": str(
+            verification_digest.get("protocol_overview_summary")
+            or dict(method_confirmation_protocol.get("digest") or {}).get("summary")
+            or method_confirmation_protocol.get("protocol_id")
+            or "--"
+        ),
+        "validation_matrix_completeness": str(
+            verification_rollup.get("rollup_summary_display")
+            or verification_digest.get("matrix_completeness_summary")
+            or "--"
+        ),
+        "current_evidence_coverage": str(
+            verification_digest.get("current_evidence_coverage_summary")
+            or verification_digest.get("current_coverage_summary")
+            or "--"
+        ),
+        "top_gaps": str(
+            verification_digest.get("top_gaps_summary")
+            or verification_digest.get("missing_evidence_summary")
+            or "--"
+        ),
+        "reviewer_actions": str(verification_digest.get("reviewer_action_summary") or "--"),
+        "verification_non_claim_note": str(
+            verification_rollup.get("non_claim_note")
+            or verification_digest_payload.get("non_claim_note")
+            or verification_digest.get("non_claim_digest")
+            or "--"
+        ),
+        "verification_readiness_status": verification_readiness_status,
+        "verification_rollup": verification_rollup,
+        "method_confirmation_placeholder_used": bool(
+            verification_rollup.get("legacy_placeholder_used")
+            or verification_digest_payload.get("reviewer_placeholder")
+            or route_specific_validation_matrix.get("reviewer_placeholder")
+        ),
+        "method_confirmation_ready_for_readiness_mapping": bool(
+            verification_rollup.get("ready_for_readiness_mapping", True)
+        ),
+        "method_confirmation_not_ready_for_formal_claim": bool(
+            verification_rollup.get("not_ready_for_formal_claim", True)
+        ),
+        "method_confirmation_not_real_acceptance_evidence": bool(
+            verification_rollup.get("not_real_acceptance_evidence", True)
+        ),
+        "method_confirmation_primary_evidence_rewritten": False,
         "asset_readiness_overview": asset_readiness_overview,
         "certificate_lifecycle_overview": certificate_lifecycle_overview,
         "pre_run_gate_status": pre_run_gate_status,

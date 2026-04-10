@@ -205,12 +205,24 @@ def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> No
     assert results_payload["recognition_scope_rollup"]["gateway_mode"] == "file_backed_default"
     assert results_payload["recognition_scope_rollup"]["db_ready_stub"]["not_in_default_chain"] is True
     assert results_payload["recognition_scope_rollup"]["primary_evidence_rewritten"] is False
+    assert results_payload["method_confirmation_protocol"]["artifact_type"] == "method_confirmation_protocol"
+    assert results_payload["route_specific_validation_matrix"]["artifact_type"] == "route_specific_validation_matrix"
+    assert results_payload["validation_run_set"]["artifact_type"] == "validation_run_set"
+    assert results_payload["verification_digest"]["artifact_type"] == "verification_digest"
+    assert results_payload["verification_rollup"]["artifact_type"] == "verification_rollup"
+    assert results_payload["verification_rollup"]["repository_mode"] == "file_artifact_first"
+    assert results_payload["verification_rollup"]["gateway_mode"] == "file_backed_default"
+    assert results_payload["verification_rollup"]["db_ready_stub"]["not_in_default_chain"] is True
+    assert results_payload["verification_rollup"]["primary_evidence_rewritten"] is False
     assert "compatibility bundle" in results_payload["result_summary_text"]
     assert "工件兼容" in results_payload["result_summary_text"]
     assert "兼容性 rollup" in results_payload["result_summary_text"]
     assert "认可范围包" in results_payload["result_summary_text"]
     assert "决策规则" in results_payload["result_summary_text"]
     assert "符合性边界" in results_payload["result_summary_text"]
+    assert "方法确认概览" in results_payload["result_summary_text"] or "Method confirmation overview" in results_payload["result_summary_text"]
+    assert "验证矩阵完整度" in results_payload["result_summary_text"] or "Validation matrix completeness" in results_payload["result_summary_text"]
+    assert "验证就绪状态" in results_payload["result_summary_text"] or "Verification readiness status" in results_payload["result_summary_text"]
     assert "配置安全" in results_payload["result_summary_text"]
     assert "工作台诊断证据" in results_payload["result_summary_text"]
     assert results_payload["output_files"]
@@ -226,6 +238,8 @@ def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> No
     assert reports_payload["config_governance_handoff"]["blocked_reason_details"]
     assert reports_payload["compatibility_rollup"]["index_schema_version"] == ARTIFACT_COMPATIBILITY_INDEX_SCHEMA_VERSION
     assert reports_payload["compatibility_rollup"]["primary_evidence_rewritten"] is False
+    assert reports_payload["verification_rollup"]["artifact_type"] == "verification_rollup"
+    assert reports_payload["verification_rollup"]["db_ready_stub"]["not_in_default_chain"] is True
     compatibility_row = next(
         row for row in reports_payload["files"] if Path(str(row.get("path") or "")).name == COMPATIBILITY_SCAN_SUMMARY_FILENAME
     )
@@ -246,11 +260,18 @@ def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> No
         for row in reports_payload["files"]
         if Path(str(row.get("path") or "")).name == recognition_readiness.DECISION_RULE_PROFILE_FILENAME
     )
+    verification_row = next(
+        row
+        for row in reports_payload["files"]
+        if Path(str(row.get("path") or "")).name == recognition_readiness.VERIFICATION_ROLLUP_FILENAME
+    )
     assert "scope" in str(scope_row["name"]).lower()
     assert "formal" not in str(scope_row["note"]).lower() or "not" in str(scope_row["note"]).lower()
     assert "current_reader_mode" not in str(scope_row["note"])
     assert "decision" in str(decision_row["name"]).lower()
     assert "current_reader_mode" not in str(decision_row["note"])
+    assert verification_row["verification_rollup_entry"]["artifact_type"] == "verification_rollup"
+    assert "matrix" in str(verification_row["note"]).lower()
     assert "配置安全" in reports_payload["result_summary_text"]
     assert "工作台诊断证据" in reports_payload["result_summary_text"]
 
@@ -349,10 +370,13 @@ def test_results_gateway_builds_legacy_compatibility_payload_without_rewriting_p
     assert payload["compatibility_rollup"]["regenerate_recommended_count"] == 1
     assert payload["recognition_scope_rollup"]["compatibility_adapter"] is True
     assert payload["recognition_scope_rollup"]["primary_evidence_rewritten"] is False
+    assert payload["verification_rollup"]["legacy_placeholder_used"] is True
+    assert payload["verification_rollup"]["primary_evidence_rewritten"] is False
     assert "compatibility bundle" in payload["result_summary_text"]
     assert "工件兼容" in payload["result_summary_text"]
     assert "兼容性 rollup" in payload["result_summary_text"]
     assert "认可范围包" in payload["result_summary_text"]
+    assert "方法确认概览" in payload["result_summary_text"] or "Method confirmation overview" in payload["result_summary_text"]
     assert not (run_dir / RUN_ARTIFACT_INDEX_FILENAME).exists()
     assert not (run_dir / REINDEX_MANIFEST_FILENAME).exists()
     assert summary_path.read_text(encoding="utf-8") == summary_text_before

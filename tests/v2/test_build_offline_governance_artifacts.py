@@ -951,6 +951,14 @@ def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -
         recognition_readiness.METHOD_CONFIRMATION_PROTOCOL_MARKDOWN_FILENAME,
         recognition_readiness.METHOD_CONFIRMATION_MATRIX_FILENAME,
         recognition_readiness.METHOD_CONFIRMATION_MATRIX_MARKDOWN_FILENAME,
+        recognition_readiness.ROUTE_SPECIFIC_VALIDATION_MATRIX_FILENAME,
+        recognition_readiness.ROUTE_SPECIFIC_VALIDATION_MATRIX_MARKDOWN_FILENAME,
+        recognition_readiness.VALIDATION_RUN_SET_FILENAME,
+        recognition_readiness.VALIDATION_RUN_SET_MARKDOWN_FILENAME,
+        recognition_readiness.VERIFICATION_DIGEST_FILENAME,
+        recognition_readiness.VERIFICATION_DIGEST_MARKDOWN_FILENAME,
+        recognition_readiness.VERIFICATION_ROLLUP_FILENAME,
+        recognition_readiness.VERIFICATION_ROLLUP_MARKDOWN_FILENAME,
         recognition_readiness.UNCERTAINTY_METHOD_READINESS_SUMMARY_FILENAME,
         recognition_readiness.UNCERTAINTY_METHOD_READINESS_SUMMARY_MARKDOWN_FILENAME,
         recognition_readiness.SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_FILENAME,
@@ -1011,6 +1019,18 @@ def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -
     )
     method_matrix = json.loads(
         (run_dir / recognition_readiness.METHOD_CONFIRMATION_MATRIX_FILENAME).read_text(encoding="utf-8")
+    )
+    route_validation_matrix = json.loads(
+        (run_dir / recognition_readiness.ROUTE_SPECIFIC_VALIDATION_MATRIX_FILENAME).read_text(encoding="utf-8")
+    )
+    validation_run_set = json.loads(
+        (run_dir / recognition_readiness.VALIDATION_RUN_SET_FILENAME).read_text(encoding="utf-8")
+    )
+    verification_digest = json.loads(
+        (run_dir / recognition_readiness.VERIFICATION_DIGEST_FILENAME).read_text(encoding="utf-8")
+    )
+    verification_rollup = json.loads(
+        (run_dir / recognition_readiness.VERIFICATION_ROLLUP_FILENAME).read_text(encoding="utf-8")
     )
     uncertainty_summary = json.loads(
         (run_dir / recognition_readiness.UNCERTAINTY_METHOD_READINESS_SUMMARY_FILENAME).read_text(encoding="utf-8")
@@ -1103,6 +1123,25 @@ def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -
         "blocked_for_formal_claim",
     }
     assert pre_run_gate["blocking_items"]
+    assert route_validation_matrix["artifact_type"] == "route_specific_validation_matrix"
+    assert route_validation_matrix["reviewer_only"] is True
+    assert route_validation_matrix["readiness_mapping_only"] is True
+    assert route_validation_matrix["not_real_acceptance_evidence"] is True
+    assert route_validation_matrix["not_ready_for_formal_claim"] is True
+    assert route_validation_matrix["route_specific_validation_matrix"]
+    assert validation_run_set["artifact_type"] == "validation_run_set"
+    assert validation_run_set["readiness_mapping_only"] is True
+    assert validation_run_set["validation_run_set"]
+    assert verification_digest["artifact_type"] == "verification_digest"
+    assert verification_digest["digest"]["protocol_overview_summary"]
+    assert verification_digest["digest"]["matrix_completeness_summary"]
+    assert verification_digest["digest"]["current_evidence_coverage_summary"]
+    assert verification_digest["digest"]["top_gaps_summary"]
+    assert verification_rollup["artifact_type"] == "verification_rollup"
+    assert verification_rollup["digest"]["readiness_status_summary"]
+    assert verification_rollup["not_real_acceptance_evidence"] is True
+    assert verification_rollup["not_ready_for_formal_claim"] is True
+    assert verification_rollup["primary_evidence_rewritten"] is False
     assert pre_run_gate["warning_items"]
     assert pre_run_gate["reviewer_actions"]
     assert pre_run_gate["checks"]

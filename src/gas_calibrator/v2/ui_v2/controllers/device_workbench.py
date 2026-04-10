@@ -458,6 +458,12 @@ class DeviceWorkbenchController:
         scope_summary = dict(payload.get("scope_readiness_summary") or {})
         certificate_summary = dict(payload.get("certificate_readiness_summary") or {})
         pre_run_readiness_gate = dict(payload.get("pre_run_readiness_gate") or {})
+        method_confirmation_protocol = dict(payload.get("method_confirmation_protocol") or {})
+        method_confirmation_matrix = dict(payload.get("method_confirmation_matrix") or {})
+        route_specific_validation_matrix = dict(payload.get("route_specific_validation_matrix") or {})
+        validation_run_set = dict(payload.get("validation_run_set") or {})
+        verification_digest = dict(payload.get("verification_digest") or {})
+        verification_rollup = dict(payload.get("verification_rollup") or {})
         uncertainty_model = dict(payload.get("uncertainty_model") or {})
         uncertainty_input_set = dict(payload.get("uncertainty_input_set") or {})
         sensitivity_coefficient_set = dict(payload.get("sensitivity_coefficient_set") or {})
@@ -484,6 +490,12 @@ class DeviceWorkbenchController:
             "scope_readiness_summary": scope_summary,
             "certificate_readiness_summary": certificate_summary,
             "pre_run_readiness_gate": pre_run_readiness_gate,
+            "method_confirmation_protocol": method_confirmation_protocol,
+            "method_confirmation_matrix": method_confirmation_matrix,
+            "route_specific_validation_matrix": route_specific_validation_matrix,
+            "validation_run_set": validation_run_set,
+            "verification_digest": verification_digest,
+            "verification_rollup": verification_rollup,
             "uncertainty_model": uncertainty_model,
             "uncertainty_input_set": uncertainty_input_set,
             "sensitivity_coefficient_set": sensitivity_coefficient_set,
@@ -610,6 +622,7 @@ class DeviceWorkbenchController:
             "artifact_paths": artifact_paths,
             "recognition_scope_rollup": recognition_scope_rollup,
             "compatibility_rollup": compatibility_rollup,
+            "verification_rollup": verification_rollup,
             "compatibility_scan_summary": compatibility_summary,
             **payloads,
         }
