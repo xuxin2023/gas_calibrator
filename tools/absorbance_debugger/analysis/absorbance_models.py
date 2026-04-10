@@ -18,9 +18,11 @@ class AbsorbanceModelSpec:
     model_label: str
     formula: str
     terms: tuple[str, ...]
+    model_family: str = "single_range"
+    breakpoint_ppm: float | None = None
 
 
-MODEL_SPECS: tuple[AbsorbanceModelSpec, ...] = (
+SINGLE_RANGE_MODEL_SPECS: tuple[AbsorbanceModelSpec, ...] = (
     AbsorbanceModelSpec(
         model_id="model_a_linear",
         model_label="Model A: linear",
@@ -52,6 +54,43 @@ MODEL_SPECS: tuple[AbsorbanceModelSpec, ...] = (
         terms=("intercept", "A", "A^2", "T", "A*T"),
     ),
 )
+
+PIECEWISE_MODEL_SPECS: tuple[AbsorbanceModelSpec, ...] = (
+    AbsorbanceModelSpec(
+        model_id="piecewise_linear",
+        model_label="Piecewise linear",
+        formula="ppm = c0 + c1*A + c2*max(A-A_break,0)",
+        terms=("intercept", "A", "H(A-A_break)"),
+        model_family="piecewise_range",
+    ),
+    AbsorbanceModelSpec(
+        model_id="piecewise_quadratic",
+        model_label="Piecewise quadratic",
+        formula="ppm = c0 + c1*A + c2*A^2 + c3*max(A-A_break,0) + c4*max(A-A_break,0)^2",
+        terms=("intercept", "A", "A^2", "H(A-A_break)", "H(A-A_break)^2"),
+        model_family="piecewise_range",
+    ),
+)
+
+
+def active_model_specs(config: Any) -> tuple[AbsorbanceModelSpec, ...]:
+    """Return the active absorbance-model candidates for this run."""
+
+    specs = list(SINGLE_RANGE_MODEL_SPECS)
+    if getattr(config, "enable_piecewise_model", True):
+        boundary_ppm = float(getattr(config, "piecewise_boundary_ppm", 200.0))
+        specs.extend(
+            AbsorbanceModelSpec(
+                model_id=spec.model_id,
+                model_label=spec.model_label,
+                formula=spec.formula,
+                terms=spec.terms,
+                model_family=spec.model_family,
+                breakpoint_ppm=boundary_ppm,
+            )
+            for spec in PIECEWISE_MODEL_SPECS
+        )
+    return tuple(specs)
 
 
 def _metrics(errors: pd.Series | np.ndarray) -> dict[str, float]:
@@ -99,9 +138,41 @@ def _composite_score(metric_source: dict[str, float], weights: dict[str, float])
     return total
 
 
-def _design_matrix(frame: pd.DataFrame, spec: AbsorbanceModelSpec) -> np.ndarray:
+def _resolve_piecewise_breakpoint_absorbance(
+    frame: pd.DataFrame,
+    boundary_ppm: float,
+) -> float:
+    usable = frame.dropna(subset=["target_ppm", "absorbance_input"]).copy()
+    if usable.empty:
+        raise ValueError("Cannot resolve piecewise breakpoint without absorbance samples")
+    boundary_rows = usable[np.isclose(usable["target_ppm"], boundary_ppm)].copy()
+    if not boundary_rows.empty:
+        return float(np.median(boundary_rows["absorbance_input"].to_numpy(dtype=float)))
+    low_rows = usable[usable["target_ppm"] <= boundary_ppm].copy()
+    main_rows = usable[usable["target_ppm"] > boundary_ppm].copy()
+    if not low_rows.empty and not main_rows.empty:
+        low_edge = float(pd.to_numeric(low_rows["absorbance_input"], errors="coerce").dropna().max())
+        main_edge = float(pd.to_numeric(main_rows["absorbance_input"], errors="coerce").dropna().min())
+        return float((low_edge + main_edge) / 2.0)
+    if not low_rows.empty:
+        return float(pd.to_numeric(low_rows["absorbance_input"], errors="coerce").dropna().max())
+    if not main_rows.empty:
+        return float(pd.to_numeric(main_rows["absorbance_input"], errors="coerce").dropna().min())
+    raise ValueError("No finite absorbance rows are available for the piecewise breakpoint")
+
+
+def _design_matrix(
+    frame: pd.DataFrame,
+    spec: AbsorbanceModelSpec,
+    breakpoint_absorbance: float | None,
+) -> np.ndarray:
     absorbance = frame["absorbance_input"].to_numpy(dtype=float)
     temperature = frame["temp_model_c"].to_numpy(dtype=float)
+    hinge = (
+        np.maximum(absorbance - float(breakpoint_absorbance or 0.0), 0.0)
+        if spec.model_family == "piecewise_range"
+        else np.zeros(len(frame), dtype=float)
+    )
     columns: list[np.ndarray] = []
     for term in spec.terms:
         if term == "intercept":
@@ -118,13 +189,21 @@ def _design_matrix(frame: pd.DataFrame, spec: AbsorbanceModelSpec) -> np.ndarray
             columns.append(np.square(temperature))
         elif term == "A*T":
             columns.append(absorbance * temperature)
-        else:  # pragma: no cover - bounded by MODEL_SPECS
+        elif term == "H(A-A_break)":
+            columns.append(hinge)
+        elif term == "H(A-A_break)^2":
+            columns.append(np.square(hinge))
+        else:  # pragma: no cover - bounded by active_model_specs
             raise ValueError(f"Unsupported model term: {term}")
     return np.column_stack(columns)
 
 
-def _fit_lstsq(frame: pd.DataFrame, spec: AbsorbanceModelSpec) -> tuple[np.ndarray, np.ndarray]:
-    x = _design_matrix(frame, spec)
+def _fit_lstsq(
+    frame: pd.DataFrame,
+    spec: AbsorbanceModelSpec,
+    breakpoint_absorbance: float | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    x = _design_matrix(frame, spec, breakpoint_absorbance)
     y = frame["target_ppm"].to_numpy(dtype=float)
     coeffs, _, _, _ = np.linalg.lstsq(x, y, rcond=None)
     return coeffs, x @ coeffs
@@ -151,6 +230,7 @@ def _fit_one_candidate(
     spec: AbsorbanceModelSpec,
     strategy: str,
     score_weights: dict[str, float],
+    legacy_score_weights: dict[str, float],
     enable_composite_score: bool,
     absorbance_column: str,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
@@ -161,7 +241,12 @@ def _fit_one_candidate(
     if len(candidate_df) < len(spec.terms):
         raise ValueError(f"{spec.model_id} needs at least {len(spec.terms)} rows, got {len(candidate_df)}")
 
-    coeffs, overall_pred = _fit_lstsq(candidate_df, spec)
+    overall_breakpoint_absorbance = (
+        _resolve_piecewise_breakpoint_absorbance(candidate_df, float(spec.breakpoint_ppm or 0.0))
+        if spec.model_family == "piecewise_range"
+        else math.nan
+    )
+    coeffs, overall_pred = _fit_lstsq(candidate_df, spec, overall_breakpoint_absorbance)
     overall_errors = overall_pred - candidate_df["target_ppm"].to_numpy(dtype=float)
     candidate_df["overall_fit_pred_ppm"] = overall_pred
     candidate_df["overall_fit_error_ppm"] = overall_errors
@@ -177,13 +262,19 @@ def _fit_one_candidate(
         validation_df = candidate_df[validation_mask].copy()
         if train_df.empty or validation_df.empty or len(train_df) < len(spec.terms):
             continue
-        fold_coeffs, train_pred = _fit_lstsq(train_df, spec)
-        validation_pred_local = _design_matrix(validation_df, spec) @ fold_coeffs
+        train_breakpoint_absorbance = (
+            _resolve_piecewise_breakpoint_absorbance(train_df, float(spec.breakpoint_ppm or 0.0))
+            if spec.model_family == "piecewise_range"
+            else math.nan
+        )
+        fold_coeffs, train_pred = _fit_lstsq(train_df, spec, train_breakpoint_absorbance)
+        validation_pred_local = _design_matrix(validation_df, spec, train_breakpoint_absorbance) @ fold_coeffs
         validation_pred[validation_df.index.to_numpy()] = validation_pred_local
         fold_train = train_df.copy()
         fold_train["prediction_scope"] = f"train_fold_{fold_index}"
         fold_train["predicted_ppm"] = train_pred
         fold_train["error_ppm"] = train_pred - fold_train["target_ppm"].to_numpy(dtype=float)
+        fold_train["breakpoint_absorbance"] = train_breakpoint_absorbance
         train_frames.append(fold_train)
 
     candidate_df["validation_oof_pred_ppm"] = validation_pred
@@ -210,8 +301,10 @@ def _fit_one_candidate(
         "temp_bias_spread": temp_bias_spread,
         "max_abs_error": max_abs_error,
     }
-    composite_score = (
-        _composite_score(composite_inputs, score_weights)
+    composite_score_new = _composite_score(composite_inputs, score_weights)
+    composite_score_old = _composite_score(composite_inputs, legacy_score_weights)
+    composite_score_default = (
+        composite_score_new
         if enable_composite_score
         else _score_metric(validation_metrics["rmse"] if not validation_frame.empty else overall_metrics["rmse"])
     )
@@ -220,6 +313,7 @@ def _fit_one_candidate(
         "analyzer_id": str(candidate_df["analyzer"].iloc[0]),
         "model_id": spec.model_id,
         "model_label": spec.model_label,
+        "model_family": spec.model_family,
         "formula": spec.formula,
         "absorbance_column": absorbance_column,
         "term_count": len(spec.terms),
@@ -241,24 +335,58 @@ def _fit_one_candidate(
         "zero_rmse": zero_rmse,
         "temp_bias_spread": temp_bias_spread,
         "max_abs_error_for_score": max_abs_error,
-        "composite_score": composite_score,
+        "composite_score": composite_score_default,
+        "composite_score_new_weights": composite_score_new,
+        "composite_score_old_weights": composite_score_old,
         "validation_available": not validation_frame.empty,
+        "piecewise_boundary_ppm": spec.breakpoint_ppm if spec.model_family == "piecewise_range" else math.nan,
+        "piecewise_boundary_absorbance": overall_breakpoint_absorbance,
     }
+    for extra_column in (
+        "zero_residual_mode",
+        "zero_residual_model_label",
+        "with_zero_residual_correction",
+        "selected_source_pair",
+        "selected_ratio_source",
+        "source_pair_label",
+        "source_pair_kind",
+        "source_policy",
+        "matched_selection_policy",
+        "default_absorbance_order",
+        "default_pressure_branch",
+        "branch_id",
+    ):
+        if extra_column in candidate_df.columns:
+            score_row[extra_column] = candidate_df.iloc[0][extra_column]
 
     coefficient_rows: list[dict[str, Any]] = []
     for order, (term_name, coeff) in enumerate(zip(spec.terms, coeffs, strict=False), start=1):
-        coefficient_rows.append(
-            {
-                "analyzer_id": str(candidate_df["analyzer"].iloc[0]),
-                "model_id": spec.model_id,
-                "model_label": spec.model_label,
-                "term_order": order,
-                "term_name": term_name,
-                "coefficient": float(coeff),
-                "formula": spec.formula,
-                "absorbance_column": absorbance_column,
-            }
-        )
+        row = {
+            "analyzer_id": str(candidate_df["analyzer"].iloc[0]),
+            "model_id": spec.model_id,
+            "model_label": spec.model_label,
+            "model_family": spec.model_family,
+            "term_order": order,
+            "term_name": term_name,
+            "coefficient": float(coeff),
+            "formula": spec.formula,
+            "absorbance_column": absorbance_column,
+            "piecewise_boundary_ppm": spec.breakpoint_ppm if spec.model_family == "piecewise_range" else math.nan,
+            "piecewise_boundary_absorbance": overall_breakpoint_absorbance,
+        }
+        for extra_column in (
+            "zero_residual_mode",
+            "zero_residual_model_label",
+            "with_zero_residual_correction",
+            "selected_source_pair",
+            "selected_ratio_source",
+            "source_pair_label",
+            "source_pair_kind",
+            "branch_id",
+        ):
+            if extra_column in candidate_df.columns:
+                row[extra_column] = candidate_df.iloc[0][extra_column]
+        coefficient_rows.append(row)
 
     residual_rows: list[dict[str, Any]] = []
     for _, row in candidate_df.iterrows():
@@ -266,6 +394,7 @@ def _fit_one_candidate(
             "analyzer_id": row["analyzer"],
             "model_id": spec.model_id,
             "model_label": spec.model_label,
+            "model_family": spec.model_family,
             "formula": spec.formula,
             "point_title": row["point_title"],
             "point_row": row["point_row"],
@@ -277,7 +406,22 @@ def _fit_one_candidate(
             "absorbance_column": absorbance_column,
             "A_std": row.get("A_std"),
             "temp_model_c": row["temp_model_c"],
+            "piecewise_boundary_ppm": spec.breakpoint_ppm if spec.model_family == "piecewise_range" else math.nan,
+            "piecewise_boundary_absorbance": overall_breakpoint_absorbance,
         }
+        for extra_column in (
+            "zero_residual_mode",
+            "zero_residual_model_label",
+            "with_zero_residual_correction",
+            "selected_source_pair",
+            "selected_ratio_source",
+            "source_pair_label",
+            "source_pair_kind",
+            "delta_a0_t",
+            "A_uncorrected_mean",
+        ):
+            if extra_column in candidate_df.columns:
+                base[extra_column] = row[extra_column]
         residual_rows.append(
             {
                 **base,
@@ -299,6 +443,22 @@ def _fit_one_candidate(
     return score_row, coefficient_rows, residual_rows
 
 
+def _selection_reason(
+    best_row: pd.Series,
+    weight_map: dict[str, float],
+    enable_composite_score: bool,
+) -> str:
+    if not enable_composite_score:
+        return f"Selected by lowest validation_rmse on {best_row['score_source']} because composite score was disabled."
+    return (
+        f"Selected by lowest composite_score={float(best_row['composite_score']):.6g} on {best_row['score_source']} "
+        f"with weights overall_rmse={weight_map['overall_rmse']:.2f}, "
+        f"zero_rmse={weight_map['zero_rmse']:.2f}, "
+        f"temp_bias_spread={weight_map['temp_bias_spread']:.2f}, "
+        f"max_abs_error={weight_map['max_abs_error']:.2f}."
+    )
+
+
 def evaluate_absorbance_models(
     points: pd.DataFrame,
     config: Any,
@@ -318,6 +478,10 @@ def evaluate_absorbance_models(
         + "|"
         + branch_points["point_title"].fillna("").astype(str)
     )
+    if "zero_residual_mode" not in branch_points.columns:
+        branch_points["zero_residual_mode"] = "none"
+        branch_points["zero_residual_model_label"] = "No zero residual correction"
+        branch_points["with_zero_residual_correction"] = False
 
     score_rows: list[dict[str, Any]] = []
     coefficient_rows: list[dict[str, Any]] = []
@@ -326,15 +490,18 @@ def evaluate_absorbance_models(
     selection_rows: list[dict[str, Any]] = []
 
     weight_map = config.composite_weight_map()
+    legacy_weight_map = config.legacy_composite_weight_map()
+    specs = active_model_specs(config)
 
     for analyzer_id, analyzer_df in branch_points.groupby("analyzer"):
         analyzer_scores: list[dict[str, Any]] = []
-        for spec in MODEL_SPECS:
+        for spec in specs:
             candidate_rows.append(
                 {
                     "analyzer_id": analyzer_id,
                     "model_id": spec.model_id,
                     "model_label": spec.model_label,
+                    "model_family": spec.model_family,
                     "formula": spec.formula,
                     "terms": "|".join(spec.terms),
                     "selection_strategy_requested": config.model_selection_strategy,
@@ -345,6 +512,7 @@ def evaluate_absorbance_models(
                     "temperature_source": config.default_temp_source,
                     "pressure_source": config.default_pressure_source,
                     "branch_id": config.default_branch_id(),
+                    "piecewise_boundary_ppm": spec.breakpoint_ppm if spec.model_family == "piecewise_range" else math.nan,
                 }
             )
             try:
@@ -353,6 +521,7 @@ def evaluate_absorbance_models(
                     spec=spec,
                     strategy=config.model_selection_strategy,
                     score_weights=weight_map,
+                    legacy_score_weights=legacy_weight_map,
                     enable_composite_score=config.enable_composite_score,
                     absorbance_column=absorbance_column,
                 )
@@ -372,22 +541,18 @@ def evaluate_absorbance_models(
         )
         analyzer_scores_df["model_rank"] = np.arange(1, len(analyzer_scores_df) + 1, dtype=int)
         best_row = analyzer_scores_df.iloc[0]
-        reason = (
-            f"Selected by lowest composite_score={best_row['composite_score']:.6g} on {best_row['score_source']} "
-            f"with weights overall_rmse={weight_map['overall_rmse']:.2f}, "
-            f"zero_rmse={weight_map['zero_rmse']:.2f}, "
-            f"temp_bias_spread={weight_map['temp_bias_spread']:.2f}, "
-            f"max_abs_error={weight_map['max_abs_error']:.2f}."
-            if config.enable_composite_score
-            else f"Selected by lowest validation_rmse on {best_row['score_source']} because composite score was disabled."
-        )
+        single_best = analyzer_scores_df[analyzer_scores_df["model_family"] == "single_range"].head(1)
+        piecewise_best = analyzer_scores_df[analyzer_scores_df["model_family"] == "piecewise_range"].head(1)
         selection_rows.append(
             {
                 "analyzer_id": analyzer_id,
                 "best_absorbance_model": best_row["model_id"],
                 "best_absorbance_model_label": best_row["model_label"],
+                "best_model_family": best_row["model_family"],
                 "formula": best_row["formula"],
                 "composite_score": best_row["composite_score"],
+                "composite_score_new_weights": best_row["composite_score_new_weights"],
+                "composite_score_old_weights": best_row["composite_score_old_weights"],
                 "model_rank": 1,
                 "selection_strategy_requested": config.model_selection_strategy,
                 "selection_strategy_used": best_row["selection_strategy_used"],
@@ -396,11 +561,20 @@ def evaluate_absorbance_models(
                 "selected_prediction_scope": best_row["score_source"],
                 "group_count": best_row["group_count"],
                 "validation_available": best_row["validation_available"],
-                "selection_reason": reason,
+                "selection_reason": _selection_reason(best_row, weight_map, config.enable_composite_score),
                 "ratio_source": config.default_ratio_source,
                 "temperature_source": config.default_temp_source,
                 "pressure_source": config.default_pressure_source,
                 "branch_id": config.default_branch_id(),
+                "zero_residual_mode": best_row.get("zero_residual_mode", "none"),
+                "zero_residual_model_label": best_row.get("zero_residual_model_label", "No zero residual correction"),
+                "with_zero_residual_correction": best_row.get("with_zero_residual_correction", False),
+                "piecewise_boundary_ppm": best_row.get("piecewise_boundary_ppm", math.nan),
+                "piecewise_boundary_absorbance": best_row.get("piecewise_boundary_absorbance", math.nan),
+                "best_single_range_model": single_best.iloc[0]["model_id"] if not single_best.empty else "",
+                "best_single_range_score": single_best.iloc[0]["composite_score"] if not single_best.empty else math.nan,
+                "best_piecewise_model": piecewise_best.iloc[0]["model_id"] if not piecewise_best.empty else "",
+                "best_piecewise_score": piecewise_best.iloc[0]["composite_score"] if not piecewise_best.empty else math.nan,
             }
         )
 
@@ -428,7 +602,7 @@ def evaluate_absorbance_models(
         scores = scores.sort_values(["analyzer_id", "model_rank", "model_id"], ignore_index=True)
     candidates = pd.DataFrame(candidate_rows)
     if not candidates.empty:
-        candidates = candidates.sort_values(["analyzer_id", "model_id"], ignore_index=True)
+        candidates = candidates.sort_values(["analyzer_id", "model_family", "model_id"], ignore_index=True)
     coefficients = pd.DataFrame(coefficient_rows)
     if not coefficients.empty:
         coefficients = coefficients.sort_values(["analyzer_id", "model_id", "term_order"], ignore_index=True)
@@ -459,6 +633,7 @@ def evaluate_absorbance_models(
             "analyzer_id",
             "model_id",
             "model_label",
+            "model_family",
             "formula",
             "point_title",
             "point_row",
@@ -470,9 +645,15 @@ def evaluate_absorbance_models(
             "absorbance_column",
             "A_std",
             "temp_model_c",
+            "zero_residual_mode",
+            "zero_residual_model_label",
+            "with_zero_residual_correction",
+            "piecewise_boundary_ppm",
+            "piecewise_boundary_absorbance",
             "best_overall_fit_pred_ppm",
             "best_overall_fit_error_ppm",
         ]
+        keep_cols = [column for column in keep_cols if column in overall_rows.columns]
         overall_rows = overall_rows[keep_cols].copy()
         if not validation_rows.empty:
             validation_rows = validation_rows.merge(
@@ -512,15 +693,24 @@ def evaluate_absorbance_models(
                     "analyzer_id",
                     "best_absorbance_model",
                     "best_absorbance_model_label",
+                    "best_model_family",
                     "composite_score",
+                    "composite_score_new_weights",
+                    "composite_score_old_weights",
                     "selection_strategy_used",
                     "selected_prediction_scope",
                     "validation_available",
                     "selection_reason",
+                    "zero_residual_mode",
+                    "zero_residual_model_label",
+                    "with_zero_residual_correction",
+                    "piecewise_boundary_ppm",
+                    "piecewise_boundary_absorbance",
                 ]
             ],
             on="analyzer_id",
             how="left",
+            suffixes=("", "_final"),
         )
         best_predictions["selected_pred_ppm"] = best_predictions["best_validation_pred_ppm"].combine_first(
             best_predictions["best_overall_fit_pred_ppm"]
@@ -533,6 +723,9 @@ def evaluate_absorbance_models(
             "validation_oof",
             "overall_fit",
         )
+        drop_cols = [column for column in best_predictions.columns if column.endswith("_final")]
+        if drop_cols:
+            best_predictions = best_predictions.drop(columns=drop_cols)
 
     return {
         "candidates": candidates,

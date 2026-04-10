@@ -14,6 +14,7 @@ from .fits import fit_linear
 CONCENTRATION_BUCKETS: tuple[tuple[str, float | None, float | None], ...] = (
     ("0 ppm", 0.0, 0.0),
     ("0~200 ppm", 0.0, 200.0),
+    ("200~1000 ppm", 200.0, 1000.0),
     ("200~500 ppm", 200.0, 500.0),
     ("500~800 ppm", 500.0, 800.0),
     ("800~1000 ppm", 800.0, 1000.0),
@@ -196,18 +197,29 @@ def build_comparison_outputs(
                 }
             )
 
-        high_df = pd.DataFrame(
+        low_df = pd.DataFrame(
             [
                 row
                 for row in by_range_rows
-                if row["analyzer_id"] == analyzer_id and row["concentration_range"] == "800~1000 ppm"
+                if row["analyzer_id"] == analyzer_id and row["concentration_range"] == "0~200 ppm"
             ]
         )
-        winner_high = "tie"
-        if not high_df.empty:
-            winner_high = str(high_df.iloc[0]["winner_in_range"])
+        winner_low_range = "tie"
+        if not low_df.empty:
+            winner_low_range = str(low_df.iloc[0]["winner_in_range"])
 
-        comparison_winners = (winner_overall, winner_zero, winner_temp_stability, winner_high)
+        main_df = pd.DataFrame(
+            [
+                row
+                for row in by_range_rows
+                if row["analyzer_id"] == analyzer_id and row["concentration_range"] == "200~1000 ppm"
+            ]
+        )
+        winner_main_range = "tie"
+        if not main_df.empty:
+            winner_main_range = str(main_df.iloc[0]["winner_in_range"])
+
+        comparison_winners = (winner_overall, winner_zero, winner_temp_stability, winner_low_range, winner_main_range)
         old_wins = sum(item == "old_chain" for item in comparison_winners)
         new_wins = sum(item == "new_chain" for item in comparison_winners)
         if new_wins >= 3:
@@ -235,7 +247,11 @@ def build_comparison_outputs(
                 "winner_overall": winner_overall,
                 "winner_zero": winner_zero,
                 "winner_temp_stability": winner_temp_stability,
+                "winner_low_range": winner_low_range,
+                "winner_main_range": winner_main_range,
                 "best_absorbance_model": selection_row["best_absorbance_model"] if selection_row is not None else "",
+                "best_model_family": selection_row["best_model_family"] if selection_row is not None and "best_model_family" in selection_row else "",
+                "zero_residual_mode": selection_row["zero_residual_mode"] if selection_row is not None and "zero_residual_mode" in selection_row else "",
                 "recommendation": recommendation,
             }
         )
@@ -243,7 +259,7 @@ def build_comparison_outputs(
         conclusion_lines.append(
             f"{analyzer_id}: best_model={selection_row['best_absorbance_model'] if selection_row is not None else 'n/a'}, "
             f"overall={winner_overall}, zero={winner_zero}, temp stability={winner_temp_stability}, "
-            f"high concentration={winner_high}. {recommendation}"
+            f"low range={winner_low_range}, main range={winner_main_range}. {recommendation}"
         )
         if selection_row is not None:
             auto_conclusion_rows.append(
@@ -272,16 +288,12 @@ def build_comparison_outputs(
             return "tie"
         return "old_chain" if old_count > new_count else "new_chain"
 
-    high_bucket = by_range_df[by_range_df["concentration_range"] == "800~1000 ppm"].copy()
-    high_winners = high_bucket["winner_in_range"].astype(str).tolist() if not high_bucket.empty else []
-    old_high = high_winners.count("old_chain")
-    new_high = high_winners.count("new_chain")
-    high_conc_winner = "tie" if old_high == new_high else ("old_chain" if old_high > new_high else "new_chain")
-
     overall_winner = _category_winner("winner_overall")
     zero_winner = _category_winner("winner_zero")
     temp_winner = _category_winner("winner_temp_stability")
-    overall_votes = [overall_winner, zero_winner, temp_winner, high_conc_winner]
+    low_range_winner = _category_winner("winner_low_range")
+    main_range_winner = _category_winner("winner_main_range")
+    overall_votes = [overall_winner, zero_winner, temp_winner, low_range_winner, main_range_winner]
     if overall_votes.count("new_chain") >= 3:
         top_recommendation = "absorbance model is ready for next-stage offline validation."
     elif zero_winner == "new_chain" and overall_winner != "new_chain":
@@ -298,7 +310,8 @@ def build_comparison_outputs(
             {"category": "overall", "winner": overall_winner, "summary": f"Overall winner across analyzers: {overall_winner}"},
             {"category": "0 ppm", "winner": zero_winner, "summary": f"Zero-point winner across analyzers: {zero_winner}"},
             {"category": "temp stability", "winner": temp_winner, "summary": f"Temperature-stability winner across analyzers: {temp_winner}"},
-            {"category": "high concentration", "winner": high_conc_winner, "summary": f"High-concentration winner across analyzers: {high_conc_winner}"},
+            {"category": "low range", "winner": low_range_winner, "summary": f"Low-range winner across analyzers: {low_range_winner}"},
+            {"category": "main range", "winner": main_range_winner, "summary": f"Main-range winner across analyzers: {main_range_winner}"},
             {"category": "recommendation", "winner": "mixed", "summary": top_recommendation},
         ]
     )

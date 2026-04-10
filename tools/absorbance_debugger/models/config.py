@@ -32,11 +32,22 @@ class DebuggerConfig:
     run_r0_source_consistency_compare: bool = True
     run_pressure_branch_compare: bool = True
     run_upper_bound_compare: bool = True
+    enable_zero_residual_correction: bool = True
+    zero_residual_candidate_models: tuple[str, ...] = ("linear", "quadratic")
+    zero_residual_piecewise_break_temp_c: float = 20.0
+    enable_piecewise_model: bool = True
+    piecewise_boundary_ppm: float = 200.0
     invalid_pressure_targets_hpa: tuple[float, ...] = (500.0,)
     invalid_pressure_tolerance_hpa: float = 30.0
     invalid_pressure_mode: str = "hard_exclude"
     use_valid_only_main_conclusion: bool = True
     composite_weights: tuple[tuple[str, float], ...] = (
+        ("overall_rmse", 0.25),
+        ("zero_rmse", 0.35),
+        ("temp_bias_spread", 0.25),
+        ("max_abs_error", 0.15),
+    )
+    legacy_composite_weights: tuple[tuple[str, float], ...] = (
         ("overall_rmse", 0.35),
         ("zero_rmse", 0.30),
         ("temp_bias_spread", 0.20),
@@ -89,6 +100,11 @@ class DebuggerConfig:
         """Return composite score weights as a regular mapping."""
 
         return {key: float(value) for key, value in self.composite_weights}
+
+    def legacy_composite_weight_map(self) -> dict[str, float]:
+        """Return the legacy composite score weights used before this round."""
+
+        return {key: float(value) for key, value in self.legacy_composite_weights}
 
     def matched_source_pair_label(self, ratio_source: str) -> str:
         """Return the matched source-pair label for one ratio source."""

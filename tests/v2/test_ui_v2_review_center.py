@@ -494,7 +494,13 @@ def test_review_center_surfaces_recognition_readiness_governance_items(tmp_path:
     assert review_center["index_summary"]["uncertainty_rollup"]["repository_mode"] == "file_artifact_first"
     assert review_center["index_summary"]["uncertainty_rollup"]["gateway_mode"] == "file_backed_default"
     assert review_center["index_summary"]["uncertainty_rollup"]["db_ready_stub"]["not_in_default_chain"] is True
+    assert review_center["index_summary"]["verification_rollup"]["repository_mode"] == "file_artifact_first"
+    assert review_center["index_summary"]["verification_rollup"]["gateway_mode"] == "file_backed_default"
+    assert review_center["index_summary"]["verification_rollup"]["db_ready_stub"]["not_in_default_chain"] is True
     assert "不确定度 rollup" in str(review_center["index_summary"]["summary"] or "") or "Uncertainty rollup" in str(
+        review_center["index_summary"]["summary"] or ""
+    )
+    assert "验证 rollup" in str(review_center["index_summary"]["summary"] or "") or "Verification rollup" in str(
         review_center["index_summary"]["summary"] or ""
     )
 
@@ -502,6 +508,15 @@ def test_review_center_surfaces_recognition_readiness_governance_items(tmp_path:
     certificate_item = next(
         item for item in readiness_items if item.get("anchor_id") == "certificate-readiness-summary"
     )
+    method_protocol_item = next(
+        item for item in readiness_items if item.get("anchor_id") == "method-confirmation-protocol"
+    )
+    route_matrix_item = next(
+        item for item in readiness_items if item.get("anchor_id") == "route-specific-validation-matrix"
+    )
+    validation_run_set_item = next(item for item in readiness_items if item.get("anchor_id") == "validation-run-set")
+    verification_digest_item = next(item for item in readiness_items if item.get("anchor_id") == "verification-digest")
+    verification_rollup_item = next(item for item in readiness_items if item.get("anchor_id") == "verification-rollup")
     uncertainty_report_pack_item = next(
         item for item in readiness_items if item.get("anchor_id") == "uncertainty-report-pack"
     )
@@ -518,6 +533,17 @@ def test_review_center_surfaces_recognition_readiness_governance_items(tmp_path:
 
     assert "package + decision rule profile" in str(scope_item.get("summary") or "")
     assert "certificate readiness" in str(certificate_item.get("summary") or "").lower()
+    assert "方法确认" in str(method_protocol_item.get("detail_text") or "") or "Method confirmation" in str(
+        method_protocol_item.get("detail_text") or ""
+    )
+    assert "验证矩阵完整度" in str(route_matrix_item.get("detail_text") or "") or "Validation matrix completeness" in str(
+        route_matrix_item.get("detail_text") or ""
+    )
+    assert "validation run set" in str(validation_run_set_item.get("summary") or "").lower()
+    assert "reviewer actions" in str(verification_digest_item.get("detail_text") or "").lower() or "审阅动作" in str(
+        verification_digest_item.get("detail_text") or ""
+    )
+    assert "verification rollup" in str(verification_rollup_item.get("summary") or "").lower()
     assert "uncertainty report pack" in str(uncertainty_report_pack_item.get("summary") or "").lower()
     assert "uncertainty" in str(uncertainty_digest_item.get("summary") or "").lower()
     assert "reviewer-only" in str(uncertainty_digest_item.get("summary") or "").lower()

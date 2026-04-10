@@ -52,6 +52,14 @@ INVALID_PRESSURE_MODE_MAP = {
     "diagnostic": "diagnostic_only",
 }
 
+ZERO_RESIDUAL_MODEL_MAP = {
+    "linear": "linear",
+    "quadratic": "quadratic",
+    "piecewise_linear": "piecewise_linear",
+    "piecewise-linear": "piecewise_linear",
+    "piecewise": "piecewise_linear",
+}
+
 
 def _normalize(text: str, mapping: dict[str, str], label: str) -> str:
     key = str(text or "").strip().lower()
@@ -97,6 +105,12 @@ def normalize_invalid_pressure_mode(text: str) -> str:
     return _normalize(text, INVALID_PRESSURE_MODE_MAP, "invalid pressure mode")
 
 
+def normalize_zero_residual_model(text: str) -> str:
+    """Normalize zero-residual correction model text."""
+
+    return _normalize(text, ZERO_RESIDUAL_MODEL_MAP, "zero residual model")
+
+
 def parse_numeric_csv(text: str) -> tuple[float, ...]:
     """Parse a comma-separated numeric list."""
 
@@ -107,3 +121,10 @@ def parse_numeric_csv(text: str) -> tuple[float, ...]:
             continue
         values.append(float(item))
     return tuple(values)
+
+
+def parse_path_list(text: str) -> tuple[str, ...]:
+    """Parse a semicolon/newline separated path list from the thin UI wrappers."""
+
+    normalized = str(text or "").replace("\r", "\n").replace(";", "\n")
+    return tuple(part.strip() for part in normalized.split("\n") if part.strip())

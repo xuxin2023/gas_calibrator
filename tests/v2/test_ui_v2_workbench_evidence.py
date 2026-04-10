@@ -154,6 +154,26 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
         == "pre_run_readiness_gate"
     )
     assert (
+        report_payload["recognition_readiness_evidence"]["method_confirmation_protocol"]["artifact_type"]
+        == "method_confirmation_protocol"
+    )
+    assert (
+        report_payload["recognition_readiness_evidence"]["route_specific_validation_matrix"]["artifact_type"]
+        == "route_specific_validation_matrix"
+    )
+    assert (
+        report_payload["recognition_readiness_evidence"]["validation_run_set"]["artifact_type"]
+        == "validation_run_set"
+    )
+    assert (
+        report_payload["recognition_readiness_evidence"]["verification_digest"]["artifact_type"]
+        == "verification_digest"
+    )
+    assert (
+        report_payload["recognition_readiness_evidence"]["verification_rollup"]["artifact_type"]
+        == "verification_rollup"
+    )
+    assert (
         report_payload["recognition_readiness_evidence"]["uncertainty_report_pack"]["artifact_type"]
         == "uncertainty_report_pack"
     )
@@ -184,7 +204,19 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
         for line in list(report_payload["recognition_readiness_evidence"]["summary_lines"] or [])
     )
     assert any(
+        "方法确认概览" in str(line) or "Method confirmation overview" in str(line)
+        for line in list(report_payload["recognition_readiness_evidence"]["summary_lines"] or [])
+    )
+    assert any(
+        "验证矩阵完整度" in str(line) or "Validation matrix completeness" in str(line)
+        for line in list(report_payload["recognition_readiness_evidence"]["summary_lines"] or [])
+    )
+    assert any(
         "关联测量阶段" in str(line) or "关联测量缺口" in str(line)
+        for line in list(report_payload["recognition_readiness_evidence"]["detail_lines"] or [])
+    )
+    assert any(
+        "当前证据覆盖" in str(line) or "Current evidence coverage" in str(line)
         for line in list(report_payload["recognition_readiness_evidence"]["detail_lines"] or [])
     )
     assert any(
