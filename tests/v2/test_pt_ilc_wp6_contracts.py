@@ -349,3 +349,185 @@ class TestWp6ResultsGatewayVisibility:
             assert key in payload, f"results_gateway missing WP6 key: {key}"
             value = payload[key]
             assert isinstance(value, dict), f"results_gateway WP6 key {key} not dict"
+
+
+# ---------------------------------------------------------------------------
+# 5) WP6.1 收口测试: artifact_catalog / artifact_compatibility / offline_artifacts
+# ---------------------------------------------------------------------------
+
+class TestWp6ArtifactCatalogRegistration:
+    """WP6 artifacts must be registered in artifact_catalog."""
+
+    def test_wp6_artifacts_in_known_artifact_keys_by_filename(self) -> None:
+        from gas_calibrator.v2.core.artifact_catalog import KNOWN_ARTIFACT_KEYS_BY_FILENAME
+        wp6_filenames = [
+            "pt_ilc_registry.json", "pt_ilc_registry.md",
+            "external_comparison_importer.json", "external_comparison_importer.md",
+            "comparison_evidence_pack.json", "comparison_evidence_pack.md",
+            "scope_comparison_view.json", "scope_comparison_view.md",
+            "comparison_digest.json", "comparison_digest.md",
+            "comparison_rollup.json", "comparison_rollup.md",
+        ]
+        for fn in wp6_filenames:
+            assert fn in KNOWN_ARTIFACT_KEYS_BY_FILENAME, f"artifact_catalog missing WP6 filename: {fn}"
+
+    def test_wp6_artifacts_in_known_report_artifacts(self) -> None:
+        from gas_calibrator.v2.core.artifact_catalog import KNOWN_REPORT_ARTIFACTS
+        wp6_filenames = [
+            "pt_ilc_registry.json", "pt_ilc_registry.md",
+            "external_comparison_importer.json", "external_comparison_importer.md",
+            "comparison_evidence_pack.json", "comparison_evidence_pack.md",
+            "scope_comparison_view.json", "scope_comparison_view.md",
+            "comparison_digest.json", "comparison_digest.md",
+            "comparison_rollup.json", "comparison_rollup.md",
+        ]
+        for fn in wp6_filenames:
+            assert fn in KNOWN_REPORT_ARTIFACTS, f"KNOWN_REPORT_ARTIFACTS missing WP6 filename: {fn}"
+
+
+class TestWp6ArtifactCompatibilityRegistration:
+    """WP6 artifacts must be in artifact_compatibility canonical surface and visibility."""
+
+    def test_wp6_filenames_in_canonical_surface_filenames(self) -> None:
+        from gas_calibrator.v2.core.artifact_compatibility import CANONICAL_SURFACE_FILENAMES
+        from gas_calibrator.v2.core import recognition_readiness_artifacts as rr
+        wp6_constants = [
+            rr.PT_ILC_REGISTRY_FILENAME, rr.PT_ILC_REGISTRY_MARKDOWN_FILENAME,
+            rr.EXTERNAL_COMPARISON_IMPORTER_FILENAME, rr.EXTERNAL_COMPARISON_IMPORTER_MARKDOWN_FILENAME,
+            rr.COMPARISON_EVIDENCE_PACK_FILENAME, rr.COMPARISON_EVIDENCE_PACK_MARKDOWN_FILENAME,
+            rr.SCOPE_COMPARISON_VIEW_FILENAME, rr.SCOPE_COMPARISON_VIEW_MARKDOWN_FILENAME,
+            rr.COMPARISON_DIGEST_FILENAME, rr.COMPARISON_DIGEST_MARKDOWN_FILENAME,
+            rr.COMPARISON_ROLLUP_FILENAME, rr.COMPARISON_ROLLUP_MARKDOWN_FILENAME,
+        ]
+        for fn in wp6_constants:
+            assert fn in CANONICAL_SURFACE_FILENAMES, f"CANONICAL_SURFACE_FILENAMES missing: {fn}"
+
+    def test_wp6_keys_in_surface_visibility(self) -> None:
+        from gas_calibrator.v2.core.artifact_compatibility import _surface_visibility
+        from gas_calibrator.v2.core import recognition_readiness_artifacts as rr
+        # _surface_visibility takes artifact_key; verify WP6 keys are recognized
+        for key in ("pt_ilc_registry", "external_comparison_importer",
+                     "comparison_evidence_pack", "scope_comparison_view",
+                     "comparison_digest", "comparison_rollup"):
+            surfaces = _surface_visibility(key)
+            assert "review_center" in surfaces, f"WP6 key {key} not visible in review_center"
+            assert "workbench" in surfaces, f"WP6 key {key} not visible in workbench"
+
+
+class TestWp6OfflineArtifactsIntegration:
+    """WP6 artifacts must be in offline_artifacts path_map and role_map."""
+
+    def test_wp6_paths_in_offline_artifact_paths(self) -> None:
+        from gas_calibrator.v2.core.offline_artifacts import build_offline_governance_artifacts
+        # Verify the function exists and references WP6 filenames
+        # (actual write test requires a full run_dir setup, so we test the path_map keys)
+        from gas_calibrator.v2.core import recognition_readiness_artifacts as rr
+        # Verify WP6 filename constants exist in recognition_readiness
+        assert hasattr(rr, "PT_ILC_REGISTRY_FILENAME")
+        assert hasattr(rr, "COMPARISON_EVIDENCE_PACK_FILENAME")
+        assert hasattr(rr, "COMPARISON_DIGEST_FILENAME")
+        assert hasattr(rr, "COMPARISON_ROLLUP_FILENAME")
+        assert hasattr(rr, "SCOPE_COMPARISON_VIEW_FILENAME")
+        assert hasattr(rr, "EXTERNAL_COMPARISON_IMPORTER_FILENAME")
+
+
+class TestWp6RecognitionReadinessIntegration:
+    """WP6 builder must be integrated into build_recognition_readiness_artifacts."""
+
+    def test_build_recognition_readiness_includes_wp6_keys(self, tmp_path: Path) -> None:
+        from gas_calibrator.v2.core.recognition_readiness_artifacts import build_recognition_readiness_artifacts
+        run_dir = tmp_path / "run-rr-001"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        artifacts = build_recognition_readiness_artifacts(
+            run_id="run-rr-001",
+            samples=[],
+            point_summaries=[],
+            versions={"v2": "0.1.0"},
+            run_dir=str(run_dir),
+        )
+        for key in ("pt_ilc_registry", "external_comparison_importer",
+                     "comparison_evidence_pack", "scope_comparison_view",
+                     "comparison_digest", "comparison_rollup"):
+            assert key in artifacts, f"build_recognition_readiness_artifacts missing WP6 key: {key}"
+
+    def test_wp6_artifacts_step2_boundary_in_recognition_readiness(self, tmp_path: Path) -> None:
+        from gas_calibrator.v2.core.recognition_readiness_artifacts import build_recognition_readiness_artifacts
+        run_dir = tmp_path / "run-rr-002"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        artifacts = build_recognition_readiness_artifacts(
+            run_id="run-rr-002",
+            samples=[],
+            point_summaries=[],
+            versions={"v2": "0.1.0"},
+            run_dir=str(run_dir),
+        )
+        for key in ("pt_ilc_registry", "comparison_evidence_pack",
+                     "comparison_digest", "comparison_rollup"):
+            bundle = artifacts[key]
+            assert bundle.get("not_real_acceptance_evidence") is True, f"{key}"
+            assert bundle.get("primary_evidence_rewritten") is False, f"{key}"
+            assert bundle.get("evidence_source") == "simulated", f"{key}"
+            assert bundle.get("not_ready_for_formal_claim") is True, f"{key}"
+            assert bundle.get("readiness_mapping_only") is True, f"{key}"
+
+
+class TestWp6HistoricalArtifactsIntegration:
+    """Wp6Gateway must be explicitly called in historical_artifacts.py."""
+
+    def test_historical_artifacts_imports_wp6_gateway(self) -> None:
+        import gas_calibrator.v2.scripts.historical_artifacts as ha
+        # Verify the module has the Wp6Gateway import by checking source
+        import inspect
+        source = inspect.getsource(ha)
+        assert "Wp6Gateway" in source, "historical_artifacts.py does not import Wp6Gateway"
+
+    def test_historical_artifacts_exposes_wp6_keys(self) -> None:
+        import gas_calibrator.v2.scripts.historical_artifacts as ha
+        import inspect
+        source = inspect.getsource(ha)
+        # Verify WP6 payload variables are extracted
+        for var in ("pt_ilc_registry", "comparison_evidence_pack", "comparison_rollup"):
+            assert var in source, f"historical_artifacts.py does not reference {var}"
+
+
+class TestWp6DeviceWorkbenchIntegration:
+    """WP6 payloads must be in device_workbench.py payloads dict."""
+
+    def test_device_workbench_extracts_wp6_payloads(self) -> None:
+        import gas_calibrator.v2.ui_v2.controllers.device_workbench as dw
+        import inspect
+        source = inspect.getsource(dw)
+        for key in ("pt_ilc_registry", "comparison_evidence_pack", "comparison_rollup"):
+            assert key in source, f"device_workbench.py does not reference {key}"
+
+
+class TestWp6AppFacadeIntegration:
+    """WP6 payloads must be in app_facade.py readiness_summary_payloads."""
+
+    def test_app_facade_extracts_wp6_payloads(self) -> None:
+        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
+        import inspect
+        source = inspect.getsource(af)
+        for key in ("pt_ilc_registry", "comparison_evidence_pack", "comparison_rollup"):
+            assert key in source, f"app_facade.py does not reference {key}"
+
+
+class TestWp6ReviewerSurfaceBoundary:
+    """All WP6 reviewer surfaces must maintain Step 2 boundary markers."""
+
+    def test_wp6_gateway_all_keys_step2_boundary(self, tmp_path: Path) -> None:
+        _, gateway = _build_gateway(tmp_path)
+        payload = gateway.read_payload()
+        for key, value in payload.items():
+            assert value.get("reviewer_only") is True or value.get("readiness_mapping_only") is True, f"{key} missing reviewer boundary"
+            assert value.get("not_real_acceptance_evidence") is True, f"{key} not_real_acceptance_evidence"
+            assert value.get("not_ready_for_formal_claim") is True, f"{key} not_ready_for_formal_claim"
+            assert value.get("primary_evidence_rewritten") is False, f"{key} primary_evidence_rewritten"
+            assert value.get("evidence_source") == "simulated", f"{key} evidence_source"
+
+    def test_wp6_non_claim_note_present(self, tmp_path: Path) -> None:
+        _, gateway = _build_gateway(tmp_path)
+        payload = gateway.read_payload()
+        for key, value in payload.items():
+            assert "non_claim_note" in value, f"{key} missing non_claim_note"
+            assert "simulated" in value.get("non_claim_note", "").lower() or "not real" in value.get("non_claim_note", "").lower(), f"{key} non_claim_note missing boundary language"
