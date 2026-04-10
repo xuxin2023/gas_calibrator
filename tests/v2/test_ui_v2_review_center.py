@@ -491,10 +491,25 @@ def test_review_center_surfaces_recognition_readiness_governance_items(tmp_path:
 
     assert len(readiness_items) >= 4
     assert any(option["id"] == "readiness_governance" for option in review_center["filters"]["type_options"])
+    assert review_center["index_summary"]["uncertainty_rollup"]["repository_mode"] == "file_artifact_first"
+    assert review_center["index_summary"]["uncertainty_rollup"]["gateway_mode"] == "file_backed_default"
+    assert review_center["index_summary"]["uncertainty_rollup"]["db_ready_stub"]["not_in_default_chain"] is True
+    assert "不确定度 rollup" in str(review_center["index_summary"]["summary"] or "") or "Uncertainty rollup" in str(
+        review_center["index_summary"]["summary"] or ""
+    )
 
     scope_item = next(item for item in readiness_items if item.get("anchor_id") == "scope-readiness-summary")
     certificate_item = next(
         item for item in readiness_items if item.get("anchor_id") == "certificate-readiness-summary"
+    )
+    uncertainty_report_pack_item = next(
+        item for item in readiness_items if item.get("anchor_id") == "uncertainty-report-pack"
+    )
+    uncertainty_digest_item = next(
+        item for item in readiness_items if item.get("anchor_id") == "uncertainty-digest"
+    )
+    uncertainty_rollup_item = next(
+        item for item in readiness_items if item.get("anchor_id") == "uncertainty-rollup"
     )
     uncertainty_item = next(
         item for item in readiness_items if item.get("anchor_id") == "uncertainty-method-readiness-summary"
@@ -503,6 +518,9 @@ def test_review_center_surfaces_recognition_readiness_governance_items(tmp_path:
 
     assert "package + decision rule profile" in str(scope_item.get("summary") or "")
     assert "certificate readiness" in str(certificate_item.get("summary") or "").lower()
+    assert "uncertainty report pack" in str(uncertainty_report_pack_item.get("summary") or "").lower()
+    assert "uncertainty digest" in str(uncertainty_digest_item.get("summary") or "").lower()
+    assert "uncertainty rollup" in str(uncertainty_rollup_item.get("summary") or "").lower()
     assert "uncertainty / method confirmation readiness" in str(uncertainty_item.get("summary") or "")
     assert "software validation / audit readiness" in str(audit_item.get("summary") or "")
     assert "recognition_readiness" in list(scope_item.get("evidence_category_filters") or [])
@@ -515,6 +533,14 @@ def test_review_center_surfaces_recognition_readiness_governance_items(tmp_path:
     assert any("关联测量阶段" in str(line) for line in list(scope_item.get("detail_lineage_summary") or []))
     assert any("关联方法确认条目" in str(line) for line in list(scope_item.get("detail_lineage_summary") or []))
     assert any("关联不确定度输入" in str(line) for line in list(uncertainty_item.get("detail_lineage_summary") or []))
+    assert any(
+        "不确定度概览" in str(line) or "Uncertainty overview" in str(line)
+        for line in list(uncertainty_report_pack_item.get("detail_lineage_summary") or [])
+    )
+    assert any(
+        "主要不确定度贡献" in str(line) or "Top uncertainty contributors" in str(line)
+        for line in list(uncertainty_rollup_item.get("detail_lineage_summary") or [])
+    )
     assert any("关联溯源节点" in str(line) for line in list(uncertainty_item.get("detail_lineage_summary") or []))
     assert any("审阅下一步" in str(line) for line in list(audit_item.get("detail_lineage_summary") or []))
     assert any("下一步补证工件" in str(line) for line in list(uncertainty_item.get("detail_lineage_summary") or []))

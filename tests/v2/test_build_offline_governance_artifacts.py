@@ -931,6 +931,22 @@ def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -
         recognition_readiness.METROLOGY_TRACEABILITY_STUB_MARKDOWN_FILENAME,
         recognition_readiness.UNCERTAINTY_BUDGET_STUB_FILENAME,
         recognition_readiness.UNCERTAINTY_BUDGET_STUB_MARKDOWN_FILENAME,
+        recognition_readiness.UNCERTAINTY_MODEL_FILENAME,
+        recognition_readiness.UNCERTAINTY_MODEL_MARKDOWN_FILENAME,
+        recognition_readiness.UNCERTAINTY_INPUT_SET_FILENAME,
+        recognition_readiness.UNCERTAINTY_INPUT_SET_MARKDOWN_FILENAME,
+        recognition_readiness.SENSITIVITY_COEFFICIENT_SET_FILENAME,
+        recognition_readiness.SENSITIVITY_COEFFICIENT_SET_MARKDOWN_FILENAME,
+        recognition_readiness.BUDGET_CASE_FILENAME,
+        recognition_readiness.BUDGET_CASE_MARKDOWN_FILENAME,
+        recognition_readiness.UNCERTAINTY_GOLDEN_CASES_FILENAME,
+        recognition_readiness.UNCERTAINTY_GOLDEN_CASES_MARKDOWN_FILENAME,
+        recognition_readiness.UNCERTAINTY_REPORT_PACK_FILENAME,
+        recognition_readiness.UNCERTAINTY_REPORT_PACK_MARKDOWN_FILENAME,
+        recognition_readiness.UNCERTAINTY_DIGEST_FILENAME,
+        recognition_readiness.UNCERTAINTY_DIGEST_MARKDOWN_FILENAME,
+        recognition_readiness.UNCERTAINTY_ROLLUP_FILENAME,
+        recognition_readiness.UNCERTAINTY_ROLLUP_MARKDOWN_FILENAME,
         recognition_readiness.METHOD_CONFIRMATION_PROTOCOL_FILENAME,
         recognition_readiness.METHOD_CONFIRMATION_PROTOCOL_MARKDOWN_FILENAME,
         recognition_readiness.METHOD_CONFIRMATION_MATRIX_FILENAME,
@@ -970,6 +986,28 @@ def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -
     )
     uncertainty_stub = json.loads(
         (run_dir / recognition_readiness.UNCERTAINTY_BUDGET_STUB_FILENAME).read_text(encoding="utf-8")
+    )
+    uncertainty_model = json.loads(
+        (run_dir / recognition_readiness.UNCERTAINTY_MODEL_FILENAME).read_text(encoding="utf-8")
+    )
+    uncertainty_input_set = json.loads(
+        (run_dir / recognition_readiness.UNCERTAINTY_INPUT_SET_FILENAME).read_text(encoding="utf-8")
+    )
+    sensitivity_coefficient_set = json.loads(
+        (run_dir / recognition_readiness.SENSITIVITY_COEFFICIENT_SET_FILENAME).read_text(encoding="utf-8")
+    )
+    budget_case = json.loads((run_dir / recognition_readiness.BUDGET_CASE_FILENAME).read_text(encoding="utf-8"))
+    uncertainty_golden_cases = json.loads(
+        (run_dir / recognition_readiness.UNCERTAINTY_GOLDEN_CASES_FILENAME).read_text(encoding="utf-8")
+    )
+    uncertainty_report_pack = json.loads(
+        (run_dir / recognition_readiness.UNCERTAINTY_REPORT_PACK_FILENAME).read_text(encoding="utf-8")
+    )
+    uncertainty_digest = json.loads(
+        (run_dir / recognition_readiness.UNCERTAINTY_DIGEST_FILENAME).read_text(encoding="utf-8")
+    )
+    uncertainty_rollup = json.loads(
+        (run_dir / recognition_readiness.UNCERTAINTY_ROLLUP_FILENAME).read_text(encoding="utf-8")
     )
     method_matrix = json.loads(
         (run_dir / recognition_readiness.METHOD_CONFIRMATION_MATRIX_FILENAME).read_text(encoding="utf-8")
@@ -1083,8 +1121,53 @@ def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -
     assert reference_registry["next_required_artifacts"]
     assert uncertainty_stub["artifact_type"] == "uncertainty_budget_stub"
     assert any(
-        str(item.get("combined_uncertainty_status") or "") == "not_closed"
+        str(item.get("combined_uncertainty_status") or "") == "placeholder_closed_for_reviewer_pack"
         for item in list(uncertainty_stub.get("rows") or [])
+    )
+    assert uncertainty_model["artifact_type"] == "uncertainty_model"
+    assert uncertainty_model["uncertainty_case_ids"]
+    assert uncertainty_input_set["artifact_type"] == "uncertainty_input_set"
+    assert uncertainty_input_set["input_quantity_set"]
+    assert sensitivity_coefficient_set["artifact_type"] == "sensitivity_coefficient_set"
+    assert sensitivity_coefficient_set["sensitivity_coefficients"]
+    assert budget_case["artifact_type"] == "budget_case"
+    assert len(list(budget_case.get("budget_case") or [])) >= 5
+    assert uncertainty_golden_cases["artifact_type"] == "uncertainty_golden_cases"
+    assert len(list(uncertainty_golden_cases.get("golden_cases") or [])) >= 5
+    assert uncertainty_report_pack["artifact_type"] == "uncertainty_report_pack"
+    assert uncertainty_report_pack["top_contributors"]
+    assert uncertainty_digest["artifact_type"] == "uncertainty_digest"
+    assert uncertainty_rollup["artifact_type"] == "uncertainty_rollup"
+    assert uncertainty_rollup["linked_surface_visibility"] == [
+        "results",
+        "review_center",
+        "workbench",
+        "historical_artifacts",
+    ]
+    assert uncertainty_rollup["report_pack_available"] is True
+    assert uncertainty_rollup["ready_for_readiness_mapping"] is True
+    assert uncertainty_rollup["not_ready_for_formal_claim"] is True
+    assert uncertainty_rollup["not_real_acceptance_evidence"] is True
+    assert uncertainty_rollup["primary_evidence_rewritten"] is False
+    assert "readiness mapping only" in uncertainty_report_pack["non_claim_note"].lower()
+    assert "formal uncertainty declaration" in uncertainty_report_pack["gap_note"].lower()
+    assert "all values placeholder/simulated" in uncertainty_report_pack["digest"]["data_completeness_summary"]
+    assert "scope_definition_pack" in uncertainty_report_pack["artifact_paths"]
+    assert any(
+        str(item.get("route_type") or "") == "gas" and str(item.get("measurand") or "") == "CO2"
+        for item in list(budget_case.get("budget_case") or [])
+    )
+    assert any(
+        str(item.get("route_type") or "") == "water" and str(item.get("measurand") or "") == "H2O"
+        for item in list(budget_case.get("budget_case") or [])
+    )
+    assert any(
+        "writeback-rounding" in str(item.get("uncertainty_case_id") or "")
+        for item in list(budget_case.get("budget_case") or [])
+    )
+    assert any(
+        "pressure-handoff-seal-ingress" in str(item.get("uncertainty_case_id") or "")
+        for item in list(budget_case.get("budget_case") or [])
     )
     assert any(
         str(item.get("current_coverage") or "")

@@ -110,6 +110,16 @@ def test_historical_scan_supports_single_run_dir_and_root_dir(tmp_path: Path, ca
     assert single_report["runs"][0]["reviewer_only_boundary"]
     assert single_report["runs"][0]["ready_for_readiness_mapping"] is True
     assert single_report["runs"][0]["not_ready_for_formal_claim"] is True
+    assert single_report["runs"][0]["uncertainty_overview"]
+    assert single_report["runs"][0]["uncertainty_budget_completeness"]
+    assert single_report["runs"][0]["uncertainty_top_contributors"]
+    assert single_report["runs"][0]["uncertainty_data_completeness"]
+    assert single_report["runs"][0]["uncertainty_readiness_status"] == "ready_for_readiness_mapping"
+    assert single_report["runs"][0]["uncertainty_non_claim_note"]
+    assert single_report["runs"][0]["uncertainty_ready_for_readiness_mapping"] is True
+    assert single_report["runs"][0]["uncertainty_not_ready_for_formal_claim"] is True
+    assert single_report["runs"][0]["uncertainty_not_real_acceptance_evidence"] is True
+    assert single_report["runs"][0]["uncertainty_primary_evidence_rewritten"] is False
     assert single_report["runs"][0]["not_real_acceptance_evidence"] is True
     assert single_report["runs"][0]["recognition_scope_rollup"]["repository_mode"] == "file_artifact_first"
 
@@ -158,6 +168,8 @@ def test_historical_export_summary_writes_json_report(tmp_path: Path, capsys) ->
     assert payload["runs"][0]["scope_non_claim_note"]
     assert payload["runs"][0]["asset_readiness_overview"]
     assert payload["runs"][0]["pre_run_gate_status"]
+    assert payload["runs"][0]["uncertainty_overview"]
+    assert payload["runs"][0]["uncertainty_rollup"]["repository_mode"] == "file_artifact_first"
 
 
 def test_historical_regenerate_dry_run_does_not_write_sidecars_or_rewrite_primary_evidence(

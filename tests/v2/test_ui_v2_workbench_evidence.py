@@ -154,6 +154,18 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
         == "pre_run_readiness_gate"
     )
     assert (
+        report_payload["recognition_readiness_evidence"]["uncertainty_report_pack"]["artifact_type"]
+        == "uncertainty_report_pack"
+    )
+    assert (
+        report_payload["recognition_readiness_evidence"]["uncertainty_digest"]["artifact_type"]
+        == "uncertainty_digest"
+    )
+    assert (
+        report_payload["recognition_readiness_evidence"]["uncertainty_rollup"]["artifact_type"]
+        == "uncertainty_rollup"
+    )
+    assert (
         report_payload["recognition_readiness_evidence"]["uncertainty_method_readiness_summary"]["artifact_type"]
         == "uncertainty_method_readiness_summary"
     )
@@ -241,6 +253,26 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
     assert (
         "pre_run_readiness_gate"
         in snapshot_payload["recognition_readiness_evidence"]["artifact_paths"]
+    )
+    assert (
+        "uncertainty_report_pack"
+        in snapshot_payload["recognition_readiness_evidence"]["artifact_paths"]
+    )
+    assert (
+        "uncertainty_digest"
+        in snapshot_payload["recognition_readiness_evidence"]["artifact_paths"]
+    )
+    assert (
+        "uncertainty_rollup"
+        in snapshot_payload["recognition_readiness_evidence"]["artifact_paths"]
+    )
+    assert any(
+        "不确定度" in str(line) or "Uncertainty overview" in str(line)
+        for line in list(snapshot_payload["recognition_readiness_evidence"]["summary_lines"] or [])
+    )
+    assert any(
+        "主要不确定度贡献" in str(line) or "Top uncertainty contributors" in str(line)
+        for line in list(snapshot_payload["recognition_readiness_evidence"]["detail_lines"] or [])
     )
     assert any(
         "工件兼容" in str(line)

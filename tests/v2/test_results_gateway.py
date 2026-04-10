@@ -1179,6 +1179,9 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
     )
     certificate_json_path = str((run_dir / recognition_readiness.CERTIFICATE_READINESS_SUMMARY_FILENAME).resolve())
     pre_run_gate_json_path = str((run_dir / recognition_readiness.PRE_RUN_READINESS_GATE_FILENAME).resolve())
+    uncertainty_report_pack_json_path = str((run_dir / recognition_readiness.UNCERTAINTY_REPORT_PACK_FILENAME).resolve())
+    uncertainty_digest_json_path = str((run_dir / recognition_readiness.UNCERTAINTY_DIGEST_FILENAME).resolve())
+    uncertainty_rollup_json_path = str((run_dir / recognition_readiness.UNCERTAINTY_ROLLUP_FILENAME).resolve())
     uncertainty_json_path = str(
         (run_dir / recognition_readiness.UNCERTAINTY_METHOD_READINESS_SUMMARY_FILENAME).resolve()
     )
@@ -1190,6 +1193,9 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
         "certificate_lifecycle_summary",
         "certificate_readiness_summary",
         "pre_run_readiness_gate",
+        "uncertainty_report_pack",
+        "uncertainty_digest",
+        "uncertainty_rollup",
         "uncertainty_method_readiness_summary",
         "audit_readiness_digest",
     ):
@@ -1200,6 +1206,9 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
     assert "Reference Asset Registry" in results_payload["result_summary_text"]
     assert "Certificate Lifecycle Summary" in results_payload["result_summary_text"]
     assert "Pre-run Readiness Gate" in results_payload["result_summary_text"]
+    assert "Uncertainty overview" in results_payload["result_summary_text"]
+    assert "Budget completeness" in results_payload["result_summary_text"]
+    assert "Top uncertainty contributors" in results_payload["result_summary_text"]
     assert "Scope Readiness Summary" in reports_payload["result_summary_text"]
     assert "Pre-run Readiness Gate" in reports_payload["result_summary_text"]
 
@@ -1208,6 +1217,9 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
     certificate_lifecycle_row = rows_by_path[certificate_lifecycle_json_path]
     certificate_row = rows_by_path[certificate_json_path]
     pre_run_gate_row = rows_by_path[pre_run_gate_json_path]
+    uncertainty_report_pack_row = rows_by_path[uncertainty_report_pack_json_path]
+    uncertainty_digest_row = rows_by_path[uncertainty_digest_json_path]
+    uncertainty_rollup_row = rows_by_path[uncertainty_rollup_json_path]
     uncertainty_row = rows_by_path[uncertainty_json_path]
     audit_row = rows_by_path[audit_json_path]
 
@@ -1216,6 +1228,9 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
     assert certificate_lifecycle_row["artifact_key"] == "certificate_lifecycle_summary"
     assert certificate_row["artifact_key"] == "certificate_readiness_summary"
     assert pre_run_gate_row["artifact_key"] == "pre_run_readiness_gate"
+    assert uncertainty_report_pack_row["artifact_key"] == "uncertainty_report_pack"
+    assert uncertainty_digest_row["artifact_key"] == "uncertainty_digest"
+    assert uncertainty_rollup_row["artifact_key"] == "uncertainty_rollup"
     assert uncertainty_row["artifact_key"] == "uncertainty_method_readiness_summary"
     assert audit_row["artifact_key"] == "audit_readiness_digest"
     assert scope_row["artifact_role"] == "diagnostic_analysis"
@@ -1229,6 +1244,9 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
     assert "missing certificates" in certificate_row["note"].lower()
     assert "pass results" in certificate_row["note"].lower()
     assert "advisory" in pre_run_gate_row["note"].lower()
+    assert "readiness mapping" in uncertainty_report_pack_row["note"].lower()
+    assert "reviewer-facing uncertainty skeleton" in uncertainty_digest_row["note"].lower()
+    assert "placeholder" in uncertainty_rollup_row["note"].lower()
     assert "traceability skeleton" in audit_row["note"].lower()
     assert (
         scope_row["scope_readiness_summary_entry"]["review_surface"]["anchor_id"]
@@ -1251,6 +1269,18 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
         == "pre-run-readiness-gate"
     )
     assert (
+        uncertainty_report_pack_row["uncertainty_report_pack_entry"]["review_surface"]["anchor_id"]
+        == "uncertainty-report-pack"
+    )
+    assert (
+        uncertainty_digest_row["uncertainty_digest_entry"]["review_surface"]["anchor_id"]
+        == "uncertainty-digest"
+    )
+    assert (
+        uncertainty_rollup_row["uncertainty_rollup_entry"]["review_surface"]["anchor_id"]
+        == "uncertainty-rollup"
+    )
+    assert (
         uncertainty_row["uncertainty_method_readiness_summary_entry"]["review_surface"]["anchor_id"]
         == "uncertainty-method-readiness-summary"
     )
@@ -1264,6 +1294,12 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
     assert results_payload["certificate_readiness_summary"]["asset_status_rows"]
     assert results_payload["pre_run_readiness_gate"]["checks"]
     assert results_payload["pre_run_readiness_gate"]["gate_status"] == "blocked_for_formal_claim"
+    assert results_payload["uncertainty_report_pack"]["top_contributors"]
+    assert results_payload["uncertainty_digest"]["digest"]["uncertainty_overview_summary"]
+    assert results_payload["uncertainty_rollup"]["budget_completeness_summary"]
+    assert results_payload["uncertainty_rollup"]["db_ready_stub"]["not_in_default_chain"] is True
+    assert results_payload["uncertainty_rollup"]["primary_evidence_rewritten"] is False
+    assert results_payload["uncertainty_rollup"]["not_ready_for_formal_claim"] is True
     assert uncertainty_row["uncertainty_method_readiness_summary_entry"]["linked_uncertainty_inputs"]
     assert audit_row["audit_readiness_digest_entry"]["linked_measurement_gaps"]
     assert audit_row["audit_readiness_digest_entry"]["reviewer_next_step_digest"]
@@ -1285,6 +1321,9 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
         certificate_lifecycle_row,
         certificate_row,
         pre_run_gate_row,
+        uncertainty_report_pack_row,
+        uncertainty_digest_row,
+        uncertainty_rollup_row,
         uncertainty_row,
         audit_row,
     ):
