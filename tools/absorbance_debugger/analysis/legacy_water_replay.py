@@ -1057,7 +1057,7 @@ def _summary_rows(detail_df: pd.DataFrame) -> pd.DataFrame:
     for analyzer_id, subset in detail_df.groupby("analyzer_id", dropna=False):
         legacy_subset = subset[subset["water_lineage_mode"].isin(legacy_modes)].sort_values(
             ["gap_closed_ratio_capped_0_100", "gap_closed_ratio_raw", "delta_vs_none_overall", "delta_vs_none_zero"],
-            ascending=[False, False, False],
+            ascending=[False, False, False, False],
             na_position="last",
             ignore_index=True,
         )
