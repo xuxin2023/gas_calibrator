@@ -1197,34 +1197,58 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
         assert results_payload[key]["not_real_acceptance_evidence"] is True
 
     assert "Scope Readiness Summary" in results_payload["result_summary_text"]
-    assert "当前覆盖：" in results_payload["result_summary_text"]
-    assert "仍缺证据：" in results_payload["result_summary_text"]
-    assert "当前阻塞：" in results_payload["result_summary_text"]
+    assert "Reference Asset Registry" in results_payload["result_summary_text"]
+    assert "Certificate Lifecycle Summary" in results_payload["result_summary_text"]
+    assert "Pre-run Readiness Gate" in results_payload["result_summary_text"]
     assert "Scope Readiness Summary" in reports_payload["result_summary_text"]
-    assert "当前阻塞：" in reports_payload["result_summary_text"]
+    assert "Pre-run Readiness Gate" in reports_payload["result_summary_text"]
 
     scope_row = rows_by_path[scope_json_path]
+    reference_asset_row = rows_by_path[reference_asset_json_path]
+    certificate_lifecycle_row = rows_by_path[certificate_lifecycle_json_path]
     certificate_row = rows_by_path[certificate_json_path]
+    pre_run_gate_row = rows_by_path[pre_run_gate_json_path]
     uncertainty_row = rows_by_path[uncertainty_json_path]
     audit_row = rows_by_path[audit_json_path]
 
     assert scope_row["artifact_key"] == "scope_readiness_summary"
+    assert reference_asset_row["artifact_key"] == "reference_asset_registry"
+    assert certificate_lifecycle_row["artifact_key"] == "certificate_lifecycle_summary"
     assert certificate_row["artifact_key"] == "certificate_readiness_summary"
+    assert pre_run_gate_row["artifact_key"] == "pre_run_readiness_gate"
     assert uncertainty_row["artifact_key"] == "uncertainty_method_readiness_summary"
     assert audit_row["artifact_key"] == "audit_readiness_digest"
     assert scope_row["artifact_role"] == "diagnostic_analysis"
+    assert reference_asset_row["artifact_role"] == "execution_summary"
+    assert certificate_lifecycle_row["artifact_role"] == "diagnostic_analysis"
+    assert pre_run_gate_row["artifact_role"] == "diagnostic_analysis"
     assert "Step 2 reviewer readiness only" in scope_row["role_status_display"]
     assert "formal scope approval" in scope_row["note"]
+    assert "reference asset ledger" in reference_asset_row["note"].lower()
+    assert "certificate lifecycle skeleton" in certificate_lifecycle_row["note"].lower()
     assert "missing certificates" in certificate_row["note"].lower()
     assert "pass results" in certificate_row["note"].lower()
+    assert "advisory" in pre_run_gate_row["note"].lower()
     assert "traceability skeleton" in audit_row["note"].lower()
     assert (
         scope_row["scope_readiness_summary_entry"]["review_surface"]["anchor_id"]
         == "scope-readiness-summary"
     )
     assert (
+        reference_asset_row["reference_asset_registry_entry"]["review_surface"]["anchor_id"]
+        == "reference-asset-registry"
+    )
+    assert (
+        certificate_lifecycle_row["certificate_lifecycle_summary_entry"]["review_surface"]["anchor_id"]
+        == "certificate-lifecycle-summary"
+    )
+    assert (
         certificate_row["certificate_readiness_summary_entry"]["review_surface"]["anchor_id"]
         == "certificate-readiness-summary"
+    )
+    assert (
+        pre_run_gate_row["pre_run_readiness_gate_entry"]["review_surface"]["anchor_id"]
+        == "pre-run-readiness-gate"
     )
     assert (
         uncertainty_row["uncertainty_method_readiness_summary_entry"]["review_surface"]["anchor_id"]
@@ -1235,6 +1259,11 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
         == "audit-readiness-digest"
     )
     assert scope_row["scope_readiness_summary_entry"]["linked_method_confirmation_items"]
+    assert reference_asset_row["reference_asset_registry_entry"]["assets"]
+    assert certificate_lifecycle_row["certificate_lifecycle_summary_entry"]["certificate_rows"]
+    assert certificate_row["certificate_readiness_summary_entry"]["asset_status_rows"]
+    assert pre_run_gate_row["pre_run_readiness_gate_entry"]["checks"]
+    assert pre_run_gate_row["pre_run_readiness_gate_entry"]["gate_status"] == "blocked_for_formal_claim"
     assert uncertainty_row["uncertainty_method_readiness_summary_entry"]["linked_uncertainty_inputs"]
     assert audit_row["audit_readiness_digest_entry"]["linked_measurement_gaps"]
     assert audit_row["audit_readiness_digest_entry"]["reviewer_next_step_digest"]
@@ -1250,7 +1279,15 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
     assert list(scope_row["scope_readiness_summary_entry"].get("boundary_fragment_keys") or [])
     assert list(scope_row["scope_readiness_summary_entry"].get("non_claim_fragment_keys") or [])
     assert list(audit_row["audit_readiness_digest_entry"].get("reviewer_next_step_fragment_keys") or [])
-    for row in (scope_row, certificate_row, uncertainty_row, audit_row):
+    for row in (
+        scope_row,
+        reference_asset_row,
+        certificate_lifecycle_row,
+        certificate_row,
+        pre_run_gate_row,
+        uncertainty_row,
+        audit_row,
+    ):
         note_text = str(row.get("note") or "").lower()
         assert "compliance" not in note_text
         assert "accreditation" not in note_text

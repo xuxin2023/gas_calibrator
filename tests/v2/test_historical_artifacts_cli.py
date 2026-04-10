@@ -96,6 +96,20 @@ def test_historical_scan_supports_single_run_dir_and_root_dir(tmp_path: Path, ca
     assert single_report["runs"][0]["scope_overview"]
     assert single_report["runs"][0]["decision_rule_overview"]
     assert single_report["runs"][0]["conformity_boundary"]
+    assert single_report["runs"][0]["asset_readiness_overview"]
+    assert single_report["runs"][0]["certificate_lifecycle_overview"]
+    assert single_report["runs"][0]["pre_run_gate_status"] in {
+        "ok_for_reviewer_mapping",
+        "warning_reviewer_attention",
+        "blocked_for_formal_claim",
+    }
+    assert single_report["runs"][0]["pre_run_gate_summary"]
+    assert single_report["runs"][0]["blocking_digest"]
+    assert single_report["runs"][0]["warning_digest"]
+    assert single_report["runs"][0]["reviewer_only_boundary"]
+    assert single_report["runs"][0]["ready_for_readiness_mapping"] is True
+    assert single_report["runs"][0]["not_ready_for_formal_claim"] is True
+    assert single_report["runs"][0]["not_real_acceptance_evidence"] is True
     assert single_report["runs"][0]["recognition_scope_rollup"]["repository_mode"] == "file_artifact_first"
 
     assert historical_artifacts.main(["scan", "--root-dir", str(root_dir)]) == 0
@@ -113,6 +127,9 @@ def test_historical_scan_supports_single_run_dir_and_root_dir(tmp_path: Path, ca
     assert batch_report["compatibility_rollup"]["regenerate_recommended_count"] == 2
     assert batch_report["recognition_scope_rollup"]["rollup_scope"] == "root-dir"
     assert batch_report["recognition_scope_rollup"]["readiness_status_counts"]
+    assert batch_report["recognition_scope_rollup"]["pre_run_gate_status_counts"]
+    assert batch_report["pre_run_gate_status_counts"]
+    assert batch_report["ready_for_readiness_mapping_count"] == 2
     reader_modes = {row["run_dir"]: row["current_reader_mode"] for row in batch_report["runs"]}
     assert reader_modes[str(legacy_run.resolve())] == "compatibility_adapter"
     assert reader_modes[str(canonical_run.resolve())] == "canonical_direct"
@@ -138,6 +155,8 @@ def test_historical_export_summary_writes_json_report(tmp_path: Path, capsys) ->
     assert payload["runs"][0]["primary_evidence_rewritten"] is False
     assert payload["runs"][0]["recognition_scope_rollup"]["index_schema_version"]
     assert payload["runs"][0]["scope_non_claim_note"]
+    assert payload["runs"][0]["asset_readiness_overview"]
+    assert payload["runs"][0]["pre_run_gate_status"]
 
 
 def test_historical_regenerate_dry_run_does_not_write_sidecars_or_rewrite_primary_evidence(

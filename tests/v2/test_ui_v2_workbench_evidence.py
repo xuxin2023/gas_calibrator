@@ -138,8 +138,20 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
         == "scope_readiness_summary"
     )
     assert (
+        report_payload["recognition_readiness_evidence"]["reference_asset_registry"]["artifact_type"]
+        == "reference_asset_registry"
+    )
+    assert (
+        report_payload["recognition_readiness_evidence"]["certificate_lifecycle_summary"]["artifact_type"]
+        == "certificate_lifecycle_summary"
+    )
+    assert (
         report_payload["recognition_readiness_evidence"]["certificate_readiness_summary"]["artifact_type"]
         == "certificate_readiness_summary"
+    )
+    assert (
+        report_payload["recognition_readiness_evidence"]["pre_run_readiness_gate"]["artifact_type"]
+        == "pre_run_readiness_gate"
     )
     assert (
         report_payload["recognition_readiness_evidence"]["uncertainty_method_readiness_summary"]["artifact_type"]
@@ -216,6 +228,18 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
     assert snapshot_payload["recognition_readiness_evidence"]["available"] is True
     assert (
         "scope_readiness_summary"
+        in snapshot_payload["recognition_readiness_evidence"]["artifact_paths"]
+    )
+    assert (
+        "reference_asset_registry"
+        in snapshot_payload["recognition_readiness_evidence"]["artifact_paths"]
+    )
+    assert (
+        "certificate_lifecycle_summary"
+        in snapshot_payload["recognition_readiness_evidence"]["artifact_paths"]
+    )
+    assert (
+        "pre_run_readiness_gate"
         in snapshot_payload["recognition_readiness_evidence"]["artifact_paths"]
     )
     assert any(
@@ -304,7 +328,10 @@ def test_workbench_evidence_generation_updates_artifacts_and_results_snapshot(tm
     assert results_snapshot["simulation_evidence_sidecar_bundle"]["artifact_type"] == "simulation_evidence_sidecar_bundle"
     assert results_snapshot["measurement_phase_coverage_report"]["artifact_type"] == "measurement_phase_coverage_report"
     assert results_snapshot["scope_readiness_summary"]["artifact_type"] == "scope_readiness_summary"
+    assert results_snapshot["reference_asset_registry"]["artifact_type"] == "reference_asset_registry"
+    assert results_snapshot["certificate_lifecycle_summary"]["artifact_type"] == "certificate_lifecycle_summary"
     assert results_snapshot["certificate_readiness_summary"]["artifact_type"] == "certificate_readiness_summary"
+    assert results_snapshot["pre_run_readiness_gate"]["artifact_type"] == "pre_run_readiness_gate"
     assert (
         results_snapshot["uncertainty_method_readiness_summary"]["artifact_type"]
         == "uncertainty_method_readiness_summary"

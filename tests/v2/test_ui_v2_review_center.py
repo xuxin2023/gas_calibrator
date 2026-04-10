@@ -264,6 +264,13 @@ def test_review_center_aggregates_multi_evidence_and_acceptance_readiness(tmp_pa
     assert review_center["index_summary"]["compatibility_rollup"]["primary_evidence_rewritten"] is False
     assert review_center["index_summary"]["recognition_scope_rollup"]["repository_mode"] == "file_artifact_first"
     assert review_center["index_summary"]["recognition_scope_rollup"]["gateway_mode"] == "file_backed_default"
+    assert review_center["index_summary"]["recognition_scope_rollup"]["asset_readiness_overview"]
+    assert review_center["index_summary"]["recognition_scope_rollup"]["certificate_lifecycle_overview"]
+    assert review_center["index_summary"]["recognition_scope_rollup"]["pre_run_gate_status"] in {
+        "ok_for_reviewer_mapping",
+        "warning_reviewer_attention",
+        "blocked_for_formal_claim",
+    }
     assert "兼容性 rollup" in str(review_center["index_summary"]["compatibility_summary"] or "")
     assert "兼容性 rollup" in str(review_center["index_summary"]["summary"] or "")
     assert "范围/规则 rollup" in str(review_center["index_summary"]["summary"] or "")
@@ -319,6 +326,21 @@ def test_review_center_aggregates_multi_evidence_and_acceptance_readiness(tmp_pa
     assert "兼容性 rollup" in compatibility_item["detail_text"]
     assert "current_reader_mode" not in compatibility_item["detail_text"]
     assert readiness_items
+    assert any(
+        "Reference Asset Registry" in str(item.get("detail_text") or "")
+        or "??????" in str(item.get("detail_text") or "")
+        for item in readiness_items
+    )
+    assert any(
+        "Certificate Lifecycle Summary" in str(item.get("detail_text") or "")
+        or "????????" in str(item.get("detail_text") or "")
+        for item in readiness_items
+    )
+    assert any(
+        "Pre-run Readiness Gate" in str(item.get("detail_text") or "")
+        or "??????" in str(item.get("detail_text") or "")
+        for item in readiness_items
+    )
     assert any("认可范围概览" in str(item.get("detail_text") or "") for item in readiness_items)
     assert any("决策规则概览" in str(item.get("detail_text") or "") for item in readiness_items)
     assert any("符合性边界" in str(item.get("detail_text") or "") for item in readiness_items)
