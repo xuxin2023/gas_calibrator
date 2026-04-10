@@ -109,6 +109,18 @@ RELEASE_VALIDATION_MANIFEST_FILENAME = "release_validation_manifest.json"
 RELEASE_VALIDATION_MANIFEST_MARKDOWN_FILENAME = "release_validation_manifest.md"
 AUDIT_READINESS_DIGEST_FILENAME = "audit_readiness_digest.json"
 AUDIT_READINESS_DIGEST_MARKDOWN_FILENAME = "audit_readiness_digest.md"
+PT_ILC_REGISTRY_FILENAME = "pt_ilc_registry.json"
+PT_ILC_REGISTRY_MARKDOWN_FILENAME = "pt_ilc_registry.md"
+EXTERNAL_COMPARISON_IMPORTER_FILENAME = "external_comparison_importer.json"
+EXTERNAL_COMPARISON_IMPORTER_MARKDOWN_FILENAME = "external_comparison_importer.md"
+COMPARISON_EVIDENCE_PACK_FILENAME = "comparison_evidence_pack.json"
+COMPARISON_EVIDENCE_PACK_MARKDOWN_FILENAME = "comparison_evidence_pack.md"
+SCOPE_COMPARISON_VIEW_FILENAME = "scope_comparison_view.json"
+SCOPE_COMPARISON_VIEW_MARKDOWN_FILENAME = "scope_comparison_view.md"
+COMPARISON_DIGEST_FILENAME = "comparison_digest.json"
+COMPARISON_DIGEST_MARKDOWN_FILENAME = "comparison_digest.md"
+COMPARISON_ROLLUP_FILENAME = "comparison_rollup.json"
+COMPARISON_ROLLUP_MARKDOWN_FILENAME = "comparison_rollup.md"
 
 RECOGNITION_READINESS_SUMMARY_FILENAMES = (
     SCOPE_READINESS_SUMMARY_FILENAME,
@@ -277,6 +289,21 @@ _RECOGNITION_ARTIFACT_ANCHORS: dict[str, dict[str, str]] = {
         "anchor_id": "simulation-evidence-sidecar-bundle",
         "anchor_label": "Simulation evidence sidecar bundle",
     },
+    "pt_ilc_registry": {"anchor_id": "pt-ilc-registry", "anchor_label": "PT/ILC 注册表"},
+    "external_comparison_importer": {
+        "anchor_id": "external-comparison-importer",
+        "anchor_label": "外部比对导入器",
+    },
+    "comparison_evidence_pack": {
+        "anchor_id": "comparison-evidence-pack",
+        "anchor_label": "比对证据包",
+    },
+    "scope_comparison_view": {
+        "anchor_id": "scope-comparison-view",
+        "anchor_label": "范围比对视图",
+    },
+    "comparison_digest": {"anchor_id": "comparison-digest", "anchor_label": "比对摘要"},
+    "comparison_rollup": {"anchor_id": "comparison-rollup", "anchor_label": "比对汇总"},
 }
 
 _RECOGNITION_NEXT_ARTIFACT_DEFAULTS: dict[str, list[str]] = {

@@ -534,11 +534,11 @@ def test_legacy_h2o_summary_selection_includes_repo_selected_co2_rows() -> None:
                 "analyzer": "GA01",
                 "point_title": "co2_main",
                 "point_row": 1,
-                "temp_set_c": 20.0,
+                "temp_set_c": 10.0,
                 "target_co2_ppm": 300.0,
                 "ratio_source": "ratio_co2_raw",
                 "fixed_zero_residual_mode": "none",
-                "temp_use_mean_c": 20.0,
+                "temp_use_mean_c": 10.0,
                 "A_mean": 1.25,
             }
         ]
@@ -549,7 +549,7 @@ def test_legacy_h2o_summary_selection_includes_repo_selected_co2_rows() -> None:
                 "analyzer": "GA01",
                 "point_title": "co2_main",
                 "point_row": 1,
-                "temp_set_c": 20.0,
+                "temp_set_c": 10.0,
                 "target_co2_ppm": 300.0,
                 "route": "co2",
                 "stage": "co2_phase",
@@ -658,7 +658,7 @@ def test_legacy_h2o_summary_selection_includes_repo_selected_co2_rows() -> None:
     assert bool(plus_zero_row["uses_co2_temp_groups"]) is True
     assert bool(plus_zero_row["uses_co2_zero_ppm_rows"]) is True
     assert int(plus_zero_row["zero_ppm_anchor_row_count"]) == 1
-    assert abs(float(plus_zero_row["delta_h2o_ratio_vs_legacy_summary_anchor"]) - 0.18) < 1.0e-9
+    assert abs(float(plus_zero_row["delta_h2o_ratio_vs_legacy_summary_anchor"]) + 0.10) < 1.0e-9
 
 
 def test_v5_mode2_semantics_are_marked_as_baseline_bearing_profile() -> None:

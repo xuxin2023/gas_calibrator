@@ -719,23 +719,31 @@ def fit_fixed_absorbance_replay_models(
             best_predictions["best_validation_pred_ppm"] = np.nan
             best_predictions["best_validation_error_ppm"] = np.nan
 
+        selection_columns = [
+            "analyzer_id",
+            "water_lineage_mode",
+            "best_absorbance_model",
+            "best_absorbance_model_label",
+            "best_model_family",
+            "fixed_best_model",
+            "fixed_model_family",
+            "fixed_zero_residual_mode",
+            "fixed_prediction_scope",
+            "selected_source_pair",
+            "selected_ratio_source",
+            "selection_reason",
+        ]
+        selection_lookup = selection[selection_columns].copy()
+        duplicate_columns = [
+            column
+            for column in selection_lookup.columns
+            if column not in {"analyzer_id", "water_lineage_mode"} and column in best_predictions.columns
+        ]
+        if duplicate_columns:
+            selection_lookup = selection_lookup.drop(columns=duplicate_columns)
+
         best_predictions = best_predictions.merge(
-            selection[
-                [
-                    "analyzer_id",
-                    "water_lineage_mode",
-                    "best_absorbance_model",
-                    "best_absorbance_model_label",
-                    "best_model_family",
-                    "fixed_best_model",
-                    "fixed_model_family",
-                    "fixed_zero_residual_mode",
-                    "fixed_prediction_scope",
-                    "selected_source_pair",
-                    "selected_ratio_source",
-                    "selection_reason",
-                ]
-            ],
+            selection_lookup,
             on=["analyzer_id", "water_lineage_mode"],
             how="left",
         )
