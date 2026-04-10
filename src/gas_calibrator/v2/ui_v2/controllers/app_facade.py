@@ -1946,6 +1946,10 @@ class AppFacade:
             release_evidence_pack_index=release_evidence_pack_index,
             software_validation_rollup=software_validation_rollup,
             audit_readiness_digest=audit_readiness_digest,
+            pt_ilc_registry=pt_ilc_registry,
+            comparison_evidence_pack=comparison_evidence_pack,
+            comparison_digest=comparison_digest,
+            comparison_rollup=comparison_rollup,
             compatibility_scan_summary=compatibility_scan_summary,
             recognition_scope_rollup=recognition_scope_rollup,
         )
@@ -2714,6 +2718,10 @@ class AppFacade:
         release_evidence_pack_index: dict[str, Any],
         software_validation_rollup: dict[str, Any],
         audit_readiness_digest: dict[str, Any],
+        pt_ilc_registry: dict[str, Any],
+        comparison_evidence_pack: dict[str, Any],
+        comparison_digest: dict[str, Any],
+        comparison_rollup: dict[str, Any],
         compatibility_scan_summary: dict[str, Any],
         recognition_scope_rollup: dict[str, Any],
     ) -> dict[str, Any]:
