@@ -891,6 +891,9 @@ def _detail_rows(compare: pd.DataFrame, fixed_selection: pd.DataFrame) -> pd.Dat
         detail = {
             "analyzer_id": analyzer_id,
             "water_lineage_mode": mode,
+            "mode2_semantic_profile": str(subset.get("mode2_semantic_profile", pd.Series(["mode2_semantics_unknown"])).fillna("mode2_semantics_unknown").iloc[0]),
+            "mode2_legacy_raw_compare_safe": bool(subset.get("mode2_legacy_raw_compare_safe", pd.Series([False])).fillna(False).iloc[0]),
+            "mode2_is_baseline_bearing_profile": bool(subset.get("mode2_is_baseline_bearing_profile", pd.Series([False])).fillna(False).iloc[0]),
             "overall_rmse": new_metrics["rmse"],
             "zero_rmse": zero_metrics["rmse"],
             "low_range_rmse": _metrics(low_subset["new_error"])["rmse"],
@@ -953,6 +956,13 @@ def _detail_rows(compare: pd.DataFrame, fixed_selection: pd.DataFrame) -> pd.Dat
         none_main = float(none_row["main_range_rmse"]) if none_row is not None else math.nan
         none_gap = float(none_row["gap_to_old_overall"]) if none_row is not None else math.nan
         current_gap = float(row.gap_to_old_overall) if pd.notna(row.gap_to_old_overall) else math.nan
+        gap_closed_ratio_raw = (
+            (none_gap - current_gap) / none_gap
+            if pd.notna(none_gap) and abs(none_gap) > 1.0e-12 and pd.notna(current_gap)
+            else math.nan
+        )
+        gap_closed_ratio_capped = float(np.clip(gap_closed_ratio_raw, 0.0, 1.0)) if pd.notna(gap_closed_ratio_raw) else math.nan
+        is_laggard = bool(pd.notna(none_gap) and none_gap > 0.0)
         gains.append(
             {
                 "analyzer_id": row.analyzer_id,
@@ -961,11 +971,14 @@ def _detail_rows(compare: pd.DataFrame, fixed_selection: pd.DataFrame) -> pd.Dat
                 "delta_vs_none_zero": none_zero - float(row.zero_rmse) if pd.notna(none_zero) and pd.notna(row.zero_rmse) else math.nan,
                 "delta_vs_none_low": none_low - float(row.low_range_rmse) if pd.notna(none_low) and pd.notna(row.low_range_rmse) else math.nan,
                 "delta_vs_none_main": none_main - float(row.main_range_rmse) if pd.notna(none_main) and pd.notna(row.main_range_rmse) else math.nan,
-                "gap_closed_ratio_vs_current_new_chain": (
-                    (none_gap - current_gap) / none_gap
-                    if pd.notna(none_gap) and abs(none_gap) > 1.0e-12 and pd.notna(current_gap)
-                    else math.nan
-                ),
+                "gap_closed_ratio_vs_current_new_chain": gap_closed_ratio_raw,
+                "gap_closed_ratio_raw": gap_closed_ratio_raw,
+                "gap_closed_ratio_capped_0_100": gap_closed_ratio_capped,
+                "baseline_none_gap_to_old_overall": none_gap,
+                "crossed_old_chain_flag": bool(pd.notna(current_gap) and current_gap <= 0.0),
+                "overclosure_ratio": max(float(gap_closed_ratio_raw) - 1.0, 0.0) if pd.notna(gap_closed_ratio_raw) else math.nan,
+                "laggard_only_weighted_gap_closed_ratio_capped": gap_closed_ratio_capped if is_laggard else math.nan,
+                "laggard_only_analyzer_count": 1 if is_laggard else 0,
             }
         )
     gain_df = pd.DataFrame(gains)
@@ -1012,12 +1025,16 @@ def _stage_rows(compare: pd.DataFrame, detail_df: pd.DataFrame) -> pd.DataFrame:
             ("final_ppm", "main_range_rmse", detail.get("main_range_rmse"), detail.get("delta_vs_none_main")),
             ("final_ppm", "gap_to_old_overall", detail.get("gap_to_old_overall"), math.nan),
             ("final_ppm", "gap_closed_ratio_vs_current_new_chain", detail.get("gap_closed_ratio_vs_current_new_chain"), detail.get("gap_closed_ratio_vs_current_new_chain")),
+            ("final_ppm", "gap_closed_ratio_capped_0_100", detail.get("gap_closed_ratio_capped_0_100"), detail.get("gap_closed_ratio_capped_0_100")),
         ]
         for layer, metric_name, metric_value, gain_vs_none in metrics_to_emit:
             rows.append(
                 {
                     "analyzer_id": analyzer_id,
                     "water_lineage_mode": mode,
+                    "mode2_semantic_profile": detail.get("mode2_semantic_profile"),
+                    "mode2_legacy_raw_compare_safe": detail.get("mode2_legacy_raw_compare_safe"),
+                    "mode2_is_baseline_bearing_profile": detail.get("mode2_is_baseline_bearing_profile"),
                     "layer": layer,
                     "metric_name": metric_name,
                     "metric_value": metric_value,
@@ -1030,11 +1047,16 @@ def _stage_rows(compare: pd.DataFrame, detail_df: pd.DataFrame) -> pd.DataFrame:
 def _summary_rows(detail_df: pd.DataFrame) -> pd.DataFrame:
     if detail_df.empty:
         return pd.DataFrame()
+    profile_cols = [
+        "mode2_semantic_profile",
+        "mode2_legacy_raw_compare_safe",
+        "mode2_is_baseline_bearing_profile",
+    ]
     rows: list[dict[str, Any]] = []
     legacy_modes = [mode for mode in WATER_LINEAGE_MODES if mode != "none"]
     for analyzer_id, subset in detail_df.groupby("analyzer_id", dropna=False):
         legacy_subset = subset[subset["water_lineage_mode"].isin(legacy_modes)].sort_values(
-            ["gap_closed_ratio_vs_current_new_chain", "delta_vs_none_overall", "delta_vs_none_zero"],
+            ["gap_closed_ratio_capped_0_100", "gap_closed_ratio_raw", "delta_vs_none_overall", "delta_vs_none_zero"],
             ascending=[False, False, False],
             na_position="last",
             ignore_index=True,
@@ -1044,6 +1066,7 @@ def _summary_rows(detail_df: pd.DataFrame) -> pd.DataFrame:
             {
                 "summary_scope": "per_analyzer_best_mode",
                 "analyzer_id": analyzer_id,
+                **{column: best[column] for column in profile_cols},
                 "water_lineage_mode": best["water_lineage_mode"],
                 "fixed_best_model": best["fixed_best_model"],
                 "fixed_model_family": best["fixed_model_family"],
@@ -1053,36 +1076,82 @@ def _summary_rows(detail_df: pd.DataFrame) -> pd.DataFrame:
                 "zero_rmse": best["zero_rmse"],
                 "gap_to_old_overall": best["gap_to_old_overall"],
                 "gap_closed_ratio_vs_current_new_chain": best["gap_closed_ratio_vs_current_new_chain"],
+                "gap_closed_ratio_raw": best["gap_closed_ratio_raw"],
+                "gap_closed_ratio_capped_0_100": best["gap_closed_ratio_capped_0_100"],
+                "crossed_old_chain_flag": best["crossed_old_chain_flag"],
+                "overclosure_ratio": best["overclosure_ratio"],
+                "laggard_only_weighted_gap_closed_ratio_capped": best["laggard_only_weighted_gap_closed_ratio_capped"],
+                "laggard_only_analyzer_count": best["laggard_only_analyzer_count"],
                 "delta_vs_none_overall": best["delta_vs_none_overall"],
                 "delta_vs_none_zero": best["delta_vs_none_zero"],
             }
         )
-    mode_summary = (
-        detail_df.groupby("water_lineage_mode", dropna=False)[
-            [
-                "overall_rmse",
-                "zero_rmse",
-                "gap_to_old_overall",
-                "gap_closed_ratio_vs_current_new_chain",
-                "delta_vs_none_overall",
-                "delta_vs_none_zero",
-            ]
-        ]
-        .mean(numeric_only=True)
-        .reset_index()
-    )
-    for row in mode_summary.to_dict(orient="records"):
+
+    aggregate_metric_columns = [
+        "overall_rmse",
+        "zero_rmse",
+        "gap_to_old_overall",
+        "gap_closed_ratio_vs_current_new_chain",
+        "gap_closed_ratio_raw",
+        "gap_closed_ratio_capped_0_100",
+        "overclosure_ratio",
+        "delta_vs_none_overall",
+        "delta_vs_none_zero",
+    ]
+    for group_key, subset in detail_df.groupby(["water_lineage_mode", *profile_cols], dropna=False):
+        mode, profile, legacy_safe, baseline_bearing = group_key
+        laggards = subset[pd.to_numeric(subset["laggard_only_weighted_gap_closed_ratio_capped"], errors="coerce").notna()].copy()
+        if not laggards.empty and "baseline_none_gap_to_old_overall" in laggards.columns:
+            weights = pd.to_numeric(laggards["baseline_none_gap_to_old_overall"], errors="coerce")
+            ratios = pd.to_numeric(laggards["gap_closed_ratio_capped_0_100"], errors="coerce")
+            usable = weights.notna() & ratios.notna() & (weights > 0.0)
+            laggard_weighted = float(np.average(ratios[usable].to_numpy(dtype=float), weights=weights[usable].to_numpy(dtype=float))) if usable.any() else math.nan
+            laggard_count = int(laggards["analyzer_id"].nunique())
+        else:
+            laggard_weighted = math.nan
+            laggard_count = 0
         rows.append(
             {
                 "summary_scope": "aggregate_mode_mean",
                 "analyzer_id": "ALL",
-                **row,
+                "water_lineage_mode": mode,
+                "mode2_semantic_profile": profile,
+                "mode2_legacy_raw_compare_safe": legacy_safe,
+                "mode2_is_baseline_bearing_profile": baseline_bearing,
+                "laggard_only_weighted_gap_closed_ratio_capped": laggard_weighted,
+                "laggard_only_analyzer_count": laggard_count,
+                "crossed_old_chain_flag": bool(subset["crossed_old_chain_flag"].fillna(False).any()),
+                **subset[aggregate_metric_columns].mean(numeric_only=True).to_dict(),
             }
         )
+
+    aggregate_df = pd.DataFrame([row for row in rows if row["summary_scope"] == "aggregate_mode_mean"])
+    if not aggregate_df.empty:
+        for group_key, subset in aggregate_df.groupby(profile_cols, dropna=False):
+            best = subset.sort_values(
+                ["laggard_only_weighted_gap_closed_ratio_capped", "gap_closed_ratio_capped_0_100", "delta_vs_none_overall"],
+                ascending=[False, False, False],
+                na_position="last",
+                ignore_index=True,
+            ).iloc[0]
+            row = best.to_dict()
+            row["summary_scope"] = "aggregate_profile_best_mode"
+            rows.append(row)
     return pd.DataFrame(rows).sort_values(["summary_scope", "analyzer_id", "water_lineage_mode"], ignore_index=True)
 
 
 def _layer_focus(detail_df: pd.DataFrame, stage_df: pd.DataFrame) -> str:
+    if (
+        not detail_df.empty
+        and {"mode2_semantic_profile", "mode2_legacy_raw_compare_safe", "mode2_is_baseline_bearing_profile"} <= set(detail_df.columns)
+        and {"mode2_semantic_profile", "mode2_legacy_raw_compare_safe", "mode2_is_baseline_bearing_profile"} <= set(stage_df.columns)
+    ):
+        first = detail_df.iloc[0]
+        stage_df = stage_df[
+            (stage_df["mode2_semantic_profile"] == first["mode2_semantic_profile"])
+            & (stage_df["mode2_legacy_raw_compare_safe"] == first["mode2_legacy_raw_compare_safe"])
+            & (stage_df["mode2_is_baseline_bearing_profile"] == first["mode2_is_baseline_bearing_profile"])
+        ].copy()
     legacy_stage = stage_df[
         stage_df["water_lineage_mode"].isin({"legacy_h2o_summary_selection", "legacy_h2o_summary_selection_plus_zero_ppm_rows"})
     ].copy()
@@ -1288,6 +1357,133 @@ def _conclusion_rows_clean(detail_df: pd.DataFrame, summary_df: pd.DataFrame, st
     return pd.DataFrame(rows)
 
 
+def _conclusion_rows_profiled(detail_df: pd.DataFrame, summary_df: pd.DataFrame, stage_df: pd.DataFrame) -> pd.DataFrame:
+    if detail_df.empty:
+        return pd.DataFrame()
+    profile_cols = [
+        "mode2_semantic_profile",
+        "mode2_legacy_raw_compare_safe",
+        "mode2_is_baseline_bearing_profile",
+    ]
+    rows: list[dict[str, Any]] = []
+    for group_key, profile_df in detail_df.groupby(profile_cols, dropna=False):
+        profile_values = dict(zip(profile_cols, group_key if isinstance(group_key, tuple) else (group_key,), strict=False))
+        legacy_modes = profile_df[
+            profile_df["water_lineage_mode"].isin(
+                {"legacy_h2o_summary_selection", "legacy_h2o_summary_selection_plus_zero_ppm_rows"}
+            )
+        ].copy()
+        best_legacy = legacy_modes.sort_values(
+            ["gap_closed_ratio_capped_0_100", "gap_closed_ratio_raw", "delta_vs_none_overall", "delta_vs_none_zero"],
+            ascending=[False, False, False, False],
+            na_position="last",
+            ignore_index=True,
+        ).head(1)
+        best_row = best_legacy.iloc[0] if not best_legacy.empty else profile_df.iloc[0]
+        best_mean = summary_df[
+            (summary_df["summary_scope"] == "aggregate_mode_mean")
+            & (summary_df["water_lineage_mode"] == best_row["water_lineage_mode"])
+            & (summary_df["mode2_semantic_profile"] == profile_values["mode2_semantic_profile"])
+            & (summary_df["mode2_legacy_raw_compare_safe"] == profile_values["mode2_legacy_raw_compare_safe"])
+            & (summary_df["mode2_is_baseline_bearing_profile"] == profile_values["mode2_is_baseline_bearing_profile"])
+        ]
+        mean_gap_closed_capped = (
+            float(pd.to_numeric(best_mean.iloc[0]["gap_closed_ratio_capped_0_100"], errors="coerce"))
+            if not best_mean.empty
+            else math.nan
+        )
+        laggard_weighted = (
+            float(pd.to_numeric(best_mean.iloc[0]["laggard_only_weighted_gap_closed_ratio_capped"], errors="coerce"))
+            if not best_mean.empty
+            else math.nan
+        )
+        most_dependent = (
+            legacy_modes.sort_values("gap_closed_ratio_capped_0_100", ascending=False, na_position="last").iloc[0]["analyzer_id"]
+            if not legacy_modes.empty
+            else ""
+        )
+        layer_focus = _layer_focus(profile_df, stage_df)
+        remaining_gap = (
+            float(pd.to_numeric(best_row.get("gap_to_old_overall"), errors="coerce"))
+            if pd.notna(best_row.get("gap_to_old_overall"))
+            else math.nan
+        )
+        crossed = bool(best_row.get("crossed_old_chain_flag", False))
+        significant = pd.notna(mean_gap_closed_capped) and mean_gap_closed_capped >= 0.15
+        support_statement = pd.notna(mean_gap_closed_capped) and mean_gap_closed_capped > 0.0 and pd.notna(remaining_gap) and remaining_gap > 0.0
+        rows.extend(
+            [
+                {
+                    **profile_values,
+                    "question_id": "legacy_gap_closure",
+                    "question": "Did legacy water-lineage replay significantly shrink the gap to old_chain?",
+                    "answer": "yes" if significant else "partial_or_no",
+                    "evidence": (
+                        f"best_mode={best_row['water_lineage_mode']}; capped_gap_closed_ratio={mean_gap_closed_capped:.4f}; laggard_weighted_capped={laggard_weighted:.4f}"
+                        if pd.notna(mean_gap_closed_capped)
+                        else "insufficient_data"
+                    ),
+                    "recommended_mode": best_row["water_lineage_mode"],
+                },
+                {
+                    **profile_values,
+                    "question_id": "dominant_layer",
+                    "question": "Did the gains land more in the zero/temp layer or the final ppm layer?",
+                    "answer": layer_focus,
+                    "evidence": "Stage metrics compare zero-point stability gains against final ppm RMSE and capped gap-closure gains.",
+                    "recommended_mode": best_row["water_lineage_mode"],
+                },
+                {
+                    **profile_values,
+                    "question_id": "most_dependent_analyzer",
+                    "question": "Which analyzer depends most on legacy water replay within this semantic profile?",
+                    "answer": str(most_dependent),
+                    "evidence": "Chosen by the largest capped gap-closure ratio among legacy modes.",
+                    "recommended_mode": best_row["water_lineage_mode"],
+                },
+                {
+                    **profile_values,
+                    "question_id": "statement_support",
+                    "question": "Does the evidence support 'missing legacy water-lineage consumption is a real contributor, but not the sole cause'?",
+                    "answer": "supported" if support_statement else "not_supported_or_inconclusive",
+                    "evidence": (
+                        f"capped_gap_closed_ratio={mean_gap_closed_capped:.4f}; remaining_gap_to_old_overall={remaining_gap:.4f}"
+                        if pd.notna(mean_gap_closed_capped) and pd.notna(remaining_gap)
+                        else "insufficient_data"
+                    ),
+                    "recommended_mode": best_row["water_lineage_mode"],
+                },
+                {
+                    **profile_values,
+                    "question_id": "remaining_main_causes",
+                    "question": "If a material gap remains, what are the main residual causes?",
+                    "answer": (
+                        "weak_absorbance_ppm_model|missing_40C_zero_anchor"
+                        if pd.notna(remaining_gap) and remaining_gap > 0.0
+                        else "remaining_gap_not_obvious"
+                    ),
+                    "evidence": "Legacy replay is diagnostic-only and does not remove the weak ppm model / missing 40C zero-anchor risks.",
+                    "recommended_mode": best_row["water_lineage_mode"],
+                },
+                {
+                    **profile_values,
+                    "question_id": "headline",
+                    "question": "headline",
+                    "answer": (
+                        f"{best_row['water_lineage_mode']} over-close/crossed_old_chain before capping; report uses capped {mean_gap_closed_capped:.2%}"
+                        if crossed and pd.notna(mean_gap_closed_capped)
+                        else f"{best_row['water_lineage_mode']} closed {mean_gap_closed_capped:.2%} of the current-new-chain gap (capped)"
+                        if pd.notna(mean_gap_closed_capped)
+                        else "insufficient_data"
+                    ),
+                    "evidence": f"best_mode={best_row['water_lineage_mode']}; crossed_old_chain={crossed}",
+                    "recommended_mode": best_row["water_lineage_mode"],
+                },
+            ]
+        )
+    return pd.DataFrame(rows)
+
+
 def run_legacy_water_replay_diagnostic(
     *,
     water_lineage_samples: pd.DataFrame,
@@ -1317,7 +1513,7 @@ def run_legacy_water_replay_diagnostic(
     detail = _detail_rows(compare, fixed_selection)
     summary = _summary_rows(detail)
     stage_metrics = _stage_rows(compare, detail)
-    conclusions = _conclusion_rows_clean(detail, summary, stage_metrics)
+    conclusions = _conclusion_rows_profiled(detail, summary, stage_metrics)
     return {
         "rules": rules,
         "feature_frame": feature_frame,

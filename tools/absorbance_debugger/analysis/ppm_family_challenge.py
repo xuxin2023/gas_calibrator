@@ -481,3 +481,361 @@ def _cross_term_gains(detail_df: pd.DataFrame) -> pd.DataFrame:
             }
         )
     return pd.DataFrame(rows)
+
+
+def _profile_rows(
+    detail_df: pd.DataFrame,
+    summary_df: pd.DataFrame,
+    legacy_summary: pd.DataFrame,
+) -> list[dict[str, Any]]:
+    profile_cols = [
+        "mode2_semantic_profile",
+        "mode2_legacy_raw_compare_safe",
+        "mode2_is_baseline_bearing_profile",
+    ]
+    legacy_lookup = _profile_legacy_gap_lookup(legacy_summary)
+    cross_gains = _cross_term_gains(detail_df)
+    rows: list[dict[str, Any]] = []
+    best_profile_rows = summary_df[summary_df["summary_scope"] == "aggregate_profile_best_family"].copy()
+
+    for best in best_profile_rows.itertuples(index=False):
+        key = (
+            str(best.mode2_semantic_profile),
+            bool(best.mode2_legacy_raw_compare_safe),
+            bool(best.mode2_is_baseline_bearing_profile),
+        )
+        legacy_best = legacy_lookup.get(key, {})
+        legacy_gap = pd.to_numeric(pd.Series([legacy_best.get("laggard_only_weighted_gap_closed_ratio_capped", math.nan)]), errors="coerce").iloc[0]
+        ppm_gap = pd.to_numeric(pd.Series([getattr(best, "laggard_only_weighted_gap_closed_ratio_capped", math.nan)]), errors="coerce").iloc[0]
+        ppm_delta = pd.to_numeric(pd.Series([getattr(best, "delta_vs_current_fixed_family_overall", math.nan)]), errors="coerce").iloc[0]
+        remaining_zero_gap = pd.to_numeric(pd.Series([getattr(best, "gap_to_old_zero", math.nan)]), errors="coerce").iloc[0]
+        remaining_temp_gap = pd.to_numeric(pd.Series([getattr(best, "temp_bias_spread", math.nan)]), errors="coerce").iloc[0]
+        profile_detail = detail_df[
+            (detail_df["mode2_semantic_profile"] == best.mode2_semantic_profile)
+            & (detail_df["mode2_legacy_raw_compare_safe"] == bool(best.mode2_legacy_raw_compare_safe))
+            & (detail_df["mode2_is_baseline_bearing_profile"] == bool(best.mode2_is_baseline_bearing_profile))
+        ].copy()
+        profile_cross = cross_gains.merge(
+            profile_detail[["analyzer_id"] + profile_cols].drop_duplicates(),
+            on="analyzer_id",
+            how="inner",
+        )
+        analyzer_gain_text = "none"
+        if not profile_cross.empty:
+            analyzer_gain_text = "; ".join(
+                f"{row.analyzer_id}:{row.best_cross_family_mode}:{float(row.best_cross_delta_overall):.4f}"
+                for row in profile_cross.sort_values("analyzer_id").itertuples(index=False)
+            )
+        ga01_gain = pd.to_numeric(
+            profile_cross.loc[profile_cross["analyzer_id"] == "GA01", "best_cross_delta_overall"],
+            errors="coerce",
+        )
+        other_gain = pd.to_numeric(
+            profile_cross.loc[profile_cross["analyzer_id"].isin(["GA02", "GA03"]), "best_cross_delta_overall"],
+            errors="coerce",
+        )
+        ga01_more_important = (
+            ga01_gain.notna().any()
+            and (
+                other_gain.dropna().empty
+                or float(ga01_gain.dropna().iloc[0]) > float(other_gain.dropna().mean()) + 0.5
+            )
+        )
+        profile_values = dict(zip(profile_cols, key, strict=False))
+        rows.extend(
+            [
+                {
+                    "conclusion_scope": "per_profile",
+                    **profile_values,
+                    "question_id": "weak_ppm_vs_legacy_water",
+                    "question": "Does weak ppm family behavior look more like the unified main cause than missing legacy water-lineage replay?",
+                    "answer": "yes_more_likely" if pd.notna(ppm_gap) and (pd.isna(legacy_gap) or ppm_gap > legacy_gap + 0.05) else "not_clear_or_profile_limited",
+                    "evidence": (
+                        f"best_family={best.ppm_family_mode}; laggard_gap_closed_capped={ppm_gap:.4f}; legacy_replay_best_capped={legacy_gap:.4f}"
+                        if pd.notna(ppm_gap)
+                        else "insufficient_data"
+                    ),
+                    "recommended_ppm_family_mode": best.ppm_family_mode,
+                },
+                {
+                    "conclusion_scope": "per_profile",
+                    **profile_values,
+                    "question_id": "humidity_cross_importance",
+                    "question": "Are humidity cross terms more important for GA01 than for GA02/GA03?",
+                    "answer": "yes_ga01_stronger" if ga01_more_important else "no_clear_ga01_dominance",
+                    "evidence": f"best_cross_family_gains={analyzer_gain_text}",
+                    "recommended_ppm_family_mode": best.ppm_family_mode,
+                },
+                {
+                    "conclusion_scope": "per_profile",
+                    **profile_values,
+                    "question_id": "v5_abs_k_minimal_doc_alignment",
+                    "question": "Is v5_abs_k_minimal the closest debugger-accessible mapping to the documented V5 Abs+K algorithm?",
+                    "answer": "yes_approximate_mapping",
+                    "evidence": "Uses fixed A proxy plus semantic humidity proxy K with A/A2/A3/K/K2/AK terms; debugger has no exact AbsFinal column.",
+                    "recommended_ppm_family_mode": "v5_abs_k_minimal",
+                },
+                {
+                    "conclusion_scope": "per_profile",
+                    **profile_values,
+                    "question_id": "remaining_zero_temp_gap",
+                    "question": "If ppm family gains remain incomplete, does the evidence still support missing 40C / 0 ppm zero anchor as the next main suspect?",
+                    "answer": (
+                        "yes_still_primary_suspect"
+                        if pd.notna(ppm_delta) and ppm_delta > 0.0 and (
+                            (pd.notna(remaining_zero_gap) and remaining_zero_gap > 0.0)
+                            or (pd.notna(remaining_temp_gap) and remaining_temp_gap > 0.0)
+                        )
+                        else "not_promoted_by_this_profile"
+                    ),
+                    "evidence": (
+                        f"best_family={best.ppm_family_mode}; delta_vs_current_overall={ppm_delta:.4f}; remaining_gap_to_old_zero={remaining_zero_gap:.4f}; temp_bias_spread={remaining_temp_gap:.4f}"
+                        if pd.notna(ppm_delta)
+                        else "insufficient_data"
+                    ),
+                    "recommended_ppm_family_mode": best.ppm_family_mode,
+                },
+                {
+                    "conclusion_scope": "per_profile",
+                    **profile_values,
+                    "question_id": "headline",
+                    "question": "headline",
+                    "answer": (
+                        f"{best.ppm_family_mode} closed {float(best.gap_closed_ratio_vs_current_fixed_family_capped):.2%} of the current fixed-family gap (capped)"
+                        if pd.notna(getattr(best, "gap_closed_ratio_vs_current_fixed_family_capped"))
+                        else "insufficient_data"
+                    ),
+                    "evidence": (
+                        f"laggard_weighted_gap_closed_capped={ppm_gap:.4f}; crossed_old_chain={int(getattr(best, 'crossed_old_chain_analyzer_count', 0))}"
+                        if pd.notna(ppm_gap)
+                        else "insufficient_data"
+                    ),
+                    "recommended_ppm_family_mode": best.ppm_family_mode,
+                },
+            ]
+        )
+    return rows
+
+
+def _synthesis_rows(conclusion_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    profile_rows = [row for row in conclusion_rows if row.get("conclusion_scope") == "per_profile"]
+    profile_ids = sorted({str(row.get("mode2_semantic_profile") or "") for row in profile_rows})
+    if len(profile_ids) <= 1:
+        return []
+    question_map = {
+        "weak_ppm_vs_legacy_water": "Does weak ppm family behavior look more like the unified main cause than missing legacy water-lineage replay?",
+        "humidity_cross_importance": "Are humidity cross terms more important for GA01 than for GA02/GA03?",
+        "remaining_zero_temp_gap": "If ppm family gains remain incomplete, does the evidence still support missing 40C / 0 ppm zero anchor as the next main suspect?",
+    }
+    synthesis: list[dict[str, Any]] = []
+    for question_id, question in question_map.items():
+        scoped = [row for row in profile_rows if row.get("question_id") == question_id]
+        if not scoped:
+            continue
+        synthesis.append(
+            {
+                "conclusion_scope": "cross_profile_synthesis",
+                "mode2_semantic_profile": "ALL_SEPARATED_PROFILES",
+                "mode2_legacy_raw_compare_safe": False,
+                "mode2_is_baseline_bearing_profile": any(bool(row.get("mode2_is_baseline_bearing_profile", False)) for row in scoped),
+                "question_id": question_id,
+                "question": question,
+                "answer": "see_separated_profile_rows",
+                "evidence": "; ".join(f"{row['mode2_semantic_profile']}={row['answer']}" for row in scoped),
+                "recommended_ppm_family_mode": "|".join(
+                    sorted({str(row.get("recommended_ppm_family_mode") or "") for row in scoped if str(row.get("recommended_ppm_family_mode") or "")})
+                ),
+            }
+        )
+    return synthesis
+
+
+def _conclusion_rows(
+    detail_df: pd.DataFrame,
+    summary_df: pd.DataFrame,
+    legacy_summary: pd.DataFrame,
+) -> pd.DataFrame:
+    if detail_df.empty or summary_df.empty:
+        return pd.DataFrame()
+    rows = _profile_rows(detail_df, summary_df, legacy_summary)
+    rows.extend(_synthesis_rows(rows))
+    return pd.DataFrame(rows)
+
+
+def run_fixed_chain_ppm_family_challenge(
+    *,
+    filtered_samples: pd.DataFrame,
+    legacy_water_feature_frame: pd.DataFrame,
+    fixed_selection: pd.DataFrame,
+    old_ratio_residuals: pd.DataFrame,
+    legacy_water_summary: pd.DataFrame,
+    config: Any,
+) -> dict[str, pd.DataFrame]:
+    """Compare fixed-chain ppm families without changing the deployable winner."""
+
+    fixed_points = _selected_legacy_none_points(legacy_water_feature_frame, fixed_selection)
+    if fixed_points.empty or fixed_selection.empty:
+        empty = pd.DataFrame()
+        return {"detail": empty, "summary": empty, "conclusions": empty}
+
+    mode2_summary = build_analyzer_mode2_summary(filtered_samples)
+    work = fixed_points.merge(mode2_summary, on="analyzer", how="left")
+    work = work.merge(
+        old_ratio_residuals[["analyzer", "point_row", "point_title", "old_prediction_ppm", "old_residual_ppm"]],
+        on=["analyzer", "point_row", "point_title"],
+        how="left",
+    )
+    work["analyzer_id"] = work["analyzer"]
+    work["target_ppm"] = pd.to_numeric(work["target_co2_ppm"], errors="coerce")
+    work["temp_c"] = pd.to_numeric(work["temp_set_c"], errors="coerce")
+    work["temp_model_c"] = pd.to_numeric(work["temp_use_mean_c"], errors="coerce")
+    work["group_key"] = (
+        work["temp_c"].map(lambda value: "nan" if pd.isna(value) else f"{float(value):g}")
+        + "|"
+        + work["target_ppm"].map(lambda value: "nan" if pd.isna(value) else f"{float(value):g}")
+        + "|"
+        + work["point_title"].fillna("").astype(str)
+    )
+
+    selection_lookup = fixed_selection.set_index("analyzer_id")
+    active_lookup = _active_spec_lookup(config)
+    detail_rows: list[dict[str, Any]] = []
+    for analyzer_id, subset in work.groupby("analyzer_id", dropna=False):
+        if analyzer_id not in selection_lookup.index:
+            continue
+        fixed_row = selection_lookup.loc[analyzer_id]
+        if isinstance(fixed_row, pd.DataFrame):
+            fixed_row = fixed_row.iloc[0]
+        requested_scope = str(fixed_row.get("selected_prediction_scope") or "overall_fit")
+        absorbance_proxy = str(fixed_row.get("absorbance_column") or "A_mean")
+        analyzer_frame = subset.copy()
+        analyzer_frame["fixed_absorbance_proxy"] = absorbance_proxy
+        analyzer_frame["fixed_best_model"] = str(fixed_row.get("best_absorbance_model") or "")
+        analyzer_frame["fixed_model_family"] = str(fixed_row.get("best_model_family") or "")
+        analyzer_frame["fixed_zero_residual_mode"] = str(fixed_row.get("zero_residual_mode") or "none")
+        analyzer_frame["fixed_prediction_scope"] = requested_scope
+        selected_source_pair = str(fixed_row.get("selected_source_pair") or "")
+        humidity_proxy, humidity_proxy_label = _choose_humidity_proxy(
+            analyzer_frame,
+            selected_source_pair=selected_source_pair,
+            legacy_safe=bool(analyzer_frame["mode2_legacy_raw_compare_safe"].fillna(False).iloc[0]),
+            baseline_bearing=bool(analyzer_frame["mode2_is_baseline_bearing_profile"].fillna(False).iloc[0]),
+        )
+        humidity_delta, humidity_delta_label = _choose_humidity_delta(analyzer_frame)
+        analyzer_frame["K_feature"] = humidity_proxy
+        analyzer_frame["ratio_feature"] = pd.to_numeric(analyzer_frame.get("ratio_in_mean"), errors="coerce")
+        analyzer_frame["pressure_feature"] = (
+            pd.to_numeric(analyzer_frame.get("pressure_use_mean_hpa"), errors="coerce") - float(config.p_ref_hpa)
+        ) / float(config.p_ref_hpa)
+        analyzer_frame["humidity_delta_feature"] = humidity_delta
+        analyzer_frame["humidity_relative_feature"] = analyzer_frame["ratio_feature"] * analyzer_frame["K_feature"]
+        family_specs = _family_specs_for_analyzer(str(fixed_row.get("best_absorbance_model") or ""), active_lookup)
+        for family_spec in family_specs:
+            spec = family_spec.to_absorbance_spec()
+            _score_row, _coeff_rows, residual_rows = _fit_one_candidate(
+                analyzer_df=analyzer_frame,
+                spec=spec,
+                strategy=config.model_selection_strategy,
+                score_weights=config.composite_weight_map(),
+                legacy_score_weights=config.legacy_composite_weight_map(),
+                enable_composite_score=config.enable_composite_score,
+                absorbance_column=absorbance_proxy,
+            )
+            prediction_table, actual_scope = _prediction_tables(residual_rows, requested_scope)
+            compare = analyzer_frame.merge(
+                prediction_table,
+                on=["analyzer_id", "point_title", "point_row"],
+                how="left",
+            )
+            compare["old_error"] = pd.to_numeric(compare["old_residual_ppm"], errors="coerce").combine_first(
+                pd.to_numeric(compare["old_prediction_ppm"], errors="coerce") - pd.to_numeric(compare["target_ppm"], errors="coerce")
+            )
+            compare["new_error"] = pd.to_numeric(compare["selected_error_ppm"], errors="coerce")
+            humidity_feature_set = (
+                "none"
+                if family_spec.ppm_family_mode == "current_fixed_family"
+                else "|".join(
+                    [
+                        humidity_proxy_label,
+                        humidity_delta_label,
+                        "pressure_feature:(P_use-P_ref)/P_ref",
+                        "ratio_feature:ratio_in_mean",
+                        "humidity_relative_feature:ratio_in_mean*K",
+                    ]
+                )
+            )
+            detail_rows.append(
+                _detail_from_compare(
+                    compare,
+                    analyzer_id=str(analyzer_id),
+                    fixed_row=pd.Series(
+                        {
+                            **fixed_row.to_dict(),
+                            "selected_source_pair": selected_source_pair,
+                            "fixed_absorbance_proxy": absorbance_proxy,
+                            "mode2_semantic_profile": analyzer_frame["mode2_semantic_profile"].fillna("mode2_semantics_unknown").iloc[0],
+                            "mode2_legacy_raw_compare_safe": bool(analyzer_frame["mode2_legacy_raw_compare_safe"].fillna(False).iloc[0]),
+                            "mode2_is_baseline_bearing_profile": bool(analyzer_frame["mode2_is_baseline_bearing_profile"].fillna(False).iloc[0]),
+                        }
+                    ),
+                    ppm_family_mode=family_spec.ppm_family_mode,
+                    uses_humidity_cross_terms=family_spec.uses_humidity_cross_terms,
+                    humidity_feature_set=humidity_feature_set,
+                    requested_scope=requested_scope,
+                    actual_scope=actual_scope,
+                    formula=family_spec.formula,
+                )
+            )
+
+    detail_df = pd.DataFrame(detail_rows).sort_values(["analyzer_id", "ppm_family_mode"], ignore_index=True) if detail_rows else pd.DataFrame()
+    if detail_df.empty:
+        empty = pd.DataFrame()
+        return {"detail": empty, "summary": empty, "conclusions": empty}
+
+    baseline = detail_df[detail_df["ppm_family_mode"] == "current_fixed_family"].set_index("analyzer_id")
+    delta_rows: list[dict[str, Any]] = []
+    for row in detail_df.itertuples(index=False):
+        base_row = baseline.loc[row.analyzer_id] if row.analyzer_id in baseline.index else pd.Series(dtype=object)
+        if isinstance(base_row, pd.DataFrame):
+            base_row = base_row.iloc[0]
+        baseline_gap = pd.to_numeric(pd.Series([base_row.get("gap_to_old_overall", math.nan)]), errors="coerce").iloc[0]
+        current_gap = pd.to_numeric(pd.Series([row.gap_to_old_overall]), errors="coerce").iloc[0]
+        raw_gap_ratio = (
+            float((baseline_gap - current_gap) / baseline_gap)
+            if pd.notna(baseline_gap) and abs(float(baseline_gap)) > 1.0e-12 and pd.notna(current_gap)
+            else math.nan
+        )
+        delta_rows.append(
+            {
+                "analyzer_id": row.analyzer_id,
+                "ppm_family_mode": row.ppm_family_mode,
+                "delta_vs_current_fixed_family_overall": (
+                    float(base_row.get("overall_rmse")) - float(row.overall_rmse)
+                    if not base_row.empty and pd.notna(base_row.get("overall_rmse")) and pd.notna(row.overall_rmse)
+                    else math.nan
+                ),
+                "delta_vs_current_fixed_family_zero": (
+                    float(base_row.get("zero_rmse")) - float(row.zero_rmse)
+                    if not base_row.empty and pd.notna(base_row.get("zero_rmse")) and pd.notna(row.zero_rmse)
+                    else math.nan
+                ),
+                "delta_vs_current_fixed_family_low": (
+                    float(base_row.get("low_range_rmse")) - float(row.low_range_rmse)
+                    if not base_row.empty and pd.notna(base_row.get("low_range_rmse")) and pd.notna(row.low_range_rmse)
+                    else math.nan
+                ),
+                "delta_vs_current_fixed_family_main": (
+                    float(base_row.get("main_range_rmse")) - float(row.main_range_rmse)
+                    if not base_row.empty and pd.notna(base_row.get("main_range_rmse")) and pd.notna(row.main_range_rmse)
+                    else math.nan
+                ),
+                "current_fixed_family_gap_to_old_overall": baseline_gap,
+                "gap_closed_ratio_vs_current_fixed_family_raw": raw_gap_ratio,
+                "gap_closed_ratio_vs_current_fixed_family_capped": _clip_ratio(raw_gap_ratio),
+                "crossed_old_chain_flag": bool(pd.notna(row.gap_to_old_overall) and float(row.gap_to_old_overall) <= 0.0),
+            }
+        )
+    detail_df = detail_df.merge(pd.DataFrame(delta_rows), on=["analyzer_id", "ppm_family_mode"], how="left")
+    summary_df = _summary_rows(detail_df)
+    conclusions_df = _conclusion_rows(detail_df, summary_df, legacy_water_summary)
+    return {"detail": detail_df, "summary": summary_df, "conclusions": conclusions_df}

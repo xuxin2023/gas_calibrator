@@ -903,9 +903,10 @@ def plot_legacy_water_replay(data: pd.DataFrame, output_path: Path) -> None:
     x = np.arange(len(analyzers), dtype=float)
     for idx, mode in enumerate(modes):
         subset = plot_data[plot_data["water_lineage_mode"] == mode].set_index("analyzer_id").reindex(analyzers)
+        gap_column = "gap_closed_ratio_capped_0_100" if "gap_closed_ratio_capped_0_100" in subset.columns else "gap_closed_ratio_vs_current_new_chain"
         axes[0, 0].bar(
             x + (idx - 1) * width,
-            pd.to_numeric(subset["gap_closed_ratio_vs_current_new_chain"], errors="coerce"),
+            pd.to_numeric(subset[gap_column], errors="coerce"),
             width=width,
             label=mode,
         )
@@ -916,7 +917,7 @@ def plot_legacy_water_replay(data: pd.DataFrame, output_path: Path) -> None:
             label=mode,
         )
     axes[0, 0].axhline(0.0, color="black", linewidth=0.8)
-    axes[0, 0].set_title("Gap Closed Ratio vs Current New Chain")
+    axes[0, 0].set_title("Gap Closed Ratio vs Current New Chain (capped)")
     axes[0, 0].set_ylabel("ratio")
     axes[0, 0].grid(alpha=0.2, axis="y")
     axes[0, 0].legend(fontsize=8)
@@ -930,6 +931,44 @@ def plot_legacy_water_replay(data: pd.DataFrame, output_path: Path) -> None:
     for ax in axes[:, 0]:
         ax.set_xticks(x)
         ax.set_xticklabels(analyzers)
+    _finalize(fig, output_path)
+
+
+def plot_ppm_family_challenge(data: pd.DataFrame, output_path: Path) -> None:
+    """Plot fixed-chain ppm family challenge metrics."""
+
+    if data.empty:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No ppm family challenge data available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+
+    families = ["current_fixed_family", "v5_abs_k_minimal", "legacy_humidity_cross_D", "legacy_humidity_cross_E"]
+    analyzers = sorted(data["analyzer_id"].dropna().astype(str).unique().tolist())
+    fig, axes = plt.subplots(2, 2, figsize=(15, 9), squeeze=False)
+    width = 0.18
+    x = np.arange(len(analyzers), dtype=float)
+
+    panels = (
+        ("overall_rmse", "Overall RMSE"),
+        ("zero_rmse", "Zero RMSE"),
+        ("delta_vs_current_fixed_family_overall", "Delta vs current family (overall)"),
+        ("gap_closed_ratio_vs_current_fixed_family_capped", "Gap closed vs current family (capped)"),
+    )
+    for ax, (column_name, title) in zip(axes.flatten(), panels, strict=False):
+        for idx, family in enumerate(families):
+            subset = data[data["ppm_family_mode"] == family].set_index("analyzer_id").reindex(analyzers)
+            ax.bar(
+                x + (idx - 1.5) * width,
+                pd.to_numeric(subset[column_name], errors="coerce"),
+                width=width,
+                label=family,
+            )
+        ax.set_xticks(x)
+        ax.set_xticklabels(analyzers)
+        ax.set_title(title)
+        ax.grid(alpha=0.2, axis="y")
+    axes[0, 0].legend(fontsize=8)
     _finalize(fig, output_path)
 
 

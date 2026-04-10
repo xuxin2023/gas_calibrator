@@ -29,6 +29,7 @@ from .diagnostics import (
 from .run_assessment import build_run_role_assessment
 from .lineage_audit import build_new_chain_input_audit, build_old_water_correction_audit
 from .legacy_water_replay import run_legacy_water_replay_diagnostic
+from .ppm_family_challenge import run_fixed_chain_ppm_family_challenge
 from .pressure_assessment import build_pressure_data_assessment
 from .water_zero_anchor import (
     build_water_anchor_compare,
@@ -67,6 +68,7 @@ from ..plots.charts import (
     plot_invalid_pressure_points,
     plot_piecewise_model_compare,
     plot_per_temp_compare,
+    plot_ppm_family_challenge,
     plot_pressure_compare,
     plot_ratio_series,
     plot_r0_fit,
