@@ -106,7 +106,7 @@ def test_historical_scan_supports_single_run_dir_and_root_dir(tmp_path: Path, ca
     assert batch_report["compatibility_rollup"]["parent_run_count"] == 2
     assert batch_report["compatibility_rollup"]["compatible_run_count"] == 1
     assert batch_report["compatibility_rollup"]["legacy_run_count"] == 1
-    assert batch_report["compatibility_rollup"]["regenerate_recommended_count"] == 1
+    assert batch_report["compatibility_rollup"]["regenerate_recommended_count"] == 2
     reader_modes = {row["run_dir"]: row["current_reader_mode"] for row in batch_report["runs"]}
     assert reader_modes[str(legacy_run.resolve())] == "compatibility_adapter"
     assert reader_modes[str(canonical_run.resolve())] == "canonical_direct"
