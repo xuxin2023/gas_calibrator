@@ -66,6 +66,14 @@ METHOD_CONFIRMATION_PROTOCOL_FILENAME = "method_confirmation_protocol.json"
 METHOD_CONFIRMATION_PROTOCOL_MARKDOWN_FILENAME = "method_confirmation_protocol.md"
 METHOD_CONFIRMATION_MATRIX_FILENAME = "method_confirmation_matrix.json"
 METHOD_CONFIRMATION_MATRIX_MARKDOWN_FILENAME = "method_confirmation_matrix.md"
+ROUTE_SPECIFIC_VALIDATION_MATRIX_FILENAME = "route_specific_validation_matrix.json"
+ROUTE_SPECIFIC_VALIDATION_MATRIX_MARKDOWN_FILENAME = "route_specific_validation_matrix.md"
+VALIDATION_RUN_SET_FILENAME = "validation_run_set.json"
+VALIDATION_RUN_SET_MARKDOWN_FILENAME = "validation_run_set.md"
+VERIFICATION_DIGEST_FILENAME = "verification_digest.json"
+VERIFICATION_DIGEST_MARKDOWN_FILENAME = "verification_digest.md"
+VERIFICATION_ROLLUP_FILENAME = "verification_rollup.json"
+VERIFICATION_ROLLUP_MARKDOWN_FILENAME = "verification_rollup.md"
 UNCERTAINTY_METHOD_READINESS_SUMMARY_FILENAME = "uncertainty_method_readiness_summary.json"
 UNCERTAINTY_METHOD_READINESS_SUMMARY_MARKDOWN_FILENAME = "uncertainty_method_readiness_summary.md"
 SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_FILENAME = "software_validation_traceability_matrix.json"
@@ -83,6 +91,10 @@ RECOGNITION_READINESS_SUMMARY_FILENAMES = (
     UNCERTAINTY_REPORT_PACK_FILENAME,
     UNCERTAINTY_DIGEST_FILENAME,
     UNCERTAINTY_ROLLUP_FILENAME,
+    ROUTE_SPECIFIC_VALIDATION_MATRIX_FILENAME,
+    VALIDATION_RUN_SET_FILENAME,
+    VERIFICATION_DIGEST_FILENAME,
+    VERIFICATION_ROLLUP_FILENAME,
     UNCERTAINTY_METHOD_READINESS_SUMMARY_FILENAME,
     AUDIT_READINESS_DIGEST_FILENAME,
 )
@@ -96,6 +108,19 @@ RECOGNITION_READINESS_BOUNDARY_STATEMENTS = [
     "not compliance claim",
     "not accreditation claim",
     "cannot replace real metrology validation",
+]
+
+METHOD_CONFIRMATION_VALIDATION_DIMENSIONS = [
+    "linearity",
+    "repeatability",
+    "reproducibility",
+    "drift",
+    "temperature_effect",
+    "pressure_effect",
+    "route_switch_effect",
+    "seal_ingress_sensitivity",
+    "freshness_check",
+    "writeback_verification",
 ]
 
 _RECOGNITION_ARTIFACT_ANCHORS: dict[str, dict[str, str]] = {
@@ -148,6 +173,22 @@ _RECOGNITION_ARTIFACT_ANCHORS: dict[str, dict[str, str]] = {
         "anchor_id": "method-confirmation-matrix",
         "anchor_label": "Method confirmation matrix",
     },
+    "route_specific_validation_matrix": {
+        "anchor_id": "route-specific-validation-matrix",
+        "anchor_label": "Route specific validation matrix",
+    },
+    "validation_run_set": {
+        "anchor_id": "validation-run-set",
+        "anchor_label": "Validation run set",
+    },
+    "verification_digest": {
+        "anchor_id": "verification-digest",
+        "anchor_label": "Verification digest",
+    },
+    "verification_rollup": {
+        "anchor_id": "verification-rollup",
+        "anchor_label": "Verification rollup",
+    },
     "uncertainty_method_readiness_summary": {
         "anchor_id": "uncertainty-method-readiness-summary",
         "anchor_label": "Uncertainty / method readiness summary",
@@ -197,8 +238,12 @@ _RECOGNITION_NEXT_ARTIFACT_DEFAULTS: dict[str, list[str]] = {
     "uncertainty_digest": ["uncertainty_rollup", "uncertainty_method_readiness_summary"],
     "uncertainty_rollup": ["uncertainty_method_readiness_summary", "audit_readiness_digest"],
     "uncertainty_budget_stub": ["uncertainty_report_pack", "uncertainty_rollup"],
-    "method_confirmation_protocol": ["method_confirmation_matrix", "uncertainty_method_readiness_summary"],
-    "method_confirmation_matrix": ["uncertainty_method_readiness_summary", "software_validation_traceability_matrix"],
+    "method_confirmation_protocol": ["route_specific_validation_matrix", "validation_run_set"],
+    "method_confirmation_matrix": ["route_specific_validation_matrix", "verification_digest"],
+    "route_specific_validation_matrix": ["validation_run_set", "verification_digest"],
+    "validation_run_set": ["verification_digest", "verification_rollup"],
+    "verification_digest": ["verification_rollup", "uncertainty_method_readiness_summary"],
+    "verification_rollup": ["uncertainty_method_readiness_summary", "audit_readiness_digest"],
     "uncertainty_method_readiness_summary": ["certificate_readiness_summary", "audit_readiness_digest"],
     "software_validation_traceability_matrix": ["release_validation_manifest", "audit_readiness_digest"],
     "release_validation_manifest": ["audit_readiness_digest"],
@@ -277,6 +322,21 @@ _RECOGNITION_BLOCKER_DEFAULTS: dict[str, list[str]] = {
     "method_confirmation_matrix": [
         "matrix rows remain reviewer-only and not released method confirmation evidence",
     ],
+    "route_specific_validation_matrix": [
+        "route matrix remains placeholder-only and cannot be interpreted as real method confirmation",
+        "simulation/replay/parity evidence stays reviewer-facing only",
+    ],
+    "validation_run_set": [
+        "validation run linkage stays file-artifact-first and reviewer-only",
+        "golden linkage does not create released primary evidence",
+    ],
+    "verification_digest": [
+        "verification digest summarizes reviewer gaps only and does not close formal method confirmation",
+    ],
+    "verification_rollup": [
+        "verification rollup remains sidecar-first / reviewer-only",
+        "formal compliance or accreditation claims stay disabled in Step 2",
+    ],
     "uncertainty_method_readiness_summary": [
         "uncertainty / method readiness remains open until missing evidence is closed outside Step 2",
     ],
@@ -353,6 +413,19 @@ _RECOGNITION_MISSING_EVIDENCE_DEFAULTS: dict[str, list[str]] = {
     ],
     "method_confirmation_matrix": [
         "trace-only and partial measurement phases still require follow-up evidence",
+    ],
+    "route_specific_validation_matrix": [
+        "route specific dimensions remain placeholder/example rows only",
+        "real method confirmation datasets and released closure records are still missing",
+    ],
+    "validation_run_set": [
+        "linked run set remains reviewer-only and does not include released validation batches",
+    ],
+    "verification_digest": [
+        "top gaps remain open and reviewer actions stay advisory only",
+    ],
+    "verification_rollup": [
+        "readiness rollup remains non-claim and cannot replace formal verification closure",
     ],
     "uncertainty_method_readiness_summary": [
         "released uncertainty and method confirmation evidence is still missing",
@@ -528,23 +601,40 @@ def build_recognition_readiness_artifacts(
         boundary_statements=list(RECOGNITION_READINESS_BOUNDARY_STATEMENTS),
     )
     uncertainty_budget_stub = dict(uncertainty_wp3_artifacts.get("uncertainty_budget_stub") or {})
-    method_confirmation_protocol = _build_method_confirmation_protocol(
+    method_confirmation_wp4_artifacts = build_method_confirmation_wp4_artifacts(
         run_id=run_id,
+        scope_definition_pack=scope_definition_pack,
+        decision_rule_profile=decision_rule_profile,
+        reference_asset_registry=reference_asset_registry,
+        certificate_lifecycle_summary=certificate_lifecycle_summary,
+        pre_run_readiness_gate=pre_run_readiness_gate,
+        budget_case=dict(uncertainty_wp3_artifacts.get("budget_case") or {}),
+        uncertainty_golden_cases=dict(uncertainty_wp3_artifacts.get("uncertainty_golden_cases") or {}),
+        uncertainty_report_pack=dict(uncertainty_wp3_artifacts.get("uncertainty_report_pack") or {}),
+        uncertainty_digest=dict(uncertainty_wp3_artifacts.get("uncertainty_digest") or {}),
+        uncertainty_rollup=dict(uncertainty_wp3_artifacts.get("uncertainty_rollup") or {}),
+        uncertainty_budget_stub=uncertainty_budget_stub,
         route_families=route_families,
-        path_map=path_map,
-    )
-    method_confirmation_matrix = _build_method_confirmation_matrix(
-        run_id=run_id,
         payload_backed_phases=payload_backed_phases,
         trace_only_phases=trace_only_phases,
         gap_phases=gap_phases,
         path_map=path_map,
     )
+    method_confirmation_protocol = dict(method_confirmation_wp4_artifacts.get("method_confirmation_protocol") or {})
+    method_confirmation_matrix = dict(method_confirmation_wp4_artifacts.get("method_confirmation_matrix") or {})
+    route_specific_validation_matrix = dict(
+        method_confirmation_wp4_artifacts.get("route_specific_validation_matrix") or {}
+    )
+    validation_run_set = dict(method_confirmation_wp4_artifacts.get("validation_run_set") or {})
+    verification_digest = dict(method_confirmation_wp4_artifacts.get("verification_digest") or {})
+    verification_rollup = dict(method_confirmation_wp4_artifacts.get("verification_rollup") or {})
     uncertainty_method_readiness_summary = _build_uncertainty_method_readiness_summary(
         run_id=run_id,
         uncertainty_budget_stub=uncertainty_budget_stub,
         method_confirmation_protocol=method_confirmation_protocol,
         method_confirmation_matrix=method_confirmation_matrix,
+        route_specific_validation_matrix=route_specific_validation_matrix,
+        verification_digest=verification_digest,
         path_map=path_map,
     )
     software_validation_traceability_matrix = _build_software_validation_traceability_matrix(
@@ -592,6 +682,10 @@ def build_recognition_readiness_artifacts(
         "uncertainty_budget_stub": uncertainty_budget_stub,
         "method_confirmation_protocol": method_confirmation_protocol,
         "method_confirmation_matrix": method_confirmation_matrix,
+        "route_specific_validation_matrix": route_specific_validation_matrix,
+        "validation_run_set": validation_run_set,
+        "verification_digest": verification_digest,
+        "verification_rollup": verification_rollup,
         "uncertainty_method_readiness_summary": uncertainty_method_readiness_summary,
         "software_validation_traceability_matrix": software_validation_traceability_matrix,
         "release_validation_manifest": release_validation_manifest,
