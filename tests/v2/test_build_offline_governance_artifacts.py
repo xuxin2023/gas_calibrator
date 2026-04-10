@@ -921,8 +921,12 @@ def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -
         recognition_readiness.SCOPE_READINESS_SUMMARY_MARKDOWN_FILENAME,
         recognition_readiness.REFERENCE_ASSET_REGISTRY_FILENAME,
         recognition_readiness.REFERENCE_ASSET_REGISTRY_MARKDOWN_FILENAME,
+        recognition_readiness.CERTIFICATE_LIFECYCLE_SUMMARY_FILENAME,
+        recognition_readiness.CERTIFICATE_LIFECYCLE_SUMMARY_MARKDOWN_FILENAME,
         recognition_readiness.CERTIFICATE_READINESS_SUMMARY_FILENAME,
         recognition_readiness.CERTIFICATE_READINESS_SUMMARY_MARKDOWN_FILENAME,
+        recognition_readiness.PRE_RUN_READINESS_GATE_FILENAME,
+        recognition_readiness.PRE_RUN_READINESS_GATE_MARKDOWN_FILENAME,
         recognition_readiness.METROLOGY_TRACEABILITY_STUB_FILENAME,
         recognition_readiness.METROLOGY_TRACEABILITY_STUB_MARKDOWN_FILENAME,
         recognition_readiness.UNCERTAINTY_BUDGET_STUB_FILENAME,
@@ -952,8 +956,14 @@ def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -
     reference_registry = json.loads(
         (run_dir / recognition_readiness.REFERENCE_ASSET_REGISTRY_FILENAME).read_text(encoding="utf-8")
     )
+    certificate_lifecycle = json.loads(
+        (run_dir / recognition_readiness.CERTIFICATE_LIFECYCLE_SUMMARY_FILENAME).read_text(encoding="utf-8")
+    )
     certificate_summary = json.loads(
         (run_dir / recognition_readiness.CERTIFICATE_READINESS_SUMMARY_FILENAME).read_text(encoding="utf-8")
+    )
+    pre_run_gate = json.loads(
+        (run_dir / recognition_readiness.PRE_RUN_READINESS_GATE_FILENAME).read_text(encoding="utf-8")
     )
     traceability_stub = json.loads(
         (run_dir / recognition_readiness.METROLOGY_TRACEABILITY_STUB_FILENAME).read_text(encoding="utf-8")
@@ -989,6 +999,82 @@ def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -
         str(item.get("certificate_status") or "").startswith("missing")
         for item in list(reference_registry.get("assets") or [])
     )
+    assert {str(item.get("asset_type") or "") for item in list(reference_registry.get("assets") or [])} >= {
+        "standard_gas",
+        "humidity_generator",
+        "dewpoint_meter",
+        "digital_pressure_gauge",
+        "temperature_chamber",
+        "digital_thermometer",
+        "pressure_controller",
+        "analyzer_under_test",
+    }
+    required_asset_fields = {
+        "asset_id",
+        "asset_name",
+        "asset_type",
+        "manufacturer",
+        "model",
+        "serial_or_lot",
+        "role_in_reference_chain",
+        "measurand_scope",
+        "route_scope",
+        "environment_scope",
+        "owner_state",
+        "active_state",
+        "quarantine_state",
+        "certificate_status",
+        "certificate_id",
+        "certificate_version",
+        "valid_from",
+        "valid_to",
+        "intermediate_check_status",
+        "intermediate_check_due",
+        "last_check_at",
+        "released_for_formal_claim",
+        "ready_for_readiness_mapping",
+        "not_real_acceptance_evidence",
+        "evidence_source",
+        "limitation_note",
+        "non_claim_note",
+        "reviewer_note",
+    }
+    assert all(required_asset_fields <= set(item) for item in list(reference_registry.get("assets") or []))
+    assert reference_registry["reviewer_stub_only"] is True
+    assert reference_registry["ready_for_readiness_mapping"] is True
+    assert reference_registry["not_released_for_formal_claim"] is True
+    assert reference_registry["evidence_source"] == "simulated"
+    assert reference_registry["not_real_acceptance_evidence"] is True
+    assert certificate_lifecycle["artifact_type"] == "certificate_lifecycle_summary"
+    assert certificate_lifecycle["reviewer_stub_only"] is True
+    assert certificate_lifecycle["readiness_mapping_only"] is True
+    assert certificate_lifecycle["not_released_for_formal_claim"] is True
+    assert certificate_lifecycle["not_ready_for_formal_claim"] is True
+    assert certificate_lifecycle["ready_for_readiness_mapping"] is True
+    assert certificate_lifecycle["evidence_source"] == "simulated"
+    assert certificate_lifecycle["not_real_acceptance_evidence"] is True
+    assert certificate_lifecycle["certificate_rows"]
+    assert certificate_lifecycle["lot_bindings"]
+    assert certificate_lifecycle["intermediate_check_plans"]
+    assert certificate_lifecycle["intermediate_check_records"]
+    assert certificate_lifecycle["out_of_tolerance_events"]
+    assert pre_run_gate["artifact_type"] == "pre_run_readiness_gate"
+    assert pre_run_gate["gate_status"] in {
+        "ok_for_reviewer_mapping",
+        "warning_reviewer_attention",
+        "blocked_for_formal_claim",
+    }
+    assert pre_run_gate["blocking_items"]
+    assert pre_run_gate["warning_items"]
+    assert pre_run_gate["reviewer_actions"]
+    assert pre_run_gate["checks"]
+    assert pre_run_gate["not_ready_for_formal_claim"] is True
+    assert pre_run_gate["ready_for_readiness_mapping"] is True
+    assert pre_run_gate["readiness_mapping_only"] is True
+    assert pre_run_gate["not_released_for_formal_claim"] is True
+    assert pre_run_gate["evidence_source"] == "simulated"
+    assert pre_run_gate["not_real_acceptance_evidence"] is True
+    assert pre_run_gate["primary_evidence_rewritten"] is False
     assert certificate_summary["artifact_type"] == "certificate_readiness_summary"
     assert "certificate missing" in certificate_summary["digest"]["current_coverage_summary"]
     assert "no released certificate files attached" in certificate_summary["missing_evidence"]

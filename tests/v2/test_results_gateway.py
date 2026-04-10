@@ -1173,7 +1173,12 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
     }
 
     scope_json_path = str((run_dir / recognition_readiness.SCOPE_READINESS_SUMMARY_FILENAME).resolve())
+    reference_asset_json_path = str((run_dir / recognition_readiness.REFERENCE_ASSET_REGISTRY_FILENAME).resolve())
+    certificate_lifecycle_json_path = str(
+        (run_dir / recognition_readiness.CERTIFICATE_LIFECYCLE_SUMMARY_FILENAME).resolve()
+    )
     certificate_json_path = str((run_dir / recognition_readiness.CERTIFICATE_READINESS_SUMMARY_FILENAME).resolve())
+    pre_run_gate_json_path = str((run_dir / recognition_readiness.PRE_RUN_READINESS_GATE_FILENAME).resolve())
     uncertainty_json_path = str(
         (run_dir / recognition_readiness.UNCERTAINTY_METHOD_READINESS_SUMMARY_FILENAME).resolve()
     )
@@ -1181,7 +1186,10 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
 
     for key in (
         "scope_readiness_summary",
+        "reference_asset_registry",
+        "certificate_lifecycle_summary",
         "certificate_readiness_summary",
+        "pre_run_readiness_gate",
         "uncertainty_method_readiness_summary",
         "audit_readiness_digest",
     ):
