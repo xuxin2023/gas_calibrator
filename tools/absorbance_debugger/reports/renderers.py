@@ -13,7 +13,13 @@ def _table_to_markdown(frame: pd.DataFrame, max_rows: int = 20) -> str:
     if frame.empty:
         return "_No rows._"
     clipped = frame.head(max_rows).copy()
-    return clipped.to_markdown(index=False)
+    columns = [str(column) for column in clipped.columns]
+    header = "| " + " | ".join(columns) + " |"
+    sep = "| " + " | ".join("---" for _ in columns) + " |"
+    rows = []
+    for values in clipped.astype(object).where(pd.notna(clipped), "").itertuples(index=False, name=None):
+        rows.append("| " + " | ".join(str(value) for value in values) + " |")
+    return "\n".join([header, sep, *rows])
 
 
 def render_report_markdown(report: Mapping[str, object]) -> str:

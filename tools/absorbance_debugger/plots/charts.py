@@ -135,10 +135,10 @@ def plot_timeseries_base_final(data: pd.DataFrame, output_path: Path, enabled: b
         ax = axes[row_idx, 0]
         subset = data[data["analyzer"] == analyzer].sort_values(["point_row", "sample_index"])
         x = np.arange(len(subset))
-        ax.plot(x, subset["absorbance_raw"], label="A_raw", linewidth=1.3)
-        if enabled and "a_base" in subset.columns:
-            ax.plot(x, subset["a_base"], label="A_base", linewidth=1.2)
-            ax.plot(x, subset["a_final"], label="A_final", linewidth=1.2)
+        ax.plot(x, subset["A_raw"], label="A_raw", linewidth=1.3)
+        if enabled and "A_base" in subset.columns:
+            ax.plot(x, subset["A_base"], label="A_base", linewidth=1.2)
+            ax.plot(x, subset["A_final"], label="A_final", linewidth=1.2)
         else:
             ax.text(
                 0.98,
@@ -233,7 +233,7 @@ def plot_ratio_series(data: pd.DataFrame, output_path: Path) -> None:
         x = np.arange(len(subset))
         ax.plot(x, subset["ratio_co2_raw_mean"], label="ratio_co2_raw_mean", linewidth=1.2)
         ax.plot(x, subset["ratio_co2_filt_mean"], label="ratio_co2_filt_mean", linewidth=1.2)
-        ax.plot(x, subset["a_mean"], label="A_mean", linewidth=1.2)
+        ax.plot(x, subset["A_mean"], label="A_mean", linewidth=1.2)
         ax.set_title(f"{analyzer} raw ratio / filt ratio / A_mean")
         ax.set_xlabel("point order")
         ax.set_ylabel("diagnostic value")
