@@ -461,11 +461,13 @@ class TestWp6RecognitionReadinessIntegration:
         for key in ("pt_ilc_registry", "comparison_evidence_pack",
                      "comparison_digest", "comparison_rollup"):
             bundle = artifacts[key]
-            assert bundle.get("not_real_acceptance_evidence") is True, f"{key}"
-            assert bundle.get("primary_evidence_rewritten") is False, f"{key}"
-            assert bundle.get("evidence_source") == "simulated", f"{key}"
-            assert bundle.get("not_ready_for_formal_claim") is True, f"{key}"
-            assert bundle.get("readiness_mapping_only") is True, f"{key}"
+            # build_recognition_readiness_artifacts returns enriched bundles with raw sub-dict
+            raw = bundle.get("raw", bundle)
+            assert raw.get("not_real_acceptance_evidence") is True, f"{key}"
+            assert raw.get("primary_evidence_rewritten") is False, f"{key}"
+            assert raw.get("evidence_source") == "simulated", f"{key}"
+            assert raw.get("not_ready_for_formal_claim") is True, f"{key}"
+            assert raw.get("readiness_mapping_only") is True, f"{key}"
 
 
 class TestWp6HistoricalArtifactsIntegration:
