@@ -18,7 +18,7 @@ _LINKED_SURFACES = ["results", "review_center", "workbench", "historical_artifac
 
 class RecognitionScopeRepository(Protocol):
     def load_snapshot(self) -> dict[str, Any]:
-        """Return scope package / decision rule / rollup using the default file-backed path."""
+        """Return Step 2 reviewer-facing scope/readiness payloads."""
 
 
 class DatabaseReadyRecognitionScopeRepositoryStub:
@@ -198,12 +198,23 @@ class FileBackedRecognitionScopeRepository:
                 "scope_name": str(payload.get("scope_name") or title_text),
                 "scope_version": str(payload.get("scope_version") or payload.get("schema_version") or "1.0"),
                 "ready_for_readiness_mapping": bool(
-                    payload.get("ready_for_readiness_mapping", str(payload.get("readiness_status") or "") == "ready_for_readiness_mapping")
+                    payload.get(
+                        "ready_for_readiness_mapping",
+                        str(payload.get("readiness_status") or "") == "ready_for_readiness_mapping",
+                    )
                 ),
                 "not_ready_for_formal_claim": bool(payload.get("not_ready_for_formal_claim", True)),
-                "gap_note": str(payload.get("gap_note") or dict(payload.get("digest") or {}).get("missing_evidence_summary") or ""),
+                "gap_note": str(
+                    payload.get("gap_note")
+                    or dict(payload.get("digest") or {}).get("missing_evidence_summary")
+                    or ""
+                ),
                 "limitation_note": str(payload.get("limitation_note") or ""),
-                "non_claim_note": str(payload.get("non_claim_note") or dict(payload.get("digest") or {}).get("non_claim_digest") or ""),
+                "non_claim_note": str(
+                    payload.get("non_claim_note")
+                    or dict(payload.get("digest") or {}).get("non_claim_digest")
+                    or ""
+                ),
             }
         )
         payload["scope_overview"] = dict(
@@ -331,12 +342,19 @@ class FileBackedRecognitionScopeRepository:
         reader_mode = str(
             compatibility_overview.get("current_reader_mode")
             or self.compatibility_scan_summary.get("current_reader_mode")
-            or ("canonical_direct" if (self.run_dir / recognition_readiness.SCOPE_DEFINITION_PACK_FILENAME).exists() else "compatibility_adapter")
+            or (
+                "canonical_direct"
+                if (self.run_dir / recognition_readiness.SCOPE_DEFINITION_PACK_FILENAME).exists()
+                else "compatibility_adapter"
+            )
         )
         reader_mode_display = str(
             compatibility_overview.get("current_reader_mode_display")
             or self.compatibility_scan_summary.get("current_reader_mode_display")
-            or {"canonical_direct": "canonical 直读", "compatibility_adapter": "兼容适配读取"}.get(reader_mode, reader_mode)
+            or {"canonical_direct": "canonical direct", "compatibility_adapter": "compatibility adapter"}.get(
+                reader_mode,
+                reader_mode,
+            )
         )
         scope_digest = dict(scope_payload.get("digest") or {})
         decision_digest = dict(decision_payload.get("digest") or {})
@@ -389,11 +407,14 @@ class FileBackedRecognitionScopeRepository:
             or self.compatibility_scan_summary.get("regenerate_recommended", False)
         )
         summary_lines = [
-            f"认可范围包：{str(scope_digest.get('scope_overview_summary') or scope_digest.get('summary') or '--')}",
-            f"决策规则：{str(decision_digest.get('decision_rule_summary') or decision_payload.get('decision_rule_id') or '--')}",
-            f"符合性边界：{str(decision_digest.get('conformity_boundary_summary') or scope_payload.get('non_claim_note') or '--')}",
-            f"读取路径：{reader_mode_display}",
-            f"就绪状态：{readiness_status}",
+            f"scope package: {str(scope_digest.get('scope_overview_summary') or scope_digest.get('summary') or '--')}",
+            f"decision rule: {str(decision_digest.get('decision_rule_summary') or decision_payload.get('decision_rule_id') or '--')}",
+            f"conformity boundary: {str(decision_digest.get('conformity_boundary_summary') or scope_payload.get('non_claim_note') or '--')}",
+            f"reader mode: {reader_mode_display}",
+            f"readiness status: {readiness_status}",
+            f"asset readiness: {asset_readiness_overview}",
+            f"certificate lifecycle: {certificate_lifecycle_overview}",
+            f"pre-run gate: {pre_run_gate_status}",
         ]
         return {
             "schema_version": RECOGNITION_SCOPE_REPOSITORY_SCHEMA_VERSION,
@@ -404,7 +425,7 @@ class FileBackedRecognitionScopeRepository:
             "generated_by_tool": RECOGNITION_SCOPE_REPOSITORY_TOOL,
             "rollup_scope": "run-dir",
             "parent_run_count": 1,
-            "artifact_count": 2,
+            "artifact_count": 5,
             "compatible_run_count": 1 if reader_mode == "canonical_direct" else 0,
             "legacy_run_count": 1 if reader_mode == "compatibility_adapter" else 0,
             "regenerate_recommended_count": 1 if regenerate_recommended else 0,
@@ -428,6 +449,13 @@ class FileBackedRecognitionScopeRepository:
                 or scope_payload.get("non_claim_note")
                 or "--"
             ),
+            "asset_readiness_overview": asset_readiness_overview,
+            "certificate_lifecycle_overview": certificate_lifecycle_overview,
+            "pre_run_gate_status": pre_run_gate_status,
+            "blocking_digest": blocking_digest,
+            "warning_digest": warning_digest,
+            "scope_reference_assets_summary": scope_reference_assets_summary,
+            "decision_rule_dependency_summary": decision_rule_dependency_summary,
             "non_claim_note": str(decision_payload.get("non_claim_note") or scope_payload.get("non_claim_note") or "--"),
             "standard_family": list(scope_payload.get("standard_family") or decision_payload.get("standard_family") or []),
             "required_evidence_categories": list(
@@ -435,7 +463,12 @@ class FileBackedRecognitionScopeRepository:
                 or decision_payload.get("required_evidence_categories")
                 or []
             ),
-            "linked_existing_artifacts": dict(scope_payload.get("linked_artifacts") or decision_payload.get("artifact_paths") or {}),
+            "linked_existing_artifacts": {
+                **dict(scope_payload.get("linked_artifacts") or {}),
+                **dict(reference_asset_registry.get("artifact_paths") or {}),
+                **dict(certificate_lifecycle_summary.get("artifact_paths") or {}),
+                **dict(pre_run_readiness_gate.get("artifact_paths") or {}),
+            },
             "current_evidence_coverage": list(
                 scope_payload.get("current_evidence_coverage")
                 or decision_payload.get("current_evidence_coverage")
@@ -446,12 +479,14 @@ class FileBackedRecognitionScopeRepository:
             "regenerate_recommended": regenerate_recommended,
             "primary_evidence_rewritten": False,
             "not_real_acceptance_evidence": True,
-            "rollup_summary_display": " | ".join(part for part in summary_lines[:4] if str(part).strip()),
+            "rollup_summary_display": " | ".join(part for part in summary_lines[:5] if str(part).strip()),
             "summary_lines": summary_lines,
             "detail_lines": [
-                f"repository/gateway：{RECOGNITION_SCOPE_REPOSITORY_MODE} / {RECOGNITION_SCOPE_GATEWAY_MODE}",
-                "non-claim：simulation/offline/shadow 只用于 reviewer digest / readiness mapping",
-                "主证据改写：false",
+                f"repository/gateway: {RECOGNITION_SCOPE_REPOSITORY_MODE} / {RECOGNITION_SCOPE_GATEWAY_MODE}",
+                "non-claim: simulation/offline/shadow outputs remain reviewer-only and readiness-mapping only",
+                f"blocking digest: {blocking_digest}",
+                f"warning digest: {warning_digest}",
+                "primary evidence rewritten: false",
             ],
         }
 

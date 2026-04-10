@@ -30,5 +30,8 @@ class RecognitionScopeGateway:
         return {
             "scope_definition_pack": dict(snapshot.get("scope_definition_pack") or {}),
             "decision_rule_profile": dict(snapshot.get("decision_rule_profile") or {}),
+            "reference_asset_registry": dict(snapshot.get("reference_asset_registry") or {}),
+            "certificate_lifecycle_summary": dict(snapshot.get("certificate_lifecycle_summary") or {}),
+            "pre_run_readiness_gate": dict(snapshot.get("pre_run_readiness_gate") or {}),
             "recognition_scope_rollup": dict(snapshot.get("recognition_scope_rollup") or {}),
         }

@@ -154,10 +154,20 @@ _READINESS_ARTIFACT_ANCHORS: dict[str, dict[str, str]] = {
         "anchor_id": "reference-asset-registry",
         "anchor_label": "Reference asset registry",
     },
+    "certificate_lifecycle_summary": {
+        "artifact_type": "certificate_lifecycle_summary",
+        "anchor_id": "certificate-lifecycle-summary",
+        "anchor_label": "Certificate lifecycle summary",
+    },
     "metrology_traceability_stub": {
         "artifact_type": "metrology_traceability_stub",
         "anchor_id": "metrology-traceability-stub",
         "anchor_label": "Metrology traceability stub",
+    },
+    "pre_run_readiness_gate": {
+        "artifact_type": "pre_run_readiness_gate",
+        "anchor_id": "pre-run-readiness-gate",
+        "anchor_label": "Pre-run readiness gate",
     },
     "uncertainty_budget_stub": {
         "artifact_type": "uncertainty_budget_stub",
@@ -219,7 +229,9 @@ _PHASE_READINESS_ARTIFACT_TYPES: dict[str, tuple[str, ...]] = {
     ),
     "pressure_stable": (
         "reference_asset_registry",
+        "certificate_lifecycle_summary",
         "certificate_readiness_summary",
+        "pre_run_readiness_gate",
         "metrology_traceability_stub",
         "uncertainty_budget_stub",
         "method_confirmation_matrix",
@@ -245,7 +257,7 @@ _PHASE_READINESS_ARTIFACT_TYPES: dict[str, tuple[str, ...]] = {
 _PHASE_READINESS_IMPACT_AREAS: dict[str, str] = {
     "ambient_diagnostic": "scope / decision / method / uncertainty / traceability",
     "preseal": "scope / method / uncertainty / traceability",
-    "pressure_stable": "uncertainty / traceability / certificate",
+    "pressure_stable": "uncertainty / traceability / certificate / lifecycle / pre-run gate",
     "sample_ready": "scope / method / uncertainty / traceability",
     "recovery_retry": "software validation / audit / method / uncertainty / traceability",
 }
@@ -253,7 +265,13 @@ _PHASE_READINESS_IMPACT_AREAS: dict[str, str] = {
 _PHASE_READINESS_DIMENSIONS: dict[str, tuple[str, ...]] = {
     "ambient_diagnostic": ("scope", "decision rule", "method confirmation", "uncertainty inputs", "traceability stub"),
     "preseal": ("scope", "decision rule", "method confirmation", "uncertainty inputs", "traceability stub"),
-    "pressure_stable": ("reference asset / certificate", "traceability", "uncertainty / method"),
+    "pressure_stable": (
+        "reference asset / certificate",
+        "certificate lifecycle",
+        "pre-run readiness gate",
+        "traceability",
+        "uncertainty / method",
+    ),
     "sample_ready": ("scope", "method confirmation", "uncertainty inputs", "traceability stub"),
     "recovery_retry": ("software validation", "audit", "method confirmation", "uncertainty inputs", "traceability stub"),
 }

@@ -1500,9 +1500,17 @@ def export_run_offline_artifacts(
         "scope_readiness_summary_markdown": str(run_dir / recognition_readiness.SCOPE_READINESS_SUMMARY_MARKDOWN_FILENAME),
         "reference_asset_registry": str(run_dir / recognition_readiness.REFERENCE_ASSET_REGISTRY_FILENAME),
         "reference_asset_registry_markdown": str(run_dir / recognition_readiness.REFERENCE_ASSET_REGISTRY_MARKDOWN_FILENAME),
+        "certificate_lifecycle_summary": str(run_dir / recognition_readiness.CERTIFICATE_LIFECYCLE_SUMMARY_FILENAME),
+        "certificate_lifecycle_summary_markdown": str(
+            run_dir / recognition_readiness.CERTIFICATE_LIFECYCLE_SUMMARY_MARKDOWN_FILENAME
+        ),
         "certificate_readiness_summary": str(run_dir / recognition_readiness.CERTIFICATE_READINESS_SUMMARY_FILENAME),
         "certificate_readiness_summary_markdown": str(
             run_dir / recognition_readiness.CERTIFICATE_READINESS_SUMMARY_MARKDOWN_FILENAME
+        ),
+        "pre_run_readiness_gate": str(run_dir / recognition_readiness.PRE_RUN_READINESS_GATE_FILENAME),
+        "pre_run_readiness_gate_markdown": str(
+            run_dir / recognition_readiness.PRE_RUN_READINESS_GATE_MARKDOWN_FILENAME
         ),
         "metrology_traceability_stub": str(run_dir / recognition_readiness.METROLOGY_TRACEABILITY_STUB_FILENAME),
         "metrology_traceability_stub_markdown": str(
@@ -1649,7 +1657,9 @@ def export_run_offline_artifacts(
         "decision_rule_profile": "execution_summary",
         "scope_readiness_summary": "diagnostic_analysis",
         "reference_asset_registry": "execution_summary",
+        "certificate_lifecycle_summary": "diagnostic_analysis",
         "certificate_readiness_summary": "diagnostic_analysis",
+        "pre_run_readiness_gate": "diagnostic_analysis",
         "metrology_traceability_stub": "execution_summary",
         "uncertainty_budget_stub": "execution_summary",
         "method_confirmation_protocol": "execution_summary",

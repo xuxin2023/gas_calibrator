@@ -1356,6 +1356,29 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
         )
         or str(digest.get("required_evidence_categories_summary") or t("common.none"))
     )
+    asset_readiness_overview = humanize_review_surface_text(
+        str(raw.get("asset_readiness_overview") or digest.get("asset_readiness_overview") or t("common.none"))
+    )
+    certificate_lifecycle_overview = humanize_review_surface_text(
+        str(
+            raw.get("certificate_lifecycle_overview")
+            or digest.get("certificate_lifecycle_overview")
+            or t("common.none")
+        )
+    )
+    pre_run_gate_status = humanize_review_surface_text(
+        str(raw.get("gate_status") or digest.get("pre_run_gate_status") or t("common.none"))
+    )
+    warning_summary = humanize_review_surface_text(str(digest.get("warning_summary") or t("common.none")))
+    reviewer_action_summary = humanize_review_surface_text(
+        str(digest.get("reviewer_action_summary") or t("common.none"))
+    )
+    scope_reference_assets_summary = humanize_review_surface_text(
+        str(digest.get("scope_reference_assets_summary") or t("common.none"))
+    )
+    decision_rule_dependency_summary = humanize_review_surface_text(
+        str(digest.get("decision_rule_dependency_summary") or t("common.none"))
+    )
 
     summary_lines = [
         f"{title}: {humanize_review_surface_text(str(digest.get('summary') or ''))}".strip(": "),
@@ -1373,6 +1396,21 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
             "results.review_center.detail.readiness.conformity_boundary_line",
             value=conformity_boundary_summary,
             default=f"符合性边界：{conformity_boundary_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.asset_readiness_overview_line",
+            value=asset_readiness_overview,
+            default=f"asset readiness overview: {asset_readiness_overview}",
+        ),
+        t(
+            "results.review_center.detail.readiness.certificate_lifecycle_overview_line",
+            value=certificate_lifecycle_overview,
+            default=f"certificate lifecycle overview: {certificate_lifecycle_overview}",
+        ),
+        t(
+            "results.review_center.detail.readiness.pre_run_gate_status_line",
+            value=pre_run_gate_status,
+            default=f"pre-run gate status: {pre_run_gate_status}",
         ),
         t(
             "results.review_center.detail.readiness.linked_measurement_line",
