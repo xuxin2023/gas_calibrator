@@ -312,6 +312,7 @@ class DeviceWorkbenchController:
         sidecar = dict(payload.get("simulation_evidence_sidecar_bundle") or {})
         phase_coverage = dict(payload.get("measurement_phase_coverage_report") or {})
         compatibility_summary = dict(payload.get("compatibility_scan_summary") or {})
+        compatibility_overview = dict(compatibility_summary.get("compatibility_overview") or {})
         run_artifact_index = dict(payload.get("run_artifact_index") or {})
         if not stability and not transition and not sidecar and not phase_coverage:
             return {}
@@ -326,12 +327,16 @@ class DeviceWorkbenchController:
             str(sidecar.get("reviewer_note") or "").strip(),
         ]
         compatibility_reader_mode = str(
-            compatibility_summary.get("current_reader_mode_display")
+            compatibility_overview.get("current_reader_mode_display")
+            or compatibility_summary.get("current_reader_mode_display")
+            or compatibility_overview.get("current_reader_mode")
             or compatibility_summary.get("current_reader_mode")
             or ""
         ).strip()
         compatibility_status = str(
-            compatibility_summary.get("compatibility_status_display")
+            compatibility_overview.get("compatibility_status_display")
+            or compatibility_summary.get("compatibility_status_display")
+            or compatibility_overview.get("compatibility_status")
             or compatibility_summary.get("compatibility_status")
             or ""
         ).strip()
@@ -340,6 +345,8 @@ class DeviceWorkbenchController:
                 "工件兼容: "
                 + " | ".join(part for part in (compatibility_reader_mode, compatibility_status) if part)
             )
+        if str(compatibility_overview.get("schema_contract_summary_display") or "").strip():
+            summary_lines.append(str(compatibility_overview.get("schema_contract_summary_display") or "").strip())
         summary_lines = [line for line in summary_lines if line]
         detail_lines = [str(item).strip() for item in list(localized_measurement_lines.get("detail_lines") or []) if str(item).strip()]
         if compatibility_summary:
@@ -349,6 +356,11 @@ class DeviceWorkbenchController:
                 if str(item).strip()
             ]
             detail_lines.extend(compatibility_detail_lines)
+            detail_lines.extend(
+                str(item).strip()
+                for item in list(compatibility_overview.get("detail_lines") or [])[:2]
+                if str(item).strip()
+            )
             if bool(compatibility_summary.get("regenerate_recommended", False)):
                 detail_lines.append("建议轻量 regenerate/reindex，仅重建 reviewer/index sidecar")
         detail_lines = [line for line in detail_lines if line]
@@ -362,6 +374,9 @@ class DeviceWorkbenchController:
             text = str(item).strip()
             if text and text not in boundary_lines:
                 boundary_lines.append(text)
+        extra_boundary = str(compatibility_overview.get("non_primary_boundary_display") or "").strip()
+        if extra_boundary and extra_boundary not in boundary_lines:
+            boundary_lines.append(extra_boundary)
         compatibility_artifact_paths = dict(compatibility_summary.get("artifact_paths") or {})
         compatibility_entries = {
             str(entry.get("artifact_name") or ""): dict(entry)
@@ -419,6 +434,7 @@ class DeviceWorkbenchController:
         uncertainty_summary = dict(payload.get("uncertainty_method_readiness_summary") or {})
         audit_summary = dict(payload.get("audit_readiness_digest") or {})
         compatibility_summary = dict(payload.get("compatibility_scan_summary") or {})
+        compatibility_overview = dict(compatibility_summary.get("compatibility_overview") or {})
         payloads = {
             "scope_readiness_summary": scope_summary,
             "certificate_readiness_summary": certificate_summary,
@@ -454,12 +470,16 @@ class DeviceWorkbenchController:
                     artifact_paths[str(label)] = path_text
         if compatibility_summary:
             compatibility_reader_mode = str(
-                compatibility_summary.get("current_reader_mode_display")
+                compatibility_overview.get("current_reader_mode_display")
+                or compatibility_summary.get("current_reader_mode_display")
+                or compatibility_overview.get("current_reader_mode")
                 or compatibility_summary.get("current_reader_mode")
                 or ""
             ).strip()
             compatibility_status = str(
-                compatibility_summary.get("compatibility_status_display")
+                compatibility_overview.get("compatibility_status_display")
+                or compatibility_summary.get("compatibility_status_display")
+                or compatibility_overview.get("compatibility_status")
                 or compatibility_summary.get("compatibility_status")
                 or ""
             ).strip()
@@ -468,7 +488,13 @@ class DeviceWorkbenchController:
                     "工件兼容: "
                     + " | ".join(part for part in (compatibility_reader_mode, compatibility_status) if part)
                 )
+            if str(compatibility_overview.get("schema_contract_summary_display") or "").strip():
+                summary_lines.append(str(compatibility_overview.get("schema_contract_summary_display") or "").strip())
             for line in list(compatibility_summary.get("detail_lines") or [])[:2]:
+                text = str(line).strip()
+                if text and text not in detail_lines:
+                    detail_lines.append(text)
+            for line in list(compatibility_overview.get("detail_lines") or [])[:1]:
                 text = str(line).strip()
                 if text and text not in detail_lines:
                     detail_lines.append(text)
@@ -476,6 +502,9 @@ class DeviceWorkbenchController:
                 text = str(item).strip()
                 if text and text not in boundary_lines:
                     boundary_lines.append(text)
+            extra_boundary = str(compatibility_overview.get("non_primary_boundary_display") or "").strip()
+            if extra_boundary and extra_boundary not in boundary_lines:
+                boundary_lines.append(extra_boundary)
             for label, path in dict(compatibility_summary.get("artifact_paths") or {}).items():
                 path_text = str(path or "").strip()
                 if path_text:

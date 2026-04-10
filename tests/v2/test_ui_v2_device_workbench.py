@@ -125,6 +125,14 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
         and display_taxonomy_value(UNCERTAINTY_INPUT_FAMILY, "preseal_pressure_term") in str(line)
         for line in list(workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["summary_lines"] or [])
     )
+    assert any(
+        "compatibility bundle" in str(line)
+        for line in list(workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["summary_lines"] or [])
+    )
+    assert all(
+        "current_reader_mode" not in str(line)
+        for line in list(workbench["workbench"]["live_snapshot_evidence"]["measurement_core_evidence"]["detail_lines"] or [])
+    )
     assert workbench["workbench"]["live_snapshot_evidence"]["point_taxonomy_summary"]["pressure_mode_summary"] == (
         "ambient_open 2"
     )
@@ -148,6 +156,10 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
     )
     assert any(
         "工件兼容" in str(line)
+        for line in list(workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["summary_lines"] or [])
+    )
+    assert any(
+        "compatibility bundle" in str(line)
         for line in list(workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["summary_lines"] or [])
     )
     assert workbench["history"]["items"] == []

@@ -186,7 +186,10 @@ def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> No
     assert "simulated_protocol" in results_payload["result_summary_text"]
     assert results_payload["run_artifact_index"]["artifact_type"] == "run_artifact_index"
     assert results_payload["compatibility_scan_summary"]["artifact_type"] == "compatibility_scan_summary"
+    assert results_payload["compatibility_overview"]["schema_contract_summary_display"]
+    assert results_payload["compatibility_overview"]["primary_evidence_rewritten"] is False
     assert results_payload["reindex_manifest"]["regenerate_scope"] == "reviewer_index_sidecar_only"
+    assert "compatibility bundle" in results_payload["result_summary_text"]
     assert "工件兼容" in results_payload["result_summary_text"]
     assert "配置安全" in results_payload["result_summary_text"]
     assert "工作台诊断证据" in results_payload["result_summary_text"]
@@ -207,6 +210,8 @@ def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> No
     assert compatibility_row["compatibility_status"]
     assert compatibility_row["reader_mode_display"]
     assert compatibility_row["note"]
+    assert "Schema" in str(compatibility_row["role_status_display"])
+    assert "current_reader_mode" not in str(compatibility_row["note"])
     assert "配置安全" in reports_payload["result_summary_text"]
     assert "工作台诊断证据" in reports_payload["result_summary_text"]
 
@@ -298,6 +303,9 @@ def test_results_gateway_builds_legacy_compatibility_payload_without_rewriting_p
 
     assert payload["compatibility_scan_summary"]["compatibility_status"] == "compatibility_read"
     assert payload["compatibility_scan_summary"]["regenerate_recommended"] is True
+    assert payload["compatibility_overview"]["current_reader_mode"] == "compatibility_adapter"
+    assert payload["compatibility_overview"]["primary_evidence_rewritten"] is False
+    assert "compatibility bundle" in payload["result_summary_text"]
     assert "工件兼容" in payload["result_summary_text"]
     assert not (run_dir / RUN_ARTIFACT_INDEX_FILENAME).exists()
     assert not (run_dir / REINDEX_MANIFEST_FILENAME).exists()

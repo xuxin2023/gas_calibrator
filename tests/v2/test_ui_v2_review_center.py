@@ -303,6 +303,9 @@ def test_review_center_aggregates_multi_evidence_and_acceptance_readiness(tmp_pa
         for line in list(suite_item["detail_lineage_summary"])
     )
     assert "reviewer/index sidecar" in compatibility_item["detail_text"]
+    assert "compatibility bundle" in compatibility_item["detail_text"]
+    assert any("compatibility bundle" in str(item) for item in list(compatibility_item.get("detail_key_fields") or []))
+    assert "current_reader_mode" not in compatibility_item["detail_text"]
     assert compatibility_item["status"] == "diagnostic_only"
     assert any(item["id"] == "analytics" for item in review_center["filters"]["type_options"])
     assert any(item["id"] == "artifact_compatibility" for item in review_center["filters"]["type_options"])

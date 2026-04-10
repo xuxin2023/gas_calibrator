@@ -185,6 +185,7 @@ def test_run_v2_headless_logs_step2_config_safety(monkeypatch, capsys) -> None:
 
     assert result == 0
     assert "[Step2 safety]" in captured
+    assert "real-COM 1" in captured
     assert "[Step2 gate]" in captured
     assert "[Step2 boundary]" in captured
     assert "[Step2 execution gate]" in captured

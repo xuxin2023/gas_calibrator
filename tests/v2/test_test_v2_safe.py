@@ -108,5 +108,6 @@ def test_cli_safety_lines_keep_step2_gate_readable() -> None:
     )
 
     assert any("[Step2 safety]" in line for line in lines)
+    assert any("[Step2 safety]" in line and "real-COM 1" in line for line in lines)
     assert any("[Step2 gate]" in line and "requires_dual_unlock=true" in line for line in lines)
     assert any("[Step2 boundary]" in line and "real_com=1" in line for line in lines)

@@ -138,7 +138,7 @@ def load_or_build_artifact_compatibility_payloads(
         if payload:
             loaded[artifact_key] = payload
     if len(loaded) == len(COMPATIBILITY_BUNDLE_DEFINITIONS):
-        return loaded
+        return _normalize_artifact_compatibility_payloads(loaded)
     bundle = build_artifact_compatibility_bundle(
         run_dir,
         summary=summary,
@@ -147,10 +147,209 @@ def load_or_build_artifact_compatibility_payloads(
         output_files=output_files,
         role_catalog=role_catalog,
     )
+    return _normalize_artifact_compatibility_payloads(
+        {
+            artifact_key: dict(bundle_item.get("raw") or {})
+            for artifact_key, bundle_item in bundle.items()
+        }
+    )
+
+
+def build_artifact_compatibility_overview(
+    *,
+    run_artifact_index: dict[str, Any] | None,
+    artifact_contract_catalog: dict[str, Any] | None,
+    compatibility_scan_summary: dict[str, Any] | None,
+    reindex_manifest: dict[str, Any] | None,
+) -> dict[str, Any]:
+    run_artifact_index = dict(run_artifact_index or {})
+    artifact_contract_catalog = dict(artifact_contract_catalog or {})
+    compatibility_scan_summary = dict(compatibility_scan_summary or {})
+    reindex_manifest = dict(reindex_manifest or {})
+    entries = [
+        dict(entry)
+        for entry in list(run_artifact_index.get("entries") or [])
+        if isinstance(entry, dict)
+    ]
+    contract_rows = [
+        dict(row)
+        for row in list(artifact_contract_catalog.get("contract_rows") or [])
+        if isinstance(row, dict)
+    ]
+    schema_or_contract_version_counts = _count_by_key(entries, "schema_or_contract_version")
+    current_reader_mode = str(
+        compatibility_scan_summary.get("current_reader_mode")
+        or run_artifact_index.get("current_reader_mode")
+        or reindex_manifest.get("current_reader_mode")
+        or ""
+    ).strip()
+    current_reader_mode_display = str(
+        compatibility_scan_summary.get("current_reader_mode_display")
+        or run_artifact_index.get("current_reader_mode_display")
+        or reindex_manifest.get("current_reader_mode_display")
+        or _display_reader_mode(current_reader_mode)
+    ).strip() or "--"
+    compatibility_status = str(
+        compatibility_scan_summary.get("compatibility_status")
+        or run_artifact_index.get("compatibility_status")
+        or reindex_manifest.get("compatibility_status")
+        or ""
+    ).strip()
+    compatibility_status_display = str(
+        compatibility_scan_summary.get("compatibility_status_display")
+        or run_artifact_index.get("compatibility_status_display")
+        or reindex_manifest.get("compatibility_status_display")
+        or _display_compatibility_status(compatibility_status)
+    ).strip() or "--"
+    regenerate_recommended = bool(
+        compatibility_scan_summary.get(
+            "regenerate_recommended",
+            run_artifact_index.get(
+                "regenerate_recommended",
+                reindex_manifest.get("regenerate_recommended", False),
+            ),
+        )
+    )
+    regenerate_scope = str(
+        compatibility_scan_summary.get("regenerate_scope")
+        or run_artifact_index.get("regenerate_scope")
+        or reindex_manifest.get("regenerate_scope")
+        or "reviewer_index_sidecar_only"
+    ).strip()
+    primary_evidence_rewritten = bool(
+        compatibility_scan_summary.get(
+            "primary_evidence_rewritten",
+            run_artifact_index.get(
+                "primary_evidence_rewritten",
+                reindex_manifest.get("primary_evidence_rewritten", False),
+            ),
+        )
+    )
+    boundary_digest = str(
+        compatibility_scan_summary.get("boundary_digest")
+        or run_artifact_index.get("boundary_digest")
+        or artifact_contract_catalog.get("boundary_digest")
+        or reindex_manifest.get("boundary_digest")
+        or ""
+    ).strip()
+    non_claim_digest = str(
+        compatibility_scan_summary.get("non_claim_digest")
+        or run_artifact_index.get("non_claim_digest")
+        or artifact_contract_catalog.get("non_claim_digest")
+        or reindex_manifest.get("non_claim_digest")
+        or ""
+    ).strip()
+    observed_contract_versions = sorted(
+        version
+        for version in schema_or_contract_version_counts
+        if str(version or "").strip()
+    )
+    observed_contract_version_summary = _count_summary(schema_or_contract_version_counts)
+    regenerate_recommendation_display = (
+        "仅重建 reviewer/index sidecar"
+        if regenerate_recommended
+        else "当前 compatibility sidecar 可直接复用"
+    )
+    non_primary_boundary_display = "仅重建 reviewer/index sidecar，不改写 summary.json / manifest.json / results.json"
+    non_primary_chain_display = "compatibility / regenerate sidecar 仍属于 non-primary evidence chain"
+    summary_line = str(
+        compatibility_scan_summary.get("summary")
+        or run_artifact_index.get("summary")
+        or compatibility_scan_summary.get("summary_line")
+        or ""
+    ).strip()
     return {
-        artifact_key: dict(bundle_item.get("raw") or {})
-        for artifact_key, bundle_item in bundle.items()
+        "compatibility_schema_version": ARTIFACT_COMPATIBILITY_SCHEMA_VERSION,
+        "observed_artifact_count": len(entries),
+        "contract_row_count": len(contract_rows),
+        "schema_or_contract_version_counts": schema_or_contract_version_counts,
+        "observed_contract_versions": observed_contract_versions,
+        "observed_contract_version_summary": observed_contract_version_summary,
+        "schema_contract_summary_display": (
+            f"compatibility bundle {ARTIFACT_COMPATIBILITY_SCHEMA_VERSION} | observed {observed_contract_version_summary}"
+        ),
+        "current_reader_mode": current_reader_mode,
+        "current_reader_mode_display": current_reader_mode_display,
+        "compatibility_status": compatibility_status,
+        "compatibility_status_display": compatibility_status_display,
+        "regenerate_recommended": regenerate_recommended,
+        "regenerate_scope": regenerate_scope,
+        "regenerate_recommendation_display": regenerate_recommendation_display,
+        "primary_evidence_rewritten": primary_evidence_rewritten,
+        "non_primary_boundary_display": non_primary_boundary_display,
+        "non_primary_chain_display": non_primary_chain_display,
+        "boundary_digest": boundary_digest,
+        "non_claim_digest": non_claim_digest,
+        "summary": summary_line,
+        "summary_lines": [
+            f"合同/Schema: compatibility bundle {ARTIFACT_COMPATIBILITY_SCHEMA_VERSION} | observed {observed_contract_version_summary}",
+            f"读取方式: {current_reader_mode_display}",
+            f"兼容状态: {compatibility_status_display}",
+            f"建议动作: {regenerate_recommendation_display}",
+            f"主证据改写: {str(primary_evidence_rewritten).lower()}",
+        ],
+        "detail_lines": [
+            f"边界摘要: {boundary_digest or '--'}",
+            f"非主张摘要: {non_claim_digest or '--'}",
+            f"non-primary 边界: {non_primary_boundary_display}",
+            f"证据链声明: {non_primary_chain_display}",
+        ],
     }
+
+
+def _normalize_artifact_compatibility_payloads(
+    payloads: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    normalized = {
+        str(key): dict(value or {})
+        for key, value in dict(payloads or {}).items()
+    }
+    overview = build_artifact_compatibility_overview(
+        run_artifact_index=normalized.get("run_artifact_index"),
+        artifact_contract_catalog=normalized.get("artifact_contract_catalog"),
+        compatibility_scan_summary=normalized.get("compatibility_scan_summary"),
+        reindex_manifest=normalized.get("reindex_manifest"),
+    )
+    for payload in normalized.values():
+        payload["compatibility_overview"] = dict(overview)
+        payload["schema_or_contract_version_summary"] = str(
+            overview.get("observed_contract_version_summary") or "--"
+        )
+        payload["schema_or_contract_version_counts"] = dict(
+            overview.get("schema_or_contract_version_counts") or {}
+        )
+    compatibility_scan_summary = dict(normalized.get("compatibility_scan_summary") or {})
+    if compatibility_scan_summary:
+        digest = dict(compatibility_scan_summary.get("digest") or {})
+        digest.update(
+            {
+                "schema_contract_summary": str(overview.get("schema_contract_summary_display") or ""),
+                "regenerate_summary": str(overview.get("regenerate_recommendation_display") or ""),
+                "boundary_summary": str(overview.get("boundary_digest") or ""),
+                "non_claim_summary": str(overview.get("non_claim_digest") or ""),
+                "non_primary_chain_summary": str(overview.get("non_primary_chain_display") or ""),
+            }
+        )
+        review_surface = dict(compatibility_scan_summary.get("review_surface") or {})
+        review_surface["summary_lines"] = _merge_unique_lines(
+            list(review_surface.get("summary_lines") or []),
+            list(overview.get("summary_lines") or []),
+        )
+        review_surface["detail_lines"] = _merge_unique_lines(
+            list(review_surface.get("detail_lines") or []),
+            list(overview.get("detail_lines") or []),
+        )
+        reviewer_note = str(review_surface.get("reviewer_note") or "").strip()
+        extra_note = str(overview.get("non_primary_boundary_display") or "").strip()
+        if extra_note and extra_note not in reviewer_note:
+            review_surface["reviewer_note"] = " | ".join(
+                part for part in (reviewer_note, extra_note) if str(part).strip()
+            )
+        compatibility_scan_summary["digest"] = digest
+        compatibility_scan_summary["review_surface"] = review_surface
+        compatibility_scan_summary["compatibility_overview"] = dict(overview)
+        normalized["compatibility_scan_summary"] = compatibility_scan_summary
+    return {artifact_key: dict(bundle_item or {}) for artifact_key, bundle_item in normalized.items()}
 
 
 def build_artifact_compatibility_bundle(
@@ -295,25 +494,41 @@ def build_artifact_compatibility_bundle(
         boundary_payload=boundary_payload,
         non_claim_payload=non_claim_payload,
     )
+    normalized_raw_payloads = _normalize_artifact_compatibility_payloads(
+        {
+            "run_artifact_index": run_artifact_index,
+            "artifact_contract_catalog": contract_catalog,
+            "compatibility_scan_summary": compatibility_scan_summary,
+            "reindex_manifest": reindex_manifest,
+        }
+    )
     return {
         "run_artifact_index": {
-            "raw": run_artifact_index,
-            "markdown": _build_run_artifact_index_markdown(run_artifact_index),
+            "raw": dict(normalized_raw_payloads.get("run_artifact_index") or {}),
+            "markdown": _build_run_artifact_index_markdown(
+                dict(normalized_raw_payloads.get("run_artifact_index") or {})
+            ),
             **COMPATIBILITY_BUNDLE_DEFINITIONS["run_artifact_index"],
         },
         "artifact_contract_catalog": {
-            "raw": contract_catalog,
-            "markdown": _build_contract_catalog_markdown(contract_catalog),
+            "raw": dict(normalized_raw_payloads.get("artifact_contract_catalog") or {}),
+            "markdown": _build_contract_catalog_markdown(
+                dict(normalized_raw_payloads.get("artifact_contract_catalog") or {})
+            ),
             **COMPATIBILITY_BUNDLE_DEFINITIONS["artifact_contract_catalog"],
         },
         "compatibility_scan_summary": {
-            "raw": compatibility_scan_summary,
-            "markdown": _build_scan_summary_markdown(compatibility_scan_summary),
+            "raw": dict(normalized_raw_payloads.get("compatibility_scan_summary") or {}),
+            "markdown": _build_scan_summary_markdown(
+                dict(normalized_raw_payloads.get("compatibility_scan_summary") or {})
+            ),
             **COMPATIBILITY_BUNDLE_DEFINITIONS["compatibility_scan_summary"],
         },
         "reindex_manifest": {
-            "raw": reindex_manifest,
-            "markdown": _build_reindex_manifest_markdown(reindex_manifest),
+            "raw": dict(normalized_raw_payloads.get("reindex_manifest") or {}),
+            "markdown": _build_reindex_manifest_markdown(
+                dict(normalized_raw_payloads.get("reindex_manifest") or {})
+            ),
             **COMPATIBILITY_BUNDLE_DEFINITIONS["reindex_manifest"],
         },
     }
@@ -871,6 +1086,18 @@ def _count_by_key(rows: Iterable[dict[str, Any]], key: str) -> dict[str, int]:
     return counts
 
 
+def _merge_unique_lines(base: Iterable[Any], extra: Iterable[Any]) -> list[str]:
+    rows: list[str] = []
+    seen: set[str] = set()
+    for value in list(base or []) + list(extra or []):
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        rows.append(text)
+    return rows
+
+
 def _surface_visibility(*, artifact_key: str, artifact_role: str) -> list[str]:
     surfaces = ["results"]
     if artifact_role in {"execution_summary", "diagnostic_analysis", "formal_analysis"}:
@@ -1032,6 +1259,7 @@ def _display_reader_mode(value: Any) -> str:
 
 
 def _build_run_artifact_index_markdown(payload: dict[str, Any]) -> str:
+    overview = dict(payload.get("compatibility_overview") or {})
     lines = [
         "# Run Artifact Index",
         "",
@@ -1039,6 +1267,7 @@ def _build_run_artifact_index_markdown(payload: dict[str, Any]) -> str:
         f"- reader_mode: {payload.get('current_reader_mode')}",
         f"- compatibility_status: {payload.get('compatibility_status')}",
         f"- regenerate_recommended: {payload.get('regenerate_recommended')}",
+        f"- schema_contract_summary: {overview.get('schema_contract_summary_display') or payload.get('schema_or_contract_version_summary')}",
         f"- summary: {payload.get('summary')}",
         "",
         "| artifact | version | compatibility | regenerate | surfaces |",
@@ -1065,10 +1294,12 @@ def _build_run_artifact_index_markdown(payload: dict[str, Any]) -> str:
 
 
 def _build_contract_catalog_markdown(payload: dict[str, Any]) -> str:
+    overview = dict(payload.get("compatibility_overview") or {})
     lines = [
         "# Artifact Contract Catalog",
         "",
         f"- run_id: {payload.get('run_id')}",
+        f"- schema_contract_summary: {overview.get('schema_contract_summary_display') or payload.get('schema_or_contract_version_summary')}",
         f"- summary: {payload.get('summary')}",
         "",
         "| artifact_key | role | versions | compatibility |",
@@ -1087,6 +1318,7 @@ def _build_contract_catalog_markdown(payload: dict[str, Any]) -> str:
 
 
 def _build_scan_summary_markdown(payload: dict[str, Any]) -> str:
+    overview = dict(payload.get("compatibility_overview") or {})
     lines = [
         "# Compatibility Scan Summary",
         "",
@@ -1095,6 +1327,8 @@ def _build_scan_summary_markdown(payload: dict[str, Any]) -> str:
         f"- reader_mode: {payload.get('current_reader_mode')}",
         f"- compatibility_status: {payload.get('compatibility_status')}",
         f"- regenerate_recommended: {payload.get('regenerate_recommended')}",
+        f"- schema_contract_summary: {overview.get('schema_contract_summary_display') or payload.get('schema_or_contract_version_summary')}",
+        f"- primary_evidence_rewritten: {payload.get('primary_evidence_rewritten')}",
         "",
     ]
     for line in list(payload.get("detail_lines") or []):
@@ -1110,10 +1344,12 @@ def _build_scan_summary_markdown(payload: dict[str, Any]) -> str:
 
 
 def _build_reindex_manifest_markdown(payload: dict[str, Any]) -> str:
+    overview = dict(payload.get("compatibility_overview") or {})
     lines = [
         "# Reindex Manifest",
         "",
         f"- run_id: {payload.get('run_id')}",
+        f"- schema_contract_summary: {overview.get('schema_contract_summary_display') or payload.get('schema_or_contract_version_summary')}",
         f"- regenerate_scope: {payload.get('regenerate_scope')}",
         f"- primary_evidence_preserved: {payload.get('primary_evidence_preserved')}",
         f"- primary_evidence_rewritten: {payload.get('primary_evidence_rewritten')}",

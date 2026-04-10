@@ -1487,6 +1487,7 @@ class AppFacade:
         run_artifact_index = dict(payload.get("run_artifact_index", {}) or {})
         artifact_contract_catalog = dict(payload.get("artifact_contract_catalog", {}) or {})
         compatibility_scan_summary = dict(payload.get("compatibility_scan_summary", {}) or {})
+        compatibility_overview = dict(payload.get("compatibility_overview", {}) or {})
         reindex_manifest = dict(payload.get("reindex_manifest", {}) or {})
 
         sample_count = 0
@@ -1971,6 +1972,44 @@ class AppFacade:
                 t("facade.results.result_summary.workbench_evidence", value=workbench_evidence_text),
             ]
         )
+        if compatibility_scan_summary:
+            compatibility_extra_lines = [
+                t(
+                    "facade.results.result_summary.artifact_compatibility_contracts",
+                    value=str(
+                        compatibility_overview.get("schema_contract_summary_display")
+                        or compatibility_scan_summary.get("schema_or_contract_version_summary")
+                        or "--"
+                    ),
+                    default="工件合同/Schema: {value}",
+                ),
+                t(
+                    "facade.results.result_summary.artifact_compatibility_recommendation",
+                    value=str(compatibility_overview.get("regenerate_recommendation_display") or "--"),
+                    default="兼容建议: {value}",
+                ),
+                t(
+                    "facade.results.result_summary.artifact_compatibility_boundary",
+                    value=str(
+                        compatibility_overview.get("non_primary_boundary_display")
+                        or compatibility_overview.get("non_primary_chain_display")
+                        or "--"
+                    ),
+                    default="兼容边界: {value}",
+                ),
+                t(
+                    "facade.results.result_summary.artifact_compatibility_non_claim",
+                    value=str(
+                        compatibility_overview.get("non_claim_digest")
+                        or compatibility_scan_summary.get("non_claim_digest")
+                        or "--"
+                    ),
+                    default="兼容 non-claim: {value}",
+                ),
+            ]
+            result_text = "\n".join(
+                [result_text, *[line for line in compatibility_extra_lines if str(line).strip()]]
+            )
         coefficient_text = "\n".join(coefficient_files) if coefficient_files else t("facade.no_coefficient_artifacts")
         ai_text = self._humanize_ui_summary(ai_text.strip()) or t("facade.no_ai_summary_artifact")
 
@@ -2008,6 +2047,7 @@ class AppFacade:
             "run_artifact_index": run_artifact_index,
             "artifact_contract_catalog": artifact_contract_catalog,
             "compatibility_scan_summary": compatibility_scan_summary,
+            "compatibility_overview": compatibility_overview,
             "reindex_manifest": reindex_manifest,
             "review_digest": review_digest,
             "review_digest_text": str(review_digest.get("summary_text", "") or ""),
@@ -4187,6 +4227,7 @@ class AppFacade:
     def _build_artifact_compatibility_review_item(self, payload: dict[str, Any], path: Path) -> dict[str, Any]:
         review_surface = dict(payload.get("review_surface") or {})
         digest = dict(payload.get("digest") or {})
+        compatibility_overview = dict(payload.get("compatibility_overview") or {})
         summary = self._humanize_ui_summary(
             str(
                 digest.get("summary")
@@ -4209,6 +4250,19 @@ class AppFacade:
             "说明: regenerate/reindex 仅作用于 reviewer/index sidecar，不改写原始主证据",
             t("results.review_center.disclaimer"),
         ]
+        if str(compatibility_overview.get("schema_contract_summary_display") or "").strip():
+            detail_lines.insert(
+                5,
+                f"合同/Schema: {str(compatibility_overview.get('schema_contract_summary_display') or '--')}",
+            )
+        if str(compatibility_overview.get("regenerate_recommendation_display") or "").strip():
+            detail_lines.append(
+                f"兼容建议: {str(compatibility_overview.get('regenerate_recommendation_display') or '--')}"
+            )
+        if str(compatibility_overview.get("non_primary_boundary_display") or "").strip():
+            detail_lines.append(
+                f"兼容边界: {str(compatibility_overview.get('non_primary_boundary_display') or '--')}"
+            )
         artifact_paths = [
             str(path),
             *[
@@ -4232,6 +4286,7 @@ class AppFacade:
             key_fields=[
                 str(payload.get("current_reader_mode_display") or payload.get("current_reader_mode") or ""),
                 str(payload.get("compatibility_status_display") or payload.get("compatibility_status") or ""),
+                str(compatibility_overview.get("schema_contract_summary_display") or ""),
                 str(digest.get("regenerate_summary") or ""),
             ],
             artifact_paths=artifact_paths,

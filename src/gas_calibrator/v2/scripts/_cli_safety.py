@@ -13,7 +13,7 @@ def build_step2_cli_safety_lines(config_safety: dict[str, Any] | None) -> list[s
     real_port_devices = int(payload.get("real_port_device_count", 0) or 0)
     engineering_flags = int(payload.get("engineering_only_flag_count", 0) or 0)
     lines = [
-        "[Step2 safety] classification={classification} simulation_only={simulation_only} real_port_devices={real_port_devices} engineering_flags={engineering_flags}".format(
+        "[Step2 safety] classification={classification} simulation_only={simulation_only} real_port_devices={real_port_devices} real-COM {real_port_devices} engineering_flags={engineering_flags}".format(
             classification=classification,
             simulation_only=str(simulation_only).lower(),
             real_port_devices=real_port_devices,
@@ -50,3 +50,21 @@ def build_step2_cli_safety_lines(config_safety: dict[str, Any] | None) -> list[s
     if blocked_details:
         lines.append(f"[Step2 reasons] {' | '.join(blocked_details[:2])}")
     return lines
+
+
+def build_step2_historical_cli_lines(
+    *,
+    operation: str,
+    run_count: int,
+    dry_run: bool,
+) -> list[str]:
+    op = str(operation or "scan").strip() or "scan"
+    return [
+        "[Step2 safety] historical_artifact_workflow operation={operation} run_count={run_count} dry_run={dry_run} simulation-only=true real-COM 0".format(
+            operation=op,
+            run_count=int(run_count or 0),
+            dry_run=str(bool(dry_run)).lower(),
+        ),
+        "[Step2 gate] historical artifact scan/regenerate only; Step2 dual gate semantics unchanged; live/real workflow disabled",
+        "[Step2 boundary] sidecar_only=true primary_evidence_rewritten=false non_primary_chain=true reviewer_scope=reviewer_index_sidecar_only",
+    ]
