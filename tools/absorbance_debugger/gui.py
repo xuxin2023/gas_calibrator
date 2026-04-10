@@ -37,6 +37,8 @@ class AbsorbanceDebuggerGui:
         self.model_selection_strategy = StringVar(value="auto")
         self.enable_zero_residual_correction = StringVar(value="1")
         self.zero_residual_models = StringVar(value="linear,quadratic")
+        self.enable_water_zero_anchor_correction = StringVar(value="1")
+        self.water_zero_anchor_models = StringVar(value="linear,quadratic")
         self.enable_piecewise_model = StringVar(value="1")
         self.piecewise_boundary_ppm = StringVar(value="200")
         self.invalid_pressure_targets_hpa = StringVar(value="500")
@@ -48,10 +50,14 @@ class AbsorbanceDebuggerGui:
         self.hard_invalid_pressure_exclude = StringVar(value="1")
         self.use_valid_only_main_conclusion = StringVar(value="1")
         self.auto_open_report = StringVar(value="1")
+        self.show_input_lineage_audit = StringVar(value="0")
         self.status_text = StringVar(value="Ready.")
         self.selected_sources_text = StringVar(value="Selected sources: not run yet.")
         self.last_report_path: Path | None = None
         self.last_summary_path: Path | None = None
+        self.last_water_compare_path: Path | None = None
+        self.last_input_audit_path: Path | None = None
+        self.last_old_water_audit_path: Path | None = None
 
         self.ga_vars = {
             "GA01": StringVar(value="1"),
@@ -88,12 +94,13 @@ class AbsorbanceDebuggerGui:
         self._combo_row(frame, 7, "Order mode", self.absorbance_order_mode, ("samplewise_log_first", "mean_first_log", "compare_both"))
         self._combo_row(frame, 8, "Model strategy", self.model_selection_strategy, ("auto", "grouped_loo", "grouped_kfold"))
         self._combo_row(frame, 9, "ΔA0(T) model(s)", self.zero_residual_models, ("linear,quadratic", "linear", "quadratic", "piecewise_linear"))
-        self._entry_row(frame, 10, "Piecewise boundary", self.piecewise_boundary_ppm)
-        self._entry_row(frame, 11, "Invalid pressures", self.invalid_pressure_targets_hpa)
-        self._entry_row(frame, 12, "Invalid tol (hPa)", self.invalid_pressure_tolerance_hpa)
+        self._combo_row(frame, 10, "Water anchor model(s)", self.water_zero_anchor_models, ("linear,quadratic", "linear", "quadratic", "none"))
+        self._entry_row(frame, 11, "Piecewise boundary", self.piecewise_boundary_ppm)
+        self._entry_row(frame, 12, "Invalid pressures", self.invalid_pressure_targets_hpa)
+        self._entry_row(frame, 13, "Invalid tol (hPa)", self.invalid_pressure_tolerance_hpa)
 
         option_frame = ttk.Frame(frame)
-        option_frame.grid(row=13, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        option_frame.grid(row=14, column=0, columnspan=3, sticky="w", pady=(10, 0))
         ttk.Checkbutton(
             option_frame,
             text="Enable composite score",
@@ -112,6 +119,13 @@ class AbsorbanceDebuggerGui:
             option_frame,
             text="Enable piecewise model",
             variable=self.enable_piecewise_model,
+            onvalue="1",
+            offvalue="0",
+        ).pack(side=LEFT, padx=(14, 0))
+        ttk.Checkbutton(
+            option_frame,
+            text="Enable water zero-anchor correction",
+            variable=self.enable_water_zero_anchor_correction,
             onvalue="1",
             offvalue="0",
         ).pack(side=LEFT, padx=(14, 0))
@@ -138,7 +152,7 @@ class AbsorbanceDebuggerGui:
         ).pack(side=LEFT, padx=(14, 0))
 
         option_frame_2 = ttk.Frame(frame)
-        option_frame_2.grid(row=14, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        option_frame_2.grid(row=15, column=0, columnspan=3, sticky="w", pady=(10, 0))
         ttk.Checkbutton(
             option_frame_2,
             text="Hard-exclude invalid pressure bins",
@@ -160,23 +174,30 @@ class AbsorbanceDebuggerGui:
             onvalue="1",
             offvalue="0",
         ).pack(side=LEFT, padx=(14, 0))
+        ttk.Checkbutton(
+            option_frame_2,
+            text="Show input lineage audit",
+            variable=self.show_input_lineage_audit,
+            onvalue="1",
+            offvalue="0",
+        ).pack(side=LEFT, padx=(14, 0))
 
         action_frame = ttk.Frame(frame)
-        action_frame.grid(row=15, column=0, columnspan=3, sticky="ew", pady=(18, 0))
+        action_frame.grid(row=16, column=0, columnspan=3, sticky="ew", pady=(18, 0))
         self.start_button = ttk.Button(action_frame, text="Start analysis", command=self._start_analysis)
         self.start_button.pack(side=LEFT)
         self.open_button = ttk.Button(action_frame, text="Open report/summary", command=self._open_report, state="disabled")
         self.open_button.pack(side=LEFT, padx=(10, 0))
 
         ttk.Label(frame, textvariable=self.status_text, wraplength=700).grid(
-            row=16,
+            row=17,
             column=0,
             columnspan=3,
             sticky="w",
             pady=(16, 0),
         )
         ttk.Label(frame, textvariable=self.selected_sources_text, wraplength=700).grid(
-            row=17,
+            row=18,
             column=0,
             columnspan=3,
             sticky="w",
@@ -236,11 +257,13 @@ class AbsorbanceDebuggerGui:
             absorbance_order_mode = normalize_absorbance_order_mode(self.absorbance_order_mode.get())
             model_selection_strategy = normalize_model_selection_strategy(self.model_selection_strategy.get())
             zero_residual_models = self.zero_residual_models.get().strip()
+            water_zero_anchor_models = self.water_zero_anchor_models.get().strip()
             piecewise_boundary_ppm = float(self.piecewise_boundary_ppm.get().strip())
             invalid_pressure_targets_hpa = self.invalid_pressure_targets_hpa.get().strip()
             invalid_pressure_tolerance_hpa = float(self.invalid_pressure_tolerance_hpa.get().strip())
             enable_composite_score = self.enable_composite_score.get() == "1"
             enable_zero_residual_correction = self.enable_zero_residual_correction.get() == "1"
+            enable_water_zero_anchor_correction = self.enable_water_zero_anchor_correction.get() == "1"
             enable_piecewise_model = self.enable_piecewise_model.get() == "1"
             run_source_consistency_compare = self.run_source_consistency_compare.get() == "1"
             run_pressure_branch_compare = self.run_pressure_branch_compare.get() == "1"
@@ -273,6 +296,8 @@ class AbsorbanceDebuggerGui:
                     enable_composite_score=enable_composite_score,
                     enable_zero_residual_correction=enable_zero_residual_correction,
                     zero_residual_models=zero_residual_models,
+                    enable_water_zero_anchor_correction=enable_water_zero_anchor_correction,
+                    water_zero_anchor_models=water_zero_anchor_models,
                     enable_piecewise_model=enable_piecewise_model,
                     piecewise_boundary_ppm=piecewise_boundary_ppm,
                     run_r0_source_consistency_compare=run_source_consistency_compare,
@@ -296,6 +321,9 @@ class AbsorbanceDebuggerGui:
                 )
                 self.last_report_path = Path(result["output_dir"]) / "report.html" if len(input_paths) == 1 else None
                 self.last_summary_path = artifact_path if "cross_run_summary_path" in result else None
+                self.last_water_compare_path = Path(result["output_dir"]) / "step_08w_water_anchor_compare_plots.png" if len(input_paths) == 1 else None
+                self.last_input_audit_path = Path(result["output_dir"]) / "step_00z_new_chain_input_audit.csv" if len(input_paths) == 1 else None
+                self.last_old_water_audit_path = Path(result["output_dir"]) / "step_00y_old_water_correction_audit.md" if len(input_paths) == 1 else None
                 self.root.after(0, lambda: self._finish_success(artifact_path, result))
             except Exception as exc:  # pragma: no cover - UI error surface
                 self.root.after(0, lambda: self._finish_error(exc))
@@ -336,6 +364,10 @@ class AbsorbanceDebuggerGui:
             self.selected_sources_text.set("Selected sources: not available.")
         if self.auto_open_report.get() == "1" and artifact_path.exists():
             webbrowser.open(artifact_path.resolve().as_uri())
+        if self.show_input_lineage_audit.get() == "1":
+            for extra_path in (self.last_water_compare_path, self.last_input_audit_path, self.last_old_water_audit_path):
+                if extra_path is not None and extra_path.exists():
+                    webbrowser.open(extra_path.resolve().as_uri())
 
     def _finish_error(self, exc: Exception) -> None:
         self.start_button.configure(state="normal")

@@ -717,6 +717,75 @@ def plot_zero_residual_models(observations: pd.DataFrame, models: pd.DataFrame, 
     _finalize(fig, output_path)
 
 
+def plot_water_zero_anchor_models(observations: pd.DataFrame, models: pd.DataFrame, output_path: Path) -> None:
+    """Plot water zero-anchor candidate RMSE by analyzer and source pair."""
+
+    if observations.empty or models.empty:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No water zero-anchor diagnostics available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+
+    analyzers = sorted(models["analyzer_id"].dropna().astype(str).unique().tolist())
+    fig, axes = plt.subplots(max(len(analyzers), 1), 1, figsize=(12, 3.6 * max(len(analyzers), 1)), squeeze=False)
+    for row_idx, analyzer in enumerate(analyzers):
+        ax = axes[row_idx, 0]
+        subset = models[models["analyzer_id"] == analyzer].copy()
+        subset = subset.sort_values(["ratio_source", "zero_residual_mode", "water_zero_anchor_model"], ignore_index=True)
+        labels = [
+            f"{row['ratio_source'].replace('ratio_co2_', '')}\n{row['zero_residual_mode']}\n{row['water_zero_anchor_model']}"
+            for row in subset.to_dict(orient="records")
+        ]
+        x = np.arange(len(subset), dtype=float)
+        colors = [
+            "#4472c4" if str(model_id) == "none" else "#70ad47" if str(model_id) == "linear" else "#ed7d31"
+            for model_id in subset["water_zero_anchor_model"].astype(str)
+        ]
+        ax.bar(x, subset["rmse_zero_absorbance"], color=colors)
+        for idx, row in enumerate(subset.itertuples(index=False), start=0):
+            if bool(getattr(row, "is_selected_water_zero_anchor_model", False)):
+                ax.text(idx, float(getattr(row, "rmse_zero_absorbance", 0.0)), " selected", rotation=90, va="bottom", ha="center", fontsize=8)
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels, rotation=20, ha="right")
+        ax.set_title(f"{analyzer} water zero-anchor RMSE")
+        ax.set_ylabel("zero absorbance RMSE")
+        ax.grid(alpha=0.2, axis="y")
+    _finalize(fig, output_path)
+
+
+def plot_water_anchor_compare(data: pd.DataFrame, output_path: Path) -> None:
+    """Plot baseline vs water-anchor diagnostic metrics."""
+
+    if data.empty:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No water-anchor comparison data available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+
+    analyzers = sorted(data["analyzer_id"].dropna().astype(str).unique().tolist())
+    ordered = data.set_index("analyzer_id").reindex(analyzers)
+    x = np.arange(len(analyzers), dtype=float)
+    width = 0.36
+    fig, axes = plt.subplots(3, 2, figsize=(16, 10), squeeze=False)
+    panels = (
+        ("baseline_overall_rmse", "water_anchor_overall_rmse", "Overall RMSE"),
+        ("baseline_zero_rmse", "water_anchor_zero_rmse", "Zero RMSE"),
+        ("baseline_temp_bias_spread", "water_anchor_temp_bias_spread", "Temp Bias Spread"),
+        ("baseline_max_abs_error", "water_anchor_max_abs_error", "Max Abs Error"),
+        ("baseline_low_range_rmse", "water_anchor_low_range_rmse", "Low-range RMSE"),
+        ("baseline_new_rmse_at_40c", "water_anchor_new_rmse_at_40c", "40C RMSE"),
+    )
+    for ax, (base_col, water_col, title) in zip(axes.flatten(), panels, strict=False):
+        ax.bar(x - width / 2.0, ordered[base_col], width=width, label="baseline", color="#4472c4")
+        ax.bar(x + width / 2.0, ordered[water_col], width=width, label="water_anchor", color="#70ad47")
+        ax.set_xticks(x)
+        ax.set_xticklabels(analyzers)
+        ax.set_title(title)
+        ax.grid(alpha=0.2, axis="y")
+    axes[0, 0].legend(fontsize=8)
+    _finalize(fig, output_path)
+
+
 def plot_piecewise_model_compare(data: pd.DataFrame, output_path: Path) -> None:
     """Plot best single-range vs best piecewise metrics per analyzer."""
 

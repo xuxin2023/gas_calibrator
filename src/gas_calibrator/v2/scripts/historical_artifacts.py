@@ -16,6 +16,7 @@ from ..core.artifact_compatibility import (
 )
 from ..adapters.method_confirmation_gateway import MethodConfirmationGateway
 from ..adapters.recognition_scope_gateway import RecognitionScopeGateway
+from ..adapters.software_validation_gateway import SoftwareValidationGateway
 from ..adapters.uncertainty_gateway import UncertaintyGateway
 from ._cli_safety import build_step2_historical_cli_lines
 
@@ -171,6 +172,27 @@ def _build_run_report(
     route_specific_validation_matrix = dict(method_confirmation_payload.get("route_specific_validation_matrix") or {})
     verification_digest_payload = dict(method_confirmation_payload.get("verification_digest") or {})
     verification_rollup = dict(method_confirmation_payload.get("verification_rollup") or {})
+    software_validation_payload = SoftwareValidationGateway(
+        run_dir,
+        summary=summary_payload,
+        scope_readiness_summary=(
+            dict(summary_payload.get("scope_readiness_summary") or {})
+            or dict(dict(summary_payload.get("stats") or {}).get("scope_readiness_summary") or {})
+        ),
+        compatibility_scan_summary=compatibility_scan_summary,
+    ).read_payload()
+    software_validation_traceability_matrix = dict(
+        software_validation_payload.get("software_validation_traceability_matrix") or {}
+    )
+    artifact_hash_registry = dict(software_validation_payload.get("artifact_hash_registry") or {})
+    environment_fingerprint = dict(software_validation_payload.get("environment_fingerprint") or {})
+    release_manifest = dict(software_validation_payload.get("release_manifest") or {})
+    release_scope_summary = dict(software_validation_payload.get("release_scope_summary") or {})
+    release_boundary_digest = dict(software_validation_payload.get("release_boundary_digest") or {})
+    release_evidence_pack_index = dict(
+        software_validation_payload.get("release_evidence_pack_index") or {}
+    )
+    software_validation_rollup = dict(software_validation_payload.get("software_validation_rollup") or {})
     reference_asset_digest = dict(reference_asset_registry.get("digest") or {})
     certificate_lifecycle_digest = dict(certificate_lifecycle_summary.get("digest") or {})
     pre_run_gate_digest = dict(pre_run_readiness_gate.get("digest") or {})
@@ -186,6 +208,9 @@ def _build_run_report(
         or route_specific_validation_matrix.get("digest")
         or {}
     )
+    software_validation_digest = dict(software_validation_traceability_matrix.get("digest") or {})
+    hash_registry_digest = dict(artifact_hash_registry.get("digest") or {})
+    release_manifest_digest = dict(release_manifest.get("digest") or {})
     asset_readiness_overview = str(
         recognition_scope_rollup.get("asset_readiness_overview")
         or reference_asset_digest.get("asset_readiness_overview")
@@ -365,6 +390,57 @@ def _build_run_report(
             or verification_digest.get("matrix_completeness_summary")
             or "--"
         ),
+        "software_validation_overview": str(
+            software_validation_rollup.get("rollup_summary_display")
+            or release_manifest_digest.get("summary")
+            or software_validation_digest.get("summary")
+            or "--"
+        ),
+        "traceability_completeness": str(
+            software_validation_rollup.get("traceability_completeness_summary")
+            or software_validation_digest.get("current_coverage_summary")
+            or "--"
+        ),
+        "audit_hash_summary": str(
+            software_validation_rollup.get("hash_registry_summary")
+            or hash_registry_digest.get("summary")
+            or "--"
+        ),
+        "environment_fingerprint_summary": str(
+            software_validation_rollup.get("environment_summary")
+            or environment_fingerprint.get("environment_summary")
+            or dict(environment_fingerprint.get("digest") or {}).get("summary")
+            or "--"
+        ),
+        "release_manifest_overview": str(
+            software_validation_rollup.get("release_manifest_summary")
+            or release_manifest_digest.get("summary")
+            or "--"
+        ),
+        "release_scope_overview": str(
+            dict(release_scope_summary.get("digest") or {}).get("summary")
+            or release_scope_summary.get("scope_id")
+            or "--"
+        ),
+        "release_boundary_overview": str(
+            dict(release_boundary_digest.get("digest") or {}).get("summary")
+            or release_boundary_digest.get("non_claim_note")
+            or "--"
+        ),
+        "release_evidence_pack_overview": str(
+            dict(release_evidence_pack_index.get("digest") or {}).get("summary")
+            or "--"
+        ),
+        "linked_scope_ids": list(release_manifest.get("linked_scope_ids") or [scope_definition_pack.get("scope_id")] or []),
+        "linked_decision_rules": list(release_manifest.get("linked_decision_rules") or [decision_rule_profile.get("decision_rule_id")] or []),
+        "linked_uncertainty_cases": list(release_manifest.get("linked_uncertainty_cases") or []),
+        "linked_method_confirmation_protocols": list(
+            release_manifest.get("linked_method_confirmation_protocols") or []
+        ),
+        "linked_traceability_matrix": dict(release_manifest.get("linked_traceability_matrix") or {}),
+        "linked_hash_registry": dict(release_manifest.get("linked_hash_registry") or {}),
+        "linked_test_suites": list(release_manifest.get("linked_test_suites") or []),
+        "software_validation_rollup": software_validation_rollup,
         "current_evidence_coverage": str(
             verification_digest.get("current_evidence_coverage_summary")
             or verification_digest.get("current_coverage_summary")
@@ -472,6 +548,15 @@ def _build_run_report(
         ),
         "uncertainty_not_real_acceptance_evidence": bool(
             uncertainty_rollup.get("not_real_acceptance_evidence", True)
+        ),
+        "software_validation_not_real_acceptance_evidence": bool(
+            software_validation_rollup.get("not_real_acceptance_evidence", True)
+        ),
+        "software_validation_not_ready_for_formal_claim": bool(
+            software_validation_rollup.get("not_ready_for_formal_claim", True)
+        ),
+        "software_validation_primary_evidence_rewritten": bool(
+            software_validation_rollup.get("primary_evidence_rewritten", False)
         ),
         "recognition_scope_rollup": recognition_scope_rollup,
         "compatibility_rollup": compatibility_rollup,

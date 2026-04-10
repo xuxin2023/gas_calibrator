@@ -553,6 +553,26 @@ class ResultsGateway:
         uncertainty_digest = dict(payload.get("uncertainty_digest", {}) or {})
         uncertainty_rollup = dict(payload.get("uncertainty_rollup", {}) or {})
         uncertainty_method_readiness_summary = dict(payload.get("uncertainty_method_readiness_summary", {}) or {})
+        software_validation_traceability_matrix = dict(
+            payload.get("software_validation_traceability_matrix", {}) or {}
+        )
+        requirement_design_code_test_links = dict(
+            payload.get("requirement_design_code_test_links", {}) or {}
+        )
+        validation_evidence_index = dict(payload.get("validation_evidence_index", {}) or {})
+        change_impact_summary = dict(payload.get("change_impact_summary", {}) or {})
+        rollback_readiness_summary = dict(payload.get("rollback_readiness_summary", {}) or {})
+        artifact_hash_registry = dict(payload.get("artifact_hash_registry", {}) or {})
+        audit_event_store = dict(payload.get("audit_event_store", {}) or {})
+        environment_fingerprint = dict(payload.get("environment_fingerprint", {}) or {})
+        config_fingerprint = dict(payload.get("config_fingerprint", {}) or {})
+        release_input_digest = dict(payload.get("release_input_digest", {}) or {})
+        release_manifest = dict(payload.get("release_manifest", {}) or {})
+        release_scope_summary = dict(payload.get("release_scope_summary", {}) or {})
+        release_boundary_digest = dict(payload.get("release_boundary_digest", {}) or {})
+        release_evidence_pack_index = dict(payload.get("release_evidence_pack_index", {}) or {})
+        release_validation_manifest = dict(payload.get("release_validation_manifest", {}) or {})
+        software_validation_rollup = dict(payload.get("software_validation_rollup", {}) or {})
         audit_readiness_digest = dict(payload.get("audit_readiness_digest", {}) or {})
         run_artifact_index = dict(payload.get("run_artifact_index", {}) or {})
         artifact_contract_catalog = dict(payload.get("artifact_contract_catalog", {}) or {})
@@ -877,6 +897,105 @@ class ResultsGateway:
                 row,
                 audit_readiness_digest=audit_readiness_digest,
             )
+            for software_validation_payload, json_filename, markdown_filename, entry_key in (
+                (
+                    software_validation_traceability_matrix,
+                    recognition_readiness.SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_FILENAME,
+                    recognition_readiness.SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_MARKDOWN_FILENAME,
+                    "software_validation_traceability_matrix_entry",
+                ),
+                (
+                    requirement_design_code_test_links,
+                    recognition_readiness.REQUIREMENT_DESIGN_CODE_TEST_LINKS_FILENAME,
+                    recognition_readiness.REQUIREMENT_DESIGN_CODE_TEST_LINKS_MARKDOWN_FILENAME,
+                    "requirement_design_code_test_links_entry",
+                ),
+                (
+                    validation_evidence_index,
+                    recognition_readiness.VALIDATION_EVIDENCE_INDEX_FILENAME,
+                    recognition_readiness.VALIDATION_EVIDENCE_INDEX_MARKDOWN_FILENAME,
+                    "validation_evidence_index_entry",
+                ),
+                (
+                    change_impact_summary,
+                    recognition_readiness.CHANGE_IMPACT_SUMMARY_FILENAME,
+                    recognition_readiness.CHANGE_IMPACT_SUMMARY_MARKDOWN_FILENAME,
+                    "change_impact_summary_entry",
+                ),
+                (
+                    rollback_readiness_summary,
+                    recognition_readiness.ROLLBACK_READINESS_SUMMARY_FILENAME,
+                    recognition_readiness.ROLLBACK_READINESS_SUMMARY_MARKDOWN_FILENAME,
+                    "rollback_readiness_summary_entry",
+                ),
+                (
+                    artifact_hash_registry,
+                    recognition_readiness.ARTIFACT_HASH_REGISTRY_FILENAME,
+                    recognition_readiness.ARTIFACT_HASH_REGISTRY_MARKDOWN_FILENAME,
+                    "artifact_hash_registry_entry",
+                ),
+                (
+                    audit_event_store,
+                    recognition_readiness.AUDIT_EVENT_STORE_FILENAME,
+                    recognition_readiness.AUDIT_EVENT_STORE_MARKDOWN_FILENAME,
+                    "audit_event_store_entry",
+                ),
+                (
+                    environment_fingerprint,
+                    recognition_readiness.ENVIRONMENT_FINGERPRINT_FILENAME,
+                    recognition_readiness.ENVIRONMENT_FINGERPRINT_MARKDOWN_FILENAME,
+                    "environment_fingerprint_entry",
+                ),
+                (
+                    config_fingerprint,
+                    recognition_readiness.CONFIG_FINGERPRINT_FILENAME,
+                    recognition_readiness.CONFIG_FINGERPRINT_MARKDOWN_FILENAME,
+                    "config_fingerprint_entry",
+                ),
+                (
+                    release_input_digest,
+                    recognition_readiness.RELEASE_INPUT_DIGEST_FILENAME,
+                    recognition_readiness.RELEASE_INPUT_DIGEST_MARKDOWN_FILENAME,
+                    "release_input_digest_entry",
+                ),
+                (
+                    release_manifest,
+                    recognition_readiness.RELEASE_MANIFEST_FILENAME,
+                    recognition_readiness.RELEASE_MANIFEST_MARKDOWN_FILENAME,
+                    "release_manifest_entry",
+                ),
+                (
+                    release_scope_summary,
+                    recognition_readiness.RELEASE_SCOPE_SUMMARY_FILENAME,
+                    recognition_readiness.RELEASE_SCOPE_SUMMARY_MARKDOWN_FILENAME,
+                    "release_scope_summary_entry",
+                ),
+                (
+                    release_boundary_digest,
+                    recognition_readiness.RELEASE_BOUNDARY_DIGEST_FILENAME,
+                    recognition_readiness.RELEASE_BOUNDARY_DIGEST_MARKDOWN_FILENAME,
+                    "release_boundary_digest_entry",
+                ),
+                (
+                    release_evidence_pack_index,
+                    recognition_readiness.RELEASE_EVIDENCE_PACK_INDEX_FILENAME,
+                    recognition_readiness.RELEASE_EVIDENCE_PACK_INDEX_MARKDOWN_FILENAME,
+                    "release_evidence_pack_index_entry",
+                ),
+                (
+                    release_validation_manifest,
+                    recognition_readiness.RELEASE_VALIDATION_MANIFEST_FILENAME,
+                    recognition_readiness.RELEASE_VALIDATION_MANIFEST_MARKDOWN_FILENAME,
+                    "release_validation_manifest_entry",
+                ),
+            ):
+                row = self._decorate_measurement_core_row(
+                    row,
+                    payload=software_validation_payload,
+                    json_filename=json_filename,
+                    markdown_filename=markdown_filename,
+                    entry_key=entry_key,
+                )
             files.append(row)
         return {
             "run_dir": str(self.run_dir),
@@ -910,6 +1029,22 @@ class ResultsGateway:
             "validation_run_set": validation_run_set,
             "verification_digest": verification_digest,
             "verification_rollup": verification_rollup,
+            "software_validation_traceability_matrix": software_validation_traceability_matrix,
+            "requirement_design_code_test_links": requirement_design_code_test_links,
+            "validation_evidence_index": validation_evidence_index,
+            "change_impact_summary": change_impact_summary,
+            "rollback_readiness_summary": rollback_readiness_summary,
+            "artifact_hash_registry": artifact_hash_registry,
+            "audit_event_store": audit_event_store,
+            "environment_fingerprint": environment_fingerprint,
+            "config_fingerprint": config_fingerprint,
+            "release_input_digest": release_input_digest,
+            "release_manifest": release_manifest,
+            "release_scope_summary": release_scope_summary,
+            "release_boundary_digest": release_boundary_digest,
+            "release_evidence_pack_index": release_evidence_pack_index,
+            "release_validation_manifest": release_validation_manifest,
+            "software_validation_rollup": software_validation_rollup,
             "uncertainty_model": uncertainty_model,
             "uncertainty_input_set": uncertainty_input_set,
             "sensitivity_coefficient_set": sensitivity_coefficient_set,
@@ -1792,6 +1927,128 @@ class ResultsGateway:
                     )
                 )
             )
+        software_validation_overview_text = str(
+            software_validation_rollup_payload.get("rollup_summary_display")
+            or dict(release_manifest_payload.get("digest") or {}).get("summary")
+            or dict(software_validation_traceability_payload.get("digest") or {}).get("summary")
+            or ""
+        ).strip()
+        if software_validation_overview_text:
+            lines.append(
+                t(
+                    "facade.results.result_summary.software_validation_overview",
+                    value=software_validation_overview_text,
+                    default=f"软件验证总览：{software_validation_overview_text}",
+                )
+            )
+        traceability_completeness_text = str(
+            software_validation_rollup_payload.get("traceability_completeness_summary")
+            or dict(software_validation_traceability_payload.get("digest") or {}).get("current_coverage_summary")
+            or ""
+        ).strip()
+        if traceability_completeness_text:
+            lines.append(
+                t(
+                    "facade.results.result_summary.traceability_completeness",
+                    value=traceability_completeness_text,
+                    default=f"追溯完整度：{traceability_completeness_text}",
+                )
+            )
+        audit_hash_summary_text = str(
+            software_validation_rollup_payload.get("hash_registry_summary")
+            or dict(artifact_hash_registry_payload.get("digest") or {}).get("summary")
+            or ""
+        ).strip()
+        if audit_hash_summary_text:
+            lines.append(
+                t(
+                    "facade.results.result_summary.audit_hash_summary",
+                    value=audit_hash_summary_text,
+                    default=f"审计哈希：{audit_hash_summary_text}",
+                )
+            )
+        environment_fingerprint_text = str(
+            software_validation_rollup_payload.get("environment_summary")
+            or environment_fingerprint_payload.get("environment_summary")
+            or dict(environment_fingerprint_payload.get("digest") or {}).get("summary")
+            or ""
+        ).strip()
+        if environment_fingerprint_text:
+            lines.append(
+                t(
+                    "facade.results.result_summary.environment_fingerprint_summary",
+                    value=environment_fingerprint_text,
+                    default=f"环境指纹：{environment_fingerprint_text}",
+                )
+            )
+        release_manifest_overview_text = str(
+            software_validation_rollup_payload.get("release_manifest_summary")
+            or dict(release_manifest_payload.get("digest") or {}).get("summary")
+            or ""
+        ).strip()
+        if release_manifest_overview_text:
+            lines.append(
+                t(
+                    "facade.results.result_summary.release_manifest_overview",
+                    value=release_manifest_overview_text,
+                    default=f"Release manifest：{release_manifest_overview_text}",
+                )
+            )
+        release_linkage_text = " | ".join(
+            part
+            for part in (
+                f"parity {str(software_validation_rollup_payload.get('parity_status') or release_manifest_payload.get('parity_status') or '--').strip()}",
+                f"resilience {str(software_validation_rollup_payload.get('resilience_status') or release_manifest_payload.get('resilience_status') or '--').strip()}",
+                f"smoke {str(software_validation_rollup_payload.get('smoke_status') or release_manifest_payload.get('smoke_status') or '--').strip()}",
+            )
+            if str(part).strip()
+        ).strip()
+        if release_linkage_text:
+            lines.append(
+                t(
+                    "facade.results.result_summary.release_test_linkage",
+                    value=release_linkage_text,
+                    default=f"验证联动：{release_linkage_text}",
+                )
+            )
+        release_scope_text = str(
+            dict(release_scope_payload.get("digest") or {}).get("summary")
+            or release_scope_payload.get("scope_id")
+            or ""
+        ).strip()
+        if release_scope_text:
+            lines.append(
+                t(
+                    "facade.results.result_summary.release_scope_summary",
+                    value=release_scope_text,
+                    default=f"Release scope：{release_scope_text}",
+                )
+            )
+        release_boundary_text = str(
+            dict(release_boundary_payload.get("digest") or {}).get("summary")
+            or release_boundary_payload.get("non_claim_note")
+            or ""
+        ).strip()
+        if release_boundary_text:
+            lines.append(
+                t(
+                    "facade.results.result_summary.release_boundary_summary",
+                    value=release_boundary_text,
+                    default=f"非 claim 边界：{release_boundary_text}",
+                )
+            )
+        release_pack_index_text = str(
+            dict(release_evidence_payload.get("digest") or {}).get("summary")
+            or ""
+        ).strip()
+        if release_pack_index_text:
+            lines.append(
+                t(
+                    "facade.results.result_summary.release_evidence_pack_index",
+                    value=release_pack_index_text,
+                    default=f"Evidence pack：{release_pack_index_text}",
+                )
+            )
         for readiness_payload in (
             scope_definition_payload,
             decision_rule_payload,
@@ -1801,6 +2058,11 @@ class ResultsGateway:
             certificate_readiness_payload,
             pre_run_gate_payload,
             uncertainty_method_payload,
+            software_validation_traceability_payload,
+            artifact_hash_registry_payload,
+            environment_fingerprint_payload,
+            release_manifest_payload,
+            release_boundary_payload,
             audit_readiness_payload,
         ):
             localized_lines = build_readiness_review_digest_lines(readiness_payload)

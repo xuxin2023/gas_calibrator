@@ -969,8 +969,12 @@ def _select_best_matched_source(
 
     final_selection_rows: list[dict[str, Any]] = []
     for analyzer_id, analyzer_df in selection_candidates.groupby("analyzer_id"):
+        sort_columns = ["composite_score", "selected_prediction_scope", "zero_residual_mode"]
+        if "water_zero_anchor_mode" in analyzer_df.columns:
+            sort_columns.append("water_zero_anchor_mode")
+        sort_columns.extend(["best_model_family", "best_absorbance_model", "selected_source_pair"])
         chosen = analyzer_df.sort_values(
-            ["composite_score", "selected_prediction_scope", "zero_residual_mode", "best_model_family", "best_absorbance_model", "selected_source_pair"],
+            sort_columns,
             ignore_index=True,
         ).iloc[0]
         final_selection_rows.append(
@@ -982,6 +986,7 @@ def _select_best_matched_source(
                 "default_pressure_branch": config.default_pressure_branch_label(),
                 "selection_reason": (
                     f"Selected matched source {chosen['selected_source_pair']}, zero residual mode {chosen.get('zero_residual_mode', 'none')}, "
+                    f"water zero-anchor mode {chosen.get('water_zero_anchor_mode', 'none')}, "
                     f"{chosen.get('best_model_family', 'single_range')} model {chosen['best_absorbance_model']} "
                     f"by lowest composite_score={float(chosen['composite_score']):.6g} on {chosen['selected_prediction_scope']}; "
                     f"mixed source pairs are excluded from the main chain."
@@ -1047,6 +1052,10 @@ def _select_best_matched_source(
                 "zero_residual_mode",
                 "zero_residual_model_label",
                 "with_zero_residual_correction",
+                "water_zero_anchor_mode",
+                "water_zero_anchor_model_label",
+                "with_water_zero_anchor_correction",
+                "water_feature_status",
             ]
             ],
             on=["analyzer_id", "selected_source_pair"],
@@ -1081,6 +1090,26 @@ def _select_best_matched_source(
                 best_predictions["with_zero_residual_correction"] = best_predictions["with_zero_residual_correction_final"].combine_first(best_predictions["with_zero_residual_correction"])
             else:
                 best_predictions["with_zero_residual_correction"] = best_predictions["with_zero_residual_correction_final"]
+        if "water_zero_anchor_mode_final" in best_predictions.columns:
+            if "water_zero_anchor_mode" in best_predictions.columns:
+                best_predictions["water_zero_anchor_mode"] = best_predictions["water_zero_anchor_mode_final"].combine_first(best_predictions["water_zero_anchor_mode"])
+            else:
+                best_predictions["water_zero_anchor_mode"] = best_predictions["water_zero_anchor_mode_final"]
+        if "water_zero_anchor_model_label_final" in best_predictions.columns:
+            if "water_zero_anchor_model_label" in best_predictions.columns:
+                best_predictions["water_zero_anchor_model_label"] = best_predictions["water_zero_anchor_model_label_final"].combine_first(best_predictions["water_zero_anchor_model_label"])
+            else:
+                best_predictions["water_zero_anchor_model_label"] = best_predictions["water_zero_anchor_model_label_final"]
+        if "with_water_zero_anchor_correction_final" in best_predictions.columns:
+            if "with_water_zero_anchor_correction" in best_predictions.columns:
+                best_predictions["with_water_zero_anchor_correction"] = best_predictions["with_water_zero_anchor_correction_final"].combine_first(best_predictions["with_water_zero_anchor_correction"])
+            else:
+                best_predictions["with_water_zero_anchor_correction"] = best_predictions["with_water_zero_anchor_correction_final"]
+        if "water_feature_status_final" in best_predictions.columns:
+            if "water_feature_status" in best_predictions.columns:
+                best_predictions["water_feature_status"] = best_predictions["water_feature_status_final"].combine_first(best_predictions["water_feature_status"])
+            else:
+                best_predictions["water_feature_status"] = best_predictions["water_feature_status_final"]
         if "default_source_policy_final" in best_predictions.columns and "default_source_policy" in best_predictions.columns:
             best_predictions["default_source_policy"] = best_predictions["default_source_policy_final"].combine_first(best_predictions["default_source_policy"])
         elif "default_source_policy_final" in best_predictions.columns:
@@ -1101,6 +1130,9 @@ def _select_best_matched_source(
             "best_model_family",
             "zero_residual_mode",
             "zero_residual_model_label",
+            "water_zero_anchor_mode",
+            "water_zero_anchor_model_label",
+            "water_feature_status",
         ]
     ].copy()
     return frames
@@ -1476,6 +1508,10 @@ def _comparison_tables(
                     "zero_residual_mode",
                     "zero_residual_model_label",
                     "with_zero_residual_correction",
+                    "water_zero_anchor_mode",
+                    "water_zero_anchor_model_label",
+                    "with_water_zero_anchor_correction",
+                    "water_feature_status",
                     "selection_reason",
                     "selected_prediction_scope",
                     "best_overall_fit_pred_ppm",
@@ -1505,6 +1541,10 @@ def _comparison_tables(
         compare["zero_residual_mode"] = np.nan
         compare["zero_residual_model_label"] = np.nan
         compare["with_zero_residual_correction"] = np.nan
+        compare["water_zero_anchor_mode"] = np.nan
+        compare["water_zero_anchor_model_label"] = np.nan
+        compare["with_water_zero_anchor_correction"] = np.nan
+        compare["water_feature_status"] = np.nan
         compare["selection_reason"] = np.nan
         compare["selected_prediction_scope"] = np.nan
         compare["best_overall_fit_pred_ppm"] = np.nan
@@ -1598,6 +1638,10 @@ def _comparison_tables(
             "zero_residual_mode",
             "zero_residual_model_label",
             "with_zero_residual_correction",
+            "water_zero_anchor_mode",
+            "water_zero_anchor_model_label",
+            "with_water_zero_anchor_correction",
+            "water_feature_status",
             "selection_reason",
             "selected_prediction_scope",
             "best_overall_fit_pred_ppm",
@@ -1705,8 +1749,16 @@ def _report_tables(
     temp_coeffs: pd.DataFrame,
     pressure_coeffs: pd.DataFrame,
     r0_coeffs: pd.DataFrame,
+    old_water_audit_summary: list[str],
+    old_water_audit_sources: pd.DataFrame,
+    new_chain_input_audit: pd.DataFrame,
     zero_residual_models: pd.DataFrame,
     zero_residual_selection: pd.DataFrame,
+    water_zero_anchor_features: pd.DataFrame,
+    water_zero_anchor_models: pd.DataFrame,
+    water_zero_anchor_selection: pd.DataFrame,
+    water_anchor_compare: pd.DataFrame,
+    pressure_data_assessment: pd.DataFrame,
     model_results: dict[str, pd.DataFrame],
     comparison_outputs: dict[str, pd.DataFrame | list[str]],
     comparison_outputs_full: dict[str, pd.DataFrame | list[str]],
@@ -1774,6 +1826,7 @@ def _report_tables(
             "Pressure correction": "pressure_corr_hpa = pressure_dev_raw_hpa + offset_hpa",
             "R0(T) default": "R0(T) = c0 + c1*T + c2*T^2",
             "Absorbance main": "A_raw = -ln(clamp(R_in, eps) / clamp(R0(T_use), eps)) * (P_ref / clamp(P_use, P_min))",
+            "Water zero-anchor diagnostic": "A_corr = A_raw - g(water_zero_features, T)",
             "Absorbance order A": "samplewise_log_first: A_mean_samplewise = mean(-ln(R_i / R0(T_i)) * pressure_term_i)",
             "Absorbance order B": "mean_first_log: A_from_mean = -ln(R_mean / R0(T_mean)) * pressure_term_mean",
             "Absorbance alt": "A_alt = -ln(R_in / R0(T_use)) / P_use",
@@ -1789,9 +1842,17 @@ def _report_tables(
         "invalid_pressure_summary": invalid_pressure_summary,
         "temperature_coefficients": temp_coeffs,
         "pressure_coefficients": pressure_coeffs,
+        "pressure_data_assessment": pressure_data_assessment,
         "r0_coefficients": main_r0,
+        "old_water_audit_summary": old_water_audit_summary,
+        "old_water_audit_sources": old_water_audit_sources,
+        "new_chain_input_audit": new_chain_input_audit,
         "zero_residual_models": zero_residual_models,
         "zero_residual_selection": zero_residual_selection,
+        "water_zero_anchor_features": water_zero_anchor_features,
+        "water_zero_anchor_models": water_zero_anchor_models,
+        "water_zero_anchor_selection": water_zero_anchor_selection,
+        "water_anchor_compare": water_anchor_compare,
         "absorbance_model_scores": absorbance_model_scores,
         "absorbance_model_selection": absorbance_model_selection,
         "piecewise_model_selection": model_results.get("piecewise_selection", pd.DataFrame()),
@@ -1901,6 +1962,14 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         json.dumps(run_summary, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    runtime_cfg_path = None
+    if config.input_path.is_dir() and artifacts.files.get("runtime_config"):
+        runtime_cfg_path = (config.input_path / str(artifacts.files["runtime_config"])).resolve()
+    old_water_audit_md, old_water_audit_sources, old_water_audit_summary = build_old_water_correction_audit(
+        runtime_cfg_path=runtime_cfg_path,
+    )
+    (config.output_dir / "step_00y_old_water_correction_audit.md").write_text(old_water_audit_md, encoding="utf-8")
+    _frame_to_csv(config.output_dir / "step_00y_old_water_correction_sources.csv", old_water_audit_sources)
     _frame_to_csv(config.output_dir / "step_01_samples_core.csv", samples_core)
     _frame_to_csv(config.output_dir / "step_01x_analyzer_scope.csv", analyzer_scope)
 
@@ -2001,7 +2070,47 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         config.output_dir / "step_05y_zero_residual_plot.png",
     )
     absorbance_point_variants = build_zero_residual_point_variants(absorbance_points, zero_residual_lookup, config)
+    water_zero_anchor_features = build_water_zero_anchor_features(absorbance_point_variants, filtered)
+    _frame_to_csv(config.output_dir / "step_05w_water_zero_anchor_features.csv", water_zero_anchor_features)
+    water_zero_anchor_models, water_zero_anchor_selection, water_zero_anchor_lookup = fit_water_zero_anchor_models(
+        water_zero_anchor_features,
+        config,
+    )
+    _frame_to_csv(config.output_dir / "step_05w_water_zero_anchor_models.csv", water_zero_anchor_models)
+    _frame_to_csv(config.output_dir / "step_05w_water_zero_anchor_selection.csv", water_zero_anchor_selection)
+    plot_water_zero_anchor_models(
+        water_zero_anchor_features,
+        water_zero_anchor_models,
+        config.output_dir / "step_05w_water_zero_anchor_plot.png",
+    )
     model_results = _fit_absorbance_models(absorbance_point_variants, config, config.output_dir)
+    new_chain_input_audit = build_new_chain_input_audit(
+        config=config,
+        selected_source_summary=model_results["selected_source_summary"],
+        samples_core=samples_core,
+        zero_residual_selection=zero_residual_selection,
+    )
+    _frame_to_csv(config.output_dir / "step_00z_new_chain_input_audit.csv", new_chain_input_audit)
+    water_point_variants = build_water_zero_anchor_point_variants(
+        water_zero_anchor_features,
+        water_zero_anchor_lookup,
+        config,
+    )
+    water_model_results = (
+        _fit_absorbance_models(water_point_variants, config, config.output_dir, write_outputs=False)
+        if not water_point_variants.empty
+        else {
+            "candidates": pd.DataFrame(),
+            "scores": pd.DataFrame(),
+            "selection": pd.DataFrame(),
+            "coefficients": pd.DataFrame(),
+            "residuals": pd.DataFrame(),
+            "best_predictions": pd.DataFrame(),
+            "selected_source_summary": pd.DataFrame(),
+            "piecewise_selection": pd.DataFrame(),
+            "weight_sensitivity_compare": pd.DataFrame(),
+        }
+    )
     diagnostic_results = _run_loss_diagnostics(
         bundle=bundle,
         filtered=filtered,
@@ -2029,6 +2138,22 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         model_results,
         config,
     )
+    water_point_reconciliation, water_comparison_outputs = _comparison_tables(
+        bundle,
+        filtered,
+        absorbance_samples,
+        absorbance_points,
+        water_model_results,
+        config,
+    )
+    water_anchor_compare = build_water_anchor_compare(
+        comparison_outputs,
+        water_comparison_outputs,
+        model_results["selection"],
+        water_model_results["selection"],
+    )
+    _frame_to_csv(config.output_dir / "step_08w_water_anchor_compare.csv", water_anchor_compare)
+    plot_water_anchor_compare(water_anchor_compare, config.output_dir / "step_08w_water_anchor_compare_plots.png")
     before_after_summary = _build_before_after_summary(
         legacy_full_comparison_outputs,
         full_comparison_outputs,
@@ -2043,6 +2168,8 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
 
     main_point_reconciliation = point_reconciliation if config.use_valid_only_main_conclusion else full_point_reconciliation
     main_comparison_outputs = comparison_outputs if config.use_valid_only_main_conclusion else full_comparison_outputs
+    pressure_data_assessment = build_pressure_data_assessment(pressure_coeffs, main_comparison_outputs["overview_summary"])
+    _frame_to_csv(config.output_dir / "step_04w_pressure_data_assessment.csv", pressure_data_assessment)
     ga01_profile, ga01_special_note = build_ga01_residual_profile(main_point_reconciliation, model_results)
     run_role_assessment, run_role_note = build_run_role_assessment(
         run_name=artifacts.run_name,
@@ -2140,10 +2267,17 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
     write_workbook(
         config.output_dir / "step_08_old_vs_new_compare.xlsx",
         {
+            "old_water_audit": old_water_audit_sources,
+            "new_chain_input": new_chain_input_audit,
             "invalid_pressure": invalid_pressure_points,
             "invalid_pressure_sum": invalid_pressure_summary,
             "zero_residual_models": zero_residual_models,
             "zero_residual_select": zero_residual_selection,
+            "water_features": water_zero_anchor_features,
+            "water_models": water_zero_anchor_models,
+            "water_selection": water_zero_anchor_selection,
+            "water_compare": water_anchor_compare,
+            "pressure_assess": pressure_data_assessment,
             "abs_model_selection": model_results["selection"],
             "abs_model_scores": model_results["scores"],
             "piecewise_selection": model_results.get("piecewise_selection", pd.DataFrame()),
@@ -2178,8 +2312,16 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         temp_coeffs=temp_coeffs,
         pressure_coeffs=pressure_coeffs,
         r0_coeffs=r0_coeffs,
+        old_water_audit_summary=old_water_audit_summary,
+        old_water_audit_sources=old_water_audit_sources,
+        new_chain_input_audit=new_chain_input_audit,
         zero_residual_models=zero_residual_models,
         zero_residual_selection=zero_residual_selection,
+        water_zero_anchor_features=water_zero_anchor_features,
+        water_zero_anchor_models=water_zero_anchor_models,
+        water_zero_anchor_selection=water_zero_anchor_selection,
+        water_anchor_compare=water_anchor_compare,
+        pressure_data_assessment=pressure_data_assessment,
         model_results=model_results,
         comparison_outputs=comparison_outputs,
         comparison_outputs_full=full_comparison_outputs,
@@ -2204,13 +2346,20 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         config.output_dir / "report.xlsx",
         {
             "validation": validation_table,
+            "old_water_audit": old_water_audit_sources,
+            "new_chain_input": new_chain_input_audit,
             "invalid_pressure": invalid_pressure_points,
             "invalid_pressure_sum": invalid_pressure_summary,
             "temperature_fit": temp_coeffs,
             "pressure_fit": pressure_coeffs,
+            "pressure_assess": pressure_data_assessment,
             "r0_fit": r0_coeffs,
             "zero_residual_models": zero_residual_models,
             "zero_residual_select": zero_residual_selection,
+            "water_features": water_zero_anchor_features,
+            "water_models": water_zero_anchor_models,
+            "water_selection": water_zero_anchor_selection,
+            "water_compare": water_anchor_compare,
             "abs_model_scores": model_results["scores"],
             "abs_model_selection": model_results["selection"],
             "abs_model_coeffs": model_results["coefficients"],
@@ -2254,6 +2403,14 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         "selected_source_summary": model_results["selected_source_summary"],
         "invalid_pressure_summary": invalid_pressure_summary,
         "invalid_pressure_points": invalid_pressure_points,
+        "new_chain_input_audit": new_chain_input_audit,
+        "old_water_audit_sources": old_water_audit_sources,
+        "old_water_audit_summary": old_water_audit_summary,
+        "water_zero_anchor_features": water_zero_anchor_features,
+        "water_zero_anchor_models": water_zero_anchor_models,
+        "water_zero_anchor_selection": water_zero_anchor_selection,
+        "water_anchor_compare": water_anchor_compare,
+        "pressure_data_assessment": pressure_data_assessment,
         "run_role_assessment": run_role_assessment,
         "analyzer_scope": analyzer_scope,
         "config": config,

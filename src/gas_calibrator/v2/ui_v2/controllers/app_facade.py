@@ -1493,6 +1493,26 @@ class AppFacade:
         validation_run_set = dict(payload.get("validation_run_set", {}) or {})
         verification_digest = dict(payload.get("verification_digest", {}) or {})
         verification_rollup = dict(payload.get("verification_rollup", {}) or {})
+        software_validation_traceability_matrix = dict(
+            payload.get("software_validation_traceability_matrix", {}) or {}
+        )
+        requirement_design_code_test_links = dict(
+            payload.get("requirement_design_code_test_links", {}) or {}
+        )
+        validation_evidence_index = dict(payload.get("validation_evidence_index", {}) or {})
+        change_impact_summary = dict(payload.get("change_impact_summary", {}) or {})
+        rollback_readiness_summary = dict(payload.get("rollback_readiness_summary", {}) or {})
+        artifact_hash_registry = dict(payload.get("artifact_hash_registry", {}) or {})
+        audit_event_store = dict(payload.get("audit_event_store", {}) or {})
+        environment_fingerprint = dict(payload.get("environment_fingerprint", {}) or {})
+        config_fingerprint = dict(payload.get("config_fingerprint", {}) or {})
+        release_input_digest = dict(payload.get("release_input_digest", {}) or {})
+        release_manifest = dict(payload.get("release_manifest", {}) or {})
+        release_scope_summary = dict(payload.get("release_scope_summary", {}) or {})
+        release_boundary_digest = dict(payload.get("release_boundary_digest", {}) or {})
+        release_evidence_pack_index = dict(payload.get("release_evidence_pack_index", {}) or {})
+        release_validation_manifest = dict(payload.get("release_validation_manifest", {}) or {})
+        software_validation_rollup = dict(payload.get("software_validation_rollup", {}) or {})
         uncertainty_model = dict(payload.get("uncertainty_model", {}) or {})
         uncertainty_input_set = dict(payload.get("uncertainty_input_set", {}) or {})
         sensitivity_coefficient_set = dict(payload.get("sensitivity_coefficient_set", {}) or {})
@@ -1912,6 +1932,14 @@ class AppFacade:
             uncertainty_digest=uncertainty_digest,
             uncertainty_rollup=uncertainty_rollup,
             uncertainty_method_readiness_summary=uncertainty_method_readiness_summary,
+            software_validation_traceability_matrix=software_validation_traceability_matrix,
+            artifact_hash_registry=artifact_hash_registry,
+            environment_fingerprint=environment_fingerprint,
+            release_manifest=release_manifest,
+            release_scope_summary=release_scope_summary,
+            release_boundary_digest=release_boundary_digest,
+            release_evidence_pack_index=release_evidence_pack_index,
+            software_validation_rollup=software_validation_rollup,
             audit_readiness_digest=audit_readiness_digest,
             compatibility_scan_summary=compatibility_scan_summary,
             recognition_scope_rollup=recognition_scope_rollup,
@@ -2523,6 +2551,22 @@ class AppFacade:
             "validation_run_set": validation_run_set,
             "verification_digest": verification_digest,
             "verification_rollup": verification_rollup,
+            "software_validation_traceability_matrix": software_validation_traceability_matrix,
+            "requirement_design_code_test_links": requirement_design_code_test_links,
+            "validation_evidence_index": validation_evidence_index,
+            "change_impact_summary": change_impact_summary,
+            "rollback_readiness_summary": rollback_readiness_summary,
+            "artifact_hash_registry": artifact_hash_registry,
+            "audit_event_store": audit_event_store,
+            "environment_fingerprint": environment_fingerprint,
+            "config_fingerprint": config_fingerprint,
+            "release_input_digest": release_input_digest,
+            "release_manifest": release_manifest,
+            "release_scope_summary": release_scope_summary,
+            "release_boundary_digest": release_boundary_digest,
+            "release_evidence_pack_index": release_evidence_pack_index,
+            "release_validation_manifest": release_validation_manifest,
+            "software_validation_rollup": software_validation_rollup,
             "uncertainty_model": uncertainty_model,
             "uncertainty_input_set": uncertainty_input_set,
             "sensitivity_coefficient_set": sensitivity_coefficient_set,
@@ -2656,6 +2700,14 @@ class AppFacade:
         uncertainty_digest: dict[str, Any],
         uncertainty_rollup: dict[str, Any],
         uncertainty_method_readiness_summary: dict[str, Any],
+        software_validation_traceability_matrix: dict[str, Any],
+        artifact_hash_registry: dict[str, Any],
+        environment_fingerprint: dict[str, Any],
+        release_manifest: dict[str, Any],
+        release_scope_summary: dict[str, Any],
+        release_boundary_digest: dict[str, Any],
+        release_evidence_pack_index: dict[str, Any],
+        software_validation_rollup: dict[str, Any],
         audit_readiness_digest: dict[str, Any],
         compatibility_scan_summary: dict[str, Any],
         recognition_scope_rollup: dict[str, Any],
@@ -2693,6 +2745,13 @@ class AppFacade:
             uncertainty_digest=uncertainty_digest,
             uncertainty_rollup=uncertainty_rollup,
             uncertainty_method_readiness_summary=uncertainty_method_readiness_summary,
+            software_validation_traceability_matrix=software_validation_traceability_matrix,
+            artifact_hash_registry=artifact_hash_registry,
+            environment_fingerprint=environment_fingerprint,
+            release_manifest=release_manifest,
+            release_scope_summary=release_scope_summary,
+            release_boundary_digest=release_boundary_digest,
+            release_evidence_pack_index=release_evidence_pack_index,
             audit_readiness_digest=audit_readiness_digest,
             compatibility_scan_summary=compatibility_scan_summary,
         )
@@ -2703,6 +2762,7 @@ class AppFacade:
             recognition_scope_rollup=recognition_scope_rollup,
             verification_rollup=verification_rollup,
             uncertainty_rollup=uncertainty_rollup,
+            software_validation_rollup=software_validation_rollup,
         )
         readiness_text = self._humanize_ui_summary(
             str(acceptance_readiness_summary.get("summary_display") or acceptance_readiness_summary.get("summary") or t("common.none"))
@@ -3184,6 +3244,13 @@ class AppFacade:
         uncertainty_digest: dict[str, Any],
         uncertainty_rollup: dict[str, Any],
         uncertainty_method_readiness_summary: dict[str, Any],
+        software_validation_traceability_matrix: dict[str, Any],
+        artifact_hash_registry: dict[str, Any],
+        environment_fingerprint: dict[str, Any],
+        release_manifest: dict[str, Any],
+        release_scope_summary: dict[str, Any],
+        release_boundary_digest: dict[str, Any],
+        release_evidence_pack_index: dict[str, Any],
         audit_readiness_digest: dict[str, Any],
         compatibility_scan_summary: dict[str, Any],
         force_refresh: bool = False,
@@ -3410,6 +3477,34 @@ class AppFacade:
             (
                 recognition_readiness.UNCERTAINTY_METHOD_READINESS_SUMMARY_FILENAME,
                 dict(uncertainty_method_readiness_summary or {}),
+            ),
+            (
+                recognition_readiness.SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_FILENAME,
+                dict(software_validation_traceability_matrix or {}),
+            ),
+            (
+                recognition_readiness.ARTIFACT_HASH_REGISTRY_FILENAME,
+                dict(artifact_hash_registry or {}),
+            ),
+            (
+                recognition_readiness.ENVIRONMENT_FINGERPRINT_FILENAME,
+                dict(environment_fingerprint or {}),
+            ),
+            (
+                recognition_readiness.RELEASE_MANIFEST_FILENAME,
+                dict(release_manifest or {}),
+            ),
+            (
+                recognition_readiness.RELEASE_SCOPE_SUMMARY_FILENAME,
+                dict(release_scope_summary or {}),
+            ),
+            (
+                recognition_readiness.RELEASE_BOUNDARY_DIGEST_FILENAME,
+                dict(release_boundary_digest or {}),
+            ),
+            (
+                recognition_readiness.RELEASE_EVIDENCE_PACK_INDEX_FILENAME,
+                dict(release_evidence_pack_index or {}),
             ),
             (
                 recognition_readiness.AUDIT_READINESS_DIGEST_FILENAME,
@@ -5166,6 +5261,7 @@ class AppFacade:
         recognition_scope_rollup: Optional[dict[str, Any]] = None,
         verification_rollup: Optional[dict[str, Any]] = None,
         uncertainty_rollup: Optional[dict[str, Any]] = None,
+        software_validation_rollup: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         expected_types = ("suite", "parity", "resilience", "workbench", "analytics")
         source_groups: dict[str, dict[str, Any]] = {}
@@ -5364,6 +5460,48 @@ class AppFacade:
                 default="不确定度 rollup：{value}",
             )
         )
+        software_validation_rollup_payload = dict(software_validation_rollup or {})
+        software_validation_summary = self._humanize_ui_summary(
+            t(
+                "facade.results.result_summary.software_validation_overview",
+                value=str(
+                    software_validation_rollup_payload.get("rollup_summary_display")
+                    or software_validation_rollup_payload.get("release_manifest_summary")
+                    or t("common.none")
+                ),
+                default="软件验证总览：{value}",
+            )
+        )
+        traceability_summary = self._humanize_ui_summary(
+            t(
+                "facade.results.result_summary.traceability_completeness",
+                value=str(
+                    software_validation_rollup_payload.get("traceability_completeness_summary")
+                    or t("common.none")
+                ),
+                default="追溯完整度：{value}",
+            )
+        )
+        audit_hash_summary = self._humanize_ui_summary(
+            t(
+                "facade.results.result_summary.audit_hash_summary",
+                value=str(
+                    software_validation_rollup_payload.get("hash_registry_summary")
+                    or t("common.none")
+                ),
+                default="审计哈希：{value}",
+            )
+        )
+        release_manifest_summary = self._humanize_ui_summary(
+            t(
+                "facade.results.result_summary.release_manifest_overview",
+                value=str(
+                    software_validation_rollup_payload.get("release_manifest_summary")
+                    or t("common.none")
+                ),
+                default="Release manifest：{value}",
+            )
+        )
         summary_text = t(
             "results.review_center.index.summary",
             runs=len(source_labels),
@@ -5402,6 +5540,11 @@ class AppFacade:
             "verification_summary": verification_summary,
             "uncertainty_rollup": uncertainty_rollup_payload,
             "uncertainty_summary": uncertainty_summary,
+            "software_validation_rollup": software_validation_rollup_payload,
+            "software_validation_summary": software_validation_summary,
+            "traceability_summary": traceability_summary,
+            "audit_hash_summary": audit_hash_summary,
+            "release_manifest_summary": release_manifest_summary,
             "coverage_gaps_display": coverage_gaps_display,
             "source_kind_summary": source_kind_summary,
             "coverage_summary": coverage_summary,
@@ -5416,6 +5559,10 @@ class AppFacade:
                     recognition_scope_summary,
                     verification_summary,
                     uncertainty_summary,
+                    software_validation_summary,
+                    traceability_summary,
+                    audit_hash_summary,
+                    release_manifest_summary,
                     diagnostics_summary,
                 )
                 if str(fragment or "").strip()

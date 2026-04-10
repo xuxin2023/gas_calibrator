@@ -81,6 +81,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Comma-separated ΔA0(T) candidates: linear, quadratic, piecewise_linear.",
     )
     parser.add_argument(
+        "--disable-water-zero-anchor-correction",
+        action="store_true",
+        help="Disable the water zero-anchor diagnostic branch and keep only the baseline absorbance chain.",
+    )
+    parser.add_argument(
+        "--water-zero-anchor-models",
+        default="linear,quadratic",
+        help="Comma-separated water zero-anchor candidates: linear, quadratic, none.",
+    )
+    parser.add_argument(
         "--disable-piecewise-model",
         action="store_true",
         help="Disable piecewise low/main-range absorbance ppm candidates.",
@@ -140,6 +150,8 @@ def main(argv: list[str] | None = None) -> int:
         enable_composite_score=not bool(args.no_composite_score),
         enable_zero_residual_correction=not bool(args.disable_zero_residual_correction),
         zero_residual_models=args.zero_residual_models,
+        enable_water_zero_anchor_correction=not bool(args.disable_water_zero_anchor_correction),
+        water_zero_anchor_models=args.water_zero_anchor_models,
         enable_piecewise_model=not bool(args.disable_piecewise_model),
         piecewise_boundary_ppm=float(args.piecewise_boundary_ppm),
         invalid_pressure_targets_hpa=parse_numeric_csv(args.invalid_pressure_targets_hpa),

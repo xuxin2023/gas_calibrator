@@ -464,6 +464,16 @@ class DeviceWorkbenchController:
         validation_run_set = dict(payload.get("validation_run_set") or {})
         verification_digest = dict(payload.get("verification_digest") or {})
         verification_rollup = dict(payload.get("verification_rollup") or {})
+        software_validation_traceability_matrix = dict(
+            payload.get("software_validation_traceability_matrix") or {}
+        )
+        artifact_hash_registry = dict(payload.get("artifact_hash_registry") or {})
+        environment_fingerprint = dict(payload.get("environment_fingerprint") or {})
+        release_manifest = dict(payload.get("release_manifest") or {})
+        release_scope_summary = dict(payload.get("release_scope_summary") or {})
+        release_boundary_digest = dict(payload.get("release_boundary_digest") or {})
+        release_evidence_pack_index = dict(payload.get("release_evidence_pack_index") or {})
+        software_validation_rollup = dict(payload.get("software_validation_rollup") or {})
         uncertainty_model = dict(payload.get("uncertainty_model") or {})
         uncertainty_input_set = dict(payload.get("uncertainty_input_set") or {})
         sensitivity_coefficient_set = dict(payload.get("sensitivity_coefficient_set") or {})
@@ -496,6 +506,13 @@ class DeviceWorkbenchController:
             "validation_run_set": validation_run_set,
             "verification_digest": verification_digest,
             "verification_rollup": verification_rollup,
+            "software_validation_traceability_matrix": software_validation_traceability_matrix,
+            "artifact_hash_registry": artifact_hash_registry,
+            "environment_fingerprint": environment_fingerprint,
+            "release_manifest": release_manifest,
+            "release_scope_summary": release_scope_summary,
+            "release_boundary_digest": release_boundary_digest,
+            "release_evidence_pack_index": release_evidence_pack_index,
             "uncertainty_model": uncertainty_model,
             "uncertainty_input_set": uncertainty_input_set,
             "sensitivity_coefficient_set": sensitivity_coefficient_set,
@@ -531,6 +548,105 @@ class DeviceWorkbenchController:
                 if text and text not in boundary_lines:
                     boundary_lines.append(text)
             for label, path in dict(payload.get("artifact_paths") or {}).items():
+                path_text = str(path or "").strip()
+                if path_text:
+                    artifact_paths[str(label)] = path_text
+        software_validation_overview = str(
+            software_validation_rollup.get("rollup_summary_display")
+            or software_validation_rollup.get("release_manifest_summary")
+            or dict(release_manifest.get("digest") or {}).get("summary")
+            or ""
+        ).strip()
+        if software_validation_overview and software_validation_overview not in summary_lines:
+            summary_lines.append(
+                t(
+                    "facade.results.result_summary.software_validation_overview",
+                    value=software_validation_overview,
+                    default=f"软件验证总览：{software_validation_overview}",
+                )
+            )
+        traceability_completeness = str(
+            software_validation_rollup.get("traceability_completeness_summary")
+            or dict(software_validation_traceability_matrix.get("digest") or {}).get("current_coverage_summary")
+            or ""
+        ).strip()
+        if traceability_completeness and traceability_completeness not in summary_lines:
+            summary_lines.append(
+                t(
+                    "facade.results.result_summary.traceability_completeness",
+                    value=traceability_completeness,
+                    default=f"追溯完整度：{traceability_completeness}",
+                )
+            )
+        audit_hash_summary = str(
+            software_validation_rollup.get("hash_registry_summary")
+            or dict(artifact_hash_registry.get("digest") or {}).get("summary")
+            or ""
+        ).strip()
+        if audit_hash_summary and audit_hash_summary not in summary_lines:
+            summary_lines.append(
+                t(
+                    "facade.results.result_summary.audit_hash_summary",
+                    value=audit_hash_summary,
+                    default=f"审计哈希：{audit_hash_summary}",
+                )
+            )
+        environment_summary = str(
+            software_validation_rollup.get("environment_summary")
+            or environment_fingerprint.get("environment_summary")
+            or dict(environment_fingerprint.get("digest") or {}).get("summary")
+            or ""
+        ).strip()
+        if environment_summary and environment_summary not in summary_lines:
+            summary_lines.append(
+                t(
+                    "facade.results.result_summary.environment_fingerprint_summary",
+                    value=environment_summary,
+                    default=f"环境指纹：{environment_summary}",
+                )
+            )
+        release_manifest_overview = str(
+            software_validation_rollup.get("release_manifest_summary")
+            or dict(release_manifest.get("digest") or {}).get("summary")
+            or ""
+        ).strip()
+        if release_manifest_overview and release_manifest_overview not in summary_lines:
+            summary_lines.append(
+                t(
+                    "facade.results.result_summary.release_manifest_overview",
+                    value=release_manifest_overview,
+                    default=f"Release manifest：{release_manifest_overview}",
+                )
+            )
+        release_linkage = " | ".join(
+            [
+                f"parity {str(software_validation_rollup.get('parity_status') or release_manifest.get('parity_status') or '--')}",
+                f"resilience {str(software_validation_rollup.get('resilience_status') or release_manifest.get('resilience_status') or '--')}",
+                f"smoke {str(software_validation_rollup.get('smoke_status') or release_manifest.get('smoke_status') or '--')}",
+            ]
+        ).strip()
+        if release_linkage and release_linkage not in detail_lines:
+            detail_lines.append(
+                t(
+                    "facade.results.result_summary.release_test_linkage",
+                    value=release_linkage,
+                    default=f"验证联动：{release_linkage}",
+                )
+            )
+        for extra_payload in (
+            software_validation_traceability_matrix,
+            artifact_hash_registry,
+            environment_fingerprint,
+            release_manifest,
+            release_scope_summary,
+            release_boundary_digest,
+            release_evidence_pack_index,
+        ):
+            for item in collect_boundary_digest_lines(extra_payload):
+                text = str(item).strip()
+                if text and text not in boundary_lines:
+                    boundary_lines.append(text)
+            for label, path in dict(extra_payload.get("artifact_paths") or {}).items():
                 path_text = str(path or "").strip()
                 if path_text:
                     artifact_paths[str(label)] = path_text
@@ -623,6 +739,7 @@ class DeviceWorkbenchController:
             "recognition_scope_rollup": recognition_scope_rollup,
             "compatibility_rollup": compatibility_rollup,
             "verification_rollup": verification_rollup,
+            "software_validation_rollup": software_validation_rollup,
             "compatibility_scan_summary": compatibility_summary,
             **payloads,
         }
