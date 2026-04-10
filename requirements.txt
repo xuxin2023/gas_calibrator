@@ -3,7 +3,6 @@ pyserial
 pandas
 openpyxl
 numpy
-matplotlib
 SQLAlchemy>=2.0,<2.1
 psycopg[binary]>=3.2
 asyncpg>=0.29

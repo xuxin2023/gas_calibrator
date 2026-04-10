@@ -1,0 +1,13 @@
+# Runtime dependencies for the standalone offline absorbance debugger only.
+#
+# Install with:
+#   python -m pip install -r tools/absorbance_debugger/requirements.txt
+#
+# Optional test command after installing pytest separately:
+#   python -m pytest tools/absorbance_debugger/tests -q
+
+numpy
+pandas
+scipy
+openpyxl
+matplotlib

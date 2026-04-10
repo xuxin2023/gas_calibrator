@@ -9,7 +9,7 @@ from tools.absorbance_debugger.app import run_debugger
 from tools.absorbance_debugger.io.run_bundle import RunBundle, discover_run_artifacts
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 REFERENCE_RUN_ZIP = REPO_ROOT / "logs" / "run_20260407_185002.zip"
 
 
