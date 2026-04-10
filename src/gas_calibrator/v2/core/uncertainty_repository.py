@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from . import recognition_readiness_artifacts as recognition_readiness
+from .measurement_phase_coverage import MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME
 from .recognition_scope_repository import FileBackedRecognitionScopeRepository
 from .uncertainty_builder import build_uncertainty_wp3_artifacts
 
@@ -326,7 +327,7 @@ class FileBackedUncertaintyRepository:
             "reference_asset_registry": recognition_readiness.REFERENCE_ASSET_REGISTRY_FILENAME,
             "certificate_lifecycle_summary": recognition_readiness.CERTIFICATE_LIFECYCLE_SUMMARY_FILENAME,
             "pre_run_readiness_gate": recognition_readiness.PRE_RUN_READINESS_GATE_FILENAME,
-            "measurement_phase_coverage_report": recognition_readiness.MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME,
+            "measurement_phase_coverage_report": MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME,
             "uncertainty_budget_stub": recognition_readiness.UNCERTAINTY_BUDGET_STUB_FILENAME,
             "uncertainty_budget_stub_markdown": recognition_readiness.UNCERTAINTY_BUDGET_STUB_MARKDOWN_FILENAME,
         }

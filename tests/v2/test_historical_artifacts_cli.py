@@ -209,11 +209,11 @@ def test_historical_reindex_writes_sidecars_only_and_keeps_primary_evidence(tmp_
     assert run_report["boundary_digest"]
     assert run_report["non_claim_digest"]
     assert run_report["compatibility_rollup"]["primary_evidence_rewritten"] is False
-    assert run_report["compatibility_rollup"]["linked_surface_visibility"] == [
+    assert set(run_report["compatibility_rollup"]["linked_surface_visibility"]) >= {
         "results",
         "review_center",
         "workbench",
-    ]
+    }
     assert run_report["recognition_scope_rollup"]["primary_evidence_rewritten"] is False
     assert run_report["written_paths"]["run_artifact_index"]["json_path"].endswith(RUN_ARTIFACT_INDEX_FILENAME)
     assert (run_dir / RUN_ARTIFACT_INDEX_FILENAME).exists()

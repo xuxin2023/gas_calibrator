@@ -505,6 +505,27 @@ def build_recognition_readiness_artifacts(
         certificate_lifecycle_summary=certificate_lifecycle_summary,
         pre_run_readiness_gate=pre_run_readiness_gate,
         path_map=path_map,
+        filenames={
+            "uncertainty_model": UNCERTAINTY_MODEL_FILENAME,
+            "uncertainty_model_markdown": UNCERTAINTY_MODEL_MARKDOWN_FILENAME,
+            "uncertainty_input_set": UNCERTAINTY_INPUT_SET_FILENAME,
+            "uncertainty_input_set_markdown": UNCERTAINTY_INPUT_SET_MARKDOWN_FILENAME,
+            "sensitivity_coefficient_set": SENSITIVITY_COEFFICIENT_SET_FILENAME,
+            "sensitivity_coefficient_set_markdown": SENSITIVITY_COEFFICIENT_SET_MARKDOWN_FILENAME,
+            "budget_case": BUDGET_CASE_FILENAME,
+            "budget_case_markdown": BUDGET_CASE_MARKDOWN_FILENAME,
+            "uncertainty_golden_cases": UNCERTAINTY_GOLDEN_CASES_FILENAME,
+            "uncertainty_golden_cases_markdown": UNCERTAINTY_GOLDEN_CASES_MARKDOWN_FILENAME,
+            "uncertainty_report_pack": UNCERTAINTY_REPORT_PACK_FILENAME,
+            "uncertainty_report_pack_markdown": UNCERTAINTY_REPORT_PACK_MARKDOWN_FILENAME,
+            "uncertainty_digest": UNCERTAINTY_DIGEST_FILENAME,
+            "uncertainty_digest_markdown": UNCERTAINTY_DIGEST_MARKDOWN_FILENAME,
+            "uncertainty_rollup": UNCERTAINTY_ROLLUP_FILENAME,
+            "uncertainty_rollup_markdown": UNCERTAINTY_ROLLUP_MARKDOWN_FILENAME,
+            "uncertainty_budget_stub": UNCERTAINTY_BUDGET_STUB_FILENAME,
+            "uncertainty_budget_stub_markdown": UNCERTAINTY_BUDGET_STUB_MARKDOWN_FILENAME,
+        },
+        boundary_statements=list(RECOGNITION_READINESS_BOUNDARY_STATEMENTS),
     )
     uncertainty_budget_stub = dict(uncertainty_wp3_artifacts.get("uncertainty_budget_stub") or {})
     method_confirmation_protocol = _build_method_confirmation_protocol(
