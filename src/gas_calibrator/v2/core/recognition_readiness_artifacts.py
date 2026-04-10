@@ -225,6 +225,37 @@ _RECOGNITION_ARTIFACT_ANCHORS: dict[str, dict[str, str]] = {
         "anchor_id": "software-validation-traceability-matrix",
         "anchor_label": "Software validation traceability matrix",
     },
+    "requirement_design_code_test_links": {
+        "anchor_id": "requirement-design-code-test-links",
+        "anchor_label": "Requirement design code test links",
+    },
+    "validation_evidence_index": {
+        "anchor_id": "validation-evidence-index",
+        "anchor_label": "Validation evidence index",
+    },
+    "change_impact_summary": {"anchor_id": "change-impact-summary", "anchor_label": "Change impact summary"},
+    "rollback_readiness_summary": {
+        "anchor_id": "rollback-readiness-summary",
+        "anchor_label": "Rollback readiness summary",
+    },
+    "artifact_hash_registry": {"anchor_id": "artifact-hash-registry", "anchor_label": "Artifact hash registry"},
+    "audit_event_store": {"anchor_id": "audit-event-store", "anchor_label": "Audit event store"},
+    "environment_fingerprint": {
+        "anchor_id": "environment-fingerprint",
+        "anchor_label": "Environment fingerprint",
+    },
+    "config_fingerprint": {"anchor_id": "config-fingerprint", "anchor_label": "Config fingerprint"},
+    "release_input_digest": {"anchor_id": "release-input-digest", "anchor_label": "Release input digest"},
+    "release_manifest": {"anchor_id": "release-manifest", "anchor_label": "Release manifest"},
+    "release_scope_summary": {"anchor_id": "release-scope-summary", "anchor_label": "Release scope summary"},
+    "release_boundary_digest": {
+        "anchor_id": "release-boundary-digest",
+        "anchor_label": "Release boundary digest",
+    },
+    "release_evidence_pack_index": {
+        "anchor_id": "release-evidence-pack-index",
+        "anchor_label": "Release evidence pack index",
+    },
     "release_validation_manifest": {
         "anchor_id": "release-validation-manifest",
         "anchor_label": "Release validation manifest",
@@ -273,7 +304,20 @@ _RECOGNITION_NEXT_ARTIFACT_DEFAULTS: dict[str, list[str]] = {
     "verification_digest": ["verification_rollup", "uncertainty_method_readiness_summary"],
     "verification_rollup": ["uncertainty_method_readiness_summary", "audit_readiness_digest"],
     "uncertainty_method_readiness_summary": ["certificate_readiness_summary", "audit_readiness_digest"],
-    "software_validation_traceability_matrix": ["release_validation_manifest", "audit_readiness_digest"],
+    "software_validation_traceability_matrix": ["requirement_design_code_test_links", "release_manifest"],
+    "requirement_design_code_test_links": ["validation_evidence_index", "release_manifest"],
+    "validation_evidence_index": ["artifact_hash_registry", "release_manifest"],
+    "change_impact_summary": ["rollback_readiness_summary", "release_manifest"],
+    "rollback_readiness_summary": ["release_manifest", "audit_readiness_digest"],
+    "artifact_hash_registry": ["audit_event_store", "release_manifest"],
+    "audit_event_store": ["release_manifest", "audit_readiness_digest"],
+    "environment_fingerprint": ["config_fingerprint", "release_input_digest"],
+    "config_fingerprint": ["release_input_digest", "release_manifest"],
+    "release_input_digest": ["artifact_hash_registry", "release_manifest"],
+    "release_manifest": ["release_scope_summary", "release_boundary_digest"],
+    "release_scope_summary": ["release_evidence_pack_index", "release_boundary_digest"],
+    "release_boundary_digest": ["audit_readiness_digest", "release_evidence_pack_index"],
+    "release_evidence_pack_index": ["audit_readiness_digest", "release_validation_manifest"],
     "release_validation_manifest": ["audit_readiness_digest"],
     "audit_readiness_digest": ["release_validation_manifest"],
 }
@@ -372,6 +416,46 @@ _RECOGNITION_BLOCKER_DEFAULTS: dict[str, list[str]] = {
         "software traceability matrix remains reviewer-facing only",
         "no live release qualification claim is produced here",
     ],
+    "requirement_design_code_test_links": [
+        "link rows remain reviewer-facing and do not create a formal software qualification report",
+    ],
+    "validation_evidence_index": [
+        "evidence index remains file-backed and cannot be interpreted as formal approval evidence",
+    ],
+    "change_impact_summary": [
+        "impact summary remains advisory and reviewer-facing only",
+    ],
+    "rollback_readiness_summary": [
+        "rollback guidance is sidecar-first only and does not modify primary evidence",
+    ],
+    "artifact_hash_registry": [
+        "hash registry remains a reviewer digest only and does not claim formal anti-tamper protection",
+    ],
+    "audit_event_store": [
+        "event store remains reviewer-facing only and is not a formal audit ledger",
+    ],
+    "environment_fingerprint": [
+        "environment fingerprint remains descriptive context only",
+    ],
+    "config_fingerprint": [
+        "config fingerprint remains reviewer-facing only and does not replace released configuration governance",
+    ],
+    "release_input_digest": [
+        "release input digest remains reviewer-facing only and cannot be used as formal approval",
+    ],
+    "release_manifest": [
+        "release manifest is a Step 2 reviewer artifact only",
+        "no real release approval or formal claim is produced here",
+    ],
+    "release_scope_summary": [
+        "scope summary remains reviewer-facing only",
+    ],
+    "release_boundary_digest": [
+        "boundary digest explicitly blocks formal claims in Step 2",
+    ],
+    "release_evidence_pack_index": [
+        "evidence pack index is navigational only and not formal approval evidence",
+    ],
     "release_validation_manifest": [
         "artifact hash closure is still stub-only",
         "manifest is not a released validation record",
@@ -461,6 +545,45 @@ _RECOGNITION_MISSING_EVIDENCE_DEFAULTS: dict[str, list[str]] = {
     "software_validation_traceability_matrix": [
         "formal software qualification artifacts are not attached here",
     ],
+    "requirement_design_code_test_links": [
+        "formal requirement/design/code/test approval evidence remains out of scope",
+    ],
+    "validation_evidence_index": [
+        "evidence index cannot be used as formal release approval or acceptance evidence",
+    ],
+    "change_impact_summary": [
+        "impact summary remains reviewer-facing and not a formal change control record",
+    ],
+    "rollback_readiness_summary": [
+        "rollback guidance remains sidecar-only and non-destructive",
+    ],
+    "artifact_hash_registry": [
+        "hash registry remains file-backed only and not a formal anti-tamper system",
+    ],
+    "audit_event_store": [
+        "event store remains reviewer-facing only and does not replace a formal audit ledger",
+    ],
+    "environment_fingerprint": [
+        "environment fingerprint remains reviewer context only",
+    ],
+    "config_fingerprint": [
+        "config fingerprint remains reviewer-facing only and does not replace released configuration governance",
+    ],
+    "release_input_digest": [
+        "release input digest remains reviewer-facing only and not formal approval evidence",
+    ],
+    "release_manifest": [
+        "manifest cannot be used for formal release approval or compliance claims",
+    ],
+    "release_scope_summary": [
+        "scope summary remains reviewer-facing only and not a formal scope approval record",
+    ],
+    "release_boundary_digest": [
+        "boundary digest exists to block formal claims in Step 2",
+    ],
+    "release_evidence_pack_index": [
+        "evidence pack index is navigational only and not a formal approval pack",
+    ],
     "release_validation_manifest": [
         "signed artifact-hash closure remains deferred",
     ],
@@ -484,6 +607,7 @@ def build_recognition_readiness_artifacts(
     state_transition_evidence: dict[str, Any] | None = None,
     simulation_evidence_sidecar_bundle: dict[str, Any] | None = None,
     measurement_phase_coverage_report: dict[str, Any] | None = None,
+    run_dir: str | Path | None = None,
     artifact_paths: dict[str, Any] | None = None,
 ) -> dict[str, dict[str, Any]]:
     sample_rows = [sample for sample in list(samples or []) if isinstance(sample, SamplingResult)]
@@ -497,6 +621,7 @@ def build_recognition_readiness_artifacts(
     transition_payload = dict((state_transition_evidence or {}).get("raw") or state_transition_evidence or {})
     sidecar_payload = dict(simulation_evidence_sidecar_bundle or {})
     phase_coverage_payload = dict((measurement_phase_coverage_report or {}).get("raw") or measurement_phase_coverage_report or {})
+    run_dir_path = Path(run_dir) if run_dir is not None else Path(str(run_id))
     path_map = _artifact_path_map(dict(artifact_paths or {}))
 
     route_families = _route_families(sample_rows, point_rows, phase_coverage_payload)
@@ -665,29 +790,60 @@ def build_recognition_readiness_artifacts(
         verification_digest=verification_digest,
         path_map=path_map,
     )
-    software_validation_traceability_matrix = _build_software_validation_traceability_matrix(
+    software_validation_wp5_artifacts = build_software_validation_wp5_artifacts(
         run_id=run_id,
+        run_dir=run_dir_path,
+        path_map=path_map,
+        filenames={
+            "software_validation_traceability_matrix": SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_FILENAME,
+            "software_validation_traceability_matrix_markdown": SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_MARKDOWN_FILENAME,
+            "requirement_design_code_test_links": REQUIREMENT_DESIGN_CODE_TEST_LINKS_FILENAME,
+            "requirement_design_code_test_links_markdown": REQUIREMENT_DESIGN_CODE_TEST_LINKS_MARKDOWN_FILENAME,
+            "validation_evidence_index": VALIDATION_EVIDENCE_INDEX_FILENAME,
+            "validation_evidence_index_markdown": VALIDATION_EVIDENCE_INDEX_MARKDOWN_FILENAME,
+            "change_impact_summary": CHANGE_IMPACT_SUMMARY_FILENAME,
+            "change_impact_summary_markdown": CHANGE_IMPACT_SUMMARY_MARKDOWN_FILENAME,
+            "rollback_readiness_summary": ROLLBACK_READINESS_SUMMARY_FILENAME,
+            "rollback_readiness_summary_markdown": ROLLBACK_READINESS_SUMMARY_MARKDOWN_FILENAME,
+            "artifact_hash_registry": ARTIFACT_HASH_REGISTRY_FILENAME,
+            "artifact_hash_registry_markdown": ARTIFACT_HASH_REGISTRY_MARKDOWN_FILENAME,
+            "audit_event_store": AUDIT_EVENT_STORE_FILENAME,
+            "audit_event_store_markdown": AUDIT_EVENT_STORE_MARKDOWN_FILENAME,
+            "environment_fingerprint": ENVIRONMENT_FINGERPRINT_FILENAME,
+            "environment_fingerprint_markdown": ENVIRONMENT_FINGERPRINT_MARKDOWN_FILENAME,
+            "config_fingerprint": CONFIG_FINGERPRINT_FILENAME,
+            "config_fingerprint_markdown": CONFIG_FINGERPRINT_MARKDOWN_FILENAME,
+            "release_input_digest": RELEASE_INPUT_DIGEST_FILENAME,
+            "release_input_digest_markdown": RELEASE_INPUT_DIGEST_MARKDOWN_FILENAME,
+            "release_manifest": RELEASE_MANIFEST_FILENAME,
+            "release_manifest_markdown": RELEASE_MANIFEST_MARKDOWN_FILENAME,
+            "release_scope_summary": RELEASE_SCOPE_SUMMARY_FILENAME,
+            "release_scope_summary_markdown": RELEASE_SCOPE_SUMMARY_MARKDOWN_FILENAME,
+            "release_boundary_digest": RELEASE_BOUNDARY_DIGEST_FILENAME,
+            "release_boundary_digest_markdown": RELEASE_BOUNDARY_DIGEST_MARKDOWN_FILENAME,
+            "release_evidence_pack_index": RELEASE_EVIDENCE_PACK_INDEX_FILENAME,
+            "release_evidence_pack_index_markdown": RELEASE_EVIDENCE_PACK_INDEX_MARKDOWN_FILENAME,
+            "release_validation_manifest": RELEASE_VALIDATION_MANIFEST_FILENAME,
+            "release_validation_manifest_markdown": RELEASE_VALIDATION_MANIFEST_MARKDOWN_FILENAME,
+            "audit_readiness_digest": AUDIT_READINESS_DIGEST_FILENAME,
+            "audit_readiness_digest_markdown": AUDIT_READINESS_DIGEST_MARKDOWN_FILENAME,
+        },
+        boundary_statements=list(RECOGNITION_READINESS_BOUNDARY_STATEMENTS),
+        scope_definition_pack=scope_definition_pack,
+        decision_rule_profile=decision_rule_profile,
+        reference_asset_registry=reference_asset_registry,
+        certificate_lifecycle_summary=certificate_lifecycle_summary,
+        pre_run_readiness_gate=pre_run_readiness_gate,
+        uncertainty_report_pack=dict(uncertainty_wp3_artifacts.get("uncertainty_report_pack") or {}),
+        uncertainty_rollup=dict(uncertainty_wp3_artifacts.get("uncertainty_rollup") or {}),
+        method_confirmation_protocol=method_confirmation_protocol,
+        route_specific_validation_matrix=route_specific_validation_matrix,
+        validation_run_set=validation_run_set,
+        verification_digest=verification_digest,
+        verification_rollup=verification_rollup,
         version_payload=version_payload,
         lineage_payload=lineage_payload,
-        evidence_registry_payload=evidence_registry_payload,
-        stability_payload=stability_payload,
-        transition_payload=transition_payload,
-        phase_coverage_payload=phase_coverage_payload,
-        sidecar_payload=sidecar_payload,
-        path_map=path_map,
-    )
-    release_validation_manifest = _build_release_validation_manifest(
-        run_id=run_id,
-        version_payload=version_payload,
-        lineage_payload=lineage_payload,
-        software_validation_traceability_matrix=software_validation_traceability_matrix,
-        path_map=path_map,
-    )
-    audit_readiness_digest = _build_audit_readiness_digest(
-        run_id=run_id,
-        software_validation_traceability_matrix=software_validation_traceability_matrix,
-        release_validation_manifest=release_validation_manifest,
-        path_map=path_map,
+        analytics_payload=analytics_payload,
     )
 
     artifacts = {
@@ -715,9 +871,22 @@ def build_recognition_readiness_artifacts(
         "verification_digest": verification_digest,
         "verification_rollup": verification_rollup,
         "uncertainty_method_readiness_summary": uncertainty_method_readiness_summary,
-        "software_validation_traceability_matrix": software_validation_traceability_matrix,
-        "release_validation_manifest": release_validation_manifest,
-        "audit_readiness_digest": audit_readiness_digest,
+        "software_validation_traceability_matrix": dict(software_validation_wp5_artifacts.get("software_validation_traceability_matrix") or {}),
+        "requirement_design_code_test_links": dict(software_validation_wp5_artifacts.get("requirement_design_code_test_links") or {}),
+        "validation_evidence_index": dict(software_validation_wp5_artifacts.get("validation_evidence_index") or {}),
+        "change_impact_summary": dict(software_validation_wp5_artifacts.get("change_impact_summary") or {}),
+        "rollback_readiness_summary": dict(software_validation_wp5_artifacts.get("rollback_readiness_summary") or {}),
+        "artifact_hash_registry": dict(software_validation_wp5_artifacts.get("artifact_hash_registry") or {}),
+        "audit_event_store": dict(software_validation_wp5_artifacts.get("audit_event_store") or {}),
+        "environment_fingerprint": dict(software_validation_wp5_artifacts.get("environment_fingerprint") or {}),
+        "config_fingerprint": dict(software_validation_wp5_artifacts.get("config_fingerprint") or {}),
+        "release_input_digest": dict(software_validation_wp5_artifacts.get("release_input_digest") or {}),
+        "release_manifest": dict(software_validation_wp5_artifacts.get("release_manifest") or {}),
+        "release_scope_summary": dict(software_validation_wp5_artifacts.get("release_scope_summary") or {}),
+        "release_boundary_digest": dict(software_validation_wp5_artifacts.get("release_boundary_digest") or {}),
+        "release_evidence_pack_index": dict(software_validation_wp5_artifacts.get("release_evidence_pack_index") or {}),
+        "release_validation_manifest": dict(software_validation_wp5_artifacts.get("release_validation_manifest") or {}),
+        "audit_readiness_digest": dict(software_validation_wp5_artifacts.get("audit_readiness_digest") or {}),
     }
     return _enrich_recognition_readiness_artifacts(
         artifacts=artifacts,

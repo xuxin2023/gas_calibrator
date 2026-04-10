@@ -1562,6 +1562,62 @@ def export_run_offline_artifacts(
         "software_validation_traceability_matrix_markdown": str(
             run_dir / recognition_readiness.SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_MARKDOWN_FILENAME
         ),
+        "requirement_design_code_test_links": str(
+            run_dir / recognition_readiness.REQUIREMENT_DESIGN_CODE_TEST_LINKS_FILENAME
+        ),
+        "requirement_design_code_test_links_markdown": str(
+            run_dir / recognition_readiness.REQUIREMENT_DESIGN_CODE_TEST_LINKS_MARKDOWN_FILENAME
+        ),
+        "validation_evidence_index": str(run_dir / recognition_readiness.VALIDATION_EVIDENCE_INDEX_FILENAME),
+        "validation_evidence_index_markdown": str(
+            run_dir / recognition_readiness.VALIDATION_EVIDENCE_INDEX_MARKDOWN_FILENAME
+        ),
+        "change_impact_summary": str(run_dir / recognition_readiness.CHANGE_IMPACT_SUMMARY_FILENAME),
+        "change_impact_summary_markdown": str(
+            run_dir / recognition_readiness.CHANGE_IMPACT_SUMMARY_MARKDOWN_FILENAME
+        ),
+        "rollback_readiness_summary": str(
+            run_dir / recognition_readiness.ROLLBACK_READINESS_SUMMARY_FILENAME
+        ),
+        "rollback_readiness_summary_markdown": str(
+            run_dir / recognition_readiness.ROLLBACK_READINESS_SUMMARY_MARKDOWN_FILENAME
+        ),
+        "artifact_hash_registry": str(run_dir / recognition_readiness.ARTIFACT_HASH_REGISTRY_FILENAME),
+        "artifact_hash_registry_markdown": str(
+            run_dir / recognition_readiness.ARTIFACT_HASH_REGISTRY_MARKDOWN_FILENAME
+        ),
+        "audit_event_store": str(run_dir / recognition_readiness.AUDIT_EVENT_STORE_FILENAME),
+        "audit_event_store_markdown": str(
+            run_dir / recognition_readiness.AUDIT_EVENT_STORE_MARKDOWN_FILENAME
+        ),
+        "environment_fingerprint": str(run_dir / recognition_readiness.ENVIRONMENT_FINGERPRINT_FILENAME),
+        "environment_fingerprint_markdown": str(
+            run_dir / recognition_readiness.ENVIRONMENT_FINGERPRINT_MARKDOWN_FILENAME
+        ),
+        "config_fingerprint": str(run_dir / recognition_readiness.CONFIG_FINGERPRINT_FILENAME),
+        "config_fingerprint_markdown": str(
+            run_dir / recognition_readiness.CONFIG_FINGERPRINT_MARKDOWN_FILENAME
+        ),
+        "release_input_digest": str(run_dir / recognition_readiness.RELEASE_INPUT_DIGEST_FILENAME),
+        "release_input_digest_markdown": str(
+            run_dir / recognition_readiness.RELEASE_INPUT_DIGEST_MARKDOWN_FILENAME
+        ),
+        "release_manifest": str(run_dir / recognition_readiness.RELEASE_MANIFEST_FILENAME),
+        "release_manifest_markdown": str(run_dir / recognition_readiness.RELEASE_MANIFEST_MARKDOWN_FILENAME),
+        "release_scope_summary": str(run_dir / recognition_readiness.RELEASE_SCOPE_SUMMARY_FILENAME),
+        "release_scope_summary_markdown": str(
+            run_dir / recognition_readiness.RELEASE_SCOPE_SUMMARY_MARKDOWN_FILENAME
+        ),
+        "release_boundary_digest": str(run_dir / recognition_readiness.RELEASE_BOUNDARY_DIGEST_FILENAME),
+        "release_boundary_digest_markdown": str(
+            run_dir / recognition_readiness.RELEASE_BOUNDARY_DIGEST_MARKDOWN_FILENAME
+        ),
+        "release_evidence_pack_index": str(
+            run_dir / recognition_readiness.RELEASE_EVIDENCE_PACK_INDEX_FILENAME
+        ),
+        "release_evidence_pack_index_markdown": str(
+            run_dir / recognition_readiness.RELEASE_EVIDENCE_PACK_INDEX_MARKDOWN_FILENAME
+        ),
         "release_validation_manifest": str(run_dir / recognition_readiness.RELEASE_VALIDATION_MANIFEST_FILENAME),
         "release_validation_manifest_markdown": str(
             run_dir / recognition_readiness.RELEASE_VALIDATION_MANIFEST_MARKDOWN_FILENAME
@@ -1582,6 +1638,7 @@ def export_run_offline_artifacts(
         state_transition_evidence=state_transition_evidence,
         simulation_evidence_sidecar_bundle=simulation_evidence_sidecar_bundle,
         measurement_phase_coverage_report=measurement_phase_coverage_report,
+        run_dir=run_dir,
         artifact_paths=recognition_readiness_artifact_paths,
     )
     recognition_readiness_written_paths: dict[str, tuple[Path, Path]] = {}

@@ -60,6 +60,12 @@ ZERO_RESIDUAL_MODEL_MAP = {
     "piecewise": "piecewise_linear",
 }
 
+WATER_ZERO_ANCHOR_MODEL_MAP = {
+    "none": "none",
+    "linear": "linear",
+    "quadratic": "quadratic",
+}
+
 
 def _normalize(text: str, mapping: dict[str, str], label: str) -> str:
     key = str(text or "").strip().lower()
@@ -109,6 +115,12 @@ def normalize_zero_residual_model(text: str) -> str:
     """Normalize zero-residual correction model text."""
 
     return _normalize(text, ZERO_RESIDUAL_MODEL_MAP, "zero residual model")
+
+
+def normalize_water_zero_anchor_model(text: str) -> str:
+    """Normalize water zero-anchor correction model text."""
+
+    return _normalize(text, WATER_ZERO_ANCHOR_MODEL_MAP, "water zero-anchor model")
 
 
 def parse_numeric_csv(text: str) -> tuple[float, ...]:

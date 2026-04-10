@@ -35,6 +35,8 @@ class DebuggerConfig:
     enable_zero_residual_correction: bool = True
     zero_residual_candidate_models: tuple[str, ...] = ("linear", "quadratic")
     zero_residual_piecewise_break_temp_c: float = 20.0
+    enable_water_zero_anchor_correction: bool = True
+    water_zero_anchor_candidate_models: tuple[str, ...] = ("linear", "quadratic")
     enable_piecewise_model: bool = True
     piecewise_boundary_ppm: float = 200.0
     invalid_pressure_targets_hpa: tuple[float, ...] = (500.0,)

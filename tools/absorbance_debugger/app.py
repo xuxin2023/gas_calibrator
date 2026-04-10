@@ -18,6 +18,7 @@ from .options import (
     normalize_invalid_pressure_mode,
     normalize_model_selection_strategy,
     normalize_zero_residual_model,
+    normalize_water_zero_anchor_model,
     parse_numeric_csv,
     normalize_pressure_source,
     normalize_ratio_source,
@@ -43,6 +44,8 @@ def run_debugger(
     run_upper_bound_compare: bool = True,
     enable_zero_residual_correction: bool = True,
     zero_residual_models: str | tuple[str, ...] = ("linear", "quadratic"),
+    enable_water_zero_anchor_correction: bool = True,
+    water_zero_anchor_models: str | tuple[str, ...] = ("linear", "quadratic"),
     enable_piecewise_model: bool = True,
     piecewise_boundary_ppm: float = 200.0,
     invalid_pressure_targets_hpa: str | tuple[float, ...] = (500.0,),
@@ -72,6 +75,19 @@ def run_debugger(
     else:
         zero_model_tokens = [str(item).strip() for item in zero_residual_models if str(item).strip()]
     zero_models = tuple(normalize_zero_residual_model(item) for item in zero_model_tokens) if zero_model_tokens else ("linear", "quadratic")
+    if isinstance(water_zero_anchor_models, str):
+        water_model_tokens = [item.strip() for item in str(water_zero_anchor_models).split(",") if item.strip()]
+    else:
+        water_model_tokens = [str(item).strip() for item in water_zero_anchor_models if str(item).strip()]
+    water_models = (
+        tuple(
+            normalize_water_zero_anchor_model(item)
+            for item in water_model_tokens
+            if normalize_water_zero_anchor_model(item) != "none"
+        )
+        if water_model_tokens
+        else ("linear", "quadratic")
+    )
     config = DebuggerConfig(
         input_path=input_path,
         output_dir=resolved_output,
@@ -89,6 +105,8 @@ def run_debugger(
         run_upper_bound_compare=bool(run_upper_bound_compare),
         enable_zero_residual_correction=bool(enable_zero_residual_correction),
         zero_residual_candidate_models=zero_models,
+        enable_water_zero_anchor_correction=bool(enable_water_zero_anchor_correction),
+        water_zero_anchor_candidate_models=water_models,
         enable_piecewise_model=bool(enable_piecewise_model),
         piecewise_boundary_ppm=float(piecewise_boundary_ppm),
         invalid_pressure_targets_hpa=invalid_targets,
