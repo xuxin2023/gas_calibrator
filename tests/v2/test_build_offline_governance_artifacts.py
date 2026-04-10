@@ -1283,29 +1283,78 @@ def test_rebuild_run_generates_recognition_readiness_artifacts(tmp_path: Path) -
     assert uncertainty_summary["artifact_type"] == "uncertainty_method_readiness_summary"
     assert "missing evidence" in uncertainty_summary["digest"]["summary"]
     assert software_matrix["artifact_type"] == "software_validation_traceability_matrix"
+    assert requirement_design_code_test_links["artifact_type"] == "requirement_design_code_test_links"
+    assert validation_evidence_index["artifact_type"] == "validation_evidence_index"
+    assert change_impact_summary["artifact_type"] == "change_impact_summary"
+    assert rollback_readiness_summary["artifact_type"] == "rollback_readiness_summary"
+    assert artifact_hash_registry["artifact_type"] == "artifact_hash_registry"
+    assert audit_event_store["artifact_type"] == "audit_event_store"
+    assert environment_fingerprint["artifact_type"] == "environment_fingerprint"
+    assert config_fingerprint["artifact_type"] == "config_fingerprint"
+    assert release_input_digest["artifact_type"] == "release_input_digest"
+    assert release_manifest["artifact_type"] == "release_manifest"
+    assert release_scope_summary["artifact_type"] == "release_scope_summary"
+    assert release_boundary_digest["artifact_type"] == "release_boundary_digest"
+    assert release_evidence_pack_index["artifact_type"] == "release_evidence_pack_index"
+    assert release_validation_manifest["artifact_type"] == "release_validation_manifest"
     assert audit_digest["artifact_type"] == "audit_readiness_digest"
-    assert "file-artifact-first reviewer digest" in audit_digest["digest"]["summary"]
-    assert audit_digest["linked_measurement_phase_artifacts"]
-    assert audit_digest["linked_measurement_phases"]
-    assert audit_digest["linked_measurement_gaps"]
-    assert "linked_measurement_phase_summary" in audit_digest["digest"]
+    assert software_matrix["traceability_id"]
+    assert software_matrix["traceability_version"]
+    assert software_matrix["scope_id"]
+    assert software_matrix["decision_rule_id"]
+    assert software_matrix["uncertainty_case_id"]
+    assert software_matrix["method_confirmation_protocol_id"]
+    assert software_matrix["requirement_refs"]
+    assert software_matrix["design_refs"]
+    assert software_matrix["code_refs"]
+    assert software_matrix["test_refs"]
+    assert software_matrix["artifact_refs"]
+    assert software_matrix["change_set_refs"]
+    assert software_matrix["impact_scope"]
+    assert software_matrix["reviewer_only"] is True
+    assert software_matrix["readiness_mapping_only"] is True
+    assert software_matrix["not_real_acceptance_evidence"] is True
+    assert software_matrix["not_ready_for_formal_claim"] is True
+    assert software_matrix["primary_evidence_rewritten"] is False
+    assert artifact_hash_registry["hash_registry_id"]
+    assert artifact_hash_registry["entries"]
+    assert artifact_hash_registry["primary_evidence_rewritten"] is False
+    assert artifact_hash_registry["reviewer_only"] is True
+    assert artifact_hash_registry["not_real_acceptance_evidence"] is True
+    assert environment_fingerprint["environment_summary"]
+    assert config_fingerprint["config_fingerprint"]
+    assert release_manifest["linked_scope_ids"]
+    assert release_manifest["linked_decision_rules"]
+    assert release_manifest["linked_uncertainty_cases"]
+    assert release_manifest["linked_method_confirmation_protocols"]
+    assert release_manifest["linked_traceability_matrix"]["artifact_type"] == (
+        "software_validation_traceability_matrix"
+    )
+    assert release_manifest["linked_hash_registry"]["artifact_type"] == "artifact_hash_registry"
+    assert release_manifest["linked_test_suites"]
+    assert release_manifest["simulation_only"] is True
+    assert release_manifest["not_real_acceptance_evidence"] is True
+    assert release_manifest["not_ready_for_formal_claim"] is True
+    assert "reviewer-only" in release_boundary_digest["digest"]["summary"].lower()
+    assert release_evidence_pack_index["linked_test_suites"]
+    assert "reviewer-only" in audit_digest["digest"]["summary"].lower()
+    assert audit_digest["traceability_id"]
+    assert audit_digest["hash_registry_id"]
+    assert audit_digest["release_id"]
     assert "linked_measurement_gap_summary" in scope_summary["digest"]
     assert "linked_method_confirmation_items_summary" in scope_summary["digest"]
     assert "linked_uncertainty_inputs_summary" in scope_summary["digest"]
     assert "linked_traceability_nodes_summary" in uncertainty_summary["digest"]
     assert uncertainty_summary["linked_method_confirmation_items"]
     assert uncertainty_summary["linked_uncertainty_inputs"]
-    assert audit_digest["reviewer_next_step_digest"]
+    assert audit_digest["digest"]["reviewer_next_step_digest"]
     assert scope_summary["gap_reason"]
     assert "ambient/ambient_diagnostic" in list(scope_summary.get("linked_measurement_phases") or [])
     assert "ambient/sample_ready" in list(scope_summary.get("linked_measurement_phases") or [])
-    assert "system/recovery_retry" in list(audit_digest.get("linked_measurement_phases") or [])
     assert "Ambient baseline stabilization rule" in list(scope_summary.get("linked_method_confirmation_items") or [])
     assert "Ambient stabilization window" in list(uncertainty_summary.get("linked_uncertainty_inputs") or [])
-    assert "Software event log chain" in list(audit_digest.get("linked_traceability_nodes") or [])
     if "preseal_partial_gap_summary" in scope_summary["digest"]:
         assert scope_summary["digest"]["preseal_partial_gap_summary"]
-    assert "next_required_artifacts_summary" in audit_digest["digest"]
     assert traceability_stub["linked_traceability_nodes"]
     assert "traceability" in str(traceability_stub.get("gap_reason") or "").lower() or str(
         traceability_stub["digest"].get("gap_reason") or ""
