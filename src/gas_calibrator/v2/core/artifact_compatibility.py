@@ -157,6 +157,18 @@ CANONICAL_SURFACE_FILENAMES = frozenset(
         recognition_readiness.RELEASE_VALIDATION_MANIFEST_MARKDOWN_FILENAME,
         recognition_readiness.AUDIT_READINESS_DIGEST_FILENAME,
         recognition_readiness.AUDIT_READINESS_DIGEST_MARKDOWN_FILENAME,
+        recognition_readiness.PT_ILC_REGISTRY_FILENAME,
+        recognition_readiness.PT_ILC_REGISTRY_MARKDOWN_FILENAME,
+        recognition_readiness.EXTERNAL_COMPARISON_IMPORTER_FILENAME,
+        recognition_readiness.EXTERNAL_COMPARISON_IMPORTER_MARKDOWN_FILENAME,
+        recognition_readiness.COMPARISON_EVIDENCE_PACK_FILENAME,
+        recognition_readiness.COMPARISON_EVIDENCE_PACK_MARKDOWN_FILENAME,
+        recognition_readiness.SCOPE_COMPARISON_VIEW_FILENAME,
+        recognition_readiness.SCOPE_COMPARISON_VIEW_MARKDOWN_FILENAME,
+        recognition_readiness.COMPARISON_DIGEST_FILENAME,
+        recognition_readiness.COMPARISON_DIGEST_MARKDOWN_FILENAME,
+        recognition_readiness.COMPARISON_ROLLUP_FILENAME,
+        recognition_readiness.COMPARISON_ROLLUP_MARKDOWN_FILENAME,
     }
 )
 
@@ -1541,6 +1553,12 @@ def _surface_visibility(*, artifact_key: str, artifact_role: str) -> list[str]:
         "release_evidence_pack_index",
         "release_validation_manifest",
         "audit_readiness_digest",
+        "pt_ilc_registry",
+        "external_comparison_importer",
+        "comparison_evidence_pack",
+        "scope_comparison_view",
+        "comparison_digest",
+        "comparison_rollup",
     }:
         if "review_center" not in surfaces:
             surfaces.append("review_center")

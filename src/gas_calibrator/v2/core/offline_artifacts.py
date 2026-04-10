@@ -1624,6 +1624,18 @@ def export_run_offline_artifacts(
         ),
         "audit_readiness_digest": str(run_dir / recognition_readiness.AUDIT_READINESS_DIGEST_FILENAME),
         "audit_readiness_digest_markdown": str(run_dir / recognition_readiness.AUDIT_READINESS_DIGEST_MARKDOWN_FILENAME),
+        "pt_ilc_registry": str(run_dir / recognition_readiness.PT_ILC_REGISTRY_FILENAME),
+        "pt_ilc_registry_markdown": str(run_dir / recognition_readiness.PT_ILC_REGISTRY_MARKDOWN_FILENAME),
+        "external_comparison_importer": str(run_dir / recognition_readiness.EXTERNAL_COMPARISON_IMPORTER_FILENAME),
+        "external_comparison_importer_markdown": str(run_dir / recognition_readiness.EXTERNAL_COMPARISON_IMPORTER_MARKDOWN_FILENAME),
+        "comparison_evidence_pack": str(run_dir / recognition_readiness.COMPARISON_EVIDENCE_PACK_FILENAME),
+        "comparison_evidence_pack_markdown": str(run_dir / recognition_readiness.COMPARISON_EVIDENCE_PACK_MARKDOWN_FILENAME),
+        "scope_comparison_view": str(run_dir / recognition_readiness.SCOPE_COMPARISON_VIEW_FILENAME),
+        "scope_comparison_view_markdown": str(run_dir / recognition_readiness.SCOPE_COMPARISON_VIEW_MARKDOWN_FILENAME),
+        "comparison_digest": str(run_dir / recognition_readiness.COMPARISON_DIGEST_FILENAME),
+        "comparison_digest_markdown": str(run_dir / recognition_readiness.COMPARISON_DIGEST_MARKDOWN_FILENAME),
+        "comparison_rollup": str(run_dir / recognition_readiness.COMPARISON_ROLLUP_FILENAME),
+        "comparison_rollup_markdown": str(run_dir / recognition_readiness.COMPARISON_ROLLUP_MARKDOWN_FILENAME),
     }
     recognition_readiness_artifacts = recognition_readiness.build_recognition_readiness_artifacts(
         run_id=run_id,
