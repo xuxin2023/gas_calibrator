@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
-from .app import run_debugger
+from .app import run_debugger, run_debugger_batch
 from .options import (
     normalize_absorbance_order_mode,
     normalize_model_selection_strategy,
@@ -25,7 +25,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Reconstruct the CO2 absorbance chain from a historical run bundle.",
     )
-    parser.add_argument("input_path", help="Path to run_xxx.zip or an extracted run directory.")
+    parser.add_argument(
+        "input_paths",
+        nargs="+",
+        help="One or more run_xxx.zip paths or extracted run directories.",
+    )
     parser.add_argument(
         "--output-dir",
         help="Directory for generated CSV, plots, Excel files, and reports. Defaults to <input>/output/absorbance_debugger/<stem>.",
@@ -67,6 +71,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Absorbance model validation strategy: auto, grouped_loo, or grouped_kfold.",
     )
     parser.add_argument(
+        "--disable-zero-residual-correction",
+        action="store_true",
+        help="Disable the ΔA0(T) zero-residual challenge branch and keep only the uncorrected absorbance input.",
+    )
+    parser.add_argument(
+        "--zero-residual-models",
+        default="linear,quadratic",
+        help="Comma-separated ΔA0(T) candidates: linear, quadratic, piecewise_linear.",
+    )
+    parser.add_argument(
+        "--disable-piecewise-model",
+        action="store_true",
+        help="Disable piecewise low/main-range absorbance ppm candidates.",
+    )
+    parser.add_argument(
+        "--piecewise-boundary-ppm",
+        type=float,
+        default=200.0,
+        help="Boundary ppm used for the low/main piecewise challenge model family.",
+    )
+    parser.add_argument(
         "--invalid-pressure-targets-hpa",
         default="500",
         help="Comma-separated pressure bins that are legacy-invalid and must be excluded from the main chain.",
@@ -102,8 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    result = run_debugger(
-        args.input_path,
+    common_kwargs = dict(
         output_dir=args.output_dir,
         analyzers=_csv_list(args.analyzers),
         warning_only_analyzers=_csv_list(args.warning_only_analyzers),
@@ -114,6 +138,10 @@ def main(argv: list[str] | None = None) -> int:
         absorbance_order_mode=normalize_absorbance_order_mode(args.absorbance_order_mode),
         model_selection_strategy=normalize_model_selection_strategy(args.model_selection_strategy),
         enable_composite_score=not bool(args.no_composite_score),
+        enable_zero_residual_correction=not bool(args.disable_zero_residual_correction),
+        zero_residual_models=args.zero_residual_models,
+        enable_piecewise_model=not bool(args.disable_piecewise_model),
+        piecewise_boundary_ppm=float(args.piecewise_boundary_ppm),
         invalid_pressure_targets_hpa=parse_numeric_csv(args.invalid_pressure_targets_hpa),
         invalid_pressure_tolerance_hpa=float(args.invalid_pressure_tolerance_hpa),
         invalid_pressure_mode="diagnostic_only" if bool(args.disable_hard_invalid_pressure_exclude) else "hard_exclude",
@@ -123,9 +151,15 @@ def main(argv: list[str] | None = None) -> int:
         p_ref_hpa=float(args.p_ref_hpa),
         overwrite_output=not bool(args.no_overwrite),
     )
+    result = (
+        run_debugger(args.input_paths[0], **common_kwargs)
+        if len(args.input_paths) == 1
+        else run_debugger_batch(tuple(args.input_paths), **common_kwargs)
+    )
     summary = {
         "output_dir": str(Path(result["output_dir"]).resolve()),
-        "validation": result["validation_table"].to_dict(orient="records"),
+        "validation": result["validation_table"].to_dict(orient="records") if "validation_table" in result else [],
+        "cross_run_reproducibility_note": result.get("reproducibility_note", ""),
     }
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     return 0

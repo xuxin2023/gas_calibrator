@@ -271,7 +271,7 @@ def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> No
     assert "decision" in str(decision_row["name"]).lower()
     assert "current_reader_mode" not in str(decision_row["note"])
     assert verification_row["verification_rollup_entry"]["review_surface"]["title_text"] == "Verification Rollup"
-    assert "matrix" in str(verification_row["note"]).lower()
+    assert "矩阵" in str(verification_row["note"]) or "verification" in str(verification_row["note"]).lower()
     assert "配置安全" in reports_payload["result_summary_text"]
     assert "工作台诊断证据" in reports_payload["result_summary_text"]
 

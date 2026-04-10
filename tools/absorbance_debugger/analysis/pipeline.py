@@ -992,7 +992,16 @@ def _select_best_matched_source(
     frames["selection"] = final_selection
     frames["best_predictions"] = best_predictions.sort_values(["analyzer_id", "point_row"], ignore_index=True)
     frames["selected_source_summary"] = final_selection[
-        ["analyzer_id", "selected_ratio_source", "selected_source_pair", "default_absorbance_order", "default_pressure_branch"]
+        [
+            "analyzer_id",
+            "selected_ratio_source",
+            "selected_source_pair",
+            "default_absorbance_order",
+            "default_pressure_branch",
+            "best_model_family",
+            "zero_residual_mode",
+            "zero_residual_model_label",
+        ]
     ].copy()
     return frames
 
@@ -1296,18 +1305,17 @@ def _comparison_tables(
     selected_sources = model_results.get("selected_source_summary", pd.DataFrame()).rename(
         columns={"analyzer_id": "analyzer"}
     )
-    selected_points = absorbance_points.merge(
-        selected_sources[["analyzer", "selected_ratio_source"]],
-        left_on=["analyzer", "ratio_source"],
-        right_on=["analyzer", "selected_ratio_source"],
-        how="inner",
-    )
     selected_samples = absorbance_samples.merge(
         selected_sources[["analyzer", "selected_ratio_source"]],
         left_on=["analyzer", "ratio_source"],
         right_on=["analyzer", "selected_ratio_source"],
         how="inner",
     )
+    selected_samples = selected_samples[
+        (selected_samples["temp_source"] == config.default_temp_source)
+        & (selected_samples["pressure_source"] == config.default_pressure_source)
+        & (selected_samples["r0_model"] == config.default_r0_model)
+    ].copy()
     selected_sample_points = (
         selected_samples.groupby(["analyzer", "point_title", "point_row"], dropna=False)
         .agg(
@@ -1318,22 +1326,7 @@ def _comparison_tables(
         )
         .reset_index()
     )
-    compare = point_raw.merge(
-        selected_points[
-            [
-                "analyzer",
-                "point_title",
-                "point_row",
-                "A_mean",
-                "A_from_mean",
-                "A_std",
-                "A_alt_mean",
-                "R0_T_mean",
-            ]
-        ],
-        on=["analyzer", "point_title", "point_row"],
-        how="left",
-    )
+    compare = point_raw.copy()
     compare = compare.merge(
         selected_sample_points,
         on=["analyzer", "point_title", "point_row"],
@@ -1353,8 +1346,17 @@ def _comparison_tables(
                     "analyzer_id",
                     "point_title",
                     "point_row",
+                    "A_mean",
+                    "A_from_mean",
+                    "A_std",
+                    "A_alt_mean",
+                    "R0_T_mean",
                     "best_absorbance_model",
                     "best_absorbance_model_label",
+                    "best_model_family",
+                    "zero_residual_mode",
+                    "zero_residual_model_label",
+                    "with_zero_residual_correction",
                     "selection_reason",
                     "selected_prediction_scope",
                     "best_overall_fit_pred_ppm",
@@ -1373,8 +1375,17 @@ def _comparison_tables(
             how="left",
         )
     else:
+        compare["A_mean"] = np.nan
+        compare["A_from_mean"] = np.nan
+        compare["A_std"] = np.nan
+        compare["A_alt_mean"] = np.nan
+        compare["R0_T_mean"] = np.nan
         compare["best_absorbance_model"] = np.nan
         compare["best_absorbance_model_label"] = np.nan
+        compare["best_model_family"] = np.nan
+        compare["zero_residual_mode"] = np.nan
+        compare["zero_residual_model_label"] = np.nan
+        compare["with_zero_residual_correction"] = np.nan
         compare["selection_reason"] = np.nan
         compare["selected_prediction_scope"] = np.nan
         compare["best_overall_fit_pred_ppm"] = np.nan
@@ -1464,6 +1475,10 @@ def _comparison_tables(
             "absorbance_order_mode_selected",
             "best_absorbance_model",
             "best_absorbance_model_label",
+            "best_model_family",
+            "zero_residual_mode",
+            "zero_residual_model_label",
+            "with_zero_residual_correction",
             "selection_reason",
             "selected_prediction_scope",
             "best_overall_fit_pred_ppm",
@@ -1571,6 +1586,8 @@ def _report_tables(
     temp_coeffs: pd.DataFrame,
     pressure_coeffs: pd.DataFrame,
     r0_coeffs: pd.DataFrame,
+    zero_residual_models: pd.DataFrame,
+    zero_residual_selection: pd.DataFrame,
     model_results: dict[str, pd.DataFrame],
     comparison_outputs: dict[str, pd.DataFrame | list[str]],
     comparison_outputs_full: dict[str, pd.DataFrame | list[str]],
@@ -1579,6 +1596,8 @@ def _report_tables(
     invalid_pressure_points: pd.DataFrame,
     invalid_pressure_summary: pd.DataFrame,
     before_after_summary: pd.DataFrame,
+    ga01_profile: pd.DataFrame,
+    ga01_special_note: str,
     base_final_enabled: bool,
     base_final_source: str,
 ) -> dict[str, Any]:
@@ -1649,8 +1668,12 @@ def _report_tables(
         "temperature_coefficients": temp_coeffs,
         "pressure_coefficients": pressure_coeffs,
         "r0_coefficients": main_r0,
+        "zero_residual_models": zero_residual_models,
+        "zero_residual_selection": zero_residual_selection,
         "absorbance_model_scores": absorbance_model_scores,
         "absorbance_model_selection": absorbance_model_selection,
+        "piecewise_model_selection": model_results.get("piecewise_selection", pd.DataFrame()),
+        "weight_sensitivity_compare": model_results.get("weight_sensitivity_compare", pd.DataFrame()),
         "order_compare": diagnostic_results["order_compare"],
         "source_consistency": diagnostic_results["source_consistency"],
         "pressure_branch_compare": diagnostic_results["pressure_branch_compare"],
@@ -1668,6 +1691,8 @@ def _report_tables(
         "appendix_overview_summary": comparison_outputs_full["overview_summary"],
         "appendix_auto_conclusions": comparison_outputs_full["auto_conclusions"],
         "before_after_summary": before_after_summary,
+        "ga01_profile": ga01_profile,
+        "ga01_special_note": ga01_special_note,
         "base_final_enabled": base_final_enabled,
         "base_final_source": base_final_source,
         "limitations": [
@@ -1676,11 +1701,11 @@ def _report_tables(
             "Legacy-invalid 500 hPa pressure bins are hard-excluded from the valid-only main chain when detected.",
             "GA04 is detected but excluded from the main fit path by default because the run marks it missing for most points.",
             "Base/final is sample-order based and stays disabled by default for static calibration review.",
-            "The new-chain comparison now uses grouped validation of bounded absorbance candidates, but it is still limited by this run's sparse temperature-zero coverage and single-pressure emphasis.",
+            "The new-chain comparison now uses grouped validation, ΔA0(T), and piecewise-range candidates, but it is still limited by this run's sparse temperature-zero coverage and single-pressure emphasis.",
         ],
         "next_steps": [
             "Add a 40 C / 0 ppm CO2 point so R0(T) can be anchored instead of extrapolated there.",
-            "Collect an explicit multi-pressure CO2 sweep before enabling a full pressure polynomial.",
+            "Keep validating the zero-residual layer and piecewise low/main-range model on multiple historical runs before drawing production conclusions.",
             "Repair or re-enable GA04 data availability before adding it to the main absorbance fit set.",
             "If the absorbance model improves zero drift but still loses overall, add an external validation run before considering any production migration.",
         ],
@@ -1761,8 +1786,13 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
 
     full_r0_obs, full_r0_coeffs, full_r0_residuals, full_r0_lookup = _fit_r0(filtered_full, config)
     full_absorbance_samples, full_absorbance_points = _compute_absorbance(filtered_full, config, full_r0_lookup)
-    legacy_full_model_results = _fit_legacy_default_absorbance_models(full_absorbance_points, config)
-    tightened_full_model_results = _fit_absorbance_models(full_absorbance_points, config, config.output_dir, write_outputs=False)
+    full_point_variants = build_zero_residual_point_variants(
+        full_absorbance_points,
+        {},
+        replace(config, enable_zero_residual_correction=False),
+    )
+    legacy_full_model_results = _fit_legacy_default_absorbance_models(full_point_variants, config)
+    tightened_full_model_results = _fit_absorbance_models(full_point_variants, config, config.output_dir, write_outputs=False)
     legacy_full_point_reconciliation, legacy_full_comparison_outputs = _comparison_tables(
         bundle,
         filtered_full,
@@ -1795,7 +1825,20 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
     absorbance_samples, absorbance_points = _compute_absorbance(filtered, config, r0_lookup)
     _frame_to_csv(config.output_dir / "step_06_absorbance_samples.csv", absorbance_samples)
     _frame_to_csv(config.output_dir / "step_06_absorbance_points.csv", absorbance_points)
-    model_results = _fit_absorbance_models(absorbance_points, config, config.output_dir)
+    zero_residual_observations, zero_residual_models, zero_residual_selection, zero_residual_lookup = fit_zero_residual_models(
+        absorbance_points,
+        config,
+    )
+    _frame_to_csv(config.output_dir / "step_05y_zero_residual_observations.csv", zero_residual_observations)
+    _frame_to_csv(config.output_dir / "step_05y_zero_residual_models.csv", zero_residual_models)
+    _frame_to_csv(config.output_dir / "step_05y_zero_residual_selection.csv", zero_residual_selection)
+    plot_zero_residual_models(
+        zero_residual_observations,
+        zero_residual_models,
+        config.output_dir / "step_05y_zero_residual_plot.png",
+    )
+    absorbance_point_variants = build_zero_residual_point_variants(absorbance_points, zero_residual_lookup, config)
+    model_results = _fit_absorbance_models(absorbance_point_variants, config, config.output_dir)
     diagnostic_results = _run_loss_diagnostics(
         bundle=bundle,
         filtered=filtered,
@@ -1837,6 +1880,27 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
 
     main_point_reconciliation = point_reconciliation if config.use_valid_only_main_conclusion else full_point_reconciliation
     main_comparison_outputs = comparison_outputs if config.use_valid_only_main_conclusion else full_comparison_outputs
+    ga01_profile, ga01_special_note = build_ga01_residual_profile(main_point_reconciliation, model_results)
+    _frame_to_csv(config.output_dir / "step_08y_ga01_residual_profile.csv", ga01_profile)
+    plot_ga01_residual_profile(ga01_profile, config.output_dir / "step_08y_ga01_residual_profile_plots.png")
+    auto_extra_rows = pd.DataFrame(
+        [
+            {
+                "category": "GA01 special note",
+                "winner": "diagnostic",
+                "summary": ga01_special_note,
+            },
+            {
+                "category": "GA02/GA03 reproducibility note",
+                "winner": "pending_batch",
+                "summary": "Cross-run reproducibility requires batch mode; see step_09_cross_run_summary.csv when multiple runs are supplied.",
+            },
+        ]
+    )
+    main_comparison_outputs["auto_conclusions"] = pd.concat(
+        [main_comparison_outputs["auto_conclusions"], auto_extra_rows],
+        ignore_index=True,
+    )
     plot_absorbance_model_old_vs_new(
         main_point_reconciliation,
         config.output_dir / "step_06_absorbance_model_plots" / "absorbance_model_old_vs_new.png",
@@ -1891,8 +1955,12 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         {
             "invalid_pressure": invalid_pressure_points,
             "invalid_pressure_sum": invalid_pressure_summary,
+            "zero_residual_models": zero_residual_models,
+            "zero_residual_select": zero_residual_selection,
             "abs_model_selection": model_results["selection"],
             "abs_model_scores": model_results["scores"],
+            "piecewise_selection": model_results.get("piecewise_selection", pd.DataFrame()),
+            "weight_sensitivity": model_results.get("weight_sensitivity_compare", pd.DataFrame()),
             "order_compare": diagnostic_results["order_compare"],
             "source_consistency": diagnostic_results["source_consistency"],
             "pressure_branch": diagnostic_results["pressure_branch_compare"],
@@ -1902,6 +1970,7 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
             "by_temperature": main_comparison_outputs["by_temperature"],
             "by_concentration": main_comparison_outputs["by_concentration_range"],
             "zero_special": main_comparison_outputs["zero_special"],
+            "ga01_profile": ga01_profile,
             "reg_overall": main_comparison_outputs["regression_overall"],
             "reg_by_temp": main_comparison_outputs["regression_by_temperature"],
             "point_reconciliation": main_point_reconciliation,
@@ -1922,6 +1991,8 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         temp_coeffs=temp_coeffs,
         pressure_coeffs=pressure_coeffs,
         r0_coeffs=r0_coeffs,
+        zero_residual_models=zero_residual_models,
+        zero_residual_selection=zero_residual_selection,
         model_results=model_results,
         comparison_outputs=comparison_outputs,
         comparison_outputs_full=full_comparison_outputs,
@@ -1930,6 +2001,8 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         invalid_pressure_points=invalid_pressure_points,
         invalid_pressure_summary=invalid_pressure_summary,
         before_after_summary=before_after_summary,
+        ga01_profile=ga01_profile,
+        ga01_special_note=ga01_special_note,
         base_final_enabled=config.enable_base_final,
         base_final_source=base_final_source,
     )
@@ -1946,9 +2019,13 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
             "temperature_fit": temp_coeffs,
             "pressure_fit": pressure_coeffs,
             "r0_fit": r0_coeffs,
+            "zero_residual_models": zero_residual_models,
+            "zero_residual_select": zero_residual_selection,
             "abs_model_scores": model_results["scores"],
             "abs_model_selection": model_results["selection"],
             "abs_model_coeffs": model_results["coefficients"],
+            "piecewise_selection": model_results.get("piecewise_selection", pd.DataFrame()),
+            "weight_sensitivity": model_results.get("weight_sensitivity_compare", pd.DataFrame()),
             "selected_sources": model_results["selected_source_summary"],
             "order_compare": diagnostic_results["order_compare"],
             "source_consistency": diagnostic_results["source_consistency"],
@@ -1959,6 +2036,7 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
             "by_temperature": main_comparison_outputs["by_temperature"],
             "by_concentration": main_comparison_outputs["by_concentration_range"],
             "zero_special": main_comparison_outputs["zero_special"],
+            "ga01_profile": ga01_profile,
             "regression": main_comparison_outputs["regression_overall"],
             "point_compare": main_point_reconciliation,
             "auto_conclusions": main_comparison_outputs["auto_conclusions"],

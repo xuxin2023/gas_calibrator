@@ -3508,7 +3508,7 @@ class AppFacade:
         diagnostics["elapsed_ms"] = int(round((time.perf_counter() - started_at) * 1000))
         diagnostics["cache_hit"] = bool(diagnostics.get("cache_hit", False))
         return (
-            sorted(items, key=lambda item: float(item.get("sort_key", 0.0) or 0.0), reverse=True)[:20],
+            sorted(items, key=lambda item: float(item.get("sort_key", 0.0) or 0.0), reverse=True)[:40],
             diagnostics,
         )
 
