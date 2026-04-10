@@ -55,10 +55,82 @@ def _temp_bias_spread(frame: pd.DataFrame, error_column: str) -> float:
     return float(np.std(grouped.to_numpy(dtype=float)))
 
 
+def _consensus_text(series: pd.Series, default: str) -> str:
+    values = series.dropna().astype(str).str.strip()
+    values = values[values != ""]
+    unique = values.drop_duplicates().tolist()
+    if not unique:
+        return default
+    if len(unique) == 1:
+        return str(unique[0])
+    return default
+
+
+def _consensus_bool(series: pd.Series, *, default: bool = False) -> bool:
+    if series.empty:
+        return default
+    mapped = series.map(lambda value: bool(value) if pd.notna(value) else np.nan)
+    values = mapped.dropna().astype(bool).drop_duplicates().tolist()
+    if not values:
+        return default
+    if len(values) == 1:
+        return bool(values[0])
+    return default
+
+
+def build_analyzer_mode2_summary(filtered: pd.DataFrame) -> pd.DataFrame:
+    """Collapse MODE2 semantic metadata to one guarded summary per analyzer."""
+
+    if filtered.empty or "analyzer" not in filtered.columns:
+        return pd.DataFrame(
+            columns=[
+                "analyzer",
+                "mode2_semantic_profile",
+                "mode2_legacy_raw_compare_safe",
+                "mode2_is_baseline_bearing_profile",
+            ]
+        )
+
+    rows: list[dict[str, Any]] = []
+    for analyzer_id, subset in filtered.groupby("analyzer", dropna=False):
+        profile_values = (
+            subset.get("mode2_semantic_profile", pd.Series(dtype=str))
+            .dropna()
+            .astype(str)
+            .str.strip()
+        )
+        unique_profiles = profile_values[profile_values != ""].drop_duplicates().tolist()
+        if not unique_profiles:
+            profile = "mode2_semantics_unknown"
+        elif len(unique_profiles) == 1:
+            profile = str(unique_profiles[0])
+        else:
+            profile = "mixed_profile"
+        rows.append(
+            {
+                "analyzer": analyzer_id,
+                "mode2_semantic_profile": profile,
+                "mode2_legacy_raw_compare_safe": _consensus_bool(
+                    subset.get("mode2_legacy_raw_compare_safe", pd.Series(dtype=object)),
+                    default=False,
+                ),
+                "mode2_is_baseline_bearing_profile": (
+                    subset.get("mode2_is_baseline_bearing_profile", pd.Series(dtype=object))
+                    .dropna()
+                    .map(bool)
+                    .any()
+                    if "mode2_is_baseline_bearing_profile" in subset.columns
+                    else False
+                ),
+            }
+        )
+    return pd.DataFrame(rows).sort_values(["analyzer"], ignore_index=True)
+
+
 def build_point_raw_summary(filtered: pd.DataFrame) -> pd.DataFrame:
     """Aggregate stable point-level raw fields once for later comparisons."""
 
-    return (
+    point_summary = (
         filtered.groupby(
             ["analyzer", "point_title", "point_row", "point_tag", "temp_set_c", "target_co2_ppm"],
             dropna=False,
@@ -73,6 +145,13 @@ def build_point_raw_summary(filtered: pd.DataFrame) -> pd.DataFrame:
         )
         .reset_index()
     )
+    mode2_summary = build_analyzer_mode2_summary(filtered)
+    if mode2_summary.empty:
+        point_summary["mode2_semantic_profile"] = "mode2_semantics_unknown"
+        point_summary["mode2_legacy_raw_compare_safe"] = False
+        point_summary["mode2_is_baseline_bearing_profile"] = False
+        return point_summary
+    return point_summary.merge(mode2_summary, on="analyzer", how="left")
 
 
 def _pressure_branch_specs(config: Any) -> tuple[tuple[str, str | None, str], ...]:

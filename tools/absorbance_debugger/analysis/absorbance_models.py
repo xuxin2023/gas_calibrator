@@ -161,6 +161,36 @@ def _resolve_piecewise_breakpoint_absorbance(
     raise ValueError("No finite absorbance rows are available for the piecewise breakpoint")
 
 
+def _term_required_columns(term: str, absorbance_column: str) -> tuple[str, ...]:
+    if term == "intercept":
+        return ()
+    if term in {"A", "A^2", "A^3", "H(A-A_break)", "H(A-A_break)^2"}:
+        return (absorbance_column,)
+    if term in {"T", "T^2"}:
+        return ("temp_model_c",)
+    if term == "A*T":
+        return (absorbance_column, "temp_model_c")
+    if term in {"K", "K^2"}:
+        return ("K_feature",)
+    if term == "A*K":
+        return (absorbance_column, "K_feature")
+    if term in {"R", "R^2"}:
+        return ("ratio_feature",)
+    if term == "P":
+        return ("pressure_feature",)
+    if term in {"H", "H^2"}:
+        return ("humidity_delta_feature",)
+    if term == "R*H":
+        return ("humidity_relative_feature",)
+    raise ValueError(f"Unsupported model term: {term}")
+
+
+def _feature_column(frame: pd.DataFrame, column_name: str) -> np.ndarray:
+    if column_name not in frame.columns:
+        raise ValueError(f"Missing required feature column: {column_name}")
+    return pd.to_numeric(frame[column_name], errors="coerce").to_numpy(dtype=float)
+
+
 def _design_matrix(
     frame: pd.DataFrame,
     spec: AbsorbanceModelSpec,
@@ -189,6 +219,22 @@ def _design_matrix(
             columns.append(np.square(temperature))
         elif term == "A*T":
             columns.append(absorbance * temperature)
+        elif term == "K":
+            columns.append(_feature_column(frame, "K_feature"))
+        elif term == "K^2":
+            columns.append(np.square(_feature_column(frame, "K_feature")))
+        elif term == "R":
+            columns.append(_feature_column(frame, "ratio_feature"))
+        elif term == "R^2":
+            columns.append(np.square(_feature_column(frame, "ratio_feature")))
+        elif term == "P":
+            columns.append(_feature_column(frame, "pressure_feature"))
+        elif term == "H":
+            columns.append(_feature_column(frame, "humidity_delta_feature"))
+        elif term == "H^2":
+            columns.append(np.square(_feature_column(frame, "humidity_delta_feature")))
+        elif term == "R*H":
+            columns.append(_feature_column(frame, "humidity_relative_feature"))
         elif term == "H(A-A_break)":
             columns.append(hinge)
         elif term == "H(A-A_break)^2":
@@ -234,7 +280,10 @@ def _fit_one_candidate(
     enable_composite_score: bool,
     absorbance_column: str,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
-    candidate_df = analyzer_df.dropna(subset=[absorbance_column, "temp_model_c", "target_ppm"]).copy()
+    required_columns = {"target_ppm", "temp_model_c"}
+    for term in spec.terms:
+        required_columns.update(_term_required_columns(term, absorbance_column))
+    candidate_df = analyzer_df.dropna(subset=sorted(required_columns)).copy()
     candidate_df["absorbance_input"] = pd.to_numeric(candidate_df[absorbance_column], errors="coerce")
     candidate_df = candidate_df.dropna(subset=["absorbance_input"]).copy()
     candidate_df = candidate_df.sort_values(["temp_c", "target_ppm", "point_row", "point_title"]).reset_index(drop=True)
