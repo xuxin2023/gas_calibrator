@@ -211,6 +211,80 @@ class FileBackedRecognitionScopeRepository:
                 "not_ready_for_formal_claim": bool(payload.get("not_ready_for_formal_claim", True)),
             }
         )
+        default_digest = {
+            "summary": str(
+                dict(payload.get("digest") or {}).get("summary")
+                or dict(payload.get("scope_overview") or {}).get("summary")
+                or dict(payload.get("decision_rule_overview") or {}).get("summary")
+                or f"{artifact_type} reviewer digest"
+            ),
+            "scope_overview_summary": str(
+                dict(payload.get("scope_overview") or {}).get("summary")
+                or payload.get("scope_name")
+                or dict(payload.get("digest") or {}).get("scope_overview_summary")
+                or "reviewer scope mapping"
+            ),
+            "decision_rule_summary": str(
+                dict(payload.get("decision_rule_overview") or {}).get("summary")
+                or payload.get("decision_rule_id")
+                or dict(payload.get("digest") or {}).get("decision_rule_summary")
+                or "reviewer rule only"
+            ),
+            "conformity_boundary_summary": str(
+                dict(payload.get("conformity_boundary") or {}).get("summary")
+                or payload.get("non_claim_note")
+                or dict(payload.get("digest") or {}).get("conformity_boundary_summary")
+                or "simulation/offline/shadow outputs remain reviewer-only"
+            ),
+            "current_coverage_summary": " | ".join(
+                str(item).strip()
+                for item in list(payload.get("current_evidence_coverage") or [])
+                if str(item).strip()
+            )
+            or str(dict(payload.get("digest") or {}).get("current_coverage_summary") or "--"),
+            "missing_evidence_summary": str(
+                payload.get("gap_note")
+                or dict(payload.get("digest") or {}).get("missing_evidence_summary")
+                or "--"
+            ),
+            "reviewer_next_step_digest": str(
+                dict(payload.get("digest") or {}).get("reviewer_next_step_digest")
+                or "Keep reviewer mapping explicit and rebuild sidecars/indexes only when needed."
+            ),
+            "non_claim_digest": str(
+                payload.get("non_claim_note")
+                or dict(payload.get("digest") or {}).get("non_claim_digest")
+                or "--"
+            ),
+            "standard_family_summary": " | ".join(
+                str(item).strip() for item in list(payload.get("standard_family") or []) if str(item).strip()
+            )
+            or str(dict(payload.get("digest") or {}).get("standard_family_summary") or "--"),
+            "required_evidence_categories_summary": " | ".join(
+                str(item).strip()
+                for item in list(payload.get("required_evidence_categories") or [])
+                if str(item).strip()
+            )
+            or str(dict(payload.get("digest") or {}).get("required_evidence_categories_summary") or "--"),
+        }
+        payload["digest"] = {**default_digest, **dict(payload.get("digest") or {})}
+        default_review_surface = {
+            "title_text": title_text,
+            "reviewer_note": "File-backed reviewer scope payload only; primary evidence stays unchanged and no formal claim is created.",
+            "summary_text": str(payload["digest"].get("summary") or "--"),
+            "summary_lines": [
+                f"scope overview: {str(payload['digest'].get('scope_overview_summary') or '--')}",
+                f"decision rule: {str(payload['digest'].get('decision_rule_summary') or '--')}",
+                f"non-claim: {str(payload['digest'].get('conformity_boundary_summary') or '--')}",
+            ],
+            "detail_lines": [
+                f"current coverage: {str(payload['digest'].get('current_coverage_summary') or '--')}",
+                f"required evidence categories: {str(payload['digest'].get('required_evidence_categories_summary') or '--')}",
+            ],
+            "artifact_paths": dict(payload.get("artifact_paths") or {}),
+            "phase_filters": ["step2_tail_recognition_ready"],
+        }
+        payload["review_surface"] = {**default_review_surface, **dict(payload.get("review_surface") or {})}
         payload["primary_evidence_rewritten"] = False
         payload["not_real_acceptance_evidence"] = bool(payload.get("not_real_acceptance_evidence", True))
         return payload

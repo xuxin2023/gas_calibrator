@@ -558,6 +558,15 @@ class DeviceWorkbenchController:
                 if path_text:
                     artifact_paths[str(label)] = path_text
         if recognition_scope_rollup:
+            labeled_rollup = str(recognition_scope_rollup.get("rollup_summary_display") or "").strip()
+            if labeled_rollup:
+                summary_lines.append(
+                    t(
+                        "facade.results.result_summary.recognition_scope_rollup",
+                        value=labeled_rollup,
+                        default="范围/规则 rollup：{value}",
+                    )
+                )
             for line in list(recognition_scope_rollup.get("summary_lines") or []):
                 text = str(line).strip()
                 if text and text not in summary_lines:
