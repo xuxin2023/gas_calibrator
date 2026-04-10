@@ -747,6 +747,7 @@ class ResultsGateway:
         certificate_readiness_summary: dict[str, Any] | None,
         uncertainty_method_readiness_summary: dict[str, Any] | None,
         audit_readiness_digest: dict[str, Any] | None,
+        compatibility_scan_summary: dict[str, Any] | None,
     ) -> str:
         summary_payload = dict(summary or {})
         stats = dict(summary_payload.get("stats", {}) or {})
@@ -764,6 +765,7 @@ class ResultsGateway:
         certificate_readiness_payload = dict(certificate_readiness_summary or {})
         uncertainty_method_payload = dict(uncertainty_method_readiness_summary or {})
         audit_readiness_payload = dict(audit_readiness_digest or {})
+        compatibility_summary = dict(compatibility_scan_summary or {})
 
         role_parts: list[str] = []
         for role in ("execution_summary", "execution_rows", "diagnostic_analysis", "formal_analysis"):
@@ -900,6 +902,40 @@ class ResultsGateway:
             or "--"
         )
         lines.append(f"工作台诊断证据: {workbench_text}")
+
+        if compatibility_summary:
+            compatibility_reader_mode = str(
+                compatibility_summary.get("current_reader_mode_display")
+                or compatibility_summary.get("current_reader_mode")
+                or "--"
+            )
+            compatibility_status_text = str(
+                compatibility_summary.get("compatibility_status_display")
+                or compatibility_summary.get("compatibility_status")
+                or "--"
+            )
+            lines.append(
+                t(
+                    "facade.results.result_summary.artifact_compatibility",
+                    value=f"{compatibility_reader_mode} | {compatibility_status_text}",
+                    default=f"工件兼容: {compatibility_reader_mode} | {compatibility_status_text}",
+                )
+            )
+            if str(compatibility_summary.get("summary") or "").strip():
+                lines.append(
+                    t(
+                        "facade.results.result_summary.artifact_compatibility_summary",
+                        value=str(compatibility_summary.get("summary") or ""),
+                        default=f"兼容摘要: {str(compatibility_summary.get('summary') or '')}",
+                    )
+                )
+            if bool(compatibility_summary.get("regenerate_recommended", False)):
+                lines.append(
+                    t(
+                        "facade.results.result_summary.artifact_compatibility_regenerate",
+                        default="建议运行轻量 reindex/regenerate，仅重建 reviewer/index sidecar，不改写原始主证据",
+                    )
+                )
 
         stability_digest = dict(stability_summary.get("digest") or {})
         transition_digest = dict(transition_summary.get("digest") or {})
@@ -1354,6 +1390,83 @@ class ResultsGateway:
             "note": note,
             "role_status_display": role_status_display or str(payload.get("role_status_display") or ""),
             "simulation_evidence_sidecar_bundle_entry": sidecar_payload,
+        }
+
+    @staticmethod
+    def _build_artifact_compatibility_lookup(run_artifact_index: dict[str, Any]) -> dict[str, dict[str, Any]]:
+        lookup: dict[str, dict[str, Any]] = {}
+        for entry in list(dict(run_artifact_index or {}).get("entries") or []):
+            if not isinstance(entry, dict):
+                continue
+            artifact_path = str(entry.get("artifact_path") or "").strip()
+            artifact_name = str(entry.get("artifact_name") or "").strip()
+            if artifact_path:
+                lookup[artifact_path] = dict(entry)
+            if artifact_name and artifact_name not in lookup:
+                lookup[artifact_name] = dict(entry)
+        return lookup
+
+    @staticmethod
+    def _decorate_artifact_compatibility_row(
+        row: dict[str, Any],
+        *,
+        compatibility_lookup: dict[str, dict[str, Any]],
+        compatibility_scan_summary: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload = dict(row or {})
+        key_by_path = str(payload.get("path") or "").strip()
+        key_by_name = Path(key_by_path).name if key_by_path else str(payload.get("name") or "").strip()
+        compatibility_entry = dict(compatibility_lookup.get(key_by_path) or compatibility_lookup.get(key_by_name) or {})
+        if not compatibility_entry:
+            return payload
+        summary_payload = dict(compatibility_scan_summary or {})
+        compatibility_status = str(
+            compatibility_entry.get("compatibility_status_display")
+            or compatibility_entry.get("compatibility_status")
+            or "--"
+        )
+        reader_mode = str(
+            compatibility_entry.get("reader_mode_display")
+            or compatibility_entry.get("reader_mode")
+            or "--"
+        )
+        version_text = str(compatibility_entry.get("schema_or_contract_version") or "--")
+        entry_lines = [
+            f"版本 {version_text}",
+            f"状态 {compatibility_status}",
+            f"读取 {reader_mode}",
+        ]
+        if bool(compatibility_entry.get("regenerate_recommended", False)):
+            entry_lines.append("建议再生成 reviewer/index sidecar")
+        note_parts = [
+            str(payload.get("note") or "").strip(),
+            " | ".join(entry_lines),
+        ]
+        if bool(summary_payload.get("regenerate_recommended", False)):
+            note_parts.append("不改写原始主证据")
+        role_status_display = " | ".join(
+            part
+            for part in (
+                str(payload.get("role_status_display") or "").strip(),
+                compatibility_status,
+                reader_mode,
+            )
+            if str(part).strip()
+        )
+        return {
+            **payload,
+            "note": " | ".join(part for part in note_parts if str(part).strip()),
+            "role_status_display": role_status_display or str(payload.get("role_status_display") or ""),
+            "schema_or_contract_version": version_text,
+            "compatibility_status": str(compatibility_entry.get("compatibility_status") or ""),
+            "compatibility_status_display": compatibility_status,
+            "reader_mode": str(compatibility_entry.get("reader_mode") or ""),
+            "reader_mode_display": reader_mode,
+            "canonical_reader_available": bool(compatibility_entry.get("canonical_reader_available", False)),
+            "regenerate_recommended": bool(compatibility_entry.get("regenerate_recommended", False)),
+            "compatibility_boundary_digest": str(compatibility_entry.get("boundary_digest") or ""),
+            "compatibility_non_claim_digest": str(compatibility_entry.get("non_claim_digest") or ""),
+            "artifact_compatibility_entry": compatibility_entry,
         }
 
     @staticmethod

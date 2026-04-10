@@ -306,10 +306,13 @@ class DeviceWorkbenchController:
         gateway = getattr(self.facade, "results_gateway", None)
         if gateway is None:
             return {}
-        stability = dict(gateway.load_json(MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME) or {})
-        transition = dict(gateway.load_json(STATE_TRANSITION_EVIDENCE_FILENAME) or {})
-        sidecar = dict(gateway.load_json(SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME) or {})
-        phase_coverage = dict(gateway.load_json(MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME) or {})
+        payload = dict(gateway.read_results_payload() or {})
+        stability = dict(payload.get("multi_source_stability_evidence") or {})
+        transition = dict(payload.get("state_transition_evidence") or {})
+        sidecar = dict(payload.get("simulation_evidence_sidecar_bundle") or {})
+        phase_coverage = dict(payload.get("measurement_phase_coverage_report") or {})
+        compatibility_summary = dict(payload.get("compatibility_scan_summary") or {})
+        run_artifact_index = dict(payload.get("run_artifact_index") or {})
         if not stability and not transition and not sidecar and not phase_coverage:
             return {}
         stability_digest = dict(stability.get("digest") or {})
@@ -322,8 +325,32 @@ class DeviceWorkbenchController:
             *[str(item).strip() for item in list(localized_measurement_lines.get("summary_lines") or []) if str(item).strip()],
             str(sidecar.get("reviewer_note") or "").strip(),
         ]
+        compatibility_reader_mode = str(
+            compatibility_summary.get("current_reader_mode_display")
+            or compatibility_summary.get("current_reader_mode")
+            or ""
+        ).strip()
+        compatibility_status = str(
+            compatibility_summary.get("compatibility_status_display")
+            or compatibility_summary.get("compatibility_status")
+            or ""
+        ).strip()
+        if compatibility_reader_mode or compatibility_status:
+            summary_lines.append(
+                "工件兼容: "
+                + " | ".join(part for part in (compatibility_reader_mode, compatibility_status) if part)
+            )
         summary_lines = [line for line in summary_lines if line]
         detail_lines = [str(item).strip() for item in list(localized_measurement_lines.get("detail_lines") or []) if str(item).strip()]
+        if compatibility_summary:
+            compatibility_detail_lines = [
+                str(item).strip()
+                for item in list(compatibility_summary.get("detail_lines") or [])[:3]
+                if str(item).strip()
+            ]
+            detail_lines.extend(compatibility_detail_lines)
+            if bool(compatibility_summary.get("regenerate_recommended", False)):
+                detail_lines.append("建议轻量 regenerate/reindex，仅重建 reviewer/index sidecar")
         detail_lines = [line for line in detail_lines if line]
         boundary_lines = collect_boundary_digest_lines(
             phase_coverage,
@@ -331,6 +358,16 @@ class DeviceWorkbenchController:
             transition,
             sidecar,
         )
+        for item in list(compatibility_summary.get("boundary_statements") or []):
+            text = str(item).strip()
+            if text and text not in boundary_lines:
+                boundary_lines.append(text)
+        compatibility_artifact_paths = dict(compatibility_summary.get("artifact_paths") or {})
+        compatibility_entries = {
+            str(entry.get("artifact_name") or ""): dict(entry)
+            for entry in list(run_artifact_index.get("entries") or [])
+            if isinstance(entry, dict)
+        }
         return {
             "available": True,
             "summary_line": " | ".join(summary_lines) if summary_lines else t("common.none"),
@@ -341,6 +378,9 @@ class DeviceWorkbenchController:
             "state_transition_evidence": transition,
             "simulation_evidence_sidecar_bundle": sidecar,
             "measurement_phase_coverage_report": phase_coverage,
+            "compatibility_scan_summary": compatibility_summary,
+            "run_artifact_index": run_artifact_index,
+            "compatibility_entries": compatibility_entries,
             "artifact_paths": {
                 "multi_source_stability_evidence": str(
                     dict(stability.get("artifact_paths") or {}).get("multi_source_stability_evidence")
@@ -358,6 +398,14 @@ class DeviceWorkbenchController:
                     dict(phase_coverage.get("artifact_paths") or {}).get("measurement_phase_coverage_report")
                     or gateway.run_dir / MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME
                 ),
+                "compatibility_scan_summary": str(
+                    compatibility_artifact_paths.get("compatibility_scan_summary")
+                    or gateway.run_dir / "compatibility_scan_summary.json"
+                ),
+                "run_artifact_index": str(
+                    dict(run_artifact_index.get("artifact_paths") or {}).get("run_artifact_index")
+                    or gateway.run_dir / "run_artifact_index.json"
+                ),
             },
         }
 
@@ -365,14 +413,12 @@ class DeviceWorkbenchController:
         gateway = getattr(self.facade, "results_gateway", None)
         if gateway is None:
             return {}
-        scope_summary = dict(gateway.load_json(recognition_readiness.SCOPE_READINESS_SUMMARY_FILENAME) or {})
-        certificate_summary = dict(
-            gateway.load_json(recognition_readiness.CERTIFICATE_READINESS_SUMMARY_FILENAME) or {}
-        )
-        uncertainty_summary = dict(
-            gateway.load_json(recognition_readiness.UNCERTAINTY_METHOD_READINESS_SUMMARY_FILENAME) or {}
-        )
-        audit_summary = dict(gateway.load_json(recognition_readiness.AUDIT_READINESS_DIGEST_FILENAME) or {})
+        payload = dict(gateway.read_results_payload() or {})
+        scope_summary = dict(payload.get("scope_readiness_summary") or {})
+        certificate_summary = dict(payload.get("certificate_readiness_summary") or {})
+        uncertainty_summary = dict(payload.get("uncertainty_method_readiness_summary") or {})
+        audit_summary = dict(payload.get("audit_readiness_digest") or {})
+        compatibility_summary = dict(payload.get("compatibility_scan_summary") or {})
         payloads = {
             "scope_readiness_summary": scope_summary,
             "certificate_readiness_summary": certificate_summary,
@@ -406,6 +452,34 @@ class DeviceWorkbenchController:
                 path_text = str(path or "").strip()
                 if path_text:
                     artifact_paths[str(label)] = path_text
+        if compatibility_summary:
+            compatibility_reader_mode = str(
+                compatibility_summary.get("current_reader_mode_display")
+                or compatibility_summary.get("current_reader_mode")
+                or ""
+            ).strip()
+            compatibility_status = str(
+                compatibility_summary.get("compatibility_status_display")
+                or compatibility_summary.get("compatibility_status")
+                or ""
+            ).strip()
+            if compatibility_reader_mode or compatibility_status:
+                summary_lines.append(
+                    "工件兼容: "
+                    + " | ".join(part for part in (compatibility_reader_mode, compatibility_status) if part)
+                )
+            for line in list(compatibility_summary.get("detail_lines") or [])[:2]:
+                text = str(line).strip()
+                if text and text not in detail_lines:
+                    detail_lines.append(text)
+            for item in list(compatibility_summary.get("boundary_statements") or []):
+                text = str(item).strip()
+                if text and text not in boundary_lines:
+                    boundary_lines.append(text)
+            for label, path in dict(compatibility_summary.get("artifact_paths") or {}).items():
+                path_text = str(path or "").strip()
+                if path_text:
+                    artifact_paths[str(label)] = path_text
 
         return {
             "available": True,
@@ -414,6 +488,7 @@ class DeviceWorkbenchController:
             "detail_lines": detail_lines,
             "boundary_lines": boundary_lines,
             "artifact_paths": artifact_paths,
+            "compatibility_scan_summary": compatibility_summary,
             **payloads,
         }
 

@@ -6,6 +6,7 @@ import sys
 from typing import Any, Optional
 
 from gas_calibrator.v2.entry import create_calibration_service
+from gas_calibrator.v2.scripts._cli_safety import build_step2_cli_safety_lines
 
 
 def create_argument_parser() -> argparse.ArgumentParser:
@@ -36,10 +37,10 @@ def _emit_headless_config_safety(service: Any) -> None:
     if not config_safety:
         return
     execution_gate = dict(config_safety.get("execution_gate") or {})
-    for line in list(config_safety.get("review_lines") or []):
+    for line in build_step2_cli_safety_lines(config_safety):
         text = str(line or "").strip()
         if text:
-            print(f"[Step2 config safety] {text}", flush=True)
+            print(text, flush=True)
     summary = str(execution_gate.get("summary") or "").strip()
     if summary:
         print(f"[Step2 execution gate] {summary}", flush=True)

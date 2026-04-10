@@ -17,6 +17,7 @@ from ..core.point_parser import PointFilter
 from ..domain.result_models import PointResult
 from ..domain.sample_models import RawSample
 from ..qc import QCPipeline
+from ._cli_safety import build_step2_cli_safety_lines
 from .test_v2_device import (
     V2_ROOT,
     _status_to_dict,
@@ -316,10 +317,10 @@ def run_safe_suite() -> int:
     _print(f"Simulation mode: {runtime_cfg.features.simulation_mode}")
     _print(f"Output dir: {runtime_cfg.paths.output_dir}")
     _print(f"Service chain: {SERVICE_CHAIN}")
-    for line in list(config_safety.get("review_lines") or []):
+    for line in build_step2_cli_safety_lines(config_safety):
         text = str(line or "").strip()
         if text:
-            _print(f"Config safety: {text}")
+            _print(text)
 
     connection = _connection_test(raw_cfg, runtime_cfg)
     _print(f"Connection test: {'PASS' if connection['passed'] else 'FAIL'}")

@@ -1484,6 +1484,10 @@ class AppFacade:
         certificate_readiness_summary = dict(payload.get("certificate_readiness_summary", {}) or {})
         uncertainty_method_readiness_summary = dict(payload.get("uncertainty_method_readiness_summary", {}) or {})
         audit_readiness_digest = dict(payload.get("audit_readiness_digest", {}) or {})
+        run_artifact_index = dict(payload.get("run_artifact_index", {}) or {})
+        artifact_contract_catalog = dict(payload.get("artifact_contract_catalog", {}) or {})
+        compatibility_scan_summary = dict(payload.get("compatibility_scan_summary", {}) or {})
+        reindex_manifest = dict(payload.get("reindex_manifest", {}) or {})
 
         sample_count = 0
         point_summary_count = 0
@@ -1683,6 +1687,7 @@ class AppFacade:
             certificate_readiness_summary=certificate_readiness_summary,
             uncertainty_method_readiness_summary=uncertainty_method_readiness_summary,
             audit_readiness_digest=audit_readiness_digest,
+            compatibility_scan_summary=compatibility_scan_summary,
         )
         review_digest = self._build_review_digest(
             suite_summary=suite_summary,
@@ -1733,6 +1738,48 @@ class AppFacade:
                 t("facade.results.result_summary.lineage_config_version", value=lineage_digest.get("config_version", "--")),
                 t("facade.results.result_summary.suite_summary", value=suite_digest_text),
                 f"证据来源: {result_evidence_source}",
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.artifact_compatibility",
+                            value=" | ".join(
+                                part
+                                for part in (
+                                    str(
+                                        compatibility_scan_summary.get("current_reader_mode_display")
+                                        or compatibility_scan_summary.get("current_reader_mode")
+                                        or ""
+                                    ).strip(),
+                                    str(
+                                        compatibility_scan_summary.get("compatibility_status_display")
+                                        or compatibility_scan_summary.get("compatibility_status")
+                                        or ""
+                                    ).strip(),
+                                )
+                                if part
+                            ),
+                            default="工件兼容: "
+                            + " | ".join(
+                                part
+                                for part in (
+                                    str(
+                                        compatibility_scan_summary.get("current_reader_mode_display")
+                                        or compatibility_scan_summary.get("current_reader_mode")
+                                        or ""
+                                    ).strip(),
+                                    str(
+                                        compatibility_scan_summary.get("compatibility_status_display")
+                                        or compatibility_scan_summary.get("compatibility_status")
+                                        or ""
+                                    ).strip(),
+                                )
+                                if part
+                            ),
+                        )
+                    ]
+                    if compatibility_scan_summary
+                    else []
+                ),
                 *(
                     [t("facade.results.result_summary.spectral_quality", value=spectral_quality_text)]
                     if spectral_quality_text
@@ -1958,6 +2005,10 @@ class AppFacade:
             "certificate_readiness_summary": certificate_readiness_summary,
             "uncertainty_method_readiness_summary": uncertainty_method_readiness_summary,
             "audit_readiness_digest": audit_readiness_digest,
+            "run_artifact_index": run_artifact_index,
+            "artifact_contract_catalog": artifact_contract_catalog,
+            "compatibility_scan_summary": compatibility_scan_summary,
+            "reindex_manifest": reindex_manifest,
             "review_digest": review_digest,
             "review_digest_text": str(review_digest.get("summary_text", "") or ""),
             "review_center": review_center,
@@ -2061,6 +2112,7 @@ class AppFacade:
         certificate_readiness_summary: dict[str, Any],
         uncertainty_method_readiness_summary: dict[str, Any],
         audit_readiness_digest: dict[str, Any],
+        compatibility_scan_summary: dict[str, Any],
     ) -> dict[str, Any]:
         evidence_items, review_diagnostics = self._collect_review_evidence(
             suite_summary=suite_summary,
@@ -2077,6 +2129,7 @@ class AppFacade:
             certificate_readiness_summary=certificate_readiness_summary,
             uncertainty_method_readiness_summary=uncertainty_method_readiness_summary,
             audit_readiness_digest=audit_readiness_digest,
+            compatibility_scan_summary=compatibility_scan_summary,
         )
         index_summary = self._build_review_index_summary(evidence_items, diagnostics=review_diagnostics)
         readiness_text = self._humanize_ui_summary(
@@ -2161,6 +2214,7 @@ class AppFacade:
                 "stability",
                 "state_transition",
                 "measurement_phase_coverage",
+                "artifact_compatibility",
             )
         }
         phase_bridge_reviewer_artifact_entry: dict[str, Any] = {}
@@ -2317,6 +2371,13 @@ class AppFacade:
                         "label": t(
                             "results.review_center.type.measurement_phase_coverage",
                             default="measurement phase coverage",
+                        ),
+                    },
+                    {
+                        "id": "artifact_compatibility",
+                        "label": t(
+                            "results.review_center.type.artifact_compatibility",
+                            default="工件兼容 / 再索引",
                         ),
                     },
                     {
@@ -2526,6 +2587,7 @@ class AppFacade:
         certificate_readiness_summary: dict[str, Any],
         uncertainty_method_readiness_summary: dict[str, Any],
         audit_readiness_digest: dict[str, Any],
+        compatibility_scan_summary: dict[str, Any],
         force_refresh: bool = False,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         started_at = time.perf_counter()
@@ -2658,6 +2720,27 @@ class AppFacade:
                 path,
                 evidence_type="measurement_phase_coverage",
                 fallback_payload=measurement_phase_coverage_report,
+            )
+            if item:
+                items.append(item)
+        compatibility_scan_path = str(
+            dict(compatibility_scan_summary.get("artifact_paths") or {}).get("compatibility_scan_summary")
+            or compatibility_scan_summary.get("path")
+            or ""
+        )
+        compatibility_scan_paths = self._review_artifact_paths(
+            "compatibility_scan_summary.json",
+            roots=run_roots,
+            explicit_paths=[Path(compatibility_scan_path)] if compatibility_scan_path.strip() else None,
+            limit=8,
+            metrics=diagnostics,
+            force_refresh=force_refresh,
+        )
+        for path in compatibility_scan_paths:
+            item = self._parse_review_artifact(
+                path,
+                evidence_type="artifact_compatibility",
+                fallback_payload=compatibility_scan_summary,
             )
             if item:
                 items.append(item)
@@ -3131,6 +3214,8 @@ class AppFacade:
             return self._build_state_transition_review_item(payload, path)
         if evidence_type == "measurement_phase_coverage":
             return self._build_measurement_phase_coverage_review_item(payload, path)
+        if evidence_type == "artifact_compatibility":
+            return self._build_artifact_compatibility_review_item(payload, path)
         if evidence_type == "readiness_governance":
             return self._build_readiness_governance_review_item(payload, path)
         return None
@@ -4099,6 +4184,75 @@ class AppFacade:
             phase_contrast_filters=list(review_surface.get("phase_contrast_filters") or []),
         )
 
+    def _build_artifact_compatibility_review_item(self, payload: dict[str, Any], path: Path) -> dict[str, Any]:
+        review_surface = dict(payload.get("review_surface") or {})
+        digest = dict(payload.get("digest") or {})
+        summary = self._humanize_ui_summary(
+            str(
+                digest.get("summary")
+                or review_surface.get("summary_text")
+                or payload.get("summary")
+                or "artifact compatibility"
+            )
+        )
+        detail_lines = [
+            f"{t('results.review_center.detail.summary')}: {summary}",
+            f"{t('results.review_center.detail.status')}: {str(payload.get('compatibility_status_display') or payload.get('compatibility_status') or '--')}",
+            f"{t('results.review_center.detail.source')}: {display_evidence_source(payload.get('evidence_source'), default=str(payload.get('evidence_source') or 'simulated_protocol'))}",
+            f"{t('results.review_center.detail.state')}: {display_evidence_state(payload.get('evidence_state'), default=str(payload.get('evidence_state') or 'shadow_only'))}",
+            f"{t('results.review_center.detail.path')}: {path}",
+            f"读取方式: {str(payload.get('current_reader_mode_display') or payload.get('current_reader_mode') or '--')}",
+            f"兼容状态: {str(payload.get('compatibility_status_display') or payload.get('compatibility_status') or '--')}",
+            f"建议动作: {'仅重建 reviewer/index sidecar' if bool(payload.get('regenerate_recommended', False)) else '当前 compatibility sidecar 已就绪'}",
+            f"边界摘要: {str(payload.get('boundary_digest') or digest.get('boundary_summary') or '--')}",
+            f"非主张摘要: {str(payload.get('non_claim_digest') or digest.get('non_claim_summary') or '--')}",
+            "说明: regenerate/reindex 仅作用于 reviewer/index sidecar，不改写原始主证据",
+            t("results.review_center.disclaimer"),
+        ]
+        artifact_paths = [
+            str(path),
+            *[
+                str(item)
+                for item in dict(payload.get("artifact_paths") or {}).values()
+                if str(item).strip()
+            ],
+        ]
+        return self._review_entry(
+            evidence_type="artifact_compatibility",
+            path=path,
+            generated_at=payload.get("generated_at"),
+            summary=summary,
+            detail_text="\n".join(detail_lines),
+            raw_status=str(payload.get("compatibility_status") or "diagnostic_only"),
+            status="diagnostic_only",
+            source_kind="run",
+            evidence_source=str(payload.get("evidence_source") or "simulated_protocol"),
+            evidence_state=str(payload.get("evidence_state") or "shadow_only"),
+            not_real_acceptance_evidence=bool(payload.get("not_real_acceptance_evidence", True)),
+            key_fields=[
+                str(payload.get("current_reader_mode_display") or payload.get("current_reader_mode") or ""),
+                str(payload.get("compatibility_status_display") or payload.get("compatibility_status") or ""),
+                str(digest.get("regenerate_summary") or ""),
+            ],
+            artifact_paths=artifact_paths,
+            detail_analytics_summary=[str(item) for item in list(review_surface.get("summary_lines") or []) if str(item).strip()],
+            detail_lineage_summary=[
+                self._humanize_ui_summary(str(item))
+                for item in list(review_surface.get("detail_lines") or [])
+                if str(item).strip()
+            ],
+            phase_filters=list(review_surface.get("phase_filters") or []),
+            artifact_role_filters=list(review_surface.get("artifact_role_filters") or ["diagnostic_analysis", "execution_summary"]),
+            evidence_category_filters=list(review_surface.get("evidence_category_filters") or ["artifact_compatibility"]),
+            boundary_filter_rows=[dict(item) for item in list(review_surface.get("boundary_filter_rows") or []) if isinstance(item, dict)],
+            boundary_filters=list(review_surface.get("boundary_filters") or []),
+            anchor_id=str(review_surface.get("anchor_id") or ""),
+            anchor_label=str(review_surface.get("anchor_label") or ""),
+            evidence_source_filters=list(review_surface.get("evidence_source_filters") or []),
+            non_claim_filter_rows=[dict(item) for item in list(review_surface.get("non_claim_filter_rows") or []) if isinstance(item, dict)],
+            non_claim_filters=list(review_surface.get("non_claim_filters") or []),
+        )
+
     def _build_readiness_governance_review_item(self, payload: dict[str, Any], path: Path) -> dict[str, Any]:
         review_surface = dict(payload.get("review_surface") or {})
         digest = dict(payload.get("digest") or {})
@@ -4888,6 +5042,16 @@ class AppFacade:
         payload["measurement_phase_coverage_report"] = dict(
             results.get("measurement_phase_coverage_report", {})
             or payload.get("measurement_phase_coverage_report", {})
+            or {}
+        )
+        payload["compatibility_scan_summary"] = dict(
+            results.get("compatibility_scan_summary", {})
+            or payload.get("compatibility_scan_summary", {})
+            or {}
+        )
+        payload["run_artifact_index"] = dict(
+            results.get("run_artifact_index", {})
+            or payload.get("run_artifact_index", {})
             or {}
         )
         payload["config_safety"] = dict(results.get("config_safety", {}) or payload.get("config_safety", {}) or {})

@@ -26,6 +26,7 @@ from gas_calibrator.v2.core.device_manager import DeviceManager
 from gas_calibrator.v2.core.point_parser import PointFilter
 from gas_calibrator.v2.config import AppConfig, build_step2_config_safety_review
 from gas_calibrator.v2.entry import create_calibration_service_from_config, load_config_bundle
+from gas_calibrator.v2.scripts._cli_safety import build_step2_cli_safety_lines
 
 
 CONFIG_PATH = V2_ROOT / "configs" / "test_v2_config.json"
@@ -526,6 +527,7 @@ def _step2_config_report_sections(raw_cfg: dict[str, Any]) -> dict[str, Any]:
     return {
         "config_safety": config_safety,
         "config_safety_review": config_safety_review,
+        "cli_safety_lines": build_step2_cli_safety_lines(config_safety_review or config_safety),
     }
 
 
@@ -632,6 +634,10 @@ def test_device_connection(
     raw_cfg, runtime_cfg = _load_runtime(allow_real_bench=use_real_bench)
     config_sections = _step2_config_report_sections(raw_cfg)
     effective_paths = _print_effective_paths(runtime_cfg)
+    for line in list(config_sections.get("cli_safety_lines") or []):
+        text = str(line or "").strip()
+        if text:
+            _print(text)
     service = _build_service_for_runtime_profile(
         raw_cfg,
         runtime_cfg,
@@ -704,6 +710,10 @@ def _run_calibration_test(
     raw_cfg, runtime_cfg = _load_runtime(allow_real_bench=use_real_bench)
     config_sections = _step2_config_report_sections(raw_cfg)
     effective_paths = _print_effective_paths(runtime_cfg)
+    for line in list(config_sections.get("cli_safety_lines") or []):
+        text = str(line or "").strip()
+        if text:
+            _print(text)
     service = _build_service_for_runtime_profile(
         raw_cfg,
         runtime_cfg,
