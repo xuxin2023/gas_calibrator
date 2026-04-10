@@ -1453,6 +1453,11 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
             default=f"reviewer next step: {reviewer_next_step_summary}",
         ),
         t(
+            "results.review_center.detail.readiness.reviewer_action_summary_line",
+            value=reviewer_action_summary,
+            default=f"Reviewer actions: {reviewer_action_summary}",
+        ),
+        t(
             "results.review_center.detail.readiness.boundary_line",
             value=boundary_summary,
             default=f"{t('results.review_center.detail.boundary', default='边界')}：{boundary_summary}",
@@ -1465,6 +1470,31 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
     ]
 
     detail_lines = [
+        t(
+            "results.review_center.detail.readiness.asset_readiness_overview_line",
+            value=asset_readiness_overview,
+            default=f"Asset readiness overview: {asset_readiness_overview}",
+        ),
+        t(
+            "results.review_center.detail.readiness.certificate_lifecycle_overview_line",
+            value=certificate_lifecycle_overview,
+            default=f"Certificate lifecycle overview: {certificate_lifecycle_overview}",
+        ),
+        t(
+            "results.review_center.detail.readiness.pre_run_gate_status_line",
+            value=pre_run_gate_status,
+            default=f"Pre-run gate status: {pre_run_gate_status}",
+        ),
+        t(
+            "results.review_center.detail.readiness.scope_reference_assets_line",
+            value=scope_reference_assets_summary,
+            default=f"Scope reference assets: {scope_reference_assets_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.decision_rule_dependency_line",
+            value=decision_rule_dependency_summary,
+            default=f"Decision rule dependencies: {decision_rule_dependency_summary}",
+        ),
         t(
             "results.review_center.detail.readiness.current_coverage_line",
             value=str(digest.get("current_coverage_summary") or t("common.none")),
@@ -1539,6 +1569,11 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
             "results.review_center.detail.readiness.gap_reason_line",
             value=linked_gap_reason_summary,
             default=f"gap reason: {linked_gap_reason_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.warning_items_line",
+            value=warning_summary,
+            default=f"Warning items: {warning_summary}",
         ),
         t(
             "results.review_center.detail.readiness.next_artifacts_line",

@@ -141,6 +141,48 @@ def _build_run_report(
     recognition_scope_rollup = dict(recognition_scope_payload.get("recognition_scope_rollup") or {})
     scope_definition_pack = dict(recognition_scope_payload.get("scope_definition_pack") or {})
     decision_rule_profile = dict(recognition_scope_payload.get("decision_rule_profile") or {})
+    reference_asset_registry = dict(recognition_scope_payload.get("reference_asset_registry") or {})
+    certificate_lifecycle_summary = dict(recognition_scope_payload.get("certificate_lifecycle_summary") or {})
+    pre_run_readiness_gate = dict(recognition_scope_payload.get("pre_run_readiness_gate") or {})
+    reference_asset_digest = dict(reference_asset_registry.get("digest") or {})
+    certificate_lifecycle_digest = dict(certificate_lifecycle_summary.get("digest") or {})
+    pre_run_gate_digest = dict(pre_run_readiness_gate.get("digest") or {})
+    asset_readiness_overview = str(
+        recognition_scope_rollup.get("asset_readiness_overview")
+        or reference_asset_digest.get("asset_readiness_overview")
+        or reference_asset_digest.get("summary")
+        or "--"
+    )
+    certificate_lifecycle_overview = str(
+        recognition_scope_rollup.get("certificate_lifecycle_overview")
+        or certificate_lifecycle_digest.get("certificate_lifecycle_overview")
+        or certificate_lifecycle_digest.get("summary")
+        or "--"
+    )
+    pre_run_gate_status = str(
+        recognition_scope_rollup.get("pre_run_gate_status")
+        or pre_run_readiness_gate.get("gate_status")
+        or pre_run_gate_digest.get("pre_run_gate_status")
+        or "--"
+    )
+    blocking_digest = str(
+        recognition_scope_rollup.get("blocking_digest")
+        or pre_run_gate_digest.get("blocker_summary")
+        or "--"
+    )
+    warning_digest = str(
+        recognition_scope_rollup.get("warning_digest")
+        or pre_run_gate_digest.get("warning_summary")
+        or "--"
+    )
+    pre_run_gate_summary = str(pre_run_gate_digest.get("summary") or "--")
+    readiness_mapping_boundary = str(
+        pre_run_readiness_gate.get("non_claim_note")
+        or recognition_scope_rollup.get("non_claim_note")
+        or decision_rule_profile.get("non_claim_note")
+        or scope_definition_pack.get("non_claim_note")
+        or "--"
+    )
     current_reader_mode = str(
         compatibility_overview.get("current_reader_mode")
         or compatibility_scan_summary.get("current_reader_mode")
@@ -262,6 +304,31 @@ def _build_run_report(
             or decision_rule_profile.get("non_claim_note")
             or scope_definition_pack.get("non_claim_note")
             or "--"
+        ),
+        "asset_readiness_overview": asset_readiness_overview,
+        "certificate_lifecycle_overview": certificate_lifecycle_overview,
+        "pre_run_gate_status": pre_run_gate_status,
+        "pre_run_gate_summary": pre_run_gate_summary,
+        "blocking_digest": blocking_digest,
+        "warning_digest": warning_digest,
+        "ready_for_readiness_mapping": bool(
+            pre_run_readiness_gate.get("ready_for_readiness_mapping")
+            or recognition_scope_rollup.get("readiness_status") == "ready_for_readiness_mapping"
+        ),
+        "not_ready_for_formal_claim": bool(
+            pre_run_readiness_gate.get("not_ready_for_formal_claim", True)
+        ),
+        "reviewer_only_boundary": readiness_mapping_boundary,
+        "evidence_source": str(
+            pre_run_readiness_gate.get("evidence_source")
+            or certificate_lifecycle_summary.get("evidence_source")
+            or reference_asset_registry.get("evidence_source")
+            or "simulated"
+        ),
+        "not_real_acceptance_evidence": bool(
+            pre_run_readiness_gate.get("not_real_acceptance_evidence", True)
+            and certificate_lifecycle_summary.get("not_real_acceptance_evidence", True)
+            and reference_asset_registry.get("not_real_acceptance_evidence", True)
         ),
         "recognition_scope_rollup": recognition_scope_rollup,
         "compatibility_rollup": compatibility_rollup,
