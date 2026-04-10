@@ -1,0 +1,262 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any, Protocol
+
+from . import recognition_readiness_artifacts as recognition_readiness
+
+RECOGNITION_SCOPE_REPOSITORY_SCHEMA_VERSION = "step2-recognition-scope-repository-v1"
+RECOGNITION_SCOPE_REPOSITORY_MODE = "file_artifact_first"
+RECOGNITION_SCOPE_GATEWAY_MODE = "file_backed_default"
+RECOGNITION_SCOPE_DB_READY_MODE = "db_ready_stub"
+
+_LINKED_SURFACES = ["results", "review_center", "workbench", "historical_artifacts"]
+
+
+class RecognitionScopeRepository(Protocol):
+    def load_snapshot(self) -> dict[str, Any]:
+        """Return scope package / decision rule / rollup using the default file-backed path."""
+
+
+class DatabaseReadyRecognitionScopeRepositoryStub:
+    def __init__(self, run_dir: Path) -> None:
+        self.run_dir = Path(run_dir)
+
+    def load_snapshot(self) -> dict[str, Any]:
+        return {
+            "scope_definition_pack": {},
+            "decision_rule_profile": {},
+            "recognition_scope_rollup": {
+                "schema_version": RECOGNITION_SCOPE_REPOSITORY_SCHEMA_VERSION,
+                "run_dir": str(self.run_dir),
+                "repository_mode": RECOGNITION_SCOPE_DB_READY_MODE,
+                "gateway_mode": "not_active",
+                "db_ready_stub": {
+                    "enabled": False,
+                    "mode": RECOGNITION_SCOPE_DB_READY_MODE,
+                    "default_path": False,
+                    "requires_explicit_injection": True,
+                    "not_in_default_chain": True,
+                },
+                "summary_lines": ["DB-ready stub reserved; Step 2 default remains file-backed."],
+                "detail_lines": ["No database connection is opened or required in the current path."],
+                "primary_evidence_rewritten": False,
+                "not_real_acceptance_evidence": True,
+            },
+        }
+
+
+class FileBackedRecognitionScopeRepository:
+    def __init__(
+        self,
+        run_dir: Path,
+        *,
+        summary: dict[str, Any] | None = None,
+        analytics_summary: dict[str, Any] | None = None,
+        evidence_registry: dict[str, Any] | None = None,
+        workbench_action_report: dict[str, Any] | None = None,
+        workbench_action_snapshot: dict[str, Any] | None = None,
+        scope_readiness_summary: dict[str, Any] | None = None,
+        compatibility_scan_summary: dict[str, Any] | None = None,
+    ) -> None:
+        self.run_dir = Path(run_dir)
+        self.summary = dict(summary or {})
+        self.analytics_summary = dict(analytics_summary or {})
+        self.evidence_registry = dict(evidence_registry or {})
+        self.workbench_action_report = dict(workbench_action_report or {})
+        self.workbench_action_snapshot = dict(workbench_action_snapshot or {})
+        self.scope_readiness_summary = dict(scope_readiness_summary or {})
+        self.compatibility_scan_summary = dict(compatibility_scan_summary or {})
+
+    def load_snapshot(self) -> dict[str, Any]:
+        scope_payload = self._load_payload(
+            recognition_readiness.SCOPE_DEFINITION_PACK_FILENAME,
+            "scope_definition_pack",
+            artifact_type="scope_definition_pack",
+            title_text="Scope Definition Pack",
+        )
+        decision_payload = self._load_payload(
+            recognition_readiness.DECISION_RULE_PROFILE_FILENAME,
+            "decision_rule_profile",
+            artifact_type="decision_rule_profile",
+            title_text="Decision Rule Profile",
+        )
+        rollup = self._build_rollup(scope_payload, decision_payload)
+        return {
+            "scope_definition_pack": scope_payload,
+            "decision_rule_profile": decision_payload,
+            "recognition_scope_rollup": rollup,
+        }
+
+    def _load_payload(self, filename: str, summary_key: str, *, artifact_type: str, title_text: str) -> dict[str, Any]:
+        payload = self._load_json(filename) or self._read_summary_section(summary_key)
+        artifact_paths = self._artifact_paths()
+        digest = dict(payload.get("digest") or {})
+        review_surface = dict(payload.get("review_surface") or {})
+        readiness_payload = dict(self.scope_readiness_summary or self._read_summary_section("scope_readiness_summary"))
+        readiness_digest = dict(readiness_payload.get("digest") or {})
+        if not payload:
+            payload = {
+                "artifact_type": artifact_type,
+                "schema_version": f"compatibility-adapter-{artifact_type}-v1",
+                "run_id": str(self.summary.get("run_id") or self.run_dir.name),
+                "evidence_source": "simulated_protocol",
+                "evidence_state": "reviewer_readiness_only",
+                "not_real_acceptance_evidence": True,
+                "readiness_status": str(readiness_payload.get("readiness_status") or "ready_for_readiness_mapping"),
+                "non_claim_note": str(
+                    readiness_payload.get("non_claim_note")
+                    or readiness_digest.get("non_claim_digest")
+                    or "simulation/offline/shadow outputs remain reviewer-only and cannot become formal claims."
+                ),
+                "limitation_note": str(
+                    readiness_payload.get("limitation_note")
+                    or "Current payload is compatibility-adapter reviewer output; formal claim remains out of scope."
+                ),
+                "gap_note": str(
+                    readiness_payload.get("gap_note")
+                    or readiness_digest.get("missing_evidence_summary")
+                    or "Formal scope approval, released certificates, and real metrology evidence remain outside Step 2."
+                ),
+                "artifact_paths": artifact_paths,
+            }
+            digest = {
+                "summary": str(readiness_digest.get("summary") or f"{artifact_type} reviewer digest"),
+                "scope_overview_summary": str(readiness_digest.get("scope_overview_summary") or "reviewer scope mapping"),
+                "decision_rule_summary": str(readiness_digest.get("decision_rule_summary") or "reviewer rule only"),
+                "conformity_boundary_summary": str(
+                    readiness_digest.get("non_claim_digest") or payload["non_claim_note"]
+                ),
+                "current_coverage_summary": str(readiness_digest.get("current_coverage_summary") or "--"),
+                "missing_evidence_summary": payload["gap_note"],
+                "reviewer_next_step_digest": str(
+                    readiness_digest.get("reviewer_next_step_digest") or "Only rebuild reviewer/index sidecars."
+                ),
+                "non_claim_digest": payload["non_claim_note"],
+            }
+            review_surface = {
+                "title_text": title_text,
+                "reviewer_note": "Compatibility adapter produced reviewer-facing payload; primary evidence stays unchanged.",
+                "summary_text": str(digest.get("summary") or "--"),
+                "summary_lines": [
+                    f"scope overview: {str(digest.get('scope_overview_summary') or '--')}",
+                    f"decision rule: {str(digest.get('decision_rule_summary') or '--')}",
+                    f"non-claim: {str(digest.get('conformity_boundary_summary') or '--')}",
+                ],
+                "detail_lines": [
+                    f"current coverage: {str(digest.get('current_coverage_summary') or '--')}",
+                    f"gap note: {payload['gap_note']}",
+                ],
+                "artifact_paths": artifact_paths,
+                "phase_filters": ["step2_tail_recognition_ready"],
+            }
+        payload["artifact_type"] = str(payload.get("artifact_type") or artifact_type)
+        payload["schema_version"] = str(payload.get("schema_version") or "1.0")
+        payload["artifact_paths"] = {**artifact_paths, **dict(payload.get("artifact_paths") or {})}
+        payload["digest"] = {**digest, **dict(payload.get("digest") or {})}
+        payload["review_surface"] = {**review_surface, **dict(payload.get("review_surface") or {})}
+        payload["repository_mode"] = RECOGNITION_SCOPE_REPOSITORY_MODE
+        payload["gateway_mode"] = RECOGNITION_SCOPE_GATEWAY_MODE
+        payload["primary_evidence_rewritten"] = False
+        payload["not_real_acceptance_evidence"] = bool(payload.get("not_real_acceptance_evidence", True))
+        return payload
+
+    def _build_rollup(self, scope_payload: dict[str, Any], decision_payload: dict[str, Any]) -> dict[str, Any]:
+        compatibility_overview = dict(self.compatibility_scan_summary.get("compatibility_overview") or {})
+        reader_mode = str(
+            compatibility_overview.get("current_reader_mode")
+            or self.compatibility_scan_summary.get("current_reader_mode")
+            or ("canonical_direct" if (self.run_dir / recognition_readiness.SCOPE_DEFINITION_PACK_FILENAME).exists() else "compatibility_adapter")
+        )
+        reader_mode_display = str(
+            compatibility_overview.get("current_reader_mode_display")
+            or self.compatibility_scan_summary.get("current_reader_mode_display")
+            or {"canonical_direct": "canonical 直读", "compatibility_adapter": "兼容适配读取"}.get(reader_mode, reader_mode)
+        )
+        scope_digest = dict(scope_payload.get("digest") or {})
+        decision_digest = dict(decision_payload.get("digest") or {})
+        summary_lines = [
+            f"认可范围包：{str(scope_digest.get('scope_overview_summary') or scope_digest.get('summary') or '--')}",
+            f"决策规则：{str(decision_digest.get('decision_rule_summary') or decision_payload.get('decision_rule_id') or '--')}",
+            f"符合性边界：{str(decision_digest.get('conformity_boundary_summary') or scope_payload.get('non_claim_note') or '--')}",
+            f"读取路径：{reader_mode_display}",
+            f"就绪状态：{str(scope_payload.get('readiness_status') or decision_payload.get('readiness_status') or 'ready_for_readiness_mapping')}",
+        ]
+        return {
+            "schema_version": RECOGNITION_SCOPE_REPOSITORY_SCHEMA_VERSION,
+            "run_id": str(scope_payload.get("run_id") or decision_payload.get("run_id") or self.run_dir.name),
+            "run_dir": str(self.run_dir),
+            "repository_mode": RECOGNITION_SCOPE_REPOSITORY_MODE,
+            "gateway_mode": RECOGNITION_SCOPE_GATEWAY_MODE,
+            "db_ready_stub": {
+                "enabled": False,
+                "mode": RECOGNITION_SCOPE_DB_READY_MODE,
+                "default_path": False,
+                "requires_explicit_injection": True,
+                "not_in_default_chain": True,
+            },
+            "reader_mode": reader_mode,
+            "reader_mode_display": reader_mode_display,
+            "canonical_direct": reader_mode == "canonical_direct",
+            "compatibility_adapter": reader_mode == "compatibility_adapter",
+            "scope_overview_display": str(scope_digest.get("scope_overview_summary") or scope_digest.get("summary") or "--"),
+            "decision_rule_display": str(decision_digest.get("decision_rule_summary") or decision_payload.get("decision_rule_id") or "--"),
+            "conformity_boundary_display": str(
+                decision_digest.get("conformity_boundary_summary")
+                or scope_payload.get("non_claim_note")
+                or "--"
+            ),
+            "non_claim_note": str(decision_payload.get("non_claim_note") or scope_payload.get("non_claim_note") or "--"),
+            "readiness_status": str(scope_payload.get("readiness_status") or decision_payload.get("readiness_status") or "ready_for_readiness_mapping"),
+            "linked_surface_visibility": list(_LINKED_SURFACES),
+            "regenerate_recommended": bool(
+                compatibility_overview.get("regenerate_recommended")
+                or self.compatibility_scan_summary.get("regenerate_recommended", False)
+            ),
+            "primary_evidence_rewritten": False,
+            "not_real_acceptance_evidence": True,
+            "rollup_summary_display": " | ".join(part for part in summary_lines[:4] if str(part).strip()),
+            "summary_lines": summary_lines,
+            "detail_lines": [
+                f"repository/gateway：{RECOGNITION_SCOPE_REPOSITORY_MODE} / {RECOGNITION_SCOPE_GATEWAY_MODE}",
+                "non-claim：simulation/offline/shadow 只用于 reviewer digest / readiness mapping",
+                "主证据改写：false",
+            ],
+        }
+
+    def _load_json(self, relative_name: str) -> dict[str, Any]:
+        path = self.run_dir / relative_name
+        if not path.exists():
+            return {}
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+        return dict(payload) if isinstance(payload, dict) else {}
+
+    def _read_summary_section(self, key: str) -> dict[str, Any]:
+        for payload in (
+            self.summary,
+            self.evidence_registry,
+            self.analytics_summary,
+            self.workbench_action_report,
+            self.workbench_action_snapshot,
+        ):
+            stats = dict(payload.get("stats") or {})
+            section = stats.get(key)
+            if isinstance(section, dict) and section:
+                return dict(section)
+            direct = payload.get(key)
+            if isinstance(direct, dict) and direct:
+                return dict(direct)
+        return {}
+
+    def _artifact_paths(self) -> dict[str, str]:
+        return {
+            "scope_definition_pack": str(self.run_dir / recognition_readiness.SCOPE_DEFINITION_PACK_FILENAME),
+            "scope_definition_pack_markdown": str(self.run_dir / recognition_readiness.SCOPE_DEFINITION_PACK_MARKDOWN_FILENAME),
+            "decision_rule_profile": str(self.run_dir / recognition_readiness.DECISION_RULE_PROFILE_FILENAME),
+            "decision_rule_profile_markdown": str(self.run_dir / recognition_readiness.DECISION_RULE_PROFILE_MARKDOWN_FILENAME),
+            "scope_readiness_summary": str(self.run_dir / recognition_readiness.SCOPE_READINESS_SUMMARY_FILENAME),
+        }

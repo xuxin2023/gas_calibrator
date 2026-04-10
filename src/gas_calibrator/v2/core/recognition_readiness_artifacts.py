@@ -446,7 +446,7 @@ def _build_scope_definition_pack(
             "ISO/IEC 17025",
             "ISO gas standards" if "gas" in route_families else "",
             "WMO / GAW" if {"gas", "ambient"} & set(route_families) else "",
-            "CNAS / 实验室认可",
+            "CNAS / ?????",
         ]
     )
     required_evidence_categories = _dedupe(
@@ -717,7 +717,7 @@ def _build_decision_rule_profile(
     standard_families = _dedupe(
         [
             "ISO/IEC 17025",
-            "CNAS / 实验室认可",
+            "CNAS / ?????",
             "ISO gas standards" if "gas" in route_families else "",
             "WMO / GAW" if {"gas", "ambient"} & set(route_families) else "",
         ]
@@ -759,8 +759,8 @@ def _build_decision_rule_profile(
     conformity_statement_profile = {
         "profile_id": "step2_reviewer_conformity_boundary_v1",
         "statement_template": (
-            "仅供 Step 2 simulation/offline reviewer digest；当前可做 readiness mapping，不输出 formal compliance claim、"
-            "accreditation claim 或 final pass-fail metrology conclusion。"
+            "?? Step 2 simulation/offline reviewer digest?????? readiness mapping?",
+            "??? formal compliance claim?accreditation claim ? final pass-fail metrology conclusion?",
         ),
         "allowed_statement_scope": ["readiness_mapping", "reviewer_digest"],
         "prohibited_statement_scope": list(reviewer_gate["deny_outputs"]),

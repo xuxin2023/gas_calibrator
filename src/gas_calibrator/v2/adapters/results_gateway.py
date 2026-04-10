@@ -74,6 +74,7 @@ from ..core.stage3_standards_alignment_matrix_artifact_entry import (
     STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_ARTIFACT_KEY,
     build_stage3_standards_alignment_matrix_artifact_entry,
 )
+from .recognition_scope_gateway import RecognitionScopeGateway
 from ..review_surface_formatter import (
     collect_boundary_digest_lines,
     build_measurement_review_digest_lines,
@@ -267,6 +268,19 @@ class ResultsGateway:
             or compatibility_overview.get("compatibility_rollup")
             or {}
         )
+        recognition_scope_payload = RecognitionScopeGateway(
+            self.run_dir,
+            summary=summary if isinstance(summary, dict) else None,
+            analytics_summary=analytics_summary if isinstance(analytics_summary, dict) else None,
+            evidence_registry=evidence_registry if isinstance(evidence_registry, dict) else None,
+            workbench_action_report=workbench_action_report if isinstance(workbench_action_report, dict) else None,
+            workbench_action_snapshot=workbench_action_snapshot if isinstance(workbench_action_snapshot, dict) else None,
+            scope_readiness_summary=scope_readiness_summary,
+            compatibility_scan_summary=compatibility_scan_summary,
+        ).read_payload()
+        scope_definition_pack = dict(recognition_scope_payload.get("scope_definition_pack") or {})
+        decision_rule_profile = dict(recognition_scope_payload.get("decision_rule_profile") or {})
+        recognition_scope_rollup = dict(recognition_scope_payload.get("recognition_scope_rollup") or {})
         evidence_source = self._resolve_current_run_evidence_source(workbench_evidence_summary, workbench_action_report)
         evidence_state = str(
             workbench_evidence_summary.get("evidence_state")
@@ -302,11 +316,14 @@ class ResultsGateway:
             state_transition_evidence=state_transition_evidence,
             simulation_evidence_sidecar_bundle=simulation_evidence_sidecar_bundle,
             measurement_phase_coverage_report=measurement_phase_coverage_report,
+            scope_definition_pack=scope_definition_pack,
+            decision_rule_profile=decision_rule_profile,
             scope_readiness_summary=scope_readiness_summary,
             certificate_readiness_summary=certificate_readiness_summary,
             uncertainty_method_readiness_summary=uncertainty_method_readiness_summary,
             audit_readiness_digest=audit_readiness_digest,
             compatibility_scan_summary=compatibility_scan_summary,
+            recognition_scope_rollup=recognition_scope_rollup,
         )
         return {
             "summary": summary,
@@ -348,6 +365,8 @@ class ResultsGateway:
             "state_transition_evidence": state_transition_evidence,
             "simulation_evidence_sidecar_bundle": simulation_evidence_sidecar_bundle,
             "measurement_phase_coverage_report": measurement_phase_coverage_report,
+            "scope_definition_pack": scope_definition_pack,
+            "decision_rule_profile": decision_rule_profile,
             "scope_readiness_summary": scope_readiness_summary,
             "certificate_readiness_summary": certificate_readiness_summary,
             "uncertainty_method_readiness_summary": uncertainty_method_readiness_summary,
@@ -357,6 +376,7 @@ class ResultsGateway:
             "compatibility_scan_summary": compatibility_scan_summary,
             "compatibility_overview": compatibility_overview,
             "compatibility_rollup": compatibility_rollup,
+            "recognition_scope_rollup": recognition_scope_rollup,
             "reindex_manifest": reindex_manifest,
             "result_summary_text": result_summary_text,
             "evidence_source": evidence_source,
