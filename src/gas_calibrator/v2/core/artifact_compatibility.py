@@ -31,6 +31,11 @@ from .reviewer_fragments_contract import (
 
 
 ARTIFACT_COMPATIBILITY_SCHEMA_VERSION = "step2-artifact-compatibility-v1"
+ARTIFACT_COMPATIBILITY_INDEX_SCHEMA_VERSION = "step2-artifact-compatibility-index-v1"
+ARTIFACT_COMPATIBILITY_BUNDLE_TOOL = (
+    "gas_calibrator.v2.core.artifact_compatibility.build_artifact_compatibility_bundle"
+)
+HISTORICAL_ARTIFACT_ROLLUP_TOOL = "gas_calibrator.v2.scripts.historical_artifacts"
 
 RUN_ARTIFACT_INDEX_FILENAME = "run_artifact_index.json"
 RUN_ARTIFACT_INDEX_MARKDOWN_FILENAME = "run_artifact_index.md"
@@ -245,6 +250,61 @@ def build_artifact_compatibility_overview(
         if str(version or "").strip()
     )
     observed_contract_version_summary = _count_summary(schema_or_contract_version_counts)
+    linked_surface_visibility = _collect_linked_surface_visibility(
+        entries,
+        compatibility_scan_summary.get("linked_surface_visibility"),
+        run_artifact_index.get("linked_surface_visibility"),
+        artifact_contract_catalog.get("linked_surface_visibility"),
+        reindex_manifest.get("linked_surface_visibility"),
+    )
+    generated_at = _resolve_generated_at(
+        compatibility_scan_summary.get("generated_at"),
+        run_artifact_index.get("generated_at"),
+        artifact_contract_catalog.get("generated_at"),
+        reindex_manifest.get("generated_at"),
+    )
+    compatibility_rollup = build_artifact_compatibility_rollup(
+        run_reports=[
+            {
+                "run_id": str(
+                    compatibility_scan_summary.get("run_id")
+                    or run_artifact_index.get("run_id")
+                    or artifact_contract_catalog.get("run_id")
+                    or reindex_manifest.get("run_id")
+                    or ""
+                ).strip(),
+                "run_dir": str(
+                    compatibility_scan_summary.get("run_dir")
+                    or run_artifact_index.get("run_dir")
+                    or artifact_contract_catalog.get("run_dir")
+                    or reindex_manifest.get("run_dir")
+                    or ""
+                ).strip(),
+                "current_reader_mode": current_reader_mode,
+                "compatibility_status": compatibility_status,
+                "regenerate_recommended": regenerate_recommended,
+                "canonical_direct": current_reader_mode == "canonical_direct",
+                "compatibility_adapter": current_reader_mode == "compatibility_adapter",
+                "artifact_count": len(entries),
+                "contract_row_count": len(contract_rows),
+                "linked_surface_visibility": linked_surface_visibility,
+                "boundary_digest": boundary_digest,
+                "non_claim_digest": non_claim_digest,
+                "primary_evidence_rewritten": primary_evidence_rewritten,
+                "generated_at": generated_at,
+            }
+        ],
+        rollup_scope="run-dir",
+        generated_by_tool=str(
+            compatibility_scan_summary.get("generated_by_tool")
+            or run_artifact_index.get("generated_by_tool")
+            or artifact_contract_catalog.get("generated_by_tool")
+            or reindex_manifest.get("generated_by_tool")
+            or ARTIFACT_COMPATIBILITY_BUNDLE_TOOL
+        ).strip()
+        or ARTIFACT_COMPATIBILITY_BUNDLE_TOOL,
+        generated_at=generated_at,
+    )
     regenerate_recommendation_display = (
         "仅重建 reviewer/index sidecar"
         if regenerate_recommended
@@ -260,6 +320,9 @@ def build_artifact_compatibility_overview(
     ).strip()
     return {
         "compatibility_schema_version": ARTIFACT_COMPATIBILITY_SCHEMA_VERSION,
+        "index_schema_version": ARTIFACT_COMPATIBILITY_INDEX_SCHEMA_VERSION,
+        "generated_at": generated_at,
+        "generated_by_tool": ARTIFACT_COMPATIBILITY_BUNDLE_TOOL,
         "observed_artifact_count": len(entries),
         "contract_row_count": len(contract_rows),
         "schema_or_contract_version_counts": schema_or_contract_version_counts,
@@ -276,10 +339,18 @@ def build_artifact_compatibility_overview(
         "regenerate_scope": regenerate_scope,
         "regenerate_recommendation_display": regenerate_recommendation_display,
         "primary_evidence_rewritten": primary_evidence_rewritten,
+        "linked_surface_visibility": linked_surface_visibility,
         "non_primary_boundary_display": non_primary_boundary_display,
         "non_primary_chain_display": non_primary_chain_display,
         "boundary_digest": boundary_digest,
         "non_claim_digest": non_claim_digest,
+        "compatibility_rollup": compatibility_rollup,
+        "rollup_scope": str(compatibility_rollup.get("rollup_scope") or "run-dir"),
+        "rollup_summary_display": str(
+            compatibility_rollup.get("rollup_summary_display")
+            or compatibility_rollup.get("summary")
+            or ""
+        ).strip(),
         "summary": summary_line,
         "summary_lines": [
             f"合同/Schema: compatibility bundle {ARTIFACT_COMPATIBILITY_SCHEMA_VERSION} | observed {observed_contract_version_summary}",
