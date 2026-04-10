@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Iterable
 
 import matplotlib
 
@@ -237,6 +236,147 @@ def plot_ratio_series(data: pd.DataFrame, output_path: Path) -> None:
         ax.set_title(f"{analyzer} raw ratio / filt ratio / A_mean")
         ax.set_xlabel("point order")
         ax.set_ylabel("diagnostic value")
+        ax.grid(alpha=0.2)
+        ax.legend()
+    _finalize(fig, output_path)
+
+
+def plot_error_hist(data: pd.DataFrame, output_path: Path) -> None:
+    """Plot overlaid histograms for old/new chain errors."""
+
+    analyzers = sorted(data["analyzer_id"].dropna().unique().tolist())
+    fig, axes = plt.subplots(max(len(analyzers), 1), 1, figsize=(9, 3.4 * max(len(analyzers), 1)), squeeze=False)
+    if not analyzers:
+        axes[0, 0].text(0.5, 0.5, "No comparison errors available", ha="center", va="center")
+        axes[0, 0].axis("off")
+        return _finalize(fig, output_path)
+    for row_idx, analyzer in enumerate(analyzers):
+        ax = axes[row_idx, 0]
+        subset = data[data["analyzer_id"] == analyzer]
+        ax.hist(subset["old_error"].dropna(), bins=12, alpha=0.55, label="old_error")
+        ax.hist(subset["new_error"].dropna(), bins=12, alpha=0.55, label="new_error")
+        ax.set_title(f"{analyzer} error histogram")
+        ax.set_xlabel("error (ppm)")
+        ax.set_ylabel("count")
+        ax.grid(alpha=0.2)
+        ax.legend()
+    _finalize(fig, output_path)
+
+
+def plot_error_boxplot(data: pd.DataFrame, output_path: Path) -> None:
+    """Plot old/new error boxplots per analyzer."""
+
+    analyzers = sorted(data["analyzer_id"].dropna().unique().tolist())
+    fig, ax = plt.subplots(figsize=(max(8, 2.5 * max(len(analyzers), 1)), 4.5))
+    if not analyzers:
+        ax.text(0.5, 0.5, "No comparison errors available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+    positions = []
+    values = []
+    labels = []
+    pos = 1
+    for analyzer in analyzers:
+        subset = data[data["analyzer_id"] == analyzer]
+        positions.extend([pos, pos + 1])
+        values.extend([subset["old_error"].dropna().tolist(), subset["new_error"].dropna().tolist()])
+        labels.extend([f"{analyzer}\nold", f"{analyzer}\nnew"])
+        pos += 3
+    ax.boxplot(values, positions=positions, widths=0.7, patch_artist=True)
+    ax.set_xticks(positions)
+    ax.set_xticklabels(labels)
+    ax.set_title("Old vs new error boxplot")
+    ax.set_ylabel("error (ppm)")
+    ax.grid(alpha=0.2, axis="y")
+    _finalize(fig, output_path)
+
+
+def plot_error_vs_temp(data: pd.DataFrame, output_path: Path) -> None:
+    """Plot error versus temperature."""
+
+    analyzers = sorted(data["analyzer_id"].dropna().unique().tolist())
+    fig, axes = plt.subplots(max(len(analyzers), 1), 1, figsize=(9, 3.4 * max(len(analyzers), 1)), squeeze=False)
+    if not analyzers:
+        axes[0, 0].text(0.5, 0.5, "No comparison data available", ha="center", va="center")
+        axes[0, 0].axis("off")
+        return _finalize(fig, output_path)
+    for row_idx, analyzer in enumerate(analyzers):
+        ax = axes[row_idx, 0]
+        subset = data[data["analyzer_id"] == analyzer]
+        ax.scatter(subset["temp_c"], subset["old_error"], alpha=0.65, s=24, label="old_error")
+        ax.scatter(subset["temp_c"], subset["new_error"], alpha=0.65, s=24, label="new_error")
+        ax.set_title(f"{analyzer} error vs temperature")
+        ax.set_xlabel("temp_c")
+        ax.set_ylabel("error (ppm)")
+        ax.grid(alpha=0.2)
+        ax.legend()
+    _finalize(fig, output_path)
+
+
+def plot_error_vs_target_ppm(data: pd.DataFrame, output_path: Path) -> None:
+    """Plot error versus target ppm."""
+
+    analyzers = sorted(data["analyzer_id"].dropna().unique().tolist())
+    fig, axes = plt.subplots(max(len(analyzers), 1), 1, figsize=(9, 3.4 * max(len(analyzers), 1)), squeeze=False)
+    if not analyzers:
+        axes[0, 0].text(0.5, 0.5, "No comparison data available", ha="center", va="center")
+        axes[0, 0].axis("off")
+        return _finalize(fig, output_path)
+    for row_idx, analyzer in enumerate(analyzers):
+        ax = axes[row_idx, 0]
+        subset = data[data["analyzer_id"] == analyzer]
+        ax.scatter(subset["target_ppm"], subset["old_error"], alpha=0.65, s=24, label="old_error")
+        ax.scatter(subset["target_ppm"], subset["new_error"], alpha=0.65, s=24, label="new_error")
+        ax.set_title(f"{analyzer} error vs target ppm")
+        ax.set_xlabel("target_ppm")
+        ax.set_ylabel("error (ppm)")
+        ax.grid(alpha=0.2)
+        ax.legend()
+    _finalize(fig, output_path)
+
+
+def plot_per_temp_compare(data: pd.DataFrame, output_path: Path) -> None:
+    """Plot per-temperature RMSE comparison."""
+
+    analyzers = sorted(data["analyzer_id"].dropna().unique().tolist())
+    fig, axes = plt.subplots(max(len(analyzers), 1), 1, figsize=(10, 3.6 * max(len(analyzers), 1)), squeeze=False)
+    if not analyzers:
+        axes[0, 0].text(0.5, 0.5, "No per-temperature comparison available", ha="center", va="center")
+        axes[0, 0].axis("off")
+        return _finalize(fig, output_path)
+    for row_idx, analyzer in enumerate(analyzers):
+        ax = axes[row_idx, 0]
+        subset = data[data["analyzer_id"] == analyzer].sort_values("temp_c")
+        x = np.arange(len(subset))
+        ax.bar(x - 0.18, subset["old_rmse"], width=0.36, label="old_rmse")
+        ax.bar(x + 0.18, subset["new_rmse"], width=0.36, label="new_rmse")
+        ax.set_xticks(x)
+        ax.set_xticklabels([f"{temp:g}" for temp in subset["temp_c"]])
+        ax.set_title(f"{analyzer} per-temp RMSE compare")
+        ax.set_xlabel("temp_c")
+        ax.set_ylabel("RMSE (ppm)")
+        ax.grid(alpha=0.2, axis="y")
+        ax.legend()
+    _finalize(fig, output_path)
+
+
+def plot_zero_compare(data: pd.DataFrame, output_path: Path) -> None:
+    """Plot zero-point mean error versus temperature."""
+
+    analyzers = sorted(data["analyzer_id"].dropna().unique().tolist())
+    fig, axes = plt.subplots(max(len(analyzers), 1), 1, figsize=(9, 3.4 * max(len(analyzers), 1)), squeeze=False)
+    if not analyzers:
+        axes[0, 0].text(0.5, 0.5, "No zero comparison available", ha="center", va="center")
+        axes[0, 0].axis("off")
+        return _finalize(fig, output_path)
+    for row_idx, analyzer in enumerate(analyzers):
+        ax = axes[row_idx, 0]
+        subset = data[data["analyzer_id"] == analyzer].sort_values("temp_c")
+        ax.plot(subset["temp_c"], subset["old_zero_mean_error"], marker="o", label="old_zero_mean_error")
+        ax.plot(subset["temp_c"], subset["new_zero_mean_error"], marker="o", label="new_zero_mean_error")
+        ax.set_title(f"{analyzer} zero compare")
+        ax.set_xlabel("temp_c")
+        ax.set_ylabel("mean zero error (ppm)")
         ax.grid(alpha=0.2)
         ax.legend()
     _finalize(fig, output_path)

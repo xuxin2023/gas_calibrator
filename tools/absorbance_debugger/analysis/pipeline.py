@@ -12,6 +12,7 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
+from .comparison import build_comparison_outputs
 from ..io.run_bundle import RunBundle, discover_run_artifacts
 from ..models.config import DebuggerConfig
 from ..parsers.schema import (
@@ -24,11 +25,17 @@ from ..parsers.schema import (
 )
 from ..plots.charts import (
     plot_absorbance_compare,
+    plot_error_boxplot,
+    plot_error_hist,
+    plot_error_vs_target_ppm,
+    plot_error_vs_temp,
+    plot_per_temp_compare,
     plot_pressure_compare,
     plot_ratio_series,
     plot_r0_fit,
     plot_temperature_fit,
     plot_timeseries_base_final,
+    plot_zero_compare,
     plot_zero_drift,
 )
 from ..reports.renderers import render_report_html, render_report_markdown, write_workbook
@@ -606,9 +613,10 @@ def _load_old_ratio_residuals(bundle: RunBundle) -> pd.DataFrame:
 def _comparison_tables(
     bundle: RunBundle,
     filtered: pd.DataFrame,
+    absorbance_samples: pd.DataFrame,
     absorbance_points: pd.DataFrame,
     config: DebuggerConfig,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+) -> tuple[pd.DataFrame, dict[str, pd.DataFrame | list[str]]]:
     point_raw = (
         filtered.groupby(["analyzer", "point_title", "point_row", "temp_set_c", "target_co2_ppm"], dropna=False)
         .agg(
@@ -622,6 +630,17 @@ def _comparison_tables(
         .reset_index()
     )
     default_points = absorbance_points[absorbance_points["branch_id"] == config.default_branch_id()].copy()
+    default_samples = absorbance_samples[absorbance_samples["branch_id"] == config.default_branch_id()].copy()
+    default_sample_points = (
+        default_samples.groupby(["analyzer", "point_title", "point_row"], dropna=False)
+        .agg(
+            A_raw=("A_raw", "mean"),
+            pressure_source=("pressure_source", "first"),
+            temperature_source=("temp_source", "first"),
+            ratio_source_selected=("ratio_source", "first"),
+        )
+        .reset_index()
+    )
     compare = point_raw.merge(
         default_points[
             [
@@ -637,6 +656,11 @@ def _comparison_tables(
         on=["analyzer", "point_title", "point_row"],
         how="left",
     )
+    compare = compare.merge(
+        default_sample_points,
+        on=["analyzer", "point_title", "point_row"],
+        how="left",
+    )
     old = _load_old_ratio_residuals(bundle)
     compare = compare.merge(
         old[["analyzer", "point_row", "point_title", "old_prediction_ppm", "old_residual_ppm", "old_ratio_value"]],
@@ -644,51 +668,84 @@ def _comparison_tables(
         how="left",
     )
 
-    linear_rows: list[dict[str, Any]] = []
-    residual_rows: list[dict[str, Any]] = []
-    compare["new_abs_prediction_ppm"] = np.nan
+    compare["new_pred_ppm"] = np.nan
     for analyzer, subset in compare.groupby("analyzer"):
         fit_input = subset.dropna(subset=["A_mean", "target_co2_ppm"])
         if fit_input.empty:
             continue
         fit = fit_linear(fit_input["A_mean"], fit_input["target_co2_ppm"])
-        compare.loc[fit_input.index, "new_abs_prediction_ppm"] = fit.evaluate(fit_input["A_mean"])
-        linear_rows.append(
-            {
-                "analyzer": analyzer,
-                "model_name": "new_abs_linear",
-                "sample_count": fit.sample_count,
-                "intercept": fit.intercept,
-                "slope": fit.slope,
-                "rmse_ppm": fit.rmse,
-                "mae_ppm": fit.mae,
-                "r2": fit.r2,
-                "formula": fit.formula(x_name="A_mean"),
-            }
+        compare.loc[fit_input.index, "new_pred_ppm"] = fit.evaluate(fit_input["A_mean"])
+    compare["old_pred_ppm"] = compare["old_prediction_ppm"]
+    compare["old_error"] = compare["old_pred_ppm"] - compare["target_co2_ppm"]
+    compare["new_error"] = compare["new_pred_ppm"] - compare["target_co2_ppm"]
+    compare["winner_for_point"] = compare.apply(
+        lambda row: (
+            "old_chain"
+            if abs(row["old_error"]) < abs(row["new_error"])
+            else "new_chain"
+            if abs(row["new_error"]) < abs(row["old_error"])
+            else "tie"
         )
-    compare["new_abs_residual_ppm"] = compare["new_abs_prediction_ppm"] - compare["target_co2_ppm"]
+        if pd.notna(row["old_error"]) and pd.notna(row["new_error"])
+        else "new_chain"
+        if pd.isna(row["old_error"]) and pd.notna(row["new_error"])
+        else "old_chain"
+        if pd.notna(row["old_error"]) and pd.isna(row["new_error"])
+        else "tie",
+        axis=1,
+    )
+    compare["pressure_source"] = compare["pressure_source"].map(
+        {
+            "pressure_std_hpa": "P_std",
+            "pressure_corr_hpa": "P_corr",
+        }
+    ).fillna(config.default_pressure_label())
+    compare["temperature_source"] = compare["temperature_source"].map(
+        {
+            "temp_std_c": "T_std",
+            "temp_corr_c": "T_corr",
+        }
+    ).fillna(config.default_temperature_label())
+    compare["ratio_source_selected"] = compare["ratio_source_selected"].map(
+        {
+            "ratio_co2_raw": "raw",
+            "ratio_co2_filt": "filt",
+        }
+    ).fillna(config.default_ratio_label())
 
-    for analyzer, subset in compare.groupby("analyzer"):
-        for model_name, residual_column in (
-            ("old_ratio_poly_simplified", "old_residual_ppm"),
-            ("new_abs_linear", "new_abs_residual_ppm"),
-        ):
-            values = subset[residual_column].dropna()
-            if values.empty:
-                continue
-            residual_rows.append(
-                {
-                    "analyzer": analyzer,
-                    "model_name": model_name,
-                    "sample_count": int(values.size),
-                    "bias_ppm": float(values.mean()),
-                    "rmse_ppm": float(np.sqrt(np.mean(np.square(values)))),
-                    "mae_ppm": float(np.mean(np.abs(values))),
-                    "max_abs_ppm": float(np.max(np.abs(values))),
-                }
-            )
-
-    return compare, pd.DataFrame(residual_rows), pd.DataFrame(linear_rows)
+    point_reconciliation = compare.rename(
+        columns={
+            "analyzer": "analyzer_id",
+            "temp_set_c": "temp_c",
+            "target_co2_ppm": "target_ppm",
+        }
+    )[
+        [
+            "analyzer_id",
+            "temp_c",
+            "target_ppm",
+            "old_pred_ppm",
+            "new_pred_ppm",
+            "old_error",
+            "new_error",
+            "winner_for_point",
+            "ratio_co2_raw_mean",
+            "ratio_co2_filt_mean",
+            "A_raw",
+            "A_mean",
+            "pressure_source",
+            "temperature_source",
+            "ratio_source_selected",
+            "point_title",
+            "point_row",
+            "point_tag",
+            "A_std",
+            "A_alt_mean",
+            "R0_T_mean",
+        ]
+    ].copy()
+    comparison_outputs = build_comparison_outputs(point_reconciliation)
+    return point_reconciliation, comparison_outputs
 
 
 def _report_tables(
@@ -700,7 +757,7 @@ def _report_tables(
     temp_coeffs: pd.DataFrame,
     pressure_coeffs: pd.DataFrame,
     r0_coeffs: pd.DataFrame,
-    residual_summary: pd.DataFrame,
+    comparison_outputs: dict[str, pd.DataFrame | list[str]],
     validation_table: pd.DataFrame,
     base_final_enabled: bool,
     base_final_source: str,
@@ -714,25 +771,13 @@ def _report_tables(
         & (r0_coeffs["temp_source"] == config.default_temp_source)
         & (r0_coeffs["model_name"] == config.default_r0_model)
     ].copy()
-    conclusions: list[str] = []
-    for analyzer in sorted(residual_summary["analyzer"].dropna().unique().tolist()):
-        subset = residual_summary[residual_summary["analyzer"] == analyzer]
-        old_row = subset[subset["model_name"] == "old_ratio_poly_simplified"]
-        new_row = subset[subset["model_name"] == "new_abs_linear"]
-        if old_row.empty or new_row.empty:
-            continue
-        old_rmse = float(old_row.iloc[0]["rmse_ppm"])
-        new_rmse = float(new_row.iloc[0]["rmse_ppm"])
-        if new_rmse < old_rmse:
-            conclusions.append(
-                f"{analyzer}: the current diagnostic absorbance-linear branch outperformed the archived ratio model "
-                f"({new_rmse:.2f} ppm vs {old_rmse:.2f} ppm RMSE)."
-            )
-        else:
-            conclusions.append(
-                f"{analyzer}: the archived ratio model still fits better than the current diagnostic absorbance-linear branch "
-                f"({old_rmse:.2f} ppm vs {new_rmse:.2f} ppm RMSE)."
-            )
+    overview_summary = comparison_outputs["overview_summary"]
+    by_temperature = comparison_outputs["by_temperature"]
+    by_concentration = comparison_outputs["by_concentration_range"]
+    zero_special = comparison_outputs["zero_special"]
+    regression_overall = comparison_outputs["regression_overall"]
+    auto_conclusions = comparison_outputs["auto_conclusions"]
+    conclusion_lines = comparison_outputs["conclusion_lines"]
     return {
         "run_name": bundle.source_path.stem,
         "input_path": str(bundle.source_path),
@@ -757,8 +802,13 @@ def _report_tables(
         "temperature_coefficients": temp_coeffs,
         "pressure_coefficients": pressure_coeffs,
         "r0_coefficients": main_r0,
-        "residual_summary": residual_summary,
-        "comparison_conclusions": conclusions,
+        "overview_summary": overview_summary,
+        "by_temperature": by_temperature,
+        "by_concentration_range": by_concentration,
+        "zero_special": zero_special,
+        "regression_overall": regression_overall,
+        "auto_conclusions": auto_conclusions,
+        "comparison_conclusions": conclusion_lines,
         "base_final_enabled": base_final_enabled,
         "base_final_source": base_final_source,
         "limitations": [

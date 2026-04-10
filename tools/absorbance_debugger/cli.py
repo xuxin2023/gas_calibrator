@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from .app import run_debugger
+from .options import normalize_pressure_source, normalize_ratio_source, normalize_temp_source
 
 
 def _csv_list(text: str) -> tuple[str, ...]:
@@ -33,6 +34,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Comma-separated analyzers to detect and warn about but exclude from main fits.",
     )
     parser.add_argument("--enable-base-final", action="store_true", help="Enable the optional absorbance-domain base/final branch.")
+    parser.add_argument(
+        "--ratio-source",
+        default="raw",
+        help="Default comparison branch ratio source: raw or filt.",
+    )
+    parser.add_argument(
+        "--temperature-source",
+        default="corr",
+        help="Default comparison branch temperature source: std or corr.",
+    )
+    parser.add_argument(
+        "--pressure-source",
+        default="corr",
+        help="Default comparison branch pressure source: std or corr.",
+    )
     parser.add_argument("--eps", type=float, default=1.0e-9, help="Lower clamp used in logarithm inputs.")
     parser.add_argument("--p-min-hpa", type=float, default=100.0, help="Lower clamp used for pressure in hPa.")
     parser.add_argument("--p-ref-hpa", type=float, default=1013.25, help="Reference pressure in hPa.")
@@ -49,6 +65,9 @@ def main(argv: list[str] | None = None) -> int:
         analyzers=_csv_list(args.analyzers),
         warning_only_analyzers=_csv_list(args.warning_only_analyzers),
         enable_base_final=bool(args.enable_base_final),
+        ratio_source=normalize_ratio_source(args.ratio_source),
+        temperature_source=normalize_temp_source(args.temperature_source),
+        pressure_source=normalize_pressure_source(args.pressure_source),
         eps=float(args.eps),
         p_min_hpa=float(args.p_min_hpa),
         p_ref_hpa=float(args.p_ref_hpa),

@@ -41,6 +41,21 @@ class DebuggerConfig:
             )
         )
 
+    def default_pressure_label(self) -> str:
+        """Return a short report label for the selected pressure source."""
+
+        return "P_corr" if self.default_pressure_source == "pressure_corr_hpa" else "P_std"
+
+    def default_temperature_label(self) -> str:
+        """Return a short report label for the selected temperature source."""
+
+        return "T_corr" if self.default_temp_source == "temp_corr_c" else "T_std"
+
+    def default_ratio_label(self) -> str:
+        """Return a short report label for the selected ratio source."""
+
+        return "raw" if self.default_ratio_source == "ratio_co2_raw" else "filt"
+
 
 @dataclass(frozen=True)
 class RunArtifacts:
