@@ -1516,6 +1516,30 @@ def export_run_offline_artifacts(
         "metrology_traceability_stub_markdown": str(
             run_dir / recognition_readiness.METROLOGY_TRACEABILITY_STUB_MARKDOWN_FILENAME
         ),
+        "uncertainty_model": str(run_dir / recognition_readiness.UNCERTAINTY_MODEL_FILENAME),
+        "uncertainty_model_markdown": str(run_dir / recognition_readiness.UNCERTAINTY_MODEL_MARKDOWN_FILENAME),
+        "uncertainty_input_set": str(run_dir / recognition_readiness.UNCERTAINTY_INPUT_SET_FILENAME),
+        "uncertainty_input_set_markdown": str(
+            run_dir / recognition_readiness.UNCERTAINTY_INPUT_SET_MARKDOWN_FILENAME
+        ),
+        "sensitivity_coefficient_set": str(run_dir / recognition_readiness.SENSITIVITY_COEFFICIENT_SET_FILENAME),
+        "sensitivity_coefficient_set_markdown": str(
+            run_dir / recognition_readiness.SENSITIVITY_COEFFICIENT_SET_MARKDOWN_FILENAME
+        ),
+        "budget_case": str(run_dir / recognition_readiness.BUDGET_CASE_FILENAME),
+        "budget_case_markdown": str(run_dir / recognition_readiness.BUDGET_CASE_MARKDOWN_FILENAME),
+        "uncertainty_golden_cases": str(run_dir / recognition_readiness.UNCERTAINTY_GOLDEN_CASES_FILENAME),
+        "uncertainty_golden_cases_markdown": str(
+            run_dir / recognition_readiness.UNCERTAINTY_GOLDEN_CASES_MARKDOWN_FILENAME
+        ),
+        "uncertainty_report_pack": str(run_dir / recognition_readiness.UNCERTAINTY_REPORT_PACK_FILENAME),
+        "uncertainty_report_pack_markdown": str(
+            run_dir / recognition_readiness.UNCERTAINTY_REPORT_PACK_MARKDOWN_FILENAME
+        ),
+        "uncertainty_digest": str(run_dir / recognition_readiness.UNCERTAINTY_DIGEST_FILENAME),
+        "uncertainty_digest_markdown": str(run_dir / recognition_readiness.UNCERTAINTY_DIGEST_MARKDOWN_FILENAME),
+        "uncertainty_rollup": str(run_dir / recognition_readiness.UNCERTAINTY_ROLLUP_FILENAME),
+        "uncertainty_rollup_markdown": str(run_dir / recognition_readiness.UNCERTAINTY_ROLLUP_MARKDOWN_FILENAME),
         "uncertainty_budget_stub": str(run_dir / recognition_readiness.UNCERTAINTY_BUDGET_STUB_FILENAME),
         "uncertainty_budget_stub_markdown": str(run_dir / recognition_readiness.UNCERTAINTY_BUDGET_STUB_MARKDOWN_FILENAME),
         "method_confirmation_protocol": str(run_dir / recognition_readiness.METHOD_CONFIRMATION_PROTOCOL_FILENAME),
@@ -1661,6 +1685,14 @@ def export_run_offline_artifacts(
         "certificate_readiness_summary": "diagnostic_analysis",
         "pre_run_readiness_gate": "diagnostic_analysis",
         "metrology_traceability_stub": "execution_summary",
+        "uncertainty_model": "execution_summary",
+        "uncertainty_input_set": "execution_summary",
+        "sensitivity_coefficient_set": "execution_summary",
+        "budget_case": "execution_summary",
+        "uncertainty_golden_cases": "diagnostic_analysis",
+        "uncertainty_report_pack": "diagnostic_analysis",
+        "uncertainty_digest": "diagnostic_analysis",
+        "uncertainty_rollup": "diagnostic_analysis",
         "uncertainty_budget_stub": "execution_summary",
         "method_confirmation_protocol": "execution_summary",
         "method_confirmation_matrix": "execution_summary",

@@ -147,20 +147,21 @@ def build_comparison_outputs(point_reconciliation: pd.DataFrame) -> dict[str, pd
                 }
             )
             temp_zero_df = temp_df[temp_df["target_ppm"] == 0].copy()
-            old_temp_zero = _metrics(temp_zero_df["old_error"])
-            new_temp_zero = _metrics(temp_zero_df["new_error"])
-            zero_rows.append(
-                {
-                    "analyzer_id": analyzer_id,
-                    "temp_c": temp_c,
-                    "old_zero_mean_error": old_temp_zero["bias"],
-                    "new_zero_mean_error": new_temp_zero["bias"],
-                    "old_zero_std": old_temp_zero["std"],
-                    "new_zero_std": new_temp_zero["std"],
-                    "old_zero_max_abs_error": old_temp_zero["max_abs_error"],
-                    "new_zero_max_abs_error": new_temp_zero["max_abs_error"],
-                }
-            )
+            if not temp_zero_df.empty:
+                old_temp_zero = _metrics(temp_zero_df["old_error"])
+                new_temp_zero = _metrics(temp_zero_df["new_error"])
+                zero_rows.append(
+                    {
+                        "analyzer_id": analyzer_id,
+                        "temp_c": temp_c,
+                        "old_zero_mean_error": old_temp_zero["bias"],
+                        "new_zero_mean_error": new_temp_zero["bias"],
+                        "old_zero_std": old_temp_zero["std"],
+                        "new_zero_std": new_temp_zero["std"],
+                        "old_zero_max_abs_error": old_temp_zero["max_abs_error"],
+                        "new_zero_max_abs_error": new_temp_zero["max_abs_error"],
+                    }
+                )
             regression_by_temp_rows.extend(_regression_rows(temp_df, analyzer_id, "per_temp", temp_c))
 
         by_temp_df = pd.DataFrame([row for row in by_temp_rows if row["analyzer_id"] == analyzer_id])

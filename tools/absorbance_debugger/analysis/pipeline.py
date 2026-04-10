@@ -618,7 +618,7 @@ def _comparison_tables(
     config: DebuggerConfig,
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame | list[str]]]:
     point_raw = (
-        filtered.groupby(["analyzer", "point_title", "point_row", "temp_set_c", "target_co2_ppm"], dropna=False)
+        filtered.groupby(["analyzer", "point_title", "point_row", "point_tag", "temp_set_c", "target_co2_ppm"], dropna=False)
         .agg(
             ratio_co2_raw_mean=("ratio_co2_raw", "mean"),
             ratio_co2_filt_mean=("ratio_co2_filt", "mean"),
@@ -927,34 +927,53 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         config.enable_base_final,
     )
 
-    compare_df, residual_summary, abs_linear_coeffs = _comparison_tables(bundle, filtered, absorbance_points, config)
+    point_reconciliation, comparison_outputs = _comparison_tables(bundle, filtered, absorbance_samples, absorbance_points, config)
     compare_plots_dir = config.output_dir / "step_08_compare_plots"
     compare_plots_dir.mkdir(parents=True, exist_ok=True)
     default_sample_compare = absorbance_samples[absorbance_samples["branch_id"] == config.default_branch_id()].copy()
-    plot_absorbance_compare(compare_df, "ratio_co2_raw_mean", "ratio_co2_raw_mean", compare_plots_dir / "target_vs_ratio_raw.png")
+    plot_absorbance_compare(point_reconciliation.rename(columns={"analyzer_id": "analyzer", "temp_c": "temp_set_c", "target_ppm": "target_co2_ppm"}), "ratio_co2_raw_mean", "ratio_co2_raw_mean", compare_plots_dir / "target_vs_ratio_raw.png")
     plot_absorbance_compare(default_sample_compare, "A_raw", "A_raw", compare_plots_dir / "target_vs_A_raw.png")
-    plot_absorbance_compare(compare_df, "A_mean", "A_mean", compare_plots_dir / "target_vs_A_mean.png")
-    plot_absorbance_compare(compare_df, "A_alt_mean", "A_alt_mean", compare_plots_dir / "target_vs_A_alt_mean.png")
+    plot_absorbance_compare(point_reconciliation.rename(columns={"analyzer_id": "analyzer", "temp_c": "temp_set_c", "target_ppm": "target_co2_ppm"}), "A_mean", "A_mean", compare_plots_dir / "target_vs_A_mean.png")
     plot_zero_drift(
-        compare_df[compare_df["target_co2_ppm"] == 0],
+        point_reconciliation[point_reconciliation["target_ppm"] == 0].rename(columns={"analyzer_id": "analyzer", "temp_c": "temp_set_c"}),
         "ratio_co2_raw_mean",
         "ratio_co2_raw_mean",
         compare_plots_dir / "zero_drift_ratio_raw.png",
     )
     plot_zero_drift(
-        compare_df[compare_df["target_co2_ppm"] == 0],
+        point_reconciliation[point_reconciliation["target_ppm"] == 0].rename(columns={"analyzer_id": "analyzer", "temp_c": "temp_set_c"}),
         "A_mean",
         "A_mean",
         compare_plots_dir / "zero_drift_A_mean.png",
     )
-    plot_ratio_series(compare_df, compare_plots_dir / "ratio_filt_abs_compare.png")
-    _frame_to_csv(config.output_dir / "step_08_residual_summary.csv", residual_summary)
+    plot_ratio_series(point_reconciliation.rename(columns={"analyzer_id": "analyzer", "temp_c": "temp_set_c", "target_ppm": "target_co2_ppm"}), compare_plots_dir / "ratio_filt_abs_compare.png")
+    plot_error_hist(point_reconciliation, compare_plots_dir / "old_vs_new_error_hist.png")
+    plot_error_boxplot(point_reconciliation, compare_plots_dir / "old_vs_new_error_boxplot.png")
+    plot_error_vs_temp(point_reconciliation, compare_plots_dir / "error_vs_temp.png")
+    plot_error_vs_target_ppm(point_reconciliation, compare_plots_dir / "error_vs_target_ppm.png")
+    plot_per_temp_compare(comparison_outputs["by_temperature"], compare_plots_dir / "per_temp_compare.png")
+    plot_zero_compare(comparison_outputs["zero_special"], compare_plots_dir / "zero_compare.png")
+
+    _frame_to_csv(config.output_dir / "step_08_overview_summary.csv", comparison_outputs["overview_summary"])
+    _frame_to_csv(config.output_dir / "step_08_by_temperature.csv", comparison_outputs["by_temperature"])
+    _frame_to_csv(config.output_dir / "step_08_by_concentration_range.csv", comparison_outputs["by_concentration_range"])
+    _frame_to_csv(config.output_dir / "step_08_zero_special.csv", comparison_outputs["zero_special"])
+    _frame_to_csv(config.output_dir / "step_08_regression_overall.csv", comparison_outputs["regression_overall"])
+    _frame_to_csv(config.output_dir / "step_08_regression_by_temperature.csv", comparison_outputs["regression_by_temperature"])
+    _frame_to_csv(config.output_dir / "step_08_point_reconciliation.csv", point_reconciliation)
+    _frame_to_csv(config.output_dir / "step_08_auto_conclusions.csv", comparison_outputs["auto_conclusions"])
+    _frame_to_csv(config.output_dir / "step_08_residual_summary.csv", comparison_outputs["overview_summary"])
     write_workbook(
         config.output_dir / "step_08_old_vs_new_compare.xlsx",
         {
-            "point_compare": compare_df,
-            "residual_summary": residual_summary,
-            "abs_linear_model": abs_linear_coeffs,
+            "overview_summary": comparison_outputs["overview_summary"],
+            "by_temperature": comparison_outputs["by_temperature"],
+            "by_concentration": comparison_outputs["by_concentration_range"],
+            "zero_special": comparison_outputs["zero_special"],
+            "reg_overall": comparison_outputs["regression_overall"],
+            "reg_by_temp": comparison_outputs["regression_by_temperature"],
+            "point_reconciliation": point_reconciliation,
+            "auto_conclusions": comparison_outputs["auto_conclusions"],
         },
     )
 
@@ -998,7 +1017,7 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         temp_coeffs=temp_coeffs,
         pressure_coeffs=pressure_coeffs,
         r0_coeffs=r0_coeffs,
-        residual_summary=residual_summary,
+        comparison_outputs=comparison_outputs,
         validation_table=validation_table,
         base_final_enabled=config.enable_base_final,
         base_final_source=base_final_source,
@@ -1014,8 +1033,13 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
             "temperature_fit": temp_coeffs,
             "pressure_fit": pressure_coeffs,
             "r0_fit": r0_coeffs,
-            "residual_summary": residual_summary,
-            "point_compare": compare_df,
+            "overview_summary": comparison_outputs["overview_summary"],
+            "by_temperature": comparison_outputs["by_temperature"],
+            "by_concentration": comparison_outputs["by_concentration_range"],
+            "zero_special": comparison_outputs["zero_special"],
+            "regression": comparison_outputs["regression_overall"],
+            "point_compare": point_reconciliation,
+            "auto_conclusions": comparison_outputs["auto_conclusions"],
         },
     )
 
@@ -1027,6 +1051,6 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         "filtered": filtered,
         "excluded": excluded,
         "validation_table": validation_table,
-        "residual_summary": residual_summary,
-        "compare_df": compare_df,
+        "comparison_outputs": comparison_outputs,
+        "point_reconciliation": point_reconciliation,
     }

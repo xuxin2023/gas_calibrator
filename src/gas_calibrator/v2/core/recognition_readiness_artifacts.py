@@ -86,6 +86,7 @@ RECOGNITION_READINESS_SUMMARY_FILENAMES = (
     UNCERTAINTY_METHOD_READINESS_SUMMARY_FILENAME,
     AUDIT_READINESS_DIGEST_FILENAME,
 )
+from .uncertainty_builder import build_uncertainty_wp3_artifacts
 
 RECOGNITION_READINESS_BOUNDARY_STATEMENTS = [
     "Step 2 reviewer readiness only",
@@ -496,13 +497,16 @@ def build_recognition_readiness_artifacts(
         certificate_readiness_summary=certificate_readiness_summary,
         path_map=path_map,
     )
-    uncertainty_budget_stub = _build_uncertainty_budget_stub(
+    uncertainty_wp3_artifacts = build_uncertainty_wp3_artifacts(
         run_id=run_id,
-        route_families=route_families,
-        payload_backed_phases=payload_backed_phases,
-        trace_only_phases=trace_only_phases,
+        scope_definition_pack=scope_definition_pack,
+        decision_rule_profile=decision_rule_profile,
+        reference_asset_registry=reference_asset_registry,
+        certificate_lifecycle_summary=certificate_lifecycle_summary,
+        pre_run_readiness_gate=pre_run_readiness_gate,
         path_map=path_map,
     )
+    uncertainty_budget_stub = dict(uncertainty_wp3_artifacts.get("uncertainty_budget_stub") or {})
     method_confirmation_protocol = _build_method_confirmation_protocol(
         run_id=run_id,
         route_families=route_families,
@@ -556,6 +560,14 @@ def build_recognition_readiness_artifacts(
         "certificate_readiness_summary": certificate_readiness_summary,
         "pre_run_readiness_gate": pre_run_readiness_gate,
         "metrology_traceability_stub": metrology_traceability_stub,
+        "uncertainty_model": dict(uncertainty_wp3_artifacts.get("uncertainty_model") or {}),
+        "uncertainty_input_set": dict(uncertainty_wp3_artifacts.get("uncertainty_input_set") or {}),
+        "sensitivity_coefficient_set": dict(uncertainty_wp3_artifacts.get("sensitivity_coefficient_set") or {}),
+        "budget_case": dict(uncertainty_wp3_artifacts.get("budget_case") or {}),
+        "uncertainty_golden_cases": dict(uncertainty_wp3_artifacts.get("uncertainty_golden_cases") or {}),
+        "uncertainty_report_pack": dict(uncertainty_wp3_artifacts.get("uncertainty_report_pack") or {}),
+        "uncertainty_digest": dict(uncertainty_wp3_artifacts.get("uncertainty_digest") or {}),
+        "uncertainty_rollup": dict(uncertainty_wp3_artifacts.get("uncertainty_rollup") or {}),
         "uncertainty_budget_stub": uncertainty_budget_stub,
         "method_confirmation_protocol": method_confirmation_protocol,
         "method_confirmation_matrix": method_confirmation_matrix,
@@ -3883,6 +3895,22 @@ def _artifact_path_map(artifact_paths: dict[str, Any]) -> dict[str, str]:
         "pre_run_readiness_gate_markdown": PRE_RUN_READINESS_GATE_MARKDOWN_FILENAME,
         "metrology_traceability_stub": METROLOGY_TRACEABILITY_STUB_FILENAME,
         "metrology_traceability_stub_markdown": METROLOGY_TRACEABILITY_STUB_MARKDOWN_FILENAME,
+        "uncertainty_model": UNCERTAINTY_MODEL_FILENAME,
+        "uncertainty_model_markdown": UNCERTAINTY_MODEL_MARKDOWN_FILENAME,
+        "uncertainty_input_set": UNCERTAINTY_INPUT_SET_FILENAME,
+        "uncertainty_input_set_markdown": UNCERTAINTY_INPUT_SET_MARKDOWN_FILENAME,
+        "sensitivity_coefficient_set": SENSITIVITY_COEFFICIENT_SET_FILENAME,
+        "sensitivity_coefficient_set_markdown": SENSITIVITY_COEFFICIENT_SET_MARKDOWN_FILENAME,
+        "budget_case": BUDGET_CASE_FILENAME,
+        "budget_case_markdown": BUDGET_CASE_MARKDOWN_FILENAME,
+        "uncertainty_golden_cases": UNCERTAINTY_GOLDEN_CASES_FILENAME,
+        "uncertainty_golden_cases_markdown": UNCERTAINTY_GOLDEN_CASES_MARKDOWN_FILENAME,
+        "uncertainty_report_pack": UNCERTAINTY_REPORT_PACK_FILENAME,
+        "uncertainty_report_pack_markdown": UNCERTAINTY_REPORT_PACK_MARKDOWN_FILENAME,
+        "uncertainty_digest": UNCERTAINTY_DIGEST_FILENAME,
+        "uncertainty_digest_markdown": UNCERTAINTY_DIGEST_MARKDOWN_FILENAME,
+        "uncertainty_rollup": UNCERTAINTY_ROLLUP_FILENAME,
+        "uncertainty_rollup_markdown": UNCERTAINTY_ROLLUP_MARKDOWN_FILENAME,
         "uncertainty_budget_stub": UNCERTAINTY_BUDGET_STUB_FILENAME,
         "uncertainty_budget_stub_markdown": UNCERTAINTY_BUDGET_STUB_MARKDOWN_FILENAME,
         "method_confirmation_protocol": METHOD_CONFIRMATION_PROTOCOL_FILENAME,
