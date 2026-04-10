@@ -1523,6 +1523,11 @@ class AppFacade:
         uncertainty_rollup = dict(payload.get("uncertainty_rollup", {}) or {})
         uncertainty_method_readiness_summary = dict(payload.get("uncertainty_method_readiness_summary", {}) or {})
         audit_readiness_digest = dict(payload.get("audit_readiness_digest", {}) or {})
+        pt_ilc_registry = dict(payload.get("pt_ilc_registry", {}) or {})
+        comparison_evidence_pack = dict(payload.get("comparison_evidence_pack", {}) or {})
+        scope_comparison_view = dict(payload.get("scope_comparison_view", {}) or {})
+        comparison_digest = dict(payload.get("comparison_digest", {}) or {})
+        comparison_rollup = dict(payload.get("comparison_rollup", {}) or {})
         run_artifact_index = dict(payload.get("run_artifact_index", {}) or {})
         artifact_contract_catalog = dict(payload.get("artifact_contract_catalog", {}) or {})
         compatibility_scan_summary = dict(payload.get("compatibility_scan_summary", {}) or {})
@@ -3509,6 +3514,22 @@ class AppFacade:
             (
                 recognition_readiness.AUDIT_READINESS_DIGEST_FILENAME,
                 dict(audit_readiness_digest or {}),
+            ),
+            (
+                recognition_readiness.PT_ILC_REGISTRY_FILENAME,
+                dict(pt_ilc_registry or {}),
+            ),
+            (
+                recognition_readiness.COMPARISON_EVIDENCE_PACK_FILENAME,
+                dict(comparison_evidence_pack or {}),
+            ),
+            (
+                recognition_readiness.COMPARISON_DIGEST_FILENAME,
+                dict(comparison_digest or {}),
+            ),
+            (
+                recognition_readiness.COMPARISON_ROLLUP_FILENAME,
+                dict(comparison_rollup or {}),
             ),
         ]
         for filename, fallback_payload in readiness_summary_payloads:

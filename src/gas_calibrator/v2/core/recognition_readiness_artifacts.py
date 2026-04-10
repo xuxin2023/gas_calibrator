@@ -874,6 +874,36 @@ def build_recognition_readiness_artifacts(
         analytics_payload=analytics_payload,
     )
 
+    wp6_artifacts = build_wp6_artifacts(
+        run_id=run_id,
+        scope_definition_pack=scope_definition_pack,
+        decision_rule_profile=decision_rule_profile,
+        reference_asset_registry=reference_asset_registry,
+        certificate_lifecycle_summary=certificate_lifecycle_summary,
+        pre_run_readiness_gate=pre_run_readiness_gate,
+        uncertainty_report_pack=dict(uncertainty_wp3_artifacts.get("uncertainty_report_pack") or {}),
+        uncertainty_rollup=dict(uncertainty_wp3_artifacts.get("uncertainty_rollup") or {}),
+        method_confirmation_protocol=method_confirmation_protocol,
+        verification_digest=verification_digest,
+        software_validation_rollup=dict(software_validation_wp5_artifacts.get("software_validation_rollup") or {}),
+        path_map=path_map,
+        filenames={
+            "pt_ilc_registry": PT_ILC_REGISTRY_FILENAME,
+            "pt_ilc_registry_markdown": PT_ILC_REGISTRY_MARKDOWN_FILENAME,
+            "external_comparison_importer": EXTERNAL_COMPARISON_IMPORTER_FILENAME,
+            "external_comparison_importer_markdown": EXTERNAL_COMPARISON_IMPORTER_MARKDOWN_FILENAME,
+            "comparison_evidence_pack": COMPARISON_EVIDENCE_PACK_FILENAME,
+            "comparison_evidence_pack_markdown": COMPARISON_EVIDENCE_PACK_MARKDOWN_FILENAME,
+            "scope_comparison_view": SCOPE_COMPARISON_VIEW_FILENAME,
+            "scope_comparison_view_markdown": SCOPE_COMPARISON_VIEW_MARKDOWN_FILENAME,
+            "comparison_digest": COMPARISON_DIGEST_FILENAME,
+            "comparison_digest_markdown": COMPARISON_DIGEST_MARKDOWN_FILENAME,
+            "comparison_rollup": COMPARISON_ROLLUP_FILENAME,
+            "comparison_rollup_markdown": COMPARISON_ROLLUP_MARKDOWN_FILENAME,
+        },
+        boundary_statements=list(RECOGNITION_READINESS_BOUNDARY_STATEMENTS),
+    )
+
     artifacts = {
         "scope_definition_pack": scope_definition_pack,
         "decision_rule_profile": decision_rule_profile,
@@ -915,6 +945,12 @@ def build_recognition_readiness_artifacts(
         "release_evidence_pack_index": dict(software_validation_wp5_artifacts.get("release_evidence_pack_index") or {}),
         "release_validation_manifest": dict(software_validation_wp5_artifacts.get("release_validation_manifest") or {}),
         "audit_readiness_digest": dict(software_validation_wp5_artifacts.get("audit_readiness_digest") or {}),
+        "pt_ilc_registry": dict(wp6_artifacts.get("pt_ilc_registry") or {}),
+        "external_comparison_importer": dict(wp6_artifacts.get("external_comparison_importer") or {}),
+        "comparison_evidence_pack": dict(wp6_artifacts.get("comparison_evidence_pack") or {}),
+        "scope_comparison_view": dict(wp6_artifacts.get("scope_comparison_view") or {}),
+        "comparison_digest": dict(wp6_artifacts.get("comparison_digest") or {}),
+        "comparison_rollup": dict(wp6_artifacts.get("comparison_rollup") or {}),
     }
     return _enrich_recognition_readiness_artifacts(
         artifacts=artifacts,
