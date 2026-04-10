@@ -12,6 +12,7 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
+from .absorbance_models import evaluate_absorbance_models
 from .comparison import build_comparison_outputs
 from ..io.run_bundle import RunBundle, discover_run_artifacts
 from ..models.config import DebuggerConfig
@@ -25,6 +26,12 @@ from ..parsers.schema import (
 )
 from ..plots.charts import (
     plot_absorbance_compare,
+    plot_absorbance_model_fit_by_temp,
+    plot_absorbance_model_fit_overall,
+    plot_absorbance_model_old_vs_new,
+    plot_absorbance_model_residual_hist,
+    plot_absorbance_model_residual_vs_target,
+    plot_absorbance_model_residual_vs_temp,
     plot_error_boxplot,
     plot_error_hist,
     plot_error_vs_target_ppm,
@@ -39,7 +46,7 @@ from ..plots.charts import (
     plot_zero_drift,
 )
 from ..reports.renderers import render_report_html, render_report_markdown, write_workbook
-from .fits import clamp_positive, fit_linear, fit_polynomial, rolling_lowpass
+from .fits import clamp_positive, fit_polynomial, rolling_lowpass
 
 
 def _ensure_output_dir(path: Path, overwrite: bool) -> None:

@@ -9,7 +9,12 @@ from tkinter import BOTH, END, LEFT, RIGHT, StringVar, Tk, filedialog, messagebo
 from tkinter import ttk
 
 from .app import run_debugger
-from .options import normalize_pressure_source, normalize_ratio_source, normalize_temp_source
+from .options import (
+    normalize_model_selection_strategy,
+    normalize_pressure_source,
+    normalize_ratio_source,
+    normalize_temp_source,
+)
 
 
 class AbsorbanceDebuggerGui:
@@ -18,7 +23,7 @@ class AbsorbanceDebuggerGui:
     def __init__(self, root: Tk) -> None:
         self.root = root
         self.root.title("Absorbance Debugger")
-        self.root.geometry("760x420")
+        self.root.geometry("780x500")
 
         self.input_path = StringVar()
         self.output_dir = StringVar(value=str(Path(__file__).resolve().parents[2] / "output" / "absorbance_debugger"))
@@ -26,6 +31,9 @@ class AbsorbanceDebuggerGui:
         self.pressure_source = StringVar(value="P_corr")
         self.temperature_source = StringVar(value="T_corr")
         self.ratio_source = StringVar(value="raw")
+        self.model_selection_strategy = StringVar(value="auto")
+        self.enable_composite_score = StringVar(value="1")
+        self.auto_open_report = StringVar(value="1")
         self.status_text = StringVar(value="Ready.")
         self.last_report_path: Path | None = None
 
@@ -60,16 +68,34 @@ class AbsorbanceDebuggerGui:
         self._combo_row(frame, 4, "Pressure source", self.pressure_source, ("P_std", "P_corr"))
         self._combo_row(frame, 5, "Temperature source", self.temperature_source, ("T_std", "T_corr"))
         self._combo_row(frame, 6, "Ratio source", self.ratio_source, ("raw", "filt"))
+        self._combo_row(frame, 7, "Model strategy", self.model_selection_strategy, ("auto", "grouped_loo", "grouped_kfold"))
+
+        option_frame = ttk.Frame(frame)
+        option_frame.grid(row=8, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        ttk.Checkbutton(
+            option_frame,
+            text="Enable composite score",
+            variable=self.enable_composite_score,
+            onvalue="1",
+            offvalue="0",
+        ).pack(side=LEFT)
+        ttk.Checkbutton(
+            option_frame,
+            text="Open report after run",
+            variable=self.auto_open_report,
+            onvalue="1",
+            offvalue="0",
+        ).pack(side=LEFT, padx=(14, 0))
 
         action_frame = ttk.Frame(frame)
-        action_frame.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(18, 0))
+        action_frame.grid(row=9, column=0, columnspan=3, sticky="ew", pady=(18, 0))
         self.start_button = ttk.Button(action_frame, text="Start analysis", command=self._start_analysis)
         self.start_button.pack(side=LEFT)
         self.open_button = ttk.Button(action_frame, text="Open report.html", command=self._open_report, state="disabled")
         self.open_button.pack(side=LEFT, padx=(10, 0))
 
         ttk.Label(frame, textvariable=self.status_text, wraplength=700).grid(
-            row=8,
+            row=10,
             column=0,
             columnspan=3,
             sticky="w",
@@ -126,6 +152,8 @@ class AbsorbanceDebuggerGui:
             ratio_source = normalize_ratio_source(self.ratio_source.get())
             temperature_source = normalize_temp_source(self.temperature_source.get())
             pressure_source = normalize_pressure_source(self.pressure_source.get())
+            model_selection_strategy = normalize_model_selection_strategy(self.model_selection_strategy.get())
+            enable_composite_score = self.enable_composite_score.get() == "1"
         except Exception as exc:
             messagebox.showerror("Absorbance Debugger", str(exc))
             return
@@ -148,6 +176,8 @@ class AbsorbanceDebuggerGui:
                     ratio_source=ratio_source,
                     temperature_source=temperature_source,
                     pressure_source=pressure_source,
+                    model_selection_strategy=model_selection_strategy,
+                    enable_composite_score=enable_composite_score,
                     p_ref_hpa=p_ref_hpa,
                 )
                 report_path = Path(result["output_dir"]) / "report.html"
@@ -162,6 +192,8 @@ class AbsorbanceDebuggerGui:
         self.start_button.configure(state="normal")
         self.open_button.configure(state="normal")
         self.status_text.set(f"Analysis finished. Report: {report_path}")
+        if self.auto_open_report.get() == "1" and report_path.exists():
+            webbrowser.open(report_path.resolve().as_uri())
 
     def _finish_error(self, exc: Exception) -> None:
         self.start_button.configure(state="normal")

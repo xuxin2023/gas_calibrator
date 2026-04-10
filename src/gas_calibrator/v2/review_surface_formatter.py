@@ -1373,6 +1373,21 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
     reviewer_action_summary = humanize_review_surface_text(
         str(digest.get("reviewer_action_summary") or t("common.none"))
     )
+    uncertainty_overview_summary = humanize_review_surface_text(
+        str(digest.get("uncertainty_overview_summary") or raw.get("overview_display") or "")
+    )
+    budget_component_summary = humanize_review_surface_text(
+        str(digest.get("budget_component_summary") or raw.get("budget_completeness_summary") or "")
+    )
+    top_contributors_summary = humanize_review_surface_text(
+        str(digest.get("top_contributors_summary") or raw.get("top_contributors_summary") or "")
+    )
+    data_completeness_summary = humanize_review_surface_text(
+        str(digest.get("data_completeness_summary") or raw.get("data_completeness_summary") or "")
+    )
+    placeholder_completeness_summary = humanize_review_surface_text(
+        str(digest.get("placeholder_completeness_summary") or raw.get("placeholder_completeness_summary") or "")
+    )
     scope_reference_assets_summary = humanize_review_surface_text(
         str(digest.get("scope_reference_assets_summary") or t("common.none"))
     )
@@ -1456,6 +1471,50 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
             "results.review_center.detail.readiness.reviewer_action_summary_line",
             value=reviewer_action_summary,
             default=f"Reviewer actions: {reviewer_action_summary}",
+        ),
+        *(
+            [
+                t(
+                    "results.review_center.detail.readiness.uncertainty_overview_line",
+                    value=uncertainty_overview_summary,
+                    default=f"不确定度概览：{uncertainty_overview_summary}",
+                )
+            ]
+            if uncertainty_overview_summary
+            else []
+        ),
+        *(
+            [
+                t(
+                    "results.review_center.detail.readiness.budget_component_summary_line",
+                    value=budget_component_summary,
+                    default=f"预算组件摘要：{budget_component_summary}",
+                )
+            ]
+            if budget_component_summary
+            else []
+        ),
+        *(
+            [
+                t(
+                    "results.review_center.detail.readiness.top_contributors_line",
+                    value=top_contributors_summary,
+                    default=f"主要不确定度贡献：{top_contributors_summary}",
+                )
+            ]
+            if top_contributors_summary
+            else []
+        ),
+        *(
+            [
+                t(
+                    "results.review_center.detail.readiness.data_completeness_line",
+                    value=data_completeness_summary,
+                    default=f"数据完整度：{data_completeness_summary}",
+                )
+            ]
+            if data_completeness_summary
+            else []
         ),
         t(
             "results.review_center.detail.readiness.boundary_line",
@@ -1574,6 +1633,61 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
             "results.review_center.detail.readiness.warning_items_line",
             value=warning_summary,
             default=f"Warning items: {warning_summary}",
+        ),
+        *(
+            [
+                t(
+                    "results.review_center.detail.readiness.uncertainty_overview_line",
+                    value=uncertainty_overview_summary,
+                    default=f"不确定度概览：{uncertainty_overview_summary}",
+                )
+            ]
+            if uncertainty_overview_summary
+            else []
+        ),
+        *(
+            [
+                t(
+                    "results.review_center.detail.readiness.budget_component_summary_line",
+                    value=budget_component_summary,
+                    default=f"预算组件摘要：{budget_component_summary}",
+                )
+            ]
+            if budget_component_summary
+            else []
+        ),
+        *(
+            [
+                t(
+                    "results.review_center.detail.readiness.top_contributors_line",
+                    value=top_contributors_summary,
+                    default=f"主要不确定度贡献：{top_contributors_summary}",
+                )
+            ]
+            if top_contributors_summary
+            else []
+        ),
+        *(
+            [
+                t(
+                    "results.review_center.detail.readiness.data_completeness_line",
+                    value=data_completeness_summary,
+                    default=f"数据完整度：{data_completeness_summary}",
+                )
+            ]
+            if data_completeness_summary
+            else []
+        ),
+        *(
+            [
+                t(
+                    "results.review_center.detail.readiness.placeholder_completeness_line",
+                    value=placeholder_completeness_summary,
+                    default=f"占位完整度：{placeholder_completeness_summary}",
+                )
+            ]
+            if placeholder_completeness_summary
+            else []
         ),
         t(
             "results.review_center.detail.readiness.next_artifacts_line",

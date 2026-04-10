@@ -380,3 +380,141 @@ def plot_zero_compare(data: pd.DataFrame, output_path: Path) -> None:
         ax.grid(alpha=0.2)
         ax.legend()
     _finalize(fig, output_path)
+
+
+def plot_absorbance_model_fit_overall(data: pd.DataFrame, output_path: Path) -> None:
+    """Plot target ppm against best-model overall-fit prediction."""
+
+    analyzers = sorted(data["analyzer_id"].dropna().unique().tolist())
+    fig, axes = plt.subplots(max(len(analyzers), 1), 1, figsize=(9, 3.6 * max(len(analyzers), 1)), squeeze=False)
+    if not analyzers:
+        axes[0, 0].text(0.5, 0.5, "No absorbance model fit data available", ha="center", va="center")
+        axes[0, 0].axis("off")
+        return _finalize(fig, output_path)
+    for row_idx, analyzer in enumerate(analyzers):
+        ax = axes[row_idx, 0]
+        subset = data[data["analyzer_id"] == analyzer]
+        ax.scatter(subset["target_ppm"], subset["best_overall_fit_pred_ppm"], alpha=0.7, s=28, c=subset["temp_c"], cmap="viridis")
+        if subset["target_ppm"].notna().any():
+            lo = float(np.nanmin(subset["target_ppm"]))
+            hi = float(np.nanmax(subset["target_ppm"]))
+            ax.plot([lo, hi], [lo, hi], color="black", linestyle="--", linewidth=1.0)
+        label = subset["best_absorbance_model_label"].dropna().iloc[0] if subset["best_absorbance_model_label"].notna().any() else "best model"
+        ax.set_title(f"{analyzer} overall fit: {label}")
+        ax.set_xlabel("target_ppm")
+        ax.set_ylabel("best_overall_fit_pred_ppm")
+        ax.grid(alpha=0.2)
+    _finalize(fig, output_path)
+
+
+def plot_absorbance_model_fit_by_temp(data: pd.DataFrame, output_path: Path) -> None:
+    """Plot best-model prediction curves by temperature."""
+
+    analyzers = sorted(data["analyzer_id"].dropna().unique().tolist())
+    fig, axes = plt.subplots(max(len(analyzers), 1), 1, figsize=(10, 3.8 * max(len(analyzers), 1)), squeeze=False)
+    if not analyzers:
+        axes[0, 0].text(0.5, 0.5, "No absorbance model fit data available", ha="center", va="center")
+        axes[0, 0].axis("off")
+        return _finalize(fig, output_path)
+    for row_idx, analyzer in enumerate(analyzers):
+        ax = axes[row_idx, 0]
+        subset = data[data["analyzer_id"] == analyzer]
+        temps = sorted(subset["temp_c"].dropna().unique().tolist())
+        cmap = plt.get_cmap("tab10", max(len(temps), 1))
+        for temp_idx, temp_c in enumerate(temps):
+            one_temp = subset[subset["temp_c"] == temp_c].sort_values("target_ppm")
+            ax.plot(one_temp["target_ppm"], one_temp["best_overall_fit_pred_ppm"], marker="o", linewidth=1.2, color=cmap(temp_idx), label=f"{temp_c:g} C")
+        ax.plot(subset["target_ppm"], subset["target_ppm"], color="black", linestyle="--", linewidth=1.0, label="ideal")
+        ax.set_title(f"{analyzer} best-model fit by temperature")
+        ax.set_xlabel("target_ppm")
+        ax.set_ylabel("best_overall_fit_pred_ppm")
+        ax.grid(alpha=0.2)
+        ax.legend(ncol=4, fontsize=8)
+    _finalize(fig, output_path)
+
+
+def plot_absorbance_model_residual_hist(data: pd.DataFrame, output_path: Path) -> None:
+    """Plot selected-model residual histogram using the selected prediction scope."""
+
+    analyzers = sorted(data["analyzer_id"].dropna().unique().tolist())
+    fig, axes = plt.subplots(max(len(analyzers), 1), 1, figsize=(9, 3.4 * max(len(analyzers), 1)), squeeze=False)
+    if not analyzers:
+        axes[0, 0].text(0.5, 0.5, "No absorbance model residuals available", ha="center", va="center")
+        axes[0, 0].axis("off")
+        return _finalize(fig, output_path)
+    for row_idx, analyzer in enumerate(analyzers):
+        ax = axes[row_idx, 0]
+        subset = data[data["analyzer_id"] == analyzer]
+        ax.hist(subset["selected_error_ppm"].dropna(), bins=12, alpha=0.7, label="selected_error_ppm")
+        ax.set_title(f"{analyzer} selected-model residual histogram")
+        ax.set_xlabel("error (ppm)")
+        ax.set_ylabel("count")
+        ax.grid(alpha=0.2)
+        ax.legend()
+    _finalize(fig, output_path)
+
+
+def plot_absorbance_model_residual_vs_temp(data: pd.DataFrame, output_path: Path) -> None:
+    """Plot selected-model residual versus temperature."""
+
+    analyzers = sorted(data["analyzer_id"].dropna().unique().tolist())
+    fig, axes = plt.subplots(max(len(analyzers), 1), 1, figsize=(9, 3.4 * max(len(analyzers), 1)), squeeze=False)
+    if not analyzers:
+        axes[0, 0].text(0.5, 0.5, "No absorbance model residuals available", ha="center", va="center")
+        axes[0, 0].axis("off")
+        return _finalize(fig, output_path)
+    for row_idx, analyzer in enumerate(analyzers):
+        ax = axes[row_idx, 0]
+        subset = data[data["analyzer_id"] == analyzer]
+        ax.scatter(subset["temp_c"], subset["selected_error_ppm"], alpha=0.7, s=28)
+        ax.set_title(f"{analyzer} selected-model residual vs temperature")
+        ax.set_xlabel("temp_c")
+        ax.set_ylabel("selected_error_ppm")
+        ax.grid(alpha=0.2)
+    _finalize(fig, output_path)
+
+
+def plot_absorbance_model_residual_vs_target(data: pd.DataFrame, output_path: Path) -> None:
+    """Plot selected-model residual versus target ppm."""
+
+    analyzers = sorted(data["analyzer_id"].dropna().unique().tolist())
+    fig, axes = plt.subplots(max(len(analyzers), 1), 1, figsize=(9, 3.4 * max(len(analyzers), 1)), squeeze=False)
+    if not analyzers:
+        axes[0, 0].text(0.5, 0.5, "No absorbance model residuals available", ha="center", va="center")
+        axes[0, 0].axis("off")
+        return _finalize(fig, output_path)
+    for row_idx, analyzer in enumerate(analyzers):
+        ax = axes[row_idx, 0]
+        subset = data[data["analyzer_id"] == analyzer]
+        ax.scatter(subset["target_ppm"], subset["selected_error_ppm"], alpha=0.7, s=28)
+        ax.set_title(f"{analyzer} selected-model residual vs target")
+        ax.set_xlabel("target_ppm")
+        ax.set_ylabel("selected_error_ppm")
+        ax.grid(alpha=0.2)
+    _finalize(fig, output_path)
+
+
+def plot_absorbance_model_old_vs_new(data: pd.DataFrame, output_path: Path) -> None:
+    """Plot old-chain predictions against selected absorbance-model predictions."""
+
+    analyzers = sorted(data["analyzer_id"].dropna().unique().tolist())
+    fig, axes = plt.subplots(max(len(analyzers), 1), 1, figsize=(9, 3.6 * max(len(analyzers), 1)), squeeze=False)
+    if not analyzers:
+        axes[0, 0].text(0.5, 0.5, "No old/new comparison available", ha="center", va="center")
+        axes[0, 0].axis("off")
+        return _finalize(fig, output_path)
+    for row_idx, analyzer in enumerate(analyzers):
+        ax = axes[row_idx, 0]
+        subset = data[data["analyzer_id"] == analyzer]
+        ax.scatter(subset["target_ppm"], subset["old_pred_ppm"], alpha=0.65, s=26, label="old_chain")
+        ax.scatter(subset["target_ppm"], subset["new_pred_ppm"], alpha=0.65, s=26, label="best_absorbance_model")
+        if subset["target_ppm"].notna().any():
+            lo = float(np.nanmin(subset["target_ppm"]))
+            hi = float(np.nanmax(subset["target_ppm"]))
+            ax.plot([lo, hi], [lo, hi], color="black", linestyle="--", linewidth=1.0)
+        ax.set_title(f"{analyzer} old vs best absorbance model")
+        ax.set_xlabel("target_ppm")
+        ax.set_ylabel("predicted_ppm")
+        ax.grid(alpha=0.2)
+        ax.legend()
+    _finalize(fig, output_path)

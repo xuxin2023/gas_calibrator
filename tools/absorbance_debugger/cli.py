@@ -7,7 +7,12 @@ import json
 from pathlib import Path
 
 from .app import run_debugger
-from .options import normalize_pressure_source, normalize_ratio_source, normalize_temp_source
+from .options import (
+    normalize_model_selection_strategy,
+    normalize_pressure_source,
+    normalize_ratio_source,
+    normalize_temp_source,
+)
 
 
 def _csv_list(text: str) -> tuple[str, ...]:
@@ -49,6 +54,16 @@ def build_parser() -> argparse.ArgumentParser:
         default="corr",
         help="Default comparison branch pressure source: std or corr.",
     )
+    parser.add_argument(
+        "--model-selection-strategy",
+        default="auto",
+        help="Absorbance model validation strategy: auto, grouped_loo, or grouped_kfold.",
+    )
+    parser.add_argument(
+        "--no-composite-score",
+        action="store_true",
+        help="Disable the weighted composite score and fall back to validation RMSE selection.",
+    )
     parser.add_argument("--eps", type=float, default=1.0e-9, help="Lower clamp used in logarithm inputs.")
     parser.add_argument("--p-min-hpa", type=float, default=100.0, help="Lower clamp used for pressure in hPa.")
     parser.add_argument("--p-ref-hpa", type=float, default=1013.25, help="Reference pressure in hPa.")
@@ -68,6 +83,8 @@ def main(argv: list[str] | None = None) -> int:
         ratio_source=normalize_ratio_source(args.ratio_source),
         temperature_source=normalize_temp_source(args.temperature_source),
         pressure_source=normalize_pressure_source(args.pressure_source),
+        model_selection_strategy=normalize_model_selection_strategy(args.model_selection_strategy),
+        enable_composite_score=not bool(args.no_composite_score),
         eps=float(args.eps),
         p_min_hpa=float(args.p_min_hpa),
         p_ref_hpa=float(args.p_ref_hpa),

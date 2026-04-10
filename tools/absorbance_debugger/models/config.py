@@ -23,6 +23,14 @@ class DebuggerConfig:
     default_temp_source: str = "temp_corr_c"
     default_pressure_source: str = "pressure_corr_hpa"
     default_r0_model: str = "quadratic"
+    model_selection_strategy: str = "auto_grouped"
+    enable_composite_score: bool = True
+    composite_weights: tuple[tuple[str, float], ...] = (
+        ("overall_rmse", 0.35),
+        ("zero_rmse", 0.30),
+        ("temp_bias_spread", 0.20),
+        ("max_abs_error", 0.15),
+    )
     p_ref_hpa: float = 1013.25
     eps: float = 1.0e-9
     p_min_hpa: float = 100.0
@@ -55,6 +63,11 @@ class DebuggerConfig:
         """Return a short report label for the selected ratio source."""
 
         return "raw" if self.default_ratio_source == "ratio_co2_raw" else "filt"
+
+    def composite_weight_map(self) -> dict[str, float]:
+        """Return composite score weights as a regular mapping."""
+
+        return {key: float(value) for key, value in self.composite_weights}
 
 
 @dataclass(frozen=True)

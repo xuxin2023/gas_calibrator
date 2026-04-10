@@ -75,6 +75,7 @@ from ..core.stage3_standards_alignment_matrix_artifact_entry import (
     build_stage3_standards_alignment_matrix_artifact_entry,
 )
 from .recognition_scope_gateway import RecognitionScopeGateway
+from .uncertainty_gateway import UncertaintyGateway
 from ..review_surface_formatter import (
     collect_boundary_digest_lines,
     build_measurement_review_digest_lines,
@@ -284,6 +285,24 @@ class ResultsGateway:
         certificate_lifecycle_summary = dict(recognition_scope_payload.get("certificate_lifecycle_summary") or {})
         pre_run_readiness_gate = dict(recognition_scope_payload.get("pre_run_readiness_gate") or {})
         recognition_scope_rollup = dict(recognition_scope_payload.get("recognition_scope_rollup") or {})
+        uncertainty_payload = UncertaintyGateway(
+            self.run_dir,
+            summary=summary if isinstance(summary, dict) else None,
+            analytics_summary=analytics_summary if isinstance(analytics_summary, dict) else None,
+            evidence_registry=evidence_registry if isinstance(evidence_registry, dict) else None,
+            workbench_action_report=workbench_action_report if isinstance(workbench_action_report, dict) else None,
+            workbench_action_snapshot=workbench_action_snapshot if isinstance(workbench_action_snapshot, dict) else None,
+            scope_readiness_summary=scope_readiness_summary,
+            compatibility_scan_summary=compatibility_scan_summary,
+        ).read_payload()
+        uncertainty_model = dict(uncertainty_payload.get("uncertainty_model") or {})
+        uncertainty_input_set = dict(uncertainty_payload.get("uncertainty_input_set") or {})
+        sensitivity_coefficient_set = dict(uncertainty_payload.get("sensitivity_coefficient_set") or {})
+        budget_case = dict(uncertainty_payload.get("budget_case") or {})
+        uncertainty_golden_cases = dict(uncertainty_payload.get("uncertainty_golden_cases") or {})
+        uncertainty_report_pack = dict(uncertainty_payload.get("uncertainty_report_pack") or {})
+        uncertainty_digest = dict(uncertainty_payload.get("uncertainty_digest") or {})
+        uncertainty_rollup = dict(uncertainty_payload.get("uncertainty_rollup") or {})
         evidence_source = self._resolve_current_run_evidence_source(workbench_evidence_summary, workbench_action_report)
         evidence_state = str(
             workbench_evidence_summary.get("evidence_state")
@@ -326,6 +345,9 @@ class ResultsGateway:
             scope_readiness_summary=scope_readiness_summary,
             certificate_readiness_summary=certificate_readiness_summary,
             pre_run_readiness_gate=pre_run_readiness_gate,
+            uncertainty_report_pack=uncertainty_report_pack,
+            uncertainty_digest=uncertainty_digest,
+            uncertainty_rollup=uncertainty_rollup,
             uncertainty_method_readiness_summary=uncertainty_method_readiness_summary,
             audit_readiness_digest=audit_readiness_digest,
             compatibility_scan_summary=compatibility_scan_summary,
@@ -378,6 +400,14 @@ class ResultsGateway:
             "scope_readiness_summary": scope_readiness_summary,
             "certificate_readiness_summary": certificate_readiness_summary,
             "pre_run_readiness_gate": pre_run_readiness_gate,
+            "uncertainty_model": uncertainty_model,
+            "uncertainty_input_set": uncertainty_input_set,
+            "sensitivity_coefficient_set": sensitivity_coefficient_set,
+            "budget_case": budget_case,
+            "uncertainty_golden_cases": uncertainty_golden_cases,
+            "uncertainty_report_pack": uncertainty_report_pack,
+            "uncertainty_digest": uncertainty_digest,
+            "uncertainty_rollup": uncertainty_rollup,
             "uncertainty_method_readiness_summary": uncertainty_method_readiness_summary,
             "audit_readiness_digest": audit_readiness_digest,
             "run_artifact_index": run_artifact_index,
@@ -414,6 +444,14 @@ class ResultsGateway:
         scope_readiness_summary = dict(payload.get("scope_readiness_summary", {}) or {})
         certificate_readiness_summary = dict(payload.get("certificate_readiness_summary", {}) or {})
         pre_run_readiness_gate = dict(payload.get("pre_run_readiness_gate", {}) or {})
+        uncertainty_model = dict(payload.get("uncertainty_model", {}) or {})
+        uncertainty_input_set = dict(payload.get("uncertainty_input_set", {}) or {})
+        sensitivity_coefficient_set = dict(payload.get("sensitivity_coefficient_set", {}) or {})
+        budget_case = dict(payload.get("budget_case", {}) or {})
+        uncertainty_golden_cases = dict(payload.get("uncertainty_golden_cases", {}) or {})
+        uncertainty_report_pack = dict(payload.get("uncertainty_report_pack", {}) or {})
+        uncertainty_digest = dict(payload.get("uncertainty_digest", {}) or {})
+        uncertainty_rollup = dict(payload.get("uncertainty_rollup", {}) or {})
         uncertainty_method_readiness_summary = dict(payload.get("uncertainty_method_readiness_summary", {}) or {})
         audit_readiness_digest = dict(payload.get("audit_readiness_digest", {}) or {})
         run_artifact_index = dict(payload.get("run_artifact_index", {}) or {})
@@ -675,6 +713,38 @@ class ResultsGateway:
                 row,
                 pre_run_readiness_gate=pre_run_readiness_gate,
             )
+            row = self._decorate_uncertainty_model_row(
+                row,
+                uncertainty_model=uncertainty_model,
+            )
+            row = self._decorate_uncertainty_input_set_row(
+                row,
+                uncertainty_input_set=uncertainty_input_set,
+            )
+            row = self._decorate_sensitivity_coefficient_set_row(
+                row,
+                sensitivity_coefficient_set=sensitivity_coefficient_set,
+            )
+            row = self._decorate_budget_case_row(
+                row,
+                budget_case=budget_case,
+            )
+            row = self._decorate_uncertainty_golden_cases_row(
+                row,
+                uncertainty_golden_cases=uncertainty_golden_cases,
+            )
+            row = self._decorate_uncertainty_report_pack_row(
+                row,
+                uncertainty_report_pack=uncertainty_report_pack,
+            )
+            row = self._decorate_uncertainty_digest_row(
+                row,
+                uncertainty_digest=uncertainty_digest,
+            )
+            row = self._decorate_uncertainty_rollup_row(
+                row,
+                uncertainty_rollup=uncertainty_rollup,
+            )
             row = self._decorate_uncertainty_method_readiness_summary_row(
                 row,
                 uncertainty_method_readiness_summary=uncertainty_method_readiness_summary,
@@ -710,6 +780,14 @@ class ResultsGateway:
             "scope_readiness_summary": scope_readiness_summary,
             "certificate_readiness_summary": certificate_readiness_summary,
             "pre_run_readiness_gate": pre_run_readiness_gate,
+            "uncertainty_model": uncertainty_model,
+            "uncertainty_input_set": uncertainty_input_set,
+            "sensitivity_coefficient_set": sensitivity_coefficient_set,
+            "budget_case": budget_case,
+            "uncertainty_golden_cases": uncertainty_golden_cases,
+            "uncertainty_report_pack": uncertainty_report_pack,
+            "uncertainty_digest": uncertainty_digest,
+            "uncertainty_rollup": uncertainty_rollup,
             "uncertainty_method_readiness_summary": uncertainty_method_readiness_summary,
             "audit_readiness_digest": audit_readiness_digest,
             "run_artifact_index": run_artifact_index,
@@ -823,6 +901,9 @@ class ResultsGateway:
         scope_readiness_summary: dict[str, Any] | None,
         certificate_readiness_summary: dict[str, Any] | None,
         pre_run_readiness_gate: dict[str, Any] | None,
+        uncertainty_report_pack: dict[str, Any] | None,
+        uncertainty_digest: dict[str, Any] | None,
+        uncertainty_rollup: dict[str, Any] | None,
         uncertainty_method_readiness_summary: dict[str, Any] | None,
         audit_readiness_digest: dict[str, Any] | None,
         compatibility_scan_summary: dict[str, Any] | None,
@@ -847,6 +928,9 @@ class ResultsGateway:
         scope_readiness_payload = dict(scope_readiness_summary or {})
         certificate_readiness_payload = dict(certificate_readiness_summary or {})
         pre_run_gate_payload = dict(pre_run_readiness_gate or {})
+        uncertainty_report_payload = dict(uncertainty_report_pack or {})
+        uncertainty_digest_payload = dict(uncertainty_digest or {})
+        uncertainty_rollup_payload = dict(uncertainty_rollup or {})
         uncertainty_method_payload = dict(uncertainty_method_readiness_summary or {})
         audit_readiness_payload = dict(audit_readiness_digest or {})
         compatibility_summary = dict(compatibility_scan_summary or {})
@@ -1242,6 +1326,95 @@ class ResultsGateway:
                         "facade.results.result_summary.pre_run_warning_digest",
                         value=warning_text,
                         default=f"warning digest: {warning_text}",
+                    )
+                )
+
+        uncertainty_digest_text = dict(
+            uncertainty_rollup_payload.get("digest")
+            or uncertainty_digest_payload.get("digest")
+            or uncertainty_report_payload.get("digest")
+            or {}
+        )
+        if uncertainty_report_payload or uncertainty_digest_payload or uncertainty_rollup_payload:
+            uncertainty_overview_text = str(
+                uncertainty_rollup_payload.get("overview_display")
+                or uncertainty_rollup_payload.get("rollup_summary_display")
+                or uncertainty_digest_text.get("uncertainty_overview_summary")
+                or uncertainty_digest_text.get("summary")
+                or ""
+            ).strip()
+            if uncertainty_overview_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.uncertainty_overview",
+                        value=uncertainty_overview_text,
+                        default=f"不确定度概览：{uncertainty_overview_text}",
+                    )
+                )
+            budget_completeness_text = str(
+                uncertainty_rollup_payload.get("budget_completeness_summary")
+                or uncertainty_digest_text.get("budget_component_summary")
+                or ""
+            ).strip()
+            if budget_completeness_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.uncertainty_budget_completeness",
+                        value=budget_completeness_text,
+                        default=f"预算完整度：{budget_completeness_text}",
+                    )
+                )
+            top_contributors_text = str(
+                uncertainty_rollup_payload.get("top_contributors_summary")
+                or uncertainty_digest_text.get("top_contributors_summary")
+                or ""
+            ).strip()
+            if top_contributors_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.uncertainty_top_contributors",
+                        value=top_contributors_text,
+                        default=f"主要不确定度贡献：{top_contributors_text}",
+                    )
+                )
+            data_completeness_text = str(
+                uncertainty_rollup_payload.get("data_completeness_summary")
+                or uncertainty_digest_text.get("data_completeness_summary")
+                or ""
+            ).strip()
+            if data_completeness_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.uncertainty_data_completeness",
+                        value=data_completeness_text,
+                        default=f"数据完整度：{data_completeness_text}",
+                    )
+                )
+            rollup_status_text = str(
+                uncertainty_rollup_payload.get("rollup_summary_display")
+                or uncertainty_digest_text.get("summary")
+                or ""
+            ).strip()
+            if rollup_status_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.uncertainty_rollup",
+                        value=rollup_status_text,
+                        default=f"不确定度 rollup：{rollup_status_text}",
+                    )
+                )
+            non_claim_text = str(
+                uncertainty_rollup_payload.get("non_claim_note")
+                or uncertainty_report_payload.get("non_claim_note")
+                or uncertainty_digest_text.get("non_claim_digest")
+                or ""
+            ).strip()
+            if non_claim_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.uncertainty_non_claim",
+                        value=non_claim_text,
+                        default=f"不确定度 non-claim：{non_claim_text}",
                     )
                 )
 
@@ -1718,6 +1891,126 @@ class ResultsGateway:
             json_filename=recognition_readiness.PRE_RUN_READINESS_GATE_FILENAME,
             markdown_filename=recognition_readiness.PRE_RUN_READINESS_GATE_MARKDOWN_FILENAME,
             entry_key="pre_run_readiness_gate_entry",
+        )
+
+    @classmethod
+    def _decorate_uncertainty_model_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        uncertainty_model: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=uncertainty_model,
+            json_filename=recognition_readiness.UNCERTAINTY_MODEL_FILENAME,
+            markdown_filename=recognition_readiness.UNCERTAINTY_MODEL_MARKDOWN_FILENAME,
+            entry_key="uncertainty_model_entry",
+        )
+
+    @classmethod
+    def _decorate_uncertainty_input_set_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        uncertainty_input_set: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=uncertainty_input_set,
+            json_filename=recognition_readiness.UNCERTAINTY_INPUT_SET_FILENAME,
+            markdown_filename=recognition_readiness.UNCERTAINTY_INPUT_SET_MARKDOWN_FILENAME,
+            entry_key="uncertainty_input_set_entry",
+        )
+
+    @classmethod
+    def _decorate_sensitivity_coefficient_set_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        sensitivity_coefficient_set: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=sensitivity_coefficient_set,
+            json_filename=recognition_readiness.SENSITIVITY_COEFFICIENT_SET_FILENAME,
+            markdown_filename=recognition_readiness.SENSITIVITY_COEFFICIENT_SET_MARKDOWN_FILENAME,
+            entry_key="sensitivity_coefficient_set_entry",
+        )
+
+    @classmethod
+    def _decorate_budget_case_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        budget_case: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=budget_case,
+            json_filename=recognition_readiness.BUDGET_CASE_FILENAME,
+            markdown_filename=recognition_readiness.BUDGET_CASE_MARKDOWN_FILENAME,
+            entry_key="budget_case_entry",
+        )
+
+    @classmethod
+    def _decorate_uncertainty_golden_cases_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        uncertainty_golden_cases: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=uncertainty_golden_cases,
+            json_filename=recognition_readiness.UNCERTAINTY_GOLDEN_CASES_FILENAME,
+            markdown_filename=recognition_readiness.UNCERTAINTY_GOLDEN_CASES_MARKDOWN_FILENAME,
+            entry_key="uncertainty_golden_cases_entry",
+        )
+
+    @classmethod
+    def _decorate_uncertainty_report_pack_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        uncertainty_report_pack: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=uncertainty_report_pack,
+            json_filename=recognition_readiness.UNCERTAINTY_REPORT_PACK_FILENAME,
+            markdown_filename=recognition_readiness.UNCERTAINTY_REPORT_PACK_MARKDOWN_FILENAME,
+            entry_key="uncertainty_report_pack_entry",
+        )
+
+    @classmethod
+    def _decorate_uncertainty_digest_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        uncertainty_digest: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=uncertainty_digest,
+            json_filename=recognition_readiness.UNCERTAINTY_DIGEST_FILENAME,
+            markdown_filename=recognition_readiness.UNCERTAINTY_DIGEST_MARKDOWN_FILENAME,
+            entry_key="uncertainty_digest_entry",
+        )
+
+    @classmethod
+    def _decorate_uncertainty_rollup_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        uncertainty_rollup: dict[str, Any],
+    ) -> dict[str, Any]:
+        return cls._decorate_measurement_core_row(
+            row,
+            payload=uncertainty_rollup,
+            json_filename=recognition_readiness.UNCERTAINTY_ROLLUP_FILENAME,
+            markdown_filename=recognition_readiness.UNCERTAINTY_ROLLUP_MARKDOWN_FILENAME,
+            entry_key="uncertainty_rollup_entry",
         )
 
     @classmethod

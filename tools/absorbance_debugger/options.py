@@ -29,6 +29,13 @@ PRESSURE_SOURCE_MAP = {
     "pressure_corr_hpa": "pressure_corr_hpa",
 }
 
+MODEL_SELECTION_STRATEGY_MAP = {
+    "auto": "auto_grouped",
+    "auto_grouped": "auto_grouped",
+    "grouped_loo": "grouped_loo",
+    "grouped_kfold": "grouped_kfold",
+}
+
 
 def _normalize(text: str, mapping: dict[str, str], label: str) -> str:
     key = str(text or "").strip().lower()
@@ -54,3 +61,9 @@ def normalize_pressure_source(text: str) -> str:
     """Normalize CLI or GUI pressure source text."""
 
     return _normalize(text, PRESSURE_SOURCE_MAP, "pressure source")
+
+
+def normalize_model_selection_strategy(text: str) -> str:
+    """Normalize CLI or GUI model-selection strategy text."""
+
+    return _normalize(text, MODEL_SELECTION_STRATEGY_MAP, "model selection strategy")

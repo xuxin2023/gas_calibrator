@@ -458,6 +458,14 @@ class DeviceWorkbenchController:
         scope_summary = dict(payload.get("scope_readiness_summary") or {})
         certificate_summary = dict(payload.get("certificate_readiness_summary") or {})
         pre_run_readiness_gate = dict(payload.get("pre_run_readiness_gate") or {})
+        uncertainty_model = dict(payload.get("uncertainty_model") or {})
+        uncertainty_input_set = dict(payload.get("uncertainty_input_set") or {})
+        sensitivity_coefficient_set = dict(payload.get("sensitivity_coefficient_set") or {})
+        budget_case = dict(payload.get("budget_case") or {})
+        uncertainty_golden_cases = dict(payload.get("uncertainty_golden_cases") or {})
+        uncertainty_report_pack = dict(payload.get("uncertainty_report_pack") or {})
+        uncertainty_digest = dict(payload.get("uncertainty_digest") or {})
+        uncertainty_rollup = dict(payload.get("uncertainty_rollup") or {})
         uncertainty_summary = dict(payload.get("uncertainty_method_readiness_summary") or {})
         audit_summary = dict(payload.get("audit_readiness_digest") or {})
         recognition_scope_rollup = dict(payload.get("recognition_scope_rollup") or {})
@@ -476,6 +484,14 @@ class DeviceWorkbenchController:
             "scope_readiness_summary": scope_summary,
             "certificate_readiness_summary": certificate_summary,
             "pre_run_readiness_gate": pre_run_readiness_gate,
+            "uncertainty_model": uncertainty_model,
+            "uncertainty_input_set": uncertainty_input_set,
+            "sensitivity_coefficient_set": sensitivity_coefficient_set,
+            "budget_case": budget_case,
+            "uncertainty_golden_cases": uncertainty_golden_cases,
+            "uncertainty_report_pack": uncertainty_report_pack,
+            "uncertainty_digest": uncertainty_digest,
+            "uncertainty_rollup": uncertainty_rollup,
             "uncertainty_method_readiness_summary": uncertainty_summary,
             "audit_readiness_digest": audit_summary,
         }
