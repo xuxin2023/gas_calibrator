@@ -341,10 +341,13 @@ def _apply_temperature_pressure_corrections(
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, Any], pd.DataFrame, pd.DataFrame, dict[str, float]]:
     corrected = filtered.copy()
     temp_coeffs, temp_residuals, temp_lookup = _fit_temperature(corrected)
-    corrected["temp_corr_c"] = corrected.apply(
-        lambda row: temp_lookup[(row["analyzer"], "quadratic")].evaluate([row["temp_cavity_c"]])[0],
-        axis=1,
-    )
+    corrected["temp_corr_c"] = np.nan
+    for analyzer, row_index in corrected.groupby("analyzer").groups.items():
+        fit = temp_lookup.get((analyzer, "quadratic"))
+        if fit is None:
+            continue
+        temp_values = pd.to_numeric(corrected.loc[row_index, "temp_cavity_c"], errors="coerce").to_numpy(dtype=float)
+        corrected.loc[row_index, "temp_corr_c"] = fit.evaluate(temp_values)
     pressure_coeffs, offsets = _pressure_offsets(corrected, pressure_summary)
     corrected["offset_hpa"] = corrected["analyzer"].map(offsets)
     corrected["pressure_corr_hpa"] = corrected["pressure_dev_raw_hpa"] + corrected["offset_hpa"]
@@ -1775,9 +1778,14 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
     )
     _frame_to_csv(config.output_dir / "step_03_temperature_fit_coefficients.csv", temp_coeffs)
     _frame_to_csv(config.output_dir / "step_03_temperature_fit_residuals.csv", temp_residuals)
+    temp_plot_table = (
+        temp_coeffs.assign(coefficients_desc=temp_coeffs["coefficients_desc"].map(json.loads))
+        if "coefficients_desc" in temp_coeffs.columns
+        else temp_coeffs
+    )
     plot_temperature_fit(
         filtered,
-        temp_coeffs.assign(coefficients_desc=temp_coeffs["coefficients_desc"].map(json.loads)),
+        temp_plot_table,
         config.output_dir / "step_03_temperature_fit_plot.png",
     )
     _frame_to_csv(config.output_dir / "step_04_pressure_fit_coefficients.csv", pressure_coeffs)
@@ -1816,9 +1824,14 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
     _frame_to_csv(config.output_dir / "step_05_r0_observations.csv", r0_obs)
     _frame_to_csv(config.output_dir / "step_05_r0_fit_coefficients.csv", r0_coeffs)
     _frame_to_csv(config.output_dir / "step_05_r0_fit_residuals.csv", r0_residuals)
+    r0_plot_table = (
+        r0_coeffs.assign(coefficients_desc=r0_coeffs["coefficients_desc"].map(json.loads))
+        if "coefficients_desc" in r0_coeffs.columns
+        else r0_coeffs
+    )
     plot_r0_fit(
         r0_obs,
-        r0_coeffs.assign(coefficients_desc=r0_coeffs["coefficients_desc"].map(json.loads)),
+        r0_plot_table,
         config.output_dir / "step_05_r0_fit_plot.png",
     )
 
