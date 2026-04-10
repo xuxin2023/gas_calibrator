@@ -2758,6 +2758,10 @@ class AppFacade:
             release_boundary_digest=release_boundary_digest,
             release_evidence_pack_index=release_evidence_pack_index,
             audit_readiness_digest=audit_readiness_digest,
+            pt_ilc_registry=pt_ilc_registry,
+            comparison_evidence_pack=comparison_evidence_pack,
+            comparison_digest=comparison_digest,
+            comparison_rollup=comparison_rollup,
             compatibility_scan_summary=compatibility_scan_summary,
         )
         index_summary = self._build_review_index_summary(
@@ -3257,6 +3261,10 @@ class AppFacade:
         release_boundary_digest: dict[str, Any],
         release_evidence_pack_index: dict[str, Any],
         audit_readiness_digest: dict[str, Any],
+        pt_ilc_registry: dict[str, Any],
+        comparison_evidence_pack: dict[str, Any],
+        comparison_digest: dict[str, Any],
+        comparison_rollup: dict[str, Any],
         compatibility_scan_summary: dict[str, Any],
         force_refresh: bool = False,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
