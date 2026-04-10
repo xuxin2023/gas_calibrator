@@ -15,8 +15,10 @@ import pandas as pd
 
 from .absorbance_models import evaluate_absorbance_models
 from .comparison import build_comparison_outputs
+from .cross_run import build_cross_run_summary
 from .diagnostics import (
     build_diagnostic_absorbance_points,
+    build_ga01_residual_profile,
     build_order_compare,
     build_point_raw_summary,
     build_pressure_branch_compare,
@@ -24,6 +26,7 @@ from .diagnostics import (
     build_root_cause_ranking,
     build_upper_bound_vs_deployable_compare,
 )
+from .zero_residual import build_zero_residual_point_variants, fit_zero_residual_models
 from ..io.run_bundle import RunBundle, discover_run_artifacts
 from ..models.config import DebuggerConfig
 from ..parsers.schema import (
@@ -43,12 +46,15 @@ from ..plots.charts import (
     plot_absorbance_model_residual_vs_target,
     plot_absorbance_model_residual_vs_temp,
     plot_branch_metric_compare,
+    plot_cross_run_summary,
     plot_default_chain_before_after,
     plot_error_boxplot,
     plot_error_hist,
     plot_error_vs_target_ppm,
     plot_error_vs_temp,
+    plot_ga01_residual_profile,
     plot_invalid_pressure_points,
+    plot_piecewise_model_compare,
     plot_per_temp_compare,
     plot_pressure_compare,
     plot_ratio_series,
@@ -58,6 +64,7 @@ from ..plots.charts import (
     plot_upper_bound_vs_deployable,
     plot_zero_compare,
     plot_zero_drift,
+    plot_zero_residual_models,
 )
 from ..reports.renderers import render_report_html, render_report_markdown, write_workbook
 from .fits import clamp_positive, fit_polynomial, rolling_lowpass
@@ -784,15 +791,12 @@ def _main_branch_points(absorbance_points: pd.DataFrame, config: DebuggerConfig,
     ].copy()
 
 
-def _run_one_matched_source(
-    absorbance_points: pd.DataFrame,
+def _annotate_model_result_frames(
+    model_results: dict[str, pd.DataFrame],
     config: DebuggerConfig,
     ratio_source: str,
 ) -> dict[str, pd.DataFrame]:
-    branch_points = _main_branch_points(absorbance_points, config, ratio_source)
-    branch_config = replace(config, default_ratio_source=ratio_source)
-    model_results = evaluate_absorbance_models(branch_points, branch_config, absorbance_column="A_mean")
-    source_pair_label = branch_config.matched_source_pair_label(ratio_source)
+    source_pair_label = config.matched_source_pair_label(ratio_source)
     branch_id = "__".join((ratio_source, config.default_temp_source, config.default_pressure_source, config.default_r0_model))
     for key in ("candidates", "scores", "selection", "coefficients", "residuals", "best_predictions"):
         frame = model_results[key]
@@ -808,6 +812,29 @@ def _run_one_matched_source(
         frame["default_pressure_branch"] = config.default_pressure_branch_label()
         frame["branch_id"] = branch_id
     return model_results
+
+
+def _run_one_matched_source(
+    absorbance_points: pd.DataFrame,
+    config: DebuggerConfig,
+    ratio_source: str,
+) -> dict[str, pd.DataFrame]:
+    branch_points = _main_branch_points(absorbance_points, config, ratio_source)
+    branch_config = replace(config, default_ratio_source=ratio_source)
+    frames = {
+        name: []
+        for name in ("candidates", "scores", "selection", "coefficients", "residuals", "best_predictions")
+    }
+    for _, zero_subset in branch_points.groupby("zero_residual_mode", dropna=False):
+        model_results = evaluate_absorbance_models(zero_subset, branch_config, absorbance_column="A_mean")
+        model_results = _annotate_model_result_frames(model_results, branch_config, ratio_source)
+        for key in frames:
+            if not model_results[key].empty:
+                frames[key].append(model_results[key])
+    return {
+        key: pd.concat(value, ignore_index=True) if value else pd.DataFrame()
+        for key, value in frames.items()
+    }
 
 
 def _select_best_matched_source(
@@ -843,7 +870,7 @@ def _select_best_matched_source(
     final_selection_rows: list[dict[str, Any]] = []
     for analyzer_id, analyzer_df in selection_candidates.groupby("analyzer_id"):
         chosen = analyzer_df.sort_values(
-            ["composite_score", "selected_prediction_scope", "best_absorbance_model", "selected_source_pair"],
+            ["composite_score", "selected_prediction_scope", "zero_residual_mode", "best_model_family", "best_absorbance_model", "selected_source_pair"],
             ignore_index=True,
         ).iloc[0]
         final_selection_rows.append(
@@ -854,7 +881,8 @@ def _select_best_matched_source(
                 "matched_selection_policy": config.matched_selection_policy,
                 "default_pressure_branch": config.default_pressure_branch_label(),
                 "selection_reason": (
-                    f"Selected matched source {chosen['selected_source_pair']} and {chosen['best_absorbance_model']} "
+                    f"Selected matched source {chosen['selected_source_pair']}, zero residual mode {chosen.get('zero_residual_mode', 'none')}, "
+                    f"{chosen.get('best_model_family', 'single_range')} model {chosen['best_absorbance_model']} "
                     f"by lowest composite_score={float(chosen['composite_score']):.6g} on {chosen['selected_prediction_scope']}; "
                     f"mixed source pairs are excluded from the main chain."
                 ),
@@ -902,20 +930,24 @@ def _select_best_matched_source(
     if not best_predictions.empty:
         best_predictions = best_predictions.merge(
             final_selection[
-                [
-                    "analyzer_id",
-                    "selected_source_pair",
-                    "selected_ratio_source",
-                    "best_absorbance_model",
-                    "best_absorbance_model_label",
-                    "composite_score",
-                    "selection_reason",
-                    "selected_prediction_scope",
-                    "default_absorbance_order",
-                    "default_source_policy",
-                    "matched_selection_policy",
-                    "default_pressure_branch",
-                ]
+            [
+                "analyzer_id",
+                "selected_source_pair",
+                "selected_ratio_source",
+                "best_absorbance_model",
+                "best_absorbance_model_label",
+                "best_model_family",
+                "composite_score",
+                "selection_reason",
+                "selected_prediction_scope",
+                "default_absorbance_order",
+                "default_source_policy",
+                "matched_selection_policy",
+                "default_pressure_branch",
+                "zero_residual_mode",
+                "zero_residual_model_label",
+                "with_zero_residual_correction",
+            ]
             ],
             on=["analyzer_id", "selected_source_pair"],
             how="inner",
@@ -924,12 +956,31 @@ def _select_best_matched_source(
         best_predictions["selected_ratio_source"] = best_predictions["selected_ratio_source_final"].combine_first(best_predictions["selected_ratio_source"])
         best_predictions["best_absorbance_model"] = best_predictions["best_absorbance_model_final"].combine_first(best_predictions["best_absorbance_model"])
         best_predictions["best_absorbance_model_label"] = best_predictions["best_absorbance_model_label_final"].combine_first(best_predictions["best_absorbance_model_label"])
+        if "best_model_family" in best_predictions.columns:
+            best_predictions["best_model_family"] = best_predictions["best_model_family_final"].combine_first(best_predictions["best_model_family"])
+        else:
+            best_predictions["best_model_family"] = best_predictions["best_model_family_final"]
         best_predictions["composite_score"] = best_predictions["composite_score_final"].combine_first(best_predictions["composite_score"])
         best_predictions["selection_reason"] = best_predictions["selection_reason_final"].combine_first(best_predictions["selection_reason"])
         best_predictions["selected_prediction_scope"] = best_predictions["selected_prediction_scope_final"].combine_first(best_predictions["selected_prediction_scope"])
         best_predictions["default_absorbance_order"] = best_predictions["default_absorbance_order_final"].combine_first(best_predictions["default_absorbance_order"])
         best_predictions["matched_selection_policy"] = best_predictions["matched_selection_policy_final"].combine_first(best_predictions["matched_selection_policy"])
         best_predictions["default_pressure_branch"] = best_predictions["default_pressure_branch_final"].combine_first(best_predictions["default_pressure_branch"])
+        if "zero_residual_mode_final" in best_predictions.columns:
+            if "zero_residual_mode" in best_predictions.columns:
+                best_predictions["zero_residual_mode"] = best_predictions["zero_residual_mode_final"].combine_first(best_predictions["zero_residual_mode"])
+            else:
+                best_predictions["zero_residual_mode"] = best_predictions["zero_residual_mode_final"]
+        if "zero_residual_model_label_final" in best_predictions.columns:
+            if "zero_residual_model_label" in best_predictions.columns:
+                best_predictions["zero_residual_model_label"] = best_predictions["zero_residual_model_label_final"].combine_first(best_predictions["zero_residual_model_label"])
+            else:
+                best_predictions["zero_residual_model_label"] = best_predictions["zero_residual_model_label_final"]
+        if "with_zero_residual_correction_final" in best_predictions.columns:
+            if "with_zero_residual_correction" in best_predictions.columns:
+                best_predictions["with_zero_residual_correction"] = best_predictions["with_zero_residual_correction_final"].combine_first(best_predictions["with_zero_residual_correction"])
+            else:
+                best_predictions["with_zero_residual_correction"] = best_predictions["with_zero_residual_correction_final"]
         if "default_source_policy_final" in best_predictions.columns and "default_source_policy" in best_predictions.columns:
             best_predictions["default_source_policy"] = best_predictions["default_source_policy_final"].combine_first(best_predictions["default_source_policy"])
         elif "default_source_policy_final" in best_predictions.columns:
@@ -946,6 +997,93 @@ def _select_best_matched_source(
     return frames
 
 
+def _build_piecewise_model_selection(model_results: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    scores = model_results["scores"].copy()
+    if scores.empty:
+        return pd.DataFrame()
+    rows: list[dict[str, Any]] = []
+    for analyzer_id, analyzer_df in scores.groupby("analyzer_id"):
+        single_df = analyzer_df[analyzer_df["model_family"] == "single_range"].sort_values(
+            ["composite_score", "validation_rmse", "overall_rmse", "model_id"],
+            ignore_index=True,
+        )
+        piecewise_df = analyzer_df[analyzer_df["model_family"] == "piecewise_range"].sort_values(
+            ["composite_score", "validation_rmse", "overall_rmse", "model_id"],
+            ignore_index=True,
+        )
+        if single_df.empty and piecewise_df.empty:
+            continue
+        single_row = single_df.iloc[0] if not single_df.empty else None
+        piecewise_row = piecewise_df.iloc[0] if not piecewise_df.empty else None
+        rows.append(
+            {
+                "analyzer_id": analyzer_id,
+                "single_range_model_id": single_row["model_id"] if single_row is not None else "",
+                "single_range_selected_source_pair": single_row["selected_source_pair"] if single_row is not None else "",
+                "single_range_zero_residual_mode": single_row["zero_residual_mode"] if single_row is not None else "",
+                "single_range_overall_rmse": single_row["overall_rmse"] if single_row is not None else math.nan,
+                "single_range_zero_rmse": single_row["zero_rmse"] if single_row is not None else math.nan,
+                "single_range_temp_bias_spread": single_row["temp_bias_spread"] if single_row is not None else math.nan,
+                "piecewise_model_id": piecewise_row["model_id"] if piecewise_row is not None else "",
+                "piecewise_selected_source_pair": piecewise_row["selected_source_pair"] if piecewise_row is not None else "",
+                "piecewise_zero_residual_mode": piecewise_row["zero_residual_mode"] if piecewise_row is not None else "",
+                "piecewise_overall_rmse": piecewise_row["overall_rmse"] if piecewise_row is not None else math.nan,
+                "piecewise_zero_rmse": piecewise_row["zero_rmse"] if piecewise_row is not None else math.nan,
+                "piecewise_temp_bias_spread": piecewise_row["temp_bias_spread"] if piecewise_row is not None else math.nan,
+                "piecewise_boundary_ppm": piecewise_row["piecewise_boundary_ppm"] if piecewise_row is not None else math.nan,
+                "piecewise_boundary_absorbance": piecewise_row["piecewise_boundary_absorbance"] if piecewise_row is not None else math.nan,
+                "piecewise_beats_single_range": bool(
+                    single_row is not None
+                    and piecewise_row is not None
+                    and float(piecewise_row["composite_score"]) < float(single_row["composite_score"])
+                ),
+                "selected_family_default_weights": model_results["selection"].set_index("analyzer_id").loc[analyzer_id, "best_model_family"]
+                if not model_results["selection"].empty and analyzer_id in set(model_results["selection"]["analyzer_id"])
+                else "",
+            }
+        )
+    return pd.DataFrame(rows).sort_values(["analyzer_id"], ignore_index=True)
+
+
+def _build_weight_sensitivity_compare(model_results: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    scores = model_results["scores"].copy()
+    if scores.empty:
+        return pd.DataFrame()
+    rows: list[dict[str, Any]] = []
+    for analyzer_id, analyzer_df in scores.groupby("analyzer_id"):
+        old_best = analyzer_df.sort_values(
+            ["composite_score_old_weights", "validation_rmse", "overall_rmse", "model_id"],
+            ignore_index=True,
+        ).iloc[0]
+        new_best = analyzer_df.sort_values(
+            ["composite_score_new_weights", "validation_rmse", "overall_rmse", "model_id"],
+            ignore_index=True,
+        ).iloc[0]
+        selection_changed = any(
+            str(old_best[column]) != str(new_best[column])
+            for column in ("model_id", "selected_source_pair", "zero_residual_mode", "model_family")
+        )
+        for weight_profile, selected in (("legacy_weights", old_best), ("new_weights", new_best)):
+            rows.append(
+                {
+                    "analyzer_id": analyzer_id,
+                    "weight_profile": weight_profile,
+                    "selected_model_id": selected["model_id"],
+                    "selected_model_family": selected["model_family"],
+                    "selected_source_pair": selected["selected_source_pair"],
+                    "selected_zero_residual_mode": selected.get("zero_residual_mode", "none"),
+                    "overall_rmse": selected["overall_rmse"],
+                    "zero_rmse": selected["zero_rmse"],
+                    "temp_bias_spread": selected["temp_bias_spread"],
+                    "max_abs_error": selected["max_abs_error_for_score"],
+                    "composite_score_old_weights": selected["composite_score_old_weights"],
+                    "composite_score_new_weights": selected["composite_score_new_weights"],
+                    "selection_changed_between_weight_profiles": selection_changed,
+                }
+            )
+    return pd.DataFrame(rows).sort_values(["analyzer_id", "weight_profile"], ignore_index=True)
+
+
 def _fit_absorbance_models(
     absorbance_points: pd.DataFrame,
     config: DebuggerConfig,
@@ -958,6 +1096,10 @@ def _fit_absorbance_models(
         for ratio_source in config.matched_ratio_sources()
     ]
     model_results = _select_best_matched_source(per_source_results, config)
+    piecewise_selection = _build_piecewise_model_selection(model_results)
+    weight_sensitivity = _build_weight_sensitivity_compare(model_results)
+    model_results["piecewise_selection"] = piecewise_selection
+    model_results["weight_sensitivity_compare"] = weight_sensitivity
     if not write_outputs:
         return model_results
 
@@ -975,6 +1117,12 @@ def _fit_absorbance_models(
     plot_absorbance_model_residual_hist(best_predictions, plot_dir / "absorbance_model_residual_hist.png")
     plot_absorbance_model_residual_vs_temp(best_predictions, plot_dir / "absorbance_model_residual_vs_temp.png")
     plot_absorbance_model_residual_vs_target(best_predictions, plot_dir / "absorbance_model_residual_vs_target.png")
+    _frame_to_csv(output_dir / "step_06y_piecewise_model_candidates.csv", model_results["candidates"][model_results["candidates"]["model_family"] == "piecewise_range"] if not model_results["candidates"].empty else model_results["candidates"])
+    _frame_to_csv(output_dir / "step_06y_piecewise_model_scores.csv", model_results["scores"][model_results["scores"]["model_family"] == "piecewise_range"] if not model_results["scores"].empty else model_results["scores"])
+    _frame_to_csv(output_dir / "step_06y_piecewise_model_selection.csv", piecewise_selection)
+    _frame_to_csv(output_dir / "step_06y_piecewise_model_coefficients.csv", model_results["coefficients"][model_results["coefficients"]["model_family"] == "piecewise_range"] if not model_results["coefficients"].empty else model_results["coefficients"])
+    _frame_to_csv(output_dir / "step_06y_weight_sensitivity_compare.csv", weight_sensitivity)
+    plot_piecewise_model_compare(piecewise_selection, output_dir / "step_06y_piecewise_model_plots.png")
     return model_results
 
 

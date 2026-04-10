@@ -645,3 +645,189 @@ def build_root_cause_ranking(
         implementation_issue = "A meaningful source-consistency issue was detected: mixed ratio/R0 source pairs should not be used as a default."
 
     return ranking.drop(columns="_severity_score"), top_lines, implementation_issue
+
+
+def _best_variant_rows(frame: pd.DataFrame, analyzer_id: str, group_column: str) -> pd.DataFrame:
+    if frame.empty or group_column not in frame.columns:
+        return pd.DataFrame()
+    subset = frame[frame["analyzer_id"] == analyzer_id].copy()
+    if subset.empty:
+        return subset
+    rows: list[pd.Series] = []
+    for _, variant_df in subset.groupby(group_column, dropna=False):
+        rows.append(
+            variant_df.sort_values(
+                ["composite_score", "validation_rmse", "overall_rmse", "model_id"],
+                ignore_index=True,
+            ).iloc[0]
+        )
+    return pd.DataFrame(rows)
+
+
+def build_ga01_residual_profile(
+    point_reconciliation: pd.DataFrame,
+    model_results: dict[str, pd.DataFrame],
+) -> tuple[pd.DataFrame, str]:
+    """Build a focused GA01 residual profile and a short diagnosis note."""
+
+    analyzer_id = "GA01"
+    points = point_reconciliation[point_reconciliation["analyzer_id"] == analyzer_id].copy()
+    if points.empty:
+        return pd.DataFrame(), "GA01 data was not available in the current run."
+
+    rows: list[dict[str, Any]] = []
+    for temp_c, subset in points.groupby("temp_c", dropna=False):
+        old_metrics = _metrics(subset["old_error"])
+        new_metrics = _metrics(subset["new_error"])
+        rows.append(
+            {
+                "profile_section": "by_temperature",
+                "analyzer_id": analyzer_id,
+                "temp_c": temp_c,
+                "sample_count": int(len(subset)),
+                "old_rmse": old_metrics["rmse"],
+                "new_rmse": new_metrics["rmse"],
+                "old_bias": old_metrics["bias"],
+                "new_bias": new_metrics["bias"],
+                "target_ppm": math.nan,
+                "variant_label": "",
+                "old_chain_rmse": old_metrics["rmse"],
+                "new_chain_rmse": new_metrics["rmse"],
+            }
+        )
+    for target_ppm, subset in points.groupby("target_ppm", dropna=False):
+        old_metrics = _metrics(subset["old_error"])
+        new_metrics = _metrics(subset["new_error"])
+        rows.append(
+            {
+                "profile_section": "by_target_ppm",
+                "analyzer_id": analyzer_id,
+                "temp_c": math.nan,
+                "sample_count": int(len(subset)),
+                "old_rmse": old_metrics["rmse"],
+                "new_rmse": new_metrics["rmse"],
+                "old_bias": old_metrics["bias"],
+                "new_bias": new_metrics["bias"],
+                "target_ppm": target_ppm,
+                "variant_label": "",
+                "old_chain_rmse": old_metrics["rmse"],
+                "new_chain_rmse": new_metrics["rmse"],
+            }
+        )
+
+    zero_points = points[points["target_ppm"] == 0].copy()
+    for temp_c, subset in zero_points.groupby("temp_c", dropna=False):
+        old_metrics = _metrics(subset["old_error"])
+        new_metrics = _metrics(subset["new_error"])
+        rows.append(
+            {
+                "profile_section": "zero_bias",
+                "analyzer_id": analyzer_id,
+                "temp_c": temp_c,
+                "sample_count": int(len(subset)),
+                "old_rmse": old_metrics["rmse"],
+                "new_rmse": new_metrics["rmse"],
+                "old_bias": old_metrics["bias"],
+                "new_bias": new_metrics["bias"],
+                "target_ppm": 0.0,
+                "variant_label": f"zero@{temp_c:g}C",
+                "old_chain_rmse": old_metrics["rmse"],
+                "new_chain_rmse": new_metrics["rmse"],
+            }
+        )
+
+    score_table = model_results.get("scores", pd.DataFrame()).copy()
+    overall_old_rmse = _metrics(points["old_error"])["rmse"]
+    for section_name, group_column in (
+        ("source_pair_compare", "selected_source_pair"),
+        ("zero_residual_compare", "zero_residual_mode"),
+        ("model_family_compare", "model_family"),
+    ):
+        summary = _best_variant_rows(score_table, analyzer_id, group_column)
+        for _, row in summary.iterrows():
+            rows.append(
+                {
+                    "profile_section": section_name,
+                    "analyzer_id": analyzer_id,
+                    "temp_c": math.nan,
+                    "sample_count": int(row.get("sample_count", 0)),
+                    "old_rmse": overall_old_rmse,
+                    "new_rmse": float(row.get("overall_rmse", math.nan)),
+                    "old_bias": math.nan,
+                    "new_bias": float(row.get("overall_bias", math.nan)),
+                    "target_ppm": math.nan,
+                    "variant_label": str(row.get(group_column, "n/a")),
+                    "old_chain_rmse": overall_old_rmse,
+                    "new_chain_rmse": float(row.get("overall_rmse", math.nan)),
+                    "zero_rmse": float(row.get("zero_rmse", math.nan)),
+                    "temp_bias_spread": float(row.get("temp_bias_spread", math.nan)),
+                    "selected_model_id": str(row.get("model_id", "")),
+                }
+            )
+
+    zero_compare = _best_variant_rows(score_table, analyzer_id, "zero_residual_mode")
+    family_compare = _best_variant_rows(score_table, analyzer_id, "model_family")
+    source_compare = _best_variant_rows(score_table, analyzer_id, "selected_source_pair")
+    zero_gain = 0.0
+    source_gain = 0.0
+    family_gain = 0.0
+    if not zero_compare.empty and (zero_compare["zero_residual_mode"] == "none").any():
+        none_row = zero_compare[zero_compare["zero_residual_mode"] == "none"].iloc[0]
+        best_corr = zero_compare.sort_values("overall_rmse").iloc[0]
+        zero_gain = float(none_row["overall_rmse"]) - float(best_corr["overall_rmse"])
+    if not source_compare.empty:
+        source_gain = float(source_compare["overall_rmse"].max()) - float(source_compare["overall_rmse"].min())
+    if not family_compare.empty and {"single_range", "piecewise_range"} <= set(family_compare["model_family"].astype(str)):
+        single_row = family_compare[family_compare["model_family"] == "single_range"].iloc[0]
+        piecewise_row = family_compare[family_compare["model_family"] == "piecewise_range"].iloc[0]
+        family_gain = float(single_row["overall_rmse"]) - float(piecewise_row["overall_rmse"])
+
+    high_temp_zero_bias = 0.0
+    if not zero_points.empty:
+        hottest_zero = zero_points.sort_values("temp_c").tail(1)
+        if not hottest_zero.empty:
+            high_temp_zero_bias = abs(float(hottest_zero.iloc[0]["new_error"]))
+
+    if high_temp_zero_bias > 5.0 and zero_gain >= max(source_gain, family_gain):
+        primary_issue = "high_temp_zero_anchor_missing"
+        diagnosis_note = (
+            "GA01 is still dominated by high-temperature zero anchoring risk: the hottest 0 ppm residual remains large, "
+            "and ΔA0(T) helps more than source switching or family switching."
+        )
+    elif family_gain > max(0.5, source_gain, zero_gain):
+        primary_issue = "low_range_model_gap"
+        diagnosis_note = (
+            "GA01 looks more like a low-range model problem: the piecewise family improves more than the source-pair or ΔA0(T) variants."
+        )
+    elif source_gain > max(0.5, family_gain, zero_gain):
+        primary_issue = "source_selection_gap"
+        diagnosis_note = (
+            "GA01 looks more like a source-pair issue: raw/raw vs filt/filt changes matter more than the zero-correction and model-family changes."
+        )
+    else:
+        primary_issue = "other_or_mixed"
+        diagnosis_note = (
+            "GA01 remains mixed: high-temperature zero anchoring, low-range model fit, and source choice all contribute, "
+            "with no single dominant fix on this run."
+        )
+
+    rows.append(
+        {
+            "profile_section": "diagnosis",
+            "analyzer_id": analyzer_id,
+            "temp_c": math.nan,
+            "sample_count": int(len(points)),
+            "old_rmse": overall_old_rmse,
+            "new_rmse": _metrics(points["new_error"])["rmse"],
+            "old_bias": _metrics(points["old_error"])["bias"],
+            "new_bias": _metrics(points["new_error"])["bias"],
+            "target_ppm": math.nan,
+            "variant_label": "",
+            "old_chain_rmse": overall_old_rmse,
+            "new_chain_rmse": _metrics(points["new_error"])["rmse"],
+            "primary_issue": primary_issue,
+            "diagnosis_note": diagnosis_note,
+        }
+    )
+
+    return pd.DataFrame(rows), diagnosis_note

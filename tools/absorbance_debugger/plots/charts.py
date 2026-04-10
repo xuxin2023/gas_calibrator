@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 
@@ -653,4 +654,180 @@ def plot_default_chain_before_after(data: pd.DataFrame, output_path: Path) -> No
     ax.set_ylabel("RMSE (ppm)")
     ax.grid(alpha=0.2, axis="y")
     ax.legend(fontsize=8)
+    _finalize(fig, output_path)
+
+
+def _predict_zero_residual_curve(
+    model_id: str,
+    coefficients: np.ndarray,
+    x_line: np.ndarray,
+    breakpoint_temp_c: float | None,
+) -> np.ndarray:
+    if model_id == "linear":
+        return coefficients[0] + coefficients[1] * x_line
+    if model_id == "quadratic":
+        return coefficients[0] + coefficients[1] * x_line + coefficients[2] * np.square(x_line)
+    if model_id == "piecewise_linear":
+        hinge = np.maximum(x_line - float(breakpoint_temp_c or 0.0), 0.0)
+        return coefficients[0] + coefficients[1] * x_line + coefficients[2] * hinge
+    return np.zeros(len(x_line), dtype=float)
+
+
+def plot_zero_residual_models(observations: pd.DataFrame, models: pd.DataFrame, output_path: Path) -> None:
+    """Plot zero-point absorbance observations and fitted residual models."""
+
+    if observations.empty:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No zero-residual observations available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+
+    analyzers = sorted(observations["analyzer_id"].dropna().unique().tolist())
+    fig, axes = plt.subplots(max(len(analyzers), 1), 2, figsize=(12, 3.6 * max(len(analyzers), 1)), squeeze=False)
+    for row_idx, analyzer in enumerate(analyzers):
+        for col_idx, ratio_source in enumerate(("ratio_co2_raw", "ratio_co2_filt")):
+            ax = axes[row_idx, col_idx]
+            subset = observations[
+                (observations["analyzer_id"] == analyzer)
+                & (observations["ratio_source"] == ratio_source)
+            ].sort_values("temp_use_c")
+            ax.scatter(subset["temp_use_c"], subset["A_zero_obs"], s=28, alpha=0.75, label="0 ppm observations")
+            if not subset.empty:
+                x_line = np.linspace(float(subset["temp_use_c"].min()), float(subset["temp_use_c"].max()), 200)
+                fit_subset = models[
+                    (models["analyzer_id"] == analyzer)
+                    & (models["ratio_source"] == ratio_source)
+                    & (models["zero_residual_model"] != "none")
+                ]
+                for _, fit_row in fit_subset.iterrows():
+                    coeffs = np.asarray(json.loads(fit_row["coefficients_desc"]), dtype=float)
+                    y_line = _predict_zero_residual_curve(
+                        str(fit_row["zero_residual_model"]),
+                        coeffs,
+                        x_line,
+                        float(fit_row["breakpoint_temp_c"]) if pd.notna(fit_row["breakpoint_temp_c"]) else None,
+                    )
+                    ax.plot(x_line, y_line, linewidth=1.2, label=str(fit_row["zero_residual_model"]))
+            ax.axhline(0.0, color="black", linestyle="--", linewidth=0.9)
+            ax.set_title(f"{analyzer} {ratio_source}")
+            ax.set_xlabel("temp_use_c")
+            ax.set_ylabel("A_zero_obs")
+            ax.grid(alpha=0.2)
+            ax.legend(fontsize=8)
+    _finalize(fig, output_path)
+
+
+def plot_piecewise_model_compare(data: pd.DataFrame, output_path: Path) -> None:
+    """Plot best single-range vs best piecewise metrics per analyzer."""
+
+    if data.empty:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No piecewise comparison data available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+
+    analyzers = sorted(data["analyzer_id"].dropna().unique().tolist())
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.5), squeeze=False)
+    x = np.arange(len(analyzers), dtype=float)
+    ordered = data.set_index("analyzer_id").reindex(analyzers)
+    axes[0, 0].bar(x - 0.18, ordered["single_range_overall_rmse"], width=0.36, label="single-range")
+    axes[0, 0].bar(x + 0.18, ordered["piecewise_overall_rmse"], width=0.36, label="piecewise")
+    axes[0, 0].set_xticks(x)
+    axes[0, 0].set_xticklabels(analyzers)
+    axes[0, 0].set_title("Overall RMSE")
+    axes[0, 0].grid(alpha=0.2, axis="y")
+    axes[0, 0].legend()
+    axes[0, 1].bar(x - 0.18, ordered["single_range_zero_rmse"], width=0.36, label="single-range")
+    axes[0, 1].bar(x + 0.18, ordered["piecewise_zero_rmse"], width=0.36, label="piecewise")
+    axes[0, 1].set_xticks(x)
+    axes[0, 1].set_xticklabels(analyzers)
+    axes[0, 1].set_title("Zero RMSE")
+    axes[0, 1].grid(alpha=0.2, axis="y")
+    axes[0, 1].legend()
+    _finalize(fig, output_path)
+
+
+def plot_ga01_residual_profile(data: pd.DataFrame, output_path: Path) -> None:
+    """Plot the GA01 residual profile summary."""
+
+    if data.empty:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No GA01 profile data available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+
+    fig, axes = plt.subplots(2, 3, figsize=(15, 8), squeeze=False)
+
+    by_temp = data[data["profile_section"] == "by_temperature"].sort_values("temp_c")
+    axes[0, 0].plot(by_temp["temp_c"], by_temp["new_rmse"], marker="o", label="new_rmse")
+    axes[0, 0].plot(by_temp["temp_c"], by_temp["old_rmse"], marker="o", label="old_rmse")
+    axes[0, 0].set_title("By temperature")
+    axes[0, 0].grid(alpha=0.2)
+    axes[0, 0].legend(fontsize=8)
+
+    by_target = data[data["profile_section"] == "by_target_ppm"].sort_values("target_ppm")
+    axes[0, 1].plot(by_target["target_ppm"], by_target["new_rmse"], marker="o", label="new_rmse")
+    axes[0, 1].plot(by_target["target_ppm"], by_target["old_rmse"], marker="o", label="old_rmse")
+    axes[0, 1].set_title("By target ppm")
+    axes[0, 1].grid(alpha=0.2)
+    axes[0, 1].legend(fontsize=8)
+
+    source_cmp = data[data["profile_section"] == "source_pair_compare"].sort_values("new_chain_rmse")
+    axes[0, 2].bar(source_cmp["variant_label"], source_cmp["new_chain_rmse"], label="new")
+    axes[0, 2].axhline(float(source_cmp["old_chain_rmse"].dropna().iloc[0]) if source_cmp["old_chain_rmse"].notna().any() else np.nan, color="black", linestyle="--", linewidth=1.0, label="old")
+    axes[0, 2].set_title("raw/raw vs filt/filt")
+    axes[0, 2].tick_params(axis="x", rotation=20)
+    axes[0, 2].grid(alpha=0.2, axis="y")
+    axes[0, 2].legend(fontsize=8)
+
+    zero_cmp = data[data["profile_section"] == "zero_residual_compare"].sort_values("new_chain_rmse")
+    axes[1, 0].bar(zero_cmp["variant_label"], zero_cmp["new_chain_rmse"])
+    axes[1, 0].set_title("with / without ΔA0(T)")
+    axes[1, 0].tick_params(axis="x", rotation=20)
+    axes[1, 0].grid(alpha=0.2, axis="y")
+
+    family_cmp = data[data["profile_section"] == "model_family_compare"].sort_values("new_chain_rmse")
+    axes[1, 1].bar(family_cmp["variant_label"], family_cmp["new_chain_rmse"])
+    axes[1, 1].set_title("single vs piecewise")
+    axes[1, 1].tick_params(axis="x", rotation=20)
+    axes[1, 1].grid(alpha=0.2, axis="y")
+
+    diag = data[data["profile_section"] == "diagnosis"].head(1)
+    axes[1, 2].axis("off")
+    if not diag.empty:
+        axes[1, 2].text(
+            0.02,
+            0.98,
+            str(diag.iloc[0]["diagnosis_note"]),
+            ha="left",
+            va="top",
+            wrap=True,
+        )
+        axes[1, 2].set_title(str(diag.iloc[0]["primary_issue"]))
+    _finalize(fig, output_path)
+
+
+def plot_cross_run_summary(data: pd.DataFrame, output_path: Path) -> None:
+    """Plot old-vs-new RMSE across runs for each analyzer."""
+
+    if data.empty:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No cross-run summary data available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+
+    analyzers = sorted(data["analyzer_id"].dropna().unique().tolist())
+    fig, axes = plt.subplots(max(len(analyzers), 1), 1, figsize=(11, 3.5 * max(len(analyzers), 1)), squeeze=False)
+    for row_idx, analyzer in enumerate(analyzers):
+        ax = axes[row_idx, 0]
+        subset = data[data["analyzer_id"] == analyzer].sort_values("run_name")
+        x = np.arange(len(subset), dtype=float)
+        ax.plot(x, subset["old_chain_rmse"], marker="o", label="old_chain_rmse")
+        ax.plot(x, subset["new_chain_rmse"], marker="o", label="new_chain_rmse")
+        ax.set_xticks(x)
+        ax.set_xticklabels(subset["run_name"], rotation=20, ha="right")
+        ax.set_title(f"{analyzer} cross-run RMSE")
+        ax.set_ylabel("RMSE (ppm)")
+        ax.grid(alpha=0.2)
+        ax.legend(fontsize=8)
     _finalize(fig, output_path)
