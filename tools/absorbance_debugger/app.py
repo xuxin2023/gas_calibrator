@@ -7,6 +7,7 @@ from pathlib import Path
 from .analysis.pipeline import execute_pipeline
 from .models.config import DebuggerConfig
 from .options import (
+    normalize_absorbance_order_mode,
     normalize_model_selection_strategy,
     normalize_pressure_source,
     normalize_ratio_source,
@@ -24,8 +25,12 @@ def run_debugger(
     ratio_source: str = "ratio_co2_raw",
     temperature_source: str = "temp_corr_c",
     pressure_source: str = "pressure_corr_hpa",
+    absorbance_order_mode: str = "samplewise_log_first",
     model_selection_strategy: str = "auto_grouped",
     enable_composite_score: bool = True,
+    run_r0_source_consistency_compare: bool = True,
+    run_pressure_branch_compare: bool = True,
+    run_upper_bound_compare: bool = True,
     eps: float = 1.0e-9,
     p_min_hpa: float = 100.0,
     p_ref_hpa: float = 1013.25,
@@ -48,8 +53,12 @@ def run_debugger(
         default_ratio_source=normalize_ratio_source(ratio_source),
         default_temp_source=normalize_temp_source(temperature_source),
         default_pressure_source=normalize_pressure_source(pressure_source),
+        absorbance_order_mode=normalize_absorbance_order_mode(absorbance_order_mode),
         model_selection_strategy=normalize_model_selection_strategy(model_selection_strategy),
         enable_composite_score=bool(enable_composite_score),
+        run_r0_source_consistency_compare=bool(run_r0_source_consistency_compare),
+        run_pressure_branch_compare=bool(run_pressure_branch_compare),
+        run_upper_bound_compare=bool(run_upper_bound_compare),
         eps=eps,
         p_min_hpa=p_min_hpa,
         p_ref_hpa=p_ref_hpa,

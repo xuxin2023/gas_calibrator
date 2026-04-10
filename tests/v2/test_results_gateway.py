@@ -1206,9 +1206,18 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
     assert "Reference Asset Registry" in results_payload["result_summary_text"]
     assert "Certificate Lifecycle Summary" in results_payload["result_summary_text"]
     assert "Pre-run Readiness Gate" in results_payload["result_summary_text"]
-    assert "Uncertainty overview" in results_payload["result_summary_text"]
-    assert "Budget completeness" in results_payload["result_summary_text"]
-    assert "Top uncertainty contributors" in results_payload["result_summary_text"]
+    assert (
+        "不确定度概览" in results_payload["result_summary_text"]
+        or "Uncertainty overview" in results_payload["result_summary_text"]
+    )
+    assert (
+        "预算完整度" in results_payload["result_summary_text"]
+        or "Budget completeness" in results_payload["result_summary_text"]
+    )
+    assert (
+        "主要不确定度贡献" in results_payload["result_summary_text"]
+        or "Top uncertainty contributors" in results_payload["result_summary_text"]
+    )
     assert "Scope Readiness Summary" in reports_payload["result_summary_text"]
     assert "Pre-run Readiness Gate" in reports_payload["result_summary_text"]
 

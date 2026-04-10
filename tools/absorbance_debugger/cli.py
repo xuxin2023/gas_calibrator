@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .app import run_debugger
 from .options import (
+    normalize_absorbance_order_mode,
     normalize_model_selection_strategy,
     normalize_pressure_source,
     normalize_ratio_source,
@@ -55,6 +56,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Default comparison branch pressure source: std or corr.",
     )
     parser.add_argument(
+        "--absorbance-order-mode",
+        default="samplewise_log_first",
+        help="Primary absorbance order mode: samplewise_log_first, mean_first_log, or compare_both.",
+    )
+    parser.add_argument(
         "--model-selection-strategy",
         default="auto",
         help="Absorbance model validation strategy: auto, grouped_loo, or grouped_kfold.",
@@ -83,6 +89,7 @@ def main(argv: list[str] | None = None) -> int:
         ratio_source=normalize_ratio_source(args.ratio_source),
         temperature_source=normalize_temp_source(args.temperature_source),
         pressure_source=normalize_pressure_source(args.pressure_source),
+        absorbance_order_mode=normalize_absorbance_order_mode(args.absorbance_order_mode),
         model_selection_strategy=normalize_model_selection_strategy(args.model_selection_strategy),
         enable_composite_score=not bool(args.no_composite_score),
         eps=float(args.eps),

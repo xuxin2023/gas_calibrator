@@ -100,7 +100,7 @@ def _composite_score(metric_source: dict[str, float], weights: dict[str, float])
 
 
 def _design_matrix(frame: pd.DataFrame, spec: AbsorbanceModelSpec) -> np.ndarray:
-    absorbance = frame["A_mean"].to_numpy(dtype=float)
+    absorbance = frame["absorbance_input"].to_numpy(dtype=float)
     temperature = frame["temp_model_c"].to_numpy(dtype=float)
     columns: list[np.ndarray] = []
     for term in spec.terms:
@@ -152,8 +152,11 @@ def _fit_one_candidate(
     strategy: str,
     score_weights: dict[str, float],
     enable_composite_score: bool,
+    absorbance_column: str,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
-    candidate_df = analyzer_df.dropna(subset=["A_mean", "temp_model_c", "target_ppm"]).copy()
+    candidate_df = analyzer_df.dropna(subset=[absorbance_column, "temp_model_c", "target_ppm"]).copy()
+    candidate_df["absorbance_input"] = pd.to_numeric(candidate_df[absorbance_column], errors="coerce")
+    candidate_df = candidate_df.dropna(subset=["absorbance_input"]).copy()
     candidate_df = candidate_df.sort_values(["temp_c", "target_ppm", "point_row", "point_title"]).reset_index(drop=True)
     if len(candidate_df) < len(spec.terms):
         raise ValueError(f"{spec.model_id} needs at least {len(spec.terms)} rows, got {len(candidate_df)}")
@@ -218,6 +221,7 @@ def _fit_one_candidate(
         "model_id": spec.model_id,
         "model_label": spec.model_label,
         "formula": spec.formula,
+        "absorbance_column": absorbance_column,
         "term_count": len(spec.terms),
         "sample_count": int(len(candidate_df)),
         "group_count": int(len(group_ids)),
@@ -252,6 +256,7 @@ def _fit_one_candidate(
                 "term_name": term_name,
                 "coefficient": float(coeff),
                 "formula": spec.formula,
+                "absorbance_column": absorbance_column,
             }
         )
 
@@ -268,6 +273,8 @@ def _fit_one_candidate(
             "temp_c": row["temp_c"],
             "target_ppm": row["target_ppm"],
             "A_mean": row["A_mean"],
+            "absorbance_input": row["absorbance_input"],
+            "absorbance_column": absorbance_column,
             "A_std": row.get("A_std"),
             "temp_model_c": row["temp_model_c"],
         }
@@ -292,7 +299,12 @@ def _fit_one_candidate(
     return score_row, coefficient_rows, residual_rows
 
 
-def evaluate_absorbance_models(points: pd.DataFrame, config: Any) -> dict[str, pd.DataFrame]:
+def evaluate_absorbance_models(
+    points: pd.DataFrame,
+    config: Any,
+    *,
+    absorbance_column: str = "A_mean",
+) -> dict[str, pd.DataFrame]:
     """Fit bounded absorbance candidates per analyzer and select the best model."""
 
     branch_points = points.copy()
@@ -328,6 +340,7 @@ def evaluate_absorbance_models(points: pd.DataFrame, config: Any) -> dict[str, p
                     "selection_strategy_requested": config.model_selection_strategy,
                     "selection_strategy_used": "",
                     "composite_score_enabled": config.enable_composite_score,
+                    "absorbance_column": absorbance_column,
                     "ratio_source": config.default_ratio_source,
                     "temperature_source": config.default_temp_source,
                     "pressure_source": config.default_pressure_source,
@@ -341,6 +354,7 @@ def evaluate_absorbance_models(points: pd.DataFrame, config: Any) -> dict[str, p
                     strategy=config.model_selection_strategy,
                     score_weights=weight_map,
                     enable_composite_score=config.enable_composite_score,
+                    absorbance_column=absorbance_column,
                 )
             except Exception:
                 continue
@@ -378,6 +392,7 @@ def evaluate_absorbance_models(points: pd.DataFrame, config: Any) -> dict[str, p
                 "selection_strategy_requested": config.model_selection_strategy,
                 "selection_strategy_used": best_row["selection_strategy_used"],
                 "composite_score_enabled": config.enable_composite_score,
+                "absorbance_column": absorbance_column,
                 "selected_prediction_scope": best_row["score_source"],
                 "group_count": best_row["group_count"],
                 "validation_available": best_row["validation_available"],
@@ -451,6 +466,8 @@ def evaluate_absorbance_models(points: pd.DataFrame, config: Any) -> dict[str, p
             "temp_c",
             "target_ppm",
             "A_mean",
+            "absorbance_input",
+            "absorbance_column",
             "A_std",
             "temp_model_c",
             "best_overall_fit_pred_ppm",

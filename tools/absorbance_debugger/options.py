@@ -36,6 +36,15 @@ MODEL_SELECTION_STRATEGY_MAP = {
     "grouped_kfold": "grouped_kfold",
 }
 
+ABSORBANCE_ORDER_MODE_MAP = {
+    "samplewise": "samplewise_log_first",
+    "samplewise_log_first": "samplewise_log_first",
+    "mean_first": "mean_first_log",
+    "mean_first_log": "mean_first_log",
+    "compare": "compare_both",
+    "compare_both": "compare_both",
+}
+
 
 def _normalize(text: str, mapping: dict[str, str], label: str) -> str:
     key = str(text or "").strip().lower()
@@ -67,3 +76,9 @@ def normalize_model_selection_strategy(text: str) -> str:
     """Normalize CLI or GUI model-selection strategy text."""
 
     return _normalize(text, MODEL_SELECTION_STRATEGY_MAP, "model selection strategy")
+
+
+def normalize_absorbance_order_mode(text: str) -> str:
+    """Normalize CLI or GUI absorbance order mode text."""
+
+    return _normalize(text, ABSORBANCE_ORDER_MODE_MAP, "absorbance order mode")

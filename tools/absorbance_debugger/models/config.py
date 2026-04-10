@@ -23,8 +23,12 @@ class DebuggerConfig:
     default_temp_source: str = "temp_corr_c"
     default_pressure_source: str = "pressure_corr_hpa"
     default_r0_model: str = "quadratic"
+    absorbance_order_mode: str = "samplewise_log_first"
     model_selection_strategy: str = "auto_grouped"
     enable_composite_score: bool = True
+    run_r0_source_consistency_compare: bool = True
+    run_pressure_branch_compare: bool = True
+    run_upper_bound_compare: bool = True
     composite_weights: tuple[tuple[str, float], ...] = (
         ("overall_rmse", 0.35),
         ("zero_rmse", 0.30),
@@ -63,6 +67,16 @@ class DebuggerConfig:
         """Return a short report label for the selected ratio source."""
 
         return "raw" if self.default_ratio_source == "ratio_co2_raw" else "filt"
+
+    def default_pressure_branch_label(self) -> str:
+        """Return the multiply-norm pressure branch label for the selected source."""
+
+        return "pressure_corr" if self.default_pressure_source == "pressure_corr_hpa" else "pressure_std"
+
+    def default_alt_pressure_branch_label(self) -> str:
+        """Return the divide-only pressure branch label for the selected source."""
+
+        return "alt_divide_only_corr" if self.default_pressure_source == "pressure_corr_hpa" else "alt_divide_only_std"
 
     def composite_weight_map(self) -> dict[str, float]:
         """Return composite score weights as a regular mapping."""

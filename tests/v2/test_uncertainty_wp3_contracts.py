@@ -116,9 +116,18 @@ def test_uncertainty_wp3_object_model_golden_cases_and_results_contract(tmp_path
     assert payload["uncertainty_rollup"]["report_pack_available"] is True
     assert payload["uncertainty_rollup"]["report_pack_available_on_disk"] is True
     assert snapshot["uncertainty_rollup"]["rollup_summary_display"]
-    assert "Uncertainty overview" in results_payload["result_summary_text"]
-    assert "Budget completeness" in results_payload["result_summary_text"]
-    assert "Top uncertainty contributors" in results_payload["result_summary_text"]
+    assert (
+        "不确定度概览" in results_payload["result_summary_text"]
+        or "Uncertainty overview" in results_payload["result_summary_text"]
+    )
+    assert (
+        "预算完整度" in results_payload["result_summary_text"]
+        or "Budget completeness" in results_payload["result_summary_text"]
+    )
+    assert (
+        "主要不确定度贡献" in results_payload["result_summary_text"]
+        or "Top uncertainty contributors" in results_payload["result_summary_text"]
+    )
     assert results_payload["uncertainty_report_pack"]["artifact_type"] == "uncertainty_report_pack"
     assert results_payload["uncertainty_digest"]["artifact_type"] == "uncertainty_digest"
     assert results_payload["uncertainty_rollup"]["artifact_type"] == "uncertainty_rollup"
