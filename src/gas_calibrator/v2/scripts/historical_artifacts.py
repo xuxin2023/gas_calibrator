@@ -15,6 +15,7 @@ from ..core.artifact_compatibility import (
     regenerate_artifact_compatibility_sidecars,
 )
 from ..adapters.recognition_scope_gateway import RecognitionScopeGateway
+from ..adapters.uncertainty_gateway import UncertaintyGateway
 from ._cli_safety import build_step2_historical_cli_lines
 
 
@@ -144,9 +145,27 @@ def _build_run_report(
     reference_asset_registry = dict(recognition_scope_payload.get("reference_asset_registry") or {})
     certificate_lifecycle_summary = dict(recognition_scope_payload.get("certificate_lifecycle_summary") or {})
     pre_run_readiness_gate = dict(recognition_scope_payload.get("pre_run_readiness_gate") or {})
+    uncertainty_payload = UncertaintyGateway(
+        run_dir,
+        summary=summary_payload,
+        scope_readiness_summary=(
+            dict(summary_payload.get("scope_readiness_summary") or {})
+            or dict(dict(summary_payload.get("stats") or {}).get("scope_readiness_summary") or {})
+        ),
+        compatibility_scan_summary=compatibility_scan_summary,
+    ).read_payload()
+    uncertainty_report_pack = dict(uncertainty_payload.get("uncertainty_report_pack") or {})
+    uncertainty_digest_payload = dict(uncertainty_payload.get("uncertainty_digest") or {})
+    uncertainty_rollup = dict(uncertainty_payload.get("uncertainty_rollup") or {})
     reference_asset_digest = dict(reference_asset_registry.get("digest") or {})
     certificate_lifecycle_digest = dict(certificate_lifecycle_summary.get("digest") or {})
     pre_run_gate_digest = dict(pre_run_readiness_gate.get("digest") or {})
+    uncertainty_digest = dict(
+        uncertainty_rollup.get("digest")
+        or uncertainty_digest_payload.get("digest")
+        or uncertainty_report_pack.get("digest")
+        or {}
+    )
     asset_readiness_overview = str(
         recognition_scope_rollup.get("asset_readiness_overview")
         or reference_asset_digest.get("asset_readiness_overview")
@@ -195,6 +214,11 @@ def _build_run_report(
         or run_artifact_index.get("generated_at")
         or ""
     ).strip()
+    uncertainty_readiness_status = (
+        "ready_for_readiness_mapping"
+        if bool(uncertainty_rollup.get("ready_for_readiness_mapping", True))
+        else "placeholder_only"
+    )
     return {
         "run_id": str(
             compatibility_scan_summary.get("run_id")
@@ -309,6 +333,41 @@ def _build_run_report(
         "certificate_lifecycle_overview": certificate_lifecycle_overview,
         "pre_run_gate_status": pre_run_gate_status,
         "pre_run_gate_summary": pre_run_gate_summary,
+        "uncertainty_overview": str(
+            uncertainty_rollup.get("overview_display")
+            or uncertainty_rollup.get("rollup_summary_display")
+            or uncertainty_digest.get("uncertainty_overview_summary")
+            or "--"
+        ),
+        "uncertainty_budget_completeness": str(
+            uncertainty_rollup.get("budget_completeness_summary")
+            or uncertainty_digest.get("budget_component_summary")
+            or "--"
+        ),
+        "uncertainty_top_contributors": str(
+            uncertainty_rollup.get("top_contributors_summary")
+            or uncertainty_digest.get("top_contributors_summary")
+            or "--"
+        ),
+        "uncertainty_data_completeness": str(
+            uncertainty_rollup.get("data_completeness_summary")
+            or uncertainty_digest.get("data_completeness_summary")
+            or "--"
+        ),
+        "uncertainty_placeholder_completeness": str(
+            uncertainty_rollup.get("placeholder_completeness_summary")
+            or uncertainty_digest.get("placeholder_completeness_summary")
+            or "--"
+        ),
+        "uncertainty_readiness_status": uncertainty_readiness_status,
+        "uncertainty_non_claim_note": str(
+            uncertainty_rollup.get("non_claim_note")
+            or uncertainty_report_pack.get("non_claim_note")
+            or uncertainty_digest.get("non_claim_digest")
+            or "--"
+        ),
+        "uncertainty_rollup": uncertainty_rollup,
+        "uncertainty_placeholder_used": bool(uncertainty_rollup.get("legacy_placeholder_used", False)),
         "blocking_digest": blocking_digest,
         "warning_digest": warning_digest,
         "ready_for_readiness_mapping": bool(
@@ -318,6 +377,12 @@ def _build_run_report(
         "not_ready_for_formal_claim": bool(
             pre_run_readiness_gate.get("not_ready_for_formal_claim", True)
         ),
+        "uncertainty_ready_for_readiness_mapping": bool(
+            uncertainty_rollup.get("ready_for_readiness_mapping", True)
+        ),
+        "uncertainty_not_ready_for_formal_claim": bool(
+            uncertainty_rollup.get("not_ready_for_formal_claim", True)
+        ),
         "reviewer_only_boundary": readiness_mapping_boundary,
         "evidence_source": str(
             pre_run_readiness_gate.get("evidence_source")
@@ -325,10 +390,18 @@ def _build_run_report(
             or reference_asset_registry.get("evidence_source")
             or "simulated"
         ),
+        "uncertainty_evidence_source": str(
+            uncertainty_rollup.get("evidence_source")
+            or uncertainty_report_pack.get("evidence_source")
+            or "simulated"
+        ),
         "not_real_acceptance_evidence": bool(
             pre_run_readiness_gate.get("not_real_acceptance_evidence", True)
             and certificate_lifecycle_summary.get("not_real_acceptance_evidence", True)
             and reference_asset_registry.get("not_real_acceptance_evidence", True)
+        ),
+        "uncertainty_not_real_acceptance_evidence": bool(
+            uncertainty_rollup.get("not_real_acceptance_evidence", True)
         ),
         "recognition_scope_rollup": recognition_scope_rollup,
         "compatibility_rollup": compatibility_rollup,
@@ -337,6 +410,9 @@ def _build_run_report(
             or compatibility_overview.get("rollup_summary_display")
             or ""
         ).strip(),
+        "uncertainty_primary_evidence_rewritten": bool(
+            uncertainty_rollup.get("primary_evidence_rewritten", False)
+        ),
         "written_paths": written_paths,
     }
 

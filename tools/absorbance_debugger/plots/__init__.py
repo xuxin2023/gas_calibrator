@@ -2,6 +2,12 @@
 
 from .charts import (
     plot_absorbance_compare,
+    plot_absorbance_model_fit_by_temp,
+    plot_absorbance_model_fit_overall,
+    plot_absorbance_model_old_vs_new,
+    plot_absorbance_model_residual_hist,
+    plot_absorbance_model_residual_vs_target,
+    plot_absorbance_model_residual_vs_temp,
     plot_error_boxplot,
     plot_error_hist,
     plot_error_vs_target_ppm,
@@ -18,6 +24,12 @@ from .charts import (
 
 __all__ = [
     "plot_absorbance_compare",
+    "plot_absorbance_model_fit_by_temp",
+    "plot_absorbance_model_fit_overall",
+    "plot_absorbance_model_old_vs_new",
+    "plot_absorbance_model_residual_hist",
+    "plot_absorbance_model_residual_vs_target",
+    "plot_absorbance_model_residual_vs_temp",
     "plot_error_boxplot",
     "plot_error_hist",
     "plot_error_vs_target_ppm",

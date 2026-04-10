@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import ast
 import zipfile
 from pathlib import Path
 
 import pandas as pd
 
+from tools.absorbance_debugger import gui as gui_module
 from tools.absorbance_debugger.app import run_debugger
 from tools.absorbance_debugger.io.run_bundle import RunBundle, discover_run_artifacts
 from tools.absorbance_debugger.options import (
+    normalize_model_selection_strategy,
     normalize_pressure_source,
     normalize_ratio_source,
     normalize_temp_source,
@@ -32,6 +35,11 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
     assert result["validation_table"]["passed"].all()
     assert (output_dir / "step_01_samples_core.csv").exists()
     assert (output_dir / "step_05_r0_fit_coefficients.csv").exists()
+    assert (output_dir / "step_06_absorbance_model_candidates.csv").exists()
+    assert (output_dir / "step_06_absorbance_model_scores.csv").exists()
+    assert (output_dir / "step_06_absorbance_model_selection.csv").exists()
+    assert (output_dir / "step_06_absorbance_model_coefficients.csv").exists()
+    assert (output_dir / "step_06_absorbance_model_residuals.csv").exists()
     assert (output_dir / "step_08_old_vs_new_compare.xlsx").exists()
     assert (output_dir / "step_08_overview_summary.csv").exists()
     assert (output_dir / "step_08_by_temperature.csv").exists()
@@ -54,10 +62,29 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
     assert set(overview["analyzer_id"]) == {"GA01", "GA02", "GA03"}
     assert {"winner_overall", "winner_zero", "winner_temp_stability", "recommendation"} <= set(overview.columns)
 
+    selection = pd.read_csv(output_dir / "step_06_absorbance_model_selection.csv")
+    assert set(selection["analyzer_id"]) == {"GA01", "GA02", "GA03"}
+    assert {"best_absorbance_model", "selection_reason", "selected_prediction_scope"} <= set(selection.columns)
+
+    scores = pd.read_csv(output_dir / "step_06_absorbance_model_scores.csv")
+    assert {"model_id", "validation_rmse", "overall_rmse", "composite_score", "model_rank"} <= set(scores.columns)
+    assert scores["model_rank"].notna().all()
+
     point_reconciliation = pd.read_csv(output_dir / "step_08_point_reconciliation.csv")
     assert {"old_pred_ppm", "new_pred_ppm", "old_error", "new_error", "winner_for_point"} <= set(point_reconciliation.columns)
     assert point_reconciliation["pressure_source"].isin(["P_std", "P_corr"]).all()
     assert point_reconciliation["temperature_source"].isin(["T_std", "T_corr"]).all()
+    assert point_reconciliation["best_absorbance_model"].notna().any()
+    assert point_reconciliation["selected_prediction_scope"].isin(["validation_oof", "overall_fit"]).all()
+
+    selected_models = selection.set_index("analyzer_id")["best_absorbance_model"].to_dict()
+    point_models = (
+        point_reconciliation.dropna(subset=["best_absorbance_model"])
+        .groupby("analyzer_id")["best_absorbance_model"]
+        .agg(lambda values: values.mode().iloc[0])
+        .to_dict()
+    )
+    assert point_models == selected_models
 
 
 def test_run_bundle_discovers_zip_and_extracted_directory(tmp_path: Path) -> None:
@@ -85,3 +112,68 @@ def test_option_normalizers_accept_gui_and_cli_tokens() -> None:
     assert normalize_temp_source("corr") == "temp_corr_c"
     assert normalize_pressure_source("P_std") == "pressure_std_hpa"
     assert normalize_pressure_source("corr") == "pressure_corr_hpa"
+    assert normalize_model_selection_strategy("auto") == "auto_grouped"
+    assert normalize_model_selection_strategy("grouped_loo") == "grouped_loo"
+
+
+def test_gui_passes_selection_parameters(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run_debugger(input_path, **kwargs):
+        captured["input_path"] = str(input_path)
+        captured.update(kwargs)
+        return {"output_dir": str(tmp_path)}
+
+    class ImmediateThread:
+        def __init__(self, target, daemon) -> None:
+            self._target = target
+
+        def start(self) -> None:
+            self._target()
+
+    root = gui_module.Tk()
+    root.withdraw()
+    gui = gui_module.AbsorbanceDebuggerGui(root)
+    gui.root.after = lambda _delay, callback: callback()
+    gui.input_path.set(str(REFERENCE_RUN_ZIP))
+    gui.output_dir.set(str(tmp_path))
+    gui.p_ref.set("1009.5")
+    gui.ratio_source.set("filt")
+    gui.temperature_source.set("T_std")
+    gui.pressure_source.set("P_std")
+    gui.model_selection_strategy.set("grouped_loo")
+    gui.enable_composite_score.set("0")
+    gui.auto_open_report.set("0")
+
+    monkeypatch.setattr(gui_module, "run_debugger", fake_run_debugger)
+    monkeypatch.setattr(gui_module.threading, "Thread", lambda target, daemon=True: ImmediateThread(target, daemon))
+
+    gui._start_analysis()
+    root.destroy()
+
+    assert captured["input_path"] == str(REFERENCE_RUN_ZIP)
+    assert captured["ratio_source"] == "ratio_co2_filt"
+    assert captured["temperature_source"] == "temp_std_c"
+    assert captured["pressure_source"] == "pressure_std_hpa"
+    assert captured["model_selection_strategy"] == "grouped_loo"
+    assert captured["enable_composite_score"] is False
+    assert captured["p_ref_hpa"] == 1009.5
+
+
+def test_tool_has_no_runtime_import_to_v1() -> None:
+    tool_root = REPO_ROOT / "tools" / "absorbance_debugger"
+    offenders: list[str] = []
+    for path in tool_root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                names = [module]
+            else:
+                continue
+            if any(name == "run_app" or name.startswith("src.gas_calibrator") for name in names):
+                offenders.append(str(path))
+                break
+    assert offenders == []

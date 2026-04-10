@@ -1619,6 +1619,57 @@ class AppFacade:
                 or "--"
             )
         )
+        uncertainty_digest_values = dict(
+            uncertainty_rollup.get("digest")
+            or uncertainty_digest.get("digest")
+            or uncertainty_report_pack.get("digest")
+            or {}
+        )
+        uncertainty_overview_text = self._humanize_ui_summary(
+            str(
+                uncertainty_rollup.get("overview_display")
+                or uncertainty_rollup.get("rollup_summary_display")
+                or uncertainty_digest_values.get("uncertainty_overview_summary")
+                or uncertainty_digest_values.get("summary")
+                or "--"
+            )
+        )
+        uncertainty_budget_completeness_text = self._humanize_ui_summary(
+            str(
+                uncertainty_rollup.get("budget_completeness_summary")
+                or uncertainty_digest_values.get("budget_component_summary")
+                or "--"
+            )
+        )
+        uncertainty_top_contributors_text = self._humanize_ui_summary(
+            str(
+                uncertainty_rollup.get("top_contributors_summary")
+                or uncertainty_digest_values.get("top_contributors_summary")
+                or "--"
+            )
+        )
+        uncertainty_data_completeness_text = self._humanize_ui_summary(
+            str(
+                uncertainty_rollup.get("data_completeness_summary")
+                or uncertainty_digest_values.get("data_completeness_summary")
+                or "--"
+            )
+        )
+        uncertainty_rollup_text = self._humanize_ui_summary(
+            str(
+                uncertainty_rollup.get("rollup_summary_display")
+                or uncertainty_digest_values.get("summary")
+                or "--"
+            )
+        )
+        uncertainty_non_claim_text = self._humanize_ui_summary(
+            str(
+                uncertainty_rollup.get("non_claim_note")
+                or uncertainty_report_pack.get("non_claim_note")
+                or uncertainty_digest_values.get("non_claim_digest")
+                or "--"
+            )
+        )
         uncertainty_method_readiness_text = self._humanize_ui_summary(
             str(dict(uncertainty_method_readiness_summary.get("digest") or {}).get("summary") or "--")
         )
@@ -1791,6 +1842,9 @@ class AppFacade:
             scope_readiness_summary=scope_readiness_summary,
             certificate_readiness_summary=certificate_readiness_summary,
             pre_run_readiness_gate=pre_run_readiness_gate,
+            uncertainty_report_pack=uncertainty_report_pack,
+            uncertainty_digest=uncertainty_digest,
+            uncertainty_rollup=uncertainty_rollup,
             uncertainty_method_readiness_summary=uncertainty_method_readiness_summary,
             audit_readiness_digest=audit_readiness_digest,
             compatibility_scan_summary=compatibility_scan_summary,
@@ -2086,6 +2140,72 @@ class AppFacade:
                 *(
                     [
                         t(
+                            "facade.results.result_summary.uncertainty_overview",
+                            value=uncertainty_overview_text,
+                            default=f"不确定度概览：{uncertainty_overview_text}",
+                        )
+                    ]
+                    if uncertainty_report_pack or uncertainty_digest or uncertainty_rollup
+                    else []
+                ),
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.uncertainty_budget_completeness",
+                            value=uncertainty_budget_completeness_text,
+                            default=f"预算完整度：{uncertainty_budget_completeness_text}",
+                        )
+                    ]
+                    if uncertainty_report_pack or uncertainty_digest or uncertainty_rollup
+                    else []
+                ),
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.uncertainty_top_contributors",
+                            value=uncertainty_top_contributors_text,
+                            default=f"主要不确定度贡献：{uncertainty_top_contributors_text}",
+                        )
+                    ]
+                    if uncertainty_report_pack or uncertainty_digest or uncertainty_rollup
+                    else []
+                ),
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.uncertainty_data_completeness",
+                            value=uncertainty_data_completeness_text,
+                            default=f"数据完整度：{uncertainty_data_completeness_text}",
+                        )
+                    ]
+                    if uncertainty_report_pack or uncertainty_digest or uncertainty_rollup
+                    else []
+                ),
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.uncertainty_rollup",
+                            value=uncertainty_rollup_text,
+                            default=f"不确定度 rollup：{uncertainty_rollup_text}",
+                        )
+                    ]
+                    if uncertainty_rollup
+                    else []
+                ),
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.uncertainty_non_claim",
+                            value=uncertainty_non_claim_text,
+                            default=f"不确定度 non-claim：{uncertainty_non_claim_text}",
+                        )
+                    ]
+                    if uncertainty_report_pack or uncertainty_digest or uncertainty_rollup
+                    else []
+                ),
+                *(
+                    [
+                        t(
                             "facade.results.result_summary.uncertainty_method_readiness",
                             value=uncertainty_method_readiness_text,
                             default=f"uncertainty / method readiness: {uncertainty_method_readiness_text}",
@@ -2247,6 +2367,14 @@ class AppFacade:
             "scope_readiness_summary": scope_readiness_summary,
             "certificate_readiness_summary": certificate_readiness_summary,
             "pre_run_readiness_gate": pre_run_readiness_gate,
+            "uncertainty_model": uncertainty_model,
+            "uncertainty_input_set": uncertainty_input_set,
+            "sensitivity_coefficient_set": sensitivity_coefficient_set,
+            "budget_case": budget_case,
+            "uncertainty_golden_cases": uncertainty_golden_cases,
+            "uncertainty_report_pack": uncertainty_report_pack,
+            "uncertainty_digest": uncertainty_digest,
+            "uncertainty_rollup": uncertainty_rollup,
             "uncertainty_method_readiness_summary": uncertainty_method_readiness_summary,
             "audit_readiness_digest": audit_readiness_digest,
             "run_artifact_index": run_artifact_index,
@@ -2362,6 +2490,9 @@ class AppFacade:
         scope_readiness_summary: dict[str, Any],
         certificate_readiness_summary: dict[str, Any],
         pre_run_readiness_gate: dict[str, Any],
+        uncertainty_report_pack: dict[str, Any],
+        uncertainty_digest: dict[str, Any],
+        uncertainty_rollup: dict[str, Any],
         uncertainty_method_readiness_summary: dict[str, Any],
         audit_readiness_digest: dict[str, Any],
         compatibility_scan_summary: dict[str, Any],
@@ -2390,6 +2521,9 @@ class AppFacade:
             scope_readiness_summary=scope_readiness_summary,
             certificate_readiness_summary=certificate_readiness_summary,
             pre_run_readiness_gate=pre_run_readiness_gate,
+            uncertainty_report_pack=uncertainty_report_pack,
+            uncertainty_digest=uncertainty_digest,
+            uncertainty_rollup=uncertainty_rollup,
             uncertainty_method_readiness_summary=uncertainty_method_readiness_summary,
             audit_readiness_digest=audit_readiness_digest,
             compatibility_scan_summary=compatibility_scan_summary,
@@ -2399,6 +2533,7 @@ class AppFacade:
             diagnostics=review_diagnostics,
             compatibility_rollup=compatibility_rollup,
             recognition_scope_rollup=recognition_scope_rollup,
+            uncertainty_rollup=uncertainty_rollup,
         )
         readiness_text = self._humanize_ui_summary(
             str(acceptance_readiness_summary.get("summary_display") or acceptance_readiness_summary.get("summary") or t("common.none"))
@@ -2870,6 +3005,9 @@ class AppFacade:
         scope_readiness_summary: dict[str, Any],
         certificate_readiness_summary: dict[str, Any],
         pre_run_readiness_gate: dict[str, Any],
+        uncertainty_report_pack: dict[str, Any],
+        uncertainty_digest: dict[str, Any],
+        uncertainty_rollup: dict[str, Any],
         uncertainty_method_readiness_summary: dict[str, Any],
         audit_readiness_digest: dict[str, Any],
         compatibility_scan_summary: dict[str, Any],
@@ -3057,6 +3195,18 @@ class AppFacade:
             (
                 recognition_readiness.PRE_RUN_READINESS_GATE_FILENAME,
                 dict(pre_run_readiness_gate or {}),
+            ),
+            (
+                recognition_readiness.UNCERTAINTY_REPORT_PACK_FILENAME,
+                dict(uncertainty_report_pack or {}),
+            ),
+            (
+                recognition_readiness.UNCERTAINTY_DIGEST_FILENAME,
+                dict(uncertainty_digest or {}),
+            ),
+            (
+                recognition_readiness.UNCERTAINTY_ROLLUP_FILENAME,
+                dict(uncertainty_rollup or {}),
             ),
             (
                 recognition_readiness.UNCERTAINTY_METHOD_READINESS_SUMMARY_FILENAME,
@@ -4805,6 +4955,7 @@ class AppFacade:
         diagnostics: Optional[dict[str, Any]] = None,
         compatibility_rollup: Optional[dict[str, Any]] = None,
         recognition_scope_rollup: Optional[dict[str, Any]] = None,
+        uncertainty_rollup: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         expected_types = ("suite", "parity", "resilience", "workbench", "analytics")
         source_groups: dict[str, dict[str, Any]] = {}
@@ -4979,6 +5130,18 @@ class AppFacade:
                 default="范围/规则 rollup：{value}",
             )
         )
+        uncertainty_rollup_payload = dict(uncertainty_rollup or {})
+        uncertainty_summary = self._humanize_ui_summary(
+            t(
+                "facade.results.result_summary.uncertainty_rollup",
+                value=str(
+                    uncertainty_rollup_payload.get("rollup_summary_display")
+                    or uncertainty_rollup_payload.get("overview_display")
+                    or t("common.none")
+                ),
+                default="不确定度 rollup：{value}",
+            )
+        )
         summary_text = t(
             "results.review_center.index.summary",
             runs=len(source_labels),
@@ -5013,6 +5176,8 @@ class AppFacade:
             "compatibility_summary": compatibility_summary,
             "recognition_scope_rollup": recognition_scope_rollup_payload,
             "recognition_scope_summary": recognition_scope_summary,
+            "uncertainty_rollup": uncertainty_rollup_payload,
+            "uncertainty_summary": uncertainty_summary,
             "coverage_gaps_display": coverage_gaps_display,
             "source_kind_summary": source_kind_summary,
             "coverage_summary": coverage_summary,
@@ -5025,6 +5190,7 @@ class AppFacade:
                     coverage_summary,
                     compatibility_summary,
                     recognition_scope_summary,
+                    uncertainty_summary,
                     diagnostics_summary,
                 )
                 if str(fragment or "").strip()

@@ -377,6 +377,7 @@ def evaluate_absorbance_models(points: pd.DataFrame, config: Any) -> dict[str, p
                 "model_rank": 1,
                 "selection_strategy_requested": config.model_selection_strategy,
                 "selection_strategy_used": best_row["selection_strategy_used"],
+                "composite_score_enabled": config.enable_composite_score,
                 "selected_prediction_scope": best_row["score_source"],
                 "group_count": best_row["group_count"],
                 "validation_available": best_row["validation_available"],
@@ -425,7 +426,6 @@ def evaluate_absorbance_models(points: pd.DataFrame, config: Any) -> dict[str, p
 
     best_predictions = pd.DataFrame()
     if not residuals.empty and not selection.empty:
-        selected_ids = selection.set_index("analyzer_id")
         overall_rows = residuals[residuals["prediction_scope"] == "overall_fit"].copy()
         validation_rows = residuals[residuals["prediction_scope"] == "validation_oof"].copy()
         overall_rows = overall_rows.merge(
@@ -489,14 +489,33 @@ def evaluate_absorbance_models(points: pd.DataFrame, config: Any) -> dict[str, p
             best_predictions["best_validation_pred_ppm"] = np.nan
             best_predictions["best_validation_error_ppm"] = np.nan
 
-        best_predictions = best_predictions.merge(selection, on="analyzer_id", how="left")
+        best_predictions = best_predictions.merge(
+            selection[
+                [
+                    "analyzer_id",
+                    "best_absorbance_model",
+                    "best_absorbance_model_label",
+                    "composite_score",
+                    "selection_strategy_used",
+                    "selected_prediction_scope",
+                    "validation_available",
+                    "selection_reason",
+                ]
+            ],
+            on="analyzer_id",
+            how="left",
+        )
         best_predictions["selected_pred_ppm"] = best_predictions["best_validation_pred_ppm"].combine_first(
             best_predictions["best_overall_fit_pred_ppm"]
         )
         best_predictions["selected_error_ppm"] = best_predictions["best_validation_error_ppm"].combine_first(
             best_predictions["best_overall_fit_error_ppm"]
         )
-        best_predictions["selected_prediction_scope"] = best_predictions["selected_prediction_scope"].fillna("overall_fit")
+        best_predictions["selected_prediction_scope"] = np.where(
+            best_predictions["best_validation_pred_ppm"].notna(),
+            "validation_oof",
+            "overall_fit",
+        )
 
     return {
         "candidates": candidates,

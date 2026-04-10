@@ -585,6 +585,30 @@ def _base_final(absorbance_samples: pd.DataFrame, config: DebuggerConfig) -> tup
     return timeseries, point_summary, base_final_source
 
 
+def _fit_absorbance_models(
+    absorbance_points: pd.DataFrame,
+    config: DebuggerConfig,
+    output_dir: Path,
+) -> dict[str, pd.DataFrame]:
+    default_points = absorbance_points[absorbance_points["branch_id"] == config.default_branch_id()].copy()
+    model_results = evaluate_absorbance_models(default_points, config)
+    _frame_to_csv(output_dir / "step_06_absorbance_model_candidates.csv", model_results["candidates"])
+    _frame_to_csv(output_dir / "step_06_absorbance_model_scores.csv", model_results["scores"])
+    _frame_to_csv(output_dir / "step_06_absorbance_model_selection.csv", model_results["selection"])
+    _frame_to_csv(output_dir / "step_06_absorbance_model_coefficients.csv", model_results["coefficients"])
+    _frame_to_csv(output_dir / "step_06_absorbance_model_residuals.csv", model_results["residuals"])
+
+    plot_dir = output_dir / "step_06_absorbance_model_plots"
+    plot_dir.mkdir(parents=True, exist_ok=True)
+    best_predictions = model_results["best_predictions"]
+    plot_absorbance_model_fit_overall(best_predictions, plot_dir / "absorbance_model_fit_overall.png")
+    plot_absorbance_model_fit_by_temp(best_predictions, plot_dir / "absorbance_model_fit_by_temp.png")
+    plot_absorbance_model_residual_hist(best_predictions, plot_dir / "absorbance_model_residual_hist.png")
+    plot_absorbance_model_residual_vs_temp(best_predictions, plot_dir / "absorbance_model_residual_vs_temp.png")
+    plot_absorbance_model_residual_vs_target(best_predictions, plot_dir / "absorbance_model_residual_vs_target.png")
+    return model_results
+
+
 def _load_old_ratio_residuals(bundle: RunBundle) -> pd.DataFrame:
     rows: list[pd.DataFrame] = []
     for relative_path in bundle.list_files():
@@ -622,6 +646,7 @@ def _comparison_tables(
     filtered: pd.DataFrame,
     absorbance_samples: pd.DataFrame,
     absorbance_points: pd.DataFrame,
+    model_results: dict[str, pd.DataFrame],
     config: DebuggerConfig,
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame | list[str]]]:
     point_raw = (
@@ -674,17 +699,45 @@ def _comparison_tables(
         on=["analyzer", "point_row", "point_title"],
         how="left",
     )
+    best_predictions = model_results["best_predictions"].copy()
+    if not best_predictions.empty:
+        compare = compare.merge(
+            best_predictions[
+                [
+                    "analyzer_id",
+                    "point_title",
+                    "point_row",
+                    "best_absorbance_model",
+                    "best_absorbance_model_label",
+                    "selection_reason",
+                    "selected_prediction_scope",
+                    "best_overall_fit_pred_ppm",
+                    "best_overall_fit_error_ppm",
+                    "best_validation_pred_ppm",
+                    "best_validation_error_ppm",
+                    "selected_pred_ppm",
+                    "selected_error_ppm",
+                ]
+            ].rename(columns={"analyzer_id": "analyzer"}),
+            on=["analyzer", "point_title", "point_row"],
+            how="left",
+        )
+    else:
+        compare["best_absorbance_model"] = np.nan
+        compare["best_absorbance_model_label"] = np.nan
+        compare["selection_reason"] = np.nan
+        compare["selected_prediction_scope"] = np.nan
+        compare["best_overall_fit_pred_ppm"] = np.nan
+        compare["best_overall_fit_error_ppm"] = np.nan
+        compare["best_validation_pred_ppm"] = np.nan
+        compare["best_validation_error_ppm"] = np.nan
+        compare["selected_pred_ppm"] = np.nan
+        compare["selected_error_ppm"] = np.nan
 
-    compare["new_pred_ppm"] = np.nan
-    for analyzer, subset in compare.groupby("analyzer"):
-        fit_input = subset.dropna(subset=["A_mean", "target_co2_ppm"])
-        if fit_input.empty:
-            continue
-        fit = fit_linear(fit_input["A_mean"], fit_input["target_co2_ppm"])
-        compare.loc[fit_input.index, "new_pred_ppm"] = fit.evaluate(fit_input["A_mean"])
+    compare["new_pred_ppm"] = compare["selected_pred_ppm"]
     compare["old_pred_ppm"] = compare["old_prediction_ppm"]
     compare["old_error"] = compare["old_pred_ppm"] - compare["target_co2_ppm"]
-    compare["new_error"] = compare["new_pred_ppm"] - compare["target_co2_ppm"]
+    compare["new_error"] = compare["selected_error_ppm"].combine_first(compare["new_pred_ppm"] - compare["target_co2_ppm"])
     compare["winner_for_point"] = compare.apply(
         lambda row: (
             "old_chain"
@@ -743,6 +796,12 @@ def _comparison_tables(
             "pressure_source",
             "temperature_source",
             "ratio_source_selected",
+            "best_absorbance_model",
+            "best_absorbance_model_label",
+            "selection_reason",
+            "selected_prediction_scope",
+            "best_overall_fit_pred_ppm",
+            "best_validation_pred_ppm",
             "point_title",
             "point_row",
             "point_tag",
@@ -751,7 +810,7 @@ def _comparison_tables(
             "R0_T_mean",
         ]
     ].copy()
-    comparison_outputs = build_comparison_outputs(point_reconciliation)
+    comparison_outputs = build_comparison_outputs(point_reconciliation, model_results["selection"])
     return point_reconciliation, comparison_outputs
 
 
@@ -764,6 +823,7 @@ def _report_tables(
     temp_coeffs: pd.DataFrame,
     pressure_coeffs: pd.DataFrame,
     r0_coeffs: pd.DataFrame,
+    model_results: dict[str, pd.DataFrame],
     comparison_outputs: dict[str, pd.DataFrame | list[str]],
     validation_table: pd.DataFrame,
     base_final_enabled: bool,
@@ -785,6 +845,8 @@ def _report_tables(
     regression_overall = comparison_outputs["regression_overall"]
     auto_conclusions = comparison_outputs["auto_conclusions"]
     conclusion_lines = comparison_outputs["conclusion_lines"]
+    absorbance_model_scores = model_results["scores"]
+    absorbance_model_selection = model_results["selection"]
     return {
         "run_name": bundle.source_path.stem,
         "input_path": str(bundle.source_path),
@@ -804,11 +866,18 @@ def _report_tables(
             "R0(T) default": "R0(T) = c0 + c1*T + c2*T^2",
             "Absorbance main": "A_raw = -ln(clamp(R_in, eps) / clamp(R0(T_use), eps)) * (P_ref / clamp(P_use, P_min))",
             "Absorbance alt": "A_alt = -ln(R_in / R0(T_use)) / P_use",
+            "Absorbance model A": "ppm = b0 + b1*A",
+            "Absorbance model B": "ppm = b0 + b1*A + b2*A^2",
+            "Absorbance model C": "ppm = b0 + b1*A + b2*A^2 + b3*A^3",
+            "Absorbance model D": "ppm = b0 + b1*A + b2*A^2 + b3*T + b4*T^2",
+            "Absorbance model E": "ppm = b0 + b1*A + b2*A^2 + b3*T + b4*A*T",
         },
         "validation_table": validation_table,
         "temperature_coefficients": temp_coeffs,
         "pressure_coefficients": pressure_coeffs,
         "r0_coefficients": main_r0,
+        "absorbance_model_scores": absorbance_model_scores,
+        "absorbance_model_selection": absorbance_model_selection,
         "overview_summary": overview_summary,
         "by_temperature": by_temperature,
         "by_concentration_range": by_concentration,
@@ -823,13 +892,13 @@ def _report_tables(
             "Pressure handling is offset-only in V1 of this debugger; it does not fit a full pressure polynomial yet.",
             "GA04 is detected but excluded from the main fit path by default because the run marks it missing for most points.",
             "Base/final is sample-order based and stays disabled by default for static calibration review.",
-            "The new-chain ppm comparison currently uses a simple linear diagnostic fit on A_mean, not a production-grade absorbance calibration model.",
+            "The new-chain comparison now uses grouped validation of bounded absorbance candidates, but it is still limited by this run's sparse temperature-zero coverage and single-pressure emphasis.",
         ],
         "next_steps": [
             "Add a 40 C / 0 ppm CO2 point so R0(T) can be anchored instead of extrapolated there.",
             "Collect an explicit multi-pressure CO2 sweep before enabling a full pressure polynomial.",
             "Repair or re-enable GA04 data availability before adding it to the main absorbance fit set.",
-            "If continuous decoded timeseries becomes available, upgrade step 07 from sample-order smoothing to real low-pass diagnostics.",
+            "If the absorbance model improves zero drift but still loses overall, add an external validation run before considering any production migration.",
         ],
     }
 
@@ -924,6 +993,7 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
     absorbance_samples, absorbance_points = _compute_absorbance(filtered, config, r0_lookup)
     _frame_to_csv(config.output_dir / "step_06_absorbance_samples.csv", absorbance_samples)
     _frame_to_csv(config.output_dir / "step_06_absorbance_points.csv", absorbance_points)
+    model_results = _fit_absorbance_models(absorbance_points, config, config.output_dir)
 
     timeseries, base_final_points, base_final_source = _base_final(absorbance_samples, config)
     _frame_to_csv(config.output_dir / "step_07_absorbance_timeseries.csv", timeseries)
@@ -934,7 +1004,18 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         config.enable_base_final,
     )
 
-    point_reconciliation, comparison_outputs = _comparison_tables(bundle, filtered, absorbance_samples, absorbance_points, config)
+    point_reconciliation, comparison_outputs = _comparison_tables(
+        bundle,
+        filtered,
+        absorbance_samples,
+        absorbance_points,
+        model_results,
+        config,
+    )
+    plot_absorbance_model_old_vs_new(
+        point_reconciliation,
+        config.output_dir / "step_06_absorbance_model_plots" / "absorbance_model_old_vs_new.png",
+    )
     compare_plots_dir = config.output_dir / "step_08_compare_plots"
     compare_plots_dir.mkdir(parents=True, exist_ok=True)
     default_sample_compare = absorbance_samples[absorbance_samples["branch_id"] == config.default_branch_id()].copy()
@@ -973,6 +1054,8 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
     write_workbook(
         config.output_dir / "step_08_old_vs_new_compare.xlsx",
         {
+            "abs_model_selection": model_results["selection"],
+            "abs_model_scores": model_results["scores"],
             "overview_summary": comparison_outputs["overview_summary"],
             "by_temperature": comparison_outputs["by_temperature"],
             "by_concentration": comparison_outputs["by_concentration_range"],
@@ -1024,6 +1107,7 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         temp_coeffs=temp_coeffs,
         pressure_coeffs=pressure_coeffs,
         r0_coeffs=r0_coeffs,
+        model_results=model_results,
         comparison_outputs=comparison_outputs,
         validation_table=validation_table,
         base_final_enabled=config.enable_base_final,
@@ -1040,6 +1124,9 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
             "temperature_fit": temp_coeffs,
             "pressure_fit": pressure_coeffs,
             "r0_fit": r0_coeffs,
+            "abs_model_scores": model_results["scores"],
+            "abs_model_selection": model_results["selection"],
+            "abs_model_coeffs": model_results["coefficients"],
             "overview_summary": comparison_outputs["overview_summary"],
             "by_temperature": comparison_outputs["by_temperature"],
             "by_concentration": comparison_outputs["by_concentration_range"],
@@ -1058,6 +1145,7 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         "filtered": filtered,
         "excluded": excluded,
         "validation_table": validation_table,
+        "model_results": model_results,
         "comparison_outputs": comparison_outputs,
         "point_reconciliation": point_reconciliation,
     }

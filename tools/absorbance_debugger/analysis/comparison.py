@@ -102,7 +102,10 @@ def _regression_rows(frame: pd.DataFrame, analyzer_id: str, scope: str, temp_c: 
     return rows
 
 
-def build_comparison_outputs(point_reconciliation: pd.DataFrame) -> dict[str, pd.DataFrame | list[str]]:
+def build_comparison_outputs(
+    point_reconciliation: pd.DataFrame,
+    selection_table: pd.DataFrame | None = None,
+) -> dict[str, pd.DataFrame | list[str]]:
     """Build step-08 comparison tables and automatic conclusions."""
 
     compare = point_reconciliation.copy()
@@ -119,8 +122,14 @@ def build_comparison_outputs(point_reconciliation: pd.DataFrame) -> dict[str, pd
     regression_by_temp_rows: list[dict[str, Any]] = []
     conclusion_lines: list[str] = []
     auto_conclusion_rows: list[dict[str, Any]] = []
+    selection_table = selection_table.copy() if selection_table is not None else pd.DataFrame()
 
     for analyzer_id, analyzer_df in compare.groupby("analyzer_id"):
+        selection_row = (
+            selection_table[selection_table["analyzer_id"] == analyzer_id].iloc[0]
+            if not selection_table.empty and (selection_table["analyzer_id"] == analyzer_id).any()
+            else None
+        )
         old_metrics = _metrics(analyzer_df["old_error"])
         new_metrics = _metrics(analyzer_df["new_error"])
         winner_overall = _winner_from_metric_rows(old_metrics, new_metrics)
@@ -198,14 +207,19 @@ def build_comparison_outputs(point_reconciliation: pd.DataFrame) -> dict[str, pd
         if not high_df.empty:
             winner_high = str(high_df.iloc[0]["winner_in_range"])
 
-        old_wins = sum(item == "old_chain" for item in (winner_overall, winner_zero, winner_temp_stability, winner_high))
-        new_wins = sum(item == "new_chain" for item in (winner_overall, winner_zero, winner_temp_stability, winner_high))
-        if old_wins >= 3:
-            recommendation = "Keep old chain as the release baseline; use new chain for diagnostics and model development."
-        elif new_wins >= 3:
-            recommendation = "New chain is consistently stronger; continue validation toward a dedicated absorbance calibration model."
+        comparison_winners = (winner_overall, winner_zero, winner_temp_stability, winner_high)
+        old_wins = sum(item == "old_chain" for item in comparison_winners)
+        new_wins = sum(item == "new_chain" for item in comparison_winners)
+        if new_wins >= 3:
+            recommendation = "Absorbance model is now the stronger offline candidate; move to next-stage offline validation before any production decision."
+        elif winner_zero == "new_chain" and winner_overall != "new_chain":
+            recommendation = "Absorbance model improved zero drift, but old_chain still wins the broader accuracy benchmark."
+        elif winner_temp_stability == "new_chain" and winner_overall != "new_chain":
+            recommendation = "Absorbance model improved temperature stability, but old_chain remains the better overall benchmark."
+        elif old_wins >= 3:
+            recommendation = "old_chain remains production benchmark; keep absorbance model in offline challenge mode."
         else:
-            recommendation = "Mixed result; keep old chain for release and use new chain for transparent troubleshooting only."
+            recommendation = "Mixed result; keep old_chain for release decisions and continue absorbance model iteration offline."
 
         overview_rows.append(
             {
@@ -221,14 +235,27 @@ def build_comparison_outputs(point_reconciliation: pd.DataFrame) -> dict[str, pd
                 "winner_overall": winner_overall,
                 "winner_zero": winner_zero,
                 "winner_temp_stability": winner_temp_stability,
+                "best_absorbance_model": selection_row["best_absorbance_model"] if selection_row is not None else "",
                 "recommendation": recommendation,
             }
         )
         regression_overall_rows.extend(_regression_rows(analyzer_df, analyzer_id, "overall", None))
         conclusion_lines.append(
-            f"{analyzer_id}: overall={winner_overall}, zero={winner_zero}, temp stability={winner_temp_stability}, "
+            f"{analyzer_id}: best_model={selection_row['best_absorbance_model'] if selection_row is not None else 'n/a'}, "
+            f"overall={winner_overall}, zero={winner_zero}, temp stability={winner_temp_stability}, "
             f"high concentration={winner_high}. {recommendation}"
         )
+        if selection_row is not None:
+            auto_conclusion_rows.append(
+                {
+                    "category": f"best_absorbance_model:{analyzer_id}",
+                    "winner": str(selection_row["best_absorbance_model"]),
+                    "summary": (
+                        f"{analyzer_id} selected {selection_row['best_absorbance_model']} "
+                        f"({selection_row['best_absorbance_model_label']}). {selection_row['selection_reason']}"
+                    ),
+                }
+            )
 
     overview_df = pd.DataFrame(overview_rows)
     by_temp_df = pd.DataFrame(by_temp_rows).sort_values(["analyzer_id", "temp_c"], ignore_index=True)
@@ -254,12 +281,17 @@ def build_comparison_outputs(point_reconciliation: pd.DataFrame) -> dict[str, pd
     overall_winner = _category_winner("winner_overall")
     zero_winner = _category_winner("winner_zero")
     temp_winner = _category_winner("winner_temp_stability")
-    if [overall_winner, zero_winner, temp_winner, high_conc_winner].count("old_chain") >= 3:
-        top_recommendation = "Keep the old ratio-based chain as the benchmark; treat the new absorbance chain as a debug surface."
-    elif [overall_winner, zero_winner, temp_winner, high_conc_winner].count("new_chain") >= 3:
-        top_recommendation = "The new absorbance chain is trending stronger overall; expand validation and consider a dedicated absorbance prediction model."
+    overall_votes = [overall_winner, zero_winner, temp_winner, high_conc_winner]
+    if overall_votes.count("new_chain") >= 3:
+        top_recommendation = "absorbance model is ready for next-stage offline validation."
+    elif zero_winner == "new_chain" and overall_winner != "new_chain":
+        top_recommendation = "absorbance model improved but still not production-ready; it only beats old_chain on zero drift."
+    elif temp_winner == "new_chain" and overall_winner != "new_chain":
+        top_recommendation = "absorbance model now beats old_chain on temperature stability, but not overall."
+    elif overall_votes.count("old_chain") >= 3:
+        top_recommendation = "old_chain remains production benchmark."
     else:
-        top_recommendation = "Results are mixed. Keep the old chain for release decisions and use the new chain to explain failure modes."
+        top_recommendation = "Results are mixed. Keep old_chain for release decisions and continue offline absorbance validation."
 
     auto_conclusion_rows.extend(
         [

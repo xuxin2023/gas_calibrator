@@ -1593,7 +1593,13 @@
         "certificate_lifecycle_overview": "Certificate lifecycle overview: {value}",
         "pre_run_readiness_gate": "Pre-run readiness gate: {value}",
         "pre_run_blocking_digest": "Blocking digest: {value}",
-        "pre_run_warning_digest": "Warning digest: {value}"
+        "pre_run_warning_digest": "Warning digest: {value}",
+        "uncertainty_overview": "Uncertainty overview: {value}",
+        "uncertainty_budget_completeness": "Budget completeness: {value}",
+        "uncertainty_top_contributors": "Top uncertainty contributors: {value}",
+        "uncertainty_data_completeness": "Uncertainty data completeness: {value}",
+        "uncertainty_rollup": "Uncertainty rollup: {value}",
+        "uncertainty_non_claim": "Uncertainty non-claim: {value}"
       }
     },
     "route_status": {
@@ -2097,7 +2103,12 @@
           "scope_reference_assets_line": "Scope reference assets: {value}",
           "decision_rule_dependency_line": "Decision rule dependencies: {value}",
           "warning_items_line": "Warning items: {value}",
-          "reviewer_action_summary_line": "Reviewer actions: {value}"
+          "reviewer_action_summary_line": "Reviewer actions: {value}",
+          "uncertainty_overview_line": "Uncertainty overview: {value}",
+          "budget_component_summary_line": "Budget component summary: {value}",
+          "top_contributors_line": "Top uncertainty contributors: {value}",
+          "data_completeness_line": "Uncertainty data completeness: {value}",
+          "placeholder_completeness_line": "Placeholder completeness: {value}"
         },
         "boundary": "Boundary"
       },

@@ -1592,7 +1592,13 @@
         "certificate_lifecycle_overview": "?????????{value}",
         "pre_run_readiness_gate": "???????{value}",
         "pre_run_blocking_digest": "?????{value}",
-        "pre_run_warning_digest": "?????{value}"
+        "pre_run_warning_digest": "?????{value}",
+        "uncertainty_overview": "不确定度概览：{value}",
+        "uncertainty_budget_completeness": "预算完整度：{value}",
+        "uncertainty_top_contributors": "主要不确定度贡献：{value}",
+        "uncertainty_data_completeness": "数据完整度：{value}",
+        "uncertainty_rollup": "不确定度 rollup：{value}",
+        "uncertainty_non_claim": "不确定度 non-claim：{value}"
       }
     },
     "route_status": {
@@ -2092,7 +2098,12 @@
           "scope_reference_assets_line": "?????????{value}",
           "decision_rule_dependency_line": "???????{value}",
           "warning_items_line": "????{value}",
-          "reviewer_action_summary_line": "???????{value}"
+          "reviewer_action_summary_line": "???????{value}",
+          "uncertainty_overview_line": "不确定度概览：{value}",
+          "budget_component_summary_line": "预算组件摘要：{value}",
+          "top_contributors_line": "主要不确定度贡献：{value}",
+          "data_completeness_line": "数据完整度：{value}",
+          "placeholder_completeness_line": "占位完整度：{value}"
         },
         "boundary": "边界"
       },
