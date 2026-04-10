@@ -1213,7 +1213,7 @@ def build_software_validation_wp5_artifacts(
         artifact_role="diagnostic_analysis",
         title_text="Audit Readiness Digest",
         reviewer_note=audit_readiness_reviewer_note,
-        summary_text="Software validation and audit readiness remain reviewer-only in Step 2.",
+        summary_text="software validation / audit readiness remain reviewer-only in Step 2.",
         summary_lines=[
             f"traceability completeness: {traceability_completeness}",
             f"artifact hash registry: {len(hash_registry_entries)} entries",
@@ -1245,7 +1245,7 @@ def build_software_validation_wp5_artifacts(
             "non_claim_note": non_claim_note,
         },
         digest=_digest(
-            summary="Software validation and audit readiness remain reviewer-only in Step 2.",
+            summary="software validation / audit readiness remain reviewer-only in Step 2.",
             scope_overview_summary=scope_id,
             decision_rule_summary=decision_rule_id,
             conformity_boundary_summary=non_claim_note,
