@@ -46,6 +46,22 @@ METROLOGY_TRACEABILITY_STUB_FILENAME = "metrology_traceability_stub.json"
 METROLOGY_TRACEABILITY_STUB_MARKDOWN_FILENAME = "metrology_traceability_stub.md"
 UNCERTAINTY_BUDGET_STUB_FILENAME = "uncertainty_budget_stub.json"
 UNCERTAINTY_BUDGET_STUB_MARKDOWN_FILENAME = "uncertainty_budget_stub.md"
+UNCERTAINTY_MODEL_FILENAME = "uncertainty_model.json"
+UNCERTAINTY_MODEL_MARKDOWN_FILENAME = "uncertainty_model.md"
+UNCERTAINTY_INPUT_SET_FILENAME = "uncertainty_input_set.json"
+UNCERTAINTY_INPUT_SET_MARKDOWN_FILENAME = "uncertainty_input_set.md"
+SENSITIVITY_COEFFICIENT_SET_FILENAME = "sensitivity_coefficient_set.json"
+SENSITIVITY_COEFFICIENT_SET_MARKDOWN_FILENAME = "sensitivity_coefficient_set.md"
+BUDGET_CASE_FILENAME = "budget_case.json"
+BUDGET_CASE_MARKDOWN_FILENAME = "budget_case.md"
+UNCERTAINTY_GOLDEN_CASES_FILENAME = "uncertainty_golden_cases.json"
+UNCERTAINTY_GOLDEN_CASES_MARKDOWN_FILENAME = "uncertainty_golden_cases.md"
+UNCERTAINTY_REPORT_PACK_FILENAME = "uncertainty_report_pack.json"
+UNCERTAINTY_REPORT_PACK_MARKDOWN_FILENAME = "uncertainty_report_pack.md"
+UNCERTAINTY_DIGEST_FILENAME = "uncertainty_digest.json"
+UNCERTAINTY_DIGEST_MARKDOWN_FILENAME = "uncertainty_digest.md"
+UNCERTAINTY_ROLLUP_FILENAME = "uncertainty_rollup.json"
+UNCERTAINTY_ROLLUP_MARKDOWN_FILENAME = "uncertainty_rollup.md"
 METHOD_CONFIRMATION_PROTOCOL_FILENAME = "method_confirmation_protocol.json"
 METHOD_CONFIRMATION_PROTOCOL_MARKDOWN_FILENAME = "method_confirmation_protocol.md"
 METHOD_CONFIRMATION_MATRIX_FILENAME = "method_confirmation_matrix.json"
@@ -64,6 +80,9 @@ RECOGNITION_READINESS_SUMMARY_FILENAMES = (
     CERTIFICATE_LIFECYCLE_SUMMARY_FILENAME,
     CERTIFICATE_READINESS_SUMMARY_FILENAME,
     PRE_RUN_READINESS_GATE_FILENAME,
+    UNCERTAINTY_REPORT_PACK_FILENAME,
+    UNCERTAINTY_DIGEST_FILENAME,
+    UNCERTAINTY_ROLLUP_FILENAME,
     UNCERTAINTY_METHOD_READINESS_SUMMARY_FILENAME,
     AUDIT_READINESS_DIGEST_FILENAME,
 )
@@ -99,6 +118,26 @@ _RECOGNITION_ARTIFACT_ANCHORS: dict[str, dict[str, str]] = {
         "anchor_id": "metrology-traceability-stub",
         "anchor_label": "Metrology traceability stub",
     },
+    "uncertainty_model": {"anchor_id": "uncertainty-model", "anchor_label": "Uncertainty model"},
+    "uncertainty_input_set": {
+        "anchor_id": "uncertainty-input-set",
+        "anchor_label": "Uncertainty input set",
+    },
+    "sensitivity_coefficient_set": {
+        "anchor_id": "sensitivity-coefficient-set",
+        "anchor_label": "Sensitivity coefficient set",
+    },
+    "budget_case": {"anchor_id": "budget-case", "anchor_label": "Budget case"},
+    "uncertainty_golden_cases": {
+        "anchor_id": "uncertainty-golden-cases",
+        "anchor_label": "Uncertainty golden cases",
+    },
+    "uncertainty_report_pack": {
+        "anchor_id": "uncertainty-report-pack",
+        "anchor_label": "Uncertainty report pack",
+    },
+    "uncertainty_digest": {"anchor_id": "uncertainty-digest", "anchor_label": "Uncertainty digest"},
+    "uncertainty_rollup": {"anchor_id": "uncertainty-rollup", "anchor_label": "Uncertainty rollup"},
     "uncertainty_budget_stub": {"anchor_id": "uncertainty-budget-stub", "anchor_label": "Uncertainty budget stub"},
     "method_confirmation_protocol": {
         "anchor_id": "method-confirmation-protocol",
@@ -148,7 +187,15 @@ _RECOGNITION_NEXT_ARTIFACT_DEFAULTS: dict[str, list[str]] = {
     "certificate_readiness_summary": ["pre_run_readiness_gate", "metrology_traceability_stub"],
     "pre_run_readiness_gate": ["metrology_traceability_stub", "certificate_readiness_summary"],
     "metrology_traceability_stub": ["certificate_readiness_summary", "uncertainty_method_readiness_summary"],
-    "uncertainty_budget_stub": ["method_confirmation_protocol", "uncertainty_method_readiness_summary"],
+    "uncertainty_model": ["uncertainty_input_set", "sensitivity_coefficient_set"],
+    "uncertainty_input_set": ["sensitivity_coefficient_set", "budget_case"],
+    "sensitivity_coefficient_set": ["budget_case", "uncertainty_report_pack"],
+    "budget_case": ["uncertainty_golden_cases", "uncertainty_report_pack"],
+    "uncertainty_golden_cases": ["uncertainty_report_pack", "uncertainty_digest"],
+    "uncertainty_report_pack": ["uncertainty_digest", "uncertainty_rollup"],
+    "uncertainty_digest": ["uncertainty_rollup", "uncertainty_method_readiness_summary"],
+    "uncertainty_rollup": ["uncertainty_method_readiness_summary", "audit_readiness_digest"],
+    "uncertainty_budget_stub": ["uncertainty_report_pack", "uncertainty_rollup"],
     "method_confirmation_protocol": ["method_confirmation_matrix", "uncertainty_method_readiness_summary"],
     "method_confirmation_matrix": ["uncertainty_method_readiness_summary", "software_validation_traceability_matrix"],
     "uncertainty_method_readiness_summary": ["certificate_readiness_summary", "audit_readiness_digest"],
@@ -185,6 +232,38 @@ _RECOGNITION_BLOCKER_DEFAULTS: dict[str, list[str]] = {
     "metrology_traceability_stub": [
         "certificate-backed release chain is not closed",
         "traceability rows remain stub-only",
+    ],
+    "uncertainty_model": [
+        "uncertainty model remains skeleton-only",
+        "scope/readiness mapping is available but formal metrology modeling is deferred",
+    ],
+    "uncertainty_input_set": [
+        "input set rows remain simulated placeholders only",
+        "released uncertainty input evidence is not attached",
+    ],
+    "sensitivity_coefficient_set": [
+        "sensitivity coefficients are reviewer placeholders only",
+        "writeback/rounding coefficients are not validated against real instruments",
+    ],
+    "budget_case": [
+        "budget cases remain reviewer-only and cannot produce formal uncertainty declarations",
+        "golden cases are examples and not accredited method evidence",
+    ],
+    "uncertainty_golden_cases": [
+        "golden cases remain artifact-based reviewer examples only",
+        "simulation does not create accredited uncertainty exemplars",
+    ],
+    "uncertainty_report_pack": [
+        "report pack remains readiness mapping only",
+        "no formal compliance or conformity gate is closed here",
+    ],
+    "uncertainty_digest": [
+        "uncertainty digest remains reviewer-facing only",
+        "top contributors are placeholder rankings and not released declarations",
+    ],
+    "uncertainty_rollup": [
+        "rollup remains sidecar-first reviewer evidence",
+        "default chain stays file-backed and non-claim only",
     ],
     "uncertainty_budget_stub": [
         "uncertainty sources are placeholders only",
@@ -240,6 +319,30 @@ _RECOGNITION_MISSING_EVIDENCE_DEFAULTS: dict[str, list[str]] = {
     ],
     "metrology_traceability_stub": [
         "traceability chain is not backed by released certificates",
+    ],
+    "uncertainty_model": [
+        "formal uncertainty model approval and released coefficient governance remain outside Step 2",
+    ],
+    "uncertainty_input_set": [
+        "input quantity evidence remains simulated/example-only",
+    ],
+    "sensitivity_coefficient_set": [
+        "sensitivity coefficients are placeholders and not a released solver output",
+    ],
+    "budget_case": [
+        "combined/expanded uncertainty values remain placeholder examples only",
+    ],
+    "uncertainty_golden_cases": [
+        "golden cases are reviewer-only examples and not recognition samples",
+    ],
+    "uncertainty_report_pack": [
+        "report pack cannot be used for formal uncertainty or conformity claims",
+    ],
+    "uncertainty_digest": [
+        "digest remains reviewer-facing only and does not close formal readiness",
+    ],
+    "uncertainty_rollup": [
+        "rollup remains non-primary evidence and cannot replace formal uncertainty governance",
     ],
     "uncertainty_budget_stub": [
         "input uncertainties and combined budgets remain placeholders only",
