@@ -29,6 +29,9 @@ class DatabaseReadyRecognitionScopeRepositoryStub:
         return {
             "scope_definition_pack": {},
             "decision_rule_profile": {},
+            "reference_asset_registry": {},
+            "certificate_lifecycle_summary": {},
+            "pre_run_readiness_gate": {},
             "recognition_scope_rollup": {
                 "schema_version": RECOGNITION_SCOPE_REPOSITORY_SCHEMA_VERSION,
                 "run_dir": str(self.run_dir),
@@ -84,10 +87,37 @@ class FileBackedRecognitionScopeRepository:
             artifact_type="decision_rule_profile",
             title_text="Decision Rule Profile",
         )
-        rollup = self._build_rollup(scope_payload, decision_payload)
+        reference_asset_registry = self._load_payload(
+            recognition_readiness.REFERENCE_ASSET_REGISTRY_FILENAME,
+            "reference_asset_registry",
+            artifact_type="reference_asset_registry",
+            title_text="Reference Asset Registry",
+        )
+        certificate_lifecycle_summary = self._load_payload(
+            recognition_readiness.CERTIFICATE_LIFECYCLE_SUMMARY_FILENAME,
+            "certificate_lifecycle_summary",
+            artifact_type="certificate_lifecycle_summary",
+            title_text="Certificate Lifecycle Summary",
+        )
+        pre_run_readiness_gate = self._load_payload(
+            recognition_readiness.PRE_RUN_READINESS_GATE_FILENAME,
+            "pre_run_readiness_gate",
+            artifact_type="pre_run_readiness_gate",
+            title_text="Pre-run Readiness Gate",
+        )
+        rollup = self._build_rollup(
+            scope_payload,
+            decision_payload,
+            reference_asset_registry,
+            certificate_lifecycle_summary,
+            pre_run_readiness_gate,
+        )
         return {
             "scope_definition_pack": scope_payload,
             "decision_rule_profile": decision_payload,
+            "reference_asset_registry": reference_asset_registry,
+            "certificate_lifecycle_summary": certificate_lifecycle_summary,
+            "pre_run_readiness_gate": pre_run_readiness_gate,
             "recognition_scope_rollup": rollup,
         }
 
@@ -289,7 +319,14 @@ class FileBackedRecognitionScopeRepository:
         payload["not_real_acceptance_evidence"] = bool(payload.get("not_real_acceptance_evidence", True))
         return payload
 
-    def _build_rollup(self, scope_payload: dict[str, Any], decision_payload: dict[str, Any]) -> dict[str, Any]:
+    def _build_rollup(
+        self,
+        scope_payload: dict[str, Any],
+        decision_payload: dict[str, Any],
+        reference_asset_registry: dict[str, Any],
+        certificate_lifecycle_summary: dict[str, Any],
+        pre_run_readiness_gate: dict[str, Any],
+    ) -> dict[str, Any]:
         compatibility_overview = dict(self.compatibility_scan_summary.get("compatibility_overview") or {})
         reader_mode = str(
             compatibility_overview.get("current_reader_mode")
@@ -303,15 +340,49 @@ class FileBackedRecognitionScopeRepository:
         )
         scope_digest = dict(scope_payload.get("digest") or {})
         decision_digest = dict(decision_payload.get("digest") or {})
+        registry_digest = dict(reference_asset_registry.get("digest") or {})
+        lifecycle_digest = dict(certificate_lifecycle_summary.get("digest") or {})
+        gate_digest = dict(pre_run_readiness_gate.get("digest") or {})
         generated_at = str(
             scope_payload.get("generated_at")
             or decision_payload.get("generated_at")
+            or reference_asset_registry.get("generated_at")
+            or certificate_lifecycle_summary.get("generated_at")
+            or pre_run_readiness_gate.get("generated_at")
             or datetime.now(timezone.utc).isoformat()
         )
         readiness_status = str(
-            scope_payload.get("readiness_status")
+            pre_run_readiness_gate.get("readiness_status")
+            or scope_payload.get("readiness_status")
             or decision_payload.get("readiness_status")
             or "ready_for_readiness_mapping"
+        )
+        asset_readiness_overview = str(
+            registry_digest.get("asset_readiness_overview")
+            or registry_digest.get("summary")
+            or "--"
+        )
+        certificate_lifecycle_overview = str(
+            lifecycle_digest.get("certificate_lifecycle_overview")
+            or lifecycle_digest.get("summary")
+            or "--"
+        )
+        pre_run_gate_status = str(
+            gate_digest.get("pre_run_gate_status")
+            or pre_run_readiness_gate.get("gate_status")
+            or "--"
+        )
+        blocking_digest = str(gate_digest.get("blocker_summary") or "--")
+        warning_digest = str(gate_digest.get("warning_summary") or "--")
+        scope_reference_assets_summary = str(
+            registry_digest.get("scope_reference_assets_summary")
+            or gate_digest.get("scope_reference_assets_summary")
+            or "--"
+        )
+        decision_rule_dependency_summary = str(
+            registry_digest.get("decision_rule_dependency_summary")
+            or gate_digest.get("decision_rule_dependency_summary")
+            or "--"
         )
         regenerate_recommended = bool(
             compatibility_overview.get("regenerate_recommended")
@@ -418,4 +489,10 @@ class FileBackedRecognitionScopeRepository:
             "decision_rule_profile": str(self.run_dir / recognition_readiness.DECISION_RULE_PROFILE_FILENAME),
             "decision_rule_profile_markdown": str(self.run_dir / recognition_readiness.DECISION_RULE_PROFILE_MARKDOWN_FILENAME),
             "scope_readiness_summary": str(self.run_dir / recognition_readiness.SCOPE_READINESS_SUMMARY_FILENAME),
+            "reference_asset_registry": str(self.run_dir / recognition_readiness.REFERENCE_ASSET_REGISTRY_FILENAME),
+            "reference_asset_registry_markdown": str(self.run_dir / recognition_readiness.REFERENCE_ASSET_REGISTRY_MARKDOWN_FILENAME),
+            "certificate_lifecycle_summary": str(self.run_dir / recognition_readiness.CERTIFICATE_LIFECYCLE_SUMMARY_FILENAME),
+            "certificate_lifecycle_summary_markdown": str(self.run_dir / recognition_readiness.CERTIFICATE_LIFECYCLE_SUMMARY_MARKDOWN_FILENAME),
+            "pre_run_readiness_gate": str(self.run_dir / recognition_readiness.PRE_RUN_READINESS_GATE_FILENAME),
+            "pre_run_readiness_gate_markdown": str(self.run_dir / recognition_readiness.PRE_RUN_READINESS_GATE_MARKDOWN_FILENAME),
         }

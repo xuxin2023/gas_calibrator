@@ -1583,42 +1583,334 @@ def _build_reference_asset_registry(
     return bundle
 
 
+def _build_certificate_lifecycle_summary(
+    *,
+    run_id: str,
+    scope_definition_pack: dict[str, Any],
+    decision_rule_profile: dict[str, Any],
+    reference_asset_registry: dict[str, Any],
+    path_map: dict[str, str],
+) -> dict[str, Any]:
+    scope_raw = dict(scope_definition_pack.get("raw") or {})
+    decision_raw = dict(decision_rule_profile.get("raw") or {})
+    scope_name = str(scope_raw.get("scope_name") or "Step 2 simulation reviewer scope package")
+    decision_rule_id = str(decision_raw.get("decision_rule_id") or "step2_readiness_reviewer_rule_v1")
+    assets = [dict(item) for item in list(dict(reference_asset_registry.get("raw") or {}).get("assets") or [])]
+    certificate_rows = [
+        {
+            "certificate_id": str(item.get("certificate_id") or f"UNBOUND-{item['asset_id']}"),
+            "certificate_version": str(item.get("certificate_version") or "missing"),
+            "asset_id": str(item.get("asset_id") or ""),
+            "asset_name": str(item.get("asset_name") or ""),
+            "asset_type": str(item.get("asset_type") or ""),
+            "certificate_status": str(item.get("certificate_status") or ""),
+            "valid_from": str(item.get("valid_from") or ""),
+            "valid_to": str(item.get("valid_to") or ""),
+            "certificate_origin": (
+                "external_calibration"
+                if str(item.get("asset_type") or "") != "analyzer_under_test"
+                else "not_applicable"
+            ),
+            "reviewer_stub_only": True,
+            "readiness_mapping_only": True,
+            "not_released_for_formal_claim": True,
+            "evidence_source": "simulated",
+            "not_real_acceptance_evidence": True,
+        }
+        for item in assets
+    ]
+    lot_bindings = [
+        {
+            "binding_id": "lot-binding-sg-001",
+            "asset_id": "asset-standard-gas-sg-001",
+            "asset_type": "standard_gas",
+            "lot_id": "LOT-SG-2026-CO2-01",
+            "certificate_id": "CERT-SG-2026-001",
+            "use_batch_id": "USE-BATCH-SIM-20260410-A",
+            "binding_status": "missing_binding_approval",
+            "reviewer_stub_only": True,
+            "readiness_mapping_only": True,
+            "not_released_for_formal_claim": True,
+            "evidence_source": "simulated",
+            "not_real_acceptance_evidence": True,
+        }
+    ]
+    intermediate_check_plans = [
+        {
+            "plan_id": "icp-pressure-stable-001",
+            "asset_id": "asset-pressure-gauge-pg-001",
+            "plan_name": "压力计期间核查计划",
+            "activity_origin": "internal_intermediate_check",
+            "due_at": "2026-04-01",
+            "status": "overdue",
+            "scope_link": scope_name,
+            "decision_rule_dependency": decision_rule_id,
+            "reviewer_stub_only": True,
+            "readiness_mapping_only": True,
+            "not_released_for_formal_claim": True,
+            "evidence_source": "simulated",
+            "not_real_acceptance_evidence": True,
+        },
+        {
+            "plan_id": "icp-standard-gas-001",
+            "asset_id": "asset-standard-gas-sg-001",
+            "plan_name": "标准气使用批次期间核查计划",
+            "activity_origin": "internal_intermediate_check",
+            "due_at": "2026-05-01",
+            "status": "scheduled",
+            "scope_link": scope_name,
+            "decision_rule_dependency": decision_rule_id,
+            "reviewer_stub_only": True,
+            "readiness_mapping_only": True,
+            "not_released_for_formal_claim": True,
+            "evidence_source": "simulated",
+            "not_real_acceptance_evidence": True,
+        },
+    ]
+    intermediate_check_records = [
+        {
+            "record_id": "icr-thermometer-001",
+            "asset_id": "asset-thermometer-th-001",
+            "activity_origin": "internal_intermediate_check",
+            "performed_at": "2026-03-30",
+            "status": "pass",
+            "reviewer_stub_only": True,
+            "readiness_mapping_only": True,
+            "not_released_for_formal_claim": True,
+            "evidence_source": "simulated",
+            "not_real_acceptance_evidence": True,
+        },
+        {
+            "record_id": "icr-humidity-generator-001",
+            "asset_id": "asset-humidity-generator-hg-001",
+            "activity_origin": "external_calibration",
+            "performed_at": "2025-04-01",
+            "status": "expired",
+            "reviewer_stub_only": True,
+            "readiness_mapping_only": True,
+            "not_released_for_formal_claim": True,
+            "evidence_source": "simulated",
+            "not_real_acceptance_evidence": True,
+        },
+    ]
+    out_of_tolerance_events = [
+        {
+            "event_id": "oot-temp-chamber-001",
+            "asset_id": "asset-temp-chamber-tc-001",
+            "activity_origin": "internal_intermediate_check",
+            "detected_at": "2026-04-07",
+            "event_status": "open",
+            "disposition": "reviewer_hold_only",
+            "impact_scope": ["water", "ambient"],
+            "reviewer_stub_only": True,
+            "readiness_mapping_only": True,
+            "not_released_for_formal_claim": True,
+            "evidence_source": "simulated",
+            "not_real_acceptance_evidence": True,
+        }
+    ]
+    missing_certificate_count = sum(
+        1 for row in certificate_rows if str(row.get("certificate_status") or "") in {"missing_certificate", "expired_certificate"}
+    )
+    lot_binding_gap_count = sum(1 for row in lot_bindings if str(row.get("binding_status") or "") != "approved")
+    overdue_check_count = sum(1 for row in intermediate_check_plans if str(row.get("status") or "") == "overdue")
+    oot_open_count = sum(1 for row in out_of_tolerance_events if str(row.get("event_status") or "") == "open")
+    lifecycle_overview = (
+        f"certificates {len(certificate_rows)} | lot bindings {len(lot_bindings)} | "
+        f"intermediate plans {len(intermediate_check_plans)} | OOT open {oot_open_count}"
+    )
+    digest = {
+        "summary": (
+            "certificate lifecycle | reviewer stub only | "
+            f"missing certificate/expiry {missing_certificate_count} | lot-binding gaps {lot_binding_gap_count} | "
+            f"overdue checks {overdue_check_count} | open OOT {oot_open_count}"
+        ),
+        "scope_overview_summary": scope_name,
+        "decision_rule_summary": f"{decision_rule_id} | lifecycle dependency mapping",
+        "conformity_boundary_summary": "certificate lifecycle is reviewer-facing only and not released for formal claim.",
+        "certificate_lifecycle_overview": lifecycle_overview,
+        "current_coverage_summary": (
+            f"scope linkage: {scope_name} | decision rule dependency: {decision_rule_id} | "
+            f"certificate rows: {len(certificate_rows)} | internal/external activities separated: yes"
+        ),
+        "missing_evidence_summary": (
+            "lot binding approval remains missing | expired / missing certificates remain in reviewer stub state | "
+            "out-of-tolerance closure remains open"
+        ),
+        "blocker_summary": (
+            "certificate lifecycle is not released for formal claim | reviewer stub records cannot replace external "
+            "certificate files or internal signed checks"
+        ),
+        "reviewer_next_step_digest": "close lot binding, overdue checks, and open OOT items before discussing any future formal path.",
+        "non_claim_digest": "lifecycle rows are simulated reviewer artifacts and cannot be treated as real acceptance evidence.",
+    }
+    bundle = _summary_raw(
+        run_id=run_id,
+        artifact_type="certificate_lifecycle_summary",
+        overall_status="failed" if (missing_certificate_count or lot_binding_gap_count or oot_open_count) else "diagnostic_only",
+        title_text="Certificate Lifecycle Summary",
+        reviewer_note=(
+            "Certificate lifecycle skeleton only. "
+            "It keeps external certificates, internal intermediate checks, lot bindings, and out-of-tolerance events separate for reviewer mapping."
+        ),
+        summary_text=digest["summary"],
+        summary_lines=[
+            f"certificate lifecycle overview: {lifecycle_overview}",
+            f"current coverage: {digest['current_coverage_summary']}",
+        ],
+        detail_lines=[
+            f"missing evidence: {digest['missing_evidence_summary']}",
+            f"blockers: {digest['blocker_summary']}",
+            f"reference_asset_registry: {path_map['reference_asset_registry']}",
+            *[f"boundary: {line}" for line in RECOGNITION_READINESS_BOUNDARY_STATEMENTS],
+        ],
+        anchor_id="certificate-lifecycle-summary",
+        anchor_label="Certificate lifecycle summary",
+        evidence_categories=["recognition_readiness", "certificate_lifecycle", "readiness_mapping"],
+        artifact_paths={
+            "scope_definition_pack": path_map["scope_definition_pack"],
+            "decision_rule_profile": path_map["decision_rule_profile"],
+            "reference_asset_registry": path_map["reference_asset_registry"],
+            "certificate_lifecycle_summary": path_map["certificate_lifecycle_summary"],
+            "certificate_lifecycle_summary_markdown": path_map["certificate_lifecycle_summary_markdown"],
+            "certificate_readiness_summary": path_map["certificate_readiness_summary"],
+            "pre_run_readiness_gate": path_map["pre_run_readiness_gate"],
+        },
+        body={
+            "certificate_rows": certificate_rows,
+            "lot_bindings": lot_bindings,
+            "intermediate_check_plans": intermediate_check_plans,
+            "intermediate_check_records": intermediate_check_records,
+            "out_of_tolerance_events": out_of_tolerance_events,
+            "reviewer_stub_only": True,
+            "readiness_mapping_only": True,
+            "not_released_for_formal_claim": True,
+            "not_ready_for_formal_claim": True,
+            "ready_for_readiness_mapping": True,
+            "primary_evidence_rewritten": False,
+            "linked_artifacts": {
+                "scope_definition_pack": path_map["scope_definition_pack"],
+                "decision_rule_profile": path_map["decision_rule_profile"],
+                "reference_asset_registry": path_map["reference_asset_registry"],
+                "certificate_readiness_summary": path_map["certificate_readiness_summary"],
+                "pre_run_readiness_gate": path_map["pre_run_readiness_gate"],
+            },
+            "limitation_note": (
+                "Lifecycle data is intentionally reviewer_stub_only / readiness_mapping_only. "
+                "It preserves file-artifact-first ingest and avoids a default DB or real enforcement path."
+            ),
+            "non_claim_note": (
+                "All lifecycle rows are simulated reviewer artifacts and are not released for formal claim, "
+                "accreditation, or real acceptance conclusions."
+            ),
+        },
+        digest=digest,
+        filename=CERTIFICATE_LIFECYCLE_SUMMARY_FILENAME,
+        markdown_filename=CERTIFICATE_LIFECYCLE_SUMMARY_MARKDOWN_FILENAME,
+    )
+    raw = dict(bundle.get("raw") or {})
+    raw["evidence_source"] = "simulated"
+    raw["review_surface"] = {
+        **dict(raw.get("review_surface") or {}),
+        "evidence_source_filters": ["simulated", "reviewer_readiness_only"],
+    }
+    bundle["raw"] = raw
+    bundle["digest"] = dict(raw.get("digest") or {})
+    bundle["markdown"] = _render_markdown(
+        "Certificate Lifecycle Summary",
+        [
+            f"- certificate_lifecycle_overview: {lifecycle_overview}",
+            *[
+                (
+                    f"- certificate: {row['asset_name']} | certificate_status={row['certificate_status']} | "
+                    f"valid_to={row['valid_to'] or '--'} | origin={row['certificate_origin']}"
+                )
+                for row in certificate_rows
+            ],
+            *[
+                (
+                    f"- lot_binding: {row['lot_id']} | binding_status={row['binding_status']} | "
+                    f"use_batch_id={row['use_batch_id']}"
+                )
+                for row in lot_bindings
+            ],
+            f"- non_claim_note: {str(raw.get('non_claim_note') or '--')}",
+        ],
+    )
+    return bundle
+
+
 def _build_certificate_readiness_summary(
     *,
     run_id: str,
     reference_asset_registry: dict[str, Any],
+    certificate_lifecycle_summary: dict[str, Any],
     path_map: dict[str, str],
 ) -> dict[str, Any]:
     assets = [dict(item) for item in list(dict(reference_asset_registry.get("raw") or {}).get("assets") or [])]
+    lifecycle_raw = dict(certificate_lifecycle_summary.get("raw") or {})
+    out_of_tolerance_events = [
+        dict(item) for item in list(lifecycle_raw.get("out_of_tolerance_events") or []) if isinstance(item, dict)
+    ]
+    lot_bindings = [dict(item) for item in list(lifecycle_raw.get("lot_bindings") or []) if isinstance(item, dict)]
     missing_certificate_count = sum(
-        1 for item in assets if str(item.get("certificate_status") or "").startswith("missing")
+        1
+        for item in assets
+        if str(item.get("certificate_status") or "") in {"missing_certificate", "expired_certificate"}
     )
     missing_intermediate_check_count = sum(
-        1 for item in assets if str(item.get("intermediate_check_status") or "").startswith("missing")
+        1
+        for item in assets
+        if str(item.get("intermediate_check_status") or "") in {"missing_intermediate_check", "overdue"}
+    )
+    lot_binding_gap_count = sum(
+        1 for item in lot_bindings if str(item.get("binding_status") or "") != "approved"
+    )
+    oot_open_count = sum(
+        1 for item in out_of_tolerance_events if str(item.get("event_status") or "") == "open"
     )
     current_coverage = [
         f"assets tracked: {len(assets)}",
-        f"certificate missing: {missing_certificate_count}",
-        f"intermediate check missing: {missing_intermediate_check_count}",
+        f"certificate missing or expired: {missing_certificate_count}",
+        f"intermediate check missing or overdue: {missing_intermediate_check_count}",
+        f"lot binding gaps: {lot_binding_gap_count}",
+        f"open out-of-tolerance: {oot_open_count}",
     ]
     missing_evidence = [
         "no released certificate files attached",
         "no intermediate check execution evidence attached",
+        "lot binding and substitute approval remain reviewer-only",
         "traceability chain remains readiness-only",
     ]
     digest = {
         "summary": (
             "reference asset / certificate readiness | "
             f"assets {len(assets)} | certificate gaps {missing_certificate_count} | "
-            f"intermediate-check gaps {missing_intermediate_check_count}"
+            f"intermediate-check gaps {missing_intermediate_check_count} | "
+            f"lot-binding gaps {lot_binding_gap_count} | open OOT {oot_open_count}"
+        ),
+        "asset_readiness_overview": str(
+            dict(reference_asset_registry.get("digest") or {}).get("asset_readiness_overview")
+            or f"assets {len(assets)}"
+        ),
+        "certificate_lifecycle_overview": str(
+            dict(certificate_lifecycle_summary.get("digest") or {}).get("certificate_lifecycle_overview")
+            or f"lot bindings {len(lot_bindings)}"
         ),
         "current_coverage_summary": " | ".join(current_coverage),
         "missing_evidence_summary": " | ".join(missing_evidence),
+        "blocker_summary": (
+            "certificate / intermediate check / lot-binding gaps remain open; "
+            "current output stays reviewer-only and not released for formal claim"
+        ),
+        "reviewer_next_step_digest": (
+            "use certificate lifecycle + pre-run gate to explain gaps clearly, but keep all outputs reviewer-only."
+        ),
     }
-    return _summary_raw(
+    bundle = _summary_raw(
         run_id=run_id,
         artifact_type="certificate_readiness_summary",
-        overall_status="degraded",
+        overall_status="failed" if (missing_certificate_count or missing_intermediate_check_count or oot_open_count) else "degraded",
         title_text="Certificate Readiness Summary",
         reviewer_note=(
             "Reference asset / certificate readiness summary only. "
@@ -1638,8 +1930,11 @@ def _build_certificate_readiness_summary(
         artifact_paths={
             "reference_asset_registry": path_map["reference_asset_registry"],
             "reference_asset_registry_markdown": path_map["reference_asset_registry_markdown"],
+            "certificate_lifecycle_summary": path_map["certificate_lifecycle_summary"],
+            "certificate_lifecycle_summary_markdown": path_map["certificate_lifecycle_summary_markdown"],
             "certificate_readiness_summary": path_map["certificate_readiness_summary"],
             "certificate_readiness_summary_markdown": path_map["certificate_readiness_summary_markdown"],
+            "pre_run_readiness_gate": path_map["pre_run_readiness_gate"],
             "metrology_traceability_stub": path_map["metrology_traceability_stub"],
             "metrology_traceability_stub_markdown": path_map["metrology_traceability_stub_markdown"],
         },
@@ -1647,11 +1942,310 @@ def _build_certificate_readiness_summary(
             "current_coverage": current_coverage,
             "missing_evidence": missing_evidence,
             "asset_status_rows": assets,
+            "lot_binding_rows": lot_bindings,
+            "out_of_tolerance_events": out_of_tolerance_events,
+            "ready_for_readiness_mapping": True,
+            "not_ready_for_formal_claim": True,
+            "reviewer_stub_only": True,
+            "readiness_mapping_only": True,
+            "not_released_for_formal_claim": True,
+            "primary_evidence_rewritten": False,
+            "linked_artifacts": {
+                "reference_asset_registry": path_map["reference_asset_registry"],
+                "certificate_lifecycle_summary": path_map["certificate_lifecycle_summary"],
+                "pre_run_readiness_gate": path_map["pre_run_readiness_gate"],
+                "metrology_traceability_stub": path_map["metrology_traceability_stub"],
+            },
         },
         digest=digest,
         filename=CERTIFICATE_READINESS_SUMMARY_FILENAME,
         markdown_filename=CERTIFICATE_READINESS_SUMMARY_MARKDOWN_FILENAME,
     )
+    raw = dict(bundle.get("raw") or {})
+    raw["evidence_source"] = "simulated"
+    raw["review_surface"] = {
+        **dict(raw.get("review_surface") or {}),
+        "evidence_source_filters": ["simulated", "reviewer_readiness_only"],
+    }
+    bundle["raw"] = raw
+    bundle["digest"] = dict(raw.get("digest") or {})
+    return bundle
+
+
+def _build_pre_run_readiness_gate(
+    *,
+    run_id: str,
+    scope_definition_pack: dict[str, Any],
+    decision_rule_profile: dict[str, Any],
+    reference_asset_registry: dict[str, Any],
+    certificate_lifecycle_summary: dict[str, Any],
+    certificate_readiness_summary: dict[str, Any],
+    path_map: dict[str, str],
+) -> dict[str, Any]:
+    scope_raw = dict(scope_definition_pack.get("raw") or {})
+    decision_raw = dict(decision_rule_profile.get("raw") or {})
+    scope_name = str(scope_raw.get("scope_name") or "Step 2 simulation reviewer scope package")
+    decision_rule_id = str(decision_raw.get("decision_rule_id") or "step2_readiness_reviewer_rule_v1")
+    assets = [dict(item) for item in list(dict(reference_asset_registry.get("raw") or {}).get("assets") or [])]
+    lifecycle_raw = dict(certificate_lifecycle_summary.get("raw") or {})
+    lot_bindings = [dict(item) for item in list(lifecycle_raw.get("lot_bindings") or []) if isinstance(item, dict)]
+    out_of_tolerance_events = [
+        dict(item) for item in list(lifecycle_raw.get("out_of_tolerance_events") or []) if isinstance(item, dict)
+    ]
+    certificate_missing_assets = [
+        str(item.get("asset_name") or item.get("asset_id") or "")
+        for item in assets
+        if str(item.get("certificate_status") or "") == "missing_certificate"
+    ]
+    expired_assets = [
+        str(item.get("asset_name") or item.get("asset_id") or "")
+        for item in assets
+        if str(item.get("certificate_status") or "") == "expired_certificate"
+    ]
+    intermediate_check_attention_assets = [
+        str(item.get("asset_name") or item.get("asset_id") or "")
+        for item in assets
+        if str(item.get("intermediate_check_status") or "") in {"missing_intermediate_check", "overdue"}
+    ]
+    lot_binding_missing_assets = [
+        str(item.get("lot_id") or item.get("asset_id") or "")
+        for item in lot_bindings
+        if str(item.get("binding_status") or "") != "approved"
+    ]
+    substitute_approval_missing_assets = [
+        str(item.get("asset_name") or item.get("asset_id") or "")
+        for item in assets
+        if bool(item.get("substitute_standard_chain_required"))
+        and str(item.get("substitute_standard_chain_approval_status") or "") != "approved"
+    ]
+    oot_open_assets = [
+        str(item.get("asset_id") or "")
+        for item in out_of_tolerance_events
+        if str(item.get("event_status") or "") == "open"
+    ]
+    association_gaps = [
+        str(item.get("asset_name") or item.get("asset_id") or "")
+        for item in assets
+        if str(item.get("asset_type") or "") != "analyzer_under_test"
+        and (
+            not list(item.get("linked_scope_ids") or [])
+            or not list(item.get("linked_decision_rule_ids") or [])
+        )
+    ]
+    scope_reference_assets = [
+        f"{item['asset_name']} ({item['asset_type']})"
+        for item in assets
+        if str(item.get("asset_type") or "") != "analyzer_under_test"
+    ]
+    decision_rule_dependencies = [
+        "released certificates",
+        "standard gas lot binding",
+        "intermediate check plans / records",
+        "out-of-tolerance closure",
+        "substitute standard approval trail",
+    ]
+    blocking_items = _normalize_text_list(
+        [
+            ("certificate missing: " + " | ".join(certificate_missing_assets)) if certificate_missing_assets else "",
+            ("certificate expired: " + " | ".join(expired_assets)) if expired_assets else "",
+            (
+                "intermediate check not ready: " + " | ".join(intermediate_check_attention_assets)
+                if intermediate_check_attention_assets
+                else ""
+            ),
+            ("lot binding missing: " + " | ".join(lot_binding_missing_assets)) if lot_binding_missing_assets else "",
+            ("out-of-tolerance open: " + " | ".join(oot_open_assets)) if oot_open_assets else "",
+        ]
+    )
+    warning_items = _normalize_text_list(
+        [
+            (
+                "substitute standard approval missing: " + " | ".join(substitute_approval_missing_assets)
+                if substitute_approval_missing_assets
+                else ""
+            ),
+            (
+                "scope / decision / asset association incomplete: " + " | ".join(association_gaps)
+                if association_gaps
+                else ""
+            ),
+            "gate is reviewer-facing advisory only and cannot drive equipment",
+        ]
+    )
+    reviewer_actions = _normalize_text_list(
+        [
+            "补齐缺失或过期证书，仅用于 reviewer mapping 后续闭环计划。",
+            "补 lot binding / use batch / 替代标准审批 sidecar，不引入默认 DB 主链。",
+            "关闭期间核查逾期与 OOT reviewer digest，再讨论未来 formal path。",
+            "保持 current run 仅为 readiness mapping，不形成 formal compliance / acceptance claim。",
+        ]
+    )
+    gate_status = (
+        "blocked_for_formal_claim"
+        if blocking_items
+        else ("warning_reviewer_attention" if warning_items else "ok_for_reviewer_mapping")
+    )
+    overall_status = "failed" if blocking_items else ("degraded" if warning_items else "diagnostic_only")
+    asset_overview = str(
+        dict(reference_asset_registry.get("digest") or {}).get("asset_readiness_overview")
+        or f"assets {len(assets)}"
+    )
+    lifecycle_overview = str(
+        dict(certificate_lifecycle_summary.get("digest") or {}).get("certificate_lifecycle_overview")
+        or "--"
+    )
+    digest = {
+        "summary": (
+            "pre-run readiness gate | reviewer advisory only | "
+            f"gate_status {gate_status} | readiness mapping only"
+        ),
+        "scope_overview_summary": scope_name,
+        "decision_rule_summary": f"{decision_rule_id} | reviewer mapping dependencies",
+        "conformity_boundary_summary": (
+            "current run can support readiness mapping only; it cannot support formal claim, compliance, or real acceptance."
+        ),
+        "asset_readiness_overview": asset_overview,
+        "certificate_lifecycle_overview": lifecycle_overview,
+        "pre_run_gate_status": gate_status,
+        "scope_reference_assets_summary": " | ".join(scope_reference_assets),
+        "decision_rule_dependency_summary": " | ".join(decision_rule_dependencies),
+        "current_coverage_summary": (
+            "certificate / validity / intermediate check / lot binding / substitute approval / association integrity reviewed"
+        ),
+        "missing_evidence_summary": (
+            "released certificates, approved lot bindings, closed OOT, and signed internal checks remain incomplete"
+        ),
+        "blocker_summary": " | ".join(blocking_items) or "no blocking items",
+        "warning_summary": " | ".join(warning_items) or "no warning items",
+        "reviewer_action_summary": " | ".join(reviewer_actions),
+        "reviewer_next_step_digest": reviewer_actions[0] if reviewer_actions else "--",
+        "next_required_artifacts_summary": "certificate_lifecycle_summary | pre_run_readiness_gate | metrology_traceability_stub",
+        "non_claim_digest": (
+            "advisory gate only; Step 2 gate results are simulated reviewer evidence and not real acceptance evidence."
+        ),
+    }
+    bundle = _summary_raw(
+        run_id=run_id,
+        artifact_type="pre_run_readiness_gate",
+        overall_status=overall_status,
+        title_text="Pre-run Readiness Gate",
+        reviewer_note=(
+            "Step 2 pre-run readiness gate is advisory and artifact-based only. "
+            "It is reviewer-facing, cannot drive live equipment, and cannot become a formal compliance or real acceptance gate."
+        ),
+        summary_text=digest["summary"],
+        summary_lines=[
+            f"gate status: {gate_status}",
+            f"asset readiness overview: {asset_overview}",
+            f"certificate lifecycle overview: {lifecycle_overview}",
+        ],
+        detail_lines=[
+            f"blocking items: {digest['blocker_summary']}",
+            f"warning items: {digest['warning_summary']}",
+            f"reviewer actions: {digest['reviewer_action_summary']}",
+            *[f"boundary: {line}" for line in RECOGNITION_READINESS_BOUNDARY_STATEMENTS],
+        ],
+        anchor_id="pre-run-readiness-gate",
+        anchor_label="Pre-run readiness gate",
+        evidence_categories=["recognition_readiness", "pre_run_gate", "reviewer_mapping"],
+        artifact_paths={
+            "scope_definition_pack": path_map["scope_definition_pack"],
+            "decision_rule_profile": path_map["decision_rule_profile"],
+            "reference_asset_registry": path_map["reference_asset_registry"],
+            "certificate_lifecycle_summary": path_map["certificate_lifecycle_summary"],
+            "certificate_readiness_summary": path_map["certificate_readiness_summary"],
+            "pre_run_readiness_gate": path_map["pre_run_readiness_gate"],
+            "pre_run_readiness_gate_markdown": path_map["pre_run_readiness_gate_markdown"],
+        },
+        body={
+            "gate_status": gate_status,
+            "blocking_items": blocking_items,
+            "warning_items": warning_items,
+            "reviewer_actions": reviewer_actions,
+            "checks": [
+                {
+                    "check_id": "certificate_missing",
+                    "status": "blocked" if certificate_missing_assets else "pass",
+                    "summary": " | ".join(certificate_missing_assets) or "no missing certificate assets",
+                },
+                {
+                    "check_id": "certificate_validity",
+                    "status": "blocked" if expired_assets else "pass",
+                    "summary": " | ".join(expired_assets) or "no expired assets",
+                },
+                {
+                    "check_id": "intermediate_check",
+                    "status": "blocked" if intermediate_check_attention_assets else "pass",
+                    "summary": " | ".join(intermediate_check_attention_assets) or "all tracked assets have non-blocking check state",
+                },
+                {
+                    "check_id": "out_of_tolerance",
+                    "status": "blocked" if oot_open_assets else "pass",
+                    "summary": " | ".join(oot_open_assets) or "no open OOT events",
+                },
+                {
+                    "check_id": "lot_binding",
+                    "status": "blocked" if lot_binding_missing_assets else "pass",
+                    "summary": " | ".join(lot_binding_missing_assets) or "lot binding complete",
+                },
+                {
+                    "check_id": "substitute_standard_chain_approval",
+                    "status": "warning" if substitute_approval_missing_assets else "pass",
+                    "summary": " | ".join(substitute_approval_missing_assets) or "substitute approvals complete",
+                },
+                {
+                    "check_id": "scope_decision_asset_integrity",
+                    "status": "warning" if association_gaps else "pass",
+                    "summary": " | ".join(association_gaps) or "scope / decision / asset linkage complete",
+                },
+            ],
+            "readiness_status": "ready_for_readiness_mapping",
+            "non_claim_note": (
+                "Current run is limited to readiness mapping; Step 2 gate output is advisory only and cannot be used as a formal claim gate."
+            ),
+            "not_ready_for_formal_claim": True,
+            "ready_for_readiness_mapping": True,
+            "reviewer_stub_only": True,
+            "readiness_mapping_only": True,
+            "not_released_for_formal_claim": True,
+            "primary_evidence_rewritten": False,
+            "scope_reference_assets": scope_reference_assets,
+            "decision_rule_dependencies": decision_rule_dependencies,
+            "linked_artifacts": {
+                "scope_definition_pack": path_map["scope_definition_pack"],
+                "decision_rule_profile": path_map["decision_rule_profile"],
+                "reference_asset_registry": path_map["reference_asset_registry"],
+                "certificate_lifecycle_summary": path_map["certificate_lifecycle_summary"],
+                "certificate_readiness_summary": path_map["certificate_readiness_summary"],
+            },
+            "limitation_note": (
+                "This gate is reviewer-facing / advisory / artifact-based only. "
+                "It cannot open COM, drive devices, or enforce live equipment control."
+            ),
+        },
+        digest=digest,
+        filename=PRE_RUN_READINESS_GATE_FILENAME,
+        markdown_filename=PRE_RUN_READINESS_GATE_MARKDOWN_FILENAME,
+    )
+    raw = dict(bundle.get("raw") or {})
+    raw["evidence_source"] = "simulated"
+    raw["review_surface"] = {
+        **dict(raw.get("review_surface") or {}),
+        "evidence_source_filters": ["simulated", "reviewer_readiness_only"],
+    }
+    bundle["raw"] = raw
+    bundle["digest"] = dict(raw.get("digest") or {})
+    bundle["markdown"] = _render_markdown(
+        "Pre-run Readiness Gate",
+        [
+            f"- gate_status: {gate_status}",
+            *[f"- blocking_item: {item}" for item in blocking_items],
+            *[f"- warning_item: {item}" for item in warning_items],
+            *[f"- reviewer_action: {item}" for item in reviewer_actions],
+            f"- non_claim_note: {str(raw.get('non_claim_note') or '--')}",
+        ],
+    )
+    return bundle
 
 
 def _build_metrology_traceability_stub(
@@ -1662,23 +2256,28 @@ def _build_metrology_traceability_stub(
     path_map: dict[str, str],
 ) -> dict[str, Any]:
     assets = [dict(item) for item in list(dict(reference_asset_registry.get("raw") or {}).get("assets") or [])]
-    asset_by_type = {str(item.get("asset_type") or ""): dict(item) for item in assets}
+    standard_gas_asset = _find_asset_by_types(assets, "standard_gas")
+    pressure_gauge_asset = _find_asset_by_types(assets, "digital_pressure_gauge")
+    thermometer_asset = _find_asset_by_types(assets, "digital_thermometer", "thermometer")
+    humidity_generator_asset = _find_asset_by_types(assets, "humidity_generator")
+    dewpoint_asset = _find_asset_by_types(assets, "dewpoint_meter", "dew_point_meter")
+    temperature_chamber_asset = _find_asset_by_types(assets, "temperature_chamber")
     chain_rows = [
         {
             "control_object": "gas route / CO2",
-            "reference_asset": str(dict(asset_by_type.get("standard_gas") or {}).get("display_name") or "standard gas"),
+            "reference_asset": str(dict(standard_gas_asset).get("display_name") or "standard gas"),
             "supporting_assets": [
-                str(dict(asset_by_type.get("digital_pressure_gauge") or {}).get("display_name") or "digital pressure gauge"),
-                str(dict(asset_by_type.get("thermometer") or {}).get("display_name") or "thermometer"),
+                str(dict(pressure_gauge_asset).get("display_name") or "digital pressure gauge"),
+                str(dict(thermometer_asset).get("display_name") or "digital thermometer"),
             ],
             "readiness_status": "traceability_stub_only",
         },
         {
             "control_object": "water route / humidity",
-            "reference_asset": str(dict(asset_by_type.get("humidity_generator") or {}).get("display_name") or "humidity generator"),
+            "reference_asset": str(dict(humidity_generator_asset).get("display_name") or "humidity generator"),
             "supporting_assets": [
-                str(dict(asset_by_type.get("dew_point_meter") or {}).get("display_name") or "dew point meter"),
-                str(dict(asset_by_type.get("temperature_chamber") or {}).get("display_name") or "temperature chamber"),
+                str(dict(dewpoint_asset).get("display_name") or "dew point meter"),
+                str(dict(temperature_chamber_asset).get("display_name") or "temperature chamber"),
             ],
             "readiness_status": "traceability_stub_only",
         },
@@ -3052,33 +3651,115 @@ def _append_readiness_markdown_section(markdown: str, *, raw: dict[str, Any]) ->
 
 
 def _asset_row(
-    asset_id: str,
-    asset_type: str,
-    display_name: str,
-    role: str,
     *,
+    asset_id: str,
+    asset_name: str,
+    asset_type: str,
+    role_in_reference_chain: str,
+    manufacturer: str = "",
+    model: str = "",
+    serial_or_lot: str = "",
+    measurand_scope: list[str] | None = None,
+    route_scope: list[str] | None = None,
+    environment_scope: list[str] | None = None,
+    owner_state: str = "reviewer_managed_stub",
+    active_state: str = "active_for_reviewer_mapping",
+    quarantine_state: str = "not_quarantined",
     certificate_status: str = "missing_certificate",
+    certificate_id: str = "",
+    certificate_version: str = "stub-v1",
+    valid_from: str = "",
+    valid_to: str = "",
     expiry_status: str = "unknown_expiry",
     intermediate_check_status: str = "missing_intermediate_check",
+    intermediate_check_due: str = "",
+    last_check_at: str = "",
+    released_for_formal_claim: bool = False,
+    ready_for_readiness_mapping: bool = True,
+    not_real_acceptance_evidence: bool = True,
+    evidence_source: str = "simulated",
+    limitation_note: str = "",
+    non_claim_note: str = "",
+    reviewer_note: str = "",
     current_stage_usage: str = "registry_stub_only",
+    linked_run_artifacts: list[str] | None = None,
+    linked_scope_ids: list[str] | None = None,
+    linked_scope_names: list[str] | None = None,
+    linked_decision_rule_ids: list[str] | None = None,
+    lot_binding_required: bool = False,
+    lot_binding_status: str = "not_required",
+    lot_binding_ids: list[str] | None = None,
+    substitute_standard_chain_required: bool = False,
+    substitute_standard_chain_approval_status: str = "not_required",
+    substitute_standard_chain_approval_ref: str = "",
+    readiness_status: str = "",
+    asset_type_aliases: list[str] | None = None,
 ) -> dict[str, Any]:
+    final_readiness_status = readiness_status or (
+        "blocked_for_formal_claim"
+        if certificate_status in {"missing_certificate", "expired_certificate"}
+        or intermediate_check_status in {"missing_intermediate_check", "overdue"}
+        else "ready_for_readiness_mapping"
+    )
     return {
         "asset_id": asset_id,
+        "asset_name": asset_name,
         "asset_type": asset_type,
-        "display_name": display_name,
-        "role": role,
-        "vendor": "",
-        "model": "",
-        "serial": "",
-        "certificate_id": "",
+        "asset_type_aliases": list(asset_type_aliases or []),
+        "manufacturer": manufacturer,
+        "model": model,
+        "serial_or_lot": serial_or_lot,
+        "role_in_reference_chain": role_in_reference_chain,
+        "measurand_scope": list(measurand_scope or []),
+        "route_scope": list(route_scope or []),
+        "environment_scope": list(environment_scope or []),
+        "owner_state": owner_state,
+        "active_state": active_state,
+        "quarantine_state": quarantine_state,
         "certificate_status": certificate_status,
+        "certificate_id": certificate_id,
+        "certificate_version": certificate_version,
+        "valid_from": valid_from,
+        "valid_to": valid_to,
         "expiry_status": expiry_status,
         "intermediate_check_status": intermediate_check_status,
+        "intermediate_check_due": intermediate_check_due,
+        "last_check_at": last_check_at,
+        "released_for_formal_claim": released_for_formal_claim,
+        "ready_for_readiness_mapping": ready_for_readiness_mapping,
+        "not_real_acceptance_evidence": not_real_acceptance_evidence,
+        "evidence_source": evidence_source,
+        "limitation_note": limitation_note,
+        "non_claim_note": non_claim_note,
+        "reviewer_note": reviewer_note,
+        "display_name": asset_name,
+        "role": role_in_reference_chain,
+        "vendor": manufacturer,
+        "serial": serial_or_lot,
         "current_stage_usage": current_stage_usage,
-        "linked_run_artifacts": [],
-        "readiness_status": "gap" if certificate_status.startswith("missing") else "stub_only",
-        "non_claim": "readiness registry only",
+        "linked_run_artifacts": list(linked_run_artifacts or []),
+        "linked_scope_ids": list(linked_scope_ids or []),
+        "linked_scope_names": list(linked_scope_names or []),
+        "linked_decision_rule_ids": list(linked_decision_rule_ids or []),
+        "lot_binding_required": lot_binding_required,
+        "lot_binding_status": lot_binding_status,
+        "lot_binding_ids": list(lot_binding_ids or []),
+        "substitute_standard_chain_required": substitute_standard_chain_required,
+        "substitute_standard_chain_approval_status": substitute_standard_chain_approval_status,
+        "substitute_standard_chain_approval_ref": substitute_standard_chain_approval_ref,
+        "readiness_status": final_readiness_status,
+        "non_claim": non_claim_note or "readiness registry only",
     }
+
+
+def _find_asset_by_types(assets: list[dict[str, Any]], *asset_types: str) -> dict[str, Any]:
+    wanted = {str(item).strip() for item in asset_types if str(item).strip()}
+    for row in assets:
+        asset_type = str(row.get("asset_type") or "").strip()
+        aliases = {str(item).strip() for item in list(row.get("asset_type_aliases") or []) if str(item).strip()}
+        if asset_type in wanted or wanted & aliases:
+            return dict(row)
+    return {}
 
 
 def _artifact_path_map(artifact_paths: dict[str, Any]) -> dict[str, str]:
@@ -3091,8 +3772,12 @@ def _artifact_path_map(artifact_paths: dict[str, Any]) -> dict[str, str]:
         "scope_readiness_summary_markdown": SCOPE_READINESS_SUMMARY_MARKDOWN_FILENAME,
         "reference_asset_registry": REFERENCE_ASSET_REGISTRY_FILENAME,
         "reference_asset_registry_markdown": REFERENCE_ASSET_REGISTRY_MARKDOWN_FILENAME,
+        "certificate_lifecycle_summary": CERTIFICATE_LIFECYCLE_SUMMARY_FILENAME,
+        "certificate_lifecycle_summary_markdown": CERTIFICATE_LIFECYCLE_SUMMARY_MARKDOWN_FILENAME,
         "certificate_readiness_summary": CERTIFICATE_READINESS_SUMMARY_FILENAME,
         "certificate_readiness_summary_markdown": CERTIFICATE_READINESS_SUMMARY_MARKDOWN_FILENAME,
+        "pre_run_readiness_gate": PRE_RUN_READINESS_GATE_FILENAME,
+        "pre_run_readiness_gate_markdown": PRE_RUN_READINESS_GATE_MARKDOWN_FILENAME,
         "metrology_traceability_stub": METROLOGY_TRACEABILITY_STUB_FILENAME,
         "metrology_traceability_stub_markdown": METROLOGY_TRACEABILITY_STUB_MARKDOWN_FILENAME,
         "uncertainty_budget_stub": UNCERTAINTY_BUDGET_STUB_FILENAME,
