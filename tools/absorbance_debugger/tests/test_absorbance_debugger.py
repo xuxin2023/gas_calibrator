@@ -7,10 +7,13 @@ from pathlib import Path
 import pandas as pd
 
 from tools.absorbance_debugger import gui as gui_module
+from tools.absorbance_debugger.analysis.pipeline import _identify_invalid_pressure_points
 from tools.absorbance_debugger.app import run_debugger
 from tools.absorbance_debugger.io.run_bundle import RunBundle, discover_run_artifacts
+from tools.absorbance_debugger.models.config import DebuggerConfig
 from tools.absorbance_debugger.options import (
     normalize_absorbance_order_mode,
+    normalize_invalid_pressure_mode,
     normalize_model_selection_strategy,
     normalize_pressure_source,
     normalize_ratio_source,
@@ -41,11 +44,19 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
     assert (output_dir / "step_06_absorbance_model_selection.csv").exists()
     assert (output_dir / "step_06_absorbance_model_coefficients.csv").exists()
     assert (output_dir / "step_06_absorbance_model_residuals.csv").exists()
+    assert (output_dir / "step_02x_invalid_pressure_points.csv").exists()
+    assert (output_dir / "step_02x_invalid_pressure_summary.csv").exists()
+    assert (output_dir / "step_02x_invalid_pressure_plots.png").exists()
     assert (output_dir / "step_06x_absorbance_order_compare.csv").exists()
     assert (output_dir / "step_05x_r0_source_consistency.csv").exists()
     assert (output_dir / "step_04x_pressure_branch_compare.csv").exists()
     assert (output_dir / "step_08x_upper_bound_vs_deployable.csv").exists()
     assert (output_dir / "step_08x_root_cause_ranking.csv").exists()
+    assert (output_dir / "step_08x_valid_only_overview_summary.csv").exists()
+    assert (output_dir / "step_08x_valid_only_by_temperature.csv").exists()
+    assert (output_dir / "step_08x_valid_only_zero_special.csv").exists()
+    assert (output_dir / "step_08x_valid_only_auto_conclusions.csv").exists()
+    assert (output_dir / "step_08x_default_chain_before_after.csv").exists()
     assert (output_dir / "step_08_old_vs_new_compare.xlsx").exists()
     assert (output_dir / "step_08_overview_summary.csv").exists()
     assert (output_dir / "step_08_by_temperature.csv").exists()
@@ -70,11 +81,14 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
 
     selection = pd.read_csv(output_dir / "step_06_absorbance_model_selection.csv")
     assert set(selection["analyzer_id"]) == {"GA01", "GA02", "GA03"}
-    assert {"best_absorbance_model", "selection_reason", "selected_prediction_scope"} <= set(selection.columns)
+    assert {"best_absorbance_model", "selection_reason", "selected_prediction_scope", "selected_source_pair", "default_absorbance_order"} <= set(selection.columns)
+    assert set(selection["selected_source_pair"]) <= {"raw/raw", "filt/filt"}
+    assert set(selection["default_absorbance_order"]) == {"samplewise_log_first"}
 
     scores = pd.read_csv(output_dir / "step_06_absorbance_model_scores.csv")
-    assert {"model_id", "validation_rmse", "overall_rmse", "composite_score", "model_rank"} <= set(scores.columns)
+    assert {"model_id", "validation_rmse", "overall_rmse", "composite_score", "model_rank", "selected_source_pair"} <= set(scores.columns)
     assert scores["model_rank"].notna().all()
+    assert not scores["selected_source_pair"].isin(["raw/filt", "filt/raw"]).any()
 
     order_compare = pd.read_csv(output_dir / "step_06x_absorbance_order_compare.csv")
     assert {"order_mode", "samplewise_log_first_is_better", "significant_order_gain"} <= set(order_compare.columns)
@@ -97,11 +111,13 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
     assert "weak_absorbance_ppm_model" in set(root_causes["issue_name"])
 
     point_reconciliation = pd.read_csv(output_dir / "step_08_point_reconciliation.csv")
-    assert {"old_pred_ppm", "new_pred_ppm", "old_error", "new_error", "winner_for_point"} <= set(point_reconciliation.columns)
+    assert {"old_pred_ppm", "new_pred_ppm", "old_error", "new_error", "winner_for_point", "selected_source_pair"} <= set(point_reconciliation.columns)
     assert point_reconciliation["pressure_source"].isin(["P_std", "P_corr"]).all()
     assert point_reconciliation["temperature_source"].isin(["T_std", "T_corr"]).all()
     assert point_reconciliation["best_absorbance_model"].notna().any()
     assert point_reconciliation["selected_prediction_scope"].isin(["validation_oof", "overall_fit"]).all()
+    assert set(point_reconciliation["absorbance_order_mode_selected"]) == {"samplewise_log_first"}
+    assert set(point_reconciliation["selected_source_pair"].dropna().unique().tolist()) <= {"raw/raw", "filt/filt"}
 
     selected_models = selection.set_index("analyzer_id")["best_absorbance_model"].to_dict()
     point_models = (
@@ -140,8 +156,62 @@ def test_option_normalizers_accept_gui_and_cli_tokens() -> None:
     assert normalize_pressure_source("corr") == "pressure_corr_hpa"
     assert normalize_absorbance_order_mode("samplewise") == "samplewise_log_first"
     assert normalize_absorbance_order_mode("compare_both") == "compare_both"
+    assert normalize_invalid_pressure_mode("hard") == "hard_exclude"
+    assert normalize_invalid_pressure_mode("diagnostic") == "diagnostic_only"
     assert normalize_model_selection_strategy("auto") == "auto_grouped"
     assert normalize_model_selection_strategy("grouped_loo") == "grouped_loo"
+
+
+def test_invalid_pressure_filter_hard_excludes_500_hpa_bin(tmp_path: Path) -> None:
+    config = DebuggerConfig(input_path=tmp_path, output_dir=tmp_path)
+    filtered = pd.DataFrame(
+        [
+            {
+                "analyzer": "GA01",
+                "point_title": "p500",
+                "point_row": 1,
+                "route": "co2",
+                "temp_set_c": 20.0,
+                "target_co2_ppm": 400.0,
+                "target_pressure_hpa": 500.0,
+                "pressure_std_hpa": 503.0,
+                "pressure_corr_hpa": 501.0,
+                "sample_index": 1,
+            },
+            {
+                "analyzer": "GA01",
+                "point_title": "p500",
+                "point_row": 1,
+                "route": "co2",
+                "temp_set_c": 20.0,
+                "target_co2_ppm": 400.0,
+                "target_pressure_hpa": 500.0,
+                "pressure_std_hpa": 504.0,
+                "pressure_corr_hpa": 502.0,
+                "sample_index": 2,
+            },
+            {
+                "analyzer": "GA01",
+                "point_title": "p1013",
+                "point_row": 2,
+                "route": "co2",
+                "temp_set_c": 20.0,
+                "target_co2_ppm": 400.0,
+                "target_pressure_hpa": 1013.25,
+                "pressure_std_hpa": 1012.0,
+                "pressure_corr_hpa": 1013.0,
+                "sample_index": 1,
+            },
+        ]
+    )
+    invalid_points, invalid_summary, filtered_valid, excluded_invalid = _identify_invalid_pressure_points(filtered, config)
+
+    assert len(invalid_points) == 1
+    assert bool(invalid_points.iloc[0]["excluded_from_main_analysis"]) is True
+    assert invalid_points.iloc[0]["invalid_reason"] == "legacy_invalid_pressure_target_500hpa"
+    assert len(filtered_valid) == 1
+    assert len(excluded_invalid) == 2
+    assert int(invalid_summary.iloc[0]["invalid_point_count"]) == 1
 
 
 def test_gui_passes_selection_parameters(monkeypatch, tmp_path: Path) -> None:
@@ -171,10 +241,14 @@ def test_gui_passes_selection_parameters(monkeypatch, tmp_path: Path) -> None:
     gui.pressure_source.set("P_std")
     gui.absorbance_order_mode.set("mean_first_log")
     gui.model_selection_strategy.set("grouped_loo")
+    gui.invalid_pressure_targets_hpa.set("500,530")
+    gui.invalid_pressure_tolerance_hpa.set("25")
     gui.enable_composite_score.set("0")
     gui.run_source_consistency_compare.set("0")
     gui.run_pressure_branch_compare.set("1")
     gui.run_upper_bound_compare.set("0")
+    gui.hard_invalid_pressure_exclude.set("1")
+    gui.use_valid_only_main_conclusion.set("1")
     gui.auto_open_report.set("0")
 
     monkeypatch.setattr(gui_module, "run_debugger", fake_run_debugger)
@@ -193,6 +267,10 @@ def test_gui_passes_selection_parameters(monkeypatch, tmp_path: Path) -> None:
     assert captured["run_r0_source_consistency_compare"] is False
     assert captured["run_pressure_branch_compare"] is True
     assert captured["run_upper_bound_compare"] is False
+    assert captured["invalid_pressure_targets_hpa"] == "500,530"
+    assert captured["invalid_pressure_tolerance_hpa"] == 25.0
+    assert captured["invalid_pressure_mode"] == "hard_exclude"
+    assert captured["use_valid_only_main_conclusion"] is True
     assert captured["p_ref_hpa"] == 1009.5
 
 
