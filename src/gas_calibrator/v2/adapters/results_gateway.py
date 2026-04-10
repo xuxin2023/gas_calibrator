@@ -368,7 +368,7 @@ class ResultsGateway:
             analytics_summary=analytics_summary if isinstance(analytics_summary, dict) else None,
             evidence_registry=evidence_registry if isinstance(evidence_registry, dict) else None,
             workbench_action_report=workbench_action_report if isinstance(workbench_action_report, dict) else None,
-            workbench_action_snapshot=workbench_action_snapshot if isinstance(workbench_action_snapshot, dict) else None
+            workbench_action_snapshot=workbench_action_snapshot if isinstance(workbench_action_snapshot, dict) else None,
             scope_readiness_summary=scope_readiness_summary,
             compatibility_scan_summary=compatibility_scan_summary,
         ).read_payload()
