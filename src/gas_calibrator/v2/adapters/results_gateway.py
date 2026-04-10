@@ -280,6 +280,9 @@ class ResultsGateway:
         ).read_payload()
         scope_definition_pack = dict(recognition_scope_payload.get("scope_definition_pack") or {})
         decision_rule_profile = dict(recognition_scope_payload.get("decision_rule_profile") or {})
+        reference_asset_registry = dict(recognition_scope_payload.get("reference_asset_registry") or {})
+        certificate_lifecycle_summary = dict(recognition_scope_payload.get("certificate_lifecycle_summary") or {})
+        pre_run_readiness_gate = dict(recognition_scope_payload.get("pre_run_readiness_gate") or {})
         recognition_scope_rollup = dict(recognition_scope_payload.get("recognition_scope_rollup") or {})
         evidence_source = self._resolve_current_run_evidence_source(workbench_evidence_summary, workbench_action_report)
         evidence_state = str(
@@ -318,8 +321,11 @@ class ResultsGateway:
             measurement_phase_coverage_report=measurement_phase_coverage_report,
             scope_definition_pack=scope_definition_pack,
             decision_rule_profile=decision_rule_profile,
+            reference_asset_registry=reference_asset_registry,
+            certificate_lifecycle_summary=certificate_lifecycle_summary,
             scope_readiness_summary=scope_readiness_summary,
             certificate_readiness_summary=certificate_readiness_summary,
+            pre_run_readiness_gate=pre_run_readiness_gate,
             uncertainty_method_readiness_summary=uncertainty_method_readiness_summary,
             audit_readiness_digest=audit_readiness_digest,
             compatibility_scan_summary=compatibility_scan_summary,
@@ -367,8 +373,11 @@ class ResultsGateway:
             "measurement_phase_coverage_report": measurement_phase_coverage_report,
             "scope_definition_pack": scope_definition_pack,
             "decision_rule_profile": decision_rule_profile,
+            "reference_asset_registry": reference_asset_registry,
+            "certificate_lifecycle_summary": certificate_lifecycle_summary,
             "scope_readiness_summary": scope_readiness_summary,
             "certificate_readiness_summary": certificate_readiness_summary,
+            "pre_run_readiness_gate": pre_run_readiness_gate,
             "uncertainty_method_readiness_summary": uncertainty_method_readiness_summary,
             "audit_readiness_digest": audit_readiness_digest,
             "run_artifact_index": run_artifact_index,
@@ -791,8 +800,11 @@ class ResultsGateway:
         measurement_phase_coverage_report: dict[str, Any] | None,
         scope_definition_pack: dict[str, Any] | None,
         decision_rule_profile: dict[str, Any] | None,
+        reference_asset_registry: dict[str, Any] | None,
+        certificate_lifecycle_summary: dict[str, Any] | None,
         scope_readiness_summary: dict[str, Any] | None,
         certificate_readiness_summary: dict[str, Any] | None,
+        pre_run_readiness_gate: dict[str, Any] | None,
         uncertainty_method_readiness_summary: dict[str, Any] | None,
         audit_readiness_digest: dict[str, Any] | None,
         compatibility_scan_summary: dict[str, Any] | None,
@@ -812,8 +824,11 @@ class ResultsGateway:
         phase_coverage_summary = dict(measurement_phase_coverage_report or {})
         scope_definition_payload = dict(scope_definition_pack or {})
         decision_rule_payload = dict(decision_rule_profile or {})
+        reference_asset_payload = dict(reference_asset_registry or {})
+        certificate_lifecycle_payload = dict(certificate_lifecycle_summary or {})
         scope_readiness_payload = dict(scope_readiness_summary or {})
         certificate_readiness_payload = dict(certificate_readiness_summary or {})
+        pre_run_gate_payload = dict(pre_run_readiness_gate or {})
         uncertainty_method_payload = dict(uncertainty_method_readiness_summary or {})
         audit_readiness_payload = dict(audit_readiness_digest or {})
         compatibility_summary = dict(compatibility_scan_summary or {})

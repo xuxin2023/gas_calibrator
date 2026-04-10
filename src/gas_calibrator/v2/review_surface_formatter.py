@@ -1443,6 +1443,11 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
             default=f"linked traceability nodes: {linked_traceability_summary}",
         ),
         t(
+            "results.review_center.detail.readiness.warning_items_line",
+            value=warning_summary,
+            default=f"warning items: {warning_summary}",
+        ),
+        t(
             "results.review_center.detail.readiness.reviewer_next_step_line",
             value=reviewer_next_step_summary,
             default=f"reviewer next step: {reviewer_next_step_summary}",
