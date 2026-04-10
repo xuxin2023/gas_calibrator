@@ -1168,79 +1168,419 @@ def _build_scope_readiness_summary(
 def _build_reference_asset_registry(
     *,
     run_id: str,
+    scope_definition_pack: dict[str, Any],
+    decision_rule_profile: dict[str, Any],
     sample_digest: dict[str, Any],
     payload_backed_phases: list[str],
     path_map: dict[str, str],
 ) -> dict[str, Any]:
-    analyzer_scope = " | ".join(sample_digest["analyzers"]) or "simulation_analyzer_population"
+    scope_raw = dict(scope_definition_pack.get("raw") or {})
+    decision_raw = dict(decision_rule_profile.get("raw") or {})
+    scope_id = str(scope_raw.get("scope_id") or f"{run_id}-step2-scope-package")
+    scope_name = str(scope_raw.get("scope_name") or "Step 2 simulation reviewer scope package")
+    decision_rule_id = str(decision_raw.get("decision_rule_id") or "step2_readiness_reviewer_rule_v1")
+    analyzer_scope = " | ".join(sample_digest.get("analyzers") or []) or "simulation_analyzer_population"
+    linked_run_artifacts = [
+        path_map["scope_definition_pack"],
+        path_map["decision_rule_profile"],
+        path_map["scope_readiness_summary"],
+        path_map["measurement_phase_coverage_report"],
+    ]
     assets = [
-        _asset_row("sg-001", "standard_gas", "Standard gas / standard gas lot", "reference", current_stage_usage="registry_stub_only"),
-        _asset_row("hg-001", "humidity_generator", "Humidity generator", "reference", current_stage_usage="registry_stub_only"),
-        _asset_row("dp-001", "dew_point_meter", "Dew point meter", "reference", current_stage_usage="registry_stub_only"),
-        _asset_row("pg-001", "digital_pressure_gauge", "Digital pressure gauge", "reference", current_stage_usage="registry_stub_only"),
-        _asset_row("pc-001", "pressure_controller", "Pressure controller", "support", current_stage_usage="registry_stub_only"),
-        _asset_row("tc-001", "temperature_chamber", "Temperature chamber", "support", current_stage_usage="registry_stub_only"),
-        _asset_row("th-001", "thermometer", "Thermometer", "reference", current_stage_usage="registry_stub_only"),
         _asset_row(
-            "dut-sim",
-            "analyzer_under_test",
-            f"Analyzer under test population / {analyzer_scope}",
-            "dut",
+            asset_id="asset-standard-gas-sg-001",
+            asset_name="标准气体 Lot SG-2026-CO2-01",
+            asset_type="standard_gas",
+            manufacturer="Reviewer Stub Gas Supply",
+            model="CO2/H2O reference cylinder",
+            serial_or_lot="LOT-SG-2026-CO2-01",
+            role_in_reference_chain="primary_reference",
+            measurand_scope=["CO2", "H2O"],
+            route_scope=["gas", "water"],
+            environment_scope=["simulation", "offline", "headless", "reviewer_only"],
+            certificate_status="reviewer_stub_only",
+            certificate_id="CERT-SG-2026-001",
+            certificate_version="stub-v1",
+            valid_from="2026-01-01",
+            valid_to="2026-12-31",
+            expiry_status="valid",
+            intermediate_check_status="due_soon",
+            intermediate_check_due="2026-05-01",
+            last_check_at="2026-03-15",
+            limitation_note="标准气 lot / 证书 / 使用批次仅作 reviewer mapping，不能替代真实 released 台账。",
+            non_claim_note="标准气证书链未 released，不得形成 formal conformity / compliance claim。",
+            reviewer_note="需补 lot binding、替代标准链审批与真实证书挂接。",
+            linked_run_artifacts=linked_run_artifacts,
+            linked_scope_ids=[scope_id],
+            linked_scope_names=[scope_name],
+            linked_decision_rule_ids=[decision_rule_id],
+            lot_binding_required=True,
+            lot_binding_status="missing_lot_binding",
+            substitute_standard_chain_required=True,
+            substitute_standard_chain_approval_status="missing_approval",
+            readiness_status="warning_reviewer_attention",
+        ),
+        _asset_row(
+            asset_id="asset-humidity-generator-hg-001",
+            asset_name="湿度发生器 HG-STEP2-01",
+            asset_type="humidity_generator",
+            manufacturer="Reviewer Stub Climate Lab",
+            model="HG-9000-sim",
+            serial_or_lot="HG-STEP2-01",
+            role_in_reference_chain="primary_reference",
+            measurand_scope=["H2O", "humidity"],
+            route_scope=["water"],
+            environment_scope=["simulation", "offline", "headless"],
+            active_state="inactive_certificate_expired",
+            certificate_status="expired_certificate",
+            certificate_id="CERT-HG-2024-017",
+            certificate_version="stub-v1",
+            valid_from="2025-04-01",
+            valid_to="2026-03-31",
+            expiry_status="expired",
+            intermediate_check_status="pass",
+            intermediate_check_due="2026-05-15",
+            last_check_at="2026-03-10",
+            limitation_note="当前仅展示 reviewer-facing 过期状态，不触发真实设备控制。",
+            non_claim_note="证书有效期已过，当前结果不得作为 formal claim 证据。",
+            reviewer_note="需补新证书或 reviewer-approved 替代链说明。",
+            linked_run_artifacts=linked_run_artifacts,
+            linked_scope_ids=[scope_id],
+            linked_scope_names=[scope_name],
+            linked_decision_rule_ids=[decision_rule_id],
+            readiness_status="blocked_for_formal_claim",
+        ),
+        _asset_row(
+            asset_id="asset-dewpoint-meter-dp-001",
+            asset_name="露点仪 DP-STEP2-01",
+            asset_type="dewpoint_meter",
+            manufacturer="Reviewer Stub Climate Lab",
+            model="DPM-750-sim",
+            serial_or_lot="DP-STEP2-01",
+            role_in_reference_chain="transfer_reference",
+            measurand_scope=["dew_point", "H2O"],
+            route_scope=["water"],
+            environment_scope=["simulation", "offline", "headless"],
+            certificate_status="missing_certificate",
+            certificate_version="",
+            expiry_status="missing",
+            intermediate_check_status="missing_intermediate_check",
+            intermediate_check_due="2026-04-20",
+            limitation_note="当前为 reviewer-only stub，缺失 released certificate 文件。",
+            non_claim_note="缺少证书与期间核查，不得进入 formal claim 口径。",
+            reviewer_note="先补证书挂接，再补内部期间核查记录。",
+            linked_run_artifacts=linked_run_artifacts,
+            linked_scope_ids=[scope_id],
+            linked_scope_names=[scope_name],
+            linked_decision_rule_ids=[decision_rule_id],
+            readiness_status="blocked_for_formal_claim",
+            asset_type_aliases=["dew_point_meter"],
+        ),
+        _asset_row(
+            asset_id="asset-pressure-gauge-pg-001",
+            asset_name="数字压力计 PG-STEP2-01",
+            asset_type="digital_pressure_gauge",
+            manufacturer="Reviewer Stub Pressure Lab",
+            model="DPG-2000-sim",
+            serial_or_lot="PG-STEP2-01",
+            role_in_reference_chain="transfer_reference",
+            measurand_scope=["pressure"],
+            route_scope=["gas", "water", "ambient"],
+            environment_scope=["simulation", "offline", "headless"],
+            certificate_status="reviewer_stub_only",
+            certificate_id="CERT-PG-2026-021",
+            certificate_version="stub-v1",
+            valid_from="2026-01-15",
+            valid_to="2026-10-01",
+            expiry_status="valid",
+            intermediate_check_status="overdue",
+            intermediate_check_due="2026-04-01",
+            last_check_at="2025-12-10",
+            limitation_note="期间核查状态仅来自 reviewer stub，不回写真实仪表链路。",
+            non_claim_note="期间核查逾期，不能支撑 formal claim。",
+            reviewer_note="需要补内部期间核查记录并关联 decision rule dependency。",
+            linked_run_artifacts=linked_run_artifacts,
+            linked_scope_ids=[scope_id],
+            linked_scope_names=[scope_name],
+            linked_decision_rule_ids=[decision_rule_id],
+            readiness_status="blocked_for_formal_claim",
+        ),
+        _asset_row(
+            asset_id="asset-temp-chamber-tc-001",
+            asset_name="温度箱 TC-STEP2-01",
+            asset_type="temperature_chamber",
+            manufacturer="Reviewer Stub Climate Lab",
+            model="TC-600-sim",
+            serial_or_lot="TC-STEP2-01",
+            role_in_reference_chain="environment_support",
+            measurand_scope=["temperature", "stability_environment"],
+            route_scope=["gas", "water", "ambient"],
+            environment_scope=["simulation", "offline", "headless"],
+            quarantine_state="quarantined_pending_review",
+            certificate_status="reviewer_stub_only",
+            certificate_id="CERT-TC-2026-004",
+            certificate_version="stub-v1",
+            valid_from="2026-02-01",
+            valid_to="2026-11-15",
+            expiry_status="valid",
+            intermediate_check_status="pass",
+            intermediate_check_due="2026-06-01",
+            last_check_at="2026-03-22",
+            limitation_note="温度箱仅用于 reviewer-facing 环境链说明，不驱动真实环境控制。",
+            non_claim_note="存在 out-of-tolerance 审核未关闭，不能用于 formal claim。",
+            reviewer_note="需先关闭 OOT 事件，再讨论任何未来 formal path。",
+            linked_run_artifacts=linked_run_artifacts,
+            linked_scope_ids=[scope_id],
+            linked_scope_names=[scope_name],
+            linked_decision_rule_ids=[decision_rule_id],
+            readiness_status="blocked_for_formal_claim",
+        ),
+        _asset_row(
+            asset_id="asset-thermometer-th-001",
+            asset_name="数字温度计 TH-STEP2-01",
+            asset_type="digital_thermometer",
+            manufacturer="Reviewer Stub Climate Lab",
+            model="DT-250-sim",
+            serial_or_lot="TH-STEP2-01",
+            role_in_reference_chain="transfer_reference",
+            measurand_scope=["temperature"],
+            route_scope=["gas", "water", "ambient"],
+            environment_scope=["simulation", "offline", "headless"],
+            certificate_status="reviewer_stub_only",
+            certificate_id="CERT-TH-2026-031",
+            certificate_version="stub-v1",
+            valid_from="2026-02-10",
+            valid_to="2026-11-30",
+            expiry_status="valid",
+            intermediate_check_status="pass",
+            intermediate_check_due="2026-06-15",
+            last_check_at="2026-03-30",
+            limitation_note="当前仅用于 readiness mapping 的温度参考链骨架。",
+            non_claim_note="未释放到正式 metrology claim，仅可供 reviewer 视图引用。",
+            reviewer_note="作为正向样例保留，用于展示 scope->asset traceability 完整关联。",
+            linked_run_artifacts=linked_run_artifacts,
+            linked_scope_ids=[scope_id],
+            linked_scope_names=[scope_name],
+            linked_decision_rule_ids=[decision_rule_id],
+            readiness_status="ok_for_reviewer_mapping",
+            asset_type_aliases=["thermometer"],
+        ),
+        _asset_row(
+            asset_id="asset-pressure-controller-pc-001",
+            asset_name="压力控制器 PC-STEP2-01",
+            asset_type="pressure_controller",
+            manufacturer="Reviewer Stub Pressure Lab",
+            model="PC-880-sim",
+            serial_or_lot="PC-STEP2-01",
+            role_in_reference_chain="supporting_control",
+            measurand_scope=["pressure", "pressure_stability"],
+            route_scope=["gas", "water"],
+            environment_scope=["simulation", "offline", "headless"],
+            certificate_status="reviewer_stub_only",
+            certificate_id="CERT-PC-2026-008",
+            certificate_version="stub-v1",
+            valid_from="2026-02-01",
+            valid_to="2026-10-31",
+            expiry_status="valid",
+            intermediate_check_status="due_soon",
+            intermediate_check_due="2026-04-25",
+            last_check_at="2026-03-05",
+            limitation_note="控制器状态仅作 artifact-based review，不构成 live control dependency。",
+            non_claim_note="当前仍是 reviewer-only supporting asset，不能生成 formal compliance claim。",
+            reviewer_note="建议与 pressure_stable phase 的 intermediate check 计划保持联动。",
+            linked_run_artifacts=linked_run_artifacts,
+            linked_scope_ids=[scope_id],
+            linked_scope_names=[scope_name],
+            linked_decision_rule_ids=[decision_rule_id],
+            readiness_status="warning_reviewer_attention",
+        ),
+        _asset_row(
+            asset_id="asset-aut-dut-sim",
+            asset_name=f"被校分析仪群组 / {analyzer_scope}",
+            asset_type="analyzer_under_test",
+            manufacturer="Simulated DUT Population",
+            model="AUT-simulation-bundle",
+            serial_or_lot=analyzer_scope,
+            role_in_reference_chain="analyzer_under_test",
+            measurand_scope=["CO2", "H2O", "ambient_diagnostic"],
+            route_scope=["gas", "water", "ambient"],
+            environment_scope=["simulation", "offline", "headless"],
             certificate_status="not_applicable_for_reference_chain",
+            expiry_status="not_applicable",
             intermediate_check_status="not_applicable_for_reference_chain",
-            current_stage_usage="simulation_dut_stub_only",
+            limitation_note="DUT 仅为 simulation population，不进入真实控制链。",
+            non_claim_note="DUT 群组只用于 reviewer-facing readiness mapping，不代表真实 bench acceptance。",
+            reviewer_note="保持与 reference assets 分离，避免误解为 released reference chain 成员。",
+            linked_run_artifacts=linked_run_artifacts,
+            linked_scope_ids=[scope_id],
+            linked_scope_names=[scope_name],
+            linked_decision_rule_ids=[decision_rule_id],
+            readiness_status="ready_for_readiness_mapping",
         ),
     ]
-    raw = {
-        "schema_version": "1.0",
-        "artifact_type": "reference_asset_registry",
-        "generated_at": _now_iso(),
-        "run_id": run_id,
-        "artifact_role": "execution_summary",
-        "evidence_source": "simulated_protocol",
-        "evidence_state": "reviewer_readiness_only",
-        "not_real_acceptance_evidence": True,
-        "boundary_statements": list(RECOGNITION_READINESS_BOUNDARY_STATEMENTS),
-        "assets": assets,
-        "payload_backed_phases": payload_backed_phases,
-        "readiness_status": "reference_registry_stub_only",
-        "linked_run_artifacts": {
-            "measurement_phase_coverage_report": path_map["measurement_phase_coverage_report"],
-            "scope_readiness_summary": path_map["scope_readiness_summary"],
-            "certificate_readiness_summary": path_map["certificate_readiness_summary"],
-        },
-        "non_claim": [
-            "reference registry stub only",
-            "not a released metrology chain",
-            "certificate evidence not closed",
-        ],
+    certificate_attention_count = sum(
+        1
+        for item in assets
+        if str(item.get("certificate_status") or "") in {"missing_certificate", "expired_certificate", "reviewer_stub_only"}
+    )
+    intermediate_attention_count = sum(
+        1
+        for item in assets
+        if str(item.get("intermediate_check_status") or "") in {"missing_intermediate_check", "overdue", "due_soon"}
+    )
+    lot_binding_gap_count = sum(
+        1 for item in assets if bool(item.get("lot_binding_required")) and str(item.get("lot_binding_status") or "") != "approved"
+    )
+    scope_reference_assets = [
+        f"{item['asset_name']} ({item['asset_type']})"
+        for item in assets
+        if str(item.get("asset_type") or "") != "analyzer_under_test"
+    ]
+    decision_rule_dependencies = [
+        "certificate lifecycle summary",
+        "standard gas lot binding",
+        "pressure / temperature intermediate checks",
+        "reviewer-only substitute standard approval trail",
+    ]
+    asset_readiness_overview = (
+        f"assets {len(assets)} | certificate attention {certificate_attention_count} | "
+        f"intermediate-check attention {intermediate_attention_count} | lot-binding gaps {lot_binding_gap_count}"
+    )
+    current_coverage = [
+        f"scope linkage: {scope_name}",
+        f"decision rule linkage: {decision_rule_id}",
+        f"payload-backed phases: {' | '.join(payload_backed_phases) or '--'}",
+        f"tracked asset types: {' | '.join(_dedupe(item['asset_type'] for item in assets))}",
+    ]
+    missing_evidence = [
+        "released asset ledger / database intake remains out of default chain",
+        "standard gas lot binding is not closed",
+        "some certificates and intermediate checks remain stub / missing / expired",
+    ]
+    blockers = [
+        "registry is reviewer-only and not a released traceability ledger",
+        "formal claim release flags remain false for all Step 2 assets",
+    ]
+    digest = {
+        "summary": (
+            "reference asset registry | reviewer-only / simulated ledger | "
+            f"assets {len(assets)} | certificate attention {certificate_attention_count}"
+        ),
+        "scope_overview_summary": scope_name,
+        "decision_rule_summary": f"{decision_rule_id} | reviewer dependency mapping only",
+        "conformity_boundary_summary": "reference assets stay reviewer-only / simulated and cannot become formal claim evidence.",
+        "asset_readiness_overview": asset_readiness_overview,
+        "scope_reference_assets_summary": " | ".join(scope_reference_assets),
+        "decision_rule_dependency_summary": " | ".join(decision_rule_dependencies),
+        "current_coverage_summary": " | ".join(current_coverage),
+        "missing_evidence_summary": " | ".join(missing_evidence),
+        "blocker_summary": " | ".join(blockers),
+        "reviewer_next_step_digest": "keep registry file-backed, then map lifecycle / gate sidecars without introducing default DB or live equipment dependency.",
+        "non_claim_digest": "reviewer-only registry; simulated/offline assets are not real acceptance evidence.",
     }
-    markdown = _render_markdown(
+    bundle = _summary_raw(
+        run_id=run_id,
+        artifact_type="reference_asset_registry",
+        overall_status="degraded",
+        title_text="Reference Asset Registry",
+        reviewer_note=(
+            "Machine-readable reviewer-facing reference asset ledger only. "
+            "It is file-backed, simulated/stub compatible, and intentionally not a released real metrology asset chain."
+        ),
+        summary_text=digest["summary"],
+        summary_lines=[
+            f"asset readiness overview: {asset_readiness_overview}",
+            f"scope-linked assets: {digest['scope_reference_assets_summary']}",
+            f"decision-rule dependencies: {digest['decision_rule_dependency_summary']}",
+        ],
+        detail_lines=[
+            f"current coverage: {digest['current_coverage_summary']}",
+            f"missing evidence: {digest['missing_evidence_summary']}",
+            f"blockers: {digest['blocker_summary']}",
+            f"scope_definition_pack: {path_map['scope_definition_pack']}",
+            f"decision_rule_profile: {path_map['decision_rule_profile']}",
+            *[f"boundary: {line}" for line in RECOGNITION_READINESS_BOUNDARY_STATEMENTS],
+        ],
+        anchor_id="reference-asset-registry",
+        anchor_label="Reference asset registry",
+        evidence_categories=["recognition_readiness", "reference_asset_registry", "asset_readiness"],
+        artifact_paths={
+            "scope_definition_pack": path_map["scope_definition_pack"],
+            "decision_rule_profile": path_map["decision_rule_profile"],
+            "scope_readiness_summary": path_map["scope_readiness_summary"],
+            "reference_asset_registry": path_map["reference_asset_registry"],
+            "reference_asset_registry_markdown": path_map["reference_asset_registry_markdown"],
+            "certificate_lifecycle_summary": path_map["certificate_lifecycle_summary"],
+            "pre_run_readiness_gate": path_map["pre_run_readiness_gate"],
+            "measurement_phase_coverage_report": path_map["measurement_phase_coverage_report"],
+        },
+        body={
+            "scope_id": scope_id,
+            "scope_name": scope_name,
+            "decision_rule_id": decision_rule_id,
+            "assets": assets,
+            "scope_reference_assets": scope_reference_assets,
+            "decision_rule_dependencies": decision_rule_dependencies,
+            "current_evidence_coverage": current_coverage,
+            "missing_evidence": missing_evidence,
+            "blockers": blockers,
+            "reviewer_stub_only": True,
+            "readiness_mapping_only": True,
+            "not_released_for_formal_claim": True,
+            "not_ready_for_formal_claim": True,
+            "ready_for_readiness_mapping": True,
+            "not_in_default_chain": False,
+            "primary_evidence_rewritten": False,
+            "linked_artifacts": {
+                "scope_definition_pack": path_map["scope_definition_pack"],
+                "decision_rule_profile": path_map["decision_rule_profile"],
+                "scope_readiness_summary": path_map["scope_readiness_summary"],
+                "certificate_lifecycle_summary": path_map["certificate_lifecycle_summary"],
+                "pre_run_readiness_gate": path_map["pre_run_readiness_gate"],
+                "measurement_phase_coverage_report": path_map["measurement_phase_coverage_report"],
+            },
+            "limitation_note": (
+                "Registry is intentionally file-artifact-first and reviewer-facing in Step 2. "
+                "It does not introduce a default database dependency or a hard dependency for live equipment control."
+            ),
+            "non_claim_note": (
+                "All registry rows remain simulated / stub / reviewer-only and cannot be interpreted as real acceptance, "
+                "formal compliance, or accreditation evidence."
+            ),
+            "reviewer_note": "Use this ledger to map scope/decision dependencies only; keep formal claim release flags false.",
+        },
+        digest=digest,
+        filename=REFERENCE_ASSET_REGISTRY_FILENAME,
+        markdown_filename=REFERENCE_ASSET_REGISTRY_MARKDOWN_FILENAME,
+    )
+    raw = dict(bundle.get("raw") or {})
+    raw["artifact_role"] = "execution_summary"
+    raw["evidence_source"] = "simulated"
+    raw["review_surface"] = {
+        **dict(raw.get("review_surface") or {}),
+        "role_text": "execution_summary",
+        "evidence_source_filters": ["simulated", "reviewer_readiness_only"],
+    }
+    bundle["raw"] = raw
+    bundle["digest"] = dict(raw.get("digest") or {})
+    bundle["markdown"] = _render_markdown(
         "Reference Asset Registry",
         [
+            f"- scope_id: {scope_id}",
+            f"- decision_rule_id: {decision_rule_id}",
+            f"- asset_readiness_overview: {asset_readiness_overview}",
             *[
                 (
-                    f"- {row['asset_id']}: {row['display_name']} | role={row['role']} | "
-                    f"certificate_status={row['certificate_status']} | intermediate_check_status={row['intermediate_check_status']}"
+                    f"- {row['asset_id']}: {row['asset_name']} | asset_type={row['asset_type']} | "
+                    f"certificate_status={row['certificate_status']} | intermediate_check_status={row['intermediate_check_status']} | "
+                    f"lot_binding_status={row['lot_binding_status']} | ready_for_readiness_mapping={row['ready_for_readiness_mapping']}"
                 )
                 for row in assets
             ],
-            f"- readiness_status: {raw['readiness_status']}",
-            f"- non_claim: {' | '.join(raw['non_claim'])}",
+            f"- non_claim_note: {str(raw.get('non_claim_note') or '--')}",
         ],
     )
-    return {
-        "available": True,
-        "artifact_type": "reference_asset_registry",
-        "filename": REFERENCE_ASSET_REGISTRY_FILENAME,
-        "markdown_filename": REFERENCE_ASSET_REGISTRY_MARKDOWN_FILENAME,
-        "raw": raw,
-        "markdown": markdown,
-        "digest": {
-            "summary": "reference asset registry / reviewer readiness stub",
-            "asset_count": len(assets),
-        },
-    }
+    return bundle
 
 
 def _build_certificate_readiness_summary(
