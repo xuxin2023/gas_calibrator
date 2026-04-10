@@ -653,7 +653,7 @@ class DeviceWorkbenchController:
         if software_validation_rollup or release_manifest:
             software_validation_boundary = t(
                 "facade.results.result_summary.software_validation_boundary",
-                default="软件验证边界：仅供审阅 / 仅限仿真 / 不是真实验收证据 / 非 formal claim",
+                default="软件验证边界：仅供审阅 / 仅限仿真 / 不是真实验收证据 / 非 claim",
             )
             if software_validation_boundary not in boundary_lines:
                 boundary_lines.append(software_validation_boundary)

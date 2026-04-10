@@ -1610,6 +1610,7 @@
         "release_scope_summary": "Release scope：{value}",
         "release_boundary_summary": "非 claim 边界：{value}",
         "release_evidence_pack_index": "Evidence pack：{value}",
+        "software_validation_boundary": "软件验证边界：仅供审阅 / 仅限仿真 / 不是真实验收证据 / 非 claim",
         "uncertainty_overview": "不确定度概览：{value}",
         "uncertainty_budget_completeness": "预算完整度：{value}",
         "uncertainty_top_contributors": "主要不确定度贡献：{value}",
