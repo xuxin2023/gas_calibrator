@@ -139,6 +139,7 @@ RECOGNITION_READINESS_SUMMARY_FILENAMES = (
 )
 from .software_validation_builder import build_software_validation_wp5_artifacts
 from .uncertainty_builder import build_uncertainty_wp3_artifacts
+from .wp6_builder import build_wp6_artifacts
 
 RECOGNITION_READINESS_BOUNDARY_STATEMENTS = [
     "Step 2 reviewer readiness only",

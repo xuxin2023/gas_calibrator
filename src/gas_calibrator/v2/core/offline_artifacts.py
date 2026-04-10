@@ -1773,6 +1773,12 @@ def export_run_offline_artifacts(
         "software_validation_traceability_matrix": "execution_summary",
         "release_validation_manifest": "execution_summary",
         "audit_readiness_digest": "diagnostic_analysis",
+        "pt_ilc_registry": "execution_summary",
+        "external_comparison_importer": "execution_summary",
+        "comparison_evidence_pack": "diagnostic_analysis",
+        "scope_comparison_view": "diagnostic_analysis",
+        "comparison_digest": "diagnostic_analysis",
+        "comparison_rollup": "diagnostic_analysis",
     }
     for artifact_key, (json_path, markdown_path) in recognition_readiness_written_paths.items():
         role = recognition_readiness_roles.get(str(artifact_key), "execution_summary")
