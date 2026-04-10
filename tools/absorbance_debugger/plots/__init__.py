@@ -8,6 +8,7 @@ from .charts import (
     plot_absorbance_model_residual_hist,
     plot_absorbance_model_residual_vs_target,
     plot_absorbance_model_residual_vs_temp,
+    plot_branch_metric_compare,
     plot_error_boxplot,
     plot_error_hist,
     plot_error_vs_target_ppm,
@@ -18,6 +19,7 @@ from .charts import (
     plot_r0_fit,
     plot_temperature_fit,
     plot_timeseries_base_final,
+    plot_upper_bound_vs_deployable,
     plot_zero_compare,
     plot_zero_drift,
 )
@@ -30,6 +32,7 @@ __all__ = [
     "plot_absorbance_model_residual_hist",
     "plot_absorbance_model_residual_vs_target",
     "plot_absorbance_model_residual_vs_temp",
+    "plot_branch_metric_compare",
     "plot_error_boxplot",
     "plot_error_hist",
     "plot_error_vs_target_ppm",
@@ -40,6 +43,7 @@ __all__ = [
     "plot_r0_fit",
     "plot_temperature_fit",
     "plot_timeseries_base_final",
+    "plot_upper_bound_vs_deployable",
     "plot_zero_compare",
     "plot_zero_drift",
 ]

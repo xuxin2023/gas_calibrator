@@ -10,6 +10,7 @@ from tkinter import ttk
 
 from .app import run_debugger
 from .options import (
+    normalize_absorbance_order_mode,
     normalize_model_selection_strategy,
     normalize_pressure_source,
     normalize_ratio_source,
@@ -23,7 +24,7 @@ class AbsorbanceDebuggerGui:
     def __init__(self, root: Tk) -> None:
         self.root = root
         self.root.title("Absorbance Debugger")
-        self.root.geometry("780x500")
+        self.root.geometry("840x580")
 
         self.input_path = StringVar()
         self.output_dir = StringVar(value=str(Path(__file__).resolve().parents[2] / "output" / "absorbance_debugger"))
@@ -31,8 +32,12 @@ class AbsorbanceDebuggerGui:
         self.pressure_source = StringVar(value="P_corr")
         self.temperature_source = StringVar(value="T_corr")
         self.ratio_source = StringVar(value="raw")
+        self.absorbance_order_mode = StringVar(value="samplewise_log_first")
         self.model_selection_strategy = StringVar(value="auto")
         self.enable_composite_score = StringVar(value="1")
+        self.run_source_consistency_compare = StringVar(value="1")
+        self.run_pressure_branch_compare = StringVar(value="1")
+        self.run_upper_bound_compare = StringVar(value="1")
         self.auto_open_report = StringVar(value="1")
         self.status_text = StringVar(value="Ready.")
         self.last_report_path: Path | None = None
@@ -68,10 +73,11 @@ class AbsorbanceDebuggerGui:
         self._combo_row(frame, 4, "Pressure source", self.pressure_source, ("P_std", "P_corr"))
         self._combo_row(frame, 5, "Temperature source", self.temperature_source, ("T_std", "T_corr"))
         self._combo_row(frame, 6, "Ratio source", self.ratio_source, ("raw", "filt"))
-        self._combo_row(frame, 7, "Model strategy", self.model_selection_strategy, ("auto", "grouped_loo", "grouped_kfold"))
+        self._combo_row(frame, 7, "Order mode", self.absorbance_order_mode, ("samplewise_log_first", "mean_first_log", "compare_both"))
+        self._combo_row(frame, 8, "Model strategy", self.model_selection_strategy, ("auto", "grouped_loo", "grouped_kfold"))
 
         option_frame = ttk.Frame(frame)
-        option_frame.grid(row=8, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        option_frame.grid(row=9, column=0, columnspan=3, sticky="w", pady=(10, 0))
         ttk.Checkbutton(
             option_frame,
             text="Enable composite score",
@@ -81,21 +87,45 @@ class AbsorbanceDebuggerGui:
         ).pack(side=LEFT)
         ttk.Checkbutton(
             option_frame,
-            text="Open report after run",
-            variable=self.auto_open_report,
+            text="R0 source consistency compare",
+            variable=self.run_source_consistency_compare,
+            onvalue="1",
+            offvalue="0",
+        ).pack(side=LEFT, padx=(14, 0))
+        ttk.Checkbutton(
+            option_frame,
+            text="Pressure branch compare",
+            variable=self.run_pressure_branch_compare,
+            onvalue="1",
+            offvalue="0",
+        ).pack(side=LEFT, padx=(14, 0))
+        ttk.Checkbutton(
+            option_frame,
+            text="Upper bound vs deployable",
+            variable=self.run_upper_bound_compare,
             onvalue="1",
             offvalue="0",
         ).pack(side=LEFT, padx=(14, 0))
 
+        option_frame_2 = ttk.Frame(frame)
+        option_frame_2.grid(row=10, column=0, columnspan=3, sticky="w", pady=(10, 0))
+        ttk.Checkbutton(
+            option_frame_2,
+            text="Open report after run",
+            variable=self.auto_open_report,
+            onvalue="1",
+            offvalue="0",
+        ).pack(side=LEFT)
+
         action_frame = ttk.Frame(frame)
-        action_frame.grid(row=9, column=0, columnspan=3, sticky="ew", pady=(18, 0))
+        action_frame.grid(row=11, column=0, columnspan=3, sticky="ew", pady=(18, 0))
         self.start_button = ttk.Button(action_frame, text="Start analysis", command=self._start_analysis)
         self.start_button.pack(side=LEFT)
         self.open_button = ttk.Button(action_frame, text="Open report.html", command=self._open_report, state="disabled")
         self.open_button.pack(side=LEFT, padx=(10, 0))
 
         ttk.Label(frame, textvariable=self.status_text, wraplength=700).grid(
-            row=10,
+            row=12,
             column=0,
             columnspan=3,
             sticky="w",
@@ -152,8 +182,12 @@ class AbsorbanceDebuggerGui:
             ratio_source = normalize_ratio_source(self.ratio_source.get())
             temperature_source = normalize_temp_source(self.temperature_source.get())
             pressure_source = normalize_pressure_source(self.pressure_source.get())
+            absorbance_order_mode = normalize_absorbance_order_mode(self.absorbance_order_mode.get())
             model_selection_strategy = normalize_model_selection_strategy(self.model_selection_strategy.get())
             enable_composite_score = self.enable_composite_score.get() == "1"
+            run_source_consistency_compare = self.run_source_consistency_compare.get() == "1"
+            run_pressure_branch_compare = self.run_pressure_branch_compare.get() == "1"
+            run_upper_bound_compare = self.run_upper_bound_compare.get() == "1"
         except Exception as exc:
             messagebox.showerror("Absorbance Debugger", str(exc))
             return
@@ -176,8 +210,12 @@ class AbsorbanceDebuggerGui:
                     ratio_source=ratio_source,
                     temperature_source=temperature_source,
                     pressure_source=pressure_source,
+                    absorbance_order_mode=absorbance_order_mode,
                     model_selection_strategy=model_selection_strategy,
                     enable_composite_score=enable_composite_score,
+                    run_r0_source_consistency_compare=run_source_consistency_compare,
+                    run_pressure_branch_compare=run_pressure_branch_compare,
+                    run_upper_bound_compare=run_upper_bound_compare,
                     p_ref_hpa=p_ref_hpa,
                 )
                 report_path = Path(result["output_dir"]) / "report.html"

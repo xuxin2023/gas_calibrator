@@ -541,11 +541,18 @@ def _display_boundary_summary(payload: dict[str, Any]) -> str:
 
 
 def _display_non_claim_summary(payload: dict[str, Any]) -> str:
+    raw_non_claim = payload.get("non_claim")
+    if isinstance(raw_non_claim, str):
+        text_values = [raw_non_claim]
+    elif isinstance(raw_non_claim, (list, tuple, set)):
+        text_values = list(raw_non_claim)
+    else:
+        text_values = []
     return _display_fragment_list(
         NON_CLAIM_FRAGMENT_FAMILY,
         fragment_rows=list(payload.get("non_claim_fragments") or []),
         fragment_keys=list(payload.get("non_claim_fragment_keys") or []),
-        text_values=list(payload.get("non_claim") or []) or [payload.get("non_claim_digest")],
+        text_values=text_values or [payload.get("non_claim_digest")],
         default_text=str(payload.get("non_claim_digest") or ""),
     )
 

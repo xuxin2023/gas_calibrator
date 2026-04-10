@@ -518,3 +518,85 @@ def plot_absorbance_model_old_vs_new(data: pd.DataFrame, output_path: Path) -> N
         ax.grid(alpha=0.2)
         ax.legend()
     _finalize(fig, output_path)
+
+
+def plot_branch_metric_compare(
+    data: pd.DataFrame,
+    category_column: str,
+    output_path: Path,
+    *,
+    title: str,
+) -> None:
+    """Plot per-analyzer diagnostic branch comparisons for overall and zero RMSE."""
+
+    if "analyzer_id" not in data.columns or category_column not in data.columns:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No diagnostic comparison data available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+    analyzers = sorted(data["analyzer_id"].dropna().unique().tolist())
+    fig, axes = plt.subplots(max(len(analyzers), 1), 2, figsize=(12, 3.6 * max(len(analyzers), 1)), squeeze=False)
+    if not analyzers:
+        axes[0, 0].text(0.5, 0.5, "No diagnostic comparison data available", ha="center", va="center")
+        axes[0, 0].axis("off")
+        axes[0, 1].axis("off")
+        return _finalize(fig, output_path)
+    for row_idx, analyzer in enumerate(analyzers):
+        subset = data[data["analyzer_id"] == analyzer].copy()
+        labels = subset[category_column].astype(str).tolist()
+        x = np.arange(len(labels))
+        overall_ax = axes[row_idx, 0]
+        zero_ax = axes[row_idx, 1]
+        overall_ax.bar(x, subset["new_chain_rmse"], color="#4472c4")
+        if "old_chain_rmse" in subset.columns and subset["old_chain_rmse"].notna().any():
+            overall_ax.axhline(float(subset["old_chain_rmse"].dropna().iloc[0]), color="#c0504d", linestyle="--", linewidth=1.2, label="old_chain_rmse")
+        overall_ax.set_xticks(x)
+        overall_ax.set_xticklabels(labels, rotation=20, ha="right")
+        overall_ax.set_title(f"{analyzer} overall RMSE")
+        overall_ax.set_ylabel("ppm")
+        overall_ax.grid(alpha=0.2, axis="y")
+        if row_idx == 0 and "old_chain_rmse" in subset.columns and subset["old_chain_rmse"].notna().any():
+            overall_ax.legend()
+
+        zero_ax.bar(x, subset["new_zero_rmse"], color="#70ad47")
+        if "old_zero_rmse" in subset.columns and subset["old_zero_rmse"].notna().any():
+            zero_ax.axhline(float(subset["old_zero_rmse"].dropna().iloc[0]), color="#c0504d", linestyle="--", linewidth=1.2, label="old_zero_rmse")
+        zero_ax.set_xticks(x)
+        zero_ax.set_xticklabels(labels, rotation=20, ha="right")
+        zero_ax.set_title(f"{analyzer} zero RMSE")
+        zero_ax.set_ylabel("ppm")
+        zero_ax.grid(alpha=0.2, axis="y")
+        if row_idx == 0 and "old_zero_rmse" in subset.columns and subset["old_zero_rmse"].notna().any():
+            zero_ax.legend()
+    fig.suptitle(title)
+    _finalize(fig, output_path)
+
+
+def plot_upper_bound_vs_deployable(data: pd.DataFrame, output_path: Path) -> None:
+    """Plot old/new RMSE under physics upper bound and deployable contexts."""
+
+    if "analyzer_id" not in data.columns:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No upper-bound/deployable data available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+    analyzers = sorted(data["analyzer_id"].dropna().unique().tolist())
+    fig, axes = plt.subplots(max(len(analyzers), 1), 1, figsize=(10, 3.8 * max(len(analyzers), 1)), squeeze=False)
+    if not analyzers:
+        axes[0, 0].text(0.5, 0.5, "No upper-bound/deployable data available", ha="center", va="center")
+        axes[0, 0].axis("off")
+        return _finalize(fig, output_path)
+    for row_idx, analyzer in enumerate(analyzers):
+        ax = axes[row_idx, 0]
+        subset = data[data["analyzer_id"] == analyzer].copy()
+        subset = subset.sort_values("chain_context")
+        x = np.arange(len(subset))
+        ax.bar(x - 0.18, subset["old_chain_rmse"], width=0.36, label="old_chain_rmse", color="#c0504d")
+        ax.bar(x + 0.18, subset["new_chain_rmse"], width=0.36, label="new_chain_rmse", color="#4472c4")
+        ax.set_xticks(x)
+        ax.set_xticklabels(subset["chain_context"].astype(str).tolist())
+        ax.set_title(f"{analyzer} upper bound vs deployable")
+        ax.set_ylabel("RMSE (ppm)")
+        ax.grid(alpha=0.2, axis="y")
+        ax.legend()
+    _finalize(fig, output_path)

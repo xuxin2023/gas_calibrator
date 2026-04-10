@@ -14,6 +14,15 @@ import pandas as pd
 
 from .absorbance_models import evaluate_absorbance_models
 from .comparison import build_comparison_outputs
+from .diagnostics import (
+    build_diagnostic_absorbance_points,
+    build_order_compare,
+    build_point_raw_summary,
+    build_pressure_branch_compare,
+    build_r0_source_consistency_compare,
+    build_root_cause_ranking,
+    build_upper_bound_vs_deployable_compare,
+)
 from ..io.run_bundle import RunBundle, discover_run_artifacts
 from ..models.config import DebuggerConfig
 from ..parsers.schema import (
@@ -32,6 +41,7 @@ from ..plots.charts import (
     plot_absorbance_model_residual_hist,
     plot_absorbance_model_residual_vs_target,
     plot_absorbance_model_residual_vs_temp,
+    plot_branch_metric_compare,
     plot_error_boxplot,
     plot_error_hist,
     plot_error_vs_target_ppm,
@@ -42,6 +52,7 @@ from ..plots.charts import (
     plot_r0_fit,
     plot_temperature_fit,
     plot_timeseries_base_final,
+    plot_upper_bound_vs_deployable,
     plot_zero_compare,
     plot_zero_drift,
 )
@@ -546,6 +557,22 @@ def _compute_absorbance(filtered: pd.DataFrame, config: DebuggerConfig, r0_looku
         .reset_index()
     )
     absorbance_points["A_std"] = absorbance_points["A_std"].fillna(0.0)
+    absorbance_points["R0_T_from_mean"] = np.nan
+    absorbance_points["A_from_mean"] = np.nan
+    absorbance_points["A_alt_from_mean"] = np.nan
+    for idx, row in absorbance_points.iterrows():
+        fit_key = (row["analyzer"], row["ratio_source"], row["temp_source"], row["r0_model"])
+        if fit_key not in r0_lookup or pd.isna(row["ratio_in_mean"]) or pd.isna(row["temp_use_mean_c"]):
+            continue
+        fit = r0_lookup[fit_key]
+        r0_at_mean = float(fit.evaluate([row["temp_use_mean_c"]])[0])
+        ratio_mean = float(np.clip(row["ratio_in_mean"], config.eps, None))
+        r0_clamped = float(np.clip(r0_at_mean, config.eps, None))
+        log_term_mean = -math.log(ratio_mean / r0_clamped)
+        pressure_mean = float(np.clip(row["pressure_use_mean_hpa"], config.p_min_hpa, None))
+        absorbance_points.loc[idx, "R0_T_from_mean"] = r0_at_mean
+        absorbance_points.loc[idx, "A_from_mean"] = log_term_mean * (config.p_ref_hpa / pressure_mean)
+        absorbance_points.loc[idx, "A_alt_from_mean"] = log_term_mean / pressure_mean
     return absorbance_samples, absorbance_points
 
 
@@ -591,7 +618,8 @@ def _fit_absorbance_models(
     output_dir: Path,
 ) -> dict[str, pd.DataFrame]:
     default_points = absorbance_points[absorbance_points["branch_id"] == config.default_branch_id()].copy()
-    model_results = evaluate_absorbance_models(default_points, config)
+    absorbance_column = "A_from_mean" if config.absorbance_order_mode == "mean_first_log" else "A_mean"
+    model_results = evaluate_absorbance_models(default_points, config, absorbance_column=absorbance_column)
     _frame_to_csv(output_dir / "step_06_absorbance_model_candidates.csv", model_results["candidates"])
     _frame_to_csv(output_dir / "step_06_absorbance_model_scores.csv", model_results["scores"])
     _frame_to_csv(output_dir / "step_06_absorbance_model_selection.csv", model_results["selection"])
@@ -641,6 +669,115 @@ def _load_old_ratio_residuals(bundle: RunBundle) -> pd.DataFrame:
     return combined
 
 
+def _run_loss_diagnostics(
+    bundle: RunBundle,
+    filtered: pd.DataFrame,
+    r0_lookup: dict[tuple[str, str, str, str], Any],
+    config: DebuggerConfig,
+    validation_table: pd.DataFrame,
+    output_dir: Path,
+) -> dict[str, Any]:
+    point_raw = build_point_raw_summary(filtered)
+    old = _load_old_ratio_residuals(bundle)
+    branch_points = build_diagnostic_absorbance_points(filtered, r0_lookup, config)
+
+    order_compare = build_order_compare(branch_points, config, point_raw, old)
+    source_consistency = (
+        build_r0_source_consistency_compare(branch_points, config, point_raw, old)
+        if config.run_r0_source_consistency_compare
+        else pd.DataFrame()
+    )
+    pressure_branch_compare = (
+        build_pressure_branch_compare(branch_points, config, point_raw, old)
+        if config.run_pressure_branch_compare
+        else pd.DataFrame()
+    )
+    upper_bound_vs_deployable = (
+        build_upper_bound_vs_deployable_compare(branch_points, config, point_raw, old)
+        if config.run_upper_bound_compare
+        else pd.DataFrame()
+    )
+    root_cause_ranking, top_lines, implementation_issue = build_root_cause_ranking(
+        order_compare,
+        source_consistency,
+        pressure_branch_compare,
+        upper_bound_vs_deployable,
+        validation_table,
+    )
+
+    _frame_to_csv(output_dir / "step_06x_absorbance_order_compare.csv", order_compare)
+    _frame_to_csv(output_dir / "step_05x_r0_source_consistency.csv", source_consistency)
+    _frame_to_csv(output_dir / "step_04x_pressure_branch_compare.csv", pressure_branch_compare)
+    _frame_to_csv(output_dir / "step_08x_upper_bound_vs_deployable.csv", upper_bound_vs_deployable)
+    _frame_to_csv(output_dir / "step_08x_root_cause_ranking.csv", root_cause_ranking)
+
+    plot_branch_metric_compare(
+        order_compare,
+        "order_mode",
+        output_dir / "step_06x_absorbance_order_plots.png",
+        title="Absorbance order comparison",
+    )
+    plot_branch_metric_compare(
+        source_consistency,
+        "source_pair_label",
+        output_dir / "step_05x_r0_source_consistency_plots.png",
+        title="R_in / R0 source consistency comparison",
+    )
+    plot_branch_metric_compare(
+        pressure_branch_compare,
+        "pressure_branch",
+        output_dir / "step_04x_pressure_branch_plots.png",
+        title="Pressure branch comparison",
+    )
+    plot_upper_bound_vs_deployable(
+        upper_bound_vs_deployable,
+        output_dir / "step_08x_upper_bound_vs_deployable_plots.png",
+    )
+
+    return {
+        "order_compare": order_compare,
+        "source_consistency": source_consistency,
+        "pressure_branch_compare": pressure_branch_compare,
+        "upper_bound_vs_deployable": upper_bound_vs_deployable,
+        "root_cause_ranking": root_cause_ranking,
+        "diagnostic_top_lines": top_lines,
+        "implementation_issue": implementation_issue,
+    }
+
+
+def _build_validation_table(points: pd.DataFrame, filtered: pd.DataFrame) -> pd.DataFrame:
+    zero_points = points[points["stage"].astype(str).str.lower() == "co2"].copy()
+    zero_points = zero_points[zero_points["target_co2_ppm"] == 0]
+    return pd.DataFrame(
+        [
+            {
+                "check_name": "identified_48_points",
+                "expected": 48,
+                "observed": int(len(points)),
+                "passed": int(len(points)) == 48,
+            },
+            {
+                "check_name": "identified_zero_ppm_temperatures",
+                "expected": "[-20,-10,0,10,20,30]",
+                "observed": json.dumps(sorted(zero_points["temp_set_c"].dropna().unique().tolist())),
+                "passed": sorted(zero_points["temp_set_c"].dropna().unique().tolist()) == [-20.0, -10.0, 0.0, 10.0, 20.0, 30.0],
+            },
+            {
+                "check_name": "identified_missing_40c_zero_ppm",
+                "expected": True,
+                "observed": 40.0 not in sorted(zero_points["temp_set_c"].dropna().unique().tolist()),
+                "passed": 40.0 not in sorted(zero_points["temp_set_c"].dropna().unique().tolist()),
+            },
+            {
+                "check_name": "main_results_only_ga01_to_ga03",
+                "expected": "GA01,GA02,GA03",
+                "observed": ",".join(sorted(filtered["analyzer"].dropna().unique().tolist())),
+                "passed": sorted(filtered["analyzer"].dropna().unique().tolist()) == ["GA01", "GA02", "GA03"],
+            },
+        ]
+    )
+
+
 def _comparison_tables(
     bundle: RunBundle,
     filtered: pd.DataFrame,
@@ -680,6 +817,7 @@ def _comparison_tables(
                 "point_title",
                 "point_row",
                 "A_mean",
+                "A_from_mean",
                 "A_std",
                 "A_alt_mean",
                 "R0_T_mean",
@@ -772,6 +910,11 @@ def _comparison_tables(
             "ratio_co2_filt": "filt",
         }
     ).fillna(config.default_ratio_label())
+    compare["absorbance_order_mode_selected"] = (
+        config.absorbance_order_mode
+        if config.absorbance_order_mode != "compare_both"
+        else "samplewise_log_first"
+    )
 
     point_reconciliation = compare.rename(
         columns={
@@ -793,9 +936,11 @@ def _comparison_tables(
             "ratio_co2_filt_mean",
             "A_raw",
             "A_mean",
+            "A_from_mean",
             "pressure_source",
             "temperature_source",
             "ratio_source_selected",
+            "absorbance_order_mode_selected",
             "best_absorbance_model",
             "best_absorbance_model_label",
             "selection_reason",
@@ -825,6 +970,7 @@ def _report_tables(
     r0_coeffs: pd.DataFrame,
     model_results: dict[str, pd.DataFrame],
     comparison_outputs: dict[str, pd.DataFrame | list[str]],
+    diagnostic_results: dict[str, Any],
     validation_table: pd.DataFrame,
     base_final_enabled: bool,
     base_final_source: str,
@@ -847,6 +993,7 @@ def _report_tables(
     conclusion_lines = comparison_outputs["conclusion_lines"]
     absorbance_model_scores = model_results["scores"]
     absorbance_model_selection = model_results["selection"]
+    root_cause_ranking = diagnostic_results["root_cause_ranking"]
     return {
         "run_name": bundle.source_path.stem,
         "input_path": str(bundle.source_path),
@@ -865,6 +1012,8 @@ def _report_tables(
             "Pressure correction": "pressure_corr_hpa = pressure_dev_raw_hpa + offset_hpa",
             "R0(T) default": "R0(T) = c0 + c1*T + c2*T^2",
             "Absorbance main": "A_raw = -ln(clamp(R_in, eps) / clamp(R0(T_use), eps)) * (P_ref / clamp(P_use, P_min))",
+            "Absorbance order A": "samplewise_log_first: A_mean_samplewise = mean(-ln(R_i / R0(T_i)) * pressure_term_i)",
+            "Absorbance order B": "mean_first_log: A_from_mean = -ln(R_mean / R0(T_mean)) * pressure_term_mean",
             "Absorbance alt": "A_alt = -ln(R_in / R0(T_use)) / P_use",
             "Absorbance model A": "ppm = b0 + b1*A",
             "Absorbance model B": "ppm = b0 + b1*A + b2*A^2",
@@ -878,6 +1027,13 @@ def _report_tables(
         "r0_coefficients": main_r0,
         "absorbance_model_scores": absorbance_model_scores,
         "absorbance_model_selection": absorbance_model_selection,
+        "order_compare": diagnostic_results["order_compare"],
+        "source_consistency": diagnostic_results["source_consistency"],
+        "pressure_branch_compare": diagnostic_results["pressure_branch_compare"],
+        "upper_bound_vs_deployable": diagnostic_results["upper_bound_vs_deployable"],
+        "root_cause_ranking": root_cause_ranking,
+        "diagnostic_top_lines": diagnostic_results["diagnostic_top_lines"],
+        "implementation_issue": diagnostic_results["implementation_issue"],
         "overview_summary": overview_summary,
         "by_temperature": by_temperature,
         "by_concentration_range": by_concentration,
@@ -945,6 +1101,7 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
     filtered, excluded = _filter_samples(samples_core, config)
     _frame_to_csv(config.output_dir / "step_02_samples_filtered.csv", filtered)
     _frame_to_csv(config.output_dir / "step_02_excluded_rows.csv", excluded)
+    validation_table = _build_validation_table(points, filtered)
 
     temp_coeffs, temp_residuals, temp_lookup = _fit_temperature(filtered)
     filtered = filtered.copy()
@@ -994,6 +1151,14 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
     _frame_to_csv(config.output_dir / "step_06_absorbance_samples.csv", absorbance_samples)
     _frame_to_csv(config.output_dir / "step_06_absorbance_points.csv", absorbance_points)
     model_results = _fit_absorbance_models(absorbance_points, config, config.output_dir)
+    diagnostic_results = _run_loss_diagnostics(
+        bundle=bundle,
+        filtered=filtered,
+        r0_lookup=r0_lookup,
+        config=config,
+        validation_table=validation_table,
+        output_dir=config.output_dir,
+    )
 
     timeseries, base_final_points, base_final_source = _base_final(absorbance_samples, config)
     _frame_to_csv(config.output_dir / "step_07_absorbance_timeseries.csv", timeseries)
@@ -1056,6 +1221,11 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         {
             "abs_model_selection": model_results["selection"],
             "abs_model_scores": model_results["scores"],
+            "order_compare": diagnostic_results["order_compare"],
+            "source_consistency": diagnostic_results["source_consistency"],
+            "pressure_branch": diagnostic_results["pressure_branch_compare"],
+            "upper_vs_deployable": diagnostic_results["upper_bound_vs_deployable"],
+            "root_causes": diagnostic_results["root_cause_ranking"],
             "overview_summary": comparison_outputs["overview_summary"],
             "by_temperature": comparison_outputs["by_temperature"],
             "by_concentration": comparison_outputs["by_concentration_range"],
@@ -1065,37 +1235,6 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
             "point_reconciliation": point_reconciliation,
             "auto_conclusions": comparison_outputs["auto_conclusions"],
         },
-    )
-
-    co2_points = points[points["stage"].astype(str).str.lower() == "co2"].copy()
-    zero_points = co2_points[co2_points["target_co2_ppm"] == 0]
-    validation_table = pd.DataFrame(
-        [
-            {
-                "check_name": "identified_48_points",
-                "expected": 48,
-                "observed": int(len(points)),
-                "passed": int(len(points)) == 48,
-            },
-            {
-                "check_name": "identified_zero_ppm_temperatures",
-                "expected": "[-20,-10,0,10,20,30]",
-                "observed": json.dumps(sorted(zero_points["temp_set_c"].dropna().unique().tolist())),
-                "passed": sorted(zero_points["temp_set_c"].dropna().unique().tolist()) == [-20.0, -10.0, 0.0, 10.0, 20.0, 30.0],
-            },
-            {
-                "check_name": "identified_missing_40c_zero_ppm",
-                "expected": True,
-                "observed": 40.0 not in sorted(zero_points["temp_set_c"].dropna().unique().tolist()),
-                "passed": 40.0 not in sorted(zero_points["temp_set_c"].dropna().unique().tolist()),
-            },
-            {
-                "check_name": "main_results_only_ga01_to_ga03",
-                "expected": "GA01,GA02,GA03",
-                "observed": ",".join(sorted(filtered["analyzer"].dropna().unique().tolist())),
-                "passed": sorted(filtered["analyzer"].dropna().unique().tolist()) == ["GA01", "GA02", "GA03"],
-            },
-        ]
     )
 
     report = _report_tables(
@@ -1109,6 +1248,7 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         r0_coeffs=r0_coeffs,
         model_results=model_results,
         comparison_outputs=comparison_outputs,
+        diagnostic_results=diagnostic_results,
         validation_table=validation_table,
         base_final_enabled=config.enable_base_final,
         base_final_source=base_final_source,
@@ -1127,6 +1267,11 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
             "abs_model_scores": model_results["scores"],
             "abs_model_selection": model_results["selection"],
             "abs_model_coeffs": model_results["coefficients"],
+            "order_compare": diagnostic_results["order_compare"],
+            "source_consistency": diagnostic_results["source_consistency"],
+            "pressure_branch": diagnostic_results["pressure_branch_compare"],
+            "upper_vs_deployable": diagnostic_results["upper_bound_vs_deployable"],
+            "root_causes": diagnostic_results["root_cause_ranking"],
             "overview_summary": comparison_outputs["overview_summary"],
             "by_temperature": comparison_outputs["by_temperature"],
             "by_concentration": comparison_outputs["by_concentration_range"],
@@ -1146,6 +1291,7 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         "excluded": excluded,
         "validation_table": validation_table,
         "model_results": model_results,
+        "diagnostic_results": diagnostic_results,
         "comparison_outputs": comparison_outputs,
         "point_reconciliation": point_reconciliation,
     }
