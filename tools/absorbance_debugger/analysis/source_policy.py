@@ -522,7 +522,12 @@ def build_source_policy_challenge(
                     prediction_frame,
                     on=["analyzer_id", "point_title", "point_row", "target_ppm"],
                     how="inner",
+                    suffixes=("_current", "_policy"),
                 )
+                if "temp_c_current" in merged.columns or "temp_c_policy" in merged.columns:
+                    merged["temp_c"] = pd.to_numeric(merged.get("temp_c_current"), errors="coerce").combine_first(
+                        pd.to_numeric(merged.get("temp_c_policy"), errors="coerce")
+                    )
                 chosen_model_id = str(candidate_row.get("model_id") or "")
             else:
                 merged = analyzer_points.iloc[0:0].copy()
