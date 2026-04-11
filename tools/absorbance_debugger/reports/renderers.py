@@ -784,6 +784,84 @@ def render_comparison_reconciliation_markdown(
     return "\n".join(lines)
 
 
+def render_dual_surface_reconciliation_markdown(report: Mapping[str, object]) -> str:
+    """Render the step-10f dual-surface reconciliation markdown."""
+
+    summary = report["summary"]
+    detail = report["detail"]
+    aggregate_segments = report.get("aggregate_segments", pd.DataFrame())
+    native_row = (
+        summary[summary["comparison_surface"].astype(str) == "run_native_old_vs_new"].iloc[0]
+        if not summary.empty and (summary["comparison_surface"].astype(str) == "run_native_old_vs_new").any()
+        else pd.Series(dtype=object)
+    )
+    debugger_row = (
+        summary[summary["comparison_surface"].astype(str) == "debugger_reconstructed_old_vs_new"].iloc[0]
+        if not summary.empty and (summary["comparison_surface"].astype(str) == "debugger_reconstructed_old_vs_new").any()
+        else pd.Series(dtype=object)
+    )
+
+    def _surface_readout(row: pd.Series) -> str:
+        if row.empty:
+            return "n/a"
+        return (
+            f"overall old={_format_number(row.get('overall_rmse_old'))}, new={_format_number(row.get('overall_rmse_new'))}; "
+            f"zero old={_format_number(row.get('zero_rmse_old'))}, new={_format_number(row.get('zero_rmse_new'))}; "
+            f"low old={_format_number(row.get('low_rmse_old'))}, new={_format_number(row.get('low_rmse_new'))}; "
+            f"main old={_format_number(row.get('main_rmse_old'))}, new={_format_number(row.get('main_rmse_new'))}"
+        )
+
+    lines: list[str] = []
+    lines.append("# Dual-Surface Reconciliation")
+    lines.append("")
+    lines.append("## 1. what quick calc actually used")
+    lines.append("- old = old residual csv `prediction_simplified`")
+    lines.append("- new = analyzer-sheet point-mean `二氧化碳浓度ppm`")
+    lines.append("- surface = `run_native_old_vs_new`")
+    lines.append(f"- readout = {_surface_readout(native_row)}")
+    lines.append("")
+    lines.append("## 2. what current debugger comparison actually used")
+    lines.append("- old = old residual csv `prediction_simplified`")
+    lines.append("- new = debugger reconstructed `selected_pred_ppm`")
+    lines.append("- surface = `debugger_reconstructed_old_vs_new`")
+    lines.append(
+        "- selected_prediction_scope_majority = "
+        + str(debugger_row.get("selected_prediction_scope_majority", "unknown"))
+    )
+    lines.append(f"- readout = {_surface_readout(debugger_row)}")
+    lines.append("")
+    lines.append("## 3. whether there is evidence of an old/new flip bug")
+    lines.append("- no evidence of old/new flip bug")
+    lines.append(
+        "- old stays on the old residual source, and the only thing that changes between the two surfaces is which new value definition is used."
+    )
+    lines.append("")
+    lines.append("## 4. which result should be used for")
+    lines.append("- run 原生新旧算法对比: use `run_native_old_vs_new`")
+    lines.append("- debugger 离线重建验证: use `debugger_reconstructed_old_vs_new`")
+    lines.append("")
+    lines.append("## 5. side-by-side surface table")
+    lines.append(_table_to_markdown(summary, max_rows=10))
+    lines.append("")
+    lines.append("## 6. segment table")
+    lines.append(_table_to_markdown(aggregate_segments, max_rows=12))
+    lines.append("")
+    lines.append("## 7. analyzer detail")
+    lines.append(_table_to_markdown(detail, max_rows=20))
+    lines.append("")
+    lines.append("## 8. final wording")
+    lines.append(
+        "- 快算为什么错：快算把 `old residual csv prediction_simplified` 对到了 `analyzer_sheet_mean_co2_ppm` 这套 run-native 新值，"
+        "而 step_09/step_10 对的是 `selected_pred_ppm_from_debugger` 这套 debugger reconstructed 新值，所以两个方向不一定相同。"
+    )
+    lines.append(
+        "- 程序哪里不是 bug，而是口径不同：当前程序没有把 old/new 翻转，差异主要来自 new 的定义不同。"
+        "run-native surface 回答的是运行包原生输出，debugger surface 回答的是离线重建验证。"
+    )
+    lines.append("")
+    return "\n".join(lines)
+
+
 def render_report_html(report: Mapping[str, object]) -> str:
     """Render a compact standalone HTML report."""
 

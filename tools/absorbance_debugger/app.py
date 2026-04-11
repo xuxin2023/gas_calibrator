@@ -9,11 +9,17 @@ from pathlib import Path
 import pandas as pd
 
 from .analysis.comparison import build_comparison_reconciliation_table
+from .analysis.comparison import build_dual_surface_reconciliation_outputs
 from .analysis.merged_zero_anchor import build_merged_zero_anchor_compare
 from .analysis.comparison import build_scoped_old_vs_new_outputs
 from .analysis.pipeline import execute_pipeline
 from .analysis.cross_run import build_cross_run_summary
-from .plots.charts import plot_cross_run_summary, plot_executive_summary, plot_old_vs_new_comparison
+from .plots.charts import (
+    plot_cross_run_summary,
+    plot_dual_surface_reconciliation,
+    plot_executive_summary,
+    plot_old_vs_new_comparison,
+)
 from .models.config import DebuggerConfig
 from .options import (
     normalize_absorbance_order_mode,
@@ -28,6 +34,7 @@ from .options import (
 )
 from .reports.renderers import (
     render_comparison_reconciliation_markdown,
+    render_dual_surface_reconciliation_markdown,
     render_executive_summary_markdown,
     render_scoped_old_vs_new_report_markdown,
 )
@@ -302,6 +309,26 @@ def run_debugger_batch(
         comparison_reconciliation_md,
         encoding="utf-8",
     )
+    dual_surface_outputs = build_dual_surface_reconciliation_outputs(run_results)
+    dual_surface_outputs["detail"].to_csv(
+        resolved_output / "step_09f_dual_surface_detail.csv",
+        index=False,
+        encoding="utf-8-sig",
+    )
+    dual_surface_outputs["summary"].to_csv(
+        resolved_output / "step_09f_dual_surface_summary.csv",
+        index=False,
+        encoding="utf-8-sig",
+    )
+    plot_dual_surface_reconciliation(
+        dual_surface_outputs["aggregate_segments"],
+        resolved_output / "step_09f_dual_surface_plot.png",
+    )
+    dual_surface_md = render_dual_surface_reconciliation_markdown(dual_surface_outputs)
+    (resolved_output / "step_10f_dual_surface_reconciliation.md").write_text(
+        dual_surface_md,
+        encoding="utf-8",
+    )
     return {
         "output_dir": resolved_output,
         "run_results": run_results,
@@ -311,6 +338,7 @@ def run_debugger_batch(
         "merged_zero_anchor_compare": merged_zero_anchor_compare,
         "scoped_old_vs_new_outputs": scoped_old_vs_new_outputs,
         "comparison_reconciliation": comparison_reconciliation,
+        "dual_surface_reconciliation": dual_surface_outputs,
         "reproducibility_note": reproducibility_note,
         "cross_run_summary_path": summary_path,
     }

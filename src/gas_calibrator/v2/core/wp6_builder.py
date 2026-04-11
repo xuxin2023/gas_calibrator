@@ -979,13 +979,7 @@ def build_step2_closeout_digest(
         ("WP5_software_validation", software_validation_rollup),
         ("WP6_comparison", comparison_rollup),
     ]:
-        raw = payload.get("raw", payload)
-        if raw.get("not_real_acceptance_evidence") is True:
-            wp_status[label] = "simulated_readiness_only"
-        elif raw.get("available") is False:
-            wp_status[label] = "not_available"
-        else:
-            wp_status[label] = "available"
+        wp_status[label] = _classify_step2_payload_status(payload)
 
     all_simulated = all(
         v in ("simulated_readiness_only", "not_available") for v in wp_status.values()

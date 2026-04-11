@@ -1118,6 +1118,45 @@ def plot_executive_summary(
     _finalize(fig, output_path)
 
 
+def plot_dual_surface_reconciliation(
+    aggregate_segments: pd.DataFrame,
+    output_path: Path,
+) -> None:
+    """Plot run-native and debugger-reconstructed surfaces side by side."""
+
+    if aggregate_segments.empty:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No dual-surface reconciliation data available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5), squeeze=False)
+    surface_titles = [
+        ("run_native_old_vs_new", "run_native_old_vs_new"),
+        ("debugger_reconstructed_old_vs_new", "debugger_reconstructed_old_vs_new"),
+    ]
+    labels = ["overall", "zero", "low", "main"]
+    for ax, (surface_name, title) in zip(axes[0], surface_titles):
+        subset = aggregate_segments[aggregate_segments["comparison_surface"].astype(str) == surface_name].copy()
+        if subset.empty:
+            ax.text(0.5, 0.5, "No rows", ha="center", va="center")
+            ax.axis("off")
+            continue
+        ordered = subset.set_index("segment_tag").reindex(labels)
+        x = np.arange(len(labels), dtype=float)
+        ax.bar(x - 0.18, ordered["old_chain_rmse"], width=0.36, label="old_chain", color="#7f8c8d")
+        ax.bar(x + 0.18, ordered["new_chain_rmse"], width=0.36, label="new_chain", color="#2c7fb8")
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels)
+        ax.set_title(title)
+        ax.set_ylabel("RMSE (ppm)")
+        ax.grid(alpha=0.2, axis="y")
+        ax.legend(fontsize=8)
+    fig.suptitle("Dual-surface reconciliation: old vs new")
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    _finalize(fig, output_path)
+
+
 def _series_from_json_map(value: object) -> pd.Series:
     if value is None or (isinstance(value, float) and math.isnan(value)):
         return pd.Series(dtype=float)

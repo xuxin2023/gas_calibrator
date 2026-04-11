@@ -17,6 +17,7 @@ from tools.absorbance_debugger.analysis.absorbance_models import (
 )
 from tools.absorbance_debugger.analysis.comparison import (
     build_comparison_reconciliation_table,
+    build_dual_surface_reconciliation_outputs,
     build_old_vs_new_comparison_outputs,
     build_scoped_old_vs_new_outputs,
 )
@@ -63,6 +64,7 @@ from tools.absorbance_debugger.options import (
 from tools.absorbance_debugger.parsers.schema import classify_mode2_semantics
 from tools.absorbance_debugger.reports.renderers import (
     render_comparison_reconciliation_markdown,
+    render_dual_surface_reconciliation_markdown,
     render_executive_summary_markdown,
     render_old_vs_new_report_markdown,
     render_scoped_old_vs_new_report_markdown,
@@ -861,10 +863,12 @@ def _synthetic_scoped_run_result(run_id: str, output_dir: Path) -> dict[str, obj
     }
 
     rows: list[dict[str, object]] = []
+    filtered_rows: list[dict[str, object]] = []
     selection_rows: list[dict[str, object]] = []
     audit_rows: list[dict[str, object]] = []
     for analyzer_id, segments in analyzer_specs[run_id].items():
         selected_source_pair, selected_ratio_source = source_pairs[analyzer_id]
+        selected_prediction_scope = "overall_fit" if analyzer_id == "GA04" else "validation_oof"
         selection_rows.append(
             {
                 "analyzer_id": analyzer_id,
@@ -873,6 +877,7 @@ def _synthetic_scoped_run_result(run_id: str, output_dir: Path) -> dict[str, obj
                 "best_absorbance_model": f"{analyzer_id.lower()}_model",
                 "best_model_family": "single_range",
                 "zero_residual_mode": "linear",
+                "selected_prediction_scope": selected_prediction_scope,
             }
         )
         audit_rows.append(
@@ -886,6 +891,7 @@ def _synthetic_scoped_run_result(run_id: str, output_dir: Path) -> dict[str, obj
         for idx, (segment_tag, (old_error, new_error, target_ppm)) in enumerate(segments.items(), start=1):
             temp_c = 0.0 if segment_tag == "zero" else 20.0
             winner = "new_chain" if abs(new_error) < abs(old_error) else "old_chain"
+            native_error = new_error * 0.5
             rows.append(
                 {
                     "analyzer_id": analyzer_id,
@@ -898,14 +904,28 @@ def _synthetic_scoped_run_result(run_id: str, output_dir: Path) -> dict[str, obj
                     "winner_for_point": winner,
                     "ratio_source_selected": "raw" if "raw" in selected_source_pair else "filt",
                     "selected_source_pair": selected_source_pair,
+                    "selected_prediction_scope": selected_prediction_scope,
                     "mode2_semantic_profile": "baseline_bearing_profile",
                     "mode2_legacy_raw_compare_safe": analyzer_id in {"GA01", "GA03"},
                     "point_title": f"{run_id}_{analyzer_id}_{segment_tag}",
                     "point_row": idx,
                 }
             )
+            for sample_index, delta in enumerate((-0.1, 0.1), start=1):
+                filtered_rows.append(
+                    {
+                        "analyzer": analyzer_id,
+                        "point_title": f"{run_id}_{analyzer_id}_{segment_tag}",
+                        "point_row": idx,
+                        "temp_set_c": temp_c,
+                        "target_co2_ppm": target_ppm,
+                        "co2_ppm": target_ppm + native_error + delta,
+                        "sample_index": sample_index,
+                    }
+                )
 
     point_reconciliation = pd.DataFrame(rows)
+    filtered = pd.DataFrame(filtered_rows)
     selection = pd.DataFrame(selection_rows)
     new_chain_input_audit = pd.DataFrame(audit_rows)
     old_vs_new_outputs = build_old_vs_new_comparison_outputs(
@@ -943,6 +963,7 @@ def _synthetic_scoped_run_result(run_id: str, output_dir: Path) -> dict[str, obj
         "run_role_assessment": pd.DataFrame([{"assessment_scope": "run_summary", "has_high_temp_zero_anchor_candidate": False, "recommended_role": "mixed role"}]),
         "config": DebuggerConfig(input_path=output_dir, output_dir=output_dir),
         "ga01_special_note": "GA01 needs separate tracking.",
+        "filtered": filtered,
         "point_reconciliation": point_reconciliation,
         "old_vs_new_outputs": old_vs_new_outputs,
     }
@@ -1090,6 +1111,53 @@ def test_executive_summary_and_reconciliation_render_required_sections() -> None
     assert "valid_only_filter_applied" in reconciliation_md
     assert "analyzer_inclusion_scope" in reconciliation_md
     assert "以后对外一律以 step_09c / step_09d / step_10c 的 scoped debugger 结果为准" in reconciliation_md
+
+
+def test_dual_surface_reconciliation_outputs_and_report() -> None:
+    run_results = [
+        _synthetic_scoped_run_result("run_20260403_014845", Path("D:/tmp/a")),
+        _synthetic_scoped_run_result("run_20260407_185002", Path("D:/tmp/b")),
+        _synthetic_scoped_run_result("run_20260410_132440", Path("D:/tmp/c")),
+    ]
+    outputs = build_dual_surface_reconciliation_outputs(run_results)
+
+    assert {
+        "run_id",
+        "analyzer_id",
+        "comparison_surface",
+        "old_value_source",
+        "new_value_source",
+        "selected_prediction_scope",
+        "selected_prediction_scope_majority",
+        "old_chain_overall_rmse",
+        "new_chain_overall_rmse",
+        "delta_overall_rmse",
+        "old_chain_zero_rmse",
+        "new_chain_zero_rmse",
+        "old_chain_low_rmse",
+        "new_chain_low_rmse",
+        "old_chain_main_rmse",
+        "new_chain_main_rmse",
+        "point_count",
+        "pointwise_win_count",
+        "pointwise_loss_count",
+    } <= set(outputs["detail"].columns)
+    assert {
+        "comparison_surface",
+        "old_value_source",
+        "new_value_source",
+        "selected_prediction_scope",
+        "selected_prediction_scope_majority",
+    } <= set(outputs["summary"].columns)
+
+    summary = outputs["summary"].set_index("comparison_surface")
+    assert summary.loc["run_native_old_vs_new", "new_value_source"] == "analyzer_sheet_mean_co2_ppm"
+    assert summary.loc["debugger_reconstructed_old_vs_new", "new_value_source"] == "selected_pred_ppm_from_debugger"
+
+    report_md = render_dual_surface_reconciliation_markdown(outputs)
+    assert "what quick calc actually used" in report_md
+    assert "what current debugger comparison actually used" in report_md
+    assert "no evidence of old/new flip bug" in report_md
 
 
 def test_source_policy_challenge_stays_diagnostic_only_and_report_surfaces_audit(tmp_path: Path) -> None:
@@ -2064,6 +2132,10 @@ def test_cross_run_batch_writes_scoped_old_vs_new_outputs(monkeypatch, tmp_path:
     assert (output_dir / "step_10d_executive_summary.png").exists()
     assert (output_dir / "step_10e_comparison_reconciliation.md").exists()
     assert (output_dir / "step_10e_comparison_reconciliation.csv").exists()
+    assert (output_dir / "step_09f_dual_surface_detail.csv").exists()
+    assert (output_dir / "step_09f_dual_surface_summary.csv").exists()
+    assert (output_dir / "step_09f_dual_surface_plot.png").exists()
+    assert (output_dir / "step_10f_dual_surface_reconciliation.md").exists()
 
     scope_a_detail = pd.read_csv(output_dir / "step_09c_historical_ga02_ga03_old_vs_new_detail.csv")
     scope_a_summary = pd.read_csv(output_dir / "step_09c_historical_ga02_ga03_old_vs_new_summary.csv")
@@ -2071,6 +2143,8 @@ def test_cross_run_batch_writes_scoped_old_vs_new_outputs(monkeypatch, tmp_path:
     scope_b_detail = pd.read_csv(output_dir / "step_09d_20260410_all_analyzers_old_vs_new_detail.csv")
     scope_b_summary = pd.read_csv(output_dir / "step_09d_20260410_all_analyzers_old_vs_new_summary.csv")
     scope_b_local = pd.read_csv(output_dir / "step_09d_20260410_all_analyzers_local_wins.csv")
+    dual_detail = pd.read_csv(output_dir / "step_09f_dual_surface_detail.csv")
+    dual_summary = pd.read_csv(output_dir / "step_09f_dual_surface_summary.csv")
 
     assert {"run_id", "comparison_scope", "analyzer_id", "selected_source_pair", "actual_ratio_source_used"} <= set(scope_a_detail.columns)
     assert {"comparison_scope", "run_scope_description", "analyzer_set", "headline_safe_statement", "scope_limitation_statement"} <= set(scope_a_summary.columns)
@@ -2086,6 +2160,23 @@ def test_cross_run_batch_writes_scoped_old_vs_new_outputs(monkeypatch, tmp_path:
     assert scope_b_summary.iloc[0]["headline_safe_statement"] == "仅针对 run_20260410_132440 的全 analyzers"
     assert scope_a_summary.iloc[0]["scope_limitation_statement"] == "两个 scope 不能合并解读为统一全局结论"
     assert scope_b_summary.iloc[0]["scope_limitation_statement"] == "两个 scope 不能合并解读为统一全局结论"
+    assert {
+        "comparison_surface",
+        "old_value_source",
+        "new_value_source",
+        "selected_prediction_scope",
+        "selected_prediction_scope_majority",
+    } <= set(dual_detail.columns)
+    assert {
+        "comparison_surface",
+        "old_value_source",
+        "new_value_source",
+        "selected_prediction_scope",
+        "selected_prediction_scope_majority",
+    } <= set(dual_summary.columns)
+    dual_summary_index = dual_summary.set_index("comparison_surface")
+    assert dual_summary_index.loc["run_native_old_vs_new", "new_value_source"] == "analyzer_sheet_mean_co2_ppm"
+    assert dual_summary_index.loc["debugger_reconstructed_old_vs_new", "new_value_source"] == "selected_pred_ppm_from_debugger"
 
     report = (output_dir / "step_10c_scoped_old_vs_new_report.md").read_text(encoding="utf-8")
     assert "historical GA02/GA03 comparison" in report
@@ -2111,6 +2202,10 @@ def test_cross_run_batch_writes_scoped_old_vs_new_outputs(monkeypatch, tmp_path:
     assert "matched_only_filter_applied" in reconciliation_md
     assert "valid_only_filter_applied" in reconciliation_md
     assert "analyzer_inclusion_scope" in reconciliation_md
+    dual_report = (output_dir / "step_10f_dual_surface_reconciliation.md").read_text(encoding="utf-8")
+    assert "what quick calc actually used" in dual_report
+    assert "what current debugger comparison actually used" in dual_report
+    assert "no evidence of old/new flip bug" in dual_report
 
 
 def test_historical_run_detects_high_temp_anchor_and_invalid_500hpa(tmp_path: Path) -> None:

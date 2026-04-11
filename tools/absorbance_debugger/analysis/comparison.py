@@ -129,6 +129,73 @@ COMPARISON_RECONCILIATION_COLUMNS: tuple[str, ...] = (
     "future_external_reporting_rule",
 )
 
+DUAL_SURFACE_DETAIL_COLUMNS: tuple[str, ...] = (
+    "run_id",
+    "analyzer_id",
+    "comparison_surface",
+    "old_value_source",
+    "new_value_source",
+    "selected_prediction_scope",
+    "selected_prediction_scope_majority",
+    "old_chain_overall_rmse",
+    "new_chain_overall_rmse",
+    "delta_overall_rmse",
+    "old_chain_zero_rmse",
+    "new_chain_zero_rmse",
+    "delta_zero_rmse",
+    "old_chain_low_rmse",
+    "new_chain_low_rmse",
+    "delta_low_rmse",
+    "old_chain_main_rmse",
+    "new_chain_main_rmse",
+    "delta_main_rmse",
+    "point_count",
+    "pointwise_win_count",
+    "pointwise_loss_count",
+)
+
+DUAL_SURFACE_SUMMARY_COLUMNS: tuple[str, ...] = (
+    "comparison_surface",
+    "old_value_source",
+    "new_value_source",
+    "selected_prediction_scope",
+    "selected_prediction_scope_majority",
+    "overall_rmse_old",
+    "overall_rmse_new",
+    "delta_overall_rmse",
+    "zero_rmse_old",
+    "zero_rmse_new",
+    "delta_zero_rmse",
+    "low_rmse_old",
+    "low_rmse_new",
+    "delta_low_rmse",
+    "main_rmse_old",
+    "main_rmse_new",
+    "delta_main_rmse",
+    "point_count_used",
+    "analyzer_count",
+    "run_count",
+    "whether_point_table_mean_was_used",
+    "whether_deployable_chain_output_was_used",
+    "what_quick_calc_actually_used",
+    "what_current_debugger_comparison_actually_used",
+    "quick_calc_direction_reversal_explanation",
+    "old_new_flip_bug_assessment",
+    "surface_question_answered",
+    "recommended_use",
+)
+
+DUAL_SURFACE_SEGMENT_COLUMNS: tuple[str, ...] = (
+    "comparison_surface",
+    "segment_tag",
+    "old_chain_rmse",
+    "new_chain_rmse",
+    "delta_rmse",
+    "improvement_pct",
+    "point_count",
+    "win_flag",
+)
+
 
 def _metrics(errors: pd.Series) -> dict[str, float]:
     clean = pd.to_numeric(errors, errors="coerce").dropna()
@@ -1663,3 +1730,319 @@ def build_comparison_reconciliation_table(
         column for column in reconciliation.columns if column not in COMPARISON_RECONCILIATION_COLUMNS
     ]
     return reconciliation.reindex(columns=ordered_columns)
+
+
+def _first_numeric_value(values: pd.Series) -> float:
+    numeric = pd.to_numeric(values, errors="coerce").dropna()
+    if numeric.empty:
+        return math.nan
+    return float(numeric.iloc[0])
+
+
+def _majority_text_value(values: pd.Series, default: str = "") -> str:
+    if values.empty:
+        return default
+    clean = values.dropna().astype(str).str.strip()
+    clean = clean[clean != ""]
+    if clean.empty:
+        return default
+    counts = clean.value_counts()
+    if len(counts) > 1 and int(counts.iloc[0]) == int(counts.iloc[1]):
+        return "mixed"
+    return str(counts.index[0])
+
+
+def _winner_for_point_errors(old_error: float, new_error: float) -> str:
+    if pd.notna(old_error) and pd.notna(new_error):
+        if abs(float(old_error) - float(new_error)) <= 1.0e-12:
+            return "tie"
+        return "old_chain" if abs(float(old_error)) < abs(float(new_error)) else "new_chain"
+    if pd.isna(old_error) and pd.notna(new_error):
+        return "new_chain"
+    if pd.notna(old_error) and pd.isna(new_error):
+        return "old_chain"
+    return "tie"
+
+
+def _normalize_dual_surface_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return frame.copy()
+    compare = frame.copy()
+    compare["target_ppm"] = pd.to_numeric(compare.get("target_ppm"), errors="coerce")
+    compare["temp_c"] = pd.to_numeric(compare.get("temp_c"), errors="coerce")
+    compare["old_pred_ppm"] = pd.to_numeric(compare.get("old_pred_ppm"), errors="coerce")
+    compare["new_pred_ppm"] = pd.to_numeric(compare.get("new_pred_ppm"), errors="coerce")
+    compare["old_error"] = compare["old_pred_ppm"] - compare["target_ppm"]
+    compare["new_error"] = compare["new_pred_ppm"] - compare["target_ppm"]
+    compare["winner_for_point"] = [
+        _winner_for_point_errors(old_error, new_error)
+        for old_error, new_error in zip(compare["old_error"], compare["new_error"])
+    ]
+    return compare
+
+
+def _native_point_mean_frame(filtered: pd.DataFrame) -> pd.DataFrame:
+    if filtered.empty:
+        return pd.DataFrame()
+    required = {"analyzer", "point_title", "point_row", "co2_ppm"}
+    if not required <= set(filtered.columns):
+        return pd.DataFrame()
+    work = filtered.copy()
+    work["co2_ppm"] = pd.to_numeric(work["co2_ppm"], errors="coerce")
+    if "temp_set_c" in work.columns:
+        work["temp_set_c"] = pd.to_numeric(work["temp_set_c"], errors="coerce")
+    if "target_co2_ppm" in work.columns:
+        work["target_co2_ppm"] = pd.to_numeric(work["target_co2_ppm"], errors="coerce")
+    native = (
+        work.groupby(["analyzer", "point_title", "point_row"], dropna=False)
+        .agg(
+            temp_c=("temp_set_c", _first_numeric_value),
+            target_ppm=("target_co2_ppm", _first_numeric_value),
+            run_native_new_pred_ppm=("co2_ppm", "mean"),
+        )
+        .reset_index()
+        .rename(columns={"analyzer": "analyzer_id"})
+    )
+    return native
+
+
+def _debugger_surface_frame(point_reconciliation: pd.DataFrame, run_id: str) -> pd.DataFrame:
+    if point_reconciliation.empty:
+        return pd.DataFrame()
+    compare = point_reconciliation.copy()
+    compare["run_id"] = run_id
+    compare["comparison_surface"] = "debugger_reconstructed_old_vs_new"
+    compare["old_value_source"] = "old_residual_csv_prediction_simplified"
+    compare["new_value_source"] = "selected_pred_ppm_from_debugger"
+    if "selected_prediction_scope" not in compare.columns:
+        compare["selected_prediction_scope"] = ""
+    compare["selected_prediction_scope_majority"] = _majority_text_value(
+        compare.get("selected_prediction_scope", pd.Series(dtype=object)),
+        default="unknown",
+    )
+    return _normalize_dual_surface_frame(compare)
+
+
+def _run_native_surface_frame(
+    point_reconciliation: pd.DataFrame,
+    filtered: pd.DataFrame,
+    run_id: str,
+) -> pd.DataFrame:
+    if point_reconciliation.empty:
+        return pd.DataFrame()
+    compare = point_reconciliation.copy()
+    native = _native_point_mean_frame(filtered)
+    compare = compare.merge(
+        native[["analyzer_id", "point_title", "point_row", "run_native_new_pred_ppm"]]
+        if not native.empty
+        else pd.DataFrame(columns=["analyzer_id", "point_title", "point_row", "run_native_new_pred_ppm"]),
+        on=["analyzer_id", "point_title", "point_row"],
+        how="left",
+    )
+    compare["new_pred_ppm"] = pd.to_numeric(compare.get("run_native_new_pred_ppm"), errors="coerce")
+    compare["run_id"] = run_id
+    compare["comparison_surface"] = "run_native_old_vs_new"
+    compare["old_value_source"] = "old_residual_csv_prediction_simplified"
+    compare["new_value_source"] = "analyzer_sheet_mean_co2_ppm"
+    compare["selected_prediction_scope"] = "run_native_point_mean"
+    compare["selected_prediction_scope_majority"] = "run_native_point_mean"
+    return _normalize_dual_surface_frame(compare)
+
+
+def _build_dual_surface_detail(point_surfaces: pd.DataFrame) -> pd.DataFrame:
+    if point_surfaces.empty:
+        return _empty_frame(DUAL_SURFACE_DETAIL_COLUMNS)
+    rows: list[dict[str, Any]] = []
+    for (run_id, analyzer_id, comparison_surface), subset in point_surfaces.groupby(
+        ["run_id", "analyzer_id", "comparison_surface"],
+        dropna=False,
+    ):
+        overall = _segment_metrics(subset, "overall")
+        zero = _segment_metrics(subset, "zero")
+        low = _segment_metrics(subset, "low")
+        main = _segment_metrics(subset, "main")
+        winners = subset.get("winner_for_point", pd.Series(dtype=str)).fillna("tie").astype(str)
+        scope_series = subset.get("selected_prediction_scope", pd.Series(dtype=object))
+        rows.append(
+            {
+                "run_id": str(run_id),
+                "analyzer_id": str(analyzer_id),
+                "comparison_surface": str(comparison_surface),
+                "old_value_source": _first_text(subset, "old_value_source", default=""),
+                "new_value_source": _first_text(subset, "new_value_source", default=""),
+                "selected_prediction_scope": _collapse_text_values(scope_series),
+                "selected_prediction_scope_majority": _majority_text_value(scope_series, default="unknown"),
+                "old_chain_overall_rmse": overall["old_rmse"],
+                "new_chain_overall_rmse": overall["new_rmse"],
+                "delta_overall_rmse": overall["delta_rmse"],
+                "old_chain_zero_rmse": zero["old_rmse"],
+                "new_chain_zero_rmse": zero["new_rmse"],
+                "delta_zero_rmse": zero["delta_rmse"],
+                "old_chain_low_rmse": low["old_rmse"],
+                "new_chain_low_rmse": low["new_rmse"],
+                "delta_low_rmse": low["delta_rmse"],
+                "old_chain_main_rmse": main["old_rmse"],
+                "new_chain_main_rmse": main["new_rmse"],
+                "delta_main_rmse": main["delta_rmse"],
+                "point_count": int(len(subset)),
+                "pointwise_win_count": int((winners == "new_chain").sum()),
+                "pointwise_loss_count": int((winners == "old_chain").sum()),
+            }
+        )
+    detail = pd.DataFrame(rows).sort_values(
+        ["comparison_surface", "run_id", "analyzer_id"],
+        ignore_index=True,
+    )
+    ordered_columns = list(DUAL_SURFACE_DETAIL_COLUMNS) + [
+        column for column in detail.columns if column not in DUAL_SURFACE_DETAIL_COLUMNS
+    ]
+    return detail.reindex(columns=ordered_columns)
+
+
+def _dual_surface_summary_row(
+    comparison_surface: str,
+    subset: pd.DataFrame,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    overall = _segment_metrics(subset, "overall")
+    zero = _segment_metrics(subset, "zero")
+    low = _segment_metrics(subset, "low")
+    main = _segment_metrics(subset, "main")
+    selected_scope = _collapse_text_values(subset.get("selected_prediction_scope", pd.Series(dtype=object)))
+    selected_scope_majority = _majority_text_value(
+        subset.get("selected_prediction_scope", pd.Series(dtype=object)),
+        default="unknown",
+    )
+    quick_calc_used = (
+        "old residual csv prediction_simplified as old, and analyzer-sheet point-mean CO2 ppm as new"
+    )
+    debugger_used = (
+        "old residual csv prediction_simplified as old, and debugger selected_pred_ppm as new "
+        f"(selected_prediction_scope_majority={selected_scope_majority})"
+    )
+    shared_reversal_note = (
+        "Direction can flip when quick calc uses old residual csv prediction_simplified vs analyzer_sheet_mean_co2_ppm, "
+        "while step_09/step_10 uses old residual csv prediction_simplified vs selected_pred_ppm_from_debugger. "
+        "That is a mixed-surface comparison, not an old/new reversal."
+    )
+    if comparison_surface == "run_native_old_vs_new":
+        current_used = "This surface is the run-native benchmark surface, not the current step_09/step_10 debugger surface."
+        question_answered = "Use this surface to answer run 原生新旧算法对比."
+        recommended_use = "run 原生新旧算法对比"
+        point_table_mean_used = True
+        deployable_chain_used = False
+    else:
+        current_used = debugger_used
+        question_answered = "Use this surface to answer debugger 离线重建验证."
+        recommended_use = "debugger 离线重建验证"
+        point_table_mean_used = False
+        deployable_chain_used = True
+    summary_row = {
+        "comparison_surface": comparison_surface,
+        "old_value_source": _first_text(subset, "old_value_source", default=""),
+        "new_value_source": _first_text(subset, "new_value_source", default=""),
+        "selected_prediction_scope": selected_scope,
+        "selected_prediction_scope_majority": selected_scope_majority,
+        "overall_rmse_old": overall["old_rmse"],
+        "overall_rmse_new": overall["new_rmse"],
+        "delta_overall_rmse": overall["delta_rmse"],
+        "zero_rmse_old": zero["old_rmse"],
+        "zero_rmse_new": zero["new_rmse"],
+        "delta_zero_rmse": zero["delta_rmse"],
+        "low_rmse_old": low["old_rmse"],
+        "low_rmse_new": low["new_rmse"],
+        "delta_low_rmse": low["delta_rmse"],
+        "main_rmse_old": main["old_rmse"],
+        "main_rmse_new": main["new_rmse"],
+        "delta_main_rmse": main["delta_rmse"],
+        "point_count_used": int(len(subset)),
+        "analyzer_count": int(subset.get("analyzer_id", pd.Series(dtype=object)).astype(str).nunique()),
+        "run_count": int(subset.get("run_id", pd.Series(dtype=object)).astype(str).nunique()),
+        "whether_point_table_mean_was_used": point_table_mean_used,
+        "whether_deployable_chain_output_was_used": deployable_chain_used,
+        "what_quick_calc_actually_used": quick_calc_used,
+        "what_current_debugger_comparison_actually_used": current_used,
+        "quick_calc_direction_reversal_explanation": shared_reversal_note,
+        "old_new_flip_bug_assessment": (
+            "no evidence of old/new flip bug; old stays on old residual csv prediction_simplified and new changes only by explicit surface choice"
+        ),
+        "surface_question_answered": question_answered,
+        "recommended_use": recommended_use,
+    }
+    segment_rows = []
+    for segment_tag, metrics in (
+        ("overall", overall),
+        ("zero", zero),
+        ("low", low),
+        ("main", main),
+    ):
+        segment_rows.append(
+            {
+                "comparison_surface": comparison_surface,
+                "segment_tag": segment_tag,
+                "old_chain_rmse": metrics["old_rmse"],
+                "new_chain_rmse": metrics["new_rmse"],
+                "delta_rmse": metrics["delta_rmse"],
+                "improvement_pct": metrics["improvement_pct"],
+                "point_count": metrics["point_count"],
+                "win_flag": metrics["win_flag"],
+            }
+        )
+    return summary_row, segment_rows
+
+
+def build_dual_surface_reconciliation_outputs(
+    run_results: list[dict[str, Any]],
+) -> dict[str, pd.DataFrame]:
+    """Build dual-surface old-vs-new reconciliation outputs."""
+
+    surface_frames: list[pd.DataFrame] = []
+    for result in run_results:
+        run_id = str(result.get("run_name", "") or "")
+        point_reconciliation = result.get("point_reconciliation", pd.DataFrame())
+        filtered = result.get("filtered", pd.DataFrame())
+        point_reconciliation = (
+            point_reconciliation.copy()
+            if isinstance(point_reconciliation, pd.DataFrame)
+            else pd.DataFrame()
+        )
+        filtered = filtered.copy() if isinstance(filtered, pd.DataFrame) else pd.DataFrame()
+        if not run_id or point_reconciliation.empty:
+            continue
+        surface_frames.append(_run_native_surface_frame(point_reconciliation, filtered, run_id))
+        surface_frames.append(_debugger_surface_frame(point_reconciliation, run_id))
+
+    point_surfaces = (
+        pd.concat([frame for frame in surface_frames if not frame.empty], ignore_index=True)
+        if any(not frame.empty for frame in surface_frames)
+        else pd.DataFrame()
+    )
+    detail = _build_dual_surface_detail(point_surfaces)
+
+    if point_surfaces.empty:
+        summary = _empty_frame(DUAL_SURFACE_SUMMARY_COLUMNS)
+        aggregate_segments = _empty_frame(DUAL_SURFACE_SEGMENT_COLUMNS)
+    else:
+        summary_rows: list[dict[str, Any]] = []
+        segment_rows: list[dict[str, Any]] = []
+        for comparison_surface, subset in point_surfaces.groupby("comparison_surface", dropna=False):
+            summary_row, one_segment_rows = _dual_surface_summary_row(str(comparison_surface), subset.copy())
+            summary_rows.append(summary_row)
+            segment_rows.extend(one_segment_rows)
+        summary = pd.DataFrame(summary_rows).sort_values(["comparison_surface"], ignore_index=True)
+        aggregate_segments = pd.DataFrame(segment_rows).sort_values(
+            ["comparison_surface", "segment_tag"],
+            ignore_index=True,
+        )
+        summary = summary.reindex(
+            columns=list(DUAL_SURFACE_SUMMARY_COLUMNS) + [
+                column for column in summary.columns if column not in DUAL_SURFACE_SUMMARY_COLUMNS
+            ]
+        )
+        aggregate_segments = aggregate_segments.reindex(columns=list(DUAL_SURFACE_SEGMENT_COLUMNS))
+
+    return {
+        "detail": detail,
+        "summary": summary,
+        "aggregate_segments": aggregate_segments,
+        "point_surfaces": point_surfaces,
+    }
