@@ -1048,6 +1048,76 @@ def plot_old_vs_new_comparison(
     _finalize(fig, output_path)
 
 
+def plot_executive_summary(
+    *,
+    scope_a_summary: pd.DataFrame,
+    scope_b_summary: pd.DataFrame,
+    scope_a_analyzers: pd.DataFrame,
+    scope_b_analyzers: pd.DataFrame,
+    output_path: Path,
+) -> None:
+    """Plot a one-page executive summary for the two scoped conclusions."""
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10), squeeze=False)
+    panels = [
+        ("historical GA02/GA03", scope_a_summary, axes[0, 0]),
+        ("2026-04-10 all analyzers", scope_b_summary, axes[0, 1]),
+    ]
+    for title, summary, ax in panels:
+        if summary.empty:
+            ax.text(0.5, 0.5, "No scope summary available", ha="center", va="center")
+            ax.axis("off")
+            continue
+        row = summary.iloc[0]
+        labels = ["overall", "zero", "low", "main"]
+        old_values = [
+            float(pd.to_numeric(pd.Series([row.get("overall_rmse_old_scoped")]), errors="coerce").iloc[0]),
+            float(pd.to_numeric(pd.Series([row.get("zero_rmse_old_scoped")]), errors="coerce").iloc[0]),
+            float(pd.to_numeric(pd.Series([row.get("low_rmse_old_scoped")]), errors="coerce").iloc[0]),
+            float(pd.to_numeric(pd.Series([row.get("main_rmse_old_scoped")]), errors="coerce").iloc[0]),
+        ]
+        new_values = [
+            float(pd.to_numeric(pd.Series([row.get("overall_rmse_new_scoped")]), errors="coerce").iloc[0]),
+            float(pd.to_numeric(pd.Series([row.get("zero_rmse_new_scoped")]), errors="coerce").iloc[0]),
+            float(pd.to_numeric(pd.Series([row.get("low_rmse_new_scoped")]), errors="coerce").iloc[0]),
+            float(pd.to_numeric(pd.Series([row.get("main_rmse_new_scoped")]), errors="coerce").iloc[0]),
+        ]
+        x = np.arange(len(labels), dtype=float)
+        ax.bar(x - 0.18, old_values, width=0.36, label="old_chain", color="#7f8c8d")
+        ax.bar(x + 0.18, new_values, width=0.36, label="current_deployable_new_chain", color="#2c7fb8")
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels)
+        ax.set_title(title)
+        ax.set_ylabel("RMSE (ppm)")
+        ax.grid(alpha=0.2, axis="y")
+        ax.legend(fontsize=8)
+
+    analyzer_panels = [
+        ("historical GA02/GA03 analyzer improvement %", scope_a_analyzers, axes[1, 0]),
+        ("2026-04-10 all analyzers improvement %", scope_b_analyzers, axes[1, 1]),
+    ]
+    for title, frame, ax in analyzer_panels:
+        if frame.empty:
+            ax.text(0.5, 0.5, "No analyzer summary available", ha="center", va="center")
+            ax.axis("off")
+            continue
+        ordered = frame.sort_values(["improvement_pct_overall", "analyzer_id"], ascending=[False, True], ignore_index=True)
+        y = np.arange(len(ordered), dtype=float)
+        colors = ["#2ca25f" if float(value) > 0.0 else "#d95f0e" for value in ordered["improvement_pct_overall"].fillna(0.0)]
+        ax.barh(y, ordered["improvement_pct_overall"], color=colors)
+        ax.axvline(0.0, color="black", linewidth=0.9)
+        ax.set_yticks(y)
+        ax.set_yticklabels(ordered["analyzer_id"].astype(str).tolist())
+        ax.invert_yaxis()
+        ax.set_title(title)
+        ax.set_xlabel("Improvement % vs old_chain")
+        ax.grid(alpha=0.2, axis="x")
+
+    fig.suptitle("Executive summary: scoped old vs new")
+    fig.tight_layout(rect=(0, 0, 1, 0.97))
+    _finalize(fig, output_path)
+
+
 def _series_from_json_map(value: object) -> pd.Series:
     if value is None or (isinstance(value, float) and math.isnan(value)):
         return pd.Series(dtype=float)

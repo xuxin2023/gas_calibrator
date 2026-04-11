@@ -8,11 +8,12 @@ from pathlib import Path
 
 import pandas as pd
 
+from .analysis.comparison import build_comparison_reconciliation_table
 from .analysis.merged_zero_anchor import build_merged_zero_anchor_compare
 from .analysis.comparison import build_scoped_old_vs_new_outputs
 from .analysis.pipeline import execute_pipeline
 from .analysis.cross_run import build_cross_run_summary
-from .plots.charts import plot_cross_run_summary, plot_old_vs_new_comparison
+from .plots.charts import plot_cross_run_summary, plot_executive_summary, plot_old_vs_new_comparison
 from .models.config import DebuggerConfig
 from .options import (
     normalize_absorbance_order_mode,
@@ -25,7 +26,11 @@ from .options import (
     normalize_ratio_source,
     normalize_temp_source,
 )
-from .reports.renderers import render_scoped_old_vs_new_report_markdown
+from .reports.renderers import (
+    render_comparison_reconciliation_markdown,
+    render_executive_summary_markdown,
+    render_scoped_old_vs_new_report_markdown,
+)
 
 
 def run_debugger(
@@ -267,6 +272,36 @@ def run_debugger_batch(
         scoped_report,
         encoding="utf-8",
     )
+    executive_summary = render_executive_summary_markdown(scoped_old_vs_new_outputs)
+    (resolved_output / "step_10d_executive_summary.md").write_text(
+        executive_summary,
+        encoding="utf-8",
+    )
+    plot_executive_summary(
+        scope_a_summary=scope_a["summary"],
+        scope_b_summary=scope_b["summary"],
+        scope_a_analyzers=scope_a["analyzer_aggregate"],
+        scope_b_analyzers=scope_b["analyzer_aggregate"],
+        output_path=resolved_output / "step_10d_executive_summary.png",
+    )
+    comparison_reconciliation = build_comparison_reconciliation_table(
+        run_results=run_results,
+        scoped_outputs=scoped_old_vs_new_outputs,
+    )
+    comparison_reconciliation.to_csv(
+        resolved_output / "step_10e_comparison_reconciliation.csv",
+        index=False,
+        encoding="utf-8-sig",
+    )
+    comparison_reconciliation_md = render_comparison_reconciliation_markdown(
+        comparison_reconciliation,
+        scope_a=scope_a,
+        scope_b=scope_b,
+    )
+    (resolved_output / "step_10e_comparison_reconciliation.md").write_text(
+        comparison_reconciliation_md,
+        encoding="utf-8",
+    )
     return {
         "output_dir": resolved_output,
         "run_results": run_results,
@@ -275,6 +310,7 @@ def run_debugger_batch(
         "cross_run_auto_conclusions": auto_conclusions,
         "merged_zero_anchor_compare": merged_zero_anchor_compare,
         "scoped_old_vs_new_outputs": scoped_old_vs_new_outputs,
+        "comparison_reconciliation": comparison_reconciliation,
         "reproducibility_note": reproducibility_note,
         "cross_run_summary_path": summary_path,
     }

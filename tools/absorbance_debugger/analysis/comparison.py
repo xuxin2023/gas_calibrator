@@ -107,6 +107,28 @@ SCOPED_SEGMENT_COLUMNS: tuple[str, ...] = (
     "win_flag",
 )
 
+COMPARISON_RECONCILIATION_COLUMNS: tuple[str, ...] = (
+    "comparison_scope",
+    "scope_label",
+    "run_scope_description",
+    "benchmark_chain",
+    "old_value_source",
+    "new_value_source",
+    "selected_source_pair",
+    "matched_only_filter_applied",
+    "valid_only_filter_applied",
+    "hard_exclude_500hpa_applied",
+    "analyzer_inclusion_scope",
+    "point_count_used",
+    "whether_point_table_mean_was_used",
+    "whether_deployable_chain_output_was_used",
+    "run_ids_in_scope",
+    "analyzer_set",
+    "overall_verdict_scoped",
+    "why_single_package_quick_calc_can_flip_direction",
+    "future_external_reporting_rule",
+)
+
 
 def _metrics(errors: pd.Series) -> dict[str, float]:
     clean = pd.to_numeric(errors, errors="coerce").dropna()
@@ -1519,3 +1541,125 @@ def build_scoped_old_vs_new_outputs(
         "scope_a": scope_a,
         "scope_b": scope_b,
     }
+
+
+def _sorted_unique_text(values: pd.Series) -> list[str]:
+    if values.empty:
+        return []
+    return sorted(
+        {
+            str(value).strip()
+            for value in values.dropna().astype(str).tolist()
+            if str(value).strip()
+        }
+    )
+
+
+def _scope_selected_source_pair_summary(detail: pd.DataFrame) -> str:
+    if detail.empty:
+        return ""
+    parts: list[str] = []
+    for row in detail.sort_values(["run_id", "analyzer_id"]).itertuples(index=False):
+        parts.append(f"{row.run_id}/{row.analyzer_id}={row.selected_source_pair}")
+    return "; ".join(parts)
+
+
+def _scope_run_ids(detail: pd.DataFrame) -> str:
+    return ",".join(_sorted_unique_text(detail.get("run_id", pd.Series(dtype=object))))
+
+
+def _scope_analyzer_set(detail: pd.DataFrame, summary: pd.DataFrame) -> str:
+    if not summary.empty and "analyzer_set" in summary.columns:
+        value = str(summary.iloc[0].get("analyzer_set") or "").strip()
+        if value:
+            return value
+    return ",".join(_sorted_unique_text(detail.get("analyzer_id", pd.Series(dtype=object))))
+
+
+def _scope_point_count(scope_output: dict[str, pd.DataFrame | str]) -> int:
+    aggregate_segments = scope_output.get("aggregate_segments", pd.DataFrame())
+    if isinstance(aggregate_segments, pd.DataFrame) and not aggregate_segments.empty:
+        overall_row = aggregate_segments[aggregate_segments["segment_tag"].astype(str) == "overall"]
+        if not overall_row.empty:
+            return int(pd.to_numeric(overall_row.iloc[0].get("point_count"), errors="coerce") or 0)
+    compare = scope_output.get("point_reconciliation", pd.DataFrame())
+    if isinstance(compare, pd.DataFrame):
+        return int(len(compare))
+    return 0
+
+
+def _scope_config_facts(run_results: list[dict[str, Any]], run_ids: set[str]) -> tuple[bool, bool, bool]:
+    matched_only = False
+    valid_only = False
+    hard_exclude = False
+    for result in run_results:
+        run_id = str(result.get("run_name", "") or "")
+        if run_id not in run_ids:
+            continue
+        config = result.get("config")
+        matched_only = matched_only or bool(getattr(config, "default_source_policy", "") == "matched_only")
+        valid_only = valid_only or bool(getattr(config, "use_valid_only_main_conclusion", False))
+        hard_exclude = hard_exclude or bool(getattr(config, "invalid_pressure_mode", "") == "hard_exclude")
+    return matched_only, valid_only, hard_exclude
+
+
+def build_comparison_reconciliation_table(
+    *,
+    run_results: list[dict[str, Any]],
+    scoped_outputs: dict[str, dict[str, pd.DataFrame | str]],
+) -> pd.DataFrame:
+    """Build a scope-by-scope reconciliation table for the final report layer."""
+
+    fixed_rule = "以后对外一律以 step_09c / step_09d / step_10c 的 scoped debugger 结果为准"
+    rows: list[dict[str, Any]] = []
+    for scope_key, scope_label in (("scope_a", "historical GA02/GA03"), ("scope_b", "2026-04-10 all analyzers")):
+        scope_output = scoped_outputs[scope_key]
+        detail = scope_output.get("detail", pd.DataFrame())
+        summary = scope_output.get("summary", pd.DataFrame())
+        detail = detail if isinstance(detail, pd.DataFrame) else pd.DataFrame()
+        summary = summary if isinstance(summary, pd.DataFrame) else pd.DataFrame()
+        summary_row = summary.iloc[0] if not summary.empty else pd.Series(dtype=object)
+        run_ids = set(_sorted_unique_text(detail.get("run_id", pd.Series(dtype=object))))
+        matched_only, valid_only, hard_exclude = _scope_config_facts(run_results, run_ids)
+        if scope_key == "scope_a":
+            analyzer_scope = "historical packages excluding run_20260410_132440; analyzer inclusion fixed to GA02 and GA03 only"
+            quick_calc_reason = (
+                "A single-package quick calculation can point in the opposite direction if it only looks at one historical run, "
+                "drops one of GA02/GA03, or uses a different point count than the scoped historical aggregation."
+            )
+        else:
+            analyzer_scope = (
+                f"run_20260410_132440 only; analyzer inclusion is every analyzer present in that run ({_scope_analyzer_set(detail, summary)})"
+            )
+            quick_calc_reason = (
+                "A quick calculation can point in the opposite direction if it omits some analyzers from run_20260410_132440, "
+                "or if it does not use the same matched-only, valid-only, hard-excluded deployable debugger point table."
+            )
+        rows.append(
+            {
+                "comparison_scope": str(scope_output.get("comparison_scope", "")),
+                "scope_label": scope_label,
+                "run_scope_description": str(summary_row.get("run_scope_description", scope_output.get("run_scope_description", ""))),
+                "benchmark_chain": "old_chain",
+                "old_value_source": "point_reconciliation.old_pred_ppm",
+                "new_value_source": "point_reconciliation.new_pred_ppm from current_deployable_new_chain",
+                "selected_source_pair": _scope_selected_source_pair_summary(detail),
+                "matched_only_filter_applied": matched_only,
+                "valid_only_filter_applied": valid_only,
+                "hard_exclude_500hpa_applied": hard_exclude,
+                "analyzer_inclusion_scope": analyzer_scope,
+                "point_count_used": _scope_point_count(scope_output),
+                "whether_point_table_mean_was_used": True,
+                "whether_deployable_chain_output_was_used": True,
+                "run_ids_in_scope": _scope_run_ids(detail),
+                "analyzer_set": _scope_analyzer_set(detail, summary),
+                "overall_verdict_scoped": str(summary_row.get("overall_verdict_scoped", "")),
+                "why_single_package_quick_calc_can_flip_direction": quick_calc_reason,
+                "future_external_reporting_rule": fixed_rule,
+            }
+        )
+    reconciliation = pd.DataFrame(rows)
+    ordered_columns = list(COMPARISON_RECONCILIATION_COLUMNS) + [
+        column for column in reconciliation.columns if column not in COMPARISON_RECONCILIATION_COLUMNS
+    ]
+    return reconciliation.reindex(columns=ordered_columns)

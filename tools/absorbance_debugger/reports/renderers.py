@@ -626,6 +626,164 @@ def render_scoped_old_vs_new_report_markdown(report: Mapping[str, object]) -> st
     return "\n".join(lines)
 
 
+def _scope_yes_no_from_summary(summary_row: pd.Series, *, require_all_segments: bool) -> str:
+    overall = pd.to_numeric(pd.Series([summary_row.get("overall_improvement_pct_scoped")]), errors="coerce").iloc[0]
+    zero = pd.to_numeric(pd.Series([summary_row.get("zero_improvement_pct_scoped")]), errors="coerce").iloc[0]
+    low = pd.to_numeric(pd.Series([summary_row.get("low_improvement_pct_scoped")]), errors="coerce").iloc[0]
+    main = pd.to_numeric(pd.Series([summary_row.get("main_improvement_pct_scoped")]), errors="coerce").iloc[0]
+    if require_all_segments:
+        passed = all(pd.notna(value) and float(value) > 0.0 for value in (overall, zero, low, main))
+    else:
+        passed = pd.notna(overall) and float(overall) > 0.0
+    return "是" if passed else "否"
+
+
+def _scope_segment_readout(summary_row: pd.Series) -> str:
+    return (
+        f"overall={_format_number(summary_row.get('overall_improvement_pct_scoped'), 2)}%, "
+        f"zero={_format_number(summary_row.get('zero_improvement_pct_scoped'), 2)}%, "
+        f"low={_format_number(summary_row.get('low_improvement_pct_scoped'), 2)}%, "
+        f"main={_format_number(summary_row.get('main_improvement_pct_scoped'), 2)}%"
+    )
+
+
+def _analyzer_segment_wins(scope_output: Mapping[str, object]) -> list[str]:
+    analyzer_aggregate = scope_output.get("analyzer_aggregate", pd.DataFrame())
+    if not isinstance(analyzer_aggregate, pd.DataFrame) or analyzer_aggregate.empty:
+        return []
+    segments = (
+        ("overall", "overall_win_flag"),
+        ("zero", "zero_win_flag"),
+        ("low", "low_win_flag"),
+        ("main", "main_win_flag"),
+    )
+    lines: list[str] = []
+    for row in analyzer_aggregate.itertuples(index=False):
+        won_segments = [label for label, column in segments if bool(getattr(row, column, False))]
+        if won_segments:
+            lines.append(f"{row.analyzer_id}: {', '.join(won_segments)}")
+    return lines
+
+
+def _top_local_point_lines(local_wins: pd.DataFrame, *, limit: int = 8) -> list[str]:
+    if local_wins.empty:
+        return []
+    subset = local_wins[local_wins["local_win_flag"].fillna(False)].copy()
+    if subset.empty:
+        return []
+    subset = subset.sort_values(
+        ["improvement_abs_error", "run_id", "analyzer_id"],
+        ascending=[False, True, True],
+        ignore_index=True,
+    ).head(limit)
+    lines: list[str] = []
+    for row in subset.itertuples(index=False):
+        lines.append(
+            f"{row.run_id}/{row.analyzer_id} @ {_format_number(row.temp_set_c, 1)}C / {_format_number(row.target_ppm, 1)} ppm: "
+            f"old={_format_number(row.old_value)}, new={_format_number(row.new_value)}, "
+            f"abs error improvement={_format_number(row.improvement_abs_error)} ppm ({row.segment_tag})"
+        )
+    return lines
+
+
+def render_executive_summary_markdown(report: Mapping[str, object]) -> str:
+    """Render the step-10d executive summary markdown."""
+
+    scope_a = report["scope_a"]
+    scope_b = report["scope_b"]
+    scope_a_row = scope_a["summary"].iloc[0] if not scope_a["summary"].empty else pd.Series(dtype=object)
+    scope_b_row = scope_b["summary"].iloc[0] if not scope_b["summary"].empty else pd.Series(dtype=object)
+
+    lines: list[str] = []
+    lines.append("# Executive Summary")
+    lines.append("")
+    lines.append("## 1. historical GA02/GA03")
+    lines.append(
+        "- historical GA02/GA03：新算法相对旧算法是否已有持续优势 = "
+        + _scope_yes_no_from_summary(scope_a_row, require_all_segments=True)
+    )
+    lines.append("- scoped readout = " + _scope_segment_readout(scope_a_row))
+    lines.append("")
+    lines.append("## 2. 2026-04-10 all analyzers")
+    lines.append(
+        "- 2026-04-10 all analyzers：新算法相对旧算法是否已整体超过旧算法 = "
+        + _scope_yes_no_from_summary(scope_b_row, require_all_segments=False)
+    )
+    lines.append("- scoped readout = " + _scope_segment_readout(scope_b_row))
+    lines.append("")
+    lines.append("## 3. Clear Wins")
+    lines.append("- already clear analyzer / segment wins in historical GA02/GA03:")
+    scope_a_wins = _analyzer_segment_wins(scope_a)
+    if scope_a_wins:
+        for item in scope_a_wins:
+            lines.append(f"  - {item}")
+    else:
+        lines.append("  - none")
+    lines.append("- already clear analyzer / segment wins in 2026-04-10 all analyzers:")
+    scope_b_wins = _analyzer_segment_wins(scope_b)
+    if scope_b_wins:
+        for item in scope_b_wins:
+            lines.append(f"  - {item}")
+    else:
+        lines.append("  - none")
+    lines.append("- already clear local winning points:")
+    point_lines = _top_local_point_lines(scope_a["local_wins"], limit=4) + _top_local_point_lines(scope_b["local_wins"], limit=4)
+    if point_lines:
+        for item in point_lines:
+            lines.append(f"  - {item}")
+    else:
+        lines.append("  - none")
+    lines.append("")
+    lines.append("## 4. Official Benchmark")
+    lines.append("- 当前项目的唯一正式 benchmark 是 old_chain。")
+    lines.append("- 主 headline 不允许被 water replay / ppm family / source policy / GA01 sidecar 覆盖。")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def render_comparison_reconciliation_markdown(
+    reconciliation: pd.DataFrame,
+    *,
+    scope_a: Mapping[str, object],
+    scope_b: Mapping[str, object],
+) -> str:
+    """Render the step-10e comparison reconciliation markdown."""
+
+    fixed_rule = "以后对外一律以 step_09c / step_09d / step_10c 的 scoped debugger 结果为准"
+    scope_a_row = scope_a["summary"].iloc[0] if not scope_a["summary"].empty else pd.Series(dtype=object)
+    scope_b_row = scope_b["summary"].iloc[0] if not scope_b["summary"].empty else pd.Series(dtype=object)
+
+    lines: list[str] = []
+    lines.append("# Comparison Reconciliation")
+    lines.append("")
+    lines.append("## 1. Why the two scopes cannot be merged into one headline")
+    lines.append(
+        "- Scope A is a historical-packages view that only includes GA02/GA03 and answers whether those representative analyzers show sustained performance."
+    )
+    lines.append(
+        "- Scope B is the full run_20260410_132440 view and answers the real all-analyzers status inside that one complete run."
+    )
+    lines.append(
+        f"- Scope A verdict = {scope_a_row.get('overall_verdict_scoped', '')}; Scope B verdict = {scope_b_row.get('overall_verdict_scoped', '')}."
+    )
+    lines.append("- Because the run set and analyzer inclusion scope are different, the two scopes cannot be merged into one global headline.")
+    lines.append("")
+    lines.append("## 2. Why a previous quick single-package calculation could point in the opposite direction")
+    if not reconciliation.empty:
+        for row in reconciliation.itertuples(index=False):
+            lines.append(f"- {row.scope_label}: {row.why_single_package_quick_calc_can_flip_direction}")
+    else:
+        lines.append("- No reconciliation rows available.")
+    lines.append("")
+    lines.append("## 3. Reconciliation Checklist")
+    lines.append(_table_to_markdown(reconciliation, max_rows=10))
+    lines.append("")
+    lines.append("## 4. Fixed Conclusion")
+    lines.append(f"- {fixed_rule}")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def render_report_html(report: Mapping[str, object]) -> str:
     """Render a compact standalone HTML report."""
 

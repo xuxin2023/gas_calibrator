@@ -16,6 +16,7 @@ from tools.absorbance_debugger.analysis.absorbance_models import (
     evaluate_absorbance_models,
 )
 from tools.absorbance_debugger.analysis.comparison import (
+    build_comparison_reconciliation_table,
     build_old_vs_new_comparison_outputs,
     build_scoped_old_vs_new_outputs,
 )
@@ -61,6 +62,8 @@ from tools.absorbance_debugger.options import (
 )
 from tools.absorbance_debugger.parsers.schema import classify_mode2_semantics
 from tools.absorbance_debugger.reports.renderers import (
+    render_comparison_reconciliation_markdown,
+    render_executive_summary_markdown,
     render_old_vs_new_report_markdown,
     render_scoped_old_vs_new_report_markdown,
 )
@@ -1042,6 +1045,53 @@ def test_build_scoped_old_vs_new_outputs_separates_scopes_and_report() -> None:
     assert "这两个 scope 用途不同，不应混成单一全局 headline" in report
 
 
+def test_executive_summary_and_reconciliation_render_required_sections() -> None:
+    run_results = [
+        _synthetic_scoped_run_result("run_20260403_014845", Path("D:/tmp/a")),
+        _synthetic_scoped_run_result("run_20260407_185002", Path("D:/tmp/b")),
+        _synthetic_scoped_run_result("run_20260410_132440", Path("D:/tmp/c")),
+    ]
+    scoped_outputs = build_scoped_old_vs_new_outputs(run_results)
+    reconciliation = build_comparison_reconciliation_table(
+        run_results=run_results,
+        scoped_outputs=scoped_outputs,
+    )
+
+    assert {
+        "comparison_scope",
+        "scope_label",
+        "run_scope_description",
+        "benchmark_chain",
+        "old_value_source",
+        "new_value_source",
+        "selected_source_pair",
+        "matched_only_filter_applied",
+        "valid_only_filter_applied",
+        "hard_exclude_500hpa_applied",
+        "analyzer_inclusion_scope",
+        "point_count_used",
+        "whether_point_table_mean_was_used",
+        "whether_deployable_chain_output_was_used",
+    } <= set(reconciliation.columns)
+
+    executive_md = render_executive_summary_markdown(scoped_outputs)
+    assert "historical GA02/GA03" in executive_md
+    assert "2026-04-10 all analyzers" in executive_md
+    assert "唯一正式 benchmark 是 old_chain" in executive_md
+
+    reconciliation_md = render_comparison_reconciliation_markdown(
+        reconciliation,
+        scope_a=scoped_outputs["scope_a"],
+        scope_b=scoped_outputs["scope_b"],
+    )
+    assert "old_value_source" in reconciliation_md
+    assert "new_value_source" in reconciliation_md
+    assert "matched_only_filter_applied" in reconciliation_md
+    assert "valid_only_filter_applied" in reconciliation_md
+    assert "analyzer_inclusion_scope" in reconciliation_md
+    assert "以后对外一律以 step_09c / step_09d / step_10c 的 scoped debugger 结果为准" in reconciliation_md
+
+
 def test_source_policy_challenge_stays_diagnostic_only_and_report_surfaces_audit(tmp_path: Path) -> None:
     config = DebuggerConfig(input_path=tmp_path, output_dir=tmp_path)
     filtered = pd.DataFrame(
@@ -2010,6 +2060,10 @@ def test_cross_run_batch_writes_scoped_old_vs_new_outputs(monkeypatch, tmp_path:
     assert (output_dir / "step_09d_20260410_all_analyzers_local_wins.csv").exists()
     assert (output_dir / "step_09d_20260410_all_analyzers_plot.png").exists()
     assert (output_dir / "step_10c_scoped_old_vs_new_report.md").exists()
+    assert (output_dir / "step_10d_executive_summary.md").exists()
+    assert (output_dir / "step_10d_executive_summary.png").exists()
+    assert (output_dir / "step_10e_comparison_reconciliation.md").exists()
+    assert (output_dir / "step_10e_comparison_reconciliation.csv").exists()
 
     scope_a_detail = pd.read_csv(output_dir / "step_09c_historical_ga02_ga03_old_vs_new_detail.csv")
     scope_a_summary = pd.read_csv(output_dir / "step_09c_historical_ga02_ga03_old_vs_new_summary.csv")
@@ -2038,6 +2092,25 @@ def test_cross_run_batch_writes_scoped_old_vs_new_outputs(monkeypatch, tmp_path:
     assert "2026-04-10 all-analyzers comparison" in report
     assert "在历史数据包上，仅看 GA02/GA03，新算法相对旧算法" in report
     assert "在 2026-04-10 这包完整 run 上，全 analyzers 视角下新算法相对旧算法的真实状态是" in report
+
+    executive = (output_dir / "step_10d_executive_summary.md").read_text(encoding="utf-8")
+    assert "historical GA02/GA03" in executive
+    assert "2026-04-10 all analyzers" in executive
+
+    reconciliation = pd.read_csv(output_dir / "step_10e_comparison_reconciliation.csv")
+    assert {
+        "old_value_source",
+        "new_value_source",
+        "matched_only_filter_applied",
+        "valid_only_filter_applied",
+        "analyzer_inclusion_scope",
+    } <= set(reconciliation.columns)
+    reconciliation_md = (output_dir / "step_10e_comparison_reconciliation.md").read_text(encoding="utf-8")
+    assert "old_value_source" in reconciliation_md
+    assert "new_value_source" in reconciliation_md
+    assert "matched_only_filter_applied" in reconciliation_md
+    assert "valid_only_filter_applied" in reconciliation_md
+    assert "analyzer_inclusion_scope" in reconciliation_md
 
 
 def test_historical_run_detects_high_temp_anchor_and_invalid_500hpa(tmp_path: Path) -> None:
