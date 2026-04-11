@@ -130,6 +130,7 @@ def _prepare_base_frame(
     base = point_reconciliation[point_reconciliation["analyzer_id"].astype(str) == analyzer_id].copy()
     if base.empty:
         return base
+    base["reconciliation_row_id"] = base.index.to_numpy()
     base["target_ppm"] = pd.to_numeric(base["target_ppm"], errors="coerce")
     base["temp_c"] = pd.to_numeric(base["temp_c"], errors="coerce")
     base["old_error"] = pd.to_numeric(base["old_error"], errors="coerce")
@@ -326,6 +327,10 @@ def _detail_row(
     old_zero = _segment_rmse(mode_frame, "old_error", "zero")
     sidecar_vs_current = mode_frame["abs_error_current"] - mode_frame["abs_error_sidecar"]
     sidecar_vs_current_loss = mode_frame["abs_error_sidecar"] - mode_frame["abs_error_current"]
+    win_rows = mode_frame[sidecar_vs_current > 1.0e-12].copy()
+    win_rows["local_gain"] = sidecar_vs_current.loc[win_rows.index]
+    loss_rows = mode_frame[sidecar_vs_current_loss > 1.0e-12].copy()
+    loss_rows["local_loss"] = sidecar_vs_current_loss.loc[loss_rows.index]
     return {
         "analyzer_id": analyzer_id,
         "sidecar_mode": sidecar_mode,
@@ -346,8 +351,8 @@ def _detail_row(
         "delta_vs_current_ga01_main": current_main - main if pd.notna(current_main) and pd.notna(main) else math.nan,
         "pointwise_win_count_vs_old": int((mode_frame["abs_error_sidecar"] < mode_frame["abs_error_old"] - 1.0e-12).fillna(False).sum()),
         "pointwise_win_count_vs_current_ga01": int((mode_frame["abs_error_sidecar"] < mode_frame["abs_error_current"] - 1.0e-12).fillna(False).sum()),
-        "local_win_examples": _format_example_series(mode_frame[sidecar_vs_current > 1.0e-12].assign(local_gain=sidecar_vs_current), "local_gain"),
-        "local_loss_examples": _format_example_series(mode_frame[sidecar_vs_current_loss > 1.0e-12].assign(local_loss=sidecar_vs_current_loss), "local_loss"),
+        "local_win_examples": _format_example_series(win_rows, "local_gain"),
+        "local_loss_examples": _format_example_series(loss_rows, "local_loss"),
     }
 
 
@@ -529,17 +534,23 @@ def build_analyzer_sidecar_challenge(
     global_reconciliations: dict[str, pd.DataFrame] = {}
     for mode_name, frame in mode_frames.items():
         global_frame = point_reconciliation.copy()
-        replacement = frame[["analyzer_id", "point_title", "point_row", "sidecar_pred_ppm", "sidecar_error_ppm"]].copy()
-        global_frame = global_frame.merge(
-            replacement,
-            on=["analyzer_id", "point_title", "point_row"],
-            how="left",
-            suffixes=("", "_sidecar"),
+        replacement = frame[["reconciliation_row_id", "sidecar_pred_ppm", "sidecar_error_ppm"]].copy()
+        replacement["reconciliation_row_id"] = pd.to_numeric(replacement["reconciliation_row_id"], errors="coerce").astype("Int64")
+        replacement = replacement.dropna(subset=["reconciliation_row_id"]).drop_duplicates(subset=["reconciliation_row_id"], keep="last")
+        error_map = pd.Series(
+            pd.to_numeric(replacement["sidecar_error_ppm"], errors="coerce").to_numpy(),
+            index=replacement["reconciliation_row_id"].astype(int).to_numpy(),
         )
-        global_frame["sidecar_error_used"] = pd.to_numeric(global_frame.get("sidecar_error_ppm"), errors="coerce").combine_first(
+        pred_map = pd.Series(
+            pd.to_numeric(replacement["sidecar_pred_ppm"], errors="coerce").to_numpy(),
+            index=replacement["reconciliation_row_id"].astype(int).to_numpy(),
+        )
+        sidecar_error_series = global_frame.index.to_series().map(error_map)
+        sidecar_pred_series = global_frame.index.to_series().map(pred_map)
+        global_frame["sidecar_error_used"] = sidecar_error_series.combine_first(
             pd.to_numeric(global_frame["new_error"], errors="coerce")
         )
-        global_frame["sidecar_pred_used"] = pd.to_numeric(global_frame.get("sidecar_pred_ppm"), errors="coerce").combine_first(
+        global_frame["sidecar_pred_used"] = sidecar_pred_series.combine_first(
             pd.to_numeric(global_frame["new_pred_ppm"], errors="coerce")
         )
         global_reconciliations[mode_name] = global_frame
