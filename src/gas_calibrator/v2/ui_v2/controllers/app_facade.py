@@ -3554,35 +3554,10 @@ class AppFacade:
                 recognition_readiness.AUDIT_READINESS_DIGEST_FILENAME,
                 dict(audit_readiness_digest or {}),
             ),
-            (
-                recognition_readiness.PT_ILC_REGISTRY_FILENAME,
-                dict(pt_ilc_registry or {}),
-            ),
-            (
-                recognition_readiness.EXTERNAL_COMPARISON_IMPORTER_FILENAME,
-                dict(external_comparison_importer or {}),
-            ),
-            (
-                recognition_readiness.COMPARISON_EVIDENCE_PACK_FILENAME,
-                dict(comparison_evidence_pack or {}),
-            ),
-            (
-                recognition_readiness.SCOPE_COMPARISON_VIEW_FILENAME,
-                dict(scope_comparison_view or {}),
-            ),
-            (
-                recognition_readiness.COMPARISON_DIGEST_FILENAME,
-                dict(comparison_digest or {}),
-            ),
-            (
-                recognition_readiness.COMPARISON_ROLLUP_FILENAME,
-                dict(comparison_rollup or {}),
-            ),
-            (
-                recognition_readiness.STEP2_CLOSEOUT_DIGEST_FILENAME,
-                dict(step2_closeout_digest or {}),
-            ),
-        ]
+        ] + _build_wp6_closeout_readiness_pairs(
+            _wp6_closeout,
+            filename_module=recognition_readiness,
+        )
         for filename, fallback_payload in readiness_summary_payloads:
             explicit_path = str(
                 dict(fallback_payload.get("artifact_paths") or {}).get(Path(filename).stem)
