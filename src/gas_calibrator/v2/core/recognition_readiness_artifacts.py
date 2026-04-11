@@ -28,6 +28,32 @@ from .reviewer_fragments_contract import (
     normalize_fragment_filter_rows,
     normalize_fragment_rows,
 )
+from .reviewer_surface_contracts import (
+    WP6_CLOSEOUT_ARTIFACT_KEYS as WP6_CLOSEOUT_ARTIFACT_KEYS,
+    WP6_CLOSEOUT_DISPLAY_LABELS as WP6_CLOSEOUT_DISPLAY_LABELS,
+    WP6_CLOSEOUT_DISPLAY_LABELS_EN as WP6_CLOSEOUT_DISPLAY_LABELS_EN,
+    WP6_CLOSEOUT_ANCHOR_DEFAULTS as _SHARED_ANCHOR_DEFAULTS,
+    WP6_CLOSEOUT_NEXT_ARTIFACT_DEFAULTS as _SHARED_NEXT_ARTIFACT_DEFAULTS,
+    WP6_CLOSEOUT_BLOCKER_DEFAULTS as _SHARED_BLOCKER_DEFAULTS,
+    WP6_CLOSEOUT_MISSING_EVIDENCE_DEFAULTS as _SHARED_MISSING_EVIDENCE_DEFAULTS,
+    WP6_CLOSEOUT_ARTIFACT_ROLES as WP6_CLOSEOUT_ARTIFACT_ROLES,
+    WP6_CLOSEOUT_I18N_KEYS as WP6_CLOSEOUT_I18N_KEYS,
+    PT_ILC_REGISTRY_FILENAME,
+    PT_ILC_REGISTRY_MARKDOWN_FILENAME,
+    EXTERNAL_COMPARISON_IMPORTER_FILENAME,
+    EXTERNAL_COMPARISON_IMPORTER_MARKDOWN_FILENAME,
+    COMPARISON_EVIDENCE_PACK_FILENAME,
+    COMPARISON_EVIDENCE_PACK_MARKDOWN_FILENAME,
+    SCOPE_COMPARISON_VIEW_FILENAME,
+    SCOPE_COMPARISON_VIEW_MARKDOWN_FILENAME,
+    COMPARISON_DIGEST_FILENAME,
+    COMPARISON_DIGEST_MARKDOWN_FILENAME,
+    COMPARISON_ROLLUP_FILENAME,
+    COMPARISON_ROLLUP_MARKDOWN_FILENAME,
+    STEP2_CLOSEOUT_DIGEST_FILENAME,
+    STEP2_CLOSEOUT_DIGEST_MARKDOWN_FILENAME,
+    REVIEWER_SURFACE_CONTRACTS_VERSION,
+)
 
 SCOPE_DEFINITION_PACK_FILENAME = "scope_definition_pack.json"
 SCOPE_DEFINITION_PACK_MARKDOWN_FILENAME = "scope_definition_pack.md"
@@ -109,51 +135,8 @@ RELEASE_VALIDATION_MANIFEST_FILENAME = "release_validation_manifest.json"
 RELEASE_VALIDATION_MANIFEST_MARKDOWN_FILENAME = "release_validation_manifest.md"
 AUDIT_READINESS_DIGEST_FILENAME = "audit_readiness_digest.json"
 AUDIT_READINESS_DIGEST_MARKDOWN_FILENAME = "audit_readiness_digest.md"
-PT_ILC_REGISTRY_FILENAME = "pt_ilc_registry.json"
-PT_ILC_REGISTRY_MARKDOWN_FILENAME = "pt_ilc_registry.md"
-EXTERNAL_COMPARISON_IMPORTER_FILENAME = "external_comparison_importer.json"
-EXTERNAL_COMPARISON_IMPORTER_MARKDOWN_FILENAME = "external_comparison_importer.md"
-COMPARISON_EVIDENCE_PACK_FILENAME = "comparison_evidence_pack.json"
-COMPARISON_EVIDENCE_PACK_MARKDOWN_FILENAME = "comparison_evidence_pack.md"
-SCOPE_COMPARISON_VIEW_FILENAME = "scope_comparison_view.json"
-SCOPE_COMPARISON_VIEW_MARKDOWN_FILENAME = "scope_comparison_view.md"
-COMPARISON_DIGEST_FILENAME = "comparison_digest.json"
-COMPARISON_DIGEST_MARKDOWN_FILENAME = "comparison_digest.md"
-COMPARISON_ROLLUP_FILENAME = "comparison_rollup.json"
-COMPARISON_ROLLUP_MARKDOWN_FILENAME = "comparison_rollup.md"
-STEP2_CLOSEOUT_DIGEST_FILENAME = "step2_closeout_digest.json"
-STEP2_CLOSEOUT_DIGEST_MARKDOWN_FILENAME = "step2_closeout_digest.md"
-
-# Unified WP6 + closeout artifact key list and display order
-WP6_CLOSEOUT_ARTIFACT_KEYS: tuple[str, ...] = (
-    "pt_ilc_registry",
-    "external_comparison_importer",
-    "comparison_evidence_pack",
-    "scope_comparison_view",
-    "comparison_digest",
-    "comparison_rollup",
-    "step2_closeout_digest",
-)
-
-WP6_CLOSEOUT_DISPLAY_LABELS: dict[str, str] = {
-    "pt_ilc_registry": "PT/ILC 比对注册表",
-    "external_comparison_importer": "外部比对导入器",
-    "comparison_evidence_pack": "比对证据包",
-    "scope_comparison_view": "范围比对视图",
-    "comparison_digest": "比对摘要",
-    "comparison_rollup": "比对汇总",
-    "step2_closeout_digest": "Step 2 阶段收口摘要",
-}
-
-WP6_CLOSEOUT_DISPLAY_LABELS_EN: dict[str, str] = {
-    "pt_ilc_registry": "PT/ILC Comparison Registry",
-    "external_comparison_importer": "External Comparison Importer",
-    "comparison_evidence_pack": "Comparison Evidence Pack",
-    "scope_comparison_view": "Scope Comparison View",
-    "comparison_digest": "Comparison Digest",
-    "comparison_rollup": "Comparison Rollup",
-    "step2_closeout_digest": "Step 2 Closeout Digest",
-}
+# WP6 + closeout filename constants and display labels are now imported from
+# reviewer_surface_contracts (single source of truth).
 
 RECOGNITION_READINESS_SUMMARY_FILENAMES = (
     SCOPE_READINESS_SUMMARY_FILENAME,
@@ -342,6 +325,10 @@ _RECOGNITION_ARTIFACT_ANCHORS: dict[str, dict[str, str]] = {
     },
     "comparison_digest": {"anchor_id": "comparison-digest", "anchor_label": "比对摘要"},
     "comparison_rollup": {"anchor_id": "comparison-rollup", "anchor_label": "比对汇总"},
+    "step2_closeout_digest": {
+        "anchor_id": "step2-closeout-digest",
+        "anchor_label": "Step 2 阶段收口摘要",
+    },
 }
 
 _RECOGNITION_NEXT_ARTIFACT_DEFAULTS: dict[str, list[str]] = {
@@ -389,8 +376,9 @@ _RECOGNITION_NEXT_ARTIFACT_DEFAULTS: dict[str, list[str]] = {
     "external_comparison_importer": ["comparison_evidence_pack", "scope_comparison_view"],
     "comparison_evidence_pack": ["scope_comparison_view", "comparison_digest"],
     "scope_comparison_view": ["comparison_digest", "comparison_rollup"],
-    "comparison_digest": ["comparison_rollup", "audit_readiness_digest"],
-    "comparison_rollup": ["audit_readiness_digest"],
+    "comparison_digest": ["comparison_rollup", "step2_closeout_digest"],
+    "comparison_rollup": ["step2_closeout_digest"],
+    "step2_closeout_digest": [],
 }
 
 _RECOGNITION_BLOCKER_DEFAULTS: dict[str, list[str]] = {
@@ -684,6 +672,10 @@ _RECOGNITION_MISSING_EVIDENCE_DEFAULTS: dict[str, list[str]] = {
     "comparison_rollup": [
         "rollup is reviewer-facing summary only",
         "does not constitute formal PT/ILC compliance claim",
+    ],
+    "step2_closeout_digest": [
+        "closeout digest is Step 2 governance summary only",
+        "does not constitute formal phase completion or acceptance evidence",
     ],
 }
 
