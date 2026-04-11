@@ -124,6 +124,37 @@ COMPARISON_ROLLUP_MARKDOWN_FILENAME = "comparison_rollup.md"
 STEP2_CLOSEOUT_DIGEST_FILENAME = "step2_closeout_digest.json"
 STEP2_CLOSEOUT_DIGEST_MARKDOWN_FILENAME = "step2_closeout_digest.md"
 
+# Unified WP6 + closeout artifact key list and display order
+WP6_CLOSEOUT_ARTIFACT_KEYS: tuple[str, ...] = (
+    "pt_ilc_registry",
+    "external_comparison_importer",
+    "comparison_evidence_pack",
+    "scope_comparison_view",
+    "comparison_digest",
+    "comparison_rollup",
+    "step2_closeout_digest",
+)
+
+WP6_CLOSEOUT_DISPLAY_LABELS: dict[str, str] = {
+    "pt_ilc_registry": "PT/ILC 比对注册表",
+    "external_comparison_importer": "外部比对导入器",
+    "comparison_evidence_pack": "比对证据包",
+    "scope_comparison_view": "范围比对视图",
+    "comparison_digest": "比对摘要",
+    "comparison_rollup": "比对汇总",
+    "step2_closeout_digest": "Step 2 阶段收口摘要",
+}
+
+WP6_CLOSEOUT_DISPLAY_LABELS_EN: dict[str, str] = {
+    "pt_ilc_registry": "PT/ILC Comparison Registry",
+    "external_comparison_importer": "External Comparison Importer",
+    "comparison_evidence_pack": "Comparison Evidence Pack",
+    "scope_comparison_view": "Scope Comparison View",
+    "comparison_digest": "Comparison Digest",
+    "comparison_rollup": "Comparison Rollup",
+    "step2_closeout_digest": "Step 2 Closeout Digest",
+}
+
 RECOGNITION_READINESS_SUMMARY_FILENAMES = (
     SCOPE_READINESS_SUMMARY_FILENAME,
     CERTIFICATE_LIFECYCLE_SUMMARY_FILENAME,
