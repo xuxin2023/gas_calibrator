@@ -46,6 +46,10 @@ from ...core.reviewer_surface_contracts import (
     WP6_CLOSEOUT_ARTIFACT_KEYS as _SHARED_WP6_CLOSEOUT_KEYS,
     WP6_CLOSEOUT_DISPLAY_LABELS as _SHARED_WP6_CLOSEOUT_DISPLAY_LABELS,
 )
+from ...core.reviewer_surface_payloads import (
+    extract_wp6_closeout_payloads as _extract_wp6_closeout_payloads,
+    build_wp6_closeout_readiness_pairs as _build_wp6_closeout_readiness_pairs,
+)
 from ...core.offline_artifacts import build_point_taxonomy_handoff
 from ...domain.mode_models import ModeProfile, RunMode
 from ...review_surface_formatter import (
@@ -1527,13 +1531,14 @@ class AppFacade:
         uncertainty_rollup = dict(payload.get("uncertainty_rollup", {}) or {})
         uncertainty_method_readiness_summary = dict(payload.get("uncertainty_method_readiness_summary", {}) or {})
         audit_readiness_digest = dict(payload.get("audit_readiness_digest", {}) or {})
-        pt_ilc_registry = dict(payload.get("pt_ilc_registry", {}) or {})
-        external_comparison_importer = dict(payload.get("external_comparison_importer", {}) or {})
-        comparison_evidence_pack = dict(payload.get("comparison_evidence_pack", {}) or {})
-        scope_comparison_view = dict(payload.get("scope_comparison_view", {}) or {})
-        comparison_digest = dict(payload.get("comparison_digest", {}) or {})
-        comparison_rollup = dict(payload.get("comparison_rollup", {}) or {})
-        step2_closeout_digest = dict(payload.get("step2_closeout_digest", {}) or {})
+        _wp6_closeout = _extract_wp6_closeout_payloads(payload)
+        pt_ilc_registry = _wp6_closeout["pt_ilc_registry"]
+        external_comparison_importer = _wp6_closeout["external_comparison_importer"]
+        comparison_evidence_pack = _wp6_closeout["comparison_evidence_pack"]
+        scope_comparison_view = _wp6_closeout["scope_comparison_view"]
+        comparison_digest = _wp6_closeout["comparison_digest"]
+        comparison_rollup = _wp6_closeout["comparison_rollup"]
+        step2_closeout_digest = _wp6_closeout["step2_closeout_digest"]
         run_artifact_index = dict(payload.get("run_artifact_index", {}) or {})
         artifact_contract_catalog = dict(payload.get("artifact_contract_catalog", {}) or {})
         compatibility_scan_summary = dict(payload.get("compatibility_scan_summary", {}) or {})

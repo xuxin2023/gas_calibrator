@@ -24,6 +24,9 @@ from ...core import recognition_readiness_artifacts as recognition_readiness
 from ...core.reviewer_surface_contracts import (
     WP6_CLOSEOUT_ARTIFACT_KEYS as _SHARED_WP6_CLOSEOUT_KEYS,
 )
+from ...core.reviewer_surface_payloads import (
+    extract_wp6_closeout_payloads as _extract_wp6_closeout_payloads,
+)
 from ...core.offline_artifacts import build_point_taxonomy_handoff
 from ...core.device_factory import DeviceFactory, DeviceType
 from ...qc.qc_report import build_qc_evidence_section, build_qc_reviewer_card
@@ -487,13 +490,14 @@ class DeviceWorkbenchController:
         uncertainty_rollup = dict(payload.get("uncertainty_rollup") or {})
         uncertainty_summary = dict(payload.get("uncertainty_method_readiness_summary") or {})
         audit_summary = dict(payload.get("audit_readiness_digest") or {})
-        pt_ilc_registry = dict(payload.get("pt_ilc_registry") or {})
-        external_comparison_importer = dict(payload.get("external_comparison_importer") or {})
-        comparison_evidence_pack = dict(payload.get("comparison_evidence_pack") or {})
-        scope_comparison_view = dict(payload.get("scope_comparison_view") or {})
-        comparison_digest_payload = dict(payload.get("comparison_digest") or {})
-        comparison_rollup = dict(payload.get("comparison_rollup") or {})
-        step2_closeout_digest = dict(payload.get("step2_closeout_digest") or {})
+        _wp6_closeout = _extract_wp6_closeout_payloads(payload)
+        pt_ilc_registry = _wp6_closeout["pt_ilc_registry"]
+        external_comparison_importer = _wp6_closeout["external_comparison_importer"]
+        comparison_evidence_pack = _wp6_closeout["comparison_evidence_pack"]
+        scope_comparison_view = _wp6_closeout["scope_comparison_view"]
+        comparison_digest_payload = _wp6_closeout["comparison_digest"]
+        comparison_rollup = _wp6_closeout["comparison_rollup"]
+        step2_closeout_digest = _wp6_closeout["step2_closeout_digest"]
         recognition_scope_rollup = dict(payload.get("recognition_scope_rollup") or {})
         compatibility_summary = dict(payload.get("compatibility_scan_summary") or {})
         compatibility_overview = dict(compatibility_summary.get("compatibility_overview") or {})
