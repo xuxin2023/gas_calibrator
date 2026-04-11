@@ -58,6 +58,25 @@ def _ratio_source_from_pair(source_pair: str) -> str:
     return "ratio_co2_raw" if str(source_pair) == "raw/raw" else "ratio_co2_filt"
 
 
+def _format_point_label(row: pd.Series) -> str:
+    temp_value = pd.to_numeric(pd.Series([row.get("temp_c", row.get("temp_set_c"))]), errors="coerce").iloc[0]
+    target_value = pd.to_numeric(pd.Series([row.get("target_ppm")]), errors="coerce").iloc[0]
+    segment = str(row.get("segment_tag") or "")
+    temp_text = "nanC" if pd.isna(temp_value) else f"{float(temp_value):g}C"
+    target_text = "nanppm" if pd.isna(target_value) else f"{float(target_value):g}ppm"
+    return f"{temp_text}/{target_text}/{segment}"
+
+
+def _format_example_series(frame: pd.DataFrame, value_column: str) -> str:
+    if frame.empty or value_column not in frame.columns:
+        return ""
+    ranked = frame.dropna(subset=[value_column]).copy()
+    if ranked.empty:
+        return ""
+    ranked = ranked.sort_values([value_column], ascending=[False], ignore_index=True).head(3)
+    return "|".join(_format_point_label(row) for _, row in ranked.iterrows())
+
+
 def _point_feature_summary(filtered_samples: pd.DataFrame, analyzer_id: str, selected_source_pair: str) -> pd.DataFrame:
     subset = filtered_samples[filtered_samples["analyzer"].astype(str) == analyzer_id].copy()
     if subset.empty:
@@ -303,6 +322,8 @@ def _detail_row(
     low = _segment_rmse(mode_frame, "sidecar_error_ppm", "low")
     main = _segment_rmse(mode_frame, "sidecar_error_ppm", "main")
     old_zero = _segment_rmse(mode_frame, "old_error", "zero")
+    sidecar_vs_current = mode_frame["abs_error_current"] - mode_frame["abs_error_sidecar"]
+    sidecar_vs_current_loss = mode_frame["abs_error_sidecar"] - mode_frame["abs_error_current"]
     return {
         "analyzer_id": analyzer_id,
         "sidecar_mode": sidecar_mode,
@@ -323,4 +344,390 @@ def _detail_row(
         "delta_vs_current_ga01_main": current_main - main if pd.notna(current_main) and pd.notna(main) else math.nan,
         "pointwise_win_count_vs_old": int((mode_frame["abs_error_sidecar"] < mode_frame["abs_error_old"] - 1.0e-12).fillna(False).sum()),
         "pointwise_win_count_vs_current_ga01": int((mode_frame["abs_error_sidecar"] < mode_frame["abs_error_current"] - 1.0e-12).fillna(False).sum()),
+        "local_win_examples": _format_example_series(mode_frame[sidecar_vs_current > 1.0e-12].assign(local_gain=sidecar_vs_current), "local_gain"),
+        "local_loss_examples": _format_example_series(mode_frame[sidecar_vs_current_loss > 1.0e-12].assign(local_loss=sidecar_vs_current_loss), "local_loss"),
+    }
+
+
+def build_analyzer_sidecar_challenge(
+    *,
+    point_reconciliation: pd.DataFrame,
+    filtered_samples: pd.DataFrame,
+    absorbance_point_variants: pd.DataFrame,
+    selection_table: pd.DataFrame,
+    config: Any,
+    laggard_analyzer_id: str = "GA01",
+) -> dict[str, pd.DataFrame]:
+    """Run analyzer-specific sidecar diagnostics without touching the global deployable winner."""
+
+    point_reconciliation = point_reconciliation.copy()
+    filtered_samples = filtered_samples.copy()
+    absorbance_point_variants = absorbance_point_variants.copy()
+    selection = selection_table.copy()
+    if point_reconciliation.empty or selection.empty:
+        empty = pd.DataFrame()
+        return {"detail": empty, "summary": empty, "conclusions": empty}
+
+    if "selected_source_pair" not in point_reconciliation.columns and "ratio_source_selected" in point_reconciliation.columns:
+        point_reconciliation["selected_source_pair"] = np.where(
+            point_reconciliation["ratio_source_selected"].astype(str).str.contains("raw", case=False, na=False),
+            "raw/raw",
+            "filt/filt",
+        )
+    if "best_model_family" not in point_reconciliation.columns:
+        point_reconciliation["best_model_family"] = ""
+    if "selected_prediction_scope" not in point_reconciliation.columns:
+        point_reconciliation["selected_prediction_scope"] = "validation_oof"
+    if "zero_residual_mode" not in point_reconciliation.columns:
+        point_reconciliation["zero_residual_mode"] = "none"
+
+    point_reconciliation["old_error"] = pd.to_numeric(point_reconciliation["old_error"], errors="coerce")
+    point_reconciliation["new_error"] = pd.to_numeric(point_reconciliation["new_error"], errors="coerce")
+    point_reconciliation["old_pred_ppm"] = pd.to_numeric(point_reconciliation["old_pred_ppm"], errors="coerce")
+    point_reconciliation["new_pred_ppm"] = pd.to_numeric(point_reconciliation["new_pred_ppm"], errors="coerce")
+    point_reconciliation["target_ppm"] = pd.to_numeric(point_reconciliation["target_ppm"], errors="coerce")
+    point_reconciliation["temp_c"] = pd.to_numeric(point_reconciliation["temp_c"], errors="coerce")
+    point_reconciliation["point_row"] = pd.to_numeric(point_reconciliation["point_row"], errors="coerce")
+    point_reconciliation["positive_gap_sq"] = (
+        np.square(point_reconciliation["new_error"]) - np.square(point_reconciliation["old_error"])
+    ).clip(lower=0.0)
+
+    by_analyzer_gap = (
+        point_reconciliation.groupby("analyzer_id", dropna=False)["positive_gap_sq"].sum(min_count=1).sort_values(ascending=False)
+    )
+    current_remaining_gap_total = remaining_gap_total_from_frame(point_reconciliation, error_column="new_error")
+    laggard_primary = str(laggard_analyzer_id or "")
+    if laggard_primary == "" or laggard_primary not in set(point_reconciliation["analyzer_id"].astype(str)):
+        laggard_primary = str(by_analyzer_gap.index[0]) if not by_analyzer_gap.empty else ""
+    if laggard_primary == "":
+        empty = pd.DataFrame()
+        return {"detail": empty, "summary": empty, "conclusions": empty}
+
+    fixed_row_df = selection[selection["analyzer_id"].astype(str) == laggard_primary].copy()
+    if fixed_row_df.empty:
+        empty = pd.DataFrame()
+        return {"detail": empty, "summary": empty, "conclusions": empty}
+    fixed_row = fixed_row_df.iloc[0]
+    selected_source_pair = str(fixed_row.get("selected_source_pair") or "raw/raw")
+    fixed_model_family = str(fixed_row.get("best_model_family") or "")
+    fixed_zero_residual_mode = str(fixed_row.get("zero_residual_mode") or "none")
+    fixed_prediction_scope = str(fixed_row.get("selected_prediction_scope") or "validation_oof")
+    mode2_semantic_profile = str(
+        point_reconciliation.loc[point_reconciliation["analyzer_id"].astype(str) == laggard_primary, "mode2_semantic_profile"]
+        .dropna()
+        .astype(str)
+        .iloc[0]
+        if not point_reconciliation.loc[
+            point_reconciliation["analyzer_id"].astype(str) == laggard_primary, "mode2_semantic_profile"
+        ].dropna().empty
+        else "mode2_semantics_unknown"
+    )
+
+    base_frame = _prepare_base_frame(
+        point_reconciliation,
+        filtered_samples,
+        analyzer_id=laggard_primary,
+        selected_source_pair=selected_source_pair,
+        fixed_model_family=fixed_model_family,
+        fixed_zero_residual_mode=fixed_zero_residual_mode,
+        fixed_prediction_scope=fixed_prediction_scope,
+    )
+    if base_frame.empty:
+        empty = pd.DataFrame()
+        return {"detail": empty, "summary": empty, "conclusions": empty}
+
+    segment_target = pd.to_numeric(base_frame["target_ppm"], errors="coerce")
+    base_frame["segment_tag"] = np.select(
+        [
+            segment_target == 0.0,
+            (segment_target > 0.0) & (segment_target <= 200.0),
+            (segment_target > 200.0) & (segment_target <= 1000.0),
+        ],
+        ["zero", "low", "main"],
+        default="other",
+    )
+    keep_keys = ["analyzer_id", "point_title", "point_row", "target_ppm"]
+    use_leave_one_out = fixed_prediction_scope == "validation_oof"
+
+    mode_frames: dict[str, pd.DataFrame] = {}
+    mode_notes: dict[str, dict[str, str]] = {}
+
+    current_frame = _mode_frame(base_frame, sidecar_mode="current_global_fixed", pred_column="new_pred_ppm", error_column="new_error")
+    mode_frames["current_global_fixed"] = current_frame
+    mode_notes["current_global_fixed"] = {
+        "chosen_model_id_under_sidecar": str(fixed_row.get("best_absorbance_model") or ""),
+        "sidecar_fit_note": "uses current global deployable prediction without modification",
+    }
+
+    refit_predictions, chosen_model_id = _same_family_refit_frame(
+        absorbance_point_variants,
+        analyzer_id=laggard_primary,
+        selected_source_pair=selected_source_pair,
+        fixed_model_family=fixed_model_family,
+        fixed_zero_residual_mode=fixed_zero_residual_mode,
+        fixed_prediction_scope=fixed_prediction_scope,
+        config=config,
+    )
+    refit_merged = base_frame.merge(refit_predictions, on=keep_keys, how="left")
+    refit_frame = _mode_frame(
+        refit_merged.assign(
+            sidecar_pred_ppm=pd.to_numeric(refit_merged.get("sidecar_pred_ppm"), errors="coerce").combine_first(
+                pd.to_numeric(refit_merged["new_pred_ppm"], errors="coerce")
+            ),
+            sidecar_error_ppm=pd.to_numeric(refit_merged.get("sidecar_error_ppm"), errors="coerce").combine_first(
+                pd.to_numeric(refit_merged["new_error"], errors="coerce")
+            ),
+        ),
+        sidecar_mode="ga01_same_family_refit",
+        pred_column="sidecar_pred_ppm",
+        error_column="sidecar_error_ppm",
+    )
+    mode_frames["ga01_same_family_refit"] = refit_frame
+    mode_notes["ga01_same_family_refit"] = {
+        "chosen_model_id_under_sidecar": chosen_model_id,
+        "sidecar_fit_note": "same selected source pair and fixed family refit",
+    }
+
+    correction_specs = {
+        "ga01_humidity_cross_residual": ["humidity_ratio_selected_centered", "A_times_humidity", "h2o_density_centered"],
+        "ga01_temp_piecewise_residual": ["temp_centered", "temp_hot_hinge", "temp_cold_hinge", "A_times_temp"],
+        "ga01_humidity_plus_temp_residual": [
+            "humidity_ratio_selected_centered",
+            "A_times_humidity",
+            "h2o_density_centered",
+            "temp_centered",
+            "temp_hot_hinge",
+            "temp_cold_hinge",
+            "A_times_temp",
+        ],
+    }
+    for mode_name, feature_columns in correction_specs.items():
+        correction, fit_note = _fit_linear_residual_correction(
+            base_frame,
+            feature_columns=feature_columns,
+            target_column="new_error",
+            use_leave_one_out=use_leave_one_out,
+        )
+        corrected = base_frame.copy()
+        corrected["residual_correction"] = pd.to_numeric(correction, errors="coerce")
+        corrected["corrected_error_ppm"] = pd.to_numeric(corrected["new_error"], errors="coerce") - corrected["residual_correction"]
+        corrected["corrected_pred_ppm"] = pd.to_numeric(corrected["target_ppm"], errors="coerce") + corrected["corrected_error_ppm"]
+        mode_frames[mode_name] = _mode_frame(
+            corrected,
+            sidecar_mode=mode_name,
+            pred_column="corrected_pred_ppm",
+            error_column="corrected_error_ppm",
+        )
+        mode_notes[mode_name] = {
+            "chosen_model_id_under_sidecar": str(fixed_row.get("best_absorbance_model") or ""),
+            "sidecar_fit_note": fit_note,
+        }
+
+    detail_rows: list[dict[str, Any]] = []
+    global_reconciliations: dict[str, pd.DataFrame] = {}
+    for mode_name, frame in mode_frames.items():
+        global_frame = point_reconciliation.copy()
+        replacement = frame[["analyzer_id", "point_title", "point_row", "sidecar_pred_ppm", "sidecar_error_ppm"]].copy()
+        global_frame = global_frame.merge(
+            replacement,
+            on=["analyzer_id", "point_title", "point_row"],
+            how="left",
+            suffixes=("", "_sidecar"),
+        )
+        global_frame["sidecar_error_used"] = pd.to_numeric(global_frame.get("sidecar_error_ppm"), errors="coerce").combine_first(
+            pd.to_numeric(global_frame["new_error"], errors="coerce")
+        )
+        global_frame["sidecar_pred_used"] = pd.to_numeric(global_frame.get("sidecar_pred_ppm"), errors="coerce").combine_first(
+            pd.to_numeric(global_frame["new_pred_ppm"], errors="coerce")
+        )
+        global_reconciliations[mode_name] = global_frame
+
+        detail_row = _detail_row(
+            frame,
+            analyzer_id=laggard_primary,
+            sidecar_mode=mode_name,
+            selected_source_pair=selected_source_pair,
+            fixed_model_family=fixed_model_family,
+            fixed_zero_residual_mode=fixed_zero_residual_mode,
+            fixed_prediction_scope=fixed_prediction_scope,
+            current_frame=current_frame,
+        )
+        detail_row.update(
+            {
+                "mode2_semantic_profile": mode2_semantic_profile,
+                "laggard_analyzer_primary": laggard_primary,
+                "current_remaining_gap_total": current_remaining_gap_total,
+                "global_remaining_gap_if_applied_sidecar": remaining_gap_total_from_frame(global_frame, error_column="sidecar_error_used"),
+                "score_metric_used": _score_metric_name(config),
+                "chosen_model_id_under_sidecar": mode_notes[mode_name]["chosen_model_id_under_sidecar"],
+                "sidecar_fit_note": mode_notes[mode_name]["sidecar_fit_note"],
+            }
+        )
+        detail_row["global_remaining_gap_delta_vs_current"] = (
+            detail_row["current_remaining_gap_total"] - detail_row["global_remaining_gap_if_applied_sidecar"]
+            if pd.notna(detail_row["current_remaining_gap_total"]) and pd.notna(detail_row["global_remaining_gap_if_applied_sidecar"])
+            else math.nan
+        )
+        detail_rows.append(detail_row)
+
+    detail_df = pd.DataFrame(detail_rows).sort_values(["sidecar_mode"], ignore_index=True)
+    if detail_df.empty:
+        empty = pd.DataFrame()
+        return {"detail": empty, "summary": empty, "conclusions": empty}
+
+    candidate_rows = detail_df[detail_df["sidecar_mode"] != "current_global_fixed"].copy()
+    if candidate_rows.empty:
+        best_sidecar_mode = "current_global_fixed"
+    else:
+        candidate_rows = candidate_rows.sort_values(
+            ["global_remaining_gap_delta_vs_current", "delta_vs_current_ga01_overall", "sidecar_mode"],
+            ascending=[False, False, True],
+            ignore_index=True,
+        )
+        best_sidecar_mode = str(candidate_rows.iloc[0]["sidecar_mode"])
+
+    detail_df["best_sidecar_mode"] = best_sidecar_mode
+    detail_df["best_sidecar_flag"] = detail_df["sidecar_mode"].astype(str) == best_sidecar_mode
+    detail_df["future_candidate_flag"] = (
+        detail_df["sidecar_mode"].astype(str).ne("current_global_fixed")
+        & (pd.to_numeric(detail_df["global_remaining_gap_delta_vs_current"], errors="coerce") > 1.0e-12)
+    )
+
+    summary_df = detail_df[
+        [
+            "laggard_analyzer_primary",
+            "analyzer_id",
+            "mode2_semantic_profile",
+            "sidecar_mode",
+            "selected_source_pair",
+            "fixed_model_family",
+            "fixed_zero_residual_mode",
+            "fixed_prediction_scope",
+            "zero_rmse",
+            "low_range_rmse",
+            "main_range_rmse",
+            "overall_rmse",
+            "temp_bias_spread",
+            "gap_to_old_overall",
+            "gap_to_old_zero",
+            "delta_vs_current_ga01_overall",
+            "delta_vs_current_ga01_zero",
+            "delta_vs_current_ga01_low",
+            "delta_vs_current_ga01_main",
+            "pointwise_win_count_vs_old",
+            "pointwise_win_count_vs_current_ga01",
+            "local_win_examples",
+            "local_loss_examples",
+            "current_remaining_gap_total",
+            "global_remaining_gap_if_applied_sidecar",
+            "global_remaining_gap_delta_vs_current",
+            "score_metric_used",
+            "chosen_model_id_under_sidecar",
+            "sidecar_fit_note",
+            "best_sidecar_mode",
+            "best_sidecar_flag",
+            "future_candidate_flag",
+        ]
+    ].copy()
+    summary_df.insert(0, "summary_scope", "ga01_sidecar_mode")
+
+    improvement_lookup = {
+        row["sidecar_mode"]: float(pd.to_numeric(pd.Series([row["delta_vs_current_ga01_overall"]]), errors="coerce").iloc[0] or 0.0)
+        for _, row in detail_df.iterrows()
+        if row["sidecar_mode"] != "current_global_fixed"
+    }
+    best_row = detail_df[detail_df["sidecar_mode"].astype(str) == best_sidecar_mode].iloc[0]
+    ga01_gap_share = (
+        float(by_analyzer_gap.get(laggard_primary, 0.0)) / float(current_remaining_gap_total)
+        if pd.notna(current_remaining_gap_total) and current_remaining_gap_total > 0.0
+        else math.nan
+    )
+    if not improvement_lookup or max(improvement_lookup.values()) <= 1.0e-12:
+        weakness_type = "no_effective_model_sidecar_gain"
+    else:
+        best_improvement_mode = max(improvement_lookup, key=improvement_lookup.get)
+        weakness_type = {
+            "ga01_same_family_refit": "ppm_family_weakness",
+            "ga01_humidity_cross_residual": "humidity_residual_weakness",
+            "ga01_temp_piecewise_residual": "temp_residual_weakness",
+            "ga01_humidity_plus_temp_residual": "mixed_humidity_plus_temp_residual",
+        }.get(best_improvement_mode, "mixed_or_unclear")
+
+    conclusions_df = pd.DataFrame(
+        [
+            {
+                "question_id": "ga01_analyzer_specific_weakness",
+                "question": "Does GA01 behave like an analyzer-specific weakness?",
+                "answer": "yes_ga01_primary_laggard" if laggard_primary == "GA01" else "laggard_is_not_ga01",
+                "evidence": f"laggard_analyzer_primary={laggard_primary}; ga01_remaining_gap_share={ga01_gap_share:.4f}" if pd.notna(ga01_gap_share) else f"laggard_analyzer_primary={laggard_primary}",
+                "laggard_analyzer_primary": laggard_primary,
+                "best_sidecar_mode": best_sidecar_mode,
+            },
+            {
+                "question_id": "ga01_weakness_type",
+                "question": "Does GA01 look more like ppm family, humidity residual, or temperature residual weakness?",
+                "answer": weakness_type,
+                "evidence": (
+                    " | ".join(
+                        f"{mode}={float(value):.6g}" for mode, value in sorted(improvement_lookup.items(), key=lambda item: item[0])
+                    )
+                    or "no candidate sidecar improvements available"
+                ),
+                "laggard_analyzer_primary": laggard_primary,
+                "best_sidecar_mode": best_sidecar_mode,
+            },
+            {
+                "question_id": "ga01_sidecar_global_effect",
+                "question": "Can a GA01-only sidecar shrink remaining gap without touching GA02/GA03?",
+                "answer": (
+                    "yes_sidecar_reduces_remaining_gap_without_touching_other_analyzers"
+                    if float(pd.to_numeric(pd.Series([best_row["global_remaining_gap_delta_vs_current"]]), errors="coerce").iloc[0] or 0.0) > 1.0e-12
+                    else "no_material_global_gap_reduction"
+                ),
+                "evidence": (
+                    f"best_sidecar_mode={best_sidecar_mode}; global_remaining_gap_delta_vs_current={float(pd.to_numeric(pd.Series([best_row['global_remaining_gap_delta_vs_current']]), errors='coerce').iloc[0] or 0.0):.6g}; "
+                    "GA02/GA03 predictions remain unchanged because only laggard analyzer rows are replaced diagnostically"
+                ),
+                "laggard_analyzer_primary": laggard_primary,
+                "best_sidecar_mode": best_sidecar_mode,
+            },
+            {
+                "question_id": "future_candidate_status",
+                "question": "Is the best GA01 sidecar worth retaining as a future analyzer-specific candidate?",
+                "answer": (
+                    "retain_as_future_analyzer_specific_candidate"
+                    if best_sidecar_mode != "current_global_fixed"
+                    and float(pd.to_numeric(pd.Series([best_row["delta_vs_current_ga01_overall"]]), errors="coerce").iloc[0] or 0.0) > 1.0e-12
+                    else "not_enough_sidecar_gain"
+                ),
+                "evidence": (
+                    f"best_sidecar_mode={best_sidecar_mode}; delta_vs_current_ga01_overall={float(pd.to_numeric(pd.Series([best_row['delta_vs_current_ga01_overall']]), errors='coerce').iloc[0] or 0.0):.6g}; "
+                    f"future_candidate_flag={bool(best_row['future_candidate_flag'])}"
+                ),
+                "laggard_analyzer_primary": laggard_primary,
+                "best_sidecar_mode": best_sidecar_mode,
+            },
+            {
+                "question_id": "ga01_data_quality_review",
+                "question": "Should GA01 fall back to data-quality or coverage review instead of more model tuning?",
+                "answer": (
+                    "yes_review_data_quality_or_coverage"
+                    if best_sidecar_mode == "current_global_fixed"
+                    or float(pd.to_numeric(pd.Series([best_row["delta_vs_current_ga01_overall"]]), errors="coerce").iloc[0] or 0.0) <= 1.0e-12
+                    else "not_primary_next_step"
+                ),
+                "evidence": (
+                    f"best_sidecar_mode={best_sidecar_mode}; delta_vs_current_ga01_overall={float(pd.to_numeric(pd.Series([best_row['delta_vs_current_ga01_overall']]), errors='coerce').iloc[0] or 0.0):.6g}; "
+                    f"global_remaining_gap_delta_vs_current={float(pd.to_numeric(pd.Series([best_row['global_remaining_gap_delta_vs_current']]), errors='coerce').iloc[0] or 0.0):.6g}"
+                ),
+                "laggard_analyzer_primary": laggard_primary,
+                "best_sidecar_mode": best_sidecar_mode,
+            },
+        ]
+    )
+
+    return {
+        "detail": detail_df,
+        "summary": summary_df,
+        "conclusions": conclusions_df,
     }

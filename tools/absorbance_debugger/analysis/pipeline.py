@@ -29,6 +29,8 @@ from .diagnostics import (
 from .run_assessment import build_run_role_assessment
 from .lineage_audit import build_new_chain_input_audit, build_old_water_correction_audit
 from .legacy_water_replay import run_legacy_water_replay_diagnostic
+from .remaining_gap import build_remaining_gap_decomposition
+from .analyzer_sidecar import build_analyzer_sidecar_challenge
 from .ppm_family_challenge import run_fixed_chain_ppm_family_challenge
 from .pressure_assessment import build_pressure_data_assessment
 from .source_policy import build_source_policy_challenge, build_source_selection_audit
@@ -73,6 +75,8 @@ from ..plots.charts import (
     plot_pressure_compare,
     plot_ratio_series,
     plot_r0_fit,
+    plot_remaining_gap_decomposition,
+    plot_analyzer_sidecar,
     plot_source_policy_challenge,
     plot_temperature_fit,
     plot_timeseries_base_final,
@@ -2337,6 +2341,33 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         source_policy_challenge_outputs["detail"],
         config.output_dir / "step_06x_source_policy_challenge_plot.png",
     )
+    remaining_gap_outputs = build_remaining_gap_decomposition(main_point_reconciliation)
+    _frame_to_csv(config.output_dir / "step_07x_remaining_gap_decomposition_detail.csv", remaining_gap_outputs["detail"])
+    _frame_to_csv(config.output_dir / "step_07x_remaining_gap_decomposition_summary.csv", remaining_gap_outputs["summary"])
+    _frame_to_csv(config.output_dir / "step_08x_remaining_gap_decomposition_conclusions.csv", remaining_gap_outputs["conclusions"])
+    plot_remaining_gap_decomposition(
+        remaining_gap_outputs["detail"],
+        remaining_gap_outputs["summary"],
+        config.output_dir / "step_07x_remaining_gap_decomposition_plot.png",
+    )
+    laggard_analyzer_primary = ""
+    if not remaining_gap_outputs["summary"].empty and "laggard_analyzer_primary" in remaining_gap_outputs["summary"].columns:
+        laggard_analyzer_primary = str(remaining_gap_outputs["summary"].iloc[0].get("laggard_analyzer_primary") or "")
+    ga01_sidecar_outputs = build_analyzer_sidecar_challenge(
+        point_reconciliation=main_point_reconciliation,
+        filtered_samples=filtered,
+        absorbance_point_variants=absorbance_point_variants,
+        selection_table=model_results["selection"],
+        config=config,
+        laggard_analyzer_id=laggard_analyzer_primary or "GA01",
+    )
+    _frame_to_csv(config.output_dir / "step_07x_ga01_sidecar_detail.csv", ga01_sidecar_outputs["detail"])
+    _frame_to_csv(config.output_dir / "step_07x_ga01_sidecar_summary.csv", ga01_sidecar_outputs["summary"])
+    _frame_to_csv(config.output_dir / "step_08x_ga01_sidecar_conclusions.csv", ga01_sidecar_outputs["conclusions"])
+    plot_analyzer_sidecar(
+        ga01_sidecar_outputs["summary"],
+        config.output_dir / "step_07x_ga01_sidecar_plot.png",
+    )
     old_vs_new_outputs = build_old_vs_new_comparison_outputs(
         point_reconciliation=main_point_reconciliation,
         selection_table=model_results["selection"],
@@ -2398,6 +2429,12 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
             "pressure_branch": diagnostic_results["pressure_branch_compare"],
             "upper_vs_deployable": diagnostic_results["upper_bound_vs_deployable"],
             "root_causes": diagnostic_results["root_cause_ranking"],
+            "remaining_gap_detail": remaining_gap_outputs["detail"],
+            "remaining_gap_summary": remaining_gap_outputs["summary"],
+            "remaining_gap_concl": remaining_gap_outputs["conclusions"],
+            "ga01_sidecar_detail": ga01_sidecar_outputs["detail"],
+            "ga01_sidecar_summary": ga01_sidecar_outputs["summary"],
+            "ga01_sidecar_concl": ga01_sidecar_outputs["conclusions"],
             "overview_summary": main_comparison_outputs["overview_summary"],
             "by_temperature": main_comparison_outputs["by_temperature"],
             "by_concentration": main_comparison_outputs["by_concentration_range"],
@@ -2523,6 +2560,8 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         "old_vs_new_outputs": old_vs_new_outputs,
         "source_selection_audit_outputs": source_selection_audit_outputs,
         "source_policy_challenge_outputs": source_policy_challenge_outputs,
+        "remaining_gap_outputs": remaining_gap_outputs,
+        "ga01_sidecar_outputs": ga01_sidecar_outputs,
         "selected_source_summary": model_results["selected_source_summary"],
         "invalid_pressure_summary": invalid_pressure_summary,
         "invalid_pressure_points": invalid_pressure_points,

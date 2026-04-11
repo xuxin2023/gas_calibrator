@@ -1039,6 +1039,176 @@ def plot_old_vs_new_comparison(
     _finalize(fig, output_path)
 
 
+def _series_from_json_map(value: object) -> pd.Series:
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return pd.Series(dtype=float)
+    try:
+        payload = json.loads(str(value))
+    except Exception:
+        return pd.Series(dtype=float)
+    if not isinstance(payload, dict):
+        return pd.Series(dtype=float)
+    return pd.to_numeric(pd.Series(payload), errors="coerce").dropna()
+
+
+def plot_remaining_gap_decomposition(detail: pd.DataFrame, summary: pd.DataFrame, output_path: Path) -> None:
+    """Plot where remaining gap vs old_chain is concentrated."""
+
+    if detail.empty and summary.empty:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No remaining-gap decomposition data available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+
+    fig, axes = plt.subplots(3, 1, figsize=(13, 13), squeeze=False)
+    summary_row = summary.iloc[0] if not summary.empty else pd.Series(dtype=object)
+
+    analyzer_ax = axes[0, 0]
+    analyzer_share = _series_from_json_map(summary_row.get("remaining_gap_share_by_analyzer"))
+    if analyzer_share.empty and not detail.empty:
+        work = detail[detail["contributes_to_remaining_gap_flag"].fillna(False)].copy()
+        total = pd.to_numeric(work["excess_squared_error_vs_old"], errors="coerce").clip(lower=0.0).sum()
+        if total > 0.0:
+            analyzer_share = (
+                pd.to_numeric(work["excess_squared_error_vs_old"], errors="coerce")
+                .clip(lower=0.0)
+                .groupby(work["analyzer_id"])
+                .sum()
+                .sort_values(ascending=False)
+                .map(lambda value: float(value) / float(total))
+            )
+    if analyzer_share.empty:
+        analyzer_ax.text(0.5, 0.5, "No analyzer share data available", ha="center", va="center")
+        analyzer_ax.axis("off")
+    else:
+        analyzer_share = analyzer_share.sort_values(ascending=False)
+        x = np.arange(len(analyzer_share), dtype=float)
+        analyzer_ax.bar(x, analyzer_share.to_numpy(dtype=float), color="#b2182b")
+        analyzer_ax.set_xticks(x)
+        analyzer_ax.set_xticklabels(analyzer_share.index.astype(str).tolist())
+        analyzer_ax.set_title("Remaining gap vs old_chain: analyzer share")
+        analyzer_ax.set_ylabel("Share of positive squared-error excess")
+        analyzer_ax.grid(alpha=0.2, axis="y")
+
+    segment_ax = axes[1, 0]
+    segment_share = _series_from_json_map(summary_row.get("remaining_gap_share_by_segment"))
+    if segment_share.empty and not detail.empty:
+        work = detail[detail["contributes_to_remaining_gap_flag"].fillna(False)].copy()
+        total = pd.to_numeric(work["excess_squared_error_vs_old"], errors="coerce").clip(lower=0.0).sum()
+        if total > 0.0:
+            segment_share = (
+                pd.to_numeric(work["excess_squared_error_vs_old"], errors="coerce")
+                .clip(lower=0.0)
+                .groupby(work["segment_tag"])
+                .sum()
+                .sort_values(ascending=False)
+                .map(lambda value: float(value) / float(total))
+            )
+    if segment_share.empty:
+        segment_ax.text(0.5, 0.5, "No segment share data available", ha="center", va="center")
+        segment_ax.axis("off")
+    else:
+        ordered_index = [name for name in ("zero", "low", "main", "other") if name in segment_share.index] + [
+            name for name in segment_share.index if name not in {"zero", "low", "main", "other"}
+        ]
+        segment_share = segment_share.reindex(ordered_index)
+        x = np.arange(len(segment_share), dtype=float)
+        segment_ax.bar(x, segment_share.to_numpy(dtype=float), color="#ef8a62")
+        segment_ax.set_xticks(x)
+        segment_ax.set_xticklabels(segment_share.index.astype(str).tolist())
+        segment_ax.set_title("Remaining gap vs old_chain: segment share")
+        segment_ax.set_ylabel("Share of positive squared-error excess")
+        segment_ax.grid(alpha=0.2, axis="y")
+
+    top_ax = axes[2, 0]
+    ranked = detail[detail.get("contributes_to_remaining_gap_flag", pd.Series(False, index=detail.index)).fillna(False)].copy()
+    if ranked.empty:
+        top_ax.text(0.5, 0.5, "No gap-contributor points available", ha="center", va="center")
+        top_ax.axis("off")
+    else:
+        ranked["excess_squared_error_vs_old"] = pd.to_numeric(ranked["excess_squared_error_vs_old"], errors="coerce").clip(lower=0.0)
+        ranked = ranked.sort_values(
+            ["excess_squared_error_vs_old", "analyzer_id", "temp_set_c", "target_ppm"],
+            ascending=[False, True, True, True],
+            ignore_index=True,
+        ).head(10)
+        y = np.arange(len(ranked), dtype=float)
+        labels = [
+            f"{row.analyzer_id} {float(row.temp_set_c):g}C/{float(row.target_ppm):g}ppm"
+            if pd.notna(row.temp_set_c) and pd.notna(row.target_ppm)
+            else f"{row.analyzer_id} point"
+            for row in ranked.itertuples(index=False)
+        ]
+        top_ax.barh(y, ranked["excess_squared_error_vs_old"], color="#2166ac")
+        top_ax.set_yticks(y)
+        top_ax.set_yticklabels(labels)
+        top_ax.invert_yaxis()
+        top_ax.set_title("Remaining gap vs old_chain: top point contributors")
+        top_ax.set_xlabel("Positive squared-error excess")
+        top_ax.grid(alpha=0.2, axis="x")
+
+    _finalize(fig, output_path)
+
+
+def plot_analyzer_sidecar(summary: pd.DataFrame, output_path: Path) -> None:
+    """Plot analyzer-specific sidecar challenge results."""
+
+    if summary.empty:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No analyzer sidecar challenge data available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+
+    order = [
+        "current_global_fixed",
+        "ga01_same_family_refit",
+        "ga01_humidity_cross_residual",
+        "ga01_temp_piecewise_residual",
+        "ga01_humidity_plus_temp_residual",
+    ]
+    plot_data = summary.set_index("sidecar_mode").reindex([mode for mode in order if mode in set(summary["sidecar_mode"].astype(str))]).reset_index()
+    fig, axes = plt.subplots(3, 1, figsize=(13, 13), squeeze=False)
+
+    overall_ax = axes[0, 0]
+    x = np.arange(len(plot_data), dtype=float)
+    colors = ["#636363" if mode == "current_global_fixed" else "#1b9e77" for mode in plot_data["sidecar_mode"].astype(str)]
+    overall_ax.bar(x, pd.to_numeric(plot_data["overall_rmse"], errors="coerce"), color=colors)
+    old_rmse_series = pd.to_numeric(plot_data["overall_rmse"], errors="coerce") - pd.to_numeric(plot_data["gap_to_old_overall"], errors="coerce")
+    if old_rmse_series.notna().any():
+        overall_ax.axhline(float(old_rmse_series.dropna().iloc[0]), color="black", linestyle="--", linewidth=1.0, label="old_chain overall RMSE")
+        overall_ax.legend(fontsize=8)
+    overall_ax.set_xticks(x)
+    overall_ax.set_xticklabels([mode.replace("ga01_", "").replace("_", "\n") for mode in plot_data["sidecar_mode"].astype(str)], rotation=0)
+    overall_ax.set_title("GA01 diagnostic-only sidecar challenge: overall RMSE")
+    overall_ax.set_ylabel("RMSE (ppm)")
+    overall_ax.grid(alpha=0.2, axis="y")
+
+    delta_ax = axes[1, 0]
+    width = 0.22
+    delta_ax.bar(x - width, pd.to_numeric(plot_data["delta_vs_current_ga01_zero"], errors="coerce"), width=width, label="zero", color="#d95f02")
+    delta_ax.bar(x, pd.to_numeric(plot_data["delta_vs_current_ga01_low"], errors="coerce"), width=width, label="low", color="#1b9e77")
+    delta_ax.bar(x + width, pd.to_numeric(plot_data["delta_vs_current_ga01_main"], errors="coerce"), width=width, label="main", color="#7570b3")
+    delta_ax.axhline(0.0, color="black", linewidth=0.9)
+    delta_ax.set_xticks(x)
+    delta_ax.set_xticklabels([mode.replace("ga01_", "").replace("_", "\n") for mode in plot_data["sidecar_mode"].astype(str)], rotation=0)
+    delta_ax.set_title("GA01 sidecar vs current_global_fixed: zero / low / main deltas")
+    delta_ax.set_ylabel("Positive means improvement")
+    delta_ax.grid(alpha=0.2, axis="y")
+    delta_ax.legend(fontsize=8)
+
+    gap_ax = axes[2, 0]
+    gap_colors = ["#636363" if mode == "current_global_fixed" else "#2c7fb8" for mode in plot_data["sidecar_mode"].astype(str)]
+    gap_ax.bar(x, pd.to_numeric(plot_data["global_remaining_gap_delta_vs_current"], errors="coerce"), color=gap_colors)
+    gap_ax.axhline(0.0, color="black", linewidth=0.9)
+    gap_ax.set_xticks(x)
+    gap_ax.set_xticklabels([mode.replace("ga01_", "").replace("_", "\n") for mode in plot_data["sidecar_mode"].astype(str)], rotation=0)
+    gap_ax.set_title("GA01 sidecar diagnostic-only: global remaining-gap delta vs current")
+    gap_ax.set_ylabel("Positive means smaller remaining gap")
+    gap_ax.grid(alpha=0.2, axis="y")
+
+    _finalize(fig, output_path)
+
+
 def plot_source_policy_challenge(summary: pd.DataFrame, detail: pd.DataFrame, output_path: Path) -> None:
     """Plot diagnostic-only source policy challenge summaries."""
 

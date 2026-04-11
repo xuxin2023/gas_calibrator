@@ -16,6 +16,8 @@ from tools.absorbance_debugger.analysis.absorbance_models import (
     evaluate_absorbance_models,
 )
 from tools.absorbance_debugger.analysis.comparison import build_old_vs_new_comparison_outputs
+from tools.absorbance_debugger.analysis.remaining_gap import build_remaining_gap_decomposition
+from tools.absorbance_debugger.analysis.analyzer_sidecar import build_analyzer_sidecar_challenge
 from tools.absorbance_debugger.analysis.lineage_audit import (
     build_new_chain_input_audit,
     build_old_water_correction_audit,
@@ -142,6 +144,14 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
     assert (output_dir / "step_06x_source_policy_challenge_summary.csv").exists()
     assert (output_dir / "step_06x_source_policy_challenge_plot.png").exists()
     assert (output_dir / "step_08x_source_policy_challenge_conclusions.csv").exists()
+    assert (output_dir / "step_07x_remaining_gap_decomposition_detail.csv").exists()
+    assert (output_dir / "step_07x_remaining_gap_decomposition_summary.csv").exists()
+    assert (output_dir / "step_07x_remaining_gap_decomposition_plot.png").exists()
+    assert (output_dir / "step_08x_remaining_gap_decomposition_conclusions.csv").exists()
+    assert (output_dir / "step_07x_ga01_sidecar_detail.csv").exists()
+    assert (output_dir / "step_07x_ga01_sidecar_summary.csv").exists()
+    assert (output_dir / "step_07x_ga01_sidecar_plot.png").exists()
+    assert (output_dir / "step_08x_ga01_sidecar_conclusions.csv").exists()
     assert (output_dir / "step_09_old_vs_new_comparison_detail.csv").exists()
     assert (output_dir / "step_09_old_vs_new_comparison_summary.csv").exists()
     assert (output_dir / "step_09_old_vs_new_local_wins.csv").exists()
@@ -427,6 +437,87 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
         "raw_only_strict",
         "filt_only_strict",
     } <= set(source_policy_challenge_detail["source_policy_mode"])
+
+    remaining_gap_detail = pd.read_csv(output_dir / "step_07x_remaining_gap_decomposition_detail.csv")
+    remaining_gap_summary = pd.read_csv(output_dir / "step_07x_remaining_gap_decomposition_summary.csv")
+    remaining_gap_conclusions = pd.read_csv(output_dir / "step_08x_remaining_gap_decomposition_conclusions.csv")
+    assert {
+        "analyzer_id",
+        "mode2_semantic_profile",
+        "temp_set_c",
+        "target_ppm",
+        "segment_tag",
+        "old_abs_error",
+        "new_abs_error",
+        "excess_abs_error_vs_old",
+        "excess_squared_error_vs_old",
+        "contributes_to_remaining_gap_flag",
+        "contribution_rank_global",
+        "contribution_rank_within_analyzer",
+        "selected_source_pair",
+        "fixed_model_family",
+        "fixed_zero_residual_mode",
+        "fixed_prediction_scope",
+    } <= set(remaining_gap_detail.columns)
+    assert {
+        "remaining_gap_total",
+        "remaining_gap_from_ga01",
+        "remaining_gap_from_ga02",
+        "remaining_gap_from_ga03",
+        "remaining_gap_share_by_analyzer",
+        "remaining_gap_share_by_segment",
+        "remaining_gap_share_by_temp",
+        "remaining_gap_share_by_target_ppm",
+        "top_10_gap_contributor_points",
+        "laggard_analyzer_primary",
+        "laggard_segment_primary",
+    } <= set(remaining_gap_summary.columns)
+    assert {"question_id", "question", "answer", "evidence", "laggard_analyzer_primary", "laggard_segment_primary"} <= set(remaining_gap_conclusions.columns)
+    assert remaining_gap_summary["laggard_analyzer_primary"].notna().all()
+
+    ga01_sidecar_detail = pd.read_csv(output_dir / "step_07x_ga01_sidecar_detail.csv")
+    ga01_sidecar_summary = pd.read_csv(output_dir / "step_07x_ga01_sidecar_summary.csv")
+    ga01_sidecar_conclusions = pd.read_csv(output_dir / "step_08x_ga01_sidecar_conclusions.csv")
+    assert {
+        "analyzer_id",
+        "mode2_semantic_profile",
+        "sidecar_mode",
+        "selected_source_pair",
+        "fixed_model_family",
+        "fixed_zero_residual_mode",
+        "fixed_prediction_scope",
+        "zero_rmse",
+        "low_range_rmse",
+        "main_range_rmse",
+        "overall_rmse",
+        "temp_bias_spread",
+        "gap_to_old_overall",
+        "gap_to_old_zero",
+        "delta_vs_current_ga01_overall",
+        "delta_vs_current_ga01_zero",
+        "delta_vs_current_ga01_low",
+        "delta_vs_current_ga01_main",
+        "pointwise_win_count_vs_old",
+        "pointwise_win_count_vs_current_ga01",
+        "local_win_examples",
+        "local_loss_examples",
+    } <= set(ga01_sidecar_detail.columns)
+    assert {
+        "summary_scope",
+        "laggard_analyzer_primary",
+        "sidecar_mode",
+        "best_sidecar_mode",
+        "global_remaining_gap_if_applied_sidecar",
+        "global_remaining_gap_delta_vs_current",
+    } <= set(ga01_sidecar_summary.columns)
+    assert {"question_id", "question", "answer", "evidence", "laggard_analyzer_primary", "best_sidecar_mode"} <= set(ga01_sidecar_conclusions.columns)
+    assert set(ga01_sidecar_summary["sidecar_mode"]) >= {
+        "current_global_fixed",
+        "ga01_same_family_refit",
+        "ga01_humidity_cross_residual",
+        "ga01_temp_piecewise_residual",
+        "ga01_humidity_plus_temp_residual",
+    }
 
     old_vs_new_detail = pd.read_csv(output_dir / "step_09_old_vs_new_comparison_detail.csv")
     old_vs_new_summary = pd.read_csv(output_dir / "step_09_old_vs_new_comparison_summary.csv")
@@ -947,6 +1038,145 @@ def test_source_policy_challenge_stays_diagnostic_only_and_report_surfaces_audit
     assert "actual_ratio_source_used_in_this_run" in report
     assert "selection_reason_primary" in report
     assert "whether_raw_first_improves_current_deployable_result = False" in report
+
+
+def _synthetic_remaining_gap_sidecar_inputs() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    point_rows: list[dict[str, object]] = []
+    filtered_rows: list[dict[str, object]] = []
+    absorbance_rows: list[dict[str, object]] = []
+    selection_rows: list[dict[str, object]] = []
+    point_row = 1
+    analyzer_profiles = {
+        "GA01": {
+            "source_pair": "raw/raw",
+            "old_errors": [1.0, 1.0, 1.5, 1.5, 1.2, 1.0],
+            "new_errors": [5.0, 4.5, 4.0, 3.6, 3.0, 2.8],
+            "mode2_profile": "legacy_ratio_raw_profile",
+        },
+        "GA02": {
+            "source_pair": "filt/filt",
+            "old_errors": [2.2, 2.0, 1.8, 1.7, 1.8, 2.0],
+            "new_errors": [1.9, 1.7, 1.5, 1.4, 1.6, 1.8],
+            "mode2_profile": "baseline_bearing_profile",
+        },
+        "GA03": {
+            "source_pair": "filt/filt",
+            "old_errors": [2.0, 1.8, 1.6, 1.5, 1.4, 1.3],
+            "new_errors": [1.2, 1.1, 1.0, 0.9, 0.9, 0.8],
+            "mode2_profile": "baseline_bearing_profile",
+        },
+    }
+    points = [
+        (0.0, 0.0),
+        (10.0, 50.0),
+        (20.0, 100.0),
+        (20.0, 400.0),
+        (30.0, 800.0),
+        (30.0, 1000.0),
+    ]
+
+    for analyzer_id, profile in analyzer_profiles.items():
+        selection_rows.append(
+            {
+                "analyzer_id": analyzer_id,
+                "best_absorbance_model": f"{analyzer_id.lower()}_current_model",
+                "best_model_family": "single_range",
+                "zero_residual_mode": "none",
+                "selected_prediction_scope": "validation_oof",
+                "selected_source_pair": profile["source_pair"],
+            }
+        )
+        for idx, ((temp_c, target_ppm), old_error, new_error) in enumerate(
+            zip(points, profile["old_errors"], profile["new_errors"], strict=False),
+            start=1,
+        ):
+            point_title = f"{analyzer_id.lower()}_p{idx}"
+            absorbance = (target_ppm / 100.0) + (temp_c / 50.0)
+            point_rows.append(
+                {
+                    "analyzer_id": analyzer_id,
+                    "point_title": point_title,
+                    "point_row": point_row,
+                    "temp_c": temp_c,
+                    "target_ppm": target_ppm,
+                    "A_mean": absorbance,
+                    "old_pred_ppm": target_ppm + old_error,
+                    "new_pred_ppm": target_ppm + new_error,
+                    "old_error": old_error,
+                    "new_error": new_error,
+                    "selected_source_pair": profile["source_pair"],
+                    "best_model_family": "single_range",
+                    "zero_residual_mode": "none",
+                    "selected_prediction_scope": "validation_oof",
+                    "mode2_semantic_profile": profile["mode2_profile"],
+                    "mode2_legacy_raw_compare_safe": analyzer_id == "GA01",
+                }
+            )
+            filtered_rows.append(
+                {
+                    "analyzer": analyzer_id,
+                    "point_title": point_title,
+                    "point_row": point_row,
+                    "target_co2_ppm": target_ppm,
+                    "temp_set_c": temp_c,
+                    "temp_cavity_c": temp_c + 0.2,
+                    "temp_shell_c": temp_c,
+                    "ratio_h2o_raw": 0.10 + (new_error / 10.0),
+                    "ratio_h2o_filt": 0.09 + (new_error / 12.0),
+                    "h2o_density": 0.20 + (new_error / 8.0),
+                    "ratio_co2_raw": 1.0 + absorbance / 20.0,
+                    "ratio_co2_filt": 1.0 + absorbance / 22.0,
+                }
+            )
+            absorbance_rows.append(
+                {
+                    "analyzer": analyzer_id,
+                    "point_title": point_title,
+                    "point_row": point_row,
+                    "temp_set_c": temp_c,
+                    "target_co2_ppm": target_ppm,
+                    "temp_use_mean_c": temp_c,
+                    "ratio_source": "ratio_co2_raw" if profile["source_pair"] == "raw/raw" else "ratio_co2_filt",
+                    "zero_residual_mode": "none",
+                    "A_mean": absorbance,
+                    "A_std": 0.01,
+                }
+            )
+            point_row += 1
+    return (
+        pd.DataFrame(point_rows),
+        pd.DataFrame(filtered_rows),
+        pd.DataFrame(absorbance_rows),
+        pd.DataFrame(selection_rows),
+    )
+
+
+def test_remaining_gap_and_ga01_sidecar_stay_diagnostic_only(tmp_path: Path) -> None:
+    config = DebuggerConfig(input_path=tmp_path, output_dir=tmp_path)
+    point_reconciliation, filtered_samples, absorbance_point_variants, selection = _synthetic_remaining_gap_sidecar_inputs()
+
+    remaining_gap_outputs = build_remaining_gap_decomposition(point_reconciliation)
+    selection_before = selection.copy(deep=True)
+    sidecar_outputs = build_analyzer_sidecar_challenge(
+        point_reconciliation=point_reconciliation,
+        filtered_samples=filtered_samples,
+        absorbance_point_variants=absorbance_point_variants,
+        selection_table=selection,
+        config=config,
+        laggard_analyzer_id=str(remaining_gap_outputs["summary"].iloc[0]["laggard_analyzer_primary"]),
+    )
+
+    assert str(remaining_gap_outputs["summary"].iloc[0]["laggard_analyzer_primary"]) == "GA01"
+    assert {"laggard_analyzer_primary", "laggard_segment_primary"} <= set(remaining_gap_outputs["summary"].columns)
+    pd.testing.assert_frame_equal(selection, selection_before)
+
+    current_row = sidecar_outputs["summary"][sidecar_outputs["summary"]["sidecar_mode"] == "current_global_fixed"].iloc[0]
+    best_mode = str(sidecar_outputs["summary"].iloc[0]["best_sidecar_mode"])
+    assert {"laggard_analyzer_primary", "best_sidecar_mode", "global_remaining_gap_delta_vs_current"} <= set(sidecar_outputs["summary"].columns)
+    assert {"laggard_analyzer_primary", "best_sidecar_mode"} <= set(sidecar_outputs["conclusions"].columns)
+    assert current_row["laggard_analyzer_primary"] == "GA01"
+    assert best_mode in set(sidecar_outputs["summary"]["sidecar_mode"])
+    assert float(pd.to_numeric(sidecar_outputs["summary"]["global_remaining_gap_delta_vs_current"], errors="coerce").max()) >= 0.0
 
 
 def test_zero_residual_fit_and_compare_can_run(tmp_path: Path) -> None:
