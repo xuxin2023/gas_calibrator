@@ -945,6 +945,102 @@ def build_wp6_artifacts(
 STEP2_CLOSEOUT_SCHEMA_VERSION = "step2-closeout-digest-v1"
 
 
+# ---------------------------------------------------------------------------
+# Shared helpers for Step 2 boundary classification
+# ---------------------------------------------------------------------------
+
+_SIMULATED_ONLY_SIGNALS = (
+    "evidence_source",       # == "simulated"
+    "not_real_acceptance_evidence",  # is True
+    "not_ready_for_formal_claim",    # is True
+    "reviewer_only",         # is True
+    "readiness_mapping_only",  # is True
+)
+
+
+def _extract_boundary_flags(payload: dict[str, Any]) -> dict[str, Any]:
+    """Extract Step 2 boundary flags from a payload, searching multiple nesting levels.
+
+    Searches: payload top-level, payload["raw"], payload["digest"],
+    payload["digest"]["raw"], and one level into common nested keys
+    (bundle, artifact, imported_data, rollup, summary, data) for their raw or dict.
+    """
+    flags: dict[str, Any] = {}
+    candidates: list[dict[str, Any]] = []
+
+    # Level 0: top-level
+    if isinstance(payload, dict):
+        candidates.append(payload)
+
+    # Level 1: raw
+    raw = payload.get("raw") if isinstance(payload, dict) else None
+    if isinstance(raw, dict):
+        candidates.append(raw)
+
+    # Level 1: digest
+    digest = payload.get("digest") if isinstance(payload, dict) else None
+    if isinstance(digest, dict):
+        candidates.append(digest)
+        # Level 2: digest.raw
+        digest_raw = digest.get("raw")
+        if isinstance(digest_raw, dict):
+            candidates.append(digest_raw)
+
+    # Level 1: common nested containers
+    for nested_key in ("bundle", "artifact", "imported_data", "rollup", "summary", "data"):
+        nested = payload.get(nested_key) if isinstance(payload, dict) else None
+        if isinstance(nested, dict):
+            candidates.append(nested)
+            nested_raw = nested.get("raw")
+            if isinstance(nested_raw, dict):
+                candidates.append(nested_raw)
+
+    for c in candidates:
+        for signal in _SIMULATED_ONLY_SIGNALS:
+            if signal in c and signal not in flags:
+                flags[signal] = c[signal]
+
+    return flags
+
+
+def _classify_step2_payload_status(payload: dict[str, Any]) -> str:
+    """Conservatively classify a WP payload's Step 2 status.
+
+    Returns one of:
+    - "not_available": payload is empty or available==False
+    - "simulated_readiness_only": any simulated-only boundary signal detected
+    - "available": payload exists with no simulated-only signals (rare in Step 2)
+    """
+    if not payload:
+        return "not_available"
+
+    # Check available flag at top level or in raw
+    available = payload.get("available")
+    if available is None:
+        raw = payload.get("raw")
+        if isinstance(raw, dict):
+            available = raw.get("available")
+    if available is False:
+        return "not_available"
+
+    # Extract boundary flags from all nesting levels
+    flags = _extract_boundary_flags(payload)
+
+    # If any simulated-only signal is present, classify as simulated_readiness_only
+    if flags.get("evidence_source") == "simulated":
+        return "simulated_readiness_only"
+    if flags.get("not_real_acceptance_evidence") is True:
+        return "simulated_readiness_only"
+    if flags.get("not_ready_for_formal_claim") is True:
+        return "simulated_readiness_only"
+    if flags.get("reviewer_only") is True:
+        return "simulated_readiness_only"
+    if flags.get("readiness_mapping_only") is True:
+        return "simulated_readiness_only"
+
+    return "available"
+
+
 def build_step2_closeout_digest(
     *,
     run_id: str,
