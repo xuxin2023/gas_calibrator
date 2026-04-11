@@ -20,6 +20,93 @@ CONCENTRATION_BUCKETS: tuple[tuple[str, float | None, float | None], ...] = (
     ("800~1000 ppm", 800.0, 1000.0),
 )
 
+SCOPED_DETAIL_COLUMNS: tuple[str, ...] = (
+    "run_id",
+    "comparison_scope",
+    "analyzer_id",
+    "selected_source_pair",
+    "actual_ratio_source_used",
+    "old_chain_overall_rmse",
+    "new_chain_overall_rmse",
+    "delta_overall_rmse",
+    "improvement_pct_overall",
+    "old_chain_zero_rmse",
+    "new_chain_zero_rmse",
+    "delta_zero_rmse",
+    "improvement_pct_zero",
+    "old_chain_low_rmse",
+    "new_chain_low_rmse",
+    "delta_low_rmse",
+    "improvement_pct_low",
+    "old_chain_main_rmse",
+    "new_chain_main_rmse",
+    "delta_main_rmse",
+    "improvement_pct_main",
+    "point_count",
+    "pointwise_win_count",
+    "pointwise_loss_count",
+    "pointwise_tie_count",
+    "overall_win_flag",
+    "zero_win_flag",
+    "low_win_flag",
+    "main_win_flag",
+)
+
+SCOPED_LOCAL_WINS_COLUMNS: tuple[str, ...] = (
+    "run_id",
+    "comparison_scope",
+    "analyzer_id",
+    "point_title",
+    "point_row",
+    "temp_set_c",
+    "target_ppm",
+    "target_value",
+    "old_value",
+    "new_value",
+    "abs_error_old",
+    "abs_error_new",
+    "improvement_abs_error",
+    "local_win_flag",
+    "local_win_rank_within_analyzer",
+    "local_loss_rank_within_analyzer",
+    "segment_tag",
+)
+
+SCOPED_SUMMARY_COLUMNS: tuple[str, ...] = (
+    "comparison_scope",
+    "run_scope_description",
+    "analyzer_set",
+    "overall_verdict_scoped",
+    "overall_rmse_old_scoped",
+    "overall_rmse_new_scoped",
+    "overall_improvement_pct_scoped",
+    "zero_improvement_pct_scoped",
+    "low_improvement_pct_scoped",
+    "main_improvement_pct_scoped",
+    "analyzer_overall_wins",
+    "analyzer_zero_wins",
+    "analyzer_low_wins",
+    "analyzer_main_wins",
+    "total_pointwise_wins",
+    "total_pointwise_losses",
+    "analyzers_fully_beating_old_count",
+    "analyzers_partially_beating_old_count",
+    "analyzers_still_lagging_count",
+    "headline_safe_statement",
+    "scope_limitation_statement",
+)
+
+SCOPED_SEGMENT_COLUMNS: tuple[str, ...] = (
+    "comparison_scope",
+    "segment_tag",
+    "old_chain_rmse",
+    "new_chain_rmse",
+    "delta_rmse",
+    "improvement_pct",
+    "point_count",
+    "win_flag",
+)
+
 
 def _metrics(errors: pd.Series) -> dict[str, float]:
     clean = pd.to_numeric(errors, errors="coerce").dropna()
@@ -940,4 +1027,495 @@ def build_old_vs_new_comparison_outputs(
         "aggregate_segments": aggregate_segments,
         "ratio_source_audit": ratio_source_audit,
         "diagnostic_candidates": diagnostic_candidates_df,
+    }
+
+
+def _empty_frame(columns: tuple[str, ...]) -> pd.DataFrame:
+    return pd.DataFrame(columns=list(columns))
+
+
+def _normalize_actual_ratio_source_series(values: pd.Series) -> str:
+    normalized = {
+        _normalize_actual_ratio_source(value)
+        for value in values.dropna().astype(str).tolist()
+    }
+    normalized.discard("unknown")
+    if "mixed" in normalized:
+        return "mixed"
+    if len(normalized) > 1:
+        return "mixed"
+    if len(normalized) == 1:
+        return next(iter(normalized))
+    return "unknown"
+
+
+def _collapse_text_values(values: pd.Series, default: str = "") -> str:
+    unique_values = sorted(
+        {
+            str(value).strip()
+            for value in values.dropna().astype(str).tolist()
+            if str(value).strip()
+        }
+    )
+    return "|".join(unique_values) if unique_values else default
+
+
+def _scoped_overall_verdict(overall_win: bool, zero_win: bool, low_win: bool, main_win: bool) -> str:
+    if overall_win and zero_win and low_win and main_win:
+        return "current_deployable_new_chain_beats_old_chain_on_overall_zero_low_main_within_scope"
+    if overall_win:
+        return "current_deployable_new_chain_beats_old_chain_overall_within_scope_but_not_all_segments"
+    return "current_deployable_new_chain_does_not_yet_beat_old_chain_overall_within_scope"
+
+
+def _normalize_scoped_compare_frame(compare: pd.DataFrame, run_id: str, comparison_scope: str) -> pd.DataFrame:
+    if compare.empty:
+        return compare.copy()
+    scoped = compare.copy()
+    scoped["run_id"] = str(run_id)
+    scoped["comparison_scope"] = str(comparison_scope)
+    scoped["analyzer_id"] = scoped["analyzer_id"].astype(str)
+    scoped["target_ppm"] = pd.to_numeric(scoped["target_ppm"], errors="coerce")
+    scoped["temp_c"] = pd.to_numeric(scoped["temp_c"], errors="coerce")
+    scoped["old_error"] = pd.to_numeric(scoped["old_error"], errors="coerce")
+    scoped["new_error"] = pd.to_numeric(scoped["new_error"], errors="coerce")
+    scoped["old_pred_ppm"] = pd.to_numeric(scoped["old_pred_ppm"], errors="coerce")
+    scoped["new_pred_ppm"] = pd.to_numeric(scoped["new_pred_ppm"], errors="coerce")
+    return scoped
+
+
+def _build_scoped_detail_from_compare(compare: pd.DataFrame, comparison_scope: str) -> pd.DataFrame:
+    if compare.empty:
+        return _empty_frame(SCOPED_DETAIL_COLUMNS)
+
+    rows: list[dict[str, Any]] = []
+    for (run_id, analyzer_id), subset in compare.groupby(["run_id", "analyzer_id"], dropna=False):
+        overall = _segment_metrics(subset, "overall")
+        zero = _segment_metrics(subset, "zero")
+        low = _segment_metrics(subset, "low")
+        main = _segment_metrics(subset, "main")
+        winner_counts = subset.get("winner_for_point", pd.Series(dtype=str)).fillna("tie").astype(str)
+        selected_pair = _collapse_text_values(subset.get("selected_source_pair", pd.Series(dtype=object)))
+        actual_ratio = _normalize_actual_ratio_source_series(
+            pd.concat(
+                [
+                    subset.get("ratio_source_selected", pd.Series(dtype=object)),
+                    subset.get("selected_source_pair", pd.Series(dtype=object)),
+                ],
+                ignore_index=True,
+            )
+        )
+        rows.append(
+            {
+                "run_id": str(run_id),
+                "comparison_scope": str(comparison_scope),
+                "analyzer_id": str(analyzer_id),
+                "selected_source_pair": selected_pair,
+                "actual_ratio_source_used": actual_ratio,
+                "old_chain_overall_rmse": overall["old_rmse"],
+                "new_chain_overall_rmse": overall["new_rmse"],
+                "delta_overall_rmse": overall["delta_rmse"],
+                "improvement_pct_overall": overall["improvement_pct"],
+                "old_chain_zero_rmse": zero["old_rmse"],
+                "new_chain_zero_rmse": zero["new_rmse"],
+                "delta_zero_rmse": zero["delta_rmse"],
+                "improvement_pct_zero": zero["improvement_pct"],
+                "old_chain_low_rmse": low["old_rmse"],
+                "new_chain_low_rmse": low["new_rmse"],
+                "delta_low_rmse": low["delta_rmse"],
+                "improvement_pct_low": low["improvement_pct"],
+                "old_chain_main_rmse": main["old_rmse"],
+                "new_chain_main_rmse": main["new_rmse"],
+                "delta_main_rmse": main["delta_rmse"],
+                "improvement_pct_main": main["improvement_pct"],
+                "point_count": int(len(subset)),
+                "pointwise_win_count": int((winner_counts == "new_chain").sum()),
+                "pointwise_loss_count": int((winner_counts == "old_chain").sum()),
+                "pointwise_tie_count": int((winner_counts == "tie").sum()),
+                "overall_win_flag": overall["win_flag"],
+                "zero_win_flag": zero["win_flag"],
+                "low_win_flag": low["win_flag"],
+                "main_win_flag": main["win_flag"],
+            }
+        )
+    detail_df = pd.DataFrame(rows).sort_values(["run_id", "analyzer_id"], ignore_index=True)
+    ordered_columns = list(SCOPED_DETAIL_COLUMNS) + [column for column in detail_df.columns if column not in SCOPED_DETAIL_COLUMNS]
+    return detail_df.reindex(columns=ordered_columns)
+
+
+def _build_scoped_local_wins(compare: pd.DataFrame, comparison_scope: str, top_n: int = 10) -> pd.DataFrame:
+    if compare.empty:
+        return _empty_frame(SCOPED_LOCAL_WINS_COLUMNS)
+
+    local = compare.copy()
+    local["temp_set_c"] = pd.to_numeric(local["temp_c"], errors="coerce")
+    local["target_ppm"] = pd.to_numeric(local["target_ppm"], errors="coerce")
+    local["target_value"] = local["target_ppm"]
+    local["old_value"] = pd.to_numeric(local["old_pred_ppm"], errors="coerce")
+    local["new_value"] = pd.to_numeric(local["new_pred_ppm"], errors="coerce")
+    local["abs_error_old"] = pd.to_numeric(local["old_error"], errors="coerce").abs()
+    local["abs_error_new"] = pd.to_numeric(local["new_error"], errors="coerce").abs()
+    local["improvement_abs_error"] = local["abs_error_old"] - local["abs_error_new"]
+    local["local_win_flag"] = local["improvement_abs_error"] > 1.0e-12
+    local["segment_tag"] = np.select(
+        [
+            local["target_ppm"] == 0.0,
+            (local["target_ppm"] > 0.0) & (local["target_ppm"] <= 200.0),
+            (local["target_ppm"] > 200.0) & (local["target_ppm"] <= 1000.0),
+        ],
+        ["zero", "low", "main"],
+        default="other",
+    )
+
+    rows: list[dict[str, Any]] = []
+    for analyzer_id, subset in local.groupby("analyzer_id", dropna=False):
+        wins = subset[subset["improvement_abs_error"] > 1.0e-12].sort_values(
+            ["improvement_abs_error", "abs_error_old", "run_id", "target_ppm"],
+            ascending=[False, False, True, True],
+            ignore_index=True,
+        ).head(top_n)
+        losses = subset[subset["improvement_abs_error"] < -1.0e-12].sort_values(
+            ["improvement_abs_error", "abs_error_new", "run_id", "target_ppm"],
+            ascending=[True, False, True, True],
+            ignore_index=True,
+        ).head(top_n)
+        for rank, row in enumerate(wins.itertuples(index=False), start=1):
+            rows.append(
+                {
+                    "run_id": str(row.run_id),
+                    "comparison_scope": str(comparison_scope),
+                    "analyzer_id": str(row.analyzer_id),
+                    "point_title": row.point_title,
+                    "point_row": row.point_row,
+                    "temp_set_c": row.temp_set_c,
+                    "target_ppm": row.target_ppm,
+                    "target_value": row.target_value,
+                    "old_value": row.old_value,
+                    "new_value": row.new_value,
+                    "abs_error_old": row.abs_error_old,
+                    "abs_error_new": row.abs_error_new,
+                    "improvement_abs_error": row.improvement_abs_error,
+                    "local_win_flag": True,
+                    "local_win_rank_within_analyzer": rank,
+                    "local_loss_rank_within_analyzer": np.nan,
+                    "segment_tag": row.segment_tag,
+                }
+            )
+        for rank, row in enumerate(losses.itertuples(index=False), start=1):
+            rows.append(
+                {
+                    "run_id": str(row.run_id),
+                    "comparison_scope": str(comparison_scope),
+                    "analyzer_id": str(row.analyzer_id),
+                    "point_title": row.point_title,
+                    "point_row": row.point_row,
+                    "temp_set_c": row.temp_set_c,
+                    "target_ppm": row.target_ppm,
+                    "target_value": row.target_value,
+                    "old_value": row.old_value,
+                    "new_value": row.new_value,
+                    "abs_error_old": row.abs_error_old,
+                    "abs_error_new": row.abs_error_new,
+                    "improvement_abs_error": row.improvement_abs_error,
+                    "local_win_flag": False,
+                    "local_win_rank_within_analyzer": np.nan,
+                    "local_loss_rank_within_analyzer": rank,
+                    "segment_tag": row.segment_tag,
+                }
+            )
+    if not rows:
+        return _empty_frame(SCOPED_LOCAL_WINS_COLUMNS)
+    local_df = pd.DataFrame(rows).sort_values(
+        ["analyzer_id", "local_win_flag", "run_id", "local_win_rank_within_analyzer", "local_loss_rank_within_analyzer"],
+        ascending=[True, False, True, True, True],
+        ignore_index=True,
+    )
+    ordered_columns = list(SCOPED_LOCAL_WINS_COLUMNS) + [column for column in local_df.columns if column not in SCOPED_LOCAL_WINS_COLUMNS]
+    return local_df.reindex(columns=ordered_columns)
+
+
+def _build_scoped_analyzer_aggregate(
+    compare: pd.DataFrame,
+    detail_df: pd.DataFrame,
+    comparison_scope: str,
+) -> pd.DataFrame:
+    if compare.empty:
+        return _empty_frame(SCOPED_DETAIL_COLUMNS)
+
+    rows: list[dict[str, Any]] = []
+    for analyzer_id, subset in compare.groupby("analyzer_id", dropna=False):
+        overall = _segment_metrics(subset, "overall")
+        zero = _segment_metrics(subset, "zero")
+        low = _segment_metrics(subset, "low")
+        main = _segment_metrics(subset, "main")
+        winner_counts = subset.get("winner_for_point", pd.Series(dtype=str)).fillna("tie").astype(str)
+        detail_subset = detail_df[detail_df["analyzer_id"].astype(str) == str(analyzer_id)].copy() if not detail_df.empty else pd.DataFrame()
+        selected_pair = _collapse_text_values(detail_subset.get("selected_source_pair", pd.Series(dtype=object)))
+        actual_ratio = _normalize_actual_ratio_source_series(detail_subset.get("actual_ratio_source_used", pd.Series(dtype=object)))
+        rows.append(
+            {
+                "run_id": "",
+                "comparison_scope": str(comparison_scope),
+                "analyzer_id": str(analyzer_id),
+                "selected_source_pair": selected_pair,
+                "actual_ratio_source_used": actual_ratio,
+                "old_chain_overall_rmse": overall["old_rmse"],
+                "new_chain_overall_rmse": overall["new_rmse"],
+                "delta_overall_rmse": overall["delta_rmse"],
+                "improvement_pct_overall": overall["improvement_pct"],
+                "old_chain_zero_rmse": zero["old_rmse"],
+                "new_chain_zero_rmse": zero["new_rmse"],
+                "delta_zero_rmse": zero["delta_rmse"],
+                "improvement_pct_zero": zero["improvement_pct"],
+                "old_chain_low_rmse": low["old_rmse"],
+                "new_chain_low_rmse": low["new_rmse"],
+                "delta_low_rmse": low["delta_rmse"],
+                "improvement_pct_low": low["improvement_pct"],
+                "old_chain_main_rmse": main["old_rmse"],
+                "new_chain_main_rmse": main["new_rmse"],
+                "delta_main_rmse": main["delta_rmse"],
+                "improvement_pct_main": main["improvement_pct"],
+                "point_count": int(len(subset)),
+                "pointwise_win_count": int((winner_counts == "new_chain").sum()),
+                "pointwise_loss_count": int((winner_counts == "old_chain").sum()),
+                "pointwise_tie_count": int((winner_counts == "tie").sum()),
+                "overall_win_flag": overall["win_flag"],
+                "zero_win_flag": zero["win_flag"],
+                "low_win_flag": low["win_flag"],
+                "main_win_flag": main["win_flag"],
+            }
+        )
+    analyzer_df = pd.DataFrame(rows).sort_values(["analyzer_id"], ignore_index=True)
+    ordered_columns = list(SCOPED_DETAIL_COLUMNS) + [column for column in analyzer_df.columns if column not in SCOPED_DETAIL_COLUMNS]
+    return analyzer_df.reindex(columns=ordered_columns)
+
+
+def _build_scoped_summary(
+    *,
+    comparison_scope: str,
+    run_scope_description: str,
+    headline_safe_statement: str,
+    scope_limitation_statement: str,
+    compare: pd.DataFrame,
+    analyzer_aggregate: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    if compare.empty:
+        summary_df = pd.DataFrame(
+            [
+                {
+                    "comparison_scope": comparison_scope,
+                    "run_scope_description": run_scope_description,
+                    "analyzer_set": _collapse_text_values(analyzer_aggregate.get("analyzer_id", pd.Series(dtype=object))),
+                    "overall_verdict_scoped": "no_successful_old_vs_new_rows_in_scope",
+                    "overall_rmse_old_scoped": math.nan,
+                    "overall_rmse_new_scoped": math.nan,
+                    "overall_improvement_pct_scoped": math.nan,
+                    "zero_improvement_pct_scoped": math.nan,
+                    "low_improvement_pct_scoped": math.nan,
+                    "main_improvement_pct_scoped": math.nan,
+                    "analyzer_overall_wins": 0,
+                    "analyzer_zero_wins": 0,
+                    "analyzer_low_wins": 0,
+                    "analyzer_main_wins": 0,
+                    "total_pointwise_wins": 0,
+                    "total_pointwise_losses": 0,
+                    "analyzers_fully_beating_old_count": 0,
+                    "analyzers_partially_beating_old_count": 0,
+                    "analyzers_still_lagging_count": 0,
+                    "headline_safe_statement": headline_safe_statement,
+                    "scope_limitation_statement": scope_limitation_statement,
+                    "zero_rmse_old_scoped": math.nan,
+                    "zero_rmse_new_scoped": math.nan,
+                    "low_rmse_old_scoped": math.nan,
+                    "low_rmse_new_scoped": math.nan,
+                    "main_rmse_old_scoped": math.nan,
+                    "main_rmse_new_scoped": math.nan,
+                }
+            ]
+        )
+        return summary_df.reindex(columns=list(summary_df.columns)), _empty_frame(SCOPED_SEGMENT_COLUMNS)
+
+    aggregate_rows: list[dict[str, Any]] = []
+    for segment_tag in ("overall", "zero", "low", "main"):
+        metrics = _segment_metrics(compare, segment_tag)
+        aggregate_rows.append(
+            {
+                "comparison_scope": comparison_scope,
+                "segment_tag": segment_tag,
+                "old_chain_rmse": metrics["old_rmse"],
+                "new_chain_rmse": metrics["new_rmse"],
+                "delta_rmse": metrics["delta_rmse"],
+                "improvement_pct": metrics["improvement_pct"],
+                "point_count": metrics["point_count"],
+                "win_flag": metrics["win_flag"],
+            }
+        )
+    aggregate_segments = pd.DataFrame(aggregate_rows).reindex(columns=list(SCOPED_SEGMENT_COLUMNS))
+    segment_lookup = aggregate_segments.set_index("segment_tag")
+    overall_win = bool(segment_lookup.loc["overall", "win_flag"])
+    zero_win = bool(segment_lookup.loc["zero", "win_flag"])
+    low_win = bool(segment_lookup.loc["low", "win_flag"])
+    main_win = bool(segment_lookup.loc["main", "win_flag"])
+    all_segment_wins = (
+        analyzer_aggregate["overall_win_flag"].fillna(False).map(bool)
+        & analyzer_aggregate["zero_win_flag"].fillna(False).map(bool)
+        & analyzer_aggregate["low_win_flag"].fillna(False).map(bool)
+        & analyzer_aggregate["main_win_flag"].fillna(False).map(bool)
+    )
+    any_segment_wins = (
+        analyzer_aggregate["overall_win_flag"].fillna(False).map(bool)
+        | analyzer_aggregate["zero_win_flag"].fillna(False).map(bool)
+        | analyzer_aggregate["low_win_flag"].fillna(False).map(bool)
+        | analyzer_aggregate["main_win_flag"].fillna(False).map(bool)
+    )
+    summary_row = {
+        "comparison_scope": comparison_scope,
+        "run_scope_description": run_scope_description,
+        "analyzer_set": ",".join(analyzer_aggregate["analyzer_id"].astype(str).tolist()),
+        "overall_verdict_scoped": _scoped_overall_verdict(overall_win, zero_win, low_win, main_win),
+        "overall_rmse_old_scoped": float(segment_lookup.loc["overall", "old_chain_rmse"]),
+        "overall_rmse_new_scoped": float(segment_lookup.loc["overall", "new_chain_rmse"]),
+        "overall_improvement_pct_scoped": float(segment_lookup.loc["overall", "improvement_pct"]),
+        "zero_improvement_pct_scoped": float(segment_lookup.loc["zero", "improvement_pct"]),
+        "low_improvement_pct_scoped": float(segment_lookup.loc["low", "improvement_pct"]),
+        "main_improvement_pct_scoped": float(segment_lookup.loc["main", "improvement_pct"]),
+        "analyzer_overall_wins": _count_true(analyzer_aggregate["overall_win_flag"]),
+        "analyzer_zero_wins": _count_true(analyzer_aggregate["zero_win_flag"]),
+        "analyzer_low_wins": _count_true(analyzer_aggregate["low_win_flag"]),
+        "analyzer_main_wins": _count_true(analyzer_aggregate["main_win_flag"]),
+        "total_pointwise_wins": int(compare.get("winner_for_point", pd.Series(dtype=str)).fillna("").astype(str).eq("new_chain").sum()),
+        "total_pointwise_losses": int(compare.get("winner_for_point", pd.Series(dtype=str)).fillna("").astype(str).eq("old_chain").sum()),
+        "analyzers_fully_beating_old_count": int(all_segment_wins.sum()),
+        "analyzers_partially_beating_old_count": int((any_segment_wins & ~all_segment_wins).sum()),
+        "analyzers_still_lagging_count": int(len(analyzer_aggregate) - any_segment_wins.sum()),
+        "headline_safe_statement": headline_safe_statement,
+        "scope_limitation_statement": scope_limitation_statement,
+        "zero_rmse_old_scoped": float(segment_lookup.loc["zero", "old_chain_rmse"]),
+        "zero_rmse_new_scoped": float(segment_lookup.loc["zero", "new_chain_rmse"]),
+        "low_rmse_old_scoped": float(segment_lookup.loc["low", "old_chain_rmse"]),
+        "low_rmse_new_scoped": float(segment_lookup.loc["low", "new_chain_rmse"]),
+        "main_rmse_old_scoped": float(segment_lookup.loc["main", "old_chain_rmse"]),
+        "main_rmse_new_scoped": float(segment_lookup.loc["main", "new_chain_rmse"]),
+    }
+    summary_df = pd.DataFrame([summary_row])
+    ordered_columns = list(SCOPED_SUMMARY_COLUMNS) + [column for column in summary_df.columns if column not in SCOPED_SUMMARY_COLUMNS]
+    return summary_df.reindex(columns=ordered_columns), aggregate_segments
+
+
+def _build_scoped_scope_outputs(
+    *,
+    comparison_scope: str,
+    run_scope_description: str,
+    headline_safe_statement: str,
+    scope_limitation_statement: str,
+    selected_runs: list[dict[str, Any]],
+    analyzer_filter: tuple[str, ...] | None,
+) -> dict[str, pd.DataFrame | str]:
+    detail_frames: list[pd.DataFrame] = []
+    point_frames: list[pd.DataFrame] = []
+
+    for item in selected_runs:
+        run_id = str(item["run_id"])
+        detail = item["detail"].copy()
+        compare = item["point_reconciliation"].copy()
+        if analyzer_filter is not None:
+            allowed = {str(value) for value in analyzer_filter}
+            if not detail.empty and "analyzer_id" in detail.columns:
+                detail = detail[detail["analyzer_id"].astype(str).isin(allowed)].copy()
+            if not compare.empty and "analyzer_id" in compare.columns:
+                compare = compare[compare["analyzer_id"].astype(str).isin(allowed)].copy()
+        if not detail.empty:
+            detail["run_id"] = run_id
+            detail["comparison_scope"] = comparison_scope
+            ordered_columns = list(SCOPED_DETAIL_COLUMNS) + [column for column in detail.columns if column not in SCOPED_DETAIL_COLUMNS]
+            detail_frames.append(detail.reindex(columns=ordered_columns))
+        if not compare.empty:
+            point_frames.append(_normalize_scoped_compare_frame(compare, run_id, comparison_scope))
+
+    compare_df = pd.concat(point_frames, ignore_index=True) if point_frames else pd.DataFrame()
+    detail_df = pd.concat(detail_frames, ignore_index=True) if detail_frames else pd.DataFrame()
+    if detail_df.empty and not compare_df.empty:
+        detail_df = _build_scoped_detail_from_compare(compare_df, comparison_scope)
+    elif not detail_df.empty:
+        ordered_columns = list(SCOPED_DETAIL_COLUMNS) + [column for column in detail_df.columns if column not in SCOPED_DETAIL_COLUMNS]
+        detail_df = detail_df.reindex(columns=ordered_columns).sort_values(["run_id", "analyzer_id"], ignore_index=True)
+    else:
+        detail_df = _empty_frame(SCOPED_DETAIL_COLUMNS)
+
+    local_wins = _build_scoped_local_wins(compare_df, comparison_scope, top_n=10)
+    analyzer_aggregate = _build_scoped_analyzer_aggregate(compare_df, detail_df, comparison_scope)
+    summary_df, aggregate_segments = _build_scoped_summary(
+        comparison_scope=comparison_scope,
+        run_scope_description=run_scope_description,
+        headline_safe_statement=headline_safe_statement,
+        scope_limitation_statement=scope_limitation_statement,
+        compare=compare_df,
+        analyzer_aggregate=analyzer_aggregate,
+    )
+    return {
+        "comparison_scope": comparison_scope,
+        "run_scope_description": run_scope_description,
+        "headline_safe_statement": headline_safe_statement,
+        "scope_limitation_statement": scope_limitation_statement,
+        "detail": detail_df,
+        "summary": summary_df,
+        "local_wins": local_wins,
+        "aggregate_segments": aggregate_segments,
+        "analyzer_aggregate": analyzer_aggregate,
+        "point_reconciliation": compare_df,
+    }
+
+
+def build_scoped_old_vs_new_outputs(
+    run_results: list[dict[str, Any]],
+    *,
+    scope_b_run_id: str = "run_20260410_132440",
+) -> dict[str, dict[str, pd.DataFrame | str]]:
+    """Build two separate scoped old-vs-new outputs for historical vs 2026-04-10."""
+
+    prepared_runs: list[dict[str, Any]] = []
+    for result in run_results:
+        run_id = str(result.get("run_name", "") or "")
+        if not run_id:
+            continue
+        detail = result.get("old_vs_new_outputs", {}).get("detail", pd.DataFrame())
+        point_reconciliation = result.get("point_reconciliation", pd.DataFrame())
+        detail = detail.copy() if isinstance(detail, pd.DataFrame) else pd.DataFrame()
+        point_reconciliation = (
+            point_reconciliation.copy()
+            if isinstance(point_reconciliation, pd.DataFrame)
+            else pd.DataFrame()
+        )
+        if detail.empty and point_reconciliation.empty:
+            continue
+        prepared_runs.append(
+            {
+                "run_id": run_id,
+                "detail": detail,
+                "point_reconciliation": point_reconciliation,
+            }
+        )
+
+    historical_runs = [item for item in prepared_runs if item["run_id"] != scope_b_run_id]
+    scope_b_runs = [item for item in prepared_runs if item["run_id"] == scope_b_run_id]
+
+    scope_a = _build_scoped_scope_outputs(
+        comparison_scope="historical_ga02_ga03_old_vs_new",
+        run_scope_description="historical packages excluding run_20260410_132440; only GA02 and GA03 are included",
+        headline_safe_statement="仅针对 historical packages 中的 GA02/GA03",
+        scope_limitation_statement="两个 scope 不能合并解读为统一全局结论",
+        selected_runs=historical_runs,
+        analyzer_filter=("GA02", "GA03"),
+    )
+    scope_b = _build_scoped_scope_outputs(
+        comparison_scope="run_20260410_132440_all_analyzers_old_vs_new",
+        run_scope_description="run_20260410_132440 only; include every analyzer that appears in that run",
+        headline_safe_statement="仅针对 run_20260410_132440 的全 analyzers",
+        scope_limitation_statement="两个 scope 不能合并解读为统一全局结论",
+        selected_runs=scope_b_runs,
+        analyzer_filter=None,
+    )
+    return {
+        "scope_a": scope_a,
+        "scope_b": scope_b,
     }

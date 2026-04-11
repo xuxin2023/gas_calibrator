@@ -976,6 +976,7 @@ def plot_old_vs_new_comparison(
     aggregate_segments: pd.DataFrame,
     detail: pd.DataFrame,
     output_path: Path,
+    title_prefix: str | None = None,
 ) -> None:
     """Plot deployable current_deployable_new_chain vs old_chain summary panels."""
 
@@ -986,6 +987,9 @@ def plot_old_vs_new_comparison(
         return _finalize(fig, output_path)
 
     fig, axes = plt.subplots(3, 1, figsize=(12, 12), squeeze=False)
+    prefix = str(title_prefix).strip() if title_prefix else ""
+    if prefix:
+        fig.suptitle(prefix)
 
     segment_ax = axes[0, 0]
     if aggregate_segments.empty:
@@ -998,7 +1002,8 @@ def plot_old_vs_new_comparison(
         segment_ax.bar(x + 0.18, ordered["new_chain_rmse"], width=0.36, label="current_deployable_new_chain", color="#2c7fb8")
         segment_ax.set_xticks(x)
         segment_ax.set_xticklabels(["overall", "zero", "low", "main"])
-        segment_ax.set_title("Deployable current_deployable_new_chain vs old_chain: overall / zero / low / main")
+        segment_title = "Deployable current_deployable_new_chain vs old_chain: overall / zero / low / main"
+        segment_ax.set_title(f"{prefix}: {segment_title}" if prefix else segment_title)
         segment_ax.set_ylabel("RMSE (ppm)")
         segment_ax.grid(alpha=0.2, axis="y")
         segment_ax.legend(fontsize=8)
@@ -1016,7 +1021,8 @@ def plot_old_vs_new_comparison(
         analyzer_ax.set_yticks(y)
         analyzer_ax.set_yticklabels(ranked["analyzer_id"].astype(str).tolist())
         analyzer_ax.invert_yaxis()
-        analyzer_ax.set_title("Deployable current_deployable_new_chain vs old_chain: analyzer overall improvement_pct")
+        analyzer_title = "Deployable current_deployable_new_chain vs old_chain: analyzer overall improvement_pct"
+        analyzer_ax.set_title(f"{prefix}: {analyzer_title}" if prefix else analyzer_title)
         analyzer_ax.set_xlabel("Improvement % vs old_chain")
         analyzer_ax.grid(alpha=0.2, axis="x")
 
@@ -1031,11 +1037,14 @@ def plot_old_vs_new_comparison(
         local_ax.bar(x + 0.18, ordered["pointwise_loss_count"], width=0.36, label="local losses", color="#de2d26")
         local_ax.set_xticks(x)
         local_ax.set_xticklabels(ordered["analyzer_id"].astype(str).tolist())
-        local_ax.set_title("Deployable current_deployable_new_chain vs old_chain: local win / loss counts")
+        local_title = "Deployable current_deployable_new_chain vs old_chain: local win / loss counts"
+        local_ax.set_title(f"{prefix}: {local_title}" if prefix else local_title)
         local_ax.set_ylabel("Point count")
         local_ax.grid(alpha=0.2, axis="y")
         local_ax.legend(fontsize=8)
 
+    if prefix:
+        fig.tight_layout(rect=(0, 0, 1, 0.97))
     _finalize(fig, output_path)
 
 
