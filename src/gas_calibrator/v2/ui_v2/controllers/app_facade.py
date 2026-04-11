@@ -2720,7 +2720,9 @@ class AppFacade:
         software_validation_rollup: dict[str, Any],
         audit_readiness_digest: dict[str, Any],
         pt_ilc_registry: dict[str, Any],
+        external_comparison_importer: dict[str, Any],
         comparison_evidence_pack: dict[str, Any],
+        scope_comparison_view: dict[str, Any],
         comparison_digest: dict[str, Any],
         comparison_rollup: dict[str, Any],
         compatibility_scan_summary: dict[str, Any],
@@ -3271,7 +3273,9 @@ class AppFacade:
         release_evidence_pack_index: dict[str, Any],
         audit_readiness_digest: dict[str, Any],
         pt_ilc_registry: dict[str, Any],
+        external_comparison_importer: dict[str, Any],
         comparison_evidence_pack: dict[str, Any],
+        scope_comparison_view: dict[str, Any],
         comparison_digest: dict[str, Any],
         comparison_rollup: dict[str, Any],
         compatibility_scan_summary: dict[str, Any],
@@ -3537,8 +3541,16 @@ class AppFacade:
                 dict(pt_ilc_registry or {}),
             ),
             (
+                recognition_readiness.EXTERNAL_COMPARISON_IMPORTER_FILENAME,
+                dict(external_comparison_importer or {}),
+            ),
+            (
                 recognition_readiness.COMPARISON_EVIDENCE_PACK_FILENAME,
                 dict(comparison_evidence_pack or {}),
+            ),
+            (
+                recognition_readiness.SCOPE_COMPARISON_VIEW_FILENAME,
+                dict(scope_comparison_view or {}),
             ),
             (
                 recognition_readiness.COMPARISON_DIGEST_FILENAME,
