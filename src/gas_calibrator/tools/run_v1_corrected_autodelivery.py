@@ -18,6 +18,10 @@ from ..export import build_corrected_water_points_report
 from ..senco_format import format_senco_values, senco_readback_matches
 from .run_v1_no500_postprocess import _filter_no_500_frame
 
+_PRESSURE_WRITE_MIN_GAUGE_CONTROLLER_OVERLAP = 5
+_PRESSURE_WRITE_MAX_GAUGE_CONTROLLER_MEAN_ABS_HPA = 3.0
+_PRESSURE_WRITE_MAX_GAUGE_CONTROLLER_MAX_ABS_HPA = 8.0
+
 
 def _safe_float(value: Any) -> Optional[float]:
     if value in (None, "", "null", "None"):
@@ -272,11 +276,15 @@ def compute_pressure_offset_rows(
     run_dir = Path(run_dir)
     frame = pd.read_csv(_resolve_samples_path(run_dir), encoding="utf-8-sig")
     pressure_mode_col = "压力执行模式" if "压力执行模式" in frame.columns else "PressureMode"
-    ref_candidates = [
+    gauge_candidates = [
         "数字压力计压力hPa",
         "pressure_gauge_hpa",
         "PressureGaugeHpa",
     ]
+    controller_candidates = ["鍘嬪姏鎺у埗鍣ㄥ帇鍔沨Pa", "pressure_controller_hpa", "PressureControllerHpa"]
+    gauge_col = next((column for column in gauge_candidates if column in frame.columns), None)
+    controller_col = next((column for column in controller_candidates if column in frame.columns), None)
+    ref_candidates = list(gauge_candidates)
     if fallback_to_controller:
         ref_candidates.extend(["压力控制器压力hPa", "pressure_controller_hpa", "PressureControllerHpa"])
     ref_col = next((column for column in ref_candidates if column in frame.columns), None)
@@ -312,6 +320,36 @@ def compute_pressure_offset_rows(
         offset = float(residuals.mean())
         corrected = subset["analyzer_kpa"] + offset
         abs_error_kpa = ((subset["ref_hpa"] / 10.0) - corrected).abs()
+        overlap_samples = 0
+        overlap_mean_abs_hpa: float | str = ""
+        overlap_max_abs_hpa: float | str = ""
+        pressure_write_recommended = True
+        pressure_write_reason = ""
+        if ref_col == controller_col:
+            pressure_write_recommended = False
+            pressure_write_reason = "controller_reference_fallback_used"
+        elif gauge_col and controller_col:
+            overlap = subset.copy()
+            overlap["gauge_hpa"] = pd.to_numeric(overlap[gauge_col], errors="coerce")
+            overlap["controller_hpa"] = pd.to_numeric(overlap[controller_col], errors="coerce")
+            overlap = overlap.dropna(subset=["gauge_hpa", "controller_hpa"])
+            overlap_samples = int(len(overlap))
+            if overlap_samples < _PRESSURE_WRITE_MIN_GAUGE_CONTROLLER_OVERLAP:
+                pressure_write_recommended = False
+                pressure_write_reason = "insufficient_gauge_controller_overlap"
+            else:
+                gauge_controller_diff_hpa = (overlap["gauge_hpa"] - overlap["controller_hpa"]).abs()
+                overlap_mean_abs_hpa = float(gauge_controller_diff_hpa.mean())
+                overlap_max_abs_hpa = float(gauge_controller_diff_hpa.max())
+                if (
+                    float(overlap_mean_abs_hpa) > _PRESSURE_WRITE_MAX_GAUGE_CONTROLLER_MEAN_ABS_HPA
+                    or float(overlap_max_abs_hpa) > _PRESSURE_WRITE_MAX_GAUGE_CONTROLLER_MAX_ABS_HPA
+                ):
+                    pressure_write_recommended = False
+                    pressure_write_reason = "ambient_open_backpressure_too_large"
+        else:
+            pressure_write_recommended = False
+            pressure_write_reason = "insufficient_gauge_controller_overlap"
         rows.append(
             {
                 "Analyzer": analyzer,
@@ -321,6 +359,11 @@ def compute_pressure_offset_rows(
                 "OffsetA_kPa": offset,
                 "ResidualMeanAbs_kPa": float(abs_error_kpa.mean()),
                 "ResidualMaxAbs_kPa": float(abs_error_kpa.max()),
+                "GaugeControllerOverlapSamples": overlap_samples,
+                "GaugeControllerMeanAbsDiff_hPa": overlap_mean_abs_hpa,
+                "GaugeControllerMaxAbsDiff_hPa": overlap_max_abs_hpa,
+                "PressureWriteRecommended": pressure_write_recommended,
+                "PressureWriteReason": pressure_write_reason,
                 "Command": "SENCO9,YGAS,FFF," + ",".join(format_senco_values((offset, 1.0, 0.0, 0.0))),
             }
         )
@@ -489,19 +532,39 @@ def write_coefficients_to_live_devices(
             gas_by_analyzer.setdefault(analyzer, {})[group] = coeffs
 
     pressure_by_analyzer: Dict[str, Dict[int, List[float]]] = {}
+    skipped_pressure_by_analyzer: Dict[str, str] = {}
     if write_pressure_rows:
         for row in pressure_rows:
             analyzer = _normalize_analyzer(row.get("Analyzer"))
             offset = _safe_float(row.get("OffsetA_kPa"))
-            if analyzer and offset is not None:
-                pressure_by_analyzer.setdefault(analyzer, {})[9] = [float(offset), 1.0, 0.0, 0.0]
+            if not analyzer or offset is None:
+                continue
+            recommended = row.get("PressureWriteRecommended")
+            if recommended not in (None, "") and not _safe_bool(recommended):
+                skipped_pressure_by_analyzer[analyzer] = str(row.get("PressureWriteReason") or "pressure_write_not_recommended")
+                continue
+            pressure_by_analyzer.setdefault(analyzer, {})[9] = [float(offset), 1.0, 0.0, 0.0]
 
     summary_rows: List[Dict[str, Any]] = []
     detail_rows: List[Dict[str, Any]] = []
-    analyzers = sorted(set(actual_device_ids) | set(temp_by_analyzer) | set(gas_by_analyzer) | set(pressure_by_analyzer))
+    analyzers = sorted(set(actual_device_ids) | set(temp_by_analyzer) | set(gas_by_analyzer) | set(pressure_by_analyzer) | set(skipped_pressure_by_analyzer))
     for analyzer in analyzers:
         target_device_id = _normalize_device_id(actual_device_ids.get(analyzer))
         live_target = live_by_id.get(target_device_id)
+        if analyzer in skipped_pressure_by_analyzer:
+            detail_rows.append(
+                {
+                    "Analyzer": analyzer,
+                    "Port": live_target["Port"] if live_target is not None else "",
+                    "TargetDeviceId": target_device_id,
+                    "LiveDeviceId": live_target.get("LiveDeviceId") if live_target is not None else "",
+                    "Group": 9,
+                    "Expected": "",
+                    "Readback": "",
+                    "ReadbackOk": False,
+                    "Error": f"SKIPPED_PRESSURE_WRITE:{skipped_pressure_by_analyzer[analyzer]}",
+                }
+            )
         expected_groups: Dict[int, List[float]] = {}
         expected_groups.update(temp_by_analyzer.get(analyzer, {}))
         expected_groups.update(gas_by_analyzer.get(analyzer, {}))
