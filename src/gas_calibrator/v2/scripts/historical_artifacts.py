@@ -204,6 +204,7 @@ def _build_run_report(
         compatibility_scan_summary=compatibility_scan_summary,
     ).read_payload()
     pt_ilc_registry = dict(wp6_payload.get("pt_ilc_registry") or {})
+    external_comparison_importer = dict(wp6_payload.get("external_comparison_importer") or {})
     comparison_evidence_pack = dict(wp6_payload.get("comparison_evidence_pack") or {})
     scope_comparison_view = dict(wp6_payload.get("scope_comparison_view") or {})
     comparison_digest_payload = dict(wp6_payload.get("comparison_digest") or {})
