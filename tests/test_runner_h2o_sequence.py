@@ -3460,6 +3460,53 @@ def test_run_temperature_group_ambient_only_without_explicit_h2o_rows_still_runs
     assert calls[0]["pressure_modes"] == ["ambient_open"]
 
 
+def test_run_temperature_group_ambient_only_preconditions_next_group_h2o_without_explicit_ambient_row(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {"workflow": {"route_mode": "h2o_then_co2", "selected_pressure_points": ["ambient"]}},
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    prepared: list[dict[str, object]] = []
+
+    runner._prepare_humidity_generator = types.MethodType(
+        lambda self, point: prepared.append(
+            {
+                "index": int(point.index),
+                "pressure_hpa": self._as_float(getattr(point, "target_pressure_hpa", None)),
+                "pressure_mode": self._pressure_mode_for_point(point),
+                "rh": self._as_float(getattr(point, "hgen_rh_pct", None)),
+                "temp_c": self._as_float(getattr(point, "temp_chamber_c", None)),
+            }
+        ),
+        runner,
+    )
+    runner._run_h2o_group = types.MethodType(lambda self, group, pressure_points=None, next_route_context=None: None, runner)
+    runner._run_co2_point = types.MethodType(lambda self, point, pressure_points=None, next_route_context=None: None, runner)
+
+    current_group = [
+        CalibrationPoint(index=6, temp_chamber_c=-10.0, co2_ppm=0.0, hgen_temp_c=None, hgen_rh_pct=None, target_pressure_hpa=1100.0, dewpoint_c=None, h2o_mmol=None, raw_h2o=None, co2_group="A"),
+    ]
+    next_group = [
+        CalibrationPoint(index=9, temp_chamber_c=0.0, co2_ppm=None, hgen_temp_c=0.0, hgen_rh_pct=50.0, target_pressure_hpa=1100.0, dewpoint_c=-9.16, h2o_mmol=3.0233, raw_h2o="sealed-1100"),
+    ]
+
+    runner._run_temperature_group(current_group, next_group=next_group)
+    logger.close()
+
+    assert prepared == [
+        {
+            "index": 9,
+            "pressure_hpa": None,
+            "pressure_mode": "ambient_open",
+            "rh": 50.0,
+            "temp_c": 0.0,
+        }
+    ]
+
+
 def test_wait_after_pressure_stable_co2_starts_sampling_immediately_and_traces_begin(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     messages: list[str] = []

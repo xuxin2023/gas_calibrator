@@ -5263,10 +5263,7 @@ class CalibrationRunner:
         temp = self._as_float(next_group[0].temp_chamber_c)
         if temp is not None and temp < 0.0:
             return None
-        h2o_points = self._filter_execution_points_by_selected_pressure(
-            [point for point in next_group if point.is_h2o_point]
-        )
-        groups = self._group_h2o_points(h2o_points)
+        groups = self._h2o_source_groups_for_temperature(next_group)
         if not groups or not groups[0]:
             return None
         return groups[0][0]
