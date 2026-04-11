@@ -22,6 +22,13 @@ def _table_to_markdown(frame: pd.DataFrame, max_rows: int = 20) -> str:
     return "\n".join([header, sep, *rows])
 
 
+def _format_number(value: object, digits: int = 3) -> str:
+    number = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(number):
+        return "n/a"
+    return f"{float(number):.{digits}f}"
+
+
 def render_report_markdown(report: Mapping[str, object]) -> str:
     """Render a human-readable markdown report."""
 
@@ -214,6 +221,134 @@ def render_report_markdown(report: Mapping[str, object]) -> str:
     lines.append("## 19. Suggested next experiments")
     for item in report["next_steps"]:
         lines.append(f"- {item}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def render_old_vs_new_report_markdown(report: Mapping[str, object]) -> str:
+    """Render the step-10 deployable old-vs-new markdown report."""
+
+    lines: list[str] = []
+    summary = report["summary"]
+    detail = report["detail"]
+    aggregate_segments = report["aggregate_segments"]
+    local_wins = report["local_wins"]
+    ratio_source_audit = report["ratio_source_audit"]
+    diagnostic_candidates = report["diagnostic_candidates"]
+    summary_row = summary.iloc[0] if not summary.empty else pd.Series(dtype=object)
+    ratio_row = ratio_source_audit.iloc[0] if not ratio_source_audit.empty else pd.Series(dtype=object)
+
+    lines.append(f"# Old vs New Report: {report['run_name']}")
+    lines.append("")
+    lines.append("## 1. headline")
+    lines.append("- headline_comparison_scope = old_chain vs current_deployable_new_chain")
+    lines.append(
+        "- headline_verdict = "
+        + (
+            f"{summary_row.get('overall_verdict', 'unknown')} "
+            f"(whether_new_chain_has_overall_evidence_to_surpass_old={summary_row.get('whether_new_chain_has_overall_evidence_to_surpass_old', False)})"
+            if not summary.empty
+            else "unknown"
+        )
+    )
+    if not summary.empty:
+        lines.append(
+            "- headline_readout = "
+            f"overall old={_format_number(summary_row.get('overall_rmse_old'))}, "
+            f"new={_format_number(summary_row.get('overall_rmse_new'))}, "
+            f"improvement_pct={_format_number(summary_row.get('overall_improvement_pct'), 2)}%"
+        )
+    lines.append("")
+    lines.append("## 2. overall comparison")
+    lines.append("- comparison_scope = current_deployable_new_chain vs old_chain")
+    lines.append(_table_to_markdown(aggregate_segments, max_rows=8))
+    lines.append("")
+    lines.append("## 3. analyzer-by-analyzer comparison")
+    analyzer_columns = [
+        "analyzer_id",
+        "mode2_semantic_profile",
+        "selected_source_pair",
+        "actual_ratio_source_used",
+        "improvement_pct_overall",
+        "improvement_pct_zero",
+        "improvement_pct_low",
+        "improvement_pct_main",
+        "overall_win_flag",
+        "zero_win_flag",
+        "low_win_flag",
+        "main_win_flag",
+    ]
+    analyzer_view = detail[analyzer_columns].copy() if not detail.empty else pd.DataFrame(columns=analyzer_columns)
+    lines.append(_table_to_markdown(analyzer_view, max_rows=20))
+    lines.append("")
+    lines.append("## 4. local wins and losses")
+    if local_wins.empty:
+        lines.append("_No local win/loss rows._")
+    else:
+        for analyzer_id in detail["analyzer_id"].astype(str).tolist():
+            lines.append(f"### {analyzer_id}")
+            lines.append("Typical local wins")
+            win_rows = local_wins[
+                (local_wins["analyzer_id"].astype(str) == analyzer_id)
+                & (local_wins["local_win_flag"].fillna(False))
+            ][
+                [
+                    "temp_set_c",
+                    "target_ppm",
+                    "old_value",
+                    "new_value",
+                    "abs_error_old",
+                    "abs_error_new",
+                    "improvement_abs_error",
+                    "segment_tag",
+                ]
+            ]
+            lines.append(_table_to_markdown(win_rows, max_rows=5))
+            lines.append("")
+            lines.append("Typical local losses")
+            loss_rows = local_wins[
+                (local_wins["analyzer_id"].astype(str) == analyzer_id)
+                & (~local_wins["local_win_flag"].fillna(False))
+            ][
+                [
+                    "temp_set_c",
+                    "target_ppm",
+                    "old_value",
+                    "new_value",
+                    "abs_error_old",
+                    "abs_error_new",
+                    "improvement_abs_error",
+                    "segment_tag",
+                ]
+            ]
+            lines.append(_table_to_markdown(loss_rows, max_rows=5))
+            lines.append("")
+    lines.append("## 5. ratio source audit")
+    lines.append("- designed_v5_ratio_source_intent = raw_or_instantaneous_ratio")
+    lines.append(
+        "- actual_ratio_source_used_in_this_run = "
+        + str(ratio_row.get("actual_ratio_source_used_in_this_run", summary_row.get("actual_ratio_source_used_in_this_run", "unknown")))
+    )
+    lines.append(
+        "- actual_ratio_source_used_majority = "
+        + str(ratio_row.get("actual_ratio_source_used_majority", summary_row.get("actual_ratio_source_used_majority", "unknown")))
+    )
+    lines.append(
+        "- supporting_evidence_for_actual_ratio_source = "
+        + str(ratio_row.get("supporting_evidence_for_actual_ratio_source", summary_row.get("supporting_evidence_for_actual_ratio_source", "")))
+    )
+    lines.append(
+        "- why_intent_and_execution_can_differ = "
+        "V5 design intent takes instantaneous R first and filters later in baseline/turbulence handling, "
+        "but this offline run still selects matched raw/raw or filt/filt branches per analyzer during fitting."
+    )
+    lines.append("")
+    lines.append("## 6. diagnostic candidates appendix")
+    lines.append("- The headline above remains locked to old_chain vs current_deployable_new_chain. Everything below is diagnostic-only and not a deployable conclusion.")
+    if diagnostic_candidates.empty:
+        lines.append("_No diagnostic-only candidate summary available._")
+    else:
+        lines.append(_table_to_markdown(diagnostic_candidates, max_rows=12))
     lines.append("")
     return "\n".join(lines)
 

@@ -187,6 +187,12 @@ DEFAULT_ROLE_CATALOG: dict[str, list[str]] = {
         "certificate_readiness_summary_markdown",
         "uncertainty_method_readiness_summary_markdown",
         "audit_readiness_digest_markdown",
+        "pt_ilc_registry_markdown",
+        "external_comparison_importer_markdown",
+        "comparison_evidence_pack_markdown",
+        "scope_comparison_view_markdown",
+        "comparison_digest_markdown",
+        "comparison_rollup_markdown",
     ],
 }
 

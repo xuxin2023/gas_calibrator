@@ -972,6 +972,73 @@ def plot_ppm_family_challenge(data: pd.DataFrame, output_path: Path) -> None:
     _finalize(fig, output_path)
 
 
+def plot_old_vs_new_comparison(
+    aggregate_segments: pd.DataFrame,
+    detail: pd.DataFrame,
+    output_path: Path,
+) -> None:
+    """Plot deployable current_deployable_new_chain vs old_chain summary panels."""
+
+    if aggregate_segments.empty and detail.empty:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No old-vs-new comparison data available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+
+    fig, axes = plt.subplots(3, 1, figsize=(12, 12), squeeze=False)
+
+    segment_ax = axes[0, 0]
+    if aggregate_segments.empty:
+        segment_ax.text(0.5, 0.5, "No aggregate segment comparison available", ha="center", va="center")
+        segment_ax.axis("off")
+    else:
+        ordered = aggregate_segments.set_index("segment_tag").reindex(["overall", "zero", "low", "main"])
+        x = np.arange(len(ordered), dtype=float)
+        segment_ax.bar(x - 0.18, ordered["old_chain_rmse"], width=0.36, label="old_chain", color="#7f8c8d")
+        segment_ax.bar(x + 0.18, ordered["new_chain_rmse"], width=0.36, label="current_deployable_new_chain", color="#2c7fb8")
+        segment_ax.set_xticks(x)
+        segment_ax.set_xticklabels(["overall", "zero", "low", "main"])
+        segment_ax.set_title("Deployable current_deployable_new_chain vs old_chain: overall / zero / low / main")
+        segment_ax.set_ylabel("RMSE (ppm)")
+        segment_ax.grid(alpha=0.2, axis="y")
+        segment_ax.legend(fontsize=8)
+
+    analyzer_ax = axes[1, 0]
+    if detail.empty:
+        analyzer_ax.text(0.5, 0.5, "No analyzer-level improvement summary available", ha="center", va="center")
+        analyzer_ax.axis("off")
+    else:
+        ranked = detail.sort_values(["improvement_pct_overall", "analyzer_id"], ascending=[False, True], ignore_index=True)
+        y = np.arange(len(ranked), dtype=float)
+        colors = ["#2ca25f" if float(value) > 0.0 else "#d95f0e" for value in ranked["improvement_pct_overall"].fillna(0.0)]
+        analyzer_ax.barh(y, ranked["improvement_pct_overall"], color=colors)
+        analyzer_ax.axvline(0.0, color="black", linewidth=0.9)
+        analyzer_ax.set_yticks(y)
+        analyzer_ax.set_yticklabels(ranked["analyzer_id"].astype(str).tolist())
+        analyzer_ax.invert_yaxis()
+        analyzer_ax.set_title("Deployable current_deployable_new_chain vs old_chain: analyzer overall improvement_pct")
+        analyzer_ax.set_xlabel("Improvement % vs old_chain")
+        analyzer_ax.grid(alpha=0.2, axis="x")
+
+    local_ax = axes[2, 0]
+    if detail.empty:
+        local_ax.text(0.5, 0.5, "No local win/loss counts available", ha="center", va="center")
+        local_ax.axis("off")
+    else:
+        ordered = detail.sort_values(["analyzer_id"], ignore_index=True)
+        x = np.arange(len(ordered), dtype=float)
+        local_ax.bar(x - 0.18, ordered["pointwise_win_count"], width=0.36, label="local wins", color="#31a354")
+        local_ax.bar(x + 0.18, ordered["pointwise_loss_count"], width=0.36, label="local losses", color="#de2d26")
+        local_ax.set_xticks(x)
+        local_ax.set_xticklabels(ordered["analyzer_id"].astype(str).tolist())
+        local_ax.set_title("Deployable current_deployable_new_chain vs old_chain: local win / loss counts")
+        local_ax.set_ylabel("Point count")
+        local_ax.grid(alpha=0.2, axis="y")
+        local_ax.legend(fontsize=8)
+
+    _finalize(fig, output_path)
+
+
 def plot_cross_run_summary(data: pd.DataFrame, output_path: Path) -> None:
     """Plot old-vs-new RMSE across runs for each analyzer."""
 

@@ -335,3 +335,608 @@ def build_comparison_outputs(
         "auto_conclusions": pd.DataFrame(auto_conclusion_rows),
         "conclusion_lines": conclusion_lines,
     }
+
+
+def _first_text(frame: pd.DataFrame, column_name: str, default: str = "") -> str:
+    if column_name not in frame.columns:
+        return default
+    values = frame[column_name].dropna().astype(str).str.strip()
+    values = values[values != ""]
+    if values.empty:
+        return default
+    return str(values.iloc[0])
+
+
+def _first_bool(frame: pd.DataFrame, column_name: str, default: bool = False) -> bool:
+    if column_name not in frame.columns:
+        return default
+    values = frame[column_name].dropna()
+    if values.empty:
+        return default
+    return bool(values.map(bool).iloc[0])
+
+
+def _delta_new_minus_old(old_value: float, new_value: float) -> float:
+    if pd.isna(old_value) or pd.isna(new_value):
+        return math.nan
+    return float(new_value - old_value)
+
+
+def _improvement_pct(old_value: float, new_value: float) -> float:
+    if pd.isna(old_value) or pd.isna(new_value) or abs(float(old_value)) <= 1.0e-12:
+        return math.nan
+    return float((float(old_value) - float(new_value)) / float(old_value) * 100.0)
+
+
+def _win_flag(old_value: float, new_value: float) -> bool:
+    if pd.isna(old_value) or pd.isna(new_value):
+        return False
+    return bool(float(new_value) < float(old_value) - 1.0e-12)
+
+
+def _segment_mask(frame: pd.DataFrame, segment_tag: str) -> pd.Series:
+    target = pd.to_numeric(frame["target_ppm"], errors="coerce")
+    if segment_tag == "overall":
+        return pd.Series(True, index=frame.index)
+    if segment_tag == "zero":
+        return target == 0.0
+    if segment_tag == "low":
+        return (target > 0.0) & (target <= 200.0)
+    if segment_tag == "main":
+        return (target > 200.0) & (target <= 1000.0)
+    raise ValueError(f"Unsupported segment_tag: {segment_tag}")
+
+
+def _segment_metrics(frame: pd.DataFrame, segment_tag: str) -> dict[str, float]:
+    subset = frame[_segment_mask(frame, segment_tag)].copy()
+    old_metrics = _metrics(subset["old_error"])
+    new_metrics = _metrics(subset["new_error"])
+    return {
+        "old_rmse": old_metrics["rmse"],
+        "new_rmse": new_metrics["rmse"],
+        "delta_rmse": _delta_new_minus_old(old_metrics["rmse"], new_metrics["rmse"]),
+        "improvement_pct": _improvement_pct(old_metrics["rmse"], new_metrics["rmse"]),
+        "point_count": int(len(subset)),
+        "win_flag": _win_flag(old_metrics["rmse"], new_metrics["rmse"]),
+    }
+
+
+def _normalize_actual_ratio_source(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if text in {"ratio_co2_raw", "raw/raw", "raw", "r_in=raw", "raw_ratio"}:
+        return "raw"
+    if text in {"ratio_co2_filt", "filt/filt", "filt", "filtered", "filtered_ratio"}:
+        return "filt"
+    return "unknown"
+
+
+def _resolve_analyzer_actual_ratio_source(
+    analyzer_id: str,
+    analyzer_df: pd.DataFrame,
+    selection_table: pd.DataFrame,
+    new_chain_input_audit: pd.DataFrame,
+) -> tuple[str, str, str]:
+    evidence_parts: list[str] = []
+    observed_sources: list[str] = []
+
+    selection_row = (
+        selection_table[selection_table["analyzer_id"] == analyzer_id].iloc[0]
+        if not selection_table.empty and (selection_table["analyzer_id"] == analyzer_id).any()
+        else pd.Series(dtype=object)
+    )
+    if not selection_row.empty:
+        source_pair = str(selection_row.get("selected_source_pair") or "")
+        selected_ratio_source = str(selection_row.get("selected_ratio_source") or "")
+        if source_pair:
+            evidence_parts.append(f"selection.selected_source_pair={source_pair}")
+            observed_sources.append(_normalize_actual_ratio_source(source_pair))
+        if selected_ratio_source:
+            evidence_parts.append(f"selection.selected_ratio_source={selected_ratio_source}")
+            observed_sources.append(_normalize_actual_ratio_source(selected_ratio_source))
+
+    ratio_source_selected = _first_text(analyzer_df, "ratio_source_selected", default="")
+    if ratio_source_selected:
+        evidence_parts.append(f"point_reconciliation.ratio_source_selected={ratio_source_selected}")
+        observed_sources.append(_normalize_actual_ratio_source(ratio_source_selected))
+
+    selected_source_pair = _first_text(analyzer_df, "selected_source_pair", default="")
+    if selected_source_pair and all("selection.selected_source_pair=" not in part for part in evidence_parts):
+        evidence_parts.append(f"point_reconciliation.selected_source_pair={selected_source_pair}")
+        observed_sources.append(_normalize_actual_ratio_source(selected_source_pair))
+
+    audit_rows = new_chain_input_audit.copy() if isinstance(new_chain_input_audit, pd.DataFrame) else pd.DataFrame()
+    if not audit_rows.empty and {"audit_scope", "analyzer_id"} <= set(audit_rows.columns):
+        audit_rows = audit_rows[
+            (audit_rows["audit_scope"] == "per_analyzer_selected_main_chain")
+            & (audit_rows["analyzer_id"].astype(str) == analyzer_id)
+        ].copy()
+        if not audit_rows.empty:
+            audit_row = audit_rows.iloc[0]
+            r_in_source = str(audit_row.get("R_in_source") or "")
+            r0_fit_source = str(audit_row.get("R0_fit_source") or "")
+            if r_in_source:
+                evidence_parts.append(f"input_audit.R_in_source={r_in_source}")
+                observed_sources.append(_normalize_actual_ratio_source(r_in_source))
+            if r0_fit_source:
+                evidence_parts.append(f"input_audit.R0_fit_source={r0_fit_source}")
+                observed_sources.append(_normalize_actual_ratio_source(r0_fit_source))
+
+    cleaned_sources = sorted({item for item in observed_sources if item in {"raw", "filt"}})
+    if not cleaned_sources:
+        actual_ratio_source = "unknown"
+    elif len(cleaned_sources) == 1:
+        actual_ratio_source = cleaned_sources[0]
+    else:
+        actual_ratio_source = "mixed"
+
+    selected_pair_value = str(selection_row.get("selected_source_pair") or "") if not selection_row.empty else selected_source_pair
+    evidence = "; ".join(evidence_parts) if evidence_parts else "no deployable ratio-source evidence found"
+    return selected_pair_value, actual_ratio_source, evidence
+
+
+def _overall_ratio_source_used(detail_df: pd.DataFrame) -> tuple[str, str, str]:
+    if detail_df.empty or "actual_ratio_source_used" not in detail_df.columns:
+        return "unknown", "unknown", "no per-analyzer ratio-source summary available"
+
+    values = detail_df["actual_ratio_source_used"].fillna("unknown").astype(str).str.strip().tolist()
+    raw_count = values.count("raw")
+    filt_count = values.count("filt")
+    if raw_count == 0 and filt_count == 0:
+        actual = "unknown"
+        majority = "unknown"
+    else:
+        used = {value for value in values if value in {"raw", "filt"}}
+        actual = next(iter(used)) if len(used) == 1 else "mixed"
+        if raw_count > filt_count:
+            majority = "raw"
+        elif filt_count > raw_count:
+            majority = "filt"
+        else:
+            majority = "mixed"
+    evidence = "; ".join(
+        f"{row.analyzer_id}={row.actual_ratio_source_used} ({row.selected_source_pair})"
+        for row in detail_df.itertuples(index=False)
+    )
+    return actual, majority, evidence or "no analyzer-level ratio evidence available"
+
+
+def _count_true(series: pd.Series) -> int:
+    if series.empty:
+        return 0
+    return int(series.fillna(False).map(bool).sum())
+
+
+def _pick_best_candidate_rows(
+    detail_df: pd.DataFrame,
+    *,
+    candidate_group: str,
+    mode_column: str,
+    baseline_mode: str,
+    label_column: str,
+) -> list[dict[str, Any]]:
+    if detail_df.empty or mode_column not in detail_df.columns:
+        return []
+
+    baseline = detail_df[detail_df[mode_column].astype(str) == baseline_mode][
+        ["analyzer_id", "overall_rmse", "old_chain_overall_rmse"]
+    ].rename(
+        columns={
+            "overall_rmse": "deployable_overall_rmse",
+            "old_chain_overall_rmse": "old_chain_overall_rmse",
+        }
+    )
+    rows: list[dict[str, Any]] = []
+    for mode_value, subset in detail_df.groupby(mode_column, dropna=False):
+        mode_text = str(mode_value)
+        if mode_text == baseline_mode:
+            continue
+        merged = subset.merge(baseline, on="analyzer_id", how="left")
+        candidate_mean = float(pd.to_numeric(merged["overall_rmse"], errors="coerce").mean())
+        deployable_mean = float(pd.to_numeric(merged["deployable_overall_rmse"], errors="coerce").mean())
+        old_mean = float(pd.to_numeric(merged["old_chain_overall_rmse"], errors="coerce").mean())
+        rows.append(
+            {
+                "candidate_group": candidate_group,
+                "candidate_id": mode_text,
+                "candidate_label": _first_text(subset, label_column, default=mode_text),
+                "candidate_scope": "diagnostic_only",
+                "candidate_mean_overall_rmse": candidate_mean,
+                "deployable_mean_overall_rmse": deployable_mean,
+                "old_chain_mean_overall_rmse": old_mean,
+                "delta_vs_deployable_mean_rmse": _delta_new_minus_old(deployable_mean, candidate_mean),
+                "improvement_vs_deployable_pct": _improvement_pct(deployable_mean, candidate_mean),
+                "delta_vs_old_chain_mean_rmse": _delta_new_minus_old(old_mean, candidate_mean),
+                "improvement_vs_old_chain_pct": _improvement_pct(old_mean, candidate_mean),
+                "analyzers_beating_deployable_count": int(
+                    (
+                        pd.to_numeric(merged["overall_rmse"], errors="coerce")
+                        < pd.to_numeric(merged["deployable_overall_rmse"], errors="coerce")
+                    ).fillna(False).sum()
+                ),
+                "analyzers_beating_old_count": int(
+                    (
+                        pd.to_numeric(merged["overall_rmse"], errors="coerce")
+                        < pd.to_numeric(merged["old_chain_overall_rmse"], errors="coerce")
+                    ).fillna(False).sum()
+                ),
+                "beats_current_deployable": bool(candidate_mean < deployable_mean) if pd.notna(candidate_mean) and pd.notna(deployable_mean) else False,
+                "beats_old_chain": bool(candidate_mean < old_mean) if pd.notna(candidate_mean) and pd.notna(old_mean) else False,
+                "headline_eligible": False,
+                "evidence": "; ".join(
+                    f"{row.analyzer_id}={row.overall_rmse:.3f}"
+                    for row in merged.itertuples(index=False)
+                    if pd.notna(row.overall_rmse)
+                ),
+            }
+        )
+    if not rows:
+        return []
+    ordered = pd.DataFrame(rows).sort_values(
+        ["candidate_mean_overall_rmse", "candidate_id"],
+        ignore_index=True,
+    )
+    return ordered.head(1).to_dict(orient="records")
+
+
+def _water_anchor_candidate_rows(water_anchor_compare: pd.DataFrame) -> list[dict[str, Any]]:
+    if water_anchor_compare.empty:
+        return []
+    candidate_mean = float(pd.to_numeric(water_anchor_compare["water_anchor_overall_rmse"], errors="coerce").mean())
+    deployable_mean = float(pd.to_numeric(water_anchor_compare["baseline_overall_rmse"], errors="coerce").mean())
+    old_mean = float(pd.to_numeric(water_anchor_compare["old_chain_rmse"], errors="coerce").mean())
+    mode_values = sorted(
+        {
+            str(value)
+            for value in water_anchor_compare.get("water_zero_anchor_mode", pd.Series(dtype=str)).dropna().astype(str).tolist()
+            if str(value)
+        }
+    )
+    return [
+        {
+            "candidate_group": "other_diagnostic_only_candidate",
+            "candidate_id": "selected_water_zero_anchor_branch",
+            "candidate_label": ",".join(mode_values) if mode_values else "selected_water_zero_anchor_branch",
+            "candidate_scope": "diagnostic_only",
+            "candidate_mean_overall_rmse": candidate_mean,
+            "deployable_mean_overall_rmse": deployable_mean,
+            "old_chain_mean_overall_rmse": old_mean,
+            "delta_vs_deployable_mean_rmse": _delta_new_minus_old(deployable_mean, candidate_mean),
+            "improvement_vs_deployable_pct": _improvement_pct(deployable_mean, candidate_mean),
+            "delta_vs_old_chain_mean_rmse": _delta_new_minus_old(old_mean, candidate_mean),
+            "improvement_vs_old_chain_pct": _improvement_pct(old_mean, candidate_mean),
+            "analyzers_beating_deployable_count": int(
+                (
+                    pd.to_numeric(water_anchor_compare["water_anchor_overall_rmse"], errors="coerce")
+                    < pd.to_numeric(water_anchor_compare["baseline_overall_rmse"], errors="coerce")
+                ).fillna(False).sum()
+            ),
+            "analyzers_beating_old_count": int(
+                (
+                    pd.to_numeric(water_anchor_compare["water_anchor_overall_rmse"], errors="coerce")
+                    < pd.to_numeric(water_anchor_compare["old_chain_rmse"], errors="coerce")
+                ).fillna(False).sum()
+            ),
+            "beats_current_deployable": bool(candidate_mean < deployable_mean) if pd.notna(candidate_mean) and pd.notna(deployable_mean) else False,
+            "beats_old_chain": bool(candidate_mean < old_mean) if pd.notna(candidate_mean) and pd.notna(old_mean) else False,
+            "headline_eligible": False,
+            "evidence": "; ".join(
+                f"{row.analyzer_id}={row.water_anchor_overall_rmse:.3f}"
+                for row in water_anchor_compare.itertuples(index=False)
+                if pd.notna(row.water_anchor_overall_rmse)
+            ),
+        }
+    ]
+
+
+def build_old_vs_new_comparison_outputs(
+    point_reconciliation: pd.DataFrame,
+    selection_table: pd.DataFrame | None = None,
+    new_chain_input_audit: pd.DataFrame | None = None,
+    legacy_water_replay_detail: pd.DataFrame | None = None,
+    ppm_family_challenge_detail: pd.DataFrame | None = None,
+    water_anchor_compare: pd.DataFrame | None = None,
+) -> dict[str, pd.DataFrame]:
+    """Build deployable old-vs-new step-09/10 outputs."""
+
+    compare = point_reconciliation.copy()
+    selection_table = selection_table.copy() if selection_table is not None else pd.DataFrame()
+    new_chain_input_audit = new_chain_input_audit.copy() if new_chain_input_audit is not None else pd.DataFrame()
+    legacy_water_replay_detail = legacy_water_replay_detail.copy() if legacy_water_replay_detail is not None else pd.DataFrame()
+    ppm_family_challenge_detail = ppm_family_challenge_detail.copy() if ppm_family_challenge_detail is not None else pd.DataFrame()
+    water_anchor_compare = water_anchor_compare.copy() if water_anchor_compare is not None else pd.DataFrame()
+
+    if compare.empty:
+        empty = pd.DataFrame()
+        return {
+            "detail": empty,
+            "summary": empty,
+            "local_wins": empty,
+            "aggregate_segments": empty,
+            "ratio_source_audit": empty,
+            "diagnostic_candidates": empty,
+        }
+
+    compare["target_ppm"] = pd.to_numeric(compare["target_ppm"], errors="coerce")
+    compare["temp_c"] = pd.to_numeric(compare["temp_c"], errors="coerce")
+    compare["old_error"] = pd.to_numeric(compare["old_error"], errors="coerce")
+    compare["new_error"] = pd.to_numeric(compare["new_error"], errors="coerce")
+    compare["old_pred_ppm"] = pd.to_numeric(compare["old_pred_ppm"], errors="coerce")
+    compare["new_pred_ppm"] = pd.to_numeric(compare["new_pred_ppm"], errors="coerce")
+
+    detail_rows: list[dict[str, Any]] = []
+    for analyzer_id, analyzer_df in compare.groupby("analyzer_id", dropna=False):
+        selected_source_pair, actual_ratio_source, evidence = _resolve_analyzer_actual_ratio_source(
+            str(analyzer_id),
+            analyzer_df,
+            selection_table,
+            new_chain_input_audit,
+        )
+        overall = _segment_metrics(analyzer_df, "overall")
+        zero = _segment_metrics(analyzer_df, "zero")
+        low = _segment_metrics(analyzer_df, "low")
+        main = _segment_metrics(analyzer_df, "main")
+        old_overall = _metrics(analyzer_df["old_error"])
+        new_overall = _metrics(analyzer_df["new_error"])
+        winner_counts = analyzer_df.get("winner_for_point", pd.Series(dtype=str)).fillna("tie").astype(str)
+        detail_rows.append(
+            {
+                "analyzer_id": str(analyzer_id),
+                "mode2_semantic_profile": _first_text(analyzer_df, "mode2_semantic_profile", default="mode2_semantics_unknown"),
+                "mode2_legacy_raw_compare_safe": _first_bool(analyzer_df, "mode2_legacy_raw_compare_safe", default=False),
+                "selected_source_pair": selected_source_pair or _first_text(analyzer_df, "selected_source_pair", default=""),
+                "actual_ratio_source_used": actual_ratio_source,
+                "actual_ratio_source_evidence": evidence,
+                "old_chain_overall_rmse": overall["old_rmse"],
+                "new_chain_overall_rmse": overall["new_rmse"],
+                "delta_overall_rmse": overall["delta_rmse"],
+                "improvement_pct_overall": overall["improvement_pct"],
+                "old_chain_zero_rmse": zero["old_rmse"],
+                "new_chain_zero_rmse": zero["new_rmse"],
+                "delta_zero_rmse": zero["delta_rmse"],
+                "improvement_pct_zero": zero["improvement_pct"],
+                "old_chain_low_rmse": low["old_rmse"],
+                "new_chain_low_rmse": low["new_rmse"],
+                "delta_low_rmse": low["delta_rmse"],
+                "improvement_pct_low": low["improvement_pct"],
+                "old_chain_main_rmse": main["old_rmse"],
+                "new_chain_main_rmse": main["new_rmse"],
+                "delta_main_rmse": main["delta_rmse"],
+                "improvement_pct_main": main["improvement_pct"],
+                "old_chain_mae": old_overall["mae"],
+                "new_chain_mae": new_overall["mae"],
+                "point_count": int(len(analyzer_df)),
+                "pointwise_win_count": int((winner_counts == "new_chain").sum()),
+                "pointwise_loss_count": int((winner_counts == "old_chain").sum()),
+                "pointwise_tie_count": int((winner_counts == "tie").sum()),
+                "overall_win_flag": overall["win_flag"],
+                "zero_win_flag": zero["win_flag"],
+                "low_win_flag": low["win_flag"],
+                "main_win_flag": main["win_flag"],
+            }
+        )
+
+    detail_df = pd.DataFrame(detail_rows).sort_values(["analyzer_id"], ignore_index=True)
+
+    aggregate_segment_rows: list[dict[str, Any]] = []
+    for segment_tag in ("overall", "zero", "low", "main"):
+        metrics = _segment_metrics(compare, segment_tag)
+        aggregate_segment_rows.append(
+            {
+                "segment_tag": segment_tag,
+                "old_chain_rmse": metrics["old_rmse"],
+                "new_chain_rmse": metrics["new_rmse"],
+                "delta_rmse": metrics["delta_rmse"],
+                "improvement_pct": metrics["improvement_pct"],
+                "point_count": metrics["point_count"],
+                "win_flag": metrics["win_flag"],
+            }
+        )
+    aggregate_segments = pd.DataFrame(aggregate_segment_rows)
+    segment_lookup = aggregate_segments.set_index("segment_tag") if not aggregate_segments.empty else pd.DataFrame()
+
+    actual_ratio_source_used_in_this_run, actual_ratio_source_used_majority, ratio_evidence = _overall_ratio_source_used(detail_df)
+    designed_v5_ratio_source_intent = "raw_or_instantaneous_ratio"
+
+    overall_win = bool(segment_lookup.loc["overall", "win_flag"]) if not segment_lookup.empty and "overall" in segment_lookup.index else False
+    zero_win = bool(segment_lookup.loc["zero", "win_flag"]) if not segment_lookup.empty and "zero" in segment_lookup.index else False
+    low_win = bool(segment_lookup.loc["low", "win_flag"]) if not segment_lookup.empty and "low" in segment_lookup.index else False
+    main_win = bool(segment_lookup.loc["main", "win_flag"]) if not segment_lookup.empty and "main" in segment_lookup.index else False
+
+    if overall_win and zero_win and low_win and main_win:
+        overall_verdict = "current_deployable_new_chain_beats_old_chain_on_overall_zero_low_main"
+    elif overall_win:
+        overall_verdict = "current_deployable_new_chain_beats_old_chain_on_overall_but_not_all_segments"
+    else:
+        overall_verdict = "current_deployable_new_chain_does_not_yet_beat_old_chain_overall"
+
+    all_segment_wins = (
+        detail_df["overall_win_flag"].fillna(False)
+        & detail_df["zero_win_flag"].fillna(False)
+        & detail_df["low_win_flag"].fillna(False)
+        & detail_df["main_win_flag"].fillna(False)
+    )
+    partial_segment_wins = (
+        detail_df["overall_win_flag"].fillna(False)
+        | detail_df["zero_win_flag"].fillna(False)
+        | detail_df["low_win_flag"].fillna(False)
+        | detail_df["main_win_flag"].fillna(False)
+    )
+    analyzers_fully_beating_old_count = int(all_segment_wins.sum())
+    analyzers_partially_beating_old_count = int((partial_segment_wins & ~all_segment_wins).sum())
+    analyzers_still_lagging_count = int(len(detail_df) - analyzers_fully_beating_old_count - analyzers_partially_beating_old_count)
+
+    ratio_caveat = (
+        f"actual offline run used {actual_ratio_source_used_in_this_run} ratio while designed_v5_ratio_source_intent is {designed_v5_ratio_source_intent}"
+        if actual_ratio_source_used_in_this_run in {"filt", "mixed"}
+        else "headline stays locked to old_chain vs current_deployable_new_chain; diagnostic candidates remain appendix-only"
+    )
+
+    summary_row = {
+        "comparison_scope": "current_deployable_new_vs_old",
+        "overall_verdict": overall_verdict,
+        "overall_rmse_old": float(segment_lookup.loc["overall", "old_chain_rmse"]) if "overall" in segment_lookup.index else math.nan,
+        "overall_rmse_new": float(segment_lookup.loc["overall", "new_chain_rmse"]) if "overall" in segment_lookup.index else math.nan,
+        "overall_improvement_pct": float(segment_lookup.loc["overall", "improvement_pct"]) if "overall" in segment_lookup.index else math.nan,
+        "zero_rmse_old": float(segment_lookup.loc["zero", "old_chain_rmse"]) if "zero" in segment_lookup.index else math.nan,
+        "zero_rmse_new": float(segment_lookup.loc["zero", "new_chain_rmse"]) if "zero" in segment_lookup.index else math.nan,
+        "zero_improvement_pct": float(segment_lookup.loc["zero", "improvement_pct"]) if "zero" in segment_lookup.index else math.nan,
+        "low_rmse_old": float(segment_lookup.loc["low", "old_chain_rmse"]) if "low" in segment_lookup.index else math.nan,
+        "low_rmse_new": float(segment_lookup.loc["low", "new_chain_rmse"]) if "low" in segment_lookup.index else math.nan,
+        "low_improvement_pct": float(segment_lookup.loc["low", "improvement_pct"]) if "low" in segment_lookup.index else math.nan,
+        "main_rmse_old": float(segment_lookup.loc["main", "old_chain_rmse"]) if "main" in segment_lookup.index else math.nan,
+        "main_rmse_new": float(segment_lookup.loc["main", "new_chain_rmse"]) if "main" in segment_lookup.index else math.nan,
+        "main_improvement_pct": float(segment_lookup.loc["main", "improvement_pct"]) if "main" in segment_lookup.index else math.nan,
+        "analyzer_overall_wins": _count_true(detail_df["overall_win_flag"]),
+        "analyzer_zero_wins": _count_true(detail_df["zero_win_flag"]),
+        "analyzer_low_wins": _count_true(detail_df["low_win_flag"]),
+        "analyzer_main_wins": _count_true(detail_df["main_win_flag"]),
+        "total_pointwise_wins": int(detail_df["pointwise_win_count"].fillna(0).sum()),
+        "total_pointwise_losses": int(detail_df["pointwise_loss_count"].fillna(0).sum()),
+        "analyzers_fully_beating_old_count": analyzers_fully_beating_old_count,
+        "analyzers_partially_beating_old_count": analyzers_partially_beating_old_count,
+        "analyzers_still_lagging_count": analyzers_still_lagging_count,
+        "actual_ratio_source_used_in_this_run": actual_ratio_source_used_in_this_run,
+        "actual_ratio_source_used_majority": actual_ratio_source_used_majority,
+        "designed_v5_ratio_source_intent": designed_v5_ratio_source_intent,
+        "supporting_evidence_for_actual_ratio_source": ratio_evidence,
+        "main_caveat": ratio_caveat,
+        "whether_new_chain_has_overall_evidence_to_surpass_old": overall_win,
+    }
+    summary_df = pd.DataFrame([summary_row])
+
+    local = compare.copy()
+    local["temp_set_c"] = local["temp_c"]
+    local["target_value"] = local["target_ppm"]
+    local["old_value"] = local["old_pred_ppm"]
+    local["new_value"] = local["new_pred_ppm"]
+    local["abs_error_old"] = local["old_error"].abs()
+    local["abs_error_new"] = local["new_error"].abs()
+    local["improvement_abs_error"] = local["abs_error_old"] - local["abs_error_new"]
+    local["local_win_flag"] = local["improvement_abs_error"] > 1.0e-12
+    local["segment_tag"] = np.select(
+        [
+            local["target_ppm"] == 0.0,
+            (local["target_ppm"] > 0.0) & (local["target_ppm"] <= 200.0),
+            (local["target_ppm"] > 200.0) & (local["target_ppm"] <= 1000.0),
+        ],
+        ["zero", "low", "main"],
+        default="other",
+    )
+
+    local_rows: list[dict[str, Any]] = []
+    for analyzer_id, subset in local.groupby("analyzer_id", dropna=False):
+        wins = subset[subset["improvement_abs_error"] > 1.0e-12].sort_values(
+            ["improvement_abs_error", "abs_error_old", "target_ppm"],
+            ascending=[False, False, True],
+            ignore_index=True,
+        ).head(5)
+        losses = subset[subset["improvement_abs_error"] < -1.0e-12].sort_values(
+            ["improvement_abs_error", "abs_error_new", "target_ppm"],
+            ascending=[True, False, True],
+            ignore_index=True,
+        ).head(5)
+        for rank, row in enumerate(wins.itertuples(index=False), start=1):
+            local_rows.append(
+                {
+                    "analyzer_id": row.analyzer_id,
+                    "point_title": row.point_title,
+                    "point_row": row.point_row,
+                    "temp_set_c": row.temp_set_c,
+                    "target_ppm": row.target_ppm,
+                    "old_value": row.old_value,
+                    "new_value": row.new_value,
+                    "target_value": row.target_value,
+                    "abs_error_old": row.abs_error_old,
+                    "abs_error_new": row.abs_error_new,
+                    "improvement_abs_error": row.improvement_abs_error,
+                    "local_win_flag": True,
+                    "local_win_rank_within_analyzer": rank,
+                    "segment_tag": row.segment_tag,
+                }
+            )
+        for rank, row in enumerate(losses.itertuples(index=False), start=1):
+            local_rows.append(
+                {
+                    "analyzer_id": row.analyzer_id,
+                    "point_title": row.point_title,
+                    "point_row": row.point_row,
+                    "temp_set_c": row.temp_set_c,
+                    "target_ppm": row.target_ppm,
+                    "old_value": row.old_value,
+                    "new_value": row.new_value,
+                    "target_value": row.target_value,
+                    "abs_error_old": row.abs_error_old,
+                    "abs_error_new": row.abs_error_new,
+                    "improvement_abs_error": row.improvement_abs_error,
+                    "local_win_flag": False,
+                    "local_win_rank_within_analyzer": rank,
+                    "segment_tag": row.segment_tag,
+                }
+            )
+    local_wins_df = pd.DataFrame(local_rows).sort_values(
+        ["analyzer_id", "local_win_flag", "local_win_rank_within_analyzer"],
+        ascending=[True, False, True],
+        ignore_index=True,
+    ) if local_rows else pd.DataFrame(
+        columns=[
+            "analyzer_id",
+            "point_title",
+            "point_row",
+            "temp_set_c",
+            "target_ppm",
+            "old_value",
+            "new_value",
+            "target_value",
+            "abs_error_old",
+            "abs_error_new",
+            "improvement_abs_error",
+            "local_win_flag",
+            "local_win_rank_within_analyzer",
+            "segment_tag",
+        ]
+    )
+
+    diagnostic_candidate_rows: list[dict[str, Any]] = []
+    diagnostic_candidate_rows.extend(
+        _pick_best_candidate_rows(
+            legacy_water_replay_detail,
+            candidate_group="best_legacy_water_replay_candidate",
+            mode_column="water_lineage_mode",
+            baseline_mode="none",
+            label_column="water_lineage_mode",
+        )
+    )
+    diagnostic_candidate_rows.extend(
+        _pick_best_candidate_rows(
+            ppm_family_challenge_detail,
+            candidate_group="best_ppm_family_challenge_candidate",
+            mode_column="ppm_family_mode",
+            baseline_mode="current_fixed_family",
+            label_column="ppm_family_mode",
+        )
+    )
+    diagnostic_candidate_rows.extend(_water_anchor_candidate_rows(water_anchor_compare))
+    diagnostic_candidates_df = pd.DataFrame(diagnostic_candidate_rows).sort_values(
+        ["candidate_group", "candidate_mean_overall_rmse"],
+        ignore_index=True,
+    ) if diagnostic_candidate_rows else pd.DataFrame()
+
+    ratio_source_audit = pd.DataFrame(
+        [
+            {
+                "designed_v5_ratio_source_intent": designed_v5_ratio_source_intent,
+                "actual_ratio_source_used_in_this_run": actual_ratio_source_used_in_this_run,
+                "actual_ratio_source_used_majority": actual_ratio_source_used_majority,
+                "supporting_evidence_for_actual_ratio_source": ratio_evidence,
+            }
+        ]
+    )
+
+    return {
+        "detail": detail_df,
+        "summary": summary_df,
+        "local_wins": local_wins_df,
+        "aggregate_segments": aggregate_segments,
+        "ratio_source_audit": ratio_source_audit,
+        "diagnostic_candidates": diagnostic_candidates_df,
+    }

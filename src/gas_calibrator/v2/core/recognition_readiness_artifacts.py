@@ -136,6 +136,8 @@ RECOGNITION_READINESS_SUMMARY_FILENAMES = (
     VERIFICATION_ROLLUP_FILENAME,
     UNCERTAINTY_METHOD_READINESS_SUMMARY_FILENAME,
     AUDIT_READINESS_DIGEST_FILENAME,
+    COMPARISON_DIGEST_FILENAME,
+    COMPARISON_ROLLUP_FILENAME,
 )
 from .software_validation_builder import build_software_validation_wp5_artifacts
 from .uncertainty_builder import build_uncertainty_wp3_artifacts

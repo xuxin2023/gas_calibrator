@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 
 from .absorbance_models import evaluate_absorbance_models
-from .comparison import build_comparison_outputs
+from .comparison import build_comparison_outputs, build_old_vs_new_comparison_outputs
 from .cross_run import build_cross_run_summary
 from .diagnostics import (
     build_diagnostic_absorbance_points,
@@ -76,13 +76,14 @@ from ..plots.charts import (
     plot_timeseries_base_final,
     plot_upper_bound_vs_deployable,
     plot_legacy_water_replay,
+    plot_old_vs_new_comparison,
     plot_water_anchor_compare,
     plot_water_zero_anchor_models,
     plot_zero_compare,
     plot_zero_drift,
     plot_zero_residual_models,
 )
-from ..reports.renderers import render_report_html, render_report_markdown, write_workbook
+from ..reports.renderers import render_old_vs_new_report_markdown, render_report_html, render_report_markdown, write_workbook
 from .fits import clamp_positive, fit_polynomial, rolling_lowpass
 
 
@@ -1457,18 +1458,7 @@ def _comparison_tables(
     model_results: dict[str, pd.DataFrame],
     config: DebuggerConfig,
 ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame | list[str]]]:
-    point_raw = (
-        filtered.groupby(["analyzer", "point_title", "point_row", "point_tag", "temp_set_c", "target_co2_ppm"], dropna=False)
-        .agg(
-            ratio_co2_raw_mean=("ratio_co2_raw", "mean"),
-            ratio_co2_filt_mean=("ratio_co2_filt", "mean"),
-            pressure_std_hpa_mean=("pressure_std_hpa", "mean"),
-            pressure_corr_hpa_mean=("pressure_corr_hpa", "mean"),
-            temp_std_c_mean=("temp_std_c", "mean"),
-            temp_corr_c_mean=("temp_corr_c", "mean"),
-        )
-        .reset_index()
-    )
+    point_raw = build_point_raw_summary(filtered)
     selected_sources = model_results.get("selected_source_summary", pd.DataFrame()).rename(
         columns={"analyzer_id": "analyzer"}
     )
@@ -1645,6 +1635,9 @@ def _comparison_tables(
             "winner_for_point",
             "ratio_co2_raw_mean",
             "ratio_co2_filt_mean",
+            "mode2_semantic_profile",
+            "mode2_legacy_raw_compare_safe",
+            "mode2_is_baseline_bearing_profile",
             "A_raw",
             "A_mean",
             "A_from_mean",
@@ -2319,6 +2312,34 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
     _frame_to_csv(config.output_dir / "step_08x_valid_only_by_temperature.csv", comparison_outputs["by_temperature"])
     _frame_to_csv(config.output_dir / "step_08x_valid_only_zero_special.csv", comparison_outputs["zero_special"])
     _frame_to_csv(config.output_dir / "step_08x_valid_only_auto_conclusions.csv", comparison_outputs["auto_conclusions"])
+    old_vs_new_outputs = build_old_vs_new_comparison_outputs(
+        point_reconciliation=main_point_reconciliation,
+        selection_table=model_results["selection"],
+        new_chain_input_audit=new_chain_input_audit,
+        legacy_water_replay_detail=legacy_water_replay["detail"],
+        ppm_family_challenge_detail=ppm_family_challenge["detail"],
+        water_anchor_compare=water_anchor_compare,
+    )
+    _frame_to_csv(config.output_dir / "step_09_old_vs_new_comparison_detail.csv", old_vs_new_outputs["detail"])
+    _frame_to_csv(config.output_dir / "step_09_old_vs_new_comparison_summary.csv", old_vs_new_outputs["summary"])
+    _frame_to_csv(config.output_dir / "step_09_old_vs_new_local_wins.csv", old_vs_new_outputs["local_wins"])
+    plot_old_vs_new_comparison(
+        old_vs_new_outputs["aggregate_segments"],
+        old_vs_new_outputs["detail"],
+        config.output_dir / "step_09_old_vs_new_plot.png",
+    )
+    step_10_old_vs_new_report = render_old_vs_new_report_markdown(
+        {
+            "run_name": artifacts.run_name,
+            "summary": old_vs_new_outputs["summary"],
+            "detail": old_vs_new_outputs["detail"],
+            "aggregate_segments": old_vs_new_outputs["aggregate_segments"],
+            "local_wins": old_vs_new_outputs["local_wins"],
+            "ratio_source_audit": old_vs_new_outputs["ratio_source_audit"],
+            "diagnostic_candidates": old_vs_new_outputs["diagnostic_candidates"],
+        }
+    )
+    (config.output_dir / "step_10_old_vs_new_report.md").write_text(step_10_old_vs_new_report, encoding="utf-8")
     write_workbook(
         config.output_dir / "step_08_old_vs_new_compare.xlsx",
         {
@@ -2470,6 +2491,7 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         "diagnostic_results": diagnostic_results,
         "comparison_outputs": main_comparison_outputs,
         "point_reconciliation": main_point_reconciliation,
+        "old_vs_new_outputs": old_vs_new_outputs,
         "selected_source_summary": model_results["selected_source_summary"],
         "invalid_pressure_summary": invalid_pressure_summary,
         "invalid_pressure_points": invalid_pressure_points,

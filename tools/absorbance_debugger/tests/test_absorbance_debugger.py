@@ -15,6 +15,7 @@ from tools.absorbance_debugger.analysis.absorbance_models import (
     active_model_specs,
     evaluate_absorbance_models,
 )
+from tools.absorbance_debugger.analysis.comparison import build_old_vs_new_comparison_outputs
 from tools.absorbance_debugger.analysis.lineage_audit import (
     build_new_chain_input_audit,
     build_old_water_correction_audit,
@@ -50,6 +51,7 @@ from tools.absorbance_debugger.options import (
     parse_path_list,
 )
 from tools.absorbance_debugger.parsers.schema import classify_mode2_semantics
+from tools.absorbance_debugger.reports.renderers import render_old_vs_new_report_markdown
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -129,6 +131,11 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
     assert (output_dir / "step_08_auto_conclusions.csv").exists()
     assert (output_dir / "step_08y_legacy_water_replay_conclusions.csv").exists()
     assert (output_dir / "step_08y_ppm_family_challenge_conclusions.csv").exists()
+    assert (output_dir / "step_09_old_vs_new_comparison_detail.csv").exists()
+    assert (output_dir / "step_09_old_vs_new_comparison_summary.csv").exists()
+    assert (output_dir / "step_09_old_vs_new_local_wins.csv").exists()
+    assert (output_dir / "step_09_old_vs_new_plot.png").exists()
+    assert (output_dir / "step_10_old_vs_new_report.md").exists()
     assert (output_dir / "report.md").exists()
     assert (output_dir / "report.html").exists()
     assert (output_dir / "report.xlsx").exists()
@@ -336,6 +343,87 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
     assert {"summary_scope", "mode2_semantic_profile", "ppm_family_mode", "laggard_only_weighted_gap_closed_ratio_capped"} <= set(ppm_summary.columns)
     assert {"question_id", "question", "answer", "evidence", "recommended_ppm_family_mode", "mode2_semantic_profile"} <= set(ppm_conclusions.columns)
 
+    old_vs_new_detail = pd.read_csv(output_dir / "step_09_old_vs_new_comparison_detail.csv")
+    old_vs_new_summary = pd.read_csv(output_dir / "step_09_old_vs_new_comparison_summary.csv")
+    old_vs_new_local_wins = pd.read_csv(output_dir / "step_09_old_vs_new_local_wins.csv")
+    assert {
+        "analyzer_id",
+        "mode2_semantic_profile",
+        "mode2_legacy_raw_compare_safe",
+        "selected_source_pair",
+        "actual_ratio_source_used",
+        "actual_ratio_source_evidence",
+        "old_chain_overall_rmse",
+        "new_chain_overall_rmse",
+        "delta_overall_rmse",
+        "improvement_pct_overall",
+        "old_chain_zero_rmse",
+        "new_chain_zero_rmse",
+        "delta_zero_rmse",
+        "improvement_pct_zero",
+        "old_chain_low_rmse",
+        "new_chain_low_rmse",
+        "delta_low_rmse",
+        "improvement_pct_low",
+        "old_chain_main_rmse",
+        "new_chain_main_rmse",
+        "delta_main_rmse",
+        "improvement_pct_main",
+        "old_chain_mae",
+        "new_chain_mae",
+        "point_count",
+        "pointwise_win_count",
+        "pointwise_loss_count",
+        "pointwise_tie_count",
+        "overall_win_flag",
+        "zero_win_flag",
+        "low_win_flag",
+        "main_win_flag",
+    } <= set(old_vs_new_detail.columns)
+    assert {
+        "comparison_scope",
+        "overall_verdict",
+        "overall_rmse_old",
+        "overall_rmse_new",
+        "overall_improvement_pct",
+        "analyzer_overall_wins",
+        "analyzer_zero_wins",
+        "analyzer_low_wins",
+        "analyzer_main_wins",
+        "total_pointwise_wins",
+        "total_pointwise_losses",
+        "analyzers_fully_beating_old_count",
+        "analyzers_partially_beating_old_count",
+        "analyzers_still_lagging_count",
+        "actual_ratio_source_used_majority",
+        "designed_v5_ratio_source_intent",
+        "main_caveat",
+        "whether_new_chain_has_overall_evidence_to_surpass_old",
+    } <= set(old_vs_new_summary.columns)
+    assert {
+        "analyzer_id",
+        "temp_set_c",
+        "target_ppm",
+        "old_value",
+        "new_value",
+        "target_value",
+        "abs_error_old",
+        "abs_error_new",
+        "improvement_abs_error",
+        "local_win_flag",
+        "local_win_rank_within_analyzer",
+        "segment_tag",
+    } <= set(old_vs_new_local_wins.columns)
+    assert {"zero", "low", "main"} <= set(old_vs_new_local_wins["segment_tag"])
+
+    old_vs_new_report = (output_dir / "step_10_old_vs_new_report.md").read_text(encoding="utf-8")
+    assert "old_chain" in old_vs_new_report
+    assert "current_deployable_new_chain" in old_vs_new_report
+    assert "actual_ratio_source_used_in_this_run" in old_vs_new_report
+    headline_block = old_vs_new_report.split("## 2. overall comparison", 1)[0]
+    assert "best_legacy_water_replay_candidate" not in headline_block
+    assert "best_ppm_family_challenge_candidate" not in headline_block
+
 
 def test_old_water_correction_audit_and_new_chain_input_audit_can_run(tmp_path: Path) -> None:
     markdown, sources, summary = build_old_water_correction_audit()
@@ -388,6 +476,174 @@ def test_old_water_correction_audit_and_new_chain_input_audit_can_run(tmp_path: 
     assert audit["uses_h2o_ratio"].eq(False).all()
     assert audit["uses_water_baseline_or_anchor"].eq(False).all()
     assert "ratio_h2o_raw" in audit.iloc[0]["available_h2o_fields_in_samples"]
+
+
+def test_old_vs_new_final_comparison_report_keeps_deployable_headline() -> None:
+    point_reconciliation = pd.DataFrame(
+        [
+            {
+                "analyzer_id": "GA01",
+                "temp_c": 0.0,
+                "target_ppm": 0.0,
+                "old_pred_ppm": 8.0,
+                "new_pred_ppm": 3.0,
+                "old_error": 8.0,
+                "new_error": 3.0,
+                "winner_for_point": "new_chain",
+                "ratio_source_selected": "raw",
+                "selected_source_pair": "raw/raw",
+                "mode2_semantic_profile": "legacy_ratio_raw_profile",
+                "mode2_legacy_raw_compare_safe": True,
+                "point_title": "p1",
+                "point_row": 1,
+            },
+            {
+                "analyzer_id": "GA01",
+                "temp_c": 20.0,
+                "target_ppm": 100.0,
+                "old_pred_ppm": 112.0,
+                "new_pred_ppm": 104.0,
+                "old_error": 12.0,
+                "new_error": 4.0,
+                "winner_for_point": "new_chain",
+                "ratio_source_selected": "raw",
+                "selected_source_pair": "raw/raw",
+                "mode2_semantic_profile": "legacy_ratio_raw_profile",
+                "mode2_legacy_raw_compare_safe": True,
+                "point_title": "p2",
+                "point_row": 2,
+            },
+            {
+                "analyzer_id": "GA01",
+                "temp_c": 20.0,
+                "target_ppm": 400.0,
+                "old_pred_ppm": 418.0,
+                "new_pred_ppm": 406.0,
+                "old_error": 18.0,
+                "new_error": 6.0,
+                "winner_for_point": "new_chain",
+                "ratio_source_selected": "raw",
+                "selected_source_pair": "raw/raw",
+                "mode2_semantic_profile": "legacy_ratio_raw_profile",
+                "mode2_legacy_raw_compare_safe": True,
+                "point_title": "p3",
+                "point_row": 3,
+            },
+            {
+                "analyzer_id": "GA02",
+                "temp_c": 0.0,
+                "target_ppm": 0.0,
+                "old_pred_ppm": 2.0,
+                "new_pred_ppm": 5.0,
+                "old_error": 2.0,
+                "new_error": 5.0,
+                "winner_for_point": "old_chain",
+                "ratio_source_selected": "filt",
+                "selected_source_pair": "filt/filt",
+                "mode2_semantic_profile": "baseline_bearing_profile",
+                "mode2_legacy_raw_compare_safe": False,
+                "point_title": "p1",
+                "point_row": 1,
+            },
+            {
+                "analyzer_id": "GA02",
+                "temp_c": 20.0,
+                "target_ppm": 100.0,
+                "old_pred_ppm": 104.0,
+                "new_pred_ppm": 109.0,
+                "old_error": 4.0,
+                "new_error": 9.0,
+                "winner_for_point": "old_chain",
+                "ratio_source_selected": "filt",
+                "selected_source_pair": "filt/filt",
+                "mode2_semantic_profile": "baseline_bearing_profile",
+                "mode2_legacy_raw_compare_safe": False,
+                "point_title": "p2",
+                "point_row": 2,
+            },
+            {
+                "analyzer_id": "GA02",
+                "temp_c": 20.0,
+                "target_ppm": 400.0,
+                "old_pred_ppm": 407.0,
+                "new_pred_ppm": 413.0,
+                "old_error": 7.0,
+                "new_error": 13.0,
+                "winner_for_point": "old_chain",
+                "ratio_source_selected": "filt",
+                "selected_source_pair": "filt/filt",
+                "mode2_semantic_profile": "baseline_bearing_profile",
+                "mode2_legacy_raw_compare_safe": False,
+                "point_title": "p3",
+                "point_row": 3,
+            },
+        ]
+    )
+    selection = pd.DataFrame(
+        [
+            {"analyzer_id": "GA01", "selected_source_pair": "raw/raw", "selected_ratio_source": "ratio_co2_raw"},
+            {"analyzer_id": "GA02", "selected_source_pair": "filt/filt", "selected_ratio_source": "ratio_co2_filt"},
+        ]
+    )
+    new_chain_input_audit = pd.DataFrame(
+        [
+            {"audit_scope": "per_analyzer_selected_main_chain", "analyzer_id": "GA01", "R_in_source": "ratio_co2_raw", "R0_fit_source": "ratio_co2_raw"},
+            {"audit_scope": "per_analyzer_selected_main_chain", "analyzer_id": "GA02", "R_in_source": "ratio_co2_filt", "R0_fit_source": "ratio_co2_filt"},
+        ]
+    )
+    legacy_water_replay_detail = pd.DataFrame(
+        [
+            {"analyzer_id": "GA01", "water_lineage_mode": "none", "overall_rmse": 5.0, "old_chain_overall_rmse": 9.0},
+            {"analyzer_id": "GA02", "water_lineage_mode": "none", "overall_rmse": 10.0, "old_chain_overall_rmse": 6.0},
+            {"analyzer_id": "GA01", "water_lineage_mode": "simplified_subzero_anchor", "overall_rmse": 4.0, "old_chain_overall_rmse": 9.0},
+            {"analyzer_id": "GA02", "water_lineage_mode": "simplified_subzero_anchor", "overall_rmse": 8.0, "old_chain_overall_rmse": 6.0},
+        ]
+    )
+    ppm_family_detail = pd.DataFrame(
+        [
+            {"analyzer_id": "GA01", "ppm_family_mode": "current_fixed_family", "overall_rmse": 5.0, "old_chain_overall_rmse": 9.0},
+            {"analyzer_id": "GA02", "ppm_family_mode": "current_fixed_family", "overall_rmse": 10.0, "old_chain_overall_rmse": 6.0},
+            {"analyzer_id": "GA01", "ppm_family_mode": "legacy_humidity_cross_D", "overall_rmse": 4.5, "old_chain_overall_rmse": 9.0},
+            {"analyzer_id": "GA02", "ppm_family_mode": "legacy_humidity_cross_D", "overall_rmse": 8.5, "old_chain_overall_rmse": 6.0},
+        ]
+    )
+    water_anchor_compare = pd.DataFrame(
+        [
+            {"analyzer_id": "GA01", "baseline_overall_rmse": 5.0, "water_anchor_overall_rmse": 4.4, "old_chain_rmse": 9.0, "water_zero_anchor_mode": "linear"},
+            {"analyzer_id": "GA02", "baseline_overall_rmse": 10.0, "water_anchor_overall_rmse": 8.2, "old_chain_rmse": 6.0, "water_zero_anchor_mode": "linear"},
+        ]
+    )
+
+    outputs = build_old_vs_new_comparison_outputs(
+        point_reconciliation=point_reconciliation,
+        selection_table=selection,
+        new_chain_input_audit=new_chain_input_audit,
+        legacy_water_replay_detail=legacy_water_replay_detail,
+        ppm_family_challenge_detail=ppm_family_detail,
+        water_anchor_compare=water_anchor_compare,
+    )
+
+    assert {"comparison_scope", "overall_verdict", "actual_ratio_source_used_majority"} <= set(outputs["summary"].columns)
+    assert {"actual_ratio_source_used", "actual_ratio_source_evidence"} <= set(outputs["detail"].columns)
+    assert {"local_win_flag", "local_win_rank_within_analyzer", "segment_tag"} <= set(outputs["local_wins"].columns)
+
+    report = render_old_vs_new_report_markdown(
+        {
+            "run_name": "synthetic_run",
+            "summary": outputs["summary"],
+            "detail": outputs["detail"],
+            "aggregate_segments": outputs["aggregate_segments"],
+            "local_wins": outputs["local_wins"],
+            "ratio_source_audit": outputs["ratio_source_audit"],
+            "diagnostic_candidates": outputs["diagnostic_candidates"],
+        }
+    )
+
+    assert "headline_comparison_scope = old_chain vs current_deployable_new_chain" in report
+    assert "actual_ratio_source_used_in_this_run = mixed" in report
+    headline_block = report.split("## 2. overall comparison", 1)[0]
+    assert "best_legacy_water_replay_candidate" not in headline_block
+    assert "best_ppm_family_challenge_candidate" not in headline_block
 
 
 def test_zero_residual_fit_and_compare_can_run(tmp_path: Path) -> None:
