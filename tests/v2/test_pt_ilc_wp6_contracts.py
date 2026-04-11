@@ -1120,3 +1120,186 @@ class TestReviewerSurfaceStep2Boundary:
         for key, label in WP6_CLOSEOUT_DISPLAY_LABELS_EN.items():
             assert "real acceptance" not in label.lower()
 
+
+# ---------------------------------------------------------------------------
+# Step 2.3: Reviewer payload extraction unification tests
+# ---------------------------------------------------------------------------
+
+
+class TestReviewerSurfacePayloadsHelper:
+    """Shared payload extraction helper must work correctly."""
+
+    def test_extract_from_full_payload(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import extract_wp6_closeout_payloads
+        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_ARTIFACT_KEYS
+        source = {key: {"data": key} for key in WP6_CLOSEOUT_ARTIFACT_KEYS}
+        result = extract_wp6_closeout_payloads(source)
+        assert tuple(result.keys()) == WP6_CLOSEOUT_ARTIFACT_KEYS
+        for key in WP6_CLOSEOUT_ARTIFACT_KEYS:
+            assert result[key] == {"data": key}
+
+    def test_extract_missing_keys_return_empty_dict(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import extract_wp6_closeout_payloads
+        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_ARTIFACT_KEYS
+        result = extract_wp6_closeout_payloads({})
+        assert tuple(result.keys()) == WP6_CLOSEOUT_ARTIFACT_KEYS
+        for key in WP6_CLOSEOUT_ARTIFACT_KEYS:
+            assert result[key] == {}
+
+    def test_extract_missing_keys_return_none_when_disabled(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import extract_wp6_closeout_payloads
+        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_ARTIFACT_KEYS
+        result = extract_wp6_closeout_payloads({}, default_empty=False)
+        for key in WP6_CLOSEOUT_ARTIFACT_KEYS:
+            assert result[key] is None
+
+    def test_extract_partial_payload(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import extract_wp6_closeout_payloads
+        source = {"pt_ilc_registry": {"items": [1, 2, 3]}}
+        result = extract_wp6_closeout_payloads(source)
+        assert result["pt_ilc_registry"] == {"items": [1, 2, 3]}
+        assert result["comparison_rollup"] == {}
+
+    def test_extract_preserves_key_order(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import extract_wp6_closeout_payloads
+        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_ARTIFACT_KEYS
+        # Provide keys in reverse order to verify extraction preserves canonical order
+        source = {key: {"v": 1} for key in reversed(WP6_CLOSEOUT_ARTIFACT_KEYS)}
+        result = extract_wp6_closeout_payloads(source)
+        assert tuple(result.keys()) == WP6_CLOSEOUT_ARTIFACT_KEYS
+
+    def test_enriched_extraction(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import extract_wp6_closeout_enriched
+        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_ARTIFACT_KEYS
+        source = {"pt_ilc_registry": {"data": "test"}}
+        result = extract_wp6_closeout_enriched(source)
+        assert len(result) == 7
+        assert result[0]["key"] == "pt_ilc_registry"
+        assert result[0]["payload"] == {"data": "test"}
+        assert result[0]["filename"] == "pt_ilc_registry.json"
+        assert result[0]["display_label"] == "PT/ILC 比对注册表"
+        assert result[0]["role"] == "execution_summary"
+        # Last item is step2_closeout_digest
+        assert result[-1]["key"] == "step2_closeout_digest"
+        assert "收口" in result[-1]["display_label"] or "Step 2" in result[-1]["display_label"]
+
+    def test_readiness_pairs_builder(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import build_wp6_closeout_readiness_pairs
+        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_ARTIFACT_KEYS
+        source = {"pt_ilc_registry": {"data": "test"}, "comparison_rollup": {"summary": "ok"}}
+        pairs = build_wp6_closeout_readiness_pairs(source)
+        assert len(pairs) == 7
+        assert pairs[0][0] == "pt_ilc_registry.json"
+        assert pairs[0][1] == {"data": "test"}
+        assert pairs[5][0] == "comparison_rollup.json"
+        assert pairs[5][1] == {"summary": "ok"}
+
+
+class TestPayloadExtractionUsedByConsumers:
+    """historical_artifacts / app_facade / device_workbench must use the shared helper."""
+
+    def test_historical_artifacts_uses_extract_helper(self) -> None:
+        import gas_calibrator.v2.scripts.historical_artifacts as ha
+        import inspect
+        source = inspect.getsource(ha)
+        assert "_extract_wp6_closeout_payloads" in source
+
+    def test_app_facade_uses_extract_helper(self) -> None:
+        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
+        import inspect
+        source = inspect.getsource(af)
+        assert "_extract_wp6_closeout_payloads" in source
+        assert "_build_wp6_closeout_readiness_pairs" in source
+
+    def test_device_workbench_uses_extract_helper(self) -> None:
+        import gas_calibrator.v2.ui_v2.controllers.device_workbench as dw
+        import inspect
+        source = inspect.getsource(dw)
+        assert "_extract_wp6_closeout_payloads" in source
+
+    def test_historical_artifacts_extraction_order_matches_contracts(self) -> None:
+        import gas_calibrator.v2.scripts.historical_artifacts as ha
+        import inspect
+        source = inspect.getsource(ha)
+        # Verify the extraction uses the helper which guarantees order
+        assert "_wp6_closeout = _extract_wp6_closeout_payloads" in source
+
+    def test_device_workbench_extraction_order_matches_contracts(self) -> None:
+        import gas_calibrator.v2.ui_v2.controllers.device_workbench as dw
+        import inspect
+        source = inspect.getsource(dw)
+        assert "_wp6_closeout = _extract_wp6_closeout_payloads" in source
+
+    def test_app_facade_extraction_order_matches_contracts(self) -> None:
+        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
+        import inspect
+        source = inspect.getsource(af)
+        assert "_wp6_closeout = _extract_wp6_closeout_payloads" in source
+
+
+class TestPayloadExtractionDefaultBehavior:
+    """Missing payload must not break review surface."""
+
+    def test_empty_source_does_not_raise(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import (
+            extract_wp6_closeout_payloads,
+            extract_wp6_closeout_enriched,
+            build_wp6_closeout_readiness_pairs,
+        )
+        # All three helpers must handle empty source gracefully
+        result = extract_wp6_closeout_payloads({})
+        assert len(result) == 7
+        enriched = extract_wp6_closeout_enriched({})
+        assert len(enriched) == 7
+        pairs = build_wp6_closeout_readiness_pairs({})
+        assert len(pairs) == 7
+
+    def test_none_values_treated_as_empty(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import extract_wp6_closeout_payloads
+        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_ARTIFACT_KEYS
+        source = {key: None for key in WP6_CLOSEOUT_ARTIFACT_KEYS}
+        result = extract_wp6_closeout_payloads(source)
+        for key in WP6_CLOSEOUT_ARTIFACT_KEYS:
+            assert result[key] == {}
+
+    def test_closeout_digest_still_visible_in_helper(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import extract_wp6_closeout_payloads
+        source = {"step2_closeout_digest": {"title": "收口摘要", "non_claim": True}}
+        result = extract_wp6_closeout_payloads(source)
+        assert result["step2_closeout_digest"]["title"] == "收口摘要"
+        assert result["step2_closeout_digest"]["non_claim"] is True
+
+    def test_closeout_digest_label_filename_role_consistent(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import extract_wp6_closeout_enriched
+        from gas_calibrator.v2.core.reviewer_surface_contracts import (
+            WP6_CLOSEOUT_DISPLAY_LABELS,
+            WP6_CLOSEOUT_ARTIFACT_ROLES,
+            WP6_CLOSEOUT_FILENAME_MAP,
+        )
+        enriched = extract_wp6_closeout_enriched({})
+        closeout = enriched[-1]  # Last item is step2_closeout_digest
+        assert closeout["key"] == "step2_closeout_digest"
+        assert closeout["display_label"] == WP6_CLOSEOUT_DISPLAY_LABELS["step2_closeout_digest"]
+        assert closeout["role"] == WP6_CLOSEOUT_ARTIFACT_ROLES["step2_closeout_digest"]
+        assert closeout["filename"] == WP6_CLOSEOUT_FILENAME_MAP["step2_closeout_digest"][0]
+
+
+class TestPayloadExtractionStep2Boundary:
+    """Payload extraction helpers must maintain Step 2 boundary."""
+
+    def test_helper_does_not_introduce_real_paths(self) -> None:
+        import gas_calibrator.v2.core.reviewer_surface_payloads as rsp
+        import inspect
+        source = inspect.getsource(rsp)
+        assert "COM" not in source
+        assert "serial" not in source
+        assert "real_device" not in source
+
+    def test_helper_does_not_claim_real_acceptance(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import extract_wp6_closeout_enriched
+        enriched = extract_wp6_closeout_enriched({})
+        for item in enriched:
+            # Labels must not contain "real acceptance" language
+            assert "real acceptance" not in item["display_label"].lower()
+            assert "real acceptance" not in item["display_label_en"].lower()
+
