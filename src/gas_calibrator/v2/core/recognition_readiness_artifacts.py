@@ -145,6 +145,7 @@ RECOGNITION_READINESS_SUMMARY_FILENAMES = (
 from .software_validation_builder import build_software_validation_wp5_artifacts
 from .uncertainty_builder import build_uncertainty_wp3_artifacts
 from .wp6_builder import build_wp6_artifacts
+from .wp6_builder import build_step2_closeout_digest
 
 RECOGNITION_READINESS_BOUNDARY_STATEMENTS = [
     "Step 2 reviewer readiness only",
@@ -986,6 +987,21 @@ def build_recognition_readiness_artifacts(
         "scope_comparison_view": dict(wp6_artifacts.get("scope_comparison_view") or {}),
         "comparison_digest": dict(wp6_artifacts.get("comparison_digest") or {}),
         "comparison_rollup": dict(wp6_artifacts.get("comparison_rollup") or {}),
+        "step2_closeout_digest": build_step2_closeout_digest(
+            run_id=run_id,
+            scope_definition_pack=scope_definition_pack,
+            decision_rule_profile=decision_rule_profile,
+            reference_asset_registry=reference_asset_registry,
+            certificate_lifecycle_summary=certificate_lifecycle_summary,
+            pre_run_readiness_gate=pre_run_readiness_gate,
+            uncertainty_report_pack=dict(uncertainty_wp3_artifacts.get("uncertainty_report_pack") or {}),
+            uncertainty_rollup=dict(uncertainty_wp3_artifacts.get("uncertainty_rollup") or {}),
+            method_confirmation_protocol=method_confirmation_protocol,
+            verification_digest=verification_digest,
+            software_validation_rollup=dict(software_validation_wp5_artifacts.get("software_validation_rollup") or {}),
+            comparison_rollup=dict(wp6_artifacts.get("comparison_rollup") or {}),
+            boundary_statements=list(RECOGNITION_READINESS_BOUNDARY_STATEMENTS),
+        ),
     }
     return _enrich_recognition_readiness_artifacts(
         artifacts=artifacts,

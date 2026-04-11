@@ -1039,6 +1039,72 @@ def plot_old_vs_new_comparison(
     _finalize(fig, output_path)
 
 
+def plot_source_policy_challenge(summary: pd.DataFrame, detail: pd.DataFrame, output_path: Path) -> None:
+    """Plot diagnostic-only source policy challenge summaries."""
+
+    if summary.empty and detail.empty:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No source policy challenge data available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+
+    fig, axes = plt.subplots(3, 1, figsize=(12, 12), squeeze=False)
+
+    summary_ax = axes[0, 0]
+    if summary.empty:
+        summary_ax.text(0.5, 0.5, "No source policy summary available", ha="center", va="center")
+        summary_ax.axis("off")
+    else:
+        ordered = summary.set_index("source_policy_mode").reindex(
+            ["current_deployable_mixed", "raw_first_with_fallback", "raw_only_strict", "filt_only_strict"]
+        )
+        x = np.arange(len(ordered), dtype=float)
+        summary_ax.bar(x, ordered["overall_rmse"], color=["#4d4d4d", "#1f78b4", "#33a02c", "#ff7f00"])
+        summary_ax.set_xticks(x)
+        summary_ax.set_xticklabels(["current_mixed", "raw_first", "raw_only", "filt_only"], rotation=15, ha="right")
+        summary_ax.set_title("Fixed-chain source policy challenge: overall RMSE")
+        summary_ax.set_ylabel("RMSE (ppm)")
+        summary_ax.grid(alpha=0.2, axis="y")
+
+    delta_ax = axes[1, 0]
+    raw_first = detail[detail["source_policy_mode"] == "raw_first_with_fallback"].copy()
+    if raw_first.empty:
+        delta_ax.text(0.5, 0.5, "No raw-first per-analyzer comparison available", ha="center", va="center")
+        delta_ax.axis("off")
+    else:
+        raw_first = raw_first.sort_values(["delta_vs_current_mixed_overall", "analyzer_id"], ascending=[False, True], ignore_index=True)
+        y = np.arange(len(raw_first), dtype=float)
+        colors = ["#33a02c" if float(value) > 0.0 else "#e31a1c" for value in raw_first["delta_vs_current_mixed_overall"].fillna(0.0)]
+        delta_ax.barh(y, raw_first["delta_vs_current_mixed_overall"], color=colors)
+        delta_ax.axvline(0.0, color="black", linewidth=0.9)
+        delta_ax.set_yticks(y)
+        delta_ax.set_yticklabels(raw_first["analyzer_id"].astype(str).tolist())
+        delta_ax.invert_yaxis()
+        delta_ax.set_title("raw_first_with_fallback vs current_deployable_mixed")
+        delta_ax.set_xlabel("Delta overall RMSE vs current mixed (positive is better)")
+        delta_ax.grid(alpha=0.2, axis="x")
+
+    counts_ax = axes[2, 0]
+    if summary.empty:
+        counts_ax.text(0.5, 0.5, "No source policy counts available", ha="center", va="center")
+        counts_ax.axis("off")
+    else:
+        ordered = summary.set_index("source_policy_mode").reindex(
+            ["current_deployable_mixed", "raw_first_with_fallback", "raw_only_strict", "filt_only_strict"]
+        )
+        x = np.arange(len(ordered), dtype=float)
+        counts_ax.bar(x - 0.18, ordered["analyzers_beating_current_mixed_count"], width=0.36, label="beat current mixed", color="#33a02c")
+        counts_ax.bar(x + 0.18, ordered["analyzers_beating_old_count"], width=0.36, label="beat old_chain", color="#1f78b4")
+        counts_ax.set_xticks(x)
+        counts_ax.set_xticklabels(["current_mixed", "raw_first", "raw_only", "filt_only"], rotation=15, ha="right")
+        counts_ax.set_title("Source policy challenge: analyzer win counts")
+        counts_ax.set_ylabel("Analyzer count")
+        counts_ax.grid(alpha=0.2, axis="y")
+        counts_ax.legend(fontsize=8)
+
+    _finalize(fig, output_path)
+
+
 def plot_cross_run_summary(data: pd.DataFrame, output_path: Path) -> None:
     """Plot old-vs-new RMSE across runs for each analyzer."""
 

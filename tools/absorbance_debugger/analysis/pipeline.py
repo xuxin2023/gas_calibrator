@@ -31,6 +31,7 @@ from .lineage_audit import build_new_chain_input_audit, build_old_water_correcti
 from .legacy_water_replay import run_legacy_water_replay_diagnostic
 from .ppm_family_challenge import run_fixed_chain_ppm_family_challenge
 from .pressure_assessment import build_pressure_data_assessment
+from .source_policy import build_source_policy_challenge, build_source_selection_audit
 from .water_zero_anchor import (
     build_water_anchor_compare,
     build_water_zero_anchor_features,
@@ -72,6 +73,7 @@ from ..plots.charts import (
     plot_pressure_compare,
     plot_ratio_series,
     plot_r0_fit,
+    plot_source_policy_challenge,
     plot_temperature_fit,
     plot_timeseries_base_final,
     plot_upper_bound_vs_deployable,
@@ -2112,6 +2114,15 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         zero_residual_selection=zero_residual_selection,
     )
     _frame_to_csv(config.output_dir / "step_00z_new_chain_input_audit.csv", new_chain_input_audit)
+    source_selection_audit_outputs = build_source_selection_audit(
+        filtered=filtered,
+        absorbance_points=absorbance_points,
+        model_results=model_results,
+        config=config,
+    )
+    _frame_to_csv(config.output_dir / "step_06x_source_selection_audit_detail.csv", source_selection_audit_outputs["detail"])
+    _frame_to_csv(config.output_dir / "step_06x_source_selection_audit_summary.csv", source_selection_audit_outputs["summary"])
+    _frame_to_csv(config.output_dir / "step_08x_source_selection_audit_conclusions.csv", source_selection_audit_outputs["conclusions"])
     old_ratio_residuals = _load_old_ratio_residuals(bundle)
     legacy_water_replay = run_legacy_water_replay_diagnostic(
         water_lineage_samples=water_lineage_samples,
@@ -2312,6 +2323,19 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
     _frame_to_csv(config.output_dir / "step_08x_valid_only_by_temperature.csv", comparison_outputs["by_temperature"])
     _frame_to_csv(config.output_dir / "step_08x_valid_only_zero_special.csv", comparison_outputs["zero_special"])
     _frame_to_csv(config.output_dir / "step_08x_valid_only_auto_conclusions.csv", comparison_outputs["auto_conclusions"])
+    source_policy_challenge_outputs = build_source_policy_challenge(
+        point_reconciliation=main_point_reconciliation,
+        model_results=model_results,
+        config=config,
+    )
+    _frame_to_csv(config.output_dir / "step_06x_source_policy_challenge_detail.csv", source_policy_challenge_outputs["detail"])
+    _frame_to_csv(config.output_dir / "step_06x_source_policy_challenge_summary.csv", source_policy_challenge_outputs["summary"])
+    _frame_to_csv(config.output_dir / "step_08x_source_policy_challenge_conclusions.csv", source_policy_challenge_outputs["conclusions"])
+    plot_source_policy_challenge(
+        source_policy_challenge_outputs["summary"],
+        source_policy_challenge_outputs["detail"],
+        config.output_dir / "step_06x_source_policy_challenge_plot.png",
+    )
     old_vs_new_outputs = build_old_vs_new_comparison_outputs(
         point_reconciliation=main_point_reconciliation,
         selection_table=model_results["selection"],
@@ -2337,6 +2361,10 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
             "local_wins": old_vs_new_outputs["local_wins"],
             "ratio_source_audit": old_vs_new_outputs["ratio_source_audit"],
             "diagnostic_candidates": old_vs_new_outputs["diagnostic_candidates"],
+            "source_selection_audit_summary": source_selection_audit_outputs["summary"],
+            "source_selection_audit_conclusions": source_selection_audit_outputs["conclusions"],
+            "source_policy_challenge_summary": source_policy_challenge_outputs["summary"],
+            "source_policy_challenge_conclusions": source_policy_challenge_outputs["conclusions"],
         }
     )
     (config.output_dir / "step_10_old_vs_new_report.md").write_text(step_10_old_vs_new_report, encoding="utf-8")
@@ -2492,6 +2520,8 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         "comparison_outputs": main_comparison_outputs,
         "point_reconciliation": main_point_reconciliation,
         "old_vs_new_outputs": old_vs_new_outputs,
+        "source_selection_audit_outputs": source_selection_audit_outputs,
+        "source_policy_challenge_outputs": source_policy_challenge_outputs,
         "selected_source_summary": model_results["selected_source_summary"],
         "invalid_pressure_summary": invalid_pressure_summary,
         "invalid_pressure_points": invalid_pressure_points,

@@ -235,6 +235,10 @@ def render_old_vs_new_report_markdown(report: Mapping[str, object]) -> str:
     local_wins = report["local_wins"]
     ratio_source_audit = report["ratio_source_audit"]
     diagnostic_candidates = report["diagnostic_candidates"]
+    source_selection_audit_summary = report.get("source_selection_audit_summary", pd.DataFrame())
+    source_selection_audit_conclusions = report.get("source_selection_audit_conclusions", pd.DataFrame())
+    source_policy_challenge_summary = report.get("source_policy_challenge_summary", pd.DataFrame())
+    source_policy_challenge_conclusions = report.get("source_policy_challenge_conclusions", pd.DataFrame())
     summary_row = summary.iloc[0] if not summary.empty else pd.Series(dtype=object)
     ratio_row = ratio_source_audit.iloc[0] if not ratio_source_audit.empty else pd.Series(dtype=object)
 
@@ -324,7 +328,7 @@ def render_old_vs_new_report_markdown(report: Mapping[str, object]) -> str:
             lines.append(_table_to_markdown(loss_rows, max_rows=5))
             lines.append("")
     lines.append("## 5. ratio source audit")
-    lines.append("- designed_v5_ratio_source_intent = raw_or_instantaneous_ratio")
+    lines.append("- designed_v5_ratio_source_intent = raw_or_instantaneous")
     lines.append(
         "- actual_ratio_source_used_in_this_run = "
         + str(ratio_row.get("actual_ratio_source_used_in_this_run", summary_row.get("actual_ratio_source_used_in_this_run", "unknown")))
@@ -343,7 +347,52 @@ def render_old_vs_new_report_markdown(report: Mapping[str, object]) -> str:
         "but this offline run still selects matched raw/raw or filt/filt branches per analyzer during fitting."
     )
     lines.append("")
-    lines.append("## 6. diagnostic candidates appendix")
+    lines.append("## 6. source selection audit")
+    if not source_selection_audit_summary.empty:
+        overall_audit = source_selection_audit_summary[source_selection_audit_summary["summary_scope"] == "overall"]
+        overall_row = overall_audit.iloc[0] if not overall_audit.empty else pd.Series(dtype=object)
+        lines.append("- why_selected_source_pair_became_mixed = " + str(overall_row.get("why_selected_source_pair_became_mixed", "")))
+        lines.append("- selection_reason_primary = " + "; ".join(
+            f"{row.analyzer_id}={row.selection_reason_primary}"
+            for row in source_selection_audit_summary[source_selection_audit_summary["summary_scope"] == "per_analyzer"].itertuples(index=False)
+        ))
+        audit_view = source_selection_audit_summary[
+            source_selection_audit_summary["summary_scope"] == "per_analyzer"
+        ][
+            [
+                "analyzer_id",
+                "selected_source_pair",
+                "selection_reason_primary",
+                "selection_reason_secondary",
+                "raw_score_if_forced",
+                "filt_score_if_forced",
+            ]
+        ]
+        lines.append(_table_to_markdown(audit_view, max_rows=12))
+    else:
+        lines.append("_No source selection audit summary available._")
+    if not source_selection_audit_conclusions.empty:
+        lines.append("")
+        lines.append(_table_to_markdown(source_selection_audit_conclusions, max_rows=12))
+    lines.append("")
+    lines.append("## 7. source policy challenge")
+    if not source_policy_challenge_summary.empty:
+        raw_first_row = source_policy_challenge_summary[
+            source_policy_challenge_summary["source_policy_mode"] == "raw_first_with_fallback"
+        ]
+        raw_first_row = raw_first_row.iloc[0] if not raw_first_row.empty else pd.Series(dtype=object)
+        lines.append(
+            "- whether_raw_first_improves_current_deployable_result = "
+            + str(raw_first_row.get("whether_improves_current_deployable_result", False))
+        )
+        lines.append(_table_to_markdown(source_policy_challenge_summary, max_rows=12))
+    else:
+        lines.append("_No source policy challenge summary available._")
+    if not source_policy_challenge_conclusions.empty:
+        lines.append("")
+        lines.append(_table_to_markdown(source_policy_challenge_conclusions, max_rows=12))
+    lines.append("")
+    lines.append("## 8. diagnostic candidates appendix")
     lines.append("- The headline above remains locked to old_chain vs current_deployable_new_chain. Everything below is diagnostic-only and not a deployable conclusion.")
     if diagnostic_candidates.empty:
         lines.append("_No diagnostic-only candidate summary available._")
