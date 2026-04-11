@@ -457,6 +457,7 @@ def _build_run_report(
         "linked_test_suites": list(release_manifest.get("linked_test_suites") or []),
         "software_validation_rollup": software_validation_rollup,
         "pt_ilc_registry": pt_ilc_registry,
+        "external_comparison_importer": external_comparison_importer,
         "comparison_evidence_pack": comparison_evidence_pack,
         "scope_comparison_view": scope_comparison_view,
         "comparison_digest": comparison_digest_payload,
