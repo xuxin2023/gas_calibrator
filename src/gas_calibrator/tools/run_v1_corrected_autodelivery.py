@@ -281,7 +281,7 @@ def compute_pressure_offset_rows(
         "pressure_gauge_hpa",
         "PressureGaugeHpa",
     ]
-    controller_candidates = ["鍘嬪姏鎺у埗鍣ㄥ帇鍔沨Pa", "pressure_controller_hpa", "PressureControllerHpa"]
+    controller_candidates = ["压力控制器压力hPa", "pressure_controller_hpa", "PressureControllerHpa"]
     gauge_col = next((column for column in gauge_candidates if column in frame.columns), None)
     controller_col = next((column for column in controller_candidates if column in frame.columns), None)
     ref_candidates = list(gauge_candidates)

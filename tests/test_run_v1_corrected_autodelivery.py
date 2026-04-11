@@ -86,6 +86,38 @@ def test_compute_pressure_offset_rows_uses_ambient_pressure_gauge_samples(tmp_pa
     assert str(row["Command"]).startswith("SENCO9,YGAS,FFF,-1.09000e00,1.00000e00")
 
 
+def test_compute_pressure_offset_rows_marks_large_gauge_controller_gap_as_not_recommended(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run_2_backpressure"
+    run_dir.mkdir()
+    device_id_col = "气体分析仪1_设备ID"
+    pressure_col = "气体分析仪1_分析仪压力kPa"
+    usable_col = "气体分析仪1_分析仪可用帧"
+    frame = pd.DataFrame(
+        [
+            {
+                "PressureMode": "ambient_open",
+                "pressure_gauge_hpa": 1019.0 + idx * 0.1,
+                "pressure_controller_hpa": 1014.0 + idx * 0.1,
+                device_id_col: "005",
+                pressure_col: 103.0 + idx * 0.01,
+                usable_col: True,
+            }
+            for idx in range(5)
+        ]
+    )
+    frame.to_csv(run_dir / "samples_20260407.csv", index=False, encoding="utf-8-sig")
+
+    rows = module.compute_pressure_offset_rows(run_dir, fallback_to_controller=True)
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["GaugeControllerOverlapSamples"] == 5
+    assert abs(float(row["GaugeControllerMeanAbsDiff_hPa"]) - 5.0) < 1e-9
+    assert abs(float(row["GaugeControllerMaxAbsDiff_hPa"]) - 5.0) < 1e-9
+    assert row["PressureWriteRecommended"] is False
+    assert row["PressureWriteReason"] == "ambient_open_backpressure_too_large"
+
+
 def test_load_startup_pressure_calibration_rows_uses_latest_summary(tmp_path: Path) -> None:
     run_dir = tmp_path / "run_3"
     older = run_dir / "startup_pressure_sensor_calibration_20260407_120000"
@@ -215,6 +247,78 @@ def test_write_coefficients_to_live_devices_can_skip_pressure_rows(tmp_path: Pat
 
     assert 9 not in writes
     assert result["summary_rows"][0]["MatchedGroups"] == 2
+
+
+def test_write_coefficients_to_live_devices_skips_unrecommended_pressure_rows(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        module,
+        "scan_live_targets",
+        lambda *_args, **_kwargs: [
+            {
+                "Analyzer": "GA01",
+                "Port": "COM35",
+                "Baudrate": 115200,
+                "Timeout": 0.6,
+                "ConfiguredDeviceId": "005",
+                "LiveDeviceId": "005",
+                "ActiveSend": True,
+                "FtdHz": 10,
+                "AverageFilter": 49,
+            }
+        ],
+    )
+
+    writes: list[int] = []
+
+    class _FakeGasAnalyzer:
+        def __init__(self, *args, **kwargs) -> None:
+            return None
+
+        def open(self) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+        def set_comm_way_with_ack(self, *args, **kwargs) -> bool:
+            return True
+
+        def set_mode_with_ack(self, *args, **kwargs) -> bool:
+            return True
+
+        def set_active_freq_with_ack(self, *args, **kwargs) -> bool:
+            return True
+
+        def set_average_filter_with_ack(self, *args, **kwargs) -> bool:
+            return True
+
+        def set_senco(self, group: int, coeffs) -> bool:
+            writes.append(int(group))
+            return True
+
+    monkeypatch.setattr(module, "GasAnalyzer", _FakeGasAnalyzer)
+
+    result = module.write_coefficients_to_live_devices(
+        cfg={},
+        output_dir=tmp_path / "write_out_skip_pressure",
+        download_plan_rows=[],
+        temperature_rows=[],
+        pressure_rows=[
+            {
+                "Analyzer": "GA01",
+                "OffsetA_kPa": -2.5,
+                "PressureWriteRecommended": False,
+                "PressureWriteReason": "ambient_open_backpressure_too_large",
+            }
+        ],
+        actual_device_ids={"GA01": "005"},
+        write_pressure_rows=True,
+    )
+
+    assert writes == []
+    assert result["summary_rows"][0]["ExpectedGroups"] == 0
+    assert result["detail_rows"][0]["Group"] == 9
+    assert result["detail_rows"][0]["Error"] == "SKIPPED_PRESSURE_WRITE:ambient_open_backpressure_too_large"
 
 
 def test_write_coefficients_to_live_devices_retries_transient_readback_failure(tmp_path: Path, monkeypatch) -> None:
