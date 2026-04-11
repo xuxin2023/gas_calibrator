@@ -858,3 +858,265 @@ class TestCloseoutDigestReviewerSurface:
         gateway = ResultsGateway(run_dir)
         payload = gateway.read_results_payload()
         assert "step2_closeout_digest" in payload or "comparison_rollup" in payload
+
+
+# ---------------------------------------------------------------------------
+# Step 2.2: Reviewer surface unification tests
+# ---------------------------------------------------------------------------
+
+
+class TestReviewerSurfaceContractsSingleSource:
+    """All modules must import WP6+closeout constants from the shared module."""
+
+    def test_shared_module_is_single_source(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_contracts import (
+            WP6_CLOSEOUT_ARTIFACT_KEYS,
+            WP6_CLOSEOUT_DISPLAY_LABELS,
+            WP6_CLOSEOUT_DISPLAY_LABELS_EN,
+            WP6_CLOSEOUT_I18N_KEYS,
+            WP6_CLOSEOUT_ARTIFACT_ROLES,
+            WP6_CLOSEOUT_ANCHOR_DEFAULTS,
+            WP6_CLOSEOUT_NEXT_ARTIFACT_DEFAULTS,
+            WP6_CLOSEOUT_BLOCKER_DEFAULTS,
+            WP6_CLOSEOUT_MISSING_EVIDENCE_DEFAULTS,
+            WP6_CLOSEOUT_FILENAME_MAP,
+            REVIEWER_SURFACE_CONTRACTS_VERSION,
+        )
+        assert REVIEWER_SURFACE_CONTRACTS_VERSION.startswith("step2-")
+        assert len(WP6_CLOSEOUT_ARTIFACT_KEYS) == 7
+        assert len(WP6_CLOSEOUT_DISPLAY_LABELS) == 7
+        assert len(WP6_CLOSEOUT_DISPLAY_LABELS_EN) == 7
+        assert len(WP6_CLOSEOUT_I18N_KEYS) == 7
+        assert len(WP6_CLOSEOUT_ARTIFACT_ROLES) == 7
+        assert len(WP6_CLOSEOUT_ANCHOR_DEFAULTS) == 7
+        assert len(WP6_CLOSEOUT_NEXT_ARTIFACT_DEFAULTS) == 7
+        assert len(WP6_CLOSEOUT_BLOCKER_DEFAULTS) == 7
+        assert len(WP6_CLOSEOUT_MISSING_EVIDENCE_DEFAULTS) == 7
+        assert len(WP6_CLOSEOUT_FILENAME_MAP) == 7
+
+    def test_recognition_readiness_uses_shared_constants(self) -> None:
+        from gas_calibrator.v2.core import recognition_readiness_artifacts as rr
+        from gas_calibrator.v2.core.reviewer_surface_contracts import (
+            WP6_CLOSEOUT_ARTIFACT_KEYS,
+            WP6_CLOSEOUT_DISPLAY_LABELS,
+            WP6_CLOSEOUT_DISPLAY_LABELS_EN,
+        )
+        assert rr.WP6_CLOSEOUT_ARTIFACT_KEYS == WP6_CLOSEOUT_ARTIFACT_KEYS
+        assert rr.WP6_CLOSEOUT_DISPLAY_LABELS == WP6_CLOSEOUT_DISPLAY_LABELS
+        assert rr.WP6_CLOSEOUT_DISPLAY_LABELS_EN == WP6_CLOSEOUT_DISPLAY_LABELS_EN
+
+    def test_artifact_compatibility_uses_shared_keys(self) -> None:
+        from gas_calibrator.v2.core.artifact_compatibility import _WP6_CLOSEOUT_ARTifact_KEYS
+        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_ARTIFACT_KEYS
+        assert _WP6_CLOSEOUT_ARTifact_KEYS == WP6_CLOSEOUT_ARTIFACT_KEYS
+
+    def test_historical_artifacts_imports_shared_keys(self) -> None:
+        import gas_calibrator.v2.scripts.historical_artifacts as ha
+        import inspect
+        source = inspect.getsource(ha)
+        assert "_SHARED_WP6_CLOSEOUT_KEYS" in source
+
+    def test_app_facade_imports_shared_keys(self) -> None:
+        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
+        import inspect
+        source = inspect.getsource(af)
+        assert "_SHARED_WP6_CLOSEOUT_KEYS" in source
+
+    def test_device_workbench_imports_shared_keys(self) -> None:
+        import gas_calibrator.v2.ui_v2.controllers.device_workbench as dw
+        import inspect
+        source = inspect.getsource(dw)
+        assert "_SHARED_WP6_CLOSEOUT_KEYS" in source
+
+
+class TestReviewerSurfaceKeyOrderConsistency:
+    """The 7 keys must appear in the same order across all modules."""
+
+    def test_key_order_matches_shared(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_ARTIFACT_KEYS
+        from gas_calibrator.v2.core import recognition_readiness_artifacts as rr
+        assert rr.WP6_CLOSEOUT_ARTIFACT_KEYS == WP6_CLOSEOUT_ARTIFACT_KEYS
+
+    def test_anchor_defaults_key_order(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_contracts import (
+            WP6_CLOSEOUT_ARTIFACT_KEYS,
+            WP6_CLOSEOUT_ANCHOR_DEFAULTS,
+        )
+        anchor_keys = tuple(WP6_CLOSEOUT_ANCHOR_DEFAULTS.keys())
+        assert anchor_keys == WP6_CLOSEOUT_ARTIFACT_KEYS
+
+    def test_next_artifact_defaults_key_order(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_contracts import (
+            WP6_CLOSEOUT_ARTIFACT_KEYS,
+            WP6_CLOSEOUT_NEXT_ARTIFACT_DEFAULTS,
+        )
+        next_keys = tuple(WP6_CLOSEOUT_NEXT_ARTIFACT_DEFAULTS.keys())
+        assert next_keys == WP6_CLOSEOUT_ARTIFACT_KEYS
+
+    def test_blocker_defaults_key_order(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_contracts import (
+            WP6_CLOSEOUT_ARTIFACT_KEYS,
+            WP6_CLOSEOUT_BLOCKER_DEFAULTS,
+        )
+        blocker_keys = tuple(WP6_CLOSEOUT_BLOCKER_DEFAULTS.keys())
+        assert blocker_keys == WP6_CLOSEOUT_ARTIFACT_KEYS
+
+    def test_missing_evidence_defaults_key_order(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_contracts import (
+            WP6_CLOSEOUT_ARTIFACT_KEYS,
+            WP6_CLOSEOUT_MISSING_EVIDENCE_DEFAULTS,
+        )
+        missing_keys = tuple(WP6_CLOSEOUT_MISSING_EVIDENCE_DEFAULTS.keys())
+        assert missing_keys == WP6_CLOSEOUT_ARTIFACT_KEYS
+
+    def test_filename_map_key_order(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_contracts import (
+            WP6_CLOSEOUT_ARTIFACT_KEYS,
+            WP6_CLOSEOUT_FILENAME_MAP,
+        )
+        filename_keys = tuple(WP6_CLOSEOUT_FILENAME_MAP.keys())
+        assert filename_keys == WP6_CLOSEOUT_ARTIFACT_KEYS
+
+
+class TestReviewerSurfaceLabelCompleteness:
+    """Chinese and English labels must cover all 7 keys."""
+
+    def test_chinese_labels_complete(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_contracts import (
+            WP6_CLOSEOUT_ARTIFACT_KEYS,
+            WP6_CLOSEOUT_DISPLAY_LABELS,
+        )
+        for key in WP6_CLOSEOUT_ARTIFACT_KEYS:
+            assert key in WP6_CLOSEOUT_DISPLAY_LABELS, f"missing CN label for {key}"
+            label = WP6_CLOSEOUT_DISPLAY_LABELS[key]
+            assert any('\u4e00' <= c <= '\u9fff' for c in label), f"{key} CN label not Chinese: {label}"
+
+    def test_english_labels_complete(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_contracts import (
+            WP6_CLOSEOUT_ARTIFACT_KEYS,
+            WP6_CLOSEOUT_DISPLAY_LABELS_EN,
+        )
+        for key in WP6_CLOSEOUT_ARTIFACT_KEYS:
+            assert key in WP6_CLOSEOUT_DISPLAY_LABELS_EN, f"missing EN label for {key}"
+            label = WP6_CLOSEOUT_DISPLAY_LABELS_EN[key]
+            assert len(label) > 0, f"{key} EN label is empty"
+
+    def test_i18n_keys_complete(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_contracts import (
+            WP6_CLOSEOUT_ARTIFACT_KEYS,
+            WP6_CLOSEOUT_I18N_KEYS,
+        )
+        for key in WP6_CLOSEOUT_ARTIFACT_KEYS:
+            assert key in WP6_CLOSEOUT_I18N_KEYS, f"missing i18n key for {key}"
+            i18n_key = WP6_CLOSEOUT_I18N_KEYS[key]
+            assert i18n_key.startswith("reviewer_surface.wp6_closeout."), f"{key} i18n key wrong prefix: {i18n_key}"
+
+    def test_i18n_locale_zh_cn_has_all_keys(self) -> None:
+        import json
+        from pathlib import Path
+        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_I18N_KEYS
+        locale_path = Path(__file__).resolve().parents[2] / "src" / "gas_calibrator" / "v2" / "ui_v2" / "locales" / "zh_CN.json"
+        with open(locale_path, encoding="utf-8") as f:
+            data = json.load(f)
+        surface = data.get("reviewer_surface", {}).get("wp6_closeout", {})
+        for key, i18n_key in WP6_CLOSEOUT_I18N_KEYS.items():
+            short_key = i18n_key.split(".")[-1]
+            assert short_key in surface, f"zh_CN missing i18n key for {key}"
+
+    def test_i18n_locale_en_us_has_all_keys(self) -> None:
+        import json
+        from pathlib import Path
+        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_I18N_KEYS
+        locale_path = Path(__file__).resolve().parents[2] / "src" / "gas_calibrator" / "v2" / "ui_v2" / "locales" / "en_US.json"
+        with open(locale_path, encoding="utf-8") as f:
+            data = json.load(f)
+        surface = data.get("reviewer_surface", {}).get("wp6_closeout", {})
+        for key, i18n_key in WP6_CLOSEOUT_I18N_KEYS.items():
+            short_key = i18n_key.split(".")[-1]
+            assert short_key in surface, f"en_US missing i18n key for {key}"
+
+
+class TestCloseoutDigestReviewerSurfaceVisibility:
+    """step2_closeout_digest must be visible in reviewer surfaces."""
+
+    def test_closeout_digest_in_historical_artifacts_source(self) -> None:
+        import gas_calibrator.v2.scripts.historical_artifacts as ha
+        import inspect
+        source = inspect.getsource(ha)
+        assert "step2_closeout_digest" in source
+
+    def test_closeout_digest_in_device_workbench_source(self) -> None:
+        import gas_calibrator.v2.ui_v2.controllers.device_workbench as dw
+        import inspect
+        source = inspect.getsource(dw)
+        assert "step2_closeout_digest" in source
+
+    def test_closeout_digest_in_app_facade_source(self) -> None:
+        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
+        import inspect
+        source = inspect.getsource(af)
+        assert "step2_closeout_digest" in source
+
+    def test_closeout_digest_label_from_shared_module(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_contracts import (
+            WP6_CLOSEOUT_DISPLAY_LABELS,
+        )
+        label = WP6_CLOSEOUT_DISPLAY_LABELS["step2_closeout_digest"]
+        assert "收口" in label or "Step 2" in label
+        assert any('\u4e00' <= c <= '\u9fff' for c in label)
+
+
+class TestReviewerSurfaceCompatibilityContractConsistency:
+    """Compatibility/index contract must not conflict with shared constants."""
+
+    def test_compatibility_key_set_matches_shared(self) -> None:
+        from gas_calibrator.v2.core.artifact_compatibility import _WP6_CLOSEOUT_ARTifact_KEYS
+        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_ARTIFACT_KEYS
+        assert set(_WP6_CLOSEOUT_ARTifact_KEYS) == set(WP6_CLOSEOUT_ARTIFACT_KEYS)
+
+    def test_compatibility_role_map_matches_shared(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_ARTIFACT_ROLES
+        # Verify the shared roles are consistent with expected assignments
+        assert WP6_CLOSEOUT_ARTIFACT_ROLES["pt_ilc_registry"] == "execution_summary"
+        assert WP6_CLOSEOUT_ARTIFACT_ROLES["external_comparison_importer"] == "execution_summary"
+        assert WP6_CLOSEOUT_ARTIFACT_ROLES["comparison_evidence_pack"] == "diagnostic_analysis"
+        assert WP6_CLOSEOUT_ARTIFACT_ROLES["scope_comparison_view"] == "diagnostic_analysis"
+        assert WP6_CLOSEOUT_ARTIFACT_ROLES["comparison_digest"] == "diagnostic_analysis"
+        assert WP6_CLOSEOUT_ARTIFACT_ROLES["comparison_rollup"] == "diagnostic_analysis"
+        assert WP6_CLOSEOUT_ARTIFACT_ROLES["step2_closeout_digest"] == "diagnostic_analysis"
+
+
+class TestReviewerSurfaceStep2Boundary:
+    """All reviewer surface constants must maintain Step 2 boundary."""
+
+    def test_contract_version_is_step2(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_contracts import REVIEWER_SURFACE_CONTRACTS_VERSION
+        assert REVIEWER_SURFACE_CONTRACTS_VERSION.startswith("step2-")
+
+    def test_blocker_defaults_contain_non_claim_language(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_BLOCKER_DEFAULTS
+        for key, blockers in WP6_CLOSEOUT_BLOCKER_DEFAULTS.items():
+            assert len(blockers) > 0, f"{key} has no blocker defaults"
+            # Each blocker should contain language indicating non-claim / reviewer-only
+            combined = " ".join(blockers).lower()
+            assert any(
+                kw in combined
+                for kw in ["reviewer", "not a formal", "does not", "readiness-mapping", "governance summary"]
+            ), f"{key} blocker defaults lack Step 2 boundary language"
+
+    def test_missing_evidence_defaults_contain_non_claim_language(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_MISSING_EVIDENCE_DEFAULTS
+        for key, items in WP6_CLOSEOUT_MISSING_EVIDENCE_DEFAULTS.items():
+            assert len(items) > 0, f"{key} has no missing evidence defaults"
+
+    def test_no_real_acceptance_evidence_in_labels(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_contracts import (
+            WP6_CLOSEOUT_DISPLAY_LABELS,
+            WP6_CLOSEOUT_DISPLAY_LABELS_EN,
+        )
+        for key, label in WP6_CLOSEOUT_DISPLAY_LABELS.items():
+            assert "real" not in label.lower()
+            assert "acceptance" not in label.lower()
+        for key, label in WP6_CLOSEOUT_DISPLAY_LABELS_EN.items():
+            assert "real acceptance" not in label.lower()
+

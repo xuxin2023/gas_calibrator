@@ -74,6 +74,16 @@ class HumidityGenerator:
         except Exception:
             return None
 
+    @classmethod
+    def _pick_numeric(cls, data: Dict[str, Any], keys: List[str]) -> Optional[float]:
+        if not isinstance(data, dict):
+            return None
+        for key in keys:
+            value = cls._as_float(data.get(key))
+            if value is not None:
+                return value
+        return None
+
     @staticmethod
     def _parse_kv_line(line: str) -> Dict[str, Any]:
         out: Dict[str, Any] = {}
@@ -226,6 +236,81 @@ class HumidityGenerator:
                     pass
                 time.sleep(poll_s)
         return {"ok": False, "flow_lpm": None, "tried": tried}
+
+    def verify_runtime_activation(
+        self,
+        *,
+        min_flow_lpm: float = 0.5,
+        timeout_s: float = 30.0,
+        poll_s: float = 1.0,
+        target_temp_c: Optional[float] = None,
+        baseline_hot_temp_c: Optional[float] = None,
+        baseline_cold_temp_c: Optional[float] = None,
+        cooling_expected: Optional[bool] = None,
+        cooling_min_drop_c: float = 0.2,
+        cooling_min_delta_c: float = 0.5,
+    ) -> Dict[str, Any]:
+        deadline = time.time() + max(0.2, float(timeout_s))
+        baseline_hot = self._as_float(baseline_hot_temp_c)
+        baseline_cold = self._as_float(baseline_cold_temp_c)
+        target_temp = self._as_float(target_temp_c)
+
+        if cooling_expected is None:
+            reference_temp = baseline_cold if baseline_cold is not None else baseline_hot
+            cooling_expected = bool(
+                target_temp is not None
+                and reference_temp is not None
+                and float(target_temp) <= float(reference_temp) - 1.0
+            )
+        else:
+            cooling_expected = bool(cooling_expected)
+
+        last_flow_lpm: Optional[float] = None
+        last_hot_temp_c: Optional[float] = None
+        last_cold_temp_c: Optional[float] = None
+        last_raw = ""
+        flow_ok = False
+        cooling_ok: Optional[bool] = None if cooling_expected else False
+        sample_count = 0
+
+        while True:
+            snap = self.fetch_all()
+            data = snap.get("data", {}) if isinstance(snap, dict) else {}
+            last_raw = str((snap or {}).get("raw") or "")
+            sample_count += 1
+            last_flow_lpm = self._pick_numeric(data, ["Fl", "Flux"])
+            last_hot_temp_c = self._pick_numeric(data, ["Tc", "TA", "Temp", "temperature"])
+            last_cold_temp_c = self._pick_numeric(data, ["Ts", "Tc", "TA", "Temp", "temperature"])
+
+            flow_ok = bool(last_flow_lpm is not None and float(last_flow_lpm) >= float(min_flow_lpm))
+            if cooling_expected:
+                checks: List[bool] = []
+                if last_cold_temp_c is not None and baseline_cold is not None:
+                    checks.append(float(last_cold_temp_c) <= float(baseline_cold) - float(cooling_min_drop_c))
+                if last_hot_temp_c is not None and last_cold_temp_c is not None:
+                    checks.append(float(last_cold_temp_c) <= float(last_hot_temp_c) - float(cooling_min_delta_c))
+                cooling_ok = any(checks) if checks else None
+
+            fully_confirmed = bool(flow_ok and (not cooling_expected or cooling_ok is True))
+            if fully_confirmed or time.time() >= deadline:
+                return {
+                    "ok": bool(flow_ok),
+                    "fully_confirmed": fully_confirmed,
+                    "flow_ok": bool(flow_ok),
+                    "cooling_expected": bool(cooling_expected),
+                    "cooling_ok": cooling_ok,
+                    "flow_lpm": last_flow_lpm,
+                    "hot_temp_c": last_hot_temp_c,
+                    "cold_temp_c": last_cold_temp_c,
+                    "baseline_hot_temp_c": baseline_hot,
+                    "baseline_cold_temp_c": baseline_cold,
+                    "target_temp_c": target_temp,
+                    "timeout_s": float(timeout_s),
+                    "poll_s": float(poll_s),
+                    "sample_count": sample_count,
+                    "raw": last_raw,
+                }
+            time.sleep(max(0.05, float(poll_s)))
 
     def safe_stop(self) -> Dict[str, Any]:
         result: Dict[str, Any] = {
