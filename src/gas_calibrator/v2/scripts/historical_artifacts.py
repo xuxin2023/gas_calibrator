@@ -22,6 +22,9 @@ from ..adapters.wp6_gateway import Wp6Gateway
 from ..core.reviewer_surface_contracts import (
     WP6_CLOSEOUT_ARTIFACT_KEYS as _SHARED_WP6_CLOSEOUT_KEYS,
 )
+from ..core.reviewer_surface_payloads import (
+    extract_wp6_closeout_payloads as _extract_wp6_closeout_payloads,
+)
 from ._cli_safety import build_step2_historical_cli_lines
 
 
@@ -206,13 +209,14 @@ def _build_run_report(
         ),
         compatibility_scan_summary=compatibility_scan_summary,
     ).read_payload()
-    pt_ilc_registry = dict(wp6_payload.get("pt_ilc_registry") or {})
-    external_comparison_importer = dict(wp6_payload.get("external_comparison_importer") or {})
-    comparison_evidence_pack = dict(wp6_payload.get("comparison_evidence_pack") or {})
-    scope_comparison_view = dict(wp6_payload.get("scope_comparison_view") or {})
-    comparison_digest_payload = dict(wp6_payload.get("comparison_digest") or {})
-    comparison_rollup = dict(wp6_payload.get("comparison_rollup") or {})
-    step2_closeout_digest = dict(wp6_payload.get("step2_closeout_digest") or {})
+    _wp6_closeout = _extract_wp6_closeout_payloads(wp6_payload)
+    pt_ilc_registry = _wp6_closeout["pt_ilc_registry"]
+    external_comparison_importer = _wp6_closeout["external_comparison_importer"]
+    comparison_evidence_pack = _wp6_closeout["comparison_evidence_pack"]
+    scope_comparison_view = _wp6_closeout["scope_comparison_view"]
+    comparison_digest_payload = _wp6_closeout["comparison_digest"]
+    comparison_rollup = _wp6_closeout["comparison_rollup"]
+    step2_closeout_digest = _wp6_closeout["step2_closeout_digest"]
     reference_asset_digest = dict(reference_asset_registry.get("digest") or {})
     certificate_lifecycle_digest = dict(certificate_lifecycle_summary.get("digest") or {})
     pre_run_gate_digest = dict(pre_run_readiness_gate.get("digest") or {})
