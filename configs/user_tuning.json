@@ -1,5 +1,16 @@
-﻿{
+{
     "workflow":  {
+                     "safe_stop":  {
+                                       "perform_attempts":  4,
+                                       "retry_delay_s":  2.0
+                                   },
+                     "humidity_generator":  {
+                                                "safe_stop_verify_flow":  true,
+                                                "safe_stop_enforce_flow_check":  true,
+                                                "safe_stop_max_flow_lpm":  0.05,
+                                                "safe_stop_timeout_s":  15.0,
+                                                "safe_stop_poll_s":  0.5
+                                            },
                      "pressure":  {
                                       "soft_control_enabled":  false,
                                       "handoff_fast_enabled":  false,
@@ -15,6 +26,13 @@
                                                            "wait_for_target_before_continue":  true,
                                                            "analyzer_chamber_temp_enabled":  true
                                                        },
+                                       "co2_route":  {
+                                                          "first_point_preseal_soak_s":  600
+                                                      },
+                                       "gas_route_dewpoint_gate_policy":  "warn",
+                                       "gas_route_dewpoint_gate_tail_span_max_c":  0.45,
+                                       "gas_route_dewpoint_gate_tail_slope_abs_max_c_per_s":  0.005,
+                                       "gas_route_dewpoint_gate_rebound_min_rise_c":  1.3,
                                        "dewpoint":  {
                                                         "window_s":  40,
                                                         "timeout_s":  1800,
