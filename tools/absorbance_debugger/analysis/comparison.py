@@ -522,7 +522,7 @@ def _pick_best_candidate_rows(
     ].rename(
         columns={
             "overall_rmse": "deployable_overall_rmse",
-            "old_chain_overall_rmse": "old_chain_overall_rmse",
+            "old_chain_overall_rmse": "baseline_old_chain_overall_rmse",
         }
     )
     rows: list[dict[str, Any]] = []
@@ -533,7 +533,8 @@ def _pick_best_candidate_rows(
         merged = subset.merge(baseline, on="analyzer_id", how="left")
         candidate_mean = float(pd.to_numeric(merged["overall_rmse"], errors="coerce").mean())
         deployable_mean = float(pd.to_numeric(merged["deployable_overall_rmse"], errors="coerce").mean())
-        old_mean = float(pd.to_numeric(merged["old_chain_overall_rmse"], errors="coerce").mean())
+        old_column = "old_chain_overall_rmse" if "old_chain_overall_rmse" in merged.columns else "baseline_old_chain_overall_rmse"
+        old_mean = float(pd.to_numeric(merged[old_column], errors="coerce").mean())
         rows.append(
             {
                 "candidate_group": candidate_group,
@@ -556,7 +557,7 @@ def _pick_best_candidate_rows(
                 "analyzers_beating_old_count": int(
                     (
                         pd.to_numeric(merged["overall_rmse"], errors="coerce")
-                        < pd.to_numeric(merged["old_chain_overall_rmse"], errors="coerce")
+                        < pd.to_numeric(merged[old_column], errors="coerce")
                     ).fillna(False).sum()
                 ),
                 "beats_current_deployable": bool(candidate_mean < deployable_mean) if pd.notna(candidate_mean) and pd.notna(deployable_mean) else False,

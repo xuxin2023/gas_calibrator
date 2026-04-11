@@ -350,6 +350,12 @@ _RECOGNITION_NEXT_ARTIFACT_DEFAULTS: dict[str, list[str]] = {
     "release_evidence_pack_index": ["audit_readiness_digest", "release_validation_manifest"],
     "release_validation_manifest": ["audit_readiness_digest"],
     "audit_readiness_digest": ["release_validation_manifest"],
+    "pt_ilc_registry": ["external_comparison_importer", "comparison_evidence_pack"],
+    "external_comparison_importer": ["comparison_evidence_pack", "scope_comparison_view"],
+    "comparison_evidence_pack": ["scope_comparison_view", "comparison_digest"],
+    "scope_comparison_view": ["comparison_digest", "comparison_rollup"],
+    "comparison_digest": ["comparison_rollup", "audit_readiness_digest"],
+    "comparison_rollup": ["audit_readiness_digest"],
 }
 
 _RECOGNITION_BLOCKER_DEFAULTS: dict[str, list[str]] = {
@@ -619,6 +625,30 @@ _RECOGNITION_MISSING_EVIDENCE_DEFAULTS: dict[str, list[str]] = {
     ],
     "audit_readiness_digest": [
         "formal audit closure remains out of scope",
+    ],
+    "pt_ilc_registry": [
+        "PT/ILC registry is readiness-mapping-only and not a formal comparison record",
+        "imported data is simulated and not from real PT/ILC participation",
+    ],
+    "external_comparison_importer": [
+        "importer only supports local file sources, no network access",
+        "all imported comparison data is marked simulated",
+    ],
+    "comparison_evidence_pack": [
+        "evidence pack is reviewer-facing only and not a formal accreditation pack",
+        "linked references are navigational, not approval chains",
+    ],
+    "scope_comparison_view": [
+        "scope comparison view is readiness-mapping-only",
+        "does not constitute formal scope equivalence",
+    ],
+    "comparison_digest": [
+        "digest is sidecar-first reviewer evidence",
+        "does not close formal comparison evidence",
+    ],
+    "comparison_rollup": [
+        "rollup is reviewer-facing summary only",
+        "does not constitute formal PT/ILC compliance claim",
     ],
 }
 
