@@ -3555,7 +3555,15 @@ class AppFacade:
                 dict(audit_readiness_digest or {}),
             ),
         ] + _build_wp6_closeout_readiness_pairs(
-            _wp6_closeout,
+            {
+                "pt_ilc_registry": pt_ilc_registry,
+                "external_comparison_importer": external_comparison_importer,
+                "comparison_evidence_pack": comparison_evidence_pack,
+                "scope_comparison_view": scope_comparison_view,
+                "comparison_digest": comparison_digest,
+                "comparison_rollup": comparison_rollup,
+                "step2_closeout_digest": step2_closeout_digest,
+            },
             filename_module=recognition_readiness,
         )
         for filename, fallback_payload in readiness_summary_payloads:
