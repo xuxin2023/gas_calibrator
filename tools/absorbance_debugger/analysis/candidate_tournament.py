@@ -684,6 +684,14 @@ def _custom_family_frame(
         return pd.DataFrame()
     requested_scope = str(source_row.get("score_source") or "validation_oof")
     current_model_id = str(source_row.get("model_id") or "")
+    for column_name in (
+        "delta_h2o_ratio_vs_legacy_summary_anchor",
+        "delta_h2o_ratio_vs_legacy_zero_ppm_anchor",
+        "delta_h2o_ratio_vs_subzero_anchor",
+        "delta_h2o_ratio_vs_zeroC_anchor",
+    ):
+        if column_name not in analyzer_frame.columns:
+            analyzer_frame[column_name] = math.nan
     active_lookup = {spec.model_id: spec for spec in active_model_specs(result.get("config"))}
     family_specs = {spec.ppm_family_mode: spec for spec in _family_specs_for_analyzer(current_model_id, active_lookup)}
     family_key = {

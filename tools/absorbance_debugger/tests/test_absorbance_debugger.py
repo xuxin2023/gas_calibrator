@@ -2281,6 +2281,10 @@ def test_cross_run_batch_writes_scoped_old_vs_new_outputs(monkeypatch, tmp_path:
     assert (output_dir / "step_09f_dual_surface_summary.csv").exists()
     assert (output_dir / "step_09f_dual_surface_plot.png").exists()
     assert (output_dir / "step_10f_dual_surface_reconciliation.md").exists()
+    assert (output_dir / "step_11_candidate_tournament_detail.csv").exists()
+    assert (output_dir / "step_11_candidate_tournament_summary.csv").exists()
+    assert (output_dir / "step_11_candidate_tournament_plot.png").exists()
+    assert (output_dir / "step_12_candidate_tournament_report.md").exists()
 
     scope_a_detail = pd.read_csv(output_dir / "step_09c_historical_ga02_ga03_old_vs_new_detail.csv")
     scope_a_summary = pd.read_csv(output_dir / "step_09c_historical_ga02_ga03_old_vs_new_summary.csv")
@@ -2290,6 +2294,8 @@ def test_cross_run_batch_writes_scoped_old_vs_new_outputs(monkeypatch, tmp_path:
     scope_b_local = pd.read_csv(output_dir / "step_09d_20260410_all_analyzers_local_wins.csv")
     dual_detail = pd.read_csv(output_dir / "step_09f_dual_surface_detail.csv")
     dual_summary = pd.read_csv(output_dir / "step_09f_dual_surface_summary.csv")
+    tournament_detail = pd.read_csv(output_dir / "step_11_candidate_tournament_detail.csv")
+    tournament_summary = pd.read_csv(output_dir / "step_11_candidate_tournament_summary.csv")
 
     assert {"run_id", "comparison_scope", "analyzer_id", "selected_source_pair", "actual_ratio_source_used"} <= set(scope_a_detail.columns)
     assert {"comparison_scope", "run_scope_description", "analyzer_set", "headline_safe_statement", "scope_limitation_statement"} <= set(scope_a_summary.columns)
@@ -2322,6 +2328,65 @@ def test_cross_run_batch_writes_scoped_old_vs_new_outputs(monkeypatch, tmp_path:
     dual_summary_index = dual_summary.set_index("comparison_surface")
     assert dual_summary_index.loc["run_native_old_vs_new", "new_value_source"] == "analyzer_sheet_mean_co2_ppm"
     assert dual_summary_index.loc["debugger_reconstructed_old_vs_new", "new_value_source"] == "selected_pred_ppm_from_debugger"
+    assert {
+        "run_id",
+        "comparison_scope",
+        "comparison_surface",
+        "analyzer_id",
+        "source_mode",
+        "model_family",
+        "residual_head",
+        "selected_prediction_scope",
+        "overall_rmse_old",
+        "overall_rmse_new",
+        "zero_rmse_old",
+        "zero_rmse_new",
+        "low_rmse_old",
+        "low_rmse_new",
+        "main_rmse_old",
+        "main_rmse_new",
+        "pointwise_win_count_vs_old",
+        "pointwise_loss_count_vs_old",
+        "improvement_pct_overall",
+        "improvement_pct_zero",
+        "improvement_pct_low",
+        "improvement_pct_main",
+        "promotion_score",
+        "raw_filt_divergence_mean",
+        "residual_vs_temp_corr",
+        "residual_vs_humidity_corr",
+        "likely_root_cause_bucket",
+    } <= set(tournament_detail.columns)
+    assert {
+        "summary_scope",
+        "comparison_scope",
+        "comparison_surface",
+        "candidate_id",
+        "source_mode",
+        "model_family",
+        "residual_head",
+        "promotion_score",
+        "promotion_rank",
+        "future_deployable_candidate_flag",
+    } <= set(tournament_summary.columns)
+    scoped_tournament = tournament_summary[tournament_summary["summary_scope"] == "candidate_scope_surface"].copy()
+    assert set(scoped_tournament["comparison_scope"]) == {
+        "historical_ga02_ga03_candidate_tournament",
+        "run_20260410_132440_all_analyzers_candidate_tournament",
+    }
+    assert set(scoped_tournament["comparison_surface"]) == {
+        "run_native_old_vs_new",
+        "debugger_reconstructed_old_vs_new",
+    }
+    assert set(
+        tournament_detail[tournament_detail["comparison_scope"] == "historical_ga02_ga03_candidate_tournament"]["analyzer_id"]
+    ) == {"GA02", "GA03"}
+    diagnostic_rows = tournament_detail[
+        tournament_detail["residual_head"] == "analyzer_specific_humidity_plus_temp_residual"
+    ].copy()
+    assert not diagnostic_rows.empty
+    assert diagnostic_rows["diagnostic_only_flag"].fillna(False).all()
+    assert diagnostic_rows["diagnostic_only_reason"].fillna("").str.contains("diagnostic-only").all()
 
     report = (output_dir / "step_10c_scoped_old_vs_new_report.md").read_text(encoding="utf-8")
     assert "historical GA02/GA03 comparison" in report
@@ -2351,6 +2416,9 @@ def test_cross_run_batch_writes_scoped_old_vs_new_outputs(monkeypatch, tmp_path:
     assert "what quick calc actually used" in dual_report
     assert "what current debugger comparison actually used" in dual_report
     assert "no evidence of old/new flip bug" in dual_report
+    tournament_report = (output_dir / "step_12_candidate_tournament_report.md").read_text(encoding="utf-8")
+    assert "primary acceptance surface" in tournament_report
+    assert "secondary diagnostic surface" in tournament_report
 
 
 def test_historical_run_detects_high_temp_anchor_and_invalid_500hpa(tmp_path: Path) -> None:
