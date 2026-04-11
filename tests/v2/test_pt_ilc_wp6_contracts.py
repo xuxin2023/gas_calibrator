@@ -776,21 +776,20 @@ class TestExplicitCompatibilityIndexContract:
         run_dir.mkdir(parents=True, exist_ok=True)
         (run_dir / "summary.json").write_text('{"run_id": "run-contract-001"}', encoding="utf-8")
         bundle = build_artifact_compatibility_bundle(run_dir)
-        # Get contract_rows from artifact_contract_catalog
-        contract_catalog = bundle.get("artifact_contract_catalog", {})
-        contract_rows = contract_catalog.get("contract_rows", []) if isinstance(contract_catalog, dict) else []
-        # Also check run_artifact_index entries
-        index = bundle.get("run_artifact_index", {})
-        index_entries = index.get("entries", []) if isinstance(index, dict) else []
+        # Bundle structure: {key: {raw: {...}, markdown: ..., filename: ...}}
         all_keys = set()
-        for row in contract_rows:
-            key = str(row.get("artifact_key") or "")
-            if key:
-                all_keys.add(key)
-        for entry in index_entries:
-            key = str(entry.get("artifact_key") or "")
-            if key:
-                all_keys.add(key)
+        for artifact_key, artifact_bundle in bundle.items():
+            raw = artifact_bundle.get("raw", {}) if isinstance(artifact_bundle, dict) else {}
+            # Collect from contract_rows
+            for row in raw.get("contract_rows", []):
+                key = str(row.get("artifact_key") or "")
+                if key:
+                    all_keys.add(key)
+            # Collect from entries
+            for entry in raw.get("entries", []):
+                key = str(entry.get("artifact_key") or "")
+                if key:
+                    all_keys.add(key)
         for key in ("pt_ilc_registry", "external_comparison_importer",
                      "comparison_evidence_pack", "scope_comparison_view",
                      "comparison_digest", "comparison_rollup",

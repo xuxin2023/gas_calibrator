@@ -229,23 +229,34 @@ def _expected_analyzers_by_scope(
 def _point_feature_summary(filtered: pd.DataFrame) -> pd.DataFrame:
     if filtered.empty:
         return pd.DataFrame()
+    aggregation_map = {
+        "temp_c": "temp_set_c",
+        "target_ppm": "target_co2_ppm",
+        "ratio_co2_raw_mean": "ratio_co2_raw",
+        "ratio_co2_filt_mean": "ratio_co2_filt",
+        "h2o_ratio_raw_mean": "ratio_h2o_raw",
+        "h2o_ratio_filt_mean": "ratio_h2o_filt",
+        "h2o_density_mean": "h2o_density",
+        "co2_signal_mean": "co2_signal",
+        "temp_cavity_c_mean": "temp_cavity_c",
+        "temp_shell_c_mean": "temp_shell_c",
+    }
+    available_aggregations = {
+        output_name: (input_name, "mean")
+        for output_name, input_name in aggregation_map.items()
+        if input_name in filtered.columns
+    }
+    if not available_aggregations:
+        return pd.DataFrame()
     grouped = (
         filtered.groupby(["analyzer", "point_title", "point_row"], dropna=False)
-        .agg(
-            temp_c=("temp_set_c", "mean"),
-            target_ppm=("target_co2_ppm", "mean"),
-            ratio_co2_raw_mean=("ratio_co2_raw", "mean"),
-            ratio_co2_filt_mean=("ratio_co2_filt", "mean"),
-            h2o_ratio_raw_mean=("ratio_h2o_raw", "mean"),
-            h2o_ratio_filt_mean=("ratio_h2o_filt", "mean"),
-            h2o_density_mean=("h2o_density", "mean"),
-            co2_signal_mean=("co2_signal", "mean"),
-            temp_cavity_c_mean=("temp_cavity_c", "mean"),
-            temp_shell_c_mean=("temp_shell_c", "mean"),
-        )
+        .agg(**available_aggregations)
         .reset_index()
         .rename(columns={"analyzer": "analyzer_id"})
     )
+    for output_name in aggregation_map:
+        if output_name not in grouped.columns:
+            grouped[output_name] = math.nan
     grouped["raw_filt_divergence"] = (
         pd.to_numeric(grouped["ratio_co2_raw_mean"], errors="coerce")
         - pd.to_numeric(grouped["ratio_co2_filt_mean"], errors="coerce")
@@ -847,20 +858,39 @@ def _build_run_candidate_frames(
     filtered = result.get("filtered", pd.DataFrame())
     model_results = result.get("model_results", {})
     scores = model_results.get("scores", pd.DataFrame()) if isinstance(model_results, dict) else pd.DataFrame()
+    residuals = model_results.get("residuals", pd.DataFrame()) if isinstance(model_results, dict) else pd.DataFrame()
     compare = compare.copy() if isinstance(compare, pd.DataFrame) else pd.DataFrame()
     filtered = filtered.copy() if isinstance(filtered, pd.DataFrame) else pd.DataFrame()
     scores = scores.copy() if isinstance(scores, pd.DataFrame) else pd.DataFrame()
+    residuals = residuals.copy() if isinstance(residuals, pd.DataFrame) else pd.DataFrame()
     if not run_id or compare.empty or filtered.empty:
         return []
+    comparison_scope = _scope_name_for_run(run_id, scope_b_run_id)
+    if comparison_scope == SCOPE_A_NAME:
+        allowed_analyzers = {"GA02", "GA03"}
+        compare = compare[compare["analyzer_id"].astype(str).isin(allowed_analyzers)].copy()
+        filtered = filtered[filtered["analyzer"].astype(str).isin(allowed_analyzers)].copy()
+        if not scores.empty and "analyzer_id" in scores.columns:
+            scores = scores[scores["analyzer_id"].astype(str).isin(allowed_analyzers)].copy()
+        if not residuals.empty and "analyzer_id" in residuals.columns:
+            residuals = residuals[residuals["analyzer_id"].astype(str).isin(allowed_analyzers)].copy()
+    if compare.empty or filtered.empty or scores.empty:
+        return []
+    scoped_model_results = dict(model_results) if isinstance(model_results, dict) else {}
+    scoped_model_results["scores"] = scores
+    scoped_model_results["residuals"] = residuals
+    scoped_result = dict(result)
+    scoped_result["point_reconciliation"] = compare
+    scoped_result["filtered"] = filtered
+    scoped_result["model_results"] = scoped_model_results
     point_features = _point_feature_summary(filtered)
     source_row_lookup = _best_source_rows(scores)
     if not source_row_lookup:
         return []
     outputs: list[pd.DataFrame] = []
-    comparison_scope = _scope_name_for_run(run_id, scope_b_run_id)
     for source_mode in SOURCE_MODES:
         for model_family in MODEL_FAMILIES:
-            base_frame = _base_candidate_frame(result, point_features, source_row_lookup, source_mode, model_family)
+            base_frame = _base_candidate_frame(scoped_result, point_features, source_row_lookup, source_mode, model_family)
             if base_frame.empty:
                 continue
             for residual_head in RESIDUAL_HEADS:
@@ -1138,44 +1168,57 @@ def _promotion_rows(summary_scope_surface: pd.DataFrame) -> pd.DataFrame:
         scope_b_surface1 = _row(SCOPE_B_NAME, PRIMARY_SURFACE)
         scope_b_surface2 = _row(SCOPE_B_NAME, SECONDARY_SURFACE)
         scope_a_surface1 = _row(SCOPE_A_NAME, PRIMARY_SURFACE)
+        b1_overall = pd.to_numeric(pd.Series([scope_b_surface1.get("improvement_pct_overall")]), errors="coerce").iloc[0]
+        b1_main = pd.to_numeric(pd.Series([scope_b_surface1.get("improvement_pct_main")]), errors="coerce").iloc[0]
+        b1_zero = pd.to_numeric(pd.Series([scope_b_surface1.get("improvement_pct_zero")]), errors="coerce").iloc[0]
+        b2_overall = pd.to_numeric(pd.Series([scope_b_surface2.get("improvement_pct_overall")]), errors="coerce").iloc[0]
+        b2_main = pd.to_numeric(pd.Series([scope_b_surface2.get("improvement_pct_main")]), errors="coerce").iloc[0]
+        b2_zero = pd.to_numeric(pd.Series([scope_b_surface2.get("improvement_pct_zero")]), errors="coerce").iloc[0]
+        a1_overall = pd.to_numeric(pd.Series([scope_a_surface1.get("improvement_pct_overall")]), errors="coerce").iloc[0]
+        a1_main = pd.to_numeric(pd.Series([scope_a_surface1.get("improvement_pct_main")]), errors="coerce").iloc[0]
         score = 0.0
-        score += _score_component(pd.to_numeric(pd.Series([scope_b_surface1.get("improvement_pct_overall")]), errors="coerce").iloc[0], weight=0.18)
-        score += _score_component(pd.to_numeric(pd.Series([scope_b_surface1.get("improvement_pct_main")]), errors="coerce").iloc[0], weight=0.14)
-        score += _score_component(pd.to_numeric(pd.Series([scope_b_surface2.get("improvement_pct_overall")]), errors="coerce").iloc[0], weight=0.24)
-        score += _score_component(pd.to_numeric(pd.Series([scope_b_surface2.get("improvement_pct_main")]), errors="coerce").iloc[0], weight=0.18)
-        score += _score_component(pd.to_numeric(pd.Series([scope_b_surface1.get("improvement_pct_zero")]), errors="coerce").iloc[0], weight=0.08, invert_negative=True)
-        score += _score_component(pd.to_numeric(pd.Series([scope_b_surface2.get("improvement_pct_zero")]), errors="coerce").iloc[0], weight=0.06, invert_negative=True)
-        score += _score_component(pd.to_numeric(pd.Series([scope_a_surface1.get("improvement_pct_overall")]), errors="coerce").iloc[0], weight=0.07, invert_negative=True)
-        score += _score_component(pd.to_numeric(pd.Series([scope_a_surface1.get("improvement_pct_main")]), errors="coerce").iloc[0], weight=0.05, invert_negative=True)
+        score += _score_component(b1_overall, weight=0.34)
+        score += _score_component(b1_main, weight=0.26)
+        score += _score_component(b1_zero, weight=0.12, invert_negative=True)
+        score += _score_component(a1_overall, weight=0.10, invert_negative=True)
+        score += _score_component(a1_main, weight=0.08, invert_negative=True)
+        score += _score_component(b2_overall, weight=0.06, invert_negative=True)
+        score += _score_component(b2_main, weight=0.04, invert_negative=True)
+        score += _score_component(b2_zero, weight=0.03, invert_negative=True)
         score += _score_component(
             -abs(
-                float(pd.to_numeric(pd.Series([scope_b_surface2.get("improvement_pct_overall")]), errors="coerce").iloc[0] or 0.0)
-                - float(pd.to_numeric(pd.Series([scope_b_surface1.get("improvement_pct_overall")]), errors="coerce").iloc[0] or 0.0)
+                float(b2_overall) if pd.notna(b2_overall) else 0.0
+                - (float(b1_overall) if pd.notna(b1_overall) else 0.0)
             ),
-            weight=0.05,
+            weight=0.02,
         )
         score += _score_component(
             -abs(
-                float(pd.to_numeric(pd.Series([scope_b_surface2.get("improvement_pct_main")]), errors="coerce").iloc[0] or 0.0)
-                - float(pd.to_numeric(pd.Series([scope_b_surface1.get("improvement_pct_main")]), errors="coerce").iloc[0] or 0.0)
+                float(b2_main) if pd.notna(b2_main) else 0.0
+                - (float(b1_main) if pd.notna(b1_main) else 0.0)
             ),
-            weight=0.04,
+            weight=0.02,
         )
         diagnostic_only_flag = bool(subset["diagnostic_only_flag"].fillna(False).any())
         coverage_penalty = 0.0
-        coverage_ratio = pd.to_numeric(pd.Series([scope_b_surface2.get("coverage_ratio")]), errors="coerce").iloc[0]
+        coverage_ratio = pd.to_numeric(pd.Series([scope_b_surface1.get("coverage_ratio")]), errors="coerce").iloc[0]
         if pd.notna(coverage_ratio):
             coverage_penalty = max(0.0, 1.0 - float(coverage_ratio)) * 20.0
-        concentration_penalty = 10.0 if bool(scope_b_surface2.get("whether_gain_is_analyzer_concentrated", False)) else 0.0
+        concentration_penalty = 10.0 if bool(scope_b_surface1.get("whether_gain_is_analyzer_concentrated", False)) else 0.0
+        if not concentration_penalty and bool(scope_b_surface2.get("whether_gain_is_analyzer_concentrated", False)):
+            concentration_penalty = 5.0
         diagnostic_penalty = 8.0 if diagnostic_only_flag else 0.0
         final_score = float(score - coverage_penalty - concentration_penalty - diagnostic_penalty)
         likely_bucket = _first_text(subset["likely_root_cause_bucket"], default="mixed")
         future_candidate_flag = bool(
             not diagnostic_only_flag
-            and float(pd.to_numeric(pd.Series([scope_b_surface2.get("improvement_pct_overall")]), errors="coerce").iloc[0] or 0.0) > 0.0
-            and float(pd.to_numeric(pd.Series([scope_b_surface2.get("improvement_pct_main")]), errors="coerce").iloc[0] or 0.0) > 0.0
-            and float(pd.to_numeric(pd.Series([scope_b_surface2.get("improvement_pct_zero")]), errors="coerce").iloc[0] or 0.0) > -25.0
-            and float(pd.to_numeric(pd.Series([scope_a_surface1.get("improvement_pct_overall")]), errors="coerce").iloc[0] or 0.0) > -25.0
+            and float(b1_overall or 0.0) > 0.0
+            and float(b1_main or 0.0) > 0.0
+            and float(b1_zero or 0.0) > -25.0
+            and float(a1_overall or 0.0) > -25.0
+            and float(a1_main or 0.0) > -25.0
+            and float(b2_overall or 0.0) > -25.0
+            and float(b2_main or 0.0) > -25.0
         )
         rows.append(
             {
@@ -1194,33 +1237,33 @@ def _promotion_rows(summary_scope_surface: pd.DataFrame) -> pd.DataFrame:
                     subset[subset["comparison_surface"] == SECONDARY_SURFACE]["selected_prediction_scope_majority"],
                     default="unknown",
                 ),
-                "overall_rmse_old": pd.to_numeric(pd.Series([scope_b_surface2.get("overall_rmse_old")]), errors="coerce").iloc[0],
-                "overall_rmse_new": pd.to_numeric(pd.Series([scope_b_surface2.get("overall_rmse_new")]), errors="coerce").iloc[0],
-                "zero_rmse_old": pd.to_numeric(pd.Series([scope_b_surface2.get("zero_rmse_old")]), errors="coerce").iloc[0],
-                "zero_rmse_new": pd.to_numeric(pd.Series([scope_b_surface2.get("zero_rmse_new")]), errors="coerce").iloc[0],
-                "low_rmse_old": pd.to_numeric(pd.Series([scope_b_surface2.get("low_rmse_old")]), errors="coerce").iloc[0],
-                "low_rmse_new": pd.to_numeric(pd.Series([scope_b_surface2.get("low_rmse_new")]), errors="coerce").iloc[0],
-                "main_rmse_old": pd.to_numeric(pd.Series([scope_b_surface2.get("main_rmse_old")]), errors="coerce").iloc[0],
-                "main_rmse_new": pd.to_numeric(pd.Series([scope_b_surface2.get("main_rmse_new")]), errors="coerce").iloc[0],
-                "improvement_pct_overall": pd.to_numeric(pd.Series([scope_b_surface2.get("improvement_pct_overall")]), errors="coerce").iloc[0],
-                "improvement_pct_zero": pd.to_numeric(pd.Series([scope_b_surface2.get("improvement_pct_zero")]), errors="coerce").iloc[0],
-                "improvement_pct_low": pd.to_numeric(pd.Series([scope_b_surface2.get("improvement_pct_low")]), errors="coerce").iloc[0],
-                "improvement_pct_main": pd.to_numeric(pd.Series([scope_b_surface2.get("improvement_pct_main")]), errors="coerce").iloc[0],
-                "pointwise_win_count_vs_old": int(pd.to_numeric(pd.Series([scope_b_surface2.get("pointwise_win_count_vs_old")]), errors="coerce").fillna(0).iloc[0]),
-                "pointwise_loss_count_vs_old": int(pd.to_numeric(pd.Series([scope_b_surface2.get("pointwise_loss_count_vs_old")]), errors="coerce").fillna(0).iloc[0]),
+                "overall_rmse_old": pd.to_numeric(pd.Series([scope_b_surface1.get("overall_rmse_old")]), errors="coerce").iloc[0],
+                "overall_rmse_new": pd.to_numeric(pd.Series([scope_b_surface1.get("overall_rmse_new")]), errors="coerce").iloc[0],
+                "zero_rmse_old": pd.to_numeric(pd.Series([scope_b_surface1.get("zero_rmse_old")]), errors="coerce").iloc[0],
+                "zero_rmse_new": pd.to_numeric(pd.Series([scope_b_surface1.get("zero_rmse_new")]), errors="coerce").iloc[0],
+                "low_rmse_old": pd.to_numeric(pd.Series([scope_b_surface1.get("low_rmse_old")]), errors="coerce").iloc[0],
+                "low_rmse_new": pd.to_numeric(pd.Series([scope_b_surface1.get("low_rmse_new")]), errors="coerce").iloc[0],
+                "main_rmse_old": pd.to_numeric(pd.Series([scope_b_surface1.get("main_rmse_old")]), errors="coerce").iloc[0],
+                "main_rmse_new": pd.to_numeric(pd.Series([scope_b_surface1.get("main_rmse_new")]), errors="coerce").iloc[0],
+                "improvement_pct_overall": b1_overall,
+                "improvement_pct_zero": b1_zero,
+                "improvement_pct_low": pd.to_numeric(pd.Series([scope_b_surface1.get("improvement_pct_low")]), errors="coerce").iloc[0],
+                "improvement_pct_main": b1_main,
+                "pointwise_win_count_vs_old": int(pd.to_numeric(pd.Series([scope_b_surface1.get("pointwise_win_count_vs_old")]), errors="coerce").fillna(0).iloc[0]),
+                "pointwise_loss_count_vs_old": int(pd.to_numeric(pd.Series([scope_b_surface1.get("pointwise_loss_count_vs_old")]), errors="coerce").fillna(0).iloc[0]),
                 "promotion_score": final_score,
                 "promotion_rank": math.nan,
                 "coverage_ratio": coverage_ratio,
-                "expected_analyzer_count": pd.to_numeric(pd.Series([scope_b_surface2.get("expected_analyzer_count")]), errors="coerce").iloc[0],
-                "observed_analyzer_count": pd.to_numeric(pd.Series([scope_b_surface2.get("observed_analyzer_count")]), errors="coerce").iloc[0],
-                "run_count": pd.to_numeric(pd.Series([scope_b_surface2.get("run_count")]), errors="coerce").iloc[0],
-                "raw_filt_divergence_mean": pd.to_numeric(pd.Series([scope_b_surface2.get("raw_filt_divergence_mean")]), errors="coerce").iloc[0],
-                "raw_filt_divergence_max": pd.to_numeric(pd.Series([scope_b_surface2.get("raw_filt_divergence_max")]), errors="coerce").iloc[0],
-                "residual_vs_temp_corr": pd.to_numeric(pd.Series([scope_b_surface2.get("residual_vs_temp_corr")]), errors="coerce").iloc[0],
-                "residual_vs_humidity_corr": pd.to_numeric(pd.Series([scope_b_surface2.get("residual_vs_humidity_corr")]), errors="coerce").iloc[0],
-                "residual_vs_signal_corr": pd.to_numeric(pd.Series([scope_b_surface2.get("residual_vs_signal_corr")]), errors="coerce").iloc[0],
-                "whether_gain_comes_from_main_segment": bool(scope_b_surface2.get("whether_gain_comes_from_main_segment", False)),
-                "whether_gain_is_analyzer_concentrated": bool(scope_b_surface2.get("whether_gain_is_analyzer_concentrated", False)),
+                "expected_analyzer_count": pd.to_numeric(pd.Series([scope_b_surface1.get("expected_analyzer_count")]), errors="coerce").iloc[0],
+                "observed_analyzer_count": pd.to_numeric(pd.Series([scope_b_surface1.get("observed_analyzer_count")]), errors="coerce").iloc[0],
+                "run_count": pd.to_numeric(pd.Series([scope_b_surface1.get("run_count")]), errors="coerce").iloc[0],
+                "raw_filt_divergence_mean": pd.to_numeric(pd.Series([scope_b_surface1.get("raw_filt_divergence_mean")]), errors="coerce").iloc[0],
+                "raw_filt_divergence_max": pd.to_numeric(pd.Series([scope_b_surface1.get("raw_filt_divergence_max")]), errors="coerce").iloc[0],
+                "residual_vs_temp_corr": pd.to_numeric(pd.Series([scope_b_surface1.get("residual_vs_temp_corr")]), errors="coerce").iloc[0],
+                "residual_vs_humidity_corr": pd.to_numeric(pd.Series([scope_b_surface1.get("residual_vs_humidity_corr")]), errors="coerce").iloc[0],
+                "residual_vs_signal_corr": pd.to_numeric(pd.Series([scope_b_surface1.get("residual_vs_signal_corr")]), errors="coerce").iloc[0],
+                "whether_gain_comes_from_main_segment": bool(scope_b_surface1.get("whether_gain_comes_from_main_segment", False)),
+                "whether_gain_is_analyzer_concentrated": bool(scope_b_surface1.get("whether_gain_is_analyzer_concentrated", False)),
                 "likely_root_cause_bucket": likely_bucket,
                 "future_deployable_candidate_flag": future_candidate_flag,
             }

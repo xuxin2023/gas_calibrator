@@ -837,46 +837,62 @@ def test_old_vs_new_final_comparison_report_keeps_deployable_headline() -> None:
 
 
 def _synthetic_scoped_run_result(run_id: str, output_dir: Path) -> dict[str, object]:
-    analyzer_specs: dict[str, dict[str, tuple[float, float, float]]] = {
+    analyzer_profiles_by_run: dict[str, dict[str, dict[str, object]]] = {
         "run_20260403_014845": {
-            "GA01": {"zero": (4.0, 6.0, 0.0), "low": (8.0, 10.0, 100.0), "main": (10.0, 13.0, 400.0)},
-            "GA02": {"zero": (3.0, 1.0, 0.0), "low": (7.0, 3.0, 100.0), "main": (9.0, 4.0, 400.0)},
-            "GA03": {"zero": (2.5, 1.5, 0.0), "low": (6.0, 3.0, 100.0), "main": (7.5, 4.5, 400.0)},
+            "GA01": {"selected_source_pair": "raw/raw", "mode2_profile": "legacy_ratio_raw_profile", "legacy_safe": True, "baseline_bearing": False, "old": {"zero": 4.0, "low": 8.0, "main": 10.0}, "current": {"zero": 6.0, "low": 10.0, "main": 13.0}, "raw_delta": -0.2, "filt_delta": 0.8},
+            "GA02": {"selected_source_pair": "filt/filt", "mode2_profile": "baseline_bearing_profile", "legacy_safe": False, "baseline_bearing": True, "old": {"zero": 3.0, "low": 7.0, "main": 9.0}, "current": {"zero": 1.0, "low": 3.0, "main": 4.0}, "raw_delta": 0.5, "filt_delta": -0.4},
+            "GA03": {"selected_source_pair": "raw/raw", "mode2_profile": "baseline_bearing_profile", "legacy_safe": True, "baseline_bearing": True, "old": {"zero": 2.5, "low": 6.0, "main": 7.5}, "current": {"zero": 1.5, "low": 3.0, "main": 4.5}, "raw_delta": -0.3, "filt_delta": 0.3},
         },
         "run_20260407_185002": {
-            "GA01": {"zero": (5.0, 6.5, 0.0), "low": (7.5, 9.0, 100.0), "main": (9.0, 12.0, 400.0)},
-            "GA02": {"zero": (2.8, 0.9, 0.0), "low": (6.2, 2.6, 100.0), "main": (8.4, 3.8, 400.0)},
-            "GA03": {"zero": (2.0, 1.0, 0.0), "low": (5.4, 2.8, 100.0), "main": (7.0, 4.0, 400.0)},
+            "GA01": {"selected_source_pair": "raw/raw", "mode2_profile": "legacy_ratio_raw_profile", "legacy_safe": True, "baseline_bearing": False, "old": {"zero": 5.0, "low": 7.5, "main": 9.0}, "current": {"zero": 6.5, "low": 9.0, "main": 12.0}, "raw_delta": -0.1, "filt_delta": 0.9},
+            "GA02": {"selected_source_pair": "filt/filt", "mode2_profile": "baseline_bearing_profile", "legacy_safe": False, "baseline_bearing": True, "old": {"zero": 2.8, "low": 6.2, "main": 8.4}, "current": {"zero": 0.9, "low": 2.6, "main": 3.8}, "raw_delta": 0.6, "filt_delta": -0.5},
+            "GA03": {"selected_source_pair": "raw/raw", "mode2_profile": "baseline_bearing_profile", "legacy_safe": True, "baseline_bearing": True, "old": {"zero": 2.0, "low": 5.4, "main": 7.0}, "current": {"zero": 1.0, "low": 2.8, "main": 4.0}, "raw_delta": -0.2, "filt_delta": 0.4},
         },
         "run_20260410_132440": {
-            "GA01": {"zero": (3.0, 4.5, 0.0), "low": (6.0, 7.5, 100.0), "main": (8.0, 9.5, 400.0)},
-            "GA02": {"zero": (2.5, 1.2, 0.0), "low": (5.5, 2.5, 100.0), "main": (7.0, 3.5, 400.0)},
-            "GA03": {"zero": (2.0, 1.1, 0.0), "low": (4.8, 2.2, 100.0), "main": (6.4, 3.0, 400.0)},
-            "GA04": {"zero": (2.2, 2.4, 0.0), "low": (5.0, 4.5, 100.0), "main": (6.2, 6.7, 400.0)},
+            "GA01": {"selected_source_pair": "raw/raw", "mode2_profile": "legacy_ratio_raw_profile", "legacy_safe": True, "baseline_bearing": False, "old": {"zero": 3.0, "low": 6.0, "main": 8.0}, "current": {"zero": 4.5, "low": 7.5, "main": 9.5}, "raw_delta": -0.6, "filt_delta": 0.5},
+            "GA02": {"selected_source_pair": "filt/filt", "mode2_profile": "baseline_bearing_profile", "legacy_safe": False, "baseline_bearing": True, "old": {"zero": 2.5, "low": 5.5, "main": 7.0}, "current": {"zero": 1.2, "low": 2.5, "main": 3.5}, "raw_delta": 0.4, "filt_delta": -0.5},
+            "GA03": {"selected_source_pair": "raw/raw", "mode2_profile": "baseline_bearing_profile", "legacy_safe": True, "baseline_bearing": True, "old": {"zero": 2.0, "low": 4.8, "main": 6.4}, "current": {"zero": 1.1, "low": 2.2, "main": 3.0}, "raw_delta": -0.5, "filt_delta": 0.2},
+            "GA04": {"selected_source_pair": "filt/filt", "mode2_profile": "baseline_bearing_profile", "legacy_safe": False, "baseline_bearing": True, "old": {"zero": 2.2, "low": 5.0, "main": 6.2}, "current": {"zero": 2.4, "low": 4.5, "main": 6.7}, "raw_delta": 0.7, "filt_delta": -0.2},
         },
     }
-    source_pairs = {
-        "GA01": ("raw/raw", "ratio_co2_raw"),
-        "GA02": ("filt/filt", "ratio_co2_filt"),
-        "GA03": ("raw/raw", "ratio_co2_raw"),
-        "GA04": ("filt/filt", "ratio_co2_filt"),
-    }
+    point_specs = [
+        (-10.0, 0.0, "zero"),
+        (0.0, 0.0, "zero"),
+        (10.0, 0.0, "zero"),
+        (20.0, 0.0, "zero"),
+        (0.0, 50.0, "low"),
+        (10.0, 100.0, "low"),
+        (20.0, 150.0, "low"),
+        (20.0, 250.0, "main"),
+        (20.0, 400.0, "main"),
+        (30.0, 550.0, "main"),
+        (30.0, 700.0, "main"),
+        (35.0, 850.0, "main"),
+        (40.0, 1000.0, "main"),
+        (45.0, 1200.0, "main"),
+    ]
 
-    rows: list[dict[str, object]] = []
+    point_rows: list[dict[str, object]] = []
     filtered_rows: list[dict[str, object]] = []
     selection_rows: list[dict[str, object]] = []
     audit_rows: list[dict[str, object]] = []
-    for analyzer_id, segments in analyzer_specs[run_id].items():
-        selected_source_pair, selected_ratio_source = source_pairs[analyzer_id]
+    score_rows: list[dict[str, object]] = []
+    residual_rows: list[dict[str, object]] = []
+    variant_rows: list[dict[str, object]] = []
+
+    for analyzer_index, (analyzer_id, profile) in enumerate(analyzer_profiles_by_run[run_id].items(), start=1):
+        selected_source_pair = str(profile["selected_source_pair"])
+        selected_ratio_source = "ratio_co2_raw" if selected_source_pair == "raw/raw" else "ratio_co2_filt"
         selected_prediction_scope = "overall_fit" if analyzer_id == "GA04" else "validation_oof"
+        selected_model_id = f"{analyzer_id.lower()}_{'raw' if selected_source_pair == 'raw/raw' else 'filt'}_current_model"
         selection_rows.append(
             {
                 "analyzer_id": analyzer_id,
                 "selected_source_pair": selected_source_pair,
                 "selected_ratio_source": selected_ratio_source,
-                "best_absorbance_model": f"{analyzer_id.lower()}_model",
+                "best_absorbance_model": selected_model_id,
                 "best_model_family": "single_range",
-                "zero_residual_mode": "linear",
+                "zero_residual_mode": "none",
                 "selected_prediction_scope": selected_prediction_scope,
             }
         )
@@ -888,46 +904,172 @@ def _synthetic_scoped_run_result(run_id: str, output_dir: Path) -> dict[str, obj
                 "R0_fit_source": selected_ratio_source,
             }
         )
-        for idx, (segment_tag, (old_error, new_error, target_ppm)) in enumerate(segments.items(), start=1):
-            temp_c = 0.0 if segment_tag == "zero" else 20.0
-            winner = "new_chain" if abs(new_error) < abs(old_error) else "old_chain"
-            native_error = new_error * 0.5
-            rows.append(
+
+        for source_pair, source_delta in (("raw/raw", float(profile["raw_delta"])), ("filt/filt", float(profile["filt_delta"]))):
+            ratio_source = "ratio_co2_raw" if source_pair == "raw/raw" else "ratio_co2_filt"
+            source_short = "raw" if source_pair == "raw/raw" else "filt"
+            model_id = f"{analyzer_id.lower()}_{source_short}_current_model"
+            base_score = float(profile["current"]["main"]) + abs(source_delta) + analyzer_index * 0.1
+            score_rows.append(
+                {
+                    "analyzer_id": analyzer_id,
+                    "model_id": model_id,
+                    "model_family": "single_range",
+                    "zero_residual_mode": "none",
+                    "score_source": selected_prediction_scope,
+                    "selected_source_pair": source_pair,
+                    "validation_rmse": base_score,
+                    "overall_rmse": base_score + 0.15,
+                    "composite_score": base_score,
+                    "water_zero_anchor_mode": "none",
+                    "with_water_zero_anchor_correction": False,
+                    "absorbance_column": "A_mean",
+                }
+            )
+
+            for point_index, (temp_c, target_ppm, segment_tag) in enumerate(point_specs, start=1):
+                point_title = f"{run_id}_{analyzer_id}_p{point_index}"
+                point_wave = ((point_index % 4) - 1.5) * 0.12
+                temp_wave = temp_c * 0.01
+                source_error = float(profile["current"][segment_tag]) + source_delta + point_wave + temp_wave
+                overall_error = source_error * 0.92
+                absorbance = 0.35 + (target_ppm / 130.0) + ((temp_c + 12.0) / 90.0) + analyzer_index * 0.04
+                ratio_in_mean = 1.0 + (absorbance / 18.0) + (0.04 if source_short == "raw" else 0.02)
+                pressure_use_hpa = 1013.25 + ((point_index % 5) - 2.0) * 2.5 + analyzer_index * 0.4
+                h2o_ratio_raw = 0.12 + analyzer_index * 0.015 + max(temp_c, 0.0) / 500.0 + target_ppm / 25000.0
+                h2o_ratio_filt = h2o_ratio_raw * 0.96
+                water_ratio_mean = h2o_ratio_raw if source_short == "raw" else h2o_ratio_filt
+                variant_rows.append(
+                    {
+                        "analyzer": analyzer_id,
+                        "analyzer_id": analyzer_id,
+                        "point_title": point_title,
+                        "point_row": point_index,
+                        "temp_set_c": temp_c,
+                        "target_co2_ppm": target_ppm,
+                        "temp_use_mean_c": temp_c + (0.05 if source_short == "raw" else -0.05),
+                        "ratio_source": ratio_source,
+                        "selected_source_pair": source_pair,
+                        "selected_ratio_source": ratio_source,
+                        "zero_residual_mode": "none",
+                        "zero_residual_model_label": "No zero residual correction",
+                        "with_zero_residual_correction": False,
+                        "water_zero_anchor_mode": "none",
+                        "water_zero_anchor_model_label": "No water zero-anchor correction",
+                        "with_water_zero_anchor_correction": False,
+                        "A_mean": absorbance + (0.04 if source_short == "raw" else -0.03),
+                        "A_std": 0.01 + point_index * 0.0005,
+                        "A_from_mean": absorbance + (0.04 if source_short == "raw" else -0.03),
+                        "A_alt_mean": (absorbance + (0.04 if source_short == "raw" else -0.03)) / 1013.25,
+                        "ratio_in_mean": ratio_in_mean,
+                        "pressure_use_mean_hpa": pressure_use_hpa,
+                        "R0_T_mean": 1.0 + analyzer_index * 0.01,
+                        "h2o_ratio_raw_mean": h2o_ratio_raw,
+                        "h2o_ratio_filt_mean": h2o_ratio_filt,
+                        "h2o_density_mean": 0.20 + analyzer_index * 0.02 + temp_c / 250.0 + target_ppm / 15000.0,
+                        "water_ratio_mean": water_ratio_mean,
+                        "delta_h2o_ratio_vs_subzero_anchor": water_ratio_mean - (0.08 + analyzer_index * 0.004),
+                        "delta_h2o_ratio_vs_zeroC_anchor": water_ratio_mean - (0.10 + analyzer_index * 0.004),
+                        "mode2_semantic_profile": str(profile["mode2_profile"]),
+                        "mode2_legacy_raw_compare_safe": bool(profile["legacy_safe"]),
+                        "mode2_is_baseline_bearing_profile": bool(profile["baseline_bearing"]),
+                    }
+                )
+                residual_rows.extend(
+                    [
+                        {
+                            "analyzer_id": analyzer_id,
+                            "model_id": model_id,
+                            "model_family": "single_range",
+                            "zero_residual_mode": "none",
+                            "prediction_scope": "overall_fit",
+                            "selected_source_pair": source_pair,
+                            "water_zero_anchor_mode": "none",
+                            "point_title": point_title,
+                            "point_row": point_index,
+                            "temp_c": temp_c,
+                            "target_ppm": target_ppm,
+                            "predicted_ppm": target_ppm + overall_error,
+                            "error_ppm": overall_error,
+                        },
+                        {
+                            "analyzer_id": analyzer_id,
+                            "model_id": model_id,
+                            "model_family": "single_range",
+                            "zero_residual_mode": "none",
+                            "prediction_scope": "validation_oof",
+                            "selected_source_pair": source_pair,
+                            "water_zero_anchor_mode": "none",
+                            "point_title": point_title,
+                            "point_row": point_index,
+                            "temp_c": temp_c,
+                            "target_ppm": target_ppm,
+                            "predicted_ppm": target_ppm + source_error,
+                            "error_ppm": source_error,
+                        },
+                    ]
+                )
+
+        for point_index, (temp_c, target_ppm, segment_tag) in enumerate(point_specs, start=1):
+            point_title = f"{run_id}_{analyzer_id}_p{point_index}"
+            point_wave = ((point_index % 4) - 1.5) * 0.12
+            temp_wave = temp_c * 0.01
+            old_error = float(profile["old"][segment_tag]) + point_wave + temp_wave
+            selected_delta = float(profile["raw_delta"] if selected_source_pair == "raw/raw" else profile["filt_delta"])
+            current_error = float(profile["current"][segment_tag]) + selected_delta + point_wave + temp_wave
+            native_error = current_error * 0.55 + 0.15
+            winner = "new_chain" if abs(current_error) < abs(old_error) else "old_chain"
+            point_rows.append(
                 {
                     "analyzer_id": analyzer_id,
                     "temp_c": temp_c,
                     "target_ppm": target_ppm,
                     "old_pred_ppm": target_ppm + old_error,
-                    "new_pred_ppm": target_ppm + new_error,
+                    "new_pred_ppm": target_ppm + current_error,
                     "old_error": old_error,
-                    "new_error": new_error,
+                    "new_error": current_error,
                     "winner_for_point": winner,
-                    "ratio_source_selected": "raw" if "raw" in selected_source_pair else "filt",
+                    "ratio_source_selected": "raw" if selected_source_pair == "raw/raw" else "filt",
                     "selected_source_pair": selected_source_pair,
                     "selected_prediction_scope": selected_prediction_scope,
-                    "mode2_semantic_profile": "baseline_bearing_profile",
-                    "mode2_legacy_raw_compare_safe": analyzer_id in {"GA01", "GA03"},
-                    "point_title": f"{run_id}_{analyzer_id}_{segment_tag}",
-                    "point_row": idx,
+                    "mode2_semantic_profile": str(profile["mode2_profile"]),
+                    "mode2_legacy_raw_compare_safe": bool(profile["legacy_safe"]),
+                    "mode2_is_baseline_bearing_profile": bool(profile["baseline_bearing"]),
+                    "point_title": point_title,
+                    "point_row": point_index,
                 }
             )
-            for sample_index, delta in enumerate((-0.1, 0.1), start=1):
+            for sample_index, delta in enumerate((-0.12, 0.12), start=1):
                 filtered_rows.append(
                     {
                         "analyzer": analyzer_id,
-                        "point_title": f"{run_id}_{analyzer_id}_{segment_tag}",
-                        "point_row": idx,
+                        "point_title": point_title,
+                        "point_row": point_index,
                         "temp_set_c": temp_c,
                         "target_co2_ppm": target_ppm,
                         "co2_ppm": target_ppm + native_error + delta,
                         "sample_index": sample_index,
+                        "co2_signal": 1.0 + target_ppm / 300.0 + analyzer_index * 0.05 + sample_index * 0.01,
+                        "ratio_co2_raw": 1.0 + target_ppm / 1200.0 + temp_c / 200.0 + analyzer_index * 0.02 + sample_index * 0.005,
+                        "ratio_co2_filt": 0.98 + target_ppm / 1250.0 + temp_c / 220.0 + analyzer_index * 0.018 + sample_index * 0.004,
+                        "ratio_h2o_raw": 0.12 + analyzer_index * 0.015 + max(temp_c, 0.0) / 500.0 + target_ppm / 25000.0 + sample_index * 0.001,
+                        "ratio_h2o_filt": 0.115 + analyzer_index * 0.014 + max(temp_c, 0.0) / 520.0 + target_ppm / 26000.0 + sample_index * 0.001,
+                        "h2o_density": 0.20 + analyzer_index * 0.02 + temp_c / 250.0 + target_ppm / 15000.0 + sample_index * 0.002,
+                        "temp_cavity_c": temp_c + 0.2,
+                        "temp_shell_c": temp_c,
                     }
                 )
 
-    point_reconciliation = pd.DataFrame(rows)
+    point_reconciliation = pd.DataFrame(point_rows)
     filtered = pd.DataFrame(filtered_rows)
     selection = pd.DataFrame(selection_rows)
     new_chain_input_audit = pd.DataFrame(audit_rows)
+    variants = pd.DataFrame(variant_rows)
+    model_results = {
+        "selection": selection,
+        "scores": pd.DataFrame(score_rows),
+        "residuals": pd.DataFrame(residual_rows),
+    }
     old_vs_new_outputs = build_old_vs_new_comparison_outputs(
         point_reconciliation=point_reconciliation,
         selection_table=selection,
@@ -958,13 +1100,16 @@ def _synthetic_scoped_run_result(run_id: str, output_dir: Path) -> dict[str, obj
         "output_dir": output_dir,
         "validation_table": pd.DataFrame(),
         "comparison_outputs": {"overview_summary": overview},
-        "model_results": {"selection": selection},
+        "model_results": model_results,
         "invalid_pressure_summary": pd.DataFrame([{"summary_scope": "overall", "invalid_point_count": 1, "invalid_sample_count": 3}]),
         "run_role_assessment": pd.DataFrame([{"assessment_scope": "run_summary", "has_high_temp_zero_anchor_candidate": False, "recommended_role": "mixed role"}]),
         "config": DebuggerConfig(input_path=output_dir, output_dir=output_dir),
         "ga01_special_note": "GA01 needs separate tracking.",
         "filtered": filtered,
         "point_reconciliation": point_reconciliation,
+        "absorbance_point_variants": variants,
+        "water_zero_anchor_features": variants,
+        "water_point_variants": variants,
         "old_vs_new_outputs": old_vs_new_outputs,
     }
 
