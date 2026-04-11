@@ -530,3 +530,144 @@ class TestWp6ReviewerSurfaceBoundary:
         for key, value in payload.items():
             assert "non_claim_note" in value, f"{key} missing non_claim_note"
             assert "simulated" in value.get("non_claim_note", "").lower() or "not real" in value.get("non_claim_note", "").lower(), f"{key} non_claim_note missing boundary language"
+
+
+# ---------------------------------------------------------------------------
+# 6) Step 2 总收口测试: role catalog / closeout digest / consistency
+# ---------------------------------------------------------------------------
+
+class TestStep2RoleCatalogConsistency:
+    """WP1–WP6 artifact keys must have consistent role assignments."""
+
+    def test_wp6_keys_in_default_role_catalog(self) -> None:
+        from gas_calibrator.v2.core.artifact_catalog import DEFAULT_ROLE_CATALOG
+        all_keys = set()
+        for role_keys in DEFAULT_ROLE_CATALOG.values():
+            all_keys.update(role_keys)
+        for key in ("pt_ilc_registry", "external_comparison_importer",
+                     "comparison_evidence_pack", "scope_comparison_view",
+                     "comparison_digest", "comparison_rollup",
+                     "step2_closeout_digest"):
+            assert key in all_keys, f"DEFAULT_ROLE_CATALOG missing WP6 key: {key}"
+
+    def test_wp6_markdown_keys_in_default_role_catalog(self) -> None:
+        from gas_calibrator.v2.core.artifact_catalog import DEFAULT_ROLE_CATALOG
+        all_keys = set()
+        for role_keys in DEFAULT_ROLE_CATALOG.values():
+            all_keys.update(role_keys)
+        for key in ("pt_ilc_registry_markdown", "external_comparison_importer_markdown",
+                     "comparison_evidence_pack_markdown", "scope_comparison_view_markdown",
+                     "comparison_digest_markdown", "comparison_rollup_markdown",
+                     "step2_closeout_digest_markdown"):
+            assert key in all_keys, f"DEFAULT_ROLE_CATALOG missing WP6 markdown key: {key}"
+
+
+class TestStep2CloseoutDigestContract:
+    """Step 2 closeout digest must aggregate WP1–WP6 and maintain boundary."""
+
+    def test_closeout_digest_structure(self) -> None:
+        from gas_calibrator.v2.core.wp6_builder import build_step2_closeout_digest
+        digest = build_step2_closeout_digest(
+            run_id="test-closeout",
+            scope_definition_pack={"raw": {"scope_id": "s1"}, "digest": {}, "review_surface": {}},
+            decision_rule_profile={"raw": {"decision_rule_id": "dr1"}, "digest": {}, "review_surface": {}},
+            reference_asset_registry={"raw": {}, "digest": {}, "review_surface": {}},
+            certificate_lifecycle_summary={"raw": {}, "digest": {}, "review_surface": {}},
+            pre_run_readiness_gate={"raw": {}, "digest": {}, "review_surface": {}},
+            uncertainty_report_pack={"raw": {}, "digest": {}, "review_surface": {}},
+            uncertainty_rollup={"raw": {}, "digest": {}, "review_surface": {}},
+            method_confirmation_protocol={"raw": {}, "digest": {}, "review_surface": {}},
+            verification_digest={"raw": {}, "digest": {}, "review_surface": {}},
+            software_validation_rollup={"raw": {}, "digest": {}, "review_surface": {}},
+            comparison_rollup={"raw": {}, "digest": {}, "review_surface": {}},
+            boundary_statements=["readiness mapping only"],
+        )
+        assert digest["available"] is True
+        assert digest["artifact_type"] == "step2_closeout_digest"
+        raw = digest["raw"]
+        assert raw["not_real_acceptance_evidence"] is True
+        assert raw["primary_evidence_rewritten"] is False
+        assert raw["not_ready_for_formal_claim"] is True
+        assert raw["readiness_mapping_only"] is True
+        assert raw["reviewer_only"] is True
+        assert raw["evidence_source"] == "simulated"
+        assert "non_claim_note" in raw
+        assert "wp_status" in raw
+        # Must cover WP1–WP6
+        wp_labels = set(raw["wp_status"].keys())
+        assert "WP1_scope" in wp_labels
+        assert "WP3_uncertainty" in wp_labels
+        assert "WP4_method_confirmation" in wp_labels
+        assert "WP5_software_validation" in wp_labels
+        assert "WP6_comparison" in wp_labels
+
+    def test_closeout_digest_in_recognition_readiness(self, tmp_path: Path) -> None:
+        from gas_calibrator.v2.core.recognition_readiness_artifacts import build_recognition_readiness_artifacts
+        run_dir = tmp_path / "run-closeout-001"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        artifacts = build_recognition_readiness_artifacts(
+            run_id="run-closeout-001",
+            samples=[],
+            point_summaries=[],
+            versions={"v2": "0.1.0"},
+            run_dir=str(run_dir),
+        )
+        assert "step2_closeout_digest" in artifacts
+        closeout = artifacts["step2_closeout_digest"]
+        raw = closeout.get("raw", closeout)
+        assert raw.get("not_real_acceptance_evidence") is True
+        assert raw.get("primary_evidence_rewritten") is False
+        assert raw.get("all_simulated") is True
+
+    def test_closeout_digest_registered_in_catalog(self) -> None:
+        from gas_calibrator.v2.core.artifact_catalog import (
+            KNOWN_ARTIFACT_KEYS_BY_FILENAME,
+            KNOWN_REPORT_ARTIFACTS,
+        )
+        assert "step2_closeout_digest.json" in KNOWN_ARTIFACT_KEYS_BY_FILENAME
+        assert "step2_closeout_digest.md" in KNOWN_ARTIFACT_KEYS_BY_FILENAME
+        assert "step2_closeout_digest.json" in KNOWN_REPORT_ARTIFACTS
+        assert "step2_closeout_digest.md" in KNOWN_REPORT_ARTIFACTS
+
+    def test_closeout_digest_in_compatibility(self) -> None:
+        from gas_calibrator.v2.core.artifact_compatibility import (
+            CANONICAL_SURFACE_FILENAMES,
+            _surface_visibility,
+        )
+        from gas_calibrator.v2.core import recognition_readiness_artifacts as rr
+        assert rr.STEP2_CLOSEOUT_DIGEST_FILENAME in CANONICAL_SURFACE_FILENAMES
+        assert rr.STEP2_CLOSEOUT_DIGEST_MARKDOWN_FILENAME in CANONICAL_SURFACE_FILENAMES
+        surfaces = _surface_visibility(artifact_key="step2_closeout_digest", artifact_role="diagnostic_analysis")
+        assert "review_center" in surfaces
+        assert "workbench" in surfaces
+
+
+class TestStep2SurfaceConsistency:
+    """All WP1–WP6 keys must be consistently exposed across surfaces."""
+
+    def test_all_wp6_keys_in_historical(self) -> None:
+        import gas_calibrator.v2.scripts.historical_artifacts as ha
+        import inspect
+        source = inspect.getsource(ha)
+        for key in ("pt_ilc_registry", "external_comparison_importer",
+                     "comparison_evidence_pack", "scope_comparison_view",
+                     "comparison_digest", "comparison_rollup"):
+            assert key in source, f"historical_artifacts.py missing {key}"
+
+    def test_all_wp6_keys_in_device_workbench(self) -> None:
+        import gas_calibrator.v2.ui_v2.controllers.device_workbench as dw
+        import inspect
+        source = inspect.getsource(dw)
+        for key in ("pt_ilc_registry", "external_comparison_importer",
+                     "comparison_evidence_pack", "scope_comparison_view",
+                     "comparison_digest", "comparison_rollup"):
+            assert key in source, f"device_workbench.py missing {key}"
+
+    def test_all_wp6_keys_in_app_facade(self) -> None:
+        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
+        import inspect
+        source = inspect.getsource(af)
+        for key in ("pt_ilc_registry", "external_comparison_importer",
+                     "comparison_evidence_pack", "scope_comparison_view",
+                     "comparison_digest", "comparison_rollup"):
+            assert key in source, f"app_facade.py missing {key}"
