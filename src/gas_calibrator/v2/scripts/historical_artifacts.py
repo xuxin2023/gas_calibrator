@@ -19,6 +19,9 @@ from ..adapters.recognition_scope_gateway import RecognitionScopeGateway
 from ..adapters.software_validation_gateway import SoftwareValidationGateway
 from ..adapters.uncertainty_gateway import UncertaintyGateway
 from ..adapters.wp6_gateway import Wp6Gateway
+from ..core.reviewer_surface_contracts import (
+    WP6_CLOSEOUT_ARTIFACT_KEYS as _SHARED_WP6_CLOSEOUT_KEYS,
+)
 from ._cli_safety import build_step2_historical_cli_lines
 
 
@@ -209,6 +212,7 @@ def _build_run_report(
     scope_comparison_view = dict(wp6_payload.get("scope_comparison_view") or {})
     comparison_digest_payload = dict(wp6_payload.get("comparison_digest") or {})
     comparison_rollup = dict(wp6_payload.get("comparison_rollup") or {})
+    step2_closeout_digest = dict(wp6_payload.get("step2_closeout_digest") or {})
     reference_asset_digest = dict(reference_asset_registry.get("digest") or {})
     certificate_lifecycle_digest = dict(certificate_lifecycle_summary.get("digest") or {})
     pre_run_gate_digest = dict(pre_run_readiness_gate.get("digest") or {})
@@ -463,6 +467,7 @@ def _build_run_report(
         "scope_comparison_view": scope_comparison_view,
         "comparison_digest": comparison_digest_payload,
         "comparison_rollup": comparison_rollup,
+        "step2_closeout_digest": step2_closeout_digest,
         "current_evidence_coverage": str(
             verification_digest.get("current_evidence_coverage_summary")
             or verification_digest.get("current_coverage_summary")

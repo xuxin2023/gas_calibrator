@@ -1529,6 +1529,7 @@ class AppFacade:
         scope_comparison_view = dict(payload.get("scope_comparison_view", {}) or {})
         comparison_digest = dict(payload.get("comparison_digest", {}) or {})
         comparison_rollup = dict(payload.get("comparison_rollup", {}) or {})
+        step2_closeout_digest = dict(payload.get("step2_closeout_digest", {}) or {})
         run_artifact_index = dict(payload.get("run_artifact_index", {}) or {})
         artifact_contract_catalog = dict(payload.get("artifact_contract_catalog", {}) or {})
         compatibility_scan_summary = dict(payload.get("compatibility_scan_summary", {}) or {})
@@ -1953,6 +1954,7 @@ class AppFacade:
             scope_comparison_view=scope_comparison_view,
             comparison_digest=comparison_digest,
             comparison_rollup=comparison_rollup,
+            step2_closeout_digest=step2_closeout_digest,
             compatibility_scan_summary=compatibility_scan_summary,
             recognition_scope_rollup=recognition_scope_rollup,
         )
@@ -2727,6 +2729,7 @@ class AppFacade:
         scope_comparison_view: dict[str, Any],
         comparison_digest: dict[str, Any],
         comparison_rollup: dict[str, Any],
+        step2_closeout_digest: dict[str, Any],
         compatibility_scan_summary: dict[str, Any],
         recognition_scope_rollup: dict[str, Any],
     ) -> dict[str, Any]:
@@ -2777,6 +2780,7 @@ class AppFacade:
             scope_comparison_view=scope_comparison_view,
             comparison_digest=comparison_digest,
             comparison_rollup=comparison_rollup,
+            step2_closeout_digest=step2_closeout_digest,
             compatibility_scan_summary=compatibility_scan_summary,
         )
         index_summary = self._build_review_index_summary(
@@ -3282,6 +3286,7 @@ class AppFacade:
         scope_comparison_view: dict[str, Any],
         comparison_digest: dict[str, Any],
         comparison_rollup: dict[str, Any],
+        step2_closeout_digest: dict[str, Any],
         compatibility_scan_summary: dict[str, Any],
         force_refresh: bool = False,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
