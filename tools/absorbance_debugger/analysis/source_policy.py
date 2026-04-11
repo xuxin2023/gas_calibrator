@@ -234,6 +234,7 @@ def build_source_selection_audit(
             {
                 "analyzer_id": analyzer_id,
                 "mode2_semantic_profile": profile,
+                "mode2_legacy_raw_compare_safe": legacy_safe,
                 "raw_available_flag": bool(source_values["raw"]["available_flag"]),
                 "filt_available_flag": bool(source_values["filt"]["available_flag"]),
                 "raw_required_keys_pass": bool(source_values["raw"]["required_keys_pass"]),
@@ -296,6 +297,7 @@ def build_source_selection_audit(
                 "summary_scope": "overall",
                 "analyzer_id": "",
                 "mode2_semantic_profile": "multiple",
+                "mode2_legacy_raw_compare_safe": bool(detail_df["mode2_legacy_raw_compare_safe"].all()),
                 "raw_available_flag": bool(detail_df["raw_available_flag"].all()),
                 "filt_available_flag": bool(detail_df["filt_available_flag"].all()),
                 "raw_required_keys_pass": bool(detail_df["raw_required_keys_pass"].all()),
@@ -391,6 +393,10 @@ def _policy_candidate_row(
         & (scores["zero_residual_mode"].astype(str) == fixed_zero_residual_mode)
         & (scores["score_source"].astype(str) == fixed_prediction_scope)
     ].copy()
+    if "water_zero_anchor_mode" in subset.columns:
+        subset = subset[subset["water_zero_anchor_mode"].astype(str) == "none"].copy()
+    if "with_water_zero_anchor_correction" in subset.columns:
+        subset = subset[~subset["with_water_zero_anchor_correction"].fillna(False).map(bool)].copy()
     if subset.empty:
         return None
     subset = subset.sort_values(_policy_sort_columns(score_metric), ignore_index=True)
@@ -450,9 +456,9 @@ def _policy_choice_for_mode(
             return "filt/filt", filt_candidate
         return "", None
     if policy_mode == "raw_only_strict":
-        return "raw/raw", raw_candidate
+        return ("raw/raw", raw_candidate) if raw_candidate is not None else ("", None)
     if policy_mode == "filt_only_strict":
-        return "filt/filt", filt_candidate
+        return ("filt/filt", filt_candidate) if filt_candidate is not None else ("", None)
     raise ValueError(f"Unsupported policy_mode: {policy_mode}")
 
 
@@ -460,6 +466,7 @@ def build_source_policy_challenge(
     point_reconciliation: pd.DataFrame,
     model_results: dict[str, pd.DataFrame],
     config: Any,
+    source_selection_audit_detail: pd.DataFrame | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Compare current mixed vs raw-first/raw-only/filt-only under fixed family and zero-mode."""
 
@@ -467,6 +474,9 @@ def build_source_policy_challenge(
     scores = model_results.get("scores", pd.DataFrame()).copy()
     residuals = model_results.get("residuals", pd.DataFrame()).copy()
     selection = model_results.get("selection", pd.DataFrame()).copy()
+    source_selection_audit_detail = (
+        source_selection_audit_detail.copy() if source_selection_audit_detail is not None else pd.DataFrame()
+    )
     score_metric = _score_metric_name(config)
     if point_reconciliation.empty or scores.empty or residuals.empty or selection.empty:
         empty = pd.DataFrame()
@@ -578,6 +588,7 @@ def build_source_policy_challenge(
                     "fixed_model_family": fixed_model_family,
                     "fixed_zero_residual_mode": fixed_zero_residual_mode,
                     "fixed_prediction_scope": fixed_prediction_scope,
+                    "fixed_water_lineage_mode": "none",
                     "source_policy_mode": policy_mode,
                     "selected_source_pair_under_policy": selected_source_pair_under_policy,
                     "overall_rmse": overall_rmse,
@@ -624,6 +635,7 @@ def build_source_policy_challenge(
         summary_rows.append(
             {
                 "source_policy_mode": policy_mode,
+                "fixed_water_lineage_mode": "none",
                 "overall_rmse": overall_rmse,
                 "zero_rmse": zero_rmse,
                 "low_range_rmse": low_rmse,
@@ -646,16 +658,67 @@ def build_source_policy_challenge(
     current_row = summary_df[summary_df["source_policy_mode"] == "current_deployable_mixed"].iloc[0]
     raw_first_improves = bool(raw_first_row["whether_improves_current_deployable_result"])
 
+    audit_lookup = (
+        source_selection_audit_detail.set_index("analyzer_id").to_dict(orient="index")
+        if not source_selection_audit_detail.empty and "analyzer_id" in source_selection_audit_detail.columns
+        else {}
+    )
+    current_reason_parts: list[str] = []
+    current_reason_evidence: list[str] = []
     analyzer_alignment_parts: list[str] = []
     for analyzer_id, analyzer_df in detail_df.groupby("analyzer_id", dropna=False):
         current_choice = analyzer_df[analyzer_df["source_policy_mode"] == "current_deployable_mixed"].iloc[0]
         raw_first_choice = analyzer_df[analyzer_df["source_policy_mode"] == "raw_first_with_fallback"].iloc[0]
+        raw_only_choice = analyzer_df[analyzer_df["source_policy_mode"] == "raw_only_strict"].iloc[0]
+        filt_only_choice = analyzer_df[analyzer_df["source_policy_mode"] == "filt_only_strict"].iloc[0]
         if str(current_choice["selected_source_pair_under_policy"]) == "raw/raw":
             analyzer_alignment_parts.append(f"{analyzer_id}=closest_to_raw_first")
         elif str(raw_first_choice["selected_source_pair_under_policy"]) == "raw/raw":
             analyzer_alignment_parts.append(f"{analyzer_id}=can_return_to_raw_with_fallback")
         else:
             analyzer_alignment_parts.append(f"{analyzer_id}=still_depends_on_filt")
+
+        if str(current_choice["selected_source_pair_under_policy"]) != "filt/filt":
+            continue
+
+        audit_row = audit_lookup.get(str(analyzer_id), {})
+        raw_blocked = any(
+            [
+                not bool(audit_row.get("raw_available_flag", True)),
+                not bool(audit_row.get("raw_required_keys_pass", True)),
+                not bool(audit_row.get("raw_quality_gate_pass", True)),
+            ]
+        )
+        raw_only_rmse = pd.to_numeric(pd.Series([raw_only_choice.get("overall_rmse")]), errors="coerce").iloc[0]
+        filt_only_rmse = pd.to_numeric(pd.Series([filt_only_choice.get("overall_rmse")]), errors="coerce").iloc[0]
+        if raw_blocked or pd.isna(raw_only_rmse) or str(raw_only_choice.get("selected_source_pair_under_policy") or "") == "":
+            current_reason_parts.append(f"{analyzer_id}=raw_unavailable_or_invalid")
+            current_reason_evidence.append(
+                f"{analyzer_id}: raw_available={audit_row.get('raw_available_flag')}, "
+                f"raw_required_keys_pass={audit_row.get('raw_required_keys_pass')}, "
+                f"raw_quality_gate_pass={audit_row.get('raw_quality_gate_pass')}"
+            )
+        elif pd.notna(filt_only_rmse) and float(filt_only_rmse) < float(raw_only_rmse) - 1.0e-12:
+            current_reason_parts.append(f"{analyzer_id}=filt_better_in_fixed_family")
+            current_reason_evidence.append(
+                f"{analyzer_id}: raw_only_rmse={float(raw_only_rmse):.6g}, filt_only_rmse={float(filt_only_rmse):.6g}"
+            )
+        else:
+            current_reason_parts.append(f"{analyzer_id}=mixed_not_fully_explained_by_fixed_family_advantage")
+            current_reason_evidence.append(
+                f"{analyzer_id}: raw_only_rmse={raw_only_rmse}, filt_only_rmse={filt_only_rmse}"
+            )
+
+    current_mixed_reason_answer = (
+        "; ".join(current_reason_parts)
+        if current_reason_parts
+        else "current deployable selection does not rely on filt/filt under the fixed-family source policy challenge"
+    )
+    current_mixed_reason_evidence = (
+        "; ".join(current_reason_evidence)
+        if current_reason_evidence
+        else "no filt/filt analyzers were present in current_deployable_mixed"
+    )
 
     support_statement_answer = (
         "Yes. Current new chain is inconsistent with V5 raw-first intent, and whether that mismatch explains the old-chain gap must be checked with the fixed-chain source policy challenge."
@@ -671,11 +734,8 @@ def build_source_policy_challenge(
             {
                 "question_id": "current_mixed_reason_category",
                 "question": "Did current mixed happen because raw was unavailable/invalid or because filt scored better?",
-                "answer": "Current mixed is mainly explained by score differences under the current search surface.",
-                "evidence": "; ".join(
-                    f"{row.analyzer_id}={row.selected_source_pair_under_policy}"
-                    for row in detail_df[detail_df["source_policy_mode"] == "current_deployable_mixed"].itertuples(index=False)
-                ),
+                "answer": current_mixed_reason_answer,
+                "evidence": current_mixed_reason_evidence,
             },
             {
                 "question_id": "whether_raw_first_improves_current_deployable_result",

@@ -20,6 +20,10 @@ from tools.absorbance_debugger.analysis.lineage_audit import (
     build_new_chain_input_audit,
     build_old_water_correction_audit,
 )
+from tools.absorbance_debugger.analysis.source_policy import (
+    build_source_policy_challenge,
+    build_source_selection_audit,
+)
 from tools.absorbance_debugger.analysis.legacy_water_replay import (
     build_legacy_water_replay_features,
     load_legacy_water_replay_rules,
@@ -131,6 +135,13 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
     assert (output_dir / "step_08_auto_conclusions.csv").exists()
     assert (output_dir / "step_08y_legacy_water_replay_conclusions.csv").exists()
     assert (output_dir / "step_08y_ppm_family_challenge_conclusions.csv").exists()
+    assert (output_dir / "step_06x_source_selection_audit_detail.csv").exists()
+    assert (output_dir / "step_06x_source_selection_audit_summary.csv").exists()
+    assert (output_dir / "step_08x_source_selection_audit_conclusions.csv").exists()
+    assert (output_dir / "step_06x_source_policy_challenge_detail.csv").exists()
+    assert (output_dir / "step_06x_source_policy_challenge_summary.csv").exists()
+    assert (output_dir / "step_06x_source_policy_challenge_plot.png").exists()
+    assert (output_dir / "step_08x_source_policy_challenge_conclusions.csv").exists()
     assert (output_dir / "step_09_old_vs_new_comparison_detail.csv").exists()
     assert (output_dir / "step_09_old_vs_new_comparison_summary.csv").exists()
     assert (output_dir / "step_09_old_vs_new_local_wins.csv").exists()
@@ -343,6 +354,80 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
     assert {"summary_scope", "mode2_semantic_profile", "ppm_family_mode", "laggard_only_weighted_gap_closed_ratio_capped"} <= set(ppm_summary.columns)
     assert {"question_id", "question", "answer", "evidence", "recommended_ppm_family_mode", "mode2_semantic_profile"} <= set(ppm_conclusions.columns)
 
+    source_selection_audit_detail = pd.read_csv(output_dir / "step_06x_source_selection_audit_detail.csv")
+    source_selection_audit_summary = pd.read_csv(output_dir / "step_06x_source_selection_audit_summary.csv")
+    source_selection_audit_conclusions = pd.read_csv(output_dir / "step_08x_source_selection_audit_conclusions.csv")
+    assert {
+        "analyzer_id",
+        "mode2_semantic_profile",
+        "raw_available_flag",
+        "filt_available_flag",
+        "raw_required_keys_pass",
+        "filt_required_keys_pass",
+        "raw_quality_gate_pass",
+        "filt_quality_gate_pass",
+        "raw_nonpositive_ratio_count",
+        "filt_nonpositive_ratio_count",
+        "raw_missing_count",
+        "filt_missing_count",
+        "signal_priority_prefers_filt_flag",
+        "raw_score_if_forced",
+        "filt_score_if_forced",
+        "selected_source_pair",
+        "selection_reason_primary",
+        "selection_reason_secondary",
+        "actual_ratio_source_used",
+    } <= set(source_selection_audit_detail.columns)
+    assert {
+        "summary_scope",
+        "designed_v5_ratio_source_intent",
+        "actual_ratio_source_used_in_this_run",
+        "why_selected_source_pair_became_mixed",
+    } <= set(source_selection_audit_summary.columns)
+    assert {"question_id", "question", "answer", "evidence"} <= set(source_selection_audit_conclusions.columns)
+
+    source_policy_challenge_detail = pd.read_csv(output_dir / "step_06x_source_policy_challenge_detail.csv")
+    source_policy_challenge_summary = pd.read_csv(output_dir / "step_06x_source_policy_challenge_summary.csv")
+    source_policy_challenge_conclusions = pd.read_csv(output_dir / "step_08x_source_policy_challenge_conclusions.csv")
+    assert {
+        "analyzer_id",
+        "mode2_semantic_profile",
+        "fixed_model_family",
+        "fixed_zero_residual_mode",
+        "fixed_prediction_scope",
+        "source_policy_mode",
+        "selected_source_pair_under_policy",
+        "overall_rmse",
+        "zero_rmse",
+        "low_range_rmse",
+        "main_range_rmse",
+        "old_chain_overall_rmse",
+        "gap_to_old_overall",
+        "delta_vs_current_mixed_overall",
+        "delta_vs_current_mixed_zero",
+        "delta_vs_current_mixed_low",
+        "delta_vs_current_mixed_main",
+        "pointwise_win_count_vs_old",
+        "pointwise_loss_count_vs_old",
+        "pointwise_win_count_vs_current_mixed",
+        "pointwise_loss_count_vs_current_mixed",
+        "local_win_examples",
+        "local_loss_examples",
+    } <= set(source_policy_challenge_detail.columns)
+    assert {
+        "source_policy_mode",
+        "overall_rmse",
+        "delta_vs_current_mixed_overall",
+        "whether_improves_current_deployable_result",
+    } <= set(source_policy_challenge_summary.columns)
+    assert {"question_id", "question", "answer", "evidence"} <= set(source_policy_challenge_conclusions.columns)
+    assert {
+        "current_deployable_mixed",
+        "raw_first_with_fallback",
+        "raw_only_strict",
+        "filt_only_strict",
+    } <= set(source_policy_challenge_detail["source_policy_mode"])
+
     old_vs_new_detail = pd.read_csv(output_dir / "step_09_old_vs_new_comparison_detail.csv")
     old_vs_new_summary = pd.read_csv(output_dir / "step_09_old_vs_new_comparison_summary.csv")
     old_vs_new_local_wins = pd.read_csv(output_dir / "step_09_old_vs_new_local_wins.csv")
@@ -420,6 +505,9 @@ def test_reference_run_generates_expected_outputs(tmp_path: Path) -> None:
     assert "old_chain" in old_vs_new_report
     assert "current_deployable_new_chain" in old_vs_new_report
     assert "actual_ratio_source_used_in_this_run" in old_vs_new_report
+    assert "designed_v5_ratio_source_intent = raw_or_instantaneous" in old_vs_new_report
+    assert "selection_reason_primary" in old_vs_new_report
+    assert "whether_raw_first_improves_current_deployable_result" in old_vs_new_report
     headline_block = old_vs_new_report.split("## 2. overall comparison", 1)[0]
     assert "best_legacy_water_replay_candidate" not in headline_block
     assert "best_ppm_family_challenge_candidate" not in headline_block

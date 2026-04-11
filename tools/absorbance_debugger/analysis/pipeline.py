@@ -2327,6 +2327,7 @@ def execute_pipeline(config: DebuggerConfig) -> dict[str, Any]:
         point_reconciliation=main_point_reconciliation,
         model_results=model_results,
         config=config,
+        source_selection_audit_detail=source_selection_audit_outputs["detail"],
     )
     _frame_to_csv(config.output_dir / "step_06x_source_policy_challenge_detail.csv", source_policy_challenge_outputs["detail"])
     _frame_to_csv(config.output_dir / "step_06x_source_policy_challenge_summary.csv", source_policy_challenge_outputs["summary"])

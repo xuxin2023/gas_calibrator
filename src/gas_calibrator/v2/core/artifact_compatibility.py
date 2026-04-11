@@ -169,6 +169,8 @@ CANONICAL_SURFACE_FILENAMES = frozenset(
         recognition_readiness.COMPARISON_DIGEST_MARKDOWN_FILENAME,
         recognition_readiness.COMPARISON_ROLLUP_FILENAME,
         recognition_readiness.COMPARISON_ROLLUP_MARKDOWN_FILENAME,
+        recognition_readiness.STEP2_CLOSEOUT_DIGEST_FILENAME,
+        recognition_readiness.STEP2_CLOSEOUT_DIGEST_MARKDOWN_FILENAME,
     }
 )
 
@@ -1559,6 +1561,7 @@ def _surface_visibility(*, artifact_key: str, artifact_role: str) -> list[str]:
         "scope_comparison_view",
         "comparison_digest",
         "comparison_rollup",
+        "step2_closeout_digest",
     }:
         if "review_center" not in surfaces:
             surfaces.append("review_center")

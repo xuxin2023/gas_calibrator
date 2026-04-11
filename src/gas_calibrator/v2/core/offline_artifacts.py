@@ -1636,6 +1636,8 @@ def export_run_offline_artifacts(
         "comparison_digest_markdown": str(run_dir / recognition_readiness.COMPARISON_DIGEST_MARKDOWN_FILENAME),
         "comparison_rollup": str(run_dir / recognition_readiness.COMPARISON_ROLLUP_FILENAME),
         "comparison_rollup_markdown": str(run_dir / recognition_readiness.COMPARISON_ROLLUP_MARKDOWN_FILENAME),
+        "step2_closeout_digest": str(run_dir / recognition_readiness.STEP2_CLOSEOUT_DIGEST_FILENAME),
+        "step2_closeout_digest_markdown": str(run_dir / recognition_readiness.STEP2_CLOSEOUT_DIGEST_MARKDOWN_FILENAME),
     }
     recognition_readiness_artifacts = recognition_readiness.build_recognition_readiness_artifacts(
         run_id=run_id,
@@ -1779,6 +1781,7 @@ def export_run_offline_artifacts(
         "scope_comparison_view": "diagnostic_analysis",
         "comparison_digest": "diagnostic_analysis",
         "comparison_rollup": "diagnostic_analysis",
+        "step2_closeout_digest": "diagnostic_analysis",
     }
     for artifact_key, (json_path, markdown_path) in recognition_readiness_written_paths.items():
         role = recognition_readiness_roles.get(str(artifact_key), "execution_summary")
