@@ -2337,5 +2337,16 @@
       "preseal_partial_vs_pressure_stable_complete_detail": "{route} route: preseal stays payload-partial because missing {preseal_missing}; same-route pressure_stable reaches payload-complete because {stable_available} are all available; preseal keeps method {preseal_method}, uncertainty {preseal_uncertainty}, and traceability {preseal_traceability} open, while pressure_stable already exposes method {stable_method}, uncertainty {stable_uncertainty}, and traceability {stable_traceability} as synthetic reviewer linkage",
       "trace_only_taxonomy_visibility_open": "trace-only phases {phases} keep the same taxonomy visible, but reviewer closure stays open until payload-backed evidence is promoted"
     }
+  },
+  "reviewer_surface": {
+    "wp6_closeout": {
+      "pt_ilc_registry": "PT/ILC Comparison Registry",
+      "external_comparison_importer": "External Comparison Importer",
+      "comparison_evidence_pack": "Comparison Evidence Pack",
+      "scope_comparison_view": "Scope Comparison View",
+      "comparison_digest": "Comparison Digest",
+      "comparison_rollup": "Comparison Rollup",
+      "step2_closeout_digest": "Step 2 Closeout Digest"
+    }
   }
 }

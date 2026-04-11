@@ -2332,5 +2332,16 @@
       "preseal_partial_vs_pressure_stable_complete_detail": "{route} 路由中，preseal 因仍缺 {preseal_missing} 而保持 payload-partial；同路 pressure_stable 在 {stable_available} 全部就位后可达到 payload-complete；因此 preseal 的方法 {preseal_method}、不确定度 {preseal_uncertainty}、溯源 {preseal_traceability} 继续保持打开，而 pressure_stable 已将方法 {stable_method}、不确定度 {stable_uncertainty}、溯源 {stable_traceability} 作为 synthetic reviewer linkage 暴露出来",
       "trace_only_taxonomy_visibility_open": "trace-only 阶段 {phases} 仍保持同一套 taxonomy 可见，但在提升为 payload-backed 证据前，审阅闭环不会关闭"
     }
+  },
+  "reviewer_surface": {
+    "wp6_closeout": {
+      "pt_ilc_registry": "PT/ILC 比对注册表",
+      "external_comparison_importer": "外部比对导入器",
+      "comparison_evidence_pack": "比对证据包",
+      "scope_comparison_view": "范围比对视图",
+      "comparison_digest": "比对摘要",
+      "comparison_rollup": "比对汇总",
+      "step2_closeout_digest": "Step 2 阶段收口摘要"
+    }
   }
 }

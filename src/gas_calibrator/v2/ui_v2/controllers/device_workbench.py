@@ -21,6 +21,9 @@ from ...core.multi_source_stability import (
 )
 from ...core.measurement_phase_coverage import MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME
 from ...core import recognition_readiness_artifacts as recognition_readiness
+from ...core.reviewer_surface_contracts import (
+    WP6_CLOSEOUT_ARTIFACT_KEYS as _SHARED_WP6_CLOSEOUT_KEYS,
+)
 from ...core.offline_artifacts import build_point_taxonomy_handoff
 from ...core.device_factory import DeviceFactory, DeviceType
 from ...qc.qc_report import build_qc_evidence_section, build_qc_reviewer_card
@@ -490,6 +493,7 @@ class DeviceWorkbenchController:
         scope_comparison_view = dict(payload.get("scope_comparison_view") or {})
         comparison_digest_payload = dict(payload.get("comparison_digest") or {})
         comparison_rollup = dict(payload.get("comparison_rollup") or {})
+        step2_closeout_digest = dict(payload.get("step2_closeout_digest") or {})
         recognition_scope_rollup = dict(payload.get("recognition_scope_rollup") or {})
         compatibility_summary = dict(payload.get("compatibility_scan_summary") or {})
         compatibility_overview = dict(compatibility_summary.get("compatibility_overview") or {})
@@ -535,6 +539,7 @@ class DeviceWorkbenchController:
             "scope_comparison_view": scope_comparison_view,
             "comparison_digest": comparison_digest_payload,
             "comparison_rollup": comparison_rollup,
+            "step2_closeout_digest": step2_closeout_digest,
         }
         if not any(payloads.values()):
             return {}

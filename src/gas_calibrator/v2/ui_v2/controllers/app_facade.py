@@ -42,6 +42,10 @@ from ...core.reviewer_fragments_contract import (
     normalize_fragment_filter_rows,
 )
 from ...core import recognition_readiness_artifacts as recognition_readiness
+from ...core.reviewer_surface_contracts import (
+    WP6_CLOSEOUT_ARTIFACT_KEYS as _SHARED_WP6_CLOSEOUT_KEYS,
+    WP6_CLOSEOUT_DISPLAY_LABELS as _SHARED_WP6_CLOSEOUT_DISPLAY_LABELS,
+)
 from ...core.offline_artifacts import build_point_taxonomy_handoff
 from ...domain.mode_models import ModeProfile, RunMode
 from ...review_surface_formatter import (
@@ -3568,6 +3572,10 @@ class AppFacade:
             (
                 recognition_readiness.COMPARISON_ROLLUP_FILENAME,
                 dict(comparison_rollup or {}),
+            ),
+            (
+                recognition_readiness.STEP2_CLOSEOUT_DIGEST_FILENAME,
+                dict(step2_closeout_digest or {}),
             ),
         ]
         for filename, fallback_payload in readiness_summary_payloads:
