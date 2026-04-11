@@ -157,3 +157,170 @@ def _prediction_frame_for_scope(residual_df: pd.DataFrame, requested_scope: str)
         scope_frame = residual_df[residual_df["prediction_scope"].astype(str) == "overall_fit"].copy()
         actual_scope = "overall_fit_fallback"
     return scope_frame, actual_scope
+
+
+def _same_family_refit_frame(
+    absorbance_point_variants: pd.DataFrame,
+    *,
+    analyzer_id: str,
+    selected_source_pair: str,
+    fixed_model_family: str,
+    fixed_zero_residual_mode: str,
+    fixed_prediction_scope: str,
+    config: Any,
+) -> tuple[pd.DataFrame, str]:
+    ratio_source = _ratio_source_from_pair(selected_source_pair)
+    subset = absorbance_point_variants[
+        (absorbance_point_variants["analyzer"].astype(str) == analyzer_id)
+        & (absorbance_point_variants["ratio_source"].astype(str) == ratio_source)
+        & (absorbance_point_variants["zero_residual_mode"].astype(str) == fixed_zero_residual_mode)
+    ].copy()
+    if subset.empty:
+        return pd.DataFrame(), ""
+    subset["target_ppm"] = pd.to_numeric(subset["target_co2_ppm"], errors="coerce")
+    subset["temp_c"] = pd.to_numeric(subset["temp_set_c"], errors="coerce")
+    subset["temp_model_c"] = pd.to_numeric(subset["temp_use_mean_c"], errors="coerce").combine_first(subset["temp_c"])
+    subset["group_key"] = (
+        subset["temp_c"].map(lambda value: "nan" if pd.isna(value) else f"{float(value):g}")
+        + "|"
+        + subset["target_ppm"].map(lambda value: "nan" if pd.isna(value) else f"{float(value):g}")
+        + "|"
+        + subset["point_title"].fillna("").astype(str)
+    )
+    subset["selected_source_pair"] = selected_source_pair
+    subset["selected_ratio_source"] = ratio_source
+
+    score_metric = _score_metric_name(config)
+    candidate_rows: list[dict[str, Any]] = []
+    residual_rows: list[dict[str, Any]] = []
+    for spec in active_model_specs(config):
+        if spec.model_family != fixed_model_family:
+            continue
+        try:
+            score_row, _coeff_rows, spec_residual_rows = _fit_one_candidate(
+                analyzer_df=subset,
+                spec=spec,
+                strategy=config.model_selection_strategy,
+                score_weights=config.composite_weight_map(),
+                legacy_score_weights=config.legacy_composite_weight_map(),
+                enable_composite_score=config.enable_composite_score,
+                absorbance_column="A_mean",
+            )
+        except Exception:
+            continue
+        candidate_rows.append(score_row)
+        residual_rows.extend(spec_residual_rows)
+    if not candidate_rows:
+        return pd.DataFrame(), ""
+    scores = pd.DataFrame(candidate_rows).sort_values(
+        [score_metric, "validation_rmse", "overall_rmse", "model_id"],
+        ignore_index=True,
+    )
+    chosen_model = str(scores.iloc[0]["model_id"])
+    residual_df = pd.DataFrame(residual_rows)
+    residual_df = residual_df[residual_df["model_id"].astype(str) == chosen_model].copy()
+    scope_frame, _actual_scope = _prediction_frame_for_scope(residual_df, fixed_prediction_scope)
+    if scope_frame.empty:
+        return pd.DataFrame(), chosen_model
+    scope_frame = scope_frame.rename(columns={"predicted_ppm": "sidecar_pred_ppm", "error_ppm": "sidecar_error_ppm"})
+    return scope_frame[["point_title", "point_row", "target_ppm", "sidecar_pred_ppm", "sidecar_error_ppm"]].copy(), chosen_model
+
+
+def _fit_linear_residual_correction(
+    frame: pd.DataFrame,
+    *,
+    feature_columns: list[str],
+    target_column: str,
+    use_leave_one_out: bool,
+) -> tuple[pd.Series, str]:
+    valid = frame.dropna(subset=[*feature_columns, target_column]).copy()
+    predictions = pd.Series(0.0, index=frame.index, dtype=float)
+    if valid.empty:
+        return predictions, "no_usable_feature_rows"
+
+    def _solve(train_df: pd.DataFrame, predict_df: pd.DataFrame) -> np.ndarray:
+        x_train = np.column_stack(
+            [np.ones(len(train_df), dtype=float), *[pd.to_numeric(train_df[column], errors="coerce").to_numpy(dtype=float) for column in feature_columns]]
+        )
+        y_train = pd.to_numeric(train_df[target_column], errors="coerce").to_numpy(dtype=float)
+        coeffs, _, _, _ = np.linalg.lstsq(x_train, y_train, rcond=None)
+        x_predict = np.column_stack(
+            [np.ones(len(predict_df), dtype=float), *[pd.to_numeric(predict_df[column], errors="coerce").to_numpy(dtype=float) for column in feature_columns]]
+        )
+        raw = x_predict @ coeffs
+        cap = float(np.nanmax(np.abs(y_train))) if len(y_train) else math.nan
+        return np.clip(raw, -cap, cap) if math.isfinite(cap) and cap > 0.0 else raw
+
+    if use_leave_one_out and len(valid) > len(feature_columns) + 1:
+        oof = pd.Series(np.nan, index=valid.index, dtype=float)
+        for row_index in valid.index:
+            train_df = valid.drop(index=row_index)
+            if len(train_df) <= len(feature_columns):
+                continue
+            oof.loc[row_index] = float(_solve(train_df, valid.loc[[row_index]])[0])
+        if oof.notna().sum() == len(valid):
+            predictions.loc[valid.index] = oof
+            return predictions, "leave_one_out"
+    predictions.loc[valid.index] = _solve(valid, valid)
+    return predictions, "full_fit"
+
+
+def _mode_frame(
+    base_frame: pd.DataFrame,
+    *,
+    sidecar_mode: str,
+    pred_column: str,
+    error_column: str,
+) -> pd.DataFrame:
+    frame = base_frame.copy()
+    frame["sidecar_mode"] = sidecar_mode
+    frame["sidecar_pred_ppm"] = pd.to_numeric(frame[pred_column], errors="coerce")
+    frame["sidecar_error_ppm"] = pd.to_numeric(frame[error_column], errors="coerce")
+    frame["abs_error_old"] = pd.to_numeric(frame["old_error"], errors="coerce").abs()
+    frame["abs_error_current"] = pd.to_numeric(frame["new_error"], errors="coerce").abs()
+    frame["abs_error_sidecar"] = pd.to_numeric(frame["sidecar_error_ppm"], errors="coerce").abs()
+    return frame
+
+
+def _detail_row(
+    mode_frame: pd.DataFrame,
+    *,
+    analyzer_id: str,
+    sidecar_mode: str,
+    selected_source_pair: str,
+    fixed_model_family: str,
+    fixed_zero_residual_mode: str,
+    fixed_prediction_scope: str,
+    current_frame: pd.DataFrame,
+) -> dict[str, Any]:
+    old_overall = _metrics(mode_frame["old_error"])["rmse"]
+    current_overall = _metrics(current_frame["sidecar_error_ppm"])["rmse"]
+    current_zero = _segment_rmse(current_frame, "sidecar_error_ppm", "zero")
+    current_low = _segment_rmse(current_frame, "sidecar_error_ppm", "low")
+    current_main = _segment_rmse(current_frame, "sidecar_error_ppm", "main")
+    overall = _metrics(mode_frame["sidecar_error_ppm"])["rmse"]
+    zero = _segment_rmse(mode_frame, "sidecar_error_ppm", "zero")
+    low = _segment_rmse(mode_frame, "sidecar_error_ppm", "low")
+    main = _segment_rmse(mode_frame, "sidecar_error_ppm", "main")
+    old_zero = _segment_rmse(mode_frame, "old_error", "zero")
+    return {
+        "analyzer_id": analyzer_id,
+        "sidecar_mode": sidecar_mode,
+        "selected_source_pair": selected_source_pair,
+        "fixed_model_family": fixed_model_family,
+        "fixed_zero_residual_mode": fixed_zero_residual_mode,
+        "fixed_prediction_scope": fixed_prediction_scope,
+        "zero_rmse": zero,
+        "low_range_rmse": low,
+        "main_range_rmse": main,
+        "overall_rmse": overall,
+        "temp_bias_spread": _temp_bias_spread(mode_frame, "sidecar_error_ppm"),
+        "gap_to_old_overall": overall - old_overall if pd.notna(overall) and pd.notna(old_overall) else math.nan,
+        "gap_to_old_zero": zero - old_zero if pd.notna(zero) and pd.notna(old_zero) else math.nan,
+        "delta_vs_current_ga01_overall": current_overall - overall if pd.notna(current_overall) and pd.notna(overall) else math.nan,
+        "delta_vs_current_ga01_zero": current_zero - zero if pd.notna(current_zero) and pd.notna(zero) else math.nan,
+        "delta_vs_current_ga01_low": current_low - low if pd.notna(current_low) and pd.notna(low) else math.nan,
+        "delta_vs_current_ga01_main": current_main - main if pd.notna(current_main) and pd.notna(main) else math.nan,
+        "pointwise_win_count_vs_old": int((mode_frame["abs_error_sidecar"] < mode_frame["abs_error_old"] - 1.0e-12).fillna(False).sum()),
+        "pointwise_win_count_vs_current_ga01": int((mode_frame["abs_error_sidecar"] < mode_frame["abs_error_current"] - 1.0e-12).fillna(False).sum()),
+    }
