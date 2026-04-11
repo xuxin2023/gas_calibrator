@@ -835,6 +835,8 @@ def build_artifact_compatibility_bundle(
         )
         for entry in base_entries
     ]
+    # Ensure WP6 + step2_closeout_digest have explicit contract entries even if not on disk
+    entries = _ensure_wp6_closeout_contract_entries(entries, run_dir=run_dir, run_id=run_id, role_catalog=merged_role_catalog)
     status_counts = _count_by_key(entries, "compatibility_status")
     version_source_counts = _count_by_key(entries, "schema_version_source")
     canonical_reader_count = sum(1 for entry in entries if bool(entry.get("canonical_reader_available", False)))
