@@ -121,6 +121,8 @@ COMPARISON_DIGEST_FILENAME = "comparison_digest.json"
 COMPARISON_DIGEST_MARKDOWN_FILENAME = "comparison_digest.md"
 COMPARISON_ROLLUP_FILENAME = "comparison_rollup.json"
 COMPARISON_ROLLUP_MARKDOWN_FILENAME = "comparison_rollup.md"
+STEP2_CLOSEOUT_DIGEST_FILENAME = "step2_closeout_digest.json"
+STEP2_CLOSEOUT_DIGEST_MARKDOWN_FILENAME = "step2_closeout_digest.md"
 
 RECOGNITION_READINESS_SUMMARY_FILENAMES = (
     SCOPE_READINESS_SUMMARY_FILENAME,
@@ -138,6 +140,7 @@ RECOGNITION_READINESS_SUMMARY_FILENAMES = (
     AUDIT_READINESS_DIGEST_FILENAME,
     COMPARISON_DIGEST_FILENAME,
     COMPARISON_ROLLUP_FILENAME,
+    STEP2_CLOSEOUT_DIGEST_FILENAME,
 )
 from .software_validation_builder import build_software_validation_wp5_artifacts
 from .uncertainty_builder import build_uncertainty_wp3_artifacts

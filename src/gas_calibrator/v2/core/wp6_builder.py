@@ -936,3 +936,121 @@ def build_wp6_artifacts(
         "comparison_digest": comp_digest,
         "comparison_rollup": rollup,
     }
+
+
+# ---------------------------------------------------------------------------
+# Step 2 closeout digest — aggregates WP1–WP6 readiness status
+# ---------------------------------------------------------------------------
+
+STEP2_CLOSEOUT_SCHEMA_VERSION = "step2-closeout-digest-v1"
+
+
+def build_step2_closeout_digest(
+    *,
+    run_id: str,
+    scope_definition_pack: dict[str, Any],
+    decision_rule_profile: dict[str, Any],
+    reference_asset_registry: dict[str, Any],
+    certificate_lifecycle_summary: dict[str, Any],
+    pre_run_readiness_gate: dict[str, Any],
+    uncertainty_report_pack: dict[str, Any],
+    uncertainty_rollup: dict[str, Any],
+    method_confirmation_protocol: dict[str, Any],
+    verification_digest: dict[str, Any],
+    software_validation_rollup: dict[str, Any],
+    comparison_rollup: dict[str, Any],
+    boundary_statements: list[str],
+) -> dict[str, Any]:
+    """Build a Step 2 closeout digest aggregating WP1–WP6 readiness status.
+
+    This is a **reviewer-facing readiness summary only** — not a formal claim.
+    """
+    wp_status: dict[str, str] = {}
+    for label, payload in [
+        ("WP1_scope", scope_definition_pack),
+        ("WP1_decision_rule", decision_rule_profile),
+        ("WP1_reference_asset", reference_asset_registry),
+        ("WP1_certificate", certificate_lifecycle_summary),
+        ("WP1_pre_run_gate", pre_run_readiness_gate),
+        ("WP3_uncertainty", uncertainty_report_pack),
+        ("WP3_uncertainty_rollup", uncertainty_rollup),
+        ("WP4_method_confirmation", method_confirmation_protocol),
+        ("WP4_verification", verification_digest),
+        ("WP5_software_validation", software_validation_rollup),
+        ("WP6_comparison", comparison_rollup),
+    ]:
+        raw = payload.get("raw", payload)
+        if raw.get("not_real_acceptance_evidence") is True:
+            wp_status[label] = "simulated_readiness_only"
+        elif raw.get("available") is False:
+            wp_status[label] = "not_available"
+        else:
+            wp_status[label] = "available"
+
+    all_simulated = all(
+        v in ("simulated_readiness_only", "not_available") for v in wp_status.values()
+    )
+
+    raw = {
+        "schema_version": STEP2_CLOSEOUT_SCHEMA_VERSION,
+        "artifact_type": "step2_closeout_digest",
+        "generated_at": _now_iso(),
+        "run_id": run_id,
+        "evidence_source": "simulated",
+        "evidence_state": "reviewer_readiness_only",
+        "not_real_acceptance_evidence": True,
+        "ready_for_readiness_mapping": True,
+        "not_ready_for_formal_claim": True,
+        "primary_evidence_rewritten": False,
+        "readiness_mapping_only": True,
+        "reviewer_only": True,
+        "wp_status": wp_status,
+        "all_simulated": all_simulated,
+        "scope_summary": str(
+            scope_definition_pack.get("raw", scope_definition_pack).get("scope_id", "--")
+        ),
+        "decision_rule_summary": str(
+            decision_rule_profile.get("raw", decision_rule_profile).get("decision_rule_id", "--")
+        ),
+        "uncertainty_status": wp_status.get("WP3_uncertainty", "--"),
+        "method_confirmation_status": wp_status.get("WP4_method_confirmation", "--"),
+        "software_validation_status": wp_status.get("WP5_software_validation", "--"),
+        "comparison_status": wp_status.get("WP6_comparison", "--"),
+        "pre_run_gate_status": wp_status.get("WP1_pre_run_gate", "--"),
+        "non_claim_note": (
+            "Step 2 closeout digest is reviewer-facing readiness summary only. "
+            "All evidence is simulated. This is not a formal claim, accreditation, "
+            "or acceptance declaration."
+        ),
+        "limitation_note": "Aggregates Step 2 simulation-only readiness; does not close formal evidence.",
+        "reviewer_note": "Step 2 阶段收口摘要：仅用于 reviewer 就绪映射，不构成正式声明。",
+        "boundary_statements": list(boundary_statements),
+    }
+
+    digest = {
+        "all_simulated": all_simulated,
+        "wp_count": len(wp_status),
+        "simulated_count": sum(
+            1 for v in wp_status.values() if v == "simulated_readiness_only"
+        ),
+        "boundary_digest": "Step 2 readiness-mapping-only closeout",
+    }
+
+    review_surface = {
+        "title": "Step 2 阶段收口摘要",
+        "title_en": "Step 2 Closeout Digest",
+        "summary": f"WP1–WP6 就绪状态聚合 (共{len(wp_status)}项)",
+        "summary_en": f"WP1–WP6 readiness status aggregation ({len(wp_status)} items)",
+        "all_simulated": all_simulated,
+        "non_claim": True,
+    }
+
+    return {
+        "available": True,
+        "artifact_type": "step2_closeout_digest",
+        "filename": "step2_closeout_digest.json",
+        "markdown_filename": "step2_closeout_digest.md",
+        "raw": raw,
+        "digest": digest,
+        "review_surface": review_surface,
+    }
