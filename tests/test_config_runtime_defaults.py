@@ -86,6 +86,13 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["humidity_generator"]["safe_stop_max_flow_lpm"] == 0.05
     assert cfg["workflow"]["humidity_generator"]["safe_stop_timeout_s"] == 15.0
     assert cfg["workflow"]["humidity_generator"]["safe_stop_poll_s"] == 0.5
+    assert cfg["workflow"]["humidity_generator"]["activation_verify_enabled"] is True
+    assert cfg["workflow"]["humidity_generator"]["activation_verify_min_flow_lpm"] == 0.5
+    assert cfg["workflow"]["humidity_generator"]["activation_verify_timeout_s"] == 30.0
+    assert cfg["workflow"]["humidity_generator"]["activation_verify_poll_s"] == 1.0
+    assert cfg["workflow"]["humidity_generator"]["activation_verify_expect_cooling_margin_c"] == 1.0
+    assert cfg["workflow"]["humidity_generator"]["activation_verify_cooling_min_drop_c"] == 0.2
+    assert cfg["workflow"]["humidity_generator"]["activation_verify_cooling_min_delta_c"] == 0.5
     assert cfg["workflow"]["safe_stop"]["perform_attempts"] == 4
     assert cfg["workflow"]["safe_stop"]["retry_delay_s"] == 2.0
     assert cfg["workflow"]["pressure"]["capture_then_hold_enabled"] is False

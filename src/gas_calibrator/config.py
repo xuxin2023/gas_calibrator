@@ -96,6 +96,13 @@ _RUNTIME_DEFAULTS: Dict[str, Any] = {
             "safe_stop_max_flow_lpm": 0.05,
             "safe_stop_timeout_s": 15.0,
             "safe_stop_poll_s": 0.5,
+            "activation_verify_enabled": True,
+            "activation_verify_min_flow_lpm": 0.5,
+            "activation_verify_timeout_s": 30.0,
+            "activation_verify_poll_s": 1.0,
+            "activation_verify_expect_cooling_margin_c": 1.0,
+            "activation_verify_cooling_min_drop_c": 0.2,
+            "activation_verify_cooling_min_delta_c": 0.5,
         },
         "safe_stop": {
             "perform_attempts": 4,

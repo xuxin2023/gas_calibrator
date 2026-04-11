@@ -7330,12 +7330,33 @@ class CalibrationRunner:
             self._last_hgen_target = target_key
             self._last_hgen_setpoint_ready = False
             self._last_hgen_dewpoint_ready = False
+        hcfg = self.cfg.get("workflow", {}).get("humidity_generator", {})
+        activation_verify_enabled = bool(hcfg.get("activation_verify_enabled", True))
+        activation_baseline_hot_temp_c: Optional[float] = None
+        activation_baseline_cold_temp_c: Optional[float] = None
+        fetch_all = getattr(hgen, "fetch_all", None)
+        if activation_verify_enabled and callable(fetch_all):
+            try:
+                baseline_snapshot = fetch_all()
+                baseline_data = baseline_snapshot.get("data", {}) if isinstance(baseline_snapshot, dict) else {}
+                activation_baseline_hot_temp_c = self._pick_numeric(
+                    baseline_data,
+                    ["Tc", "TA", "Temp", "temperature"],
+                )
+                activation_baseline_cold_temp_c = self._pick_numeric(
+                    baseline_data,
+                    ["Ts", "Tc", "TA", "Temp", "temperature"],
+                )
+            except Exception as exc:
+                self.log(f"Humidity generator activation baseline read failed: {exc}")
         prep_state: Dict[str, Any] = {
             "target_temp_sent": "skipped",
             "target_rh_sent": "skipped",
             "ctrl_on": "not_attempted",
             "heat_on": "not_attempted",
             "cool_on": "not_attempted",
+            "activation_verify": "skipped",
+            "cooling_verify": "skipped",
             "errors": [],
         }
 
@@ -7383,7 +7404,9 @@ class CalibrationRunner:
                 f"target_rh_sent={prep_state['target_rh_sent']} "
                 f"ctrl_on={prep_state['ctrl_on']} "
                 f"heat_on={prep_state['heat_on']} "
-                f"cool_on={prep_state['cool_on']}"
+                f"cool_on={prep_state['cool_on']} "
+                f"activation_verify={prep_state['activation_verify']} "
+                f"cooling_verify={prep_state['cooling_verify']}"
             )
             if prep_state["errors"]:
                 summary += f" errors={prep_state['errors']}"
@@ -7419,6 +7442,91 @@ class CalibrationRunner:
                     self.log(f"Humidity generator ensure_run failed: {res}")
             except Exception as exc:
                 self.log(f"Humidity generator ensure_run error: {exc}")
+
+        verify_runtime_activation = getattr(hgen, "verify_runtime_activation", None)
+        need_activation_verify = activation_verify_enabled and (
+            target_changed or not self._last_hgen_setpoint_ready
+        )
+        if need_activation_verify and callable(verify_runtime_activation):
+            activation_result: Dict[str, Any]
+            try:
+                reference_temp_c = (
+                    activation_baseline_cold_temp_c
+                    if activation_baseline_cold_temp_c is not None
+                    else activation_baseline_hot_temp_c
+                )
+                expect_cooling = bool(
+                    target_temp is not None
+                    and reference_temp_c is not None
+                    and float(target_temp) <= float(reference_temp_c) - float(
+                        hcfg.get("activation_verify_expect_cooling_margin_c", 1.0)
+                    )
+                )
+                activation_result = verify_runtime_activation(
+                    min_flow_lpm=float(
+                        hcfg.get(
+                            "activation_verify_min_flow_lpm",
+                            hcfg.get("min_flow_lpm", 0.1),
+                        )
+                    ),
+                    timeout_s=float(hcfg.get("activation_verify_timeout_s", 30.0)),
+                    poll_s=float(hcfg.get("activation_verify_poll_s", 1.0)),
+                    target_temp_c=target_temp,
+                    baseline_hot_temp_c=activation_baseline_hot_temp_c,
+                    baseline_cold_temp_c=activation_baseline_cold_temp_c,
+                    cooling_expected=expect_cooling,
+                    cooling_min_drop_c=float(hcfg.get("activation_verify_cooling_min_drop_c", 0.2)),
+                    cooling_min_delta_c=float(hcfg.get("activation_verify_cooling_min_delta_c", 0.5)),
+                )
+            except Exception as exc:
+                prep_state["activation_verify"] = "error"
+                prep_state["cooling_verify"] = "error"
+                prep_state["errors"].append(f"activation_verify:{exc}")
+                self.log(f"Humidity generator activation verify error: {exc}")
+            else:
+                flow_ok = bool(activation_result.get("flow_ok"))
+                cooling_expected = bool(activation_result.get("cooling_expected"))
+                cooling_ok = activation_result.get("cooling_ok")
+                prep_state["activation_verify"] = "ok" if flow_ok else "failed"
+                if not cooling_expected:
+                    prep_state["cooling_verify"] = "not_required"
+                elif cooling_ok is True:
+                    prep_state["cooling_verify"] = "ok"
+                elif cooling_ok is False:
+                    prep_state["cooling_verify"] = "pending"
+                else:
+                    prep_state["cooling_verify"] = "unknown"
+                self.log(
+                    "Humidity generator activation verify: "
+                    f"flow_ok={flow_ok} flow_lpm={activation_result.get('flow_lpm')} "
+                    f"cooling_expected={cooling_expected} cooling_ok={cooling_ok} "
+                    f"fully_confirmed={activation_result.get('fully_confirmed')} "
+                    f"Tc={activation_result.get('hot_temp_c')} Ts={activation_result.get('cold_temp_c')}"
+                )
+                if not flow_ok:
+                    raise RuntimeError(
+                        "humidity generator did not enter running state "
+                        f"(flow_lpm={activation_result.get('flow_lpm')})"
+                    )
+                if cooling_expected and cooling_ok is False:
+                    self.log(
+                        "Humidity generator cooling verify not yet confirmed during startup; "
+                        "continuing to setpoint wait"
+                    )
+        elif need_activation_verify and activation_verify_enabled:
+            prep_state["activation_verify"] = "unsupported"
+            prep_state["cooling_verify"] = "unsupported"
+            self.log("Humidity generator activation verify skipped: device does not support runtime verification")
+
+        if need_activation_verify:
+            verify_summary = (
+                "Humidity generator prepare verify summary: "
+                f"activation_verify={prep_state['activation_verify']} "
+                f"cooling_verify={prep_state['cooling_verify']}"
+            )
+            if prep_state["errors"]:
+                verify_summary += f" errors={prep_state['errors']}"
+            self.log(verify_summary)
 
     def _wait_humidity_generator_stable(self, point: CalibrationPoint) -> bool:
         hgen = self.devices.get("humidity_gen")

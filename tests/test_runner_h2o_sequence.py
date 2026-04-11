@@ -586,6 +586,112 @@ def test_prepare_humidity_generator_reports_partial_failure_truthfully(tmp_path:
     assert not any("humidity generator prepared:" in msg.lower() and "heat_on=ok" in msg.lower() for msg in logs)
 
 
+def test_prepare_humidity_generator_logs_activation_verify_and_allows_pending_cooling(tmp_path: Path) -> None:
+    class _FakeHumidityGen:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def set_target_temp(self, value: float) -> None:
+            self.calls.append(("set_temp", value))
+
+        def set_target_rh(self, value: float) -> None:
+            self.calls.append(("set_rh", value))
+
+        def enable_control(self, on: bool) -> None:
+            self.calls.append(("ctrl", bool(on)))
+
+        def heat_on(self) -> None:
+            self.calls.append(("heat_on",))
+
+        def cool_on(self) -> None:
+            self.calls.append(("cool_on",))
+
+        def fetch_all(self):
+            self.calls.append(("fetch_all",))
+            return {"data": {"Tc": 22.0, "Ts": 22.0, "Flux": 0.0}}
+
+        def verify_runtime_activation(self, **kwargs):
+            self.calls.append(("verify_activation", kwargs))
+            return {
+                "ok": True,
+                "fully_confirmed": False,
+                "flow_ok": True,
+                "cooling_expected": True,
+                "cooling_ok": False,
+                "flow_lpm": 1.2,
+                "hot_temp_c": 22.0,
+                "cold_temp_c": 22.0,
+            }
+
+    logger = RunLogger(tmp_path)
+    logs = []
+    hgen = _FakeHumidityGen()
+    runner = CalibrationRunner({}, {"humidity_gen": hgen}, logger, logs.append, lambda *_: None)
+    try:
+        runner._prepare_humidity_generator(_point_h2o())
+    finally:
+        logger.close()
+
+    assert any(call[0] == "verify_activation" for call in hgen.calls)
+    assert any("activation verify" in msg.lower() and "flow_ok=true" in msg.lower() for msg in logs)
+    assert any("cooling verify not yet confirmed" in msg.lower() for msg in logs)
+
+
+def test_prepare_humidity_generator_fails_when_activation_verify_has_no_flow(tmp_path: Path) -> None:
+    class _FakeHumidityGen:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def set_target_temp(self, value: float) -> None:
+            self.calls.append(("set_temp", value))
+
+        def set_target_rh(self, value: float) -> None:
+            self.calls.append(("set_rh", value))
+
+        def enable_control(self, on: bool) -> None:
+            self.calls.append(("ctrl", bool(on)))
+
+        def heat_on(self) -> None:
+            self.calls.append(("heat_on",))
+
+        def cool_on(self) -> None:
+            self.calls.append(("cool_on",))
+
+        def fetch_all(self):
+            self.calls.append(("fetch_all",))
+            return {"data": {"Tc": 22.0, "Ts": 22.0, "Flux": 0.0}}
+
+        def verify_runtime_activation(self, **kwargs):
+            self.calls.append(("verify_activation", kwargs))
+            return {
+                "ok": False,
+                "fully_confirmed": False,
+                "flow_ok": False,
+                "cooling_expected": True,
+                "cooling_ok": False,
+                "flow_lpm": 0.0,
+                "hot_temp_c": 22.0,
+                "cold_temp_c": 22.0,
+            }
+
+    logger = RunLogger(tmp_path)
+    logs = []
+    hgen = _FakeHumidityGen()
+    runner = CalibrationRunner({}, {"humidity_gen": hgen}, logger, logs.append, lambda *_: None)
+    try:
+        try:
+            runner._prepare_humidity_generator(_point_h2o())
+            raised = None
+        except RuntimeError as exc:
+            raised = exc
+    finally:
+        logger.close()
+
+    assert raised is not None
+    assert "did not enter running state" in str(raised)
+    assert any("activation verify" in msg.lower() and "flow_ok=false" in msg.lower() for msg in logs)
+
+
 def test_pressurize_h2o_captures_preseal_dewpoint_snapshot(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner(

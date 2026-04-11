@@ -99,3 +99,41 @@ def test_humidity_generator_supports_target_readback_and_wait_stopped() -> None:
     assert readback["read_rh_pct"] == 30.0
     assert stopped["ok"] is True
     assert stopped["flow_lpm"] == 0.0
+
+
+def test_humidity_generator_supports_runtime_activation_verify_with_cooling_evidence() -> None:
+    rows = iter(
+        [
+            "Uw= 5.0,Tc= 22.0,Ts= 22.0,Flux= 0.0",
+            "Uw= 5.0,Tc= 22.0,Ts= 21.9,Flux= 0.6",
+            "Uw= 5.0,Tc= 22.0,Ts= 21.4,Flux= 0.8",
+        ]
+    )
+
+    def _on_write(data: bytes, transport: ReplaySerial) -> None:
+        text = data.decode("ascii", errors="ignore").strip().upper()
+        if text == "FETC? (@ALL)":
+            transport.queue_line(next(rows, "Uw= 5.0,Tc= 22.0,Ts= 21.4,Flux= 0.8"))
+
+    replay = ReplaySerial(on_write=_on_write)
+    dev = humidity_generator.HumidityGenerator("COM1", serial_factory=lambda **_: replay)
+
+    dev.open()
+    result = dev.verify_runtime_activation(
+        min_flow_lpm=0.5,
+        timeout_s=2.0,
+        poll_s=0.0,
+        target_temp_c=0.0,
+        baseline_hot_temp_c=22.0,
+        baseline_cold_temp_c=22.0,
+        cooling_min_drop_c=0.2,
+        cooling_min_delta_c=0.5,
+    )
+    dev.close()
+
+    assert result["ok"] is True
+    assert result["fully_confirmed"] is True
+    assert result["flow_ok"] is True
+    assert result["cooling_expected"] is True
+    assert result["cooling_ok"] is True
+    assert result["flow_lpm"] == 0.8

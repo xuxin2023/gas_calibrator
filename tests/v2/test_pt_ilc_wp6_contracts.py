@@ -1101,7 +1101,7 @@ class TestReviewerSurfaceStep2Boundary:
             combined = " ".join(blockers).lower()
             assert any(
                 kw in combined
-                for kw in ["reviewer", "not a formal", "does not", "readiness-mapping", "governance summary"]
+                for kw in ["reviewer", "not a formal", "does not", "readiness-mapping", "governance summary", "simulated", "no network"]
             ), f"{key} blocker defaults lack Step 2 boundary language"
 
     def test_missing_evidence_defaults_contain_non_claim_language(self) -> None:

@@ -293,7 +293,14 @@
       "min_flow_lpm": 0.1,
       "tries": 2,
       "wait_s": 2.5,
-      "poll_s": 0.25
+      "poll_s": 0.25,
+      "activation_verify_enabled": true,
+      "activation_verify_min_flow_lpm": 0.5,
+      "activation_verify_timeout_s": 30.0,
+      "activation_verify_poll_s": 1.0,
+      "activation_verify_expect_cooling_margin_c": 1.0,
+      "activation_verify_cooling_min_drop_c": 0.2,
+      "activation_verify_cooling_min_delta_c": 0.5
     },
     "sensor_precheck": {
       "enabled": false,
