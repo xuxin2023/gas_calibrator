@@ -21,6 +21,8 @@ from .run_v1_no500_postprocess import _filter_no_500_frame
 _PRESSURE_WRITE_MIN_GAUGE_CONTROLLER_OVERLAP = 5
 _PRESSURE_WRITE_MAX_GAUGE_CONTROLLER_MEAN_ABS_HPA = 3.0
 _PRESSURE_WRITE_MAX_GAUGE_CONTROLLER_MAX_ABS_HPA = 8.0
+_STARTUP_PRESSURE_WRITE_MIN_SAMPLES = 3
+_STARTUP_PRESSURE_WRITE_MAX_REFERENCE_SPAN_HPA = 2.0
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -239,6 +241,11 @@ def load_startup_pressure_calibration_rows(run_dir: str | Path) -> List[Dict[str
         return []
     with summary_path.open("r", encoding="utf-8-sig", newline="") as handle:
         source_rows = list(csv.DictReader(handle))
+    detail_path = summary_path.with_name("detail.csv")
+    detail_rows: List[Dict[str, Any]] = []
+    if detail_path.exists():
+        with detail_path.open("r", encoding="utf-8-sig", newline="") as handle:
+            detail_rows = list(csv.DictReader(handle))
 
     rows: List[Dict[str, Any]] = []
     for row in source_rows:
@@ -247,15 +254,47 @@ def load_startup_pressure_calibration_rows(run_dir: str | Path) -> List[Dict[str
         offset = _safe_float(row.get("OffsetA_kPa"))
         if not analyzer or offset is None:
             continue
+        summary_status = str(row.get("Status") or "").strip().lower()
+        summary_samples = int(_safe_float(row.get("Samples")) or 0)
+        pressure_write_recommended = True
+        pressure_write_reason = ""
+        reference_span_hpa: float | str = ""
+        detail_samples = 0
+        pressure_gauge_samples = 0
+        analyzer_detail_rows = [item for item in detail_rows if _normalize_analyzer(item.get("Analyzer")) == analyzer]
+        if analyzer_detail_rows:
+            detail_samples = len(analyzer_detail_rows)
+            pressure_gauge_samples = sum(1 for item in analyzer_detail_rows if str(item.get("ReferenceSource") or "").strip() == "pressure_gauge")
+            reference_values = [_safe_float(item.get("ReferenceHpa")) for item in analyzer_detail_rows]
+            reference_values = [float(value) for value in reference_values if value is not None]
+            if reference_values:
+                reference_span_hpa = float(max(reference_values) - min(reference_values))
+        if summary_status and summary_status != "ok":
+            pressure_write_recommended = False
+            pressure_write_reason = f"startup_pressure_summary_status_{summary_status}"
+        elif summary_samples < _STARTUP_PRESSURE_WRITE_MIN_SAMPLES:
+            pressure_write_recommended = False
+            pressure_write_reason = "startup_pressure_insufficient_samples"
+        elif analyzer_detail_rows and pressure_gauge_samples != detail_samples:
+            pressure_write_recommended = False
+            pressure_write_reason = "startup_pressure_reference_not_pressure_gauge"
+        elif isinstance(reference_span_hpa, float) and reference_span_hpa > _STARTUP_PRESSURE_WRITE_MAX_REFERENCE_SPAN_HPA:
+            pressure_write_recommended = False
+            pressure_write_reason = "startup_pressure_reference_unstable"
         rows.append(
             {
                 "Analyzer": analyzer,
                 "DeviceId": device_id,
                 "ReferenceSource": "startup_pressure_sensor_calibration",
-                "Samples": int(_safe_float(row.get("Samples")) or 0),
+                "Samples": summary_samples,
                 "OffsetA_kPa": float(offset),
                 "ResidualMeanAbs_kPa": "",
                 "ResidualMaxAbs_kPa": "",
+                "StartupDetailSamples": detail_samples,
+                "StartupPressureGaugeSamples": pressure_gauge_samples,
+                "StartupReferenceSpanHpa": reference_span_hpa,
+                "PressureWriteRecommended": pressure_write_recommended,
+                "PressureWriteReason": pressure_write_reason,
                 "WriteApplied": row.get("WriteApplied", ""),
                 "ReadbackOk": row.get("ReadbackOk", ""),
                 "Status": row.get("Status", ""),

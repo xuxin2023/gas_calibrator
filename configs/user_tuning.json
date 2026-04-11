@@ -14,7 +14,9 @@
                      "pressure":  {
                                       "soft_control_enabled":  false,
                                       "handoff_fast_enabled":  false,
-                                      "soft_control_linear_slew_hpa_per_s":  10.0
+                                      "soft_control_linear_slew_hpa_per_s":  10.0,
+                                      "atmosphere_hold_strategy":  "vent_valve_open_after_vent",
+                                      "vent_after_valve_open":  true
                                   },
                      "stability":  {
                                        "humidity_generator":  {

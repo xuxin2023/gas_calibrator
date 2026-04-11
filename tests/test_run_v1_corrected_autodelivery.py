@@ -144,8 +144,38 @@ def test_load_startup_pressure_calibration_rows_uses_latest_summary(tmp_path: Pa
     assert row["Samples"] == 5
     assert abs(float(row["OffsetA_kPa"]) + 2.5) < 1e-9
     assert row["ReferenceSource"] == "startup_pressure_sensor_calibration"
+    assert row["PressureWriteRecommended"] is True
+    assert row["PressureWriteReason"] == ""
     assert str(row["Command"]).startswith("SENCO9,YGAS,FFF,-2.50000e00,1.00000e00")
     assert str(row["SourceSummary"]).endswith("startup_pressure_sensor_calibration_20260407_130000\\summary.csv")
+
+
+def test_load_startup_pressure_calibration_rows_marks_unstable_reference_as_not_recommended(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run_3_unstable"
+    target = run_dir / "startup_pressure_sensor_calibration_20260407_130000"
+    target.mkdir(parents=True)
+    pd.DataFrame(
+        [
+            {"Analyzer": "GA01", "DeviceId": "005", "Samples": 5, "OffsetA_kPa": -2.5, "WriteApplied": True, "ReadbackOk": True, "Status": "ok"},
+        ]
+    ).to_csv(target / "summary.csv", index=False, encoding="utf-8-sig")
+    pd.DataFrame(
+        [
+            {"Analyzer": "GA01", "DeviceId": "005", "ReferenceHpa": 999.0, "ReferenceSource": "pressure_gauge", "AnalyzerPressureKPa": 99.9, "OffsetA_kPa": 0.0, "FrameOk": True},
+            {"Analyzer": "GA01", "DeviceId": "005", "ReferenceHpa": 1002.2, "ReferenceSource": "pressure_gauge", "AnalyzerPressureKPa": 99.9, "OffsetA_kPa": 0.0, "FrameOk": True},
+            {"Analyzer": "GA01", "DeviceId": "005", "ReferenceHpa": 1001.5, "ReferenceSource": "pressure_gauge", "AnalyzerPressureKPa": 99.9, "OffsetA_kPa": 0.0, "FrameOk": True},
+        ]
+    ).to_csv(target / "detail.csv", index=False, encoding="utf-8-sig")
+
+    rows = module.load_startup_pressure_calibration_rows(run_dir)
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["StartupDetailSamples"] == 3
+    assert row["StartupPressureGaugeSamples"] == 3
+    assert abs(float(row["StartupReferenceSpanHpa"]) - 3.2) < 1e-9
+    assert row["PressureWriteRecommended"] is False
+    assert row["PressureWriteReason"] == "startup_pressure_reference_unstable"
 
 
 def test_build_corrected_delivery_prefers_startup_pressure_rows(tmp_path: Path, monkeypatch) -> None:
