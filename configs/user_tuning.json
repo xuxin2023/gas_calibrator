@@ -22,6 +22,7 @@
                                        "humidity_generator":  {
                                                                   "temp_tol_c":  1.0,
                                                                   "rh_tol_pct":  4.5,
+                                                                  "timeout_s":  2700,
                                                                   "precondition_next_group_enabled":  true
                                                               },
                                        "temperature":  {
