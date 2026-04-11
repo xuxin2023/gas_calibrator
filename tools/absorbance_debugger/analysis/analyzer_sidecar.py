@@ -242,7 +242,9 @@ def _same_family_refit_frame(
     if scope_frame.empty:
         return pd.DataFrame(), chosen_model
     scope_frame = scope_frame.rename(columns={"predicted_ppm": "sidecar_pred_ppm", "error_ppm": "sidecar_error_ppm"})
-    return scope_frame[["point_title", "point_row", "target_ppm", "sidecar_pred_ppm", "sidecar_error_ppm"]].copy(), chosen_model
+    output = scope_frame[["point_title", "point_row", "target_ppm", "sidecar_pred_ppm", "sidecar_error_ppm"]].copy()
+    output["analyzer_id"] = analyzer_id
+    return output[["analyzer_id", "point_title", "point_row", "target_ppm", "sidecar_pred_ppm", "sidecar_error_ppm"]], chosen_model
 
 
 def _fit_linear_residual_correction(
