@@ -20,6 +20,11 @@ from .multi_source_stability import (
     SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME,
 )
 from . import recognition_readiness_artifacts as recognition_readiness
+from .reviewer_surface_contracts import (
+    WP6_CLOSEOUT_ARTIFACT_KEYS as _SHARED_WP6_CLOSEOUT_KEYS,
+    WP6_CLOSEOUT_ARTIFACT_ROLES as _SHARED_WP6_CLOSEOUT_ROLES,
+    WP6_CLOSEOUT_FILENAME_MAP as _SHARED_WP6_CLOSEOUT_FILENAME_MAP,
+)
 from .reviewer_fragments_contract import (
     REVIEWER_FRAGMENTS_CONTRACT_VERSION,
     BOUNDARY_FRAGMENT_FAMILY,
@@ -781,15 +786,7 @@ def _normalize_artifact_compatibility_payloads(
 # WP6 + step2_closeout_digest explicit contract entries
 # ---------------------------------------------------------------------------
 
-_WP6_CLOSEOUT_ARTifact_KEYS = (
-    "pt_ilc_registry",
-    "external_comparison_importer",
-    "comparison_evidence_pack",
-    "scope_comparison_view",
-    "comparison_digest",
-    "comparison_rollup",
-    "step2_closeout_digest",
-)
+_WP6_CLOSEOUT_ARTifact_KEYS = _SHARED_WP6_CLOSEOUT_KEYS
 
 
 def _ensure_wp6_closeout_contract_entries(
@@ -805,24 +802,8 @@ def _ensure_wp6_closeout_contract_entries(
         for e in entries
     }
     from . import recognition_readiness_artifacts as rr
-    filename_map = {
-        "pt_ilc_registry": rr.PT_ILC_REGISTRY_FILENAME,
-        "external_comparison_importer": rr.EXTERNAL_COMPARISON_IMPORTER_FILENAME,
-        "comparison_evidence_pack": rr.COMPARISON_EVIDENCE_PACK_FILENAME,
-        "scope_comparison_view": rr.SCOPE_COMPARISON_VIEW_FILENAME,
-        "comparison_digest": rr.COMPARISON_DIGEST_FILENAME,
-        "comparison_rollup": rr.COMPARISON_ROLLUP_FILENAME,
-        "step2_closeout_digest": rr.STEP2_CLOSEOUT_DIGEST_FILENAME,
-    }
-    role_map = {
-        "pt_ilc_registry": "execution_summary",
-        "external_comparison_importer": "execution_summary",
-        "comparison_evidence_pack": "diagnostic_analysis",
-        "scope_comparison_view": "diagnostic_analysis",
-        "comparison_digest": "diagnostic_analysis",
-        "comparison_rollup": "diagnostic_analysis",
-        "step2_closeout_digest": "diagnostic_analysis",
-    }
+    filename_map = {key: filenames[0] for key, filenames in _SHARED_WP6_CLOSEOUT_FILENAME_MAP.items()}
+    role_map = dict(_SHARED_WP6_CLOSEOUT_ROLES)
     for key in _WP6_CLOSEOUT_ARTifact_KEYS:
         if key in existing_keys:
             continue
@@ -1628,14 +1609,7 @@ def _surface_visibility(*, artifact_key: str, artifact_role: str) -> list[str]:
         "release_evidence_pack_index",
         "release_validation_manifest",
         "audit_readiness_digest",
-        "pt_ilc_registry",
-        "external_comparison_importer",
-        "comparison_evidence_pack",
-        "scope_comparison_view",
-        "comparison_digest",
-        "comparison_rollup",
-        "step2_closeout_digest",
-    }:
+    } | set(_SHARED_WP6_CLOSEOUT_KEYS):
         if "review_center" not in surfaces:
             surfaces.append("review_center")
         surfaces.append("workbench")

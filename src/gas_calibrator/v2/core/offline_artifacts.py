@@ -47,6 +47,9 @@ from .artifact_compatibility import (
 )
 from .models import CalibrationPoint, SamplingResult
 from . import recognition_readiness_artifacts as recognition_readiness
+from .reviewer_surface_contracts import (
+    WP6_CLOSEOUT_ARTIFACT_ROLES as _SHARED_WP6_CLOSEOUT_ROLES,
+)
 
 
 OFFLINE_ARTIFACT_SCHEMA_VERSION = "1.0"
@@ -1775,14 +1778,9 @@ def export_run_offline_artifacts(
         "software_validation_traceability_matrix": "execution_summary",
         "release_validation_manifest": "execution_summary",
         "audit_readiness_digest": "diagnostic_analysis",
-        "pt_ilc_registry": "execution_summary",
-        "external_comparison_importer": "execution_summary",
-        "comparison_evidence_pack": "diagnostic_analysis",
-        "scope_comparison_view": "diagnostic_analysis",
-        "comparison_digest": "diagnostic_analysis",
-        "comparison_rollup": "diagnostic_analysis",
-        "step2_closeout_digest": "diagnostic_analysis",
     }
+    # Merge shared WP6+closeout roles
+    recognition_readiness_roles.update(_SHARED_WP6_CLOSEOUT_ROLES)
     for artifact_key, (json_path, markdown_path) in recognition_readiness_written_paths.items():
         role = recognition_readiness_roles.get(str(artifact_key), "execution_summary")
         statuses[str(artifact_key)] = _artifact_status_payload(role, json_path)

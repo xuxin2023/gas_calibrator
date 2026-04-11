@@ -523,6 +523,34 @@ _RECOGNITION_BLOCKER_DEFAULTS: dict[str, list[str]] = {
         "audit digest remains a reviewer traceability skeleton only",
         "no formal audit conclusion is produced here",
     ],
+    "pt_ilc_registry": [
+        "PT/ILC registry is readiness-mapping-only and not a formal comparison record",
+        "imported data is simulated and not from real PT/ILC participation",
+    ],
+    "external_comparison_importer": [
+        "importer only supports local file sources, no network access",
+        "all imported comparison data is marked simulated",
+    ],
+    "comparison_evidence_pack": [
+        "evidence pack is reviewer-facing only and not a formal accreditation pack",
+        "linked references are navigational, not approval chains",
+    ],
+    "scope_comparison_view": [
+        "scope comparison view is readiness-mapping-only",
+        "does not constitute formal scope equivalence",
+    ],
+    "comparison_digest": [
+        "digest is sidecar-first reviewer evidence",
+        "does not close formal comparison evidence",
+    ],
+    "comparison_rollup": [
+        "rollup is reviewer-facing summary only",
+        "does not constitute formal PT/ILC compliance claim",
+    ],
+    "step2_closeout_digest": [
+        "closeout digest is Step 2 governance summary only",
+        "does not constitute formal phase completion or acceptance evidence",
+    ],
 }
 
 _RECOGNITION_MISSING_EVIDENCE_DEFAULTS: dict[str, list[str]] = {
