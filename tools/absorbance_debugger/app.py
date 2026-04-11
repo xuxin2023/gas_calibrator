@@ -10,11 +10,13 @@ import pandas as pd
 
 from .analysis.comparison import build_comparison_reconciliation_table
 from .analysis.comparison import build_dual_surface_reconciliation_outputs
+from .analysis.candidate_tournament import build_candidate_tournament_outputs
 from .analysis.merged_zero_anchor import build_merged_zero_anchor_compare
 from .analysis.comparison import build_scoped_old_vs_new_outputs
 from .analysis.pipeline import execute_pipeline
 from .analysis.cross_run import build_cross_run_summary
 from .plots.charts import (
+    plot_candidate_tournament,
     plot_cross_run_summary,
     plot_dual_surface_reconciliation,
     plot_executive_summary,
@@ -33,6 +35,7 @@ from .options import (
     normalize_temp_source,
 )
 from .reports.renderers import (
+    render_candidate_tournament_report_markdown,
     render_comparison_reconciliation_markdown,
     render_dual_surface_reconciliation_markdown,
     render_executive_summary_markdown,
@@ -329,6 +332,26 @@ def run_debugger_batch(
         dual_surface_md,
         encoding="utf-8",
     )
+    candidate_tournament_outputs = build_candidate_tournament_outputs(run_results)
+    candidate_tournament_outputs["detail"].to_csv(
+        resolved_output / "step_11_candidate_tournament_detail.csv",
+        index=False,
+        encoding="utf-8-sig",
+    )
+    candidate_tournament_outputs["summary"].to_csv(
+        resolved_output / "step_11_candidate_tournament_summary.csv",
+        index=False,
+        encoding="utf-8-sig",
+    )
+    plot_candidate_tournament(
+        candidate_tournament_outputs["summary"],
+        resolved_output / "step_11_candidate_tournament_plot.png",
+    )
+    candidate_tournament_md = render_candidate_tournament_report_markdown(candidate_tournament_outputs)
+    (resolved_output / "step_12_candidate_tournament_report.md").write_text(
+        candidate_tournament_md,
+        encoding="utf-8",
+    )
     return {
         "output_dir": resolved_output,
         "run_results": run_results,
@@ -339,6 +362,7 @@ def run_debugger_batch(
         "scoped_old_vs_new_outputs": scoped_old_vs_new_outputs,
         "comparison_reconciliation": comparison_reconciliation,
         "dual_surface_reconciliation": dual_surface_outputs,
+        "candidate_tournament": candidate_tournament_outputs,
         "reproducibility_note": reproducibility_note,
         "cross_run_summary_path": summary_path,
     }

@@ -402,6 +402,143 @@ def render_old_vs_new_report_markdown(report: Mapping[str, object]) -> str:
     return "\n".join(lines)
 
 
+def render_candidate_tournament_report_markdown(report: Mapping[str, object]) -> str:
+    """Render the step-12 candidate tournament markdown report."""
+
+    summary = report.get("summary", pd.DataFrame())
+    summary = summary.copy() if isinstance(summary, pd.DataFrame) else pd.DataFrame()
+    overall = summary[summary["summary_scope"].astype(str) == "candidate_overall"].copy() if not summary.empty else pd.DataFrame()
+    scoped = summary[summary["summary_scope"].astype(str) == "candidate_scope_surface"].copy() if not summary.empty else pd.DataFrame()
+
+    def _scope_row(candidate_id: str, scope_name: str, surface_name: str) -> pd.Series:
+        if scoped.empty:
+            return pd.Series(dtype=object)
+        subset = scoped[
+            (scoped["candidate_id"].astype(str) == str(candidate_id))
+            & (scoped["comparison_scope"].astype(str) == scope_name)
+            & (scoped["comparison_surface"].astype(str) == surface_name)
+        ]
+        return subset.iloc[0] if not subset.empty else pd.Series(dtype=object)
+
+    top_row = overall.iloc[0] if not overall.empty else pd.Series(dtype=object)
+    top_candidate_id = str(top_row.get("candidate_id") or "")
+    top_b1 = _scope_row(top_candidate_id, "run_20260410_132440_all_analyzers_candidate_tournament", "run_native_old_vs_new")
+    top_b2 = _scope_row(top_candidate_id, "run_20260410_132440_all_analyzers_candidate_tournament", "debugger_reconstructed_old_vs_new")
+    top_a1 = _scope_row(top_candidate_id, "historical_ga02_ga03_candidate_tournament", "run_native_old_vs_new")
+
+    source_compare = (
+        overall.groupby("source_mode", dropna=False)["promotion_score"].mean().sort_values(ascending=False)
+        if not overall.empty and "source_mode" in overall.columns
+        else pd.Series(dtype=float)
+    )
+    branch_answer = str(source_compare.index[0]) if not source_compare.empty else "unknown"
+
+    category_map = {
+        "humidity cross": overall[overall["model_family"].astype(str).isin(["v5_abs_k_minimal_proxy", "legacy_humidity_cross_D", "legacy_humidity_cross_E"])],
+        "temp residual": overall[overall["residual_head"].astype(str) == "global_temp_residual"],
+        "analyzer-specific residual": overall[overall["residual_head"].astype(str) == "analyzer_specific_humidity_plus_temp_residual"],
+    } if not overall.empty else {}
+    category_scores = {
+        label: float(pd.to_numeric(frame["promotion_score"], errors="coerce").max())
+        for label, frame in category_map.items()
+        if frame is not None and not frame.empty
+    }
+    category_answer = max(category_scores, key=category_scores.get) if category_scores else "unknown"
+
+    gap_rows = pd.DataFrame()
+    if not report.get("detail", pd.DataFrame()).empty and top_candidate_id:
+        detail = report["detail"].copy()
+        gap_rows = detail[
+            (detail["candidate_id"].astype(str) == top_candidate_id)
+            & (detail["comparison_scope"].astype(str) == "run_20260410_132440_all_analyzers_candidate_tournament")
+            & (detail["comparison_surface"].astype(str) == "debugger_reconstructed_old_vs_new")
+        ][
+            [
+                "run_id",
+                "analyzer_id",
+                "improvement_pct_overall",
+                "improvement_pct_zero",
+                "improvement_pct_main",
+            ]
+        ].sort_values(["improvement_pct_overall", "analyzer_id"], ascending=[True, True], ignore_index=True)
+
+    lines: list[str] = []
+    lines.append("# Candidate Tournament Report")
+    lines.append("")
+    lines.append("## 1. surfaces")
+    lines.append("- primary acceptance surface = run_native_old_vs_new")
+    lines.append("- secondary diagnostic surface = debugger_reconstructed_old_vs_new")
+    lines.append("- Surface 1 keeps old = old_residual_csv_prediction_simplified and new = analyzer_sheet_mean_co2_ppm.")
+    lines.append("- Surface 2 keeps old = old_residual_csv_prediction_simplified and new = selected_pred_ppm_from_debugger.")
+    lines.append("")
+    lines.append("## 2. promotion score")
+    lines.append("- promotion score favors Scope B + Surface 1 overall/main context, then checks Scope B + Surface 2 diagnostic performance, Scope A + Surface 1 stability, zero guardrails, and robustness penalties.")
+    lines.append("- analyzer_specific_humidity_plus_temp_residual is always marked diagnostic-only and is penalized for future deployable ranking.")
+    lines.append("")
+    lines.append("## 3. top candidate")
+    if overall.empty:
+        lines.append("_No candidate rows were generated._")
+    else:
+        lines.append(_table_to_markdown(overall.head(10), max_rows=10))
+    lines.append("")
+    lines.append("## 4. required answers")
+    lines.append(
+        "1. Which candidate is closest to or above old_chain on Scope B + Surface 1? "
+        + (
+            f"`{top_candidate_id}` with Scope B Surface 1 overall={_format_number(top_b1.get('improvement_pct_overall'), 2)}%, "
+            f"main={_format_number(top_b1.get('improvement_pct_main'), 2)}%."
+            if top_candidate_id
+            else "n/a"
+        )
+    )
+    lines.append(
+        "2. Does it also satisfy the Scope A stability guardrail? "
+        + (
+            f"Scope A Surface 1 overall={_format_number(top_a1.get('improvement_pct_overall'), 2)}%, "
+            f"main={_format_number(top_a1.get('improvement_pct_main'), 2)}%."
+            if top_candidate_id
+            else "n/a"
+        )
+    )
+    lines.append(f"3. Which raw vs filt branch looks more promising? `{branch_answer}`.")
+    lines.append(f"4. Which family of changes looks most effective? `{category_answer}`.")
+    lines.append(
+        "5. What does the current most likely main cause look like? "
+        + (f"`{top_row.get('likely_root_cause_bucket', 'mixed')}`." if top_candidate_id else "n/a")
+    )
+    lines.append(
+        "6. Is there a future deployable candidate already? "
+        + (
+            f"`{bool(top_row.get('future_deployable_candidate_flag', False))}` for `{top_candidate_id}`."
+            if top_candidate_id
+            else "n/a"
+        )
+    )
+    if gap_rows.empty:
+        lines.append("7. If it still does not beat old_chain, which analyzers or segments remain behind? n/a")
+    else:
+        laggards = gap_rows[
+            pd.to_numeric(gap_rows["improvement_pct_overall"], errors="coerce").fillna(0.0) <= 0.0
+        ].head(6)
+        laggard_text = "; ".join(
+            f"{row.analyzer_id}:overall={_format_number(row.improvement_pct_overall, 2)}%, zero={_format_number(row.improvement_pct_zero, 2)}%, main={_format_number(row.improvement_pct_main, 2)}%"
+            for row in laggards.itertuples(index=False)
+        ) or "no clear laggard rows"
+        lines.append(f"7. If it still does not beat old_chain, which analyzers or segments remain behind? {laggard_text}")
+    lines.append("")
+    lines.append("## 5. scope-by-scope summary")
+    if scoped.empty:
+        lines.append("_No scope/surface summary rows._")
+    else:
+        lines.append(_table_to_markdown(scoped.head(24), max_rows=24))
+    lines.append("")
+    lines.append("## 6. notes")
+    lines.append("- Scope A and Scope B stay separate and are not merged into a single headline.")
+    lines.append("- primary acceptance surface remains the authoritative acceptance benchmark.")
+    lines.append("- secondary diagnostic surface is used to rank debugger-side candidate chains.")
+    return "\n".join(lines)
+
+
 def _scoped_summary_readout(summary_row: pd.Series) -> str:
     return (
         f"overall old={_format_number(summary_row.get('overall_rmse_old_scoped'))}, "

@@ -674,3 +674,188 @@ class TestStep2SurfaceConsistency:
                      "comparison_evidence_pack", "scope_comparison_view",
                      "comparison_digest", "comparison_rollup"):
             assert key in source, f"app_facade.py missing {key}"
+
+
+# ---------------------------------------------------------------------------
+# 7) Step 2.1 reviewer evidence chain hardening tests
+# ---------------------------------------------------------------------------
+
+class TestStep2PayloadClassification:
+    """_classify_step2_payload_status must correctly handle nested boundary flags."""
+
+    def test_top_level_boundary_flags(self) -> None:
+        from gas_calibrator.v2.core.wp6_builder import _classify_step2_payload_status
+        payload = {"not_real_acceptance_evidence": True, "evidence_source": "simulated"}
+        assert _classify_step2_payload_status(payload) == "simulated_readiness_only"
+
+    def test_raw_sub_dict_boundary_flags(self) -> None:
+        from gas_calibrator.v2.core.wp6_builder import _classify_step2_payload_status
+        payload = {"raw": {"not_real_acceptance_evidence": True, "evidence_source": "simulated"}}
+        assert _classify_step2_payload_status(payload) == "simulated_readiness_only"
+
+    def test_nested_bundle_raw_boundary_flags(self) -> None:
+        from gas_calibrator.v2.core.wp6_builder import _classify_step2_payload_status
+        payload = {"bundle": {"raw": {"readiness_mapping_only": True}}}
+        assert _classify_step2_payload_status(payload) == "simulated_readiness_only"
+
+    def test_digest_raw_boundary_flags(self) -> None:
+        from gas_calibrator.v2.core.wp6_builder import _classify_step2_payload_status
+        payload = {"digest": {"raw": {"reviewer_only": True}}}
+        assert _classify_step2_payload_status(payload) == "simulated_readiness_only"
+
+    def test_rollup_nested_boundary_flags(self) -> None:
+        from gas_calibrator.v2.core.wp6_builder import _classify_step2_payload_status
+        payload = {"rollup": {"not_ready_for_formal_claim": True}}
+        assert _classify_step2_payload_status(payload) == "simulated_readiness_only"
+
+    def test_empty_payload_not_available(self) -> None:
+        from gas_calibrator.v2.core.wp6_builder import _classify_step2_payload_status
+        assert _classify_step2_payload_status({}) == "not_available"
+
+    def test_available_false_not_available(self) -> None:
+        from gas_calibrator.v2.core.wp6_builder import _classify_step2_payload_status
+        assert _classify_step2_payload_status({"available": False}) == "not_available"
+
+    def test_no_boundary_signals_available(self) -> None:
+        from gas_calibrator.v2.core.wp6_builder import _classify_step2_payload_status
+        payload = {"available": True, "some_data": "value"}
+        assert _classify_step2_payload_status(payload) == "available"
+
+
+class TestCloseoutDigestWpStatusWithNestedFlags:
+    """Closeout digest must correctly classify WP5/WP6 with nested boundary flags."""
+
+    def test_closeout_classifies_nested_wp5_as_simulated(self) -> None:
+        from gas_calibrator.v2.core.wp6_builder import build_step2_closeout_digest
+        # WP5 software_validation_rollup with boundary in raw sub-dict
+        wp5_rollup = {"raw": {"not_real_acceptance_evidence": True, "evidence_source": "simulated"}, "digest": {}, "review_surface": {}}
+        digest = build_step2_closeout_digest(
+            run_id="test-nested-wp5",
+            scope_definition_pack={"raw": {"not_real_acceptance_evidence": True}, "digest": {}, "review_surface": {}},
+            decision_rule_profile={"raw": {"not_real_acceptance_evidence": True}, "digest": {}, "review_surface": {}},
+            reference_asset_registry={"raw": {"not_real_acceptance_evidence": True}, "digest": {}, "review_surface": {}},
+            certificate_lifecycle_summary={"raw": {"not_real_acceptance_evidence": True}, "digest": {}, "review_surface": {}},
+            pre_run_readiness_gate={"raw": {"not_real_acceptance_evidence": True}, "digest": {}, "review_surface": {}},
+            uncertainty_report_pack={"raw": {"not_real_acceptance_evidence": True}, "digest": {}, "review_surface": {}},
+            uncertainty_rollup={"raw": {"not_real_acceptance_evidence": True}, "digest": {}, "review_surface": {}},
+            method_confirmation_protocol={"raw": {"not_real_acceptance_evidence": True}, "digest": {}, "review_surface": {}},
+            verification_digest={"raw": {"not_real_acceptance_evidence": True}, "digest": {}, "review_surface": {}},
+            software_validation_rollup=wp5_rollup,
+            comparison_rollup={"raw": {"not_real_acceptance_evidence": True}, "digest": {}, "review_surface": {}},
+            boundary_statements=["readiness mapping only"],
+        )
+        raw = digest["raw"]
+        assert raw["wp_status"]["WP5_software_validation"] == "simulated_readiness_only"
+        assert raw["all_simulated"] is True
+
+    def test_closeout_classifies_bundle_nested_wp6_as_simulated(self) -> None:
+        from gas_calibrator.v2.core.wp6_builder import build_step2_closeout_digest
+        # WP6 comparison_rollup with boundary in bundle.raw
+        wp6_rollup = {"bundle": {"raw": {"readiness_mapping_only": True, "evidence_source": "simulated"}}}
+        minimal = {"raw": {"not_real_acceptance_evidence": True}, "digest": {}, "review_surface": {}}
+        digest = build_step2_closeout_digest(
+            run_id="test-nested-wp6",
+            scope_definition_pack=minimal, decision_rule_profile=minimal,
+            reference_asset_registry=minimal, certificate_lifecycle_summary=minimal,
+            pre_run_readiness_gate=minimal, uncertainty_report_pack=minimal,
+            uncertainty_rollup=minimal, method_confirmation_protocol=minimal,
+            verification_digest=minimal, software_validation_rollup=minimal,
+            comparison_rollup=wp6_rollup,
+            boundary_statements=["readiness mapping only"],
+        )
+        raw = digest["raw"]
+        assert raw["wp_status"]["WP6_comparison"] == "simulated_readiness_only"
+
+
+class TestExplicitCompatibilityIndexContract:
+    """WP6 + step2_closeout_digest must have explicit compatibility/index contract entries."""
+
+    def test_wp6_closeout_keys_in_contract_entries(self, tmp_path: Path) -> None:
+        from gas_calibrator.v2.core.artifact_compatibility import build_artifact_compatibility_bundle
+        run_dir = tmp_path / "run-contract-001"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "summary.json").write_text('{"run_id": "run-contract-001"}', encoding="utf-8")
+        bundle = build_artifact_compatibility_bundle(run_dir)
+        # Get contract_rows from artifact_contract_catalog
+        contract_catalog = bundle.get("artifact_contract_catalog", {})
+        contract_rows = contract_catalog.get("contract_rows", []) if isinstance(contract_catalog, dict) else []
+        # Also check run_artifact_index entries
+        index = bundle.get("run_artifact_index", {})
+        index_entries = index.get("entries", []) if isinstance(index, dict) else []
+        all_keys = set()
+        for row in contract_rows:
+            key = str(row.get("artifact_key") or "")
+            if key:
+                all_keys.add(key)
+        for entry in index_entries:
+            key = str(entry.get("artifact_key") or "")
+            if key:
+                all_keys.add(key)
+        for key in ("pt_ilc_registry", "external_comparison_importer",
+                     "comparison_evidence_pack", "scope_comparison_view",
+                     "comparison_digest", "comparison_rollup",
+                     "step2_closeout_digest"):
+            assert key in all_keys, f"compatibility contract missing key: {key}"
+
+
+class TestUnifiedArtifactKeyConstants:
+    """WP6 + closeout artifact keys must use unified constants."""
+
+    def test_wp6_closeout_artifact_keys_constant(self) -> None:
+        from gas_calibrator.v2.core.recognition_readiness_artifacts import WP6_CLOSEOUT_ARTIFACT_KEYS
+        expected = (
+            "pt_ilc_registry", "external_comparison_importer",
+            "comparison_evidence_pack", "scope_comparison_view",
+            "comparison_digest", "comparison_rollup",
+            "step2_closeout_digest",
+        )
+        assert WP6_CLOSEOUT_ARTIFACT_KEYS == expected
+
+    def test_display_labels_cover_all_keys(self) -> None:
+        from gas_calibrator.v2.core.recognition_readiness_artifacts import (
+            WP6_CLOSEOUT_ARTIFACT_KEYS,
+            WP6_CLOSEOUT_DISPLAY_LABELS,
+            WP6_CLOSEOUT_DISPLAY_LABELS_EN,
+        )
+        for key in WP6_CLOSEOUT_ARTIFACT_KEYS:
+            assert key in WP6_CLOSEOUT_DISPLAY_LABELS, f"missing CN label for {key}"
+            assert key in WP6_CLOSEOUT_DISPLAY_LABELS_EN, f"missing EN label for {key}"
+
+    def test_display_labels_are_chinese_default(self) -> None:
+        from gas_calibrator.v2.core.recognition_readiness_artifacts import WP6_CLOSEOUT_DISPLAY_LABELS
+        for key, label in WP6_CLOSEOUT_DISPLAY_LABELS.items():
+            # At least one CJK character to verify Chinese default
+            assert any('\u4e00' <= c <= '\u9fff' for c in label), f"{key} label not Chinese: {label}"
+
+
+class TestCloseoutDigestReviewerSurface:
+    """step2_closeout_digest reviewer surface visibility and text consistency."""
+
+    def test_closeout_digest_review_surface_text(self) -> None:
+        from gas_calibrator.v2.core.wp6_builder import build_step2_closeout_digest
+        minimal = {"raw": {"not_real_acceptance_evidence": True}, "digest": {}, "review_surface": {}}
+        digest = build_step2_closeout_digest(
+            run_id="test-surface",
+            scope_definition_pack=minimal, decision_rule_profile=minimal,
+            reference_asset_registry=minimal, certificate_lifecycle_summary=minimal,
+            pre_run_readiness_gate=minimal, uncertainty_report_pack=minimal,
+            uncertainty_rollup=minimal, method_confirmation_protocol=minimal,
+            verification_digest=minimal, software_validation_rollup=minimal,
+            comparison_rollup=minimal,
+            boundary_statements=["readiness mapping only"],
+        )
+        surface = digest.get("review_surface", {})
+        assert "title" in surface
+        assert "Step 2" in surface["title"] or "收口" in surface["title"]
+        assert surface.get("non_claim") is True
+        # Chinese default
+        assert any('\u4e00' <= c <= '\u9fff' for c in surface.get("title", ""))
+
+    def test_closeout_digest_in_results_gateway(self, tmp_path: Path) -> None:
+        from gas_calibrator.v2.adapters.results_gateway import ResultsGateway
+        run_dir = tmp_path / "run-closeout-gw"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "summary.json").write_text('{"run_id": "run-closeout-gw"}', encoding="utf-8")
+        gateway = ResultsGateway(run_dir)
+        payload = gateway.read_results_payload()
+        assert "step2_closeout_digest" in payload or "comparison_rollup" in payload

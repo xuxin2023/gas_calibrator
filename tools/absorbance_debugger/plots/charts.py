@@ -1157,6 +1157,135 @@ def plot_dual_surface_reconciliation(
     _finalize(fig, output_path)
 
 
+def plot_candidate_tournament(summary: pd.DataFrame, output_path: Path) -> None:
+    """Plot the candidate tournament ranking and guardrail panels."""
+
+    if summary.empty:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.text(0.5, 0.5, "No candidate tournament data available", ha="center", va="center")
+        ax.axis("off")
+        return _finalize(fig, output_path)
+
+    overall = summary[summary["summary_scope"].astype(str) == "candidate_overall"].copy()
+    scoped = summary[summary["summary_scope"].astype(str) == "candidate_scope_surface"].copy()
+    fig, axes = plt.subplots(3, 2, figsize=(16, 14), squeeze=False)
+
+    ranking_ax = axes[0, 0]
+    if overall.empty:
+        ranking_ax.text(0.5, 0.5, "No ranked candidates available", ha="center", va="center")
+        ranking_ax.axis("off")
+    else:
+        ranked = overall.sort_values(["promotion_score", "candidate_id"], ascending=[False, True], ignore_index=True).head(10)
+        y = np.arange(len(ranked), dtype=float)
+        colors = ["#2ca25f" if not bool(flag) else "#d95f0e" for flag in ranked["diagnostic_only_flag"].fillna(False)]
+        ranking_ax.barh(y, pd.to_numeric(ranked["promotion_score"], errors="coerce"), color=colors)
+        ranking_ax.set_yticks(y)
+        ranking_ax.set_yticklabels(ranked["candidate_id"].astype(str).tolist(), fontsize=8)
+        ranking_ax.invert_yaxis()
+        ranking_ax.axvline(0.0, color="black", linewidth=0.9)
+        ranking_ax.set_title("Candidate ranking by promotion_score")
+        ranking_ax.set_xlabel("promotion_score")
+        ranking_ax.grid(alpha=0.2, axis="x")
+
+    def _top_scope_rows(scope_name: str, surface_name: str) -> pd.DataFrame:
+        merged = scoped[
+            (scoped["comparison_scope"].astype(str) == scope_name)
+            & (scoped["comparison_surface"].astype(str) == surface_name)
+        ].copy()
+        if merged.empty:
+            return merged
+        return merged.sort_values(["promotion_score", "candidate_id"], ascending=[False, True], ignore_index=True).head(8)
+
+    scope_b_surface1_ax = axes[0, 1]
+    top_b1 = _top_scope_rows("run_20260410_132440_all_analyzers_candidate_tournament", "run_native_old_vs_new")
+    if top_b1.empty:
+        scope_b_surface1_ax.text(0.5, 0.5, "No Scope B + Surface 1 rows", ha="center", va="center")
+        scope_b_surface1_ax.axis("off")
+    else:
+        x = np.arange(len(top_b1), dtype=float)
+        scope_b_surface1_ax.bar(x - 0.18, pd.to_numeric(top_b1["improvement_pct_overall"], errors="coerce"), width=0.36, label="overall")
+        scope_b_surface1_ax.bar(x + 0.18, pd.to_numeric(top_b1["improvement_pct_main"], errors="coerce"), width=0.36, label="main")
+        scope_b_surface1_ax.set_xticks(x)
+        scope_b_surface1_ax.set_xticklabels([f"#{int(rank)}" for rank in pd.to_numeric(top_b1["promotion_rank"], errors="coerce").fillna(0)], rotation=0)
+        scope_b_surface1_ax.axhline(0.0, color="black", linewidth=0.9)
+        scope_b_surface1_ax.set_title("Scope B + Surface 1 overall/main improvement")
+        scope_b_surface1_ax.set_ylabel("Improvement % vs old")
+        scope_b_surface1_ax.grid(alpha=0.2, axis="y")
+        scope_b_surface1_ax.legend(fontsize=8)
+
+    scope_a_surface1_ax = axes[1, 0]
+    top_a1 = _top_scope_rows("historical_ga02_ga03_candidate_tournament", "run_native_old_vs_new")
+    if top_a1.empty:
+        scope_a_surface1_ax.text(0.5, 0.5, "No Scope A + Surface 1 rows", ha="center", va="center")
+        scope_a_surface1_ax.axis("off")
+    else:
+        x = np.arange(len(top_a1), dtype=float)
+        scope_a_surface1_ax.plot(x, pd.to_numeric(top_a1["improvement_pct_overall"], errors="coerce"), marker="o", label="overall")
+        scope_a_surface1_ax.plot(x, pd.to_numeric(top_a1["improvement_pct_zero"], errors="coerce"), marker="o", label="zero")
+        scope_a_surface1_ax.plot(x, pd.to_numeric(top_a1["improvement_pct_main"], errors="coerce"), marker="o", label="main")
+        scope_a_surface1_ax.axhline(0.0, color="black", linewidth=0.9)
+        scope_a_surface1_ax.set_xticks(x)
+        scope_a_surface1_ax.set_xticklabels([f"#{int(rank)}" for rank in pd.to_numeric(top_a1["promotion_rank"], errors="coerce").fillna(0)])
+        scope_a_surface1_ax.set_title("Scope A + Surface 1 GA02/GA03 stability")
+        scope_a_surface1_ax.set_ylabel("Improvement % vs old")
+        scope_a_surface1_ax.grid(alpha=0.2)
+        scope_a_surface1_ax.legend(fontsize=8)
+
+    scope_b_surface2_ax = axes[1, 1]
+    top_b2 = _top_scope_rows("run_20260410_132440_all_analyzers_candidate_tournament", "debugger_reconstructed_old_vs_new")
+    if top_b2.empty:
+        scope_b_surface2_ax.text(0.5, 0.5, "No Scope B + Surface 2 rows", ha="center", va="center")
+        scope_b_surface2_ax.axis("off")
+    else:
+        x = np.arange(len(top_b2), dtype=float)
+        scope_b_surface2_ax.bar(x - 0.18, pd.to_numeric(top_b2["improvement_pct_overall"], errors="coerce"), width=0.36, label="overall")
+        scope_b_surface2_ax.bar(x + 0.18, pd.to_numeric(top_b2["improvement_pct_main"], errors="coerce"), width=0.36, label="main")
+        scope_b_surface2_ax.set_xticks(x)
+        scope_b_surface2_ax.set_xticklabels([f"#{int(rank)}" for rank in pd.to_numeric(top_b2["promotion_rank"], errors="coerce").fillna(0)])
+        scope_b_surface2_ax.axhline(0.0, color="black", linewidth=0.9)
+        scope_b_surface2_ax.set_title("Scope B + Surface 2 diagnostic overall/main")
+        scope_b_surface2_ax.set_ylabel("Improvement % vs old")
+        scope_b_surface2_ax.grid(alpha=0.2, axis="y")
+        scope_b_surface2_ax.legend(fontsize=8)
+
+    source_ax = axes[2, 0]
+    if overall.empty:
+        source_ax.text(0.5, 0.5, "No source-mode comparison available", ha="center", va="center")
+        source_ax.axis("off")
+    else:
+        source_compare = (
+            overall.groupby("source_mode", dropna=False)["promotion_score"]
+            .mean()
+            .sort_values(ascending=False)
+        )
+        x = np.arange(len(source_compare), dtype=float)
+        source_ax.bar(x, source_compare.to_numpy(dtype=float), color="#3182bd")
+        source_ax.set_xticks(x)
+        source_ax.set_xticklabels(source_compare.index.astype(str).tolist(), rotation=15, ha="right")
+        source_ax.axhline(0.0, color="black", linewidth=0.9)
+        source_ax.set_title("Raw vs filt branch comparison")
+        source_ax.set_ylabel("Mean promotion_score")
+        source_ax.grid(alpha=0.2, axis="y")
+
+    bucket_ax = axes[2, 1]
+    if overall.empty:
+        bucket_ax.text(0.5, 0.5, "No root-cause bucket data available", ha="center", va="center")
+        bucket_ax.axis("off")
+    else:
+        bucket_counts = overall["likely_root_cause_bucket"].fillna("mixed").astype(str).value_counts()
+        x = np.arange(len(bucket_counts), dtype=float)
+        bucket_ax.bar(x, bucket_counts.to_numpy(dtype=float), color="#756bb1")
+        bucket_ax.set_xticks(x)
+        bucket_ax.set_xticklabels(bucket_counts.index.astype(str).tolist(), rotation=15, ha="right")
+        bucket_ax.set_title("Root-cause bucket distribution")
+        bucket_ax.set_ylabel("Candidate count")
+        bucket_ax.grid(alpha=0.2, axis="y")
+
+    fig.suptitle("Candidate tournament")
+    fig.tight_layout(rect=(0, 0, 1, 0.97))
+    _finalize(fig, output_path)
+
+
 def _series_from_json_map(value: object) -> pd.Series:
     if value is None or (isinstance(value, float) and math.isnan(value)):
         return pd.Series(dtype=float)
