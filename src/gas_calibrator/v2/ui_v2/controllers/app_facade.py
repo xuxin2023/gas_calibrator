@@ -1524,6 +1524,7 @@ class AppFacade:
         uncertainty_method_readiness_summary = dict(payload.get("uncertainty_method_readiness_summary", {}) or {})
         audit_readiness_digest = dict(payload.get("audit_readiness_digest", {}) or {})
         pt_ilc_registry = dict(payload.get("pt_ilc_registry", {}) or {})
+        external_comparison_importer = dict(payload.get("external_comparison_importer", {}) or {})
         comparison_evidence_pack = dict(payload.get("comparison_evidence_pack", {}) or {})
         scope_comparison_view = dict(payload.get("scope_comparison_view", {}) or {})
         comparison_digest = dict(payload.get("comparison_digest", {}) or {})
