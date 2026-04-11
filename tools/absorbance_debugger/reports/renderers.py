@@ -402,6 +402,230 @@ def render_old_vs_new_report_markdown(report: Mapping[str, object]) -> str:
     return "\n".join(lines)
 
 
+def _scoped_summary_readout(summary_row: pd.Series) -> str:
+    return (
+        f"overall old={_format_number(summary_row.get('overall_rmse_old_scoped'))}, "
+        f"new={_format_number(summary_row.get('overall_rmse_new_scoped'))}, "
+        f"improvement={_format_number(summary_row.get('overall_improvement_pct_scoped'), 2)}%; "
+        f"zero improvement={_format_number(summary_row.get('zero_improvement_pct_scoped'), 2)}%; "
+        f"low improvement={_format_number(summary_row.get('low_improvement_pct_scoped'), 2)}%; "
+        f"main improvement={_format_number(summary_row.get('main_improvement_pct_scoped'), 2)}%"
+    )
+
+
+def _scoped_local_example_lines(local_wins: pd.DataFrame, analyzer_id: str, *, win_flag: bool, limit: int = 3) -> list[str]:
+    if local_wins.empty:
+        return []
+    rank_column = "local_win_rank_within_analyzer" if win_flag else "local_loss_rank_within_analyzer"
+    subset = local_wins[
+        (local_wins["analyzer_id"].astype(str) == str(analyzer_id))
+        & (local_wins["local_win_flag"].fillna(False) == bool(win_flag))
+    ].copy()
+    if subset.empty:
+        return []
+    subset = subset.sort_values([rank_column, "run_id"], ignore_index=True).head(limit)
+    lines: list[str] = []
+    for row in subset.itertuples(index=False):
+        lines.append(
+            f"{row.run_id} @ { _format_number(row.temp_set_c, 1) }C / { _format_number(row.target_ppm, 1) } ppm: "
+            f"old abs error { _format_number(row.abs_error_old) } -> new abs error { _format_number(row.abs_error_new) }, "
+            f"improvement { _format_number(row.improvement_abs_error) } ppm ({row.segment_tag})"
+        )
+    return lines
+
+
+def _scoped_source_note_lines(detail: pd.DataFrame) -> list[str]:
+    if detail.empty:
+        return ["No analyzer-level source note available."]
+    lines: list[str] = []
+    for analyzer_id, subset in detail.groupby("analyzer_id", dropna=False):
+        run_bits = [
+            f"{row.run_id}={row.actual_ratio_source_used} ({row.selected_source_pair})"
+            for row in subset.sort_values("run_id").itertuples(index=False)
+        ]
+        lines.append(f"{analyzer_id}: " + "; ".join(run_bits))
+    return lines
+
+
+def _historical_scoped_conclusion(summary_row: pd.Series) -> str:
+    overall_gain = pd.to_numeric(pd.Series([summary_row.get("overall_improvement_pct_scoped")]), errors="coerce").iloc[0]
+    zero_gain = pd.to_numeric(pd.Series([summary_row.get("zero_improvement_pct_scoped")]), errors="coerce").iloc[0]
+    low_gain = pd.to_numeric(pd.Series([summary_row.get("low_improvement_pct_scoped")]), errors="coerce").iloc[0]
+    main_gain = pd.to_numeric(pd.Series([summary_row.get("main_improvement_pct_scoped")]), errors="coerce").iloc[0]
+    all_positive = all(pd.notna(value) and float(value) > 0.0 for value in (overall_gain, zero_gain, low_gain, main_gain))
+    if all_positive:
+        return "在历史数据包上，仅看 GA02/GA03，新算法相对旧算法已表现出持续优势。"
+    return "在历史数据包上，仅看 GA02/GA03，新算法相对旧算法尚未表现出持续优势。"
+
+
+def _scope_b_scoped_conclusion(summary_row: pd.Series) -> str:
+    overall_gain = pd.to_numeric(pd.Series([summary_row.get("overall_improvement_pct_scoped")]), errors="coerce").iloc[0]
+    if pd.notna(overall_gain) and float(overall_gain) > 0.0:
+        return "在 2026-04-10 这包完整 run 上，全 analyzers 视角下新算法相对旧算法的真实状态是整体已领先，但仍需逐台看局部赢输点。"
+    return "在 2026-04-10 这包完整 run 上，全 analyzers 视角下新算法相对旧算法的真实状态是整体仍未领先，且需要逐台看局部赢输点。"
+
+
+def render_scoped_old_vs_new_report_markdown(report: Mapping[str, object]) -> str:
+    """Render the step-10c scoped old-vs-new markdown report."""
+
+    scope_a = report["scope_a"]
+    scope_b = report["scope_b"]
+    scope_a_summary = scope_a["summary"]
+    scope_b_summary = scope_b["summary"]
+    scope_a_row = scope_a_summary.iloc[0] if not scope_a_summary.empty else pd.Series(dtype=object)
+    scope_b_row = scope_b_summary.iloc[0] if not scope_b_summary.empty else pd.Series(dtype=object)
+    scope_a_detail = scope_a["detail"]
+    scope_b_detail = scope_b["detail"]
+    scope_a_analyzers = scope_a["analyzer_aggregate"]
+    scope_b_analyzers = scope_b["analyzer_aggregate"]
+    scope_a_local = scope_a["local_wins"]
+    scope_b_local = scope_b["local_wins"]
+
+    lines: list[str] = []
+    lines.append("# Scoped Old vs New Report")
+    lines.append("")
+    lines.append("## 1. headline")
+    lines.append("- 本报告包含两个 scope：historical GA02/GA03 comparison，以及 2026-04-10 all-analyzers comparison。")
+    lines.append("- 两个 scope 不能合并解读为统一全局结论。")
+    lines.append("- 主比较对象固定为 old_chain vs current_deployable_new_chain。")
+    lines.append("")
+    lines.append("## 2. Scope A: historical GA02/GA03 comparison")
+    lines.append(f"- headline_safe_statement = {scope_a_row.get('headline_safe_statement', '')}")
+    lines.append(f"- overall / zero / low / main = {_scoped_summary_readout(scope_a_row)}")
+    lines.append("")
+    lines.append(_table_to_markdown(scope_a["aggregate_segments"], max_rows=8))
+    lines.append("")
+    if scope_a_analyzers.empty:
+        lines.append("_No Scope A analyzer rows._")
+    else:
+        for analyzer_id in ("GA02", "GA03"):
+            analyzer_rows = scope_a_analyzers[scope_a_analyzers["analyzer_id"].astype(str) == analyzer_id].copy()
+            if analyzer_rows.empty:
+                continue
+            analyzer_row = analyzer_rows.iloc[0]
+            per_run = scope_a_detail[scope_a_detail["analyzer_id"].astype(str) == analyzer_id].copy()
+            lines.append(f"### {analyzer_id}")
+            lines.append(
+                f"- pooled overall / zero / low / main improvement = "
+                f"{_format_number(analyzer_row.get('improvement_pct_overall'), 2)}% / "
+                f"{_format_number(analyzer_row.get('improvement_pct_zero'), 2)}% / "
+                f"{_format_number(analyzer_row.get('improvement_pct_low'), 2)}% / "
+                f"{_format_number(analyzer_row.get('improvement_pct_main'), 2)}%"
+            )
+            lines.append(
+                f"- run-by-run wins = overall {int(per_run['overall_win_flag'].fillna(False).map(bool).sum())}/{len(per_run)}, "
+                f"zero {int(per_run['zero_win_flag'].fillna(False).map(bool).sum())}/{len(per_run)}, "
+                f"low {int(per_run['low_win_flag'].fillna(False).map(bool).sum())}/{len(per_run)}, "
+                f"main {int(per_run['main_win_flag'].fillna(False).map(bool).sum())}/{len(per_run)}"
+            )
+            lines.append(_table_to_markdown(
+                per_run[
+                    [
+                        "run_id",
+                        "selected_source_pair",
+                        "actual_ratio_source_used",
+                        "improvement_pct_overall",
+                        "improvement_pct_zero",
+                        "improvement_pct_low",
+                        "improvement_pct_main",
+                    ]
+                ],
+                max_rows=20,
+            ))
+            win_lines = _scoped_local_example_lines(scope_a_local, analyzer_id, win_flag=True, limit=3)
+            loss_lines = _scoped_local_example_lines(scope_a_local, analyzer_id, win_flag=False, limit=3)
+            lines.append("- 典型局部赢点：")
+            if win_lines:
+                for item in win_lines:
+                    lines.append(f"  - {item}")
+            else:
+                lines.append("  - No local wins recorded.")
+            lines.append("- 典型局部输点：")
+            if loss_lines:
+                for item in loss_lines:
+                    lines.append(f"  - {item}")
+            else:
+                lines.append("  - No local losses recorded.")
+            lines.append("")
+    lines.append(f"- scoped_conclusion = {_historical_scoped_conclusion(scope_a_row)}")
+    lines.append("")
+    lines.append("## 3. Scope B: 2026-04-10 all-analyzers comparison")
+    lines.append(f"- headline_safe_statement = {scope_b_row.get('headline_safe_statement', '')}")
+    lines.append(f"- overall / zero / low / main = {_scoped_summary_readout(scope_b_row)}")
+    lines.append("")
+    lines.append(_table_to_markdown(scope_b["aggregate_segments"], max_rows=8))
+    lines.append("")
+    if scope_b_analyzers.empty:
+        lines.append("_No Scope B analyzer rows._")
+    else:
+        for analyzer_row in scope_b_analyzers.itertuples(index=False):
+            analyzer_id = str(analyzer_row.analyzer_id)
+            per_run = scope_b_detail[scope_b_detail["analyzer_id"].astype(str) == analyzer_id].copy()
+            lines.append(f"### {analyzer_id}")
+            lines.append(
+                f"- overall / zero / low / main improvement = "
+                f"{_format_number(analyzer_row.improvement_pct_overall, 2)}% / "
+                f"{_format_number(analyzer_row.improvement_pct_zero, 2)}% / "
+                f"{_format_number(analyzer_row.improvement_pct_low, 2)}% / "
+                f"{_format_number(analyzer_row.improvement_pct_main, 2)}%"
+            )
+            lines.append(_table_to_markdown(
+                per_run[
+                    [
+                        "run_id",
+                        "selected_source_pair",
+                        "actual_ratio_source_used",
+                        "improvement_pct_overall",
+                        "improvement_pct_zero",
+                        "improvement_pct_low",
+                        "improvement_pct_main",
+                    ]
+                ],
+                max_rows=8,
+            ))
+            win_lines = _scoped_local_example_lines(scope_b_local, analyzer_id, win_flag=True, limit=3)
+            loss_lines = _scoped_local_example_lines(scope_b_local, analyzer_id, win_flag=False, limit=3)
+            lines.append("- 典型局部赢点：")
+            if win_lines:
+                for item in win_lines:
+                    lines.append(f"  - {item}")
+            else:
+                lines.append("  - No local wins recorded.")
+            lines.append("- 典型局部输点：")
+            if loss_lines:
+                for item in loss_lines:
+                    lines.append(f"  - {item}")
+            else:
+                lines.append("  - No local losses recorded.")
+            lines.append("")
+    lines.append(f"- scoped_conclusion = {_scope_b_scoped_conclusion(scope_b_row)}")
+    lines.append("")
+    lines.append("## 4. actual source used note")
+    lines.append("- Scope A facts only:")
+    for item in _scoped_source_note_lines(scope_a_detail):
+        lines.append(f"  - {item}")
+    lines.append("- Scope B facts only:")
+    for item in _scoped_source_note_lines(scope_b_detail):
+        lines.append(f"  - {item}")
+    lines.append("")
+    lines.append("## 5. final wording")
+    lines.append(
+        "- historical GA02/GA03 的可汇报结论："
+        + _historical_scoped_conclusion(scope_a_row)
+        + " "
+        + _scoped_summary_readout(scope_a_row)
+    )
+    lines.append(
+        "- 2026-04-10 全 analyzers 的可汇报结论："
+        + _scope_b_scoped_conclusion(scope_b_row)
+        + " "
+        + _scoped_summary_readout(scope_b_row)
+    )
+    lines.append("- 这两个 scope 用途不同，不应混成单一全局 headline")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def render_report_html(report: Mapping[str, object]) -> str:
     """Render a compact standalone HTML report."""
 

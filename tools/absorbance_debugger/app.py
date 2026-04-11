@@ -9,9 +9,10 @@ from pathlib import Path
 import pandas as pd
 
 from .analysis.merged_zero_anchor import build_merged_zero_anchor_compare
+from .analysis.comparison import build_scoped_old_vs_new_outputs
 from .analysis.pipeline import execute_pipeline
 from .analysis.cross_run import build_cross_run_summary
-from .plots.charts import plot_cross_run_summary
+from .plots.charts import plot_cross_run_summary, plot_old_vs_new_comparison
 from .models.config import DebuggerConfig
 from .options import (
     normalize_absorbance_order_mode,
@@ -24,6 +25,7 @@ from .options import (
     normalize_ratio_source,
     normalize_temp_source,
 )
+from .reports.renderers import render_scoped_old_vs_new_report_markdown
 
 
 def run_debugger(
@@ -215,6 +217,56 @@ def run_debugger_batch(
                 index=False,
                 encoding="utf-8-sig",
             )
+    scoped_old_vs_new_outputs = build_scoped_old_vs_new_outputs(run_results)
+    scope_a = scoped_old_vs_new_outputs["scope_a"]
+    scope_b = scoped_old_vs_new_outputs["scope_b"]
+    scope_a["detail"].to_csv(
+        resolved_output / "step_09c_historical_ga02_ga03_old_vs_new_detail.csv",
+        index=False,
+        encoding="utf-8-sig",
+    )
+    scope_a["summary"].to_csv(
+        resolved_output / "step_09c_historical_ga02_ga03_old_vs_new_summary.csv",
+        index=False,
+        encoding="utf-8-sig",
+    )
+    scope_a["local_wins"].to_csv(
+        resolved_output / "step_09c_historical_ga02_ga03_local_wins.csv",
+        index=False,
+        encoding="utf-8-sig",
+    )
+    plot_old_vs_new_comparison(
+        scope_a["aggregate_segments"],
+        scope_a["analyzer_aggregate"],
+        resolved_output / "step_09c_historical_ga02_ga03_plot.png",
+        title_prefix="historical GA02/GA03 old vs new comparison",
+    )
+    scope_b["detail"].to_csv(
+        resolved_output / "step_09d_20260410_all_analyzers_old_vs_new_detail.csv",
+        index=False,
+        encoding="utf-8-sig",
+    )
+    scope_b["summary"].to_csv(
+        resolved_output / "step_09d_20260410_all_analyzers_old_vs_new_summary.csv",
+        index=False,
+        encoding="utf-8-sig",
+    )
+    scope_b["local_wins"].to_csv(
+        resolved_output / "step_09d_20260410_all_analyzers_local_wins.csv",
+        index=False,
+        encoding="utf-8-sig",
+    )
+    plot_old_vs_new_comparison(
+        scope_b["aggregate_segments"],
+        scope_b["analyzer_aggregate"],
+        resolved_output / "step_09d_20260410_all_analyzers_plot.png",
+        title_prefix="run_20260410_132440 all-analyzers old vs new comparison",
+    )
+    scoped_report = render_scoped_old_vs_new_report_markdown(scoped_old_vs_new_outputs)
+    (resolved_output / "step_10c_scoped_old_vs_new_report.md").write_text(
+        scoped_report,
+        encoding="utf-8",
+    )
     return {
         "output_dir": resolved_output,
         "run_results": run_results,
@@ -222,6 +274,7 @@ def run_debugger_batch(
         "cross_run_by_analyzer": by_analyzer,
         "cross_run_auto_conclusions": auto_conclusions,
         "merged_zero_anchor_compare": merged_zero_anchor_compare,
+        "scoped_old_vs_new_outputs": scoped_old_vs_new_outputs,
         "reproducibility_note": reproducibility_note,
         "cross_run_summary_path": summary_path,
     }

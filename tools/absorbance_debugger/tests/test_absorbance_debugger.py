@@ -15,7 +15,10 @@ from tools.absorbance_debugger.analysis.absorbance_models import (
     active_model_specs,
     evaluate_absorbance_models,
 )
-from tools.absorbance_debugger.analysis.comparison import build_old_vs_new_comparison_outputs
+from tools.absorbance_debugger.analysis.comparison import (
+    build_old_vs_new_comparison_outputs,
+    build_scoped_old_vs_new_outputs,
+)
 from tools.absorbance_debugger.analysis.remaining_gap import build_remaining_gap_decomposition
 from tools.absorbance_debugger.analysis.analyzer_sidecar import build_analyzer_sidecar_challenge
 from tools.absorbance_debugger.analysis.lineage_audit import (
@@ -57,7 +60,10 @@ from tools.absorbance_debugger.options import (
     parse_path_list,
 )
 from tools.absorbance_debugger.parsers.schema import classify_mode2_semantics
-from tools.absorbance_debugger.reports.renderers import render_old_vs_new_report_markdown
+from tools.absorbance_debugger.reports.renderers import (
+    render_old_vs_new_report_markdown,
+    render_scoped_old_vs_new_report_markdown,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -823,6 +829,217 @@ def test_old_vs_new_final_comparison_report_keeps_deployable_headline() -> None:
     headline_block = report.split("## 2. overall comparison", 1)[0]
     assert "best_legacy_water_replay_candidate" not in headline_block
     assert "best_ppm_family_challenge_candidate" not in headline_block
+
+
+def _synthetic_scoped_run_result(run_id: str, output_dir: Path) -> dict[str, object]:
+    analyzer_specs: dict[str, dict[str, tuple[float, float, float]]] = {
+        "run_20260403_014845": {
+            "GA01": {"zero": (4.0, 6.0, 0.0), "low": (8.0, 10.0, 100.0), "main": (10.0, 13.0, 400.0)},
+            "GA02": {"zero": (3.0, 1.0, 0.0), "low": (7.0, 3.0, 100.0), "main": (9.0, 4.0, 400.0)},
+            "GA03": {"zero": (2.5, 1.5, 0.0), "low": (6.0, 3.0, 100.0), "main": (7.5, 4.5, 400.0)},
+        },
+        "run_20260407_185002": {
+            "GA01": {"zero": (5.0, 6.5, 0.0), "low": (7.5, 9.0, 100.0), "main": (9.0, 12.0, 400.0)},
+            "GA02": {"zero": (2.8, 0.9, 0.0), "low": (6.2, 2.6, 100.0), "main": (8.4, 3.8, 400.0)},
+            "GA03": {"zero": (2.0, 1.0, 0.0), "low": (5.4, 2.8, 100.0), "main": (7.0, 4.0, 400.0)},
+        },
+        "run_20260410_132440": {
+            "GA01": {"zero": (3.0, 4.5, 0.0), "low": (6.0, 7.5, 100.0), "main": (8.0, 9.5, 400.0)},
+            "GA02": {"zero": (2.5, 1.2, 0.0), "low": (5.5, 2.5, 100.0), "main": (7.0, 3.5, 400.0)},
+            "GA03": {"zero": (2.0, 1.1, 0.0), "low": (4.8, 2.2, 100.0), "main": (6.4, 3.0, 400.0)},
+            "GA04": {"zero": (2.2, 2.4, 0.0), "low": (5.0, 4.5, 100.0), "main": (6.2, 6.7, 400.0)},
+        },
+    }
+    source_pairs = {
+        "GA01": ("raw/raw", "ratio_co2_raw"),
+        "GA02": ("filt/filt", "ratio_co2_filt"),
+        "GA03": ("raw/raw", "ratio_co2_raw"),
+        "GA04": ("filt/filt", "ratio_co2_filt"),
+    }
+
+    rows: list[dict[str, object]] = []
+    selection_rows: list[dict[str, object]] = []
+    audit_rows: list[dict[str, object]] = []
+    for analyzer_id, segments in analyzer_specs[run_id].items():
+        selected_source_pair, selected_ratio_source = source_pairs[analyzer_id]
+        selection_rows.append(
+            {
+                "analyzer_id": analyzer_id,
+                "selected_source_pair": selected_source_pair,
+                "selected_ratio_source": selected_ratio_source,
+                "best_absorbance_model": f"{analyzer_id.lower()}_model",
+                "best_model_family": "single_range",
+                "zero_residual_mode": "linear",
+            }
+        )
+        audit_rows.append(
+            {
+                "audit_scope": "per_analyzer_selected_main_chain",
+                "analyzer_id": analyzer_id,
+                "R_in_source": selected_ratio_source,
+                "R0_fit_source": selected_ratio_source,
+            }
+        )
+        for idx, (segment_tag, (old_error, new_error, target_ppm)) in enumerate(segments.items(), start=1):
+            temp_c = 0.0 if segment_tag == "zero" else 20.0
+            winner = "new_chain" if abs(new_error) < abs(old_error) else "old_chain"
+            rows.append(
+                {
+                    "analyzer_id": analyzer_id,
+                    "temp_c": temp_c,
+                    "target_ppm": target_ppm,
+                    "old_pred_ppm": target_ppm + old_error,
+                    "new_pred_ppm": target_ppm + new_error,
+                    "old_error": old_error,
+                    "new_error": new_error,
+                    "winner_for_point": winner,
+                    "ratio_source_selected": "raw" if "raw" in selected_source_pair else "filt",
+                    "selected_source_pair": selected_source_pair,
+                    "mode2_semantic_profile": "baseline_bearing_profile",
+                    "mode2_legacy_raw_compare_safe": analyzer_id in {"GA01", "GA03"},
+                    "point_title": f"{run_id}_{analyzer_id}_{segment_tag}",
+                    "point_row": idx,
+                }
+            )
+
+    point_reconciliation = pd.DataFrame(rows)
+    selection = pd.DataFrame(selection_rows)
+    new_chain_input_audit = pd.DataFrame(audit_rows)
+    old_vs_new_outputs = build_old_vs_new_comparison_outputs(
+        point_reconciliation=point_reconciliation,
+        selection_table=selection,
+        new_chain_input_audit=new_chain_input_audit,
+    )
+    detail = old_vs_new_outputs["detail"].copy()
+    overview = pd.DataFrame(
+        [
+            {
+                "analyzer_id": row.analyzer_id,
+                "old_chain_rmse": row.old_chain_overall_rmse,
+                "new_chain_rmse": row.new_chain_overall_rmse,
+                "old_zero_rmse": row.old_chain_zero_rmse,
+                "new_zero_rmse": row.new_chain_zero_rmse,
+                "old_temp_stability_metric": 0.0,
+                "new_temp_stability_metric": 0.0,
+                "winner_overall": "new_chain" if bool(row.overall_win_flag) else "old_chain",
+                "winner_zero": "new_chain" if bool(row.zero_win_flag) else "old_chain",
+                "winner_temp_stability": "new_chain" if bool(row.overall_win_flag) else "old_chain",
+                "winner_low_range": "new_chain" if bool(row.low_win_flag) else "old_chain",
+                "winner_main_range": "new_chain" if bool(row.main_win_flag) else "old_chain",
+            }
+            for row in detail.itertuples(index=False)
+        ]
+    )
+    return {
+        "run_name": run_id,
+        "output_dir": output_dir,
+        "validation_table": pd.DataFrame(),
+        "comparison_outputs": {"overview_summary": overview},
+        "model_results": {"selection": selection},
+        "invalid_pressure_summary": pd.DataFrame([{"summary_scope": "overall", "invalid_point_count": 1, "invalid_sample_count": 3}]),
+        "run_role_assessment": pd.DataFrame([{"assessment_scope": "run_summary", "has_high_temp_zero_anchor_candidate": False, "recommended_role": "mixed role"}]),
+        "config": DebuggerConfig(input_path=output_dir, output_dir=output_dir),
+        "ga01_special_note": "GA01 needs separate tracking.",
+        "point_reconciliation": point_reconciliation,
+        "old_vs_new_outputs": old_vs_new_outputs,
+    }
+
+
+def test_build_scoped_old_vs_new_outputs_separates_scopes_and_report() -> None:
+    run_results = [
+        _synthetic_scoped_run_result("run_20260403_014845", Path("D:/tmp/a")),
+        _synthetic_scoped_run_result("run_20260407_185002", Path("D:/tmp/b")),
+        _synthetic_scoped_run_result("run_20260410_132440", Path("D:/tmp/c")),
+    ]
+
+    outputs = build_scoped_old_vs_new_outputs(run_results)
+    scope_a = outputs["scope_a"]
+    scope_b = outputs["scope_b"]
+
+    assert {
+        "run_id",
+        "comparison_scope",
+        "analyzer_id",
+        "selected_source_pair",
+        "actual_ratio_source_used",
+        "old_chain_overall_rmse",
+        "new_chain_overall_rmse",
+        "delta_overall_rmse",
+        "improvement_pct_overall",
+        "old_chain_zero_rmse",
+        "new_chain_zero_rmse",
+        "delta_zero_rmse",
+        "improvement_pct_zero",
+        "old_chain_low_rmse",
+        "new_chain_low_rmse",
+        "delta_low_rmse",
+        "improvement_pct_low",
+        "old_chain_main_rmse",
+        "new_chain_main_rmse",
+        "delta_main_rmse",
+        "improvement_pct_main",
+        "point_count",
+        "pointwise_win_count",
+        "pointwise_loss_count",
+        "pointwise_tie_count",
+        "overall_win_flag",
+        "zero_win_flag",
+        "low_win_flag",
+        "main_win_flag",
+    } <= set(scope_a["detail"].columns)
+    assert {
+        "comparison_scope",
+        "run_scope_description",
+        "analyzer_set",
+        "overall_verdict_scoped",
+        "overall_rmse_old_scoped",
+        "overall_rmse_new_scoped",
+        "overall_improvement_pct_scoped",
+        "zero_improvement_pct_scoped",
+        "low_improvement_pct_scoped",
+        "main_improvement_pct_scoped",
+        "analyzer_overall_wins",
+        "analyzer_zero_wins",
+        "analyzer_low_wins",
+        "analyzer_main_wins",
+        "total_pointwise_wins",
+        "total_pointwise_losses",
+        "analyzers_fully_beating_old_count",
+        "analyzers_partially_beating_old_count",
+        "analyzers_still_lagging_count",
+        "headline_safe_statement",
+        "scope_limitation_statement",
+    } <= set(scope_a["summary"].columns)
+    assert {
+        "run_id",
+        "analyzer_id",
+        "temp_set_c",
+        "target_ppm",
+        "target_value",
+        "old_value",
+        "new_value",
+        "abs_error_old",
+        "abs_error_new",
+        "improvement_abs_error",
+        "local_win_flag",
+        "local_win_rank_within_analyzer",
+        "local_loss_rank_within_analyzer",
+        "segment_tag",
+    } <= set(scope_a["local_wins"].columns)
+    assert set(scope_a["detail"]["analyzer_id"]) == {"GA02", "GA03"}
+    assert "GA01" not in str(scope_a["summary"].iloc[0]["analyzer_set"])
+    assert set(scope_b["detail"]["analyzer_id"]) == {"GA01", "GA02", "GA03", "GA04"}
+    assert scope_a["summary"].iloc[0]["headline_safe_statement"] == "仅针对 historical packages 中的 GA02/GA03"
+    assert scope_b["summary"].iloc[0]["headline_safe_statement"] == "仅针对 run_20260410_132440 的全 analyzers"
+    assert scope_a["summary"].iloc[0]["scope_limitation_statement"] == "两个 scope 不能合并解读为统一全局结论"
+    assert scope_b["summary"].iloc[0]["scope_limitation_statement"] == "两个 scope 不能合并解读为统一全局结论"
+
+    report = render_scoped_old_vs_new_report_markdown(outputs)
+    assert "Scope A: historical GA02/GA03 comparison" in report
+    assert "Scope B: 2026-04-10 all-analyzers comparison" in report
+    assert "在历史数据包上，仅看 GA02/GA03，新算法相对旧算法" in report
+    assert "在 2026-04-10 这包完整 run 上，全 analyzers 视角下新算法相对旧算法的真实状态是" in report
+    assert "这两个 scope 用途不同，不应混成单一全局 headline" in report
 
 
 def test_source_policy_challenge_stays_diagnostic_only_and_report_surfaces_audit(tmp_path: Path) -> None:
@@ -1765,6 +1982,62 @@ def test_cross_run_batch_interface_can_run(monkeypatch, tmp_path: Path) -> None:
     assert set(result["cross_run_summary"]["run_name"]) == {"run_a", "run_b"}
     assert "invalid_pressure_excluded_count" in result["cross_run_summary"].columns
     assert set(result["cross_run_by_analyzer"]["analyzer_id"]) == {"GA01", "GA02", "GA03"}
+
+
+def test_cross_run_batch_writes_scoped_old_vs_new_outputs(monkeypatch, tmp_path: Path) -> None:
+    historical_a = tmp_path / "run_20260403_014845.zip"
+    historical_b = tmp_path / "run_20260407_185002.zip"
+    scope_b = tmp_path / "run_20260410_132440.zip"
+    for path in (historical_a, historical_b, scope_b):
+        path.write_text("placeholder", encoding="utf-8")
+
+    def fake_run_debugger(input_path, **kwargs):
+        stem = Path(input_path).stem
+        output_dir = Path(kwargs["output_dir"])
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return _synthetic_scoped_run_result(stem, output_dir)
+
+    monkeypatch.setattr("tools.absorbance_debugger.app.run_debugger", fake_run_debugger)
+    result = run_debugger_batch((historical_a, historical_b, scope_b), output_dir=tmp_path / "batch_scoped")
+    output_dir = Path(result["output_dir"])
+
+    assert (output_dir / "step_09c_historical_ga02_ga03_old_vs_new_detail.csv").exists()
+    assert (output_dir / "step_09c_historical_ga02_ga03_old_vs_new_summary.csv").exists()
+    assert (output_dir / "step_09c_historical_ga02_ga03_local_wins.csv").exists()
+    assert (output_dir / "step_09c_historical_ga02_ga03_plot.png").exists()
+    assert (output_dir / "step_09d_20260410_all_analyzers_old_vs_new_detail.csv").exists()
+    assert (output_dir / "step_09d_20260410_all_analyzers_old_vs_new_summary.csv").exists()
+    assert (output_dir / "step_09d_20260410_all_analyzers_local_wins.csv").exists()
+    assert (output_dir / "step_09d_20260410_all_analyzers_plot.png").exists()
+    assert (output_dir / "step_10c_scoped_old_vs_new_report.md").exists()
+
+    scope_a_detail = pd.read_csv(output_dir / "step_09c_historical_ga02_ga03_old_vs_new_detail.csv")
+    scope_a_summary = pd.read_csv(output_dir / "step_09c_historical_ga02_ga03_old_vs_new_summary.csv")
+    scope_a_local = pd.read_csv(output_dir / "step_09c_historical_ga02_ga03_local_wins.csv")
+    scope_b_detail = pd.read_csv(output_dir / "step_09d_20260410_all_analyzers_old_vs_new_detail.csv")
+    scope_b_summary = pd.read_csv(output_dir / "step_09d_20260410_all_analyzers_old_vs_new_summary.csv")
+    scope_b_local = pd.read_csv(output_dir / "step_09d_20260410_all_analyzers_local_wins.csv")
+
+    assert {"run_id", "comparison_scope", "analyzer_id", "selected_source_pair", "actual_ratio_source_used"} <= set(scope_a_detail.columns)
+    assert {"comparison_scope", "run_scope_description", "analyzer_set", "headline_safe_statement", "scope_limitation_statement"} <= set(scope_a_summary.columns)
+    assert {"run_id", "analyzer_id", "local_win_flag", "local_win_rank_within_analyzer", "local_loss_rank_within_analyzer", "segment_tag"} <= set(scope_a_local.columns)
+    assert {"run_id", "comparison_scope", "analyzer_id", "selected_source_pair", "actual_ratio_source_used"} <= set(scope_b_detail.columns)
+    assert {"comparison_scope", "run_scope_description", "analyzer_set", "headline_safe_statement", "scope_limitation_statement"} <= set(scope_b_summary.columns)
+    assert {"run_id", "analyzer_id", "local_win_flag", "local_win_rank_within_analyzer", "local_loss_rank_within_analyzer", "segment_tag"} <= set(scope_b_local.columns)
+
+    assert set(scope_a_detail["analyzer_id"]) == {"GA02", "GA03"}
+    assert "GA01" not in str(scope_a_summary.iloc[0]["analyzer_set"])
+    assert set(scope_b_detail["analyzer_id"]) == {"GA01", "GA02", "GA03", "GA04"}
+    assert scope_a_summary.iloc[0]["headline_safe_statement"] == "仅针对 historical packages 中的 GA02/GA03"
+    assert scope_b_summary.iloc[0]["headline_safe_statement"] == "仅针对 run_20260410_132440 的全 analyzers"
+    assert scope_a_summary.iloc[0]["scope_limitation_statement"] == "两个 scope 不能合并解读为统一全局结论"
+    assert scope_b_summary.iloc[0]["scope_limitation_statement"] == "两个 scope 不能合并解读为统一全局结论"
+
+    report = (output_dir / "step_10c_scoped_old_vs_new_report.md").read_text(encoding="utf-8")
+    assert "historical GA02/GA03 comparison" in report
+    assert "2026-04-10 all-analyzers comparison" in report
+    assert "在历史数据包上，仅看 GA02/GA03，新算法相对旧算法" in report
+    assert "在 2026-04-10 这包完整 run 上，全 analyzers 视角下新算法相对旧算法的真实状态是" in report
 
 
 def test_historical_run_detects_high_temp_anchor_and_invalid_500hpa(tmp_path: Path) -> None:
