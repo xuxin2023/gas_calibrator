@@ -184,17 +184,23 @@ def validate_safe_stop_result(result: Dict[str, Any], *, cfg: Optional[Dict[str,
                 issues.append(f"humidity generator {key} failed")
     hgen_stop_check = result.get("hgen_stop_check")
     has_hgen_evidence = any(key in result for key in ("hgen_safe_stop", "hgen_stop_check", "hgen_current"))
+    hgen_current = result.get("hgen_current")
+    current_data = hgen_current.get("data", {}) if isinstance(hgen_current, dict) else {}
+    current_raw = str(hgen_current.get("raw") or "").strip() if isinstance(hgen_current, dict) else ""
+    current_flow_lpm = _as_float(current_data.get("Fl", current_data.get("Flux")))
+    current_snapshot_issue = False
+    if current_raw and current_raw.upper().startswith("ERROR"):
+        issues.append("humidity generator current snapshot invalid")
+        current_snapshot_issue = True
+    if current_flow_lpm is not None and current_flow_lpm > max_flow_lpm:
+        issues.append(f"humidity generator flow still high: {current_flow_lpm}")
+        current_snapshot_issue = True
     if enforce_hgen_stop_check and has_hgen_evidence:
         if isinstance(hgen_stop_check, dict):
             if hgen_stop_check.get("ok") is False:
                 issues.append("humidity generator stop check failed")
         else:
-            hgen_current = result.get("hgen_current")
-            data = hgen_current.get("data", {}) if isinstance(hgen_current, dict) else {}
-            flow_lpm = _as_float(data.get("Fl", data.get("Flux")))
-            if flow_lpm is not None and flow_lpm > max_flow_lpm:
-                issues.append(f"humidity generator flow still high: {flow_lpm}")
-            else:
+            if not current_snapshot_issue:
                 issues.append("humidity generator stop check missing")
 
     pace_outp = _tail_token(result.get("pace_outp"))

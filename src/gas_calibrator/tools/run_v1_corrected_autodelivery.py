@@ -415,6 +415,34 @@ def _read_group_as_list(ga: GasAnalyzer, group: int, expected_len: int) -> List[
     return [float(parsed.get(f"C{idx}")) for idx in range(expected_len)]
 
 
+def _read_group_with_match_retry(
+    ga: GasAnalyzer,
+    group: int,
+    coeffs: Sequence[float],
+    *,
+    attempts: int = 3,
+    retry_delay_s: float = 0.15,
+) -> tuple[List[float], Optional[str]]:
+    expected = [float(value) for value in coeffs]
+    expected_len = len(expected)
+    last_values: List[float] = []
+    last_error = ""
+    for idx in range(max(1, int(attempts))):
+        try:
+            values = _read_group_as_list(ga, int(group), expected_len)
+            last_values = values
+            last_error = ""
+            if senco_readback_matches(expected, values):
+                return values, None
+        except Exception as exc:
+            last_error = str(exc)
+        if idx + 1 < max(1, int(attempts)) and retry_delay_s > 0:
+            time.sleep(max(0.01, float(retry_delay_s)))
+    if last_values:
+        return last_values, last_error or "READBACK_MISMATCH"
+    return [], last_error or "READBACK_MISSING"
+
+
 def _restore_stream_settings(ga: GasAnalyzer, target_cfg: Mapping[str, Any]) -> None:
     ga.set_mode_with_ack(2, require_ack=False)
     ga.set_active_freq_with_ack(int(target_cfg.get("FtdHz", 1) or 1), require_ack=False)
@@ -501,13 +529,14 @@ def write_coefficients_to_live_devices(
                     acked = bool(ga.set_senco(int(group), coeffs))
                     if not acked:
                         raise RuntimeError("WRITE_ACK_FAILED")
-                    values = _read_group_as_list(ga, int(group), len(coeffs))
+                    values, readback_error = _read_group_with_match_retry(ga, int(group), coeffs)
                     readback = json.dumps(values, ensure_ascii=False)
                     readback_ok = senco_readback_matches(coeffs, values)
                     if readback_ok:
                         matched += 1
                     else:
                         status = "partial"
+                        error = str(readback_error or "READBACK_MISMATCH")
                 except Exception as exc:
                     error = str(exc)
                     status = "partial"

@@ -247,6 +247,34 @@ def test_validate_safe_stop_result_reports_hgen_command_failures() -> None:
     assert "humidity generator heat_off failed" in issues
 
 
+def test_validate_safe_stop_result_reports_hgen_current_snapshot_error() -> None:
+    issues = validate_safe_stop_result(
+        {
+            "hgen_stop_check": {"ok": True, "flow_lpm": 0.0},
+            "hgen_current": {"raw": "Error!", "data": {}},
+            "pace_outp": ":OUTP:STAT 0",
+            "pace_isol": ":OUTP:ISOL:STAT 1",
+        },
+        cfg={"valves": {}},
+    )
+
+    assert "humidity generator current snapshot invalid" in issues
+
+
+def test_validate_safe_stop_result_reports_hgen_current_flow_when_snapshot_disagrees() -> None:
+    issues = validate_safe_stop_result(
+        {
+            "hgen_stop_check": {"ok": True, "flow_lpm": 0.0},
+            "hgen_current": {"raw": "Flux= 1.2", "data": {"Fl": 1.2}},
+            "pace_outp": ":OUTP:STAT 0",
+            "pace_isol": ":OUTP:ISOL:STAT 1",
+        },
+        cfg={"valves": {}},
+    )
+
+    assert "humidity generator flow still high: 1.2" in issues
+
+
 def test_perform_safe_stop_with_retries_retries_until_verified(monkeypatch) -> None:
     calls = {"count": 0}
 

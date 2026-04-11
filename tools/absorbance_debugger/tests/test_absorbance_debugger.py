@@ -734,6 +734,221 @@ def test_old_vs_new_final_comparison_report_keeps_deployable_headline() -> None:
     assert "best_ppm_family_challenge_candidate" not in headline_block
 
 
+def test_source_policy_challenge_stays_diagnostic_only_and_report_surfaces_audit(tmp_path: Path) -> None:
+    config = DebuggerConfig(input_path=tmp_path, output_dir=tmp_path)
+    filtered = pd.DataFrame(
+        [
+            {
+                "analyzer": "GA01",
+                "point_title": f"p{idx}",
+                "point_row": idx,
+                "ratio_co2_raw": raw_ratio,
+                "ratio_co2_filt": filt_ratio,
+                "temp_corr_c": 20.0,
+                "pressure_corr_hpa": 1013.25,
+                "mode2_semantic_profile": "baseline_bearing_profile",
+                "mode2_legacy_raw_compare_safe": False,
+                "mode2_is_baseline_bearing_profile": True,
+            }
+            for idx, (raw_ratio, filt_ratio) in enumerate(((1.01, 1.00), (1.12, 1.08), (1.26, 1.18)), start=1)
+        ]
+    )
+    absorbance_points = pd.DataFrame(
+        [
+            {
+                "analyzer": "GA01",
+                "point_title": f"p{idx}",
+                "point_row": idx,
+                "ratio_source": ratio_source,
+                "temp_source": config.default_temp_source,
+                "pressure_source": config.default_pressure_source,
+                "r0_model": config.default_r0_model,
+                "A_mean": a_mean,
+            }
+            for idx, (raw_a, filt_a) in enumerate(((0.02, 0.01), (0.11, 0.08), (0.24, 0.18)), start=1)
+            for ratio_source, a_mean in (("ratio_co2_raw", raw_a), ("ratio_co2_filt", filt_a))
+        ]
+    )
+    point_reconciliation = pd.DataFrame(
+        [
+            {
+                "analyzer_id": "GA01",
+                "temp_c": temp_c,
+                "target_ppm": target_ppm,
+                "old_pred_ppm": target_ppm + old_error,
+                "new_pred_ppm": target_ppm + new_error,
+                "old_error": old_error,
+                "new_error": new_error,
+                "winner_for_point": "new_chain",
+                "ratio_source_selected": "filt",
+                "selected_source_pair": "filt/filt",
+                "mode2_semantic_profile": "baseline_bearing_profile",
+                "mode2_legacy_raw_compare_safe": False,
+                "point_title": f"p{idx}",
+                "point_row": idx,
+            }
+            for idx, (temp_c, target_ppm, old_error, new_error) in enumerate(
+                ((0.0, 0.0, 6.0, 1.0), (20.0, 100.0, 8.0, 2.0), (20.0, 400.0, 9.0, 3.0)),
+                start=1,
+            )
+        ]
+    )
+    selection = pd.DataFrame(
+        [
+            {
+                "analyzer_id": "GA01",
+                "best_absorbance_model": "model_filt",
+                "best_model_family": "single_range",
+                "zero_residual_mode": "none",
+                "selected_prediction_scope": "validation_oof",
+                "selected_source_pair": "filt/filt",
+            }
+        ]
+    )
+    scores = pd.DataFrame(
+        [
+            {
+                "analyzer_id": "GA01",
+                "model_id": "model_raw",
+                "model_family": "single_range",
+                "zero_residual_mode": "none",
+                "score_source": "validation_oof",
+                "selected_source_pair": "raw/raw",
+                "validation_rmse": 4.0,
+                "overall_rmse": 4.1,
+                "composite_score": 4.0,
+                "water_zero_anchor_mode": "none",
+                "with_water_zero_anchor_correction": False,
+            },
+            {
+                "analyzer_id": "GA01",
+                "model_id": "model_filt",
+                "model_family": "single_range",
+                "zero_residual_mode": "none",
+                "score_source": "validation_oof",
+                "selected_source_pair": "filt/filt",
+                "validation_rmse": 2.0,
+                "overall_rmse": 2.2,
+                "composite_score": 2.0,
+                "water_zero_anchor_mode": "none",
+                "with_water_zero_anchor_correction": False,
+            },
+        ]
+    )
+    residuals = pd.DataFrame(
+        [
+            {
+                "analyzer_id": "GA01",
+                "model_id": model_id,
+                "model_family": "single_range",
+                "zero_residual_mode": "none",
+                "prediction_scope": "validation_oof",
+                "selected_source_pair": source_pair,
+                "point_title": f"p{idx}",
+                "point_row": idx,
+                "temp_c": temp_c,
+                "target_ppm": target_ppm,
+                "predicted_ppm": target_ppm + error_ppm,
+                "error_ppm": error_ppm,
+            }
+            for model_id, source_pair, errors in (
+                ("model_raw", "raw/raw", (3.0, 4.0, 5.0)),
+                ("model_filt", "filt/filt", (1.0, 2.0, 3.0)),
+            )
+            for idx, ((temp_c, target_ppm), error_ppm) in enumerate(zip(((0.0, 0.0), (20.0, 100.0), (20.0, 400.0)), errors, strict=False), start=1)
+        ]
+    )
+    model_results = {
+        "scores": scores,
+        "residuals": residuals,
+        "selection": selection,
+    }
+
+    selection_before = selection.copy(deep=True)
+    source_selection_audit = build_source_selection_audit(filtered, absorbance_points, model_results, config)
+    source_policy_outputs = build_source_policy_challenge(
+        point_reconciliation=point_reconciliation,
+        model_results=model_results,
+        config=config,
+        source_selection_audit_detail=source_selection_audit["detail"],
+    )
+
+    pd.testing.assert_frame_equal(selection, selection_before)
+    current_row = source_policy_outputs["detail"][source_policy_outputs["detail"]["source_policy_mode"] == "current_deployable_mixed"].iloc[0]
+    raw_first_row = source_policy_outputs["detail"][source_policy_outputs["detail"]["source_policy_mode"] == "raw_first_with_fallback"].iloc[0]
+    raw_first_summary = source_policy_outputs["summary"][source_policy_outputs["summary"]["source_policy_mode"] == "raw_first_with_fallback"].iloc[0]
+    current_reason = source_policy_outputs["conclusions"][source_policy_outputs["conclusions"]["question_id"] == "current_mixed_reason_category"].iloc[0]
+    assert current_row["selected_source_pair_under_policy"] == "filt/filt"
+    assert raw_first_row["selected_source_pair_under_policy"] == "raw/raw"
+    assert bool(raw_first_summary["whether_improves_current_deployable_result"]) is False
+    assert current_reason["answer"] == "GA01=filt_better_in_fixed_family"
+
+    report = render_old_vs_new_report_markdown(
+        {
+            "run_name": "synthetic_source_policy",
+            "summary": pd.DataFrame(
+                [
+                    {
+                        "overall_verdict": "current_deployable_new_chain_does_not_yet_beat_old_chain_overall",
+                        "overall_rmse_old": 7.7,
+                        "overall_rmse_new": 2.2,
+                        "overall_improvement_pct": 71.4,
+                        "actual_ratio_source_used_in_this_run": "filt",
+                        "actual_ratio_source_used_majority": "filt",
+                        "whether_new_chain_has_overall_evidence_to_surpass_old": False,
+                    }
+                ]
+            ),
+            "detail": pd.DataFrame(
+                [
+                    {
+                        "analyzer_id": "GA01",
+                        "mode2_semantic_profile": "baseline_bearing_profile",
+                        "selected_source_pair": "filt/filt",
+                        "actual_ratio_source_used": "filt",
+                        "improvement_pct_overall": 71.4,
+                        "improvement_pct_zero": 70.0,
+                        "improvement_pct_low": 68.0,
+                        "improvement_pct_main": 66.0,
+                        "overall_win_flag": True,
+                        "zero_win_flag": True,
+                        "low_win_flag": True,
+                        "main_win_flag": True,
+                    }
+                ]
+            ),
+            "aggregate_segments": pd.DataFrame(
+                [
+                    {"segment_tag": "overall", "old_chain_rmse": 7.7, "new_chain_rmse": 2.2},
+                    {"segment_tag": "zero", "old_chain_rmse": 6.0, "new_chain_rmse": 1.0},
+                    {"segment_tag": "low", "old_chain_rmse": 8.0, "new_chain_rmse": 2.0},
+                    {"segment_tag": "main", "old_chain_rmse": 9.0, "new_chain_rmse": 3.0},
+                ]
+            ),
+            "local_wins": pd.DataFrame(),
+            "ratio_source_audit": pd.DataFrame(
+                [
+                    {
+                        "actual_ratio_source_used_in_this_run": "filt",
+                        "actual_ratio_source_used_majority": "filt",
+                        "supporting_evidence_for_actual_ratio_source": "GA01=filt (filt/filt)",
+                    }
+                ]
+            ),
+            "diagnostic_candidates": pd.DataFrame(),
+            "source_selection_audit_summary": source_selection_audit["summary"],
+            "source_selection_audit_conclusions": source_selection_audit["conclusions"],
+            "source_policy_challenge_summary": source_policy_outputs["summary"],
+            "source_policy_challenge_conclusions": source_policy_outputs["conclusions"],
+        }
+    )
+
+    assert "designed_v5_ratio_source_intent = raw_or_instantaneous" in report
+    assert "actual_ratio_source_used_in_this_run" in report
+    assert "selection_reason_primary" in report
+    assert "whether_raw_first_improves_current_deployable_result = False" in report
+
+
 def test_zero_residual_fit_and_compare_can_run(tmp_path: Path) -> None:
     config = DebuggerConfig(input_path=tmp_path, output_dir=tmp_path)
     points = pd.DataFrame(

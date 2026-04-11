@@ -94,8 +94,12 @@ _RUNTIME_DEFAULTS: Dict[str, Any] = {
             "safe_stop_verify_flow": True,
             "safe_stop_enforce_flow_check": True,
             "safe_stop_max_flow_lpm": 0.05,
-            "safe_stop_timeout_s": 5.0,
+            "safe_stop_timeout_s": 15.0,
             "safe_stop_poll_s": 0.5,
+        },
+        "safe_stop": {
+            "perform_attempts": 4,
+            "retry_delay_s": 2.0,
         },
         "pressure": {
             "co2_preseal_pressure_gauge_trigger_hpa": 1110.0,

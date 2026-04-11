@@ -215,3 +215,74 @@ def test_write_coefficients_to_live_devices_can_skip_pressure_rows(tmp_path: Pat
 
     assert 9 not in writes
     assert result["summary_rows"][0]["MatchedGroups"] == 2
+
+
+def test_write_coefficients_to_live_devices_retries_transient_readback_failure(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        module,
+        "scan_live_targets",
+        lambda *_args, **_kwargs: [
+            {
+                "Analyzer": "GA01",
+                "Port": "COM35",
+                "Baudrate": 115200,
+                "Timeout": 0.6,
+                "ConfiguredDeviceId": "005",
+                "LiveDeviceId": "005",
+                "ActiveSend": True,
+                "FtdHz": 10,
+                "AverageFilter": 49,
+            }
+        ],
+    )
+
+    class _FakeGasAnalyzer:
+        def __init__(self, *args, **kwargs) -> None:
+            self.values = {9: [-2.5, 1.0, 0.0, 0.0]}
+            self.read_attempts = {9: 0}
+
+        def open(self) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+        def set_comm_way_with_ack(self, *args, **kwargs) -> bool:
+            return True
+
+        def set_mode_with_ack(self, *args, **kwargs) -> bool:
+            return True
+
+        def set_active_freq_with_ack(self, *args, **kwargs) -> bool:
+            return True
+
+        def set_average_filter_with_ack(self, *args, **kwargs) -> bool:
+            return True
+
+        def set_senco(self, group: int, coeffs) -> bool:
+            self.values[int(group)] = [float(value) for value in coeffs]
+            return True
+
+        def read_coefficient_group(self, group: int):
+            group = int(group)
+            self.read_attempts[group] = self.read_attempts.get(group, 0) + 1
+            if group == 9 and self.read_attempts[group] == 1:
+                raise RuntimeError("GETCO9 read failed: NO_RESPONSE")
+            values = self.values[group]
+            return {f"C{idx}": float(value) for idx, value in enumerate(values)}
+
+    monkeypatch.setattr(module, "GasAnalyzer", _FakeGasAnalyzer)
+
+    result = module.write_coefficients_to_live_devices(
+        cfg={},
+        output_dir=tmp_path / "write_out_retry",
+        download_plan_rows=[],
+        temperature_rows=[],
+        pressure_rows=[{"Analyzer": "GA01", "OffsetA_kPa": -2.5}],
+        actual_device_ids={"GA01": "005"},
+        write_pressure_rows=True,
+    )
+
+    assert result["summary_rows"][0]["MatchedGroups"] == 1
+    assert result["detail_rows"][0]["Group"] == 9
+    assert result["detail_rows"][0]["ReadbackOk"] is True
