@@ -777,6 +777,77 @@ def _normalize_artifact_compatibility_payloads(
     return {artifact_key: dict(bundle_item or {}) for artifact_key, bundle_item in normalized.items()}
 
 
+# ---------------------------------------------------------------------------
+# WP6 + step2_closeout_digest explicit contract entries
+# ---------------------------------------------------------------------------
+
+_WP6_CLOSEOUT_ARTifact_KEYS = (
+    "pt_ilc_registry",
+    "external_comparison_importer",
+    "comparison_evidence_pack",
+    "scope_comparison_view",
+    "comparison_digest",
+    "comparison_rollup",
+    "step2_closeout_digest",
+)
+
+
+def _ensure_wp6_closeout_contract_entries(
+    entries: list[dict[str, Any]],
+    *,
+    run_dir: Path,
+    run_id: str,
+    role_catalog: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Add explicit contract entries for WP6 + step2_closeout_digest if missing."""
+    existing_keys = {
+        str(e.get("artifact_key") or "").strip()
+        for e in entries
+    }
+    from . import recognition_readiness_artifacts as rr
+    filename_map = {
+        "pt_ilc_registry": rr.PT_ILC_REGISTRY_FILENAME,
+        "external_comparison_importer": rr.EXTERNAL_COMPARISON_IMPORTER_FILENAME,
+        "comparison_evidence_pack": rr.COMPARISON_EVIDENCE_PACK_FILENAME,
+        "scope_comparison_view": rr.SCOPE_COMPARISON_VIEW_FILENAME,
+        "comparison_digest": rr.COMPARISON_DIGEST_FILENAME,
+        "comparison_rollup": rr.COMPARISON_ROLLUP_FILENAME,
+        "step2_closeout_digest": rr.STEP2_CLOSEOUT_DIGEST_FILENAME,
+    }
+    role_map = {
+        "pt_ilc_registry": "execution_summary",
+        "external_comparison_importer": "execution_summary",
+        "comparison_evidence_pack": "diagnostic_analysis",
+        "scope_comparison_view": "diagnostic_analysis",
+        "comparison_digest": "diagnostic_analysis",
+        "comparison_rollup": "diagnostic_analysis",
+        "step2_closeout_digest": "diagnostic_analysis",
+    }
+    for key in _WP6_CLOSEOUT_ARTifact_KEYS:
+        if key in existing_keys:
+            continue
+        filename = filename_map.get(key, f"{key}.json")
+        artifact_path = run_dir / filename
+        present = artifact_path.exists()
+        surfaces = _surface_visibility(artifact_key=key, artifact_role=role_map.get(key, "diagnostic_analysis"))
+        entries.append({
+            "artifact_key": key,
+            "artifact_name": filename,
+            "artifact_path": str(artifact_path),
+            "artifact_role": role_map.get(key, "diagnostic_analysis"),
+            "run_id": run_id,
+            "present_on_disk": present,
+            "compatibility_status": "compatibility_read" if present else "missing_regenerable",
+            "canonical_reader_available": present,
+            "regenerate_recommended": not present,
+            "schema_or_contract_version": "step2-wp6-v1" if key != "step2_closeout_digest" else "step2-closeout-digest-v1",
+            "schema_version_source": "canonical_filename" if present else "fallback_contract",
+            "linked_surface_visibility": surfaces,
+            "current_reader_mode": "canonical_direct" if present else "scan_only",
+        })
+    return entries
+
+
 def build_artifact_compatibility_bundle(
     run_dir: Path,
     *,
