@@ -396,6 +396,40 @@ def build_corrected_water_points_report(
                 )
             )
 
+    h2o_selected_frames: List[pd.DataFrame] = []
+    for bundle in bundles:
+        if str(bundle.gas or "").strip().lower() != "h2o":
+            continue
+        selected = bundle.selected_frame.copy()
+        if selected.empty:
+            continue
+        selected.insert(0, "DataScope", bundle.data_scope)
+        selected.insert(0, "Gas", bundle.gas)
+        selected.insert(0, "Analyzer", bundle.analyzer)
+        keep_columns = [
+            column
+            for column in (
+                "Analyzer",
+                "Gas",
+                "DataScope",
+                "PointRow",
+                "PointPhase",
+                "PointTag",
+                "PointTitle",
+                "EnvTempC",
+                "Temp",
+                "ppm_CO2_Tank",
+                "ppm_H2O_Dew",
+                "R_CO2",
+                "R_H2O",
+                "BAR",
+                "SourceFile",
+                "SourceStamp",
+            )
+            if column in selected.columns
+        ]
+        h2o_selected_frames.append(selected.loc[:, keep_columns])
+
     summary_df = pd.DataFrame([bundle.summary_row for bundle in bundles])
     simplified_df = pd.DataFrame([bundle.simplified_row for bundle in bundles])
     original_df = pd.DataFrame([bundle.original_row for bundle in bundles])
@@ -405,6 +439,7 @@ def build_corrected_water_points_report(
         [*(bundle.top_error_orig for bundle in bundles), *(bundle.top_error_simple for bundle in bundles), *(bundle.top_pred_diff for bundle in bundles)],
         ignore_index=True,
     )
+    h2o_selected_df = pd.concat(h2o_selected_frames, ignore_index=True) if h2o_selected_frames else pd.DataFrame()
 
     note_rows = [
         {"说明项": "数据来源", "说明内容": f"{len(summary_paths)} 份分析仪汇总合并，覆盖 {', '.join(Path(path).name for path in summary_paths)}"},
@@ -430,6 +465,10 @@ def build_corrected_water_points_report(
         point_df.to_excel(writer, sheet_name="逐点对账", index=False)
         range_df.to_excel(writer, sheet_name="分区间分析", index=False)
         topn_df.to_excel(writer, sheet_name="误差TopN", index=False)
+
+    if not h2o_selected_df.empty:
+        with pd.ExcelWriter(output, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
+            h2o_selected_df.to_excel(writer, sheet_name="H2O锚点入选", index=False)
 
     workbook = load_workbook(output)
     summary_sheet = workbook["汇总"]
@@ -460,4 +499,5 @@ def build_corrected_water_points_report(
         "ranges": range_df,
         "topn": topn_df,
         "notes": notes_df,
+        "h2o_selected_rows": h2o_selected_df,
     }

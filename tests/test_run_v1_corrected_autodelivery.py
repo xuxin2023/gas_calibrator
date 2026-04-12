@@ -187,14 +187,40 @@ def test_build_corrected_delivery_prefers_startup_pressure_rows(tmp_path: Path, 
     run_dir.mkdir()
     out_dir.mkdir()
     report_kwargs: dict[str, object] = {}
+    appended_sheets: list[str] = []
+
+    pd.DataFrame(
+        [
+            {
+                "analyzer_id": "GA01",
+                "analyzer_device_id": "005",
+                "snapshot_time": "2026-04-12T10:00:00",
+                "route_type": "co2",
+                "ref_temp_c": 0.0,
+                "cell_temp_raw_c": 60.0,
+                "shell_temp_raw_c": -40.0,
+                "cell_temp_span_c": 0.0,
+                "shell_temp_span_c": 0.0,
+                "valid_for_cell_fit": False,
+                "valid_for_shell_fit": False,
+                "cell_fit_gate_reason": "hard_bad_value",
+                "shell_fit_gate_reason": "hard_bad_value",
+            }
+        ]
+    ).to_csv(run_dir / "temperature_calibration_observations.csv", index=False, encoding="utf-8-sig")
 
     monkeypatch.setattr(module, "_filter_no_500_summary_paths", lambda *_args, **_kwargs: ([run_dir / "gas.csv", run_dir / "water.csv"], []))
-    monkeypatch.setattr(module, "_append_dataframe_sheet", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        module,
+        "_append_dataframe_sheet",
+        lambda _path, sheet_name, _frame: appended_sheets.append(str(sheet_name)),
+    )
     def _fake_report(*_args, **_kwargs):
         report_kwargs.update(_kwargs)
         return {
             "summary": pd.DataFrame([{"鍒嗘瀽浠?": "GA01", "姘斾綋": "CO2"}]),
             "simplified": pd.DataFrame([{"鍒嗘瀽浠?": "GA01", "姘斾綋": "CO2", **{f"a{i}": float(i + 1) for i in range(9)}}]),
+            "h2o_selected_rows": pd.DataFrame([{"Analyzer": "GA01", "PointRow": 3, "PointTag": "co2_m20_0"}]),
         }
 
     monkeypatch.setattr(module, "build_corrected_water_points_report", _fake_report)
@@ -219,6 +245,10 @@ def test_build_corrected_delivery_prefers_startup_pressure_rows(tmp_path: Path, 
     assert compute_calls["count"] == 0
     assert result["pressure_rows"] == [{"Analyzer": "GA01", "DeviceId": "005", "OffsetA_kPa": -2.5, "Command": "SENCO9,YGAS,FFF,-2.50000e00,1.00000e00,0.00000e00,0.00000e00"}]
     assert report_kwargs["coeff_cfg"] == {"h2o_summary_selection": {"include_co2_temp_groups_c": [], "include_co2_zero_ppm_temp_groups_c": [-20.0, -10.0, 0.0]}}
+    assert "H2O锚点入选" in appended_sheets
+    assert "温补异常快照" in appended_sheets
+    assert result["h2o_selected_rows"] == [{"Analyzer": "GA01", "PointRow": 3, "PointTag": "co2_m20_0", "ActualDeviceId": "005"}]
+    assert result["temperature_gate_hits"][0]["analyzer_id"] == "GA01"
 
 
 def test_write_coefficients_to_live_devices_can_skip_pressure_rows(tmp_path: Path, monkeypatch) -> None:

@@ -133,6 +133,7 @@ def test_build_corrected_water_points_report_creates_expected_sheets(
 
     assert out_path.exists()
     assert result["summary"].shape[0] == 2
+    assert "h2o_selected_rows" in result
 
     workbook = pd.ExcelFile(out_path)
     assert workbook.sheet_names == ["说明", "汇总", "简化系数", "原始系数", "逐点对账", "分区间分析", "误差TopN"]

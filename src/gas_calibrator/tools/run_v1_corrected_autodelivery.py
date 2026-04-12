@@ -194,6 +194,40 @@ def _append_dataframe_sheet(workbook_path: Path, sheet_name: str, frame: pd.Data
         wb.close()
 
 
+def _load_temperature_gate_hits(run_dir: Path) -> List[Dict[str, Any]]:
+    observations_path = run_dir / "temperature_calibration_observations.csv"
+    if not observations_path.exists():
+        return []
+
+    rows: List[Dict[str, Any]] = []
+    with observations_path.open("r", encoding="utf-8-sig", newline="") as handle:
+        for row in csv.DictReader(handle):
+            cell_valid = _safe_bool(row.get("valid_for_cell_fit"))
+            shell_valid = _safe_bool(row.get("valid_for_shell_fit"))
+            cell_reason = str(row.get("cell_fit_gate_reason") or "").strip()
+            shell_reason = str(row.get("shell_fit_gate_reason") or "").strip()
+            if cell_valid and shell_valid and not cell_reason and not shell_reason:
+                continue
+            rows.append(
+                {
+                    "analyzer_id": _normalize_analyzer(row.get("analyzer_id")),
+                    "analyzer_device_id": _normalize_device_id(row.get("analyzer_device_id")),
+                    "snapshot_time": row.get("snapshot_time") or row.get("timestamp"),
+                    "route_type": row.get("route_type"),
+                    "ref_temp_c": _safe_float(row.get("ref_temp_c")),
+                    "cell_temp_raw_c": _safe_float(row.get("cell_temp_raw_c")),
+                    "shell_temp_raw_c": _safe_float(row.get("shell_temp_raw_c")),
+                    "cell_temp_span_c": _safe_float(row.get("cell_temp_span_c")),
+                    "shell_temp_span_c": _safe_float(row.get("shell_temp_span_c")),
+                    "valid_for_cell_fit": cell_valid,
+                    "valid_for_shell_fit": shell_valid,
+                    "cell_fit_gate_reason": cell_reason,
+                    "shell_fit_gate_reason": shell_reason,
+                }
+            )
+    return rows
+
+
 def _filter_no_500_summary_paths(run_dir: Path, output_dir: Path) -> tuple[List[Path], List[Dict[str, Any]]]:
     filtered_paths: List[Path] = []
     stats_rows: List[Dict[str, Any]] = []
@@ -828,6 +862,7 @@ def build_corrected_delivery(
     points = pd.DataFrame(report.get("points", pd.DataFrame())).copy()
     ranges = pd.DataFrame(report.get("ranges", pd.DataFrame())).copy()
     topn = pd.DataFrame(report.get("topn", pd.DataFrame())).copy()
+    h2o_selected = pd.DataFrame(report.get("h2o_selected_rows", pd.DataFrame())).copy()
     actual_device_ids = extract_run_device_ids(run_dir)
     summary = pd.DataFrame(_annotate_rows_with_actual_device_ids(summary.to_dict(orient="records"), actual_device_ids))
     simplified = pd.DataFrame(_annotate_rows_with_actual_device_ids(simplified.to_dict(orient="records"), actual_device_ids))
@@ -835,6 +870,14 @@ def build_corrected_delivery(
     points = pd.DataFrame(_annotate_rows_with_actual_device_ids(points.to_dict(orient="records"), actual_device_ids))
     ranges = pd.DataFrame(_annotate_rows_with_actual_device_ids(ranges.to_dict(orient="records"), actual_device_ids))
     topn = pd.DataFrame(_annotate_rows_with_actual_device_ids(topn.to_dict(orient="records"), actual_device_ids))
+    h2o_selected = pd.DataFrame(_annotate_rows_with_actual_device_ids(h2o_selected.to_dict(orient="records"), actual_device_ids))
+    temperature_gate_hits = pd.DataFrame(
+        _annotate_rows_with_actual_device_ids(
+            _load_temperature_gate_hits(run_dir),
+            actual_device_ids,
+            analyzer_key="analyzer_id",
+        )
+    )
 
     analyzer_summary_rows = []
     analyzer_values = summary.get("分析仪")
@@ -860,6 +903,10 @@ def build_corrected_delivery(
     _append_dataframe_sheet(report_path, "分析仪汇总", pd.DataFrame(analyzer_summary_rows))
     _append_dataframe_sheet(report_path, "temperature_plan", pd.DataFrame(temperature_rows))
     _append_dataframe_sheet(report_path, "pressure_plan", pd.DataFrame(pressure_rows))
+    if not h2o_selected.empty:
+        _append_dataframe_sheet(report_path, "H2O锚点入选", h2o_selected)
+    if not temperature_gate_hits.empty:
+        _append_dataframe_sheet(report_path, "温补异常快照", temperature_gate_hits)
     _annotate_workbook_with_actual_device_ids(report_path, actual_device_ids)
 
     _write_csv(output_dir / "download_plan_no_500.csv", download_plan_rows)
@@ -869,6 +916,8 @@ def build_corrected_delivery(
     _write_csv(output_dir / "points_with_actual_ids_no_500.csv", points.to_dict(orient="records"))
     _write_csv(output_dir / "range_analysis_with_actual_ids_no_500.csv", ranges.to_dict(orient="records"))
     _write_csv(output_dir / "topn_with_actual_ids_no_500.csv", topn.to_dict(orient="records"))
+    _write_csv(output_dir / "h2o_selected_rows_with_actual_ids.csv", h2o_selected.to_dict(orient="records"))
+    _write_csv(output_dir / "temperature_fit_gate_hits.csv", temperature_gate_hits.to_dict(orient="records"))
     _write_csv(output_dir / "temperature_coefficients_target.csv", temperature_rows)
     _write_csv(output_dir / "pressure_offset_current_ambient_summary.csv", pressure_rows)
     _write_csv(output_dir / "filter_summary.csv", filter_stats)
@@ -896,6 +945,8 @@ def build_corrected_delivery(
         "temperature_rows": temperature_rows,
         "pressure_rows": pressure_rows,
         "pressure_row_source": pressure_mode,
+        "h2o_selected_rows": h2o_selected.to_dict(orient="records"),
+        "temperature_gate_hits": temperature_gate_hits.to_dict(orient="records"),
     }
 
 
