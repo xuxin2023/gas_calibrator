@@ -813,13 +813,13 @@ def test_reports_page_artifact_list_surfaces_engineering_isolation_admission_che
         assert rows_by_path[checklist_md_path]["note"] == checklist_entry["summary_text"]
         assert rows_by_path[checklist_json_path]["artifact_role"] == "execution_summary"
         assert rows_by_path[checklist_md_path]["artifact_role"] == "formal_analysis"
-        assert "Engineering Isolation Admission Checklist / 工程隔离准入清单 (JSON)" in rows_by_name
-        assert "Engineering Isolation Admission Checklist / 工程隔离准入清单 (Markdown)" in rows_by_name
+        assert "工程隔离准入清单 / Engineering Isolation Admission Checklist (JSON)" in rows_by_name
+        assert "工程隔离准入清单 / Engineering Isolation Admission Checklist (Markdown)" in rows_by_name
         assert checklist_entry["stage_marker_text"] in rows_by_name[
-            "Engineering Isolation Admission Checklist / 工程隔离准入清单 (JSON)"
+            "工程隔离准入清单 / Engineering Isolation Admission Checklist (JSON)"
         ][3]
         assert checklist_entry["warning_text"] in rows_by_name[
-            "Engineering Isolation Admission Checklist / 工程隔离准入清单 (Markdown)"
+            "工程隔离准入清单 / Engineering Isolation Admission Checklist (Markdown)"
         ][3]
         assert "Step 2 tail / Stage 3 bridge" in checklist_markdown
         assert "engineering-isolation" in checklist_markdown
