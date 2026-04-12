@@ -27,7 +27,7 @@ def build_engineering_isolation_admission_checklist_artifact_entry(
         or ""
     ).strip()
 
-    title_text = "Engineering Isolation Admission Checklist / 工程隔离准入清单"
+    title_text = "工程隔离准入清单 / Engineering Isolation Admission Checklist"
     summary_text = str(reviewer_manifest_payload.get("summary_text") or "").strip()
     status_line = str(reviewer_manifest_payload.get("status_line") or "").strip()
     current_stage_text = str(reviewer_manifest_payload.get("current_stage_text") or "").strip()
