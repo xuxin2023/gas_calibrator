@@ -1599,12 +1599,12 @@ def test_review_scope_manifest_and_export_index_surface_engineering_isolation_ad
     checklist_json_row = reports_rows_by_path[checklist_json_path]
     checklist_md_row = reports_rows_by_path[checklist_md_path]
 
-    assert "Engineering Isolation Admission Checklist / 工程隔离准入清单 (JSON)" in rows_by_name
-    assert "Engineering Isolation Admission Checklist / 工程隔离准入清单 (Markdown)" in rows_by_name
-    assert rows_by_name["Engineering Isolation Admission Checklist / 工程隔离准入清单 (JSON)"]["artifact_role"] == (
+    assert "工程隔离准入清单 / Engineering Isolation Admission Checklist (JSON)" in rows_by_name
+    assert "工程隔离准入清单 / Engineering Isolation Admission Checklist (Markdown)" in rows_by_name
+    assert rows_by_name["工程隔离准入清单 / Engineering Isolation Admission Checklist (JSON)"]["artifact_role"] == (
         "execution_summary"
     )
-    assert rows_by_name["Engineering Isolation Admission Checklist / 工程隔离准入清单 (Markdown)"][
+    assert rows_by_name["工程隔离准入清单 / Engineering Isolation Admission Checklist (Markdown)"][
         "artifact_role"
     ] == "formal_analysis"
     assert checklist_json_row["artifact_role"] == "execution_summary"
@@ -1647,8 +1647,8 @@ def test_review_scope_manifest_and_export_index_surface_engineering_isolation_ad
         checklist_md_row["engineering_isolation_admission_checklist_artifact_entry"]["reviewer_path"]
         == checklist_md_path
     )
-    assert checklist_json_row["name"] == "Engineering Isolation Admission Checklist / 工程隔离准入清单 (JSON)"
-    assert checklist_md_row["name"] == "Engineering Isolation Admission Checklist / 工程隔离准入清单 (Markdown)"
+    assert checklist_json_row["name"] == "工程隔离准入清单 / Engineering Isolation Admission Checklist (JSON)"
+    assert checklist_md_row["name"] == "工程隔离准入清单 / Engineering Isolation Admission Checklist (Markdown)"
     assert checklist_json_row["note"] == checklist_entry["summary_text"]
     assert checklist_md_row["note"] == checklist_entry["summary_text"]
     assert export_index["latest"]["batch_id"] == result["batch_id"]
