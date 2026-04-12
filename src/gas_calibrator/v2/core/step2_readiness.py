@@ -6,9 +6,10 @@ from pathlib import Path
 from typing import Any
 
 from .acceptance_model import build_user_visible_evidence_boundary
+from .governance_handoff_contracts import GOVERNANCE_HANDOFF_FILENAMES as _GOV_FILENAMES
 
 
-STEP2_READINESS_SUMMARY_FILENAME = "step2_readiness_summary.json"
+STEP2_READINESS_SUMMARY_FILENAME = _GOV_FILENAMES["step2_readiness_summary"]
 REAL_BENCH_UNLOCK_FLAG = "--allow-real-bench"
 REAL_BENCH_UNLOCK_ENV = "GAS_CALIBRATOR_V2_ALLOW_REAL_BENCH"
 HEADLESS_SMOKE_COMMAND = (

@@ -3,9 +3,10 @@ from __future__ import annotations
 from typing import Any
 
 from .phase_transition_bridge_presenter import build_phase_transition_bridge_panel_payload
+from .governance_handoff_contracts import GOVERNANCE_HANDOFF_FILENAMES as _GOV_FILENAMES
 
 
-PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME = "phase_transition_bridge_reviewer.md"
+PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME = _GOV_FILENAMES["phase_transition_bridge_reviewer_artifact"]
 
 
 def build_phase_transition_bridge_reviewer_artifact(

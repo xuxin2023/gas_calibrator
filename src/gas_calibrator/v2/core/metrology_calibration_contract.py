@@ -4,9 +4,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .acceptance_model import build_user_visible_evidence_boundary
+from .governance_handoff_contracts import GOVERNANCE_HANDOFF_FILENAMES as _GOV_FILENAMES
 
 
-METROLOGY_CALIBRATION_CONTRACT_FILENAME = "metrology_calibration_contract.json"
+METROLOGY_CALIBRATION_CONTRACT_FILENAME = _GOV_FILENAMES["metrology_calibration_contract"]
 
 _REFERENCE_DEVICE_CLASSES = [
     {
