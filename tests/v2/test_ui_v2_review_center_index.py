@@ -61,9 +61,9 @@ def _write_json(path: Path, payload: dict) -> None:
 
 def test_review_center_builds_cross_run_index_from_recent_runs(tmp_path: Path, monkeypatch) -> None:
     import gas_calibrator.v2.ui_v2.controllers.app_facade as _facade_mod
-    monkeypatch.setattr(_facade_mod, "REVIEW_CENTER_SCAN_BUDGET", 2048)
-    monkeypatch.setattr(_facade_mod, "REVIEW_CENTER_SCAN_MATCH_LIMIT", 64)
-    monkeypatch.setattr(_facade_mod, "REVIEW_CENTER_SCAN_ROOT_LIMIT", 32)
+    monkeypatch.setattr(_facade_mod, "REVIEW_CENTER_SCAN_BUDGET", 4096)
+    monkeypatch.setattr(_facade_mod, "REVIEW_CENTER_SCAN_MATCH_LIMIT", 128)
+    monkeypatch.setattr(_facade_mod, "REVIEW_CENTER_SCAN_ROOT_LIMIT", 64)
 
     facade = build_fake_facade(tmp_path)
     run_root = Path(facade.result_store.run_dir).parent
@@ -158,6 +158,13 @@ def test_review_center_builds_cross_run_index_from_recent_runs(tmp_path: Path, m
     facade._review_center_roots_cache.clear()
     facade._review_artifact_paths_cache.clear()
     facade._review_center_cache = None
+    # Force _collect_review_evidence to always refresh, avoiding stale cache
+    # when synthetic data is written after facade construction.
+    _orig_collect = facade._collect_review_evidence
+    def _collect_force_refresh(*args, **kwargs):
+        kwargs["force_refresh"] = True
+        return _orig_collect(*args, **kwargs)
+    monkeypatch.setattr(facade, "_collect_review_evidence", _collect_force_refresh)
     review_center = facade.build_results_snapshot()["review_center"]
     source_labels = {str(item.get("source_label") or "") for item in review_center["evidence_items"]}
     types = {str(item.get("type") or "") for item in review_center["evidence_items"]}
