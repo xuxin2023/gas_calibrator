@@ -3372,6 +3372,8 @@ class AppFacade:
             limit=8,
             metrics=diagnostics,
             force_refresh=force_refresh,
+            family_key="stability",
+            family_budget=_family_budgets.get("stability"),
         )
         for path in stability_paths:
             item = self._parse_review_artifact(
@@ -3393,6 +3395,8 @@ class AppFacade:
             limit=8,
             metrics=diagnostics,
             force_refresh=force_refresh,
+            family_key="state_transition",
+            family_budget=_family_budgets.get("state_transition"),
         )
         for path in transition_paths:
             item = self._parse_review_artifact(
@@ -3414,6 +3418,8 @@ class AppFacade:
             limit=8,
             metrics=diagnostics,
             force_refresh=force_refresh,
+            family_key="measurement_phase_coverage",
+            family_budget=_family_budgets.get("measurement_phase_coverage"),
         )
         for path in measurement_phase_coverage_paths:
             item = self._parse_review_artifact(
@@ -3435,6 +3441,8 @@ class AppFacade:
             limit=8,
             metrics=diagnostics,
             force_refresh=force_refresh,
+            family_key="artifact_compatibility",
+            family_budget=_family_budgets.get("artifact_compatibility"),
         )
         for path in compatibility_scan_paths:
             item = self._parse_review_artifact(
