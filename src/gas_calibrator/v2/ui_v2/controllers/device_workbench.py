@@ -530,13 +530,13 @@ class DeviceWorkbenchController:
             "uncertainty_rollup": uncertainty_rollup,
             "uncertainty_method_readiness_summary": uncertainty_summary,
             "audit_readiness_digest": audit_summary,
-            "pt_ilc_registry": pt_ilc_registry,
-            "external_comparison_importer": external_comparison_importer,
-            "comparison_evidence_pack": comparison_evidence_pack,
-            "scope_comparison_view": scope_comparison_view,
-            "comparison_digest": comparison_digest_payload,
-            "comparison_rollup": comparison_rollup,
-            "step2_closeout_digest": step2_closeout_digest,
+            "pt_ilc_registry": _wp6_closeout["pt_ilc_registry"],
+            "external_comparison_importer": _wp6_closeout["external_comparison_importer"],
+            "comparison_evidence_pack": _wp6_closeout["comparison_evidence_pack"],
+            "scope_comparison_view": _wp6_closeout["scope_comparison_view"],
+            "comparison_digest": _wp6_closeout["comparison_digest"],
+            "comparison_rollup": _wp6_closeout["comparison_rollup"],
+            "step2_closeout_digest": _wp6_closeout["step2_closeout_digest"],
         }
         if not any(payloads.values()):
             return {}
