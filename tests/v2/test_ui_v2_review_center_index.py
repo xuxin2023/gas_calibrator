@@ -167,6 +167,20 @@ def test_review_center_builds_cross_run_index_from_recent_runs(tmp_path: Path, m
     print(f"DEBUG: cache_hit={_diag.get('cache_hit')}, scanned_root_count={_diag.get('scanned_root_count')}, scan_budget_used={_diag.get('scan_budget_used')}")
     print(f"DEBUG: parity_count={review_center['index_summary']['parity_count']}, resilience_count={review_center['index_summary']['resilience_count']}")
     print(f"DEBUG: types={sorted(types)}")
+    print(f"DEBUG: run_b={run_b}, run_b_exists={run_b.exists()}")
+    print(f"DEBUG: parity_file_exists={(run_b / 'summary_parity_report.json').exists()}")
+    _compare_roots = facade._review_center_roots(include_compare_root=True, force_refresh=True)
+    print(f"DEBUG: run_b_in_compare_roots={any(str(r) == str(run_b) or str(r.resolve()) == str(run_b.resolve()) for r in _compare_roots)}")
+    _parity_debug_metrics = {}
+    _parity_paths = facade._review_artifact_paths(
+        "summary_parity_report.json",
+        roots=_compare_roots,
+        limit=8,
+        metrics=_parity_debug_metrics,
+        force_refresh=True,
+    )
+    print(f"DEBUG: parity_paths={_parity_paths}")
+    print(f"DEBUG: parity_debug_metrics={_parity_debug_metrics}")
 
     assert review_center["index_summary"]["recent_runs"] >= 2
     assert review_center["index_summary"]["suite_count"] >= 1
