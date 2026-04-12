@@ -1,0 +1,1846 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "pre_run_readiness_gate",
+  "generated_at": "2026-04-12T10:51:17+00:00",
+  "run_id": "run_20260412_185117",
+  "artifact_role": "diagnostic_analysis",
+  "evidence_source": "simulated",
+  "evidence_state": "reviewer_readiness_only",
+  "not_real_acceptance_evidence": true,
+  "boundary_statements": [
+    "Step 2 reviewer readiness only",
+    "simulation / offline / headless only",
+    "file-artifact-first reviewer evidence",
+    "not real acceptance",
+    "not compliance claim",
+    "not accreditation claim",
+    "cannot replace real metrology validation"
+  ],
+  "overall_status": "failed",
+  "non_claim": [
+    "Step 2 reviewer readiness only",
+    "simulation / offline / headless only",
+    "file-artifact-first reviewer evidence",
+    "not real acceptance",
+    "not compliance claim",
+    "not accreditation claim",
+    "cannot replace real metrology validation"
+  ],
+  "digest": {
+    "summary": "pre-run readiness gate | reviewer advisory only | gate_status blocked_for_formal_claim | readiness mapping only",
+    "scope_overview_summary": "Step 2 simulation reviewer scope package",
+    "decision_rule_summary": "step2_readiness_reviewer_rule_v1 | reviewer mapping dependencies",
+    "conformity_boundary_summary": "current run can support readiness mapping only; it cannot support formal claim, compliance, or real acceptance.",
+    "asset_readiness_overview": "assets 8 | certificate attention 7 | intermediate-check attention 4 | lot-binding gaps 1",
+    "certificate_lifecycle_overview": "certificates 8 | lot bindings 1 | intermediate plans 2 | OOT open 1",
+    "pre_run_gate_status": "blocked_for_formal_claim",
+    "scope_reference_assets_summary": "标准气体 Lot SG-2026-CO2-01 (standard_gas) | 湿度发生器 HG-STEP2-01 (humidity_generator) | 露点仪 DP-STEP2-01 (dewpoint_meter) | 数字压力计 PG-STEP2-01 (digital_pressure_gauge) | 温度箱 TC-STEP2-01 (temperature_chamber) | 数字温度计 TH-STEP2-01 (digital_thermometer) | 压力控制器 PC-STEP2-01 (pressure_controller)",
+    "decision_rule_dependency_summary": "released certificates | standard gas lot binding | intermediate check plans / records | out-of-tolerance closure | substitute standard approval trail",
+    "current_coverage_summary": "certificate / validity / intermediate check / lot binding / substitute approval / association integrity reviewed",
+    "missing_evidence_summary": "advisory gate cannot be used as formal compliance or acceptance evidence | blocking items must still be closed outside Step 2",
+    "blocker_summary": "pre-run gate is advisory only and cannot drive live equipment | formal claim gate remains disabled in Step 2 | water/pressure_stable: Phase remains gap; richer simulated payload evidence is still missing | Missing signal layers: reference, analyzer_raw, output, data_quality | Linked method confirmation items remain open: Water pressure stabilization hold confirmation | Linked uncertainty inputs remain open: Humidity reference, Pressure reference, Temperature reference | Linked traceability nodes remain stub-only: Humidity reference chain, Dew-point reference link, Pressure reference link | gas/pressure_stable: Phase remains model_only; richer simulated payload evidence is still missing | Missing signal layers: reference, analyzer_raw, output, data_quality | Linked method confirmation items remain open: Gas pressure stabilization hold confirmation | Linked uncertainty inputs remain open: Reference gas value, Pressure reference, Temperature reference | Linked traceability nodes remain stub-only: Standard gas chain, Pressure reference link, Temperature reference link",
+    "warning_summary": "substitute standard approval missing: 标准气体 Lot SG-2026-CO2-01 | gate is reviewer-facing advisory only and cannot drive equipment",
+    "reviewer_action_summary": "补齐缺失或过期证书，仅用于 reviewer mapping 后续闭环计划。 | 补 lot binding / use batch / 替代标准审批 sidecar，不引入默认 DB 主链。 | 关闭期间核查逾期与 OOT reviewer digest，再讨论未来 formal path。 | 保持 current run 仅为 readiness mapping，不形成 formal compliance / acceptance claim。",
+    "reviewer_next_step_digest": "Use the water pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists. | Use the gas pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists.",
+    "next_required_artifacts_summary": "metrology_traceability_stub | certificate_readiness_summary | reference_asset_registry | certificate_lifecycle_summary | pre_run_readiness_gate | uncertainty_model | uncertainty_input_set | sensitivity_coefficient_set | budget_case | uncertainty_golden_cases | uncertainty_report_pack | uncertainty_digest | uncertainty_rollup | uncertainty_budget_stub | method_confirmation_matrix | route_specific_validation_matrix | validation_run_set | verification_digest | verification_rollup | uncertainty_method_readiness_summary",
+    "non_claim_digest": "Step 2 reviewer readiness only | simulation / offline / headless only | file-artifact-first reviewer evidence | not real acceptance | not compliance claim | not accreditation claim | cannot replace real metrology validation",
+    "readiness_status": "ready_for_readiness_mapping",
+    "linked_measurement_phase_summary": "water/pressure_stable=gap | gas/pressure_stable=model_only",
+    "linked_measurement_gap_summary": "water/pressure_stable: Missing-layer reason: reference: no simulated evidence captured for this layer | analyzer_raw: no simulated evidence captured for this layer | output: no simulated evidence captured for this layer | data_quality: no simulated evidence captured for this layer | gas/pressure_stable: Missing-layer reason: reference: model_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: model_only coverage only; this layer has not been promoted into simulated payload evidence | output: model_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: model_only coverage only; this layer has not been promoted into simulated payload evidence",
+    "linked_readiness_impact_summary": "water/pressure_stable: reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method remains open because this phase has only gap reviewer coverage | gas/pressure_stable: reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method remains open because this phase has only model_only reviewer coverage",
+    "linked_method_confirmation_items_summary": "water/pressure_stable: Water pressure stabilization hold confirmation | gas/pressure_stable: Gas pressure stabilization hold confirmation",
+    "linked_uncertainty_inputs_summary": "water/pressure_stable: Humidity reference, Pressure reference, Temperature reference | gas/pressure_stable: Reference gas value, Pressure reference, Temperature reference",
+    "linked_traceability_nodes_summary": "water/pressure_stable: Humidity reference chain, Dew-point reference link, Pressure reference link | gas/pressure_stable: Standard gas chain, Pressure reference link, Temperature reference link",
+    "linked_gap_classification_summary": "water/pressure_stable: payload_complete_synthetic_reviewer_anchor | gas/pressure_stable: payload_complete_synthetic_reviewer_anchor",
+    "linked_gap_severity_summary": "water/pressure_stable: info | gas/pressure_stable: info",
+    "gap_reason": "water/pressure_stable: Missing-layer reason: reference: no simulated evidence captured for this layer | analyzer_raw: no simulated evidence captured for this layer | output: no simulated evidence captured for this layer | data_quality: no simulated evidence captured for this layer | gas/pressure_stable: Missing-layer reason: reference: model_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: model_only coverage only; this layer has not been promoted into simulated payload evidence | output: model_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: model_only coverage only; this layer has not been promoted into simulated payload evidence",
+    "linked_artifact_summary": "scope_definition_pack | decision_rule_profile | reference_asset_registry | certificate_lifecycle_summary | certificate_readiness_summary",
+    "boundary_digest": "Step 2 reviewer readiness only | simulation / offline / headless only | file-artifact-first reviewer evidence | not real acceptance | not compliance claim | not accreditation claim | cannot replace real metrology validation"
+  },
+  "review_surface": {
+    "title_text": "Pre-run Readiness Gate",
+    "role_text": "diagnostic_analysis",
+    "reviewer_note": "Step 2 pre-run readiness gate is advisory and artifact-based only. It is reviewer-facing, cannot drive live equipment, and cannot become a formal compliance or real acceptance gate.",
+    "summary_text": "pre-run readiness gate | reviewer advisory only | gate_status blocked_for_formal_claim | readiness mapping only",
+    "summary_lines": [
+      "gate status: blocked_for_formal_claim",
+      "asset readiness overview: assets 8 | certificate attention 7 | intermediate-check attention 4 | lot-binding gaps 1",
+      "certificate lifecycle overview: certificates 8 | lot bindings 1 | intermediate plans 2 | OOT open 1",
+      "readiness status: ready_for_readiness_mapping",
+      "linked measurement phases: water/pressure_stable=gap | gas/pressure_stable=model_only",
+      "linked measurement gaps: water/pressure_stable: Missing-layer reason: reference: no simulated evidence captured for this layer | analyzer_raw: no simulated evidence captured for this layer | output: no simulated evidence captured for this layer | data_quality: no simulated evidence captured for this layer | gas/pressure_stable: Missing-layer reason: reference: model_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: model_only coverage only; this layer has not been promoted into simulated payload evidence | output: model_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: model_only coverage only; this layer has not been promoted into simulated payload evidence",
+      "readiness impact: water/pressure_stable: reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method remains open because this phase has only gap reviewer coverage | gas/pressure_stable: reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method remains open because this phase has only model_only reviewer coverage",
+      "reviewer next step: Use the water pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists. | Use the gas pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists.",
+      "next required artifacts: metrology_traceability_stub | certificate_readiness_summary | reference_asset_registry | certificate_lifecycle_summary | pre_run_readiness_gate | uncertainty_model | uncertainty_input_set | sensitivity_coefficient_set | budget_case | uncertainty_golden_cases | uncertainty_report_pack | uncertainty_digest | uncertainty_rollup | uncertainty_budget_stub | method_confirmation_matrix | route_specific_validation_matrix | validation_run_set | verification_digest | verification_rollup | uncertainty_method_readiness_summary",
+      "boundary: Step 2 reviewer readiness only | simulation / offline / headless only | file-artifact-first reviewer evidence | not real acceptance | not compliance claim | not accreditation claim | cannot replace real metrology validation"
+    ],
+    "detail_lines": [
+      "blocking items: certificate missing: 露点仪 DP-STEP2-01 | certificate expired: 湿度发生器 HG-STEP2-01 | intermediate check not ready: 露点仪 DP-STEP2-01 | 数字压力计 PG-STEP2-01 | lot binding missing: LOT-SG-2026-CO2-01 | out-of-tolerance open: asset-temp-chamber-tc-001",
+      "warning items: substitute standard approval missing: 标准气体 Lot SG-2026-CO2-01 | gate is reviewer-facing advisory only and cannot drive equipment",
+      "reviewer actions: 补齐缺失或过期证书，仅用于 reviewer mapping 后续闭环计划。 | 补 lot binding / use batch / 替代标准审批 sidecar，不引入默认 DB 主链。 | 关闭期间核查逾期与 OOT reviewer digest，再讨论未来 formal path。 | 保持 current run 仅为 readiness mapping，不形成 formal compliance / acceptance claim。",
+      "boundary: Step 2 reviewer readiness only",
+      "boundary: simulation / offline / headless only",
+      "boundary: file-artifact-first reviewer evidence",
+      "boundary: not real acceptance",
+      "boundary: not compliance claim",
+      "boundary: not accreditation claim",
+      "boundary: cannot replace real metrology validation",
+      "linked artifacts: scope_definition_pack | decision_rule_profile | reference_asset_registry | certificate_lifecycle_summary | certificate_readiness_summary",
+      "linked measurement phases: water/pressure_stable=gap | gas/pressure_stable=model_only",
+      "linked measurement gaps: water/pressure_stable: Missing-layer reason: reference: no simulated evidence captured for this layer | analyzer_raw: no simulated evidence captured for this layer | output: no simulated evidence captured for this layer | data_quality: no simulated evidence captured for this layer | gas/pressure_stable: Missing-layer reason: reference: model_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: model_only coverage only; this layer has not been promoted into simulated payload evidence | output: model_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: model_only coverage only; this layer has not been promoted into simulated payload evidence",
+      "readiness impact: water/pressure_stable: reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method remains open because this phase has only gap reviewer coverage | gas/pressure_stable: reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method remains open because this phase has only model_only reviewer coverage",
+      "linked method confirmation items: water/pressure_stable: Water pressure stabilization hold confirmation | gas/pressure_stable: Gas pressure stabilization hold confirmation",
+      "linked uncertainty inputs: water/pressure_stable: Humidity reference, Pressure reference, Temperature reference | gas/pressure_stable: Reference gas value, Pressure reference, Temperature reference",
+      "linked traceability nodes: water/pressure_stable: Humidity reference chain, Dew-point reference link, Pressure reference link | gas/pressure_stable: Standard gas chain, Pressure reference link, Temperature reference link",
+      "gap reason: water/pressure_stable: Missing-layer reason: reference: no simulated evidence captured for this layer | analyzer_raw: no simulated evidence captured for this layer | output: no simulated evidence captured for this layer | data_quality: no simulated evidence captured for this layer | gas/pressure_stable: Missing-layer reason: reference: model_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: model_only coverage only; this layer has not been promoted into simulated payload evidence | output: model_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: model_only coverage only; this layer has not been promoted into simulated payload evidence",
+      "missing evidence: advisory gate cannot be used as formal compliance or acceptance evidence | blocking items must still be closed outside Step 2",
+      "blockers: pre-run gate is advisory only and cannot drive live equipment | formal claim gate remains disabled in Step 2 | water/pressure_stable: Phase remains gap; richer simulated payload evidence is still missing | Missing signal layers: reference, analyzer_raw, output, data_quality | Linked method confirmation items remain open: Water pressure stabilization hold confirmation | Linked uncertainty inputs remain open: Humidity reference, Pressure reference, Temperature reference | Linked traceability nodes remain stub-only: Humidity reference chain, Dew-point reference link, Pressure reference link | gas/pressure_stable: Phase remains model_only; richer simulated payload evidence is still missing | Missing signal layers: reference, analyzer_raw, output, data_quality | Linked method confirmation items remain open: Gas pressure stabilization hold confirmation | Linked uncertainty inputs remain open: Reference gas value, Pressure reference, Temperature reference | Linked traceability nodes remain stub-only: Standard gas chain, Pressure reference link, Temperature reference link",
+      "next required artifacts: metrology_traceability_stub | certificate_readiness_summary | reference_asset_registry | certificate_lifecycle_summary | pre_run_readiness_gate | uncertainty_model | uncertainty_input_set | sensitivity_coefficient_set | budget_case | uncertainty_golden_cases | uncertainty_report_pack | uncertainty_digest | uncertainty_rollup | uncertainty_budget_stub | method_confirmation_matrix | route_specific_validation_matrix | validation_run_set | verification_digest | verification_rollup | uncertainty_method_readiness_summary",
+      "reviewer next step: Use the water pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists. | Use the gas pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists.",
+      "boundary: Step 2 reviewer readiness only | simulation / offline / headless only | file-artifact-first reviewer evidence | not real acceptance | not compliance claim | not accreditation claim | cannot replace real metrology validation",
+      "non-claim digest: Step 2 reviewer readiness only | simulation / offline / headless only | file-artifact-first reviewer evidence | not real acceptance | not compliance claim | not accreditation claim | cannot replace real metrology validation"
+    ],
+    "anchor_id": "pre-run-readiness-gate",
+    "anchor_label": "Pre-run readiness gate",
+    "phase_filters": [
+      "step2_tail_recognition_ready",
+      "pressure_stable"
+    ],
+    "route_filters": [
+      "water",
+      "gas"
+    ],
+    "signal_family_filters": [],
+    "decision_result_filters": [],
+    "policy_version_filters": [],
+    "boundary_filter_rows": [
+      {
+        "id": "boundary:step2_reviewer_readiness_only",
+        "canonical_fragment_id": "boundary:step2_reviewer_readiness_only",
+        "fragment_family": "boundary",
+        "fragment_key": "step2_reviewer_readiness_only",
+        "canonical_key": "step2_reviewer_readiness_only",
+        "i18n_key": "reviewer_fragments.boundary.step2_reviewer_readiness_only",
+        "params": {},
+        "label": "Step 2 reviewer readiness only",
+        "display_text": "Step 2 reviewer readiness only",
+        "text": "Step 2 reviewer readiness only",
+        "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+      },
+      {
+        "id": "boundary:simulation_offline_headless_only",
+        "canonical_fragment_id": "boundary:simulation_offline_headless_only",
+        "fragment_family": "boundary",
+        "fragment_key": "simulation_offline_headless_only",
+        "canonical_key": "simulation_offline_headless_only",
+        "i18n_key": "reviewer_fragments.boundary.simulation_offline_headless_only",
+        "params": {},
+        "label": "simulation / offline / headless only",
+        "display_text": "simulation / offline / headless only",
+        "text": "simulation / offline / headless only",
+        "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+      },
+      {
+        "id": "boundary:file_artifact_first_reviewer_evidence",
+        "canonical_fragment_id": "boundary:file_artifact_first_reviewer_evidence",
+        "fragment_family": "boundary",
+        "fragment_key": "file_artifact_first_reviewer_evidence",
+        "canonical_key": "file_artifact_first_reviewer_evidence",
+        "i18n_key": "reviewer_fragments.boundary.file_artifact_first_reviewer_evidence",
+        "params": {},
+        "label": "file-artifact-first reviewer evidence",
+        "display_text": "file-artifact-first reviewer evidence",
+        "text": "file-artifact-first reviewer evidence",
+        "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+      },
+      {
+        "id": "boundary:not_real_acceptance_boundary",
+        "canonical_fragment_id": "boundary:not_real_acceptance_boundary",
+        "fragment_family": "boundary",
+        "fragment_key": "not_real_acceptance_boundary",
+        "canonical_key": "not_real_acceptance_boundary",
+        "i18n_key": "reviewer_fragments.boundary.not_real_acceptance_boundary",
+        "params": {},
+        "label": "not real acceptance",
+        "display_text": "not real acceptance",
+        "text": "not real acceptance",
+        "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+      },
+      {
+        "id": "boundary:cannot_replace_real_metrology_validation",
+        "canonical_fragment_id": "boundary:cannot_replace_real_metrology_validation",
+        "fragment_family": "boundary",
+        "fragment_key": "cannot_replace_real_metrology_validation",
+        "canonical_key": "cannot_replace_real_metrology_validation",
+        "i18n_key": "reviewer_fragments.boundary.cannot_replace_real_metrology_validation",
+        "params": {},
+        "label": "cannot replace real metrology validation",
+        "display_text": "cannot replace real metrology validation",
+        "text": "cannot replace real metrology validation",
+        "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+      },
+      {
+        "id": "non_claim:not_real_acceptance",
+        "canonical_fragment_id": "non_claim:not_real_acceptance",
+        "fragment_family": "non_claim",
+        "fragment_key": "not_real_acceptance",
+        "canonical_key": "not_real_acceptance",
+        "i18n_key": "reviewer_fragments.non_claim.not_real_acceptance",
+        "params": {},
+        "label": "not real acceptance",
+        "display_text": "not real acceptance",
+        "text": "not real acceptance",
+        "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+      },
+      {
+        "id": "non_claim:not_compliance_claim",
+        "canonical_fragment_id": "non_claim:not_compliance_claim",
+        "fragment_family": "non_claim",
+        "fragment_key": "not_compliance_claim",
+        "canonical_key": "not_compliance_claim",
+        "i18n_key": "reviewer_fragments.non_claim.not_compliance_claim",
+        "params": {},
+        "label": "not compliance claim",
+        "display_text": "not compliance claim",
+        "text": "not compliance claim",
+        "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+      },
+      {
+        "id": "non_claim:not_accreditation_claim",
+        "canonical_fragment_id": "non_claim:not_accreditation_claim",
+        "fragment_family": "non_claim",
+        "fragment_key": "not_accreditation_claim",
+        "canonical_key": "not_accreditation_claim",
+        "i18n_key": "reviewer_fragments.non_claim.not_accreditation_claim",
+        "params": {},
+        "label": "not accreditation claim",
+        "display_text": "not accreditation claim",
+        "text": "not accreditation claim",
+        "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+      }
+    ],
+    "boundary_filters": [
+      "boundary:step2_reviewer_readiness_only",
+      "boundary:simulation_offline_headless_only",
+      "boundary:file_artifact_first_reviewer_evidence",
+      "boundary:not_real_acceptance_boundary",
+      "boundary:cannot_replace_real_metrology_validation",
+      "non_claim:not_real_acceptance",
+      "non_claim:not_compliance_claim",
+      "non_claim:not_accreditation_claim"
+    ],
+    "non_claim_filter_rows": [
+      {
+        "id": "non_claim:not_real_acceptance",
+        "canonical_fragment_id": "non_claim:not_real_acceptance",
+        "fragment_family": "non_claim",
+        "fragment_key": "not_real_acceptance",
+        "canonical_key": "not_real_acceptance",
+        "i18n_key": "reviewer_fragments.non_claim.not_real_acceptance",
+        "params": {},
+        "label": "not real acceptance",
+        "display_text": "not real acceptance",
+        "text": "not real acceptance",
+        "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+      },
+      {
+        "id": "non_claim:not_compliance_claim",
+        "canonical_fragment_id": "non_claim:not_compliance_claim",
+        "fragment_family": "non_claim",
+        "fragment_key": "not_compliance_claim",
+        "canonical_key": "not_compliance_claim",
+        "i18n_key": "reviewer_fragments.non_claim.not_compliance_claim",
+        "params": {},
+        "label": "not compliance claim",
+        "display_text": "not compliance claim",
+        "text": "not compliance claim",
+        "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+      },
+      {
+        "id": "non_claim:not_accreditation_claim",
+        "canonical_fragment_id": "non_claim:not_accreditation_claim",
+        "fragment_family": "non_claim",
+        "fragment_key": "not_accreditation_claim",
+        "canonical_key": "not_accreditation_claim",
+        "i18n_key": "reviewer_fragments.non_claim.not_accreditation_claim",
+        "params": {},
+        "label": "not accreditation claim",
+        "display_text": "not accreditation claim",
+        "text": "not accreditation claim",
+        "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+      }
+    ],
+    "non_claim_filters": [
+      "non_claim:not_real_acceptance",
+      "non_claim:not_compliance_claim",
+      "non_claim:not_accreditation_claim"
+    ],
+    "evidence_source_filters": [
+      "simulated",
+      "reviewer_readiness_only"
+    ],
+    "artifact_paths": {
+      "scope_definition_pack": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\scope_definition_pack.json",
+      "decision_rule_profile": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\decision_rule_profile.json",
+      "reference_asset_registry": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\reference_asset_registry.json",
+      "certificate_lifecycle_summary": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\certificate_lifecycle_summary.json",
+      "certificate_readiness_summary": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\certificate_readiness_summary.json",
+      "pre_run_readiness_gate": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\pre_run_readiness_gate.json",
+      "pre_run_readiness_gate_markdown": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\pre_run_readiness_gate.md"
+    },
+    "anchor_refs": [
+      "scope-definition-pack",
+      "decision-rule-profile",
+      "reference-asset-registry",
+      "certificate-lifecycle-summary",
+      "certificate-readiness-summary",
+      "measurement-phase-water-pressure-stable",
+      "measurement-phase-gas-pressure-stable"
+    ]
+  },
+  "artifact_paths": {
+    "scope_definition_pack": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\scope_definition_pack.json",
+    "decision_rule_profile": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\decision_rule_profile.json",
+    "reference_asset_registry": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\reference_asset_registry.json",
+    "certificate_lifecycle_summary": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\certificate_lifecycle_summary.json",
+    "certificate_readiness_summary": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\certificate_readiness_summary.json",
+    "pre_run_readiness_gate": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\pre_run_readiness_gate.json",
+    "pre_run_readiness_gate_markdown": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\pre_run_readiness_gate.md"
+  },
+  "evidence_categories": [
+    "recognition_readiness",
+    "pre_run_gate",
+    "reviewer_mapping"
+  ],
+  "gate_status": "blocked_for_formal_claim",
+  "blocking_items": [
+    "certificate missing: 露点仪 DP-STEP2-01",
+    "certificate expired: 湿度发生器 HG-STEP2-01",
+    "intermediate check not ready: 露点仪 DP-STEP2-01 | 数字压力计 PG-STEP2-01",
+    "lot binding missing: LOT-SG-2026-CO2-01",
+    "out-of-tolerance open: asset-temp-chamber-tc-001"
+  ],
+  "warning_items": [
+    "substitute standard approval missing: 标准气体 Lot SG-2026-CO2-01",
+    "gate is reviewer-facing advisory only and cannot drive equipment"
+  ],
+  "reviewer_actions": [
+    "补齐缺失或过期证书，仅用于 reviewer mapping 后续闭环计划。",
+    "补 lot binding / use batch / 替代标准审批 sidecar，不引入默认 DB 主链。",
+    "关闭期间核查逾期与 OOT reviewer digest，再讨论未来 formal path。",
+    "保持 current run 仅为 readiness mapping，不形成 formal compliance / acceptance claim。"
+  ],
+  "checks": [
+    {
+      "check_id": "certificate_missing",
+      "status": "blocked",
+      "summary": "露点仪 DP-STEP2-01"
+    },
+    {
+      "check_id": "certificate_validity",
+      "status": "blocked",
+      "summary": "湿度发生器 HG-STEP2-01"
+    },
+    {
+      "check_id": "intermediate_check",
+      "status": "blocked",
+      "summary": "露点仪 DP-STEP2-01 | 数字压力计 PG-STEP2-01"
+    },
+    {
+      "check_id": "out_of_tolerance",
+      "status": "blocked",
+      "summary": "asset-temp-chamber-tc-001"
+    },
+    {
+      "check_id": "lot_binding",
+      "status": "blocked",
+      "summary": "LOT-SG-2026-CO2-01"
+    },
+    {
+      "check_id": "substitute_standard_chain_approval",
+      "status": "warning",
+      "summary": "标准气体 Lot SG-2026-CO2-01"
+    },
+    {
+      "check_id": "scope_decision_asset_integrity",
+      "status": "pass",
+      "summary": "scope / decision / asset linkage complete"
+    }
+  ],
+  "readiness_status": "ready_for_readiness_mapping",
+  "non_claim_note": "Current run is limited to readiness mapping; Step 2 gate output is advisory only and cannot be used as a formal claim gate.",
+  "not_ready_for_formal_claim": true,
+  "ready_for_readiness_mapping": true,
+  "reviewer_stub_only": true,
+  "readiness_mapping_only": true,
+  "not_released_for_formal_claim": true,
+  "primary_evidence_rewritten": false,
+  "scope_reference_assets": [
+    "标准气体 Lot SG-2026-CO2-01 (standard_gas)",
+    "湿度发生器 HG-STEP2-01 (humidity_generator)",
+    "露点仪 DP-STEP2-01 (dewpoint_meter)",
+    "数字压力计 PG-STEP2-01 (digital_pressure_gauge)",
+    "温度箱 TC-STEP2-01 (temperature_chamber)",
+    "数字温度计 TH-STEP2-01 (digital_thermometer)",
+    "压力控制器 PC-STEP2-01 (pressure_controller)"
+  ],
+  "decision_rule_dependencies": [
+    "released certificates",
+    "standard gas lot binding",
+    "intermediate check plans / records",
+    "out-of-tolerance closure",
+    "substitute standard approval trail"
+  ],
+  "linked_artifacts": {
+    "scope_definition_pack": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\scope_definition_pack.json",
+    "decision_rule_profile": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\decision_rule_profile.json",
+    "reference_asset_registry": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\reference_asset_registry.json",
+    "certificate_lifecycle_summary": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\certificate_lifecycle_summary.json",
+    "certificate_readiness_summary": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\certificate_readiness_summary.json"
+  },
+  "limitation_note": "This gate is reviewer-facing / advisory / artifact-based only. It cannot open COM, drive devices, or enforce live equipment control.",
+  "anchor_id": "pre-run-readiness-gate",
+  "anchor_label": "Pre-run readiness gate",
+  "taxonomy_contract_version": "step2-taxonomy-contract-v1",
+  "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1",
+  "linked_artifact_refs": [
+    {
+      "artifact_type": "scope_definition_pack",
+      "path": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\scope_definition_pack.json",
+      "anchor_id": "scope-definition-pack",
+      "anchor_label": "Scope definition pack"
+    },
+    {
+      "artifact_type": "decision_rule_profile",
+      "path": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\decision_rule_profile.json",
+      "anchor_id": "decision-rule-profile",
+      "anchor_label": "Decision rule profile"
+    },
+    {
+      "artifact_type": "reference_asset_registry",
+      "path": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\reference_asset_registry.json",
+      "anchor_id": "reference-asset-registry",
+      "anchor_label": "Reference asset registry"
+    },
+    {
+      "artifact_type": "certificate_lifecycle_summary",
+      "path": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\certificate_lifecycle_summary.json",
+      "anchor_id": "certificate-lifecycle-summary",
+      "anchor_label": "Certificate lifecycle summary"
+    },
+    {
+      "artifact_type": "certificate_readiness_summary",
+      "path": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\certificate_readiness_summary.json",
+      "anchor_id": "certificate-readiness-summary",
+      "anchor_label": "Certificate readiness summary"
+    }
+  ],
+  "linked_measurement_phase_artifacts": [
+    {
+      "artifact_type": "measurement_phase_coverage_report",
+      "phase_route_key": "water:pressure_stable",
+      "route_family": "water",
+      "phase_name": "pressure_stable",
+      "route_phase": "water/pressure_stable",
+      "anchor_id": "measurement-phase-water-pressure-stable",
+      "anchor_label": "water/pressure_stable phase coverage",
+      "coverage_bucket": "gap",
+      "coverage_bucket_display": "gap",
+      "payload_completeness": "not_available",
+      "available_signal_layers": [],
+      "missing_signal_layers": [
+        "reference",
+        "analyzer_raw",
+        "output",
+        "data_quality"
+      ],
+      "missing_reason_digest": "Missing-layer reason: reference: no simulated evidence captured for this layer | analyzer_raw: no simulated evidence captured for this layer | output: no simulated evidence captured for this layer | data_quality: no simulated evidence captured for this layer",
+      "gap_reason_fragments": [
+        {
+          "fragment_family": "gap_reason",
+          "fragment_key": "missing_layer_reason_explicit",
+          "canonical_key": "missing_layer_reason_explicit",
+          "canonical_fragment_id": "gap_reason:missing_layer_reason_explicit",
+          "i18n_key": "reviewer_fragments.gap_reason.missing_layer_reason_explicit",
+          "params": {
+            "details": "reference: no simulated evidence captured for this layer | analyzer_raw: no simulated evidence captured for this layer | output: no simulated evidence captured for this layer | data_quality: no simulated evidence captured for this layer"
+          },
+          "text": "Missing-layer reason: reference: no simulated evidence captured for this layer | analyzer_raw: no simulated evidence captured for this layer | output: no simulated evidence captured for this layer | data_quality: no simulated evidence captured for this layer",
+          "display_text": "Missing-layer reason: reference: no simulated evidence captured for this layer | analyzer_raw: no simulated evidence captured for this layer | output: no simulated evidence captured for this layer | data_quality: no simulated evidence captured for this layer",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        }
+      ],
+      "gap_reason_fragment_keys": [
+        "missing_layer_reason_explicit"
+      ],
+      "evidence_provenance": "gap",
+      "readiness_impact_digest": "reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method remains open because this phase has only gap reviewer coverage",
+      "readiness_impact_fragments": [
+        {
+          "fragment_family": "readiness_impact",
+          "fragment_key": "reviewer_coverage_only_linkage_open",
+          "canonical_key": "reviewer_coverage_only_linkage_open",
+          "canonical_fragment_id": "readiness_impact:reviewer_coverage_only_linkage_open",
+          "i18n_key": "reviewer_fragments.readiness_impact.reviewer_coverage_only_linkage_open",
+          "params": {
+            "dimensions": "reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method",
+            "coverage_bucket_label": "gap"
+          },
+          "text": "reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method remains open because this phase has only gap reviewer coverage",
+          "display_text": "reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method remains open because this phase has only gap reviewer coverage",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        }
+      ],
+      "readiness_impact_fragment_keys": [
+        "reviewer_coverage_only_linkage_open"
+      ],
+      "gap_classification": "payload_complete_synthetic_reviewer_anchor",
+      "gap_severity": "info",
+      "linked_method_confirmation_items": [
+        "Water pressure stabilization hold confirmation"
+      ],
+      "linked_method_confirmation_item_keys": [
+        "water_pressure_stabilization_hold_confirmation"
+      ],
+      "linked_uncertainty_inputs": [
+        "Humidity reference",
+        "Pressure reference",
+        "Temperature reference"
+      ],
+      "linked_uncertainty_input_keys": [
+        "humidity_reference",
+        "pressure_reference",
+        "temperature_reference"
+      ],
+      "linked_traceability_nodes": [
+        "Humidity reference chain",
+        "Dew-point reference link",
+        "Pressure reference link"
+      ],
+      "linked_traceability_node_keys": [
+        "humidity_reference_chain",
+        "dew_point_reference_link",
+        "pressure_reference_link"
+      ],
+      "linked_traceability_stub_nodes": [
+        "Humidity reference chain",
+        "Dew-point reference link",
+        "Pressure reference link"
+      ],
+      "linked_readiness_summary": "Reference asset registry | Certificate lifecycle summary | Certificate readiness summary | Pre-run readiness gate | Uncertainty model | Uncertainty input set | Sensitivity coefficient set | Budget case | Uncertainty golden cases | Uncertainty report pack | Uncertainty digest | Uncertainty rollup | Metrology traceability stub | Uncertainty budget stub | Method confirmation matrix | Route specific validation matrix | Validation run set | Verification digest | Verification rollup | Uncertainty / method readiness summary",
+      "blockers": [
+        "Phase remains gap; richer simulated payload evidence is still missing",
+        "Missing signal layers: reference, analyzer_raw, output, data_quality",
+        "Linked method confirmation items remain open: Water pressure stabilization hold confirmation",
+        "Linked uncertainty inputs remain open: Humidity reference, Pressure reference, Temperature reference",
+        "Linked traceability nodes remain stub-only: Humidity reference chain, Dew-point reference link, Pressure reference link"
+      ],
+      "blocker_fragments": [
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "coverage_bucket_richer_payload_missing",
+          "canonical_key": "coverage_bucket_richer_payload_missing",
+          "canonical_fragment_id": "blocker:coverage_bucket_richer_payload_missing",
+          "i18n_key": "reviewer_fragments.blocker.coverage_bucket_richer_payload_missing",
+          "params": {
+            "coverage_bucket_label": "gap"
+          },
+          "text": "Phase remains gap; richer simulated payload evidence is still missing",
+          "display_text": "Phase remains gap; richer simulated payload evidence is still missing",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        },
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "missing_signal_layers_explicit",
+          "canonical_key": "missing_signal_layers_explicit",
+          "canonical_fragment_id": "blocker:missing_signal_layers_explicit",
+          "i18n_key": "reviewer_fragments.blocker.missing_signal_layers_explicit",
+          "params": {
+            "missing_layers": [
+              "reference",
+              "analyzer_raw",
+              "output",
+              "data_quality"
+            ]
+          },
+          "text": "Missing signal layers: reference, analyzer_raw, output, data_quality",
+          "display_text": "Missing signal layers: reference, analyzer_raw, output, data_quality",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        },
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "linked_method_items_open",
+          "canonical_key": "linked_method_items_open",
+          "canonical_fragment_id": "blocker:linked_method_items_open",
+          "i18n_key": "reviewer_fragments.blocker.linked_method_items_open",
+          "params": {
+            "items": [
+              "Water pressure stabilization hold confirmation"
+            ]
+          },
+          "text": "Linked method confirmation items remain open: Water pressure stabilization hold confirmation",
+          "display_text": "Linked method confirmation items remain open: Water pressure stabilization hold confirmation",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        },
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "linked_uncertainty_inputs_open",
+          "canonical_key": "linked_uncertainty_inputs_open",
+          "canonical_fragment_id": "blocker:linked_uncertainty_inputs_open",
+          "i18n_key": "reviewer_fragments.blocker.linked_uncertainty_inputs_open",
+          "params": {
+            "items": [
+              "Humidity reference",
+              "Pressure reference",
+              "Temperature reference"
+            ]
+          },
+          "text": "Linked uncertainty inputs remain open: Humidity reference, Pressure reference, Temperature reference",
+          "display_text": "Linked uncertainty inputs remain open: Humidity reference, Pressure reference, Temperature reference",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        },
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "linked_traceability_nodes_stub_only",
+          "canonical_key": "linked_traceability_nodes_stub_only",
+          "canonical_fragment_id": "blocker:linked_traceability_nodes_stub_only",
+          "i18n_key": "reviewer_fragments.blocker.linked_traceability_nodes_stub_only",
+          "params": {
+            "items": [
+              "Humidity reference chain",
+              "Dew-point reference link",
+              "Pressure reference link"
+            ]
+          },
+          "text": "Linked traceability nodes remain stub-only: Humidity reference chain, Dew-point reference link, Pressure reference link",
+          "display_text": "Linked traceability nodes remain stub-only: Humidity reference chain, Dew-point reference link, Pressure reference link",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        }
+      ],
+      "blocker_fragment_keys": [
+        "coverage_bucket_richer_payload_missing",
+        "missing_signal_layers_explicit",
+        "linked_method_items_open",
+        "linked_uncertainty_inputs_open",
+        "linked_traceability_nodes_stub_only"
+      ],
+      "next_required_artifacts": [
+        "reference_asset_registry",
+        "certificate_lifecycle_summary",
+        "certificate_readiness_summary",
+        "pre_run_readiness_gate",
+        "uncertainty_model",
+        "uncertainty_input_set",
+        "sensitivity_coefficient_set",
+        "budget_case",
+        "uncertainty_golden_cases",
+        "uncertainty_report_pack",
+        "uncertainty_digest",
+        "uncertainty_rollup",
+        "metrology_traceability_stub",
+        "uncertainty_budget_stub",
+        "method_confirmation_matrix",
+        "route_specific_validation_matrix",
+        "validation_run_set",
+        "verification_digest",
+        "verification_rollup",
+        "uncertainty_method_readiness_summary"
+      ],
+      "gap_reason": "Missing-layer reason: reference: no simulated evidence captured for this layer | analyzer_raw: no simulated evidence captured for this layer | output: no simulated evidence captured for this layer | data_quality: no simulated evidence captured for this layer",
+      "reviewer_next_step_digest": "Use the water pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists.",
+      "reviewer_next_step_fragments": [
+        {
+          "fragment_family": "reviewer_next_step",
+          "fragment_key": "water_pressure_stable_payload_complete_anchor",
+          "canonical_key": "water_pressure_stable_payload_complete_anchor",
+          "canonical_fragment_id": "reviewer_next_step:water_pressure_stable_payload_complete_anchor",
+          "i18n_key": "taxonomy.reviewer_next_step.water_pressure_stable_payload_complete_anchor",
+          "params": {},
+          "text": "Use the water pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists.",
+          "display_text": "Use the water pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists.",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        }
+      ],
+      "reviewer_next_step_fragment_keys": [
+        "water_pressure_stable_payload_complete_anchor"
+      ],
+      "reviewer_next_step_template_key": "water_pressure_stable_payload_complete_anchor",
+      "reviewer_guidance_digest": "water/pressure_stable=gap | available -- | missing reference, analyzer_raw, output, data_quality | reason Missing-layer reason: reference: no simulated evidence captured for this layer | analyzer_raw: no simulated evidence captured for this layer | output: no simulated evidence captured for this layer | data_quality: no simulated evidence captured for this layer | impact reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method remains open because this phase has only gap reviewer coverage | method Water pressure stabilization hold confirmation | uncertainty Humidity reference, Pressure reference, Temperature reference | traceability Humidity reference chain, Dew-point reference link, Pressure reference link | blockers Phase remains gap; richer simulated payload evidence is still missing | Missing signal layers: reference, analyzer_raw, output, data_quality | Linked method confirmation items remain open: Water pressure stabilization hold confirmation | Linked uncertainty inputs remain open: Humidity reference, Pressure reference, Temperature reference | Linked traceability nodes remain stub-only: Humidity reference chain, Dew-point reference link, Pressure reference link | next reference_asset_registry | certificate_lifecycle_summary | certificate_readiness_summary | pre_run_readiness_gate | uncertainty_model | uncertainty_input_set | sensitivity_coefficient_set | budget_case | uncertainty_golden_cases | uncertainty_report_pack | uncertainty_digest | uncertainty_rollup | metrology_traceability_stub | uncertainty_budget_stub | method_confirmation_matrix | route_specific_validation_matrix | validation_run_set | verification_digest | verification_rollup | uncertainty_method_readiness_summary | reviewer next step Use the water pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists. | boundary measurement-core reviewer evidence stays within Step 2 simulation-only boundaries",
+      "comparison_digest": "",
+      "taxonomy_contract_version": "step2-taxonomy-contract-v1",
+      "gap_classification_label": "Payload-complete synthetic reviewer anchor",
+      "gap_severity_label": "Info"
+    },
+    {
+      "artifact_type": "measurement_phase_coverage_report",
+      "phase_route_key": "gas:pressure_stable",
+      "route_family": "gas",
+      "phase_name": "pressure_stable",
+      "route_phase": "gas/pressure_stable",
+      "anchor_id": "measurement-phase-gas-pressure-stable",
+      "anchor_label": "gas/pressure_stable phase coverage",
+      "coverage_bucket": "model_only",
+      "coverage_bucket_display": "model_only",
+      "payload_completeness": "not_available",
+      "available_signal_layers": [],
+      "missing_signal_layers": [
+        "reference",
+        "analyzer_raw",
+        "output",
+        "data_quality"
+      ],
+      "missing_reason_digest": "Missing-layer reason: reference: model_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: model_only coverage only; this layer has not been promoted into simulated payload evidence | output: model_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: model_only coverage only; this layer has not been promoted into simulated payload evidence",
+      "gap_reason_fragments": [
+        {
+          "fragment_family": "gap_reason",
+          "fragment_key": "missing_layer_reason_explicit",
+          "canonical_key": "missing_layer_reason_explicit",
+          "canonical_fragment_id": "gap_reason:missing_layer_reason_explicit",
+          "i18n_key": "reviewer_fragments.gap_reason.missing_layer_reason_explicit",
+          "params": {
+            "details": "reference: model_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: model_only coverage only; this layer has not been promoted into simulated payload evidence | output: model_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: model_only coverage only; this layer has not been promoted into simulated payload evidence"
+          },
+          "text": "Missing-layer reason: reference: model_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: model_only coverage only; this layer has not been promoted into simulated payload evidence | output: model_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: model_only coverage only; this layer has not been promoted into simulated payload evidence",
+          "display_text": "Missing-layer reason: reference: model_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: model_only coverage only; this layer has not been promoted into simulated payload evidence | output: model_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: model_only coverage only; this layer has not been promoted into simulated payload evidence",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        }
+      ],
+      "gap_reason_fragment_keys": [
+        "missing_layer_reason_explicit"
+      ],
+      "evidence_provenance": "model_only",
+      "readiness_impact_digest": "reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method remains open because this phase has only model_only reviewer coverage",
+      "readiness_impact_fragments": [
+        {
+          "fragment_family": "readiness_impact",
+          "fragment_key": "reviewer_coverage_only_linkage_open",
+          "canonical_key": "reviewer_coverage_only_linkage_open",
+          "canonical_fragment_id": "readiness_impact:reviewer_coverage_only_linkage_open",
+          "i18n_key": "reviewer_fragments.readiness_impact.reviewer_coverage_only_linkage_open",
+          "params": {
+            "dimensions": "reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method",
+            "coverage_bucket_label": "model_only"
+          },
+          "text": "reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method remains open because this phase has only model_only reviewer coverage",
+          "display_text": "reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method remains open because this phase has only model_only reviewer coverage",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        }
+      ],
+      "readiness_impact_fragment_keys": [
+        "reviewer_coverage_only_linkage_open"
+      ],
+      "gap_classification": "payload_complete_synthetic_reviewer_anchor",
+      "gap_severity": "info",
+      "linked_method_confirmation_items": [
+        "Gas pressure stabilization hold confirmation"
+      ],
+      "linked_method_confirmation_item_keys": [
+        "gas_pressure_stabilization_hold_confirmation"
+      ],
+      "linked_uncertainty_inputs": [
+        "Reference gas value",
+        "Pressure reference",
+        "Temperature reference"
+      ],
+      "linked_uncertainty_input_keys": [
+        "reference_gas_value",
+        "pressure_reference",
+        "temperature_reference"
+      ],
+      "linked_traceability_nodes": [
+        "Standard gas chain",
+        "Pressure reference link",
+        "Temperature reference link"
+      ],
+      "linked_traceability_node_keys": [
+        "standard_gas_chain",
+        "pressure_reference_link",
+        "temperature_reference_link"
+      ],
+      "linked_traceability_stub_nodes": [
+        "Standard gas chain",
+        "Pressure reference link",
+        "Temperature reference link"
+      ],
+      "linked_readiness_summary": "Reference asset registry | Certificate lifecycle summary | Certificate readiness summary | Pre-run readiness gate | Uncertainty model | Uncertainty input set | Sensitivity coefficient set | Budget case | Uncertainty golden cases | Uncertainty report pack | Uncertainty digest | Uncertainty rollup | Metrology traceability stub | Uncertainty budget stub | Method confirmation matrix | Route specific validation matrix | Validation run set | Verification digest | Verification rollup | Uncertainty / method readiness summary",
+      "blockers": [
+        "Phase remains model_only; richer simulated payload evidence is still missing",
+        "Missing signal layers: reference, analyzer_raw, output, data_quality",
+        "Linked method confirmation items remain open: Gas pressure stabilization hold confirmation",
+        "Linked uncertainty inputs remain open: Reference gas value, Pressure reference, Temperature reference",
+        "Linked traceability nodes remain stub-only: Standard gas chain, Pressure reference link, Temperature reference link"
+      ],
+      "blocker_fragments": [
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "coverage_bucket_richer_payload_missing",
+          "canonical_key": "coverage_bucket_richer_payload_missing",
+          "canonical_fragment_id": "blocker:coverage_bucket_richer_payload_missing",
+          "i18n_key": "reviewer_fragments.blocker.coverage_bucket_richer_payload_missing",
+          "params": {
+            "coverage_bucket_label": "model_only"
+          },
+          "text": "Phase remains model_only; richer simulated payload evidence is still missing",
+          "display_text": "Phase remains model_only; richer simulated payload evidence is still missing",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        },
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "missing_signal_layers_explicit",
+          "canonical_key": "missing_signal_layers_explicit",
+          "canonical_fragment_id": "blocker:missing_signal_layers_explicit",
+          "i18n_key": "reviewer_fragments.blocker.missing_signal_layers_explicit",
+          "params": {
+            "missing_layers": [
+              "reference",
+              "analyzer_raw",
+              "output",
+              "data_quality"
+            ]
+          },
+          "text": "Missing signal layers: reference, analyzer_raw, output, data_quality",
+          "display_text": "Missing signal layers: reference, analyzer_raw, output, data_quality",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        },
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "linked_method_items_open",
+          "canonical_key": "linked_method_items_open",
+          "canonical_fragment_id": "blocker:linked_method_items_open",
+          "i18n_key": "reviewer_fragments.blocker.linked_method_items_open",
+          "params": {
+            "items": [
+              "Gas pressure stabilization hold confirmation"
+            ]
+          },
+          "text": "Linked method confirmation items remain open: Gas pressure stabilization hold confirmation",
+          "display_text": "Linked method confirmation items remain open: Gas pressure stabilization hold confirmation",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        },
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "linked_uncertainty_inputs_open",
+          "canonical_key": "linked_uncertainty_inputs_open",
+          "canonical_fragment_id": "blocker:linked_uncertainty_inputs_open",
+          "i18n_key": "reviewer_fragments.blocker.linked_uncertainty_inputs_open",
+          "params": {
+            "items": [
+              "Reference gas value",
+              "Pressure reference",
+              "Temperature reference"
+            ]
+          },
+          "text": "Linked uncertainty inputs remain open: Reference gas value, Pressure reference, Temperature reference",
+          "display_text": "Linked uncertainty inputs remain open: Reference gas value, Pressure reference, Temperature reference",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        },
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "linked_traceability_nodes_stub_only",
+          "canonical_key": "linked_traceability_nodes_stub_only",
+          "canonical_fragment_id": "blocker:linked_traceability_nodes_stub_only",
+          "i18n_key": "reviewer_fragments.blocker.linked_traceability_nodes_stub_only",
+          "params": {
+            "items": [
+              "Standard gas chain",
+              "Pressure reference link",
+              "Temperature reference link"
+            ]
+          },
+          "text": "Linked traceability nodes remain stub-only: Standard gas chain, Pressure reference link, Temperature reference link",
+          "display_text": "Linked traceability nodes remain stub-only: Standard gas chain, Pressure reference link, Temperature reference link",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        }
+      ],
+      "blocker_fragment_keys": [
+        "coverage_bucket_richer_payload_missing",
+        "missing_signal_layers_explicit",
+        "linked_method_items_open",
+        "linked_uncertainty_inputs_open",
+        "linked_traceability_nodes_stub_only"
+      ],
+      "next_required_artifacts": [
+        "reference_asset_registry",
+        "certificate_lifecycle_summary",
+        "certificate_readiness_summary",
+        "pre_run_readiness_gate",
+        "uncertainty_model",
+        "uncertainty_input_set",
+        "sensitivity_coefficient_set",
+        "budget_case",
+        "uncertainty_golden_cases",
+        "uncertainty_report_pack",
+        "uncertainty_digest",
+        "uncertainty_rollup",
+        "metrology_traceability_stub",
+        "uncertainty_budget_stub",
+        "method_confirmation_matrix",
+        "route_specific_validation_matrix",
+        "validation_run_set",
+        "verification_digest",
+        "verification_rollup",
+        "uncertainty_method_readiness_summary"
+      ],
+      "gap_reason": "Missing-layer reason: reference: model_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: model_only coverage only; this layer has not been promoted into simulated payload evidence | output: model_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: model_only coverage only; this layer has not been promoted into simulated payload evidence",
+      "reviewer_next_step_digest": "Use the gas pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists.",
+      "reviewer_next_step_fragments": [
+        {
+          "fragment_family": "reviewer_next_step",
+          "fragment_key": "gas_pressure_stable_payload_complete_anchor",
+          "canonical_key": "gas_pressure_stable_payload_complete_anchor",
+          "canonical_fragment_id": "reviewer_next_step:gas_pressure_stable_payload_complete_anchor",
+          "i18n_key": "taxonomy.reviewer_next_step.gas_pressure_stable_payload_complete_anchor",
+          "params": {},
+          "text": "Use the gas pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists.",
+          "display_text": "Use the gas pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists.",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        }
+      ],
+      "reviewer_next_step_fragment_keys": [
+        "gas_pressure_stable_payload_complete_anchor"
+      ],
+      "reviewer_next_step_template_key": "gas_pressure_stable_payload_complete_anchor",
+      "reviewer_guidance_digest": "gas/pressure_stable=model_only | available -- | missing reference, analyzer_raw, output, data_quality | reason Missing-layer reason: reference: model_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: model_only coverage only; this layer has not been promoted into simulated payload evidence | output: model_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: model_only coverage only; this layer has not been promoted into simulated payload evidence | impact reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method remains open because this phase has only model_only reviewer coverage | method Gas pressure stabilization hold confirmation | uncertainty Reference gas value, Pressure reference, Temperature reference | traceability Standard gas chain, Pressure reference link, Temperature reference link | blockers Phase remains model_only; richer simulated payload evidence is still missing | Missing signal layers: reference, analyzer_raw, output, data_quality | Linked method confirmation items remain open: Gas pressure stabilization hold confirmation | Linked uncertainty inputs remain open: Reference gas value, Pressure reference, Temperature reference | Linked traceability nodes remain stub-only: Standard gas chain, Pressure reference link, Temperature reference link | next reference_asset_registry | certificate_lifecycle_summary | certificate_readiness_summary | pre_run_readiness_gate | uncertainty_model | uncertainty_input_set | sensitivity_coefficient_set | budget_case | uncertainty_golden_cases | uncertainty_report_pack | uncertainty_digest | uncertainty_rollup | metrology_traceability_stub | uncertainty_budget_stub | method_confirmation_matrix | route_specific_validation_matrix | validation_run_set | verification_digest | verification_rollup | uncertainty_method_readiness_summary | reviewer next step Use the gas pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists. | boundary measurement-core reviewer evidence stays within Step 2 simulation-only boundaries",
+      "comparison_digest": "",
+      "taxonomy_contract_version": "step2-taxonomy-contract-v1",
+      "gap_classification_label": "Payload-complete synthetic reviewer anchor",
+      "gap_severity_label": "Info"
+    }
+  ],
+  "linked_measurement_phases": [
+    "water/pressure_stable",
+    "gas/pressure_stable"
+  ],
+  "linked_measurement_gaps": [
+    {
+      "route_phase": "water/pressure_stable",
+      "coverage_bucket": "gap",
+      "coverage_bucket_display": "gap",
+      "gap_classification": "payload_complete_synthetic_reviewer_anchor",
+      "gap_classification_label": "Payload-complete synthetic reviewer anchor",
+      "gap_severity": "info",
+      "gap_severity_label": "Info",
+      "missing_signal_layers": [
+        "reference",
+        "analyzer_raw",
+        "output",
+        "data_quality"
+      ],
+      "gap_reason": "Missing-layer reason: reference: no simulated evidence captured for this layer | analyzer_raw: no simulated evidence captured for this layer | output: no simulated evidence captured for this layer | data_quality: no simulated evidence captured for this layer",
+      "gap_reason_fragments": [
+        {
+          "fragment_family": "gap_reason",
+          "fragment_key": "missing_layer_reason_explicit",
+          "canonical_key": "missing_layer_reason_explicit",
+          "canonical_fragment_id": "gap_reason:missing_layer_reason_explicit",
+          "i18n_key": "reviewer_fragments.gap_reason.missing_layer_reason_explicit",
+          "params": {
+            "details": "reference: no simulated evidence captured for this layer | analyzer_raw: no simulated evidence captured for this layer | output: no simulated evidence captured for this layer | data_quality: no simulated evidence captured for this layer"
+          },
+          "text": "Missing-layer reason: reference: no simulated evidence captured for this layer | analyzer_raw: no simulated evidence captured for this layer | output: no simulated evidence captured for this layer | data_quality: no simulated evidence captured for this layer",
+          "display_text": "Missing-layer reason: reference: no simulated evidence captured for this layer | analyzer_raw: no simulated evidence captured for this layer | output: no simulated evidence captured for this layer | data_quality: no simulated evidence captured for this layer",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        }
+      ],
+      "gap_reason_fragment_keys": [
+        "missing_layer_reason_explicit"
+      ],
+      "readiness_impact_digest": "reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method remains open because this phase has only gap reviewer coverage",
+      "readiness_impact_fragments": [
+        {
+          "fragment_family": "readiness_impact",
+          "fragment_key": "reviewer_coverage_only_linkage_open",
+          "canonical_key": "reviewer_coverage_only_linkage_open",
+          "canonical_fragment_id": "readiness_impact:reviewer_coverage_only_linkage_open",
+          "i18n_key": "reviewer_fragments.readiness_impact.reviewer_coverage_only_linkage_open",
+          "params": {
+            "dimensions": "reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method",
+            "coverage_bucket_label": "gap"
+          },
+          "text": "reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method remains open because this phase has only gap reviewer coverage",
+          "display_text": "reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method remains open because this phase has only gap reviewer coverage",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        }
+      ],
+      "readiness_impact_fragment_keys": [
+        "reviewer_coverage_only_linkage_open"
+      ],
+      "linked_method_confirmation_item_keys": [
+        "water_pressure_stabilization_hold_confirmation"
+      ],
+      "linked_method_confirmation_items": [
+        "Water pressure stabilization hold confirmation"
+      ],
+      "linked_uncertainty_input_keys": [
+        "humidity_reference",
+        "pressure_reference",
+        "temperature_reference"
+      ],
+      "linked_uncertainty_inputs": [
+        "Humidity reference",
+        "Pressure reference",
+        "Temperature reference"
+      ],
+      "linked_traceability_node_keys": [
+        "humidity_reference_chain",
+        "dew_point_reference_link",
+        "pressure_reference_link"
+      ],
+      "linked_traceability_nodes": [
+        "Humidity reference chain",
+        "Dew-point reference link",
+        "Pressure reference link"
+      ],
+      "blockers": [
+        "Phase remains gap; richer simulated payload evidence is still missing",
+        "Missing signal layers: reference, analyzer_raw, output, data_quality",
+        "Linked method confirmation items remain open: Water pressure stabilization hold confirmation",
+        "Linked uncertainty inputs remain open: Humidity reference, Pressure reference, Temperature reference",
+        "Linked traceability nodes remain stub-only: Humidity reference chain, Dew-point reference link, Pressure reference link"
+      ],
+      "blocker_fragments": [
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "coverage_bucket_richer_payload_missing",
+          "canonical_key": "coverage_bucket_richer_payload_missing",
+          "canonical_fragment_id": "blocker:coverage_bucket_richer_payload_missing",
+          "i18n_key": "reviewer_fragments.blocker.coverage_bucket_richer_payload_missing",
+          "params": {
+            "coverage_bucket_label": "gap"
+          },
+          "text": "Phase remains gap; richer simulated payload evidence is still missing",
+          "display_text": "Phase remains gap; richer simulated payload evidence is still missing",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        },
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "missing_signal_layers_explicit",
+          "canonical_key": "missing_signal_layers_explicit",
+          "canonical_fragment_id": "blocker:missing_signal_layers_explicit",
+          "i18n_key": "reviewer_fragments.blocker.missing_signal_layers_explicit",
+          "params": {
+            "missing_layers": [
+              "reference",
+              "analyzer_raw",
+              "output",
+              "data_quality"
+            ]
+          },
+          "text": "Missing signal layers: reference, analyzer_raw, output, data_quality",
+          "display_text": "Missing signal layers: reference, analyzer_raw, output, data_quality",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        },
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "linked_method_items_open",
+          "canonical_key": "linked_method_items_open",
+          "canonical_fragment_id": "blocker:linked_method_items_open",
+          "i18n_key": "reviewer_fragments.blocker.linked_method_items_open",
+          "params": {
+            "items": [
+              "Water pressure stabilization hold confirmation"
+            ]
+          },
+          "text": "Linked method confirmation items remain open: Water pressure stabilization hold confirmation",
+          "display_text": "Linked method confirmation items remain open: Water pressure stabilization hold confirmation",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        },
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "linked_uncertainty_inputs_open",
+          "canonical_key": "linked_uncertainty_inputs_open",
+          "canonical_fragment_id": "blocker:linked_uncertainty_inputs_open",
+          "i18n_key": "reviewer_fragments.blocker.linked_uncertainty_inputs_open",
+          "params": {
+            "items": [
+              "Humidity reference",
+              "Pressure reference",
+              "Temperature reference"
+            ]
+          },
+          "text": "Linked uncertainty inputs remain open: Humidity reference, Pressure reference, Temperature reference",
+          "display_text": "Linked uncertainty inputs remain open: Humidity reference, Pressure reference, Temperature reference",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        },
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "linked_traceability_nodes_stub_only",
+          "canonical_key": "linked_traceability_nodes_stub_only",
+          "canonical_fragment_id": "blocker:linked_traceability_nodes_stub_only",
+          "i18n_key": "reviewer_fragments.blocker.linked_traceability_nodes_stub_only",
+          "params": {
+            "items": [
+              "Humidity reference chain",
+              "Dew-point reference link",
+              "Pressure reference link"
+            ]
+          },
+          "text": "Linked traceability nodes remain stub-only: Humidity reference chain, Dew-point reference link, Pressure reference link",
+          "display_text": "Linked traceability nodes remain stub-only: Humidity reference chain, Dew-point reference link, Pressure reference link",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        }
+      ],
+      "blocker_fragment_keys": [
+        "coverage_bucket_richer_payload_missing",
+        "missing_signal_layers_explicit",
+        "linked_method_items_open",
+        "linked_uncertainty_inputs_open",
+        "linked_traceability_nodes_stub_only"
+      ],
+      "next_required_artifacts": [
+        "reference_asset_registry",
+        "certificate_lifecycle_summary",
+        "certificate_readiness_summary",
+        "pre_run_readiness_gate",
+        "uncertainty_model",
+        "uncertainty_input_set",
+        "sensitivity_coefficient_set",
+        "budget_case",
+        "uncertainty_golden_cases",
+        "uncertainty_report_pack",
+        "uncertainty_digest",
+        "uncertainty_rollup",
+        "metrology_traceability_stub",
+        "uncertainty_budget_stub",
+        "method_confirmation_matrix",
+        "route_specific_validation_matrix",
+        "validation_run_set",
+        "verification_digest",
+        "verification_rollup",
+        "uncertainty_method_readiness_summary"
+      ],
+      "reviewer_next_step_digest": "Use the water pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists.",
+      "reviewer_next_step_fragments": [
+        {
+          "fragment_family": "reviewer_next_step",
+          "fragment_key": "water_pressure_stable_payload_complete_anchor",
+          "canonical_key": "water_pressure_stable_payload_complete_anchor",
+          "canonical_fragment_id": "reviewer_next_step:water_pressure_stable_payload_complete_anchor",
+          "i18n_key": "taxonomy.reviewer_next_step.water_pressure_stable_payload_complete_anchor",
+          "params": {},
+          "text": "Use the water pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists.",
+          "display_text": "Use the water pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists.",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        }
+      ],
+      "reviewer_next_step_fragment_keys": [
+        "water_pressure_stable_payload_complete_anchor"
+      ],
+      "reviewer_next_step_template_key": "water_pressure_stable_payload_complete_anchor"
+    },
+    {
+      "route_phase": "gas/pressure_stable",
+      "coverage_bucket": "model_only",
+      "coverage_bucket_display": "model_only",
+      "gap_classification": "payload_complete_synthetic_reviewer_anchor",
+      "gap_classification_label": "Payload-complete synthetic reviewer anchor",
+      "gap_severity": "info",
+      "gap_severity_label": "Info",
+      "missing_signal_layers": [
+        "reference",
+        "analyzer_raw",
+        "output",
+        "data_quality"
+      ],
+      "gap_reason": "Missing-layer reason: reference: model_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: model_only coverage only; this layer has not been promoted into simulated payload evidence | output: model_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: model_only coverage only; this layer has not been promoted into simulated payload evidence",
+      "gap_reason_fragments": [
+        {
+          "fragment_family": "gap_reason",
+          "fragment_key": "missing_layer_reason_explicit",
+          "canonical_key": "missing_layer_reason_explicit",
+          "canonical_fragment_id": "gap_reason:missing_layer_reason_explicit",
+          "i18n_key": "reviewer_fragments.gap_reason.missing_layer_reason_explicit",
+          "params": {
+            "details": "reference: model_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: model_only coverage only; this layer has not been promoted into simulated payload evidence | output: model_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: model_only coverage only; this layer has not been promoted into simulated payload evidence"
+          },
+          "text": "Missing-layer reason: reference: model_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: model_only coverage only; this layer has not been promoted into simulated payload evidence | output: model_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: model_only coverage only; this layer has not been promoted into simulated payload evidence",
+          "display_text": "Missing-layer reason: reference: model_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: model_only coverage only; this layer has not been promoted into simulated payload evidence | output: model_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: model_only coverage only; this layer has not been promoted into simulated payload evidence",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        }
+      ],
+      "gap_reason_fragment_keys": [
+        "missing_layer_reason_explicit"
+      ],
+      "readiness_impact_digest": "reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method remains open because this phase has only model_only reviewer coverage",
+      "readiness_impact_fragments": [
+        {
+          "fragment_family": "readiness_impact",
+          "fragment_key": "reviewer_coverage_only_linkage_open",
+          "canonical_key": "reviewer_coverage_only_linkage_open",
+          "canonical_fragment_id": "readiness_impact:reviewer_coverage_only_linkage_open",
+          "i18n_key": "reviewer_fragments.readiness_impact.reviewer_coverage_only_linkage_open",
+          "params": {
+            "dimensions": "reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method",
+            "coverage_bucket_label": "model_only"
+          },
+          "text": "reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method remains open because this phase has only model_only reviewer coverage",
+          "display_text": "reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method remains open because this phase has only model_only reviewer coverage",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        }
+      ],
+      "readiness_impact_fragment_keys": [
+        "reviewer_coverage_only_linkage_open"
+      ],
+      "linked_method_confirmation_item_keys": [
+        "gas_pressure_stabilization_hold_confirmation"
+      ],
+      "linked_method_confirmation_items": [
+        "Gas pressure stabilization hold confirmation"
+      ],
+      "linked_uncertainty_input_keys": [
+        "reference_gas_value",
+        "pressure_reference",
+        "temperature_reference"
+      ],
+      "linked_uncertainty_inputs": [
+        "Reference gas value",
+        "Pressure reference",
+        "Temperature reference"
+      ],
+      "linked_traceability_node_keys": [
+        "standard_gas_chain",
+        "pressure_reference_link",
+        "temperature_reference_link"
+      ],
+      "linked_traceability_nodes": [
+        "Standard gas chain",
+        "Pressure reference link",
+        "Temperature reference link"
+      ],
+      "blockers": [
+        "Phase remains model_only; richer simulated payload evidence is still missing",
+        "Missing signal layers: reference, analyzer_raw, output, data_quality",
+        "Linked method confirmation items remain open: Gas pressure stabilization hold confirmation",
+        "Linked uncertainty inputs remain open: Reference gas value, Pressure reference, Temperature reference",
+        "Linked traceability nodes remain stub-only: Standard gas chain, Pressure reference link, Temperature reference link"
+      ],
+      "blocker_fragments": [
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "coverage_bucket_richer_payload_missing",
+          "canonical_key": "coverage_bucket_richer_payload_missing",
+          "canonical_fragment_id": "blocker:coverage_bucket_richer_payload_missing",
+          "i18n_key": "reviewer_fragments.blocker.coverage_bucket_richer_payload_missing",
+          "params": {
+            "coverage_bucket_label": "model_only"
+          },
+          "text": "Phase remains model_only; richer simulated payload evidence is still missing",
+          "display_text": "Phase remains model_only; richer simulated payload evidence is still missing",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        },
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "missing_signal_layers_explicit",
+          "canonical_key": "missing_signal_layers_explicit",
+          "canonical_fragment_id": "blocker:missing_signal_layers_explicit",
+          "i18n_key": "reviewer_fragments.blocker.missing_signal_layers_explicit",
+          "params": {
+            "missing_layers": [
+              "reference",
+              "analyzer_raw",
+              "output",
+              "data_quality"
+            ]
+          },
+          "text": "Missing signal layers: reference, analyzer_raw, output, data_quality",
+          "display_text": "Missing signal layers: reference, analyzer_raw, output, data_quality",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        },
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "linked_method_items_open",
+          "canonical_key": "linked_method_items_open",
+          "canonical_fragment_id": "blocker:linked_method_items_open",
+          "i18n_key": "reviewer_fragments.blocker.linked_method_items_open",
+          "params": {
+            "items": [
+              "Gas pressure stabilization hold confirmation"
+            ]
+          },
+          "text": "Linked method confirmation items remain open: Gas pressure stabilization hold confirmation",
+          "display_text": "Linked method confirmation items remain open: Gas pressure stabilization hold confirmation",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        },
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "linked_uncertainty_inputs_open",
+          "canonical_key": "linked_uncertainty_inputs_open",
+          "canonical_fragment_id": "blocker:linked_uncertainty_inputs_open",
+          "i18n_key": "reviewer_fragments.blocker.linked_uncertainty_inputs_open",
+          "params": {
+            "items": [
+              "Reference gas value",
+              "Pressure reference",
+              "Temperature reference"
+            ]
+          },
+          "text": "Linked uncertainty inputs remain open: Reference gas value, Pressure reference, Temperature reference",
+          "display_text": "Linked uncertainty inputs remain open: Reference gas value, Pressure reference, Temperature reference",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        },
+        {
+          "fragment_family": "blocker",
+          "fragment_key": "linked_traceability_nodes_stub_only",
+          "canonical_key": "linked_traceability_nodes_stub_only",
+          "canonical_fragment_id": "blocker:linked_traceability_nodes_stub_only",
+          "i18n_key": "reviewer_fragments.blocker.linked_traceability_nodes_stub_only",
+          "params": {
+            "items": [
+              "Standard gas chain",
+              "Pressure reference link",
+              "Temperature reference link"
+            ]
+          },
+          "text": "Linked traceability nodes remain stub-only: Standard gas chain, Pressure reference link, Temperature reference link",
+          "display_text": "Linked traceability nodes remain stub-only: Standard gas chain, Pressure reference link, Temperature reference link",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        }
+      ],
+      "blocker_fragment_keys": [
+        "coverage_bucket_richer_payload_missing",
+        "missing_signal_layers_explicit",
+        "linked_method_items_open",
+        "linked_uncertainty_inputs_open",
+        "linked_traceability_nodes_stub_only"
+      ],
+      "next_required_artifacts": [
+        "reference_asset_registry",
+        "certificate_lifecycle_summary",
+        "certificate_readiness_summary",
+        "pre_run_readiness_gate",
+        "uncertainty_model",
+        "uncertainty_input_set",
+        "sensitivity_coefficient_set",
+        "budget_case",
+        "uncertainty_golden_cases",
+        "uncertainty_report_pack",
+        "uncertainty_digest",
+        "uncertainty_rollup",
+        "metrology_traceability_stub",
+        "uncertainty_budget_stub",
+        "method_confirmation_matrix",
+        "route_specific_validation_matrix",
+        "validation_run_set",
+        "verification_digest",
+        "verification_rollup",
+        "uncertainty_method_readiness_summary"
+      ],
+      "reviewer_next_step_digest": "Use the gas pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists.",
+      "reviewer_next_step_fragments": [
+        {
+          "fragment_family": "reviewer_next_step",
+          "fragment_key": "gas_pressure_stable_payload_complete_anchor",
+          "canonical_key": "gas_pressure_stable_payload_complete_anchor",
+          "canonical_fragment_id": "reviewer_next_step:gas_pressure_stable_payload_complete_anchor",
+          "i18n_key": "taxonomy.reviewer_next_step.gas_pressure_stable_payload_complete_anchor",
+          "params": {},
+          "text": "Use the gas pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists.",
+          "display_text": "Use the gas pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists.",
+          "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+        }
+      ],
+      "reviewer_next_step_fragment_keys": [
+        "gas_pressure_stable_payload_complete_anchor"
+      ],
+      "reviewer_next_step_template_key": "gas_pressure_stable_payload_complete_anchor"
+    }
+  ],
+  "linked_method_confirmation_items": [
+    "Water pressure stabilization hold confirmation",
+    "Gas pressure stabilization hold confirmation"
+  ],
+  "linked_uncertainty_inputs": [
+    "Humidity reference",
+    "Pressure reference",
+    "Temperature reference",
+    "Reference gas value"
+  ],
+  "linked_traceability_nodes": [
+    "Humidity reference chain",
+    "Dew-point reference link",
+    "Pressure reference link",
+    "Standard gas chain",
+    "Temperature reference link"
+  ],
+  "linked_gap_classification_keys": [
+    "payload_complete_synthetic_reviewer_anchor"
+  ],
+  "linked_gap_severity_keys": [
+    "info"
+  ],
+  "linked_gap_reason_fragment_keys": [
+    "missing_layer_reason_explicit"
+  ],
+  "linked_blocker_fragment_keys": [
+    "coverage_bucket_richer_payload_missing",
+    "missing_signal_layers_explicit",
+    "linked_method_items_open",
+    "linked_uncertainty_inputs_open",
+    "linked_traceability_nodes_stub_only"
+  ],
+  "linked_reviewer_next_step_fragment_keys": [
+    "water_pressure_stable_payload_complete_anchor",
+    "gas_pressure_stable_payload_complete_anchor"
+  ],
+  "linked_measurement_gap_summary": "water/pressure_stable: Missing-layer reason: reference: no simulated evidence captured for this layer | analyzer_raw: no simulated evidence captured for this layer | output: no simulated evidence captured for this layer | data_quality: no simulated evidence captured for this layer | gas/pressure_stable: Missing-layer reason: reference: model_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: model_only coverage only; this layer has not been promoted into simulated payload evidence | output: model_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: model_only coverage only; this layer has not been promoted into simulated payload evidence",
+  "linked_readiness_impact_summary": "water/pressure_stable: reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method remains open because this phase has only gap reviewer coverage | gas/pressure_stable: reference asset / certificate, certificate lifecycle, pre-run readiness gate, validation matrix, traceability, uncertainty / method remains open because this phase has only model_only reviewer coverage",
+  "preseal_partial_gap_summary": "",
+  "gap_reason": "water/pressure_stable: Missing-layer reason: reference: no simulated evidence captured for this layer | analyzer_raw: no simulated evidence captured for this layer | output: no simulated evidence captured for this layer | data_quality: no simulated evidence captured for this layer | gas/pressure_stable: Missing-layer reason: reference: model_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: model_only coverage only; this layer has not been promoted into simulated payload evidence | output: model_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: model_only coverage only; this layer has not been promoted into simulated payload evidence",
+  "gap_reason_fragments": [
+    {
+      "fragment_family": "gap_reason",
+      "fragment_key": "missing_layer_reason_explicit",
+      "canonical_key": "missing_layer_reason_explicit",
+      "canonical_fragment_id": "gap_reason:missing_layer_reason_explicit",
+      "i18n_key": "reviewer_fragments.gap_reason.missing_layer_reason_explicit",
+      "params": {
+        "details": "reference: no simulated evidence captured for this layer | analyzer_raw: no simulated evidence captured for this layer | output: no simulated evidence captured for this layer | data_quality: no simulated evidence captured for this layer"
+      },
+      "text": "Missing-layer reason: reference: no simulated evidence captured for this layer | analyzer_raw: no simulated evidence captured for this layer | output: no simulated evidence captured for this layer | data_quality: no simulated evidence captured for this layer",
+      "display_text": "Missing-layer reason: reference: no simulated evidence captured for this layer | analyzer_raw: no simulated evidence captured for this layer | output: no simulated evidence captured for this layer | data_quality: no simulated evidence captured for this layer",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "gap_reason",
+      "fragment_key": "missing_layer_reason_explicit",
+      "canonical_key": "missing_layer_reason_explicit",
+      "canonical_fragment_id": "gap_reason:missing_layer_reason_explicit",
+      "i18n_key": "reviewer_fragments.gap_reason.missing_layer_reason_explicit",
+      "params": {
+        "details": "reference: model_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: model_only coverage only; this layer has not been promoted into simulated payload evidence | output: model_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: model_only coverage only; this layer has not been promoted into simulated payload evidence"
+      },
+      "text": "Missing-layer reason: reference: model_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: model_only coverage only; this layer has not been promoted into simulated payload evidence | output: model_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: model_only coverage only; this layer has not been promoted into simulated payload evidence",
+      "display_text": "Missing-layer reason: reference: model_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: model_only coverage only; this layer has not been promoted into simulated payload evidence | output: model_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: model_only coverage only; this layer has not been promoted into simulated payload evidence",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    }
+  ],
+  "gap_reason_fragment_keys": [
+    "missing_layer_reason_explicit"
+  ],
+  "missing_evidence": [
+    "advisory gate cannot be used as formal compliance or acceptance evidence",
+    "blocking items must still be closed outside Step 2"
+  ],
+  "blockers": [
+    "pre-run gate is advisory only and cannot drive live equipment",
+    "formal claim gate remains disabled in Step 2",
+    "water/pressure_stable: Phase remains gap; richer simulated payload evidence is still missing | Missing signal layers: reference, analyzer_raw, output, data_quality | Linked method confirmation items remain open: Water pressure stabilization hold confirmation | Linked uncertainty inputs remain open: Humidity reference, Pressure reference, Temperature reference | Linked traceability nodes remain stub-only: Humidity reference chain, Dew-point reference link, Pressure reference link",
+    "gas/pressure_stable: Phase remains model_only; richer simulated payload evidence is still missing | Missing signal layers: reference, analyzer_raw, output, data_quality | Linked method confirmation items remain open: Gas pressure stabilization hold confirmation | Linked uncertainty inputs remain open: Reference gas value, Pressure reference, Temperature reference | Linked traceability nodes remain stub-only: Standard gas chain, Pressure reference link, Temperature reference link"
+  ],
+  "blocker_fragments": [
+    {
+      "fragment_family": "blocker",
+      "fragment_key": "",
+      "canonical_key": "",
+      "canonical_fragment_id": "",
+      "i18n_key": "",
+      "params": {},
+      "text": "pre-run gate is advisory only and cannot drive live equipment",
+      "display_text": "pre-run gate is advisory only and cannot drive live equipment",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "blocker",
+      "fragment_key": "",
+      "canonical_key": "",
+      "canonical_fragment_id": "",
+      "i18n_key": "",
+      "params": {},
+      "text": "formal claim gate remains disabled in Step 2",
+      "display_text": "formal claim gate remains disabled in Step 2",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    }
+  ],
+  "blocker_fragment_keys": [
+    "coverage_bucket_richer_payload_missing",
+    "missing_signal_layers_explicit",
+    "linked_method_items_open",
+    "linked_uncertainty_inputs_open",
+    "linked_traceability_nodes_stub_only"
+  ],
+  "next_required_artifacts": [
+    "metrology_traceability_stub",
+    "certificate_readiness_summary",
+    "reference_asset_registry",
+    "certificate_lifecycle_summary",
+    "pre_run_readiness_gate",
+    "uncertainty_model",
+    "uncertainty_input_set",
+    "sensitivity_coefficient_set",
+    "budget_case",
+    "uncertainty_golden_cases",
+    "uncertainty_report_pack",
+    "uncertainty_digest",
+    "uncertainty_rollup",
+    "uncertainty_budget_stub",
+    "method_confirmation_matrix",
+    "route_specific_validation_matrix",
+    "validation_run_set",
+    "verification_digest",
+    "verification_rollup",
+    "uncertainty_method_readiness_summary"
+  ],
+  "boundary_fragments": [
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "step2_reviewer_readiness_only",
+      "canonical_key": "step2_reviewer_readiness_only",
+      "canonical_fragment_id": "boundary:step2_reviewer_readiness_only",
+      "i18n_key": "reviewer_fragments.boundary.step2_reviewer_readiness_only",
+      "params": {},
+      "text": "Step 2 reviewer readiness only",
+      "display_text": "Step 2 reviewer readiness only",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "simulation_offline_headless_only",
+      "canonical_key": "simulation_offline_headless_only",
+      "canonical_fragment_id": "boundary:simulation_offline_headless_only",
+      "i18n_key": "reviewer_fragments.boundary.simulation_offline_headless_only",
+      "params": {},
+      "text": "simulation / offline / headless only",
+      "display_text": "simulation / offline / headless only",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "file_artifact_first_reviewer_evidence",
+      "canonical_key": "file_artifact_first_reviewer_evidence",
+      "canonical_fragment_id": "boundary:file_artifact_first_reviewer_evidence",
+      "i18n_key": "reviewer_fragments.boundary.file_artifact_first_reviewer_evidence",
+      "params": {},
+      "text": "file-artifact-first reviewer evidence",
+      "display_text": "file-artifact-first reviewer evidence",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "not_real_acceptance_boundary",
+      "canonical_key": "not_real_acceptance_boundary",
+      "canonical_fragment_id": "boundary:not_real_acceptance_boundary",
+      "i18n_key": "reviewer_fragments.boundary.not_real_acceptance_boundary",
+      "params": {},
+      "text": "not real acceptance",
+      "display_text": "not real acceptance",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "",
+      "canonical_key": "",
+      "canonical_fragment_id": "",
+      "i18n_key": "",
+      "params": {},
+      "text": "not compliance claim",
+      "display_text": "not compliance claim",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "",
+      "canonical_key": "",
+      "canonical_fragment_id": "",
+      "i18n_key": "",
+      "params": {},
+      "text": "not accreditation claim",
+      "display_text": "not accreditation claim",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "boundary",
+      "fragment_key": "cannot_replace_real_metrology_validation",
+      "canonical_key": "cannot_replace_real_metrology_validation",
+      "canonical_fragment_id": "boundary:cannot_replace_real_metrology_validation",
+      "i18n_key": "reviewer_fragments.boundary.cannot_replace_real_metrology_validation",
+      "params": {},
+      "text": "cannot replace real metrology validation",
+      "display_text": "cannot replace real metrology validation",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    }
+  ],
+  "boundary_fragment_keys": [
+    "step2_reviewer_readiness_only",
+    "simulation_offline_headless_only",
+    "file_artifact_first_reviewer_evidence",
+    "not_real_acceptance_boundary",
+    "cannot_replace_real_metrology_validation"
+  ],
+  "boundary_digest": "Step 2 reviewer readiness only | simulation / offline / headless only | file-artifact-first reviewer evidence | not real acceptance | not compliance claim | not accreditation claim | cannot replace real metrology validation",
+  "boundary_filter_rows": [
+    {
+      "id": "boundary:step2_reviewer_readiness_only",
+      "canonical_fragment_id": "boundary:step2_reviewer_readiness_only",
+      "fragment_family": "boundary",
+      "fragment_key": "step2_reviewer_readiness_only",
+      "canonical_key": "step2_reviewer_readiness_only",
+      "i18n_key": "reviewer_fragments.boundary.step2_reviewer_readiness_only",
+      "params": {},
+      "label": "Step 2 reviewer readiness only",
+      "display_text": "Step 2 reviewer readiness only",
+      "text": "Step 2 reviewer readiness only",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "boundary:simulation_offline_headless_only",
+      "canonical_fragment_id": "boundary:simulation_offline_headless_only",
+      "fragment_family": "boundary",
+      "fragment_key": "simulation_offline_headless_only",
+      "canonical_key": "simulation_offline_headless_only",
+      "i18n_key": "reviewer_fragments.boundary.simulation_offline_headless_only",
+      "params": {},
+      "label": "simulation / offline / headless only",
+      "display_text": "simulation / offline / headless only",
+      "text": "simulation / offline / headless only",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "boundary:file_artifact_first_reviewer_evidence",
+      "canonical_fragment_id": "boundary:file_artifact_first_reviewer_evidence",
+      "fragment_family": "boundary",
+      "fragment_key": "file_artifact_first_reviewer_evidence",
+      "canonical_key": "file_artifact_first_reviewer_evidence",
+      "i18n_key": "reviewer_fragments.boundary.file_artifact_first_reviewer_evidence",
+      "params": {},
+      "label": "file-artifact-first reviewer evidence",
+      "display_text": "file-artifact-first reviewer evidence",
+      "text": "file-artifact-first reviewer evidence",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "boundary:not_real_acceptance_boundary",
+      "canonical_fragment_id": "boundary:not_real_acceptance_boundary",
+      "fragment_family": "boundary",
+      "fragment_key": "not_real_acceptance_boundary",
+      "canonical_key": "not_real_acceptance_boundary",
+      "i18n_key": "reviewer_fragments.boundary.not_real_acceptance_boundary",
+      "params": {},
+      "label": "not real acceptance",
+      "display_text": "not real acceptance",
+      "text": "not real acceptance",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "boundary:cannot_replace_real_metrology_validation",
+      "canonical_fragment_id": "boundary:cannot_replace_real_metrology_validation",
+      "fragment_family": "boundary",
+      "fragment_key": "cannot_replace_real_metrology_validation",
+      "canonical_key": "cannot_replace_real_metrology_validation",
+      "i18n_key": "reviewer_fragments.boundary.cannot_replace_real_metrology_validation",
+      "params": {},
+      "label": "cannot replace real metrology validation",
+      "display_text": "cannot replace real metrology validation",
+      "text": "cannot replace real metrology validation",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "non_claim:not_real_acceptance",
+      "canonical_fragment_id": "non_claim:not_real_acceptance",
+      "fragment_family": "non_claim",
+      "fragment_key": "not_real_acceptance",
+      "canonical_key": "not_real_acceptance",
+      "i18n_key": "reviewer_fragments.non_claim.not_real_acceptance",
+      "params": {},
+      "label": "not real acceptance",
+      "display_text": "not real acceptance",
+      "text": "not real acceptance",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "non_claim:not_compliance_claim",
+      "canonical_fragment_id": "non_claim:not_compliance_claim",
+      "fragment_family": "non_claim",
+      "fragment_key": "not_compliance_claim",
+      "canonical_key": "not_compliance_claim",
+      "i18n_key": "reviewer_fragments.non_claim.not_compliance_claim",
+      "params": {},
+      "label": "not compliance claim",
+      "display_text": "not compliance claim",
+      "text": "not compliance claim",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "non_claim:not_accreditation_claim",
+      "canonical_fragment_id": "non_claim:not_accreditation_claim",
+      "fragment_family": "non_claim",
+      "fragment_key": "not_accreditation_claim",
+      "canonical_key": "not_accreditation_claim",
+      "i18n_key": "reviewer_fragments.non_claim.not_accreditation_claim",
+      "params": {},
+      "label": "not accreditation claim",
+      "display_text": "not accreditation claim",
+      "text": "not accreditation claim",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    }
+  ],
+  "boundary_filters": [
+    "boundary:step2_reviewer_readiness_only",
+    "boundary:simulation_offline_headless_only",
+    "boundary:file_artifact_first_reviewer_evidence",
+    "boundary:not_real_acceptance_boundary",
+    "boundary:cannot_replace_real_metrology_validation",
+    "non_claim:not_real_acceptance",
+    "non_claim:not_compliance_claim",
+    "non_claim:not_accreditation_claim"
+  ],
+  "non_claim_fragments": [
+    {
+      "fragment_family": "non_claim",
+      "fragment_key": "",
+      "canonical_key": "",
+      "canonical_fragment_id": "",
+      "i18n_key": "",
+      "params": {},
+      "text": "Step 2 reviewer readiness only",
+      "display_text": "Step 2 reviewer readiness only",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "non_claim",
+      "fragment_key": "",
+      "canonical_key": "",
+      "canonical_fragment_id": "",
+      "i18n_key": "",
+      "params": {},
+      "text": "simulation / offline / headless only",
+      "display_text": "simulation / offline / headless only",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "non_claim",
+      "fragment_key": "",
+      "canonical_key": "",
+      "canonical_fragment_id": "",
+      "i18n_key": "",
+      "params": {},
+      "text": "file-artifact-first reviewer evidence",
+      "display_text": "file-artifact-first reviewer evidence",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "non_claim",
+      "fragment_key": "not_real_acceptance",
+      "canonical_key": "not_real_acceptance",
+      "canonical_fragment_id": "non_claim:not_real_acceptance",
+      "i18n_key": "reviewer_fragments.non_claim.not_real_acceptance",
+      "params": {},
+      "text": "not real acceptance",
+      "display_text": "not real acceptance",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "non_claim",
+      "fragment_key": "not_compliance_claim",
+      "canonical_key": "not_compliance_claim",
+      "canonical_fragment_id": "non_claim:not_compliance_claim",
+      "i18n_key": "reviewer_fragments.non_claim.not_compliance_claim",
+      "params": {},
+      "text": "not compliance claim",
+      "display_text": "not compliance claim",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "non_claim",
+      "fragment_key": "not_accreditation_claim",
+      "canonical_key": "not_accreditation_claim",
+      "canonical_fragment_id": "non_claim:not_accreditation_claim",
+      "i18n_key": "reviewer_fragments.non_claim.not_accreditation_claim",
+      "params": {},
+      "text": "not accreditation claim",
+      "display_text": "not accreditation claim",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "non_claim",
+      "fragment_key": "",
+      "canonical_key": "",
+      "canonical_fragment_id": "",
+      "i18n_key": "",
+      "params": {},
+      "text": "cannot replace real metrology validation",
+      "display_text": "cannot replace real metrology validation",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    }
+  ],
+  "non_claim_fragment_keys": [
+    "not_real_acceptance",
+    "not_compliance_claim",
+    "not_accreditation_claim"
+  ],
+  "non_claim_digest": "Step 2 reviewer readiness only | simulation / offline / headless only | file-artifact-first reviewer evidence | not real acceptance | not compliance claim | not accreditation claim | cannot replace real metrology validation",
+  "non_claim_filter_rows": [
+    {
+      "id": "non_claim:not_real_acceptance",
+      "canonical_fragment_id": "non_claim:not_real_acceptance",
+      "fragment_family": "non_claim",
+      "fragment_key": "not_real_acceptance",
+      "canonical_key": "not_real_acceptance",
+      "i18n_key": "reviewer_fragments.non_claim.not_real_acceptance",
+      "params": {},
+      "label": "not real acceptance",
+      "display_text": "not real acceptance",
+      "text": "not real acceptance",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "non_claim:not_compliance_claim",
+      "canonical_fragment_id": "non_claim:not_compliance_claim",
+      "fragment_family": "non_claim",
+      "fragment_key": "not_compliance_claim",
+      "canonical_key": "not_compliance_claim",
+      "i18n_key": "reviewer_fragments.non_claim.not_compliance_claim",
+      "params": {},
+      "label": "not compliance claim",
+      "display_text": "not compliance claim",
+      "text": "not compliance claim",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "id": "non_claim:not_accreditation_claim",
+      "canonical_fragment_id": "non_claim:not_accreditation_claim",
+      "fragment_family": "non_claim",
+      "fragment_key": "not_accreditation_claim",
+      "canonical_key": "not_accreditation_claim",
+      "i18n_key": "reviewer_fragments.non_claim.not_accreditation_claim",
+      "params": {},
+      "label": "not accreditation claim",
+      "display_text": "not accreditation claim",
+      "text": "not accreditation claim",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    }
+  ],
+  "non_claim_filters": [
+    "non_claim:not_real_acceptance",
+    "non_claim:not_compliance_claim",
+    "non_claim:not_accreditation_claim"
+  ],
+  "reviewer_next_step_digest": "Use the water pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists. | Use the gas pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists.",
+  "reviewer_next_step_fragments": [
+    {
+      "fragment_family": "reviewer_next_step",
+      "fragment_key": "water_pressure_stable_payload_complete_anchor",
+      "canonical_key": "water_pressure_stable_payload_complete_anchor",
+      "canonical_fragment_id": "reviewer_next_step:water_pressure_stable_payload_complete_anchor",
+      "i18n_key": "taxonomy.reviewer_next_step.water_pressure_stable_payload_complete_anchor",
+      "params": {},
+      "text": "Use the water pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists.",
+      "display_text": "Use the water pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists.",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    },
+    {
+      "fragment_family": "reviewer_next_step",
+      "fragment_key": "gas_pressure_stable_payload_complete_anchor",
+      "canonical_key": "gas_pressure_stable_payload_complete_anchor",
+      "canonical_fragment_id": "reviewer_next_step:gas_pressure_stable_payload_complete_anchor",
+      "i18n_key": "taxonomy.reviewer_next_step.gas_pressure_stable_payload_complete_anchor",
+      "params": {},
+      "text": "Use the gas pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists.",
+      "display_text": "Use the gas pressure-stable payload as the synthetic reviewer anchor, then keep certificate and traceability closure in readiness-only artifacts until released reference evidence exists.",
+      "reviewer_fragments_contract_version": "step2-reviewer-fragments-v1"
+    }
+  ],
+  "reviewer_next_step_fragment_keys": [
+    "water_pressure_stable_payload_complete_anchor",
+    "gas_pressure_stable_payload_complete_anchor"
+  ]
+}

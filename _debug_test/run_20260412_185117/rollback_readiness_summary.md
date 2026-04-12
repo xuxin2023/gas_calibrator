@@ -1,0 +1,28 @@
+# Rollback Readiness Summary
+
+- summary: Rollback readiness remains sidecar-first and non-destructive.
+- rollback mode: sidecar-first
+- primary evidence rewritten: false
+- default DB path: disabled
+- Remove WP5 reviewer sidecars if the pack must be rolled back.
+- Rebuild reviewer indexes and summaries without rewriting primary evidence.
+- Keep default DB path disabled; the DB-ready stub remains opt-in only.
+
+## Readiness Linkage
+
+- anchor_id: rollback-readiness-summary
+- readiness_status: rollback_readiness_summary_readiness_stub
+- linked_artifact_refs: --
+- linked_measurement_phases: system/recovery_retry=test_only
+- linked_measurement_gaps: system/recovery_retry: Missing-layer reason: reference: test_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: test_only coverage only; this layer has not been promoted into simulated payload evidence | output: test_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: test_only coverage only; this layer has not been promoted into simulated payload evidence
+- linked_method_confirmation_items: Recovery retry scenario confirmation | Safe recovery procedure confirmation
+- linked_uncertainty_inputs: Retry timing tolerance | Fault capture debounce window
+- linked_traceability_nodes: Software event log chain | Recovery audit trail stub
+- preseal_partial_gap: --
+- gap_reason: system/recovery_retry: Missing-layer reason: reference: test_only coverage only; this layer has not been promoted into simulated payload evidence | analyzer_raw: test_only coverage only; this layer has not been promoted into simulated payload evidence | output: test_only coverage only; this layer has not been promoted into simulated payload evidence | data_quality: test_only coverage only; this layer has not been promoted into simulated payload evidence
+- missing_evidence: rollback guidance remains sidecar-only and non-destructive
+- blockers: rollback guidance is sidecar-first only and does not modify primary evidence | system/recovery_retry: Phase remains test_only; richer simulated payload evidence is still missing | Missing signal layers: reference, analyzer_raw, output, data_quality | Linked method confirmation items remain open: Recovery retry scenario confirmation, Safe recovery procedure confirmation | Linked uncertainty inputs remain open: Retry timing tolerance, Fault capture debounce window | Linked traceability nodes remain stub-only: Software event log chain, Recovery audit trail stub
+- next_required_artifacts: release_manifest | audit_readiness_digest | verification_digest | verification_rollup | software_validation_traceability_matrix | requirement_design_code_test_links | validation_evidence_index | change_impact_summary | rollback_readiness_summary | artifact_hash_registry | audit_event_store | environment_fingerprint | config_fingerprint | release_input_digest | release_scope_summary | release_boundary_digest | release_evidence_pack_index | release_validation_manifest
+- reviewer_next_step: Keep recovery/retry in test-only reviewer coverage until synthetic payload captures retry timing, fault capture, and audit-trace linkage.
+- boundary_digest: Step 2 reviewer readiness only | simulation / offline / headless only | file-artifact-first reviewer evidence | not real acceptance | not compliance claim | not accreditation claim | cannot replace real metrology validation
+- non_claim_digest: --

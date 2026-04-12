@@ -1,0 +1,12 @@
+{
+  "suite": "smoke",
+  "generated_at": "2026-04-12T18:51:18",
+  "counts": {
+    "passed": 3,
+    "total": 3
+  },
+  "all_passed": true,
+  "evidence_source": "simulated_protocol",
+  "evidence_state": "collected",
+  "not_real_acceptance_evidence": true
+}

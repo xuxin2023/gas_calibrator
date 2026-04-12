@@ -1,0 +1,12 @@
+{
+  "generated_at": "2026-04-10T18:51:18",
+  "status": "MATCH",
+  "evidence_source": "diagnostic",
+  "evidence_state": "collected",
+  "not_real_acceptance_evidence": true,
+  "summary": {
+    "cases_matched": 5,
+    "cases_total": 5,
+    "failed_cases": []
+  }
+}

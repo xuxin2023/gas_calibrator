@@ -1,0 +1,58 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "lineage_summary",
+  "run_id": "run_20260412_185117",
+  "generated_at": "2026-04-12T18:51:17",
+  "parent_run_id": null,
+  "source_artifact_ids": [
+    "run_20260412_185117:source_points"
+  ],
+  "config_version": "cfg-e0e888b68d9a",
+  "points_version": "pts-points.json-206-1775991077024200500-d8cfe799c3b0",
+  "profile_version": null,
+  "software_build_id": "0.1.0",
+  "artifacts": [
+    {
+      "artifact_id": "run_20260412_185117:points_readable",
+      "artifact_name": "points_readable",
+      "role": "execution_summary",
+      "path": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\points_readable.csv",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260412_185117:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260412_185117:run_summary",
+      "artifact_name": "run_summary",
+      "role": "execution_summary",
+      "path": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\summary.json",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260412_185117:source_points"
+      ]
+    },
+    {
+      "artifact_id": "run_20260412_185117:samples_csv",
+      "artifact_name": "samples_csv",
+      "role": "execution_rows",
+      "path": "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\samples.csv",
+      "present": true,
+      "parent_run_id": null,
+      "source_artifact_ids": [
+        "run_20260412_185117:source_points"
+      ]
+    }
+  ],
+  "known_output_files": [],
+  "expected_artifacts": [
+    "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\acceptance_plan.json",
+    "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\analytics_summary.json",
+    "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\trend_registry.json",
+    "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\lineage_summary.json",
+    "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\evidence_registry.json",
+    "d:\\gas_calibrator\\_debug_test\\run_20260412_185117\\coefficient_registry.json"
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "coefficient_registry",
+  "run_id": "run_20260412_185117",
+  "generated_at": "2026-04-12T18:51:17",
+  "available": false,
+  "report_path": "",
+  "status": "missing",
+  "not_real_acceptance_evidence": true,
+  "entries": [
+    {
+      "generated_at": "2026-04-12T18:51:17",
+      "analyzer_id": "GAS_ANALYZER_0",
+      "coefficient_version": "coef-missing",
+      "source_run": "run_20260412_185117",
+      "source_artifact_ids": [
+        "run_20260412_185117:coefficient_report",
+        "run_20260412_185117:run_summary",
+        "run_20260412_185117:results_json"
+      ],
+      "route_range": [
+        "co2"
+      ],
+      "temperature_range_c": {
+        "min": 25.0,
+        "max": 25.0
+      },
+      "source_range": {
+        "co2_ppm_min": 400.0,
+        "co2_ppm_max": 400.0
+      },
+      "parity_status": "missing",
+      "quality_status": "missing",
+      "config_version": "cfg-e0e888b68d9a",
+      "points_version": "pts-points.json-206-1775991077024200500-d8cfe799c3b0",
+      "profile_version": null,
+      "software_build_id": "0.1.0",
+      "not_real_acceptance_evidence": true
+    }
+  ]
+}
