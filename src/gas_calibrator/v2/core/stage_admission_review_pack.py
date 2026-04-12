@@ -17,6 +17,9 @@ from .governance_handoff_contracts import (
     GOVERNANCE_HANDOFF_DISPLAY_LABELS_EN as _GOV_LABELS_EN,
     GOVERNANCE_HANDOFF_I18N_KEYS as _GOV_I18N_KEYS,
     GOVERNANCE_HANDOFF_ROLES as _GOV_ROLES,
+    GOVERNANCE_HANDOFF_TITLE_TEXTS as _GOV_TITLE_TEXTS,
+    GOVERNANCE_HANDOFF_SUMMARY_TEXTS as _GOV_SUMMARY_TEXTS,
+    GOVERNANCE_HANDOFF_PHASES as _GOV_PHASES,
 )
 
 
@@ -93,7 +96,7 @@ def build_stage_admission_review_pack(
         "stage3_prerequisites": list(missing_real_world_evidence),
     }
     display = {
-        "title_text": "阶段准入评审包 / Stage Admission Review Pack",
+        "title_text": _GOV_TITLE_TEXTS["stage_admission_review_pack"],
         "summary_text": str(reviewer_display.get("summary_text") or "").strip(),
         "status_line": str(reviewer_display.get("status_line") or "").strip(),
         "current_stage_text": str(reviewer_display.get("current_stage_text") or "").strip(),
