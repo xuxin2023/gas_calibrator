@@ -161,7 +161,7 @@ GOVERNANCE_HANDOFF_STEP2_BOUNDARY: dict[str, dict[str, bool | str]] = {
 GOVERNANCE_HANDOFF_REVIEWER_PAIRING: dict[str, str] = {
     "phase_transition_bridge": "phase_transition_bridge_reviewer_artifact",
     "stage_admission_review_pack": "stage_admission_review_pack_reviewer_artifact",
-    "engineering_isolation_admission_checklist": "engineering_isolation_admission_checklist_reviewer_arteract",
+    "engineering_isolation_admission_checklist": "engineering_isolation_admission_checklist_reviewer_artifact",
 }
 
 # ---------------------------------------------------------------------------
