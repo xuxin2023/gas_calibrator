@@ -33,6 +33,8 @@ OBSERVATION_FIELDS: List[str] = [
     "is_temp_calibration_snapshot",
     "valid_for_cell_fit",
     "valid_for_shell_fit",
+    "cell_fit_gate_reason",
+    "shell_fit_gate_reason",
     "snapshot_window_s",
     "env_temp_span_c",
     "box_temp_span_c",

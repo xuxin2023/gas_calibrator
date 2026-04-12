@@ -10,6 +10,7 @@ import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
 
+from ..h2o_summary_selection import normalize_h2o_summary_selection
 from ..coefficients.fit_ratio_poly import fit_ratio_poly_rt_p
 from ..coefficients.model_metrics import compute_metrics
 from ..coefficients.prediction_analysis import analyze_by_range
@@ -60,32 +61,8 @@ def _env_temp_from_row(row: Mapping[str, Any]) -> float | None:
     return None
 
 
-def _selection_float_list(raw: Any, default: Sequence[float]) -> List[float]:
-    if not isinstance(raw, (list, tuple)):
-        return [float(value) for value in default]
-    values: List[float] = []
-    for item in raw:
-        try:
-            values.append(float(item))
-        except Exception:
-            continue
-    return values if values else [float(value) for value in default]
-
-
 def _resolve_h2o_selection(selection: Mapping[str, Any] | None) -> Dict[str, Any]:
-    payload = dict(selection or {})
-    return {
-        "include_h2o_phase": bool(payload.get("include_h2o_phase", True)),
-        "include_co2_temp_groups_c": _selection_float_list(payload.get("include_co2_temp_groups_c"), []),
-        "include_co2_zero_ppm_rows": bool(payload.get("include_co2_zero_ppm_rows", True)),
-        "co2_zero_ppm_target": float(payload.get("co2_zero_ppm_target", 0.0)),
-        "co2_zero_ppm_tolerance": float(payload.get("co2_zero_ppm_tolerance", 0.5)),
-        "include_co2_zero_ppm_temp_groups_c": _selection_float_list(
-            payload.get("include_co2_zero_ppm_temp_groups_c"),
-            [-20.0, -10.0, 0.0],
-        ),
-        "temp_tolerance_c": float(payload.get("temp_tolerance_c", 0.6)),
-    }
+    return normalize_h2o_summary_selection(selection)
 
 
 def _describe_h2o_selection(selection: Mapping[str, Any]) -> str:

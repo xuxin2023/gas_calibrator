@@ -143,6 +143,15 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["postrun_corrected_delivery"]["verify_short_run"]["skip_co2_ppm"] == []
     assert cfg["workflow"]["postrun_corrected_delivery"]["verify_short_run"]["enable_connect_check"] is False
     assert cfg["workflow"]["postrun_corrected_delivery"]["verify_short_run"]["points_excel"] == "configs/points_tiny_short_run_20c_even500.xlsx"
+    assert cfg["temperature_calibration"]["plausibility"]["enabled"] is True
+    assert cfg["temperature_calibration"]["plausibility"]["raw_temp_min_c"] == -30.0
+    assert cfg["temperature_calibration"]["plausibility"]["raw_temp_max_c"] == 85.0
+    assert cfg["temperature_calibration"]["plausibility"]["max_abs_delta_from_ref_c"] == 15.0
+    assert cfg["temperature_calibration"]["plausibility"]["max_cell_shell_gap_c"] == 12.0
+    assert cfg["temperature_calibration"]["plausibility"]["hard_bad_values_c"] == [-40.0, 60.0]
+    assert cfg["temperature_calibration"]["plausibility"]["hard_bad_value_tolerance_c"] == 0.05
+    assert cfg["coefficients"]["h2o_summary_selection"]["include_co2_temp_groups_c"] == []
+    assert cfg["coefficients"]["h2o_summary_selection"]["include_co2_zero_ppm_temp_groups_c"] == [-20.0, -10.0, 0.0]
     assert cfg["workflow"]["pressure"]["strict_control_ready_check"] is True
     assert cfg["workflow"]["pressure"]["abort_on_vent_off_failure"] is True
     assert cfg["workflow"]["pressure"]["output_off_prefer_gauge"] is True

@@ -179,6 +179,8 @@ def test_runner_temperature_calibration_shell_missing_downgrades(tmp_path: Path)
     runner = CalibrationRunner(cfg, devices, logger, lambda *_: None, lambda *_: None)
 
     runner._capture_temperature_calibration_snapshot(_point(), route_type="co2")
+    assert runner._temperature_calibration_records[0]["valid_for_shell_fit"] is False
+    assert runner._temperature_calibration_records[0]["shell_fit_gate_reason"] == "missing_shell_temp"
     runner._finalize_temperature_calibration_outputs()
     logger.close()
 
@@ -188,3 +190,47 @@ def test_runner_temperature_calibration_shell_missing_downgrades(tmp_path: Path)
     shell_row = next(row for row in rows if row["fit_type"] == "shell")
     assert shell_row["availability"] == "unavailable"
     assert shell_row["command_string"] == ""
+
+
+def test_runner_temperature_calibration_rejects_implausible_internal_snapshot(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    cfg = {
+        "temperature_calibration": {
+            "enabled": True,
+            "snapshot_window_s": 0,
+            "min_ref_samples": 1,
+            "env_stable_span_c": 1.0,
+            "box_stable_span_c": 1.0,
+            "plausibility": {
+                "enabled": True,
+                "raw_temp_min_c": -30.0,
+                "raw_temp_max_c": 85.0,
+                "max_abs_delta_from_ref_c": 15.0,
+                "max_cell_shell_gap_c": 12.0,
+                "hard_bad_values_c": [-40.0, 60.0],
+                "hard_bad_value_tolerance_c": 0.05,
+            },
+        }
+    }
+    devices = {
+        "gas_analyzer": _FakeAnalyzer(device_id="001", cell_temp_c=60.0, shell_temp_c=-40.0),
+        "thermometer": _FakeThermometer(0.55),
+        "temp_chamber": _FakeChamber(0.00),
+    }
+    runner = CalibrationRunner(cfg, devices, logger, lambda *_: None, lambda *_: None)
+
+    ok = runner._capture_temperature_calibration_snapshot(_point(), route_type="co2")
+    assert ok is True
+    assert len(runner._temperature_calibration_records) == 1
+    record = runner._temperature_calibration_records[0]
+    assert record["valid_for_cell_fit"] is False
+    assert record["valid_for_shell_fit"] is False
+    assert record["cell_fit_gate_reason"] == "hard_bad_value"
+    assert record["shell_fit_gate_reason"] == "hard_bad_value"
+
+    runner._finalize_temperature_calibration_outputs()
+    logger.close()
+
+    with (logger.run_dir / "temperature_compensation_coefficients.csv").open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert all(row["availability"] == "unavailable" for row in rows)

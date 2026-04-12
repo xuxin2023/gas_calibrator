@@ -13,6 +13,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict
 
+from .h2o_summary_selection import default_h2o_summary_selection
+
 
 _RUNTIME_DEFAULTS: Dict[str, Any] = {
     "workflow": {
@@ -233,7 +235,29 @@ _RUNTIME_DEFAULTS: Dict[str, Any] = {
             },
         },
     },
+    "temperature_calibration": {
+        "enabled": True,
+        "snapshot_window_s": 60.0,
+        "poll_interval_s": 1.0,
+        "min_ref_samples": 3,
+        "env_stable_span_c": 0.3,
+        "box_stable_span_c": 0.3,
+        "use_env_temp_as_ref_first": True,
+        "fallback_to_box_temp": True,
+        "export_commands": True,
+        "polynomial_order": 3,
+        "plausibility": {
+            "enabled": True,
+            "raw_temp_min_c": -30.0,
+            "raw_temp_max_c": 85.0,
+            "max_abs_delta_from_ref_c": 15.0,
+            "max_cell_shell_gap_c": 12.0,
+            "hard_bad_values_c": [-40.0, 60.0],
+            "hard_bad_value_tolerance_c": 0.05,
+        },
+    },
     "coefficients": {
+        "h2o_summary_selection": default_h2o_summary_selection(),
         "ratio_poly_fit": {
             "pressure_source_preference": "reference_first",
         }

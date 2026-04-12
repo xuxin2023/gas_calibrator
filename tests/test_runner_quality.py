@@ -624,3 +624,24 @@ def test_auto_fit_ratio_poly_reads_nested_pressure_source_preference(monkeypatch
 
     assert captured["pressure_keys"] == ("P", "BAR")
     assert any("pressure_source_preference=reference_first" in message for message in logs)
+
+
+def test_h2o_ratio_poly_summary_selection_defaults_to_zero_ppm_only_at_minus20_minus10_and_zero(tmp_path: Path) -> None:
+    runner = _runner_with_quality(tmp_path, {"enabled": False})
+    rows = [
+        {"RowId": "h2o", "PointPhase": "h2o", "Temp": 10.0},
+        {"RowId": "minus20_zero", "PointPhase": "co2", "TempSet": -20.0, "ppm_CO2_Tank": 0.0},
+        {"RowId": "minus10_zero", "PointPhase": "co2", "TempSet": -10.0, "ppm_CO2_Tank": 0.0},
+        {"RowId": "zero_zero", "PointPhase": "co2", "TempSet": 0.0, "ppm_CO2_Tank": 0.0},
+        {"RowId": "zero_400", "PointPhase": "co2", "TempSet": 0.0, "ppm_CO2_Tank": 400.0},
+        {"RowId": "ten_zero", "PointPhase": "co2", "TempSet": 10.0, "ppm_CO2_Tank": 0.0},
+    ]
+
+    filtered = runner._filter_ratio_poly_summary_rows(
+        rows,
+        gas="h2o",
+        cfg={"h2o_summary_selection": {}},
+    )
+    runner.logger.close()
+
+    assert [row["RowId"] for row in filtered] == ["h2o", "minus20_zero", "minus10_zero", "zero_zero"]

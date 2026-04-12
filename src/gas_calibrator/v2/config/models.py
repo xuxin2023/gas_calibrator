@@ -18,6 +18,17 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
 from pathlib import Path
 
+from ...h2o_summary_selection import (
+    DEFAULT_H2O_TEMPERATURE_BUCKETS_C,
+    DEFAULT_H2O_TEMPERATURE_BUCKET_TOLERANCE_C,
+    DEFAULT_H2O_INCLUDE_CO2_TEMP_GROUPS_C,
+    DEFAULT_H2O_INCLUDE_CO2_ZERO_PPM_ROWS,
+    DEFAULT_H2O_CO2_ZERO_PPM_TARGET,
+    DEFAULT_H2O_CO2_ZERO_PPM_TOLERANCE,
+    DEFAULT_H2O_INCLUDE_CO2_ZERO_PPM_TEMP_GROUPS_C,
+    DEFAULT_H2O_TEMP_TOLERANCE_C,
+    normalize_h2o_summary_selection,
+)
 from ..domain.pressure_selection import normalize_selected_pressure_points
 from ..exceptions import ConfigurationError, ConfigurationMissingError, ConfigurationInvalidError
 
@@ -728,28 +739,28 @@ class H2OSummarySelectionConfig:
     """Corrected H2O point-selection rule for ratio-poly fitting."""
 
     include_h2o_phase: bool = True
-    temperature_buckets_c: List[float] = field(default_factory=lambda: [-20.0, -10.0, 0.0, 10.0, 20.0, 30.0, 40.0])
-    temperature_bucket_tolerance_c: float = 6.0
-    include_co2_temp_groups_c: List[float] = field(default_factory=list)
-    include_co2_zero_ppm_rows: bool = True
-    co2_zero_ppm_target: float = 0.0
-    co2_zero_ppm_tolerance: float = 0.5
-    include_co2_zero_ppm_temp_groups_c: List[float] = field(default_factory=lambda: [-20.0, -10.0, 0.0])
-    temp_tolerance_c: float = 0.6
+    temperature_buckets_c: List[float] = field(default_factory=lambda: [float(value) for value in DEFAULT_H2O_TEMPERATURE_BUCKETS_C])
+    temperature_bucket_tolerance_c: float = DEFAULT_H2O_TEMPERATURE_BUCKET_TOLERANCE_C
+    include_co2_temp_groups_c: List[float] = field(default_factory=lambda: [float(value) for value in DEFAULT_H2O_INCLUDE_CO2_TEMP_GROUPS_C])
+    include_co2_zero_ppm_rows: bool = DEFAULT_H2O_INCLUDE_CO2_ZERO_PPM_ROWS
+    co2_zero_ppm_target: float = DEFAULT_H2O_CO2_ZERO_PPM_TARGET
+    co2_zero_ppm_tolerance: float = DEFAULT_H2O_CO2_ZERO_PPM_TOLERANCE
+    include_co2_zero_ppm_temp_groups_c: List[float] = field(default_factory=lambda: [float(value) for value in DEFAULT_H2O_INCLUDE_CO2_ZERO_PPM_TEMP_GROUPS_C])
+    temp_tolerance_c: float = DEFAULT_H2O_TEMP_TOLERANCE_C
 
     @classmethod
     def from_dict(cls, d: Optional[Dict[str, Any]]) -> "H2OSummarySelectionConfig":
-        payload = d or {}
+        payload = normalize_h2o_summary_selection(d)
         return cls(
-            include_h2o_phase=bool(payload.get("include_h2o_phase", True)),
-            temperature_buckets_c=[float(value) for value in payload.get("temperature_buckets_c", [-20.0, -10.0, 0.0, 10.0, 20.0, 30.0, 40.0])],
-            temperature_bucket_tolerance_c=float(payload.get("temperature_bucket_tolerance_c", 6.0)),
-            include_co2_temp_groups_c=[float(value) for value in payload.get("include_co2_temp_groups_c", [])],
-            include_co2_zero_ppm_rows=bool(payload.get("include_co2_zero_ppm_rows", True)),
-            co2_zero_ppm_target=float(payload.get("co2_zero_ppm_target", 0.0)),
-            co2_zero_ppm_tolerance=float(payload.get("co2_zero_ppm_tolerance", 0.5)),
-            include_co2_zero_ppm_temp_groups_c=[float(value) for value in payload.get("include_co2_zero_ppm_temp_groups_c", [-20.0, -10.0, 0.0])],
-            temp_tolerance_c=float(payload.get("temp_tolerance_c", 0.6)),
+            include_h2o_phase=bool(payload["include_h2o_phase"]),
+            temperature_buckets_c=[float(value) for value in payload["temperature_buckets_c"]],
+            temperature_bucket_tolerance_c=float(payload["temperature_bucket_tolerance_c"]),
+            include_co2_temp_groups_c=[float(value) for value in payload["include_co2_temp_groups_c"]],
+            include_co2_zero_ppm_rows=bool(payload["include_co2_zero_ppm_rows"]),
+            co2_zero_ppm_target=float(payload["co2_zero_ppm_target"]),
+            co2_zero_ppm_tolerance=float(payload["co2_zero_ppm_tolerance"]),
+            include_co2_zero_ppm_temp_groups_c=[float(value) for value in payload["include_co2_zero_ppm_temp_groups_c"]],
+            temp_tolerance_c=float(payload["temp_tolerance_c"]),
         )
 
 

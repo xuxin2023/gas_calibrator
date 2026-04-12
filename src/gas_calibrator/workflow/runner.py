@@ -21,6 +21,7 @@ from ..coefficients.fit_ratio_poly import fit_ratio_poly_rt_p, save_ratio_poly_r
 from ..coefficients.fit_ratio_poly_evolved import fit_ratio_poly_rt_p_evolved
 from ..data.points import CalibrationPoint, load_points_from_excel, reorder_points, validate_points
 from ..export.temperature_compensation_export import export_temperature_compensation_artifacts
+from ..h2o_summary_selection import normalize_h2o_summary_selection
 from ..logging_utils import RunLogger
 from ..senco_format import format_senco_values, rounded_senco_values
 from ..validation.dewpoint_flush_gate import (
@@ -6827,6 +6828,8 @@ class CalibrationRunner:
     def _temperature_calibration_cfg(self) -> Dict[str, Any]:
         raw = self.cfg.get("temperature_calibration", {})
         cfg = raw if isinstance(raw, dict) else {}
+        plausibility_raw = cfg.get("plausibility", {})
+        plausibility = plausibility_raw if isinstance(plausibility_raw, dict) else {}
         snapshot_window_s = cfg.get("snapshot_window_s", 60.0)
         poll_interval_s = cfg.get("poll_interval_s", 1.0)
         min_ref_samples = cfg.get("min_ref_samples", 3)
@@ -6844,7 +6847,62 @@ class CalibrationRunner:
             "fallback_to_box_temp": bool(cfg.get("fallback_to_box_temp", True)),
             "export_commands": bool(cfg.get("export_commands", True)),
             "polynomial_order": max(1, int(3 if polynomial_order is None else polynomial_order)),
+            "plausibility_enabled": bool(plausibility.get("enabled", True)),
+            "plausibility_temp_min_c": float(plausibility.get("raw_temp_min_c", -30.0)),
+            "plausibility_temp_max_c": float(plausibility.get("raw_temp_max_c", 85.0)),
+            "plausibility_max_abs_delta_from_ref_c": float(plausibility.get("max_abs_delta_from_ref_c", 15.0)),
+            "plausibility_max_cell_shell_gap_c": float(plausibility.get("max_cell_shell_gap_c", 12.0)),
+            "plausibility_hard_bad_values_c": [
+                float(value)
+                for value in (plausibility.get("hard_bad_values_c", [-40.0, 60.0]) or [-40.0, 60.0])
+                if value is not None
+            ],
+            "plausibility_hard_bad_value_tolerance_c": float(plausibility.get("hard_bad_value_tolerance_c", 0.05)),
         }
+
+    @staticmethod
+    def _temp_matches_hard_bad_value(value_c: Optional[float], bad_values_c: List[float], tolerance_c: float) -> bool:
+        if value_c is None:
+            return False
+        for candidate in bad_values_c:
+            if abs(float(value_c) - float(candidate)) <= float(tolerance_c):
+                return True
+        return False
+
+    def _evaluate_temperature_fit_validity(
+        self,
+        *,
+        channel: str,
+        raw_temp_c: Optional[float],
+        paired_temp_c: Optional[float],
+        ref_temp_c: Optional[float],
+        cfg: Dict[str, Any],
+    ) -> tuple[bool, str]:
+        channel_key = str(channel or "").strip().lower() or "temp"
+        if ref_temp_c is None:
+            return False, "missing_ref"
+        if raw_temp_c is None:
+            return False, f"missing_{channel_key}_temp"
+        if not bool(cfg.get("plausibility_enabled", True)):
+            return True, ""
+        if self._temp_matches_hard_bad_value(
+            raw_temp_c,
+            list(cfg.get("plausibility_hard_bad_values_c", []) or []),
+            float(cfg.get("plausibility_hard_bad_value_tolerance_c", 0.05)),
+        ):
+            return False, "hard_bad_value"
+        temp_min_c = float(cfg.get("plausibility_temp_min_c", -30.0))
+        temp_max_c = float(cfg.get("plausibility_temp_max_c", 85.0))
+        if raw_temp_c < temp_min_c or raw_temp_c > temp_max_c:
+            return False, "raw_temp_out_of_range"
+        max_ref_delta_c = float(cfg.get("plausibility_max_abs_delta_from_ref_c", 15.0))
+        if abs(raw_temp_c - ref_temp_c) > max_ref_delta_c:
+            return False, "too_far_from_ref"
+        if paired_temp_c is not None:
+            max_pair_gap_c = float(cfg.get("plausibility_max_cell_shell_gap_c", 12.0))
+            if abs(raw_temp_c - paired_temp_c) > max_pair_gap_c:
+                return False, "cell_shell_gap_too_large"
+        return True, ""
 
     @staticmethod
     def _temperature_capture_key(point: CalibrationPoint, route_type: str) -> tuple[str, str]:
@@ -6993,6 +7051,20 @@ class CalibrationRunner:
             elif bool(cfg["fallback_to_box_temp"]) and box_valid:
                 ref_temp_c = box_mean
                 ref_temp_source = "box"
+            cell_valid, cell_reason = self._evaluate_temperature_fit_validity(
+                channel="cell",
+                raw_temp_c=cell_mean,
+                paired_temp_c=shell_mean,
+                ref_temp_c=ref_temp_c,
+                cfg=cfg,
+            )
+            shell_valid, shell_reason = self._evaluate_temperature_fit_validity(
+                channel="shell",
+                raw_temp_c=shell_mean,
+                paired_temp_c=cell_mean,
+                ref_temp_c=ref_temp_c,
+                cfg=cfg,
+            )
 
             record = {
                 "snapshot_time": snapshot_time,
@@ -7011,8 +7083,10 @@ class CalibrationRunner:
                 "analyzer_shell_temp_raw_c": shell_mean,
                 "route_type": str(route_type or "").strip().lower() or "idle_before_route",
                 "is_temp_calibration_snapshot": True,
-                "valid_for_cell_fit": ref_temp_c is not None and cell_mean is not None,
-                "valid_for_shell_fit": ref_temp_c is not None and shell_mean is not None,
+                "valid_for_cell_fit": cell_valid,
+                "valid_for_shell_fit": shell_valid,
+                "cell_fit_gate_reason": cell_reason,
+                "shell_fit_gate_reason": shell_reason,
                 "snapshot_window_s": window_s,
                 "env_temp_span_c": env_span,
                 "box_temp_span_c": box_span,
@@ -7021,6 +7095,14 @@ class CalibrationRunner:
             }
             self._temperature_calibration_records.append(record)
             added += 1
+            if not cell_valid or not shell_valid:
+                self.log(
+                    "Temperature calibration snapshot rejected for fit: "
+                    f"{analyzer_id} route={route_type} "
+                    f"cell_valid={cell_valid} cell_reason={cell_reason or 'ok'} "
+                    f"shell_valid={shell_valid} shell_reason={shell_reason or 'ok'} "
+                    f"ref={ref_temp_c} cell={cell_mean} shell={shell_mean}"
+                )
 
         if not added:
             self.log("Temperature calibration snapshot warning: no analyzer records were captured")
@@ -15897,37 +15979,18 @@ class CalibrationRunner:
         if gas_lower != "h2o":
             return list(rows)
 
-        select_cfg = cfg.get("h2o_summary_selection", {})
-        include_h2o_phase = bool(select_cfg.get("include_h2o_phase", True))
-        include_co2_zero_rows = bool(select_cfg.get("include_co2_zero_ppm_rows", True))
-        co2_zero_target = float(select_cfg.get("co2_zero_ppm_target", 0.0))
-        co2_zero_tol = float(select_cfg.get("co2_zero_ppm_tolerance", 0.5))
-        temp_tol_c = float(select_cfg.get("temp_tolerance_c", 0.6))
-        bucket_tol_c = float(select_cfg.get("temperature_bucket_tolerance_c", 6.0))
-        bucket_points_raw = select_cfg.get("temperature_buckets_c", [-20.0, -10.0, 0.0, 10.0, 20.0, 30.0, 40.0])
-        bucket_points: List[float] = []
-        if isinstance(bucket_points_raw, (list, tuple)):
-            for item in bucket_points_raw:
-                try:
-                    bucket_points.append(float(item))
-                except Exception:
-                    continue
-        include_co2_temp_groups_raw = select_cfg.get("include_co2_temp_groups_c", [-20.0, -10.0, 0.0])
-        include_co2_temp_groups: List[float] = []
-        if isinstance(include_co2_temp_groups_raw, (list, tuple)):
-            for item in include_co2_temp_groups_raw:
-                try:
-                    include_co2_temp_groups.append(float(item))
-                except Exception:
-                    continue
-        include_co2_zero_temp_groups_raw = select_cfg.get("include_co2_zero_ppm_temp_groups_c", [10.0])
-        include_co2_zero_temp_groups: List[float] = []
-        if isinstance(include_co2_zero_temp_groups_raw, (list, tuple)):
-            for item in include_co2_zero_temp_groups_raw:
-                try:
-                    include_co2_zero_temp_groups.append(float(item))
-                except Exception:
-                    continue
+        select_cfg = normalize_h2o_summary_selection(cfg.get("h2o_summary_selection"))
+        include_h2o_phase = bool(select_cfg["include_h2o_phase"])
+        include_co2_zero_rows = bool(select_cfg["include_co2_zero_ppm_rows"])
+        co2_zero_target = float(select_cfg["co2_zero_ppm_target"])
+        co2_zero_tol = float(select_cfg["co2_zero_ppm_tolerance"])
+        temp_tol_c = float(select_cfg["temp_tolerance_c"])
+        bucket_tol_c = float(select_cfg["temperature_bucket_tolerance_c"])
+        bucket_points = [float(item) for item in (select_cfg.get("temperature_buckets_c") or [])]
+        include_co2_temp_groups = [float(item) for item in (select_cfg.get("include_co2_temp_groups_c") or [])]
+        include_co2_zero_temp_groups = [
+            float(item) for item in (select_cfg.get("include_co2_zero_ppm_temp_groups_c") or [])
+        ]
 
         filtered: List[Dict[str, Any]] = []
         h2o_phase_count = 0
