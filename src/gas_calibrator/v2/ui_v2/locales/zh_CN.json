@@ -2343,5 +2343,15 @@
       "comparison_rollup": "比对汇总",
       "step2_closeout_digest": "Step 2 阶段收口摘要"
     }
+  },
+  "governance_handoff": {
+    "step2_readiness_summary": "Step 2 就绪度摘要",
+    "metrology_calibration_contract": "计量校准合同",
+    "phase_transition_bridge": "阶段过渡桥接",
+    "phase_transition_bridge_reviewer": "阶段过渡桥接审阅",
+    "stage_admission_review_pack": "阶段准入评审包",
+    "stage_admission_review_pack_reviewer": "阶段准入评审包审阅",
+    "engineering_isolation_admission_checklist": "工程隔离准入清单",
+    "engineering_isolation_admission_checklist_reviewer": "工程隔离准入清单审阅"
   }
 }
