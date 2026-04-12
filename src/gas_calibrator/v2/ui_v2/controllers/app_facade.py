@@ -103,6 +103,13 @@ from ..review_scope_export_index import (
     build_review_scope_batch_id,
     write_review_scope_export_index,
 )
+from ..review_center_scan_contracts import (
+    REVIEW_CENTER_SCAN_CONTRACTS_VERSION as _SCAN_CONTRACTS_VERSION,
+    FAMILY_KEY_TO_BUDGET as _FAMILY_KEY_TO_BUDGET,
+    FAMILY_SCAN_ORDER as _FAMILY_SCAN_ORDER,
+    allocate_family_budgets as _allocate_family_budgets,
+    build_family_budget_summary as _build_family_budget_summary,
+)
 from ..utils.app_info import APP_INFO
 from ..utils.preferences_store import PreferencesStore, merge_preferences
 from ..utils.recent_runs_store import RecentRunsStore
@@ -3274,6 +3281,9 @@ class AppFacade:
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         started_at = time.perf_counter()
         diagnostics = self._new_review_center_diagnostics()
+        # Allocate per-family scan budgets so families don't starve each other
+        _family_budgets = _allocate_family_budgets()
+        _family_used: dict[str, int] = {}
         items: list[dict[str, Any]] = []
         run_roots = self._review_center_roots(
             metrics=diagnostics,
@@ -3299,6 +3309,8 @@ class AppFacade:
             limit=8,
             metrics=diagnostics,
             force_refresh=force_refresh,
+            family_key="suite",
+            family_budget=_family_budgets.get("suite"),
         )
         for path in suite_paths:
             item = self._parse_review_artifact(path, evidence_type="suite", fallback_payload=suite_summary, fallback_digest=suite_analytics_summary)
@@ -3311,6 +3323,8 @@ class AppFacade:
             limit=8,
             metrics=diagnostics,
             force_refresh=force_refresh,
+            family_key="parity",
+            family_budget=_family_budgets.get("parity"),
         )
         for path in parity_paths:
             item = self._parse_review_artifact(path, evidence_type="parity")
@@ -3323,6 +3337,8 @@ class AppFacade:
             limit=8,
             metrics=diagnostics,
             force_refresh=force_refresh,
+            family_key="resilience",
+            family_budget=_family_budgets.get("resilience"),
         )
         for path in resilience_paths:
             item = self._parse_review_artifact(path, evidence_type="resilience")
@@ -3337,6 +3353,8 @@ class AppFacade:
             limit=8,
             metrics=diagnostics,
             force_refresh=force_refresh,
+            family_key="workbench",
+            family_budget=_family_budgets.get("workbench"),
         )
         for path in workbench_paths:
             item = self._parse_review_artifact(path, evidence_type="workbench")
@@ -3865,6 +3883,8 @@ class AppFacade:
         limit: int = 4,
         metrics: Optional[dict[str, Any]] = None,
         force_refresh: bool = False,
+        family_key: Optional[str] = None,
+        family_budget: Optional[int] = None,
     ) -> list[Path]:
         explicit_list = [Path(path) for path in list(explicit_paths or []) if str(path or "").strip()]
         cache_key = self._review_artifact_paths_cache_key(
@@ -3913,10 +3933,17 @@ class AppFacade:
             _remember(direct)
             if len(candidates) >= max(1, int(limit)):
                 continue
-            remaining_budget = max(
-                0,
-                REVIEW_CENTER_SCAN_BUDGET - int(metrics.get("scan_budget_used", 0) or 0) if metrics is not None else REVIEW_CENTER_SCAN_BUDGET,
-            )
+            # Family-aware budget: use per-family budget when provided,
+            # otherwise fall back to global shared budget.
+            if family_budget is not None and family_key is not None:
+                family_used_key = f"scan_budget_used__{family_key}"
+                _family_used = int(metrics.get(family_used_key, 0) or 0) if metrics is not None else 0
+                remaining_budget = max(0, family_budget - _family_used)
+            else:
+                remaining_budget = max(
+                    0,
+                    REVIEW_CENTER_SCAN_BUDGET - int(metrics.get("scan_budget_used", 0) or 0) if metrics is not None else REVIEW_CENTER_SCAN_BUDGET,
+                )
             if remaining_budget <= 0:
                 continue
             scanned_paths, budget_used = self._bounded_review_artifact_scan(
@@ -3927,6 +3954,9 @@ class AppFacade:
             )
             if metrics is not None:
                 metrics["scan_budget_used"] = int(metrics.get("scan_budget_used", 0) or 0) + int(budget_used or 0)
+                if family_key is not None:
+                    family_used_key = f"scan_budget_used__{family_key}"
+                    metrics[family_used_key] = int(metrics.get(family_used_key, 0) or 0) + int(budget_used or 0)
             for path in scanned_paths:
                 if metrics is not None:
                     metrics["scanned_candidate_count"] = int(metrics.get("scanned_candidate_count", 0) or 0) + 1
