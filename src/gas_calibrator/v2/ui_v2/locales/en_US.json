@@ -2348,5 +2348,15 @@
       "comparison_rollup": "Comparison Rollup",
       "step2_closeout_digest": "Step 2 Closeout Digest"
     }
+  },
+  "governance_handoff": {
+    "step2_readiness_summary": "Step 2 Readiness Summary",
+    "metrology_calibration_contract": "Metrology Calibration Contract",
+    "phase_transition_bridge": "Phase Transition Bridge",
+    "phase_transition_bridge_reviewer": "Phase Transition Bridge Review",
+    "stage_admission_review_pack": "Stage Admission Review Pack",
+    "stage_admission_review_pack_reviewer": "Stage Admission Review Pack Review",
+    "engineering_isolation_admission_checklist": "Engineering Isolation Admission Checklist",
+    "engineering_isolation_admission_checklist_reviewer": "Engineering Isolation Admission Checklist Review"
   }
 }
