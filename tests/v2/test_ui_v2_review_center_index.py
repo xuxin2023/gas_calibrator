@@ -152,6 +152,7 @@ def test_review_center_builds_cross_run_index_from_recent_runs(tmp_path: Path) -
 
     facade._review_center_roots_cache.clear()
     facade._review_artifact_paths_cache.clear()
+    facade._review_center_cache = None
     review_center = facade.build_results_snapshot()["review_center"]
     source_labels = {str(item.get("source_label") or "") for item in review_center["evidence_items"]}
     types = {str(item.get("type") or "") for item in review_center["evidence_items"]}
