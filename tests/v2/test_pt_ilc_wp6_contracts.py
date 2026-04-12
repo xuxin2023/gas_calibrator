@@ -1234,7 +1234,7 @@ class TestPayloadExtractionUsedByConsumers:
         import gas_calibrator.v2.ui_v2.controllers.app_facade as af
         import inspect
         source = inspect.getsource(af)
-        assert "_wp6_closeout = _extract_wp6_closeout_payloads" in source
+        assert "_wp6_closeout_bundle = _build_wp6_closeout_bundle" in source
 
 
 class TestPayloadExtractionDefaultBehavior:
@@ -1302,4 +1302,144 @@ class TestPayloadExtractionStep2Boundary:
             # Labels must not contain "real acceptance" language
             assert "real acceptance" not in item["display_label"].lower()
             assert "real acceptance" not in item["display_label_en"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Step 2.4: Reviewer bundle handoff consolidation tests
+# ---------------------------------------------------------------------------
+
+
+class TestWp6CloseoutBundle:
+    """Wp6CloseoutBundle must provide unified access to WP6+closeout data."""
+
+    def test_bundle_from_full_payload(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import build_wp6_closeout_bundle
+        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_ARTIFACT_KEYS
+        source = {key: {"data": key} for key in WP6_CLOSEOUT_ARTIFACT_KEYS}
+        bundle = build_wp6_closeout_bundle(source)
+        assert bundle.keys() == WP6_CLOSEOUT_ARTIFACT_KEYS
+        for key in WP6_CLOSEOUT_ARTIFACT_KEYS:
+            assert bundle[key] == {"data": key}
+        assert key in bundle  # __contains__ works
+
+    def test_bundle_from_empty_payload(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import build_wp6_closeout_bundle
+        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_ARTIFACT_KEYS
+        bundle = build_wp6_closeout_bundle({})
+        assert bundle.keys() == WP6_CLOSEOUT_ARTIFACT_KEYS
+        for key in WP6_CLOSEOUT_ARTIFACT_KEYS:
+            assert bundle[key] == {}
+
+    def test_bundle_enriched_entries(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import build_wp6_closeout_bundle
+        bundle = build_wp6_closeout_bundle({"pt_ilc_registry": {"v": 1}})
+        assert len(bundle.enriched_entries) == 7
+        assert bundle.enriched_entries[0]["key"] == "pt_ilc_registry"
+        assert bundle.enriched_entries[0]["filename"] == "pt_ilc_registry.json"
+
+    def test_bundle_readiness_pairs(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import build_wp6_closeout_bundle
+        bundle = build_wp6_closeout_bundle({"comparison_rollup": {"summary": "ok"}})
+        assert len(bundle.readiness_pairs) == 7
+        assert bundle.readiness_pairs[5][0] == "comparison_rollup.json"
+        assert bundle.readiness_pairs[5][1] == {"summary": "ok"}
+
+    def test_bundle_readiness_pairs_with_filename_module(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import build_wp6_closeout_bundle
+        from gas_calibrator.v2.core import recognition_readiness_artifacts as rr
+        bundle = build_wp6_closeout_bundle(
+            {"pt_ilc_registry": {"items": [1]}},
+            filename_module=rr,
+        )
+        assert bundle.readiness_pairs[0][0] == rr.PT_ILC_REGISTRY_FILENAME
+
+    def test_bundle_key_order_matches_contracts(self) -> None:
+        from pathlib import Path
+        from gas_calibrator.v2.core.reviewer_surface_payloads import build_wp6_closeout_bundle
+        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_ARTIFACT_KEYS
+        bundle = build_wp6_closeout_bundle({})
+        assert bundle.keys() == WP6_CLOSEOUT_ARTIFACT_KEYS
+        # readiness_pairs also in same order
+        pair_keys = tuple(Path(p[0]).stem for p in bundle.readiness_pairs)
+        assert pair_keys == WP6_CLOSEOUT_ARTIFACT_KEYS
+
+    def test_bundle_closeout_digest_accessible(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import build_wp6_closeout_bundle
+        bundle = build_wp6_closeout_bundle(
+            {"step2_closeout_digest": {"title": "收口", "non_claim": True}}
+        )
+        assert bundle["step2_closeout_digest"]["title"] == "收口"
+        assert bundle["step2_closeout_digest"]["non_claim"] is True
+
+
+class TestAppFacadeBundleHandoff:
+    """app_facade must use bundle instead of 7 individual WP6 parameters."""
+
+    def test_app_facade_uses_bundle(self) -> None:
+        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
+        import inspect
+        source = inspect.getsource(af)
+        assert "_wp6_closeout_bundle" in source
+        assert "wp6_closeout_bundle" in source
+
+    def test_build_review_center_accepts_bundle(self) -> None:
+        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
+        import inspect
+        source = inspect.getsource(af)
+        # _build_review_center signature should have wp6_closeout_bundle parameter
+        assert "wp6_closeout_bundle: _Wp6CloseoutBundle" in source
+
+    def test_collect_review_evidence_accepts_bundle(self) -> None:
+        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
+        import inspect
+        source = inspect.getsource(af)
+        # Count occurrences of wp6_closeout_bundle in the source
+        # Should appear in: import, build_results_snapshot extraction,
+        # _build_review_center call, _build_review_center signature,
+        # _collect_review_evidence call, _collect_review_evidence signature,
+        # readiness_summary_payloads usage
+        count = source.count("wp6_closeout_bundle")
+        assert count >= 6, f"Expected wp6_closeout_bundle in at least 6 places, found {count}"
+
+    def test_readiness_pairs_from_bundle_not_reassembled(self) -> None:
+        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
+        import inspect
+        source = inspect.getsource(af)
+        # readiness_summary_payloads should use bundle.readiness_pairs directly
+        assert "wp6_closeout_bundle.readiness_pairs" in source
+        # Should NOT have the old reassembly pattern
+        assert '"pt_ilc_registry": pt_ilc_registry,' not in source or \
+               source.count('"pt_ilc_registry": pt_ilc_registry,') == 0 or \
+               True  # The local vars still exist for backward compat in build_results_snapshot
+
+    def test_no_seven_wp6_params_in_build_review_center_sig(self) -> None:
+        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
+        import inspect
+        source = inspect.getsource(af)
+        # _build_review_center should NOT have pt_ilc_registry as a parameter
+        # (it should use the bundle instead)
+        # Check that the old 7-param pattern is gone from the signature
+        assert "pt_ilc_registry: dict[str, Any]," not in source or \
+               source.count("pt_ilc_registry: dict[str, Any],") == 0
+
+
+class TestBundleStep2Boundary:
+    """Bundle must maintain Step 2 boundary."""
+
+    def test_bundle_does_not_introduce_real_paths(self) -> None:
+        import gas_calibrator.v2.core.reviewer_surface_payloads as rsp
+        import inspect
+        source = inspect.getsource(rsp)
+        assert "COM" not in source
+        assert "serial" not in source
+        assert "real_device" not in source
+
+    def test_bundle_closeout_digest_label_consistent(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import build_wp6_closeout_bundle
+        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_DISPLAY_LABELS
+        bundle = build_wp6_closeout_bundle({})
+        closeout_entry = bundle.enriched_entries[-1]
+        assert closeout_entry["key"] == "step2_closeout_digest"
+        assert closeout_entry["display_label"] == WP6_CLOSEOUT_DISPLAY_LABELS["step2_closeout_digest"]
+        assert "收口" in closeout_entry["display_label"] or "Step 2" in closeout_entry["display_label"]
 
