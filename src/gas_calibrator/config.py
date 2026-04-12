@@ -215,6 +215,23 @@ _RUNTIME_DEFAULTS: Dict[str, Any] = {
                 "rh_match_tol_pct": 3.3,
             },
         },
+        "postrun_corrected_delivery": {
+            "enabled": True,
+            "strict": False,
+            "write_devices": True,
+            "verify_report": False,
+            "verification_template": "",
+            "fallback_pressure_to_controller": False,
+            "pressure_row_source": "startup_calibration",
+            "write_pressure_coefficients": True,
+            "verify_short_run": {
+                "enabled": True,
+                "temp_c": 20.0,
+                "skip_co2_ppm": [],
+                "enable_connect_check": False,
+                "points_excel": "configs/points_tiny_short_run_20c_even500.xlsx",
+            },
+        },
     },
     "coefficients": {
         "ratio_poly_fit": {

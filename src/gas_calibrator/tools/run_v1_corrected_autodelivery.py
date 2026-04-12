@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import math
+import re
 import time
 from collections import Counter
 from datetime import datetime
@@ -94,6 +95,74 @@ def _write_csv(path: Path, rows: Sequence[Mapping[str, Any]]) -> None:
             writer.writerow(dict(row))
 
 
+def _annotate_rows_with_actual_device_ids(
+    rows: Sequence[Mapping[str, Any]],
+    actual_device_ids: Mapping[str, str],
+    *,
+    analyzer_key: str = "Analyzer",
+) -> List[Dict[str, Any]]:
+    normalized_ids = {
+        _normalize_analyzer(key): _normalize_device_id(value)
+        for key, value in dict(actual_device_ids or {}).items()
+        if _normalize_analyzer(key) and _normalize_device_id(value)
+    }
+    annotated: List[Dict[str, Any]] = []
+    for row in rows:
+        payload = dict(row)
+        analyzer = _normalize_analyzer(payload.get(analyzer_key))
+        payload.setdefault("ActualDeviceId", normalized_ids.get(analyzer, ""))
+        annotated.append(payload)
+    return annotated
+
+
+def _annotate_workbook_with_actual_device_ids(workbook_path: Path, actual_device_ids: Mapping[str, str]) -> None:
+    normalized_ids = {
+        _normalize_analyzer(key): _normalize_device_id(value)
+        for key, value in dict(actual_device_ids or {}).items()
+        if _normalize_analyzer(key) and _normalize_device_id(value)
+    }
+    if not normalized_ids or not workbook_path.exists():
+        return
+
+    analyzer_value_re = re.compile(r"^GA\d{2}$", re.IGNORECASE)
+    wb = load_workbook(workbook_path)
+    try:
+        for ws in wb.worksheets:
+            if ws.max_row < 2 or ws.max_column < 1:
+                continue
+            header = [str(ws.cell(1, idx).value or "").strip() for idx in range(1, ws.max_column + 1)]
+            if "ActualDeviceId" in header:
+                continue
+
+            analyzer_col: Optional[int] = None
+            for idx, value in enumerate(header, start=1):
+                normalized = str(value or "").strip().lower()
+                if normalized == "analyzer" or "分析" in str(value or ""):
+                    analyzer_col = idx
+                    break
+
+            if analyzer_col is None:
+                candidates = []
+                for row_idx in range(2, min(ws.max_row, 16) + 1):
+                    cell_value = str(ws.cell(row_idx, 1).value or "").strip()
+                    if cell_value:
+                        candidates.append(cell_value)
+                if candidates and all(analyzer_value_re.match(value) for value in candidates):
+                    analyzer_col = 1
+
+            if analyzer_col is None:
+                continue
+
+            ws.insert_cols(analyzer_col + 1, amount=1)
+            ws.cell(1, analyzer_col + 1).value = "ActualDeviceId"
+            for row_idx in range(2, ws.max_row + 1):
+                analyzer = _normalize_analyzer(ws.cell(row_idx, analyzer_col).value)
+                ws.cell(row_idx, analyzer_col + 1).value = normalized_ids.get(analyzer, "")
+        wb.save(workbook_path)
+    finally:
+        wb.close()
+
+
 def _append_dataframe_sheet(workbook_path: Path, sheet_name: str, frame: pd.DataFrame) -> None:
     wb = load_workbook(workbook_path)
     try:
@@ -171,8 +240,17 @@ def _coeff_value(row: Mapping[str, Any], index: int) -> float:
     return 0.0 if numeric is None else float(numeric)
 
 
-def build_corrected_download_plan_rows(simplified_frame: pd.DataFrame) -> List[Dict[str, Any]]:
+def build_corrected_download_plan_rows(
+    simplified_frame: pd.DataFrame,
+    *,
+    actual_device_ids: Optional[Mapping[str, str]] = None,
+) -> List[Dict[str, Any]]:
     rows: List[Dict[str, Any]] = []
+    normalized_ids = {
+        _normalize_analyzer(key): _normalize_device_id(value)
+        for key, value in dict(actual_device_ids or {}).items()
+        if _normalize_analyzer(key) and _normalize_device_id(value)
+    }
     if simplified_frame.empty:
         return rows
     for row in simplified_frame.to_dict(orient="records"):
@@ -186,6 +264,7 @@ def build_corrected_download_plan_rows(simplified_frame: pd.DataFrame) -> List[D
         secondary_values = [_coeff_value(row, idx) for idx in range(4, 9)] + [0.0]
         payload: Dict[str, Any] = {
             "Analyzer": analyzer,
+            "ActualDeviceId": normalized_ids.get(analyzer, ""),
             "Gas": gas,
             "ModeEnterCommand": "MODE,YGAS,FFF,2",
             "ModeExitCommand": "MODE,YGAS,FFF,1",
@@ -692,6 +771,24 @@ def write_coefficients_to_live_devices(
     return {"scan_rows": scan_rows, "summary_rows": summary_rows, "detail_rows": detail_rows}
 
 
+def _writeback_summary_all_ok(write_result: Mapping[str, Any]) -> bool:
+    summary_rows = list(write_result.get("summary_rows") or [])
+    if not summary_rows:
+        return False
+    return all(str(row.get("Status") or "").strip().lower() == "ok" for row in summary_rows)
+
+
+def _resolve_postrun_override_path(cfg: Mapping[str, Any], raw_path: Any) -> Optional[str]:
+    text = str(raw_path or "").strip()
+    if not text:
+        return None
+    candidate = Path(text)
+    if candidate.is_absolute():
+        return str(candidate.resolve())
+    base_dir = Path(str(cfg.get("_base_dir") or Path.cwd()))
+    return str((base_dir / candidate).resolve())
+
+
 def build_corrected_delivery(
     *,
     run_dir: str | Path,
@@ -708,7 +805,17 @@ def build_corrected_delivery(
     report = build_corrected_water_points_report(filtered_paths, output_path=report_path, temperature_key="Temp")
     simplified = report["simplified"].copy()
     summary = report["summary"].copy()
+    original = report["original"].copy()
+    points = report["points"].copy()
+    ranges = report["ranges"].copy()
+    topn = report["topn"].copy()
     actual_device_ids = extract_run_device_ids(run_dir)
+    summary = pd.DataFrame(_annotate_rows_with_actual_device_ids(summary.to_dict(orient="records"), actual_device_ids))
+    simplified = pd.DataFrame(_annotate_rows_with_actual_device_ids(simplified.to_dict(orient="records"), actual_device_ids))
+    original = pd.DataFrame(_annotate_rows_with_actual_device_ids(original.to_dict(orient="records"), actual_device_ids))
+    points = pd.DataFrame(_annotate_rows_with_actual_device_ids(points.to_dict(orient="records"), actual_device_ids))
+    ranges = pd.DataFrame(_annotate_rows_with_actual_device_ids(ranges.to_dict(orient="records"), actual_device_ids))
+    topn = pd.DataFrame(_annotate_rows_with_actual_device_ids(topn.to_dict(orient="records"), actual_device_ids))
 
     analyzer_summary_rows = []
     analyzer_values = summary.get("分析仪")
