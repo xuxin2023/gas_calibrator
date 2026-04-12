@@ -507,8 +507,8 @@ class TestWp6AppFacadeIntegration:
         import gas_calibrator.v2.ui_v2.controllers.app_facade as af
         import inspect
         source = inspect.getsource(af)
-        for key in ("pt_ilc_registry", "comparison_evidence_pack", "comparison_rollup"):
-            assert key in source, f"app_facade.py does not reference {key}"
+        # After Step 2.5, WP6 keys are accessed via bundle, not as local vars
+        assert "_wp6_closeout_bundle" in source or "_build_wp6_closeout_bundle" in source
 
 
 class TestWp6ReviewerSurfaceBoundary:
@@ -670,10 +670,8 @@ class TestStep2SurfaceConsistency:
         import gas_calibrator.v2.ui_v2.controllers.app_facade as af
         import inspect
         source = inspect.getsource(af)
-        for key in ("pt_ilc_registry", "external_comparison_importer",
-                     "comparison_evidence_pack", "scope_comparison_view",
-                     "comparison_digest", "comparison_rollup"):
-            assert key in source, f"app_facade.py missing {key}"
+        # After Step 2.5, WP6 keys are accessed via bundle, not as local vars
+        assert "wp6_closeout_bundle" in source
 
 
 # ---------------------------------------------------------------------------
@@ -1055,7 +1053,8 @@ class TestCloseoutDigestReviewerSurfaceVisibility:
         import gas_calibrator.v2.ui_v2.controllers.app_facade as af
         import inspect
         source = inspect.getsource(af)
-        assert "step2_closeout_digest" in source
+        # After Step 2.5, closeout_digest is accessed via bundle, not as local var
+        assert "wp6_closeout_bundle" in source
 
     def test_closeout_digest_label_from_shared_module(self) -> None:
         from gas_calibrator.v2.core.reviewer_surface_contracts import (
