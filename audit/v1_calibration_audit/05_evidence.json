@@ -1,0 +1,197 @@
+[
+  {
+    "id": "E001",
+    "title": "主 runner 写系数后缺少回读验证",
+    "severity": "High",
+    "status": "FAIL",
+    "summary": "`CalibrationRunner._maybe_write_coefficients` 只做 MODE/SENCO 写入与模式退出，没有调用 GETCO 或等价比较；而驱动和 corrected autodelivery 旁路已经具备 GETCO readback 能力。",
+    "files": [
+      {
+        "path": "src/gas_calibrator/workflow/runner.py",
+        "start_line": 16213,
+        "end_line": 16335
+      },
+      {
+        "path": "src/gas_calibrator/devices/gas_analyzer.py",
+        "start_line": 390,
+        "end_line": 459
+      },
+      {
+        "path": "src/gas_calibrator/tools/run_v1_corrected_autodelivery.py",
+        "start_line": 661,
+        "end_line": 818
+      }
+    ],
+    "commits": [
+      "d4487bb0"
+    ],
+    "why_it_matters": "如果 CO2/H2O 系数写入被部分接受、设备回写了旧值、或写入序列被串口噪声打断，本轮 V1 主流程自身无法发现，闭环证据不成立。",
+    "recommendation": "先在主 runner 的系数写入路径补齐 GETCO readback 与差异落盘；至少把写入前/写入后值、比较结果写到 formal artifact。",
+    "confidence": 0.97
+  },
+  {
+    "id": "E002",
+    "title": "postrun corrected delivery 已接入主 runner 且默认开启写设备",
+    "severity": "High",
+    "status": "FAIL",
+    "summary": "主 runner 在 run 正常结束后会进入 `_maybe_run_postrun_corrected_delivery`；默认配置把 `postrun_corrected_delivery.enabled=True`、`write_devices=True`、`verify_short_run.enabled=True` 一并打开。",
+    "files": [
+      {
+        "path": "src/gas_calibrator/workflow/runner.py",
+        "start_line": 7138,
+        "end_line": 7194
+      },
+      {
+        "path": "src/gas_calibrator/config.py",
+        "start_line": 220,
+        "end_line": 236
+      }
+    ],
+    "commits": [
+      "1d765f9ec",
+      "1ebff243f",
+      "248d0ac69",
+      "8fa3f3ecd"
+    ],
+    "why_it_matters": "这会把一次完成的 V1 运行自动带入后处理写回/短验证链路，扩大真实环境风险面，也会让审查主流程与后处理流程的边界变模糊。",
+    "recommendation": "先把该链路从默认主流程边界里剥离成显式人工确认步骤，至少在审计/回归阶段默认关闭写回和短验证。",
+    "confidence": 0.96
+  },
+  {
+    "id": "E003",
+    "title": "点位导出缺少独立保存时间戳",
+    "severity": "Medium",
+    "status": "FAIL",
+    "summary": "样本行保存了 `sample_ts/sample_start_ts/sample_end_ts` 以及多种设备采样时间，但点位汇总与样本导出都没有独立的 `save_ts`/`insert_ts` 字段。",
+    "files": [
+      {
+        "path": "src/gas_calibrator/workflow/runner.py",
+        "start_line": 14815,
+        "end_line": 15181
+      },
+      {
+        "path": "src/gas_calibrator/workflow/runner.py",
+        "start_line": 13677,
+        "end_line": 13811
+      },
+      {
+        "path": "src/gas_calibrator/logging_utils.py",
+        "start_line": 938,
+        "end_line": 940
+      },
+      {
+        "path": "src/gas_calibrator/logging_utils.py",
+        "start_line": 942,
+        "end_line": 960
+      }
+    ],
+    "commits": [
+      "d4487bb0"
+    ],
+    "why_it_matters": "审 V1 点位是否“及时落盘”时，只能看采样时间，无法区分采样发生时间和真正写盘/入库时间。",
+    "recommendation": "给样本级与点位级导出同时补一个统一的保存时间戳，并明确采样时间与保存时间的语义。",
+    "confidence": 0.93
+  },
+  {
+    "id": "E004",
+    "title": "主流程前后系数追溯不完整",
+    "severity": "Medium",
+    "status": "FAIL",
+    "summary": "主 runner 可写系数，也可调用 corrected autodelivery，但当前主路径不自动保存写前系数快照；完整的 before/after coefficient provenance 只存在于独立 sidecar 工具链。",
+    "files": [
+      {
+        "path": "src/gas_calibrator/workflow/runner.py",
+        "start_line": 16213,
+        "end_line": 16335
+      },
+      {
+        "path": "src/gas_calibrator/workflow/runner.py",
+        "start_line": 7138,
+        "end_line": 7194
+      },
+      {
+        "path": "src/gas_calibrator/tools/run_v1_corrected_autodelivery.py",
+        "start_line": 839,
+        "end_line": 950
+      }
+    ],
+    "commits": [
+      "1d765f9ec",
+      "1ebff243f",
+      "248d0ac69",
+      "8fa3f3ecd",
+      "d4487bb0"
+    ],
+    "why_it_matters": "当需要复核 CO2/H2O 系数是否真的闭环、是否回退到上次值、是否写入了预期组别时，主 runner 产物不足以直接证明。",
+    "recommendation": "把 before/after coefficient snapshot、目标值、readback 值整合进主 runner 的 formal artifact，而不是只留在旁路工具里。",
+    "confidence": 0.88
+  },
+  {
+    "id": "E005",
+    "title": "点位链路具备稳态与 handoff 保护",
+    "severity": "Low",
+    "status": "PASS",
+    "summary": "采样前链路具备压力后门禁、freshness gate、route handoff deferred export 和唯一 point tag 组合，静态上可以解释为什么不会直接把切点瞬间或上一点位数据落到当前点位。",
+    "files": [
+      {
+        "path": "src/gas_calibrator/workflow/runner.py",
+        "start_line": 12624,
+        "end_line": 12811
+      },
+      {
+        "path": "src/gas_calibrator/workflow/runner.py",
+        "start_line": 12006,
+        "end_line": 12125
+      },
+      {
+        "path": "src/gas_calibrator/workflow/runner.py",
+        "start_line": 13878,
+        "end_line": 13897
+      },
+      {
+        "path": "src/gas_calibrator/logging_utils.py",
+        "start_line": 1720,
+        "end_line": 1756
+      }
+    ],
+    "commits": [
+      "d4487bb0",
+      "e546d0714"
+    ],
+    "why_it_matters": "这部分是本轮静态审计里对“上一点位/过渡态/立即最新值被误存”的主要正向证据。",
+    "recommendation": "继续保留这些保护，并在回归里长期保留只读 trace 检查。",
+    "confidence": 0.85
+  },
+  {
+    "id": "E006",
+    "title": "H2O 路线存在，但零点/跨度业务语义仍不明确",
+    "severity": "Low",
+    "status": "UNKNOWN",
+    "summary": "代码里能确认 H2O 路线、H2O point tag、以及 H2O coefficient groups 2/4 的存在；但没有找到与 CO2 zero/span 对等的 H2O 零点/跨度判定步骤。",
+    "files": [
+      {
+        "path": "src/gas_calibrator/workflow/runner.py",
+        "start_line": 11628,
+        "end_line": 11780
+      },
+      {
+        "path": "src/gas_calibrator/workflow/runner.py",
+        "start_line": 5120,
+        "end_line": 5130
+      },
+      {
+        "path": "src/gas_calibrator/tools/run_v1_corrected_autodelivery.py",
+        "start_line": 290,
+        "end_line": 333
+      }
+    ],
+    "commits": [
+      "248d0ac69",
+      "5570747db",
+      "d4487bb0"
+    ],
+    "why_it_matters": "后续如果要审“H2O 零点/跨度是否闭环”，当前静态证据还不足以直接落 PASS/FAIL。",
+    "recommendation": "补一份明确的 H2O 点位业务定义或 acceptance 口径，再做下一轮核对。",
+    "confidence": 0.72
+  }
+]
