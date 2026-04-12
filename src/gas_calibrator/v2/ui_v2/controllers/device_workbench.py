@@ -491,13 +491,6 @@ class DeviceWorkbenchController:
         uncertainty_summary = dict(payload.get("uncertainty_method_readiness_summary") or {})
         audit_summary = dict(payload.get("audit_readiness_digest") or {})
         _wp6_closeout = _extract_wp6_closeout_payloads(payload)
-        pt_ilc_registry = _wp6_closeout["pt_ilc_registry"]
-        external_comparison_importer = _wp6_closeout["external_comparison_importer"]
-        comparison_evidence_pack = _wp6_closeout["comparison_evidence_pack"]
-        scope_comparison_view = _wp6_closeout["scope_comparison_view"]
-        comparison_digest_payload = _wp6_closeout["comparison_digest"]
-        comparison_rollup = _wp6_closeout["comparison_rollup"]
-        step2_closeout_digest = _wp6_closeout["step2_closeout_digest"]
         recognition_scope_rollup = dict(payload.get("recognition_scope_rollup") or {})
         compatibility_summary = dict(payload.get("compatibility_scan_summary") or {})
         compatibility_overview = dict(compatibility_summary.get("compatibility_overview") or {})

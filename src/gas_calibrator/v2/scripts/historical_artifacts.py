@@ -210,13 +210,6 @@ def _build_run_report(
         compatibility_scan_summary=compatibility_scan_summary,
     ).read_payload()
     _wp6_closeout = _extract_wp6_closeout_payloads(wp6_payload)
-    pt_ilc_registry = _wp6_closeout["pt_ilc_registry"]
-    external_comparison_importer = _wp6_closeout["external_comparison_importer"]
-    comparison_evidence_pack = _wp6_closeout["comparison_evidence_pack"]
-    scope_comparison_view = _wp6_closeout["scope_comparison_view"]
-    comparison_digest_payload = _wp6_closeout["comparison_digest"]
-    comparison_rollup = _wp6_closeout["comparison_rollup"]
-    step2_closeout_digest = _wp6_closeout["step2_closeout_digest"]
     reference_asset_digest = dict(reference_asset_registry.get("digest") or {})
     certificate_lifecycle_digest = dict(certificate_lifecycle_summary.get("digest") or {})
     pre_run_gate_digest = dict(pre_run_readiness_gate.get("digest") or {})
@@ -465,13 +458,13 @@ def _build_run_report(
         "linked_hash_registry": dict(release_manifest.get("linked_hash_registry") or {}),
         "linked_test_suites": list(release_manifest.get("linked_test_suites") or []),
         "software_validation_rollup": software_validation_rollup,
-        "pt_ilc_registry": pt_ilc_registry,
-        "external_comparison_importer": external_comparison_importer,
-        "comparison_evidence_pack": comparison_evidence_pack,
-        "scope_comparison_view": scope_comparison_view,
-        "comparison_digest": comparison_digest_payload,
-        "comparison_rollup": comparison_rollup,
-        "step2_closeout_digest": step2_closeout_digest,
+        "pt_ilc_registry": _wp6_closeout["pt_ilc_registry"],
+        "external_comparison_importer": _wp6_closeout["external_comparison_importer"],
+        "comparison_evidence_pack": _wp6_closeout["comparison_evidence_pack"],
+        "scope_comparison_view": _wp6_closeout["scope_comparison_view"],
+        "comparison_digest": _wp6_closeout["comparison_digest"],
+        "comparison_rollup": _wp6_closeout["comparison_rollup"],
+        "step2_closeout_digest": _wp6_closeout["step2_closeout_digest"],
         "current_evidence_coverage": str(
             verification_digest.get("current_evidence_coverage_summary")
             or verification_digest.get("current_coverage_summary")
