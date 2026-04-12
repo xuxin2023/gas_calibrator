@@ -18,6 +18,9 @@ from .governance_handoff_contracts import (
     GOVERNANCE_HANDOFF_DISPLAY_LABELS_EN as _GOV_LABELS_EN,
     GOVERNANCE_HANDOFF_I18N_KEYS as _GOV_I18N_KEYS,
     GOVERNANCE_HANDOFF_ROLES as _GOV_ROLES,
+    GOVERNANCE_HANDOFF_TITLE_TEXTS as _GOV_TITLE_TEXTS,
+    GOVERNANCE_HANDOFF_SUMMARY_TEXTS as _GOV_SUMMARY_TEXTS,
+    GOVERNANCE_HANDOFF_PHASES as _GOV_PHASES,
 )
 
 
@@ -118,11 +121,8 @@ def build_engineering_isolation_admission_checklist(
     checklist_status_counts = _count_statuses(checklist_items)
 
     display = {
-        "title_text": "工程隔离准入清单 / Engineering Isolation Admission Checklist",
-        "summary_text": (
-            "准入清单：基于现有 readiness / metrology / bridge / review pack 收口进入 "
-            "engineering-isolation 前的已满足项、待确认项与仅限 Stage 3 的项。"
-        ),
+        "title_text": _GOV_TITLE_TEXTS["engineering_isolation_admission_checklist"],
+        "summary_text": _GOV_SUMMARY_TEXTS["engineering_isolation_admission_checklist"],
         "status_line": str(pack_display.get("status_line") or "").strip(),
         "current_stage_text": str(pack_display.get("current_stage_text") or "").strip(),
         "next_stage_text": str(pack_display.get("next_stage_text") or "").strip(),
@@ -144,7 +144,7 @@ def build_engineering_isolation_admission_checklist(
         "artifact_type": "engineering_isolation_admission_checklist",
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "run_id": str(run_id or pack_raw.get("run_id") or bridge.get("run_id") or ""),
-        "phase": str(pack_raw.get("phase") or bridge.get("phase") or "step2_tail_stage3_bridge"),
+        "phase": str(pack_raw.get("phase") or bridge.get("phase") or _GOV_PHASES["engineering_isolation_admission_checklist"]),
         "mode": str(pack_raw.get("mode") or bridge.get("mode") or readiness.get("mode") or "simulation_only"),
         "overall_status": str(pack_raw.get("overall_status") or bridge.get("overall_status") or "step2_tail_in_progress"),
         "recommended_next_stage": str(
@@ -438,7 +438,7 @@ def _build_artifact_lines(artifact_refs: dict[str, dict[str, Any]]) -> list[str]
 
 def _render_engineering_isolation_admission_checklist_markdown(display: dict[str, Any]) -> str:
     lines = [
-        f"# {display.get('title_text') or '工程隔离准入清单 / Engineering Isolation Admission Checklist'}",
+        f"# {display.get('title_text') or _GOV_TITLE_TEXTS['engineering_isolation_admission_checklist']}",
         "",
         "> 仅用于 Step 2 tail / Stage 3 bridge 的离线 governance / reviewer handoff 清单，不是 real acceptance，不能替代真实计量验证。",
         "",

@@ -138,7 +138,7 @@ def build_stage_admission_review_pack(
         "artifact_type": "stage_admission_review_pack",
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "run_id": str(run_id or bridge.get("run_id") or readiness.get("run_id") or ""),
-        "phase": str(bridge.get("phase") or "step2_tail_stage3_bridge"),
+        "phase": str(bridge.get("phase") or _GOV_PHASES["stage_admission_review_pack"]),
         "mode": str(bridge.get("mode") or readiness.get("mode") or "simulation_only"),
         "overall_status": str(bridge.get("overall_status") or "step2_tail_in_progress"),
         "recommended_next_stage": str(bridge.get("recommended_next_stage") or "close_step2_tail_gaps"),
@@ -243,7 +243,7 @@ def _artifact_line(name: str, path_text: str, summary_text: str) -> str:
 
 def _render_stage_admission_review_pack_markdown(display: dict[str, Any]) -> str:
     lines = [
-        f"# {display.get('title_text') or '阶段准入评审包 / Stage Admission Review Pack'}",
+        f"# {display.get('title_text') or _GOV_TITLE_TEXTS['stage_admission_review_pack']}",
         "",
         "> 离线 governance handoff pack：仅用于 Step 2 tail / Stage 3 bridge 的 reviewer 审阅、治理留痕与后续 Stage 3 准入交接，不是 real acceptance，不能替代真实计量验证。",
         "",

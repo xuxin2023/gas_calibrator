@@ -3,6 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .governance_handoff_contracts import (
+    GOVERNANCE_HANDOFF_TITLE_TEXTS as _GOV_TITLE_TEXTS,
+    GOVERNANCE_HANDOFF_ANCHOR_IDS as _GOV_ANCHOR_IDS,
+    GOVERNANCE_HANDOFF_COMBINED_ROLE_TEXTS as _GOV_COMBINED_ROLE_TEXTS,
+    GOVERNANCE_HANDOFF_PHASES as _GOV_PHASES,
+    GOVERNANCE_HANDOFF_ROLES as _GOV_ROLES,
+    GOVERNANCE_HANDOFF_REVIEWER_PAIRING as _GOV_REVIEWER_PAIRING,
+)
+
 
 ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_ARTIFACT_KEY = "engineering_isolation_admission_checklist"
 ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_ARTIFACT_KEY = (
@@ -27,7 +36,7 @@ def build_engineering_isolation_admission_checklist_artifact_entry(
         or ""
     ).strip()
 
-    title_text = "工程隔离准入清单 / Engineering Isolation Admission Checklist"
+    title_text = _GOV_TITLE_TEXTS["engineering_isolation_admission_checklist"]
     summary_text = str(reviewer_manifest_payload.get("summary_text") or "").strip()
     status_line = str(reviewer_manifest_payload.get("status_line") or "").strip()
     current_stage_text = str(reviewer_manifest_payload.get("current_stage_text") or "").strip()
@@ -41,8 +50,8 @@ def build_engineering_isolation_admission_checklist_artifact_entry(
     blocking_text = str(reviewer_manifest_payload.get("blocking_text") or "").strip()
     warning_text = str(reviewer_manifest_payload.get("warning_text") or "").strip()
     stage_marker_text = current_stage_text or next_stage_text
-    role_text = "execution_summary + formal_analysis"
-    anchor_id = "engineering-isolation-admission-checklist"
+    role_text = _GOV_COMBINED_ROLE_TEXTS["engineering_isolation_admission_checklist"]
+    anchor_id = _GOV_ANCHOR_IDS["engineering_isolation_admission_checklist"]
     boundary_filters = [
         "engineering-isolation dependency",
         "simulation / offline / headless only",
@@ -104,8 +113,8 @@ def build_engineering_isolation_admission_checklist_artifact_entry(
         "anchor_id": anchor_id,
         "navigation_id": anchor_id,
         "anchor_label": title_text,
-        "phase_filters": ["step2_tail_stage3_bridge", "engineering_isolation_admission"],
-        "artifact_role_filters": ["execution_summary", "formal_analysis"],
+        "phase_filters": [_GOV_PHASES["engineering_isolation_admission_checklist"], "engineering_isolation_admission"],
+        "artifact_role_filters": [_GOV_ROLES["engineering_isolation_admission_checklist"], _GOV_ROLES["engineering_isolation_admission_checklist_reviewer_artifact"]],
         "standard_family_filters": [],
         "evidence_category_filters": [],
         "boundary_filters": boundary_filters,
