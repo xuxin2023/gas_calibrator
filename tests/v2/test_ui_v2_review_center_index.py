@@ -162,6 +162,12 @@ def test_review_center_builds_cross_run_index_from_recent_runs(tmp_path: Path, m
     source_labels = {str(item.get("source_label") or "") for item in review_center["evidence_items"]}
     types = {str(item.get("type") or "") for item in review_center["evidence_items"]}
 
+    # Debug: print diagnostics
+    _diag = review_center.get("diagnostics", {})
+    print(f"DEBUG: cache_hit={_diag.get('cache_hit')}, scanned_root_count={_diag.get('scanned_root_count')}, scan_budget_used={_diag.get('scan_budget_used')}")
+    print(f"DEBUG: parity_count={review_center['index_summary']['parity_count']}, resilience_count={review_center['index_summary']['resilience_count']}")
+    print(f"DEBUG: types={sorted(types)}")
+
     assert review_center["index_summary"]["recent_runs"] >= 2
     assert review_center["index_summary"]["suite_count"] >= 1
     assert review_center["index_summary"]["parity_count"] >= 1
