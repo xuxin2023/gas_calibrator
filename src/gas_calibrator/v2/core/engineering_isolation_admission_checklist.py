@@ -12,10 +12,17 @@ from .stage_admission_review_pack import (
     build_stage_admission_review_pack,
 )
 from .step2_readiness import STEP2_READINESS_SUMMARY_FILENAME
+from .governance_handoff_contracts import (
+    GOVERNANCE_HANDOFF_FILENAMES as _GOV_FILENAMES,
+    GOVERNANCE_HANDOFF_DISPLAY_LABELS as _GOV_LABELS,
+    GOVERNANCE_HANDOFF_DISPLAY_LABELS_EN as _GOV_LABELS_EN,
+    GOVERNANCE_HANDOFF_I18N_KEYS as _GOV_I18N_KEYS,
+    GOVERNANCE_HANDOFF_ROLES as _GOV_ROLES,
+)
 
 
-ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME = "engineering_isolation_admission_checklist.json"
-ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME = "engineering_isolation_admission_checklist.md"
+ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME = _GOV_FILENAMES["engineering_isolation_admission_checklist"]
+ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_FILENAME = _GOV_FILENAMES["engineering_isolation_admission_checklist_reviewer_artifact"]
 
 
 def build_engineering_isolation_admission_checklist(

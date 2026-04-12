@@ -3,8 +3,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from .governance_handoff_contracts import GOVERNANCE_HANDOFF_FILENAMES as _GOV_FILENAMES
 
-PHASE_TRANSITION_BRIDGE_FILENAME = "phase_transition_bridge.json"
+
+PHASE_TRANSITION_BRIDGE_FILENAME = _GOV_FILENAMES["phase_transition_bridge"]
 _METROLOGY_SECTION_IDS = [
     "reference_traceability_contract",
     "calibration_execution_contract",
