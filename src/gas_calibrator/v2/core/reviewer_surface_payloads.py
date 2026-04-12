@@ -130,3 +130,75 @@ def build_wp6_closeout_readiness_pairs(
             filename = filenames[0]
         pairs.append((filename, dict(payloads.get(key) or {})))
     return pairs
+
+
+# ---------------------------------------------------------------------------
+# Unified bundle: single object for WP6+closeout handoff
+# ---------------------------------------------------------------------------
+
+
+class Wp6CloseoutBundle:
+    """Unified bundle for WP6 + step2_closeout_digest reviewer surface handoff.
+
+    Replaces the pattern of passing 7 individual WP6 parameters through
+    multiple function signatures. All consumers receive this single object.
+
+    Attributes:
+        payloads_by_key: Ordered dict mapping artifact key to payload dict.
+        enriched_entries: List of enriched metadata dicts (from extract_wp6_closeout_enriched).
+        readiness_pairs: List of (filename, payload) tuples for review center.
+    """
+
+    __slots__ = ("payloads_by_key", "enriched_entries", "readiness_pairs")
+
+    def __init__(
+        self,
+        payloads_by_key: dict[str, dict[str, Any]],
+        enriched_entries: list[dict[str, Any]],
+        readiness_pairs: list[tuple[str, dict[str, Any]]],
+    ) -> None:
+        self.payloads_by_key = payloads_by_key
+        self.enriched_entries = enriched_entries
+        self.readiness_pairs = readiness_pairs
+
+    def __getitem__(self, key: str) -> dict[str, Any]:
+        return self.payloads_by_key[key]
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.payloads_by_key
+
+    def keys(self) -> tuple[str, ...]:
+        return tuple(self.payloads_by_key.keys())
+
+
+def build_wp6_closeout_bundle(
+    source: dict[str, Any],
+    *,
+    default_empty: bool = True,
+    filename_module: Any = None,
+) -> Wp6CloseoutBundle:
+    """Build a unified WP6+closeout bundle from a source dict.
+
+    This is the primary entry point for consumers that need WP6+closeout
+    data. It combines extraction, enrichment, and readiness pair building
+    into a single object.
+
+    Args:
+        source: A dict containing WP6+closeout payload entries.
+        default_empty: If True, missing keys return empty dict instead of None.
+        filename_module: Optional module with filename constants
+                        (e.g. recognition_readiness_artifacts).
+
+    Returns:
+        Wp6CloseoutBundle with payloads_by_key, enriched_entries, and readiness_pairs.
+    """
+    payloads_by_key = extract_wp6_closeout_payloads(source, default_empty=default_empty)
+    enriched_entries = extract_wp6_closeout_enriched(source, default_empty=default_empty)
+    readiness_pairs = build_wp6_closeout_readiness_pairs(
+        source, filename_module=filename_module,
+    )
+    return Wp6CloseoutBundle(
+        payloads_by_key=payloads_by_key,
+        enriched_entries=enriched_entries,
+        readiness_pairs=readiness_pairs,
+    )
