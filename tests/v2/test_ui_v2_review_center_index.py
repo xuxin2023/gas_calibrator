@@ -76,6 +76,7 @@ def test_review_center_builds_cross_run_index_from_recent_runs(tmp_path: Path, m
     facade.add_recent_run(str(run_a))
     facade.add_recent_run(str(run_b))
 
+    # run_a: suite + workbench (deterministic synthetic data)
     _write_json(
         run_a / "suite_summary.json",
         {
@@ -101,8 +102,9 @@ def test_review_center_builds_cross_run_index_from_recent_runs(tmp_path: Path, m
             "current_action_display": "run preset",
         },
     )
+    # run_a also carries parity + resilience for deterministic cross-run index
     _write_json(
-        run_b / "summary_parity_report.json",
+        run_a / "summary_parity_report.json",
         {
             "generated_at": (now - timedelta(days=2)).isoformat(timespec="seconds"),
             "status": "MATCH",
@@ -113,7 +115,7 @@ def test_review_center_builds_cross_run_index_from_recent_runs(tmp_path: Path, m
         },
     )
     _write_json(
-        run_b / "export_resilience_report.json",
+        run_a / "export_resilience_report.json",
         {
             "generated_at": (now - timedelta(days=5)).isoformat(timespec="seconds"),
             "status": "MISMATCH",
@@ -126,6 +128,7 @@ def test_review_center_builds_cross_run_index_from_recent_runs(tmp_path: Path, m
             ],
         },
     )
+    # run_b: analytics + lineage (deterministic synthetic data)
     _write_json(
         run_b / "analytics_summary.json",
         {
@@ -158,36 +161,9 @@ def test_review_center_builds_cross_run_index_from_recent_runs(tmp_path: Path, m
     facade._review_center_roots_cache.clear()
     facade._review_artifact_paths_cache.clear()
     facade._review_center_cache = None
-    # Force _collect_review_evidence to always refresh, avoiding stale cache
-    # when synthetic data is written after facade construction.
-    _orig_collect = facade._collect_review_evidence
-    def _collect_force_refresh(*args, **kwargs):
-        kwargs["force_refresh"] = True
-        return _orig_collect(*args, **kwargs)
-    monkeypatch.setattr(facade, "_collect_review_evidence", _collect_force_refresh)
     review_center = facade.build_results_snapshot()["review_center"]
     source_labels = {str(item.get("source_label") or "") for item in review_center["evidence_items"]}
     types = {str(item.get("type") or "") for item in review_center["evidence_items"]}
-
-    # Debug: print diagnostics
-    _diag = review_center.get("diagnostics", {})
-    print(f"DEBUG: cache_hit={_diag.get('cache_hit')}, scanned_root_count={_diag.get('scanned_root_count')}, scan_budget_used={_diag.get('scan_budget_used')}")
-    print(f"DEBUG: parity_count={review_center['index_summary']['parity_count']}, resilience_count={review_center['index_summary']['resilience_count']}")
-    print(f"DEBUG: types={sorted(types)}")
-    print(f"DEBUG: run_b={run_b}, run_b_exists={run_b.exists()}")
-    print(f"DEBUG: parity_file_exists={(run_b / 'summary_parity_report.json').exists()}")
-    _compare_roots = facade._review_center_roots(include_compare_root=True, force_refresh=True)
-    print(f"DEBUG: run_b_in_compare_roots={any(str(r) == str(run_b) or str(r.resolve()) == str(run_b.resolve()) for r in _compare_roots)}")
-    _parity_debug_metrics = {}
-    _parity_paths = facade._review_artifact_paths(
-        "summary_parity_report.json",
-        roots=_compare_roots,
-        limit=8,
-        metrics=_parity_debug_metrics,
-        force_refresh=True,
-    )
-    print(f"DEBUG: parity_paths={_parity_paths}")
-    print(f"DEBUG: parity_debug_metrics={_parity_debug_metrics}")
 
     assert review_center["index_summary"]["recent_runs"] >= 2
     assert review_center["index_summary"]["suite_count"] >= 1
