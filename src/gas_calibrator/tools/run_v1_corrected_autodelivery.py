@@ -806,6 +806,7 @@ def build_corrected_delivery(
     *,
     run_dir: str | Path,
     output_dir: str | Path,
+    coeff_cfg: Optional[Mapping[str, Any]] = None,
     fallback_pressure_to_controller: bool = False,
     pressure_row_source: str = "startup_calibration",
 ) -> Dict[str, Any]:
@@ -815,7 +816,12 @@ def build_corrected_delivery(
 
     filtered_paths, filter_stats = _filter_no_500_summary_paths(run_dir, output_dir)
     report_path = output_dir / "calibration_coefficients.xlsx"
-    report = build_corrected_water_points_report(filtered_paths, output_path=report_path, temperature_key="Temp")
+    report = build_corrected_water_points_report(
+        filtered_paths,
+        output_path=report_path,
+        coeff_cfg=coeff_cfg,
+        temperature_key="Temp",
+    )
     simplified = pd.DataFrame(report.get("simplified", pd.DataFrame())).copy()
     summary = pd.DataFrame(report.get("summary", pd.DataFrame())).copy()
     original = pd.DataFrame(report.get("original", pd.DataFrame())).copy()
@@ -909,15 +915,15 @@ def run_from_cli(
     run_dir_path = Path(run_dir).resolve()
     target_dir = Path(output_dir).resolve() if output_dir else run_dir_path / f"corrected_autodelivery_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     target_dir.mkdir(parents=True, exist_ok=True)
+    cfg_path = Path(config_path).resolve() if config_path else (run_dir_path / "runtime_config_snapshot.json")
+    cfg = load_config(str(cfg_path))
     delivery = build_corrected_delivery(
         run_dir=run_dir_path,
         output_dir=target_dir,
+        coeff_cfg=cfg.get("coefficients", {}) if isinstance(cfg.get("coefficients", {}), dict) else {},
         fallback_pressure_to_controller=fallback_pressure_to_controller,
         pressure_row_source=pressure_row_source,
     )
-
-    cfg_path = Path(config_path).resolve() if config_path else (run_dir_path / "runtime_config_snapshot.json")
-    cfg = load_config(str(cfg_path))
     write_result: Dict[str, Any] = {}
     if write_devices:
         write_result = write_coefficients_to_live_devices(

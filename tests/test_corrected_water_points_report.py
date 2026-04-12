@@ -14,8 +14,9 @@ def test_select_corrected_fit_rows_applies_h2o_rule() -> None:
         {"Analyzer": "GA01", "PointPhase": "H2O", "PointTag": "h2o_30", "Temp": 30.0, "EnvTempC": 30.0, "ppm_CO2_Tank": None},
         {"Analyzer": "GA01", "PointPhase": "气路", "PointTag": "co2_m20_0", "Temp": -20.0, "EnvTempC": -20.0, "ppm_CO2_Tank": 0.0},
         {"Analyzer": "GA01", "PointPhase": "CO2", "PointTag": "co2_m20_400", "Temp": -20.0, "EnvTempC": -20.0, "ppm_CO2_Tank": 400.0},
-        {"Analyzer": "GA01", "PointPhase": "CO2", "PointTag": "co2_m10_1000", "Temp": -10.0, "EnvTempC": -10.0, "ppm_CO2_Tank": 1000.0},
+        {"Analyzer": "GA01", "PointPhase": "CO2", "PointTag": "co2_m10_0", "Temp": -10.0, "EnvTempC": -10.0, "ppm_CO2_Tank": 0.0},
         {"Analyzer": "GA01", "PointPhase": "CO2", "PointTag": "co2_0_400", "Temp": 0.0, "EnvTempC": 0.0, "ppm_CO2_Tank": 400.0},
+        {"Analyzer": "GA01", "PointPhase": "CO2", "PointTag": "co2_0_0", "Temp": 0.0, "EnvTempC": 0.0, "ppm_CO2_Tank": 0.0},
         {"Analyzer": "GA01", "PointPhase": "CO2", "PointTag": "co2_10_0", "Temp": 10.1, "EnvTempC": 10.0, "ppm_CO2_Tank": 0.0},
         {"Analyzer": "GA01", "PointPhase": "CO2", "PointTag": "co2_10_400", "Temp": 10.2, "EnvTempC": 10.0, "ppm_CO2_Tank": 400.0},
         {"Analyzer": "GA01", "PointPhase": "CO2", "PointTag": "co2_20_0", "Temp": 20.0, "EnvTempC": 20.0, "ppm_CO2_Tank": 0.0},
@@ -28,10 +29,8 @@ def test_select_corrected_fit_rows_applies_h2o_rule() -> None:
         "h2o_20",
         "h2o_30",
         "co2_m20_0",
-        "co2_m20_400",
-        "co2_m10_1000",
-        "co2_0_400",
-        "co2_10_0",
+        "co2_m10_0",
+        "co2_0_0",
     ]
 
 

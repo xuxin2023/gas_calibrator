@@ -386,6 +386,7 @@ def build_corrected_water_points_report(
 ) -> Dict[str, Any]:
     cfg = dict(coeff_cfg or {})
     normalized_scope = _normalize_data_scope(data_scope)
+    h2o_selection = _resolve_h2o_selection(cfg.get("h2o_summary_selection"))
     frame = load_summary_workbook_rows(summary_paths)
     analyzers = sorted(str(value) for value in frame["Analyzer"].dropna().unique())
 
@@ -400,6 +401,7 @@ def build_corrected_water_points_report(
                 analyzer_frame,
                 gas=gas,
                 temperature_key=temperature_key,
+                selection=h2o_selection,
             )
             if selected.empty:
                 continue
@@ -435,6 +437,10 @@ def build_corrected_water_points_report(
         {"说明项": "算法", "说明内容": "ratio_poly_rt_p 全量拟合 + 系数回代验证 + 逐点对账分析"},
         {"说明项": "颜色含义", "说明内容": "绿色=建议采用；黄色=谨慎采用；红色=暂不建议"},
     ]
+    note_rows[1] = {
+        "说明项": "统计口径",
+        "说明内容": f"CO2 仅使用 PointPhase=气路；H2O 使用 {_describe_h2o_selection(h2o_selection)}",
+    }
     notes_df = pd.DataFrame(note_rows)
 
     output = Path(output_path)

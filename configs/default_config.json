@@ -683,16 +683,14 @@
         40.0
       ],
       "temperature_bucket_tolerance_c": 6.0,
-      "include_co2_temp_groups_c": [
-        -20.0,
-        -10.0,
-        0.0
-      ],
+      "include_co2_temp_groups_c": [],
       "include_co2_zero_ppm_rows": true,
       "co2_zero_ppm_target": 0.0,
       "co2_zero_ppm_tolerance": 0.5,
       "include_co2_zero_ppm_temp_groups_c": [
-        10.0
+        -20.0,
+        -10.0,
+        0.0
       ],
       "temp_tolerance_c": 0.6
     },

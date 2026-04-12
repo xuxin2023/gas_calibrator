@@ -186,17 +186,18 @@ def test_build_corrected_delivery_prefers_startup_pressure_rows(tmp_path: Path, 
     out_dir = tmp_path / "out_4"
     run_dir.mkdir()
     out_dir.mkdir()
+    report_kwargs: dict[str, object] = {}
 
     monkeypatch.setattr(module, "_filter_no_500_summary_paths", lambda *_args, **_kwargs: ([run_dir / "gas.csv", run_dir / "water.csv"], []))
     monkeypatch.setattr(module, "_append_dataframe_sheet", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(
-        module,
-        "build_corrected_water_points_report",
-        lambda *_args, **_kwargs: {
+    def _fake_report(*_args, **_kwargs):
+        report_kwargs.update(_kwargs)
+        return {
             "summary": pd.DataFrame([{"鍒嗘瀽浠?": "GA01", "姘斾綋": "CO2"}]),
             "simplified": pd.DataFrame([{"鍒嗘瀽浠?": "GA01", "姘斾綋": "CO2", **{f"a{i}": float(i + 1) for i in range(9)}}]),
-        },
-    )
+        }
+
+    monkeypatch.setattr(module, "build_corrected_water_points_report", _fake_report)
     monkeypatch.setattr(module, "extract_run_device_ids", lambda *_args, **_kwargs: {"GA01": "005"})
     monkeypatch.setattr(module, "load_temperature_coefficient_rows", lambda *_args, **_kwargs: [{"analyzer_id": "GA01", "senco_channel": "SENCO7", "A": 1, "B": 2, "C": 3, "D": 4}])
     monkeypatch.setattr(module, "load_startup_pressure_calibration_rows", lambda *_args, **_kwargs: [{"Analyzer": "GA01", "DeviceId": "005", "OffsetA_kPa": -2.5, "Command": "SENCO9,YGAS,FFF,-2.50000e00,1.00000e00,0.00000e00,0.00000e00"}])
@@ -208,10 +209,16 @@ def test_build_corrected_delivery_prefers_startup_pressure_rows(tmp_path: Path, 
 
     monkeypatch.setattr(module, "compute_pressure_offset_rows", _fake_compute)
 
-    result = module.build_corrected_delivery(run_dir=run_dir, output_dir=out_dir, pressure_row_source="startup_calibration")
+    result = module.build_corrected_delivery(
+        run_dir=run_dir,
+        output_dir=out_dir,
+        coeff_cfg={"h2o_summary_selection": {"include_co2_temp_groups_c": [], "include_co2_zero_ppm_temp_groups_c": [-20.0, -10.0, 0.0]}},
+        pressure_row_source="startup_calibration",
+    )
 
     assert compute_calls["count"] == 0
     assert result["pressure_rows"] == [{"Analyzer": "GA01", "DeviceId": "005", "OffsetA_kPa": -2.5, "Command": "SENCO9,YGAS,FFF,-2.50000e00,1.00000e00,0.00000e00,0.00000e00"}]
+    assert report_kwargs["coeff_cfg"] == {"h2o_summary_selection": {"include_co2_temp_groups_c": [], "include_co2_zero_ppm_temp_groups_c": [-20.0, -10.0, 0.0]}}
 
 
 def test_write_coefficients_to_live_devices_can_skip_pressure_rows(tmp_path: Path, monkeypatch) -> None:

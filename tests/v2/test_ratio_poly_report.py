@@ -202,7 +202,7 @@ def test_select_corrected_fit_rows_keeps_only_configured_dry_gas_points() -> Non
                 route="co2",
                 analyzer_id="ga01",
                 temperature_c=-20.0,
-                co2_target=400.0,
+                co2_target=0.0,
                 humidity_pct=None,
                 pressure_hpa=1000.0,
                 co2_ratio=1.1,
@@ -243,7 +243,7 @@ def test_select_corrected_fit_rows_keeps_only_configured_dry_gas_points() -> Non
         temperature_key="Temp",
     )
 
-    assert set(selected["PointRow"]) == {1, 2, 3}
+    assert set(selected["PointRow"]) == {1, 2}
 
 
 def test_build_quality_analysis_bundle_falls_back_to_bar_when_p_is_blank() -> None:

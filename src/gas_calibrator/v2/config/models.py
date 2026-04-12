@@ -730,11 +730,11 @@ class H2OSummarySelectionConfig:
     include_h2o_phase: bool = True
     temperature_buckets_c: List[float] = field(default_factory=lambda: [-20.0, -10.0, 0.0, 10.0, 20.0, 30.0, 40.0])
     temperature_bucket_tolerance_c: float = 6.0
-    include_co2_temp_groups_c: List[float] = field(default_factory=lambda: [-20.0, -10.0, 0.0])
+    include_co2_temp_groups_c: List[float] = field(default_factory=list)
     include_co2_zero_ppm_rows: bool = True
     co2_zero_ppm_target: float = 0.0
     co2_zero_ppm_tolerance: float = 0.5
-    include_co2_zero_ppm_temp_groups_c: List[float] = field(default_factory=lambda: [10.0])
+    include_co2_zero_ppm_temp_groups_c: List[float] = field(default_factory=lambda: [-20.0, -10.0, 0.0])
     temp_tolerance_c: float = 0.6
 
     @classmethod
@@ -744,11 +744,11 @@ class H2OSummarySelectionConfig:
             include_h2o_phase=bool(payload.get("include_h2o_phase", True)),
             temperature_buckets_c=[float(value) for value in payload.get("temperature_buckets_c", [-20.0, -10.0, 0.0, 10.0, 20.0, 30.0, 40.0])],
             temperature_bucket_tolerance_c=float(payload.get("temperature_bucket_tolerance_c", 6.0)),
-            include_co2_temp_groups_c=[float(value) for value in payload.get("include_co2_temp_groups_c", [-20.0, -10.0, 0.0])],
+            include_co2_temp_groups_c=[float(value) for value in payload.get("include_co2_temp_groups_c", [])],
             include_co2_zero_ppm_rows=bool(payload.get("include_co2_zero_ppm_rows", True)),
             co2_zero_ppm_target=float(payload.get("co2_zero_ppm_target", 0.0)),
             co2_zero_ppm_tolerance=float(payload.get("co2_zero_ppm_tolerance", 0.5)),
-            include_co2_zero_ppm_temp_groups_c=[float(value) for value in payload.get("include_co2_zero_ppm_temp_groups_c", [10.0])],
+            include_co2_zero_ppm_temp_groups_c=[float(value) for value in payload.get("include_co2_zero_ppm_temp_groups_c", [-20.0, -10.0, 0.0])],
             temp_tolerance_c=float(payload.get("temp_tolerance_c", 0.6)),
         )
 
