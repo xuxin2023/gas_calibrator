@@ -118,7 +118,7 @@ def build_engineering_isolation_admission_checklist(
     checklist_status_counts = _count_statuses(checklist_items)
 
     display = {
-        "title_text": "Engineering Isolation Admission Checklist / 工程隔离准入清单",
+        "title_text": "工程隔离准入清单 / Engineering Isolation Admission Checklist",
         "summary_text": (
             "准入清单：基于现有 readiness / metrology / bridge / review pack 收口进入 "
             "engineering-isolation 前的已满足项、待确认项与仅限 Stage 3 的项。"
@@ -438,7 +438,7 @@ def _build_artifact_lines(artifact_refs: dict[str, dict[str, Any]]) -> list[str]
 
 def _render_engineering_isolation_admission_checklist_markdown(display: dict[str, Any]) -> str:
     lines = [
-        f"# {display.get('title_text') or 'Engineering Isolation Admission Checklist / 工程隔离准入清单'}",
+        f"# {display.get('title_text') or '工程隔离准入清单 / Engineering Isolation Admission Checklist'}",
         "",
         "> 仅用于 Step 2 tail / Stage 3 bridge 的离线 governance / reviewer handoff 清单，不是 real acceptance，不能替代真实计量验证。",
         "",
