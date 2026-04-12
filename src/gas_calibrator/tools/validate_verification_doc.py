@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import math
 import re
 import statistics
 import time
@@ -17,6 +16,7 @@ from xml.etree import ElementTree as ET
 
 from ..config import load_config
 from ..devices import DewpointMeter, GasAnalyzer, HumidityGenerator, ParoscientificGauge, RelayController
+from ..humidity_math import derive_humidity_generator_setpoint, dewpoint_to_h2o_mmol_per_mol
 from .run_gas_route_ratio_leak_check import _apply_logical_valves, _route_for_gas_ppm
 
 WORD_NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
@@ -71,27 +71,6 @@ def _error(reference: Optional[float], measured: Optional[float]) -> Optional[fl
     if reference is None or measured is None:
         return None
     return float(measured) - float(reference)
-
-
-def _sat_hpa(temp_c: float) -> float:
-    temp = float(temp_c)
-    if temp >= 0.0:
-        return 6.1121 * math.exp((18.678 - temp / 234.5) * (temp / (257.14 + temp)))
-    return 6.1115 * math.exp((23.036 - temp / 333.7) * (temp / (279.82 + temp)))
-
-
-def dewpoint_to_h2o_mmol_per_mol(dewpoint_c: float, pressure_hpa: float) -> float:
-    pressure = float(pressure_hpa)
-    if pressure <= 0:
-        raise ValueError("pressure_hpa must be positive")
-    return 1000.0 * _sat_hpa(float(dewpoint_c)) / pressure
-
-
-def derive_humidity_generator_setpoint(dewpoint_c: float) -> Dict[str, float]:
-    dewpoint = float(dewpoint_c)
-    hgen_temp_c = max(20.0, math.ceil((dewpoint + 5.0) / 5.0) * 5.0)
-    hgen_rh_pct = min(95.0, 100.0 * _sat_hpa(dewpoint) / _sat_hpa(hgen_temp_c))
-    return {"hgen_temp_c": round(hgen_temp_c, 3), "hgen_rh_pct": round(hgen_rh_pct, 3)}
 
 
 def _cell_text(cell: ET.Element) -> str:

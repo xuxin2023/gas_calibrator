@@ -1,3 +1,5 @@
+import pytest
+
 from gas_calibrator.devices import humidity_generator
 from gas_calibrator.devices.serial_base import ReplaySerial
 
@@ -99,6 +101,24 @@ def test_humidity_generator_supports_target_readback_and_wait_stopped() -> None:
     assert readback["read_rh_pct"] == 30.0
     assert stopped["ok"] is True
     assert stopped["flow_lpm"] == 0.0
+
+
+def test_humidity_generator_supports_dewpoint_target_derivation_and_command_order() -> None:
+    replay = ReplaySerial()
+    dev = humidity_generator.HumidityGenerator("COM1", serial_factory=lambda **_: replay)
+
+    dev.open()
+    result = dev.set_target_dewpoint(2.0)
+    dev.close()
+
+    writes = [payload.decode("ascii", errors="ignore").strip() for payload in replay.writes]
+    assert writes[:2] == [
+        f"Target:TA={result['target_temp_c']}",
+        f"Target:UwA={result['target_rh_pct']}",
+    ]
+    assert result["target_dewpoint_c"] == 2.0
+    assert result["target_temp_c"] == 20.0
+    assert result["target_rh_pct"] == pytest.approx(30.19, abs=1e-3)
 
 
 def test_humidity_generator_supports_runtime_activation_verify_with_cooling_evidence() -> None:

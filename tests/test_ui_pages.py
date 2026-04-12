@@ -3,6 +3,8 @@ from __future__ import annotations
 import tkinter as tk
 import types
 
+import pytest
+
 from gas_calibrator.ui import app as app_module
 from gas_calibrator.ui import dewpoint_page as dewpoint_module
 from gas_calibrator.ui import humidity_page as humidity_module
@@ -45,6 +47,7 @@ class _FakeHumidity:
         self.port = port
         self.baud = baud
         self.fetch_calls = 0
+        self.commands = []
 
     def open(self) -> None:
         return None
@@ -53,13 +56,24 @@ class _FakeHumidity:
         return None
 
     def set_target_temp(self, _value: float) -> None:
+        self.commands.append(("set_target_temp", float(_value)))
         return None
 
     def set_target_rh(self, _value: float) -> None:
+        self.commands.append(("set_target_rh", float(_value)))
         return None
 
     def set_flow_target(self, _value: float) -> None:
         return None
+
+    def set_target_dewpoint(self, value: float) -> dict:
+        dewpoint = float(value)
+        self.commands.append(("set_target_dewpoint", dewpoint))
+        return {
+            "target_dewpoint_c": dewpoint,
+            "target_temp_c": 20.0,
+            "target_rh_pct": 30.19,
+        }
 
     def enable_control(self, _value: bool) -> None:
         return None
@@ -190,6 +204,7 @@ def test_humidity_page_buttons_follow_connection_state(monkeypatch) -> None:
         assert str(page.connect_button.cget("state")) == "normal"
         assert str(page.disconnect_button.cget("state")) == "disabled"
         assert str(page.set_temp_button.cget("state")) == "disabled"
+        assert str(page.set_dewpoint_button.cget("state")) == "disabled"
         assert str(page.tag_combo.cget("state")) == "disabled"
 
         page.connect()
@@ -197,6 +212,7 @@ def test_humidity_page_buttons_follow_connection_state(monkeypatch) -> None:
         assert str(page.connect_button.cget("state")) == "disabled"
         assert str(page.disconnect_button.cget("state")) == "normal"
         assert str(page.set_temp_button.cget("state")) == "normal"
+        assert str(page.set_dewpoint_button.cget("state")) == "normal"
         assert str(page.read_all_button.cget("state")) == "normal"
         assert str(page.tag_combo.cget("state")) == "readonly"
 
@@ -249,6 +265,29 @@ def test_humidity_page_action_refreshes_live_snapshot(monkeypatch) -> None:
         page.ctrl(True)
         assert page.dev.fetch_calls > baseline
         assert "Tc=20.00 C" in page.snapshot_var.get()
+    finally:
+        root.destroy()
+
+
+def test_humidity_page_set_dewpoint_derives_target_temp_and_rh(monkeypatch) -> None:
+    monkeypatch.setattr(humidity_module, "HumidityGenerator", _FakeHumidity)
+
+    root = _root()
+    try:
+        page = humidity_module.HumidityPage(root, {"port": "COM8", "baud": 9600})
+        page.connect()
+        assert page.dev is not None
+
+        page.dewpoint_var.set("2.0")
+        page.set_dewpoint()
+
+        assert float(page.temp_var.get()) == 20.0
+        assert float(page.rh_var.get()) == pytest.approx(30.19, abs=1e-3)
+        assert page.last_data["Tda"] == 2.0
+        assert page.last_data["Ta"] == 20.0
+        assert page.last_data["UwA"] == pytest.approx(30.19, abs=1e-3)
+        assert ("set_target_dewpoint", 2.0) in page.dev.commands
+        assert "按露点设定 2C -> 温度 20C / 湿度 30.19%RH" in page.log_text.get("1.0", "end")
     finally:
         root.destroy()
 

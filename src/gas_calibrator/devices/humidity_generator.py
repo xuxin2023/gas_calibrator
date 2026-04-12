@@ -6,6 +6,7 @@ import re
 import time
 from typing import Any, Dict, List, Optional
 
+from ..humidity_math import derive_humidity_generator_setpoint
 from .serial_base import SerialDevice
 
 
@@ -100,6 +101,10 @@ class HumidityGenerator:
                 out[k] = v
         return out
 
+    @staticmethod
+    def derive_setpoint_from_dewpoint(dewpoint_c: float) -> Dict[str, float]:
+        return derive_humidity_generator_setpoint(dewpoint_c)
+
     def set_target_temp(self, value_c: float) -> None:
         self._send(f"Target:TA={value_c}")
         self._drain()
@@ -107,6 +112,18 @@ class HumidityGenerator:
     def set_target_rh(self, value_pct: float) -> None:
         self._send(f"Target:UwA={value_pct}")
         self._drain()
+
+    def set_target_dewpoint(self, dewpoint_c: float) -> Dict[str, float]:
+        setpoint = self.derive_setpoint_from_dewpoint(dewpoint_c)
+        target_temp_c = float(setpoint["hgen_temp_c"])
+        target_rh_pct = float(setpoint["hgen_rh_pct"])
+        self.set_target_temp(target_temp_c)
+        self.set_target_rh(target_rh_pct)
+        return {
+            "target_dewpoint_c": round(float(dewpoint_c), 3),
+            "target_temp_c": target_temp_c,
+            "target_rh_pct": target_rh_pct,
+        }
 
     def set_flow_target(self, flow_lpm: float) -> None:
         self._send(f"Target:FA={flow_lpm}")

@@ -350,6 +350,17 @@ class HumidityPage:
         self.flow_entry.grid(row=1, column=1, sticky="ew", padx=(0, 8), pady=(0, 8))
         self.set_flow_button = ttk.Button(setpoints, text="设流量", command=self.set_flow, style="HumiditySoft.TButton")
         self.set_flow_button.grid(row=1, column=2, padx=(0, 8), pady=(0, 8))
+        ttk.Label(setpoints, text="露点 (C)").grid(row=1, column=3, sticky="w", padx=8, pady=(0, 8))
+        self.dewpoint_var = tk.StringVar()
+        self.dewpoint_entry = ttk.Entry(setpoints, textvariable=self.dewpoint_var)
+        self.dewpoint_entry.grid(row=1, column=4, sticky="ew", padx=(0, 8), pady=(0, 8))
+        self.set_dewpoint_button = ttk.Button(
+            setpoints,
+            text="按露点设定",
+            command=self.set_dewpoint,
+            style="HumiditySoft.TButton",
+        )
+        self.set_dewpoint_button.grid(row=1, column=5, pady=(0, 8))
 
         actions = ttk.LabelFrame(control_card, text="设备动作", style="HumiditySub.TLabelframe")
         actions.pack(fill="x", padx=10, pady=(6, 10))
@@ -382,7 +393,7 @@ class HumidityPage:
         self.read_tag_button.grid(row=2, column=2, sticky="ew", padx=6, pady=6)
         tk.Label(
             actions,
-            text="连接后再执行设定。摘要固定在上方，避免顶区被重复信息挤满。",
+            text="连接后再执行设定。露点设定会自动换算为湿度发生器温度/湿度目标。摘要固定在上方，避免顶区被重复信息挤满。",
             anchor="w",
             justify="left",
             wraplength=360,
@@ -494,9 +505,11 @@ class HumidityPage:
             self.temp_entry,
             self.rh_entry,
             self.flow_entry,
+            self.dewpoint_entry,
             self.set_temp_button,
             self.set_rh_button,
             self.set_flow_button,
+            self.set_dewpoint_button,
             self.ctrl_on_button,
             self.ctrl_off_button,
             self.cool_on_button,
@@ -681,6 +694,22 @@ class HumidityPage:
         self.last_data["Fa"] = val
         self._refresh_live(update_status=False)
         self._log(f"设流量 {val}")
+
+    def set_dewpoint(self) -> None:
+        dev = self._ensure_dev()
+        dewpoint_c = float(self.dewpoint_var.get())
+        result = dev.set_target_dewpoint(dewpoint_c)
+        target_temp_c = float(result["target_temp_c"])
+        target_rh_pct = float(result["target_rh_pct"])
+        self.temp_var.set(f"{target_temp_c:g}")
+        self.rh_var.set(f"{target_rh_pct:g}")
+        self.last_data["Ta"] = target_temp_c
+        self.last_data["Tda"] = dewpoint_c
+        self.last_data["UwA"] = target_rh_pct
+        self._refresh_live(update_status=False)
+        self._log(
+            f"按露点设定 {dewpoint_c:g}C -> 温度 {target_temp_c:g}C / 湿度 {target_rh_pct:g}%RH"
+        )
 
     def ctrl(self, on: bool) -> None:
         dev = self._ensure_dev()
