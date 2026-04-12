@@ -935,8 +935,8 @@ def test_results_gateway_exposes_engineering_isolation_admission_checklist_as_fi
         checklist_md_row["engineering_isolation_admission_checklist_artifact_entry"]["reviewer_path"]
         == checklist_md_path
     )
-    assert checklist_json_row["name"] == "Engineering Isolation Admission Checklist / 工程隔离准入清单 (JSON)"
-    assert checklist_md_row["name"] == "Engineering Isolation Admission Checklist / 工程隔离准入清单 (Markdown)"
+    assert checklist_json_row["name"] == "工程隔离准入清单 / Engineering Isolation Admission Checklist (JSON)"
+    assert checklist_md_row["name"] == "工程隔离准入清单 / Engineering Isolation Admission Checklist (Markdown)"
     assert checklist_entry["summary_text"] == checklist_json_row["note"] == checklist_md_row["note"]
     assert "execution_summary" not in checklist_json_row["role_status_display"]
     assert "formal_analysis" not in checklist_md_row["role_status_display"]
