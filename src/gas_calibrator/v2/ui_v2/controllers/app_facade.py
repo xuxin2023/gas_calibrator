@@ -3275,13 +3275,7 @@ class AppFacade:
         release_boundary_digest: dict[str, Any],
         release_evidence_pack_index: dict[str, Any],
         audit_readiness_digest: dict[str, Any],
-        pt_ilc_registry: dict[str, Any],
-        external_comparison_importer: dict[str, Any],
-        comparison_evidence_pack: dict[str, Any],
-        scope_comparison_view: dict[str, Any],
-        comparison_digest: dict[str, Any],
-        comparison_rollup: dict[str, Any],
-        step2_closeout_digest: dict[str, Any],
+        wp6_closeout_bundle: _Wp6CloseoutBundle,
         compatibility_scan_summary: dict[str, Any],
         force_refresh: bool = False,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -3540,18 +3534,7 @@ class AppFacade:
                 recognition_readiness.AUDIT_READINESS_DIGEST_FILENAME,
                 dict(audit_readiness_digest or {}),
             ),
-        ] + _build_wp6_closeout_readiness_pairs(
-            {
-                "pt_ilc_registry": pt_ilc_registry,
-                "external_comparison_importer": external_comparison_importer,
-                "comparison_evidence_pack": comparison_evidence_pack,
-                "scope_comparison_view": scope_comparison_view,
-                "comparison_digest": comparison_digest,
-                "comparison_rollup": comparison_rollup,
-                "step2_closeout_digest": step2_closeout_digest,
-            },
-            filename_module=recognition_readiness,
-        )
+        ] + wp6_closeout_bundle.readiness_pairs
         for filename, fallback_payload in readiness_summary_payloads:
             explicit_path = str(
                 dict(fallback_payload.get("artifact_paths") or {}).get(Path(filename).stem)
