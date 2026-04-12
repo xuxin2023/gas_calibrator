@@ -1443,3 +1443,167 @@ class TestBundleStep2Boundary:
         assert closeout_entry["display_label"] == WP6_CLOSEOUT_DISPLAY_LABELS["step2_closeout_digest"]
         assert "收口" in closeout_entry["display_label"] or "Step 2" in closeout_entry["display_label"]
 
+
+# ---------------------------------------------------------------------------
+# Step 2.5: Reviewer bundle end-to-end cleanup tests
+# ---------------------------------------------------------------------------
+
+
+class TestWp6CloseoutBundleConvenience:
+    """Wp6CloseoutBundle convenience interfaces (items, as_payloads_dict)."""
+
+    def test_items_returns_key_payload_pairs(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import build_wp6_closeout_bundle
+        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_ARTIFACT_KEYS
+        source = {key: {"v": key} for key in WP6_CLOSEOUT_ARTIFACT_KEYS}
+        bundle = build_wp6_closeout_bundle(source)
+        items = bundle.items()
+        assert len(items) == 7
+        for i, key in enumerate(WP6_CLOSEOUT_ARTIFACT_KEYS):
+            assert items[i] == (key, {"v": key})
+
+    def test_items_order_matches_contracts(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import build_wp6_closeout_bundle
+        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_ARTIFACT_KEYS
+        bundle = build_wp6_closeout_bundle({})
+        item_keys = tuple(k for k, _ in bundle.items())
+        assert item_keys == WP6_CLOSEOUT_ARTIFACT_KEYS
+
+    def test_as_payloads_dict_returns_copy(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import build_wp6_closeout_bundle
+        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_ARTIFACT_KEYS
+        source = {"pt_ilc_registry": {"x": 1}}
+        bundle = build_wp6_closeout_bundle(source)
+        d = bundle.as_payloads_dict()
+        assert set(d.keys()) == set(WP6_CLOSEOUT_ARTIFACT_KEYS)
+        assert d is not bundle.payloads_by_key  # shallow copy
+
+    def test_as_payloads_dict_values_match_getitem(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import build_wp6_closeout_bundle
+        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_ARTIFACT_KEYS
+        source = {key: {"i": i} for i, key in enumerate(WP6_CLOSEOUT_ARTIFACT_KEYS)}
+        bundle = build_wp6_closeout_bundle(source)
+        d = bundle.as_payloads_dict()
+        for key in WP6_CLOSEOUT_ARTIFACT_KEYS:
+            assert d[key] == bundle[key]
+
+    def test_items_empty_payload(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import build_wp6_closeout_bundle
+        bundle = build_wp6_closeout_bundle({})
+        items = bundle.items()
+        assert len(items) == 7
+        for key, payload in items:
+            assert payload == {}
+
+
+class TestAppFacadeNoDeadLocalVars:
+    """app_facade must not have dead WP6 local variable unpacking."""
+
+    def test_no_wp6_local_var_unpacking(self) -> None:
+        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
+        import inspect
+        source = inspect.getsource(af)
+        # The 7 local variable assignments from bundle should not exist
+        assert 'pt_ilc_registry = _wp6_closeout_bundle["pt_ilc_registry"]' not in source
+        assert 'external_comparison_importer = _wp6_closeout_bundle[' not in source
+        assert 'comparison_evidence_pack = _wp6_closeout_bundle[' not in source
+        assert 'scope_comparison_view = _wp6_closeout_bundle[' not in source
+        assert 'comparison_digest = _wp6_closeout_bundle[' not in source
+        assert 'comparison_rollup = _wp6_closeout_bundle[' not in source
+        assert 'step2_closeout_digest = _wp6_closeout_bundle[' not in source
+
+    def test_bundle_still_used_in_build_review_center_call(self) -> None:
+        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
+        import inspect
+        source = inspect.getsource(af)
+        assert "wp6_closeout_bundle=_wp6_closeout_bundle" in source
+
+    def test_readiness_pairs_from_bundle(self) -> None:
+        import gas_calibrator.v2.ui_v2.controllers.app_facade as af
+        import inspect
+        source = inspect.getsource(af)
+        assert "wp6_closeout_bundle.readiness_pairs" in source
+
+
+class TestHistoricalArtifactsNoDeadLocalVars:
+    """historical_artifacts must not have dead WP6 local variable unpacking."""
+
+    def test_no_wp6_local_var_unpacking(self) -> None:
+        import gas_calibrator.v2.scripts.historical_artifacts as ha
+        import inspect
+        source = inspect.getsource(ha)
+        # Should use _wp6_closeout dict directly, not unpack to 7 vars
+        assert 'pt_ilc_registry = _wp6_closeout["pt_ilc_registry"]' not in source
+        # But should still have _wp6_closeout dict
+        assert "_wp6_closeout = _extract_wp6_closeout_payloads" in source
+
+    def test_output_dict_uses_wp6_closeout_directly(self) -> None:
+        import gas_calibrator.v2.scripts.historical_artifacts as ha
+        import inspect
+        source = inspect.getsource(ha)
+        # Output dict should reference _wp6_closeout directly
+        assert '"pt_ilc_registry": _wp6_closeout["pt_ilc_registry"]' in source
+        assert '"step2_closeout_digest": _wp6_closeout["step2_closeout_digest"]' in source
+
+
+class TestDeviceWorkbenchNoDeadLocalVars:
+    """device_workbench must not have dead WP6 local variable unpacking."""
+
+    def test_no_wp6_local_var_unpacking(self) -> None:
+        import gas_calibrator.v2.ui_v2.controllers.device_workbench as dw
+        import inspect
+        source = inspect.getsource(dw)
+        assert 'pt_ilc_registry = _wp6_closeout["pt_ilc_registry"]' not in source
+        assert "_wp6_closeout = _extract_wp6_closeout_payloads" in source
+
+    def test_output_dict_uses_wp6_closeout_directly(self) -> None:
+        import gas_calibrator.v2.ui_v2.controllers.device_workbench as dw
+        import inspect
+        source = inspect.getsource(dw)
+        assert '"pt_ilc_registry": _wp6_closeout["pt_ilc_registry"]' in source
+        assert '"step2_closeout_digest": _wp6_closeout["step2_closeout_digest"]' in source
+
+
+class TestStep25Boundary:
+    """Step 2.5 cleanup must not break Step 2 boundary."""
+
+    def test_bundle_convenience_no_real_paths(self) -> None:
+        import gas_calibrator.v2.core.reviewer_surface_payloads as rsp
+        import inspect
+        source = inspect.getsource(rsp)
+        assert "COM" not in source
+        assert "serial" not in source
+        assert "real_device" not in source
+
+    def test_output_field_names_unchanged(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_ARTIFACT_KEYS
+        # The 7 canonical keys must still be the same
+        assert WP6_CLOSEOUT_ARTIFACT_KEYS == (
+            "pt_ilc_registry",
+            "external_comparison_importer",
+            "comparison_evidence_pack",
+            "scope_comparison_view",
+            "comparison_digest",
+            "comparison_rollup",
+            "step2_closeout_digest",
+        )
+
+    def test_closeout_digest_still_visible(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import build_wp6_closeout_bundle
+        bundle = build_wp6_closeout_bundle(
+            {"step2_closeout_digest": {"status": "simulated", "non_claim": True}}
+        )
+        assert "step2_closeout_digest" in bundle
+        assert bundle["step2_closeout_digest"]["status"] == "simulated"
+        assert bundle["step2_closeout_digest"]["non_claim"] is True
+
+    def test_bundle_default_behavior_unchanged(self) -> None:
+        from gas_calibrator.v2.core.reviewer_surface_payloads import build_wp6_closeout_bundle
+        from gas_calibrator.v2.core.reviewer_surface_contracts import WP6_CLOSEOUT_ARTIFACT_KEYS
+        bundle = build_wp6_closeout_bundle({})
+        for key in WP6_CLOSEOUT_ARTIFACT_KEYS:
+            assert bundle[key] == {}
+        assert len(bundle.readiness_pairs) == 7
+        assert len(bundle.enriched_entries) == 7
+        assert len(bundle.items()) == 7
+
