@@ -1,0 +1,5 @@
+# git status --short --branch
+## main...origin/main
+
+# git status --porcelain=v1 -uall
+(clean)

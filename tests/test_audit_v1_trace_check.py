@@ -4,7 +4,7 @@ import types
 from pathlib import Path
 
 from gas_calibrator.data.points import CalibrationPoint
-from gas_calibrator.logging_utils import RunLogger
+from gas_calibrator.logging_utils import RunLogger, _field_label
 from gas_calibrator.workflow.runner import CalibrationRunner
 
 
@@ -152,8 +152,8 @@ def test_v1_point_trace_distinct_points_do_not_overwrite_each_other(tmp_path: Pa
     with logger.points_path.open("r", encoding="utf-8", newline="") as handle:
         point_rows = list(csv.DictReader(handle))
     assert len(point_rows) == 2
-    assert point_rows[0]["point_row"] == "1"
-    assert point_rows[1]["point_row"] == "2"
+    assert point_rows[0][_field_label("point_row")] == "1"
+    assert point_rows[1][_field_label("point_row")] == "2"
 
 
 def test_v1_trace_code_keeps_stability_and_freshness_guards() -> None:
