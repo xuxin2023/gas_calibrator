@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+from openpyxl import Workbook, load_workbook
 
 from gas_calibrator.tools import run_v1_corrected_autodelivery as module
 
@@ -32,11 +33,13 @@ def test_build_corrected_download_plan_rows_maps_groups_by_gas() -> None:
         ]
     )
 
-    rows = module.build_corrected_download_plan_rows(simplified)
+    rows = module.build_corrected_download_plan_rows(simplified, actual_device_ids={"GA01": "086"})
 
     assert len(rows) == 2
     co2 = next(row for row in rows if row["Gas"] == "CO2")
     h2o = next(row for row in rows if row["Gas"] == "H2O")
+    assert co2["ActualDeviceId"] == "086"
+    assert h2o["ActualDeviceId"] == "086"
     assert co2["PrimarySENCO"] == "1"
     assert co2["SecondarySENCO"] == "3"
     assert co2["PrimaryCommand"].startswith("SENCO1,YGAS,FFF,1.00000e00,2.00000e00,3.00000e00,4.00000e00")
@@ -420,3 +423,132 @@ def test_write_coefficients_to_live_devices_retries_transient_readback_failure(t
     assert result["summary_rows"][0]["MatchedGroups"] == 1
     assert result["detail_rows"][0]["Group"] == 9
     assert result["detail_rows"][0]["ReadbackOk"] is True
+
+
+def test_annotate_workbook_with_actual_device_ids_inserts_column(tmp_path: Path) -> None:
+    workbook_path = tmp_path / "report.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "summary"
+    ws.append(["Analyzer", "Metric"])
+    ws.append(["GA01", 1.23])
+    ws.append(["GA02", 4.56])
+    wb.save(workbook_path)
+    wb.close()
+
+    module._annotate_workbook_with_actual_device_ids(workbook_path, {"GA01": "086", "GA02": "008"})
+
+    wb = load_workbook(workbook_path)
+    try:
+        ws = wb["summary"]
+        assert ws.cell(1, 2).value == "ActualDeviceId"
+        assert ws.cell(2, 2).value == "086"
+        assert ws.cell(3, 2).value == "008"
+    finally:
+        wb.close()
+
+
+def test_run_from_cli_runs_short_verify_after_successful_write(tmp_path: Path, monkeypatch) -> None:
+    run_dir = tmp_path / "run_ok"
+    run_dir.mkdir()
+    cfg_path = run_dir / "runtime_config_snapshot.json"
+    cfg_path.write_text("{}", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        module,
+        "build_corrected_delivery",
+        lambda **_kwargs: {
+            "report_path": str(run_dir / "calibration_coefficients.xlsx"),
+            "output_dir": str(run_dir / "corrected"),
+            "filtered_summary_paths": [],
+            "filter_stats": [],
+            "actual_device_ids": {"GA01": "086"},
+            "download_plan_rows": [],
+            "temperature_rows": [],
+            "pressure_rows": [],
+            "pressure_row_source": "startup_calibration",
+        },
+    )
+    monkeypatch.setattr(module, "load_config", lambda _path: {"_base_dir": str(tmp_path)})
+    monkeypatch.setattr(
+        module,
+        "write_coefficients_to_live_devices",
+        lambda **_kwargs: {
+            "scan_rows": [],
+            "summary_rows": [{"Analyzer": "GA01", "Status": "ok"}],
+            "detail_rows": [],
+        },
+    )
+
+    from gas_calibrator.tools import verify_short_run as verify_module
+
+    monkeypatch.setattr(
+        verify_module,
+        "run_short_verification",
+        lambda **kwargs: captured.update(kwargs) or {"ok": True, "run_dir": str(tmp_path / "short_verify_run")},
+    )
+
+    result = module.run_from_cli(
+        run_dir=str(run_dir),
+        config_path=str(cfg_path),
+        output_dir=str(tmp_path / "out"),
+        write_devices=True,
+        verify_short_run_cfg={
+            "enabled": True,
+            "temp_c": 20.0,
+            "skip_co2_ppm": [500],
+            "enable_connect_check": False,
+            "points_excel": "configs/points_tiny_short_run_20c_even500.xlsx",
+        },
+    )
+
+    assert captured["actual_device_ids"] == {"GA01": "086"}
+    assert captured["temp_c"] == 20.0
+    assert captured["skip_co2_ppm"] == [500]
+    assert str(captured["points_excel_override"]).endswith("configs\\points_tiny_short_run_20c_even500.xlsx")
+    assert result["short_verify_outputs"]["ok"] is True
+
+
+def test_run_from_cli_skips_short_verify_when_writeback_incomplete(tmp_path: Path, monkeypatch) -> None:
+    run_dir = tmp_path / "run_partial"
+    run_dir.mkdir()
+    cfg_path = run_dir / "runtime_config_snapshot.json"
+    cfg_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(
+        module,
+        "build_corrected_delivery",
+        lambda **_kwargs: {
+            "report_path": str(run_dir / "calibration_coefficients.xlsx"),
+            "output_dir": str(run_dir / "corrected"),
+            "filtered_summary_paths": [],
+            "filter_stats": [],
+            "actual_device_ids": {"GA01": "086"},
+            "download_plan_rows": [],
+            "temperature_rows": [],
+            "pressure_rows": [],
+            "pressure_row_source": "startup_calibration",
+        },
+    )
+    monkeypatch.setattr(module, "load_config", lambda _path: {"_base_dir": str(tmp_path)})
+    monkeypatch.setattr(
+        module,
+        "write_coefficients_to_live_devices",
+        lambda **_kwargs: {
+            "scan_rows": [],
+            "summary_rows": [{"Analyzer": "GA01", "Status": "partial"}],
+            "detail_rows": [],
+        },
+    )
+
+    result = module.run_from_cli(
+        run_dir=str(run_dir),
+        config_path=str(cfg_path),
+        output_dir=str(tmp_path / "out"),
+        write_devices=True,
+        verify_short_run_cfg={"enabled": True},
+    )
+
+    assert result["short_verify_outputs"]["skipped"] is True
+    assert result["short_verify_outputs"]["reason"] == "writeback_incomplete"

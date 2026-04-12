@@ -134,6 +134,15 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_log_interval_s"] == 15.0
     assert cfg["workflow"]["stability"]["dewpoint"]["enabled"] is True
     assert cfg["workflow"]["stability"]["dewpoint"]["rh_match_tol_pct"] == 3.3
+    assert cfg["workflow"]["postrun_corrected_delivery"]["enabled"] is True
+    assert cfg["workflow"]["postrun_corrected_delivery"]["write_devices"] is True
+    assert cfg["workflow"]["postrun_corrected_delivery"]["write_pressure_coefficients"] is True
+    assert cfg["workflow"]["postrun_corrected_delivery"]["pressure_row_source"] == "startup_calibration"
+    assert cfg["workflow"]["postrun_corrected_delivery"]["verify_short_run"]["enabled"] is True
+    assert cfg["workflow"]["postrun_corrected_delivery"]["verify_short_run"]["temp_c"] == 20.0
+    assert cfg["workflow"]["postrun_corrected_delivery"]["verify_short_run"]["skip_co2_ppm"] == []
+    assert cfg["workflow"]["postrun_corrected_delivery"]["verify_short_run"]["enable_connect_check"] is False
+    assert cfg["workflow"]["postrun_corrected_delivery"]["verify_short_run"]["points_excel"] == "configs/points_tiny_short_run_20c_even500.xlsx"
     assert cfg["workflow"]["pressure"]["strict_control_ready_check"] is True
     assert cfg["workflow"]["pressure"]["abort_on_vent_off_failure"] is True
     assert cfg["workflow"]["pressure"]["output_off_prefer_gauge"] is True

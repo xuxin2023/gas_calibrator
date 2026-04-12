@@ -115,6 +115,13 @@ def test_postrun_corrected_delivery_passes_pressure_handoff_options(tmp_path: Pa
                 "fallback_pressure_to_controller": False,
                 "pressure_row_source": "startup_calibration",
                 "write_pressure_coefficients": False,
+                "verify_short_run": {
+                    "enabled": True,
+                    "temp_c": 20.0,
+                    "skip_co2_ppm": [500],
+                    "enable_connect_check": False,
+                    "points_excel": "configs/points_tiny_short_run_20c_even500.xlsx",
+                },
             }
         }
     }
@@ -132,4 +139,7 @@ def test_postrun_corrected_delivery_passes_pressure_handoff_options(tmp_path: Pa
 
     assert captured["pressure_row_source"] == "startup_calibration"
     assert captured["write_pressure_coefficients"] is False
+    assert captured["verify_short_run_cfg"]["enabled"] is True
+    assert captured["verify_short_run_cfg"]["temp_c"] == 20.0
+    assert captured["verify_short_run_cfg"]["skip_co2_ppm"] == [500]
     logger.close()

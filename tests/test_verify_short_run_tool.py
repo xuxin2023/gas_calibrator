@@ -65,6 +65,30 @@ def test_build_short_verification_config_preserves_explicit_points_matrix_when_o
     )
 
 
+def test_build_short_verification_config_applies_actual_device_ids() -> None:
+    cfg = {
+        "devices": {
+            "gas_analyzer": {"device_id": "000"},
+            "gas_analyzers": [
+                {"name": "ga01", "enabled": True, "device_id": "001"},
+                {"name": "ga02", "enabled": True, "device_id": "002"},
+            ],
+        }
+    }
+
+    runtime_cfg = build_short_verification_config(
+        cfg,
+        temp_c=20.0,
+        skip_co2_ppm=[],
+        enable_connect_check=False,
+        actual_device_ids={"GA01": "086", "GA02": "008"},
+    )
+
+    assert runtime_cfg["devices"]["gas_analyzer"]["device_id"] == "086"
+    assert runtime_cfg["devices"]["gas_analyzers"][0]["device_id"] == "086"
+    assert runtime_cfg["devices"]["gas_analyzers"][1]["device_id"] == "008"
+
+
 def test_default_config_keeps_mode2_post_enable_wait() -> None:
     import json
     from pathlib import Path

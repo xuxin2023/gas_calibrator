@@ -469,6 +469,36 @@ def test_build_runtime_cfg_disables_calibration_fit(monkeypatch) -> None:
         root.destroy()
 
 
+def test_build_runtime_cfg_enables_postrun_corrected_delivery(monkeypatch) -> None:
+    monkeypatch.setattr(app_module, "load_config", lambda _path: _basic_cfg())
+    monkeypatch.setattr(app_module, "load_points_from_excel", lambda *_args, **_kwargs: _points(20.0))
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        ui = app_module.App(root)
+        ui.postrun_delivery_var.set(True)
+        runtime_cfg = ui._build_runtime_cfg()
+        assert runtime_cfg["workflow"]["postrun_corrected_delivery"]["enabled"] is True
+    finally:
+        root.destroy()
+
+
+def test_build_runtime_cfg_disables_postrun_corrected_delivery(monkeypatch) -> None:
+    monkeypatch.setattr(app_module, "load_config", lambda _path: _basic_cfg())
+    monkeypatch.setattr(app_module, "load_points_from_excel", lambda *_args, **_kwargs: _points(20.0))
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        ui = app_module.App(root)
+        ui.postrun_delivery_var.set(False)
+        runtime_cfg = ui._build_runtime_cfg()
+        assert runtime_cfg["workflow"]["postrun_corrected_delivery"]["enabled"] is False
+    finally:
+        root.destroy()
+
+
 def test_load_config_merges_user_tuning_override(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(app_module, "load_points_from_excel", lambda *_args, **_kwargs: _points(20.0, 30.0))
 
@@ -521,6 +551,22 @@ def test_load_config_reads_calibration_fit_switch(monkeypatch) -> None:
         ui = app_module.App(root)
         assert ui.fit_enabled_var.get() is False
         assert ui.fit_mode_brief_var.get() == "拟合：关闭，仅采集"
+    finally:
+        root.destroy()
+
+
+def test_load_config_reads_postrun_corrected_delivery_switch(monkeypatch) -> None:
+    cfg = _basic_cfg()
+    cfg["workflow"]["postrun_corrected_delivery"] = {"enabled": False}
+    monkeypatch.setattr(app_module, "load_config", lambda _path: cfg)
+    monkeypatch.setattr(app_module, "load_points_from_excel", lambda *_args, **_kwargs: _points(20.0))
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        ui = app_module.App(root)
+        assert ui.postrun_delivery_var.get() is False
+        assert "自动交付：关闭" in ui.summary_var.get()
     finally:
         root.destroy()
 
@@ -3080,6 +3126,7 @@ def test_apply_control_lock_disables_startup_controls_when_worker_alive(monkeypa
         assert str(ui.route_mode_combo.cget("state")) == "disabled"
         assert str(ui.temp_scope_combo.cget("state")) == "disabled"
         assert str(ui.temperature_order_combo.cget("state")) == "disabled"
+        assert str(ui.postrun_delivery_check.cget("state")) == "disabled"
         assert str(ui.config_entry.cget("state")) == "disabled"
         assert str(ui.stop_button.cget("state")) == "normal"
     finally:

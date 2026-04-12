@@ -170,6 +170,14 @@ class Wp6CloseoutBundle:
     def keys(self) -> tuple[str, ...]:
         return tuple(self.payloads_by_key.keys())
 
+    def items(self) -> list[tuple[str, dict[str, Any]]]:
+        """Return (key, payload) pairs in canonical key order."""
+        return list(self.payloads_by_key.items())
+
+    def as_payloads_dict(self) -> dict[str, dict[str, Any]]:
+        """Return a shallow copy of payloads_by_key for dict-style consumption."""
+        return dict(self.payloads_by_key)
+
 
 def build_wp6_closeout_bundle(
     source: dict[str, Any],

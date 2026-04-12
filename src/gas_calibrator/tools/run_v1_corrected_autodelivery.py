@@ -109,7 +109,20 @@ def _annotate_rows_with_actual_device_ids(
     annotated: List[Dict[str, Any]] = []
     for row in rows:
         payload = dict(row)
-        analyzer = _normalize_analyzer(payload.get(analyzer_key))
+        resolved_analyzer_key = analyzer_key if analyzer_key in payload else ""
+        if not resolved_analyzer_key:
+            for key in payload.keys():
+                header = str(key or "").strip()
+                if header.lower() == "analyzer" or "分析" in header:
+                    resolved_analyzer_key = str(key)
+                    break
+        if not resolved_analyzer_key:
+            for key in payload.keys():
+                analyzer_text = _normalize_analyzer(payload.get(key))
+                if analyzer_text.startswith("GA"):
+                    resolved_analyzer_key = str(key)
+                    break
+        analyzer = _normalize_analyzer(payload.get(resolved_analyzer_key))
         payload.setdefault("ActualDeviceId", normalized_ids.get(analyzer, ""))
         annotated.append(payload)
     return annotated
@@ -803,12 +816,12 @@ def build_corrected_delivery(
     filtered_paths, filter_stats = _filter_no_500_summary_paths(run_dir, output_dir)
     report_path = output_dir / "calibration_coefficients.xlsx"
     report = build_corrected_water_points_report(filtered_paths, output_path=report_path, temperature_key="Temp")
-    simplified = report["simplified"].copy()
-    summary = report["summary"].copy()
-    original = report["original"].copy()
-    points = report["points"].copy()
-    ranges = report["ranges"].copy()
-    topn = report["topn"].copy()
+    simplified = pd.DataFrame(report.get("simplified", pd.DataFrame())).copy()
+    summary = pd.DataFrame(report.get("summary", pd.DataFrame())).copy()
+    original = pd.DataFrame(report.get("original", pd.DataFrame())).copy()
+    points = pd.DataFrame(report.get("points", pd.DataFrame())).copy()
+    ranges = pd.DataFrame(report.get("ranges", pd.DataFrame())).copy()
+    topn = pd.DataFrame(report.get("topn", pd.DataFrame())).copy()
     actual_device_ids = extract_run_device_ids(run_dir)
     summary = pd.DataFrame(_annotate_rows_with_actual_device_ids(summary.to_dict(orient="records"), actual_device_ids))
     simplified = pd.DataFrame(_annotate_rows_with_actual_device_ids(simplified.to_dict(orient="records"), actual_device_ids))
@@ -825,7 +838,7 @@ def build_corrected_delivery(
     for analyzer in sorted(analyzers):
         analyzer_summary_rows.append({"Analyzer": analyzer, "ActualDeviceId": actual_device_ids.get(analyzer, "")})
 
-    download_plan_rows = build_corrected_download_plan_rows(simplified)
+    download_plan_rows = build_corrected_download_plan_rows(simplified, actual_device_ids=actual_device_ids)
     temperature_rows = load_temperature_coefficient_rows(run_dir)
     pressure_mode = str(pressure_row_source or "startup_calibration").strip().lower()
     if pressure_mode == "current_ambient":
@@ -841,10 +854,15 @@ def build_corrected_delivery(
     _append_dataframe_sheet(report_path, "分析仪汇总", pd.DataFrame(analyzer_summary_rows))
     _append_dataframe_sheet(report_path, "temperature_plan", pd.DataFrame(temperature_rows))
     _append_dataframe_sheet(report_path, "pressure_plan", pd.DataFrame(pressure_rows))
+    _annotate_workbook_with_actual_device_ids(report_path, actual_device_ids)
 
     _write_csv(output_dir / "download_plan_no_500.csv", download_plan_rows)
     _write_csv(output_dir / "fit_summary_no_500.csv", summary.to_dict(orient="records"))
     _write_csv(output_dir / "simplified_coefficients_no_500.csv", simplified.to_dict(orient="records"))
+    _write_csv(output_dir / "original_coefficients_no_500.csv", original.to_dict(orient="records"))
+    _write_csv(output_dir / "points_with_actual_ids_no_500.csv", points.to_dict(orient="records"))
+    _write_csv(output_dir / "range_analysis_with_actual_ids_no_500.csv", ranges.to_dict(orient="records"))
+    _write_csv(output_dir / "topn_with_actual_ids_no_500.csv", topn.to_dict(orient="records"))
     _write_csv(output_dir / "temperature_coefficients_target.csv", temperature_rows)
     _write_csv(output_dir / "pressure_offset_current_ambient_summary.csv", pressure_rows)
     _write_csv(output_dir / "filter_summary.csv", filter_stats)
@@ -886,6 +904,7 @@ def run_from_cli(
     fallback_pressure_to_controller: bool = False,
     pressure_row_source: str = "startup_calibration",
     write_pressure_coefficients: bool = False,
+    verify_short_run_cfg: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     run_dir_path = Path(run_dir).resolve()
     target_dir = Path(output_dir).resolve() if output_dir else run_dir_path / f"corrected_autodelivery_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -943,7 +962,38 @@ def run_from_cli(
         )
         verify_outputs = {"targets_json": str(targets_json_path), "output_dir": str(verify_dir)}
 
-    payload = {**delivery, "write_result": write_result, "verify_outputs": verify_outputs}
+    short_verify_outputs: Dict[str, Any] = {}
+    short_verify_cfg = dict(verify_short_run_cfg or {})
+    if bool(short_verify_cfg.get("enabled", False)):
+        if not write_devices:
+            short_verify_outputs = {"skipped": True, "reason": "write_devices_disabled"}
+        elif not _writeback_summary_all_ok(write_result):
+            short_verify_outputs = {"skipped": True, "reason": "writeback_incomplete"}
+        else:
+            from . import verify_short_run
+
+            points_excel_override = _resolve_postrun_override_path(cfg, short_verify_cfg.get("points_excel"))
+            short_verify_outputs = verify_short_run.run_short_verification(
+                config_path=str(cfg_path),
+                temp_c=float(short_verify_cfg.get("temp_c", 20.0) or 20.0),
+                skip_co2_ppm=[
+                    int(item)
+                    for item in list(short_verify_cfg.get("skip_co2_ppm") or [])
+                    if str(item).strip()
+                ],
+                enable_connect_check=bool(short_verify_cfg.get("enable_connect_check", False)),
+                run_id=f"postrun_verify_short_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                points_excel_override=points_excel_override,
+                output_dir_override=str(target_dir / "short_verify"),
+                actual_device_ids=delivery["actual_device_ids"],
+            )
+
+    payload = {
+        **delivery,
+        "write_result": write_result,
+        "verify_outputs": verify_outputs,
+        "short_verify_outputs": short_verify_outputs,
+    }
     (target_dir / "autodelivery_summary.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, default=str),
         encoding="utf-8",

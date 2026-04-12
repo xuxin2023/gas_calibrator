@@ -7079,6 +7079,7 @@ class CalibrationRunner:
         try:
             from ..tools import run_v1_corrected_autodelivery
 
+            short_verify_cfg = cfg.get("verify_short_run", {})
             result = run_v1_corrected_autodelivery.run_from_cli(
                 run_dir=str(run_dir),
                 config_path=str(config_snapshot),
@@ -7089,12 +7090,21 @@ class CalibrationRunner:
                 fallback_pressure_to_controller=bool(cfg.get("fallback_pressure_to_controller", False)),
                 pressure_row_source=str(cfg.get("pressure_row_source") or "startup_calibration"),
                 write_pressure_coefficients=bool(cfg.get("write_pressure_coefficients", False)),
+                verify_short_run_cfg=short_verify_cfg if isinstance(short_verify_cfg, dict) else {},
             )
+            short_verify_outputs = result.get("short_verify_outputs") if isinstance(result, dict) else {}
+            if isinstance(short_verify_outputs, dict) and short_verify_outputs.get("skipped"):
+                short_verify_status = f"skipped:{short_verify_outputs.get('reason', 'unknown')}"
+            elif isinstance(short_verify_outputs, dict) and short_verify_outputs:
+                short_verify_status = "ok" if bool(short_verify_outputs.get("ok", False)) else "failed"
+            else:
+                short_verify_status = "no"
             self.log(
                 "Postrun corrected delivery finished: "
                 f"report={result.get('report_path')} "
                 f"write={'yes' if result.get('write_result') else 'no'} "
-                f"verify={'yes' if result.get('verify_outputs') else 'no'}"
+                f"verify={'yes' if result.get('verify_outputs') else 'no'} "
+                f"short_verify={short_verify_status}"
             )
         except Exception as exc:
             if bool(cfg.get("strict", False)):

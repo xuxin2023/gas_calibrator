@@ -746,6 +746,8 @@ class App:
         self.route_mode_var.trace_add("write", lambda *_args: self._on_route_mode_change())
         self.fit_enabled_var = tk.BooleanVar(value=True)
         self.fit_enabled_var.trace_add("write", lambda *_args: self._on_fit_mode_change())
+        self.postrun_delivery_var = tk.BooleanVar(value=True)
+        self.postrun_delivery_var.trace_add("write", lambda *_args: self._on_postrun_delivery_change())
         self.temp_scope_var = tk.StringVar(value="全部温度点")
         self.temp_scope_var.trace_add("write", lambda *_args: self._on_temp_scope_change())
         self.temperature_order_var = tk.StringVar(value="从高到低")
@@ -1007,6 +1009,7 @@ class App:
         opts.grid_columnconfigure(1, weight=1)
         opts.grid_columnconfigure(2, weight=1)
         opts.grid_columnconfigure(3, weight=1)
+        opts.grid_columnconfigure(4, weight=1)
         route_field = tk.Frame(
             opts,
             bg="#f7fbff",
@@ -1100,6 +1103,44 @@ class App:
             anchor="w",
             justify="left",
             wraplength=180,
+            font=("Microsoft YaHei UI", 8),
+        ).pack(fill="x", pady=(4, 0))
+        delivery_field = tk.Frame(
+            opts,
+            bg="#f7fbff",
+            highlightbackground="#d7e6f5",
+            highlightthickness=1,
+            padx=10,
+            pady=7,
+        )
+        delivery_field.grid(row=0, column=4, sticky="ew", padx=(5, 0))
+        tk.Label(delivery_field, text="自动交付", bg="#f7fbff", fg=self.ui_colors["muted"], font=("Microsoft YaHei UI", 8, "bold")).pack(anchor="w", pady=(0, 4))
+        self.postrun_delivery_check = tk.Checkbutton(
+            delivery_field,
+            text="完轮后自动算系数并写回",
+            variable=self.postrun_delivery_var,
+            onvalue=True,
+            offvalue=False,
+            anchor="w",
+            bg="#f7fbff",
+            fg=self.ui_colors["text"],
+            activebackground="#f7fbff",
+            activeforeground=self.ui_colors["text"],
+            selectcolor="#e6fffb",
+            relief="flat",
+            highlightthickness=0,
+            font=("Microsoft YaHei UI", 9, "bold"),
+            command=self._refresh_execution_summary,
+        )
+        self.postrun_delivery_check.pack(fill="x")
+        tk.Label(
+            delivery_field,
+            text="自动计算系数、写入设备，并执行短验证；可随本轮关闭。",
+            bg="#f7fbff",
+            fg=self.ui_colors["muted"],
+            anchor="w",
+            justify="left",
+            wraplength=190,
             font=("Microsoft YaHei UI", 8),
         ).pack(fill="x", pady=(4, 0))
         mode_meta = tk.Frame(mode_panel, bg=self.ui_colors["soft_layer"])
@@ -4129,6 +4170,8 @@ class App:
             and bool(coeff_cfg.get("fit_h2o", True))
         )
         self.fit_enabled_var.set(fit_enabled)
+        postrun_cfg = workflow_cfg.get("postrun_corrected_delivery", {}) if isinstance(workflow_cfg.get("postrun_corrected_delivery", {}), dict) else {}
+        self.postrun_delivery_var.set(bool(postrun_cfg.get("enabled", True)))
         self.temperature_order_var.set("从高到低" if bool(workflow_cfg.get("temperature_descending", True)) else "从低到高")
         selected_temps_raw = workflow_cfg.get("selected_temps_c")
         selected_temps: set[float] = set()
@@ -4832,6 +4875,12 @@ class App:
         return "开启" if self.fit_enabled_var.get() else "关闭，仅采集"
 
     def _on_fit_mode_change(self) -> None:
+        self._refresh_execution_summary()
+
+    def _postrun_delivery_text(self) -> str:
+        return "开启" if self.postrun_delivery_var.get() else "关闭"
+
+    def _on_postrun_delivery_change(self) -> None:
         self._refresh_execution_summary()
 
     def _temperature_order_descending(self) -> bool:
@@ -5603,11 +5652,12 @@ class App:
     def _refresh_current_selection_summary(self) -> None:
         route_text = self.route_mode_var.get().strip() or "先水后气"
         fit_text = self._fit_mode_text()
+        delivery_text = self._postrun_delivery_text()
         temp_text = self._selected_temps_text()
         co2_text = self._selected_co2_text()
         pressure_text = self._selected_pressure_text()
         self.current_selection_var.set(
-            f"当前选择：{route_text} | 拟合：{fit_text} | 温度：{temp_text} | 气点：{co2_text} | 压力点：{pressure_text}"
+            f"当前选择：{route_text} | 拟合：{fit_text} | 自动交付：{delivery_text} | 温度：{temp_text} | 气点：{co2_text} | 压力点：{pressure_text}"
         )
         self.summary_mode_card_var.set(f"测量模式\n{route_text}")
         self.summary_temp_card_var.set(f"温度点\n{self._compact_temps_text()}")
@@ -5657,6 +5707,7 @@ class App:
     def _refresh_execution_summary(self) -> None:
         route_text = self.route_mode_var.get().strip() or "先水后气"
         fit_text = self._fit_mode_text()
+        delivery_text = self._postrun_delivery_text()
         order_text = self._temperature_order_text()
         temp_text = self._selected_temps_text()
         co2_text = self._selected_co2_text()
@@ -5667,10 +5718,10 @@ class App:
         self.temp_scope_brief_var.set(f"范围：{self.temp_scope_var.get().strip() or '全部温度点'}")
         self.temperature_order_brief_var.set(f"顺序：{order_text}")
         self.summary_var.set(
-            f"执行摘要：{route_text} | 拟合：{fit_text} | 顺序：{order_text} | 温度：{temp_text} | 气点：{co2_text} | 压力点：{pressure_text}"
+            f"执行摘要：{route_text} | 拟合：{fit_text} | 自动交付：{delivery_text} | 顺序：{order_text} | 温度：{temp_text} | 气点：{co2_text} | 压力点：{pressure_text}"
         )
         self.startup_summary_var.set(
-            f"测量模式：{route_text} | 校准拟合：{fit_text} | 温度顺序：{order_text} | 温度：{temp_text} | 气点：{co2_text} | 压力点：{pressure_text}"
+            f"测量模式：{route_text} | 校准拟合：{fit_text} | 自动交付：{delivery_text} | 温度顺序：{order_text} | 温度：{temp_text} | 气点：{co2_text} | 压力点：{pressure_text}"
         )
         self._refresh_current_selection_summary()
         ready, text, level = self._compute_start_readiness()
@@ -5695,6 +5746,8 @@ class App:
         }
         route_text = route_text_map.get(route_mode, route_mode)
         fit_text = "开启" if (not bool(workflow.get("collect_only", False)) and bool(coeff_cfg.get("fit_h2o", True))) else "关闭，仅采集"
+        postrun_cfg = workflow.get("postrun_corrected_delivery", {}) if isinstance(workflow.get("postrun_corrected_delivery", {}), dict) else {}
+        delivery_text = "开启" if bool(postrun_cfg.get("enabled", True)) else "关闭"
         order_text = "从高到低" if bool(workflow.get("temperature_descending", True)) else "从低到高"
 
         selected_temps = workflow.get("selected_temps_c")
@@ -5734,6 +5787,7 @@ class App:
             "即将开始本次校准流程：",
             f"流程模式：{route_text}",
             f"校准拟合：{fit_text}",
+            f"自动交付：{delivery_text}",
             f"温度顺序：{order_text}",
             f"温度点：{temp_text}",
             f"气点：{'、'.join(selected_ppm) if selected_ppm else '未选择'}",
@@ -9090,6 +9144,11 @@ class App:
             coefficients["enabled"] = True
             coefficients["auto_fit"] = True
             coefficients["fit_h2o"] = True
+        postrun_cfg = workflow.setdefault("postrun_corrected_delivery", {})
+        if not isinstance(postrun_cfg, dict):
+            postrun_cfg = {}
+            workflow["postrun_corrected_delivery"] = postrun_cfg
+        postrun_cfg["enabled"] = bool(self.postrun_delivery_var.get())
 
         scope = self.temp_scope_var.get().strip()
         if scope == "指定温度点":
@@ -9167,6 +9226,7 @@ class App:
         self.temp_scope_combo.configure(state=combo_state)
         self.temperature_order_combo.configure(state=combo_state)
         self.fit_enabled_check.configure(state=button_state)
+        self.postrun_delivery_check.configure(state=button_state)
         self.temp_select_all_button.configure(state=button_state)
         self.temp_clear_button.configure(state=button_state)
         self.co2_select_all_button.configure(state=button_state)
