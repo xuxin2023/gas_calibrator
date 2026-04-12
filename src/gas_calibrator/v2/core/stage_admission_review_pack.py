@@ -11,10 +11,17 @@ from .phase_transition_bridge_reviewer_artifact import (
     build_phase_transition_bridge_reviewer_artifact,
 )
 from .step2_readiness import STEP2_READINESS_SUMMARY_FILENAME
+from .governance_handoff_contracts import (
+    GOVERNANCE_HANDOFF_FILENAMES as _GOV_FILENAMES,
+    GOVERNANCE_HANDOFF_DISPLAY_LABELS as _GOV_LABELS,
+    GOVERNANCE_HANDOFF_DISPLAY_LABELS_EN as _GOV_LABELS_EN,
+    GOVERNANCE_HANDOFF_I18N_KEYS as _GOV_I18N_KEYS,
+    GOVERNANCE_HANDOFF_ROLES as _GOV_ROLES,
+)
 
 
-STAGE_ADMISSION_REVIEW_PACK_FILENAME = "stage_admission_review_pack.json"
-STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME = "stage_admission_review_pack.md"
+STAGE_ADMISSION_REVIEW_PACK_FILENAME = _GOV_FILENAMES["stage_admission_review_pack"]
+STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME = _GOV_FILENAMES["stage_admission_review_pack_reviewer_artifact"]
 
 
 def build_stage_admission_review_pack(
