@@ -3586,6 +3586,8 @@ class AppFacade:
             limit=8,
             metrics=diagnostics,
             force_refresh=force_refresh,
+            family_key="analytics",
+            family_budget=_family_budgets.get("analytics"),
         )
         for path in analytics_paths:
             item = self._parse_review_artifact(
@@ -3631,6 +3633,8 @@ class AppFacade:
                 limit=8,
                 metrics=diagnostics,
                 force_refresh=force_refresh,
+                family_key="offline_diagnostic",
+                family_budget=_family_budgets.get("offline_diagnostic"),
             )
             if len(offline_paths) < len(offline_primary_paths):
                 seen = {str(path) for path in offline_paths}
@@ -3645,6 +3649,12 @@ class AppFacade:
                 items.append(item)
         diagnostics["elapsed_ms"] = int(round((time.perf_counter() - started_at) * 1000))
         diagnostics["cache_hit"] = bool(diagnostics.get("cache_hit", False))
+        # Build per-family budget summary for diagnostics
+        _family_used_final: dict[str, int] = {}
+        for _fk in _family_budgets:
+            _family_used_final[_fk] = int(diagnostics.get(f"scan_budget_used__{_fk}", 0) or 0)
+        diagnostics["family_budget_summary"] = _build_family_budget_summary(_family_budgets, _family_used_final)
+        diagnostics["family_budgets"] = dict(_family_budgets)
         return (
             sorted(items, key=lambda item: float(item.get("sort_key", 0.0) or 0.0), reverse=True)[:40],
             diagnostics,
