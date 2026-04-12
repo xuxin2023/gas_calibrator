@@ -59,7 +59,12 @@ def _write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def test_review_center_builds_cross_run_index_from_recent_runs(tmp_path: Path) -> None:
+def test_review_center_builds_cross_run_index_from_recent_runs(tmp_path: Path, monkeypatch) -> None:
+    import gas_calibrator.v2.ui_v2.controllers.app_facade as _facade_mod
+    monkeypatch.setattr(_facade_mod, "REVIEW_CENTER_SCAN_BUDGET", 2048)
+    monkeypatch.setattr(_facade_mod, "REVIEW_CENTER_SCAN_MATCH_LIMIT", 64)
+    monkeypatch.setattr(_facade_mod, "REVIEW_CENTER_SCAN_ROOT_LIMIT", 32)
+
     facade = build_fake_facade(tmp_path)
     run_root = Path(facade.result_store.run_dir).parent
     now = datetime.now()
