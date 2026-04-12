@@ -1536,13 +1536,6 @@ class AppFacade:
         _wp6_closeout_bundle = _build_wp6_closeout_bundle(
             payload, filename_module=recognition_readiness,
         )
-        pt_ilc_registry = _wp6_closeout_bundle["pt_ilc_registry"]
-        external_comparison_importer = _wp6_closeout_bundle["external_comparison_importer"]
-        comparison_evidence_pack = _wp6_closeout_bundle["comparison_evidence_pack"]
-        scope_comparison_view = _wp6_closeout_bundle["scope_comparison_view"]
-        comparison_digest = _wp6_closeout_bundle["comparison_digest"]
-        comparison_rollup = _wp6_closeout_bundle["comparison_rollup"]
-        step2_closeout_digest = _wp6_closeout_bundle["step2_closeout_digest"]
         run_artifact_index = dict(payload.get("run_artifact_index", {}) or {})
         artifact_contract_catalog = dict(payload.get("artifact_contract_catalog", {}) or {})
         compatibility_scan_summary = dict(payload.get("compatibility_scan_summary", {}) or {})
