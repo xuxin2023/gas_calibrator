@@ -60,6 +60,50 @@ def _env_temp_from_row(row: Mapping[str, Any]) -> float | None:
     return None
 
 
+def _selection_float_list(raw: Any, default: Sequence[float]) -> List[float]:
+    if not isinstance(raw, (list, tuple)):
+        return [float(value) for value in default]
+    values: List[float] = []
+    for item in raw:
+        try:
+            values.append(float(item))
+        except Exception:
+            continue
+    return values if values else [float(value) for value in default]
+
+
+def _resolve_h2o_selection(selection: Mapping[str, Any] | None) -> Dict[str, Any]:
+    payload = dict(selection or {})
+    return {
+        "include_h2o_phase": bool(payload.get("include_h2o_phase", True)),
+        "include_co2_temp_groups_c": _selection_float_list(payload.get("include_co2_temp_groups_c"), []),
+        "include_co2_zero_ppm_rows": bool(payload.get("include_co2_zero_ppm_rows", True)),
+        "co2_zero_ppm_target": float(payload.get("co2_zero_ppm_target", 0.0)),
+        "co2_zero_ppm_tolerance": float(payload.get("co2_zero_ppm_tolerance", 0.5)),
+        "include_co2_zero_ppm_temp_groups_c": _selection_float_list(
+            payload.get("include_co2_zero_ppm_temp_groups_c"),
+            [-20.0, -10.0, 0.0],
+        ),
+        "temp_tolerance_c": float(payload.get("temp_tolerance_c", 0.6)),
+    }
+
+
+def _describe_h2o_selection(selection: Mapping[str, Any]) -> str:
+    parts: List[str] = []
+    if bool(selection.get("include_h2o_phase", True)):
+        parts.append("全部水路点")
+    co2_groups = list(selection.get("include_co2_temp_groups_c") or [])
+    if co2_groups:
+        group_text = "/".join(f"{float(value):g}" for value in co2_groups)
+        parts.append(f"气路 {group_text}°C 全部点")
+    if bool(selection.get("include_co2_zero_ppm_rows", True)):
+        zero_groups = list(selection.get("include_co2_zero_ppm_temp_groups_c") or [])
+        if zero_groups:
+            zero_text = "/".join(f"{float(value):g}" for value in zero_groups)
+            parts.append(f"气路 {zero_text}°C 的 0ppm 锚点")
+    return " + ".join(parts) if parts else "未启用 H2O 选点"
+
+
 def load_summary_workbook_rows(paths: Sequence[str | Path]) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     for raw_path in paths:
@@ -85,12 +129,9 @@ def select_corrected_fit_rows(
     *,
     gas: str,
     temperature_key: str = "Temp",
-    include_co2_temp_groups_c: Sequence[float] = (-20.0, -10.0, 0.0),
-    include_co2_zero_ppm_temp_groups_c: Sequence[float] = (10.0,),
-    co2_zero_ppm_target: float = 0.0,
-    co2_zero_ppm_tolerance: float = 0.5,
-    temp_tolerance_c: float = 0.6,
+    selection: Mapping[str, Any] | None = None,
 ) -> pd.DataFrame:
+    selection_cfg = _resolve_h2o_selection(selection)
     working = frame.copy()
     if "PhaseKey" in working.columns:
         working["PhaseKey"] = working["PhaseKey"].map(_phase_key)
@@ -107,21 +148,26 @@ def select_corrected_fit_rows(
     if gas_key != "h2o":
         raise ValueError(f"Unsupported gas: {gas}")
 
-    phase_mask = working["PhaseKey"] == "h2o"
+    phase_mask = working["PhaseKey"] == "h2o" if selection_cfg["include_h2o_phase"] else False
     co2_mask = working["PhaseKey"] == "co2"
 
     all_co2_temp_mask = False
-    for target in include_co2_temp_groups_c:
+    for target in selection_cfg["include_co2_temp_groups_c"]:
         all_co2_temp_mask = all_co2_temp_mask | (
-            co2_mask & (working["EnvTempC"] - float(target)).abs().le(float(temp_tolerance_c))
+            co2_mask & (working["EnvTempC"] - float(target)).abs().le(float(selection_cfg["temp_tolerance_c"]))
         )
 
-    zero_ppm_mask = working["ppm_CO2_Tank_num"].sub(float(co2_zero_ppm_target)).abs().le(float(co2_zero_ppm_tolerance))
     zero_temp_mask = False
-    for target in include_co2_zero_ppm_temp_groups_c:
-        zero_temp_mask = zero_temp_mask | (
-            co2_mask & zero_ppm_mask & (working["EnvTempC"] - float(target)).abs().le(float(temp_tolerance_c))
+    if selection_cfg["include_co2_zero_ppm_rows"]:
+        zero_ppm_mask = working["ppm_CO2_Tank_num"].sub(float(selection_cfg["co2_zero_ppm_target"])).abs().le(
+            float(selection_cfg["co2_zero_ppm_tolerance"])
         )
+        for target in selection_cfg["include_co2_zero_ppm_temp_groups_c"]:
+            zero_temp_mask = zero_temp_mask | (
+                co2_mask
+                & zero_ppm_mask
+                & (working["EnvTempC"] - float(target)).abs().le(float(selection_cfg["temp_tolerance_c"]))
+            )
 
     return working[phase_mask | all_co2_temp_mask | zero_temp_mask].copy()
 
