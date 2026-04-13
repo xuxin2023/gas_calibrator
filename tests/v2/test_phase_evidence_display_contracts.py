@@ -1,4 +1,4 @@
-"""Tests for phase_evidence_display_contracts — Step 2.8 Task E.
+"""Tests for phase_evidence_display_contracts — Step 2.8 + 2.9.
 
 Covers:
 - Contracts version
@@ -8,6 +8,11 @@ Covers:
 - Bridge section labels completeness
 - Bridge reviewer texts completeness
 - Results fallback labels completeness
+- Formatter display labels completeness (2.9)
+- Compatibility row labels completeness (2.9)
+- Historical rollup labels completeness (2.9)
+- Measurement digest labels completeness (2.9)
+- Readiness digest labels completeness (2.9)
 - Resolve helpers
 - Terminology convergence with review_center_scan_contracts
 - Step 2 boundary markers
@@ -37,12 +42,27 @@ from gas_calibrator.v2.core.phase_evidence_display_contracts import (
     BRIDGE_REVIEWER_TEXTS_EN,
     RESULTS_FALLBACK_LABELS,
     RESULTS_FALLBACK_LABELS_EN,
+    FORMATTER_DISPLAY_LABELS,
+    FORMATTER_DISPLAY_LABELS_EN,
+    COMPATIBILITY_ROW_LABELS,
+    COMPATIBILITY_ROW_LABELS_EN,
+    HISTORICAL_ROLLUP_LABELS,
+    HISTORICAL_ROLLUP_LABELS_EN,
+    MEASUREMENT_DIGEST_LABELS,
+    MEASUREMENT_DIGEST_LABELS_EN,
+    READINESS_DIGEST_LABELS,
+    READINESS_DIGEST_LABELS_EN,
     PHASE_EVIDENCE_STEP2_BOUNDARY,
     resolve_phase_evidence_title,
     resolve_phase_term,
     resolve_bridge_section_label,
     resolve_bridge_reviewer_text,
     resolve_results_fallback_label,
+    resolve_formatter_label,
+    resolve_compatibility_row_label,
+    resolve_historical_rollup_label,
+    resolve_measurement_digest_label,
+    resolve_readiness_digest_label,
 )
 
 
@@ -60,8 +80,8 @@ def _has_chinese(s: str) -> bool:
 # ---------------------------------------------------------------------------
 
 class TestContractsVersion:
-    def test_version_is_2_8_0(self):
-        assert PHASE_EVIDENCE_DISPLAY_CONTRACTS_VERSION == "2.8.0"
+    def test_version_is_2_9_0(self):
+        assert PHASE_EVIDENCE_DISPLAY_CONTRACTS_VERSION == "2.9.0"
 
 
 # ---------------------------------------------------------------------------
