@@ -49,6 +49,7 @@ DEFAULT_MODELING_CONFIG: Dict[str, Any] = {
     "simplification": {
         "enabled": True,
         "method": "column_norm",
+        "selection_scope": "train",
         "auto_digits": True,
         "target_digits": 6,
         "rmse_tolerance": 0.0,
