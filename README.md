@@ -93,6 +93,22 @@ These entrypoints keep V1-adjacent postprocess/sidecar flows easy to reach
 without changing `run_app.py`, without modifying the frozen V1 UI, and without
 promoting Step 2 sidecar capabilities into the V1 production path.
 
+## Offline Modeling
+
+For offline ratio-poly modeling, `Validation` and `Test` are strict holdout
+sets. The current holdout-safe behavior is:
+
+- split the dataset before outlier filtering
+- run outlier detection on `train` only
+- fit original coefficients on `train` only
+- choose simplification digits on `train` by default, or on `train+validation`
+  only when explicitly configured
+- keep `validation` and `test` for evaluation only
+
+When point-level grouping metadata such as `PointTag` / `PointRow` /
+`PointPhase` is present, offline modeling prefers group-aware splitting and
+falls back to random splitting otherwise.
+
 ### GitHub sync
 
 ```powershell
