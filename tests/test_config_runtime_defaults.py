@@ -138,6 +138,7 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["postrun_corrected_delivery"]["write_devices"] is True
     assert cfg["workflow"]["postrun_corrected_delivery"]["write_pressure_coefficients"] is True
     assert cfg["workflow"]["postrun_corrected_delivery"]["pressure_row_source"] == "startup_calibration"
+    assert cfg["workflow"]["postrun_corrected_delivery"]["run_structure_hints"]["enabled"] is True
     assert cfg["workflow"]["postrun_corrected_delivery"]["verify_short_run"]["enabled"] is True
     assert cfg["workflow"]["postrun_corrected_delivery"]["verify_short_run"]["temp_c"] == 20.0
     assert cfg["workflow"]["postrun_corrected_delivery"]["verify_short_run"]["skip_co2_ppm"] == []
@@ -152,6 +153,14 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["temperature_calibration"]["plausibility"]["hard_bad_value_tolerance_c"] == 0.05
     assert cfg["coefficients"]["h2o_summary_selection"]["include_co2_temp_groups_c"] == []
     assert cfg["coefficients"]["h2o_summary_selection"]["include_co2_zero_ppm_temp_groups_c"] == [-20.0, -10.0, 0.0]
+    assert cfg["coefficients"]["h2o_summary_selection"]["co2_zero_ppm_anchor_quality_gate_enabled"] is True
+    assert cfg["coefficients"]["h2o_summary_selection"]["co2_zero_ppm_anchor_require_h2o_dew"] is True
+    assert cfg["coefficients"]["h2o_summary_selection"]["co2_zero_ppm_anchor_max_ppm_h2o_dew_default"] == 0.5
+    assert cfg["coefficients"]["h2o_summary_selection"]["co2_zero_ppm_anchor_max_ppm_h2o_dew_by_temp_c"] == {
+        "-20": 0.2,
+        "-10": 0.05,
+        "0": 0.5,
+    }
     assert cfg["workflow"]["pressure"]["strict_control_ready_check"] is True
     assert cfg["workflow"]["pressure"]["abort_on_vent_off_failure"] is True
     assert cfg["workflow"]["pressure"]["output_off_prefer_gauge"] is True

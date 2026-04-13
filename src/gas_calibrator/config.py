@@ -218,9 +218,9 @@ _RUNTIME_DEFAULTS: Dict[str, Any] = {
             },
         },
         "postrun_corrected_delivery": {
-            "enabled": False,
+            "enabled": True,
             "strict": False,
-            "write_devices": False,
+            "write_devices": True,
             "verify_report": False,
             "verification_template": "",
             "fallback_pressure_to_controller": False,

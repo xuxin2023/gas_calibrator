@@ -10,27 +10,32 @@ from gas_calibrator.export import corrected_water_points_report as report_module
 
 def test_select_corrected_fit_rows_applies_h2o_rule() -> None:
     rows = [
-        {"Analyzer": "GA01", "PointPhase": "水路", "PointTag": "h2o_20", "Temp": 20.0, "EnvTempC": 20.0, "ppm_CO2_Tank": None},
-        {"Analyzer": "GA01", "PointPhase": "H2O", "PointTag": "h2o_30", "Temp": 30.0, "EnvTempC": 30.0, "ppm_CO2_Tank": None},
-        {"Analyzer": "GA01", "PointPhase": "气路", "PointTag": "co2_m20_0", "Temp": -20.0, "EnvTempC": -20.0, "ppm_CO2_Tank": 0.0},
-        {"Analyzer": "GA01", "PointPhase": "CO2", "PointTag": "co2_m20_400", "Temp": -20.0, "EnvTempC": -20.0, "ppm_CO2_Tank": 400.0},
-        {"Analyzer": "GA01", "PointPhase": "CO2", "PointTag": "co2_m10_0", "Temp": -10.0, "EnvTempC": -10.0, "ppm_CO2_Tank": 0.0},
-        {"Analyzer": "GA01", "PointPhase": "CO2", "PointTag": "co2_0_400", "Temp": 0.0, "EnvTempC": 0.0, "ppm_CO2_Tank": 400.0},
-        {"Analyzer": "GA01", "PointPhase": "CO2", "PointTag": "co2_0_0", "Temp": 0.0, "EnvTempC": 0.0, "ppm_CO2_Tank": 0.0},
-        {"Analyzer": "GA01", "PointPhase": "CO2", "PointTag": "co2_10_0", "Temp": 10.1, "EnvTempC": 10.0, "ppm_CO2_Tank": 0.0},
-        {"Analyzer": "GA01", "PointPhase": "CO2", "PointTag": "co2_10_400", "Temp": 10.2, "EnvTempC": 10.0, "ppm_CO2_Tank": 400.0},
-        {"Analyzer": "GA01", "PointPhase": "CO2", "PointTag": "co2_20_0", "Temp": 20.0, "EnvTempC": 20.0, "ppm_CO2_Tank": 0.0},
+        {"Analyzer": "GA01", "PointPhase": "水路", "PointTag": "h2o_20", "Temp": 20.0, "EnvTempC": 20.0, "ppm_CO2_Tank": None, "ppm_H2O_Dew": 7.0},
+        {"Analyzer": "GA01", "PointPhase": "H2O", "PointTag": "h2o_30", "Temp": 30.0, "EnvTempC": 30.0, "ppm_CO2_Tank": None, "ppm_H2O_Dew": 9.0},
+        {"Analyzer": "GA01", "PointPhase": "气路", "PointTag": "co2_m20_0", "Temp": -20.0, "EnvTempC": -20.0, "ppm_CO2_Tank": 0.0, "ppm_H2O_Dew": 0.04},
+        {"Analyzer": "GA01", "PointPhase": "CO2", "PointTag": "co2_m20_400", "Temp": -20.0, "EnvTempC": -20.0, "ppm_CO2_Tank": 400.0, "ppm_H2O_Dew": 0.05},
+        {"Analyzer": "GA01", "PointPhase": "CO2", "PointTag": "co2_m10_0", "Temp": -10.0, "EnvTempC": -10.0, "ppm_CO2_Tank": 0.0, "ppm_H2O_Dew": 0.06},
+        {"Analyzer": "GA01", "PointPhase": "CO2", "PointTag": "co2_0_400", "Temp": 0.0, "EnvTempC": 0.0, "ppm_CO2_Tank": 400.0, "ppm_H2O_Dew": 0.3},
+        {"Analyzer": "GA01", "PointPhase": "CO2", "PointTag": "co2_0_0", "Temp": 0.0, "EnvTempC": 0.0, "ppm_CO2_Tank": 0.0, "ppm_H2O_Dew": 0.93},
+        {"Analyzer": "GA01", "PointPhase": "CO2", "PointTag": "co2_10_0", "Temp": 10.1, "EnvTempC": 10.0, "ppm_CO2_Tank": 0.0, "ppm_H2O_Dew": 0.1},
+        {"Analyzer": "GA01", "PointPhase": "CO2", "PointTag": "co2_10_400", "Temp": 10.2, "EnvTempC": 10.0, "ppm_CO2_Tank": 400.0, "ppm_H2O_Dew": 0.1},
+        {"Analyzer": "GA01", "PointPhase": "CO2", "PointTag": "co2_20_0", "Temp": 20.0, "EnvTempC": 20.0, "ppm_CO2_Tank": 0.0, "ppm_H2O_Dew": 0.1},
     ]
     frame = pd.DataFrame(rows)
 
-    selected = report_module.select_corrected_fit_rows(frame, gas="h2o", temperature_key="Temp")
+    selection = report_module.select_corrected_fit_rows_with_diagnostics(frame, gas="h2o", temperature_key="Temp")
+    selected = selection["selected_frame"]
+    gate_hits = selection["h2o_anchor_gate_hits"]
 
     assert selected["PointTag"].tolist() == [
         "h2o_20",
         "h2o_30",
         "co2_m20_0",
-        "co2_m10_0",
-        "co2_0_0",
+    ]
+    assert gate_hits["PointTag"].tolist() == ["co2_m10_0", "co2_0_0"]
+    assert gate_hits["GateReason"].tolist() == [
+        "anchor_h2o_dew_above_limit",
+        "anchor_h2o_dew_above_limit",
     ]
 
 

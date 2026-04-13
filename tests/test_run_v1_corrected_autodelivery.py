@@ -220,7 +220,27 @@ def test_build_corrected_delivery_prefers_startup_pressure_rows(tmp_path: Path, 
         return {
             "summary": pd.DataFrame([{"鍒嗘瀽浠?": "GA01", "姘斾綋": "CO2"}]),
             "simplified": pd.DataFrame([{"鍒嗘瀽浠?": "GA01", "姘斾綋": "CO2", **{f"a{i}": float(i + 1) for i in range(9)}}]),
-            "h2o_selected_rows": pd.DataFrame([{"Analyzer": "GA01", "PointRow": 3, "PointTag": "co2_m20_0"}]),
+            "h2o_selected_rows": pd.DataFrame(
+                [
+                    {
+                        "Analyzer": "GA01",
+                        "PointRow": 3,
+                        "PointTag": "co2_m20_0",
+                        "SelectionOrigin": "co2_zero_ppm_anchor",
+                        "EnvTempC": -20.0,
+                    }
+                ]
+            ),
+            "h2o_anchor_gate_hits": pd.DataFrame(
+                [
+                    {
+                        "Analyzer": "GA01",
+                        "PointRow": 12,
+                        "PointTag": "co2_0_0",
+                        "GateReason": "anchor_h2o_dew_above_limit",
+                    }
+                ]
+            ),
         }
 
     monkeypatch.setattr(module, "build_corrected_water_points_report", _fake_report)
@@ -246,9 +266,13 @@ def test_build_corrected_delivery_prefers_startup_pressure_rows(tmp_path: Path, 
     assert result["pressure_rows"] == [{"Analyzer": "GA01", "DeviceId": "005", "OffsetA_kPa": -2.5, "Command": "SENCO9,YGAS,FFF,-2.50000e00,1.00000e00,0.00000e00,0.00000e00"}]
     assert report_kwargs["coeff_cfg"] == {"h2o_summary_selection": {"include_co2_temp_groups_c": [], "include_co2_zero_ppm_temp_groups_c": [-20.0, -10.0, 0.0]}}
     assert "H2O锚点入选" in appended_sheets
+    assert "H2O锚点门禁" in appended_sheets
+    assert "推荐运行结构提示" in appended_sheets
     assert "温补异常快照" in appended_sheets
-    assert result["h2o_selected_rows"] == [{"Analyzer": "GA01", "PointRow": 3, "PointTag": "co2_m20_0", "ActualDeviceId": "005"}]
+    assert result["h2o_selected_rows"] == [{"Analyzer": "GA01", "PointRow": 3, "PointTag": "co2_m20_0", "SelectionOrigin": "co2_zero_ppm_anchor", "EnvTempC": -20.0, "ActualDeviceId": "005"}]
+    assert result["h2o_anchor_gate_hits"] == [{"Analyzer": "GA01", "PointRow": 12, "PointTag": "co2_0_0", "GateReason": "anchor_h2o_dew_above_limit", "ActualDeviceId": "005"}]
     assert result["temperature_gate_hits"][0]["analyzer_id"] == "GA01"
+    assert any(item["CheckCode"] == "pressure_structure" for item in result["run_structure_hints"])
 
 
 def test_write_coefficients_to_live_devices_can_skip_pressure_rows(tmp_path: Path, monkeypatch) -> None:
