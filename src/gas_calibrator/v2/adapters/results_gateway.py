@@ -1571,7 +1571,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.recognition_scope_repository",
                         value=repository_text,
-                        default=f"范围仓储：{repository_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['recognition_scope_repository']}：{repository_text}",
                     )
                 )
             if str(scope_rollup.get("rollup_summary_display") or "").strip():
@@ -1579,7 +1579,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.recognition_scope_rollup",
                         value=str(scope_rollup.get("rollup_summary_display") or "").strip(),
-                        default="范围/规则 rollup：{value}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['recognition_scope_rollup']}：{value}",
                     )
                 )
             scope_non_claim_text = str(
@@ -1593,7 +1593,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.scope_non_claim",
                         value=scope_non_claim_text,
-                        default=f"非声明边界：{scope_non_claim_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['scope_non_claim']}：{scope_non_claim_text}",
                     )
                 )
 
@@ -1607,7 +1607,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.asset_readiness_overview",
                         value=reference_asset_text,
-                        default=f"asset readiness overview: {reference_asset_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['asset_readiness_overview']}: {reference_asset_text}",
                     )
                 )
             certificate_lifecycle_text = str(
@@ -1620,7 +1620,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.certificate_lifecycle_overview",
                         value=certificate_lifecycle_text,
-                        default=f"certificate lifecycle overview: {certificate_lifecycle_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['certificate_lifecycle_overview']}: {certificate_lifecycle_text}",
                     )
                 )
             pre_run_gate_text = str(
@@ -1633,7 +1633,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.pre_run_readiness_gate",
                         value=pre_run_gate_text,
-                        default=f"pre-run readiness gate: {pre_run_gate_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['pre_run_readiness_gate']}: {pre_run_gate_text}",
                     )
                 )
             blocking_text = str(
@@ -1646,7 +1646,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.pre_run_blocking_digest",
                         value=blocking_text,
-                        default=f"blocking digest: {blocking_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['pre_run_blocking_digest']}: {blocking_text}",
                     )
                 )
             warning_text = str(
@@ -1659,7 +1659,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.pre_run_warning_digest",
                         value=warning_text,
-                        default=f"warning digest: {warning_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['pre_run_warning_digest']}: {warning_text}",
                     )
                 )
 
@@ -1682,7 +1682,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.uncertainty_overview",
                         value=uncertainty_overview_text,
-                        default=f"不确定度概览：{uncertainty_overview_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['uncertainty_overview']}：{uncertainty_overview_text}",
                     )
                 )
             budget_completeness_text = str(
@@ -1695,7 +1695,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.uncertainty_budget_completeness",
                         value=budget_completeness_text,
-                        default=f"预算完整度：{budget_completeness_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['uncertainty_budget_completeness']}：{budget_completeness_text}",
                     )
                 )
             top_contributors_text = str(
@@ -1708,7 +1708,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.uncertainty_top_contributors",
                         value=top_contributors_text,
-                        default=f"主要不确定度贡献：{top_contributors_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['uncertainty_top_contributors']}：{top_contributors_text}",
                     )
                 )
             data_completeness_text = str(
@@ -1721,7 +1721,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.uncertainty_data_completeness",
                         value=data_completeness_text,
-                        default=f"数据完整度：{data_completeness_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['uncertainty_data_completeness']}：{data_completeness_text}",
                     )
                 )
             rollup_status_text = str(
@@ -1734,7 +1734,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.uncertainty_rollup",
                         value=rollup_status_text,
-                        default=f"不确定度 rollup：{rollup_status_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['uncertainty_rollup']}：{rollup_status_text}",
                     )
                 )
             non_claim_text = str(
@@ -1748,7 +1748,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.uncertainty_non_claim",
                         value=non_claim_text,
-                        default=f"不确定度 non-claim：{non_claim_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['uncertainty_non_claim']}：{non_claim_text}",
                     )
                 )
 
@@ -1777,7 +1777,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.method_confirmation_overview",
                         value=protocol_overview_text,
-                        default=f"方法确认概览：{protocol_overview_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['method_confirmation_overview']}：{protocol_overview_text}",
                     )
                 )
             matrix_completeness_text = str(
@@ -1790,7 +1790,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.validation_matrix_completeness",
                         value=matrix_completeness_text,
-                        default=f"验证矩阵完整度：{matrix_completeness_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['validation_matrix_completeness']}：{matrix_completeness_text}",
                     )
                 )
             current_evidence_coverage_text = str(
@@ -1803,7 +1803,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.validation_current_evidence_coverage",
                         value=current_evidence_coverage_text,
-                        default=f"当前证据覆盖：{current_evidence_coverage_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['validation_current_evidence_coverage']}：{current_evidence_coverage_text}",
                     )
                 )
             top_gaps_text = str(
@@ -1816,7 +1816,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.validation_top_gaps",
                         value=top_gaps_text,
-                        default=f"主要缺口：{top_gaps_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['validation_top_gaps']}：{top_gaps_text}",
                     )
                 )
             reviewer_actions_text = str(
@@ -1828,7 +1828,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.validation_reviewer_actions",
                         value=reviewer_actions_text,
-                        default=f"审阅动作：{reviewer_actions_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['validation_reviewer_actions']}：{reviewer_actions_text}",
                     )
                 )
             method_non_claim_text = str(
@@ -1842,7 +1842,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.method_confirmation_non_claim",
                         value=method_non_claim_text,
-                        default=f"方法确认 non-claim：{method_non_claim_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['method_confirmation_non_claim']}：{method_non_claim_text}",
                     )
                 )
             readiness_status_text = str(
@@ -1856,7 +1856,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.verification_readiness_status",
                         value=readiness_status_text,
-                        default=f"验证就绪状态：{readiness_status_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['verification_readiness_status']}：{readiness_status_text}",
                     )
                 )
 
@@ -1939,7 +1939,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.measurement_core_stability",
                         value=measurement_core_stability_text,
-                        default=f"multi-source stability shadow: {measurement_core_stability_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['measurement_core_stability']}: {measurement_core_stability_text}",
                     )
                 )
             )
@@ -1949,7 +1949,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.measurement_core_transition",
                         value=measurement_core_transition_text,
-                        default=f"controlled state trace: {measurement_core_transition_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['measurement_core_transition']}: {measurement_core_transition_text}",
                     )
                 )
             )
@@ -1979,7 +1979,7 @@ class ResultsGateway:
                 t(
                     "facade.results.result_summary.software_validation_overview",
                     value=software_validation_overview_text,
-                    default=f"软件验证总览：{software_validation_overview_text}",
+                    default=f"{_RESULTS_SUMMARY_LABELS['software_validation_overview']}：{software_validation_overview_text}",
                 )
             )
         traceability_completeness_text = str(
@@ -1992,7 +1992,7 @@ class ResultsGateway:
                 t(
                     "facade.results.result_summary.traceability_completeness",
                     value=traceability_completeness_text,
-                    default=f"追溯完整度：{traceability_completeness_text}",
+                    default=f"{_RESULTS_SUMMARY_LABELS['traceability_completeness']}：{traceability_completeness_text}",
                 )
             )
         audit_hash_summary_text = str(
