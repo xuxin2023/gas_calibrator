@@ -1579,7 +1579,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.recognition_scope_rollup",
                         value=str(scope_rollup.get("rollup_summary_display") or "").strip(),
-                        default=f"{_RESULTS_SUMMARY_LABELS['recognition_scope_rollup']}：{value}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['recognition_scope_rollup']}：{str(scope_rollup.get('rollup_summary_display') or '').strip()}",
                     )
                 )
             scope_non_claim_text = str(
