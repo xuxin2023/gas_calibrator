@@ -37,6 +37,7 @@ from ..validation.dewpoint_flush_gate import (
     predict_pressure_scaled_dewpoint_c,
 )
 from .co2_bad_frame_qc import quarantine_co2_source_rows
+from .co2_sampling_contract import apply_co2_phase_sampling_contract
 from .tuning import workflow_param
 
 
@@ -2706,6 +2707,13 @@ class CalibrationRunner:
             "co2_steady_window_std_ppm",
             "co2_steady_window_range_ppm",
             "co2_steady_window_slope_ppm_per_s",
+            "co2_phase_excluded_count",
+            "co2_phase_excluded_ratio",
+            "co2_phase_reason_summary",
+            "co2_phase_contract_reason",
+            "co2_candidate_rows_before_phase_gate",
+            "co2_candidate_rows_after_phase_gate",
+            "co2_candidate_rows_after_quarantine",
             "co2_bad_frame_count",
             "co2_bad_frame_ratio",
             "co2_soft_warn_count",
@@ -13999,6 +14007,13 @@ class CalibrationRunner:
             "co2_steady_window_std_ppm": runtime_state.get("co2_steady_window_std_ppm"),
             "co2_steady_window_range_ppm": runtime_state.get("co2_steady_window_range_ppm"),
             "co2_steady_window_slope_ppm_per_s": runtime_state.get("co2_steady_window_slope_ppm_per_s"),
+            "co2_phase_excluded_count": runtime_state.get("co2_phase_excluded_count"),
+            "co2_phase_excluded_ratio": runtime_state.get("co2_phase_excluded_ratio"),
+            "co2_phase_reason_summary": runtime_state.get("co2_phase_reason_summary"),
+            "co2_phase_contract_reason": runtime_state.get("co2_phase_contract_reason"),
+            "co2_candidate_rows_before_phase_gate": runtime_state.get("co2_candidate_rows_before_phase_gate"),
+            "co2_candidate_rows_after_phase_gate": runtime_state.get("co2_candidate_rows_after_phase_gate"),
+            "co2_candidate_rows_after_quarantine": runtime_state.get("co2_candidate_rows_after_quarantine"),
             "co2_bad_frame_count": runtime_state.get("co2_bad_frame_count"),
             "co2_bad_frame_ratio": runtime_state.get("co2_bad_frame_ratio"),
             "co2_soft_warn_count": runtime_state.get("co2_soft_warn_count"),
@@ -14864,6 +14879,8 @@ class CalibrationRunner:
         min_samples = self._as_int(qcfg.get("co2_steady_state_min_samples"))
         fallback_samples = self._as_int(qcfg.get("co2_steady_state_fallback_samples"))
         quality_enabled = bool(qcfg.get("enabled", True))
+        max_range_ppm = float(qcfg.get("co2_steady_state_max_range_ppm", 8.0) or 8.0)
+        spike_delta_ppm = self._as_float(qcfg.get("co2_bad_frame_isolated_spike_delta_ppm", 50.0))
         return {
             "enabled": bool(qcfg.get("co2_steady_state_enabled", quality_enabled)),
             "policy": self._normalized_policy(
@@ -14879,12 +14896,21 @@ class CalibrationRunner:
                 else (min_samples if min_samples is not None else 4),
             ),
             "max_std_ppm": float(qcfg.get("co2_steady_state_max_std_ppm", 3.0) or 3.0),
-            "max_range_ppm": float(qcfg.get("co2_steady_state_max_range_ppm", 8.0) or 8.0),
+            "max_range_ppm": max_range_ppm,
             "max_abs_slope_ppm_per_s": float(
                 qcfg.get("co2_steady_state_max_abs_slope_ppm_per_s", 1.0) or 1.0
             ),
             "bad_frame_quarantine_enabled": bool(qcfg.get("co2_bad_frame_quarantine_enabled", True)),
             "source_trust_enabled": bool(qcfg.get("co2_source_trust_enabled", True)),
+            "phase_contract_enabled": bool(qcfg.get("co2_phase_contract_enabled", quality_enabled)),
+            "phase_head_exclusion_max_rows": max(
+                0,
+                self._as_int(qcfg.get("co2_phase_head_exclusion_max_rows")) or 2,
+            ),
+            "phase_head_step_max_delta_ppm": max(
+                float(max_range_ppm) * 4.0,
+                spike_delta_ppm if spike_delta_ppm is not None else 50.0,
+            ),
             "isolated_spike_delta_ppm": self._as_float(
                 qcfg.get("co2_bad_frame_isolated_spike_delta_ppm", 50.0)
             ),
@@ -15312,18 +15338,38 @@ class CalibrationRunner:
         *,
         diagnostic_candidate: Optional[Dict[str, Any]],
         selected_source: Optional[str],
+        selected_metrics: Optional[Dict[str, Any]] = None,
+        selected_as_fallback: bool = False,
     ) -> None:
         candidate = diagnostic_candidate or {}
         row_diagnostics = dict(candidate.get("row_diagnostics") or {})
+        phase_row_diagnostics = dict(candidate.get("phase_row_diagnostics") or {})
         candidate_source = str(candidate.get("source") or "")
+        selected_indices: set[int] = set()
+        start_idx = self._as_int((selected_metrics or {}).get("co2_steady_window_start_sample_index"))
+        end_idx = self._as_int((selected_metrics or {}).get("co2_steady_window_end_sample_index"))
+        if start_idx is not None and end_idx is not None and end_idx >= start_idx:
+            selected_indices = set(range(start_idx, end_idx + 1))
+        selected_label = "fallback_selected" if selected_as_fallback else "acquisition_selected"
         for row_idx, row in enumerate(samples or []):
-            diag = dict(row_diagnostics.get(row_idx + 1) or {})
+            sample_index = row_idx + 1
+            diag = dict(row_diagnostics.get(sample_index) or {})
+            phase_diag = dict(phase_row_diagnostics.get(sample_index) or {})
             row["co2_source_candidate"] = candidate_source
             row["co2_source_selected_for_value"] = str(selected_source or "")
             row["co2_bad_frame"] = bool(diag.get("co2_bad_frame"))
             row["co2_bad_frame_reason"] = str(diag.get("co2_bad_frame_reason") or "")
             row["co2_soft_warn"] = bool(diag.get("co2_soft_warn"))
             row["co2_soft_warn_reason"] = str(diag.get("co2_soft_warn_reason") or "")
+            phase_label = str(phase_diag.get("co2_phase_label") or "")
+            if sample_index in selected_indices:
+                phase_label = selected_label
+            elif row["co2_bad_frame"]:
+                phase_label = "quarantined_hard"
+            elif row["co2_soft_warn"] and phase_label == "acquisition_candidate":
+                phase_label = "quarantined_soft"
+            row["co2_phase_label"] = phase_label
+            row["co2_phase_reason"] = str(phase_diag.get("co2_phase_reason") or "")
 
     def _evaluate_co2_steady_state_window_qc(
         self,
@@ -15359,6 +15405,13 @@ class CalibrationRunner:
             "co2_bad_frame_ratio": 0.0,
             "co2_soft_warn_count": 0,
             "co2_soft_warn_ratio": 0.0,
+            "co2_phase_excluded_count": 0,
+            "co2_phase_excluded_ratio": 0.0,
+            "co2_phase_reason_summary": "",
+            "co2_phase_contract_reason": "",
+            "co2_candidate_rows_before_phase_gate": 0,
+            "co2_candidate_rows_after_phase_gate": 0,
+            "co2_candidate_rows_after_quarantine": 0,
             "co2_rows_before_quarantine": 0,
             "co2_rows_after_quarantine": 0,
             "co2_source_selected": None,
@@ -15402,9 +15455,33 @@ class CalibrationRunner:
         fallback_samples = max(int(cfg.get("fallback_samples") or min_samples), min_samples)
         for spec in source_specs:
             rows = self._co2_source_rows_for_quarantine(samples, spec=spec)
+            if bool(cfg.get("phase_contract_enabled")):
+                phase_contract = apply_co2_phase_sampling_contract(
+                    rows,
+                    min_rows_after_gate=min_samples,
+                    head_exclusion_max_rows=int(cfg.get("phase_head_exclusion_max_rows") or 0),
+                    head_step_max_delta_ppm=cfg.get("phase_head_step_max_delta_ppm"),
+                )
+            else:
+                phase_contract = {
+                    "eligible_rows": list(rows),
+                    "rows_before_phase_gate": len(rows),
+                    "rows_after_phase_gate": len(rows),
+                    "phase_excluded_count": 0,
+                    "phase_excluded_ratio": 0.0,
+                    "phase_reason_summary": "",
+                    "phase_contract_reason": "",
+                    "row_diagnostics": {
+                        int(row.get("sample_index") or 0): {
+                            "co2_phase_label": "acquisition_candidate",
+                            "co2_phase_reason": "",
+                        }
+                        for row in rows
+                    },
+                }
             if bool(cfg.get("bad_frame_quarantine_enabled")):
                 quarantine = quarantine_co2_source_rows(
-                    rows,
+                    list(phase_contract.get("eligible_rows") or []),
                     hard_bad_status_tokens=list(quarantine_cfg.get("hard_bad_status_tokens") or []),
                     soft_bad_status_tokens=list(quarantine_cfg.get("soft_bad_status_tokens") or []),
                     invalid_sentinel_values=list(quarantine_cfg.get("invalid_sentinel_values") or []),
@@ -15423,13 +15500,13 @@ class CalibrationRunner:
                         "sample_ts": row.get("sample_ts"),
                         "value": row.get("value"),
                     }
-                    for row in rows
+                    for row in list(phase_contract.get("eligible_rows") or [])
                     if row.get("value") is not None
                     and (row.get("usable") not in (False,))
                 ]
                 quarantine = {
                     "series": pass_through_series,
-                    "rows_before": len(rows),
+                    "rows_before": len(list(phase_contract.get("eligible_rows") or [])),
                     "rows_after": len(pass_through_series),
                     "hard_reject_count": 0,
                     "hard_reject_ratio": 0.0,
@@ -15444,7 +15521,7 @@ class CalibrationRunner:
                             "co2_soft_warn": False,
                             "co2_soft_warn_reason": "",
                         }
-                        for row in rows
+                        for row in list(phase_contract.get("eligible_rows") or [])
                     },
                 }
 
@@ -15452,6 +15529,12 @@ class CalibrationRunner:
                 "source": str(spec.get("source") or "primary"),
                 "source_priority": int(spec.get("priority") or 0),
                 "value_key": str(spec.get("value_key") or "co2_ppm"),
+                "rows_before_phase_gate": int(phase_contract.get("rows_before_phase_gate") or 0),
+                "rows_after_phase_gate": int(phase_contract.get("rows_after_phase_gate") or 0),
+                "co2_phase_excluded_count": int(phase_contract.get("phase_excluded_count") or 0),
+                "co2_phase_excluded_ratio": float(phase_contract.get("phase_excluded_ratio") or 0.0),
+                "co2_phase_reason_summary": str(phase_contract.get("phase_reason_summary") or ""),
+                "co2_phase_contract_reason": str(phase_contract.get("phase_contract_reason") or ""),
                 "rows_before_quarantine": int(quarantine.get("rows_before") or 0),
                 "rows_after_quarantine": int(quarantine.get("rows_after") or 0),
                 "co2_bad_frame_count": int(quarantine.get("hard_reject_count") or 0),
@@ -15470,6 +15553,7 @@ class CalibrationRunner:
                     )
                     if part
                 ),
+                "phase_row_diagnostics": dict(phase_contract.get("row_diagnostics") or {}),
                 "row_diagnostics": dict(quarantine.get("row_diagnostics") or {}),
                 "series": list(quarantine.get("series") or []),
                 "trust_rank": 0,
@@ -15482,8 +15566,14 @@ class CalibrationRunner:
 
             series = list(candidate.get("series") or [])
             if len(series) < min_samples:
-                candidate["trust_reason"] = (
-                    f"rows_after_quarantine={len(series)}<min_samples={min_samples}"
+                candidate["trust_reason"] = ";".join(
+                    part
+                    for part in (
+                        str(candidate.get("co2_phase_contract_reason") or ""),
+                        f"rows_after_phase_gate={candidate.get('rows_after_phase_gate')}",
+                        f"rows_after_quarantine={len(series)}<min_samples={min_samples}",
+                    )
+                    if part
                 )
                 candidates.append(candidate)
                 continue
@@ -15503,9 +15593,14 @@ class CalibrationRunner:
                 chosen = max(candidate_metrics, key=self._co2_window_selection_key)
                 candidate["trust_rank"] = 2
                 candidate["trust_status"] = "steady"
-                candidate["trust_reason"] = (
-                    f"steady_window_candidates={len(candidate_metrics)};"
-                    f"rows_after_quarantine={len(series)}"
+                candidate["trust_reason"] = ";".join(
+                    part
+                    for part in (
+                        str(candidate.get("co2_phase_contract_reason") or ""),
+                        f"steady_window_candidates={len(candidate_metrics)}",
+                        f"rows_after_quarantine={len(series)}",
+                    )
+                    if part
                 )
                 candidate["has_steady_window"] = True
                 candidate["chosen_metrics"] = chosen
@@ -15528,6 +15623,7 @@ class CalibrationRunner:
             candidate["trust_status"] = "fallback"
             candidate["trust_reason"] = ";".join(
                 [
+                    *([str(candidate.get("co2_phase_contract_reason"))] if candidate.get("co2_phase_contract_reason") else []),
                     "no_qualified_steady_state_window",
                     *fallback_reasons,
                     "fallback=trailing_window",
@@ -15567,6 +15663,13 @@ class CalibrationRunner:
                         "co2_bad_frame_ratio": diagnostic_candidate.get("co2_bad_frame_ratio"),
                         "co2_soft_warn_count": diagnostic_candidate.get("co2_soft_warn_count"),
                         "co2_soft_warn_ratio": diagnostic_candidate.get("co2_soft_warn_ratio"),
+                        "co2_phase_excluded_count": diagnostic_candidate.get("co2_phase_excluded_count"),
+                        "co2_phase_excluded_ratio": diagnostic_candidate.get("co2_phase_excluded_ratio"),
+                        "co2_phase_reason_summary": diagnostic_candidate.get("co2_phase_reason_summary"),
+                        "co2_phase_contract_reason": diagnostic_candidate.get("co2_phase_contract_reason"),
+                        "co2_candidate_rows_before_phase_gate": diagnostic_candidate.get("rows_before_phase_gate"),
+                        "co2_candidate_rows_after_phase_gate": diagnostic_candidate.get("rows_after_phase_gate"),
+                        "co2_candidate_rows_after_quarantine": diagnostic_candidate.get("rows_after_quarantine"),
                         "co2_rows_before_quarantine": diagnostic_candidate.get("rows_before_quarantine"),
                         "co2_rows_after_quarantine": diagnostic_candidate.get("rows_after_quarantine"),
                         "co2_quarantine_reason_summary": diagnostic_candidate.get("co2_quarantine_reason_summary"),
@@ -15591,6 +15694,13 @@ class CalibrationRunner:
                 "co2_bad_frame_ratio": selected.get("co2_bad_frame_ratio"),
                 "co2_soft_warn_count": selected.get("co2_soft_warn_count"),
                 "co2_soft_warn_ratio": selected.get("co2_soft_warn_ratio"),
+                "co2_phase_excluded_count": selected.get("co2_phase_excluded_count"),
+                "co2_phase_excluded_ratio": selected.get("co2_phase_excluded_ratio"),
+                "co2_phase_reason_summary": selected.get("co2_phase_reason_summary"),
+                "co2_phase_contract_reason": selected.get("co2_phase_contract_reason"),
+                "co2_candidate_rows_before_phase_gate": selected.get("rows_before_phase_gate"),
+                "co2_candidate_rows_after_phase_gate": selected.get("rows_after_phase_gate"),
+                "co2_candidate_rows_after_quarantine": selected.get("rows_after_quarantine"),
                 "co2_rows_before_quarantine": selected.get("rows_before_quarantine"),
                 "co2_rows_after_quarantine": selected.get("rows_after_quarantine"),
                 "co2_source_selected": selected.get("source"),
@@ -15640,6 +15750,8 @@ class CalibrationRunner:
             samples,
             diagnostic_candidate=selected,
             selected_source=str(selected.get("source") or ""),
+            selected_metrics=chosen,
+            selected_as_fallback=bool(int(selected.get("trust_rank") or 0) < 2),
         )
         self._set_point_runtime_fields(point, phase=phase, **result)
         return result
