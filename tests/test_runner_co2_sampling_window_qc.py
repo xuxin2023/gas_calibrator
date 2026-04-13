@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import csv
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from gas_calibrator.data.points import CalibrationPoint
-from gas_calibrator.logging_utils import RunLogger
+from gas_calibrator.logging_utils import RunLogger, _field_label
 from gas_calibrator.workflow.runner import CalibrationRunner
 
 
@@ -35,6 +36,24 @@ def _sampling_rows(values: list[float]) -> list[dict]:
                 "sample_ts": ts.isoformat(timespec="milliseconds"),
                 "sample_start_ts": ts.isoformat(timespec="milliseconds"),
                 "dewpoint_live_c": value,
+            }
+        )
+    return rows
+
+
+def _co2_sampling_rows(values: list[float]) -> list[dict]:
+    start = datetime(2026, 4, 4, 10, 0, 0)
+    rows: list[dict] = []
+    for idx, value in enumerate(values):
+        ts = start + timedelta(seconds=idx)
+        rows.append(
+            {
+                "sample_ts": ts.isoformat(timespec="milliseconds"),
+                "sample_start_ts": ts.isoformat(timespec="milliseconds"),
+                "sample_end_ts": (ts + timedelta(milliseconds=100)).isoformat(timespec="milliseconds"),
+                "co2_ppm": value,
+                "frame_usable": True,
+                "id": "086",
             }
         )
     return rows
@@ -130,3 +149,180 @@ def test_evaluate_co2_sampling_window_qc_warns_or_fails_for_drifting_window(
     assert "rise_c=0.600>max_rise_c=0.120" in result["sampling_window_qc_reason"]
     assert "abs_slope_c_per_s=0.0667>max_abs_slope_c_per_s=0.0200" in result["sampling_window_qc_reason"]
     assert f"policy={policy}" in result["sampling_window_qc_reason"]
+
+
+def test_evaluate_co2_steady_state_window_qc_prefers_latest_qualified_window(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+            {
+                "workflow": {
+                    "sampling": {
+                        "interval_s": 1.0,
+                        "co2_interval_s": 1.0,
+                        "quality": {
+                            "co2_steady_state_enabled": True,
+                            "co2_steady_state_policy": "warn",
+                            "co2_steady_state_min_samples": 4,
+                        "co2_steady_state_fallback_samples": 4,
+                        "co2_steady_state_max_std_ppm": 0.2,
+                        "co2_steady_state_max_range_ppm": 0.4,
+                        "co2_steady_state_max_abs_slope_ppm_per_s": 0.2,
+                    }
+                }
+            }
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _point_co2_low_pressure()
+
+    result = runner._evaluate_co2_steady_state_window_qc(
+        point,
+        phase="co2",
+        samples=_co2_sampling_rows([400.0, 400.1, 399.9, 400.0, 450.0, 480.0, 500.0, 500.2, 499.9, 500.1]),
+    )
+    logger.close()
+
+    assert result["co2_steady_window_found"] is True
+    assert result["co2_steady_window_status"] == "pass"
+    assert result["co2_steady_window_start_sample_index"] == 7
+    assert result["co2_steady_window_end_sample_index"] == 10
+    assert result["co2_steady_window_candidate_count"] >= 2
+    assert result["measured_value_source"] == "co2_steady_state_window"
+    assert pytest.approx(result["co2_representative_value"], abs=1e-6) == 500.05
+
+
+def test_evaluate_co2_steady_state_window_qc_rejects_obvious_drift(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+            {
+                "workflow": {
+                    "sampling": {
+                        "interval_s": 1.0,
+                        "co2_interval_s": 1.0,
+                        "quality": {
+                            "co2_steady_state_enabled": True,
+                            "co2_steady_state_policy": "reject",
+                            "co2_steady_state_min_samples": 4,
+                        "co2_steady_state_fallback_samples": 4,
+                        "co2_steady_state_max_std_ppm": 2.0,
+                        "co2_steady_state_max_range_ppm": 4.0,
+                        "co2_steady_state_max_abs_slope_ppm_per_s": 1.0,
+                    }
+                }
+            }
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _point_co2_low_pressure()
+
+    result = runner._evaluate_co2_steady_state_window_qc(
+        point,
+        phase="co2",
+        samples=_co2_sampling_rows([100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 700.0, 800.0, 900.0, 1000.0]),
+    )
+    logger.close()
+
+    assert result["co2_steady_window_found"] is False
+    assert result["co2_steady_window_status"] == "fail"
+    assert "no_qualified_steady_state_window" in result["co2_steady_window_reason"]
+    assert "fallback=trailing_window" in result["co2_steady_window_reason"]
+    assert result["measured_value_source"] == "co2_trailing_window_fallback"
+
+
+def test_sample_and_log_exports_co2_steady_state_measured_value_and_reasons(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+            {
+                "workflow": {
+                    "sampling": {
+                        "interval_s": 1.0,
+                        "co2_interval_s": 1.0,
+                        "quality": {
+                            "co2_steady_state_enabled": True,
+                            "co2_steady_state_policy": "warn",
+                            "co2_steady_state_min_samples": 4,
+                        "co2_steady_state_fallback_samples": 4,
+                        "co2_steady_state_max_std_ppm": 0.2,
+                        "co2_steady_state_max_range_ppm": 0.4,
+                        "co2_steady_state_max_abs_slope_ppm_per_s": 0.2,
+                    }
+                }
+            }
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    runner._collect_samples = lambda *_args, **_kwargs: _co2_sampling_rows(
+        [120.0, 200.0, 300.0, 420.0, 480.0, 495.0, 500.0, 500.2, 499.9, 500.1]
+    )
+    point = _point_co2_low_pressure()
+    point.co2_ppm = 500.0
+
+    runner._sample_and_log(point, phase="co2")
+    logger.close()
+
+    with logger.points_path.open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 1
+    row = rows[0]
+
+    assert pytest.approx(float(row[_field_label("measured_value")]), abs=1e-6) == 500.05
+    assert row[_field_label("measured_value_source")] == "co2_steady_state_window"
+    assert row[_field_label("co2_steady_window_found")] == "True"
+    assert row[_field_label("co2_steady_window_start_sample_index")] == "7"
+    assert row[_field_label("co2_steady_window_end_sample_index")] == "10"
+    assert row[_field_label("co2_steady_window_status")] == "pass"
+
+
+def test_sample_and_log_warns_when_no_co2_steady_state_window(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+            {
+                "workflow": {
+                    "sampling": {
+                        "interval_s": 1.0,
+                        "co2_interval_s": 1.0,
+                        "quality": {
+                            "co2_steady_state_enabled": True,
+                            "co2_steady_state_policy": "warn",
+                            "co2_steady_state_min_samples": 4,
+                        "co2_steady_state_fallback_samples": 4,
+                        "co2_steady_state_max_std_ppm": 2.0,
+                        "co2_steady_state_max_range_ppm": 4.0,
+                        "co2_steady_state_max_abs_slope_ppm_per_s": 1.0,
+                    }
+                }
+            }
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    runner._collect_samples = lambda *_args, **_kwargs: _co2_sampling_rows(
+        [100.0, 200.0, 300.0, 400.0, 500.0, 600.0, 700.0, 800.0, 900.0, 1000.0]
+    )
+    point = _point_co2_low_pressure()
+    point.co2_ppm = 1000.0
+
+    runner._sample_and_log(point, phase="co2")
+    logger.close()
+
+    with logger.points_path.open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 1
+    row = rows[0]
+
+    assert pytest.approx(float(row[_field_label("measured_value")]), abs=1e-6) == 850.0
+    assert row[_field_label("measured_value_source")] == "co2_trailing_window_fallback"
+    assert row[_field_label("point_quality_status")] == "warn"
+    assert "co2_steady_window" in row[_field_label("point_quality_flags")]
+    assert "no_qualified_steady_state_window" in row[_field_label("co2_steady_window_reason")]

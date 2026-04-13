@@ -23,6 +23,13 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["selected_pressure_points"] == []
     assert cfg["workflow"]["summary_alignment"]["reference_on_aligned_rows"] is True
     assert cfg["workflow"]["sampling"]["quality"]["per_analyzer"] is False
+    assert cfg["workflow"]["sampling"]["quality"]["co2_steady_state_enabled"] is True
+    assert cfg["workflow"]["sampling"]["quality"]["co2_steady_state_policy"] == "warn"
+    assert cfg["workflow"]["sampling"]["quality"]["co2_steady_state_min_samples"] == 4
+    assert cfg["workflow"]["sampling"]["quality"]["co2_steady_state_fallback_samples"] == 4
+    assert cfg["workflow"]["sampling"]["quality"]["co2_steady_state_max_std_ppm"] == 3.0
+    assert cfg["workflow"]["sampling"]["quality"]["co2_steady_state_max_range_ppm"] == 8.0
+    assert cfg["workflow"]["sampling"]["quality"]["co2_steady_state_max_abs_slope_ppm_per_s"] == 1.0
     assert cfg["workflow"]["analyzer_frame_quality"]["pressure_kpa_min"] == 30.0
     assert cfg["workflow"]["analyzer_frame_quality"]["runtime_relaxed_for_required_key"] is True
     assert cfg["workflow"]["analyzer_frame_quality"]["runtime_hard_bad_status_tokens"] == [
