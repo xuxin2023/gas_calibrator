@@ -141,6 +141,15 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["stability"]["water_route_dewpoint_gate_rebound_min_rise_c"] == 1.3
     assert cfg["workflow"]["stability"]["gas_route_dewpoint_gate_log_interval_s"] == 15.0
     assert cfg["workflow"]["stability"]["water_route_dewpoint_gate_log_interval_s"] == 15.0
+    assert cfg["workflow"]["stability"]["co2_cold_quality_gate"]["enabled"] is True
+    assert cfg["workflow"]["stability"]["co2_cold_quality_gate"]["policy"] == "warn"
+    assert cfg["workflow"]["stability"]["co2_cold_quality_gate"]["apply_temp_max_c"] == 0.0
+    assert cfg["workflow"]["stability"]["co2_cold_quality_gate"]["raw_temp_min_c"] == -30.0
+    assert cfg["workflow"]["stability"]["co2_cold_quality_gate"]["raw_temp_max_c"] == 85.0
+    assert cfg["workflow"]["stability"]["co2_cold_quality_gate"]["max_abs_delta_from_ref_c"] == 20.0
+    assert cfg["workflow"]["stability"]["co2_cold_quality_gate"]["max_cell_shell_gap_c"] == 15.0
+    assert cfg["workflow"]["stability"]["co2_cold_quality_gate"]["hard_bad_values_c"] == [-40.0, 60.0]
+    assert cfg["workflow"]["stability"]["co2_cold_quality_gate"]["hard_bad_value_tolerance_c"] == 0.05
     assert cfg["workflow"]["stability"]["dewpoint"]["enabled"] is True
     assert cfg["workflow"]["stability"]["dewpoint"]["rh_match_tol_pct"] == 3.3
     assert cfg["workflow"]["postrun_corrected_delivery"]["enabled"] is False

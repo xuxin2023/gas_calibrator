@@ -2570,6 +2570,21 @@ class CalibrationRunner:
                     sampling_window_qc_reason or "sampling_window_qc",
                 )
 
+        cold_co2_quality_gate_status = str(state.get("cold_co2_quality_gate_status") or "").strip().lower()
+        cold_co2_quality_gate_reason = str(state.get("cold_co2_quality_gate_reason") or "").strip()
+        if cold_co2_quality_gate_status == "warn":
+            _add_issue(
+                "cold_co2_quality_gate",
+                "warn",
+                cold_co2_quality_gate_reason or "cold_co2_quality_gate",
+            )
+        elif cold_co2_quality_gate_status == "fail":
+            _add_issue(
+                "cold_co2_quality_gate",
+                "fail",
+                cold_co2_quality_gate_reason or "cold_co2_quality_gate",
+            )
+
         stale_ratio = self._as_float(state.get("pressure_gauge_stale_ratio"))
         stale_warn_max = self._as_float(self._wf("workflow.sampling.pressure_gauge_stale_ratio_warn_max", None))
         stale_reject_max = self._as_float(self._wf("workflow.sampling.pressure_gauge_stale_ratio_reject_max", None))
@@ -2658,6 +2673,12 @@ class CalibrationRunner:
             "postseal_timeout_blocked",
             "point_quality_timeout_flag",
             "dewpoint_gate_pass_live_c",
+            "cold_co2_quality_gate_status",
+            "cold_co2_quality_gate_reason",
+            "cold_co2_quality_gate_reference_temp_c",
+            "cold_co2_quality_gate_checked_count",
+            "cold_co2_quality_gate_invalid_count",
+            "cold_co2_quality_gate_invalid_labels",
             "presample_long_guard_status",
             "presample_long_guard_reason",
             "presample_long_guard_elapsed_s",
@@ -7042,6 +7063,93 @@ class CalibrationRunner:
                 return False, "cell_shell_gap_too_large"
         return True, ""
 
+    def _cold_co2_quality_gate_cfg(self) -> Dict[str, Any]:
+        raw = cfg_get(self.cfg, "workflow.stability.co2_cold_quality_gate", {}) or {}
+        cfg = raw if isinstance(raw, dict) else {}
+        policy = self._normalized_policy(
+            cfg.get("policy", "warn"),
+            allowed={"off", "warn", "reject"},
+            default="warn",
+        )
+        return {
+            "enabled": bool(cfg.get("enabled", True)),
+            "policy": policy,
+            "apply_temp_max_c": float(cfg.get("apply_temp_max_c", 0.0)),
+            "temp_min_c": float(cfg.get("raw_temp_min_c", -30.0)),
+            "temp_max_c": float(cfg.get("raw_temp_max_c", 85.0)),
+            "max_abs_delta_from_ref_c": float(cfg.get("max_abs_delta_from_ref_c", 20.0)),
+            "max_cell_shell_gap_c": float(cfg.get("max_cell_shell_gap_c", 15.0)),
+            "hard_bad_values_c": [
+                float(value)
+                for value in (cfg.get("hard_bad_values_c", [-40.0, 60.0]) or [-40.0, 60.0])
+                if value is not None
+            ],
+            "hard_bad_value_tolerance_c": float(cfg.get("hard_bad_value_tolerance_c", 0.05)),
+        }
+
+    def _cold_co2_quality_reference_temp_c(self, point: CalibrationPoint) -> Optional[float]:
+        thermometer = self.devices.get("thermometer")
+        if thermometer is not None and hasattr(thermometer, "read_temp_c"):
+            try:
+                reading = self._as_float(thermometer.read_temp_c())
+                if reading is not None:
+                    return float(reading)
+            except Exception as exc:
+                self.log(f"Cold CO2 quality gate reference temp read failed: {exc}")
+        if getattr(point, "temp_chamber_c", None) is not None:
+            try:
+                return float(point.temp_chamber_c)
+            except Exception:
+                return None
+        return None
+
+    def _evaluate_cold_co2_analyzer_temp_state(
+        self,
+        parsed: Optional[Dict[str, Any]],
+        *,
+        ref_temp_c: Optional[float],
+        cfg: Dict[str, Any],
+    ) -> tuple[bool, str, Optional[float], Optional[float]]:
+        if not isinstance(parsed, dict) or not parsed:
+            return False, "no_frame", None, None
+
+        runtime_ok, runtime_reason = self._assess_runtime_required_key_frame(parsed, "chamber_temp_c")
+        if not runtime_ok:
+            return False, runtime_reason, None, None
+
+        cell_temp_c = self._as_float(parsed.get("chamber_temp_c"))
+        if cell_temp_c is None:
+            cell_temp_c = self._as_float(parsed.get("temp_c"))
+        shell_temp_c = self._as_float(parsed.get("case_temp_c"))
+        if cell_temp_c is None:
+            return False, "missing_chamber_temp", None, shell_temp_c
+
+        bad_values = list(cfg.get("hard_bad_values_c", []) or [])
+        bad_tol = float(cfg.get("hard_bad_value_tolerance_c", 0.05))
+        if self._temp_matches_hard_bad_value(cell_temp_c, bad_values, bad_tol):
+            return False, "chamber_hard_bad_value", cell_temp_c, shell_temp_c
+        if shell_temp_c is not None and self._temp_matches_hard_bad_value(shell_temp_c, bad_values, bad_tol):
+            return False, "shell_hard_bad_value", cell_temp_c, shell_temp_c
+
+        temp_min_c = float(cfg.get("temp_min_c", -30.0))
+        temp_max_c = float(cfg.get("temp_max_c", 85.0))
+        if cell_temp_c < temp_min_c or cell_temp_c > temp_max_c:
+            return False, "chamber_temp_out_of_range", cell_temp_c, shell_temp_c
+        if shell_temp_c is not None and (shell_temp_c < temp_min_c or shell_temp_c > temp_max_c):
+            return False, "shell_temp_out_of_range", cell_temp_c, shell_temp_c
+
+        if ref_temp_c is not None:
+            max_ref_delta_c = float(cfg.get("max_abs_delta_from_ref_c", 20.0))
+            if abs(cell_temp_c - ref_temp_c) > max_ref_delta_c:
+                return False, "chamber_too_far_from_ref", cell_temp_c, shell_temp_c
+
+        if shell_temp_c is not None:
+            max_gap_c = float(cfg.get("max_cell_shell_gap_c", 15.0))
+            if abs(cell_temp_c - shell_temp_c) > max_gap_c:
+                return False, "cell_shell_gap_too_large", cell_temp_c, shell_temp_c
+
+        return True, "", cell_temp_c, shell_temp_c
+
     @staticmethod
     def _temperature_capture_key(point: CalibrationPoint, route_type: str) -> tuple[str, str]:
         temp_value = getattr(point, "temp_chamber_c", None)
@@ -11082,6 +11190,10 @@ class CalibrationRunner:
             self.log(f"CO2 row {point.index} skipped: analyzer precondition failed before downstream sampling/seal")
             self._cleanup_co2_route(reason="after CO2 preseal analyzer gate failure")
             return
+        if not self._wait_cold_co2_quality_gate(point):
+            self.log(f"CO2 row {point.index} skipped: cold-group quality gate failed before downstream sampling/seal")
+            self._cleanup_co2_route(reason="after CO2 cold-group quality gate failure")
+            return
 
         ambient_exports_deferred_until_seal = False
 
@@ -12082,6 +12194,147 @@ class CalibrationRunner:
             f"tol={tol:g} window_s={window_s:g} min_samples={min_samples}"
         )
         return False
+
+    def _wait_cold_co2_quality_gate(self, point: CalibrationPoint) -> bool:
+        cfg = self._cold_co2_quality_gate_cfg()
+        result = {
+            "cold_co2_quality_gate_status": "skipped",
+            "cold_co2_quality_gate_reason": "",
+            "cold_co2_quality_gate_reference_temp_c": None,
+            "cold_co2_quality_gate_checked_count": 0,
+            "cold_co2_quality_gate_invalid_count": 0,
+            "cold_co2_quality_gate_invalid_labels": "",
+        }
+
+        def _finalize(status: str, reason: str, *, log_message: str = "") -> bool:
+            result["cold_co2_quality_gate_status"] = status
+            result["cold_co2_quality_gate_reason"] = reason
+            self._set_point_runtime_fields(point, phase="co2", **result)
+            if log_message:
+                self.log(log_message)
+            self._update_point_quality_summary(point, phase="co2")
+            return status != "fail"
+
+        temp_value = self._as_float(getattr(point, "temp_chamber_c", None))
+        if point.is_h2o_point:
+            result["cold_co2_quality_gate_reason"] = "not_co2_point"
+            self._set_point_runtime_fields(point, phase="co2", **result)
+            return True
+        if not bool(cfg.get("enabled", True)):
+            result["cold_co2_quality_gate_reason"] = "gate_disabled"
+            self._set_point_runtime_fields(point, phase="co2", **result)
+            return True
+        if str(cfg.get("policy") or "warn").lower() == "off":
+            result["cold_co2_quality_gate_reason"] = "policy_off"
+            self._set_point_runtime_fields(point, phase="co2", **result)
+            return True
+        if temp_value is None or temp_value > float(cfg.get("apply_temp_max_c", 0.0)):
+            result["cold_co2_quality_gate_reason"] = "not_cold_group_point"
+            self._set_point_runtime_fields(point, phase="co2", **result)
+            return True
+
+        analyzers = self._active_gas_analyzers()
+        if not analyzers:
+            result["cold_co2_quality_gate_reason"] = "no_active_analyzers"
+            self._set_point_runtime_fields(point, phase="co2", **result)
+            return True
+
+        ref_temp_c = self._cold_co2_quality_reference_temp_c(point)
+        result["cold_co2_quality_gate_reference_temp_c"] = ref_temp_c
+        self._append_pressure_trace_row(
+            point=point,
+            route="co2",
+            point_phase="co2",
+            trace_stage="cold_co2_quality_gate_begin",
+            pressure_target_hpa=point.target_pressure_hpa,
+            refresh_pace_state=False,
+            note=(
+                f"policy={cfg['policy']} apply_temp_max_c={float(cfg['apply_temp_max_c']):.3f} "
+                + (
+                    f"reference_temp_c={float(ref_temp_c):.3f}"
+                    if ref_temp_c is not None
+                    else "reference_temp_c=NA"
+                )
+            ),
+        )
+
+        invalid_details: List[str] = []
+        invalid_labels: List[str] = []
+        checked_count = 0
+        for label, ga, _ga_cfg in analyzers:
+            checked_count += 1
+            _line, parsed = self._read_sensor_parsed(ga, require_usable=False)
+            valid, reason, cell_temp_c, shell_temp_c = self._evaluate_cold_co2_analyzer_temp_state(
+                parsed,
+                ref_temp_c=ref_temp_c,
+                cfg=cfg,
+            )
+            if valid:
+                continue
+            invalid_labels.append(str(label))
+            detail = str(reason or "invalid")
+            if cell_temp_c is not None:
+                detail += f",cell={float(cell_temp_c):.3f}"
+            if shell_temp_c is not None:
+                detail += f",shell={float(shell_temp_c):.3f}"
+            invalid_details.append(f"{label}:{detail}")
+
+        result["cold_co2_quality_gate_checked_count"] = checked_count
+        result["cold_co2_quality_gate_invalid_count"] = len(invalid_labels)
+        result["cold_co2_quality_gate_invalid_labels"] = ",".join(invalid_labels)
+
+        if not invalid_details:
+            self._append_pressure_trace_row(
+                point=point,
+                route="co2",
+                point_phase="co2",
+                trace_stage="cold_co2_quality_gate_end",
+                pressure_target_hpa=point.target_pressure_hpa,
+                refresh_pace_state=False,
+                note=(
+                    f"result=pass checked={checked_count} "
+                    + (
+                        f"reference_temp_c={float(ref_temp_c):.3f}"
+                        if ref_temp_c is not None
+                        else "reference_temp_c=NA"
+                    )
+                ),
+            )
+            return _finalize(
+                "pass",
+                "",
+                log_message=(
+                    f"Cold CO2 quality gate pass: point={point.index} checked={checked_count} "
+                    + (
+                        f"reference_temp_c={float(ref_temp_c):.3f}"
+                        if ref_temp_c is not None
+                        else "reference_temp_c=NA"
+                    )
+                ),
+            )
+
+        status = "fail" if str(cfg.get("policy") or "warn").lower() == "reject" else "warn"
+        reason = ";".join(invalid_details)
+        self._append_pressure_trace_row(
+            point=point,
+            route="co2",
+            point_phase="co2",
+            trace_stage="cold_co2_quality_gate_end",
+            pressure_target_hpa=point.target_pressure_hpa,
+            refresh_pace_state=False,
+            note=(
+                f"result={status} checked={checked_count} invalid={len(invalid_labels)} "
+                f"{reason}"
+            ),
+        )
+        return _finalize(
+            status,
+            reason,
+            log_message=(
+                f"Cold CO2 quality gate {status}: point={point.index} "
+                f"invalid={len(invalid_labels)}/{checked_count} {reason}"
+            ),
+        )
 
     def _wait_h2o_precondition_primary_sensor_gate(self, point: CalibrationPoint) -> bool:
         sensor_cfg = self.cfg.get("workflow", {}).get("stability", {}).get("sensor", {})
@@ -14318,6 +14571,12 @@ class CalibrationRunner:
             "postseal_timeout_blocked": runtime_state.get("postseal_timeout_blocked"),
             "point_quality_timeout_flag": runtime_state.get("point_quality_timeout_flag"),
             "dewpoint_gate_pass_live_c": runtime_state.get("dewpoint_gate_pass_live_c"),
+            "cold_co2_quality_gate_status": runtime_state.get("cold_co2_quality_gate_status"),
+            "cold_co2_quality_gate_reason": runtime_state.get("cold_co2_quality_gate_reason"),
+            "cold_co2_quality_gate_reference_temp_c": runtime_state.get("cold_co2_quality_gate_reference_temp_c"),
+            "cold_co2_quality_gate_checked_count": runtime_state.get("cold_co2_quality_gate_checked_count"),
+            "cold_co2_quality_gate_invalid_count": runtime_state.get("cold_co2_quality_gate_invalid_count"),
+            "cold_co2_quality_gate_invalid_labels": runtime_state.get("cold_co2_quality_gate_invalid_labels"),
             "presample_long_guard_status": runtime_state.get("presample_long_guard_status"),
             "presample_long_guard_reason": runtime_state.get("presample_long_guard_reason"),
             "presample_long_guard_elapsed_s": runtime_state.get("presample_long_guard_elapsed_s"),

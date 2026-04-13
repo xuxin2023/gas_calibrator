@@ -2557,6 +2557,108 @@ def test_wait_co2_route_soak_uses_cold_group_zero_flush_once_per_temp_group(
     assert any("wait 180s before pressure sealing" in message for message in messages[len(first_messages):])
 
 
+def test_wait_cold_co2_quality_gate_warns_on_implausible_analyzer_temps(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    point = _point_co2()
+    point.temp_chamber_c = -10.0
+    trace_stages: list[str] = []
+    ga_ok = object()
+    ga_bad = object()
+    parsed_by_id = {
+        id(ga_ok): {"chamber_temp_c": -10.2, "case_temp_c": -9.8, "status": "OK"},
+        id(ga_bad): {"chamber_temp_c": 60.0, "case_temp_c": -40.0, "status": "OK"},
+    }
+
+    runner._active_gas_analyzers = types.MethodType(
+        lambda self: [("ga01", ga_ok, {}), ("ga02", ga_bad, {})],
+        runner,
+    )
+    runner._read_sensor_parsed = types.MethodType(
+        lambda self, ga, **kwargs: ("", dict(parsed_by_id[id(ga)])),
+        runner,
+    )
+    runner._append_pressure_trace_row = types.MethodType(
+        lambda self, **kwargs: trace_stages.append(str(kwargs.get("trace_stage") or "")),
+        runner,
+    )
+
+    assert runner._wait_cold_co2_quality_gate(point) is True
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2")
+    assert state["cold_co2_quality_gate_status"] == "warn"
+    assert "ga02:chamber_hard_bad_value" in state["cold_co2_quality_gate_reason"]
+    assert state["cold_co2_quality_gate_checked_count"] == 2
+    assert state["cold_co2_quality_gate_invalid_count"] == 1
+    assert state["cold_co2_quality_gate_invalid_labels"] == "ga02"
+    assert state["point_quality_status"] == "warn"
+    assert "cold_co2_quality_gate" in str(state["point_quality_flags"] or "")
+    assert trace_stages == [
+        "cold_co2_quality_gate_begin",
+        "cold_co2_quality_gate_end",
+    ]
+
+
+def test_wait_cold_co2_quality_gate_skips_warm_points(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    point = _point_co2()
+    point.temp_chamber_c = 10.0
+
+    assert runner._wait_cold_co2_quality_gate(point) is True
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2")
+    assert state["cold_co2_quality_gate_status"] == "skipped"
+    assert state["cold_co2_quality_gate_reason"] == "not_cold_group_point"
+
+
+def test_run_co2_point_stops_when_cold_quality_gate_rejects(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {"workflow": {"stability": {"co2_cold_quality_gate": {"policy": "reject"}}}},
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _point_co2()
+    point.temp_chamber_c = -10.0
+    calls: list[str] = []
+
+    runner._apply_idle_route_isolation = types.MethodType(lambda self, *, reason="": None, runner)
+    runner._set_temperature_for_point = types.MethodType(lambda self, point_arg, phase="co2": True, runner)
+    runner._capture_temperature_calibration_snapshot = types.MethodType(
+        lambda self, point_arg, route_type="co2": None,
+        runner,
+    )
+    runner._split_pressure_execution_points = types.MethodType(
+        lambda self, refs: ([point], []),
+        runner,
+    )
+    runner._open_co2_route_for_conditioning = types.MethodType(
+        lambda self, point_arg, point_tag="": None,
+        runner,
+    )
+    runner._wait_co2_route_soak_before_seal = types.MethodType(lambda self, point_arg: True, runner)
+    runner._wait_co2_preseal_primary_sensor_gate = types.MethodType(lambda self, point_arg: True, runner)
+    runner._wait_cold_co2_quality_gate = types.MethodType(lambda self, point_arg: False, runner)
+    runner._cleanup_co2_route = types.MethodType(
+        lambda self, reason="": calls.append(str(reason)),
+        runner,
+    )
+    runner._sample_open_route_point = types.MethodType(
+        lambda self, sample_point, phase="co2", point_tag="": calls.append("sample_open"),
+        runner,
+    )
+
+    runner._run_co2_point(point)
+    logger.close()
+
+    assert calls == ["after CO2 cold-group quality gate failure"]
+
+
 def test_wait_co2_route_soak_uses_initial_zero_flush_in_co2_only(monkeypatch, tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     messages: list[str] = []

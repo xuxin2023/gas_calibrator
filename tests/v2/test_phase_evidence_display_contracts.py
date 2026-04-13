@@ -372,3 +372,144 @@ class TestStep2Boundary:
 
     def test_readiness_mapping_only(self):
         assert PHASE_EVIDENCE_STEP2_BOUNDARY["readiness_mapping_only"] is True
+
+
+# ---------------------------------------------------------------------------
+# TestFormatterDisplayLabels (2.9)
+# ---------------------------------------------------------------------------
+class TestFormatterDisplayLabels:
+    def test_formatter_labels_count(self):
+        assert len(FORMATTER_DISPLAY_LABELS) == 20
+
+    def test_formatter_labels_keys_match_en(self):
+        assert set(FORMATTER_DISPLAY_LABELS.keys()) == set(FORMATTER_DISPLAY_LABELS_EN.keys())
+
+    def test_formatter_labels_en_no_chinese(self):
+        for key, value in FORMATTER_DISPLAY_LABELS_EN.items():
+            assert not _has_chinese(value), f"formatter_en[{key!r}] contains Chinese: {value!r}"
+
+    def test_formatter_labels_zh_has_chinese(self):
+        for key, value in FORMATTER_DISPLAY_LABELS.items():
+            assert _has_chinese(value), f"formatter_zh[{key!r}] has no Chinese: {value!r}"
+
+
+# ---------------------------------------------------------------------------
+# TestCompatibilityRowLabels (2.9)
+# ---------------------------------------------------------------------------
+class TestCompatibilityRowLabels:
+    def test_compat_labels_count(self):
+        assert len(COMPATIBILITY_ROW_LABELS) == 7
+
+    def test_compat_labels_keys_match_en(self):
+        assert set(COMPATIBILITY_ROW_LABELS.keys()) == set(COMPATIBILITY_ROW_LABELS_EN.keys())
+
+    def test_compat_labels_en_no_chinese(self):
+        for key, value in COMPATIBILITY_ROW_LABELS_EN.items():
+            assert not _has_chinese(value), f"compat_en[{key!r}] contains Chinese: {value!r}"
+
+
+# ---------------------------------------------------------------------------
+# TestHistoricalRollupLabels (2.9)
+# ---------------------------------------------------------------------------
+class TestHistoricalRollupLabels:
+    def test_historical_labels_count(self):
+        assert len(HISTORICAL_ROLLUP_LABELS) == 4
+
+    def test_historical_labels_keys_match_en(self):
+        assert set(HISTORICAL_ROLLUP_LABELS.keys()) == set(HISTORICAL_ROLLUP_LABELS_EN.keys())
+
+    def test_historical_labels_en_no_chinese(self):
+        for key, value in HISTORICAL_ROLLUP_LABELS_EN.items():
+            assert not _has_chinese(value), f"historical_en[{key!r}] contains Chinese: {value!r}"
+
+
+# ---------------------------------------------------------------------------
+# TestMeasurementDigestLabels (2.9)
+# ---------------------------------------------------------------------------
+class TestMeasurementDigestLabels:
+    def test_measurement_labels_count(self):
+        assert len(MEASUREMENT_DIGEST_LABELS) == 17
+
+    def test_measurement_labels_keys_match_en(self):
+        assert set(MEASUREMENT_DIGEST_LABELS.keys()) == set(MEASUREMENT_DIGEST_LABELS_EN.keys())
+
+    def test_measurement_labels_en_no_chinese(self):
+        for key, value in MEASUREMENT_DIGEST_LABELS_EN.items():
+            assert not _has_chinese(value), f"measurement_en[{key!r}] contains Chinese: {value!r}"
+
+
+# ---------------------------------------------------------------------------
+# TestReadinessDigestLabels (2.9)
+# ---------------------------------------------------------------------------
+class TestReadinessDigestLabels:
+    def test_readiness_labels_count(self):
+        assert len(READINESS_DIGEST_LABELS) == 17
+
+    def test_readiness_labels_keys_match_en(self):
+        assert set(READINESS_DIGEST_LABELS.keys()) == set(READINESS_DIGEST_LABELS_EN.keys())
+
+    def test_readiness_labels_en_no_chinese(self):
+        for key, value in READINESS_DIGEST_LABELS_EN.items():
+            assert not _has_chinese(value), f"readiness_en[{key!r}] contains Chinese: {value!r}"
+
+
+# ---------------------------------------------------------------------------
+# TestNewResolveHelpers (2.9)
+# ---------------------------------------------------------------------------
+class TestNewResolveHelpers:
+    def test_resolve_formatter_label_zh(self):
+        assert resolve_formatter_label("artifacts") == "工件"
+
+    def test_resolve_formatter_label_en(self):
+        assert resolve_formatter_label("artifacts", lang="en") == "Artifacts"
+
+    def test_resolve_compat_row_label_zh(self):
+        assert resolve_compatibility_row_label("version") == "版本"
+
+    def test_resolve_compat_row_label_en(self):
+        assert resolve_compatibility_row_label("version", lang="en") == "Version"
+
+    def test_resolve_historical_rollup_label_zh(self):
+        assert resolve_historical_rollup_label("scope_run_count") == "认可范围包运行数"
+
+    def test_resolve_historical_rollup_label_en(self):
+        assert resolve_historical_rollup_label("scope_run_count", lang="en") == "Scope package run count"
+
+    def test_resolve_measurement_digest_label_zh(self):
+        assert resolve_measurement_digest_label("blockers") == "当前阻塞"
+
+    def test_resolve_measurement_digest_label_en(self):
+        assert resolve_measurement_digest_label("blockers", lang="en") == "Blockers"
+
+    def test_resolve_readiness_digest_label_zh(self):
+        assert resolve_readiness_digest_label("uncertainty_overview") == "不确定度概览"
+
+    def test_resolve_readiness_digest_label_en(self):
+        assert resolve_readiness_digest_label("uncertainty_overview", lang="en") == "Uncertainty overview"
+
+
+# ---------------------------------------------------------------------------
+# TestFormatterUsesContracts (2.9)
+# ---------------------------------------------------------------------------
+class TestFormatterUsesContracts:
+    """Verify review_surface_formatter uses contracts for key labels."""
+
+    def test_offline_diagnostic_display_labels_from_contracts(self):
+        from gas_calibrator.v2.review_surface_formatter import _OFFLINE_DIAGNOSTIC_DISPLAY_LABELS
+        assert _OFFLINE_DIAGNOSTIC_DISPLAY_LABELS["artifacts"] == FORMATTER_DISPLAY_LABELS["artifacts"]
+        assert _OFFLINE_DIAGNOSTIC_DISPLAY_LABELS["primary"] == FORMATTER_DISPLAY_LABELS["primary"]
+
+    def test_review_center_coverage_labels_from_contracts(self):
+        from gas_calibrator.v2.review_surface_formatter import _REVIEW_CENTER_COVERAGE_LABELS
+        assert _REVIEW_CENTER_COVERAGE_LABELS["coverage"] == FORMATTER_DISPLAY_LABELS["coverage"]
+        assert _REVIEW_CENTER_COVERAGE_LABELS["missing"] == FORMATTER_DISPLAY_LABELS["missing_label"]
+
+    def test_review_surface_fragment_labels_from_contracts(self):
+        from gas_calibrator.v2.review_surface_formatter import _REVIEW_SURFACE_FRAGMENT_LABELS
+        assert _REVIEW_SURFACE_FRAGMENT_LABELS["catalog"] == FORMATTER_DISPLAY_LABELS["catalog"]
+        assert _REVIEW_SURFACE_FRAGMENT_LABELS["degraded"] == FORMATTER_DISPLAY_LABELS["degraded"]
+
+    def test_no_gaps_from_contracts(self):
+        from gas_calibrator.v2.review_surface_formatter import humanize_review_center_coverage_text
+        result = humanize_review_center_coverage_text("no gaps")
+        assert result == FORMATTER_DISPLAY_LABELS["no_gaps"]
