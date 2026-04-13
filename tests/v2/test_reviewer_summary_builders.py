@@ -337,7 +337,7 @@ class TestStep2Boundary:
 
 class TestNoFormalAcceptanceLanguage:
     def test_no_formal_acceptance_in_labels(self):
-        """No label may contain formal acceptance / formal claim language."""
+        """No label may contain formal acceptance / formal claim language (except negated forms)."""
         all_labels = (
             list(V12_COMPACT_SUMMARY_LABELS.values())
             + list(V12_COMPACT_SUMMARY_LABELS_EN.values())
@@ -350,7 +350,9 @@ class TestNoFormalAcceptanceLanguage:
             lower = text.lower()
             assert "formal acceptance" not in lower, f"Formal acceptance language found: {text}"
             assert "formal claim" not in lower, f"Formal claim language found: {text}"
-            assert "正式放行" not in text, f"正式放行 language found: {text}"
+            # "正式放行" is allowed only in negated form (e.g. "不构成正式放行结论")
+            if "正式放行" in text:
+                assert "不构成" in text or "不是" in text, f"正式放行 without negation in: {text}"
             assert "正式验收" not in text, f"正式验收 language found: {text}"
 
     def test_no_real_device_language_in_labels(self):
