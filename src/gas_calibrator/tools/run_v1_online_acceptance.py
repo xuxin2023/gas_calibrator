@@ -3,6 +3,9 @@
 Default behavior is dry-run only. Real device access requires both:
 1. CLI flag: --real-device
 2. ENV gate: ALLOW_REAL_DEVICE_WRITE=1
+
+This entrypoint is part of the V1 runtime boundary and must stay independent
+from V2 runtime code.
 """
 
 from __future__ import annotations

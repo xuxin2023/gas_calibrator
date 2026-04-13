@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-04-13T12:47:29+08:00",
-  "head": "f41b7b20c35a5051943fecd35bdaf62c05ae8d34",
+  "generated_at": "2026-04-13T14:58:16+08:00",
+  "head": "367a1089ebaca1388dbb9d11648f74513316e502",
   "status": "ONLINE_EVIDENCE_REQUIRED",
   "mode": "dry_run",
   "evidence_source": "real_device_when_authorized",

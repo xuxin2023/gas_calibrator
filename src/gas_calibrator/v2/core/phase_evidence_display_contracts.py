@@ -21,7 +21,7 @@ from __future__ import annotations
 # ---------------------------------------------------------------------------
 # Version
 # ---------------------------------------------------------------------------
-PHASE_EVIDENCE_DISPLAY_CONTRACTS_VERSION: str = "2.8.0"
+PHASE_EVIDENCE_DISPLAY_CONTRACTS_VERSION: str = "2.9.0"
 
 # ---------------------------------------------------------------------------
 # Artifact keys for V1.2 phase evidence
@@ -269,6 +269,222 @@ def resolve_results_fallback_label(key: str, *, lang: str = "zh") -> str:
     if lang == "en":
         return RESULTS_FALLBACK_LABELS_EN.get(key, key)
     return RESULTS_FALLBACK_LABELS.get(key, key)
+
+
+# ---------------------------------------------------------------------------
+# Formatter display labels — Chinese default / English fallback
+# Used by review_surface_formatter.py module-level dicts
+# ---------------------------------------------------------------------------
+FORMATTER_DISPLAY_LABELS: dict[str, str] = {
+    "artifacts": "工件",
+    "plots": "图表",
+    "primary": "主工件",
+    "supporting": "支撑工件",
+    "coverage": "覆盖",
+    "complete": "完整",
+    "gapped": "缺口",
+    "missing_label": "缺少",
+    "no_gaps": "无缺口",
+    "visible": "可见",
+    "present": "存在",
+    "external": "外部",
+    "catalog": "当前运行基线",
+    "filtered": "当前筛选",
+    "failed": "失败",
+    "degraded": "降级",
+    "diagnostic": "仅诊断",
+    "high": "高",
+    "medium": "中",
+    "low": "低",
+}
+
+FORMATTER_DISPLAY_LABELS_EN: dict[str, str] = {
+    "artifacts": "Artifacts",
+    "plots": "Plots",
+    "primary": "Primary",
+    "supporting": "Supporting",
+    "coverage": "Coverage",
+    "complete": "Complete",
+    "gapped": "Gapped",
+    "missing_label": "Missing",
+    "no_gaps": "No gaps",
+    "visible": "Visible",
+    "present": "Present",
+    "external": "External",
+    "catalog": "Current-run catalog baseline",
+    "filtered": "Current filtered",
+    "failed": "Failed",
+    "degraded": "Degraded",
+    "diagnostic": "Diagnostic only",
+    "high": "High",
+    "medium": "Medium",
+    "low": "Low",
+}
+
+# ---------------------------------------------------------------------------
+# Artifact compatibility row labels — Chinese default / English fallback
+# Used by results_gateway._decorate_artifact_compatibility_row
+# ---------------------------------------------------------------------------
+COMPATIBILITY_ROW_LABELS: dict[str, str] = {
+    "version": "版本",
+    "status": "状态",
+    "reader_mode": "读取",
+    "schema_contract": "合同/Schema",
+    "regenerate_recommended": "建议再生成 reviewer/index sidecar",
+    "recommendation": "建议",
+    "no_rewrite_primary": "不改写原始主证据",
+}
+
+COMPATIBILITY_ROW_LABELS_EN: dict[str, str] = {
+    "version": "Version",
+    "status": "Status",
+    "reader_mode": "Reader",
+    "schema_contract": "Schema/Contract",
+    "regenerate_recommended": "Regenerate reviewer/index sidecar recommended",
+    "recommendation": "Recommendation",
+    "no_rewrite_primary": "Do not rewrite primary evidence",
+}
+
+# ---------------------------------------------------------------------------
+# Historical rollup labels — Chinese default / English fallback
+# Used by historical_artifacts._build_operation_report
+# ---------------------------------------------------------------------------
+HISTORICAL_ROLLUP_LABELS: dict[str, str] = {
+    "scope_run_count": "认可范围包运行数",
+    "canonical_direct": "canonical 直读",
+    "compatibility_adapter": "兼容适配读取",
+    "readiness_status": "就绪状态",
+}
+
+HISTORICAL_ROLLUP_LABELS_EN: dict[str, str] = {
+    "scope_run_count": "Scope package run count",
+    "canonical_direct": "Canonical direct reads",
+    "compatibility_adapter": "Compatibility adapter reads",
+    "readiness_status": "Readiness status",
+}
+
+# ---------------------------------------------------------------------------
+# Measurement digest line labels — Chinese default / English fallback
+# Used by review_surface_formatter.build_measurement_review_digest_lines
+# ---------------------------------------------------------------------------
+MEASUREMENT_DIGEST_LABELS: dict[str, str] = {
+    "payload_complete_phases": "payload 完整阶段",
+    "payload_partial_phases": "payload 部分阶段",
+    "trace_only_phases": "仅 trace 阶段",
+    "next_artifacts": "下一步补证工件",
+    "blockers": "当前阻塞",
+    "preseal_partial_guidance": "preseal 部分 payload 提示",
+    "linked_method_items": "关联方法确认条目",
+    "linked_uncertainty_inputs": "关联不确定度输入",
+    "linked_traceability_nodes": "关联溯源节点",
+    "reviewer_next_steps": "审阅下一步",
+    "phase_contrast": "preseal / pressure_stable 对照",
+    "readiness_impact": "就绪度影响",
+    "linked_readiness": "关联就绪工件",
+    "gap_index": "缺口索引",
+    "boundary": "边界",
+    "non_claim": "非声明边界",
+    "phase_non_claim": "非声明边界",
+}
+
+MEASUREMENT_DIGEST_LABELS_EN: dict[str, str] = {
+    "payload_complete_phases": "payload complete phases",
+    "payload_partial_phases": "payload partial phases",
+    "trace_only_phases": "trace-only phases",
+    "next_artifacts": "Next artifacts",
+    "blockers": "Blockers",
+    "preseal_partial_guidance": "Preseal partial payload guidance",
+    "linked_method_items": "Linked method confirmation items",
+    "linked_uncertainty_inputs": "Linked uncertainty inputs",
+    "linked_traceability_nodes": "Linked traceability nodes",
+    "reviewer_next_steps": "Reviewer next steps",
+    "phase_contrast": "Preseal / pressure_stable contrast",
+    "readiness_impact": "Readiness impact",
+    "linked_readiness": "Linked readiness anchors",
+    "gap_index": "Gap index",
+    "boundary": "Boundary",
+    "non_claim": "Non-claim boundary",
+    "phase_non_claim": "Non-claim boundary",
+}
+
+# ---------------------------------------------------------------------------
+# Readiness digest line labels — Chinese default / English fallback
+# Used by review_surface_formatter.build_readiness_review_digest_lines
+# ---------------------------------------------------------------------------
+READINESS_DIGEST_LABELS: dict[str, str] = {
+    "scope_overview": "认可范围概览",
+    "decision_rule": "决策规则概览",
+    "conformity_boundary": "符合性边界",
+    "protocol_overview": "方法确认概览",
+    "validation_matrix_completeness": "验证矩阵完整度",
+    "current_evidence_coverage": "当前证据覆盖",
+    "top_gaps": "主要缺口",
+    "readiness_status": "验证就绪状态",
+    "uncertainty_overview": "不确定度概览",
+    "budget_component_summary": "预算组件摘要",
+    "top_contributors": "主要不确定度贡献",
+    "data_completeness": "数据完整度",
+    "placeholder_completeness": "占位完整度",
+    "standard_family": "标准族",
+    "required_evidence_categories": "要求证据类别",
+    "boundary": "边界",
+    "non_claim": "非声明边界",
+}
+
+READINESS_DIGEST_LABELS_EN: dict[str, str] = {
+    "scope_overview": "Scope overview",
+    "decision_rule": "Decision rule overview",
+    "conformity_boundary": "Conformity boundary",
+    "protocol_overview": "Method confirmation overview",
+    "validation_matrix_completeness": "Validation matrix completeness",
+    "current_evidence_coverage": "Current evidence coverage",
+    "top_gaps": "Top gaps",
+    "readiness_status": "Verification readiness status",
+    "uncertainty_overview": "Uncertainty overview",
+    "budget_component_summary": "Budget component summary",
+    "top_contributors": "Top uncertainty contributors",
+    "data_completeness": "Data completeness",
+    "placeholder_completeness": "Placeholder completeness",
+    "standard_family": "Standard family",
+    "required_evidence_categories": "Required evidence categories",
+    "boundary": "Boundary",
+    "non_claim": "Non-claim boundary",
+}
+
+
+def resolve_formatter_label(key: str, *, lang: str = "zh") -> str:
+    """Resolve formatter display label. Chinese default, English fallback."""
+    if lang == "en":
+        return FORMATTER_DISPLAY_LABELS_EN.get(key, key)
+    return FORMATTER_DISPLAY_LABELS.get(key, key)
+
+
+def resolve_compatibility_row_label(key: str, *, lang: str = "zh") -> str:
+    """Resolve artifact compatibility row label. Chinese default, English fallback."""
+    if lang == "en":
+        return COMPATIBILITY_ROW_LABELS_EN.get(key, key)
+    return COMPATIBILITY_ROW_LABELS.get(key, key)
+
+
+def resolve_historical_rollup_label(key: str, *, lang: str = "zh") -> str:
+    """Resolve historical rollup label. Chinese default, English fallback."""
+    if lang == "en":
+        return HISTORICAL_ROLLUP_LABELS_EN.get(key, key)
+    return HISTORICAL_ROLLUP_LABELS.get(key, key)
+
+
+def resolve_measurement_digest_label(key: str, *, lang: str = "zh") -> str:
+    """Resolve measurement digest line label. Chinese default, English fallback."""
+    if lang == "en":
+        return MEASUREMENT_DIGEST_LABELS_EN.get(key, key)
+    return MEASUREMENT_DIGEST_LABELS.get(key, key)
+
+
+def resolve_readiness_digest_label(key: str, *, lang: str = "zh") -> str:
+    """Resolve readiness digest line label. Chinese default, English fallback."""
+    if lang == "en":
+        return READINESS_DIGEST_LABELS_EN.get(key, key)
+    return READINESS_DIGEST_LABELS.get(key, key)
 
 
 # ---------------------------------------------------------------------------

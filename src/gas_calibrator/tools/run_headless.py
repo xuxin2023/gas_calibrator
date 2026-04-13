@@ -1,4 +1,8 @@
-"""Headless workflow launcher for bench automation tests."""
+"""Headless V1 runtime entry for bench automation tests.
+
+This file belongs to the V1 runtime boundary. Keep it free of V2 runtime
+imports and use bridge/sidecar tooling only through offline workflows.
+"""
 
 from __future__ import annotations
 

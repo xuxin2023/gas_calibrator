@@ -2,10 +2,14 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.venv/
+venv/
 
 # Editor and local tool state
 .vscode/
 .arts/
+.codeartsdoer/
+.idea/
 
 # Local AI/context notes
 .ai-context/
@@ -20,6 +24,8 @@ tmp_*/
 *.log
 src/output/
 src/gas_calibrator/output/
+_debug_test/
+audit/**/raw/
 
 # One-off local probe/output folders
 pace_isol_probe_20260306_131122/
@@ -29,3 +35,8 @@ tmp_*.docx
 tmp_*.pdf
 tmp_*.txt
 points.xlsx
+
+# Build and package artifacts
+build/
+dist/
+node_modules/

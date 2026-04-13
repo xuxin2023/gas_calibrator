@@ -112,7 +112,8 @@ def test_run_h2o_point_wait_order(tmp_path: Path) -> None:
     logger.close()
 
     assert calls == [
-        "h2o_path_False",
+        "vent_True",
+        "baseline_route",
         "prepare_pressure",
         "prepare_humidity",
         "set_temperature",
@@ -194,7 +195,8 @@ def test_run_h2o_point_wait_order_when_prepared(tmp_path: Path) -> None:
     logger.close()
 
     assert calls == [
-        "h2o_path_False",
+        "vent_True",
+        "baseline_route",
         "set_temperature",
         "wait_hgen_setpoint",
         "open_route_ready",
@@ -233,7 +235,7 @@ def test_run_h2o_point_restores_vent_after_completion(tmp_path: Path) -> None:
     runner._run_h2o_point(_point_h2o())
     logger.close()
 
-    assert calls == [True]
+    assert calls == [True, True]
 
 
 def test_run_h2o_group_ambient_only_samples_open_route_without_pressure_control(tmp_path: Path) -> None:
@@ -2205,6 +2207,148 @@ def test_wait_co2_preseal_primary_sensor_gate_uses_preseal_overrides(tmp_path: P
     ]
 
 
+def test_wait_h2o_precondition_primary_sensor_gate_uses_preseal_overrides(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "stability": {
+                    "sensor": {
+                        "enabled": True,
+                        "h2o_ratio_f_tol": 0.005,
+                        "window_s": 40.0,
+                        "timeout_s": 90.0,
+                        "read_interval_s": 2.0,
+                        "h2o_ratio_f_preseal_tol": 0.0015,
+                        "h2o_ratio_f_preseal_window_s": 18.0,
+                        "h2o_ratio_f_preseal_timeout_s": 75.0,
+                        "h2o_ratio_f_preseal_min_samples": 7,
+                        "h2o_ratio_f_preseal_read_interval_s": 0.8,
+                        "h2o_ratio_f_preseal_policy": "reject",
+                    }
+                }
+            }
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _point_h2o()
+    captured: dict[str, object] = {}
+    trace_stages: list[str] = []
+
+    def fake_wait(self, point_arg, **kwargs):
+        captured["point"] = point_arg
+        captured.update(kwargs)
+        return True
+
+    def fake_trace(self, **kwargs):
+        trace_stages.append(str(kwargs.get("trace_stage") or ""))
+
+    runner._wait_primary_sensor_stable = types.MethodType(fake_wait, runner)
+    runner._append_pressure_trace_row = types.MethodType(fake_trace, runner)
+
+    assert runner._wait_h2o_precondition_primary_sensor_gate(point) is True
+    logger.close()
+
+    assert captured == {
+        "point": point,
+        "value_key": "h2o_ratio_f",
+        "require_pressure_in_limits": False,
+        "tol_override": 0.0015,
+        "window_override": 18.0,
+        "timeout_override": 75.0,
+        "min_samples_override": 7,
+        "read_interval_override": 0.8,
+    }
+    assert trace_stages == [
+        "h2o_precondition_analyzer_gate_begin",
+        "h2o_precondition_analyzer_gate_end",
+    ]
+
+
+def test_run_co2_point_applies_idle_route_isolation_before_temperature_wait(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    point = _point_co2()
+    calls: list[str] = []
+
+    runner._apply_idle_route_isolation = types.MethodType(
+        lambda self, *, reason="": calls.append(str(reason)),
+        runner,
+    )
+    runner._set_temperature_for_point = types.MethodType(lambda self, point_arg, phase="co2": False, runner)
+
+    runner._run_co2_point(point)
+    logger.close()
+
+    assert calls == ["before CO2 chamber wait"]
+
+
+def test_run_h2o_point_applies_idle_route_isolation_before_conditioning(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    point = _point_h2o()
+    calls: list[str] = []
+
+    runner._apply_idle_route_isolation = types.MethodType(
+        lambda self, *, reason="": calls.append(str(reason)),
+        runner,
+    )
+    runner._set_temperature_for_point = types.MethodType(lambda self, point_arg, phase="h2o": False, runner)
+
+    runner._run_h2o_point(point, prepared=True)
+    logger.close()
+
+    assert calls == ["before H2O point conditioning"]
+
+
+def test_open_h2o_route_and_wait_ready_runs_water_route_gates(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    calls: list[str] = []
+
+    runner._complete_pending_route_handoff = types.MethodType(
+        lambda self, point, phase="", point_tag="", open_valves=None: False,
+        runner,
+    )
+    runner._set_pressure_controller_vent = types.MethodType(
+        lambda self, vent_on, reason="": calls.append(f"vent_{bool(vent_on)}"),
+        runner,
+    )
+    runner._set_h2o_path = types.MethodType(
+        lambda self, is_open, point=None: calls.append(f"h2o_path_{bool(is_open)}"),
+        runner,
+    )
+    runner._append_pressure_trace_row = types.MethodType(lambda self, **kwargs: None, runner)
+    runner._ensure_dewpoint_meter_ready = types.MethodType(lambda self: calls.append("dew_ready") or True, runner)
+    runner._wait_dewpoint_alignment_stable = types.MethodType(
+        lambda self, point=None: calls.append("dew_alignment") or True,
+        runner,
+    )
+    runner._wait_h2o_route_dewpoint_gate_before_sampling = types.MethodType(
+        lambda self, point, log_context="": calls.append(f"dew_gate:{log_context}") or True,
+        runner,
+    )
+    runner._wait_h2o_precondition_primary_sensor_gate = types.MethodType(
+        lambda self, point: calls.append("h2o_ratio_gate") or True,
+        runner,
+    )
+
+    assert runner._open_h2o_route_and_wait_ready(_point_h2o(), point_tag="demo") is True
+    logger.close()
+
+    assert calls == [
+        "vent_True",
+        "h2o_path_True",
+        "dew_ready",
+        "dew_alignment",
+        "dew_gate:H2O route opened",
+        "h2o_ratio_gate",
+    ]
+
+
 def test_wait_co2_route_soak_does_not_refresh_atmosphere_hold(monkeypatch, tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner(
@@ -2362,6 +2506,55 @@ def test_wait_co2_route_soak_uses_same_180s_duration_for_first_gas_point(monkeyp
 
     assert runner._first_co2_route_soak_pending is False
     assert any("wait 180s before pressure sealing" in message for message in messages)
+
+
+def test_wait_co2_route_soak_uses_cold_group_zero_flush_once_per_temp_group(
+    monkeypatch, tmp_path: Path
+) -> None:
+    logger = RunLogger(tmp_path)
+    messages: list[str] = []
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "stability": {
+                    "co2_route": {
+                        "preseal_soak_s": 180,
+                        "cold_group_zero_ppm_soak_s": 420,
+                    }
+                }
+            }
+        },
+        {},
+        logger,
+        messages.append,
+        lambda *_: None,
+    )
+    point = _point_co2()
+    point.co2_ppm = 0.0
+    point.temp_chamber_c = -10.0
+    runner._first_co2_route_soak_pending = False
+    runner._initial_co2_zero_flush_pending = False
+
+    clock = {"now": 0.0}
+
+    def fake_time() -> float:
+        return clock["now"]
+
+    def fake_sleep(seconds: float) -> None:
+        clock["now"] += float(seconds)
+
+    monkeypatch.setattr(runner_module.time, "time", fake_time)
+    monkeypatch.setattr(runner_module.time, "sleep", fake_sleep)
+
+    assert runner._wait_co2_route_soak_before_seal(point) is True
+    assert runner._last_cold_co2_zero_flush_temp_c == -10.0
+    first_messages = list(messages)
+
+    assert runner._wait_co2_route_soak_before_seal(point) is True
+    logger.close()
+
+    assert any("wait 420s before pressure sealing" in message for message in first_messages)
+    assert any("wait 180s before pressure sealing" in message for message in messages[len(first_messages):])
 
 
 def test_wait_co2_route_soak_uses_initial_zero_flush_in_co2_only(monkeypatch, tmp_path: Path) -> None:
@@ -2791,6 +2984,68 @@ def test_wait_co2_route_soak_warn_policy_allows_following_pressure_seal(
     assert state["flush_gate_status"] == "timeout"
     assert "max_total_wait_exceeded" in str(state["flush_gate_reason"])
     assert "co2_precondition_dewpoint_gate_end" in trace_stages
+
+
+def test_wait_h2o_route_dewpoint_gate_warn_policy_allows_open_route_sampling(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "stability": {
+                    "water_route_dewpoint_gate_enabled": True,
+                    "water_route_dewpoint_gate_policy": "warn",
+                    "water_route_dewpoint_gate_window_s": 2.0,
+                    "water_route_dewpoint_gate_max_total_wait_s": 4.0,
+                    "water_route_dewpoint_gate_poll_s": 1.0,
+                    "water_route_dewpoint_gate_tail_span_max_c": 0.01,
+                    "water_route_dewpoint_gate_tail_slope_abs_max_c_per_s": 0.005,
+                    "water_route_dewpoint_gate_log_interval_s": 1.0,
+                }
+            }
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _point_h2o()
+    clock = {"now": 0.0}
+    dewpoints = iter([-9.0, -8.8, -8.6, -8.4, -8.2, -8.0])
+
+    def fake_gate_row(self, *, total_elapsed_s, snapshot):
+        base = datetime(2026, 4, 3, 9, 0, 0)
+        return {
+            "timestamp": (base + timedelta(seconds=float(total_elapsed_s))).isoformat(timespec="seconds"),
+            "phase_elapsed_s": float(total_elapsed_s),
+            "phase": "h2o_route_precondition",
+            "controller_vent_state": "VENT_ON",
+            "dewpoint_c": snapshot.get("dewpoint_c"),
+            "dewpoint_temp_c": snapshot.get("temp_c"),
+            "dewpoint_rh_percent": snapshot.get("rh_pct"),
+        }
+
+    monkeypatch.setattr(runner_module.time, "time", lambda: clock["now"])
+    monkeypatch.setattr(
+        runner_module.time,
+        "sleep",
+        lambda seconds: clock.__setitem__("now", clock["now"] + float(seconds)),
+    )
+    runner._read_precondition_dewpoint_gate_snapshot = types.MethodType(
+        lambda self: {"dewpoint_c": next(dewpoints), "temp_c": 22.0, "rh_pct": 50.0},
+        runner,
+    )
+    runner._build_h2o_route_dewpoint_gate_row = types.MethodType(fake_gate_row, runner)
+
+    assert runner._wait_h2o_route_dewpoint_gate_before_sampling(point, log_context="H2O route opened") is True
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="h2o")
+    assert state is not None
+    assert state["flush_gate_status"] == "timeout"
+    assert "max_total_wait_exceeded" in str(state["flush_gate_reason"])
 
 
 def test_gas_route_dewpoint_gate_cfg_uses_relaxed_runtime_defaults(tmp_path: Path) -> None:

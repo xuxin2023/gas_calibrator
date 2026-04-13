@@ -1,3 +1,9 @@
+"""V1 corrected-delivery/report helper kept on the V1 runtime side.
+
+This entrypoint is reused by the V1 runner and the guarded online acceptance
+tool, so it should not depend on V2 runtime or offline bridge modules.
+"""
+
 from __future__ import annotations
 
 import csv
@@ -24,7 +30,7 @@ from ..devices.gas_analyzer import GasAnalyzer
 from ..export import build_corrected_water_points_report
 from ..h2o_summary_selection import normalize_h2o_summary_selection
 from ..senco_format import format_senco_values, senco_readback_matches
-from .run_v1_no500_postprocess import _filter_no_500_frame
+from ._no500_filter import filter_no_500_frame
 
 _PRESSURE_WRITE_MIN_GAUGE_CONTROLLER_OVERLAP = 5
 _PRESSURE_WRITE_MAX_GAUGE_CONTROLLER_MEAN_ABS_HPA = 3.0
@@ -241,7 +247,7 @@ def _filter_no_500_summary_paths(run_dir: Path, output_dir: Path) -> tuple[List[
     for source_path in _resolve_summary_paths(run_dir):
         if source_path.suffix.lower() == ".csv":
             frame = pd.read_csv(source_path, encoding="utf-8-sig")
-            filtered_frame, stats = _filter_no_500_frame(frame)
+            filtered_frame, stats = filter_no_500_frame(frame)
             out_path = output_dir / f"{source_path.stem}_no_500hpa.csv"
             filtered_frame.to_csv(out_path, index=False, encoding="utf-8-sig")
         else:
@@ -251,7 +257,7 @@ def _filter_no_500_summary_paths(run_dir: Path, output_dir: Path) -> tuple[List[
             removed_rows = 0
             kept_rows = 0
             for ws_name, frame in workbook.items():
-                filtered_frame, one_stats = _filter_no_500_frame(frame)
+                filtered_frame, one_stats = filter_no_500_frame(frame)
                 sheets[str(ws_name)] = filtered_frame
                 original_rows += int(one_stats["original_rows"])
                 removed_rows += int(one_stats["removed_rows"])

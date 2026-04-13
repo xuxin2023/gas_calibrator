@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from .core.phase_evidence_display_contracts import (
+    FORMATTER_DISPLAY_LABELS as _FORMATTER_LABELS,
+    MEASUREMENT_DIGEST_LABELS as _MEASUREMENT_DIGEST,
+    READINESS_DIGEST_LABELS as _READINESS_DIGEST,
+)
 from .core.phase_taxonomy_contract import (
     GAP_CLASSIFICATION_FAMILY,
     GAP_SEVERITY_FAMILY,
@@ -32,10 +37,10 @@ from .ui_v2.i18n import (
 )
 
 _OFFLINE_DIAGNOSTIC_DISPLAY_LABELS = {
-    "artifacts": "\u5de5\u4ef6",
-    "plots": "\u56fe\u8868",
-    "primary": "\u4e3b\u5de5\u4ef6",
-    "supporting": "\u652f\u6491\u5de5\u4ef6",
+    "artifacts": _FORMATTER_LABELS["artifacts"],
+    "plots": _FORMATTER_LABELS["plots"],
+    "primary": _FORMATTER_LABELS["primary"],
+    "supporting": _FORMATTER_LABELS["supporting"],
 }
 
 _OFFLINE_DIAGNOSTIC_DETAIL_LABELS = {
@@ -71,28 +76,28 @@ _OFFLINE_DIAGNOSTIC_DETAIL_VALUE_LABELS = {
 }
 
 _REVIEW_CENTER_COVERAGE_LABELS = {
-    "coverage": "\u8986\u76d6",
-    "complete": "\u5b8c\u6574",
-    "gapped": "\u7f3a\u53e3",
-    "missing": "\u7f3a\u5c11",
+    "coverage": _FORMATTER_LABELS["coverage"],
+    "complete": _FORMATTER_LABELS["complete"],
+    "gapped": _FORMATTER_LABELS["gapped"],
+    "missing": _FORMATTER_LABELS["missing_label"],
 }
 
 _REVIEW_SURFACE_FRAGMENT_LABELS = {
-    "visible": "\u53ef\u89c1",
-    "present": "\u5b58\u5728",
-    "external": "\u5916\u90e8",
-    "catalog": "\u5f53\u524d\u8fd0\u884c\u57fa\u7ebf",
-    "filtered": "\u5f53\u524d\u7b5b\u9009",
-    "failed": "\u5931\u8d25",
-    "degraded": "\u964d\u7ea7",
-    "diagnostic": "\u4ec5\u8bca\u65ad",
-    "high": "\u9ad8",
-    "medium": "\u4e2d",
-    "low": "\u4f4e",
-    "artifacts": "\u5de5\u4ef6",
-    "plots": "\u56fe\u8868",
-    "primary": "\u4e3b\u5de5\u4ef6",
-    "supporting": "\u652f\u6491\u5de5\u4ef6",
+    "visible": _FORMATTER_LABELS["visible"],
+    "present": _FORMATTER_LABELS["present"],
+    "external": _FORMATTER_LABELS["external"],
+    "catalog": _FORMATTER_LABELS["catalog"],
+    "filtered": _FORMATTER_LABELS["filtered"],
+    "failed": _FORMATTER_LABELS["failed"],
+    "degraded": _FORMATTER_LABELS["degraded"],
+    "diagnostic": _FORMATTER_LABELS["diagnostic"],
+    "high": _FORMATTER_LABELS["high"],
+    "medium": _FORMATTER_LABELS["medium"],
+    "low": _FORMATTER_LABELS["low"],
+    "artifacts": _FORMATTER_LABELS["artifacts"],
+    "plots": _FORMATTER_LABELS["plots"],
+    "primary": _FORMATTER_LABELS["primary"],
+    "supporting": _FORMATTER_LABELS["supporting"],
 }
 
 _REVIEW_SURFACE_INLINE_REPLACEMENTS = (
@@ -345,7 +350,7 @@ def humanize_review_center_coverage_text(summary_value: str) -> str:
         if not part:
             continue
         if part.lower() == "no gaps":
-            normalized_parts.append("\u65e0\u7f3a\u53e3")
+            normalized_parts.append(_FORMATTER_LABELS["no_gaps"])
             continue
         prefix, remainder = (part.split(" ", 1) + [""])[:2]
         label = _REVIEW_CENTER_COVERAGE_LABELS.get(prefix.lower())

@@ -8,13 +8,13 @@
     "files": [
       {
         "path": "src/gas_calibrator/workflow/runner.py",
-        "start_line": 16460,
-        "end_line": 16595
+        "start_line": 16874,
+        "end_line": 17009
       },
       {
         "path": "src/gas_calibrator/tools/run_v1_corrected_autodelivery.py",
-        "start_line": 774,
-        "end_line": 1006
+        "start_line": 781,
+        "end_line": 1013
       },
       {
         "path": "src/gas_calibrator/devices/gas_analyzer.py",
@@ -34,7 +34,7 @@
     ],
     "commits": [
       "d4487bb0",
-      "000000000"
+      "2ae4bfba1"
     ],
     "why_it_matters": "这消除了“主路径写系数后无回读验证”的高风险缺口。",
     "recommendation": "继续保持主 runner 与 corrected autodelivery 共用同一 helper，不要回退到只写 SENCO 的分叉实现。",
@@ -49,18 +49,18 @@
     "files": [
       {
         "path": "src/gas_calibrator/workflow/runner.py",
-        "start_line": 4573,
-        "end_line": 4601
+        "start_line": 4574,
+        "end_line": 4602
       },
       {
         "path": "src/gas_calibrator/workflow/runner.py",
-        "start_line": 4603,
-        "end_line": 4623
+        "start_line": 4604,
+        "end_line": 4624
       },
       {
         "path": "src/gas_calibrator/config.py",
-        "start_line": 220,
-        "end_line": 236
+        "start_line": 229,
+        "end_line": 248
       },
       {
         "path": "tests/test_runner_v1_writeback_safety.py",
@@ -73,6 +73,8 @@
       "1d765f9ec",
       "1ebff243f",
       "248d0ac69",
+      "2ae4bfba1",
+      "7036ca743",
       "8fa3f3ecd"
     ],
     "why_it_matters": "这把默认运行边界重新收回到 dry-run / 导出安全态，避免普通 V1 运行自动进入真实写回链路。",
@@ -88,23 +90,23 @@
     "files": [
       {
         "path": "src/gas_calibrator/workflow/runner.py",
-        "start_line": 14017,
-        "end_line": 14047
+        "start_line": 14431,
+        "end_line": 14461
       },
       {
         "path": "src/gas_calibrator/workflow/runner.py",
-        "start_line": 13814,
-        "end_line": 13968
+        "start_line": 14228,
+        "end_line": 14382
       },
       {
         "path": "src/gas_calibrator/workflow/runner.py",
-        "start_line": 14095,
-        "end_line": 14117
+        "start_line": 14509,
+        "end_line": 14531
       },
       {
         "path": "src/gas_calibrator/workflow/runner.py",
-        "start_line": 14049,
-        "end_line": 14093
+        "start_line": 14463,
+        "end_line": 14507
       },
       {
         "path": "tests/test_runner_v1_writeback_safety.py",
@@ -113,7 +115,7 @@
       }
     ],
     "commits": [
-      "000000000",
+      "2ae4bfba1",
       "d4487bb0"
     ],
     "why_it_matters": "这让点位“何时采样”和“何时真正落盘”可分离追溯。",
@@ -129,8 +131,8 @@
     "files": [
       {
         "path": "src/gas_calibrator/workflow/runner.py",
-        "start_line": 16597,
-        "end_line": 16640
+        "start_line": 17011,
+        "end_line": 17054
       },
       {
         "path": "src/gas_calibrator/logging_utils.py",
@@ -148,6 +150,8 @@
       "1d765f9ec",
       "1ebff243f",
       "248d0ac69",
+      "2ae4bfba1",
+      "7036ca743",
       "8fa3f3ecd",
       "d4487bb0"
     ],
@@ -164,8 +168,8 @@
     "files": [
       {
         "path": "src/gas_calibrator/tools/run_v1_corrected_autodelivery.py",
-        "start_line": 774,
-        "end_line": 1006
+        "start_line": 781,
+        "end_line": 1013
       },
       {
         "path": "tests/test_v1_writeback_fault_injection.py",
@@ -204,7 +208,7 @@
       }
     ],
     "commits": [
-      "000000000"
+      "2ae4bfba1"
     ],
     "why_it_matters": "这把“至少尝试退出”和“已确认退出”从口头安全变成了离线可验收证据。",
     "recommendation": "后续若 helper 字段再扩展，保持 mode_exit_attempted/mode_exit_confirmed 这对语义不要回退。",
@@ -219,28 +223,28 @@
     "files": [
       {
         "path": "src/gas_calibrator/workflow/runner.py",
-        "start_line": 11765,
-        "end_line": 11917
+        "start_line": 12175,
+        "end_line": 12327
       },
       {
         "path": "src/gas_calibrator/workflow/runner.py",
-        "start_line": 16218,
-        "end_line": 16290
+        "start_line": 16632,
+        "end_line": 16704
       },
       {
         "path": "src/gas_calibrator/h2o_summary_selection.py",
-        "start_line": 29,
-        "end_line": 42
+        "start_line": 52,
+        "end_line": 78
       },
       {
         "path": "src/gas_calibrator/workflow/runner.py",
-        "start_line": 4646,
-        "end_line": 4659
+        "start_line": 4647,
+        "end_line": 4660
       },
       {
         "path": "src/gas_calibrator/workflow/runner.py",
-        "start_line": 4661,
-        "end_line": 4671
+        "start_line": 4662,
+        "end_line": 4672
       },
       {
         "path": "tests/test_runner_v1_writeback_safety.py",
@@ -255,6 +259,8 @@
     ],
     "commits": [
       "000000000",
+      "2ae4bfba1",
+      "7036ca743",
       "d4487bb0",
       "dac8104b4"
     ],
@@ -271,8 +277,8 @@
     "files": [
       {
         "path": "src/gas_calibrator/tools/run_v1_corrected_autodelivery.py",
-        "start_line": 774,
-        "end_line": 1006
+        "start_line": 781,
+        "end_line": 1013
       },
       {
         "path": "src/gas_calibrator/devices/gas_analyzer.py",
@@ -281,13 +287,13 @@
       },
       {
         "path": "src/gas_calibrator/tools/run_v1_online_acceptance.py",
-        "start_line": 608,
-        "end_line": 760
+        "start_line": 611,
+        "end_line": 763
       },
       {
         "path": "src/gas_calibrator/tools/run_v1_online_acceptance.py",
-        "start_line": 525,
-        "end_line": 557
+        "start_line": 528,
+        "end_line": 560
       },
       {
         "path": "tests/test_v1_online_acceptance_tool.py",
@@ -296,7 +302,7 @@
       }
     ],
     "commits": [
-      "000000000"
+      "2ae4bfba1"
     ],
     "why_it_matters": "离线通过不等于 real acceptance，通过代码和仿真还不能证明现场异常时一定安全退出。",
     "recommendation": "若未来用户明确授权，只能通过带双开关的 online acceptance 工具做最小范围 V1 real smoke / short run，且结论必须标注为工程验证，不是 real acceptance。",

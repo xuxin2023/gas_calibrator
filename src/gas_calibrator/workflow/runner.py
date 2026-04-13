@@ -276,6 +276,7 @@ class CalibrationRunner:
         self._initial_co2_zero_flush_pending = self._route_mode() == "co2_only"
         self._active_post_h2o_co2_zero_flush = False
         self._first_co2_route_soak_pending = True
+        self._last_cold_co2_zero_flush_temp_c: Optional[float] = None
         self._temperature_calibration_records: List[Dict[str, Any]] = []
         self._temperature_calibration_capture_keys: set[tuple[str, str]] = set()
         self._pressure_capture_then_hold_cfg_logged = False
@@ -11039,6 +11040,7 @@ class CalibrationRunner:
         self._h2o_pressure_prepared_target = None
         route_context = self._route_entry_context_for_co2_source(point, pressure_points=pressure_points)
         route_point_tag = str(route_context.get("point_tag") or self._co2_point_tag(point))
+        self._apply_idle_route_isolation(reason="before CO2 chamber wait")
         self._emit_stage_event(
             current=f"{self._stage_label_for_point(point, phase='co2', include_pressure=False)} 温箱等待 {float(point.temp_chamber_c):g}°C",
             point=point,
@@ -11248,6 +11250,12 @@ class CalibrationRunner:
     def _cleanup_co2_route(self, *, reason: str = "") -> None:
         self._set_co2_route_baseline(reason=reason)
 
+    def _apply_idle_route_isolation(self, *, reason: str = "") -> None:
+        self._set_pressure_controller_vent(True, reason=reason)
+        self._apply_route_baseline_valves()
+        extra = f" ({reason})" if str(reason or "").strip() else ""
+        self.log(f"Idle route isolation applied{extra}: all route valves closed while waiting")
+
     def _cleanup_h2o_route(self, point: CalibrationPoint, *, reason: str = "") -> None:
         self._set_pressure_controller_vent(True, reason=reason)
         self._apply_route_baseline_valves()
@@ -11278,6 +11286,20 @@ class CalibrationRunner:
             zero_values = {0}
         return int(round(ppm_value)) in zero_values
 
+    def _cold_co2_zero_flush_temp_key(self, point: CalibrationPoint) -> Optional[float]:
+        temp_c = self._as_float(getattr(point, "temp_chamber_c", None))
+        if temp_c is None or temp_c > 0.0:
+            return None
+        return round(float(temp_c), 6)
+
+    def _should_apply_cold_co2_zero_flush(self, point: CalibrationPoint) -> bool:
+        if not self._is_zero_co2_point(point):
+            return False
+        temp_key = self._cold_co2_zero_flush_temp_key(point)
+        if temp_key is None:
+            return False
+        return self._last_cold_co2_zero_flush_temp_c != temp_key
+
     def _gas_route_dewpoint_gate_enabled(self) -> bool:
         return bool(self._wf("workflow.stability.gas_route_dewpoint_gate_enabled", False))
 
@@ -11290,6 +11312,13 @@ class CalibrationRunner:
 
     def _water_route_dewpoint_gate_enabled(self) -> bool:
         return bool(self._wf("workflow.stability.water_route_dewpoint_gate_enabled", False))
+
+    def _water_route_dewpoint_gate_policy(self) -> str:
+        raw = self._wf("workflow.stability.water_route_dewpoint_gate_policy", "warn")
+        normalized = str(raw or "warn").strip().lower()
+        if normalized not in {"reject", "warn", "pass"}:
+            return "warn"
+        return normalized
 
     def _gas_route_dewpoint_gate_cfg(self) -> Dict[str, Any]:
         return {
@@ -11323,6 +11352,92 @@ class CalibrationRunner:
             "log_interval_s": max(
                 1.0,
                 float(self._wf("workflow.stability.gas_route_dewpoint_gate_log_interval_s", 15.0) or 15.0),
+            ),
+        }
+
+    def _water_route_dewpoint_gate_cfg(self) -> Dict[str, Any]:
+        return {
+            "enabled": self._water_route_dewpoint_gate_enabled(),
+            "policy": self._water_route_dewpoint_gate_policy(),
+            "window_s": max(
+                5.0,
+                float(
+                    self._wf(
+                        "workflow.stability.water_route_dewpoint_gate_window_s",
+                        self._wf("workflow.stability.gas_route_dewpoint_gate_window_s", 60.0),
+                    )
+                    or 60.0
+                ),
+            ),
+            "max_total_wait_s": max(
+                0.0,
+                float(
+                    self._wf(
+                        "workflow.stability.water_route_dewpoint_gate_max_total_wait_s",
+                        self._wf("workflow.stability.gas_route_dewpoint_gate_max_total_wait_s", 300.0),
+                    )
+                    or 300.0
+                ),
+            ),
+            "poll_s": max(
+                0.2,
+                float(
+                    self._wf(
+                        "workflow.stability.water_route_dewpoint_gate_poll_s",
+                        self._wf("workflow.stability.gas_route_dewpoint_gate_poll_s", 2.0),
+                    )
+                    or 2.0
+                ),
+            ),
+            "tail_span_max_c": max(
+                0.0,
+                float(
+                    self._wf(
+                        "workflow.stability.water_route_dewpoint_gate_tail_span_max_c",
+                        self._wf("workflow.stability.gas_route_dewpoint_gate_tail_span_max_c", 0.45),
+                    )
+                    or 0.45
+                ),
+            ),
+            "tail_slope_abs_max_c_per_s": max(
+                0.0,
+                float(
+                    self._wf(
+                        "workflow.stability.water_route_dewpoint_gate_tail_slope_abs_max_c_per_s",
+                        self._wf("workflow.stability.gas_route_dewpoint_gate_tail_slope_abs_max_c_per_s", 0.005),
+                    )
+                    or 0.005
+                ),
+            ),
+            "rebound_window_s": max(
+                1.0,
+                float(
+                    self._wf(
+                        "workflow.stability.water_route_dewpoint_gate_rebound_window_s",
+                        self._wf("workflow.stability.gas_route_dewpoint_gate_rebound_window_s", 180.0),
+                    )
+                    or 180.0
+                ),
+            ),
+            "rebound_min_rise_c": max(
+                0.0,
+                float(
+                    self._wf(
+                        "workflow.stability.water_route_dewpoint_gate_rebound_min_rise_c",
+                        self._wf("workflow.stability.gas_route_dewpoint_gate_rebound_min_rise_c", 1.3),
+                    )
+                    or 1.3
+                ),
+            ),
+            "log_interval_s": max(
+                1.0,
+                float(
+                    self._wf(
+                        "workflow.stability.water_route_dewpoint_gate_log_interval_s",
+                        self._wf("workflow.stability.gas_route_dewpoint_gate_log_interval_s", 15.0),
+                    )
+                    or 15.0
+                ),
             ),
         }
 
@@ -11389,6 +11504,22 @@ class CalibrationRunner:
             "timestamp": datetime.now().isoformat(timespec="milliseconds"),
             "phase_elapsed_s": max(0.0, float(total_elapsed_s)),
             "phase": "co2_route_precondition",
+            "controller_vent_state": "VENT_ON",
+            "dewpoint_c": snapshot.get("dewpoint_c"),
+            "dewpoint_temp_c": snapshot.get("temp_c"),
+            "dewpoint_rh_percent": snapshot.get("rh_pct"),
+        }
+
+    def _build_h2o_route_dewpoint_gate_row(
+        self,
+        *,
+        total_elapsed_s: float,
+        snapshot: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return {
+            "timestamp": datetime.now().isoformat(timespec="milliseconds"),
+            "phase_elapsed_s": max(0.0, float(total_elapsed_s)),
+            "phase": "h2o_route_precondition",
             "controller_vent_state": "VENT_ON",
             "dewpoint_c": snapshot.get("dewpoint_c"),
             "dewpoint_temp_c": snapshot.get("temp_c"),
@@ -11597,8 +11728,206 @@ class CalibrationRunner:
                 )
             time.sleep(float(cfg["poll_s"]))
 
+    def _wait_h2o_route_dewpoint_gate_before_sampling(
+        self,
+        point: CalibrationPoint,
+        *,
+        log_context: str,
+    ) -> bool:
+        cfg = self._water_route_dewpoint_gate_cfg()
+        if not bool(cfg.get("enabled")):
+            return True
+
+        gate_begin_ts = time.time()
+        gate_rows: List[Dict[str, Any]] = []
+        last_log_ts = 0.0
+        consecutive_read_missing = 0
+        max_transient_read_missing = 3
+        self._append_pressure_trace_row(
+            point=point,
+            route="h2o",
+            point_phase="h2o",
+            trace_stage="h2o_precondition_dewpoint_gate_begin",
+            pressure_target_hpa=point.target_pressure_hpa,
+            refresh_pace_state=False,
+            note=(
+                f"window_s={float(cfg['window_s']):.3f} "
+                f"max_gate_wait_s={float(cfg['max_total_wait_s']):.3f} "
+                f"policy={cfg['policy']}"
+            ),
+        )
+        while True:
+            if self.stop_event.is_set():
+                return False
+            self._check_pause()
+            try:
+                snapshot = self._read_precondition_dewpoint_gate_snapshot()
+            except Exception as exc:
+                reason = str(exc) or "dewpoint_gate_read_failed"
+                total_elapsed_s = max(0.0, time.time() - gate_begin_ts)
+                if reason == "dewpoint_gate_read_missing":
+                    consecutive_read_missing += 1
+                    if consecutive_read_missing < max_transient_read_missing:
+                        now_ts = time.time()
+                        if (now_ts - last_log_ts) >= float(cfg["log_interval_s"]):
+                            last_log_ts = now_ts
+                            self.log(
+                                "H2O route precondition dewpoint gate waiting: "
+                                f"row={point.index} read missing; retry "
+                                f"{consecutive_read_missing}/{max_transient_read_missing - 1} "
+                                f"time_to_gate={total_elapsed_s:.1f}s"
+                            )
+                        time.sleep(float(cfg["poll_s"]))
+                        continue
+                self._set_point_runtime_fields(
+                    point,
+                    phase="h2o",
+                    dewpoint_time_to_gate=round(total_elapsed_s, 3),
+                    dewpoint_tail_span_60s=None,
+                    dewpoint_tail_slope_60s=None,
+                    dewpoint_rebound_detected=None,
+                    flush_gate_status="fail",
+                    flush_gate_reason=reason,
+                )
+                self._append_pressure_trace_row(
+                    point=point,
+                    route="h2o",
+                    point_phase="h2o",
+                    trace_stage="h2o_precondition_dewpoint_gate_end",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                    refresh_pace_state=False,
+                    dewpoint_time_to_gate=round(total_elapsed_s, 3),
+                    flush_gate_status="fail",
+                    flush_gate_reason=reason,
+                    note="H2O route precondition dewpoint gate failed before sampling",
+                )
+                self.log(
+                    "H2O route precondition dewpoint gate failed before sampling: "
+                    f"row={point.index} reason={reason}"
+                )
+                return False
+
+            consecutive_read_missing = 0
+            gate_elapsed_s = max(0.0, time.time() - gate_begin_ts)
+            gate_rows.append(
+                self._build_h2o_route_dewpoint_gate_row(
+                    total_elapsed_s=gate_elapsed_s,
+                    snapshot=snapshot,
+                )
+            )
+            gate_eval = evaluate_dewpoint_flush_gate(
+                gate_rows,
+                min_flush_s=0.0,
+                gate_window_s=float(cfg["window_s"]),
+                max_tail_span_c=float(cfg["tail_span_max_c"]),
+                max_abs_tail_slope_c_per_s=float(cfg["tail_slope_abs_max_c_per_s"]),
+                rebound_window_s=float(cfg["rebound_window_s"]),
+                rebound_min_rise_c=float(cfg["rebound_min_rise_c"]),
+                include_rebound_in_gate=True,
+            )
+            dewpoint_tail_span_60s = self._as_float(gate_eval.get("dewpoint_tail_span_60s"))
+            dewpoint_tail_slope_60s = self._as_float(gate_eval.get("dewpoint_tail_slope_60s"))
+            dewpoint_rebound_detected = bool(gate_eval.get("dewpoint_rebound_detected"))
+            dewpoint_time_to_gate = self._as_float(gate_eval.get("dewpoint_time_to_gate"))
+            if bool(gate_eval.get("gate_pass")):
+                self._set_point_runtime_fields(
+                    point,
+                    phase="h2o",
+                    dewpoint_time_to_gate=dewpoint_time_to_gate,
+                    dewpoint_tail_span_60s=dewpoint_tail_span_60s,
+                    dewpoint_tail_slope_60s=dewpoint_tail_slope_60s,
+                    dewpoint_rebound_detected=dewpoint_rebound_detected,
+                    flush_gate_status="pass",
+                    flush_gate_reason="",
+                )
+                self._append_pressure_trace_row(
+                    point=point,
+                    route="h2o",
+                    point_phase="h2o",
+                    trace_stage="h2o_precondition_dewpoint_gate_end",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                    refresh_pace_state=False,
+                    dewpoint_c=snapshot.get("dewpoint_c"),
+                    dew_temp_c=snapshot.get("temp_c"),
+                    dew_rh_pct=snapshot.get("rh_pct"),
+                    dewpoint_time_to_gate=dewpoint_time_to_gate,
+                    dewpoint_tail_span_60s=dewpoint_tail_span_60s,
+                    dewpoint_tail_slope_60s=dewpoint_tail_slope_60s,
+                    dewpoint_rebound_detected=dewpoint_rebound_detected,
+                    flush_gate_status="pass",
+                    flush_gate_reason="",
+                    note=f"context={log_context} result=pass",
+                )
+                self.log(
+                    "H2O route dewpoint gate passed after open-route alignment: "
+                    f"row={point.index} time_to_gate={dewpoint_time_to_gate} "
+                    f"tail_span_60s={dewpoint_tail_span_60s} "
+                    f"tail_slope_60s={dewpoint_tail_slope_60s} "
+                    f"rebound={dewpoint_rebound_detected}"
+                )
+                return True
+
+            if float(cfg["max_total_wait_s"]) > 0 and gate_elapsed_s >= float(cfg["max_total_wait_s"]):
+                reason = str(gate_eval.get("gate_reason") or "dewpoint_gate_timeout")
+                if "max_total_wait_exceeded" not in reason:
+                    reason = f"{reason};max_total_wait_exceeded" if reason else "max_total_wait_exceeded"
+                self._set_point_runtime_fields(
+                    point,
+                    phase="h2o",
+                    dewpoint_time_to_gate=round(gate_elapsed_s, 3),
+                    dewpoint_tail_span_60s=dewpoint_tail_span_60s,
+                    dewpoint_tail_slope_60s=dewpoint_tail_slope_60s,
+                    dewpoint_rebound_detected=dewpoint_rebound_detected,
+                    flush_gate_status="timeout",
+                    flush_gate_reason=reason,
+                )
+                self._append_pressure_trace_row(
+                    point=point,
+                    route="h2o",
+                    point_phase="h2o",
+                    trace_stage="h2o_precondition_dewpoint_gate_end",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                    refresh_pace_state=False,
+                    dewpoint_c=snapshot.get("dewpoint_c"),
+                    dew_temp_c=snapshot.get("temp_c"),
+                    dew_rh_pct=snapshot.get("rh_pct"),
+                    dewpoint_time_to_gate=round(gate_elapsed_s, 3),
+                    dewpoint_tail_span_60s=dewpoint_tail_span_60s,
+                    dewpoint_tail_slope_60s=dewpoint_tail_slope_60s,
+                    dewpoint_rebound_detected=dewpoint_rebound_detected,
+                    flush_gate_status="timeout",
+                    flush_gate_reason=reason,
+                    note=f"context={log_context} result=timeout policy={cfg['policy']}",
+                )
+                if str(cfg["policy"]) in {"warn", "pass"}:
+                    self.log(
+                        "H2O route precondition dewpoint gate timed out after open-route alignment; "
+                        f"continue due to policy={cfg['policy']} row={point.index} "
+                        f"gate_wait_s={gate_elapsed_s:.1f} reason={reason}"
+                    )
+                    return True
+                self.log(
+                    "H2O route precondition failed: dewpoint gate timeout after open-route alignment; "
+                    f"row={point.index} gate_wait_s={gate_elapsed_s:.1f} reason={reason}"
+                )
+                return False
+
+            now_ts = time.time()
+            if (now_ts - last_log_ts) >= float(cfg["log_interval_s"]):
+                last_log_ts = now_ts
+                self.log(
+                    "H2O route precondition dewpoint gate waiting: "
+                    f"row={point.index} dewpoint={snapshot.get('dewpoint_c')} "
+                    f"time_to_gate={gate_elapsed_s:.1f}s "
+                    f"tail_span_60s={dewpoint_tail_span_60s} "
+                    f"tail_slope_60s={dewpoint_tail_slope_60s} "
+                    f"reason={gate_eval.get('gate_reason') or 'waiting'}"
+                )
+            time.sleep(float(cfg["poll_s"]))
+
     def _wait_co2_route_soak_before_seal(self, point: CalibrationPoint) -> bool:
         special_flush = self._has_special_co2_zero_flush_pending() and self._is_zero_co2_point(point)
+        cold_group_flush = False
         soak_key = "workflow.stability.co2_route.preseal_soak_s"
         soak_default = 180.0
         wait_reason = "开路预通气"
@@ -11618,6 +11947,12 @@ class CalibrationRunner:
             soak_default = 300.0
             wait_reason = "首个气点开路预通气"
             log_context = "CO2 route opened for first gas-point flush"
+        elif self._should_apply_cold_co2_zero_flush(point):
+            soak_key = "workflow.stability.co2_route.cold_group_zero_ppm_soak_s"
+            soak_default = float(self._wf("workflow.stability.co2_route.preseal_soak_s", 180.0))
+            wait_reason = "冷组0气吹干"
+            log_context = "CO2 cold-group dry flush"
+            cold_group_flush = True
         else:
             self._active_post_h2o_co2_zero_flush = False
 
@@ -11679,6 +12014,9 @@ class CalibrationRunner:
             self._post_h2o_co2_zero_flush_pending = False
             self._initial_co2_zero_flush_pending = False
         self._first_co2_route_soak_pending = False
+        cold_temp_key = self._cold_co2_zero_flush_temp_key(point)
+        if cold_temp_key is not None and self._is_zero_co2_point(point):
+            self._last_cold_co2_zero_flush_temp_c = cold_temp_key
         return self._wait_co2_route_dewpoint_gate_before_seal(
             point,
             base_soak_s=soak_s,
@@ -11745,6 +12083,78 @@ class CalibrationRunner:
         )
         return False
 
+    def _wait_h2o_precondition_primary_sensor_gate(self, point: CalibrationPoint) -> bool:
+        sensor_cfg = self.cfg.get("workflow", {}).get("stability", {}).get("sensor", {})
+        if sensor_cfg and not sensor_cfg.get("enabled", True):
+            self.log("H2O precondition analyzer stability gate skipped: sensor stability disabled by configuration")
+            return True
+
+        tol = float(sensor_cfg.get("h2o_ratio_f_preseal_tol", sensor_cfg.get("h2o_ratio_f_tol", 0.001)))
+        window_s = float(sensor_cfg.get("h2o_ratio_f_preseal_window_s", sensor_cfg.get("window_s", 30)))
+        timeout_s = float(sensor_cfg.get("h2o_ratio_f_preseal_timeout_s", sensor_cfg.get("timeout_s", 300)))
+        min_samples = max(2, int(sensor_cfg.get("h2o_ratio_f_preseal_min_samples", 10)))
+        read_interval_s = float(
+            sensor_cfg.get("h2o_ratio_f_preseal_read_interval_s", sensor_cfg.get("read_interval_s", 1.0))
+        )
+        policy_raw = sensor_cfg.get("h2o_ratio_f_preseal_policy", "warn")
+        policy = str(policy_raw or "warn").strip().lower()
+        if policy not in {"reject", "warn", "pass"}:
+            policy = "warn"
+        self._append_pressure_trace_row(
+            point=point,
+            route="h2o",
+            point_phase="h2o",
+            trace_stage="h2o_precondition_analyzer_gate_begin",
+            pressure_target_hpa=point.target_pressure_hpa,
+            refresh_pace_state=False,
+            note=(
+                f"key=h2o_ratio_f tol={tol:.6f} window_s={window_s:.3f} "
+                f"timeout_s={timeout_s:.3f} min_samples={min_samples} "
+                f"read_interval_s={read_interval_s:.3f} policy={policy}"
+            ),
+        )
+        stable = self._wait_primary_sensor_stable(
+            point,
+            value_key="h2o_ratio_f",
+            require_pressure_in_limits=False,
+            tol_override=tol,
+            window_override=window_s,
+            timeout_override=timeout_s,
+            min_samples_override=min_samples,
+            read_interval_override=read_interval_s,
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route="h2o",
+            point_phase="h2o",
+            trace_stage="h2o_precondition_analyzer_gate_end",
+            pressure_target_hpa=point.target_pressure_hpa,
+            refresh_pace_state=False,
+            note=(
+                f"result={'pass' if stable else 'fail'} key=h2o_ratio_f tol={tol:.6f} "
+                f"window_s={window_s:.3f} timeout_s={timeout_s:.3f} min_samples={min_samples} "
+                f"policy={policy}"
+            ),
+        )
+        if stable:
+            self.log(
+                "H2O precondition analyzer stability gate passed: "
+                f"row={point.index} tol={tol:g} window_s={window_s:g} min_samples={min_samples}"
+            )
+            return True
+        if policy in {"warn", "pass"}:
+            self.log(
+                "H2O precondition analyzer stability gate timed out before open-route sampling/seal; "
+                f"continue due to policy={policy} row={point.index} "
+                f"tol={tol:g} window_s={window_s:g} min_samples={min_samples}"
+            )
+            return True
+        self.log(
+            "H2O precondition analyzer stability gate failed before open-route sampling/seal: "
+            f"row={point.index} tol={tol:g} window_s={window_s:g} min_samples={min_samples}"
+        )
+        return False
+
     def _co2_pressure_timeout_reseal_retries(self) -> int:
         return max(0, int(self._wf("workflow.pressure.co2_reseal_retry_count", 1)))
 
@@ -11782,7 +12192,7 @@ class CalibrationRunner:
             f"pressures=[{pressure_text}]"
         )
 
-        self._set_h2o_path(False, lead)
+        self._apply_idle_route_isolation(reason="before H2O group conditioning")
         self._prepare_pressure_for_h2o(lead)
         self._prepare_humidity_generator(lead)
         self._emit_stage_event(
@@ -11918,7 +12328,7 @@ class CalibrationRunner:
 
     def _run_h2o_point(self, point: CalibrationPoint, prepared: bool = False) -> None:
         self._preseal_dewpoint_snapshot = None
-        self._set_h2o_path(False, point)
+        self._apply_idle_route_isolation(reason="before H2O point conditioning")
         if not prepared:
             self._prepare_pressure_for_h2o(point)
             self._prepare_humidity_generator(point)
@@ -12971,6 +13381,10 @@ class CalibrationRunner:
         if not self._ensure_dewpoint_meter_ready():
             return False
         if not self._wait_dewpoint_alignment_stable(point):
+            return False
+        if not self._wait_h2o_route_dewpoint_gate_before_sampling(point, log_context="H2O route opened"):
+            return False
+        if not self._wait_h2o_precondition_primary_sensor_gate(point):
             return False
         return True
 

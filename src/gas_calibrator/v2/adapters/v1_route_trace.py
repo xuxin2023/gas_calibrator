@@ -1,3 +1,9 @@
+"""V2 bridge wrapper for external V1 route tracing.
+
+This module intentionally crosses into V1 runtime/logging code, but only as a
+bridge tool. It is not part of the V2 main runtime boundary.
+"""
+
 from __future__ import annotations
 
 import json
