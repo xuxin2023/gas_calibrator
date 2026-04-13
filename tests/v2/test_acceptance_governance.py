@@ -1277,3 +1277,54 @@ def test_stage3_real_validation_plan_reuses_existing_checklist_and_pack_wording_
     assert "真机系数写入 / 回读 / acceptance" in entry["required_evidence_categories_text"]
     assert "ready_for_engineering_isolation" not in entry["entry_text"]
     assert "real_acceptance_ready" not in entry["entry_text"]
+
+
+# ---------------------------------------------------------------------------
+# TestV12CompactSummaryGovernance (2.11)
+# ---------------------------------------------------------------------------
+
+class TestV12CompactSummaryGovernance:
+    """Verify V1.2 compact summary does not introduce real acceptance language."""
+
+    def test_v12_compact_summary_no_real_acceptance(self):
+        """V1.2 compact summary must not contain real acceptance language."""
+        from gas_calibrator.v2.core.reviewer_summary_builders import (
+            build_v12_alignment_compact_summary,
+            V12_COMPACT_SUMMARY_LABELS,
+            V12_COMPACT_SUMMARY_LABELS_EN,
+        )
+        result = build_v12_alignment_compact_summary({})
+        joined = " | ".join(result["summary_lines"])
+
+        # Must NOT contain real acceptance language
+        assert "real acceptance" not in joined.lower() or "not real acceptance" in joined.lower()
+        assert "正式放行" not in joined or "不构成正式放行" in joined
+
+        # Must contain simulated-only note
+        assert "仿真" in joined or "Simulated" in joined
+
+    def test_v12_compact_labels_no_formal_claim(self):
+        """V1.2 compact labels must not contain formal claim language."""
+        from gas_calibrator.v2.core.reviewer_summary_builders import (
+            V12_COMPACT_SUMMARY_LABELS,
+            V12_COMPACT_SUMMARY_LABELS_EN,
+        )
+        all_texts = list(V12_COMPACT_SUMMARY_LABELS.values()) + list(V12_COMPACT_SUMMARY_LABELS_EN.values())
+        for text in all_texts:
+            lower = text.lower()
+            assert "formal acceptance" not in lower, f"Formal acceptance in: {text}"
+            assert "formal claim" not in lower, f"Formal claim in: {text}"
+            assert "正式放行" not in text or "不构成" in text, f"正式放行 without negation in: {text}"
+
+    def test_v12_compact_boundary_markers_step2(self):
+        """V1.2 compact summary boundary markers must match Step 2."""
+        from gas_calibrator.v2.core.reviewer_summary_builders import build_v12_alignment_compact_summary
+        from gas_calibrator.v2.core.phase_evidence_display_contracts import PHASE_EVIDENCE_STEP2_BOUNDARY
+
+        result = build_v12_alignment_compact_summary({})
+        markers = result["boundary_markers"]
+        assert markers["evidence_source"] == "simulated"
+        assert markers["not_real_acceptance_evidence"] is True
+        assert markers["not_ready_for_formal_claim"] is True
+        assert markers["reviewer_only"] is True
+        assert markers["readiness_mapping_only"] is True

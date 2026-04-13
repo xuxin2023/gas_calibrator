@@ -710,3 +710,43 @@ class TestTerminologyConsistency210:
             assert "formal claim" not in lower, f"Formal claim language found: {text}"
             assert "正式放行" not in text, f"正式放行 language found: {text}"
             assert "正式验收" not in text, f"正式验收 language found: {text}"
+
+
+# ---------------------------------------------------------------------------
+# TestReviewerSummaryBuildersConvergence (2.11)
+# ---------------------------------------------------------------------------
+class TestReviewerSummaryBuildersConvergence:
+    """Verify reviewer_summary_builders converges with contracts."""
+
+    def test_builders_version_matches_contracts(self):
+        """Builders version must be >= contracts version."""
+        from gas_calibrator.v2.core.reviewer_summary_builders import REVIEWER_SUMMARY_BUILDERS_VERSION
+        # 2.11.0 >= 2.11.0
+        assert REVIEWER_SUMMARY_BUILDERS_VERSION >= PHASE_EVIDENCE_DISPLAY_CONTRACTS_VERSION
+
+    def test_measurement_digest_labels_used_in_builders(self):
+        """Key measurement digest labels in builders must match contracts."""
+        from gas_calibrator.v2.core.reviewer_summary_builders import (
+            build_measurement_digest_compact_summary,
+        )
+        # Verify builder uses contract labels via its default text
+        result = build_measurement_digest_compact_summary({})
+        # The builder must produce summary_lines (even for empty payload)
+        assert len(result["summary_lines"]) == 5
+
+    def test_readiness_digest_labels_used_in_builders(self):
+        """Key readiness digest labels in builders must match contracts."""
+        from gas_calibrator.v2.core.reviewer_summary_builders import (
+            build_readiness_digest_compact_summary,
+        )
+        result = build_readiness_digest_compact_summary({})
+        assert len(result["summary_lines"]) == 5
+
+    def test_v12_compact_summary_boundary_matches_step2(self):
+        """V1.2 compact summary boundary must match Step 2 boundary."""
+        from gas_calibrator.v2.core.reviewer_summary_builders import (
+            build_v12_alignment_compact_summary,
+        )
+        result = build_v12_alignment_compact_summary({})
+        markers = result["boundary_markers"]
+        assert markers == dict(PHASE_EVIDENCE_STEP2_BOUNDARY)

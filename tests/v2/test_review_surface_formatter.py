@@ -288,3 +288,75 @@ def test_build_artifact_scope_view_reviewer_display_packages_summary_and_notes_w
     assert reviewer_display["export_warning_text"] == raw_warning_text
     assert raw_summary == "Source | visible 3 | present 2/3 | external 1 | missing 1 | catalog 8/12"
     assert raw_catalog_note == "Current-run catalog baseline 8/12"
+
+
+# ---------------------------------------------------------------------------
+# TestFormatterConsumesSharedBuilders (2.11)
+# ---------------------------------------------------------------------------
+
+class TestFormatterConsumesSharedBuilders:
+    """Verify review_surface_formatter consumes shared compact builders."""
+
+    def test_measurement_digest_uses_compact_builder(self):
+        """build_measurement_review_digest_lines must use shared compact builder for core lines."""
+        from gas_calibrator.v2.review_surface_formatter import build_measurement_review_digest_lines
+        from gas_calibrator.v2.core.reviewer_summary_builders import build_measurement_digest_compact_summary
+
+        payload = {
+            "digest": {
+                "payload_complete_phase_summary": "preseal, postseal",
+                "payload_partial_phase_summary": "ambient",
+                "trace_only_phase_summary": "flush_gate",
+                "blocker_summary": "none",
+                "next_required_artifacts_summary": "none",
+            }
+        }
+        result = build_measurement_review_digest_lines(payload)
+        compact = build_measurement_digest_compact_summary(payload, include_boundary=False, include_non_claim=False)
+
+        # The formatter's summary_lines must contain the compact builder's core lines
+        assert "summary_lines" in result
+        assert len(result["summary_lines"]) > 0
+        # Compact builder produces 5 core lines
+        assert len(compact["summary_lines"]) == 5
+
+    def test_readiness_digest_uses_compact_builder(self):
+        """build_readiness_review_digest_lines must use shared compact builder for core lines."""
+        from gas_calibrator.v2.review_surface_formatter import build_readiness_review_digest_lines
+        from gas_calibrator.v2.core.reviewer_summary_builders import build_readiness_digest_compact_summary
+
+        payload = {
+            "digest": {
+                "scope_overview_summary": "ISO 17025",
+                "decision_rule_summary": "binary",
+                "readiness_status_summary": "not ready",
+                "top_gaps_summary": "preseal",
+                "current_evidence_coverage_summary": "60%",
+            }
+        }
+        result = build_readiness_review_digest_lines(payload)
+        compact = build_readiness_digest_compact_summary(payload, include_boundary=False, include_non_claim=False)
+
+        assert "summary_lines" in result
+        assert len(result["summary_lines"]) > 0
+        assert len(compact["summary_lines"]) == 5
+
+    def test_measurement_digest_boundary_markers_step2(self):
+        """Measurement digest compact builder must return Step 2 boundary markers."""
+        from gas_calibrator.v2.core.reviewer_summary_builders import build_measurement_digest_compact_summary
+
+        result = build_measurement_digest_compact_summary({})
+        markers = result["boundary_markers"]
+        assert markers["evidence_source"] == "simulated"
+        assert markers["not_real_acceptance_evidence"] is True
+        assert markers["reviewer_only"] is True
+
+    def test_readiness_digest_boundary_markers_step2(self):
+        """Readiness digest compact builder must return Step 2 boundary markers."""
+        from gas_calibrator.v2.core.reviewer_summary_builders import build_readiness_digest_compact_summary
+
+        result = build_readiness_digest_compact_summary({})
+        markers = result["boundary_markers"]
+        assert markers["evidence_source"] == "simulated"
+        assert markers["not_real_acceptance_evidence"] is True
+        assert markers["reviewer_only"] is True

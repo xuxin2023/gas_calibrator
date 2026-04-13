@@ -1364,3 +1364,37 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
         assert "accreditation" not in note_text
         assert "acceptance_level" not in note_text
         assert "compliance claim" not in note_text
+
+
+# ---------------------------------------------------------------------------
+# TestResultsGatewayUsesV12CompactSummary (2.11)
+# ---------------------------------------------------------------------------
+
+class TestResultsGatewayUsesV12CompactSummary:
+    """Verify results_gateway imports and can use V1.2 compact summary builders."""
+
+    def test_v12_compact_summary_importable(self):
+        """V1.2 compact summary builders must be importable from results_gateway."""
+        from gas_calibrator.v2.adapters.results_gateway import (
+            build_v12_alignment_compact_summary,
+            build_phase_evidence_compact_summary,
+            build_governance_handoff_compact_summary,
+            build_parity_resilience_compact_summary,
+        )
+        # Verify they are callable
+        assert callable(build_v12_alignment_compact_summary)
+        assert callable(build_phase_evidence_compact_summary)
+        assert callable(build_governance_handoff_compact_summary)
+        assert callable(build_parity_resilience_compact_summary)
+
+    def test_v12_compact_summary_stable_output(self):
+        """V1.2 compact summary must produce stable output for empty payload."""
+        from gas_calibrator.v2.core.reviewer_summary_builders import build_v12_alignment_compact_summary
+
+        result = build_v12_alignment_compact_summary({})
+        assert "summary_lines" in result
+        assert "v12_compact" in result
+        assert "boundary_markers" in result
+        # Must have simulated-only note
+        joined = " | ".join(result["summary_lines"])
+        assert "仿真" in joined or "Simulated" in joined
