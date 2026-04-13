@@ -58,8 +58,8 @@ def _has_chinese(s: str) -> bool:
 # ---------------------------------------------------------------------------
 
 class TestBuilderVersion:
-    def test_version_is_2_11_0(self):
-        assert REVIEWER_SUMMARY_BUILDERS_VERSION == "2.11.0"
+    def test_version_is_2_12_0(self):
+        assert REVIEWER_SUMMARY_BUILDERS_VERSION == "2.12.0"
 
 
 # ---------------------------------------------------------------------------

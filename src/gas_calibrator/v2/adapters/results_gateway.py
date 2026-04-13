@@ -1949,6 +1949,15 @@ class ResultsGateway:
         }
         _v12_compact = build_v12_alignment_compact_summary(_v12_compact_payload)
 
+        # Phase evidence / governance / parity-resilience compact summaries
+        _phase_evidence_compact = build_phase_evidence_compact_summary(_v12_compact_payload)
+        _governance_compact = build_governance_handoff_compact_summary(
+            dict(workbench_summary.get("governance_handoff_summary") or {})
+        )
+        _parity_resilience_compact = build_parity_resilience_compact_summary(
+            dict(workbench_summary.get("parity_resilience_summary") or {})
+        )
+
         if measurement_core_stability_text:
             lines.append(
                 humanize_review_surface_text(
@@ -1974,6 +1983,10 @@ class ResultsGateway:
             lines.extend((measurement_review_lines.get("detail_lines") or [])[:4])
             # Append V1.2 compact reviewer summary lines
             lines.extend(_v12_compact.get("summary_lines") or [])
+            # Append phase evidence / governance / parity-resilience compact summary lines
+            lines.extend(_phase_evidence_compact.get("summary_lines") or [])
+            lines.extend(_governance_compact.get("summary_lines") or [])
+            lines.extend(_parity_resilience_compact.get("summary_lines") or [])
         if measurement_core_sidecar_text or dict(simulation_evidence_sidecar_bundle or {}):
             sidecar_contract_text = str(sidecar_summary.get("reviewer_note") or "").strip()
             lines.append(

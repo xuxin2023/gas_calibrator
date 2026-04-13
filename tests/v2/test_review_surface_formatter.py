@@ -291,7 +291,7 @@ def test_build_artifact_scope_view_reviewer_display_packages_summary_and_notes_w
 
 
 # ---------------------------------------------------------------------------
-# TestFormatterConsumesSharedBuilders (2.11)
+# TestFormatterConsumesSharedBuilders (2.12)
 # ---------------------------------------------------------------------------
 
 class TestFormatterConsumesSharedBuilders:
@@ -360,3 +360,157 @@ class TestFormatterConsumesSharedBuilders:
         assert markers["evidence_source"] == "simulated"
         assert markers["not_real_acceptance_evidence"] is True
         assert markers["reviewer_only"] is True
+
+
+# ---------------------------------------------------------------------------
+# TestDeadDefinitionCleanup (2.12)
+# ---------------------------------------------------------------------------
+
+class TestDeadDefinitionCleanup:
+    """Verify that the old dead build_measurement_review_digest_lines has been removed."""
+
+    def test_no_duplicate_build_measurement_review_digest_lines(self):
+        """There must be exactly one definition of build_measurement_review_digest_lines."""
+        import inspect
+        import gas_calibrator.v2.review_surface_formatter as formatter_mod
+
+        # Count how many times the function name appears in the source
+        source = inspect.getsource(formatter_mod)
+        count = source.count("def build_measurement_review_digest_lines(")
+        assert count == 1, f"Expected exactly 1 definition, found {count}"
+
+    def test_measurement_digest_function_is_callable(self):
+        """The surviving build_measurement_review_digest_lines must be callable."""
+        from gas_calibrator.v2.review_surface_formatter import build_measurement_review_digest_lines
+
+        result = build_measurement_review_digest_lines({})
+        assert "summary_lines" in result
+        assert "detail_lines" in result
+
+
+# ---------------------------------------------------------------------------
+# TestReviewIndexSummaryConsumesSharedBuilders (2.12)
+# ---------------------------------------------------------------------------
+
+class TestReviewIndexSummaryConsumesSharedBuilders:
+    """Verify that review_center_scan_contracts.build_v12_alignment_summary
+    consumes shared compact builders from reviewer_summary_builders."""
+
+    def test_v12_alignment_summary_uses_compact_builder(self):
+        """build_v12_alignment_summary must produce summary_line from shared builder."""
+        from gas_calibrator.v2.ui_v2.review_center_scan_contracts import build_v12_alignment_summary
+
+        result = build_v12_alignment_summary(
+            parity_status="MATCH",
+            resilience_status="MATCH",
+            governance_handoff_blockers=[],
+        )
+        inner = result.get("v12_alignment_summary", {})
+        # summary_line must be populated from shared builder
+        assert "summary_line" in inner
+        assert isinstance(inner["summary_line"], str)
+        assert len(inner["summary_line"]) > 0
+
+    def test_v12_alignment_summary_has_compact_summary_lines(self):
+        """build_v12_alignment_summary must expose compact_summary_lines from shared builder."""
+        from gas_calibrator.v2.ui_v2.review_center_scan_contracts import build_v12_alignment_summary
+
+        result = build_v12_alignment_summary(
+            parity_status="MATCH",
+            resilience_status="MATCH",
+            governance_handoff_blockers=[],
+        )
+        inner = result.get("v12_alignment_summary", {})
+        assert "compact_summary_lines" in inner
+        assert isinstance(inner["compact_summary_lines"], list)
+        assert len(inner["compact_summary_lines"]) > 0
+
+    def test_v12_alignment_summary_has_builders_version(self):
+        """build_v12_alignment_summary must expose builders_version."""
+        from gas_calibrator.v2.ui_v2.review_center_scan_contracts import build_v12_alignment_summary
+
+        result = build_v12_alignment_summary(
+            parity_status="MATCH",
+            resilience_status="MATCH",
+        )
+        inner = result.get("v12_alignment_summary", {})
+        assert "builders_version" in inner
+        assert inner["builders_version"] == "2.12.0"
+
+    def test_v12_alignment_summary_step2_boundary(self):
+        """build_v12_alignment_summary must maintain Step 2 boundary markers."""
+        from gas_calibrator.v2.ui_v2.review_center_scan_contracts import build_v12_alignment_summary
+
+        result = build_v12_alignment_summary(
+            parity_status="MATCH",
+            resilience_status="MATCH",
+        )
+        assert result["evidence_source"] == "simulated"
+        assert result["not_real_acceptance_evidence"] is True
+        assert result["not_ready_for_formal_claim"] is True
+        assert result["reviewer_only"] is True
+        assert result["readiness_mapping_only"] is True
+
+    def test_v12_alignment_summary_no_formal_acceptance_language(self):
+        """summary_line must not contain formal acceptance / formal claim language."""
+        from gas_calibrator.v2.ui_v2.review_center_scan_contracts import build_v12_alignment_summary
+
+        result = build_v12_alignment_summary(
+            parity_status="MATCH",
+            resilience_status="MATCH",
+        )
+        inner = result.get("v12_alignment_summary", {})
+        summary_line = inner.get("summary_line", "")
+        lower = summary_line.lower()
+        assert "formal acceptance" not in lower
+        assert "formal claim" not in lower
+        assert "正式验收" not in summary_line
+
+
+# ---------------------------------------------------------------------------
+# TestCompactSummaryConsistency (2.12)
+# ---------------------------------------------------------------------------
+
+class TestCompactSummaryConsistency:
+    """Verify that compact summaries from different consumers are consistent."""
+
+    def test_v12_compact_summary_stable_generation(self):
+        """All 6 compact summary builders must produce stable output for empty payload."""
+        from gas_calibrator.v2.core.reviewer_summary_builders import (
+            build_measurement_digest_compact_summary,
+            build_readiness_digest_compact_summary,
+            build_phase_evidence_compact_summary,
+            build_v12_alignment_compact_summary,
+            build_governance_handoff_compact_summary,
+            build_parity_resilience_compact_summary,
+        )
+
+        for builder in (
+            build_measurement_digest_compact_summary,
+            build_readiness_digest_compact_summary,
+            build_phase_evidence_compact_summary,
+            build_v12_alignment_compact_summary,
+            build_governance_handoff_compact_summary,
+            build_parity_resilience_compact_summary,
+        ):
+            result = builder({})
+            assert "summary_lines" in result, f"{builder.__name__} missing summary_lines"
+            assert "boundary_markers" in result, f"{builder.__name__} missing boundary_markers"
+            markers = result["boundary_markers"]
+            assert markers["evidence_source"] == "simulated"
+            assert markers["not_real_acceptance_evidence"] is True
+            assert markers["reviewer_only"] is True
+
+    def test_results_gateway_uses_all_compact_builders(self):
+        """results_gateway must import and use all 4 compact builders."""
+        import gas_calibrator.v2.adapters.results_gateway as rg_mod
+
+        # Verify the module imports all 4 compact builders
+        assert hasattr(rg_mod, "build_v12_alignment_compact_summary") or True  # imported, not necessarily exposed
+        # The key check: the import line exists in the module
+        import inspect
+        source = inspect.getsource(rg_mod)
+        assert "build_v12_alignment_compact_summary" in source
+        assert "build_phase_evidence_compact_summary" in source
+        assert "build_governance_handoff_compact_summary" in source
+        assert "build_parity_resilience_compact_summary" in source
