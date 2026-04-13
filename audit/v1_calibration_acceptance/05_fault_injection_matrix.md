@@ -1,6 +1,6 @@
 # Fault Injection Matrix
 
-- generated_at: 2026-04-13T14:58:16+08:00
+- generated_at: 2026-04-13T15:00:25+08:00
 
 | scenario | offline result | expectation | evidence |
 | --- | --- | --- | --- |

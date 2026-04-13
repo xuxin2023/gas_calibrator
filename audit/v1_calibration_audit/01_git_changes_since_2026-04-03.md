@@ -4417,6 +4417,7 @@
 - `udit/v1_calibration_acceptance_online/04_online_evidence_summary.md`
 - `udit/v1_calibration_audit/01_git_changes_since_2026-04-03.md`
 - `udit/v1_calibration_audit/02_v1_flow_map.md`
+- `udit/v1_calibration_audit/03_point_storage_map.md`
 - `udit/v1_calibration_audit/04_risk_checklist.md`
 - `udit/v1_calibration_audit/05_evidence.json`
 - `udit/v1_calibration_audit/06_trace_check.md`
@@ -4453,6 +4454,7 @@
 - `udit/v1_calibration_acceptance_online/04_online_evidence_summary.md`
 - `udit/v1_calibration_audit/01_git_changes_since_2026-04-03.md`
 - `udit/v1_calibration_audit/02_v1_flow_map.md`
+- `udit/v1_calibration_audit/03_point_storage_map.md`
 - `udit/v1_calibration_audit/04_risk_checklist.md`
 - `udit/v1_calibration_audit/05_evidence.json`
 - `udit/v1_calibration_audit/06_trace_check.md`

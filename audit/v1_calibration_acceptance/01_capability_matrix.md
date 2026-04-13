@@ -1,6 +1,6 @@
 # Capability Matrix
 
-- generated_at: 2026-04-13T14:58:16+08:00
+- generated_at: 2026-04-13T15:00:25+08:00
 - head: `367a1089ebaca1388dbb9d11648f74513316e502`
 
 | capability | status | evidence |

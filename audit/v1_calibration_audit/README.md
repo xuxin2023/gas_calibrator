@@ -1,6 +1,6 @@
 # V1 Calibration Audit
 
-- 生成时间: 2026-04-13T14:58:16+08:00
+- 生成时间: 2026-04-13T15:00:25+08:00
 - 当前分支: `codex/v1-v2-decouple-367a108`
 - HEAD: `367a1089ebaca1388dbb9d11648f74513316e502`
 - 输出目录: `audit/v1_calibration_audit`

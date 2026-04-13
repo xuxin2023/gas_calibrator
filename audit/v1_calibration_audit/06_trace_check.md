@@ -1,6 +1,6 @@
 # 只读 Trace 检查
 
-- 生成时间: 2026-04-13T14:58:16+08:00
+- 生成时间: 2026-04-13T15:00:25+08:00
 - 命令: `python -m pytest -q tests/test_audit_v1_trace_check.py tests/test_runner_v1_writeback_safety.py tests/test_v1_writeback_fault_injection.py tests/test_v1_online_acceptance_tool.py`
 - 总结论: PASS
 
@@ -20,5 +20,5 @@
 ```text
 $ C:\Users\A\AppData\Local\Microsoft\WindowsApps\PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0\python.exe -m pytest -q tests/test_audit_v1_trace_check.py tests/test_runner_v1_writeback_safety.py tests/test_v1_writeback_fault_injection.py tests/test_v1_online_acceptance_tool.py
 ..........................                                               [100%]
-26 passed in 2.65s
+26 passed in 3.47s
 ```
