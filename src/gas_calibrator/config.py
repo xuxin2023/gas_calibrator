@@ -86,6 +86,10 @@ _RUNTIME_DEFAULTS: Dict[str, Any] = {
                 "co2_steady_state_max_std_ppm": 3.0,
                 "co2_steady_state_max_range_ppm": 8.0,
                 "co2_steady_state_max_abs_slope_ppm_per_s": 1.0,
+                "co2_bad_frame_quarantine_enabled": True,
+                "co2_source_trust_enabled": True,
+                "co2_bad_frame_isolated_spike_delta_ppm": 50.0,
+                "co2_bad_frame_neighbor_match_max_delta_ppm": 8.0,
             }
         },
         "summary_alignment": {
