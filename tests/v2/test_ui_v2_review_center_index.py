@@ -215,6 +215,12 @@ def test_review_center_builds_cross_run_index_from_recent_runs(tmp_path: Path, m
         assert _v12_inner["alignment_status"] in ("aligned", "attention")
         assert "parity_status" in _v12_inner
         assert "resilience_status" in _v12_inner
+        # Step 2.12: verify compact_summary_lines from shared builder
+        if "compact_summary_lines" in _v12_inner:
+            assert isinstance(_v12_inner["compact_summary_lines"], list)
+            assert len(_v12_inner["compact_summary_lines"]) > 0
+        if "builders_version" in _v12_inner:
+            assert _v12_inner["builders_version"] == "2.12.0"
     assert any(item["source_label"] == "review_run_a" for item in review_center["index_summary"]["sources"])
     assert all(str(item.get("coverage_display") or "").strip() for item in review_center["index_summary"]["sources"])
     assert all(str(item.get("gaps_display") or "").strip() for item in review_center["index_summary"]["sources"])
