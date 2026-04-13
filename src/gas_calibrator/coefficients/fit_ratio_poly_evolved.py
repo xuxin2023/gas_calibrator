@@ -23,7 +23,9 @@ from .fit_ratio_poly import (
     _emit_log,
     _evaluate_dataset,
     _extract_cross_interference_summary,
+    _normalize_simplification_selection_scope,
     _prepare_ratio_poly_dataframe,
+    _resolve_selection_frame,
     _search_simplified_coefficients,
 )
 from .model_fit import SUPPORTED_FIT_METHODS, fit_linear_model, predict_with_coefficients
@@ -100,6 +102,7 @@ def fit_ratio_poly_rt_p_evolved(
     auto_target_digits: bool = False,
     digit_candidates: Optional[Sequence[int]] = None,
     simplify_rmse_tolerance: float = 0.0,
+    simplification_selection_scope: str = "train",
     outlier_methods: Optional[Sequence[str]] = None,
     iqr_factor: float = 1.5,
     residual_std_multiplier: float = 3.0,
@@ -138,6 +141,7 @@ def fit_ratio_poly_rt_p_evolved(
         humidity_keys = DEFAULT_HUMIDITY_KEYS
 
     active_model_features = list(model_features or default_model_features(ratio_degree, add_intercept))
+    normalized_selection_scope = _normalize_simplification_selection_scope(simplification_selection_scope)
     _emit_log(log_fn, f"加载数据：开始准备 {gas_lower.upper()} 进化版拟合数据")
     working, target_column, ratio_column, temp_column, pressure_column, humidity_column = _prepare_ratio_poly_dataframe(
         rows,
@@ -159,7 +163,7 @@ def fit_ratio_poly_rt_p_evolved(
         raise ValueError(f"Not enough rows for fit: {len(working)} < {required}")
 
     _emit_log(log_fn, "数据拆分：")
-    train_df, val_df, test_df = split_dataset(
+    train_df, val_df, test_df, split_metadata = split_dataset(
         working,
         train_ratio=train_ratio,
         val_ratio=val_ratio,
@@ -167,6 +171,7 @@ def fit_ratio_poly_rt_p_evolved(
         shuffle=shuffle_dataset,
         min_train_size=required,
         log_fn=log_fn,
+        return_metadata=True,
     )
 
     outlier_result = filter_outliers(
@@ -241,7 +246,11 @@ def fit_ratio_poly_rt_p_evolved(
             weights = new_weights
     _emit_log(log_fn, f"训练完成：鲁棒迭代 {robust_steps} 次，降权样本 {int(np.sum(weights < 0.999999))} 个")
 
-    selection_df = val_df if not val_df.empty else filtered_train_df
+    selection_df, selection_scope_label = _resolve_selection_frame(
+        filtered_train_df,
+        val_df,
+        selection_scope=normalized_selection_scope,
+    )
     selection_dataset = build_feature_dataset(
         selection_df,
         target_column=target_column,
@@ -345,16 +354,34 @@ def fit_ratio_poly_rt_p_evolved(
         "test_ratio": float(1.0 - train_ratio - val_ratio),
         "random_seed": int(random_seed),
         "shuffle": bool(shuffle_dataset),
+        "split_strategy": str(split_metadata.get("split_strategy", "random")),
+        "split_strategy_label": str(split_metadata.get("split_strategy_label", "random")),
+        "group_columns": list(split_metadata.get("group_columns", [])),
+        "group_count": int(split_metadata.get("group_count", 0)),
         "raw_train_count": int(len(train_df)),
         "train_count": int(len(filtered_train_df)),
         "validation_count": int(len(val_df)),
         "test_count": int(len(test_df)),
+        "fit_count": int(len(filtered_train_df)),
+        "selection_count": int(len(selection_df)),
+        "raw_train_indices": [int(index) for index in train_df.index.tolist()],
+        "fit_indices": [int(index) for index in filtered_train_df.index.tolist()],
+        "validation_indices": [int(index) for index in val_df.index.tolist()],
+        "test_indices": [int(index) for index in test_df.index.tolist()],
+        "selection_indices": [int(index) for index in selection_df.index.tolist()],
+        "fit_scope": "train",
     }
+    stats["fit_scope"] = "train"
+    stats["outlier_scope"] = "train"
+    stats["simplification_scope"] = "train"
+    stats["selection_scope"] = selection_scope_label
+    stats["leakage_safe"] = bool(selection_scope_label == "train")
     stats["model_features"] = list(active_model_features)
     stats["fit_settings"] = {
         "fitting_method": fitting_method,
         "ridge_lambda": float(ridge_lambda),
         "simplification_method": simplify_info["selected_method"],
+        "simplification_selection_scope": normalized_selection_scope,
     }
     stats["outlier_detection"] = {
         "methods": [str(item) for item in (outlier_methods or [])],
@@ -362,6 +389,7 @@ def fit_ratio_poly_rt_p_evolved(
         "outlier_count": outlier_result.outlier_count,
         "final_count": outlier_result.final_count,
         "details": outlier_result.details,
+        "outlier_scope": "train",
     }
     stats["original_coefficient_analysis"] = analyze_coefficient_stability(x_train, original)
     stats["simplified_coefficient_analysis"] = analyze_coefficient_stability(x_train, simplified)
@@ -372,6 +400,8 @@ def fit_ratio_poly_rt_p_evolved(
         "digit_history": simplify_info["digit_history"],
         "baseline_rmse": float(simplify_info["baseline_rmse"]),
         "rmse_tolerance": float(simplify_rmse_tolerance),
+        "simplification_scope": "train",
+        "selection_scope": selection_scope_label,
     }
     stats["cross_interference"] = _extract_cross_interference_summary(
         names,

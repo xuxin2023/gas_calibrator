@@ -398,6 +398,26 @@ def _prepare_ratio_poly_dataframe(
     return working, target_column, ratio_column, temp_column, "P_fit", humidity_column
 
 
+def _normalize_simplification_selection_scope(value: str | None) -> str:
+    text = str(value or "train").strip().lower().replace("-", "_").replace("+", "_plus_")
+    if text in {"train", "fit_train"}:
+        return "train"
+    if text in {"train_plus_val", "train_plus_validation", "train_validation", "train_val"}:
+        return "train_plus_val"
+    raise ValueError("simplification_selection_scope must be 'train' or 'train_plus_val'")
+
+
+def _resolve_selection_frame(
+    filtered_train_df: pd.DataFrame,
+    val_df: pd.DataFrame,
+    *,
+    selection_scope: str,
+) -> tuple[pd.DataFrame, str]:
+    if selection_scope == "train_plus_val" and not val_df.empty:
+        return pd.concat([filtered_train_df, val_df], axis=0).copy(), "train+validation"
+    return filtered_train_df.copy(), "train"
+
+
 def _evaluate_dataset(
     dataset_name: str,
     dataset_frame: pd.DataFrame,
@@ -475,6 +495,7 @@ def fit_ratio_poly_rt_p(
     auto_target_digits: bool = False,
     digit_candidates: Optional[Sequence[int]] = None,
     simplify_rmse_tolerance: float = 0.0,
+    simplification_selection_scope: str = "train",
     outlier_methods: Optional[Sequence[str]] = None,
     iqr_factor: float = 1.5,
     residual_std_multiplier: float = 3.0,
@@ -523,12 +544,14 @@ def fit_ratio_poly_rt_p(
     _emit_log(log_fn, f"模型特征：{active_model_features}")
     _emit_log(log_fn, f"拟合方法：{fitting_method}")
 
+    normalized_selection_scope = _normalize_simplification_selection_scope(simplification_selection_scope)
+
     required = max(min_samples, len(active_model_features))
     if len(working) < required:
         raise ValueError(f"Not enough rows for fit: {len(working)} < {required}")
 
     _emit_log(log_fn, "数据拆分：")
-    train_df, val_df, test_df = split_dataset(
+    train_df, val_df, test_df, split_metadata = split_dataset(
         working,
         train_ratio=train_ratio,
         val_ratio=val_ratio,
@@ -536,10 +559,11 @@ def fit_ratio_poly_rt_p(
         shuffle=shuffle_dataset,
         min_train_size=required,
         log_fn=log_fn,
+        return_metadata=True,
     )
 
     outlier_result = filter_outliers(
-        working,
+        train_df,
         target_column=target_column,
         ratio_column=ratio_column,
         temperature_column=temp_column,
@@ -583,7 +607,11 @@ def fit_ratio_poly_rt_p(
     original = original_fit.coefficients
     _emit_log(log_fn, "全量拟合完成")
 
-    selection_df = filtered_fit_df
+    selection_df, selection_scope_label = _resolve_selection_frame(
+        filtered_fit_df,
+        val_df,
+        selection_scope=normalized_selection_scope,
+    )
     selection_dataset = build_feature_dataset(
         selection_df,
         target_column=target_column,
@@ -626,7 +654,7 @@ def fit_ratio_poly_rt_p(
     _emit_log(log_fn, f"系数简化完成：最优有效数字 = {simplify_info['selected_digits']}")
 
     full_dataset = build_feature_dataset(
-        filtered_fit_df,
+        working,
         target_column=target_column,
         ratio_column=ratio_column,
         temperature_column=temp_column,
@@ -644,18 +672,34 @@ def fit_ratio_poly_rt_p(
         "test_ratio": float(1.0 - train_ratio - val_ratio),
         "random_seed": int(random_seed),
         "shuffle": bool(shuffle_dataset),
+        "split_strategy": str(split_metadata.get("split_strategy", "random")),
+        "split_strategy_label": str(split_metadata.get("split_strategy_label", "random")),
+        "group_columns": list(split_metadata.get("group_columns", [])),
+        "group_count": int(split_metadata.get("group_count", 0)),
         "raw_train_count": int(len(train_df)),
-        "train_count": int(len(train_df)),
+        "train_count": int(len(filtered_fit_df)),
         "validation_count": int(len(val_df)),
         "test_count": int(len(test_df)),
         "fit_count": int(len(filtered_fit_df)),
-        "fit_scope": "full_dataset",
+        "selection_count": int(len(selection_df)),
+        "raw_train_indices": [int(index) for index in train_df.index.tolist()],
+        "fit_indices": [int(index) for index in filtered_fit_df.index.tolist()],
+        "validation_indices": [int(index) for index in val_df.index.tolist()],
+        "test_indices": [int(index) for index in test_df.index.tolist()],
+        "selection_indices": [int(index) for index in selection_df.index.tolist()],
+        "fit_scope": "train",
     }
+    stats["fit_scope"] = "train"
+    stats["outlier_scope"] = "train"
+    stats["simplification_scope"] = "train"
+    stats["selection_scope"] = selection_scope_label
+    stats["leakage_safe"] = bool(selection_scope_label == "train")
     stats["model_features"] = list(active_model_features)
     stats["fit_settings"] = {
         "fitting_method": fitting_method,
         "ridge_lambda": float(ridge_lambda),
         "simplification_method": simplification_method,
+        "simplification_selection_scope": normalized_selection_scope,
     }
     stats["outlier_detection"] = {
         "methods": [str(item) for item in (outlier_methods or [])],
@@ -663,6 +707,7 @@ def fit_ratio_poly_rt_p(
         "outlier_count": outlier_result.outlier_count,
         "final_count": outlier_result.final_count,
         "details": outlier_result.details,
+        "outlier_scope": "train",
     }
     stats["original_coefficient_analysis"] = analyze_coefficient_stability(x_fit, original)
     stats["simplified_coefficient_analysis"] = analyze_coefficient_stability(x_fit, simplified)
@@ -672,7 +717,8 @@ def fit_ratio_poly_rt_p(
         "digit_history": simplify_info["digit_history"],
         "baseline_rmse": float(simplify_info["baseline_rmse"]),
         "rmse_tolerance": float(simplify_rmse_tolerance),
-        "selection_scope": "full_dataset",
+        "simplification_scope": "train",
+        "selection_scope": selection_scope_label,
     }
     stats["cross_interference"] = _extract_cross_interference_summary(
         names,
@@ -685,7 +731,7 @@ def fit_ratio_poly_rt_p(
     bins = list(evaluation_bins or _default_evaluation_bins(gas_lower))
     stats["train_metrics"] = _evaluate_dataset(
         "Train",
-        train_df,
+        filtered_fit_df,
         target_column=target_column,
         ratio_column=ratio_column,
         temp_column=temp_column,
@@ -740,8 +786,10 @@ def fit_ratio_poly_rt_p(
     validation_indices = set(val_df.index.tolist())
     residuals: List[Dict[str, Any]] = []
     for position, (idx, row) in enumerate(full_dataset.working_frame.iterrows()):
-        if idx in filtered_fit_indices and idx in raw_train_indices:
+        if idx in filtered_fit_indices:
             split_name = "train"
+        elif idx in raw_train_indices:
+            split_name = "train_removed_outlier"
         elif idx in validation_indices:
             split_name = "validation"
         else:

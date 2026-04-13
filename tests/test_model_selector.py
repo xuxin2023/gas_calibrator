@@ -67,6 +67,9 @@ def test_compare_ratio_poly_models_returns_recommendation() -> None:
 
     assert result.recommended_model in {"Model_A", "Model_B", "Model_C"}
     assert len(result.comparison_rows) == 3
+    recommended = result.results[result.recommended_model]
+    assert recommended.stats["leakage_safe"] is True
+    assert recommended.stats["selection_scope"] == "train"
 
 
 def test_run_ratio_poly_fit_workflow_can_compare_models(tmp_path: Path) -> None:
