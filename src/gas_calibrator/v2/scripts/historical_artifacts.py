@@ -8,6 +8,9 @@ from typing import Any
 
 from ..core.artifact_compatibility import (
     ARTIFACT_COMPATIBILITY_INDEX_SCHEMA_VERSION,
+from ..core.phase_evidence_display_contracts import (
+    HISTORICAL_ROLLUP_LABELS as _ROLLUP_LABELS,
+)
     HISTORICAL_ARTIFACT_ROLLUP_TOOL,
     PRIMARY_READER_FILENAMES,
     build_artifact_compatibility_rollup,
