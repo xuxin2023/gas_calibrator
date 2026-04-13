@@ -1032,67 +1032,67 @@ def build_measurement_review_digest_lines(payload: dict[str, Any]) -> dict[str, 
         t(
             "results.review_center.detail.measurement.payload_complete_phases_line",
             value=str(digest.get("payload_complete_phase_summary") or t("common.none")),
-            default=f"payload complete phases: {str(digest.get('payload_complete_phase_summary') or t('common.none'))}",
+            default=f"{_MEASUREMENT_DIGEST['payload_complete_phases']}: {str(digest.get('payload_complete_phase_summary') or t('common.none'))}",
         ),
         t(
             "results.review_center.detail.measurement.payload_partial_phases_line",
             value=str(digest.get("payload_partial_phase_summary") or t("common.none")),
-            default=f"payload partial phases: {str(digest.get('payload_partial_phase_summary') or t('common.none'))}",
+            default=f"{_MEASUREMENT_DIGEST['payload_partial_phases']}: {str(digest.get('payload_partial_phase_summary') or t('common.none'))}",
         ),
         t(
             "results.review_center.detail.measurement.trace_only_phases_line",
             value=str(digest.get("trace_only_phase_summary") or t("common.none")),
-            default=f"trace-only phases: {str(digest.get('trace_only_phase_summary') or t('common.none'))}",
+            default=f"{_MEASUREMENT_DIGEST['trace_only_phases']}: {str(digest.get('trace_only_phase_summary') or t('common.none'))}",
         ),
         t(
             "results.review_center.detail.measurement.next_artifacts_line",
             value=str(digest.get("next_required_artifacts_summary") or t("common.none")),
-            default=f"next required artifacts: {str(digest.get('next_required_artifacts_summary') or t('common.none'))}",
+            default=f"{_MEASUREMENT_DIGEST['next_artifacts']}: {str(digest.get('next_required_artifacts_summary') or t('common.none'))}",
         ),
         t(
             "results.review_center.detail.measurement.blockers_line",
             value=blocker_summary,
-            default=f"current blockers: {blocker_summary}",
+            default=f"{_MEASUREMENT_DIGEST['blockers']}: {blocker_summary}",
         ),
         t(
             "results.review_center.detail.measurement.preseal_partial_guidance_line",
             value=str(digest.get("preseal_partial_guidance_summary") or t("common.none")),
-            default=f"preseal partial guidance: {str(digest.get('preseal_partial_guidance_summary') or t('common.none'))}",
+            default=f"{_MEASUREMENT_DIGEST['preseal_partial_guidance']}: {str(digest.get('preseal_partial_guidance_summary') or t('common.none'))}",
         ),
         t(
             "results.review_center.detail.measurement.linked_method_items_line",
             value=linked_method_summary,
-            default=f"linked method confirmation items: {linked_method_summary}",
+            default=f"{_MEASUREMENT_DIGEST['linked_method_items']}: {linked_method_summary}",
         ),
         t(
             "results.review_center.detail.measurement.linked_uncertainty_inputs_line",
             value=linked_uncertainty_summary,
-            default=f"linked uncertainty inputs: {linked_uncertainty_summary}",
+            default=f"{_MEASUREMENT_DIGEST['linked_uncertainty_inputs']}: {linked_uncertainty_summary}",
         ),
         t(
             "results.review_center.detail.measurement.linked_traceability_nodes_line",
             value=linked_traceability_summary,
-            default=f"linked traceability nodes: {linked_traceability_summary}",
+            default=f"{_MEASUREMENT_DIGEST['linked_traceability_nodes']}: {linked_traceability_summary}",
         ),
         t(
             "results.review_center.detail.measurement.reviewer_next_steps_line",
             value=reviewer_next_step_summary,
-            default=f"reviewer next steps: {reviewer_next_step_summary}",
+            default=f"{_MEASUREMENT_DIGEST['reviewer_next_steps']}: {reviewer_next_step_summary}",
         ),
         t(
             "results.review_center.detail.measurement.phase_contrast_line",
             value=phase_contrast_summary,
-            default=f"preseal / pressure_stable contrast: {phase_contrast_summary}",
+            default=f"{_MEASUREMENT_DIGEST['phase_contrast']}: {phase_contrast_summary}",
         ),
         t(
             "results.review_center.detail.measurement.boundary_line",
             value=boundary_summary,
-            default=f"{t('results.review_center.detail.boundary', default='边界')}：{boundary_summary}",
+            default=f"{_MEASUREMENT_DIGEST['boundary']}：{boundary_summary}",
         ),
         t(
             "results.review_center.detail.measurement.non_claim_line",
             value=non_claim_summary,
-            default=f"{t('results.review_center.detail.readiness.non_claim', default='非声明边界')}：{non_claim_summary}",
+            default=f"{_MEASUREMENT_DIGEST['non_claim']}：{non_claim_summary}",
         ),
     ]
 
@@ -1100,27 +1100,27 @@ def build_measurement_review_digest_lines(payload: dict[str, Any]) -> dict[str, 
         t(
             "results.review_center.detail.measurement.readiness_impact_line",
             value=readiness_impact_summary,
-            default=f"readiness impact: {readiness_impact_summary}",
+            default=f"{_MEASUREMENT_DIGEST['readiness_impact']}: {readiness_impact_summary}",
         ),
         t(
             "results.review_center.detail.measurement.linked_readiness_line",
             value=str(digest.get("linked_readiness_summary") or t("common.none")),
-            default=f"linked readiness artifacts: {str(digest.get('linked_readiness_summary') or t('common.none'))}",
+            default=f"{_MEASUREMENT_DIGEST['linked_readiness']}: {str(digest.get('linked_readiness_summary') or t('common.none'))}",
         ),
         t(
             "results.review_center.detail.measurement.gap_index_line",
             value=gap_index_summary,
-            default=f"gap index: {gap_index_summary}",
+            default=f"{_MEASUREMENT_DIGEST['gap_index']}: {gap_index_summary}",
         ),
         t(
             "results.review_center.detail.measurement.boundary_line",
             value=boundary_summary,
-            default=f"{t('results.review_center.detail.boundary', default='边界')}：{boundary_summary}",
+            default=f"{_MEASUREMENT_DIGEST['boundary']}：{boundary_summary}",
         ),
         t(
             "results.review_center.detail.measurement.non_claim_line",
             value=non_claim_summary,
-            default=f"{t('results.review_center.detail.readiness.non_claim', default='非声明边界')}：{non_claim_summary}",
+            default=f"{_MEASUREMENT_DIGEST['non_claim']}：{non_claim_summary}",
         ),
     ]
 
@@ -1218,7 +1218,7 @@ def build_measurement_review_digest_lines(payload: dict[str, Any]) -> dict[str, 
                     phase=route_phase,
                     value=row_non_claim_text,
                     default=(
-                        f"{route_phase} {t('results.review_center.detail.readiness.non_claim', default='非声明边界')}："
+                        f"{route_phase} {_MEASUREMENT_DIGEST['non_claim']}："
                         f"{row_non_claim_text}"
                     ),
                 )
@@ -1433,7 +1433,7 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
         t(
             "results.review_center.detail.readiness.scope_overview_line",
             value=scope_overview_summary,
-            default=f"认可范围概览：{scope_overview_summary}",
+            default=f"{_READINESS_DIGEST['scope_overview']}：{scope_overview_summary}",
         ),
         t(
             "results.review_center.detail.readiness.decision_rule_line",
