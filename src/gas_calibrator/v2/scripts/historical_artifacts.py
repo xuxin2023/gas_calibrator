@@ -14,6 +14,9 @@ from ..core.artifact_compatibility import (
     load_or_build_artifact_compatibility_payloads,
     regenerate_artifact_compatibility_sidecars,
 )
+from ..core.phase_evidence_display_contracts import (
+    HISTORICAL_ROLLUP_LABELS as _ROLLUP_LABELS,
+)
 from ..adapters.method_confirmation_gateway import MethodConfirmationGateway
 from ..adapters.recognition_scope_gateway import RecognitionScopeGateway
 from ..adapters.software_validation_gateway import SoftwareValidationGateway
