@@ -10,6 +10,7 @@ from ..core.phase_evidence_display_contracts import (
     RESULTS_FALLBACK_LABELS as _RESULTS_LABELS,
     RESULTS_FALLBACK_LABELS_EN as _RESULTS_LABELS_EN,
     COMPATIBILITY_ROW_LABELS as _COMPAT_LABELS,
+    RESULTS_SUMMARY_LABELS as _RESULTS_SUMMARY_LABELS,
 )
 from ..core.artifact_catalog import KNOWN_REPORT_ARTIFACTS
 from ..core.engineering_isolation_admission_checklist import (
@@ -1311,7 +1312,7 @@ class ResultsGateway:
                 t(
                     "facade.results.result_summary.offline_diagnostic_coverage",
                     value=coverage_summary,
-                    default=f"离线诊断覆盖：{coverage_summary}",
+                    default=f"{_RESULTS_SUMMARY_LABELS['offline_diagnostic_coverage']}：{coverage_summary}",
                 )
             )
         if str(offline_summary.get("review_scope_summary") or "").strip():
@@ -1322,7 +1323,7 @@ class ResultsGateway:
                 t(
                     "facade.results.result_summary.offline_diagnostic_scope",
                     value=review_scope_summary,
-                    default="离线诊断工件范围：" + review_scope_summary,
+                    default=f"{_RESULTS_SUMMARY_LABELS['offline_diagnostic_scope']}：{review_scope_summary}",
                 )
             )
         if str(offline_summary.get("next_check_summary") or "").strip():
@@ -1330,7 +1331,7 @@ class ResultsGateway:
                 t(
                     "facade.results.result_summary.offline_diagnostic_next_checks",
                     value=str(offline_summary.get("next_check_summary") or ""),
-                    default=f"离线诊断下一步：{str(offline_summary.get('next_check_summary') or '')}",
+                    default=f"{_RESULTS_SUMMARY_LABELS['offline_diagnostic_next_checks']}：{str(offline_summary.get('next_check_summary') or '')}",
                 )
             )
 
@@ -1339,7 +1340,7 @@ class ResultsGateway:
                 t(
                     "facade.results.result_summary.offline_diagnostic_detail",
                     value=detail_line,
-                    default=f"离线诊断补充: {detail_line}",
+                    default=f"{_RESULTS_SUMMARY_LABELS['offline_diagnostic_detail']}: {detail_line}",
                 )
             )
         point_taxonomy_summary = taxonomy_summary
@@ -1351,7 +1352,7 @@ class ResultsGateway:
                 t(
                     "facade.results.result_summary.taxonomy_pressure",
                     value=pressure_summary,
-                    default=f"压力语义：{pressure_summary}",
+                    default=f"{_RESULTS_SUMMARY_LABELS['taxonomy_pressure']}：{pressure_summary}",
                 )
             )
         if pressure_mode_summary and pressure_mode_summary != pressure_summary:
@@ -1359,7 +1360,7 @@ class ResultsGateway:
                 t(
                     "facade.results.result_summary.taxonomy_pressure_mode",
                     value=pressure_mode_summary,
-                    default=f"压力模式：{pressure_mode_summary}",
+                    default=f"{_RESULTS_SUMMARY_LABELS['taxonomy_pressure_mode']}：{pressure_mode_summary}",
                 )
             )
         if pressure_target_label_summary and pressure_target_label_summary != pressure_summary:
@@ -1367,7 +1368,7 @@ class ResultsGateway:
                 t(
                     "facade.results.result_summary.taxonomy_pressure_target_label",
                     value=pressure_target_label_summary,
-                    default=f"压力目标标签：{pressure_target_label_summary}",
+                    default=f"{_RESULTS_SUMMARY_LABELS['taxonomy_pressure_target_label']}：{pressure_target_label_summary}",
                 )
             )
         if str(point_taxonomy_summary.get("flush_gate_summary") or "").strip():
@@ -1375,7 +1376,7 @@ class ResultsGateway:
                 t(
                     "facade.results.result_summary.taxonomy_flush",
                     value=str(point_taxonomy_summary.get("flush_gate_summary") or ""),
-                    default=f"冲洗门禁：{str(point_taxonomy_summary.get('flush_gate_summary') or '')}",
+                    default=f"{_RESULTS_SUMMARY_LABELS['taxonomy_flush']}：{str(point_taxonomy_summary.get('flush_gate_summary') or '')}",
                 )
             )
         if str(point_taxonomy_summary.get("preseal_summary") or "").strip():
@@ -1383,7 +1384,7 @@ class ResultsGateway:
                 t(
                     "facade.results.result_summary.taxonomy_preseal",
                     value=str(point_taxonomy_summary.get("preseal_summary") or ""),
-                    default=f"前封气：{str(point_taxonomy_summary.get('preseal_summary') or '')}",
+                    default=f"{_RESULTS_SUMMARY_LABELS['taxonomy_preseal']}：{str(point_taxonomy_summary.get('preseal_summary') or '')}",
                 )
             )
         if str(point_taxonomy_summary.get("postseal_summary") or "").strip():
@@ -1391,7 +1392,7 @@ class ResultsGateway:
                 t(
                     "facade.results.result_summary.taxonomy_postseal",
                     value=str(point_taxonomy_summary.get("postseal_summary") or ""),
-                    default=f"后封气：{str(point_taxonomy_summary.get('postseal_summary') or '')}",
+                    default=f"{_RESULTS_SUMMARY_LABELS['taxonomy_postseal']}：{str(point_taxonomy_summary.get('postseal_summary') or '')}",
                 )
             )
         if str(point_taxonomy_summary.get("stale_gauge_summary") or "").strip():
@@ -1399,7 +1400,7 @@ class ResultsGateway:
                 t(
                     "facade.results.result_summary.taxonomy_stale_gauge",
                     value=str(point_taxonomy_summary.get("stale_gauge_summary") or ""),
-                    default=f"压力参考陈旧：{str(point_taxonomy_summary.get('stale_gauge_summary') or '')}",
+                    default=f"{_RESULTS_SUMMARY_LABELS['taxonomy_stale_gauge']}：{str(point_taxonomy_summary.get('stale_gauge_summary') or '')}",
                 )
             )
 
@@ -1430,7 +1431,7 @@ class ResultsGateway:
                 t(
                     "facade.results.result_summary.artifact_compatibility",
                     value=f"{compatibility_reader_mode} | {compatibility_status_text}",
-                    default=f"工件兼容: {compatibility_reader_mode} | {compatibility_status_text}",
+                    default=f"{_RESULTS_SUMMARY_LABELS['artifact_compatibility']}: {compatibility_reader_mode} | {compatibility_status_text}",
                 )
             )
             schema_contract_summary = str(
@@ -1443,7 +1444,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.artifact_compatibility_contracts",
                         value=schema_contract_summary,
-                        default=f"工件合同/Schema: {schema_contract_summary}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['artifact_compatibility_contracts']}: {schema_contract_summary}",
                     )
                 )
             if str(compatibility_summary.get("summary") or "").strip():
@@ -1451,7 +1452,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.artifact_compatibility_summary",
                         value=str(compatibility_summary.get("summary") or ""),
-                        default=f"兼容摘要: {str(compatibility_summary.get('summary') or '')}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['artifact_compatibility_summary']}: {str(compatibility_summary.get('summary') or '')}",
                     )
                 )
             rollup_summary = str(
@@ -1464,7 +1465,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.artifact_compatibility_rollup",
                         value=rollup_summary,
-                        default=f"兼容性 rollup：{rollup_summary}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['artifact_compatibility_rollup']}：{rollup_summary}",
                     )
                 )
             recommendation_text = str(
@@ -1476,7 +1477,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.artifact_compatibility_recommendation",
                         value=recommendation_text,
-                        default=f"兼容建议: {recommendation_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['artifact_compatibility_recommendation']}: {recommendation_text}",
                     )
                 )
             boundary_text = str(
@@ -1489,7 +1490,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.artifact_compatibility_boundary",
                         value=boundary_text,
-                        default=f"兼容边界: {boundary_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['artifact_compatibility_boundary']}: {boundary_text}",
                     )
                 )
             non_claim_text = str(
@@ -1502,14 +1503,14 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.artifact_compatibility_non_claim",
                         value=non_claim_text,
-                        default=f"兼容 non-claim: {non_claim_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['artifact_compatibility_non_claim']}: {non_claim_text}",
                     )
                 )
             if bool(compatibility_summary.get("regenerate_recommended", False)):
                 lines.append(
                     t(
                         "facade.results.result_summary.artifact_compatibility_regenerate",
-                        default="建议运行轻量 reindex/regenerate，仅重建 reviewer/index sidecar，不改写原始主证据",
+                        default=_RESULTS_SUMMARY_LABELS["artifact_compatibility_regenerate"],
                     )
                 )
 
@@ -1525,7 +1526,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.scope_package",
                         value=scope_overview_text,
-                        default=f"认可范围包：{scope_overview_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['scope_package']}：{scope_overview_text}",
                     )
                 )
             decision_rule_text = str(
@@ -1539,7 +1540,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.decision_rule_profile",
                         value=decision_rule_text,
-                        default=f"决策规则：{decision_rule_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['decision_rule_profile']}：{decision_rule_text}",
                     )
                 )
             conformity_boundary_text = str(
@@ -1554,7 +1555,7 @@ class ResultsGateway:
                     t(
                         "facade.results.result_summary.conformity_boundary",
                         value=conformity_boundary_text,
-                        default=f"符合性边界：{conformity_boundary_text}",
+                        default=f"{_RESULTS_SUMMARY_LABELS['conformity_boundary']}：{conformity_boundary_text}",
                     )
                 )
             repository_text = " / ".join(
