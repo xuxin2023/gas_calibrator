@@ -1438,104 +1438,104 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
         t(
             "results.review_center.detail.readiness.decision_rule_line",
             value=decision_rule_summary,
-            default=f"决策规则概览：{decision_rule_summary}",
+            default=f"{_READINESS_DIGEST['decision_rule']}：{decision_rule_summary}",
         ),
         t(
             "results.review_center.detail.readiness.conformity_boundary_line",
             value=conformity_boundary_summary,
-            default=f"符合性边界：{conformity_boundary_summary}",
+            default=f"{_READINESS_DIGEST['conformity_boundary']}：{conformity_boundary_summary}",
         ),
         t(
             "results.review_center.detail.readiness.asset_readiness_overview_line",
             value=asset_readiness_overview,
-            default=f"asset readiness overview: {asset_readiness_overview}",
+            default=f"{_READINESS_DIGEST['scope_overview']}: {asset_readiness_overview}",
         ),
         t(
             "results.review_center.detail.readiness.certificate_lifecycle_overview_line",
             value=certificate_lifecycle_overview,
-            default=f"certificate lifecycle overview: {certificate_lifecycle_overview}",
+            default=f"{_READINESS_DIGEST['scope_overview']}: {certificate_lifecycle_overview}",
         ),
         t(
             "results.review_center.detail.readiness.pre_run_gate_status_line",
             value=pre_run_gate_status,
-            default=f"pre-run gate status: {pre_run_gate_status}",
+            default=f"{_READINESS_DIGEST['readiness_status']}: {pre_run_gate_status}",
         ),
         t(
             "results.review_center.detail.readiness.linked_measurement_line",
             value=str(digest.get("linked_measurement_phase_summary") or t("common.none")),
-            default=f"linked measurement phases: {str(digest.get('linked_measurement_phase_summary') or t('common.none'))}",
+            default=f"{_PREFIX_LABELS['linked_measurement_phases']}: {str(digest.get('linked_measurement_phase_summary') or t('common.none'))}",
         ),
         t(
             "results.review_center.detail.readiness.linked_measurement_gap_line",
             value=str(digest.get("linked_measurement_gap_summary") or t("common.none")),
-            default=f"linked measurement gaps: {str(digest.get('linked_measurement_gap_summary') or t('common.none'))}",
+            default=f"{_PREFIX_LABELS['linked_measurement_gaps']}: {str(digest.get('linked_measurement_gap_summary') or t('common.none'))}",
         ),
         t(
             "results.review_center.detail.readiness.readiness_impact_line",
             value=linked_readiness_impact_summary,
-            default=f"readiness impact: {linked_readiness_impact_summary}",
+            default=f"{_MEASUREMENT_DIGEST['readiness_impact']}: {linked_readiness_impact_summary}",
         ),
         t(
             "results.review_center.detail.readiness.linked_method_items_line",
             value=linked_method_summary,
-            default=f"linked method confirmation items: {linked_method_summary}",
+            default=f"{_MEASUREMENT_DIGEST['linked_method_items']}: {linked_method_summary}",
         ),
         t(
             "results.review_center.detail.readiness.linked_uncertainty_inputs_line",
             value=linked_uncertainty_summary,
-            default=f"linked uncertainty inputs: {linked_uncertainty_summary}",
+            default=f"{_MEASUREMENT_DIGEST['linked_uncertainty_inputs']}: {linked_uncertainty_summary}",
         ),
         t(
             "results.review_center.detail.readiness.linked_traceability_nodes_line",
             value=linked_traceability_summary,
-            default=f"linked traceability nodes: {linked_traceability_summary}",
+            default=f"{_MEASUREMENT_DIGEST['linked_traceability_nodes']}: {linked_traceability_summary}",
         ),
         t(
             "results.review_center.detail.readiness.warning_items_line",
             value=warning_summary,
-            default=f"warning items: {warning_summary}",
+            default=f"{_MEASUREMENT_DIGEST['blockers']}: {warning_summary}",
         ),
         t(
             "results.review_center.detail.readiness.reviewer_next_step_line",
             value=reviewer_next_step_summary,
-            default=f"reviewer next step: {reviewer_next_step_summary}",
+            default=f"{_MEASUREMENT_DIGEST['reviewer_next_steps']}: {reviewer_next_step_summary}",
         ),
         t(
             "results.review_center.detail.readiness.reviewer_action_summary_line",
             value=reviewer_action_summary,
-            default=f"Reviewer actions: {reviewer_action_summary}",
+            default=f"{_MEASUREMENT_DIGEST['reviewer_next_steps']}: {reviewer_action_summary}",
         ),
         t(
             "results.review_center.detail.readiness.protocol_overview_line",
             value=protocol_overview_summary,
-            default=f"方法确认概览：{protocol_overview_summary}",
+            default=f"{_READINESS_DIGEST['protocol_overview']}：{protocol_overview_summary}",
         ),
         t(
             "results.review_center.detail.readiness.validation_matrix_completeness_line",
             value=matrix_completeness_summary,
-            default=f"验证矩阵完整度：{matrix_completeness_summary}",
+            default=f"{_READINESS_DIGEST['validation_matrix_completeness']}：{matrix_completeness_summary}",
         ),
         t(
             "results.review_center.detail.readiness.current_evidence_coverage_line",
             value=current_evidence_coverage_summary,
-            default=f"当前证据覆盖：{current_evidence_coverage_summary}",
+            default=f"{_READINESS_DIGEST['current_evidence_coverage']}：{current_evidence_coverage_summary}",
         ),
         t(
             "results.review_center.detail.readiness.top_gaps_line",
             value=top_gaps_summary,
-            default=f"主要缺口：{top_gaps_summary}",
+            default=f"{_READINESS_DIGEST['top_gaps']}：{top_gaps_summary}",
         ),
         t(
             "results.review_center.detail.readiness.readiness_status_line",
             value=readiness_status_summary,
-            default=f"验证就绪状态：{readiness_status_summary}",
+            default=f"{_READINESS_DIGEST['readiness_status']}：{readiness_status_summary}",
         ),
         *(
             [
                 t(
                     "results.review_center.detail.readiness.uncertainty_overview_line",
                     value=uncertainty_overview_summary,
-                    default=f"不确定度概览：{uncertainty_overview_summary}",
+                    default=f"{_READINESS_DIGEST['uncertainty_overview']}：{uncertainty_overview_summary}",
                 )
             ]
             if uncertainty_overview_summary
@@ -1546,7 +1546,7 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
                 t(
                     "results.review_center.detail.readiness.budget_component_summary_line",
                     value=budget_component_summary,
-                    default=f"预算组件摘要：{budget_component_summary}",
+                    default=f"{_READINESS_DIGEST['budget_component_summary']}：{budget_component_summary}",
                 )
             ]
             if budget_component_summary
@@ -1557,7 +1557,7 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
                 t(
                     "results.review_center.detail.readiness.top_contributors_line",
                     value=top_contributors_summary,
-                    default=f"主要不确定度贡献：{top_contributors_summary}",
+                    default=f"{_READINESS_DIGEST['top_contributors']}：{top_contributors_summary}",
                 )
             ]
             if top_contributors_summary
@@ -1665,17 +1665,17 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
         t(
             "results.review_center.detail.readiness.linked_measurement_line",
             value=str(digest.get("linked_measurement_phase_summary") or t("common.none")),
-            default=f"linked measurement phases: {str(digest.get('linked_measurement_phase_summary') or t('common.none'))}",
+            default=f"{_PREFIX_LABELS['linked_measurement_phases']}: {str(digest.get('linked_measurement_phase_summary') or t('common.none'))}",
         ),
         t(
             "results.review_center.detail.readiness.linked_measurement_gap_line",
             value=str(digest.get("linked_measurement_gap_summary") or t("common.none")),
-            default=f"linked measurement gaps: {str(digest.get('linked_measurement_gap_summary') or t('common.none'))}",
+            default=f"{_PREFIX_LABELS['linked_measurement_gaps']}: {str(digest.get('linked_measurement_gap_summary') or t('common.none'))}",
         ),
         t(
             "results.review_center.detail.readiness.readiness_impact_line",
             value=linked_readiness_impact_summary,
-            default=f"readiness impact: {linked_readiness_impact_summary}",
+            default=f"{_MEASUREMENT_DIGEST['readiness_impact']}: {linked_readiness_impact_summary}",
         ),
         t(
             "results.review_center.detail.readiness.preseal_partial_gap_line",
@@ -1685,17 +1685,17 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
         t(
             "results.review_center.detail.readiness.linked_method_items_line",
             value=linked_method_summary,
-            default=f"linked method confirmation items: {linked_method_summary}",
+            default=f"{_MEASUREMENT_DIGEST['linked_method_items']}: {linked_method_summary}",
         ),
         t(
             "results.review_center.detail.readiness.linked_uncertainty_inputs_line",
             value=linked_uncertainty_summary,
-            default=f"linked uncertainty inputs: {linked_uncertainty_summary}",
+            default=f"{_MEASUREMENT_DIGEST['linked_uncertainty_inputs']}: {linked_uncertainty_summary}",
         ),
         t(
             "results.review_center.detail.readiness.linked_traceability_nodes_line",
             value=linked_traceability_summary,
-            default=f"linked traceability nodes: {linked_traceability_summary}",
+            default=f"{_MEASUREMENT_DIGEST['linked_traceability_nodes']}: {linked_traceability_summary}",
         ),
         t(
             "results.review_center.detail.readiness.linked_gap_classification_line",
@@ -1722,7 +1722,7 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
                 t(
                     "results.review_center.detail.readiness.uncertainty_overview_line",
                     value=uncertainty_overview_summary,
-                    default=f"不确定度概览：{uncertainty_overview_summary}",
+                    default=f"{_READINESS_DIGEST['uncertainty_overview']}：{uncertainty_overview_summary}",
                 )
             ]
             if uncertainty_overview_summary
@@ -1733,7 +1733,7 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
                 t(
                     "results.review_center.detail.readiness.budget_component_summary_line",
                     value=budget_component_summary,
-                    default=f"预算组件摘要：{budget_component_summary}",
+                    default=f"{_READINESS_DIGEST['budget_component_summary']}：{budget_component_summary}",
                 )
             ]
             if budget_component_summary
@@ -1744,7 +1744,7 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
                 t(
                     "results.review_center.detail.readiness.top_contributors_line",
                     value=top_contributors_summary,
-                    default=f"主要不确定度贡献：{top_contributors_summary}",
+                    default=f"{_READINESS_DIGEST['top_contributors']}：{top_contributors_summary}",
                 )
             ]
             if top_contributors_summary
@@ -1780,7 +1780,7 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
         t(
             "results.review_center.detail.readiness.reviewer_next_step_line",
             value=reviewer_next_step_summary,
-            default=f"reviewer next step: {reviewer_next_step_summary}",
+            default=f"{_MEASUREMENT_DIGEST['reviewer_next_steps']}: {reviewer_next_step_summary}",
         ),
         t(
             "results.review_center.detail.readiness.boundary_line",
