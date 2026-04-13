@@ -19,6 +19,11 @@ from ..core.phase_evidence_display_contracts import (
     PHASE_TERMS as _PHASE_TERMS,
     PHASE_TERMS_EN as _PHASE_TERMS_EN,
 )
+from ..core.reviewer_summary_builders import (
+    build_v12_alignment_compact_summary as _build_v12_compact,
+    build_parity_resilience_compact_summary as _build_parity_resilience_compact,
+    REVIEWER_SUMMARY_BUILDERS_VERSION as _BUILDERS_VERSION,
+)
 
 # ---------------------------------------------------------------------------
 # Version
