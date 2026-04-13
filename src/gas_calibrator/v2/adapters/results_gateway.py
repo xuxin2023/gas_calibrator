@@ -9,6 +9,7 @@ from ..core.acceptance_model import normalize_evidence_source
 from ..core.phase_evidence_display_contracts import (
     RESULTS_FALLBACK_LABELS as _RESULTS_LABELS,
     RESULTS_FALLBACK_LABELS_EN as _RESULTS_LABELS_EN,
+    COMPATIBILITY_ROW_LABELS as _COMPAT_LABELS,
 )
 from ..core.artifact_catalog import KNOWN_REPORT_ARTIFACTS
 from ..core.engineering_isolation_admission_checklist import (
@@ -2785,22 +2786,22 @@ class ResultsGateway:
             or ""
         ).strip()
         entry_lines = [
-            f"版本 {version_text}",
-            f"状态 {compatibility_status}",
-            f"读取 {reader_mode}",
+            f"{_COMPAT_LABELS['version']} {version_text}",
+            f"{_COMPAT_LABELS['status']} {compatibility_status}",
+            f"{_COMPAT_LABELS['reader_mode']} {reader_mode}",
         ]
         if schema_contract_summary:
-            entry_lines.append(f"合同/Schema {schema_contract_summary}")
+            entry_lines.append(f"{_COMPAT_LABELS['schema_contract']} {schema_contract_summary}")
         if bool(compatibility_entry.get("regenerate_recommended", False)):
-            entry_lines.append("建议再生成 reviewer/index sidecar")
+            entry_lines.append(_COMPAT_LABELS["regenerate_recommended"])
         if recommendation_text:
-            entry_lines.append(f"建议 {recommendation_text}")
+            entry_lines.append(f"{_COMPAT_LABELS['recommendation']} {recommendation_text}")
         note_parts = [
             str(payload.get("note") or "").strip(),
             " | ".join(entry_lines),
         ]
         if bool(summary_payload.get("regenerate_recommended", False)):
-            note_parts.append("不改写原始主证据")
+            note_parts.append(_COMPAT_LABELS["no_rewrite_primary"])
         role_status_display = " | ".join(
             part
             for part in (
