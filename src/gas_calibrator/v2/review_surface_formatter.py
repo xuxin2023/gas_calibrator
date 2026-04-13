@@ -4,7 +4,9 @@ from typing import Any
 
 from .core.phase_evidence_display_contracts import (
     FORMATTER_DISPLAY_LABELS as _FORMATTER_LABELS,
+    INLINE_REPLACEMENT_PHRASES as _INLINE_PHRASES,
     MEASUREMENT_DIGEST_LABELS as _MEASUREMENT_DIGEST,
+    PREFIX_LABELS as _PREFIX_LABELS,
     READINESS_DIGEST_LABELS as _READINESS_DIGEST,
 )
 from .core.phase_taxonomy_contract import (
@@ -101,22 +103,22 @@ _REVIEW_SURFACE_FRAGMENT_LABELS = {
 }
 
 _REVIEW_SURFACE_INLINE_REPLACEMENTS = (
-    ("Current-run catalog baseline", "\u5f53\u524d\u8fd0\u884c\u57fa\u7ebf"),
-    ("current-run catalog baseline", "\u5f53\u524d\u8fd0\u884c\u57fa\u7ebf"),
-    ("current-run catalog", "\u5f53\u524d\u8fd0\u884c\u57fa\u7ebf"),
-    ("current-run \u57fa\u7ebf", "\u5f53\u524d\u8fd0\u884c\u57fa\u7ebf"),
-    ("Current review scope:", "\u5f53\u524d\u5ba1\u9605\u8303\u56f4\uff1a"),
-    ("current review scope:", "\u5f53\u524d\u5ba1\u9605\u8303\u56f4\uff1a"),
-    ("current-run", "\u5f53\u524d\u8fd0\u884c"),
-    ("\u5f53\u524d\u8fd0\u884c \u57fa\u7ebf", "\u5f53\u524d\u8fd0\u884c\u57fa\u7ebf"),
-    ("\u5f53\u524d scope \u603b\u91cf", "\u5f53\u524d\u53ef\u89c1"),
-    ("\u5f53\u524d scope ", "\u5f53\u524d\u8303\u56f4 "),
-    ("scope \u53ef\u89c1", "\u53ef\u89c1"),
-    ("scope \u5b58\u5728", "\u5b58\u5728"),
-    ("scope=", "\u8303\u56f4="),
-    ("source=", "\u6765\u6e90="),
-    ("evidence=", "\u8bc1\u636e="),
-    ("offline only", "\u4ec5\u4f9b\u79bb\u7ebf\u5ba1\u9605"),
+    ("Current-run catalog baseline", _INLINE_PHRASES["current_run_baseline"]),
+    ("current-run catalog baseline", _INLINE_PHRASES["current_run_baseline"]),
+    ("current-run catalog", _INLINE_PHRASES["current_run_baseline"]),
+    ("current-run \u57fa\u7ebf", _INLINE_PHRASES["current_run_baseline"]),
+    ("Current review scope:", _INLINE_PHRASES["current_review_scope"] + "\uff1a"),
+    ("current review scope:", _INLINE_PHRASES["current_review_scope"] + "\uff1a"),
+    ("current-run", _INLINE_PHRASES["current_run"]),
+    ("\u5f53\u524d\u8fd0\u884c \u57fa\u7ebf", _INLINE_PHRASES["current_run_baseline"]),
+    ("\u5f53\u524d scope \u603b\u91cf", _INLINE_PHRASES["current_scope_total"]),
+    ("\u5f53\u524d scope ", _INLINE_PHRASES["current_scope"] + " "),
+    ("scope \u53ef\u89c1", _INLINE_PHRASES["scope_visible"]),
+    ("scope \u5b58\u5728", _INLINE_PHRASES["scope_present"]),
+    ("scope=", _INLINE_PHRASES["scope_eq"]),
+    ("source=", _INLINE_PHRASES["source_eq"]),
+    ("evidence=", _INLINE_PHRASES["evidence_eq"]),
+    ("offline only", _INLINE_PHRASES["offline_only"]),
 )
 
 _MEASUREMENT_LAYER_LABELS = {
@@ -145,108 +147,108 @@ _MEASUREMENT_BUCKET_LABELS = {
 }
 
 _REVIEW_SURFACE_PREFIX_LABELS = {
-    "payload-backed phases": ("results.review_center.detail.measurement.payload_phases", "payload \u9636\u6bb5"),
+    "payload-backed phases": ("results.review_center.detail.measurement.payload_phases", _PREFIX_LABELS["payload_backed_phases"]),
     "payload-complete phases": (
         "results.review_center.detail.measurement.payload_complete_phases",
-        "payload \u5b8c\u6574\u9636\u6bb5",
+        _PREFIX_LABELS["payload_complete_phases"],
     ),
     "payload-partial phases": (
         "results.review_center.detail.measurement.payload_partial_phases",
-        "payload \u90e8\u5206\u9636\u6bb5",
+        _PREFIX_LABELS["payload_partial_phases"],
     ),
-    "trace-only phases": ("results.review_center.detail.measurement.trace_only_phases", "\u4ec5 trace \u9636\u6bb5"),
+    "trace-only phases": ("results.review_center.detail.measurement.trace_only_phases", _PREFIX_LABELS["trace_only_phases"]),
     "payload completeness": (
         "results.review_center.detail.measurement.payload_completeness",
-        "payload \u5b8c\u6574\u5ea6",
+        _PREFIX_LABELS["payload_completeness"],
     ),
-    "phase gaps": ("results.review_center.detail.measurement.phase_gaps", "\u9636\u6bb5\u7f3a\u53e3"),
-    "blockers": ("results.review_center.detail.measurement.blockers", "\u5f53\u524d\u963b\u585e"),
-    "next artifacts": ("results.review_center.detail.measurement.next_artifacts", "\u4e0b\u4e00\u6b65\u8865\u8bc1\u5de5\u4ef6"),
+    "phase gaps": ("results.review_center.detail.measurement.phase_gaps", _PREFIX_LABELS["phase_gaps"]),
+    "blockers": ("results.review_center.detail.measurement.blockers", _PREFIX_LABELS["blockers"]),
+    "next artifacts": ("results.review_center.detail.measurement.next_artifacts", _PREFIX_LABELS["next_artifacts"]),
     "preseal partial guidance": (
         "results.review_center.detail.measurement.preseal_partial_guidance",
-        "preseal \u90e8\u5206 payload \u63d0\u793a",
+        _PREFIX_LABELS["preseal_partial_guidance"],
     ),
     "linked method confirmation items": (
         "results.review_center.detail.measurement.linked_method_items",
-        "\u5173\u8054\u65b9\u6cd5\u786e\u8ba4\u6761\u76ee",
+        _PREFIX_LABELS["linked_method_items"],
     ),
     "linked uncertainty inputs": (
         "results.review_center.detail.measurement.linked_uncertainty_inputs",
-        "\u5173\u8054\u4e0d\u786e\u5b9a\u5ea6\u8f93\u5165",
+        _PREFIX_LABELS["linked_uncertainty_inputs"],
     ),
     "linked traceability stub nodes": (
         "results.review_center.detail.measurement.linked_traceability_nodes",
-        "\u5173\u8054\u6eaf\u6e90\u8282\u70b9",
+        _PREFIX_LABELS["linked_traceability_nodes"],
     ),
     "reviewer next steps": (
         "results.review_center.detail.measurement.reviewer_next_steps",
-        "\u5ba1\u9605\u4e0b\u4e00\u6b65",
+        _PREFIX_LABELS["reviewer_next_steps"],
     ),
     "phase contrast": (
         "results.review_center.detail.measurement.phase_contrast",
-        "preseal / pressure_stable \u5bf9\u7167",
+        _PREFIX_LABELS["phase_contrast"],
     ),
-    "route families": ("results.review_center.detail.measurement.route_families", "\u8def\u7531\u5bb6\u65cf"),
-    "phase buckets": ("results.review_center.detail.measurement.phase_buckets", "\u9636\u6bb5\u6876\u4f4d"),
+    "route families": ("results.review_center.detail.measurement.route_families", _PREFIX_LABELS["route_families"]),
+    "phase buckets": ("results.review_center.detail.measurement.phase_buckets", _PREFIX_LABELS["phase_buckets"]),
     "provenance summary": (
         "results.review_center.detail.measurement.provenance_summary",
-        "\u8bc1\u636e\u6765\u6e90\u6458\u8981",
+        _PREFIX_LABELS["provenance_summary"],
     ),
     "linked readiness anchors": (
         "results.review_center.detail.measurement.linked_readiness",
-        "\u5173\u8054\u5c31\u7eea\u5de5\u4ef6",
+        _PREFIX_LABELS["linked_readiness"],
     ),
     "readiness impact": (
         "results.review_center.detail.measurement.readiness_impact",
-        "\u5c31\u7eea\u5ea6\u5f71\u54cd",
+        _PREFIX_LABELS["readiness_impact"],
     ),
     "synthetic provenance": (
         "results.review_center.detail.measurement.synthetic_provenance",
-        "\u4eff\u771f\u6765\u6e90",
+        _PREFIX_LABELS["synthetic_provenance"],
     ),
     "linked measurement phases": (
         "results.review_center.detail.readiness.linked_measurement_phases",
-        "\u5173\u8054\u6d4b\u91cf\u9636\u6bb5",
+        _PREFIX_LABELS["linked_measurement_phases"],
     ),
     "linked measurement gaps": (
         "results.review_center.detail.readiness.linked_measurement_gaps",
-        "\u5173\u8054\u6d4b\u91cf\u7f3a\u53e3",
+        _PREFIX_LABELS["linked_measurement_gaps"],
     ),
-    "gap index": ("results.review_center.detail.measurement.gap_index", "\u7f3a\u53e3\u7d22\u5f15"),
+    "gap index": ("results.review_center.detail.measurement.gap_index", _PREFIX_LABELS["gap_index"]),
     "preseal partial gap": (
         "results.review_center.detail.readiness.preseal_partial_gap",
-        "preseal \u90e8\u5206 payload \u7f3a\u53e3",
+        _PREFIX_LABELS["preseal_partial_gap"],
     ),
-    "linked artifacts": ("results.review_center.detail.readiness.linked_artifacts", "\u5173\u8054\u5de5\u4ef6"),
+    "linked artifacts": ("results.review_center.detail.readiness.linked_artifacts", _PREFIX_LABELS["linked_artifacts"]),
     "linked method confirmation items": (
         "results.review_center.detail.readiness.linked_method_items",
-        "\u5173\u8054\u65b9\u6cd5\u786e\u8ba4\u6761\u76ee",
+        _PREFIX_LABELS["linked_method_items"],
     ),
     "linked uncertainty inputs": (
         "results.review_center.detail.readiness.linked_uncertainty_inputs",
-        "\u5173\u8054\u4e0d\u786e\u5b9a\u5ea6\u8f93\u5165",
+        _PREFIX_LABELS["linked_uncertainty_inputs"],
     ),
     "linked traceability nodes": (
         "results.review_center.detail.readiness.linked_traceability_nodes",
-        "\u5173\u8054\u6eaf\u6e90\u8282\u70b9",
+        _PREFIX_LABELS["linked_traceability_nodes"],
     ),
-    "missing evidence": ("results.review_center.detail.readiness.missing_evidence", "\u4ecd\u7f3a\u8bc1\u636e"),
-    "blockers": ("results.review_center.detail.readiness.blockers", "\u5f53\u524d\u963b\u585e"),
-    "gap reason": ("results.review_center.detail.readiness.gap_reason", "\u7f3a\u53e3\u539f\u56e0"),
-    "readiness status": ("results.review_center.detail.readiness.status", "\u5c31\u7eea\u72b6\u6001"),
+    "missing evidence": ("results.review_center.detail.readiness.missing_evidence", _PREFIX_LABELS["missing_evidence"]),
+    "blockers": ("results.review_center.detail.readiness.blockers", _PREFIX_LABELS["blockers"]),
+    "gap reason": ("results.review_center.detail.readiness.gap_reason", _PREFIX_LABELS["gap_reason"]),
+    "readiness status": ("results.review_center.detail.readiness.status", _PREFIX_LABELS["readiness_status"]),
     "next required artifacts": (
         "results.review_center.detail.readiness.next_artifacts",
-        "\u4e0b\u4e00\u6b65\u8865\u8bc1\u5de5\u4ef6",
+        _PREFIX_LABELS["next_artifacts"],
     ),
     "reviewer next step": (
         "results.review_center.detail.readiness.reviewer_next_step",
-        "\u5ba1\u9605\u4e0b\u4e00\u6b65",
+        _PREFIX_LABELS["reviewer_next_steps"],
     ),
     "non-claim digest": (
         "results.review_center.detail.readiness.non_claim",
-        "\u975e\u58f0\u660e\u8fb9\u754c",
+        _PREFIX_LABELS["non_claim_digest"],
     ),
-    "boundary": ("results.review_center.detail.boundary", "\u8fb9\u754c"),
+    "boundary": ("results.review_center.detail.boundary", _PREFIX_LABELS["boundary"]),
 }
 
 _REVIEW_SCOPE_REVIEWER_DISPLAY_FIELDS = (
