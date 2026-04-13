@@ -65,6 +65,128 @@ def _resolve_h2o_selection(selection: Mapping[str, Any] | None) -> Dict[str, Any
     return normalize_h2o_summary_selection(selection)
 
 
+def _anchor_threshold_for_row(
+    row: Mapping[str, Any],
+    selection_cfg: Mapping[str, Any],
+) -> tuple[float | None, float | None]:
+    env_temp = _safe_float(row.get("EnvTempC"))
+    tolerance_c = float(selection_cfg.get("temp_tolerance_c", 0.6) or 0.6)
+    keyed_limits = dict(selection_cfg.get("co2_zero_ppm_anchor_max_ppm_h2o_dew_by_temp_c") or {})
+    for raw_key, raw_value in keyed_limits.items():
+        target_temp = _safe_float(raw_key)
+        limit = _safe_float(raw_value)
+        if target_temp is None or limit is None or env_temp is None:
+            continue
+        if abs(env_temp - target_temp) <= tolerance_c:
+            return limit, target_temp
+    return _safe_float(selection_cfg.get("co2_zero_ppm_anchor_max_ppm_h2o_dew_default")), env_temp
+
+
+def select_corrected_fit_rows_with_diagnostics(
+    frame: pd.DataFrame,
+    *,
+    gas: str,
+    temperature_key: str = "Temp",
+    selection: Mapping[str, Any] | None = None,
+) -> Dict[str, pd.DataFrame]:
+    selection_cfg = _resolve_h2o_selection(selection)
+    working = frame.copy()
+    if "PhaseKey" in working.columns:
+        working["PhaseKey"] = working["PhaseKey"].map(_phase_key)
+    else:
+        working["PhaseKey"] = working.get("PointPhase", "").map(_phase_key)
+    working["FitTemp"] = pd.to_numeric(working.get(temperature_key), errors="coerce")
+    working["EnvTempC"] = pd.to_numeric(working.get("EnvTempC"), errors="coerce")
+    working["ppm_CO2_Tank_num"] = pd.to_numeric(working.get("ppm_CO2_Tank"), errors="coerce")
+    working["ppm_H2O_Dew_num"] = pd.to_numeric(working.get("ppm_H2O_Dew"), errors="coerce")
+    working["SelectionOrigin"] = ""
+
+    gas_key = str(gas or "").strip().lower()
+    if gas_key == "co2":
+        selected = working[working["PhaseKey"] == "co2"].copy()
+        selected.loc[:, "SelectionOrigin"] = "co2_phase"
+        return {
+            "selected_frame": selected,
+            "h2o_anchor_gate_hits": pd.DataFrame(),
+        }
+
+    if gas_key != "h2o":
+        raise ValueError(f"Unsupported gas: {gas}")
+
+    phase_mask = (
+        (working["PhaseKey"] == "h2o")
+        if selection_cfg["include_h2o_phase"]
+        else pd.Series(False, index=working.index)
+    )
+    co2_mask = working["PhaseKey"] == "co2"
+
+    all_co2_temp_mask = pd.Series(False, index=working.index)
+    for target in selection_cfg["include_co2_temp_groups_c"]:
+        all_co2_temp_mask = all_co2_temp_mask | (
+            co2_mask & (working["EnvTempC"] - float(target)).abs().le(float(selection_cfg["temp_tolerance_c"]))
+        )
+
+    zero_temp_mask = pd.Series(False, index=working.index)
+    if selection_cfg["include_co2_zero_ppm_rows"]:
+        zero_ppm_mask = working["ppm_CO2_Tank_num"].sub(float(selection_cfg["co2_zero_ppm_target"])).abs().le(
+            float(selection_cfg["co2_zero_ppm_tolerance"])
+        )
+        for target in selection_cfg["include_co2_zero_ppm_temp_groups_c"]:
+            zero_temp_mask = zero_temp_mask | (
+                co2_mask
+                & zero_ppm_mask
+                & (working["EnvTempC"] - float(target)).abs().le(float(selection_cfg["temp_tolerance_c"]))
+            )
+
+    zero_anchor_pass_mask = zero_temp_mask.copy()
+    anchor_gate_rows: List[Dict[str, Any]] = []
+    if bool(selection_cfg.get("co2_zero_ppm_anchor_quality_gate_enabled", True)):
+        candidate_rows = working.loc[zero_temp_mask].copy()
+        passed_index = set(candidate_rows.index.tolist())
+        for idx, row in candidate_rows.iterrows():
+            observed_h2o_dew = _safe_float(row.get("ppm_H2O_Dew_num"))
+            require_h2o_dew = bool(selection_cfg.get("co2_zero_ppm_anchor_require_h2o_dew", True))
+            threshold, matched_temp = _anchor_threshold_for_row(row, selection_cfg)
+            reason = ""
+            if observed_h2o_dew is None and require_h2o_dew:
+                reason = "anchor_h2o_dew_missing"
+            elif threshold is not None and observed_h2o_dew is not None and observed_h2o_dew > threshold:
+                reason = "anchor_h2o_dew_above_limit"
+            if reason:
+                passed_index.discard(idx)
+                anchor_gate_rows.append(
+                    {
+                        "Analyzer": row.get("Analyzer"),
+                        "PointRow": row.get("PointRow"),
+                        "PointPhase": row.get("PointPhase"),
+                        "PointTag": row.get("PointTag"),
+                        "PointTitle": row.get("PointTitle"),
+                        "EnvTempC": _safe_float(row.get("EnvTempC")),
+                        "Temp": _safe_float(row.get("FitTemp")),
+                        "ppm_CO2_Tank": _safe_float(row.get("ppm_CO2_Tank_num")),
+                        "ppm_H2O_Dew": observed_h2o_dew,
+                        "SelectionOrigin": "co2_zero_ppm_anchor",
+                        "GateReason": reason,
+                        "GateThresholdPpmH2ODew": threshold,
+                        "GateMatchedTempC": matched_temp,
+                        "SourceFile": row.get("SourceFile"),
+                        "SourceStamp": row.get("SourceStamp"),
+                    }
+                )
+        zero_anchor_pass_mask = working.index.to_series().isin(passed_index) & zero_temp_mask
+
+    selected_mask = phase_mask | all_co2_temp_mask | zero_anchor_pass_mask
+    working.loc[phase_mask, "SelectionOrigin"] = "h2o_phase"
+    working.loc[all_co2_temp_mask, "SelectionOrigin"] = "co2_temp_group"
+    working.loc[zero_anchor_pass_mask, "SelectionOrigin"] = "co2_zero_ppm_anchor"
+    selected = working[selected_mask].copy()
+    gate_hits = pd.DataFrame(anchor_gate_rows)
+    return {
+        "selected_frame": selected,
+        "h2o_anchor_gate_hits": gate_hits,
+    }
+
+
 def _describe_h2o_selection(selection: Mapping[str, Any]) -> str:
     parts: List[str] = []
     if bool(selection.get("include_h2o_phase", True)):
@@ -108,45 +230,12 @@ def select_corrected_fit_rows(
     temperature_key: str = "Temp",
     selection: Mapping[str, Any] | None = None,
 ) -> pd.DataFrame:
-    selection_cfg = _resolve_h2o_selection(selection)
-    working = frame.copy()
-    if "PhaseKey" in working.columns:
-        working["PhaseKey"] = working["PhaseKey"].map(_phase_key)
-    else:
-        working["PhaseKey"] = working.get("PointPhase", "").map(_phase_key)
-    working["FitTemp"] = pd.to_numeric(working.get(temperature_key), errors="coerce")
-    working["EnvTempC"] = pd.to_numeric(working.get("EnvTempC"), errors="coerce")
-    working["ppm_CO2_Tank_num"] = pd.to_numeric(working.get("ppm_CO2_Tank"), errors="coerce")
-
-    gas_key = str(gas or "").strip().lower()
-    if gas_key == "co2":
-        return working[working["PhaseKey"] == "co2"].copy()
-
-    if gas_key != "h2o":
-        raise ValueError(f"Unsupported gas: {gas}")
-
-    phase_mask = working["PhaseKey"] == "h2o" if selection_cfg["include_h2o_phase"] else False
-    co2_mask = working["PhaseKey"] == "co2"
-
-    all_co2_temp_mask = False
-    for target in selection_cfg["include_co2_temp_groups_c"]:
-        all_co2_temp_mask = all_co2_temp_mask | (
-            co2_mask & (working["EnvTempC"] - float(target)).abs().le(float(selection_cfg["temp_tolerance_c"]))
-        )
-
-    zero_temp_mask = False
-    if selection_cfg["include_co2_zero_ppm_rows"]:
-        zero_ppm_mask = working["ppm_CO2_Tank_num"].sub(float(selection_cfg["co2_zero_ppm_target"])).abs().le(
-            float(selection_cfg["co2_zero_ppm_tolerance"])
-        )
-        for target in selection_cfg["include_co2_zero_ppm_temp_groups_c"]:
-            zero_temp_mask = zero_temp_mask | (
-                co2_mask
-                & zero_ppm_mask
-                & (working["EnvTempC"] - float(target)).abs().le(float(selection_cfg["temp_tolerance_c"]))
-            )
-
-    return working[phase_mask | all_co2_temp_mask | zero_temp_mask].copy()
+    return select_corrected_fit_rows_with_diagnostics(
+        frame,
+        gas=gas,
+        temperature_key=temperature_key,
+        selection=selection,
+    )["selected_frame"].copy()
 
 
 def _relative_error(errors: pd.Series, truth: pd.Series) -> pd.Series:
@@ -368,18 +457,25 @@ def build_corrected_water_points_report(
     analyzers = sorted(str(value) for value in frame["Analyzer"].dropna().unique())
 
     bundles: List[CorrectedFitBundle] = []
+    h2o_anchor_gate_frames: List[pd.DataFrame] = []
     for analyzer in analyzers:
         analyzer_frame = frame[frame["Analyzer"] == analyzer].copy()
         for gas, target_key, ratio_key in (
             ("co2", "ppm_CO2_Tank", "R_CO2"),
             ("h2o", "ppm_H2O_Dew", "R_H2O"),
         ):
-            selected = select_corrected_fit_rows(
+            selection_result = select_corrected_fit_rows_with_diagnostics(
                 analyzer_frame,
                 gas=gas,
                 temperature_key=temperature_key,
                 selection=h2o_selection,
             )
+            selected = selection_result["selected_frame"]
+            gate_hits = pd.DataFrame(selection_result.get("h2o_anchor_gate_hits", pd.DataFrame()))
+            if not gate_hits.empty:
+                gate_hits.insert(0, "DataScope", normalized_scope)
+                gate_hits.insert(0, "Gas", "H2O")
+                h2o_anchor_gate_frames.append(gate_hits)
             if selected.empty:
                 continue
             bundles.append(
@@ -412,6 +508,7 @@ def build_corrected_water_points_report(
                 "Analyzer",
                 "Gas",
                 "DataScope",
+                "SelectionOrigin",
                 "PointRow",
                 "PointPhase",
                 "PointTag",
@@ -429,6 +526,11 @@ def build_corrected_water_points_report(
             if column in selected.columns
         ]
         h2o_selected_frames.append(selected.loc[:, keep_columns])
+    h2o_anchor_gate_df = (
+        pd.concat(h2o_anchor_gate_frames, ignore_index=True)
+        if h2o_anchor_gate_frames
+        else pd.DataFrame()
+    )
 
     summary_df = pd.DataFrame([bundle.summary_row for bundle in bundles])
     simplified_df = pd.DataFrame([bundle.simplified_row for bundle in bundles])
@@ -453,6 +555,12 @@ def build_corrected_water_points_report(
         "说明项": "统计口径",
         "说明内容": f"CO2 仅使用 PointPhase=气路；H2O 使用 {_describe_h2o_selection(h2o_selection)}",
     }
+    note_rows.append(
+        {
+            "说明项": "H2O锚点门禁",
+            "说明内容": "对 -20/-10/0°C 的 0ppm 气路锚点额外校验 ppm_H2O_Dew；命中后仅从 H2O 拟合剔除，不影响原始点位记录。",
+        }
+    )
     notes_df = pd.DataFrame(note_rows)
 
     output = Path(output_path)
@@ -469,6 +577,9 @@ def build_corrected_water_points_report(
     if not h2o_selected_df.empty:
         with pd.ExcelWriter(output, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
             h2o_selected_df.to_excel(writer, sheet_name="H2O锚点入选", index=False)
+    if not h2o_anchor_gate_df.empty:
+        with pd.ExcelWriter(output, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
+            h2o_anchor_gate_df.to_excel(writer, sheet_name="H2O锚点门禁", index=False)
 
     workbook = load_workbook(output)
     summary_sheet = workbook["汇总"]
@@ -500,4 +611,5 @@ def build_corrected_water_points_report(
         "topn": topn_df,
         "notes": notes_df,
         "h2o_selected_rows": h2o_selected_df,
+        "h2o_anchor_gate_hits": h2o_anchor_gate_df,
     }

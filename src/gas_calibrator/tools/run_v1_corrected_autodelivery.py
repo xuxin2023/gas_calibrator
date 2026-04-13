@@ -22,6 +22,7 @@ from ..config import (
 )
 from ..devices.gas_analyzer import GasAnalyzer
 from ..export import build_corrected_water_points_report
+from ..h2o_summary_selection import normalize_h2o_summary_selection
 from ..senco_format import format_senco_values, senco_readback_matches
 from .run_v1_no500_postprocess import _filter_no_500_frame
 
@@ -1206,6 +1207,168 @@ def _resolve_postrun_override_path(cfg: Mapping[str, Any], raw_path: Any) -> Opt
     return str((base_dir / candidate).resolve())
 
 
+def _load_runtime_snapshot_cfg(run_dir: Path) -> Dict[str, Any]:
+    snapshot_path = run_dir / "runtime_config_snapshot.json"
+    if not snapshot_path.exists():
+        return {}
+    try:
+        return load_config(str(snapshot_path))
+    except Exception:
+        try:
+            return json.loads(snapshot_path.read_text(encoding="utf-8-sig"))
+        except Exception:
+            return {}
+
+
+def _match_anchor_temp_groups(
+    values: Sequence[float],
+    expected: Sequence[float],
+    *,
+    tolerance_c: float,
+) -> tuple[List[float], List[float]]:
+    matched: List[float] = []
+    missing: List[float] = []
+    for target in expected:
+        if any(abs(float(value) - float(target)) <= tolerance_c for value in values):
+            matched.append(float(target))
+        else:
+            missing.append(float(target))
+    return matched, missing
+
+
+def _build_run_structure_hints(
+    *,
+    run_dir: Path,
+    coeff_cfg: Mapping[str, Any] | None,
+    runtime_cfg: Mapping[str, Any] | None,
+    h2o_selected: pd.DataFrame,
+    h2o_anchor_gate_hits: pd.DataFrame,
+) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = [
+        {
+            "CheckCode": "single_run_scope",
+            "Status": "info",
+            "Summary": "当前自动后处理只覆盖本轮 run",
+            "Detail": "如果一次校准分成多轮完成，建议改用 merged calibration sidecar，并按 ActualDeviceId 合并后再计算最终系数。",
+        }
+    ]
+
+    workflow_cfg = dict(runtime_cfg.get("workflow") or {}) if isinstance(runtime_cfg, Mapping) else {}
+    pressure_points = [str(item).strip().lower() for item in list(workflow_cfg.get("selected_pressure_points") or []) if str(item).strip()]
+    if pressure_points:
+        non_ambient = [item for item in pressure_points if item != "ambient"]
+        if non_ambient:
+            rows.append(
+                {
+                    "CheckCode": "pressure_structure",
+                    "Status": "ok",
+                    "Summary": "当前 run 包含非 ambient 压力工况",
+                    "Detail": "这更接近推荐运行结构，有利于后处理横向对比压力相关误差。",
+                }
+            )
+        else:
+            rows.append(
+                {
+                    "CheckCode": "pressure_structure",
+                    "Status": "warn",
+                    "Summary": "当前 run 仅包含 ambient 压力工况",
+                    "Detail": "不修改本轮结果，但若想更接近 2026-04-03 的约束力，建议后续至少保留 1 个 sealed 压力点。",
+                }
+            )
+    else:
+        rows.append(
+            {
+                "CheckCode": "pressure_structure",
+                "Status": "info",
+                "Summary": "未显式记录 selected_pressure_points",
+                "Detail": "自动后处理无法仅从配置判断本轮是否保留了 sealed 压力工况。",
+            }
+        )
+
+    selection_cfg = normalize_h2o_summary_selection(
+        (dict(coeff_cfg or {}).get("h2o_summary_selection") if isinstance(coeff_cfg, Mapping) else None)
+    )
+    expected_anchor_temps = [
+        float(value)
+        for value in list(selection_cfg.get("include_co2_zero_ppm_temp_groups_c") or [])
+        if selection_cfg.get("include_co2_zero_ppm_rows", True)
+    ]
+    if expected_anchor_temps:
+        anchor_frame = h2o_selected.copy()
+        if not anchor_frame.empty:
+            if "SelectionOrigin" in anchor_frame.columns:
+                anchor_frame = anchor_frame[
+                    anchor_frame["SelectionOrigin"].astype(str).str.strip().eq("co2_zero_ppm_anchor")
+                ].copy()
+            elif "PointPhase" in anchor_frame.columns:
+                anchor_frame = anchor_frame[
+                    anchor_frame["PointPhase"].astype(str).str.lower().isin({"气路", "co2"})
+                ].copy()
+                if "ppm_CO2_Tank" in anchor_frame.columns:
+                    anchor_frame["ppm_CO2_Tank"] = pd.to_numeric(anchor_frame["ppm_CO2_Tank"], errors="coerce")
+                    anchor_frame = anchor_frame[anchor_frame["ppm_CO2_Tank"].sub(0.0).abs().le(0.5)].copy()
+        actual_anchor_temps: List[float] = []
+        if not anchor_frame.empty:
+            source = "EnvTempC" if "EnvTempC" in anchor_frame.columns else "Temp"
+            actual_anchor_temps = [
+                float(value)
+                for value in pd.to_numeric(anchor_frame[source], errors="coerce").dropna().tolist()
+            ]
+        matched_temps, missing_temps = _match_anchor_temp_groups(
+            actual_anchor_temps,
+            expected_anchor_temps,
+            tolerance_c=float(selection_cfg.get("temp_tolerance_c", 0.6) or 0.6),
+        )
+        if missing_temps:
+            rows.append(
+                {
+                    "CheckCode": "h2o_anchor_coverage",
+                    "Status": "warn",
+                    "Summary": "H2O 0ppm 气路锚点覆盖不完整",
+                    "Detail": f"期望温组 {expected_anchor_temps}°C，当前仅匹配到 {matched_temps}°C，缺少 {missing_temps}°C。",
+                }
+            )
+        else:
+            rows.append(
+                {
+                    "CheckCode": "h2o_anchor_coverage",
+                    "Status": "ok",
+                    "Summary": "H2O 0ppm 气路锚点覆盖完整",
+                    "Detail": f"已覆盖 {matched_temps}°C 这些 H2O 零点锚点温组。",
+                }
+            )
+
+    gate_rows = h2o_anchor_gate_hits.copy()
+    if gate_rows.empty:
+        rows.append(
+            {
+                "CheckCode": "h2o_anchor_quality_gate",
+                "Status": "ok",
+                "Summary": "本轮没有命中 H2O 锚点质量门禁",
+                "Detail": "用于 H2O 拟合的 0ppm 气路锚点未出现 ppm_H2O_Dew 超限剔除。",
+            }
+        )
+    else:
+        if "PointRow" in gate_rows.columns:
+            gate_rows["PointRow"] = pd.to_numeric(gate_rows["PointRow"], errors="coerce")
+        hit_rows = [
+            str(int(value))
+            for value in gate_rows.get("PointRow", pd.Series(dtype=float)).dropna().tolist()
+        ]
+        rows.append(
+            {
+                "CheckCode": "h2o_anchor_quality_gate",
+                "Status": "warn",
+                "Summary": f"本轮有 {len(gate_rows)} 个 H2O 气路锚点被质量门禁剔除",
+                "Detail": "命中 PointRow="
+                + ", ".join(hit_rows[:8])
+                + (" ..." if len(hit_rows) > 8 else "")
+                + "。这不会改变原始点位记录，但会从 H2O 拟合中排除这些锚点。",
+            }
+        )
+    return rows
+
+
 def build_corrected_delivery(
     *,
     run_dir: str | Path,
@@ -1233,6 +1396,7 @@ def build_corrected_delivery(
     ranges = pd.DataFrame(report.get("ranges", pd.DataFrame())).copy()
     topn = pd.DataFrame(report.get("topn", pd.DataFrame())).copy()
     h2o_selected = pd.DataFrame(report.get("h2o_selected_rows", pd.DataFrame())).copy()
+    h2o_anchor_gate_hits = pd.DataFrame(report.get("h2o_anchor_gate_hits", pd.DataFrame())).copy()
     actual_device_ids = extract_run_device_ids(run_dir)
     summary = pd.DataFrame(_annotate_rows_with_actual_device_ids(summary.to_dict(orient="records"), actual_device_ids))
     simplified = pd.DataFrame(_annotate_rows_with_actual_device_ids(simplified.to_dict(orient="records"), actual_device_ids))
@@ -1241,6 +1405,9 @@ def build_corrected_delivery(
     ranges = pd.DataFrame(_annotate_rows_with_actual_device_ids(ranges.to_dict(orient="records"), actual_device_ids))
     topn = pd.DataFrame(_annotate_rows_with_actual_device_ids(topn.to_dict(orient="records"), actual_device_ids))
     h2o_selected = pd.DataFrame(_annotate_rows_with_actual_device_ids(h2o_selected.to_dict(orient="records"), actual_device_ids))
+    h2o_anchor_gate_hits = pd.DataFrame(
+        _annotate_rows_with_actual_device_ids(h2o_anchor_gate_hits.to_dict(orient="records"), actual_device_ids)
+    )
     temperature_gate_hits = pd.DataFrame(
         _annotate_rows_with_actual_device_ids(
             _load_temperature_gate_hits(run_dir),
@@ -1269,14 +1436,36 @@ def build_corrected_delivery(
         if not pressure_rows and fallback_pressure_to_controller:
             pressure_rows = compute_pressure_offset_rows(run_dir, fallback_to_controller=True)
 
+    runtime_cfg = _load_runtime_snapshot_cfg(run_dir)
+    run_structure_hint_cfg = (
+        dict(runtime_cfg.get("workflow", {}).get("postrun_corrected_delivery", {}).get("run_structure_hints", {}))
+        if isinstance(runtime_cfg, Mapping)
+        else {}
+    )
+    run_structure_hints = pd.DataFrame(
+        _build_run_structure_hints(
+            run_dir=run_dir,
+            coeff_cfg=coeff_cfg,
+            runtime_cfg=runtime_cfg,
+            h2o_selected=h2o_selected,
+            h2o_anchor_gate_hits=h2o_anchor_gate_hits,
+        )
+        if bool(run_structure_hint_cfg.get("enabled", True))
+        else []
+    )
+
     _append_dataframe_sheet(report_path, "download_plan", pd.DataFrame(download_plan_rows))
     _append_dataframe_sheet(report_path, "分析仪汇总", pd.DataFrame(analyzer_summary_rows))
     _append_dataframe_sheet(report_path, "temperature_plan", pd.DataFrame(temperature_rows))
     _append_dataframe_sheet(report_path, "pressure_plan", pd.DataFrame(pressure_rows))
     if not h2o_selected.empty:
         _append_dataframe_sheet(report_path, "H2O锚点入选", h2o_selected)
+    if not h2o_anchor_gate_hits.empty:
+        _append_dataframe_sheet(report_path, "H2O锚点门禁", h2o_anchor_gate_hits)
     if not temperature_gate_hits.empty:
         _append_dataframe_sheet(report_path, "温补异常快照", temperature_gate_hits)
+    if not run_structure_hints.empty:
+        _append_dataframe_sheet(report_path, "推荐运行结构提示", run_structure_hints)
     _annotate_workbook_with_actual_device_ids(report_path, actual_device_ids)
 
     _write_csv(output_dir / "download_plan_no_500.csv", download_plan_rows)
@@ -1287,9 +1476,11 @@ def build_corrected_delivery(
     _write_csv(output_dir / "range_analysis_with_actual_ids_no_500.csv", ranges.to_dict(orient="records"))
     _write_csv(output_dir / "topn_with_actual_ids_no_500.csv", topn.to_dict(orient="records"))
     _write_csv(output_dir / "h2o_selected_rows_with_actual_ids.csv", h2o_selected.to_dict(orient="records"))
+    _write_csv(output_dir / "h2o_anchor_gate_hits.csv", h2o_anchor_gate_hits.to_dict(orient="records"))
     _write_csv(output_dir / "temperature_fit_gate_hits.csv", temperature_gate_hits.to_dict(orient="records"))
     _write_csv(output_dir / "temperature_coefficients_target.csv", temperature_rows)
     _write_csv(output_dir / "pressure_offset_current_ambient_summary.csv", pressure_rows)
+    _write_csv(output_dir / "run_structure_hints.csv", run_structure_hints.to_dict(orient="records"))
     _write_csv(output_dir / "filter_summary.csv", filter_stats)
     capability = v1_h2o_zero_span_capability(coeff_cfg if isinstance(coeff_cfg, Mapping) else {})
     summary_lines = [
@@ -1307,6 +1498,12 @@ def build_corrected_delivery(
         summary_lines.append(
             f"- {Path(str(row.get('source') or '')).name}: original={row.get('original_rows')} removed={row.get('removed_rows')} kept={row.get('kept_rows')}"
         )
+    if not run_structure_hints.empty:
+        summary_lines.extend(["", "## run structure hints"])
+        for row in run_structure_hints.to_dict(orient="records"):
+            summary_lines.append(
+                f"- [{row.get('Status')}] {row.get('Summary')}: {row.get('Detail')}"
+            )
     (output_dir / "summary.md").write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
     return {
         "report_path": str(report_path),
@@ -1319,7 +1516,9 @@ def build_corrected_delivery(
         "pressure_rows": pressure_rows,
         "pressure_row_source": pressure_mode,
         "h2o_selected_rows": h2o_selected.to_dict(orient="records"),
+        "h2o_anchor_gate_hits": h2o_anchor_gate_hits.to_dict(orient="records"),
         "temperature_gate_hits": temperature_gate_hits.to_dict(orient="records"),
+        "run_structure_hints": run_structure_hints.to_dict(orient="records"),
     }
 
 
