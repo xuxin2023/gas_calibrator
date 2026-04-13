@@ -2996,12 +2996,12 @@ def _results_gateway_decorate_artifact_compatibility_row(
         or ""
     ).strip()
     entry_lines = [
-        f"版本 {version_text}",
-        f"状态 {compatibility_status}",
-        f"读取 {reader_mode}",
+        f"{_COMPAT_LABELS['version']} {version_text}",
+        f"{_COMPAT_LABELS['status']} {compatibility_status}",
+        f"{_COMPAT_LABELS['reader_mode']} {reader_mode}",
     ]
     if schema_contract_summary:
-        entry_lines.append(f"合同/Schema {schema_contract_summary}")
+        entry_lines.append(f"{_COMPAT_LABELS['schema_contract']} {schema_contract_summary}")
     if rollup_summary:
         entry_lines.append(
             t(
@@ -3011,9 +3011,9 @@ def _results_gateway_decorate_artifact_compatibility_row(
             )
         )
     if bool(compatibility_entry.get("regenerate_recommended", False)):
-        entry_lines.append("建议再生成 reviewer/index sidecar")
+        entry_lines.append(_COMPAT_LABELS["regenerate_recommended"])
     if recommendation_text:
-        entry_lines.append(f"建议 {recommendation_text}")
+        entry_lines.append(f"{_COMPAT_LABELS['recommendation']} {recommendation_text}")
     note_parts = [
         str(payload.get("note") or "").strip(),
         " | ".join(entry_lines),
