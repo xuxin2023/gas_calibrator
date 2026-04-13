@@ -1710,12 +1710,12 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
         t(
             "results.review_center.detail.readiness.gap_reason_line",
             value=linked_gap_reason_summary,
-            default=f"gap reason: {linked_gap_reason_summary}",
+            default=f"{_PREFIX_LABELS['gap_reason']}: {linked_gap_reason_summary}",
         ),
         t(
             "results.review_center.detail.readiness.warning_items_line",
             value=warning_summary,
-            default=f"Warning items: {warning_summary}",
+            default=f"{_MEASUREMENT_DIGEST['blockers']}: {warning_summary}",
         ),
         *(
             [
@@ -1766,7 +1766,7 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
                 t(
                     "results.review_center.detail.readiness.placeholder_completeness_line",
                     value=placeholder_completeness_summary,
-                    default=f"占位完整度：{placeholder_completeness_summary}",
+                    default=f"{_READINESS_DIGEST['placeholder_completeness']}：{placeholder_completeness_summary}",
                 )
             ]
             if placeholder_completeness_summary
@@ -1775,7 +1775,7 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
         t(
             "results.review_center.detail.readiness.next_artifacts_line",
             value=str(digest.get("next_required_artifacts_summary") or t("common.none")),
-            default=f"next required artifacts: {str(digest.get('next_required_artifacts_summary') or t('common.none'))}",
+            default=f"{_MEASUREMENT_DIGEST['next_artifacts']}: {str(digest.get('next_required_artifacts_summary') or t('common.none'))}",
         ),
         t(
             "results.review_center.detail.readiness.reviewer_next_step_line",
