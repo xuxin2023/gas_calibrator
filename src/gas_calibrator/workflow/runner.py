@@ -36,6 +36,7 @@ from ..validation.dewpoint_flush_gate import (
     evaluate_dewpoint_flush_gate,
     predict_pressure_scaled_dewpoint_c,
 )
+from .co2_bad_frame_qc import quarantine_co2_source_rows
 from .tuning import workflow_param
 
 
@@ -2705,6 +2706,17 @@ class CalibrationRunner:
             "co2_steady_window_std_ppm",
             "co2_steady_window_range_ppm",
             "co2_steady_window_slope_ppm_per_s",
+            "co2_bad_frame_count",
+            "co2_bad_frame_ratio",
+            "co2_soft_warn_count",
+            "co2_soft_warn_ratio",
+            "co2_rows_before_quarantine",
+            "co2_rows_after_quarantine",
+            "co2_source_selected",
+            "co2_source_candidates",
+            "co2_source_switch_reason",
+            "co2_source_trust_reason",
+            "co2_quarantine_reason_summary",
             "pressure_gauge_stale_count",
             "pressure_gauge_total_count",
             "pressure_gauge_stale_ratio",
@@ -13874,12 +13886,15 @@ class CalibrationRunner:
         measured_value = h2o_mean_primary_or_first if gas_type == "H2O" else co2_mean_primary_or_first
         measured_value_source = "primary_or_first_usable_full_window_mean"
         if gas_type == "CO2":
-            representative_value = self._as_float(runtime_state.get("co2_representative_value"))
-            if representative_value is not None:
-                measured_value = representative_value
-                measured_value_source = str(
-                    runtime_state.get("measured_value_source") or "co2_steady_state_window"
-                )
+            runtime_measured_source = str(runtime_state.get("measured_value_source") or "").strip()
+            if runtime_measured_source == "co2_no_trusted_source":
+                measured_value = None
+                measured_value_source = runtime_measured_source
+            else:
+                representative_value = self._as_float(runtime_state.get("co2_representative_value"))
+                if representative_value is not None:
+                    measured_value = representative_value
+                    measured_value_source = runtime_measured_source or "co2_steady_state_window"
         window_start_ts = samples[0].get("sample_ts") if samples else None
         last_sample = samples[-1] if samples else {}
         window_end_ts = last_sample.get("sample_end_ts") or last_sample.get("sample_ts")
@@ -13984,6 +13999,17 @@ class CalibrationRunner:
             "co2_steady_window_std_ppm": runtime_state.get("co2_steady_window_std_ppm"),
             "co2_steady_window_range_ppm": runtime_state.get("co2_steady_window_range_ppm"),
             "co2_steady_window_slope_ppm_per_s": runtime_state.get("co2_steady_window_slope_ppm_per_s"),
+            "co2_bad_frame_count": runtime_state.get("co2_bad_frame_count"),
+            "co2_bad_frame_ratio": runtime_state.get("co2_bad_frame_ratio"),
+            "co2_soft_warn_count": runtime_state.get("co2_soft_warn_count"),
+            "co2_soft_warn_ratio": runtime_state.get("co2_soft_warn_ratio"),
+            "co2_rows_before_quarantine": runtime_state.get("co2_rows_before_quarantine"),
+            "co2_rows_after_quarantine": runtime_state.get("co2_rows_after_quarantine"),
+            "co2_source_selected": runtime_state.get("co2_source_selected"),
+            "co2_source_candidates": runtime_state.get("co2_source_candidates"),
+            "co2_source_switch_reason": runtime_state.get("co2_source_switch_reason"),
+            "co2_source_trust_reason": runtime_state.get("co2_source_trust_reason"),
+            "co2_quarantine_reason_summary": runtime_state.get("co2_quarantine_reason_summary"),
             "dewpoint_time_to_gate": runtime_state.get("dewpoint_time_to_gate"),
             "dewpoint_tail_span_60s": runtime_state.get("dewpoint_tail_span_60s"),
             "dewpoint_tail_slope_60s": runtime_state.get("dewpoint_tail_slope_60s"),
@@ -14837,8 +14863,9 @@ class CalibrationRunner:
         qcfg = self.cfg.get("workflow", {}).get("sampling", {}).get("quality", {})
         min_samples = self._as_int(qcfg.get("co2_steady_state_min_samples"))
         fallback_samples = self._as_int(qcfg.get("co2_steady_state_fallback_samples"))
+        quality_enabled = bool(qcfg.get("enabled", True))
         return {
-            "enabled": bool(qcfg.get("co2_steady_state_enabled", True)),
+            "enabled": bool(qcfg.get("co2_steady_state_enabled", quality_enabled)),
             "policy": self._normalized_policy(
                 qcfg.get("co2_steady_state_policy"),
                 allowed={"off", "warn", "reject"},
@@ -14855,6 +14882,14 @@ class CalibrationRunner:
             "max_range_ppm": float(qcfg.get("co2_steady_state_max_range_ppm", 8.0) or 8.0),
             "max_abs_slope_ppm_per_s": float(
                 qcfg.get("co2_steady_state_max_abs_slope_ppm_per_s", 1.0) or 1.0
+            ),
+            "bad_frame_quarantine_enabled": bool(qcfg.get("co2_bad_frame_quarantine_enabled", True)),
+            "source_trust_enabled": bool(qcfg.get("co2_source_trust_enabled", True)),
+            "isolated_spike_delta_ppm": self._as_float(
+                qcfg.get("co2_bad_frame_isolated_spike_delta_ppm", 50.0)
+            ),
+            "neighbor_match_max_delta_ppm": self._as_float(
+                qcfg.get("co2_bad_frame_neighbor_match_max_delta_ppm", 8.0)
             ),
         }
 
@@ -15040,7 +15075,7 @@ class CalibrationRunner:
             )
         return reasons
 
-    def _evaluate_co2_steady_state_window_qc(
+    def _evaluate_co2_steady_state_window_qc_legacy(
         self,
         point: CalibrationPoint,
         *,
@@ -15166,6 +15201,445 @@ class CalibrationRunner:
             "CO2 steady-state window "
             f"{result['co2_steady_window_status']}: point={point.index} "
             f"{result['co2_steady_window_reason']}"
+        )
+        self._set_point_runtime_fields(point, phase=phase, **result)
+        return result
+
+    def _co2_bad_frame_quarantine_cfg(self) -> Dict[str, Any]:
+        frame_cfg = self._analyzer_frame_quality_cfg()
+        temp_cfg = dict(self.cfg.get("temperature_calibration", {}).get("plausibility", {}) or {})
+        invalid_sentinels, invalid_sentinel_tol = self._frame_quality_sentinel_config()
+        return {
+            "hard_bad_status_tokens": self._frame_quality_key_set(
+                frame_cfg.get("runtime_hard_bad_status_tokens"),
+                ["FAIL", "INVALID", "ERROR"],
+            ),
+            "soft_bad_status_tokens": self._frame_quality_key_set(
+                frame_cfg.get("runtime_soft_bad_status_tokens"),
+                ["NO_RESPONSE", "NO_ACK"],
+            ),
+            "invalid_sentinel_values": invalid_sentinels,
+            "invalid_sentinel_tolerance": invalid_sentinel_tol,
+            "hard_bad_temp_values_c": list(temp_cfg.get("hard_bad_values_c", [-40.0, 60.0]) or []),
+            "hard_bad_temp_value_tolerance_c": float(temp_cfg.get("hard_bad_value_tolerance_c", 0.05) or 0.05),
+        }
+
+    def _co2_source_candidate_specs(self) -> List[Dict[str, Any]]:
+        specs: List[Dict[str, Any]] = [
+            {
+                "source": "primary",
+                "value_key": "co2_ppm",
+                "usable_flag_key": "frame_usable",
+                "status_key": "frame_status",
+                "chamber_temp_key": "chamber_temp_c",
+                "case_temp_key": "case_temp_c",
+                "priority": 0,
+            }
+        ]
+        for idx, (label, _, _) in enumerate(self._all_gas_analyzers(), start=1):
+            prefix = self._safe_label(label)
+            specs.append(
+                {
+                    "source": prefix,
+                    "value_key": f"{prefix}_co2_ppm",
+                    "usable_flag_key": f"{prefix}_frame_usable",
+                    "status_key": f"{prefix}_frame_status",
+                    "chamber_temp_key": f"{prefix}_chamber_temp_c",
+                    "case_temp_key": f"{prefix}_case_temp_c",
+                    "priority": idx,
+                }
+            )
+        return specs
+
+    def _co2_source_rows_for_quarantine(
+        self,
+        samples: List[Dict[str, Any]],
+        *,
+        spec: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        rows: List[Dict[str, Any]] = []
+        for row_idx, row in enumerate(samples or []):
+            ts = self._sample_row_wall_ts(row, key="sample_end_ts")
+            if ts is None:
+                ts = self._sample_row_wall_ts(row, key="sample_ts")
+            rows.append(
+                {
+                    "sample_index": row_idx + 1,
+                    "sample_ts": float(row_idx) if ts is None else ts,
+                    "value": self._to_numeric_for_mean(row.get(str(spec.get("value_key") or ""))),
+                    "usable": row.get(str(spec.get("usable_flag_key") or "")),
+                    "frame_status": row.get(str(spec.get("status_key") or "")),
+                    "chamber_temp_c": self._as_float(row.get(str(spec.get("chamber_temp_key") or ""))),
+                    "case_temp_c": self._as_float(row.get(str(spec.get("case_temp_key") or ""))),
+                }
+            )
+        return rows
+
+    def _co2_source_candidates_summary(self, candidates: List[Dict[str, Any]]) -> str:
+        parts: List[str] = []
+        for candidate in candidates or []:
+            parts.append(
+                f"{candidate.get('source')}[trust={candidate.get('trust_status')},"
+                f"rows={candidate.get('rows_after_quarantine')}/{candidate.get('rows_before_quarantine')},"
+                f"hard={candidate.get('co2_bad_frame_count')},soft={candidate.get('co2_soft_warn_count')},"
+                f"steady={1 if candidate.get('has_steady_window') else 0}]"
+            )
+        return ";".join(parts)
+
+    def _co2_window_selection_key(self, metrics: Dict[str, Any]) -> Tuple[Any, ...]:
+        return (
+            self._as_int(metrics.get("co2_steady_window_end_sample_index")) or 0,
+            self._as_int(metrics.get("co2_steady_window_sample_count")) or 0,
+            -(self._as_float(metrics.get("co2_steady_window_std_ppm")) or 0.0),
+            -abs(self._as_float(metrics.get("co2_steady_window_slope_ppm_per_s")) or 0.0),
+            -(self._as_float(metrics.get("co2_steady_window_range_ppm")) or 0.0),
+        )
+
+    def _co2_candidate_selection_key(self, candidate: Dict[str, Any]) -> Tuple[Any, ...]:
+        chosen = dict(candidate.get("chosen_metrics") or {})
+        return (
+            int(candidate.get("trust_rank") or 0),
+            *self._co2_window_selection_key(chosen),
+            self._as_int(candidate.get("rows_after_quarantine")) or 0,
+            -(self._as_float(candidate.get("co2_bad_frame_ratio")) or 0.0),
+            -(self._as_float(candidate.get("co2_soft_warn_ratio")) or 0.0),
+            -int(candidate.get("source_priority") or 0),
+        )
+
+    def _annotate_co2_source_row_diagnostics(
+        self,
+        samples: List[Dict[str, Any]],
+        *,
+        diagnostic_candidate: Optional[Dict[str, Any]],
+        selected_source: Optional[str],
+    ) -> None:
+        candidate = diagnostic_candidate or {}
+        row_diagnostics = dict(candidate.get("row_diagnostics") or {})
+        candidate_source = str(candidate.get("source") or "")
+        for row_idx, row in enumerate(samples or []):
+            diag = dict(row_diagnostics.get(row_idx + 1) or {})
+            row["co2_source_candidate"] = candidate_source
+            row["co2_source_selected_for_value"] = str(selected_source or "")
+            row["co2_bad_frame"] = bool(diag.get("co2_bad_frame"))
+            row["co2_bad_frame_reason"] = str(diag.get("co2_bad_frame_reason") or "")
+            row["co2_soft_warn"] = bool(diag.get("co2_soft_warn"))
+            row["co2_soft_warn_reason"] = str(diag.get("co2_soft_warn_reason") or "")
+
+    def _evaluate_co2_steady_state_window_qc(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        samples: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        cfg = self._co2_steady_state_qc_cfg()
+        if not bool(cfg.get("bad_frame_quarantine_enabled")) and not bool(cfg.get("source_trust_enabled")):
+            return self._evaluate_co2_steady_state_window_qc_legacy(point, phase=phase, samples=samples)
+
+        policy = str(cfg.get("policy") or "warn").lower()
+        result: Dict[str, Any] = {
+            "measured_value_source": None,
+            "co2_steady_window_found": None,
+            "co2_steady_window_status": "skipped",
+            "co2_steady_window_reason": "",
+            "co2_steady_window_analyzer_source": None,
+            "co2_steady_window_value_key": None,
+            "co2_steady_window_candidate_count": 0,
+            "co2_steady_window_start_sample_index": None,
+            "co2_steady_window_end_sample_index": None,
+            "co2_steady_window_start_ts": None,
+            "co2_steady_window_end_ts": None,
+            "co2_steady_window_sample_count": None,
+            "co2_steady_window_mean_ppm": None,
+            "co2_steady_window_std_ppm": None,
+            "co2_steady_window_range_ppm": None,
+            "co2_steady_window_slope_ppm_per_s": None,
+            "co2_representative_value": None,
+            "co2_bad_frame_count": 0,
+            "co2_bad_frame_ratio": 0.0,
+            "co2_soft_warn_count": 0,
+            "co2_soft_warn_ratio": 0.0,
+            "co2_rows_before_quarantine": 0,
+            "co2_rows_after_quarantine": 0,
+            "co2_source_selected": None,
+            "co2_source_candidates": "",
+            "co2_source_switch_reason": "",
+            "co2_source_trust_reason": "",
+            "co2_quarantine_reason_summary": "",
+        }
+        if str(phase or "").strip().lower() != "co2":
+            result["co2_steady_window_reason"] = "not_co2_phase"
+            self._set_point_runtime_fields(point, phase=phase, **result)
+            return result
+        if not bool(cfg.get("enabled")):
+            result["co2_steady_window_reason"] = "qc_disabled"
+            self._set_point_runtime_fields(point, phase=phase, **result)
+            return result
+        if policy == "off":
+            result["co2_steady_window_reason"] = "policy_off"
+            self._set_point_runtime_fields(point, phase=phase, **result)
+            return result
+
+        quarantine_cfg = self._co2_bad_frame_quarantine_cfg()
+        source_specs = list(self._co2_source_candidate_specs())
+        if not bool(cfg.get("source_trust_enabled")):
+            legacy_value_key, legacy_flag_key, legacy_source = self._primary_or_first_usable_analyzer_source(
+                samples,
+                "co2_ppm",
+            )
+            narrowed = [
+                spec
+                for spec in source_specs
+                if str(spec.get("value_key") or "") == legacy_value_key
+                and str(spec.get("usable_flag_key") or "") == legacy_flag_key
+                and str(spec.get("source") or "") == legacy_source
+            ]
+            if narrowed:
+                source_specs = narrowed
+
+        candidates: List[Dict[str, Any]] = []
+        min_samples = int(cfg.get("min_samples") or 0)
+        fallback_samples = max(int(cfg.get("fallback_samples") or min_samples), min_samples)
+        for spec in source_specs:
+            rows = self._co2_source_rows_for_quarantine(samples, spec=spec)
+            if bool(cfg.get("bad_frame_quarantine_enabled")):
+                quarantine = quarantine_co2_source_rows(
+                    rows,
+                    hard_bad_status_tokens=list(quarantine_cfg.get("hard_bad_status_tokens") or []),
+                    soft_bad_status_tokens=list(quarantine_cfg.get("soft_bad_status_tokens") or []),
+                    invalid_sentinel_values=list(quarantine_cfg.get("invalid_sentinel_values") or []),
+                    invalid_sentinel_tolerance=float(quarantine_cfg.get("invalid_sentinel_tolerance") or 0.0),
+                    hard_bad_temp_values_c=list(quarantine_cfg.get("hard_bad_temp_values_c") or []),
+                    hard_bad_temp_value_tolerance_c=float(
+                        quarantine_cfg.get("hard_bad_temp_value_tolerance_c") or 0.05
+                    ),
+                    isolated_spike_delta_ppm=cfg.get("isolated_spike_delta_ppm"),
+                    isolated_neighbor_match_delta_ppm=cfg.get("neighbor_match_max_delta_ppm"),
+                )
+            else:
+                pass_through_series = [
+                    {
+                        "sample_index": int(row.get("sample_index") or 0),
+                        "sample_ts": row.get("sample_ts"),
+                        "value": row.get("value"),
+                    }
+                    for row in rows
+                    if row.get("value") is not None
+                    and (row.get("usable") not in (False,))
+                ]
+                quarantine = {
+                    "series": pass_through_series,
+                    "rows_before": len(rows),
+                    "rows_after": len(pass_through_series),
+                    "hard_reject_count": 0,
+                    "hard_reject_ratio": 0.0,
+                    "soft_warn_count": 0,
+                    "soft_warn_ratio": 0.0,
+                    "hard_reject_reason_summary": "",
+                    "soft_warn_reason_summary": "",
+                    "row_diagnostics": {
+                        int(row.get("sample_index") or 0): {
+                            "co2_bad_frame": False,
+                            "co2_bad_frame_reason": "",
+                            "co2_soft_warn": False,
+                            "co2_soft_warn_reason": "",
+                        }
+                        for row in rows
+                    },
+                }
+
+            candidate: Dict[str, Any] = {
+                "source": str(spec.get("source") or "primary"),
+                "source_priority": int(spec.get("priority") or 0),
+                "value_key": str(spec.get("value_key") or "co2_ppm"),
+                "rows_before_quarantine": int(quarantine.get("rows_before") or 0),
+                "rows_after_quarantine": int(quarantine.get("rows_after") or 0),
+                "co2_bad_frame_count": int(quarantine.get("hard_reject_count") or 0),
+                "co2_bad_frame_ratio": float(quarantine.get("hard_reject_ratio") or 0.0),
+                "co2_soft_warn_count": int(quarantine.get("soft_warn_count") or 0),
+                "co2_soft_warn_ratio": float(quarantine.get("soft_warn_ratio") or 0.0),
+                "co2_quarantine_reason_summary": ";".join(
+                    part
+                    for part in (
+                        f"hard={quarantine.get('hard_reject_reason_summary')}"
+                        if quarantine.get("hard_reject_reason_summary")
+                        else "",
+                        f"soft={quarantine.get('soft_warn_reason_summary')}"
+                        if quarantine.get("soft_warn_reason_summary")
+                        else "",
+                    )
+                    if part
+                ),
+                "row_diagnostics": dict(quarantine.get("row_diagnostics") or {}),
+                "series": list(quarantine.get("series") or []),
+                "trust_rank": 0,
+                "trust_status": "untrusted",
+                "trust_reason": "",
+                "has_steady_window": False,
+                "chosen_metrics": None,
+                "steady_window_candidate_count": 0,
+            }
+
+            series = list(candidate.get("series") or [])
+            if len(series) < min_samples:
+                candidate["trust_reason"] = (
+                    f"rows_after_quarantine={len(series)}<min_samples={min_samples}"
+                )
+                candidates.append(candidate)
+                continue
+
+            candidate_metrics: List[Dict[str, Any]] = []
+            for start_idx in range(len(series)):
+                for end_idx in range(start_idx + min_samples - 1, len(series)):
+                    metrics = self._co2_steady_state_window_metrics(
+                        series[start_idx : end_idx + 1],
+                        value_key=str(candidate.get("value_key") or "co2_ppm"),
+                        analyzer_source=str(candidate.get("source") or "primary"),
+                    )
+                    if self._co2_steady_state_window_failures(metrics, cfg=cfg):
+                        continue
+                    candidate_metrics.append(metrics)
+            if candidate_metrics:
+                chosen = max(candidate_metrics, key=self._co2_window_selection_key)
+                candidate["trust_rank"] = 2
+                candidate["trust_status"] = "steady"
+                candidate["trust_reason"] = (
+                    f"steady_window_candidates={len(candidate_metrics)};"
+                    f"rows_after_quarantine={len(series)}"
+                )
+                candidate["has_steady_window"] = True
+                candidate["chosen_metrics"] = chosen
+                candidate["steady_window_candidate_count"] = len(candidate_metrics)
+                candidates.append(candidate)
+                continue
+
+            fallback_series = series[-fallback_samples:] if fallback_samples > 0 else []
+            if not fallback_series:
+                candidate["trust_reason"] = f"rows_after_quarantine={len(series)}<fallback_samples={fallback_samples}"
+                candidates.append(candidate)
+                continue
+            fallback_metrics = self._co2_steady_state_window_metrics(
+                fallback_series,
+                value_key=str(candidate.get("value_key") or "co2_ppm"),
+                analyzer_source=str(candidate.get("source") or "primary"),
+            )
+            fallback_reasons = self._co2_steady_state_window_failures(fallback_metrics, cfg=cfg)
+            candidate["trust_rank"] = 1
+            candidate["trust_status"] = "fallback"
+            candidate["trust_reason"] = ";".join(
+                [
+                    "no_qualified_steady_state_window",
+                    *fallback_reasons,
+                    "fallback=trailing_window",
+                ]
+            )
+            candidate["chosen_metrics"] = fallback_metrics
+            candidates.append(candidate)
+
+        result["co2_source_candidates"] = self._co2_source_candidates_summary(candidates)
+        diagnostic_candidate = None
+        if candidates:
+            diagnostic_candidate = max(
+                candidates,
+                key=lambda item: (
+                    self._as_int(item.get("rows_after_quarantine")) or 0,
+                    -(self._as_float(item.get("co2_bad_frame_ratio")) or 0.0),
+                    -(self._as_float(item.get("co2_soft_warn_ratio")) or 0.0),
+                    -int(item.get("source_priority") or 0),
+                ),
+            )
+
+        trusted_candidates = [candidate for candidate in candidates if int(candidate.get("trust_rank") or 0) > 0]
+        if not trusted_candidates:
+            result.update(
+                {
+                    "co2_steady_window_found": False,
+                    "co2_steady_window_status": "fail" if policy == "reject" else "warn",
+                    "co2_steady_window_reason": f"no_trusted_source_after_quarantine;policy={policy}",
+                    "measured_value_source": "co2_no_trusted_source",
+                    "co2_source_trust_reason": "no_trusted_source_after_quarantine",
+                }
+            )
+            if diagnostic_candidate is not None:
+                result.update(
+                    {
+                        "co2_bad_frame_count": diagnostic_candidate.get("co2_bad_frame_count"),
+                        "co2_bad_frame_ratio": diagnostic_candidate.get("co2_bad_frame_ratio"),
+                        "co2_soft_warn_count": diagnostic_candidate.get("co2_soft_warn_count"),
+                        "co2_soft_warn_ratio": diagnostic_candidate.get("co2_soft_warn_ratio"),
+                        "co2_rows_before_quarantine": diagnostic_candidate.get("rows_before_quarantine"),
+                        "co2_rows_after_quarantine": diagnostic_candidate.get("rows_after_quarantine"),
+                        "co2_quarantine_reason_summary": diagnostic_candidate.get("co2_quarantine_reason_summary"),
+                    }
+                )
+            self._annotate_co2_source_row_diagnostics(
+                samples,
+                diagnostic_candidate=diagnostic_candidate,
+                selected_source=None,
+            )
+            self._set_point_runtime_fields(point, phase=phase, **result)
+            return result
+
+        selected = max(trusted_candidates, key=self._co2_candidate_selection_key)
+        primary_candidate = next(
+            (candidate for candidate in candidates if str(candidate.get("source") or "") == "primary"),
+            None,
+        )
+        result.update(
+            {
+                "co2_bad_frame_count": selected.get("co2_bad_frame_count"),
+                "co2_bad_frame_ratio": selected.get("co2_bad_frame_ratio"),
+                "co2_soft_warn_count": selected.get("co2_soft_warn_count"),
+                "co2_soft_warn_ratio": selected.get("co2_soft_warn_ratio"),
+                "co2_rows_before_quarantine": selected.get("rows_before_quarantine"),
+                "co2_rows_after_quarantine": selected.get("rows_after_quarantine"),
+                "co2_source_selected": selected.get("source"),
+                "co2_quarantine_reason_summary": selected.get("co2_quarantine_reason_summary"),
+                "co2_source_trust_reason": str(selected.get("trust_reason") or ""),
+            }
+        )
+        if str(selected.get("source") or "") != "primary" and primary_candidate is not None:
+            result["co2_source_switch_reason"] = (
+                f"primary_lost_to={selected.get('source')};"
+                f"primary_status={primary_candidate.get('trust_status')};"
+                f"primary_reason={primary_candidate.get('trust_reason')}"
+            )
+
+        chosen = dict(selected.get("chosen_metrics") or {})
+        if int(selected.get("trust_rank") or 0) >= 2:
+            result.update(chosen)
+            result["co2_steady_window_found"] = True
+            result["co2_steady_window_status"] = "pass"
+            result["co2_steady_window_candidate_count"] = selected.get("steady_window_candidate_count")
+            result["co2_representative_value"] = chosen.get("co2_steady_window_mean_ppm")
+            result["measured_value_source"] = "co2_steady_state_window"
+        else:
+            fallback_reasons = self._co2_steady_state_window_failures(chosen, cfg=cfg)
+            result.update(chosen)
+            result["co2_steady_window_found"] = False
+            result["co2_steady_window_candidate_count"] = 0
+            result["co2_steady_window_status"] = "fail" if policy == "reject" else "warn"
+            result["co2_steady_window_reason"] = ";".join(
+                [
+                    "no_qualified_steady_state_window",
+                    *fallback_reasons,
+                    "fallback=trailing_window",
+                    f"source={selected.get('source')}",
+                    f"policy={policy}",
+                ]
+            )
+            result["co2_representative_value"] = chosen.get("co2_steady_window_mean_ppm")
+            result["measured_value_source"] = "co2_trailing_window_fallback"
+            self.log(
+                "CO2 steady-state window "
+                f"{result['co2_steady_window_status']}: point={point.index} "
+                f"{result['co2_steady_window_reason']}"
+            )
+
+        self._annotate_co2_source_row_diagnostics(
+            samples,
+            diagnostic_candidate=selected,
+            selected_source=str(selected.get("source") or ""),
         )
         self._set_point_runtime_fields(point, phase=phase, **result)
         return result

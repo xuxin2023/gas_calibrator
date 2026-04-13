@@ -30,6 +30,10 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["sampling"]["quality"]["co2_steady_state_max_std_ppm"] == 3.0
     assert cfg["workflow"]["sampling"]["quality"]["co2_steady_state_max_range_ppm"] == 8.0
     assert cfg["workflow"]["sampling"]["quality"]["co2_steady_state_max_abs_slope_ppm_per_s"] == 1.0
+    assert cfg["workflow"]["sampling"]["quality"]["co2_bad_frame_quarantine_enabled"] is True
+    assert cfg["workflow"]["sampling"]["quality"]["co2_source_trust_enabled"] is True
+    assert cfg["workflow"]["sampling"]["quality"]["co2_bad_frame_isolated_spike_delta_ppm"] == 50.0
+    assert cfg["workflow"]["sampling"]["quality"]["co2_bad_frame_neighbor_match_max_delta_ppm"] == 8.0
     assert cfg["workflow"]["analyzer_frame_quality"]["pressure_kpa_min"] == 30.0
     assert cfg["workflow"]["analyzer_frame_quality"]["runtime_relaxed_for_required_key"] is True
     assert cfg["workflow"]["analyzer_frame_quality"]["runtime_hard_bad_status_tokens"] == [
