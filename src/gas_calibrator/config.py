@@ -79,6 +79,13 @@ _RUNTIME_DEFAULTS: Dict[str, Any] = {
             "pace_state_cache_enabled": True,
             "quality": {
                 "per_analyzer": False,
+                "co2_steady_state_enabled": True,
+                "co2_steady_state_policy": "warn",
+                "co2_steady_state_min_samples": 4,
+                "co2_steady_state_fallback_samples": 4,
+                "co2_steady_state_max_std_ppm": 3.0,
+                "co2_steady_state_max_range_ppm": 8.0,
+                "co2_steady_state_max_abs_slope_ppm_per_s": 1.0,
             }
         },
         "summary_alignment": {

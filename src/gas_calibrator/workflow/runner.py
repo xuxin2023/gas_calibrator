@@ -2569,6 +2569,21 @@ class CalibrationRunner:
                     sampling_window_qc_reason or "sampling_window_qc",
                 )
 
+        steady_window_status = str(state.get("co2_steady_window_status") or "").strip().lower()
+        steady_window_reason = str(state.get("co2_steady_window_reason") or "").strip()
+        if steady_window_status == "warn":
+            _add_issue(
+                "co2_steady_window",
+                "warn",
+                steady_window_reason or "co2_steady_window",
+            )
+        elif steady_window_status == "fail":
+            _add_issue(
+                "co2_steady_window",
+                "fail",
+                steady_window_reason or "co2_steady_window",
+            )
+
         stale_ratio = self._as_float(state.get("pressure_gauge_stale_ratio"))
         stale_warn_max = self._as_float(self._wf("workflow.sampling.pressure_gauge_stale_ratio_warn_max", None))
         stale_reject_max = self._as_float(self._wf("workflow.sampling.pressure_gauge_stale_ratio_reject_max", None))
@@ -2674,6 +2689,22 @@ class CalibrationRunner:
             "sampling_window_dewpoint_slope_c_per_s",
             "sampling_window_qc_status",
             "sampling_window_qc_reason",
+            "measured_value_source",
+            "co2_steady_window_found",
+            "co2_steady_window_status",
+            "co2_steady_window_reason",
+            "co2_steady_window_analyzer_source",
+            "co2_steady_window_value_key",
+            "co2_steady_window_candidate_count",
+            "co2_steady_window_start_sample_index",
+            "co2_steady_window_end_sample_index",
+            "co2_steady_window_start_ts",
+            "co2_steady_window_end_ts",
+            "co2_steady_window_sample_count",
+            "co2_steady_window_mean_ppm",
+            "co2_steady_window_std_ppm",
+            "co2_steady_window_range_ppm",
+            "co2_steady_window_slope_ppm_per_s",
             "pressure_gauge_stale_count",
             "pressure_gauge_total_count",
             "pressure_gauge_stale_ratio",
@@ -4573,6 +4604,7 @@ class CalibrationRunner:
     def _effective_postrun_corrected_delivery_cfg(self) -> Dict[str, Any]:
         raw_cfg = self.cfg.get("workflow", {}).get("postrun_corrected_delivery", {})
         cfg = dict(raw_cfg or {}) if isinstance(raw_cfg, dict) else {}
+        explicit_cfg_present = isinstance(raw_cfg, dict) and bool(raw_cfg)
         verify_short_run_cfg = dict(cfg.get("verify_short_run", {}) or {})
 
         enabled, enabled_source = self._resolve_postrun_bool(
@@ -4586,6 +4618,11 @@ class CalibrationRunner:
                 "GAS_CAL_ALLOW_REAL_DEVICE_WRITE",
             ),
         )
+        if not explicit_cfg_present:
+            if enabled_source == "default":
+                enabled = False
+            if write_source == "default":
+                write_devices = False
         if not enabled:
             write_devices = False
             if write_source.startswith("ENV:"):
@@ -13835,6 +13872,14 @@ class CalibrationRunner:
         gas_type = self._point_gas_type(point, phase=phase)
         target_value = self._point_target_value(point, phase=phase)
         measured_value = h2o_mean_primary_or_first if gas_type == "H2O" else co2_mean_primary_or_first
+        measured_value_source = "primary_or_first_usable_full_window_mean"
+        if gas_type == "CO2":
+            representative_value = self._as_float(runtime_state.get("co2_representative_value"))
+            if representative_value is not None:
+                measured_value = representative_value
+                measured_value_source = str(
+                    runtime_state.get("measured_value_source") or "co2_steady_state_window"
+                )
         window_start_ts = samples[0].get("sample_ts") if samples else None
         last_sample = samples[-1] if samples else {}
         window_end_ts = last_sample.get("sample_end_ts") or last_sample.get("sample_ts")
@@ -13849,6 +13894,7 @@ class CalibrationRunner:
             "point_no": point.index,
             "target_value": target_value,
             "measured_value": measured_value,
+            "measured_value_source": measured_value_source,
             "sample_ts": sample_ts,
             "window_start_ts": window_start_ts,
             "window_end_ts": window_end_ts,
@@ -13923,6 +13969,21 @@ class CalibrationRunner:
             "sampling_window_dewpoint_slope_c_per_s": runtime_state.get("sampling_window_dewpoint_slope_c_per_s"),
             "sampling_window_qc_status": runtime_state.get("sampling_window_qc_status"),
             "sampling_window_qc_reason": runtime_state.get("sampling_window_qc_reason"),
+            "co2_steady_window_found": runtime_state.get("co2_steady_window_found"),
+            "co2_steady_window_status": runtime_state.get("co2_steady_window_status"),
+            "co2_steady_window_reason": runtime_state.get("co2_steady_window_reason"),
+            "co2_steady_window_analyzer_source": runtime_state.get("co2_steady_window_analyzer_source"),
+            "co2_steady_window_value_key": runtime_state.get("co2_steady_window_value_key"),
+            "co2_steady_window_candidate_count": runtime_state.get("co2_steady_window_candidate_count"),
+            "co2_steady_window_start_sample_index": runtime_state.get("co2_steady_window_start_sample_index"),
+            "co2_steady_window_end_sample_index": runtime_state.get("co2_steady_window_end_sample_index"),
+            "co2_steady_window_start_ts": runtime_state.get("co2_steady_window_start_ts"),
+            "co2_steady_window_end_ts": runtime_state.get("co2_steady_window_end_ts"),
+            "co2_steady_window_sample_count": runtime_state.get("co2_steady_window_sample_count"),
+            "co2_steady_window_mean_ppm": runtime_state.get("co2_steady_window_mean_ppm"),
+            "co2_steady_window_std_ppm": runtime_state.get("co2_steady_window_std_ppm"),
+            "co2_steady_window_range_ppm": runtime_state.get("co2_steady_window_range_ppm"),
+            "co2_steady_window_slope_ppm_per_s": runtime_state.get("co2_steady_window_slope_ppm_per_s"),
             "dewpoint_time_to_gate": runtime_state.get("dewpoint_time_to_gate"),
             "dewpoint_tail_span_60s": runtime_state.get("dewpoint_tail_span_60s"),
             "dewpoint_tail_slope_60s": runtime_state.get("dewpoint_tail_slope_60s"),
@@ -14008,6 +14069,10 @@ class CalibrationRunner:
     def _stable_flag_from_runtime_state(self, runtime_state: Dict[str, Any]) -> bool:
         if bool(runtime_state.get("point_quality_blocked", False)):
             return False
+        steady_window_found = runtime_state.get("co2_steady_window_found")
+        steady_window_status = str(runtime_state.get("co2_steady_window_status") or "").strip().lower()
+        if steady_window_found is False and steady_window_status in {"warn", "fail"}:
+            return False
         for key in ("sampling_window_qc_status", "point_quality_status", "flush_gate_status"):
             status = str(runtime_state.get(key) or "").strip().lower()
             if status in {"fail", "failed", "reject", "rejected", "timeout"}:
@@ -14030,6 +14095,8 @@ class CalibrationRunner:
         window_end_ts = samples[-1].get("sample_end_ts") or samples[-1].get("sample_ts")
         runtime_state = dict(self._point_runtime_state(point, phase=phase) or {})
         stable_flag = self._stable_flag_from_runtime_state(runtime_state)
+        representative_value = self._as_float(runtime_state.get("co2_representative_value"))
+        measured_value_source = str(runtime_state.get("measured_value_source") or "").strip()
         for row in samples:
             row["run_id"] = getattr(self.logger, "run_id", "")
             row["session_id"] = getattr(self.logger, "run_id", "")
@@ -14037,7 +14104,13 @@ class CalibrationRunner:
             row["step"] = phase
             row["point_no"] = point.index
             row["target_value"] = target_value
-            row["measured_value"] = self._as_float(row.get("h2o_mmol" if gas_type == "H2O" else "co2_ppm"))
+            row["measured_value"] = (
+                representative_value
+                if gas_type == "CO2" and representative_value is not None
+                else self._as_float(row.get("h2o_mmol" if gas_type == "H2O" else "co2_ppm"))
+            )
+            if measured_value_source:
+                row["measured_value_source"] = measured_value_source
             row["window_start_ts"] = window_start_ts
             row["window_end_ts"] = window_end_ts
             row["sample_count"] = len(samples)
@@ -14760,6 +14833,31 @@ class CalibrationRunner:
             return 0.0
         return max(values) - min(values)
 
+    def _co2_steady_state_qc_cfg(self) -> Dict[str, Any]:
+        qcfg = self.cfg.get("workflow", {}).get("sampling", {}).get("quality", {})
+        min_samples = self._as_int(qcfg.get("co2_steady_state_min_samples"))
+        fallback_samples = self._as_int(qcfg.get("co2_steady_state_fallback_samples"))
+        return {
+            "enabled": bool(qcfg.get("co2_steady_state_enabled", True)),
+            "policy": self._normalized_policy(
+                qcfg.get("co2_steady_state_policy"),
+                allowed={"off", "warn", "reject"},
+                default="warn",
+            ),
+            "min_samples": max(2, min_samples if min_samples is not None else 4),
+            "fallback_samples": max(
+                2,
+                fallback_samples
+                if fallback_samples is not None
+                else (min_samples if min_samples is not None else 4),
+            ),
+            "max_std_ppm": float(qcfg.get("co2_steady_state_max_std_ppm", 3.0) or 3.0),
+            "max_range_ppm": float(qcfg.get("co2_steady_state_max_range_ppm", 8.0) or 8.0),
+            "max_abs_slope_ppm_per_s": float(
+                qcfg.get("co2_steady_state_max_abs_slope_ppm_per_s", 1.0) or 1.0
+            ),
+        }
+
     @staticmethod
     def _to_numeric_for_mean(value: Any) -> Optional[float]:
         if value is None or isinstance(value, bool):
@@ -14821,6 +14919,256 @@ class CalibrationRunner:
             if vals:
                 return vals
         return []
+
+    def _primary_or_first_usable_analyzer_source(
+        self,
+        samples: List[Dict[str, Any]],
+        key: str,
+    ) -> Tuple[str, str, str]:
+        vals = self._numeric_series_for_key(samples, key, usable_flag_key="frame_usable")
+        if vals:
+            return key, "frame_usable", "primary"
+        for label, _, _ in self._all_gas_analyzers():
+            prefix = self._safe_label(label)
+            vals = self._numeric_series_for_key(
+                samples,
+                f"{prefix}_{key}",
+                usable_flag_key=f"{prefix}_frame_usable",
+            )
+            if vals:
+                return f"{prefix}_{key}", f"{prefix}_frame_usable", prefix
+        return key, "frame_usable", "primary"
+
+    def _primary_or_first_usable_analyzer_window_series(
+        self,
+        samples: List[Dict[str, Any]],
+        key: str,
+    ) -> Dict[str, Any]:
+        value_key, usable_flag_key, analyzer_source = self._primary_or_first_usable_analyzer_source(samples, key)
+        series: List[Dict[str, Any]] = []
+        for row_idx, row in enumerate(samples or []):
+            flag_value = row.get(usable_flag_key)
+            if flag_value not in (None, "") and not bool(flag_value):
+                continue
+            value = self._to_numeric_for_mean(row.get(value_key))
+            if value is None:
+                continue
+            ts = self._sample_row_wall_ts(row, key="sample_end_ts")
+            if ts is None:
+                ts = self._sample_row_wall_ts(row, key="sample_ts")
+            if ts is None:
+                ts = float(row_idx)
+            series.append(
+                {
+                    "sample_index": row_idx + 1,
+                    "sample_ts": ts,
+                    "value": value,
+                }
+            )
+        return {
+            "value_key": value_key,
+            "usable_flag_key": usable_flag_key,
+            "analyzer_source": analyzer_source,
+            "series": series,
+        }
+
+    def _co2_steady_state_window_metrics(
+        self,
+        series: List[Dict[str, Any]],
+        *,
+        value_key: str,
+        analyzer_source: str,
+    ) -> Dict[str, Any]:
+        values = [float(entry["value"]) for entry in series]
+        metrics = self._numeric_series_metrics(
+            [(float(entry["sample_ts"]), float(entry["value"])) for entry in series]
+        )
+        std_ppm = stdev(values) if len(values) > 1 else 0.0
+        return {
+            "co2_steady_window_analyzer_source": analyzer_source,
+            "co2_steady_window_value_key": value_key,
+            "co2_steady_window_start_sample_index": self._as_int(series[0].get("sample_index")),
+            "co2_steady_window_end_sample_index": self._as_int(series[-1].get("sample_index")),
+            "co2_steady_window_start_ts": (
+                self._ts_from_datetime(datetime.fromtimestamp(float(series[0]["sample_ts"])))
+                if self._as_float(series[0].get("sample_ts")) is not None
+                else None
+            ),
+            "co2_steady_window_end_ts": (
+                self._ts_from_datetime(datetime.fromtimestamp(float(series[-1]["sample_ts"])))
+                if self._as_float(series[-1].get("sample_ts")) is not None
+                else None
+            ),
+            "co2_steady_window_sample_count": len(series),
+            "co2_steady_window_mean_ppm": round(mean(values), 6),
+            "co2_steady_window_std_ppm": round(float(std_ppm), 6),
+            "co2_steady_window_range_ppm": round(float(metrics.get("span") or 0.0), 6),
+            "co2_steady_window_slope_ppm_per_s": round(float(metrics.get("slope_per_s") or 0.0), 6),
+        }
+
+    def _co2_steady_state_window_failures(
+        self,
+        metrics: Dict[str, Any],
+        *,
+        cfg: Dict[str, Any],
+    ) -> List[str]:
+        reasons: List[str] = []
+        sample_count = self._as_int(metrics.get("co2_steady_window_sample_count")) or 0
+        min_samples = int(cfg.get("min_samples") or 0)
+        if sample_count < min_samples:
+            reasons.append(f"sample_count={sample_count}<min_samples={min_samples}")
+        std_ppm = self._as_float(metrics.get("co2_steady_window_std_ppm"))
+        max_std_ppm = self._as_float(cfg.get("max_std_ppm"))
+        if std_ppm is None:
+            reasons.append("std_ppm=NA")
+        elif max_std_ppm is not None and std_ppm > max_std_ppm:
+            reasons.append(f"std_ppm={std_ppm:.3f}>max_std_ppm={max_std_ppm:.3f}")
+        range_ppm = self._as_float(metrics.get("co2_steady_window_range_ppm"))
+        max_range_ppm = self._as_float(cfg.get("max_range_ppm"))
+        if range_ppm is None:
+            reasons.append("range_ppm=NA")
+        elif max_range_ppm is not None and range_ppm > max_range_ppm:
+            reasons.append(f"range_ppm={range_ppm:.3f}>max_range_ppm={max_range_ppm:.3f}")
+        slope_ppm_per_s = self._as_float(metrics.get("co2_steady_window_slope_ppm_per_s"))
+        max_abs_slope_ppm_per_s = self._as_float(cfg.get("max_abs_slope_ppm_per_s"))
+        if slope_ppm_per_s is None:
+            reasons.append("abs_slope_ppm_per_s=NA")
+        elif max_abs_slope_ppm_per_s is not None and abs(slope_ppm_per_s) > max_abs_slope_ppm_per_s:
+            reasons.append(
+                "abs_slope_ppm_per_s="
+                f"{abs(slope_ppm_per_s):.4f}>max_abs_slope_ppm_per_s={max_abs_slope_ppm_per_s:.4f}"
+            )
+        return reasons
+
+    def _evaluate_co2_steady_state_window_qc(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        samples: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        cfg = self._co2_steady_state_qc_cfg()
+        policy = str(cfg.get("policy") or "warn").lower()
+        result: Dict[str, Any] = {
+            "measured_value_source": None,
+            "co2_steady_window_found": None,
+            "co2_steady_window_status": "skipped",
+            "co2_steady_window_reason": "",
+            "co2_steady_window_analyzer_source": None,
+            "co2_steady_window_value_key": None,
+            "co2_steady_window_candidate_count": 0,
+            "co2_steady_window_start_sample_index": None,
+            "co2_steady_window_end_sample_index": None,
+            "co2_steady_window_start_ts": None,
+            "co2_steady_window_end_ts": None,
+            "co2_steady_window_sample_count": None,
+            "co2_steady_window_mean_ppm": None,
+            "co2_steady_window_std_ppm": None,
+            "co2_steady_window_range_ppm": None,
+            "co2_steady_window_slope_ppm_per_s": None,
+            "co2_representative_value": None,
+        }
+        if str(phase or "").strip().lower() != "co2":
+            result["co2_steady_window_reason"] = "not_co2_phase"
+            self._set_point_runtime_fields(point, phase=phase, **result)
+            return result
+        if not bool(cfg.get("enabled")):
+            result["co2_steady_window_reason"] = "qc_disabled"
+            self._set_point_runtime_fields(point, phase=phase, **result)
+            return result
+        if policy == "off":
+            result["co2_steady_window_reason"] = "policy_off"
+            self._set_point_runtime_fields(point, phase=phase, **result)
+            return result
+
+        series_info = self._primary_or_first_usable_analyzer_window_series(samples, "co2_ppm")
+        series = list(series_info.get("series") or [])
+        if not series:
+            result.update(
+                {
+                    "co2_steady_window_found": False,
+                    "co2_steady_window_status": "fail" if policy == "reject" else "warn",
+                    "co2_steady_window_reason": f"no_usable_co2_samples;policy={policy}",
+                }
+            )
+            self._set_point_runtime_fields(point, phase=phase, **result)
+            return result
+
+        candidate_metrics: List[Dict[str, Any]] = []
+        min_samples = int(cfg.get("min_samples") or 0)
+        for start_idx in range(len(series)):
+            for end_idx in range(start_idx + min_samples - 1, len(series)):
+                metrics = self._co2_steady_state_window_metrics(
+                    series[start_idx : end_idx + 1],
+                    value_key=str(series_info.get("value_key") or "co2_ppm"),
+                    analyzer_source=str(series_info.get("analyzer_source") or "primary"),
+                )
+                if self._co2_steady_state_window_failures(metrics, cfg=cfg):
+                    continue
+                candidate_metrics.append(metrics)
+
+        result["co2_steady_window_candidate_count"] = len(candidate_metrics)
+        if candidate_metrics:
+            chosen = max(
+                candidate_metrics,
+                key=lambda item: (
+                    self._as_int(item.get("co2_steady_window_end_sample_index")) or 0,
+                    self._as_int(item.get("co2_steady_window_sample_count")) or 0,
+                    -(self._as_float(item.get("co2_steady_window_std_ppm")) or 0.0),
+                    -abs(self._as_float(item.get("co2_steady_window_slope_ppm_per_s")) or 0.0),
+                    -(self._as_float(item.get("co2_steady_window_range_ppm")) or 0.0),
+                ),
+            )
+            result.update(chosen)
+            result["co2_steady_window_found"] = True
+            result["co2_steady_window_status"] = "pass"
+            result["co2_representative_value"] = chosen.get("co2_steady_window_mean_ppm")
+            result["measured_value_source"] = "co2_steady_state_window"
+            self._set_point_runtime_fields(point, phase=phase, **result)
+            return result
+
+        fallback_samples = min(
+            len(series),
+            max(int(cfg.get("fallback_samples") or min_samples), min_samples),
+        )
+        fallback_series = series[-fallback_samples:] if fallback_samples > 0 else []
+        if not fallback_series:
+            result.update(
+                {
+                    "co2_steady_window_found": False,
+                    "co2_steady_window_status": "fail" if policy == "reject" else "warn",
+                    "co2_steady_window_reason": f"no_fallback_samples;policy={policy}",
+                }
+            )
+            self._set_point_runtime_fields(point, phase=phase, **result)
+            return result
+
+        fallback_metrics = self._co2_steady_state_window_metrics(
+            fallback_series,
+            value_key=str(series_info.get("value_key") or "co2_ppm"),
+            analyzer_source=str(series_info.get("analyzer_source") or "primary"),
+        )
+        fallback_reasons = self._co2_steady_state_window_failures(fallback_metrics, cfg=cfg)
+        result.update(fallback_metrics)
+        result["co2_steady_window_found"] = False
+        result["co2_steady_window_status"] = "fail" if policy == "reject" else "warn"
+        result["co2_steady_window_reason"] = ";".join(
+            [
+                "no_qualified_steady_state_window",
+                *fallback_reasons,
+                "fallback=trailing_window",
+                f"policy={policy}",
+            ]
+        )
+        result["co2_representative_value"] = fallback_metrics.get("co2_steady_window_mean_ppm")
+        result["measured_value_source"] = "co2_trailing_window_fallback"
+        self.log(
+            "CO2 steady-state window "
+            f"{result['co2_steady_window_status']}: point={point.index} "
+            f"{result['co2_steady_window_reason']}"
+        )
+        self._set_point_runtime_fields(point, phase=phase, **result)
+        return result
 
     def _fleet_analyzer_point_stats(
         self,
@@ -15739,6 +16087,11 @@ class CalibrationRunner:
             samples=samples,
         )
         self._evaluate_co2_sampling_window_qc(
+            point,
+            phase=phase_text,
+            samples=samples,
+        )
+        self._evaluate_co2_steady_state_window_qc(
             point,
             phase=phase_text,
             samples=samples,
