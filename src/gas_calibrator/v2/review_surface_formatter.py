@@ -1568,7 +1568,7 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
                 t(
                     "results.review_center.detail.readiness.data_completeness_line",
                     value=data_completeness_summary,
-                    default=f"数据完整度：{data_completeness_summary}",
+                    default=f"{_READINESS_DIGEST['data_completeness']}：{data_completeness_summary}",
                 )
             ]
             if data_completeness_summary
@@ -1577,12 +1577,12 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
         t(
             "results.review_center.detail.readiness.boundary_line",
             value=boundary_summary,
-            default=f"{t('results.review_center.detail.boundary', default='边界')}：{boundary_summary}",
+            default=f"{_READINESS_DIGEST['boundary']}：{boundary_summary}",
         ),
         t(
             "results.review_center.detail.readiness.non_claim_line",
             value=non_claim_summary,
-            default=f"{t('results.review_center.detail.readiness.non_claim', default='非声明边界')}：{non_claim_summary}",
+            default=f"{_READINESS_DIGEST['non_claim']}：{non_claim_summary}",
         ),
     ]
 
@@ -1590,77 +1590,77 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
         t(
             "results.review_center.detail.readiness.asset_readiness_overview_line",
             value=asset_readiness_overview,
-            default=f"Asset readiness overview: {asset_readiness_overview}",
+            default=f"{_READINESS_DIGEST['scope_overview']}: {asset_readiness_overview}",
         ),
         t(
             "results.review_center.detail.readiness.certificate_lifecycle_overview_line",
             value=certificate_lifecycle_overview,
-            default=f"Certificate lifecycle overview: {certificate_lifecycle_overview}",
+            default=f"{_READINESS_DIGEST['scope_overview']}: {certificate_lifecycle_overview}",
         ),
         t(
             "results.review_center.detail.readiness.pre_run_gate_status_line",
             value=pre_run_gate_status,
-            default=f"Pre-run gate status: {pre_run_gate_status}",
+            default=f"{_READINESS_DIGEST['readiness_status']}: {pre_run_gate_status}",
         ),
         t(
             "results.review_center.detail.readiness.scope_reference_assets_line",
             value=scope_reference_assets_summary,
-            default=f"Scope reference assets: {scope_reference_assets_summary}",
+            default=f"{_READINESS_DIGEST['scope_overview']}: {scope_reference_assets_summary}",
         ),
         t(
             "results.review_center.detail.readiness.decision_rule_dependency_line",
             value=decision_rule_dependency_summary,
-            default=f"Decision rule dependencies: {decision_rule_dependency_summary}",
+            default=f"{_READINESS_DIGEST['decision_rule']}: {decision_rule_dependency_summary}",
         ),
         t(
             "results.review_center.detail.readiness.current_coverage_line",
             value=current_evidence_coverage_summary,
-            default=f"current coverage: {current_evidence_coverage_summary}",
+            default=f"{_READINESS_DIGEST['current_evidence_coverage']}: {current_evidence_coverage_summary}",
         ),
         t(
             "results.review_center.detail.readiness.protocol_overview_line",
             value=protocol_overview_summary,
-            default=f"Method confirmation overview: {protocol_overview_summary}",
+            default=f"{_READINESS_DIGEST['protocol_overview']}: {protocol_overview_summary}",
         ),
         t(
             "results.review_center.detail.readiness.validation_matrix_completeness_line",
             value=matrix_completeness_summary,
-            default=f"Validation matrix completeness: {matrix_completeness_summary}",
+            default=f"{_READINESS_DIGEST['validation_matrix_completeness']}: {matrix_completeness_summary}",
         ),
         t(
             "results.review_center.detail.readiness.current_evidence_coverage_line",
             value=current_evidence_coverage_summary,
-            default=f"Current evidence coverage: {current_evidence_coverage_summary}",
+            default=f"{_READINESS_DIGEST['current_evidence_coverage']}: {current_evidence_coverage_summary}",
         ),
         t(
             "results.review_center.detail.readiness.top_gaps_line",
             value=top_gaps_summary,
-            default=f"Top gaps: {top_gaps_summary}",
+            default=f"{_READINESS_DIGEST['top_gaps']}: {top_gaps_summary}",
         ),
         t(
             "results.review_center.detail.readiness.readiness_status_line",
             value=readiness_status_summary,
-            default=f"Readiness status: {readiness_status_summary}",
+            default=f"{_READINESS_DIGEST['readiness_status']}: {readiness_status_summary}",
         ),
         t(
             "results.review_center.detail.readiness.standard_family_line",
             value=standard_family_summary,
-            default=f"标准族：{standard_family_summary}",
+            default=f"{_READINESS_DIGEST['standard_family']}：{standard_family_summary}",
         ),
         t(
             "results.review_center.detail.readiness.required_evidence_categories_line",
             value=required_evidence_categories_summary,
-            default=f"要求证据类别：{required_evidence_categories_summary}",
+            default=f"{_READINESS_DIGEST['required_evidence_categories']}：{required_evidence_categories_summary}",
         ),
         t(
             "results.review_center.detail.readiness.missing_evidence_line",
             value=str(digest.get("missing_evidence_summary") or t("common.none")),
-            default=f"missing evidence: {str(digest.get('missing_evidence_summary') or t('common.none'))}",
+            default=f"{_READINESS_DIGEST['top_gaps']}: {str(digest.get('missing_evidence_summary') or t('common.none'))}",
         ),
         t(
             "results.review_center.detail.readiness.blockers_line",
             value=blocker_summary,
-            default=f"current blockers: {blocker_summary}",
+            default=f"{_MEASUREMENT_DIGEST['blockers']}: {blocker_summary}",
         ),
         t(
             "results.review_center.detail.readiness.linked_measurement_line",
@@ -1680,7 +1680,7 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
         t(
             "results.review_center.detail.readiness.preseal_partial_gap_line",
             value=str(digest.get("preseal_partial_gap_summary") or t("common.none")),
-            default=f"preseal partial gap: {str(digest.get('preseal_partial_gap_summary') or t('common.none'))}",
+            default=f"{_PREFIX_LABELS['preseal_partial_gap']}: {str(digest.get('preseal_partial_gap_summary') or t('common.none'))}",
         ),
         t(
             "results.review_center.detail.readiness.linked_method_items_line",
@@ -1700,12 +1700,12 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
         t(
             "results.review_center.detail.readiness.linked_gap_classification_line",
             value=linked_gap_classification_summary,
-            default=f"linked gap classification: {linked_gap_classification_summary}",
+            default=f"{_MEASUREMENT_DIGEST['gap_index']}: {linked_gap_classification_summary}",
         ),
         t(
             "results.review_center.detail.readiness.linked_gap_severity_line",
             value=linked_gap_severity_summary,
-            default=f"linked gap severity: {linked_gap_severity_summary}",
+            default=f"{_MEASUREMENT_DIGEST['gap_index']}: {linked_gap_severity_summary}",
         ),
         t(
             "results.review_center.detail.readiness.gap_reason_line",
@@ -1755,7 +1755,7 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
                 t(
                     "results.review_center.detail.readiness.data_completeness_line",
                     value=data_completeness_summary,
-                    default=f"数据完整度：{data_completeness_summary}",
+                    default=f"{_READINESS_DIGEST['data_completeness']}：{data_completeness_summary}",
                 )
             ]
             if data_completeness_summary
@@ -1785,12 +1785,12 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
         t(
             "results.review_center.detail.readiness.boundary_line",
             value=boundary_summary,
-            default=f"{t('results.review_center.detail.boundary', default='边界')}：{boundary_summary}",
+            default=f"{_READINESS_DIGEST['boundary']}：{boundary_summary}",
         ),
         t(
             "results.review_center.detail.readiness.non_claim_line",
             value=non_claim_summary,
-            default=f"{t('results.review_center.detail.readiness.non_claim', default='非声明边界')}：{non_claim_summary}",
+            default=f"{_READINESS_DIGEST['non_claim']}：{non_claim_summary}",
         ),
     ]
     return {
