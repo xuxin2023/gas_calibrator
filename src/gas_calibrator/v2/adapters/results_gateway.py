@@ -2005,7 +2005,7 @@ class ResultsGateway:
                 t(
                     "facade.results.result_summary.audit_hash_summary",
                     value=audit_hash_summary_text,
-                    default=f"审计哈希：{audit_hash_summary_text}",
+                    default=f"{_RESULTS_SUMMARY_LABELS['audit_hash_summary']}：{audit_hash_summary_text}",
                 )
             )
         environment_fingerprint_text = str(
@@ -2019,7 +2019,7 @@ class ResultsGateway:
                 t(
                     "facade.results.result_summary.environment_fingerprint_summary",
                     value=environment_fingerprint_text,
-                    default=f"环境指纹：{environment_fingerprint_text}",
+                    default=f"{_RESULTS_SUMMARY_LABELS['environment_fingerprint_summary']}：{environment_fingerprint_text}",
                 )
             )
         release_manifest_overview_text = str(
@@ -2032,7 +2032,7 @@ class ResultsGateway:
                 t(
                     "facade.results.result_summary.release_manifest_overview",
                     value=release_manifest_overview_text,
-                    default=f"Release manifest：{release_manifest_overview_text}",
+                    default=f"{_RESULTS_SUMMARY_LABELS['release_manifest_overview']}：{release_manifest_overview_text}",
                 )
             )
         release_linkage_text = " | ".join(
@@ -2049,7 +2049,7 @@ class ResultsGateway:
                 t(
                     "facade.results.result_summary.release_test_linkage",
                     value=release_linkage_text,
-                    default=f"验证联动：{release_linkage_text}",
+                    default=f"{_RESULTS_SUMMARY_LABELS['release_test_linkage']}：{release_linkage_text}",
                 )
             )
         release_scope_text = str(
@@ -2062,7 +2062,7 @@ class ResultsGateway:
                 t(
                     "facade.results.result_summary.release_scope_summary",
                     value=release_scope_text,
-                    default=f"Release scope：{release_scope_text}",
+                    default=f"{_RESULTS_SUMMARY_LABELS['release_scope_summary']}：{release_scope_text}",
                 )
             )
         release_boundary_text = str(
@@ -2075,7 +2075,7 @@ class ResultsGateway:
                 t(
                     "facade.results.result_summary.release_boundary_summary",
                     value=release_boundary_text,
-                    default=f"非 claim 边界：{release_boundary_text}",
+                    default=f"{_RESULTS_SUMMARY_LABELS['release_boundary_summary']}：{release_boundary_text}",
                 )
             )
         release_pack_index_text = str(
@@ -2087,7 +2087,7 @@ class ResultsGateway:
                 t(
                     "facade.results.result_summary.release_evidence_pack_index",
                     value=release_pack_index_text,
-                    default=f"Evidence pack：{release_pack_index_text}",
+                    default=f"{_RESULTS_SUMMARY_LABELS['release_evidence_pack_index']}：{release_pack_index_text}",
                 )
             )
         for readiness_payload in (
@@ -3008,7 +3008,7 @@ def _results_gateway_decorate_artifact_compatibility_row(
             t(
                 "facade.results.result_summary.artifact_compatibility_rollup",
                 value=rollup_summary,
-                default=f"兼容性 rollup：{rollup_summary}",
+                default=f"{_RESULTS_SUMMARY_LABELS['artifact_compatibility_rollup']}：{rollup_summary}",
             )
         )
     if bool(compatibility_entry.get("regenerate_recommended", False)):
@@ -3020,7 +3020,7 @@ def _results_gateway_decorate_artifact_compatibility_row(
         " | ".join(entry_lines),
     ]
     if bool(summary_payload.get("regenerate_recommended", False)):
-        note_parts.append("不改写原始主证据")
+        note_parts.append(_COMPAT_LABELS["no_rewrite_primary"])
     role_status_display = " | ".join(
         part
         for part in (
