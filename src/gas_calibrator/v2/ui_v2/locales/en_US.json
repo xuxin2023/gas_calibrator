@@ -2467,5 +2467,52 @@
     "canonical_direct": "Canonical direct reads",
     "compatibility_adapter": "Compatibility adapter reads",
     "readiness_status": "Readiness status"
+  },
+  "reviewer_summary": {
+    "measurement": {
+      "payload_complete": "Payload complete phases: {value}",
+      "payload_partial": "Payload partial phases: {value}",
+      "trace_only": "Trace-only phases: {value}",
+      "blockers": "Blockers: {value}",
+      "next_artifacts": "Next artifacts: {value}",
+      "boundary": "Boundary: {value}",
+      "non_claim": "Non-claim boundary: {value}"
+    },
+    "readiness": {
+      "scope_overview": "Scope overview: {value}",
+      "decision_rule": "Decision rule overview: {value}",
+      "readiness_status": "Verification readiness status: {value}",
+      "top_gaps": "Top gaps: {value}",
+      "current_coverage": "Current evidence coverage: {value}",
+      "boundary": "Boundary: {value}",
+      "non_claim": "Non-claim boundary: {value}"
+    },
+    "phase_evidence": {
+      "point_taxonomy": "Point taxonomy: {value}",
+      "measurement_phase_coverage": "Measurement phase coverage: {value}",
+      "phase_transition_bridge": "Phase bridge: {value}"
+    },
+    "v12_alignment": {
+      "header": "V1.2 Reviewer Summary",
+      "point_taxonomy": "Point taxonomy: {value}",
+      "measurement_phase_coverage": "Measurement phase coverage: {value}",
+      "phase_transition_bridge": "Phase bridge: {value}",
+      "parity_resilience": "Parity/Resilience: {parity} / {resilience}",
+      "governance_blockers": "Governance blockers: {value}",
+      "simulated_only_note": "Simulated only / Reviewer only / Not real acceptance evidence",
+      "no_formal_claim": "Does not constitute a formal release conclusion"
+    },
+    "governance_handoff": {
+      "current_stage": "Current stage: {value}",
+      "blockers": "Blockers: {value}",
+      "next_steps": "Next steps: {value}",
+      "evidence_source": "Evidence source: {value}"
+    },
+    "parity_resilience": {
+      "parity_status": "Parity status: {value}",
+      "resilience_status": "Resilience status: {value}",
+      "parity_last_run": "Latest parity: {value}",
+      "resilience_last_run": "Latest resilience: {value}"
+    }
   }
 }

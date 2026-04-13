@@ -2462,5 +2462,52 @@
     "canonical_direct": "canonical 直读",
     "compatibility_adapter": "兼容适配读取",
     "readiness_status": "就绪状态"
+  },
+  "reviewer_summary": {
+    "measurement": {
+      "payload_complete": "payload 完整阶段：{value}",
+      "payload_partial": "payload 部分阶段：{value}",
+      "trace_only": "仅 trace 阶段：{value}",
+      "blockers": "当前阻塞：{value}",
+      "next_artifacts": "下一步补证工件：{value}",
+      "boundary": "边界：{value}",
+      "non_claim": "非声明边界：{value}"
+    },
+    "readiness": {
+      "scope_overview": "认可范围概览：{value}",
+      "decision_rule": "决策规则概览：{value}",
+      "readiness_status": "验证就绪状态：{value}",
+      "top_gaps": "主要缺口：{value}",
+      "current_coverage": "当前证据覆盖：{value}",
+      "boundary": "边界：{value}",
+      "non_claim": "非声明边界：{value}"
+    },
+    "phase_evidence": {
+      "point_taxonomy": "点位语义：{value}",
+      "measurement_phase_coverage": "测量阶段覆盖：{value}",
+      "phase_transition_bridge": "阶段桥接：{value}"
+    },
+    "v12_alignment": {
+      "header": "V1.2 审阅摘要",
+      "point_taxonomy": "点位语义：{value}",
+      "measurement_phase_coverage": "测量阶段覆盖：{value}",
+      "phase_transition_bridge": "阶段桥接：{value}",
+      "parity_resilience": "一致性/韧性：{parity} / {resilience}",
+      "governance_blockers": "治理阻塞：{value}",
+      "simulated_only_note": "仅仿真 / 仅审阅 / 非真实验收证据",
+      "no_formal_claim": "不构成正式放行结论"
+    },
+    "governance_handoff": {
+      "current_stage": "当前阶段：{value}",
+      "blockers": "阻塞项：{value}",
+      "next_steps": "下一步：{value}",
+      "evidence_source": "证据来源：{value}"
+    },
+    "parity_resilience": {
+      "parity_status": "一致性状态：{value}",
+      "resilience_status": "韧性状态：{value}",
+      "parity_last_run": "最近一致性：{value}",
+      "resilience_last_run": "最近韧性：{value}"
+    }
   }
 }

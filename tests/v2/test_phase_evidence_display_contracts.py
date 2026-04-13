@@ -92,8 +92,8 @@ def _has_chinese(s: str) -> bool:
 # ---------------------------------------------------------------------------
 
 class TestContractsVersion:
-    def test_version_is_2_10_0(self):
-        assert PHASE_EVIDENCE_DISPLAY_CONTRACTS_VERSION == "2.10.0"
+    def test_version_is_2_11_0(self):
+        assert PHASE_EVIDENCE_DISPLAY_CONTRACTS_VERSION == "2.11.0"
 
 
 # ---------------------------------------------------------------------------
