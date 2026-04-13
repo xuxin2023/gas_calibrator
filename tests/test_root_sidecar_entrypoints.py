@@ -53,3 +53,19 @@ def test_run_v1_merged_sidecar_delegates_arguments(monkeypatch) -> None:
 
     assert result == 0
     assert captured["argv"] == ["--run-dir", r"D:\logs\run_20260329_120000"]
+
+
+def test_run_v1_co2_threshold_matrix_delegates_arguments(monkeypatch) -> None:
+    module = _load_module("test_run_v1_co2_threshold_matrix_entry", "run_v1_co2_threshold_matrix.py")
+    captured: dict[str, object] = {}
+
+    def _fake_main(argv):
+        captured["argv"] = list(argv)
+        return 0
+
+    monkeypatch.setattr(module, "run_threshold_matrix", _fake_main)
+
+    result = module.main(["--samples-csv", r"D:\logs\samples.csv", "--output-dir", r"D:\audit"])
+
+    assert result == 0
+    assert captured["argv"] == ["--samples-csv", r"D:\logs\samples.csv", "--output-dir", r"D:\audit"]
