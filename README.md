@@ -89,6 +89,10 @@ python run_v1_postprocess.py
 python run_v1_merged_sidecar.py --run-dir <completed_run_dir>
 ```
 
+```powershell
+python run_v1_co2_steady_state_parity.py --run-dir <completed_run_dir>
+```
+
 These entrypoints keep V1-adjacent postprocess/sidecar flows easy to reach
 without changing `run_app.py`, without modifying the frozen V1 UI, and without
 promoting Step 2 sidecar capabilities into the V1 production path.

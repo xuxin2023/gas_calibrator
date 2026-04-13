@@ -4574,6 +4574,8 @@ class CalibrationRunner:
         raw_cfg = self.cfg.get("workflow", {}).get("postrun_corrected_delivery", {})
         cfg = dict(raw_cfg or {}) if isinstance(raw_cfg, dict) else {}
         verify_short_run_cfg = dict(cfg.get("verify_short_run", {}) or {})
+        workflow_cfg = self.cfg.get("workflow", {})
+        has_explicit_postrun_cfg = isinstance(workflow_cfg, dict) and "postrun_corrected_delivery" in workflow_cfg
 
         enabled, enabled_source = self._resolve_postrun_bool(
             path="workflow.postrun_corrected_delivery.enabled",
@@ -4586,6 +4588,10 @@ class CalibrationRunner:
                 "GAS_CAL_ALLOW_REAL_DEVICE_WRITE",
             ),
         )
+        if not has_explicit_postrun_cfg and enabled_source == "default":
+            enabled = False
+        if not has_explicit_postrun_cfg and write_source == "default":
+            write_devices = False
         if not enabled:
             write_devices = False
             if write_source.startswith("ENV:"):
