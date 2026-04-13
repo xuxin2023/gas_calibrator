@@ -362,6 +362,238 @@ def test_evaluate_co2_steady_state_window_qc_quarantines_bad_frame_before_window
     assert "co2_value_sentinel" in rows[2]["co2_bad_frame_reason"]
 
 
+def test_evaluate_co2_steady_state_window_qc_phase_gate_excludes_head_transition_before_window(
+    tmp_path: Path,
+) -> None:
+    logger = RunLogger(tmp_path)
+    cfg = {
+        "workflow": {
+            "sampling": {
+                "interval_s": 1.0,
+                "co2_interval_s": 1.0,
+                "quality": {
+                    "co2_steady_state_enabled": True,
+                    "co2_steady_state_policy": "warn",
+                    "co2_steady_state_min_samples": 4,
+                    "co2_steady_state_fallback_samples": 4,
+                    "co2_steady_state_max_std_ppm": 0.2,
+                    "co2_steady_state_max_range_ppm": 0.4,
+                    "co2_steady_state_max_abs_slope_ppm_per_s": 0.2,
+                    "co2_phase_contract_enabled": True,
+                    "co2_phase_head_exclusion_max_rows": 2,
+                },
+            }
+        }
+    }
+    runner = CalibrationRunner(cfg, {}, logger, lambda *_: None, lambda *_: None)
+    point = _point_co2_low_pressure()
+    rows = _co2_sampling_rows([900.0, 500.0, 500.1, 499.9, 500.0, 500.1])
+
+    result = runner._evaluate_co2_steady_state_window_qc(point, phase="co2", samples=rows)
+    logger.close()
+
+    assert result["co2_candidate_rows_before_phase_gate"] == 6
+    assert result["co2_candidate_rows_after_phase_gate"] == 5
+    assert result["co2_candidate_rows_after_quarantine"] == 5
+    assert result["co2_phase_excluded_count"] == 1
+    assert "transition_head_delta_gt_threshold" in result["co2_phase_reason_summary"]
+    assert rows[0]["co2_phase_label"] == "transition_excluded"
+    assert rows[1]["co2_phase_label"] == "acquisition_selected"
+    assert pytest.approx(result["co2_representative_value"], abs=1e-6) == 500.02
+
+
+def test_evaluate_co2_steady_state_window_qc_keeps_clean_data_equal_to_hardened_baseline_with_phase_gate(
+    tmp_path: Path,
+) -> None:
+    logger = RunLogger(tmp_path)
+    stable_rows = _co2_sampling_rows([500.0, 500.1, 499.9, 500.0, 500.1, 499.9])
+    cfg = {
+        "workflow": {
+            "sampling": {
+                "interval_s": 1.0,
+                "co2_interval_s": 1.0,
+                "quality": {
+                    "co2_steady_state_enabled": True,
+                    "co2_steady_state_policy": "warn",
+                    "co2_steady_state_min_samples": 4,
+                    "co2_steady_state_fallback_samples": 4,
+                    "co2_steady_state_max_std_ppm": 0.2,
+                    "co2_steady_state_max_range_ppm": 0.4,
+                    "co2_steady_state_max_abs_slope_ppm_per_s": 0.2,
+                },
+            }
+        }
+    }
+    baseline_runner = CalibrationRunner(
+        {
+            "workflow": {
+                "sampling": {
+                    "interval_s": 1.0,
+                    "co2_interval_s": 1.0,
+                    "quality": {
+                        **cfg["workflow"]["sampling"]["quality"],
+                        "co2_phase_contract_enabled": False,
+                    },
+                }
+            }
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    current_runner = CalibrationRunner(cfg, {}, logger, lambda *_: None, lambda *_: None)
+    point = _point_co2_low_pressure()
+
+    baseline = baseline_runner._evaluate_co2_steady_state_window_qc(point, phase="co2", samples=list(stable_rows))
+    current = current_runner._evaluate_co2_steady_state_window_qc(point, phase="co2", samples=list(stable_rows))
+    logger.close()
+
+    assert pytest.approx(current["co2_representative_value"], abs=1e-9) == baseline["co2_representative_value"]
+    assert current["co2_phase_excluded_count"] == 0
+    assert current["co2_candidate_rows_before_phase_gate"] == 6
+    assert current["co2_candidate_rows_after_phase_gate"] == 6
+
+
+def test_evaluate_co2_steady_state_window_qc_phase_gate_degrades_cleanly_when_no_usable_rows(
+    tmp_path: Path,
+) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "sampling": {
+                    "interval_s": 1.0,
+                    "co2_interval_s": 1.0,
+                    "quality": {
+                        "co2_steady_state_enabled": True,
+                        "co2_steady_state_policy": "warn",
+                        "co2_steady_state_min_samples": 4,
+                        "co2_steady_state_fallback_samples": 4,
+                        "co2_steady_state_max_std_ppm": 0.2,
+                        "co2_steady_state_max_range_ppm": 0.4,
+                        "co2_steady_state_max_abs_slope_ppm_per_s": 0.2,
+                        "co2_phase_contract_enabled": True,
+                    },
+                }
+            }
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _point_co2_low_pressure()
+    rows = _co2_sampling_rows_from_items(
+        [
+            {"co2_ppm": None, "frame_usable": False, "frame_status": "NO_RESPONSE"},
+            {"co2_ppm": None, "frame_usable": False, "frame_status": "NO_RESPONSE"},
+            {"co2_ppm": None, "frame_usable": False, "frame_status": "NO_RESPONSE"},
+            {"co2_ppm": None, "frame_usable": False, "frame_status": "NO_RESPONSE"},
+        ]
+    )
+
+    result = runner._evaluate_co2_steady_state_window_qc(point, phase="co2", samples=rows)
+    logger.close()
+
+    assert result["measured_value_source"] == "co2_no_trusted_source"
+    assert result["co2_candidate_rows_before_phase_gate"] == 4
+    assert result["co2_candidate_rows_after_phase_gate"] == 0
+    assert result["co2_phase_excluded_count"] == 4
+    assert "no_usable_rows_before_phase_gate" in result["co2_phase_contract_reason"]
+    assert "presample_not_usable_or_missing_value" in result["co2_phase_reason_summary"]
+
+
+def test_evaluate_co2_steady_state_window_qc_phase_gate_can_force_primary_fallback(
+    tmp_path: Path,
+) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "sampling": {
+                    "interval_s": 1.0,
+                    "co2_interval_s": 1.0,
+                    "quality": {
+                        "co2_steady_state_enabled": True,
+                        "co2_steady_state_policy": "warn",
+                        "co2_steady_state_min_samples": 4,
+                        "co2_steady_state_fallback_samples": 4,
+                        "co2_steady_state_max_std_ppm": 0.2,
+                        "co2_steady_state_max_range_ppm": 0.4,
+                        "co2_steady_state_max_abs_slope_ppm_per_s": 0.2,
+                        "co2_phase_contract_enabled": True,
+                        "co2_phase_head_exclusion_max_rows": 2,
+                    },
+                }
+            }
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    runner._all_gas_analyzers = lambda: [("ga01", None, {}), ("ga02", None, {})]
+    point = _point_co2_low_pressure()
+    rows = _co2_sampling_rows_from_items(
+        [
+            {
+                "co2_ppm": 900.0,
+                "frame_usable": True,
+                "frame_status": "可用",
+                "ga01_co2_ppm": 900.0,
+                "ga01_frame_usable": True,
+                "ga01_frame_status": "可用",
+                "ga02_co2_ppm": 620.0,
+                "ga02_frame_usable": True,
+                "ga02_frame_status": "可用",
+            },
+            {
+                "co2_ppm": 500.0,
+                "frame_usable": True,
+                "frame_status": "可用",
+                "ga01_co2_ppm": 500.0,
+                "ga01_frame_usable": True,
+                "ga01_frame_status": "可用",
+                "ga02_co2_ppm": 620.1,
+                "ga02_frame_usable": True,
+                "ga02_frame_status": "可用",
+            },
+            {
+                "co2_ppm": 500.1,
+                "frame_usable": True,
+                "frame_status": "可用",
+                "ga01_co2_ppm": 500.1,
+                "ga01_frame_usable": True,
+                "ga01_frame_status": "可用",
+                "ga02_co2_ppm": 619.9,
+                "ga02_frame_usable": True,
+                "ga02_frame_status": "可用",
+            },
+            {
+                "co2_ppm": 499.9,
+                "frame_usable": True,
+                "frame_status": "可用",
+                "ga01_co2_ppm": 499.9,
+                "ga01_frame_usable": True,
+                "ga01_frame_status": "可用",
+                "ga02_co2_ppm": 620.0,
+                "ga02_frame_usable": True,
+                "ga02_frame_status": "可用",
+            },
+        ]
+    )
+
+    result = runner._evaluate_co2_steady_state_window_qc(point, phase="co2", samples=rows)
+    logger.close()
+
+    assert result["co2_source_selected"] == "ga02"
+    assert "primary_lost_to=ga02" in result["co2_source_switch_reason"]
+    assert "rows_after_phase_gate=3" in result["co2_source_switch_reason"]
+    assert "rows_after_quarantine=3<min_samples=4" in result["co2_source_switch_reason"]
+    assert pytest.approx(result["co2_representative_value"], abs=1e-6) == 620.0
+
+
 def test_evaluate_co2_steady_state_window_qc_falls_back_to_next_usable_source(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner(
@@ -591,6 +823,57 @@ def test_sample_and_log_exports_co2_steady_state_measured_value_and_reasons(tmp_
     assert row[_field_label("co2_steady_window_start_sample_index")] == "7"
     assert row[_field_label("co2_steady_window_end_sample_index")] == "10"
     assert row[_field_label("co2_steady_window_status")] == "pass"
+
+
+def test_sample_and_log_exports_phase_contract_fields(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "sampling": {
+                    "interval_s": 1.0,
+                    "co2_interval_s": 1.0,
+                    "quality": {
+                        "co2_steady_state_enabled": True,
+                        "co2_steady_state_policy": "warn",
+                        "co2_steady_state_min_samples": 4,
+                        "co2_steady_state_fallback_samples": 4,
+                        "co2_steady_state_max_std_ppm": 0.2,
+                        "co2_steady_state_max_range_ppm": 0.4,
+                        "co2_steady_state_max_abs_slope_ppm_per_s": 0.2,
+                        "co2_phase_contract_enabled": True,
+                        "co2_phase_head_exclusion_max_rows": 2,
+                    },
+                }
+            }
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    runner._collect_samples = lambda *_args, **_kwargs: _co2_sampling_rows(
+        [900.0, 500.0, 500.1, 499.9, 500.0, 500.1]
+    )
+    point = _point_co2_low_pressure()
+
+    runner._sample_and_log(point, phase="co2")
+    logger.close()
+
+    with logger.points_path.open("r", encoding="utf-8", newline="") as handle:
+        point_rows = list(csv.DictReader(handle))
+    with logger.samples_path.open("r", encoding="utf-8", newline="") as handle:
+        sample_rows = list(csv.DictReader(handle))
+
+    point_row = point_rows[0]
+    assert point_row[_field_label("co2_candidate_rows_before_phase_gate")] == "6"
+    assert point_row[_field_label("co2_candidate_rows_after_phase_gate")] == "5"
+    assert point_row[_field_label("co2_candidate_rows_after_quarantine")] == "5"
+    assert point_row[_field_label("co2_phase_excluded_count")] == "1"
+    assert "transition_head_delta_gt_threshold" in point_row[_field_label("co2_phase_reason_summary")]
+    assert sample_rows[0][_field_label("co2_phase_label")] == "transition_excluded"
+    assert sample_rows[1][_field_label("co2_phase_label")] == "acquisition_selected"
+    assert _field_label("co2_phase_label") == "气路采样相位"
 
 
 def test_sample_and_log_warns_when_no_co2_steady_state_window(tmp_path: Path) -> None:
