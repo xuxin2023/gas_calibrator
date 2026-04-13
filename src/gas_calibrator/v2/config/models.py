@@ -27,6 +27,10 @@ from ...h2o_summary_selection import (
     DEFAULT_H2O_CO2_ZERO_PPM_TOLERANCE,
     DEFAULT_H2O_INCLUDE_CO2_ZERO_PPM_TEMP_GROUPS_C,
     DEFAULT_H2O_TEMP_TOLERANCE_C,
+    DEFAULT_H2O_CO2_ZERO_PPM_ANCHOR_QUALITY_GATE_ENABLED,
+    DEFAULT_H2O_CO2_ZERO_PPM_ANCHOR_REQUIRE_H2O_DEW,
+    DEFAULT_H2O_CO2_ZERO_PPM_ANCHOR_MAX_PPM_H2O_DEW_DEFAULT,
+    DEFAULT_H2O_CO2_ZERO_PPM_ANCHOR_MAX_PPM_H2O_DEW_BY_TEMP_C,
     normalize_h2o_summary_selection,
 )
 from ..domain.pressure_selection import normalize_selected_pressure_points
@@ -747,6 +751,15 @@ class H2OSummarySelectionConfig:
     co2_zero_ppm_tolerance: float = DEFAULT_H2O_CO2_ZERO_PPM_TOLERANCE
     include_co2_zero_ppm_temp_groups_c: List[float] = field(default_factory=lambda: [float(value) for value in DEFAULT_H2O_INCLUDE_CO2_ZERO_PPM_TEMP_GROUPS_C])
     temp_tolerance_c: float = DEFAULT_H2O_TEMP_TOLERANCE_C
+    co2_zero_ppm_anchor_quality_gate_enabled: bool = DEFAULT_H2O_CO2_ZERO_PPM_ANCHOR_QUALITY_GATE_ENABLED
+    co2_zero_ppm_anchor_require_h2o_dew: bool = DEFAULT_H2O_CO2_ZERO_PPM_ANCHOR_REQUIRE_H2O_DEW
+    co2_zero_ppm_anchor_max_ppm_h2o_dew_default: float = DEFAULT_H2O_CO2_ZERO_PPM_ANCHOR_MAX_PPM_H2O_DEW_DEFAULT
+    co2_zero_ppm_anchor_max_ppm_h2o_dew_by_temp_c: Dict[str, float] = field(
+        default_factory=lambda: {
+            str(key): float(value)
+            for key, value in DEFAULT_H2O_CO2_ZERO_PPM_ANCHOR_MAX_PPM_H2O_DEW_BY_TEMP_C.items()
+        }
+    )
 
     @classmethod
     def from_dict(cls, d: Optional[Dict[str, Any]]) -> "H2OSummarySelectionConfig":
@@ -761,6 +774,13 @@ class H2OSummarySelectionConfig:
             co2_zero_ppm_tolerance=float(payload["co2_zero_ppm_tolerance"]),
             include_co2_zero_ppm_temp_groups_c=[float(value) for value in payload["include_co2_zero_ppm_temp_groups_c"]],
             temp_tolerance_c=float(payload["temp_tolerance_c"]),
+            co2_zero_ppm_anchor_quality_gate_enabled=bool(payload["co2_zero_ppm_anchor_quality_gate_enabled"]),
+            co2_zero_ppm_anchor_require_h2o_dew=bool(payload["co2_zero_ppm_anchor_require_h2o_dew"]),
+            co2_zero_ppm_anchor_max_ppm_h2o_dew_default=float(payload["co2_zero_ppm_anchor_max_ppm_h2o_dew_default"]),
+            co2_zero_ppm_anchor_max_ppm_h2o_dew_by_temp_c={
+                str(key): float(value)
+                for key, value in dict(payload["co2_zero_ppm_anchor_max_ppm_h2o_dew_by_temp_c"]).items()
+            },
         )
 
 

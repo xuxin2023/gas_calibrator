@@ -226,6 +226,9 @@ _RUNTIME_DEFAULTS: Dict[str, Any] = {
             "fallback_pressure_to_controller": False,
             "pressure_row_source": "startup_calibration",
             "write_pressure_coefficients": True,
+            "run_structure_hints": {
+                "enabled": True,
+            },
             "verify_short_run": {
                 "enabled": True,
                 "temp_c": 20.0,
