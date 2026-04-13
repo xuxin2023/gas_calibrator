@@ -8488,9 +8488,9 @@ class CalibrationRunner:
         if not pace:
             return
         try:
-            self._set_pressure_controller_vent(True, reason="H2O route precondition")
+            self._set_pressure_controller_vent(False, reason="H2O idle precondition")
             self._h2o_pressure_prepared_target = None
-            self.log("Pressure controller kept at atmosphere for H2O route conditioning")
+            self.log("Pressure controller isolated from atmosphere while waiting for H2O route conditioning")
         except Exception as exc:
             self._h2o_pressure_prepared_target = None
             self.log(f"H2O pressure precondition failed: {exc}")
@@ -11251,10 +11251,10 @@ class CalibrationRunner:
         self._set_co2_route_baseline(reason=reason)
 
     def _apply_idle_route_isolation(self, *, reason: str = "") -> None:
-        self._set_pressure_controller_vent(True, reason=reason)
+        self._set_pressure_controller_vent(False, reason=reason)
         self._apply_route_baseline_valves()
         extra = f" ({reason})" if str(reason or "").strip() else ""
-        self.log(f"Idle route isolation applied{extra}: all route valves closed while waiting")
+        self.log(f"Idle route isolation applied{extra}: route valves closed and pressure controller disconnected from atmosphere")
 
     def _cleanup_h2o_route(self, point: CalibrationPoint, *, reason: str = "") -> None:
         self._set_pressure_controller_vent(True, reason=reason)

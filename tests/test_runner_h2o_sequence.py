@@ -112,7 +112,7 @@ def test_run_h2o_point_wait_order(tmp_path: Path) -> None:
     logger.close()
 
     assert calls == [
-        "vent_True",
+        "vent_False",
         "baseline_route",
         "prepare_pressure",
         "prepare_humidity",
@@ -195,7 +195,7 @@ def test_run_h2o_point_wait_order_when_prepared(tmp_path: Path) -> None:
     logger.close()
 
     assert calls == [
-        "vent_True",
+        "vent_False",
         "baseline_route",
         "set_temperature",
         "wait_hgen_setpoint",
@@ -235,7 +235,7 @@ def test_run_h2o_point_restores_vent_after_completion(tmp_path: Path) -> None:
     runner._run_h2o_point(_point_h2o())
     logger.close()
 
-    assert calls == [True, True]
+    assert calls == [False, True]
 
 
 def test_run_h2o_group_ambient_only_samples_open_route_without_pressure_control(tmp_path: Path) -> None:

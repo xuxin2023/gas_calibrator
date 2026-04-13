@@ -8,9 +8,6 @@ from typing import Any
 
 from ..core.artifact_compatibility import (
     ARTIFACT_COMPATIBILITY_INDEX_SCHEMA_VERSION,
-from ..core.phase_evidence_display_contracts import (
-    HISTORICAL_ROLLUP_LABELS as _ROLLUP_LABELS,
-)
     HISTORICAL_ARTIFACT_ROLLUP_TOOL,
     PRIMARY_READER_FILENAMES,
     build_artifact_compatibility_rollup,
@@ -633,10 +630,10 @@ def _build_operation_report(
         "pre_run_gate_status_counts": pre_run_gate_status_counts,
         "summary_lines": [
             "pre-run gate: " + " | ".join(f"{key} {value}" for key, value in pre_run_gate_status_counts.items()),
-            f"认可范围包运行数：{len(runs)}",
-            f"canonical 直读：{int(sum(1 for row in runs if bool(row.get('canonical_direct', False))))}",
-            f"兼容适配读取：{int(sum(1 for row in runs if bool(row.get('compatibility_adapter', False))))}",
-            "就绪状态：" + " | ".join(f"{key} {value}" for key, value in readiness_status_counts.items()),
+            f"{_ROLLUP_LABELS['scope_run_count']}：{len(runs)}",
+            f"{_ROLLUP_LABELS['canonical_direct']}：{int(sum(1 for row in runs if bool(row.get('canonical_direct', False))))}",
+            f"{_ROLLUP_LABELS['compatibility_adapter']}：{int(sum(1 for row in runs if bool(row.get('compatibility_adapter', False))))}",
+            f"{_ROLLUP_LABELS['readiness_status']}：" + " | ".join(f"{key} {value}" for key, value in readiness_status_counts.items()),
         ],
     }
     return {
