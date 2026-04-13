@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import os
 import threading
 import time
 import re
@@ -12,9 +13,15 @@ from collections import Counter, deque
 from datetime import datetime, timedelta
 from pathlib import Path
 from statistics import mean, stdev
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
-from ..config import get as cfg_get
+from ..config import (
+    V1_CO2_ONLY_H2O_NOT_SUPPORTED_MESSAGE,
+    get as cfg_get,
+    require_v1_h2o_zero_span_supported,
+    runtime_default,
+    v1_h2o_zero_span_capability,
+)
 from ..coefficients.fit_amt import fit_amt_eq4, save_fit_report
 from ..coefficients.data_loader import records_to_dataframe, resolve_column_name
 from ..coefficients.fit_ratio_poly import fit_ratio_poly_rt_p, save_ratio_poly_report
@@ -78,6 +85,18 @@ def _normalized_device_id_text(value: Any) -> str:
     if text.isdigit():
         return f"{int(text):03d}"
     return text
+
+
+def _optional_env_bool(name: str) -> Optional[bool]:
+    raw = os.getenv(name)
+    if raw is None:
+        return None
+    text = str(raw).strip().lower()
+    if text in {"1", "true", "yes", "y", "on"}:
+        return True
+    if text in {"0", "false", "no", "n", "off"}:
+        return False
+    return None
 
 
 _PRESSURE_TRACE_FIELDS = [
@@ -4537,9 +4556,124 @@ class CalibrationRunner:
     def _wf(self, path: str, default: Any = None) -> Any:
         return workflow_param(self.cfg, path, default)
 
+    def _resolve_postrun_bool(
+        self,
+        *,
+        path: str,
+        env_names: Tuple[str, ...],
+    ) -> Tuple[bool, str]:
+        for name in env_names:
+            env_value = _optional_env_bool(name)
+            if env_value is not None:
+                return bool(env_value), f"ENV:{name}"
+        current_value = bool(cfg_get(self.cfg, path, runtime_default(path, False)))
+        default_value = bool(runtime_default(path, False))
+        return current_value, "default" if current_value == default_value else "config"
+
+    def _effective_postrun_corrected_delivery_cfg(self) -> Dict[str, Any]:
+        raw_cfg = self.cfg.get("workflow", {}).get("postrun_corrected_delivery", {})
+        cfg = dict(raw_cfg or {}) if isinstance(raw_cfg, dict) else {}
+        verify_short_run_cfg = dict(cfg.get("verify_short_run", {}) or {})
+
+        enabled, enabled_source = self._resolve_postrun_bool(
+            path="workflow.postrun_corrected_delivery.enabled",
+            env_names=("GAS_CAL_POSTRUN_CORRECTED_DELIVERY_ENABLED",),
+        )
+        write_devices, write_source = self._resolve_postrun_bool(
+            path="workflow.postrun_corrected_delivery.write_devices",
+            env_names=(
+                "GAS_CAL_POSTRUN_CORRECTED_DELIVERY_WRITE_DEVICES",
+                "GAS_CAL_ALLOW_REAL_DEVICE_WRITE",
+            ),
+        )
+        if not enabled:
+            write_devices = False
+            if write_source.startswith("ENV:"):
+                write_source = f"{write_source} (suppressed_by_disabled_postrun)"
+        cfg["enabled"] = bool(enabled)
+        cfg["write_devices"] = bool(write_devices)
+        cfg["verify_short_run"] = verify_short_run_cfg
+        cfg["_resolved_sources"] = {
+            "enabled": enabled_source,
+            "write_devices": write_source,
+            "allow_real_device_write": write_source,
+        }
+        return cfg
+
+    def _log_postrun_corrected_delivery_effective_config(self) -> None:
+        cfg = self._effective_postrun_corrected_delivery_cfg()
+        sources = dict(cfg.get("_resolved_sources") or {})
+        payload = {
+            "enabled": bool(cfg.get("enabled", False)),
+            "write_devices": bool(cfg.get("write_devices", False)),
+            "allow_real_device_write": bool(cfg.get("enabled", False) and cfg.get("write_devices", False)),
+            "enabled_source": sources.get("enabled", "unknown"),
+            "write_devices_source": sources.get("write_devices", "unknown"),
+            "allow_real_device_write_source": sources.get("allow_real_device_write", "unknown"),
+        }
+        self.log(
+            "Postrun corrected delivery config: "
+            f"enabled={payload['enabled']} source={payload['enabled_source']} "
+            f"allow_real_device_write={payload['allow_real_device_write']} "
+            f"source={payload['allow_real_device_write_source']}"
+        )
+        self._log_run_event(
+            command="postrun-corrected-delivery-config",
+            response=json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+        )
+
+    def _h2o_zero_span_capability_payload(
+        self,
+        points: Optional[List[CalibrationPoint]] = None,
+    ) -> Dict[str, Any]:
+        coeff_cfg = self.cfg.get("coefficients", {}) if isinstance(self.cfg.get("coefficients", {}), dict) else {}
+        shared_payload = v1_h2o_zero_span_capability(coeff_cfg)
+        point_list = list(points or [])
+        has_h2o_points = any(bool(getattr(point, "is_h2o_point", False)) for point in point_list)
+        fit_h2o_requested = bool(coeff_cfg.get("fit_h2o", False))
+        return {
+            "status": str(shared_payload.get("status") or "NOT_SUPPORTED").strip().upper(),
+            "require_supported_capability": bool(shared_payload.get("require_supported_capability", False)),
+            "has_h2o_points": has_h2o_points,
+            "fit_h2o_requested": fit_h2o_requested,
+            "note": (
+                f"{V1_CO2_ONLY_H2O_NOT_SUPPORTED_MESSAGE} "
+                "H2O route sampling and ratio-poly/report selection exist, "
+                "but no explicit H2O zero/span business chain is wired into CalibrationRunner."
+            ),
+        }
+
+    def _log_h2o_zero_span_capability(self, points: Optional[List[CalibrationPoint]] = None) -> None:
+        payload = self._h2o_zero_span_capability_payload(points)
+        self.log(
+            "H2O zero/span capability: "
+            f"status={payload['status']} "
+            f"has_h2o_points={payload['has_h2o_points']} "
+            f"fit_h2o_requested={payload['fit_h2o_requested']} "
+            f"require_supported_capability={payload['require_supported_capability']} "
+            f"note={payload['note']}"
+        )
+        self._log_run_event(
+            command="h2o-zero-span-capability",
+            response=json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+        )
+
+    def _require_supported_h2o_zero_span_if_requested(
+        self,
+        points: Optional[List[CalibrationPoint]] = None,
+    ) -> None:
+        payload = self._h2o_zero_span_capability_payload(points)
+        if payload["require_supported_capability"] and payload["status"] != "SUPPORTED":
+            require_v1_h2o_zero_span_supported(
+                self.cfg.get("coefficients", {}) if isinstance(self.cfg.get("coefficients", {}), dict) else {},
+                requested=True,
+                context="CalibrationRunner",
+            )
+
     def run(self) -> None:
         self.log("Starting calibration...")
         self._log_data_quality_effective_config()
+        self._log_postrun_corrected_delivery_effective_config()
         self._log_run_event(command="run-start", response="CalibrationRunner.run entered")
         completed_normally = False
         try:
@@ -4574,6 +4708,9 @@ class CalibrationRunner:
                 for issue in issues:
                     self.log("  " + issue)
                 return
+
+            self._log_h2o_zero_span_capability(points)
+            self._require_supported_h2o_zero_span_if_requested(points)
 
             self.set_status("初始化：传感器预检查")
             self._emit_stage_event(current="初始化", wait_reason="传感器预检查")
@@ -7136,7 +7273,7 @@ class CalibrationRunner:
             self.log(f"Temperature calibration export warning: {exc}")
 
     def _maybe_run_postrun_corrected_delivery(self) -> None:
-        cfg = self.cfg.get("workflow", {}).get("postrun_corrected_delivery", {})
+        cfg = self._effective_postrun_corrected_delivery_cfg()
         if not isinstance(cfg, dict) or not cfg.get("enabled", False):
             return
         if not getattr(self, "logger", None) or not getattr(self.logger, "run_dir", None):
@@ -7184,7 +7321,7 @@ class CalibrationRunner:
             self.log(
                 "Postrun corrected delivery finished: "
                 f"report={result.get('report_path')} "
-                f"write={'yes' if result.get('write_result') else 'no'} "
+                f"write={'yes' if cfg.get('write_devices', False) else 'no'} "
                 f"verify={'yes' if result.get('verify_outputs') else 'no'} "
                 f"short_verify={short_verify_status}"
             )
@@ -13695,8 +13832,28 @@ class CalibrationRunner:
         include_fleet_stats = bool(cfg_get(self.cfg, "workflow.reporting.include_fleet_stats", False))
         runtime_state = dict(self._point_runtime_state(point, phase=phase) or {})
         timing_delta_map = self._point_timing_delta_map(dict(runtime_state.get("timing_stages") or {}))
+        gas_type = self._point_gas_type(point, phase=phase)
+        target_value = self._point_target_value(point, phase=phase)
+        measured_value = h2o_mean_primary_or_first if gas_type == "H2O" else co2_mean_primary_or_first
+        window_start_ts = samples[0].get("sample_ts") if samples else None
+        last_sample = samples[-1] if samples else {}
+        window_end_ts = last_sample.get("sample_end_ts") or last_sample.get("sample_ts")
+        sample_ts = window_end_ts or window_start_ts
 
         row = {
+            "run_id": getattr(self.logger, "run_id", ""),
+            "session_id": getattr(self.logger, "run_id", ""),
+            "device_id": self._point_device_id_from_samples(samples),
+            "gas_type": gas_type,
+            "step": phase,
+            "point_no": point.index,
+            "target_value": target_value,
+            "measured_value": measured_value,
+            "sample_ts": sample_ts,
+            "window_start_ts": window_start_ts,
+            "window_end_ts": window_end_ts,
+            "sample_count": len(samples),
+            "stable_flag": self._stable_flag_from_runtime_state(runtime_state),
             "point_title": self._point_title(point, phase=phase, point_tag=point_tag),
             "point_row": point.index,
             "point_phase": phase,
@@ -13810,6 +13967,85 @@ class CalibrationRunner:
         row.update(self._build_device_field_means(samples, existing_summary_keys=set(row.keys())))
         return row
 
+    def _point_gas_type(self, point: CalibrationPoint, *, phase: str) -> str:
+        phase_text = str(phase or "").strip().lower()
+        if phase_text == "h2o" or bool(getattr(point, "is_h2o_point", False)):
+            return "H2O"
+        return "CO2"
+
+    def _point_target_value(self, point: CalibrationPoint, *, phase: str) -> Optional[float]:
+        gas_type = self._point_gas_type(point, phase=phase)
+        if gas_type == "H2O":
+            value = getattr(point, "h2o_mmol", None)
+            if value is None:
+                value = getattr(point, "raw_h2o", None)
+            return self._as_float(value)
+        return self._as_float(getattr(point, "co2_ppm", None))
+
+    def _sample_device_id(self, row: Dict[str, Any]) -> str:
+        direct = _normalized_device_id_text(row.get("device_id") or row.get("id"))
+        if direct:
+            return direct
+        for label, _ga, _cfg in self._all_gas_analyzers():
+            prefix = self._safe_label(label)
+            candidate = _normalized_device_id_text(row.get(f"{prefix}_id"))
+            if candidate:
+                return candidate
+        for key, value in row.items():
+            if re.match(r"^ga\d+_id$", str(key or "").strip(), re.IGNORECASE):
+                candidate = _normalized_device_id_text(value)
+                if candidate:
+                    return candidate
+        return ""
+
+    def _point_device_id_from_samples(self, samples: List[Dict[str, Any]]) -> str:
+        for row in samples:
+            candidate = self._sample_device_id(row)
+            if candidate:
+                return candidate
+        return ""
+
+    def _stable_flag_from_runtime_state(self, runtime_state: Dict[str, Any]) -> bool:
+        if bool(runtime_state.get("point_quality_blocked", False)):
+            return False
+        for key in ("sampling_window_qc_status", "point_quality_status", "flush_gate_status"):
+            status = str(runtime_state.get(key) or "").strip().lower()
+            if status in {"fail", "failed", "reject", "rejected", "timeout"}:
+                return False
+        return True
+
+    def _annotate_point_trace_rows(
+        self,
+        point: CalibrationPoint,
+        samples: List[Dict[str, Any]],
+        *,
+        phase: str,
+        point_tag: str,
+    ) -> None:
+        if not samples:
+            return
+        gas_type = self._point_gas_type(point, phase=phase)
+        target_value = self._point_target_value(point, phase=phase)
+        window_start_ts = samples[0].get("sample_ts")
+        window_end_ts = samples[-1].get("sample_end_ts") or samples[-1].get("sample_ts")
+        runtime_state = dict(self._point_runtime_state(point, phase=phase) or {})
+        stable_flag = self._stable_flag_from_runtime_state(runtime_state)
+        for row in samples:
+            row["run_id"] = getattr(self.logger, "run_id", "")
+            row["session_id"] = getattr(self.logger, "run_id", "")
+            row["gas_type"] = gas_type
+            row["step"] = phase
+            row["point_no"] = point.index
+            row["target_value"] = target_value
+            row["measured_value"] = self._as_float(row.get("h2o_mmol" if gas_type == "H2O" else "co2_ppm"))
+            row["window_start_ts"] = window_start_ts
+            row["window_end_ts"] = window_end_ts
+            row["sample_count"] = len(samples)
+            row["stable_flag"] = stable_flag
+            device_id = self._sample_device_id(row)
+            if device_id:
+                row["device_id"] = device_id
+
     def _perform_heavy_point_exports(
         self,
         point: CalibrationPoint,
@@ -13846,6 +14082,7 @@ class CalibrationRunner:
             point_tag=point_tag,
             integrity_summary=integrity_summary,
         )
+        row["save_ts"] = self._ts_from_datetime(datetime.now())
         try:
             self.logger.log_point(row)
         except Exception as exc:
@@ -13863,14 +14100,18 @@ class CalibrationRunner:
         phase: str,
         point_tag: str,
     ) -> None:
+        stored_samples: List[Dict[str, Any]] = []
         for data in samples:
+            payload = dict(data)
+            payload["save_ts"] = self._ts_from_datetime(datetime.now())
             try:
-                self.logger.log_sample(data)
+                self.logger.log_sample(payload)
             except Exception as exc:
                 self.log(f"Point {point.index} sample export failed: {exc}")
-            self._all_samples.append(dict(data))
+            stored_samples.append(payload)
+            self._all_samples.append(dict(payload))
         try:
-            point_csv = self.logger.log_point_samples(point.index, samples, phase=phase, tag=point_tag)
+            point_csv = self.logger.log_point_samples(point.index, stored_samples, phase=phase, tag=point_tag)
             self.log(f"Point {point.index} samples saved: {point_csv}")
         except Exception as exc:
             self.log(f"Point {point.index} sample CSV save failed: {exc}")
@@ -15508,6 +15749,12 @@ class CalibrationRunner:
             phase=phase_text,
             samples=samples,
         )
+        self._annotate_point_trace_rows(
+            point,
+            samples,
+            phase=phase_text,
+            point_tag=point_tag,
+        )
         if handoff_armed or route_seal_deferral_armed:
             self._enqueue_deferred_sample_exports(
                 point,
@@ -16307,32 +16554,90 @@ class CalibrationRunner:
 
         sencos = cfg.get("sencos", {})
         if sencos:
-            mode_switch_attempted = False
-            try:
-                mode_switch_attempted = True
-                if not ga.set_mode(2):
-                    raise RuntimeError("MODE=2 not acknowledged before SENCO write")
-                for key, coeff in sencos.items():
-                    try:
-                        idx = int(key)
-                        values = self._coerce_senco_values(coeff)
-                        acked = ga.set_senco(idx, *values)
-                        text = ",".join(format_senco_values(values))
-                        if acked:
-                            self.log(f"Wrote SENCO{idx} {text}")
-                        else:
-                            self.log(f"SENCO{idx} not acknowledged: {text}")
-                    except Exception as exc:
-                        self.log(f"Failed to write SENCO{key}: {exc}")
-            except Exception as exc:
-                self.log(f"Failed to enter MODE=2 for SENCO writes: {exc}")
-            finally:
-                if mode_switch_attempted:
-                    try:
-                        if not ga.set_mode(1):
-                            self.log("MODE=1 not acknowledged after SENCO writes")
-                    except Exception as exc:
-                        self.log(f"Failed to exit MODE=1 after SENCO writes: {exc}")
+            target_groups: Dict[int, List[float]] = {}
+            for key, coeff in sencos.items():
+                idx = int(key)
+                target_groups[idx] = self._coerce_senco_values(coeff)
+
+            from ..tools.run_v1_corrected_autodelivery import write_senco_groups_with_full_verification
+
+            result = write_senco_groups_with_full_verification(
+                ga,
+                expected_groups=target_groups,
+            )
+            self._persist_coefficient_write_result(ga, result)
+            for detail in list(result.get("detail_rows") or []):
+                idx = int(detail.get("group"))
+                target_values = [float(value) for value in list(detail.get("coeff_target") or [])]
+                text = ",".join(format_senco_values(target_values))
+                verify_status = str(detail.get("verify_status") or "").strip().lower()
+                rollback_status = str(detail.get("rollback_status") or "").strip().lower()
+                failure_reason = str(detail.get("failure_reason") or "").strip()
+                if verify_status == "success":
+                    self.log(
+                        f"Wrote SENCO{idx} {text} "
+                        f"readback_ok tolerance={float(detail.get('compare_tolerance') or 0.0):g}"
+                    )
+                elif rollback_status == "success":
+                    self.log(
+                        f"SENCO{idx} writeback failed and rolled back safely: "
+                        f"{failure_reason or 'READBACK_MISMATCH'}"
+                    )
+                else:
+                    self.log(
+                        f"SENCO{idx} writeback failed: "
+                        f"{failure_reason or 'unknown_failure'}"
+                    )
+            if not bool(result.get("ok", False)):
+                failure_reason = str(result.get("failure_reason") or "coefficient writeback failed")
+                if bool(result.get("unsafe", False)):
+                    raise RuntimeError(f"Coefficient writeback unsafe: {failure_reason}")
+                raise RuntimeError(f"Coefficient writeback failed: {failure_reason}")
+
+    def _persist_coefficient_write_result(self, ga: Any, result: Mapping[str, Any]) -> None:
+        log_write = getattr(self.logger, "log_coefficient_write", None)
+        save_ts = self._ts_from_datetime(datetime.now())
+        device_id = _normalized_device_id_text(getattr(ga, "device_id", "") or "")
+        port_text = str(getattr(getattr(ga, "ser", None), "port", "") or "").strip()
+        for detail in list(result.get("detail_rows") or []):
+            row = {
+                "run_id": getattr(self.logger, "run_id", ""),
+                "session_id": getattr(self.logger, "run_id", ""),
+                "save_ts": save_ts,
+                "device_id": device_id,
+                "port": port_text,
+                "senco_group": detail.get("group"),
+                "coeff_before": json.dumps(list(detail.get("coeff_before") or []), ensure_ascii=False),
+                "coeff_target": json.dumps(list(detail.get("coeff_target") or []), ensure_ascii=False),
+                "coeff_readback": json.dumps(list(detail.get("coeff_readback") or []), ensure_ascii=False),
+                "coeff_rollback_target": json.dumps(list(detail.get("coeff_rollback_target") or []), ensure_ascii=False),
+                "coeff_rollback_readback": json.dumps(list(detail.get("coeff_rollback_readback") or []), ensure_ascii=False),
+                "mode_before": detail.get("mode_before"),
+                "mode_after": detail.get("mode_after"),
+                "mode_exit_attempted": bool(result.get("mode_exit_attempted", False)),
+                "mode_exit_confirmed": bool(result.get("mode_exit_confirmed", False)),
+                "rollback_attempted": bool(detail.get("rollback_attempted", result.get("rollback_attempted", False))),
+                "rollback_confirmed": bool(detail.get("rollback_confirmed", result.get("rollback_confirmed", False))),
+                "write_status": detail.get("write_status"),
+                "verify_status": detail.get("verify_status"),
+                "rollback_status": detail.get("rollback_status"),
+                "overall_write_status": result.get("write_status"),
+                "overall_verify_status": result.get("verify_status"),
+                "overall_rollback_status": result.get("rollback_status"),
+                "failure_reason": detail.get("failure_reason"),
+                "compare_tolerance": detail.get("compare_tolerance"),
+                "overall_ok": bool(result.get("ok", False)),
+                "overall_unsafe": bool(result.get("unsafe", False)),
+            }
+            if callable(log_write):
+                try:
+                    log_write(row)
+                except Exception as exc:
+                    self.log(f"Coefficient write audit export failed: {exc}")
+            self._log_run_event(
+                command="coefficient-writeback",
+                response=json.dumps(row, ensure_ascii=False, default=str, separators=(",", ":")),
+            )
 
     @staticmethod
     def _coerce_senco_values(raw: Any) -> List[float]:

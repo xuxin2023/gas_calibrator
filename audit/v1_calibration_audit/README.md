@@ -1,14 +1,18 @@
 # V1 Calibration Audit
 
-- 生成时间: 2026-04-12T21:39:47+08:00
+- 生成时间: 2026-04-13T12:47:29+08:00
 - 当前分支: `main`
-- HEAD: `2b472cb8949ea97546ab856b181379ff0ca9edee`
+- HEAD: `f41b7b20c35a5051943fecd35bdaf62c05ae8d34`
 - 输出目录: `audit/v1_calibration_audit`
 
 ## 使用命令/脚本
 
 - `python tools/audit_v1_calibration.py`
+- `python tools/run_v1_online_acceptance.py --output-dir audit/v1_calibration_acceptance_online`
 - `python -m pytest -q tests/test_audit_v1_trace_check.py`
+- `python -m pytest -q tests/test_runner_v1_writeback_safety.py`
+- `python -m pytest -q tests/test_v1_writeback_fault_injection.py`
+- `python -m pytest -q tests/test_v1_online_acceptance_tool.py`
 - `git log --since="2026-04-03 00:00:00" --stat --patch --unified=0`
 - `git grep -n -I -E "V1|校准|标定|calibration|cali|zero|span|CO2|H2O|SENCO|GETCO|MODE|READDATA|point|save|store|insert|db|report|serial|protocol|气路|流程|step|状态机|coefficient|coefficients|readback|writeback|delivery|short_verify" -- . ":(exclude)audit/**"`
 
@@ -20,6 +24,11 @@
 
 ## 最近 30 个 commit
 
+- `f41b7b20c35a5051943fecd35bdaf62c05ae8d34` | 2026-04-12 23:38:39 +0800 | chore: sync 2026-04-12 23:38:38
+- `bef6db703cf0c33db4731734a606db033cc598dc` | 2026-04-12 22:03:30 +0800 | chore: sync 2026-04-12 22:03:29
+- `42c1e838aa5bc30a37fa035902967ae86ca7bb95` | 2026-04-12 21:58:30 +0800 | chore: sync 2026-04-12 21:58:30
+- `fb152b44491920315c86b692ec44a50b9e033a58` | 2026-04-12 21:53:30 +0800 | chore: sync 2026-04-12 21:53:30
+- `b9894d22c4754ca681b73bf43d2e1036e520b57b` | 2026-04-12 21:43:32 +0800 | chore: sync 2026-04-12 21:43:30
 - `2b472cb8949ea97546ab856b181379ff0ca9edee` | 2026-04-12 21:38:30 +0800 | chore: sync 2026-04-12 21:38:30
 - `f4e6b0a6efc38cb4f2ea046d78603d29df7d18ae` | 2026-04-12 21:33:32 +0800 | chore: sync 2026-04-12 21:33:30
 - `0b0238add2bfa0723d42effa5b0b9148f7f443f1` | 2026-04-12 21:13:31 +0800 | chore: sync 2026-04-12 21:13:31
@@ -45,8 +54,3 @@
 - `81f8ce0c1d4f0305b61a36c79eaa06a289c86061` | 2026-04-12 16:53:32 +0800 | chore: sync 2026-04-12 16:53:31
 - `581f7acb45d2694ef7b608024b372fb6030fdc82` | 2026-04-12 16:23:31 +0800 | chore: sync 2026-04-12 16:23:30
 - `29b63cb919fd15094edd9df704a05c4db0677ed0` | 2026-04-12 16:18:31 +0800 | chore: sync 2026-04-12 16:18:30
-- `5920841c97bc258c6d8728bb45e976fdea0b6239` | 2026-04-12 16:08:31 +0800 | chore: sync 2026-04-12 16:08:30
-- `4dc2f69bb4a30e6c165c8cbd8a9215d426c945e6` | 2026-04-12 16:03:34 +0800 | chore: sync 2026-04-12 16:03:33
-- `d50d55ac1f96b53fb04dc7b190639f26dd0bde2d` | 2026-04-12 15:58:32 +0800 | chore: sync 2026-04-12 15:58:31
-- `0f2722844d1b1196ce8fe314e7c3fc6c0a606caa` | 2026-04-12 15:53:30 +0800 | chore: sync 2026-04-12 15:53:30
-- `28f23beaaa367f7a6b058348e2b69005899b7c83` | 2026-04-12 15:48:31 +0800 | chore: sync 2026-04-12 15:48:30

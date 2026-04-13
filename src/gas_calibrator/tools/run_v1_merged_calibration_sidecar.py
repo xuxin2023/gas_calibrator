@@ -110,25 +110,39 @@ def _first_available(row: Mapping[str, Any], keys: Sequence[str]) -> Any:
     return None
 
 
+def _first_valid_float(row: Mapping[str, Any], keys: Sequence[str]) -> Optional[float]:
+    for key in keys:
+        if key not in row:
+            continue
+        numeric = _safe_float(row.get(key))
+        if numeric is not None:
+            return numeric
+    return None
+
+
+def _summary_phase(row: Mapping[str, Any]) -> str:
+    return _phase_key(_first_available(row, ("PhaseKey", "PointPhase", "流程阶段")))
+
+
 def _point_identity_from_row(
     row: Mapping[str, Any],
 ) -> Tuple[str, Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]]:
-    phase = _phase_key(_first_available(row, ("PointPhase", "流程阶段")))
-    chamber_temp = _safe_float(_first_available(row, ("TempSet", "温箱目标温度C")))
-    co2_ppm = _safe_float(_first_available(row, ("ppm_CO2_Tank", "目标二氧化碳浓度ppm")))
-    hgen_temp = _safe_float(_first_available(row, ("HgenTempSet", "湿度发生器目标温度C")))
-    hgen_rh = _safe_float(_first_available(row, ("HgenRhSet", "湿度发生器目标湿度%")))
-    pressure = _safe_float(_first_available(row, ("PressureTarget", "目标压力hPa")))
+    phase = _summary_phase(row)
+    chamber_temp = _first_valid_float(row, ("TempSet", "温箱目标温度C", "EnvTempC"))
+    co2_ppm = _first_valid_float(row, ("ppm_CO2_Tank", "目标二氧化碳浓度ppm"))
+    hgen_temp = _first_valid_float(row, ("HgenTempSet", "湿度发生器_目标温度(℃)", "湿度发生器目标温度C"))
+    hgen_rh = _first_valid_float(row, ("HgenRhSet", "湿度发生器_目标湿度(%RH)", "湿度发生器目标湿度%"))
+    pressure = _first_valid_float(row, ("PressureTarget", "目标压力hPa"))
     return (phase, chamber_temp, co2_ppm, hgen_temp, hgen_rh, pressure)
 
 
 def _point_sort_key(row: Mapping[str, Any]) -> Tuple[float, int, float, float, float]:
-    phase = _phase_key(_first_available(row, ("PointPhase", "流程阶段")))
+    phase = _summary_phase(row)
     phase_order = 0 if phase == "co2" else 1
-    chamber_temp = _safe_float(_first_available(row, ("TempSet", "温箱目标温度C"))) or 0.0
-    co2_ppm = _safe_float(_first_available(row, ("ppm_CO2_Tank", "目标二氧化碳浓度ppm"))) or -1.0
-    hgen_temp = _safe_float(_first_available(row, ("HgenTempSet", "湿度发生器目标温度C"))) or -1.0
-    pressure = _safe_float(_first_available(row, ("PressureTarget", "目标压力hPa"))) or -1.0
+    chamber_temp = _first_valid_float(row, ("TempSet", "温箱目标温度C", "EnvTempC")) or 0.0
+    co2_ppm = _first_valid_float(row, ("ppm_CO2_Tank", "目标二氧化碳浓度ppm")) or -1.0
+    hgen_temp = _first_valid_float(row, ("HgenTempSet", "湿度发生器_目标温度(℃)", "湿度发生器目标温度C")) or -1.0
+    pressure = _first_valid_float(row, ("PressureTarget", "目标压力hPa")) or -1.0
     return (chamber_temp, phase_order, co2_ppm if phase == "co2" else hgen_temp, pressure, 0.0)
 
 
@@ -225,10 +239,10 @@ def _merge_point_rows(
     allowed_gas_ppm: Sequence[float],
 ) -> Tuple[
     List[Dict[str, Any]],
-    Dict[Tuple[str, Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]], str],
+    Dict[Tuple[str, Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]], Dict[str, Any]],
 ]:
     selected: Dict[Tuple[str, Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]], Dict[str, Any]] = {}
-    selected_source: Dict[Tuple[str, Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]], str] = {}
+    selected_source: Dict[Tuple[str, Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]], Dict[str, Any]] = {}
     allowed_ppm_set = {float(item) for item in allowed_gas_ppm}
     for run_dir in run_dirs:
         run_key = str(run_dir)
@@ -238,19 +252,29 @@ def _merge_point_rows(
                 if key[2] is None or float(key[2]) not in allowed_ppm_set:
                     continue
             selected[key] = dict(row)
-            selected_source[key] = run_key
+            selected_source[key] = {
+                "source_run": run_key,
+                "point_row": str(row.get("校准点行号") or row.get("PointRow") or "").strip(),
+                "phase": key[0],
+            }
     merged_rows = sorted(selected.values(), key=_point_sort_key)
     return merged_rows, selected_source
 
 
 def _merge_summary_rows(
-    selected_sources: Mapping[Tuple[str, Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]], str],
+    selected_sources: Mapping[Tuple[str, Optional[float], Optional[float], Optional[float], Optional[float], Optional[float]], Mapping[str, Any]],
     summary_rows_by_run: Mapping[str, Sequence[Mapping[str, Any]]],
 ) -> List[Dict[str, Any]]:
     grouped: Dict[Tuple[str, Optional[float], Optional[float], Optional[float], Optional[float], Optional[float], str], Dict[str, Any]] = {}
-    for key, source_run in selected_sources.items():
+    for key, selected_info in selected_sources.items():
+        source_run = str(selected_info.get("source_run") or "")
+        selected_point_row = str(selected_info.get("point_row") or "").strip()
+        selected_phase = str(selected_info.get("phase") or "")
         for row in summary_rows_by_run.get(source_run, []):
-            if _point_identity_from_row(row) != key:
+            same_identity = _point_identity_from_row(row) == key
+            same_point_row = selected_point_row and str(row.get("PointRow") or "").strip() == selected_point_row
+            same_phase = _summary_phase(row) == selected_phase
+            if not same_identity and not (same_point_row and same_phase):
                 continue
             analyzer = str(row.get("Analyzer") or "").strip().upper()
             grouped[(key[0], key[1], key[2], key[3], key[4], key[5], analyzer)] = dict(row)
@@ -277,14 +301,33 @@ def _merge_temperature_rows(
 
 
 def _count_summary_by_phase(rows: Sequence[Mapping[str, Any]]) -> Dict[str, int]:
-    gas = sum(1 for row in rows if _phase_key(row.get("PointPhase")) == "co2")
-    water = sum(1 for row in rows if _phase_key(row.get("PointPhase")) == "h2o")
-    return {"gas": gas, "water": water, "total": gas + water}
+    gas = sum(1 for row in rows if _summary_phase(row) == "co2")
+    water = sum(1 for row in rows if _summary_phase(row) == "h2o")
+    total = int(len(rows))
+    return {"gas": gas, "water": water, "unknown": max(0, total - gas - water), "total": total}
+
+
+def _split_summary_rows_by_phase(
+    rows: Sequence[Mapping[str, Any]],
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    gas_rows: List[Dict[str, Any]] = []
+    water_rows: List[Dict[str, Any]] = []
+    unknown_rows: List[Dict[str, Any]] = []
+    for row in rows:
+        payload = dict(row)
+        phase = _summary_phase(payload)
+        if phase == "co2":
+            gas_rows.append(payload)
+        elif phase == "h2o":
+            water_rows.append(payload)
+        else:
+            unknown_rows.append(payload)
+    return gas_rows, water_rows, unknown_rows
 
 
 def _count_points_by_phase(rows: Sequence[Mapping[str, Any]]) -> Dict[str, int]:
-    gas = sum(1 for row in rows if _phase_key(row.get("流程阶段")) == "co2")
-    water = sum(1 for row in rows if _phase_key(row.get("流程阶段")) == "h2o")
+    gas = sum(1 for row in rows if _summary_phase(row) == "co2")
+    water = sum(1 for row in rows if _summary_phase(row) == "h2o")
     return {"gas": gas, "water": water, "total": gas + water}
 
 
@@ -918,20 +961,17 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     merged_temperature_rows = _merge_temperature_rows(run_dirs, merge_inputs["temperature_rows_by_run"])
 
     manifest = _build_merge_manifest(run_dirs, merged_point_rows, merged_summary_rows, merged_temperature_rows)
+    gas_summary_rows, water_summary_rows, unknown_summary_rows = _split_summary_rows_by_phase(merged_summary_rows)
     (output_dir / "merge_manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     _write_csv(output_dir / "merged_point_selection.csv", merged_point_rows)
     _write_csv(output_dir / "merged_analyzer_summary.csv", merged_summary_rows)
-    _write_csv(
-        output_dir / "merged_analyzer_summary_gas.csv",
-        [row for row in merged_summary_rows if _phase_key(row.get("PointPhase")) == "co2"],
-    )
-    _write_csv(
-        output_dir / "merged_analyzer_summary_h2o.csv",
-        [row for row in merged_summary_rows if _phase_key(row.get("PointPhase")) == "h2o"],
-    )
+    _write_csv(output_dir / "merged_analyzer_summary_gas.csv", gas_summary_rows)
+    _write_csv(output_dir / "merged_analyzer_summary_h2o.csv", water_summary_rows)
+    if unknown_summary_rows:
+        _write_csv(output_dir / "merged_analyzer_summary_unknown_phase.csv", unknown_summary_rows)
     _write_csv(output_dir / "merged_temperature_calibration_observations.csv", merged_temperature_rows)
 
     _log(
@@ -939,6 +979,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         f"点位 气={manifest['point_counts']['gas']} 水={manifest['point_counts']['water']} 总={manifest['point_counts']['total']} | "
         f"汇总 气={manifest['summary_counts']['gas']} 水={manifest['summary_counts']['water']} 总={manifest['summary_counts']['total']}"
     )
+    if manifest["summary_counts"].get("unknown", 0):
+        _log(f"汇总相位警告: unknown={manifest['summary_counts']['unknown']}")
 
     temperature_dir = output_dir / "temperature_compensation"
     temperature_dir.mkdir(parents=True, exist_ok=True)

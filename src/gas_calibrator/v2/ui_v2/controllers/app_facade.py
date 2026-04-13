@@ -109,6 +109,7 @@ from ..review_center_scan_contracts import (
     FAMILY_SCAN_ORDER as _FAMILY_SCAN_ORDER,
     allocate_family_budgets as _allocate_family_budgets,
     build_family_budget_summary as _build_family_budget_summary,
+    build_v12_alignment_summary as _build_v12_alignment_summary,
 )
 from ..utils.app_info import APP_INFO
 from ..utils.preferences_store import PreferencesStore, merge_preferences
@@ -3567,6 +3568,8 @@ class AppFacade:
                 limit=8,
                 metrics=diagnostics,
                 force_refresh=force_refresh,
+                family_key="readiness_governance",
+                family_budget=_family_budgets.get("readiness_governance"),
             )
             for path in readiness_paths:
                 item = self._parse_review_artifact(
@@ -3656,7 +3659,7 @@ class AppFacade:
         diagnostics["family_budget_summary"] = _build_family_budget_summary(_family_budgets, _family_used_final)
         diagnostics["family_budgets"] = dict(_family_budgets)
         return (
-            sorted(items, key=lambda item: float(item.get("sort_key", 0.0) or 0.0), reverse=True)[:40],
+            sorted(items, key=lambda item: float(item.get("sort_key", 0.0) or 0.0), reverse=True)[:64],
             diagnostics,
         )
 
@@ -3950,6 +3953,11 @@ class AppFacade:
                 metrics["scanned_candidate_count"] = int(metrics.get("scanned_candidate_count", 0) or 0) + 1
             _remember(direct)
             if len(candidates) >= max(1, int(limit)):
+                continue
+            # When using family-aware budget, skip deep scan if direct path
+            # already found a candidate in this root — preserves budget for
+            # other roots that may also contain the artifact.
+            if family_budget is not None and len(candidates) > 0:
                 continue
             # Family-aware budget: use per-family budget when provided,
             # otherwise fall back to global shared budget.
@@ -5469,6 +5477,8 @@ class AppFacade:
             "scanned_candidate_count": int(dict(diagnostics or {}).get("scanned_candidate_count", 0) or 0),
             "elapsed_ms": int(dict(diagnostics or {}).get("elapsed_ms", 0) or 0),
             "scan_budget_used": int(dict(diagnostics or {}).get("scan_budget_used", 0) or 0),
+            "family_budget_summary": dict(diagnostics or {}).get("family_budget_summary", {}),
+            "family_budgets": dict(diagnostics or {}).get("family_budgets", {}),
         }
         diagnostics_summary = t(
             "results.review_center.index.diagnostics_summary",
@@ -5597,6 +5607,15 @@ class AppFacade:
             },
             "diagnostics": normalized_diagnostics,
             "diagnostics_summary": diagnostics_summary,
+            "family_budget_summary": normalized_diagnostics.get("family_budget_summary", {}),
+            "omitted_families": [k for k, v in (normalized_diagnostics.get("family_budget_summary", {}) or {}).items() if v.get("status") == "omitted"],
+            "budget_limited_families": [k for k, v in (normalized_diagnostics.get("family_budget_summary", {}) or {}).items() if v.get("status") == "budget_limited"],
+            "v12_alignment_summary": _build_v12_alignment_summary(
+                parity_status=next((str(item.get("raw_status") or "") for item in items if str(item.get("type") or "") == "parity"), None),
+                resilience_status=next((str(item.get("raw_status") or "") for item in items if str(item.get("type") or "") == "resilience"), None),
+                governance_handoff_blockers=[],
+                family_budget_summary=normalized_diagnostics.get("family_budget_summary", {}),
+            ),
             "compatibility_rollup": compatibility_rollup_payload,
             "compatibility_summary": compatibility_summary,
             "recognition_scope_rollup": recognition_scope_rollup_payload,

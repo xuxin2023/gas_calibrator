@@ -16,6 +16,7 @@ from ..logging_utils import _field_label
 from ..workflow.runner import CalibrationRunner
 
 POINT_INTEGRITY_LABEL = _field_label("analyzer_integrity")
+EXPECTED_ANALYZERS_LABEL = _field_label("analyzer_expected_count")
 
 
 @dataclass(frozen=True)
@@ -72,6 +73,15 @@ def _csv_row_count(path: Optional[Path]) -> int:
     return len(_read_csv_rows(path))
 
 
+def _safe_int(value: Any) -> Optional[int]:
+    if value in (None, ""):
+        return None
+    try:
+        return int(float(value))
+    except Exception:
+        return None
+
+
 def _sample_row_count(path: Path) -> int:
     with path.open("r", newline="", encoding="utf-8-sig") as handle:
         return sum(1 for _ in csv.DictReader(handle))
@@ -122,6 +132,36 @@ def _configured_analyzer_labels(runtime_cfg: Optional[Dict[str, Any]]) -> List[s
     if isinstance(single_cfg, dict) and single_cfg.get("enabled", False):
         return ["ga01"]
     return []
+
+
+def _infer_expected_analyzer_count(
+    *,
+    points_csv: Optional[Path],
+    points_readable_csv: Optional[Path],
+    configured_count: int,
+) -> tuple[int, str]:
+    candidate_keys = (
+        EXPECTED_ANALYZERS_LABEL,
+        "ExpectedAnalyzers",
+        "analyzer_expected_count",
+    )
+    values: List[int] = []
+    for path in (points_readable_csv, points_csv):
+        if path is None or not path.exists():
+            continue
+        try:
+            rows = _read_csv_rows(path)
+        except Exception:
+            continue
+        for row in rows:
+            for key in candidate_keys:
+                parsed = _safe_int(row.get(key))
+                if parsed is not None and parsed > 0:
+                    values.append(parsed)
+                    break
+    if values:
+        return max(values), "point_exports"
+    return max(0, configured_count), "runtime_config"
 
 
 def plan_points_from_runtime_config(runtime_cfg: Optional[Dict[str, Any]]) -> List[PlannedPointSpec]:
@@ -330,11 +370,20 @@ def audit_run_dir(
     actual_point_rows = _csv_row_count(points_csv)
     readable_point_rows = _csv_row_count(points_readable_csv)
     summary_rows = _csv_row_count(analyzer_summary_csv)
-    expected_summary_rows = expected_points * len(result.analyzer_labels)
+    configured_analyzer_count = len(result.analyzer_labels)
+    expected_analyzer_count, expected_analyzer_count_source = _infer_expected_analyzer_count(
+        points_csv=points_csv,
+        points_readable_csv=points_readable_csv,
+        configured_count=configured_analyzer_count,
+    )
+    expected_summary_rows = expected_points * expected_analyzer_count
 
     result.infos.append(f"Planned points: {expected_points}")
     result.infos.append(f"Expected sample rows per point: {expected_sample_rows}")
-    result.infos.append(f"Configured analyzers: {len(result.analyzer_labels)}")
+    result.infos.append(f"Configured analyzers: {configured_analyzer_count}")
+    result.infos.append(
+        f"Expected analyzers per point: {expected_analyzer_count} ({expected_analyzer_count_source})"
+    )
 
     if points_csv is not None and actual_point_rows != expected_points:
         result.failures.append(

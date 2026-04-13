@@ -2358,5 +2358,72 @@
     "stage_admission_review_pack_reviewer": "Stage Admission Review Pack Review",
     "engineering_isolation_admission_checklist": "Engineering Isolation Admission Checklist",
     "engineering_isolation_admission_checklist_reviewer": "Engineering Isolation Admission Checklist Review"
+  },
+  "pages.devices.workbench.engineer_section.measurement_core.title": "Measurement-Core Readiness",
+  "pages.devices.workbench.engineer_section.measurement_core.summary": "Shadow stability / controlled-flex trace / sidecar-ready evidence",
+  "facade.results.result_summary.measurement_core_phase_coverage": "Measurement-core phase coverage: {value}",
+  "results.review_center.type.measurement_phase_coverage": "Measurement Phase Coverage",
+  "phase_evidence": {
+    "point_taxonomy_summary": "Point Taxonomy Summary",
+    "measurement_phase_coverage_report": "Measurement Phase Coverage",
+    "phase_transition_bridge": "Phase Transition Bridge",
+    "v12_alignment_summary": "V1.2 Alignment Summary",
+    "title": {
+      "point_taxonomy_summary": "Point Taxonomy Summary",
+      "measurement_phase_coverage_report": "Measurement Phase Coverage",
+      "phase_transition_bridge": "Phase Transition Bridge",
+      "v12_alignment_summary": "V1.2 Alignment Summary"
+    },
+    "summary": {
+      "point_taxonomy_summary": "Point taxonomy and gate classification summary",
+      "measurement_phase_coverage_report": "Measurement-core phase coverage and gap summary",
+      "phase_transition_bridge": "Step 2 tail / Stage 3 bridge status summary",
+      "v12_alignment_summary": "V1.2 simulation evidence alignment status summary"
+    },
+    "section_label": {
+      "point_taxonomy_summary": "Point Taxonomy",
+      "measurement_phase_coverage_report": "Phase Coverage",
+      "phase_transition_bridge": "Phase Bridge",
+      "v12_alignment_summary": "V1.2 Alignment"
+    },
+    "type_label": {
+      "point_taxonomy_summary": "Point Taxonomy",
+      "measurement_phase_coverage_report": "Measurement Phase Coverage",
+      "phase_transition_bridge": "Phase Bridge",
+      "v12_alignment_summary": "V1.2 Alignment Summary"
+    }
+  },
+  "phase_bridge": {
+    "status": {
+      "ready_for_engineering_isolation": "Phase status: still in Step 2 tail / Stage 3 bridge, but engineering-isolation readiness is met.",
+      "step2_tail_in_progress": "Phase status: still in Step 2 tail; institutional design is in place, but readiness blockers are not yet fully closed.",
+      "blocked_before_stage3": "Phase status: still in the Stage 3 pre-bridge phase; cannot enter real metrology verification yet."
+    },
+    "summary_text": "Phase bridge artifact: this artifact consolidates Step 2 readiness and metrology design contracts to answer how far from Stage 3; it is not real acceptance evidence and cannot replace real metrology verification.",
+    "current_stage_text": "Current stage: Step 2 tail / Stage 3 bridge; only simulation/offline/headless evidence is allowed.",
+    "next_stage_ready": "Next stage: can enter engineering-isolation, continuing to collect non-real-acceptance engineering isolation evidence.",
+    "next_stage_not_ready": "Next stage: close Step 2 tail blockers first, then enter engineering-isolation readiness.",
+    "execute_now_prefix": "Execute now: ",
+    "defer_to_stage3_prefix": "Stage 3 execution: ",
+    "no_blocking": "Blockers: none.",
+    "blocking_prefix": "Blockers: ",
+    "warning_prefix": "Warning: ",
+    "recommended_next_stage_prefix": "Recommended next stage: ",
+    "gate_status": {
+      "defined": "Defined",
+      "missing": "Missing"
+    }
+  },
+  "results_fallback": {
+    "results_file": "Results file",
+    "generated": "Generated",
+    "missing": "Missing",
+    "sample_count": "Sample count",
+    "point_summary_count": "Point summary count",
+    "artifact_roles": "Artifact roles",
+    "config_safety": "Config safety",
+    "evidence_source": "Evidence source",
+    "offline_diagnostic": "Offline diagnostic",
+    "workbench_evidence": "Workbench diagnostic evidence"
   }
 }

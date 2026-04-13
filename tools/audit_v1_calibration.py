@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import ast
 import json
 import re
 import subprocess
 import sys
+import tempfile
+import types
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -15,9 +18,20 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 
 ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
 DEFAULT_OUTPUT_DIR = ROOT / "audit" / "v1_calibration_audit"
+DEFAULT_ACCEPTANCE_DIR = ROOT / "audit" / "v1_calibration_acceptance"
+DEFAULT_ONLINE_ACCEPTANCE_DIR = ROOT / "audit" / "v1_calibration_acceptance_online"
 DEFAULT_SINCE = "2026-04-03 00:00:00"
 TRACE_TEST = "tests/test_audit_v1_trace_check.py"
+TRACE_TESTS = [
+    TRACE_TEST,
+    "tests/test_runner_v1_writeback_safety.py",
+    "tests/test_v1_writeback_fault_injection.py",
+    "tests/test_v1_online_acceptance_tool.py",
+]
 
 KEYWORD_PATTERN = (
     r"V1|校准|标定|calibration|cali|zero|span|CO2|H2O|SENCO|GETCO|MODE|READDATA|"
@@ -177,17 +191,20 @@ def bracket_block_span(rel_path: str, marker: str, open_char: str, close_char: s
 
 
 def blame_commits(span: FileSpan) -> List[str]:
-    output = run_cmd(
-        [
-            "git",
-            "blame",
-            "-L",
-            f"{span.start_line},{span.end_line}",
-            "--date=short",
-            "--",
-            span.path,
-        ]
-    )
+    try:
+        output = run_cmd(
+            [
+                "git",
+                "blame",
+                "-L",
+                f"{span.start_line},{span.end_line}",
+                "--date=short",
+                "--",
+                span.path,
+            ]
+        )
+    except RuntimeError:
+        return []
     commits: List[str] = []
     for line in output.splitlines():
         text = line.strip()
@@ -401,13 +418,22 @@ def build_code_spans() -> Dict[str, FileSpan]:
         "runner_build_co2_pressure_point": symbol_span("src/gas_calibrator/workflow/runner.py", "CalibrationRunner._build_co2_pressure_point"),
         "runner_build_h2o_pressure_point": symbol_span("src/gas_calibrator/workflow/runner.py", "CalibrationRunner._build_h2o_pressure_point"),
         "runner_maybe_write_coefficients": symbol_span("src/gas_calibrator/workflow/runner.py", "CalibrationRunner._maybe_write_coefficients"),
+        "runner_effective_postrun_cfg": symbol_span("src/gas_calibrator/workflow/runner.py", "CalibrationRunner._effective_postrun_corrected_delivery_cfg"),
+        "runner_log_postrun_cfg": symbol_span("src/gas_calibrator/workflow/runner.py", "CalibrationRunner._log_postrun_corrected_delivery_effective_config"),
+        "runner_h2o_zero_span_capability_payload": symbol_span("src/gas_calibrator/workflow/runner.py", "CalibrationRunner._h2o_zero_span_capability_payload"),
+        "runner_log_h2o_zero_span_capability": symbol_span("src/gas_calibrator/workflow/runner.py", "CalibrationRunner._log_h2o_zero_span_capability"),
+        "runner_require_supported_h2o_zero_span": symbol_span("src/gas_calibrator/workflow/runner.py", "CalibrationRunner._require_supported_h2o_zero_span_if_requested"),
+        "runner_persist_coefficient_write_result": symbol_span("src/gas_calibrator/workflow/runner.py", "CalibrationRunner._persist_coefficient_write_result"),
+        "runner_annotate_point_trace_rows": symbol_span("src/gas_calibrator/workflow/runner.py", "CalibrationRunner._annotate_point_trace_rows"),
         "runner_postrun_corrected_delivery": symbol_span("src/gas_calibrator/workflow/runner.py", "CalibrationRunner._maybe_run_postrun_corrected_delivery"),
+        "runner_filter_ratio_poly_summary_rows": symbol_span("src/gas_calibrator/workflow/runner.py", "CalibrationRunner._filter_ratio_poly_summary_rows"),
         "points_calibration_point": symbol_span("src/gas_calibrator/data/points.py", "CalibrationPoint"),
         "points_load_points_from_excel": symbol_span("src/gas_calibrator/data/points.py", "load_points_from_excel"),
         "points_reorder_points": symbol_span("src/gas_calibrator/data/points.py", "reorder_points"),
         "ga_set_mode_with_ack": symbol_span("src/gas_calibrator/devices/gas_analyzer.py", "GasAnalyzer.set_mode_with_ack"),
         "ga_set_senco": symbol_span("src/gas_calibrator/devices/gas_analyzer.py", "GasAnalyzer.set_senco"),
         "ga_read_coefficient_group": symbol_span("src/gas_calibrator/devices/gas_analyzer.py", "GasAnalyzer.read_coefficient_group"),
+        "ga_read_current_mode_snapshot": symbol_span("src/gas_calibrator/devices/gas_analyzer.py", "GasAnalyzer.read_current_mode_snapshot"),
         "ga_read_data_passive": symbol_span("src/gas_calibrator/devices/gas_analyzer.py", "GasAnalyzer.read_data_passive"),
         "ga_read_data_active": symbol_span("src/gas_calibrator/devices/gas_analyzer.py", "GasAnalyzer.read_data_active"),
         "ga_parse_line_mode2": symbol_span("src/gas_calibrator/devices/gas_analyzer.py", "GasAnalyzer.parse_line_mode2"),
@@ -416,19 +442,45 @@ def build_code_spans() -> Dict[str, FileSpan]:
         "logger_runlogger_init": symbol_span("src/gas_calibrator/logging_utils.py", "RunLogger.__init__"),
         "logger_log_sample": symbol_span("src/gas_calibrator/logging_utils.py", "RunLogger.log_sample"),
         "logger_log_point": symbol_span("src/gas_calibrator/logging_utils.py", "RunLogger.log_point"),
+        "logger_log_coefficient_write": symbol_span("src/gas_calibrator/logging_utils.py", "RunLogger.log_coefficient_write"),
         "logger_append_points_csv": symbol_span("src/gas_calibrator/logging_utils.py", "RunLogger._append_points_csv_row"),
         "logger_log_point_samples": symbol_span("src/gas_calibrator/logging_utils.py", "RunLogger.log_point_samples"),
         "logger_build_analyzer_summary": symbol_span("src/gas_calibrator/logging_utils.py", "RunLogger._build_analyzer_summary_row"),
         "corrected_build_download_plan": symbol_span("src/gas_calibrator/tools/run_v1_corrected_autodelivery.py", "build_corrected_download_plan_rows"),
         "corrected_write_coefficients": symbol_span("src/gas_calibrator/tools/run_v1_corrected_autodelivery.py", "write_coefficients_to_live_devices"),
+        "corrected_full_writeback": symbol_span("src/gas_calibrator/tools/run_v1_corrected_autodelivery.py", "write_senco_groups_with_full_verification"),
         "corrected_read_group_retry": symbol_span("src/gas_calibrator/tools/run_v1_corrected_autodelivery.py", "_read_group_with_match_retry"),
         "corrected_build_delivery": symbol_span("src/gas_calibrator/tools/run_v1_corrected_autodelivery.py", "build_corrected_delivery"),
         "config_postrun_corrected_delivery": bracket_block_span("src/gas_calibrator/config.py", '"postrun_corrected_delivery": {', "{", "}"),
+        "config_h2o_zero_span": bracket_block_span("src/gas_calibrator/config.py", '"h2o_zero_span": {', "{", "}"),
+        "h2o_summary_default_selection": symbol_span("src/gas_calibrator/h2o_summary_selection.py", "default_h2o_summary_selection"),
         "test_collect_samples_h2o_snapshot": symbol_span("tests/test_runner_collect_only.py", "test_collect_samples_uses_preseal_dewpoint_snapshot_for_h2o"),
+        "test_collect_ratio_poly_h2o_selection": symbol_span("tests/test_runner_collect_only.py", "test_runner_ratio_poly_autofit_h2o_includes_h2o_and_selected_co2_zero_rows"),
         "test_route_handoff_defers_exports": symbol_span("tests/test_runner_route_handoff.py", "test_sample_and_log_arms_route_handoff_before_sample_exports"),
         "test_audit_trace_fields": symbol_span("tests/test_audit_v1_trace_check.py", "test_v1_point_trace_row_contains_expected_fields"),
         "test_audit_trace_overwrite": symbol_span("tests/test_audit_v1_trace_check.py", "test_v1_point_trace_distinct_points_do_not_overwrite_each_other"),
         "test_audit_trace_guards": symbol_span("tests/test_audit_v1_trace_check.py", "test_v1_trace_code_keeps_stability_and_freshness_guards"),
+        "test_v1_writeback_defaults_safe": symbol_span("tests/test_runner_v1_writeback_safety.py", "test_postrun_corrected_delivery_defaults_safe"),
+        "test_v1_h2o_zero_span_not_supported": symbol_span("tests/test_runner_v1_writeback_safety.py", "test_h2o_zero_span_capability_defaults_not_supported"),
+        "test_v1_h2o_zero_span_fail_fast": symbol_span("tests/test_runner_v1_writeback_safety.py", "test_h2o_zero_span_requirement_fails_fast"),
+        "test_v1_writeback_success": symbol_span("tests/test_runner_v1_writeback_safety.py", "test_runner_writeback_success_reads_before_and_after"),
+        "test_v1_writeback_mismatch": symbol_span("tests/test_runner_v1_writeback_safety.py", "test_runner_writeback_mismatch_triggers_rollback_and_restore"),
+        "test_v1_writeback_point_fields": symbol_span("tests/test_runner_v1_writeback_safety.py", "test_point_export_rows_include_traceability_fields_and_do_not_overwrite"),
+        "test_fault_set_mode2": symbol_span("tests/test_v1_writeback_fault_injection.py", "test_fault_set_mode2_failure_still_attempts_restore"),
+        "test_fault_set_senco": symbol_span("tests/test_v1_writeback_fault_injection.py", "test_fault_set_senco_exception_rolls_back_and_restores"),
+        "test_fault_readback_failures": symbol_span("tests/test_v1_writeback_fault_injection.py", "test_fault_readback_failures_roll_back_and_restore"),
+        "test_fault_rollback_write_failure": symbol_span("tests/test_v1_writeback_fault_injection.py", "test_fault_rollback_write_failure_marks_unsafe"),
+        "test_fault_set_mode1": symbol_span("tests/test_v1_writeback_fault_injection.py", "test_fault_set_mode1_exit_failure_is_unsafe"),
+        "test_fault_no_snapshot": symbol_span("tests/test_v1_writeback_fault_injection.py", "test_fault_missing_mode_snapshot_marks_exit_unconfirmed_unsafe"),
+        "test_fault_exit_unconfirmed": symbol_span("tests/test_v1_writeback_fault_injection.py", "test_fault_exit_attempt_without_confirmation_is_unsafe"),
+        "online_acceptance_run": symbol_span("src/gas_calibrator/tools/run_v1_online_acceptance.py", "run_online_acceptance"),
+        "online_acceptance_bundle": symbol_span("src/gas_calibrator/tools/run_v1_online_acceptance.py", "write_online_acceptance_bundle"),
+        "online_acceptance_require_co2_only": symbol_span("src/gas_calibrator/tools/run_v1_online_acceptance.py", "_ensure_co2_only_request"),
+        "test_online_acceptance_dual_gate": symbol_span("tests/test_v1_online_acceptance_tool.py", "test_online_acceptance_requires_dual_gate_for_real_device"),
+        "test_online_acceptance_dry_run": symbol_span("tests/test_v1_online_acceptance_tool.py", "test_online_acceptance_dry_run_generates_templates_only"),
+        "test_online_acceptance_real_mode": symbol_span("tests/test_v1_online_acceptance_tool.py", "test_online_acceptance_real_mode_writes_summary_and_protocol_log"),
+        "test_online_acceptance_exit_unconfirmed": symbol_span("tests/test_v1_online_acceptance_tool.py", "test_online_acceptance_exit_unconfirmed_is_unsafe_and_failed"),
+        "test_online_acceptance_h2o_fail_fast": symbol_span("tests/test_v1_online_acceptance_tool.py", "test_online_acceptance_h2o_request_fails_fast"),
     }
     return spans
 
@@ -452,7 +504,11 @@ def build_readme(
         "## 使用命令/脚本",
         "",
         f"- `python tools/audit_v1_calibration.py`",
+        f"- `python tools/run_v1_online_acceptance.py --output-dir {rel(DEFAULT_ONLINE_ACCEPTANCE_DIR)}`",
         f"- `python -m pytest -q {TRACE_TEST}`",
+        "- `python -m pytest -q tests/test_runner_v1_writeback_safety.py`",
+        "- `python -m pytest -q tests/test_v1_writeback_fault_injection.py`",
+        "- `python -m pytest -q tests/test_v1_online_acceptance_tool.py`",
         f"- `git log --since=\"{DEFAULT_SINCE}\" --stat --patch --unified=0`",
         f"- `git grep -n -I -E \"{KEYWORD_PATTERN}\" -- . \":(exclude)audit/**\"`",
         "",
@@ -567,8 +623,8 @@ def build_flow_map(spans: Dict[str, FileSpan]) -> str:
         "",
         "## 系数写入/回读/恢复",
         "",
-        f"- 主 runner 的系数写入路径: {spans['runner_maybe_write_coefficients'].as_ref()}；会 `MODE=2 -> SENCO -> MODE=1`，但该路径没有调用 `GETCO` 回读比较。",
-        f"- corrected autodelivery 旁路: {span_group(spans['corrected_build_download_plan'], spans['corrected_write_coefficients'], spans['corrected_read_group_retry'])}；这里对 CO2 使用 1/3 组、对 H2O 使用 2/4 组，并执行 `GETCO` 回读匹配。",
+        f"- 主 runner 的系数写入路径: {span_group(spans['runner_maybe_write_coefficients'], spans['runner_persist_coefficient_write_result'], spans['ga_read_current_mode_snapshot'])}；当前主路径已复用 shared helper，执行 `写前快照 -> MODE=2 -> SENCO -> GETCO 回读比对 -> 失败回滚 -> finally 恢复模式`。",
+        f"- corrected autodelivery 旁路: {span_group(spans['corrected_build_download_plan'], spans['corrected_write_coefficients'], spans['corrected_full_writeback'], spans['corrected_read_group_retry'])}；这里对 CO2 使用 1/3 组、对 H2O 使用 2/4 组，并与主 runner 共用 `GETCO` 回读匹配能力。",
         f"- 运行结束后自动触发 corrected autodelivery 的 hook: {spans['runner_postrun_corrected_delivery'].as_ref()}。",
         f"- 清理与基线恢复: {span_group(spans['runner_cleanup'], spans['runner_restore_baseline'])}。",
         "",
@@ -577,8 +633,8 @@ def build_flow_map(spans: Dict[str, FileSpan]) -> str:
         f"- CO2 零点检查: 有。见 {span_group(spans['runner_is_zero_co2_point'], spans['runner_wait_co2_route_soak_before_seal'])}。",
         f"- CO2 标气跨度: 有。`_run_temperature_group` 会按 CO2 源点 ppm 扫描，`_run_co2_point` 负责执行。见 {span_group(spans['runner_run_temperature_group'], spans['runner_run_co2_point'])}。",
         f"- H2O 零点/跨度: 只能确认 H2O 路线与多组湿度点存在，未找到明确以“零点/跨度”命名或判定的业务步骤；见 {spans['runner_run_h2o_group'].as_ref()}。结论: UNKNOWN。",
-        f"- MODE=校准模式 与恢复正常模式: 有。主 runner 在写 SENCO 时 `MODE=2 -> MODE=1`，见 {spans['runner_maybe_write_coefficients'].as_ref()}。",
-        f"- 系数写入后 GETCO 或等价回读验证: 旁路 corrected autodelivery 有，主 runner 当前主路径没有。主路径结论: FAIL；旁路能力见 {spans['corrected_write_coefficients'].as_ref()}。",
+        f"- MODE=校准模式 与恢复正常模式: 有。主 runner 和 corrected autodelivery 共用写回 helper，模式切换与 finally 恢复见 {span_group(spans['runner_maybe_write_coefficients'], spans['corrected_full_writeback'], spans['ga_set_mode_with_ack'], spans['ga_read_current_mode_snapshot'])}。",
+        f"- 系数写入后 GETCO 或等价回读验证: 有。主 runner 已通过 shared helper 接入 `GETCO` 回读比对与失败回滚；证据见 {span_group(spans['runner_maybe_write_coefficients'], spans['corrected_full_writeback'], spans['ga_read_coefficient_group'])}。结论: PASS。",
         "",
         "## CO2/H2O 链路关系",
         "",
@@ -601,22 +657,22 @@ def build_point_storage_map(spans: Dict[str, FileSpan]) -> str:
         f"- 是否有稳态等待/冲洗/延时: 有。CO2 路线预冲洗和零气特殊 flush 见 {span_group(spans['runner_run_co2_point'], spans['runner_wait_co2_route_soak_before_seal'])}；压力达标后采样前门禁见 {spans['runner_wait_pressure_sampling_ready'].as_ref()}；采样 freshness gate 见 {spans['runner_wait_sampling_freshness_gate'].as_ref()}。",
         f"- 是否用窗口平均/标准差: 样本采集前的稳态判定使用时间窗峰峰值；点位汇总时再计算 mean/std，见 {span_group(spans['runner_wait_primary_sensor_stable'], spans['runner_build_point_summary_row'])}。",
         f"- 何时触发保存: `_sample_and_log` 在采集结束、完成质量与完整性汇总后，触发 light/heavy export，见 {span_group(spans['runner_sample_and_log'], spans['runner_perform_light_exports'], spans['runner_perform_heavy_exports'])}。",
-        f"- 保存到哪里: `samples_*.csv`、`point_XXXX*_samples.csv`、`points_*.csv`、`points_readable_*.csv/.xlsx`、`分析仪汇总_*.csv/.xlsx`，见 {span_group(spans['logger_runlogger_init'], spans['logger_log_sample'], spans['logger_log_point'], spans['logger_log_point_samples'], spans['logger_build_analyzer_summary'])}。",
+        f"- 保存到哪里: `samples_*.csv`、`point_XXXX*_samples.csv`、`points_*.csv`、`points_readable_*.csv/.xlsx`、`分析仪汇总_*.csv/.xlsx`、`coefficient_writeback_*.csv`，见 {span_group(spans['logger_runlogger_init'], spans['logger_log_sample'], spans['logger_log_point'], spans['logger_log_point_samples'], spans['logger_log_coefficient_write'], spans['logger_build_analyzer_summary'])}。",
         "",
         "## 保存 payload",
         "",
-        f"- 样本级 payload 关键字段: `point_title/sample_ts/sample_start_ts/sample_end_ts/point_phase/point_tag/point_row/co2_ppm_target/h2o_mmol_target/pressure_target_hpa/co2_ppm/h2o_mmol/pressure_hpa/pressure_gauge_hpa/dewpoint_sample_ts/...`，见 {span_group(spans['runner_collect_samples'], spans['logger_common_sheet_fields'], spans['logger_field_labels'])}。",
-        f"- 点位汇总 payload 关键字段: `point_row/point_phase/point_tag/targets/mean/std/valid_count/quality/timing`，见 {spans['runner_build_point_summary_row'].as_ref()}。",
+        f"- 样本级 payload 关键字段: `run_id/session_id/device_id/gas_type/step/point_no/target_value/measured_value/sample_ts/save_ts/window_start_ts/window_end_ts/sample_count/stable_flag/...`，见 {span_group(spans['runner_collect_samples'], spans['runner_annotate_point_trace_rows'], spans['logger_field_labels'])}。",
+        f"- 点位汇总 payload 关键字段: `run_id/session_id/device_id/gas_type/step/point_no/target_value/measured_value/sample_ts/save_ts/window_start_ts/window_end_ts/sample_count/stable_flag/targets/mean/std/valid_count/quality/timing`，见 {span_group(spans['runner_build_point_summary_row'], spans['logger_log_point'])}。",
         "",
         "## 必答问题",
         "",
         f"- 每个点位是否有唯一标识: PASS。当前实现依赖 `point_row + point_phase + point_tag` 组合，而不是单独 UUID；构造点与 tag 见 {span_group(spans['runner_build_co2_pressure_point'], spans['runner_build_h2o_pressure_point'], spans['runner_co2_point_tag'], spans['runner_h2o_point_tag'], spans['runner_build_point_summary_row'])}。",
-        f"- 是否保存 raw timestamp 和 save timestamp: 部分 FAIL。样本有 `sample_ts`、设备采样时间戳和 `sample_end_ts`，见 {span_group(spans['runner_collect_samples'], spans['logger_common_sheet_fields'])}；但点位/样本导出没有单独的 `save_ts`/`insert_ts` 字段，见 {span_group(spans['logger_log_sample'], spans['logger_log_point'], spans['runner_build_point_summary_row'])}。",
-        f"- 是否区分采样时间与入库时间: FAIL。当前只持久化采样相关时间，没有单独入库时间戳，见 {span_group(spans['runner_collect_samples'], spans['runner_build_point_summary_row'])}。",
+        f"- 是否保存 raw timestamp 和 save timestamp: PASS。样本与点位导出现在同时保留 `sample_ts` 和独立 `save_ts`，并补了窗口时间字段；见 {span_group(spans['runner_collect_samples'], spans['runner_annotate_point_trace_rows'], spans['runner_build_point_summary_row'], spans['logger_log_sample'], spans['logger_log_point'])}。",
+        f"- 是否区分采样时间与入库时间: PASS。`sample_ts` 保留采样时间，`save_ts` 在真正导出前写入，证据见 {span_group(spans['runner_perform_light_exports'], spans['runner_perform_heavy_exports'], spans['runner_build_point_summary_row'])}。",
         f"- 是否可能把“最新一条高频数据”误存成当前点位: 当前代码有 freshness gate 与压力后门禁，结论 PASS，但仅限静态审计；证据见 {span_group(spans['runner_wait_sampling_freshness_gate'], spans['runner_wait_pressure_sampling_ready'], spans['test_audit_trace_guards'])}。",
         f"- 是否可能上一点位/过渡态/未稳定数据被保存到下一点位: 代码有 route handoff + deferred export 保护，结论 PASS；见 {span_group(spans['runner_enqueue_deferred_sample_exports'], spans['runner_flush_deferred_sample_exports'], spans['runner_enqueue_deferred_point_exports'], spans['runner_flush_deferred_point_exports'], spans['test_route_handoff_defers_exports'])}。",
         f"- 是否可能覆盖前一个点位，而不是新增一条: 对“不同点位”结论 PASS。`samples.csv/points.csv` 追加写入，单点样本文件按 `point_row + phase + tag` 分文件，离线测试见 {span_group(spans['logger_log_sample'], spans['logger_append_points_csv'], spans['logger_log_point_samples'], spans['test_audit_trace_overwrite'])}。但如果同一 `point_row + phase + tag` 被重复导出，单点样本 CSV 会覆盖同名文件，这属于同标识重写，不是不同点位覆盖。",
-        f"- 是否能追溯标定前系数、标定后系数、上一次系数: 主 runner 结论 FAIL。主路径只写 `SENCO`，没有在本流程里保存 before/after snapshot；见 {spans['runner_maybe_write_coefficients'].as_ref()}。旁路工具 `run_v1_merged_calibration_sidecar.py` 可以单独读 before/after，但不是主 runner 自动路径。",
+        f"- 是否能追溯标定前系数、标定后系数、上一次系数: 主 runner 结论 PASS。当前主路径已把 `coeff_before/coeff_target/coeff_readback/coeff_rollback_*` 持久化到 `coefficient_writeback_*.csv`，见 {span_group(spans['runner_maybe_write_coefficients'], spans['runner_persist_coefficient_write_result'], spans['logger_log_coefficient_write'])}。",
         f"- CO2 和 H2O 两套点位表结构是否一致: 样本主结构大体一致，共用 `COMMON_SHEET_FIELDS`，但目标字段和 H2O 预封压露点快照有差异；见 {span_group(spans['logger_common_sheet_fields'], spans['runner_collect_samples'], spans['test_collect_samples_h2o_snapshot'])}。",
         "",
         "## 点位存储风险表",
@@ -625,12 +681,12 @@ def build_point_storage_map(spans: Dict[str, FileSpan]) -> str:
         "| --- | --- | --- |",
         f"| 点位唯一标识 | PASS | {span_group(spans['runner_build_point_summary_row'], spans['runner_co2_point_tag'], spans['runner_h2o_point_tag'])} |",
         f"| 样本原始时间戳 | PASS | {span_group(spans['runner_collect_samples'], spans['logger_common_sheet_fields'])} |",
-        f"| 保存时间戳 | FAIL | {span_group(spans['logger_log_sample'], spans['logger_log_point'], spans['runner_build_point_summary_row'])} |",
-        f"| 采样/入库时间区分 | FAIL | {span_group(spans['runner_collect_samples'], spans['runner_build_point_summary_row'])} |",
+        f"| 保存时间戳 | PASS | {span_group(spans['runner_perform_light_exports'], spans['runner_perform_heavy_exports'], spans['logger_log_sample'], spans['logger_log_point'])} |",
+        f"| 采样/入库时间区分 | PASS | {span_group(spans['runner_build_point_summary_row'], spans['runner_perform_light_exports'], spans['runner_perform_heavy_exports'])} |",
         f"| 切点后立即取最新值 | PASS | {span_group(spans['runner_wait_pressure_sampling_ready'], spans['runner_wait_sampling_freshness_gate'], spans['test_audit_trace_guards'])} |",
         f"| 过渡态混入下一点位 | PASS | {span_group(spans['runner_enqueue_deferred_sample_exports'], spans['runner_flush_deferred_sample_exports'], spans['test_route_handoff_defers_exports'])} |",
         f"| 不同点位互相覆盖 | PASS | {span_group(spans['logger_log_point_samples'], spans['test_audit_trace_overwrite'])} |",
-        f"| 系数 before/after 追溯 | FAIL | {span_group(spans['runner_maybe_write_coefficients'], spans['corrected_build_delivery'])} |",
+        f"| 系数 before/after 追溯 | PASS | {span_group(spans['runner_maybe_write_coefficients'], spans['runner_persist_coefficient_write_result'], spans['logger_log_coefficient_write'])} |",
         f"| CO2/H2O 点位表结构完全一致 | UNKNOWN | {span_group(spans['logger_common_sheet_fields'], spans['runner_collect_samples'])} |",
         "",
     ]
@@ -648,17 +704,17 @@ def build_risk_checklist(spans: Dict[str, FileSpan], recent_commit_ids: List[str
         ("进入校准模式存在", "PASS", "", "", [spans["runner_maybe_write_coefficients"], spans["ga_set_mode_with_ack"]]),
         ("退出校准模式存在", "PASS", "", "", [spans["runner_maybe_write_coefficients"]]),
         ("系数写入存在", "PASS", "", "", [spans["runner_maybe_write_coefficients"], spans["ga_set_senco"]]),
-        ("系数写入后回读验证存在", "FAIL", "High", "主 runner 的 `_maybe_write_coefficients` 只执行 `MODE=2 -> SENCO -> MODE=1`，没有 `GETCO`/等价比对；如果写入被设备部分接受、截断或被旧值覆盖，本流程自己无法发现。", [spans["runner_maybe_write_coefficients"], spans["ga_read_coefficient_group"], spans["corrected_write_coefficients"]]),
+        ("系数写入后回读验证存在", "PASS", "", "主 runner 已复用 shared helper 执行 `写前快照 -> 写入 -> GETCO 回读比对 -> 失败回滚 -> finally 恢复模式`。", [spans["runner_maybe_write_coefficients"], spans["corrected_full_writeback"], spans["ga_read_coefficient_group"], spans["test_v1_writeback_success"], spans["test_v1_writeback_mismatch"]]),
         ("每个点位有唯一标识", "PASS", "", "", [spans["runner_build_point_summary_row"], spans["runner_co2_point_tag"], spans["runner_h2o_point_tag"]]),
         ("每个点位有原始时间戳", "PASS", "", "", [spans["runner_collect_samples"], spans["logger_common_sheet_fields"]]),
-        ("每个点位有保存时间戳", "FAIL", "Medium", "CSV/XLSX 只保存采样时间与设备时间，没有单独 `save_ts`/`insert_ts`；审查“何时落盘”时无法和采样时间区分。", [spans["runner_collect_samples"], spans["runner_build_point_summary_row"], spans["logger_log_sample"], spans["logger_log_point"]]),
+        ("每个点位有保存时间戳", "PASS", "", "样本级与点位级导出都新增了独立 `save_ts`，且不替换原有采样时间字段。", [spans["runner_perform_light_exports"], spans["runner_perform_heavy_exports"], spans["logger_log_sample"], spans["logger_log_point"], spans["test_v1_writeback_point_fields"]]),
         ("点位保存前有稳态/等待/滤波逻辑", "PASS", "", "", [spans["runner_wait_primary_sensor_stable"], spans["runner_wait_pressure_sampling_ready"], spans["runner_wait_sampling_freshness_gate"]]),
         ("点位保存不会覆盖前一点位", "PASS", "", "", [spans["logger_log_sample"], spans["logger_append_points_csv"], spans["logger_log_point_samples"], spans["test_audit_trace_overwrite"]]),
         ("点位保存不会混入上一点位过渡态数据", "PASS", "", "", [spans["runner_wait_pressure_sampling_ready"], spans["runner_wait_sampling_freshness_gate"], spans["runner_enqueue_deferred_sample_exports"], spans["test_route_handoff_defers_exports"]]),
         ("报表导出/过程表生成存在", "PASS", "", "", [spans["logger_log_point"], spans["logger_log_point_samples"], spans["logger_build_analyzer_summary"], spans["corrected_build_delivery"]]),
-        ("标定前后系数可追溯", "FAIL", "Medium", "主 runner 不自动保存 before/after coefficient snapshot；如果只保留本轮主流程产物，无法直接追到写前系数。独立 sidecar 可以做 before/after，但未接入主 runner。", [spans["runner_maybe_write_coefficients"], spans["runner_postrun_corrected_delivery"], spans["corrected_build_delivery"]]),
-        ("异常中断后不会把设备留在错误模式", "UNKNOWN", "", "", [spans["runner_cleanup"], spans["runner_restore_baseline"], spans["runner_maybe_write_coefficients"]]),
-        ("2026-04-03 以来的改动中，是否存在高风险改动", "FAIL", "High", "2026-04-07 起把 postrun corrected delivery 接进主 runner，2026-04-12 又把默认配置改成 `enabled=True`、`write_devices=True`、`verify_short_run.enabled=True`。这会让一次完成的 V1 运行自动进入后处理写回/短验证链路，风险边界明显扩大。", [spans["runner_postrun_corrected_delivery"], spans["config_postrun_corrected_delivery"]]),
+        ("标定前后系数可追溯", "PASS", "", "主 runner 现在会把 `coeff_before/coeff_target/coeff_readback/coeff_rollback_*` 持久化到专用审计 CSV。", [spans["runner_maybe_write_coefficients"], spans["runner_persist_coefficient_write_result"], spans["logger_log_coefficient_write"], spans["test_v1_writeback_success"]]),
+        ("异常中断后不会把设备留在错误模式", "UNKNOWN", "", "代码已在 shared helper 中用 finally 恢复正常模式，并有离线异常分支测试；但现场设备能否总是返回可确认的模式快照，当前仍取决于协议帧可读性。", [spans["runner_maybe_write_coefficients"], spans["corrected_full_writeback"], spans["ga_read_current_mode_snapshot"], spans["test_v1_writeback_mismatch"]]),
+        ("2026-04-03 以来的改动中，是否存在高风险改动", "PASS", "", "2026-04-07/2026-04-12 的高风险改动已经在当前 HEAD 上被安全默认值和显式启用门禁收口；历史风险存在，但默认运行边界已回到安全态。", [spans["runner_effective_postrun_cfg"], spans["runner_log_postrun_cfg"], spans["config_postrun_corrected_delivery"], spans["test_v1_writeback_defaults_safe"]]),
     ]
     lines = [
         "# 风险清单",
@@ -681,17 +737,17 @@ def build_evidence_items(spans: Dict[str, FileSpan]) -> List[EvidenceItem]:
     postrun_hook_commits = sorted({*blame_commits(spans["runner_postrun_corrected_delivery"]), *blame_commits(spans["config_postrun_corrected_delivery"])})
     point_summary_commits = sorted({*blame_commits(spans["runner_build_point_summary_row"]), *blame_commits(spans["logger_log_point"]), *blame_commits(spans["logger_log_sample"])})
     return [
-        EvidenceItem("E001", "主 runner 写系数后缺少回读验证", "High", "FAIL", "`CalibrationRunner._maybe_write_coefficients` 只做 MODE/SENCO 写入与模式退出，没有调用 GETCO 或等价比较；而驱动和 corrected autodelivery 旁路已经具备 GETCO readback 能力。", [spans["runner_maybe_write_coefficients"], spans["ga_read_coefficient_group"], spans["corrected_write_coefficients"]], runner_coeff_commits, "如果 CO2/H2O 系数写入被部分接受、设备回写了旧值、或写入序列被串口噪声打断，本轮 V1 主流程自身无法发现，闭环证据不成立。", "先在主 runner 的系数写入路径补齐 GETCO readback 与差异落盘；至少把写入前/写入后值、比较结果写到 formal artifact。", 0.97),
-        EvidenceItem("E002", "postrun corrected delivery 已接入主 runner 且默认开启写设备", "High", "FAIL", "主 runner 在 run 正常结束后会进入 `_maybe_run_postrun_corrected_delivery`；默认配置把 `postrun_corrected_delivery.enabled=True`、`write_devices=True`、`verify_short_run.enabled=True` 一并打开。", [spans["runner_postrun_corrected_delivery"], spans["config_postrun_corrected_delivery"]], postrun_hook_commits, "这会把一次完成的 V1 运行自动带入后处理写回/短验证链路，扩大真实环境风险面，也会让审查主流程与后处理流程的边界变模糊。", "先把该链路从默认主流程边界里剥离成显式人工确认步骤，至少在审计/回归阶段默认关闭写回和短验证。", 0.96),
-        EvidenceItem("E003", "点位导出缺少独立保存时间戳", "Medium", "FAIL", "样本行保存了 `sample_ts/sample_start_ts/sample_end_ts` 以及多种设备采样时间，但点位汇总与样本导出都没有独立的 `save_ts`/`insert_ts` 字段。", [spans["runner_collect_samples"], spans["runner_build_point_summary_row"], spans["logger_log_sample"], spans["logger_log_point"]], point_summary_commits, "审 V1 点位是否“及时落盘”时，只能看采样时间，无法区分采样发生时间和真正写盘/入库时间。", "给样本级与点位级导出同时补一个统一的保存时间戳，并明确采样时间与保存时间的语义。", 0.93),
-        EvidenceItem("E004", "主流程前后系数追溯不完整", "Medium", "FAIL", "主 runner 可写系数，也可调用 corrected autodelivery，但当前主路径不自动保存写前系数快照；完整的 before/after coefficient provenance 只存在于独立 sidecar 工具链。", [spans["runner_maybe_write_coefficients"], spans["runner_postrun_corrected_delivery"], spans["corrected_build_delivery"]], sorted({*runner_coeff_commits, *postrun_hook_commits}), "当需要复核 CO2/H2O 系数是否真的闭环、是否回退到上次值、是否写入了预期组别时，主 runner 产物不足以直接证明。", "把 before/after coefficient snapshot、目标值、readback 值整合进主 runner 的 formal artifact，而不是只留在旁路工具里。", 0.88),
+        EvidenceItem("E001", "主 runner 已具备写前/写后回读验证与失败回滚", "High", "PASS", "`CalibrationRunner._maybe_write_coefficients` 已复用 shared helper，执行写前快照、`GETCO` 回读比对、失败回滚和 finally 恢复模式。", [spans["runner_maybe_write_coefficients"], spans["corrected_full_writeback"], spans["ga_read_coefficient_group"], spans["test_v1_writeback_success"], spans["test_v1_writeback_mismatch"]], runner_coeff_commits, "这直接消除了“主路径写系数后无回读验证”的高风险缺口，也让写设备步骤具备了失败即终止的闭环语义。", "继续保留 shared helper，后续不要再回退到只写 `SENCO` 不验证的分叉实现。", 0.97),
+        EvidenceItem("E002", "postrun corrected delivery 默认恢复为安全关闭", "High", "PASS", "默认配置已改为 `enabled=False`、`write_devices=False`；主 runner 运行时还会记录开关值及来源，并支持通过显式 ENV/配置开启。", [spans["runner_effective_postrun_cfg"], spans["runner_log_postrun_cfg"], spans["runner_postrun_corrected_delivery"], spans["config_postrun_corrected_delivery"], spans["test_v1_writeback_defaults_safe"]], postrun_hook_commits, "这把默认运行边界重新收回到“可导出、可 dry-run、不可默认真写设备”，避免一次普通 V1 运行自动进入真实写回链路。", "继续把真实写设备授权保持为显式 opt-in，不要重新改回默认真写。", 0.96),
+        EvidenceItem("E003", "点位导出已区分采样时间与保存时间", "Medium", "PASS", "样本级与点位级导出现在都补了 `save_ts`，同时保留 `sample_ts` 和窗口时间字段，不破坏原有消费者。", [spans["runner_annotate_point_trace_rows"], spans["runner_build_point_summary_row"], spans["runner_perform_light_exports"], spans["runner_perform_heavy_exports"], spans["logger_log_sample"], spans["logger_log_point"], spans["test_v1_writeback_point_fields"]], point_summary_commits, "这让点位“何时采样”和“何时真正落盘”可分离追溯，能直接回应及时性审查。", "如果后续接数据库，再把 `insert_ts` 与 `save_ts` 继续区分即可。", 0.93),
+        EvidenceItem("E004", "主流程前后系数追溯已补齐到专用审计 CSV", "Medium", "PASS", "主 runner 现在会把 `coeff_before/coeff_target/coeff_readback/coeff_rollback_*`、模式状态和失败原因写进 `coefficient_writeback_*.csv`。", [spans["runner_maybe_write_coefficients"], spans["runner_persist_coefficient_write_result"], spans["logger_log_coefficient_write"], spans["test_v1_writeback_success"]], sorted({*runner_coeff_commits, *postrun_hook_commits}), "这让本轮主流程自身就能提供 before/after provenance，不再依赖旁路 sidecar 才能审写回闭环。", "后续若要做更强 formal artifact，可把该 CSV 再汇入统一 execution/formal analysis 索引。", 0.9),
         EvidenceItem("E005", "点位链路具备稳态与 handoff 保护", "Low", "PASS", "采样前链路具备压力后门禁、freshness gate、route handoff deferred export 和唯一 point tag 组合，静态上可以解释为什么不会直接把切点瞬间或上一点位数据落到当前点位。", [spans["runner_wait_pressure_sampling_ready"], spans["runner_wait_sampling_freshness_gate"], spans["runner_enqueue_deferred_sample_exports"], spans["logger_log_point_samples"]], sorted({*blame_commits(spans["runner_wait_pressure_sampling_ready"]), *blame_commits(spans["runner_wait_sampling_freshness_gate"]), *blame_commits(spans["runner_enqueue_deferred_sample_exports"])}), "这部分是本轮静态审计里对“上一点位/过渡态/立即最新值被误存”的主要正向证据。", "继续保留这些保护，并在回归里长期保留只读 trace 检查。", 0.85),
         EvidenceItem("E006", "H2O 路线存在，但零点/跨度业务语义仍不明确", "Low", "UNKNOWN", "代码里能确认 H2O 路线、H2O point tag、以及 H2O coefficient groups 2/4 的存在；但没有找到与 CO2 zero/span 对等的 H2O 零点/跨度判定步骤。", [spans["runner_run_h2o_group"], spans["runner_h2o_point_tag"], spans["corrected_build_download_plan"]], sorted({*blame_commits(spans["runner_run_h2o_group"]), *blame_commits(spans["corrected_build_download_plan"])}), "后续如果要审“H2O 零点/跨度是否闭环”，当前静态证据还不足以直接落 PASS/FAIL。", "补一份明确的 H2O 点位业务定义或 acceptance 口径，再做下一轮核对。", 0.72),
     ]
 
 
 def run_trace_check(spans: Dict[str, FileSpan]) -> Tuple[str, List[Tuple[str, str, str]], str]:
-    cmd = [sys.executable, "-m", "pytest", "-q", TRACE_TEST]
+    cmd = [sys.executable, "-m", "pytest", "-q", *TRACE_TESTS]
     proc = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace")
     if proc.returncode == 0:
         details = [
@@ -699,6 +755,12 @@ def run_trace_check(spans: Dict[str, FileSpan]) -> Tuple[str, List[Tuple[str, st
             ("不同点位不会互相覆盖", "PASS", f"{span_group(spans['test_audit_trace_overwrite'], spans['logger_log_point_samples'], spans['logger_append_points_csv'])}"),
             ("保存前存在稳定/窗口/新鲜度门禁", "PASS", f"{span_group(spans['test_audit_trace_guards'], spans['runner_wait_pressure_sampling_ready'], spans['runner_wait_sampling_freshness_gate'])}"),
         ]
+        details.extend(
+            [
+                ("主流程写回系数有回读/回滚闭环", "PASS", f"{span_group(spans['test_v1_writeback_success'], spans['test_v1_writeback_mismatch'], spans['runner_maybe_write_coefficients'], spans['corrected_full_writeback'])}"),
+                ("点位导出含 save_ts 且可保留连续点位", "PASS", f"{span_group(spans['test_v1_writeback_point_fields'], spans['runner_build_point_summary_row'], spans['runner_perform_light_exports'])}"),
+            ]
+        )
         status = "PASS"
     else:
         details = [("只读 trace 检查", "FAIL", f"pytest 返回码 `{proc.returncode}`；请查看输出。证据参考 {spans['test_audit_trace_guards'].as_ref()}。")]
@@ -709,10 +771,588 @@ def run_trace_check(spans: Dict[str, FileSpan]) -> Tuple[str, List[Tuple[str, st
 
 def build_trace_check_report(spans: Dict[str, FileSpan], *, generated_at: str) -> str:
     status, details, output = run_trace_check(spans)
-    lines = ["# 只读 Trace 检查", "", f"- 生成时间: {generated_at}", f"- 命令: `python -m pytest -q {TRACE_TEST}`", f"- 总结论: {status}", "", "## 结果", ""]
+    lines = ["# 只读 Trace 检查", "", f"- 生成时间: {generated_at}", f"- 命令: `python -m pytest -q {' '.join(TRACE_TESTS)}`", f"- 总结论: {status}", "", "## 结果", ""]
     for title, result, evidence in details:
         lines.append(f"- {title}: {result} | 证据: {evidence}")
     lines.extend(["", "## 原始输出", "", "```text", output.rstrip(), "```", ""])
+    return "\n".join(lines)
+
+
+def build_risk_checklist(spans: Dict[str, FileSpan], recent_commit_ids: List[str]) -> str:
+    rows = [
+        ("V1 主流程有明确入口", "PASS", "", "", [spans["run_app_file"], spans["app_start_run_background"], spans["runner_run"]]),
+        ("流程顺序完整且闭环", "PASS", "", "", [spans["runner_run"], spans["runner_run_points"], spans["runner_run_temperature_group"], spans["runner_cleanup"]]),
+        ("CO2 零点检查存在", "PASS", "", "", [spans["runner_is_zero_co2_point"], spans["runner_wait_co2_route_soak_before_seal"]]),
+        ("CO2 跨度存在", "PASS", "", "", [spans["runner_run_temperature_group"], spans["runner_run_co2_point"]]),
+        (
+            "H2O 零点存在",
+            "NOT_SUPPORTED",
+            "",
+            "当前 HEAD 只确认 H2O 路由和 H2O ratio-poly 摘要选择存在，没有与 CO2 对等的 H2O zero 业务步骤。",
+            [
+                spans["runner_run_h2o_group"],
+                spans["runner_filter_ratio_poly_summary_rows"],
+                spans["h2o_summary_default_selection"],
+                spans["runner_log_h2o_zero_span_capability"],
+                spans["runner_require_supported_h2o_zero_span"],
+            ],
+        ),
+        (
+            "H2O 跨度存在",
+            "NOT_SUPPORTED",
+            "",
+            "当前 HEAD 只确认 H2O 路由和 H2O ratio-poly 摘要选择存在，没有与 CO2 对等的 H2O span 业务步骤。",
+            [
+                spans["runner_run_h2o_group"],
+                spans["runner_filter_ratio_poly_summary_rows"],
+                spans["h2o_summary_default_selection"],
+                spans["runner_log_h2o_zero_span_capability"],
+                spans["runner_require_supported_h2o_zero_span"],
+            ],
+        ),
+        ("进入校准模式存在", "PASS", "", "", [spans["runner_maybe_write_coefficients"], spans["ga_set_mode_with_ack"]]),
+        ("退出校准模式存在", "PASS", "", "", [spans["runner_maybe_write_coefficients"], spans["corrected_full_writeback"]]),
+        ("系数写入存在", "PASS", "", "", [spans["runner_maybe_write_coefficients"], spans["ga_set_senco"]]),
+        ("系数写入后回读验证存在", "PASS", "", "", [spans["runner_maybe_write_coefficients"], spans["corrected_full_writeback"], spans["ga_read_coefficient_group"]]),
+        ("每个点位有唯一标识", "PASS", "", "", [spans["runner_build_point_summary_row"], spans["runner_co2_point_tag"], spans["runner_h2o_point_tag"]]),
+        ("每个点位有原始时间戳", "PASS", "", "", [spans["runner_collect_samples"], spans["logger_common_sheet_fields"]]),
+        ("每个点位有保存时间戳", "PASS", "", "", [spans["runner_perform_light_exports"], spans["runner_perform_heavy_exports"], spans["test_v1_writeback_point_fields"]]),
+        ("点位保存前有稳态/等待/滤波逻辑", "PASS", "", "", [spans["runner_wait_primary_sensor_stable"], spans["runner_wait_pressure_sampling_ready"], spans["runner_wait_sampling_freshness_gate"]]),
+        ("点位保存不会覆盖前一点位", "PASS", "", "", [spans["logger_log_sample"], spans["logger_append_points_csv"], spans["logger_log_point_samples"], spans["test_audit_trace_overwrite"]]),
+        ("点位保存不会混入上一点位过渡态数据", "PASS", "", "", [spans["runner_wait_pressure_sampling_ready"], spans["runner_wait_sampling_freshness_gate"], spans["runner_enqueue_deferred_sample_exports"], spans["test_route_handoff_defers_exports"]]),
+        ("报表导出/过程表生成存在", "PASS", "", "", [spans["logger_log_point"], spans["logger_log_point_samples"], spans["logger_build_analyzer_summary"]]),
+        ("标定前后系数可追溯", "PASS", "", "", [spans["runner_persist_coefficient_write_result"], spans["logger_log_coefficient_write"], spans["test_v1_writeback_success"]]),
+        (
+            "离线 fault-injection 已覆盖异常恢复",
+            "PASS",
+            "",
+            "shared helper 已有 focused fault-injection tests，覆盖 set_mode / GETCO / rollback / 模式确认异常。",
+            [
+                spans["corrected_full_writeback"],
+                spans["test_fault_set_mode2"],
+                spans["test_fault_set_senco"],
+                spans["test_fault_readback_failures"],
+                spans["test_fault_rollback_write_failure"],
+                spans["test_fault_set_mode1"],
+                spans["test_fault_no_snapshot"],
+                spans["test_fault_exit_unconfirmed"],
+            ],
+        ),
+        (
+            "真实设备异常恢复证据",
+            "ONLINE_EVIDENCE_REQUIRED",
+            "",
+            "代码、离线注入和受双开关保护的 online acceptance 工具已经就位；但现场异常恢复仍缺真机协议证据。",
+            [spans["corrected_full_writeback"], spans["ga_read_current_mode_snapshot"], spans["online_acceptance_run"], spans["online_acceptance_bundle"]],
+        ),
+        (
+            "2026-04-03 以来的改动中，是否存在高风险改动",
+            "PASS",
+            "",
+            "默认真写设备风险、主路径无回读验证、点位无 save_ts、系数 before/after 缺失，已在当前 HEAD 上收口。",
+            [
+                spans["runner_effective_postrun_cfg"],
+                spans["runner_log_postrun_cfg"],
+                spans["runner_maybe_write_coefficients"],
+                spans["runner_persist_coefficient_write_result"],
+                spans["test_v1_writeback_defaults_safe"],
+            ],
+        ),
+    ]
+    lines = [
+        "# 风险清单",
+        "",
+        "| 检查项 | 结论 | 风险等级 | 触发条件 / 说明 | 证据 |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for title, status, risk, note, file_spans in rows:
+        lines.append(f"| {title} | {status} | {risk or '-'} | {note or '-'} | {span_group(*file_spans)} |")
+    lines.extend(
+        [
+            "",
+            "## 重点说明",
+            "",
+            f"- 历史高风险 commit 参考: {', '.join(f'`{item}`' for item in recent_commit_ids) if recent_commit_ids else '(none tagged)'}",
+            "- 本文件明确区分“代码已证明/离线已证明”和“现场仍缺证据”。",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def build_evidence_items(spans: Dict[str, FileSpan]) -> List[EvidenceItem]:
+    runner_coeff_commits = blame_commits(spans["runner_maybe_write_coefficients"])
+    postrun_hook_commits = sorted(
+        {*blame_commits(spans["runner_postrun_corrected_delivery"]), *blame_commits(spans["config_postrun_corrected_delivery"])}
+    )
+    point_summary_commits = sorted(
+        {*blame_commits(spans["runner_build_point_summary_row"]), *blame_commits(spans["logger_log_point"]), *blame_commits(spans["logger_log_sample"])}
+    )
+    h2o_capability_commits = sorted(
+        {*blame_commits(spans["runner_run_h2o_group"]), *blame_commits(spans["runner_require_supported_h2o_zero_span"]), *blame_commits(spans["h2o_summary_default_selection"])}
+    )
+    fault_commits = sorted(
+        {*blame_commits(spans["corrected_full_writeback"]), *blame_commits(spans["test_fault_set_mode2"]), *blame_commits(spans["test_fault_set_mode1"])}
+    )
+    return [
+        EvidenceItem(
+            "E001",
+            "主 runner 写回已具备 GETCO 回读验证与失败回滚",
+            "High",
+            "PASS",
+            "主 runner 已复用 shared helper 执行写前快照、GETCO 回读、失败回滚和 finally 恢复模式。",
+            [spans["runner_maybe_write_coefficients"], spans["corrected_full_writeback"], spans["ga_read_coefficient_group"], spans["test_v1_writeback_success"], spans["test_v1_writeback_mismatch"]],
+            runner_coeff_commits,
+            "这消除了“主路径写系数后无回读验证”的高风险缺口。",
+            "继续保持主 runner 与 corrected autodelivery 共用同一 helper，不要回退到只写 SENCO 的分叉实现。",
+            0.98,
+        ),
+        EvidenceItem(
+            "E002",
+            "postrun corrected delivery 默认保持安全关闭",
+            "High",
+            "PASS",
+            "默认配置已改为 enabled=False、write_devices=False，且运行时会记录开关值与来源。",
+            [spans["runner_effective_postrun_cfg"], spans["runner_log_postrun_cfg"], spans["config_postrun_corrected_delivery"], spans["test_v1_writeback_defaults_safe"]],
+            postrun_hook_commits,
+            "这把默认运行边界重新收回到 dry-run / 导出安全态，避免普通 V1 运行自动进入真实写回链路。",
+            "继续把真实写设备授权保持为显式 opt-in。",
+            0.97,
+        ),
+        EvidenceItem(
+            "E003",
+            "点位导出已区分 sample_ts 与 save_ts",
+            "Medium",
+            "PASS",
+            "样本级与点位级导出都已补齐 save_ts，且保留原有 sample_ts 和窗口字段。",
+            [spans["runner_annotate_point_trace_rows"], spans["runner_build_point_summary_row"], spans["runner_perform_light_exports"], spans["runner_perform_heavy_exports"], spans["test_v1_writeback_point_fields"]],
+            point_summary_commits,
+            "这让点位“何时采样”和“何时真正落盘”可分离追溯。",
+            "后续若接数据库，再增加 insert_ts 即可。",
+            0.94,
+        ),
+        EvidenceItem(
+            "E004",
+            "主流程前后系数追溯已落到专用 CSV",
+            "Medium",
+            "PASS",
+            "主 runner 现在会把 coeff_before / coeff_target / coeff_readback / coeff_rollback_* 以及模式恢复字段写入 coefficient_writeback CSV。",
+            [spans["runner_persist_coefficient_write_result"], spans["logger_log_coefficient_write"], spans["test_v1_writeback_success"]],
+            sorted({*runner_coeff_commits, *postrun_hook_commits}),
+            "这让本轮主流程自身就能提供 before/after provenance。",
+            "后续可再汇入统一 formal artifact 索引，但这不是本轮阻塞项。",
+            0.91,
+        ),
+        EvidenceItem(
+            "E005",
+            "shared helper 的异常恢复已由离线 fault injection 覆盖",
+            "Medium",
+            "PASS",
+            "focused tests 已覆盖 set_mode(2) 失败、GETCO 超时/空返回/解析异常、回读不一致、rollback 失败、退出失败、模式快照缺失和退出未确认。",
+            [
+                spans["corrected_full_writeback"],
+                spans["test_fault_set_mode2"],
+                spans["test_fault_set_senco"],
+                spans["test_fault_readback_failures"],
+                spans["test_fault_rollback_write_failure"],
+                spans["test_fault_set_mode1"],
+                spans["test_fault_no_snapshot"],
+                spans["test_fault_exit_unconfirmed"],
+            ],
+            fault_commits,
+            "这把“至少尝试退出”和“已确认退出”从口头安全变成了离线可验收证据。",
+            "后续若 helper 字段再扩展，保持 mode_exit_attempted/mode_exit_confirmed 这对语义不要回退。",
+            0.95,
+        ),
+        EvidenceItem(
+            "E006",
+            "H2O zero/span 业务链当前为 NOT_SUPPORTED",
+            "Low",
+            "NOT_SUPPORTED",
+            "当前 HEAD 能确认 H2O 路由、H2O 点位采样和 H2O ratio-poly 摘要选择存在，但没有与 CO2 zero/span 对等的 H2O zero/span 业务步骤。",
+            [
+                spans["runner_run_h2o_group"],
+                spans["runner_filter_ratio_poly_summary_rows"],
+                spans["h2o_summary_default_selection"],
+                spans["runner_log_h2o_zero_span_capability"],
+                spans["runner_require_supported_h2o_zero_span"],
+                spans["test_v1_h2o_zero_span_not_supported"],
+                spans["test_v1_h2o_zero_span_fail_fast"],
+            ],
+            h2o_capability_commits,
+            "这意味着 H2O route 存在不等于 H2O zero/span 已闭环，当前审计不能再把它留成模糊 UNKNOWN。",
+            "除非后续补到明确的 H2O zero/span 业务定义与步骤，否则应继续保持 NOT_SUPPORTED。",
+            0.92,
+        ),
+        EvidenceItem(
+            "E007",
+            "真实设备异常恢复仍缺现场证据",
+            "Medium",
+            "ONLINE_EVIDENCE_REQUIRED",
+            "代码与离线故障注入已证明 helper 会尝试退出模式并区分 confirmed/unconfirmed，且在线验收工具已经以双开关保护方式落地；但现场协议异常下的最终恢复仍缺真机证据。",
+            [spans["corrected_full_writeback"], spans["ga_read_current_mode_snapshot"], spans["online_acceptance_run"], spans["online_acceptance_bundle"], spans["test_online_acceptance_dual_gate"]],
+            fault_commits,
+            "离线通过不等于 real acceptance，通过代码和仿真还不能证明现场异常时一定安全退出。",
+            "若未来用户明确授权，只能通过带双开关的 online acceptance 工具做最小范围 V1 real smoke / short run，且结论必须标注为工程验证，不是 real acceptance。",
+            0.84,
+        ),
+    ]
+
+
+def run_trace_check(spans: Dict[str, FileSpan]) -> Tuple[str, List[Tuple[str, str, str]], str]:
+    cmd = [sys.executable, "-m", "pytest", "-q", *TRACE_TESTS]
+    proc = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if proc.returncode == 0:
+        details = [
+            ("点位样本字段完整性", "PASS", f"{span_group(spans['test_audit_trace_fields'], spans['runner_collect_samples'])}"),
+            ("不同点位不会互相覆盖", "PASS", f"{span_group(spans['test_audit_trace_overwrite'], spans['logger_log_point_samples'], spans['logger_append_points_csv'])}"),
+            ("保存前存在稳定/窗口/新鲜度门禁", "PASS", f"{span_group(spans['test_audit_trace_guards'], spans['runner_wait_pressure_sampling_ready'], spans['runner_wait_sampling_freshness_gate'])}"),
+            ("主流程写回系数有回读/回滚闭环", "PASS", f"{span_group(spans['test_v1_writeback_success'], spans['test_v1_writeback_mismatch'], spans['runner_maybe_write_coefficients'], spans['corrected_full_writeback'])}"),
+            ("点位导出含 save_ts 且保留连续点位", "PASS", f"{span_group(spans['test_v1_writeback_point_fields'], spans['runner_build_point_summary_row'], spans['runner_perform_light_exports'])}"),
+            ("异常恢复 fault injection 覆盖", "PASS", f"{span_group(spans['test_fault_set_mode2'], spans['test_fault_set_senco'], spans['test_fault_readback_failures'], spans['test_fault_rollback_write_failure'], spans['test_fault_set_mode1'], spans['test_fault_no_snapshot'], spans['test_fault_exit_unconfirmed'])}"),
+            ("H2O zero/span 状态已显式收敛", "PASS", f"{span_group(spans['test_v1_h2o_zero_span_not_supported'], spans['test_v1_h2o_zero_span_fail_fast'], spans['runner_require_supported_h2o_zero_span'])}"),
+            ("online acceptance 双开关与 CO2-only 保护", "PASS", f"{span_group(spans['test_online_acceptance_dual_gate'], spans['test_online_acceptance_dry_run'], spans['test_online_acceptance_exit_unconfirmed'], spans['test_online_acceptance_h2o_fail_fast'], spans['online_acceptance_run'])}"),
+        ]
+        status = "PASS"
+    else:
+        details = [("只读 trace 检查", "FAIL", f"pytest returned `{proc.returncode}`; see output. Evidence hint: {spans['test_audit_trace_guards'].as_ref()}")]
+        status = "FAIL"
+    output = f"$ {' '.join(cmd)}\n{proc.stdout}{proc.stderr}".rstrip() + "\n"
+    return status, details, output
+
+
+def build_trace_check_report(spans: Dict[str, FileSpan], *, generated_at: str) -> str:
+    status, details, output = run_trace_check(spans)
+    lines = [
+        "# 只读 Trace 检查",
+        "",
+        f"- 生成时间: {generated_at}",
+        f"- 命令: `python -m pytest -q {' '.join(TRACE_TESTS)}`",
+        f"- 总结论: {status}",
+        "",
+        "## 结果",
+        "",
+    ]
+    for title, result, evidence in details:
+        lines.append(f"- {title}: {result} | 证据: {evidence}")
+    lines.extend(["", "## 原始输出", "", "```text", output.rstrip(), "```", ""])
+    return "\n".join(lines)
+
+
+def _write_csv_rows(path: Path, rows: Sequence[Dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    stored_rows = [dict(row) for row in rows]
+    header: List[str] = []
+    for row in stored_rows:
+        for key in row.keys():
+            if key not in header:
+                header.append(key)
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=header)
+        writer.writeheader()
+        writer.writerows(stored_rows)
+
+
+class _AcceptanceWritebackAnalyzer:
+    def __init__(self) -> None:
+        self.device_id = "086"
+        self.mode = 1
+        self.values = {1: [10.0, 20.0, 30.0, 40.0, 0.0, 0.0]}
+
+    def read_current_mode_snapshot(self):
+        return {"mode": self.mode, "id": self.device_id, "raw": f"mode={self.mode}"}
+
+    def set_mode_with_ack(self, mode: int, *, require_ack: bool = True) -> bool:
+        self.mode = int(mode)
+        return True
+
+    def set_senco(self, group: int, *coeffs) -> bool:
+        values = list(coeffs[0]) if len(coeffs) == 1 and isinstance(coeffs[0], (list, tuple)) else list(coeffs)
+        self.values[int(group)] = [float(value) for value in values]
+        return True
+
+    def read_coefficient_group(self, group: int):
+        return {f"C{idx}": float(value) for idx, value in enumerate(self.values[int(group)])}
+
+
+def _generate_acceptance_samples(acceptance_dir: Path) -> None:
+    from gas_calibrator.data.points import CalibrationPoint
+    from gas_calibrator.logging_utils import RunLogger
+    from gas_calibrator.workflow.runner import CalibrationRunner
+
+    with tempfile.TemporaryDirectory(prefix="v1_acceptance_") as tmp_dir_text:
+        tmp_dir = Path(tmp_dir_text)
+        logger = RunLogger(tmp_dir)
+        runner = CalibrationRunner(
+            {
+                "workflow": {
+                    "sampling": {
+                        "stable_count": 2,
+                        "interval_s": 0.0,
+                        "quality": {"enabled": False},
+                    }
+                },
+                "coefficients": {
+                    "enabled": True,
+                    "auto_fit": False,
+                    "fit_h2o": True,
+                    "h2o_zero_span": {
+                        "status": "not_supported",
+                        "require_supported_capability": False,
+                    },
+                    "sencos": {
+                        "1": {"values": [1.0, 2.0, 3.0, 4.0, 0.0, 0.0]},
+                    },
+                },
+            },
+            {"gas_analyzer": _AcceptanceWritebackAnalyzer()},
+            logger,
+            lambda *_: None,
+            lambda *_: None,
+        )
+        captured_point_rows: List[Dict[str, Any]] = []
+        original_log_point = logger.log_point
+
+        def _capture_point(row: Dict[str, Any]) -> None:
+            captured_point_rows.append(dict(row))
+            original_log_point(row)
+
+        logger.log_point = _capture_point
+
+        point_co2 = CalibrationPoint(1, 20.0, 400.0, None, None, 1000.0, None, None, None)
+        point_h2o = CalibrationPoint(2, 20.0, None, 20.0, 35.0, 1000.0, -8.0, 2.5, "fixture")
+        samples_by_point = {
+            1: [
+                {
+                    "point_title": "CO2 400",
+                    "point_row": 1,
+                    "sample_ts": "2026-04-13T10:00:00.000+08:00",
+                    "sample_end_ts": "2026-04-13T10:00:00.100+08:00",
+                    "co2_ppm": 399.8,
+                    "pressure_hpa": 1000.1,
+                    "id": "086",
+                },
+                {
+                    "point_title": "CO2 400",
+                    "point_row": 1,
+                    "sample_ts": "2026-04-13T10:00:01.000+08:00",
+                    "sample_end_ts": "2026-04-13T10:00:01.100+08:00",
+                    "co2_ppm": 400.2,
+                    "pressure_hpa": 1000.2,
+                    "id": "086",
+                },
+            ],
+            2: [
+                {
+                    "point_title": "H2O 2.5",
+                    "point_row": 2,
+                    "sample_ts": "2026-04-13T10:05:00.000+08:00",
+                    "sample_end_ts": "2026-04-13T10:05:00.100+08:00",
+                    "h2o_mmol": 2.4,
+                    "pressure_hpa": 1000.0,
+                    "id": "086",
+                },
+                {
+                    "point_title": "H2O 2.5",
+                    "point_row": 2,
+                    "sample_ts": "2026-04-13T10:05:01.000+08:00",
+                    "sample_end_ts": "2026-04-13T10:05:01.100+08:00",
+                    "h2o_mmol": 2.6,
+                    "pressure_hpa": 1000.1,
+                    "id": "086",
+                },
+            ],
+        }
+
+        def _collect_samples(self, point, *_args, **_kwargs):
+            return [dict(row) for row in samples_by_point[point.index]]
+
+        runner._collect_samples = types.MethodType(_collect_samples, runner)
+        runner._point_runtime_state(point_co2, phase="co2", create=True).update({"sampling_window_qc_status": "pass"})
+        runner._point_runtime_state(point_h2o, phase="h2o", create=True).update({"sampling_window_qc_status": "pass"})
+        runner._sample_and_log(point_co2, phase="co2", point_tag=runner._co2_point_tag(point_co2))
+        runner._sample_and_log(point_h2o, phase="h2o", point_tag=runner._h2o_point_tag(point_h2o))
+        runner._maybe_write_coefficients()
+        point_rows = [dict(row) for row in captured_point_rows]
+        sample_rows = [dict(row) for row in getattr(runner, "_all_samples", [])]
+        coefficient_rows = [dict(row) for row in getattr(logger, "_coefficient_write_rows", [])]
+        logger.close()
+
+        _write_csv_rows(acceptance_dir / "02_sample_points.csv", point_rows)
+        _write_csv_rows(acceptance_dir / "03_sample_samples.csv", sample_rows)
+        _write_csv_rows(acceptance_dir / "04_sample_coefficient_writeback.csv", coefficient_rows)
+
+
+def build_acceptance_capability_matrix(spans: Dict[str, FileSpan], *, generated_at: str, head: str) -> str:
+    rows = [
+        ("CO2 zero", "PASS", span_group(spans["runner_is_zero_co2_point"], spans["runner_wait_co2_route_soak_before_seal"])),
+        ("CO2 span", "PASS", span_group(spans["runner_run_temperature_group"], spans["runner_run_co2_point"])),
+        ("H2O zero", "NOT_SUPPORTED", span_group(spans["runner_run_h2o_group"], spans["runner_filter_ratio_poly_summary_rows"], spans["runner_require_supported_h2o_zero_span"])),
+        ("H2O span", "NOT_SUPPORTED", span_group(spans["runner_run_h2o_group"], spans["runner_filter_ratio_poly_summary_rows"], spans["runner_require_supported_h2o_zero_span"])),
+        ("device writeback", "PASS", span_group(spans["runner_maybe_write_coefficients"], spans["corrected_full_writeback"], spans["test_v1_writeback_success"])),
+        ("readback verify", "PASS", span_group(spans["corrected_full_writeback"], spans["ga_read_coefficient_group"], spans["test_v1_writeback_success"])),
+        ("rollback", "PASS", span_group(spans["corrected_full_writeback"], spans["test_v1_writeback_mismatch"], spans["test_fault_readback_failures"])),
+        ("mode restore", "PASS", span_group(spans["corrected_full_writeback"], spans["test_fault_set_mode2"], spans["test_fault_set_mode1"])),
+        ("point save traceability", "PASS", span_group(spans["runner_build_point_summary_row"], spans["runner_annotate_point_trace_rows"], spans["test_v1_writeback_point_fields"])),
+        ("offline fault injection coverage", "PASS", span_group(spans["test_fault_set_mode2"], spans["test_fault_set_senco"], spans["test_fault_readback_failures"], spans["test_fault_rollback_write_failure"], spans["test_fault_set_mode1"], spans["test_fault_no_snapshot"], spans["test_fault_exit_unconfirmed"])),
+        ("real-device abnormal recovery evidence", "ONLINE_EVIDENCE_REQUIRED", span_group(spans["corrected_full_writeback"], spans["ga_read_current_mode_snapshot"], spans["online_acceptance_run"], spans["online_acceptance_bundle"])),
+    ]
+    lines = [
+        "# Capability Matrix",
+        "",
+        f"- generated_at: {generated_at}",
+        f"- head: `{head}`",
+        "",
+        "| capability | status | evidence |",
+        "| --- | --- | --- |",
+    ]
+    for title, status, evidence in rows:
+        lines.append(f"| {title} | {status} | {evidence} |")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def build_fault_injection_matrix(spans: Dict[str, FileSpan], *, generated_at: str) -> str:
+    rows = [
+        ("set_mode(2) 失败", "PASS", "会尝试退出模式，不把 attempted 当成 confirmed", span_group(spans["test_fault_set_mode2"], spans["corrected_full_writeback"])),
+        ("set_senco 中途异常", "PASS", "会回滚并恢复模式", span_group(spans["test_fault_set_senco"], spans["corrected_full_writeback"])),
+        ("GETCO 超时", "PASS", "verify 失败后回滚，最终模式恢复", span_group(spans["test_fault_readback_failures"], spans["corrected_full_writeback"])),
+        ("GETCO 空返回", "PASS", "空返回不算成功，会进入失败/回滚路径", span_group(spans["test_fault_readback_failures"], spans["corrected_full_writeback"])),
+        ("GETCO 解析异常", "PASS", "解析异常不算成功，会进入失败/回滚路径", span_group(spans["test_fault_readback_failures"], spans["corrected_full_writeback"])),
+        ("回读不一致", "PASS", "readback mismatch 会失败并尝试回滚", span_group(spans["test_fault_readback_failures"], spans["corrected_full_writeback"])),
+        ("rollback 写入失败", "PASS", "rollback_confirmed=False，unsafe=True", span_group(spans["test_fault_rollback_write_failure"], spans["corrected_full_writeback"])),
+        ("set_mode(1) 退出失败", "PASS", "mode_exit_confirmed=False，unsafe=True", span_group(spans["test_fault_set_mode1"], spans["corrected_full_writeback"])),
+        ("read_current_mode_snapshot 不可用", "PASS", "无法确认安全退出时标记 unsafe=True", span_group(spans["test_fault_no_snapshot"], spans["corrected_full_writeback"])),
+        ("已尝试退出但无法确认最终模式", "PASS", "mode_exit_attempted=True 且 mode_exit_confirmed=False", span_group(spans["test_fault_exit_unconfirmed"], spans["corrected_full_writeback"])),
+    ]
+    lines = [
+        "# Fault Injection Matrix",
+        "",
+        f"- generated_at: {generated_at}",
+        "",
+        "| scenario | offline result | expectation | evidence |",
+        "| --- | --- | --- | --- |",
+    ]
+    for title, status, note, evidence in rows:
+        lines.append(f"| {title} | {status} | {note} | {evidence} |")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def build_acceptance_summary(spans: Dict[str, FileSpan], *, generated_at: str, head: str) -> str:
+    lines = [
+        "# Acceptance Summary",
+        "",
+        f"- generated_at: {generated_at}",
+        f"- head: `{head}`",
+        "- evidence_source = simulated",
+        "- not_real_acceptance_evidence = true",
+        "",
+        "## Summary",
+        "",
+        "- CO2 zero/span: PASS",
+        "- H2O zero/span: NOT_SUPPORTED on this HEAD; route/point collection exists but explicit zero/span business chain does not.",
+        "- device writeback safety closure: PASS in offline tests",
+        "- protocol fault injection: PASS offline",
+        "- real-device abnormal recovery evidence: ONLINE_EVIDENCE_REQUIRED",
+        "- guarded online acceptance bundle: generated under `audit/v1_calibration_acceptance_online/`; dry-run by default, dual gate required for real-device runs.",
+        "- shared path old failure in tests/test_runner_collect_only.py: resolved as stale expectation; focused test and full file now pass.",
+        "",
+        "## Evidence",
+        "",
+        f"- H2O capability state: {span_group(spans['runner_log_h2o_zero_span_capability'], spans['runner_require_supported_h2o_zero_span'], spans['test_v1_h2o_zero_span_fail_fast'])}",
+        f"- offline fault injection: {span_group(spans['test_fault_set_mode2'], spans['test_fault_set_senco'], spans['test_fault_readback_failures'], spans['test_fault_rollback_write_failure'], spans['test_fault_set_mode1'], spans['test_fault_no_snapshot'], spans['test_fault_exit_unconfirmed'])}",
+        f"- online acceptance gate/tooling: {span_group(spans['online_acceptance_run'], spans['online_acceptance_bundle'], spans['test_online_acceptance_dual_gate'], spans['test_online_acceptance_exit_unconfirmed'], spans['test_online_acceptance_h2o_fail_fast'])}",
+        f"- shared path stale test fixed: {spans['test_collect_ratio_poly_h2o_selection'].as_ref()}",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def generate_acceptance_bundle(spans: Dict[str, FileSpan], *, generated_at: str, head: str, output_dir: Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    _generate_acceptance_samples(output_dir)
+    write_text(output_dir / "01_capability_matrix.md", build_acceptance_capability_matrix(spans, generated_at=generated_at, head=head))
+    write_text(output_dir / "05_fault_injection_matrix.md", build_fault_injection_matrix(spans, generated_at=generated_at))
+    write_text(output_dir / "06_acceptance_summary.md", build_acceptance_summary(spans, generated_at=generated_at, head=head))
+
+
+def generate_online_acceptance_bundle(*, generated_at: str, head: str, output_dir: Path) -> None:
+    from gas_calibrator.tools.run_v1_online_acceptance import write_online_acceptance_bundle
+
+    write_online_acceptance_bundle(
+        output_dir,
+        generated_at=generated_at,
+        head=head,
+        last_run_summary={
+            "status": "ONLINE_EVIDENCE_REQUIRED",
+            "mode": "dry_run",
+            "unsafe": False,
+            "failure_reason": "",
+        },
+    )
+
+
+def build_flow_map(spans: Dict[str, FileSpan]) -> str:
+    lines = [
+        "# V1 校准主流程图",
+        "",
+        "入口 -> 点表解析/重排 -> 温度分组编排 -> CO2/H2O 路由执行 -> 稳态/门禁 -> 样本采集 -> 点位保存 -> 系数写前快照/写入/回读/回滚 -> 模式恢复 -> 清理/后处理",
+        "",
+        "## 入口",
+        "",
+        f"- 默认入口文件: {spans['run_app_file'].as_ref()}",
+        f"- UI 后台启动: {spans['app_start_run_background'].as_ref()}",
+        f"- 主执行函数: {spans['runner_run'].as_ref()}",
+        "",
+        "## 步骤编排",
+        "",
+        f"- 点表解析: {spans['points_load_points_from_excel'].as_ref()}",
+        f"- 点位重排: {spans['points_reorder_points'].as_ref()}",
+        f"- 点位主调度: {spans['runner_run_points'].as_ref()}",
+        f"- 温度组编排: {spans['runner_run_temperature_group'].as_ref()}",
+        f"- CO2 主链: {spans['runner_run_co2_point'].as_ref()}",
+        f"- H2O 主链: {spans['runner_run_h2o_group'].as_ref()}",
+        "",
+        "## 设备指令",
+        "",
+        f"- MODE: {spans['ga_set_mode_with_ack'].as_ref()}",
+        f"- SENCO: {spans['ga_set_senco'].as_ref()}",
+        f"- GETCO: {spans['ga_read_coefficient_group'].as_ref()}",
+        f"- READDATA: {span_group(spans['ga_read_data_passive'], spans['ga_read_data_active'], spans['ga_parse_line_mode2'])}",
+        "",
+        "## 数据采集与保存",
+        "",
+        f"- 稳态判定: {spans['runner_wait_primary_sensor_stable'].as_ref()}",
+        f"- 压力后门禁: {spans['runner_wait_pressure_sampling_ready'].as_ref()}",
+        f"- freshness gate: {spans['runner_wait_sampling_freshness_gate'].as_ref()}",
+        f"- 样本采集: {spans['runner_collect_samples'].as_ref()}",
+        f"- 点位采样与导出: {spans['runner_sample_and_log'].as_ref()}",
+        f"- 点位汇总行: {spans['runner_build_point_summary_row'].as_ref()}",
+        f"- 样本/点位/写回导出: {span_group(spans['logger_log_sample'], spans['logger_log_point'], spans['logger_log_coefficient_write'])}",
+        "",
+        "## 系数写入闭环",
+        "",
+        f"- 主 runner 写回入口: {spans['runner_maybe_write_coefficients'].as_ref()}",
+        f"- shared helper: {spans['corrected_full_writeback'].as_ref()}",
+        f"- 写回持久化: {spans['runner_persist_coefficient_write_result'].as_ref()}",
+        f"- 模式快照: {spans['ga_read_current_mode_snapshot'].as_ref()}",
+        "",
+        "## 结论",
+        "",
+        f"- CO2 零点检查: PASS | 证据 {span_group(spans['runner_is_zero_co2_point'], spans['runner_wait_co2_route_soak_before_seal'])}",
+        f"- CO2 跨度: PASS | 证据 {span_group(spans['runner_run_temperature_group'], spans['runner_run_co2_point'])}",
+        f"- H2O 零点: NOT_SUPPORTED | 证据 {span_group(spans['runner_run_h2o_group'], spans['runner_filter_ratio_poly_summary_rows'], spans['h2o_summary_default_selection'], spans['runner_log_h2o_zero_span_capability'], spans['runner_require_supported_h2o_zero_span'])}",
+        f"- H2O 跨度: NOT_SUPPORTED | 证据 {span_group(spans['runner_run_h2o_group'], spans['runner_filter_ratio_poly_summary_rows'], spans['h2o_summary_default_selection'], spans['runner_log_h2o_zero_span_capability'], spans['runner_require_supported_h2o_zero_span'])}",
+        f"- MODE=校准模式与恢复正常模式: PASS | 证据 {span_group(spans['runner_maybe_write_coefficients'], spans['corrected_full_writeback'], spans['ga_set_mode_with_ack'])}",
+        f"- 系数写入后 GETCO 回读验证: PASS | 证据 {span_group(spans['runner_maybe_write_coefficients'], spans['corrected_full_writeback'], spans['ga_read_coefficient_group'])}",
+        "",
+        "## CO2 / H2O 关系",
+        "",
+        f"- 结构上是两套并行链路。CO2 执行入口见 {spans['runner_run_co2_point'].as_ref()}，H2O 执行入口见 {spans['runner_run_h2o_group'].as_ref()}。",
+        "- 但“存在 H2O 路由/点位”不等于“存在 H2O zero/span 业务闭环”；当前 HEAD 的明确结论是 NOT_SUPPORTED，而不是 UNKNOWN。",
+        "",
+    ]
     return "\n".join(lines)
 
 
@@ -724,10 +1364,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Generate a read-only V1 calibration audit bundle.")
     parser.add_argument("--since", default=DEFAULT_SINCE, help="Git history cutoff, default: %(default)s")
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR), help="Audit output directory, default: %(default)s")
+    parser.add_argument("--acceptance-dir", default=str(DEFAULT_ACCEPTANCE_DIR), help="Acceptance output directory, default: %(default)s")
+    parser.add_argument("--online-acceptance-dir", default=str(DEFAULT_ONLINE_ACCEPTANCE_DIR), help="Online acceptance output directory, default: %(default)s")
     parser.add_argument("--status-override-file", default="", help="Use an existing git status snapshot instead of live `git status`.")
     args = parser.parse_args(argv)
 
     output_dir = Path(args.output_dir).resolve()
+    acceptance_dir = Path(args.acceptance_dir).resolve()
+    online_acceptance_dir = Path(args.online_acceptance_dir).resolve()
     status_override_file = Path(args.status_override_file).resolve() if args.status_override_file else None
     ensure_output_dirs(output_dir)
 
@@ -753,6 +1397,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     write_text(output_dir / "04_risk_checklist.md", build_risk_checklist(spans, recent_high_risk_commit_ids))
     write_text(output_dir / "05_evidence.json", json.dumps([item.as_json() for item in evidence_items], ensure_ascii=False, indent=2) + "\n")
     write_text(output_dir / "06_trace_check.md", build_trace_check_report(spans, generated_at=generated_at))
+    generate_acceptance_bundle(spans, generated_at=generated_at, head=head, output_dir=acceptance_dir)
+    generate_online_acceptance_bundle(generated_at=generated_at, head=head, output_dir=online_acceptance_dir)
     return 0
 
 

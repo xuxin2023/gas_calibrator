@@ -7,7 +7,12 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from ..config import load_config
+from ..config import (
+    V1_CO2_ONLY_H2O_NOT_SUPPORTED_MESSAGE,
+    load_config,
+    require_v1_h2o_zero_span_supported,
+    v1_h2o_zero_span_capability,
+)
 from ..devices import (
     DewpointMeter,
     GasAnalyzer,
@@ -226,6 +231,18 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
 def main(argv: Optional[Iterable[str]] = None) -> int:
     args = _parse_args(argv)
     cfg = load_config(args.config)
+    coeff_cfg = cfg.get("coefficients", {}) if isinstance(cfg.get("coefficients", {}), dict) else {}
+    capability = v1_h2o_zero_span_capability(coeff_cfg)
+    _log(
+        "Capability boundary: "
+        f"H2O zero/span status={capability['status']} note={capability['note']}"
+    )
+    try:
+        require_v1_h2o_zero_span_supported(coeff_cfg, context="run_headless")
+    except RuntimeError as exc:
+        _log(str(exc))
+        _log(V1_CO2_ONLY_H2O_NOT_SUPPORTED_MESSAGE)
+        return 2
     logger = RunLogger(Path(cfg["paths"]["output_dir"]), run_id=args.run_id, cfg=cfg)
     _log(f"Run folder: {logger.run_dir}")
 

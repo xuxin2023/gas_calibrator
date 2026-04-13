@@ -4,6 +4,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .governance_handoff_contracts import GOVERNANCE_HANDOFF_FILENAMES as _GOV_FILENAMES
+from .phase_evidence_display_contracts import (
+    BRIDGE_SECTION_LABELS as _SECTION_LABELS,
+    BRIDGE_REVIEWER_TEXTS as _BRIDGE_TEXTS,
+)
 
 
 PHASE_TRANSITION_BRIDGE_FILENAME = _GOV_FILENAMES["phase_transition_bridge"]
@@ -16,15 +20,6 @@ _METROLOGY_SECTION_IDS = [
     "evidence_traceability_contract",
     "reporting_contract",
 ]
-_SECTION_LABELS = {
-    "reference_traceability_contract": "参考溯源链 contract",
-    "calibration_execution_contract": "校准执行 contract",
-    "data_quality_contract": "数据质量 contract",
-    "uncertainty_budget_template": "不确定度模板",
-    "coefficient_verification_contract": "系数验证 contract",
-    "evidence_traceability_contract": "证据追踪 contract",
-    "reporting_contract": "报告 contract",
-}
 
 
 def build_phase_transition_bridge(
@@ -175,30 +170,27 @@ def _build_reviewer_display(
     gate_matrix: list[dict[str, Any]],
 ) -> dict[str, Any]:
     if overall_status == "ready_for_engineering_isolation":
-        status_line = "阶段状态：当前仍处于 Step 2 tail / Stage 3 bridge，但已具备 engineering-isolation 准备。"
+        status_line = _BRIDGE_TEXTS["status_ready_for_engineering_isolation"]
     elif overall_status == "step2_tail_in_progress":
-        status_line = "阶段状态：当前仍处于 Step 2 tail，制度化设计已到位，但 readiness 阻塞项尚未全部闭环。"
+        status_line = _BRIDGE_TEXTS["status_step2_tail_in_progress"]
     else:
-        status_line = "阶段状态：当前仍停留在 Stage 3 前置桥接阶段，尚不能进入真实计量验证。"
-    summary_text = (
-        "阶段桥工件：本工件统一汇总 Step 2 readiness 与 metrology 设计合同，用于回答离第三阶段还有多远；"
-        "它不是 real acceptance 结论，也不能替代真实计量验证。"
-    )
-    current_stage_text = "当前阶段：Step 2 tail / Stage 3 bridge，仅允许 simulation/offline/headless 证据。"
+        status_line = _BRIDGE_TEXTS["status_blocked_before_stage3"]
+    summary_text = _BRIDGE_TEXTS["summary_text"]
+    current_stage_text = _BRIDGE_TEXTS["current_stage_text"]
     next_stage_text = (
-        "下一阶段：可进入 engineering-isolation，继续收集非 real-acceptance 的工程隔离证据。"
+        _BRIDGE_TEXTS["next_stage_ready"]
         if ready_for_engineering_isolation
-        else "下一阶段：先补齐 Step 2 tail 阻塞项，再进入 engineering-isolation 准备。"
+        else _BRIDGE_TEXTS["next_stage_not_ready"]
     )
-    execute_now_text = "当前执行：" + "、".join(execute_now_in_step2_tail) + "。"
-    defer_to_stage3_text = "第三阶段执行：" + "、".join(defer_to_stage3_real_validation) + "。"
-    blocking_text = "阻塞项：无。" if not blocking_items else "阻塞项：" + "、".join(blocking_items) + "。"
-    warning_text = "提示：" + "、".join(warning_items) + "。"
+    execute_now_text = _BRIDGE_TEXTS["execute_now_prefix"] + "、".join(execute_now_in_step2_tail) + "。"
+    defer_to_stage3_text = _BRIDGE_TEXTS["defer_to_stage3_prefix"] + "、".join(defer_to_stage3_real_validation) + "。"
+    blocking_text = _BRIDGE_TEXTS["no_blocking"] if not blocking_items else _BRIDGE_TEXTS["blocking_prefix"] + "、".join(blocking_items) + "。"
+    warning_text = _BRIDGE_TEXTS["warning_prefix"] + "、".join(warning_items) + "。"
     gate_lines = [
         _build_gate_line(item)
         for item in gate_matrix
     ]
-    gate_lines.append(f"推荐下一阶段：{recommended_next_stage}")
+    gate_lines.append(f"{_BRIDGE_TEXTS['recommended_next_stage_prefix']}{recommended_next_stage}")
     return {
         "summary_text": summary_text,
         "status_line": status_line,
@@ -219,7 +211,7 @@ def _build_gate_line(item: dict[str, Any]) -> str:
     reason_code = str(item.get("reason_code") or "")
     if source == "metrology_calibration_contract":
         label = _SECTION_LABELS.get(gate_id, gate_id)
-        return f"{label}：{'已制度化' if status == 'defined' else '缺失'}（{reason_code}）。"
+        return f"{label}：{_BRIDGE_TEXTS['gate_status_defined'] if status == 'defined' else _BRIDGE_TEXTS['gate_status_missing']}（{reason_code}）。"
     return f"{gate_id}：{status}（{reason_code}）。"
 
 

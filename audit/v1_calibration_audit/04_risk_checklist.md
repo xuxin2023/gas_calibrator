@@ -2,27 +2,29 @@
 
 | 检查项 | 结论 | 风险等级 | 触发条件 / 说明 | 证据 |
 | --- | --- | --- | --- | --- |
-| V1 主流程有明确入口 | PASS | - | - | `run_app.py:1-24`, `src/gas_calibrator/ui/app.py:9760-9808`, `src/gas_calibrator/workflow/runner.py:4540-4619` |
-| 流程顺序完整且闭环 | PASS | - | - | `src/gas_calibrator/workflow/runner.py:4540-4619`, `src/gas_calibrator/workflow/runner.py:4621-4628`, `src/gas_calibrator/workflow/runner.py:5165-5256`, `src/gas_calibrator/workflow/runner.py:5600-5642` |
-| CO2 零点检查存在 | PASS | - | - | `src/gas_calibrator/workflow/runner.py:11125-11142`, `src/gas_calibrator/workflow/runner.py:11463-11549` |
-| CO2 跨度存在 | PASS | - | - | `src/gas_calibrator/workflow/runner.py:5165-5256`, `src/gas_calibrator/workflow/runner.py:10896-11104` |
-| H2O 零点存在 | UNKNOWN | - | - | `src/gas_calibrator/workflow/runner.py:11628-11780` |
-| H2O 跨度存在 | UNKNOWN | - | - | `src/gas_calibrator/workflow/runner.py:11628-11780` |
-| 进入校准模式存在 | PASS | - | - | `src/gas_calibrator/workflow/runner.py:16213-16335`, `src/gas_calibrator/devices/gas_analyzer.py:225-236` |
-| 退出校准模式存在 | PASS | - | - | `src/gas_calibrator/workflow/runner.py:16213-16335` |
-| 系数写入存在 | PASS | - | - | `src/gas_calibrator/workflow/runner.py:16213-16335`, `src/gas_calibrator/devices/gas_analyzer.py:349-373` |
-| 系数写入后回读验证存在 | FAIL | High | 主 runner 的 `_maybe_write_coefficients` 只执行 `MODE=2 -> SENCO -> MODE=1`，没有 `GETCO`/等价比对；如果写入被设备部分接受、截断或被旧值覆盖，本流程自己无法发现。 | `src/gas_calibrator/workflow/runner.py:16213-16335`, `src/gas_calibrator/devices/gas_analyzer.py:390-459`, `src/gas_calibrator/tools/run_v1_corrected_autodelivery.py:661-818` |
-| 每个点位有唯一标识 | PASS | - | - | `src/gas_calibrator/workflow/runner.py:13677-13811`, `src/gas_calibrator/workflow/runner.py:5108-5118`, `src/gas_calibrator/workflow/runner.py:5120-5130` |
-| 每个点位有原始时间戳 | PASS | - | - | `src/gas_calibrator/workflow/runner.py:14815-15181`, `src/gas_calibrator/logging_utils.py:334-454` |
-| 每个点位有保存时间戳 | FAIL | Medium | CSV/XLSX 只保存采样时间与设备时间，没有单独 `save_ts`/`insert_ts`；审查“何时落盘”时无法和采样时间区分。 | `src/gas_calibrator/workflow/runner.py:14815-15181`, `src/gas_calibrator/workflow/runner.py:13677-13811`, `src/gas_calibrator/logging_utils.py:938-940`, `src/gas_calibrator/logging_utils.py:942-960` |
-| 点位保存前有稳态/等待/滤波逻辑 | PASS | - | - | `src/gas_calibrator/workflow/runner.py:9212-9483`, `src/gas_calibrator/workflow/runner.py:12624-12811`, `src/gas_calibrator/workflow/runner.py:12006-12125` |
-| 点位保存不会覆盖前一点位 | PASS | - | - | `src/gas_calibrator/logging_utils.py:938-940`, `src/gas_calibrator/logging_utils.py:991-1007`, `src/gas_calibrator/logging_utils.py:1720-1756`, `tests/test_audit_v1_trace_check.py:107-156` |
-| 点位保存不会混入上一点位过渡态数据 | PASS | - | - | `src/gas_calibrator/workflow/runner.py:12624-12811`, `src/gas_calibrator/workflow/runner.py:12006-12125`, `src/gas_calibrator/workflow/runner.py:13878-13897`, `tests/test_runner_route_handoff.py:76-142` |
-| 报表导出/过程表生成存在 | PASS | - | - | `src/gas_calibrator/logging_utils.py:942-960`, `src/gas_calibrator/logging_utils.py:1720-1756`, `src/gas_calibrator/logging_utils.py:1262-1393`, `src/gas_calibrator/tools/run_v1_corrected_autodelivery.py:839-950` |
-| 标定前后系数可追溯 | FAIL | Medium | 主 runner 不自动保存 before/after coefficient snapshot；如果只保留本轮主流程产物，无法直接追到写前系数。独立 sidecar 可以做 before/after，但未接入主 runner。 | `src/gas_calibrator/workflow/runner.py:16213-16335`, `src/gas_calibrator/workflow/runner.py:7138-7194`, `src/gas_calibrator/tools/run_v1_corrected_autodelivery.py:839-950` |
-| 异常中断后不会把设备留在错误模式 | UNKNOWN | - | - | `src/gas_calibrator/workflow/runner.py:5600-5642`, `src/gas_calibrator/workflow/runner.py:5644-5696`, `src/gas_calibrator/workflow/runner.py:16213-16335` |
-| 2026-04-03 以来的改动中，是否存在高风险改动 | FAIL | High | 2026-04-07 起把 postrun corrected delivery 接进主 runner，2026-04-12 又把默认配置改成 `enabled=True`、`write_devices=True`、`verify_short_run.enabled=True`。这会让一次完成的 V1 运行自动进入后处理写回/短验证链路，风险边界明显扩大。 | `src/gas_calibrator/workflow/runner.py:7138-7194`, `src/gas_calibrator/config.py:220-236` |
+| V1 主流程有明确入口 | PASS | - | - | `run_app.py:1-24`, `src/gas_calibrator/ui/app.py:9760-9808`, `src/gas_calibrator/workflow/runner.py:4673-4756` |
+| 流程顺序完整且闭环 | PASS | - | - | `src/gas_calibrator/workflow/runner.py:4673-4756`, `src/gas_calibrator/workflow/runner.py:4758-4765`, `src/gas_calibrator/workflow/runner.py:5302-5393`, `src/gas_calibrator/workflow/runner.py:5737-5779` |
+| CO2 零点检查存在 | PASS | - | - | `src/gas_calibrator/workflow/runner.py:11262-11279`, `src/gas_calibrator/workflow/runner.py:11600-11686` |
+| CO2 跨度存在 | PASS | - | - | `src/gas_calibrator/workflow/runner.py:5302-5393`, `src/gas_calibrator/workflow/runner.py:11033-11241` |
+| H2O 零点存在 | NOT_SUPPORTED | - | 当前 HEAD 只确认 H2O 路由和 H2O ratio-poly 摘要选择存在，没有与 CO2 对等的 H2O zero 业务步骤。 | `src/gas_calibrator/workflow/runner.py:11765-11917`, `src/gas_calibrator/workflow/runner.py:16218-16290`, `src/gas_calibrator/h2o_summary_selection.py:29-42`, `src/gas_calibrator/workflow/runner.py:4646-4659`, `src/gas_calibrator/workflow/runner.py:4661-4671` |
+| H2O 跨度存在 | NOT_SUPPORTED | - | 当前 HEAD 只确认 H2O 路由和 H2O ratio-poly 摘要选择存在，没有与 CO2 对等的 H2O span 业务步骤。 | `src/gas_calibrator/workflow/runner.py:11765-11917`, `src/gas_calibrator/workflow/runner.py:16218-16290`, `src/gas_calibrator/h2o_summary_selection.py:29-42`, `src/gas_calibrator/workflow/runner.py:4646-4659`, `src/gas_calibrator/workflow/runner.py:4661-4671` |
+| 进入校准模式存在 | PASS | - | - | `src/gas_calibrator/workflow/runner.py:16460-16595`, `src/gas_calibrator/devices/gas_analyzer.py:225-236` |
+| 退出校准模式存在 | PASS | - | - | `src/gas_calibrator/workflow/runner.py:16460-16595`, `src/gas_calibrator/tools/run_v1_corrected_autodelivery.py:774-1006` |
+| 系数写入存在 | PASS | - | - | `src/gas_calibrator/workflow/runner.py:16460-16595`, `src/gas_calibrator/devices/gas_analyzer.py:349-373` |
+| 系数写入后回读验证存在 | PASS | - | - | `src/gas_calibrator/workflow/runner.py:16460-16595`, `src/gas_calibrator/tools/run_v1_corrected_autodelivery.py:774-1006`, `src/gas_calibrator/devices/gas_analyzer.py:390-459` |
+| 每个点位有唯一标识 | PASS | - | - | `src/gas_calibrator/workflow/runner.py:13814-13968`, `src/gas_calibrator/workflow/runner.py:5245-5255`, `src/gas_calibrator/workflow/runner.py:5257-5267` |
+| 每个点位有原始时间戳 | PASS | - | - | `src/gas_calibrator/workflow/runner.py:15056-15422`, `src/gas_calibrator/logging_utils.py:354-474` |
+| 每个点位有保存时间戳 | PASS | - | - | `src/gas_calibrator/workflow/runner.py:14095-14117`, `src/gas_calibrator/workflow/runner.py:14049-14093`, `tests/test_runner_v1_writeback_safety.py:262-334` |
+| 点位保存前有稳态/等待/滤波逻辑 | PASS | - | - | `src/gas_calibrator/workflow/runner.py:9349-9620`, `src/gas_calibrator/workflow/runner.py:12761-12948`, `src/gas_calibrator/workflow/runner.py:12143-12262` |
+| 点位保存不会覆盖前一点位 | PASS | - | - | `src/gas_calibrator/logging_utils.py:963-965`, `src/gas_calibrator/logging_utils.py:1016-1032`, `src/gas_calibrator/logging_utils.py:1778-1814`, `tests/test_audit_v1_trace_check.py:107-156` |
+| 点位保存不会混入上一点位过渡态数据 | PASS | - | - | `src/gas_calibrator/workflow/runner.py:12761-12948`, `src/gas_calibrator/workflow/runner.py:12143-12262`, `src/gas_calibrator/workflow/runner.py:14119-14138`, `tests/test_runner_route_handoff.py:76-142` |
+| 报表导出/过程表生成存在 | PASS | - | - | `src/gas_calibrator/logging_utils.py:967-985`, `src/gas_calibrator/logging_utils.py:1778-1814`, `src/gas_calibrator/logging_utils.py:1320-1451` |
+| 标定前后系数可追溯 | PASS | - | - | `src/gas_calibrator/workflow/runner.py:16597-16640`, `src/gas_calibrator/logging_utils.py:1045-1061`, `tests/test_runner_v1_writeback_safety.py:162-199` |
+| 离线 fault-injection 已覆盖异常恢复 | PASS | - | shared helper 已有 focused fault-injection tests，覆盖 set_mode / GETCO / rollback / 模式确认异常。 | `src/gas_calibrator/tools/run_v1_corrected_autodelivery.py:774-1006`, `tests/test_v1_writeback_fault_injection.py:108-119`, `tests/test_v1_writeback_fault_injection.py:122-138`, `tests/test_v1_writeback_fault_injection.py:150-165`, `tests/test_v1_writeback_fault_injection.py:168-182`, `tests/test_v1_writeback_fault_injection.py:185-200`, `tests/test_v1_writeback_fault_injection.py:203-215`, `tests/test_v1_writeback_fault_injection.py:218-231` |
+| 真实设备异常恢复证据 | ONLINE_EVIDENCE_REQUIRED | - | 代码、离线注入和受双开关保护的 online acceptance 工具已经就位；但现场异常恢复仍缺真机协议证据。 | `src/gas_calibrator/tools/run_v1_corrected_autodelivery.py:774-1006`, `src/gas_calibrator/devices/gas_analyzer.py:555-576`, `src/gas_calibrator/tools/run_v1_online_acceptance.py:608-760`, `src/gas_calibrator/tools/run_v1_online_acceptance.py:525-557` |
+| 2026-04-03 以来的改动中，是否存在高风险改动 | PASS | - | 默认真写设备风险、主路径无回读验证、点位无 save_ts、系数 before/after 缺失，已在当前 HEAD 上收口。 | `src/gas_calibrator/workflow/runner.py:4573-4601`, `src/gas_calibrator/workflow/runner.py:4603-4623`, `src/gas_calibrator/workflow/runner.py:16460-16595`, `src/gas_calibrator/workflow/runner.py:16597-16640`, `tests/test_runner_v1_writeback_safety.py:100-110` |
 
 ## 重点说明
 
-- 最近高风险改动关联 commit: `1ebff243fdcf907d1b254add4d1ab05f9cb9d421`, `248d0ac69942415ac136b17e0aaa24e116e52db4`, `8fa3f3ecd44e1c3a853e095f182da6f9cf70e27e`
+- 历史高风险 commit 参考: `1ebff243fdcf907d1b254add4d1ab05f9cb9d421`, `248d0ac69942415ac136b17e0aaa24e116e52db4`, `8fa3f3ecd44e1c3a853e095f182da6f9cf70e27e`
+- 本文件明确区分“代码已证明/离线已证明”和“现场仍缺证据”。

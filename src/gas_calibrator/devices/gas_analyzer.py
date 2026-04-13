@@ -552,6 +552,29 @@ class GasAnalyzer:
     def read(self) -> Optional[Dict[str, Any]]:
         return self.parse_line(self.read_latest_data())
 
+    def read_current_mode_snapshot(
+        self,
+        *,
+        prefer_stream: Optional[bool] = None,
+        drain_s: float = 0.2,
+        read_timeout_s: float = 0.05,
+        allow_passive_fallback: bool = True,
+    ) -> Optional[Dict[str, Any]]:
+        line = self.read_latest_data(
+            prefer_stream=prefer_stream,
+            drain_s=drain_s,
+            read_timeout_s=read_timeout_s,
+            allow_passive_fallback=allow_passive_fallback,
+        )
+        parsed = self.parse_line(line)
+        if not isinstance(parsed, dict) or not parsed:
+            return None
+        return {
+            "mode": parsed.get("mode"),
+            "id": parsed.get("id"),
+            "raw": parsed.get("raw") or line,
+        }
+
     def status(self) -> Dict[str, Any]:
         data = self.read() or {}
         return {

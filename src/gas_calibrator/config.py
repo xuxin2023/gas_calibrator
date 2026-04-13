@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Mapping
 
 from .h2o_summary_selection import default_h2o_summary_selection
 
@@ -218,9 +218,9 @@ _RUNTIME_DEFAULTS: Dict[str, Any] = {
             },
         },
         "postrun_corrected_delivery": {
-            "enabled": True,
+            "enabled": False,
             "strict": False,
-            "write_devices": True,
+            "write_devices": False,
             "verify_report": False,
             "verification_template": "",
             "fallback_pressure_to_controller": False,
@@ -258,6 +258,10 @@ _RUNTIME_DEFAULTS: Dict[str, Any] = {
     },
     "coefficients": {
         "h2o_summary_selection": default_h2o_summary_selection(),
+        "h2o_zero_span": {
+            "status": "not_supported",
+            "require_supported_capability": False,
+        },
         "ratio_poly_fit": {
             "pressure_source_preference": "reference_first",
         }
@@ -281,6 +285,45 @@ _RUNTIME_DEFAULTS: Dict[str, Any] = {
         },
     },
 }
+
+
+V1_CO2_ONLY_H2O_NOT_SUPPORTED_MESSAGE = (
+    "Current HEAD V1 only supports the CO2 main chain; "
+    "H2O zero/span is NOT_SUPPORTED."
+)
+
+
+def v1_h2o_zero_span_capability(coeff_cfg: Mapping[str, Any] | None = None) -> Dict[str, Any]:
+    coeff_payload = coeff_cfg if isinstance(coeff_cfg, Mapping) else {}
+    capability_cfg = (
+        coeff_payload.get("h2o_zero_span", {})
+        if isinstance(coeff_payload.get("h2o_zero_span", {}), Mapping)
+        else {}
+    )
+    status = str(capability_cfg.get("status", "not_supported") or "not_supported").strip().upper()
+    require_supported = bool(capability_cfg.get("require_supported_capability", False))
+    note = str(capability_cfg.get("note") or "").strip() or V1_CO2_ONLY_H2O_NOT_SUPPORTED_MESSAGE
+    return {
+        "status": status or "NOT_SUPPORTED",
+        "require_supported_capability": require_supported,
+        "note": note,
+    }
+
+
+def require_v1_h2o_zero_span_supported(
+    coeff_cfg: Mapping[str, Any] | None = None,
+    *,
+    requested: bool = False,
+    context: str = "V1",
+) -> Dict[str, Any]:
+    payload = v1_h2o_zero_span_capability(coeff_cfg)
+    require_supported = bool(payload.get("require_supported_capability", False) or requested)
+    payload["require_supported_capability"] = require_supported
+    if require_supported and str(payload.get("status") or "").strip().upper() != "SUPPORTED":
+        raise RuntimeError(
+            f"{context}: {V1_CO2_ONLY_H2O_NOT_SUPPORTED_MESSAGE}"
+        )
+    return payload
 
 
 def _clone_defaults() -> Dict[str, Any]:
@@ -345,3 +388,9 @@ def get(d: Dict[str, Any], key: str, default: Any = None) -> Any:
             return default
         cur = cur[part]
     return cur
+
+
+def runtime_default(key: str, default: Any = None) -> Any:
+    """Read one value from the built-in runtime defaults."""
+
+    return get(_RUNTIME_DEFAULTS, key, default)

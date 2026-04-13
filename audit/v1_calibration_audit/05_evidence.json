@@ -1,15 +1,20 @@
 [
   {
     "id": "E001",
-    "title": "主 runner 写系数后缺少回读验证",
+    "title": "主 runner 写回已具备 GETCO 回读验证与失败回滚",
     "severity": "High",
-    "status": "FAIL",
-    "summary": "`CalibrationRunner._maybe_write_coefficients` 只做 MODE/SENCO 写入与模式退出，没有调用 GETCO 或等价比较；而驱动和 corrected autodelivery 旁路已经具备 GETCO readback 能力。",
+    "status": "PASS",
+    "summary": "主 runner 已复用 shared helper 执行写前快照、GETCO 回读、失败回滚和 finally 恢复模式。",
     "files": [
       {
         "path": "src/gas_calibrator/workflow/runner.py",
-        "start_line": 16213,
-        "end_line": 16335
+        "start_line": 16460,
+        "end_line": 16595
+      },
+      {
+        "path": "src/gas_calibrator/tools/run_v1_corrected_autodelivery.py",
+        "start_line": 774,
+        "end_line": 1006
       },
       {
         "path": "src/gas_calibrator/devices/gas_analyzer.py",
@@ -17,181 +22,284 @@
         "end_line": 459
       },
       {
-        "path": "src/gas_calibrator/tools/run_v1_corrected_autodelivery.py",
-        "start_line": 661,
-        "end_line": 818
+        "path": "tests/test_runner_v1_writeback_safety.py",
+        "start_line": 162,
+        "end_line": 199
+      },
+      {
+        "path": "tests/test_runner_v1_writeback_safety.py",
+        "start_line": 202,
+        "end_line": 231
       }
     ],
     "commits": [
-      "d4487bb0"
+      "d4487bb0",
+      "000000000"
     ],
-    "why_it_matters": "如果 CO2/H2O 系数写入被部分接受、设备回写了旧值、或写入序列被串口噪声打断，本轮 V1 主流程自身无法发现，闭环证据不成立。",
-    "recommendation": "先在主 runner 的系数写入路径补齐 GETCO readback 与差异落盘；至少把写入前/写入后值、比较结果写到 formal artifact。",
-    "confidence": 0.97
+    "why_it_matters": "这消除了“主路径写系数后无回读验证”的高风险缺口。",
+    "recommendation": "继续保持主 runner 与 corrected autodelivery 共用同一 helper，不要回退到只写 SENCO 的分叉实现。",
+    "confidence": 0.98
   },
   {
     "id": "E002",
-    "title": "postrun corrected delivery 已接入主 runner 且默认开启写设备",
+    "title": "postrun corrected delivery 默认保持安全关闭",
     "severity": "High",
-    "status": "FAIL",
-    "summary": "主 runner 在 run 正常结束后会进入 `_maybe_run_postrun_corrected_delivery`；默认配置把 `postrun_corrected_delivery.enabled=True`、`write_devices=True`、`verify_short_run.enabled=True` 一并打开。",
+    "status": "PASS",
+    "summary": "默认配置已改为 enabled=False、write_devices=False，且运行时会记录开关值与来源。",
     "files": [
       {
         "path": "src/gas_calibrator/workflow/runner.py",
-        "start_line": 7138,
-        "end_line": 7194
+        "start_line": 4573,
+        "end_line": 4601
+      },
+      {
+        "path": "src/gas_calibrator/workflow/runner.py",
+        "start_line": 4603,
+        "end_line": 4623
       },
       {
         "path": "src/gas_calibrator/config.py",
         "start_line": 220,
         "end_line": 236
+      },
+      {
+        "path": "tests/test_runner_v1_writeback_safety.py",
+        "start_line": 100,
+        "end_line": 110
       }
     ],
     "commits": [
+      "000000000",
       "1d765f9ec",
       "1ebff243f",
       "248d0ac69",
       "8fa3f3ecd"
     ],
-    "why_it_matters": "这会把一次完成的 V1 运行自动带入后处理写回/短验证链路，扩大真实环境风险面，也会让审查主流程与后处理流程的边界变模糊。",
-    "recommendation": "先把该链路从默认主流程边界里剥离成显式人工确认步骤，至少在审计/回归阶段默认关闭写回和短验证。",
-    "confidence": 0.96
+    "why_it_matters": "这把默认运行边界重新收回到 dry-run / 导出安全态，避免普通 V1 运行自动进入真实写回链路。",
+    "recommendation": "继续把真实写设备授权保持为显式 opt-in。",
+    "confidence": 0.97
   },
   {
     "id": "E003",
-    "title": "点位导出缺少独立保存时间戳",
+    "title": "点位导出已区分 sample_ts 与 save_ts",
     "severity": "Medium",
-    "status": "FAIL",
-    "summary": "样本行保存了 `sample_ts/sample_start_ts/sample_end_ts` 以及多种设备采样时间，但点位汇总与样本导出都没有独立的 `save_ts`/`insert_ts` 字段。",
+    "status": "PASS",
+    "summary": "样本级与点位级导出都已补齐 save_ts，且保留原有 sample_ts 和窗口字段。",
     "files": [
       {
         "path": "src/gas_calibrator/workflow/runner.py",
-        "start_line": 14815,
-        "end_line": 15181
+        "start_line": 14017,
+        "end_line": 14047
       },
       {
         "path": "src/gas_calibrator/workflow/runner.py",
-        "start_line": 13677,
-        "end_line": 13811
+        "start_line": 13814,
+        "end_line": 13968
       },
       {
-        "path": "src/gas_calibrator/logging_utils.py",
-        "start_line": 938,
-        "end_line": 940
+        "path": "src/gas_calibrator/workflow/runner.py",
+        "start_line": 14095,
+        "end_line": 14117
       },
       {
-        "path": "src/gas_calibrator/logging_utils.py",
-        "start_line": 942,
-        "end_line": 960
+        "path": "src/gas_calibrator/workflow/runner.py",
+        "start_line": 14049,
+        "end_line": 14093
+      },
+      {
+        "path": "tests/test_runner_v1_writeback_safety.py",
+        "start_line": 262,
+        "end_line": 334
       }
     ],
     "commits": [
+      "000000000",
       "d4487bb0"
     ],
-    "why_it_matters": "审 V1 点位是否“及时落盘”时，只能看采样时间，无法区分采样发生时间和真正写盘/入库时间。",
-    "recommendation": "给样本级与点位级导出同时补一个统一的保存时间戳，并明确采样时间与保存时间的语义。",
-    "confidence": 0.93
+    "why_it_matters": "这让点位“何时采样”和“何时真正落盘”可分离追溯。",
+    "recommendation": "后续若接数据库，再增加 insert_ts 即可。",
+    "confidence": 0.94
   },
   {
     "id": "E004",
-    "title": "主流程前后系数追溯不完整",
+    "title": "主流程前后系数追溯已落到专用 CSV",
     "severity": "Medium",
-    "status": "FAIL",
-    "summary": "主 runner 可写系数，也可调用 corrected autodelivery，但当前主路径不自动保存写前系数快照；完整的 before/after coefficient provenance 只存在于独立 sidecar 工具链。",
+    "status": "PASS",
+    "summary": "主 runner 现在会把 coeff_before / coeff_target / coeff_readback / coeff_rollback_* 以及模式恢复字段写入 coefficient_writeback CSV。",
     "files": [
       {
         "path": "src/gas_calibrator/workflow/runner.py",
-        "start_line": 16213,
-        "end_line": 16335
+        "start_line": 16597,
+        "end_line": 16640
       },
       {
-        "path": "src/gas_calibrator/workflow/runner.py",
-        "start_line": 7138,
-        "end_line": 7194
+        "path": "src/gas_calibrator/logging_utils.py",
+        "start_line": 1045,
+        "end_line": 1061
       },
       {
-        "path": "src/gas_calibrator/tools/run_v1_corrected_autodelivery.py",
-        "start_line": 839,
-        "end_line": 950
+        "path": "tests/test_runner_v1_writeback_safety.py",
+        "start_line": 162,
+        "end_line": 199
       }
     ],
     "commits": [
+      "000000000",
       "1d765f9ec",
       "1ebff243f",
       "248d0ac69",
       "8fa3f3ecd",
       "d4487bb0"
     ],
-    "why_it_matters": "当需要复核 CO2/H2O 系数是否真的闭环、是否回退到上次值、是否写入了预期组别时，主 runner 产物不足以直接证明。",
-    "recommendation": "把 before/after coefficient snapshot、目标值、readback 值整合进主 runner 的 formal artifact，而不是只留在旁路工具里。",
-    "confidence": 0.88
+    "why_it_matters": "这让本轮主流程自身就能提供 before/after provenance。",
+    "recommendation": "后续可再汇入统一 formal artifact 索引，但这不是本轮阻塞项。",
+    "confidence": 0.91
   },
   {
     "id": "E005",
-    "title": "点位链路具备稳态与 handoff 保护",
-    "severity": "Low",
+    "title": "shared helper 的异常恢复已由离线 fault injection 覆盖",
+    "severity": "Medium",
     "status": "PASS",
-    "summary": "采样前链路具备压力后门禁、freshness gate、route handoff deferred export 和唯一 point tag 组合，静态上可以解释为什么不会直接把切点瞬间或上一点位数据落到当前点位。",
+    "summary": "focused tests 已覆盖 set_mode(2) 失败、GETCO 超时/空返回/解析异常、回读不一致、rollback 失败、退出失败、模式快照缺失和退出未确认。",
     "files": [
       {
-        "path": "src/gas_calibrator/workflow/runner.py",
-        "start_line": 12624,
-        "end_line": 12811
+        "path": "src/gas_calibrator/tools/run_v1_corrected_autodelivery.py",
+        "start_line": 774,
+        "end_line": 1006
       },
       {
-        "path": "src/gas_calibrator/workflow/runner.py",
-        "start_line": 12006,
-        "end_line": 12125
+        "path": "tests/test_v1_writeback_fault_injection.py",
+        "start_line": 108,
+        "end_line": 119
       },
       {
-        "path": "src/gas_calibrator/workflow/runner.py",
-        "start_line": 13878,
-        "end_line": 13897
+        "path": "tests/test_v1_writeback_fault_injection.py",
+        "start_line": 122,
+        "end_line": 138
       },
       {
-        "path": "src/gas_calibrator/logging_utils.py",
-        "start_line": 1720,
-        "end_line": 1756
+        "path": "tests/test_v1_writeback_fault_injection.py",
+        "start_line": 150,
+        "end_line": 165
+      },
+      {
+        "path": "tests/test_v1_writeback_fault_injection.py",
+        "start_line": 168,
+        "end_line": 182
+      },
+      {
+        "path": "tests/test_v1_writeback_fault_injection.py",
+        "start_line": 185,
+        "end_line": 200
+      },
+      {
+        "path": "tests/test_v1_writeback_fault_injection.py",
+        "start_line": 203,
+        "end_line": 215
+      },
+      {
+        "path": "tests/test_v1_writeback_fault_injection.py",
+        "start_line": 218,
+        "end_line": 231
       }
     ],
     "commits": [
-      "d4487bb0",
-      "e546d0714"
+      "000000000"
     ],
-    "why_it_matters": "这部分是本轮静态审计里对“上一点位/过渡态/立即最新值被误存”的主要正向证据。",
-    "recommendation": "继续保留这些保护，并在回归里长期保留只读 trace 检查。",
-    "confidence": 0.85
+    "why_it_matters": "这把“至少尝试退出”和“已确认退出”从口头安全变成了离线可验收证据。",
+    "recommendation": "后续若 helper 字段再扩展，保持 mode_exit_attempted/mode_exit_confirmed 这对语义不要回退。",
+    "confidence": 0.95
   },
   {
     "id": "E006",
-    "title": "H2O 路线存在，但零点/跨度业务语义仍不明确",
+    "title": "H2O zero/span 业务链当前为 NOT_SUPPORTED",
     "severity": "Low",
-    "status": "UNKNOWN",
-    "summary": "代码里能确认 H2O 路线、H2O point tag、以及 H2O coefficient groups 2/4 的存在；但没有找到与 CO2 zero/span 对等的 H2O 零点/跨度判定步骤。",
+    "status": "NOT_SUPPORTED",
+    "summary": "当前 HEAD 能确认 H2O 路由、H2O 点位采样和 H2O ratio-poly 摘要选择存在，但没有与 CO2 zero/span 对等的 H2O zero/span 业务步骤。",
     "files": [
       {
         "path": "src/gas_calibrator/workflow/runner.py",
-        "start_line": 11628,
-        "end_line": 11780
+        "start_line": 11765,
+        "end_line": 11917
       },
       {
         "path": "src/gas_calibrator/workflow/runner.py",
-        "start_line": 5120,
-        "end_line": 5130
+        "start_line": 16218,
+        "end_line": 16290
       },
       {
-        "path": "src/gas_calibrator/tools/run_v1_corrected_autodelivery.py",
-        "start_line": 290,
-        "end_line": 333
+        "path": "src/gas_calibrator/h2o_summary_selection.py",
+        "start_line": 29,
+        "end_line": 42
+      },
+      {
+        "path": "src/gas_calibrator/workflow/runner.py",
+        "start_line": 4646,
+        "end_line": 4659
+      },
+      {
+        "path": "src/gas_calibrator/workflow/runner.py",
+        "start_line": 4661,
+        "end_line": 4671
+      },
+      {
+        "path": "tests/test_runner_v1_writeback_safety.py",
+        "start_line": 128,
+        "end_line": 137
+      },
+      {
+        "path": "tests/test_runner_v1_writeback_safety.py",
+        "start_line": 140,
+        "end_line": 159
       }
     ],
     "commits": [
-      "248d0ac69",
-      "5570747db",
-      "d4487bb0"
+      "000000000",
+      "d4487bb0",
+      "dac8104b4"
     ],
-    "why_it_matters": "后续如果要审“H2O 零点/跨度是否闭环”，当前静态证据还不足以直接落 PASS/FAIL。",
-    "recommendation": "补一份明确的 H2O 点位业务定义或 acceptance 口径，再做下一轮核对。",
-    "confidence": 0.72
+    "why_it_matters": "这意味着 H2O route 存在不等于 H2O zero/span 已闭环，当前审计不能再把它留成模糊 UNKNOWN。",
+    "recommendation": "除非后续补到明确的 H2O zero/span 业务定义与步骤，否则应继续保持 NOT_SUPPORTED。",
+    "confidence": 0.92
+  },
+  {
+    "id": "E007",
+    "title": "真实设备异常恢复仍缺现场证据",
+    "severity": "Medium",
+    "status": "ONLINE_EVIDENCE_REQUIRED",
+    "summary": "代码与离线故障注入已证明 helper 会尝试退出模式并区分 confirmed/unconfirmed，且在线验收工具已经以双开关保护方式落地；但现场协议异常下的最终恢复仍缺真机证据。",
+    "files": [
+      {
+        "path": "src/gas_calibrator/tools/run_v1_corrected_autodelivery.py",
+        "start_line": 774,
+        "end_line": 1006
+      },
+      {
+        "path": "src/gas_calibrator/devices/gas_analyzer.py",
+        "start_line": 555,
+        "end_line": 576
+      },
+      {
+        "path": "src/gas_calibrator/tools/run_v1_online_acceptance.py",
+        "start_line": 608,
+        "end_line": 760
+      },
+      {
+        "path": "src/gas_calibrator/tools/run_v1_online_acceptance.py",
+        "start_line": 525,
+        "end_line": 557
+      },
+      {
+        "path": "tests/test_v1_online_acceptance_tool.py",
+        "start_line": 78,
+        "end_line": 104
+      }
+    ],
+    "commits": [
+      "000000000"
+    ],
+    "why_it_matters": "离线通过不等于 real acceptance，通过代码和仿真还不能证明现场异常时一定安全退出。",
+    "recommendation": "若未来用户明确授权，只能通过带双开关的 online acceptance 工具做最小范围 V1 real smoke / short run，且结论必须标注为工程验证，不是 real acceptance。",
+    "confidence": 0.84
   }
 ]

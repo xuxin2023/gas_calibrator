@@ -6,6 +6,10 @@ from typing import Any, Callable, Iterable, Optional
 
 from ..config import build_step2_config_governance_handoff
 from ..core.acceptance_model import normalize_evidence_source
+from ..core.phase_evidence_display_contracts import (
+    RESULTS_FALLBACK_LABELS as _RESULTS_LABELS,
+    RESULTS_FALLBACK_LABELS_EN as _RESULTS_LABELS_EN,
+)
 from ..core.artifact_catalog import KNOWN_REPORT_ARTIFACTS
 from ..core.engineering_isolation_admission_checklist import (
     ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME,
@@ -1281,17 +1285,17 @@ class ResultsGateway:
         sample_count = int(stats.get("sample_count", 0) or 0)
         point_summary_count = len(list(stats.get("point_summaries", []) or []))
         lines = [
-            f"结果文件: {'已生成' if isinstance(summary, dict) else '缺失'}",
-            f"样本数: {sample_count}",
-            f"点摘要数: {point_summary_count}",
-            f"工件角色: {artifact_role_text}",
-            f"配置安全: {str(safety_review.get('summary') or safety.get('summary') or '--')}",
+            f"{_RESULTS_LABELS['results_file']}: {_RESULTS_LABELS['generated'] if isinstance(summary, dict) else _RESULTS_LABELS['missing']}",
+            f"{_RESULTS_LABELS['sample_count']}: {sample_count}",
+            f"{_RESULTS_LABELS['point_summary_count']}: {point_summary_count}",
+            f"{_RESULTS_LABELS['artifact_roles']}: {artifact_role_text}",
+            f"{_RESULTS_LABELS['config_safety']}: {str(safety_review.get('summary') or safety.get('summary') or '--')}",
         ]
 
-        lines.insert(4, f"证据来源: {evidence_source}")
+        lines.insert(4, f"{_RESULTS_LABELS['evidence_source']}: {evidence_source}")
         if offline_summary:
             lines.append(
-                "离线诊断: "
+                f"{_RESULTS_LABELS['offline_diagnostic']}: "
                 + str(
                     offline_summary.get("summary")
                     or (
@@ -1404,7 +1408,7 @@ class ResultsGateway:
             or workbench_summary.get("review_summary")
             or "--"
         )
-        lines.append(f"工作台诊断证据: {workbench_text}")
+        lines.append(f"{_RESULTS_LABELS['workbench_evidence']}: {workbench_text}")
 
         if compatibility_summary:
             compatibility_reader_mode = str(

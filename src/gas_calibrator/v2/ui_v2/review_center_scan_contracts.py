@@ -15,6 +15,11 @@ Design principles:
 
 from __future__ import annotations
 
+from ..core.phase_evidence_display_contracts import (
+    PHASE_TERMS as _PHASE_TERMS,
+    PHASE_TERMS_EN as _PHASE_TERMS_EN,
+)
+
 # ---------------------------------------------------------------------------
 # Version
 # ---------------------------------------------------------------------------
@@ -32,17 +37,19 @@ REVIEW_CENTER_SCAN_CONTRACTS_VERSION: str = "2.7.0"
 
 REVIEW_CENTER_ARTIFACT_FAMILIES: tuple[tuple[str, str, int, int, str], ...] = (
     # (family_key, filename, priority, default_budget, roots_kind)
-    ("suite", "suite_summary.json", 10, 48, "suite_roots"),
-    ("parity", "summary_parity_report.json", 20, 32, "compare_roots"),
-    ("resilience", "export_resilience_report.json", 21, 32, "compare_roots"),
-    ("workbench", "workbench_action_report.json", 30, 24, "run_roots"),
-    ("stability", "multi_source_stability_evidence.json", 40, 24, "run_roots"),
-    ("state_transition", "state_transition_evidence.json", 41, 24, "run_roots"),
-    ("measurement_phase_coverage", "measurement_phase_coverage_report.json", 42, 24, "run_roots"),
-    ("artifact_compatibility", "compatibility_scan_summary.json", 43, 24, "run_roots"),
-    ("readiness_governance", "readiness_governance", 50, 32, "run_roots"),
-    ("analytics", "analytics_summary.json", 60, 24, "run_roots"),
-    ("offline_diagnostic", "diagnostic_summary.json", 70, 24, "run_roots"),
+    # Budget per family is independent; families do not starve each other.
+    # Budget must be large enough for os.walk across all roots for that family.
+    ("suite", "suite_summary.json", 10, 64, "suite_roots"),
+    ("parity", "summary_parity_report.json", 20, 64, "compare_roots"),
+    ("resilience", "export_resilience_report.json", 21, 64, "compare_roots"),
+    ("workbench", "workbench_action_report.json", 30, 48, "run_roots"),
+    ("stability", "multi_source_stability_evidence.json", 40, 48, "run_roots"),
+    ("state_transition", "state_transition_evidence.json", 41, 48, "run_roots"),
+    ("measurement_phase_coverage", "measurement_phase_coverage_report.json", 42, 48, "run_roots"),
+    ("artifact_compatibility", "compatibility_scan_summary.json", 43, 48, "run_roots"),
+    ("readiness_governance", "readiness_governance", 50, 64, "run_roots"),
+    ("analytics", "analytics_summary.json", 60, 48, "run_roots"),
+    ("offline_diagnostic", "diagnostic_summary.json", 70, 48, "run_roots"),
 )
 
 # ---------------------------------------------------------------------------
@@ -90,37 +97,9 @@ V12_PHASE_EVIDENCE_FAMILIES: tuple[str, ...] = (
 # ---------------------------------------------------------------------------
 # V1.2 taxonomy/phase display terms (Chinese default, English fallback)
 # ---------------------------------------------------------------------------
-V12_PHASE_DISPLAY_TERMS: dict[str, str] = {
-    "ambient": "环境条件",
-    "ambient_open": "环境开路",
-    "flush_gate": "冲洗门禁",
-    "preseal": "前封气",
-    "postseal": "后封气",
-    "stale_gauge": "压力参考陈旧",
-    "phase_transition": "阶段过渡",
-    "bridge": "桥接",
-    "governance_handoff": "治理交接",
-    "parity": "一致性比对",
-    "resilience": "导出韧性",
-    "point_taxonomy": "测点分类",
-    "measurement_phase_coverage": "测量阶段覆盖",
-}
+V12_PHASE_DISPLAY_TERMS: dict[str, str] = _PHASE_TERMS
 
-V12_PHASE_DISPLAY_TERMS_EN: dict[str, str] = {
-    "ambient": "Ambient",
-    "ambient_open": "Ambient Open",
-    "flush_gate": "Flush Gate",
-    "preseal": "Preseal",
-    "postseal": "Postseal",
-    "stale_gauge": "Stale Gauge",
-    "phase_transition": "Phase Transition",
-    "bridge": "Bridge",
-    "governance_handoff": "Governance Handoff",
-    "parity": "Parity",
-    "resilience": "Resilience",
-    "point_taxonomy": "Point Taxonomy",
-    "measurement_phase_coverage": "Measurement Phase Coverage",
-}
+V12_PHASE_DISPLAY_TERMS_EN: dict[str, str] = _PHASE_TERMS_EN
 
 
 def resolve_v12_phase_display(key: str, *, lang: str = "zh") -> str:
@@ -211,3 +190,85 @@ REVIEW_CENTER_SCAN_STEP2_BOUNDARY: dict[str, str | bool] = {
     "reviewer_only": True,
     "readiness_mapping_only": True,
 }
+
+
+# ---------------------------------------------------------------------------
+# V1.2 alignment summary — simulation-only reviewer-first aggregation
+# ---------------------------------------------------------------------------
+
+
+def build_v12_alignment_summary(
+    *,
+    point_taxonomy_summary: dict | None = None,
+    measurement_phase_coverage_report: dict | None = None,
+    parity_status: str | None = None,
+    resilience_status: str | None = None,
+    governance_handoff_blockers: list[str] | None = None,
+    family_budget_summary: dict | None = None,
+) -> dict[str, Any]:
+    """Build a lightweight V1.2 alignment summary for reviewer-first consumption.
+
+    This aggregates simulation evidence across:
+    - point taxonomy
+    - phase coverage
+    - parity / resilience
+    - governance handoff blockers
+
+    Output is explicitly:
+    - simulated only
+    - reviewer only
+    - not real acceptance evidence
+    - not ready for formal claim
+    """
+    _taxonomy = dict(point_taxonomy_summary or {})
+    _phase_coverage = dict(measurement_phase_coverage_report or {})
+    _blockers = list(governance_handoff_blockers or [])
+    _family_budget = dict(family_budget_summary or {})
+
+    # Extract key dimensions from taxonomy
+    _taxonomy_dims: dict[str, str] = {}
+    for dim_key in ("ambient", "ambient_open", "flush_gate", "preseal", "postseal", "stale_gauge"):
+        _taxonomy_dims[dim_key] = resolve_v12_phase_display(dim_key)
+
+    # Extract phase coverage digest
+    _phase_digest = dict(_phase_coverage.get("digest", {}) or {})
+    _phase_health = str(_phase_digest.get("health", "--") or "--")
+    _phase_summary = str(_phase_digest.get("summary", "") or "")
+
+    # Build alignment status
+    _parity_ok = parity_status == "MATCH"
+    _resilience_ok = resilience_status == "MATCH"
+    _no_blockers = len(_blockers) == 0
+    _phase_ok = _phase_health in ("ok", "attention", "pass", "passed", "--")
+
+    _alignment_status = "aligned" if (_parity_ok and _resilience_ok and _no_blockers and _phase_ok) else "attention"
+
+    # Build budget-limited families list
+    _budget_limited = [k for k, v in _family_budget.items() if isinstance(v, dict) and v.get("status") == "budget_limited"]
+
+    return {
+        "v12_alignment_summary": {
+            "alignment_status": _alignment_status,
+            "parity_status": parity_status or "--",
+            "resilience_status": resilience_status or "--",
+            "governance_blockers": _blockers,
+            "phase_health": _phase_health,
+            "phase_summary": _phase_summary,
+            "taxonomy_dimensions": _taxonomy_dims,
+            "budget_limited_families": _budget_limited,
+            "summary_line": (
+                f"V1.2 对齐状态：{_alignment_status} | "
+                f"一致性：{parity_status or '--'} | "
+                f"韧性：{resilience_status or '--'} | "
+                f"阻塞项：{len(_blockers)} | "
+                f"阶段健康：{_phase_health}"
+            ),
+        },
+        # Step 2 boundary markers — this is simulation-only evidence
+        "evidence_source": "simulated",
+        "not_real_acceptance_evidence": True,
+        "not_ready_for_formal_claim": True,
+        "reviewer_only": True,
+        "readiness_mapping_only": True,
+    }
+

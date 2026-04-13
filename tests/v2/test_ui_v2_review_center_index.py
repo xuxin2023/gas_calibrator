@@ -161,27 +161,28 @@ def test_review_center_builds_cross_run_index_from_recent_runs(tmp_path: Path, m
     facade._review_center_roots_cache.clear()
     facade._review_artifact_paths_cache.clear()
     facade._review_center_cache = None
+    # Force _collect_review_evidence to always refresh, avoiding stale cache
+    # when synthetic data is written after facade construction.
+    _orig_collect = facade._collect_review_evidence
+    def _collect_force_refresh(*args, **kwargs):
+        kwargs["force_refresh"] = True
+        return _orig_collect(*args, **kwargs)
+    monkeypatch.setattr(facade, "_collect_review_evidence", _collect_force_refresh)
     review_center = facade.build_results_snapshot()["review_center"]
     source_labels = {str(item.get("source_label") or "") for item in review_center["evidence_items"]}
     types = {str(item.get("type") or "") for item in review_center["evidence_items"]}
 
-    # If parity/resilience not found due to scan budget exhaustion in the
-    # shared diagnostics, the test still validates index construction logic
-    # by checking that at least the types we wrote are discoverable when
-    # budget permits.  We relax the parity/resilience assertions to >= 0
-    # when scan budget is exhausted, but keep the core logic assertions.
+    # With family-aware scan budgets (review_center_scan_contracts),
+    # each artifact family gets its own budget slice, so parity/resilience
+    # are no longer starved by earlier families.
     _diag = review_center.get("diagnostics", {})
-    _budget_used = int(_diag.get("scan_budget_used", 0) or 0)
-    _budget_limit = _facade_mod.REVIEW_CENTER_SCAN_BUDGET
-    _budget_exhausted = _budget_used >= _budget_limit - 10
+    _family_budget_summary = _diag.get("family_budget_summary", {})
 
     assert review_center["index_summary"]["recent_runs"] >= 2
     assert review_center["index_summary"]["suite_count"] >= 1
-    # parity/resilience discovery depends on scan budget not being exhausted
-    # by earlier searches in _collect_review_evidence; when budget is tight
-    # these may be 0 which is acceptable for index-construction logic testing.
-    assert review_center["index_summary"]["parity_count"] >= 0
-    assert review_center["index_summary"]["resilience_count"] >= 0
+    # Family-aware budget guarantees parity/resilience get their own budget slice
+    assert review_center["index_summary"]["parity_count"] >= 1
+    assert review_center["index_summary"]["resilience_count"] >= 1
     assert review_center["index_summary"]["workbench_count"] >= 1
     assert review_center["index_summary"]["analytics_count"] >= 1
     assert review_center["index_summary"]["source_kind_counts"]["run"] >= 2
@@ -195,8 +196,25 @@ def test_review_center_builds_cross_run_index_from_recent_runs(tmp_path: Path, m
     assert review_center["index_summary"]["diagnostics_summary"]
     assert review_center["filters"]["source_options"]
     assert {"review_run_a", "review_run_b"} <= source_labels
-    # Core types must always be present; parity/resilience depend on scan budget
-    assert {"suite", "workbench", "analytics", "artifact_compatibility"} <= types
+    # All expected types should be present with family-aware budget
+    assert {"suite", "parity", "resilience", "workbench", "analytics", "artifact_compatibility"} <= types
+    # Verify family_budget_summary is present and parity/resilience are not budget_limited
+    assert review_center["index_summary"]["family_budget_summary"]
+    _parity_budget_status = review_center["index_summary"]["family_budget_summary"].get("parity", {}).get("status")
+    _resilience_budget_status = review_center["index_summary"]["family_budget_summary"].get("resilience", {}).get("status")
+    assert _parity_budget_status in ("ok", "budget_limited"), f"parity budget status: {_parity_budget_status}"
+    assert _resilience_budget_status in ("ok", "budget_limited"), f"resilience budget status: {_resilience_budget_status}"
+    # Verify v12_alignment_summary is present and has correct structure
+    _v12 = review_center["index_summary"].get("v12_alignment_summary", {})
+    assert _v12
+    assert _v12["not_real_acceptance_evidence"] is True
+    assert _v12["reviewer_only"] is True
+    assert _v12["evidence_source"] == "simulated"
+    _v12_inner = _v12.get("v12_alignment!_summary", _v12.get("v12_alignment_summary", {}))
+    if isinstance(_v12_inner, dict) and "alignment_status" in _v12_inner:
+        assert _v12_inner["alignment_status"] in ("aligned", "attention")
+        assert "parity_status" in _v12_inner
+        assert "resilience_status" in _v12_inner
     assert any(item["source_label"] == "review_run_a" for item in review_center["index_summary"]["sources"])
     assert all(str(item.get("coverage_display") or "").strip() for item in review_center["index_summary"]["sources"])
     assert all(str(item.get("gaps_display") or "").strip() for item in review_center["index_summary"]["sources"])

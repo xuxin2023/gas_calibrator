@@ -1133,13 +1133,13 @@ def test_runner_ratio_poly_autofit_h2o_includes_h2o_and_selected_co2_zero_rows(
     runner._maybe_write_coefficients()
 
     selected_tags = [row["PointTag"] for row in captured["rows"]]
-    assert selected_tags == ["h2o_20", "h2o_30", "co2_zero_m20", "co2_zero_m10", "co2_zero_0", "co2_zero_10", "co2_100_m20"]
+    assert selected_tags == ["h2o_20", "h2o_30", "co2_zero_m20", "co2_zero_m10", "co2_zero_0"]
     assert captured["kwargs"]["gas"] == "h2o"
     assert captured["kwargs"]["ratio_keys"] == ("R_H2O",)
     assert captured["kwargs"]["target_key"] == "ppm_H2O_Dew"
     assert captured["kwargs"]["temp_keys"][0] == "thermometer_temp_c"
     assert any(
-        "H2O ratio-poly summary selection: h2o_phase=2 co2_temp_group=4 co2_zero_temp=1 total=7" in message
+        "H2O ratio-poly summary selection: h2o_phase=2 co2_temp_group=0 co2_zero_temp=3 total=5" in message
         for message in messages
     )
 
@@ -1147,15 +1147,36 @@ def test_runner_ratio_poly_autofit_h2o_includes_h2o_and_selected_co2_zero_rows(
 def test_runner_static_sencos_support_variable_length_payloads(tmp_path: Path) -> None:
     writes: list[tuple[int, tuple[float, ...]]] = []
     mode_calls: list[int] = []
+    values = {
+        1: [10.0, 20.0, 30.0, 40.0, 0.0, 0.0],
+        7: [0.0, 1.0, 0.0, 0.0],
+    }
 
     class _FakeGasAnalyzer:
-        def set_mode(self, mode: int) -> bool:
+        device_id = "086"
+
+        def __init__(self) -> None:
+            self.mode = 1
+
+        def read_current_mode_snapshot(self):
+            return {"mode": self.mode, "id": self.device_id}
+
+        def set_mode_with_ack(self, mode: int, *, require_ack: bool = True) -> bool:
+            self.mode = int(mode)
             mode_calls.append(int(mode))
             return True
 
+        def set_mode(self, mode: int) -> bool:
+            return self.set_mode_with_ack(mode)
+
         def set_senco(self, index: int, *coeffs: float) -> bool:
-            writes.append((int(index), tuple(float(value) for value in coeffs)))
+            values_list = list(coeffs[0]) if len(coeffs) == 1 and isinstance(coeffs[0], (list, tuple)) else list(coeffs)
+            writes.append((int(index), tuple(float(value) for value in values_list)))
+            values[int(index)] = [float(value) for value in values_list]
             return True
+
+        def read_coefficient_group(self, index: int):
+            return {f"C{idx}": float(value) for idx, value in enumerate(values[int(index)])}
 
     logger = SimpleNamespace(
         analyzer_summary_csv_path=tmp_path / "summary.csv",
@@ -1190,14 +1211,30 @@ def test_runner_static_sencos_support_variable_length_payloads(tmp_path: Path) -
 
 def test_runner_static_sencos_attempts_mode_exit_after_write_failure(tmp_path: Path) -> None:
     mode_calls: list[int] = []
+    values = {7: [0.0, 1.0, 0.0, 0.0]}
 
     class _FakeGasAnalyzer:
-        def set_mode(self, mode: int) -> bool:
+        device_id = "086"
+
+        def __init__(self) -> None:
+            self.mode = 1
+
+        def read_current_mode_snapshot(self):
+            return {"mode": self.mode, "id": self.device_id}
+
+        def set_mode_with_ack(self, mode: int, *, require_ack: bool = True) -> bool:
+            self.mode = int(mode)
             mode_calls.append(int(mode))
             return True
 
+        def set_mode(self, mode: int) -> bool:
+            return self.set_mode_with_ack(mode)
+
         def set_senco(self, index: int, *coeffs: float) -> bool:
             raise RuntimeError(f"boom-{index}")
+
+        def read_coefficient_group(self, index: int):
+            return {f"C{idx}": float(value) for idx, value in enumerate(values[int(index)])}
 
     logger = SimpleNamespace(
         analyzer_summary_csv_path=tmp_path / "summary.csv",
@@ -1214,10 +1251,11 @@ def test_runner_static_sencos_attempts_mode_exit_after_write_failure(tmp_path: P
     messages: list[str] = []
     runner = CalibrationRunner(cfg, {"gas_analyzer": _FakeGasAnalyzer()}, logger, messages.append, lambda *_: None)
 
-    runner._maybe_write_coefficients()
+    with pytest.raises(RuntimeError, match="Coefficient writeback (failed|unsafe)"):
+        runner._maybe_write_coefficients()
 
     assert mode_calls == [2, 1]
-    assert any("Failed to write SENCO7: boom-7" in message for message in messages)
+    assert any("SENCO7 writeback failed" in message for message in messages)
 
 
 def test_sample_and_log_writes_mode2_field_means(tmp_path: Path) -> None:

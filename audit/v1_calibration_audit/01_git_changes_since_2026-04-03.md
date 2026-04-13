@@ -1,11 +1,71 @@
 # 2026-04-03 以来可能影响 V1 校准的改动
 
 - 当前分支: `main`
-- 当前 HEAD: `2b472cb8949ea97546ab856b181379ff0ca9edee`
+- 当前 HEAD: `f41b7b20c35a5051943fecd35bdaf62c05ae8d34`
 - 筛选起点: `2026-04-03 00:00:00`
-- 纳入 commit 数: `366`
+- 纳入 commit 数: `371`
 
 ## Commit 列表
+
+### `f41b7b20c35a5051943fecd35bdaf62c05ae8d34`
+- 时间: 2026-04-12 23:38:39 +0800
+- 标题: chore: sync 2026-04-12 23:38:38
+- 涉及文件: `src/gas_calibrator/v2/ui_v2/controllers/app_facade.py`
+- 判定原因: 改动文件命中校准相关路径/关键词；diff 内容命中关键词: cali
+- 关键 diff hunk 摘要:
+  - src/gas_calibrator/v2/ui_v2/controllers/app_facade.py @@ -3588,0 +3589,2 @@ class AppFacade: +            family_key="analytics",
+  - src/gas_calibrator/v2/ui_v2/controllers/app_facade.py @@ -3588,0 +3589,2 @@ class AppFacade: +            family_budget=_family_budgets.get("analytics"),
+  - src/gas_calibrator/v2/ui_v2/controllers/app_facade.py @@ -3633,0 +3636,2 @@ class AppFacade: +                family_key="offline_diagnostic",
+  - src/gas_calibrator/v2/ui_v2/controllers/app_facade.py @@ -3633,0 +3636,2 @@ class AppFacade: +                family_budget=_family_budgets.get("offline_diagnostic"),
+  - src/gas_calibrator/v2/ui_v2/controllers/app_facade.py @@ -3647,0 +3652,6 @@ class AppFacade: +        # Build per-family budget summary for diagnostics
+
+### `bef6db703cf0c33db4731734a606db033cc598dc`
+- 时间: 2026-04-12 22:03:30 +0800
+- 标题: chore: sync 2026-04-12 22:03:29
+- 涉及文件: `src/gas_calibrator/v2/ui_v2/controllers/app_facade.py`
+- 判定原因: 改动文件命中校准相关路径/关键词；diff 内容命中关键词: cali, db
+- 关键 diff hunk 摘要:
+  - src/gas_calibrator/v2/ui_v2/controllers/app_facade.py @@ -3374,0 +3375,2 @@ class AppFacade: +            family_key="stability",
+  - src/gas_calibrator/v2/ui_v2/controllers/app_facade.py @@ -3374,0 +3375,2 @@ class AppFacade: +            family_budget=_family_budgets.get("stability"),
+  - src/gas_calibrator/v2/ui_v2/controllers/app_facade.py @@ -3395,0 +3398,2 @@ class AppFacade: +            family_key="state_transition",
+  - src/gas_calibrator/v2/ui_v2/controllers/app_facade.py @@ -3395,0 +3398,2 @@ class AppFacade: +            family_budget=_family_budgets.get("state_transition"),
+  - src/gas_calibrator/v2/ui_v2/controllers/app_facade.py @@ -3416,0 +3421,2 @@ class AppFacade: +            family_key="measurement_phase_coverage",
+
+### `42c1e838aa5bc30a37fa035902967ae86ca7bb95`
+- 时间: 2026-04-12 21:58:30 +0800
+- 标题: chore: sync 2026-04-12 21:58:30
+- 涉及文件: `src/gas_calibrator/v2/ui_v2/controllers/app_facade.py`
+- 判定原因: 改动文件命中校准相关路径/关键词；diff 内容命中关键词: cali
+- 关键 diff hunk 摘要:
+  - src/gas_calibrator/v2/ui_v2/controllers/app_facade.py @@ -105,0 +106,7 @@ from ..review_scope_export_index import ( +from ..review_center_scan_contracts import (
+  - src/gas_calibrator/v2/ui_v2/controllers/app_facade.py @@ -105,0 +106,7 @@ from ..review_scope_export_index import ( +    REVIEW_CENTER_SCAN_CONTRACTS_VERSION as _SCAN_CONTRACTS_VERSION,
+  - src/gas_calibrator/v2/ui_v2/controllers/app_facade.py @@ -105,0 +106,7 @@ from ..review_scope_export_index import ( +    FAMILY_KEY_TO_BUDGET as _FAMILY_KEY_TO_BUDGET,
+  - src/gas_calibrator/v2/ui_v2/controllers/app_facade.py @@ -105,0 +106,7 @@ from ..review_scope_export_index import ( +    FAMILY_SCAN_ORDER as _FAMILY_SCAN_ORDER,
+  - src/gas_calibrator/v2/ui_v2/controllers/app_facade.py @@ -105,0 +106,7 @@ from ..review_scope_export_index import ( +    allocate_family_budgets as _allocate_family_budgets,
+
+### `fb152b44491920315c86b692ec44a50b9e033a58`
+- 时间: 2026-04-12 21:53:30 +0800
+- 标题: chore: sync 2026-04-12 21:53:30
+- 涉及文件: `src/gas_calibrator/v2/ui_v2/review_center_scan_contracts.py`
+- 判定原因: 改动文件命中校准相关路径/关键词；diff 内容命中关键词: Point, STEP, Step, V1, cali, mode, point, report
+- 关键 diff hunk 摘要:
+  - src/gas_calibrator/v2/ui_v2/review_center_scan_contracts.py @@ -0,0 +1,213 @@ +"""Review center evidence scan contracts — family-aware budget, priority, and ordering.
+  - src/gas_calibrator/v2/ui_v2/review_center_scan_contracts.py @@ -0,0 +1,213 @@ +
+  - src/gas_calibrator/v2/ui_v2/review_center_scan_contracts.py @@ -0,0 +1,213 @@ +This module is the single source of truth for:
+  - src/gas_calibrator/v2/ui_v2/review_center_scan_contracts.py @@ -0,0 +1,213 @@ +- artifact family ordering (scan sequence)
+  - src/gas_calibrator/v2/ui_v2/review_center_scan_contracts.py @@ -0,0 +1,213 @@ +- per-family scan budget allocation
+
+### `b9894d22c4754ca681b73bf43d2e1036e520b57b`
+- 时间: 2026-04-12 21:43:32 +0800
+- 标题: chore: sync 2026-04-12 21:43:30
+- 涉及文件: `audit/v1_calibration_audit/01_git_changes_since_2026-04-03.md`, `audit/v1_calibration_audit/02_v1_flow_map.md`, `audit/v1_calibration_audit/03_point_storage_map.md`, `audit/v1_calibration_audit/04_risk_checklist.md`, `audit/v1_calibration_audit/05_evidence.json`, `audit/v1_calibration_audit/06_trace_check.md`, `audit/v1_calibration_audit/README.md`, `audit/v1_calibration_audit/raw/git_log_since_2026-04-03.txt`, `audit/v1_calibration_audit/raw/rg_hits.txt`
+- 判定原因: 改动文件命中校准相关路径/关键词；diff 内容命中关键词: CALI, CALIBRATION, CO2, COEFFICIENT, Cali, Calibration, Co2, Coefficient
+- 关键 diff hunk 摘要:
+  - audit/v1_calibration_audit/01_git_changes_since_2026-04-03.md @@ -0,0 +1,4300 @@ +# 2026-04-03 以来可能影响 V1 校准的改动
+  - audit/v1_calibration_audit/01_git_changes_since_2026-04-03.md @@ -0,0 +1,4300 @@ +
+  - audit/v1_calibration_audit/01_git_changes_since_2026-04-03.md @@ -0,0 +1,4300 @@ +- 当前分支: `main`
+  - audit/v1_calibration_audit/01_git_changes_since_2026-04-03.md @@ -0,0 +1,4300 @@ +- 当前 HEAD: `2b472cb8949ea97546ab856b181379ff0ca9edee`
+  - audit/v1_calibration_audit/01_git_changes_since_2026-04-03.md @@ -0,0 +1,4300 @@ +- 筛选起点: `2026-04-03 00:00:00`
 
 ### `2b472cb8949ea97546ab856b181379ff0ca9edee`
 - 时间: 2026-04-12 21:38:30 +0800
@@ -4297,4 +4357,79 @@
 
 ## 未提交改动中与 V1 校准相关的文件
 
-- 无。初始快照显示工作区为 clean。
+- `udit/v1_calibration_audit/01_git_changes_since_2026-04-03.md`
+- `udit/v1_calibration_audit/02_v1_flow_map.md`
+- `udit/v1_calibration_audit/03_point_storage_map.md`
+- `udit/v1_calibration_audit/04_risk_checklist.md`
+- `udit/v1_calibration_audit/05_evidence.json`
+- `udit/v1_calibration_audit/06_trace_check.md`
+- `udit/v1_calibration_audit/README.md`
+- `udit/v1_calibration_audit/raw/git_log_since_2026-04-03.txt`
+- `udit/v1_calibration_audit/raw/git_status.txt`
+- `udit/v1_calibration_audit/raw/rg_hits.txt`
+- `rc/gas_calibrator/config.py`
+- `rc/gas_calibrator/devices/gas_analyzer.py`
+- `rc/gas_calibrator/logging_utils.py`
+- `rc/gas_calibrator/tools/audit_run.py`
+- `rc/gas_calibrator/tools/run_headless.py`
+- `rc/gas_calibrator/tools/run_v1_corrected_autodelivery.py`
+- `rc/gas_calibrator/tools/run_v1_merged_calibration_sidecar.py`
+- `rc/gas_calibrator/v2/adapters/results_gateway.py`
+- `rc/gas_calibrator/v2/core/phase_transition_bridge.py`
+- `rc/gas_calibrator/v2/ui_v2/controllers/app_facade.py`
+- `rc/gas_calibrator/v2/ui_v2/locales/en_US.json`
+- `rc/gas_calibrator/v2/ui_v2/locales/zh_CN.json`
+- `rc/gas_calibrator/v2/ui_v2/review_center_scan_contracts.py`
+- `rc/gas_calibrator/workflow/runner.py`
+- `ests/test_v1_merged_calibration_sidecar.py`
+- `ools/audit_v1_calibration.py`
+- `audit/v1_calibration_acceptance/`
+- `audit/v1_calibration_acceptance_online/`
+- `src/gas_calibrator/tools/run_v1_online_acceptance.py`
+- `src/gas_calibrator/v2/core/phase_evidence_display_contracts.py`
+- `tests/test_runner_v1_writeback_safety.py`
+- `tests/test_v1_online_acceptance_tool.py`
+- `tests/test_v1_writeback_fault_injection.py`
+- `tools/run_v1_online_acceptance.py`
+- `udit/v1_calibration_audit/01_git_changes_since_2026-04-03.md`
+- `udit/v1_calibration_audit/02_v1_flow_map.md`
+- `udit/v1_calibration_audit/03_point_storage_map.md`
+- `udit/v1_calibration_audit/04_risk_checklist.md`
+- `udit/v1_calibration_audit/05_evidence.json`
+- `udit/v1_calibration_audit/06_trace_check.md`
+- `udit/v1_calibration_audit/README.md`
+- `udit/v1_calibration_audit/raw/git_log_since_2026-04-03.txt`
+- `udit/v1_calibration_audit/raw/git_status.txt`
+- `udit/v1_calibration_audit/raw/rg_hits.txt`
+- `rc/gas_calibrator/config.py`
+- `rc/gas_calibrator/devices/gas_analyzer.py`
+- `rc/gas_calibrator/logging_utils.py`
+- `rc/gas_calibrator/tools/audit_run.py`
+- `rc/gas_calibrator/tools/run_headless.py`
+- `rc/gas_calibrator/tools/run_v1_corrected_autodelivery.py`
+- `rc/gas_calibrator/tools/run_v1_merged_calibration_sidecar.py`
+- `rc/gas_calibrator/v2/adapters/results_gateway.py`
+- `rc/gas_calibrator/v2/core/phase_transition_bridge.py`
+- `rc/gas_calibrator/v2/ui_v2/controllers/app_facade.py`
+- `rc/gas_calibrator/v2/ui_v2/locales/en_US.json`
+- `rc/gas_calibrator/v2/ui_v2/locales/zh_CN.json`
+- `rc/gas_calibrator/v2/ui_v2/review_center_scan_contracts.py`
+- `rc/gas_calibrator/workflow/runner.py`
+- `ests/test_v1_merged_calibration_sidecar.py`
+- `ools/audit_v1_calibration.py`
+- `audit/v1_calibration_acceptance/01_capability_matrix.md`
+- `audit/v1_calibration_acceptance/02_sample_points.csv`
+- `audit/v1_calibration_acceptance/03_sample_samples.csv`
+- `audit/v1_calibration_acceptance/04_sample_coefficient_writeback.csv`
+- `audit/v1_calibration_acceptance/05_fault_injection_matrix.md`
+- `audit/v1_calibration_acceptance/06_acceptance_summary.md`
+- `audit/v1_calibration_acceptance_online/01_online_acceptance_checklist.md`
+- `audit/v1_calibration_acceptance_online/02_online_run_template.json`
+- `audit/v1_calibration_acceptance_online/03_online_protocol_log_schema.md`
+- `audit/v1_calibration_acceptance_online/04_online_evidence_summary.md`
+- `src/gas_calibrator/tools/run_v1_online_acceptance.py`
+- `src/gas_calibrator/v2/core/phase_evidence_display_contracts.py`
+- `tests/test_runner_v1_writeback_safety.py`
+- `tests/test_v1_online_acceptance_tool.py`
+- `tests/test_v1_writeback_fault_injection.py`
+- `tools/run_v1_online_acceptance.py`

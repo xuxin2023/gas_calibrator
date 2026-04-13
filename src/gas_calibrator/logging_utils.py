@@ -108,10 +108,30 @@ def _dewpoint_to_h2o_mmol_per_mol(dewpoint_c: Any, pressure_hpa: Any) -> Optiona
 
 _FIELD_LABELS = {
     "point_title": "点位标题",
+    "run_id": "运行ID",
+    "session_id": "会话ID",
+    "device_id": "设备ID(追溯)",
+    "gas_type": "气体类型",
+    "step": "步骤",
+    "point_no": "点位编号",
+    "target_value": "目标值",
+    "measured_value": "测量值",
     "sample_ts": "采样时间",
+    "save_ts": "保存时间",
     "sample_due_ts": "采样目标时间",
     "sample_start_ts": "采样开始时间",
     "sample_end_ts": "采样结束时间",
+    "window_start_ts": "窗口开始时间",
+    "window_end_ts": "窗口结束时间",
+    "sample_count": "窗口样本数",
+    "stable_flag": "稳态标记",
+    "mode_exit_attempted": "已尝试退出校准模式",
+    "mode_exit_confirmed": "已确认退出校准模式",
+    "rollback_attempted": "已尝试回滚",
+    "rollback_confirmed": "已确认回滚",
+    "overall_write_status": "写入总体状态",
+    "overall_verify_status": "回读总体状态",
+    "overall_rollback_status": "回滚总体状态",
     "sample_elapsed_ms": "采样耗时ms",
     "sample_lag_ms": "采样滞后ms",
     "sample_index": "样本序号",
@@ -768,6 +788,7 @@ class RunLogger:
         self.points_readable_path = self.run_dir / f"points_readable_{stamp}.csv"
         self.points_readable_book_path = self.run_dir / f"points_readable_{stamp}.xlsx"
         self.io_path = self.run_dir / f"io_{stamp}.csv"
+        self.coefficient_write_path = self.run_dir / f"coefficient_writeback_{stamp}.csv"
         self.h2o_analyzer_book_path = self.run_dir / f"h2o_analyzer_sheets_{stamp}.xlsx"
         self.co2_analyzer_book_path = self.run_dir / f"co2_analyzer_sheets_{stamp}.xlsx"
         self.analyzer_summary_csv_path = self.run_dir / f"分析仪汇总_{stamp}.csv"
@@ -782,6 +803,7 @@ class RunLogger:
         self._points_readable_file = self.points_readable_path.open("w", newline="", encoding="utf-8")
         self._analyzer_summary_file = self.analyzer_summary_csv_path.open("w", newline="", encoding="utf-8")
         self._io_file = self.io_path.open("w", newline="", encoding="utf-8")
+        self._coefficient_write_file = self.coefficient_write_path.open("w", newline="", encoding="utf-8")
 
         self._samples_writer: Optional[csv.DictWriter] = None
         self._samples_header: List[str] = []
@@ -792,6 +814,9 @@ class RunLogger:
         self._points_readable_writer: Optional[csv.DictWriter] = None
         self._points_readable_header: List[str] = []
         self._points_readable_rows: List[Dict[str, Any]] = []
+        self._coefficient_write_writer: Optional[csv.DictWriter] = None
+        self._coefficient_write_header: List[str] = []
+        self._coefficient_write_rows: List[Dict[str, Any]] = []
         self._analyzer_summary_writer: Optional[csv.DictWriter] = None
         self._analyzer_summary_rows_by_target: Dict[str, List[Dict[str, Any]]] = {"all": []}
         self._analyzer_summary_header_by_target: Dict[str, List[str]] = {
@@ -1014,6 +1039,39 @@ class RunLogger:
             writer_attr="_points_writer",
             header_attr="_points_header",
             rows=self._points_rows,
+            target_header=header,
+        )
+
+    def log_coefficient_write(self, row: Dict[str, Any]) -> None:
+        stored = dict(row)
+        self._coefficient_write_rows.append(stored)
+        merged_header = self._merge_header(self._coefficient_write_header, list(stored.keys()))
+        if self._coefficient_write_writer is None:
+            self._rewrite_coefficient_write_csv(target_header=merged_header)
+            return
+        if merged_header != self._coefficient_write_header:
+            self._rewrite_coefficient_write_csv(target_header=merged_header)
+            return
+
+        try:
+            self._coefficient_write_writer.writerow(stored)
+            self._coefficient_write_file.flush()
+        except Exception:
+            self._coefficient_write_writer = None
+            self._rewrite_coefficient_write_csv(target_header=merged_header)
+
+    def _rewrite_coefficient_write_csv(self, target_header: Optional[List[str]] = None) -> None:
+        header = list(
+            target_header
+            or self._coefficient_write_header
+            or self._merge_header([], [key for row in self._coefficient_write_rows for key in row.keys()])
+        )
+        self._rewrite_dynamic_csv(
+            path=self.coefficient_write_path,
+            file_attr="_coefficient_write_file",
+            writer_attr="_coefficient_write_writer",
+            header_attr="_coefficient_write_header",
+            rows=self._coefficient_write_rows,
             target_header=header,
         )
 
@@ -1962,6 +2020,8 @@ class RunLogger:
             self._delete_path_if_empty(self.points_path)
         if not self._points_readable_rows:
             self._delete_path_if_empty(self.points_readable_path)
+        if not self._coefficient_write_rows:
+            self._delete_path_if_empty(self.coefficient_write_path)
         if not list(self._analyzer_summary_rows_by_target.get("all") or []):
             self._delete_path_if_empty(self.analyzer_summary_csv_path)
             self._delete_path_if_empty(self.h2o_analyzer_summary_csv_path)
@@ -1978,14 +2038,17 @@ class RunLogger:
                     self._points_readable_file.close()
                 finally:
                     try:
-                        self._analyzer_summary_file.close()
+                        self._coefficient_write_file.close()
                     finally:
                         try:
-                            for handle in self._analyzer_summary_phase_files.values():
-                                try:
-                                    handle.close()
-                                except Exception:
-                                    pass
+                            self._analyzer_summary_file.close()
                         finally:
-                            self._io_file.close()
+                            try:
+                                for handle in self._analyzer_summary_phase_files.values():
+                                    try:
+                                        handle.close()
+                                    except Exception:
+                                        pass
+                            finally:
+                                self._io_file.close()
         self._prune_empty_core_exports()

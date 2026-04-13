@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import inspect
 import json
 import math
 import re
@@ -13,7 +14,12 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 import pandas as pd
 from openpyxl import load_workbook
 
-from ..config import load_config
+from ..config import (
+    V1_CO2_ONLY_H2O_NOT_SUPPORTED_MESSAGE,
+    load_config,
+    require_v1_h2o_zero_span_supported,
+    v1_h2o_zero_span_capability,
+)
 from ..devices.gas_analyzer import GasAnalyzer
 from ..export import build_corrected_water_points_report
 from ..senco_format import format_senco_values, senco_readback_matches
@@ -620,7 +626,41 @@ def _parse_senco_command(command: str) -> tuple[int, List[float]]:
 
 def _read_group_as_list(ga: GasAnalyzer, group: int, expected_len: int) -> List[float]:
     parsed = ga.read_coefficient_group(int(group))
-    return [float(parsed.get(f"C{idx}")) for idx in range(expected_len)]
+    if not isinstance(parsed, Mapping) or not parsed:
+        raise RuntimeError("READBACK_EMPTY")
+    values: List[float] = []
+    for idx in range(expected_len):
+        key = f"C{idx}"
+        if key not in parsed:
+            raise RuntimeError(f"READBACK_PARSE_MISSING:{key}")
+        try:
+            values.append(float(parsed.get(key)))
+        except Exception as exc:
+            raise RuntimeError(f"READBACK_PARSE_ERROR:{key}:{exc}") from exc
+    return values
+
+
+def _read_group_with_retry(
+    ga: GasAnalyzer,
+    group: int,
+    expected_len: int,
+    *,
+    attempts: int = 3,
+    retry_delay_s: float = 0.15,
+) -> tuple[List[float], Optional[str]]:
+    last_values: List[float] = []
+    last_error = ""
+    total_attempts = max(1, int(attempts))
+    for idx in range(total_attempts):
+        try:
+            values = _read_group_as_list(ga, int(group), expected_len)
+            return values, None
+        except Exception as exc:
+            last_values = []
+            last_error = str(exc)
+        if idx + 1 < total_attempts and retry_delay_s > 0:
+            time.sleep(max(0.01, float(retry_delay_s)))
+    return last_values, last_error or "READBACK_MISSING"
 
 
 def _read_group_with_match_retry(
@@ -635,20 +675,335 @@ def _read_group_with_match_retry(
     expected_len = len(expected)
     last_values: List[float] = []
     last_error = ""
-    for idx in range(max(1, int(attempts))):
-        try:
-            values = _read_group_as_list(ga, int(group), expected_len)
+    total_attempts = max(1, int(attempts))
+    for idx in range(total_attempts):
+        values, read_error = _read_group_with_retry(
+            ga,
+            int(group),
+            expected_len,
+            attempts=1,
+            retry_delay_s=retry_delay_s,
+        )
+        if values:
             last_values = values
             last_error = ""
             if senco_readback_matches(expected, values):
                 return values, None
-        except Exception as exc:
-            last_error = str(exc)
-        if idx + 1 < max(1, int(attempts)) and retry_delay_s > 0:
+        else:
+            last_error = str(read_error or "READBACK_MISSING")
+        if idx + 1 < total_attempts and retry_delay_s > 0:
             time.sleep(max(0.01, float(retry_delay_s)))
     if last_values:
         return last_values, last_error or "READBACK_MISMATCH"
     return [], last_error or "READBACK_MISSING"
+
+
+def _normalize_mode_value(value: Any) -> Any:
+    if value in (None, "", "null", "None"):
+        return "UNKNOWN"
+    try:
+        return int(value)
+    except Exception:
+        return str(value)
+
+
+def _best_effort_mode_snapshot(ga: GasAnalyzer) -> Any:
+    reader = getattr(ga, "read_current_mode_snapshot", None)
+    if callable(reader):
+        try:
+            snapshot = reader()
+        except Exception:
+            snapshot = None
+        if isinstance(snapshot, dict):
+            return _normalize_mode_value(snapshot.get("mode"))
+    return "UNKNOWN"
+
+
+def _mode_matches_expected(mode_value: Any, expected_mode: int) -> bool:
+    normalized = _normalize_mode_value(mode_value)
+    if normalized == "UNKNOWN":
+        return False
+    try:
+        return int(normalized) == int(expected_mode)
+    except Exception:
+        return False
+
+
+def _aggregate_detail_status(
+    detail_rows: Sequence[Mapping[str, Any]],
+    key: str,
+    *,
+    failure_reason: str = "",
+    default: str,
+) -> str:
+    statuses = [str(row.get(key) or "").strip().lower() for row in detail_rows if str(row.get(key) or "").strip()]
+    if not statuses:
+        return "failed" if failure_reason else default
+    if any(status == "failed" for status in statuses):
+        return "failed"
+    if any(status == "success" for status in statuses):
+        if all(status in {"success", "not_needed", "not_requested"} for status in statuses):
+            return "success"
+        return "partial"
+    if any(status == "skipped" for status in statuses):
+        return "failed" if failure_reason and key != "rollback_status" else "skipped"
+    return statuses[-1] if statuses else default
+
+
+def _invoke_set_senco(ga: GasAnalyzer, group: int, coeffs: Sequence[float]) -> bool:
+    setter = getattr(ga, "set_senco")
+    try:
+        params = list(inspect.signature(setter).parameters.values())
+    except (TypeError, ValueError):
+        params = []
+    if any(param.kind == inspect.Parameter.VAR_POSITIONAL for param in params):
+        return bool(setter(int(group), *coeffs))
+    return bool(setter(int(group), coeffs))
+
+
+def _set_mode_with_required_ack(ga: GasAnalyzer, mode: int) -> bool:
+    setter = getattr(ga, "set_mode_with_ack", None)
+    if callable(setter):
+        return bool(setter(int(mode), require_ack=True))
+    fallback = getattr(ga, "set_mode", None)
+    if callable(fallback):
+        return bool(fallback(int(mode)))
+    raise AttributeError("gas analyzer does not provide set_mode or set_mode_with_ack")
+
+
+def write_senco_groups_with_full_verification(
+    ga: GasAnalyzer,
+    *,
+    expected_groups: Mapping[int, Sequence[float]],
+    restore_mode: int = 1,
+    readback_attempts: int = 3,
+    retry_delay_s: float = 0.15,
+    compare_atol: float = 1e-9,
+) -> Dict[str, Any]:
+    normalized_groups = {
+        int(group): [float(value) for value in coeffs]
+        for group, coeffs in dict(expected_groups or {}).items()
+    }
+    mode_before = _best_effort_mode_snapshot(ga)
+    mode_after: Any = mode_before
+    detail_rows: List[Dict[str, Any]] = []
+    detail_by_group: Dict[int, Dict[str, Any]] = {}
+    before_snapshots: Dict[int, List[float]] = {}
+    failure_reason = ""
+    unsafe = False
+    entered_mode = False
+    calibration_mode_requested = False
+    written_groups: List[int] = []
+    mode_exit_attempted = False
+    mode_exit_confirmed = False
+    rollback_attempted = False
+    rollback_confirmed = False
+
+    for group, coeffs in sorted(normalized_groups.items()):
+        detail = {
+            "group": int(group),
+            "coeff_before": [],
+            "coeff_target": [float(value) for value in coeffs],
+            "coeff_readback": [],
+            "coeff_rollback_target": [],
+            "coeff_rollback_readback": [],
+            "mode_before": mode_before,
+            "mode_after": "UNKNOWN",
+            "write_status": "pending",
+            "verify_status": "pending",
+            "rollback_status": "not_needed",
+            "failure_reason": "",
+            "compare_tolerance": float(compare_atol),
+            "mode_exit_attempted": False,
+            "mode_exit_confirmed": False,
+            "rollback_attempted": False,
+            "rollback_confirmed": False,
+        }
+        detail_rows.append(detail)
+        detail_by_group[int(group)] = detail
+
+        before_values, before_error = _read_group_with_retry(
+            ga,
+            int(group),
+            len(coeffs),
+            attempts=readback_attempts,
+            retry_delay_s=retry_delay_s,
+        )
+        if before_error:
+            detail["write_status"] = "skipped"
+            detail["verify_status"] = "skipped"
+            detail["failure_reason"] = f"PREWRITE_SNAPSHOT_FAILED:{before_error}"
+            failure_reason = f"group={int(group)} {detail['failure_reason']}"
+            break
+        detail["coeff_before"] = list(before_values)
+        before_snapshots[int(group)] = list(before_values)
+
+    if not failure_reason and normalized_groups:
+        try:
+            calibration_mode_requested = True
+            if not _set_mode_with_required_ack(ga, 2):
+                raise RuntimeError("MODE=2 not acknowledged before SENCO write")
+            entered_mode = True
+
+            for group, coeffs in sorted(normalized_groups.items()):
+                detail = detail_by_group[int(group)]
+                try:
+                    if not _invoke_set_senco(ga, int(group), coeffs):
+                        raise RuntimeError("WRITE_ACK_FAILED")
+                    detail["write_status"] = "success"
+                    if int(group) not in written_groups:
+                        written_groups.append(int(group))
+                    values, readback_error = _read_group_with_match_retry(
+                        ga,
+                        int(group),
+                        coeffs,
+                        attempts=readback_attempts,
+                        retry_delay_s=retry_delay_s,
+                    )
+                    detail["coeff_readback"] = list(values)
+                    if senco_readback_matches(coeffs, values, atol=compare_atol):
+                        detail["verify_status"] = "success"
+                    else:
+                        detail["verify_status"] = "failed"
+                        detail["failure_reason"] = str(
+                            readback_error or f"READBACK_MISMATCH atol={float(compare_atol):g}"
+                        )
+                        failure_reason = f"group={int(group)} {detail['failure_reason']}"
+                        break
+                except Exception as exc:
+                    detail["write_status"] = "failed"
+                    detail["verify_status"] = "failed"
+                    detail["failure_reason"] = str(exc)
+                    if int(group) not in written_groups:
+                        written_groups.append(int(group))
+                    failure_reason = f"group={int(group)} {detail['failure_reason']}"
+                    break
+        except Exception as exc:
+            failure_reason = str(exc)
+
+    if failure_reason and written_groups:
+        rollback_attempted = True
+        rollback_failures: List[str] = []
+        for group in written_groups:
+            detail = detail_by_group.get(int(group))
+            if detail is None:
+                continue
+            detail["rollback_attempted"] = True
+            rollback_target = list(before_snapshots.get(int(group), []))
+            if not rollback_target:
+                detail["rollback_status"] = "failed"
+                detail["rollback_confirmed"] = False
+                detail["failure_reason"] = (
+                    f"{detail['failure_reason']}; ROLLBACK_TARGET_MISSING".strip("; ")
+                )
+                rollback_failures.append(f"group={int(group)} ROLLBACK_TARGET_MISSING")
+                continue
+            detail["coeff_rollback_target"] = list(rollback_target)
+            try:
+                if not _invoke_set_senco(ga, int(group), rollback_target):
+                    raise RuntimeError("ROLLBACK_WRITE_ACK_FAILED")
+                rollback_values, rollback_error = _read_group_with_match_retry(
+                    ga,
+                    int(group),
+                    rollback_target,
+                    attempts=readback_attempts,
+                    retry_delay_s=retry_delay_s,
+                )
+                detail["coeff_rollback_readback"] = list(rollback_values)
+                if senco_readback_matches(rollback_target, rollback_values, atol=compare_atol):
+                    detail["rollback_status"] = "success"
+                    detail["rollback_confirmed"] = True
+                else:
+                    detail["rollback_status"] = "failed"
+                    detail["rollback_confirmed"] = False
+                    error_text = str(
+                        rollback_error or f"ROLLBACK_READBACK_MISMATCH atol={float(compare_atol):g}"
+                    )
+                    detail["failure_reason"] = f"{detail['failure_reason']}; {error_text}".strip("; ")
+                    rollback_failures.append(f"group={int(group)} {error_text}")
+            except Exception as exc:
+                detail["rollback_status"] = "failed"
+                detail["rollback_confirmed"] = False
+                error_text = str(exc)
+                detail["failure_reason"] = f"{detail['failure_reason']}; {error_text}".strip("; ")
+                rollback_failures.append(f"group={int(group)} {error_text}")
+        if rollback_failures:
+            unsafe = True
+            failure_reason = f"{failure_reason}; rollback_failed={' | '.join(rollback_failures)}"
+        rollback_confirmed = rollback_attempted and not rollback_failures
+
+    for detail in detail_rows:
+        if detail["write_status"] == "pending":
+            detail["write_status"] = "skipped" if failure_reason else "not_requested"
+        if detail["verify_status"] == "pending":
+            detail["verify_status"] = "skipped" if failure_reason else "not_requested"
+
+    restore_error = ""
+    if calibration_mode_requested or entered_mode or written_groups or failure_reason:
+        mode_exit_attempted = True
+        try:
+            if not _set_mode_with_required_ack(ga, int(restore_mode)):
+                restore_error = f"MODE={int(restore_mode)} not acknowledged during restore"
+        except Exception as exc:
+            restore_error = str(exc)
+    mode_after = _best_effort_mode_snapshot(ga)
+    if mode_exit_attempted:
+        mode_exit_confirmed = not restore_error and _mode_matches_expected(mode_after, int(restore_mode))
+        if restore_error:
+            unsafe = True
+            failure_reason = "; ".join(item for item in [failure_reason, restore_error] if item)
+        if not mode_exit_confirmed:
+            unsafe = True
+            failure_reason = "; ".join(
+                item
+                for item in [
+                    failure_reason,
+                    f"mode_exit_unconfirmed expected={int(restore_mode)} observed={mode_after}",
+                ]
+                if item
+            )
+
+    for detail in detail_rows:
+        detail["mode_after"] = mode_after
+        detail["mode_exit_attempted"] = mode_exit_attempted
+        detail["mode_exit_confirmed"] = mode_exit_confirmed
+        if detail["rollback_status"] == "not_needed" and not detail["rollback_attempted"]:
+            detail["rollback_confirmed"] = False
+
+    ok = bool(normalized_groups) and not failure_reason and not unsafe
+    if not normalized_groups:
+        ok = True
+    return {
+        "ok": ok,
+        "unsafe": bool(unsafe),
+        "mode_before": mode_before,
+        "mode_after": mode_after,
+        "mode_exit_attempted": bool(mode_exit_attempted),
+        "mode_exit_confirmed": bool(mode_exit_confirmed),
+        "rollback_attempted": bool(rollback_attempted),
+        "rollback_confirmed": bool(rollback_confirmed),
+        "write_status": _aggregate_detail_status(
+            detail_rows,
+            "write_status",
+            failure_reason=failure_reason,
+            default="not_requested",
+        ),
+        "verify_status": _aggregate_detail_status(
+            detail_rows,
+            "verify_status",
+            failure_reason=failure_reason,
+            default="not_requested",
+        ),
+        "rollback_status": _aggregate_detail_status(
+            detail_rows,
+            "rollback_status",
+            failure_reason=failure_reason,
+            default="not_needed",
+        ),
+        "failure_reason": failure_reason,
+        "compare_tolerance": float(compare_atol),
+        "detail_rows": detail_rows,
+    }
 
 
 def _restore_stream_settings(ga: GasAnalyzer, target_cfg: Mapping[str, Any]) -> None:
@@ -748,26 +1103,19 @@ def write_coefficients_to_live_devices(
         try:
             ga.open()
             ga.set_comm_way_with_ack(False, require_ack=False)
-            ga.set_mode_with_ack(2, require_ack=True)
-            for group, coeffs in sorted(expected_groups.items()):
-                readback = ""
-                readback_ok = False
-                error = ""
-                try:
-                    acked = bool(ga.set_senco(int(group), coeffs))
-                    if not acked:
-                        raise RuntimeError("WRITE_ACK_FAILED")
-                    values, readback_error = _read_group_with_match_retry(ga, int(group), coeffs)
-                    readback = json.dumps(values, ensure_ascii=False)
-                    readback_ok = senco_readback_matches(coeffs, values)
-                    if readback_ok:
-                        matched += 1
-                    else:
-                        status = "partial"
-                        error = str(readback_error or "READBACK_MISMATCH")
-                except Exception as exc:
-                    error = str(exc)
-                    status = "partial"
+            verify_result = write_senco_groups_with_full_verification(
+                ga,
+                expected_groups=expected_groups,
+            )
+            for detail in list(verify_result.get("detail_rows") or []):
+                group = int(detail.get("group"))
+                coeffs = expected_groups.get(group, [])
+                readback_values = list(detail.get("coeff_readback") or [])
+                readback_ok = str(detail.get("verify_status") or "").strip().lower() == "success"
+                if readback_ok:
+                    matched += 1
+                else:
+                    status = "error" if bool(verify_result.get("unsafe")) else "partial"
                 detail_rows.append(
                     {
                         "Analyzer": analyzer,
@@ -776,11 +1124,33 @@ def write_coefficients_to_live_devices(
                         "LiveDeviceId": live_target.get("LiveDeviceId"),
                         "Group": group,
                         "Expected": json.dumps([float(value) for value in coeffs], ensure_ascii=False),
-                        "Readback": readback,
+                        "Readback": json.dumps(readback_values, ensure_ascii=False),
                         "ReadbackOk": readback_ok,
-                        "Error": error,
+                        "Error": str(detail.get("failure_reason") or ""),
+                        "CoeffBefore": json.dumps(list(detail.get("coeff_before") or []), ensure_ascii=False),
+                        "CoeffRollbackTarget": json.dumps(list(detail.get("coeff_rollback_target") or []), ensure_ascii=False),
+                        "CoeffRollbackReadback": json.dumps(list(detail.get("coeff_rollback_readback") or []), ensure_ascii=False),
+                        "ModeBefore": detail.get("mode_before"),
+                        "ModeAfter": detail.get("mode_after"),
+                        "ModeExitAttempted": bool(verify_result.get("mode_exit_attempted", False)),
+                        "ModeExitConfirmed": bool(verify_result.get("mode_exit_confirmed", False)),
+                        "RollbackAttempted": bool(
+                            detail.get("rollback_attempted", verify_result.get("rollback_attempted", False))
+                        ),
+                        "RollbackConfirmed": bool(
+                            detail.get("rollback_confirmed", verify_result.get("rollback_confirmed", False))
+                        ),
+                        "WriteStatus": detail.get("write_status"),
+                        "VerifyStatus": detail.get("verify_status"),
+                        "RollbackStatus": detail.get("rollback_status"),
+                        "OverallWriteStatus": verify_result.get("write_status"),
+                        "OverallVerifyStatus": verify_result.get("verify_status"),
+                        "OverallRollbackStatus": verify_result.get("rollback_status"),
+                        "CompareTolerance": detail.get("compare_tolerance"),
                     }
                 )
+            if not verify_result.get("ok"):
+                status = "error" if bool(verify_result.get("unsafe")) else "partial"
             _restore_stream_settings(ga, live_target)
         except Exception as exc:
             status = "error"
@@ -921,12 +1291,15 @@ def build_corrected_delivery(
     _write_csv(output_dir / "temperature_coefficients_target.csv", temperature_rows)
     _write_csv(output_dir / "pressure_offset_current_ambient_summary.csv", pressure_rows)
     _write_csv(output_dir / "filter_summary.csv", filter_stats)
+    capability = v1_h2o_zero_span_capability(coeff_cfg if isinstance(coeff_cfg, Mapping) else {})
     summary_lines = [
         "# corrected-entry no-500 summary",
         "",
         f"- run_dir: {run_dir}",
         f"- output_dir: {output_dir}",
         f"- pressure_row_source: {pressure_mode}",
+        f"- h2o_zero_span_status: {capability['status']}",
+        f"- h2o_zero_span_note: {capability['note']}",
         "",
         "## filter summary",
     ]
@@ -968,10 +1341,13 @@ def run_from_cli(
     target_dir.mkdir(parents=True, exist_ok=True)
     cfg_path = Path(config_path).resolve() if config_path else (run_dir_path / "runtime_config_snapshot.json")
     cfg = load_config(str(cfg_path))
+    coeff_cfg = cfg.get("coefficients", {}) if isinstance(cfg.get("coefficients", {}), dict) else {}
+    capability = v1_h2o_zero_span_capability(coeff_cfg)
+    require_v1_h2o_zero_span_supported(coeff_cfg, context="run_v1_corrected_autodelivery")
     delivery = build_corrected_delivery(
         run_dir=run_dir_path,
         output_dir=target_dir,
-        coeff_cfg=cfg.get("coefficients", {}) if isinstance(cfg.get("coefficients", {}), dict) else {},
+        coeff_cfg=coeff_cfg,
         fallback_pressure_to_controller=fallback_pressure_to_controller,
         pressure_row_source=pressure_row_source,
     )
@@ -1047,6 +1423,10 @@ def run_from_cli(
 
     payload = {
         **delivery,
+        "h2o_zero_span_capability": {
+            **capability,
+            "note": capability.get("note") or V1_CO2_ONLY_H2O_NOT_SUPPORTED_MESSAGE,
+        },
         "write_result": write_result,
         "verify_outputs": verify_outputs,
         "short_verify_outputs": short_verify_outputs,

@@ -1159,12 +1159,12 @@
           },
           "point_taxonomy": {
             "title": "点位语义 / 门禁",
-            "summary": "{count} 条点位口径摘要",
+            "summary": "{count} 条点位语义摘要",
             "empty": "当前 run 没有可汇总的点位语义摘要。"
           },
           "measurement_core": {
-            "title": "measurement-core readiness",
-            "summary": "shadow stability / controlled-flex trace / sidecar-ready evidence"
+            "title": "测量核心就绪",
+            "summary": "多源判稳 / 受控状态机 / 旁证就绪"
           },
           "suite_analytics": {
             "title": "套件 / 分析详情",
@@ -1571,7 +1571,7 @@
         "taxonomy_stale_gauge": "压力参考陈旧：{value}",
         "measurement_core_stability": "多源判稳 shadow：{value}",
         "measurement_core_transition": "受控状态机 trace：{value}",
-        "measurement_core_phase_coverage": "measurement-core phase coverage：{value}",
+        "measurement_core_phase_coverage": "测量核心阶段覆盖：{value}",
         "measurement_core_payload_phases": "payload-backed 仿真阶段：{value}",
         "measurement_core_trace_only": "trace-only 阶段：{value}",
         "measurement_core_payload_completeness": "payload 完整度：{value}",
@@ -2080,7 +2080,10 @@
           "phase_guidance_line": "{phase}：桶位 {bucket}；已有 {available}；仍缺 {missing}；原因 {reason}；影响 {impact}；下一步 {next}；边界 {boundary}",
           "phase_navigation_line": "{phase}：方法 {method}；不确定度 {uncertainty}；溯源 {traceability}；阻塞 {blockers}；下一步 {next}；审阅下一步 {reviewer_next_step}",
           "gap_index_line": "缺口索引：{value}",
-          "phase_comparison_line": "{phase} 对照：{value}"
+          "phase_comparison_line": "{phase} 对照：{value}",
+          "boundary_line": "边界：{value}",
+          "non_claim_line": "非声明边界：{value}",
+          "phase_non_claim_line": "{phase} 非声明边界：{value}"
         },
         "readiness": {
           "status": "就绪状态",
@@ -2126,7 +2129,8 @@
           "budget_component_summary_line": "预算组件摘要：{value}",
           "top_contributors_line": "主要不确定度贡献：{value}",
           "data_completeness_line": "数据完整度：{value}",
-          "placeholder_completeness_line": "占位完整度：{value}"
+          "placeholder_completeness_line": "占位完整度：{value}",
+          "boundary_line": "边界：{value}"
         },
         "boundary": "边界"
       },
@@ -2151,7 +2155,7 @@
         "workbench": "工作台",
         "analytics": "分析",
         "offline_diagnostic": "离线诊断",
-        "measurement_phase_coverage": "measurement phase coverage"
+        "measurement_phase_coverage": "测量阶段覆盖"
       },
       "source_kind": {
         "run": "Run 证据",
@@ -2353,5 +2357,68 @@
     "stage_admission_review_pack_reviewer": "阶段准入评审包审阅",
     "engineering_isolation_admission_checklist": "工程隔离准入清单",
     "engineering_isolation_admission_checklist_reviewer": "工程隔离准入清单审阅"
+  },
+  "phase_evidence": {
+    "point_taxonomy_summary": "点位语义摘要",
+    "measurement_phase_coverage_report": "测量阶段覆盖",
+    "phase_transition_bridge": "阶段过渡桥接",
+    "v12_alignment_summary": "V1.2 对齐摘要",
+    "title": {
+      "point_taxonomy_summary": "点位语义摘要",
+      "measurement_phase_coverage_report": "测量阶段覆盖",
+      "phase_transition_bridge": "阶段过渡桥接",
+      "v12_alignment_summary": "V1.2 对齐摘要"
+    },
+    "summary": {
+      "point_taxonomy_summary": "点位语义与门禁分类摘要",
+      "measurement_phase_coverage_report": "测量核心阶段覆盖与缺口摘要",
+      "phase_transition_bridge": "Step 2 tail / Stage 3 桥接状态摘要",
+      "v12_alignment_summary": "V1.2 仿真证据对齐状态摘要"
+    },
+    "section_label": {
+      "point_taxonomy_summary": "点位语义",
+      "measurement_phase_coverage_report": "测量阶段覆盖",
+      "phase_transition_bridge": "阶段桥接",
+      "v12_alignment_summary": "V1.2 对齐"
+    },
+    "type_label": {
+      "point_taxonomy_summary": "点位语义",
+      "measurement_phase_coverage_report": "测量阶段覆盖",
+      "phase_transition_bridge": "阶段桥接",
+      "v12_alignment_summary": "V1.2 对齐摘要"
+    }
+  },
+  "phase_bridge": {
+    "status": {
+      "ready_for_engineering_isolation": "阶段状态：当前仍处于 Step 2 tail / Stage 3 bridge，但已具备 engineering-isolation 准备。",
+      "step2_tail_in_progress": "阶段状态：当前仍处于 Step 2 tail，制度化设计已到位，但 readiness 阻塞项尚未全部闭环。",
+      "blocked_before_stage3": "阶段状态：当前仍停留在 Stage 3 前置桥接阶段，尚不能进入真实计量验证。"
+    },
+    "summary_text": "阶段桥工件：本工件统一汇总 Step 2 readiness 与 metrology 设计合同，用于回答离第三阶段还有多远；它不是 real acceptance 结论，也不能替代真实计量验证。",
+    "current_stage_text": "当前阶段：Step 2 tail / Stage 3 bridge，仅允许 simulation/offline/headless 证据。",
+    "next_stage_ready": "下一阶段：可进入 engineering-isolation，继续收集非 real-acceptance 的工程隔离证据。",
+    "next_stage_not_ready": "下一阶段：先补齐 Step 2 tail 阻塞项，再进入 engineering-isolation 准备。",
+    "execute_now_prefix": "当前执行：",
+    "defer_to_stage3_prefix": "第三阶段执行：",
+    "no_blocking": "阻塞项：无。",
+    "blocking_prefix": "阻塞项：",
+    "warning_prefix": "提示：",
+    "recommended_next_stage_prefix": "推荐下一阶段：",
+    "gate_status": {
+      "defined": "已制度化",
+      "missing": "缺失"
+    }
+  },
+  "results_fallback": {
+    "results_file": "结果文件",
+    "generated": "已生成",
+    "missing": "缺失",
+    "sample_count": "样本数",
+    "point_summary_count": "点摘要数",
+    "artifact_roles": "工件角色",
+    "config_safety": "配置安全",
+    "evidence_source": "证据来源",
+    "offline_diagnostic": "离线诊断",
+    "workbench_evidence": "工作台诊断证据"
   }
 }
