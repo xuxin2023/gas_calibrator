@@ -1617,7 +1617,12 @@
         "uncertainty_top_contributors": "Top uncertainty contributors: {value}",
         "uncertainty_data_completeness": "Uncertainty data completeness: {value}",
         "uncertainty_rollup": "Uncertainty rollup: {value}",
-        "uncertainty_non_claim": "Uncertainty non-claim: {value}"
+        "uncertainty_non_claim": "Uncertainty non-claim: {value}",
+        "artifact_compatibility": "Artifact compatibility: {value}",
+        "artifact_compatibility_summary": "Compatibility summary: {value}",
+        "artifact_compatibility_regenerate": "Recommend running lightweight reindex/regenerate to rebuild reviewer/index sidecar only, without rewriting primary evidence",
+        "config_safety": "Config safety: {value}",
+        "evidence_source": "Evidence source: {value}"
       }
     },
     "route_status": {
@@ -2425,5 +2430,42 @@
     "evidence_source": "Evidence source",
     "offline_diagnostic": "Offline diagnostic",
     "workbench_evidence": "Workbench diagnostic evidence"
+  },
+  "formatter_labels": {
+    "artifacts": "Artifacts",
+    "plots": "Plots",
+    "primary": "Primary",
+    "supporting": "Supporting",
+    "coverage": "Coverage",
+    "complete": "Complete",
+    "gapped": "Gapped",
+    "missing_label": "Missing",
+    "no_gaps": "No gaps",
+    "visible": "Visible",
+    "present": "Present",
+    "external": "External",
+    "catalog": "Current-run catalog baseline",
+    "filtered": "Current filtered",
+    "failed": "Failed",
+    "degraded": "Degraded",
+    "diagnostic": "Diagnostic only",
+    "high": "High",
+    "medium": "Medium",
+    "low": "Low"
+  },
+  "compat_row_labels": {
+    "version": "Version",
+    "status": "Status",
+    "reader_mode": "Reader",
+    "schema_contract": "Schema/Contract",
+    "regenerate_recommended": "Regenerate reviewer/index sidecar recommended",
+    "recommendation": "Recommendation",
+    "no_rewrite_primary": "Do not rewrite primary evidence"
+  },
+  "historical_rollup_labels": {
+    "scope_run_count": "Scope package run count",
+    "canonical_direct": "Canonical direct reads",
+    "compatibility_adapter": "Compatibility adapter reads",
+    "readiness_status": "Readiness status"
   }
 }

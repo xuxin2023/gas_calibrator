@@ -1616,7 +1616,12 @@
         "uncertainty_top_contributors": "主要不确定度贡献：{value}",
         "uncertainty_data_completeness": "数据完整度：{value}",
         "uncertainty_rollup": "不确定度 rollup：{value}",
-        "uncertainty_non_claim": "不确定度 non-claim：{value}"
+        "uncertainty_non_claim": "不确定度 non-claim：{value}",
+        "artifact_compatibility": "工件兼容：{value}",
+        "artifact_compatibility_summary": "兼容摘要：{value}",
+        "artifact_compatibility_regenerate": "建议运行轻量 reindex/regenerate，仅重建 reviewer/index sidecar，不改写原始主证据",
+        "config_safety": "配置安全：{value}",
+        "evidence_source": "证据来源：{value}"
       }
     },
     "route_status": {
@@ -2420,5 +2425,42 @@
     "evidence_source": "证据来源",
     "offline_diagnostic": "离线诊断",
     "workbench_evidence": "工作台诊断证据"
+  },
+  "formatter_labels": {
+    "artifacts": "工件",
+    "plots": "图表",
+    "primary": "主工件",
+    "supporting": "支撑工件",
+    "coverage": "覆盖",
+    "complete": "完整",
+    "gapped": "缺口",
+    "missing_label": "缺少",
+    "no_gaps": "无缺口",
+    "visible": "可见",
+    "present": "存在",
+    "external": "外部",
+    "catalog": "当前运行基线",
+    "filtered": "当前筛选",
+    "failed": "失败",
+    "degraded": "降级",
+    "diagnostic": "仅诊断",
+    "high": "高",
+    "medium": "中",
+    "low": "低"
+  },
+  "compat_row_labels": {
+    "version": "版本",
+    "status": "状态",
+    "reader_mode": "读取",
+    "schema_contract": "合同/Schema",
+    "regenerate_recommended": "建议再生成 reviewer/index sidecar",
+    "recommendation": "建议",
+    "no_rewrite_primary": "不改写原始主证据"
+  },
+  "historical_rollup_labels": {
+    "scope_run_count": "认可范围包运行数",
+    "canonical_direct": "canonical 直读",
+    "compatibility_adapter": "兼容适配读取",
+    "readiness_status": "就绪状态"
   }
 }
