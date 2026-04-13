@@ -21,7 +21,7 @@ from __future__ import annotations
 # ---------------------------------------------------------------------------
 # Version
 # ---------------------------------------------------------------------------
-PHASE_EVIDENCE_DISPLAY_CONTRACTS_VERSION: str = "2.10.0"
+PHASE_EVIDENCE_DISPLAY_CONTRACTS_VERSION: str = "2.11.0"
 
 # ---------------------------------------------------------------------------
 # Artifact keys for V1.2 phase evidence

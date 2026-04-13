@@ -9,6 +9,12 @@ from .core.phase_evidence_display_contracts import (
     PREFIX_LABELS as _PREFIX_LABELS,
     READINESS_DIGEST_LABELS as _READINESS_DIGEST,
 )
+from .core.reviewer_summary_builders import (
+    build_measurement_digest_compact_summary as _build_measurement_compact,
+    build_readiness_digest_compact_summary as _build_readiness_compact,
+    build_v12_alignment_compact_summary as _build_v12_compact,
+    REVIEWER_SUMMARY_BUILDERS_VERSION as _BUILDERS_VERSION,
+)
 from .core.phase_taxonomy_contract import (
     GAP_CLASSIFICATION_FAMILY,
     GAP_SEVERITY_FAMILY,
@@ -1027,33 +1033,12 @@ def build_measurement_review_digest_lines(payload: dict[str, Any]) -> dict[str, 
     boundary_summary = _display_boundary_summary(raw)
     non_claim_summary = _display_non_claim_summary(raw)
 
+    # Consume shared compact builder for core measurement digest lines
+    _compact = _build_measurement_compact(payload, include_boundary=False, include_non_claim=False)
+
     summary_lines = [
         humanize_review_surface_text(str(digest.get("summary") or "")),
-        t(
-            "results.review_center.detail.measurement.payload_complete_phases_line",
-            value=str(digest.get("payload_complete_phase_summary") or t("common.none")),
-            default=f"{_MEASUREMENT_DIGEST['payload_complete_phases']}: {str(digest.get('payload_complete_phase_summary') or t('common.none'))}",
-        ),
-        t(
-            "results.review_center.detail.measurement.payload_partial_phases_line",
-            value=str(digest.get("payload_partial_phase_summary") or t("common.none")),
-            default=f"{_MEASUREMENT_DIGEST['payload_partial_phases']}: {str(digest.get('payload_partial_phase_summary') or t('common.none'))}",
-        ),
-        t(
-            "results.review_center.detail.measurement.trace_only_phases_line",
-            value=str(digest.get("trace_only_phase_summary") or t("common.none")),
-            default=f"{_MEASUREMENT_DIGEST['trace_only_phases']}: {str(digest.get('trace_only_phase_summary') or t('common.none'))}",
-        ),
-        t(
-            "results.review_center.detail.measurement.next_artifacts_line",
-            value=str(digest.get("next_required_artifacts_summary") or t("common.none")),
-            default=f"{_MEASUREMENT_DIGEST['next_artifacts']}: {str(digest.get('next_required_artifacts_summary') or t('common.none'))}",
-        ),
-        t(
-            "results.review_center.detail.measurement.blockers_line",
-            value=blocker_summary,
-            default=f"{_MEASUREMENT_DIGEST['blockers']}: {blocker_summary}",
-        ),
+        *_compact["summary_lines"],
         t(
             "results.review_center.detail.measurement.preseal_partial_guidance_line",
             value=str(digest.get("preseal_partial_guidance_summary") or t("common.none")),
@@ -1428,18 +1413,12 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
         str(digest.get("decision_rule_dependency_summary") or t("common.none"))
     )
 
+    # Consume shared compact builder for core readiness digest lines
+    _readiness_compact = _build_readiness_compact(payload, include_boundary=False, include_non_claim=False)
+
     summary_lines = [
         f"{title}: {humanize_review_surface_text(str(digest.get('summary') or ''))}".strip(": "),
-        t(
-            "results.review_center.detail.readiness.scope_overview_line",
-            value=scope_overview_summary,
-            default=f"{_READINESS_DIGEST['scope_overview']}：{scope_overview_summary}",
-        ),
-        t(
-            "results.review_center.detail.readiness.decision_rule_line",
-            value=decision_rule_summary,
-            default=f"{_READINESS_DIGEST['decision_rule']}：{decision_rule_summary}",
-        ),
+        *_readiness_compact["summary_lines"],
         t(
             "results.review_center.detail.readiness.conformity_boundary_line",
             value=conformity_boundary_summary,
@@ -1514,21 +1493,6 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
             "results.review_center.detail.readiness.validation_matrix_completeness_line",
             value=matrix_completeness_summary,
             default=f"{_READINESS_DIGEST['validation_matrix_completeness']}：{matrix_completeness_summary}",
-        ),
-        t(
-            "results.review_center.detail.readiness.current_evidence_coverage_line",
-            value=current_evidence_coverage_summary,
-            default=f"{_READINESS_DIGEST['current_evidence_coverage']}：{current_evidence_coverage_summary}",
-        ),
-        t(
-            "results.review_center.detail.readiness.top_gaps_line",
-            value=top_gaps_summary,
-            default=f"{_READINESS_DIGEST['top_gaps']}：{top_gaps_summary}",
-        ),
-        t(
-            "results.review_center.detail.readiness.readiness_status_line",
-            value=readiness_status_summary,
-            default=f"{_READINESS_DIGEST['readiness_status']}：{readiness_status_summary}",
         ),
         *(
             [
