@@ -846,6 +846,13 @@ def test_evaluate_co2_steady_state_window_qc_keeps_clean_data_equal_to_hardened_
         "steady_state",
     ]
     assert {stage["status"] for stage in lineage["stages"]} == {"pass"}
+    assert current["co2_point_suitability_status"] == "fit"
+    assert current["co2_calibration_candidate_recommended"] is True
+    assert current["co2_calibration_candidate_hard_blocked"] is False
+    assert pytest.approx(float(current["co2_calibration_weight_recommended"]), abs=1e-9) == 1.0
+    assert pytest.approx(float(current["co2_evidence_score"]), abs=1e-9) == 100.0
+    assert "waterfall=pass" in current["co2_point_suitability_reason_chain"]
+    assert "fit_for_calibration" in current["co2_point_evidence_budget_reason"]
 
 
 def test_evaluate_co2_steady_state_window_qc_temporal_contract_rejects_timestamp_rollback(
@@ -913,6 +920,13 @@ def test_evaluate_co2_steady_state_window_qc_temporal_contract_rejects_timestamp
     source_stage = next(stage for stage in lineage["stages"] if stage["stage_name"] == "source_trust")
     assert source_stage["status"] == "fail"
     assert source_stage["reason_summary"] == "no_trusted_source_after_quarantine"
+    assert result["co2_point_suitability_status"] == "unfit"
+    assert result["co2_calibration_candidate_recommended"] is False
+    assert result["co2_calibration_candidate_hard_blocked"] is True
+    assert pytest.approx(float(result["co2_calibration_weight_recommended"]), abs=1e-9) == 0.0
+    assert "temporal_failed" in result["co2_point_evidence_budget_reason"]
+    assert "hard_blocked" in result["co2_point_evidence_budget_reason"]
+    assert "waterfall=fail" in result["co2_point_suitability_reason_chain"]
 
 
 def test_evaluate_co2_steady_state_window_qc_temporal_contract_rejects_large_gap_sparse_dwell(
@@ -964,6 +978,9 @@ def test_evaluate_co2_steady_state_window_qc_temporal_contract_rejects_large_gap
     assert result["co2_temporal_contract_status"] == "fail"
     assert result["co2_large_gap_count"] == 1
     assert "effective_dwell_seconds=2.000<min_effective_dwell_seconds=4.000" in result["co2_temporal_contract_reason"]
+    assert result["co2_point_suitability_status"] == "unfit"
+    assert result["co2_calibration_candidate_hard_blocked"] is True
+    assert pytest.approx(float(result["co2_calibration_weight_recommended"]), abs=1e-9) == 0.0
 
 
 def test_evaluate_co2_steady_state_window_qc_temporal_contract_falls_back_to_row_semantics_without_timestamp(
@@ -1080,6 +1097,12 @@ def test_evaluate_co2_steady_state_window_qc_temporal_contract_can_fail_short_pr
     assert "primary_lost_to=ga02/ga02#1" in source_stage["reason_summary"]
     assert "primary_segment=primary#1" in source_stage["reason_summary"]
     assert "effective_dwell_seconds=2.000<min_effective_dwell_seconds=4.000" in source_stage["reason_summary"]
+    assert result["co2_point_suitability_status"] == "advisory"
+    assert result["co2_calibration_candidate_recommended"] is True
+    assert result["co2_calibration_candidate_hard_blocked"] is False
+    assert 0.0 < float(result["co2_calibration_weight_recommended"]) < 1.0
+    assert float(result["co2_evidence_score"]) < 100.0
+    assert "source_fallback" in result["co2_point_evidence_budget_reason"]
 
 
 def test_evaluate_co2_steady_state_window_qc_falls_back_to_next_usable_source(tmp_path: Path) -> None:
@@ -1167,6 +1190,11 @@ def test_evaluate_co2_steady_state_window_qc_falls_back_to_next_usable_source(tm
     assert pytest.approx(result["co2_representative_value"], abs=1e-6) == 620.0
     assert rows[0]["co2_source_selected_for_value"] == "ga02"
     assert rows[0]["co2_bad_frame"] is False
+    assert result["co2_point_suitability_status"] == "advisory"
+    assert result["co2_calibration_candidate_recommended"] is True
+    assert result["co2_calibration_candidate_hard_blocked"] is False
+    assert 0.0 < float(result["co2_calibration_weight_recommended"]) < 1.0
+    assert "source_fallback" in result["co2_point_evidence_budget_reason"]
 
 
 def test_sample_and_log_does_not_silently_emit_value_when_all_sources_untrusted(tmp_path: Path) -> None:
@@ -1263,6 +1291,11 @@ def test_sample_and_log_does_not_silently_emit_value_when_all_sources_untrusted(
     assert "source_trust:fail" in row[_field_label("co2_decision_selected_stage_path")]
     assert "steady_state:warn" in row[_field_label("co2_decision_selected_stage_path")]
     assert "source_trust[fail" in row[_field_label("co2_decision_stage_summary")]
+    assert row[_field_label("co2_point_suitability_status")] == "unfit"
+    assert row[_field_label("co2_calibration_candidate_recommended")] == "False"
+    assert row[_field_label("co2_calibration_candidate_hard_blocked")] == "True"
+    assert row[_field_label("co2_calibration_weight_recommended")] == "0.0"
+    assert "hard_blocked" in row[_field_label("co2_point_evidence_budget_reason")]
     assert row[_field_label("point_quality_status")] == "warn"
 
     with logger.samples_path.open("r", encoding="utf-8", newline="") as handle:
@@ -1435,11 +1468,18 @@ def test_sample_and_log_exports_source_segment_contract_fields(tmp_path: Path) -
     assert point_row[_field_label("co2_decision_stage_count")] == "6"
     assert "source_trust:warn" in point_row[_field_label("co2_decision_selected_stage_path")]
     assert "source_trust[warn" in point_row[_field_label("co2_decision_stage_summary")]
+    assert point_row[_field_label("co2_point_suitability_status")] == "advisory"
+    assert point_row[_field_label("co2_calibration_candidate_recommended")] == "True"
+    assert point_row[_field_label("co2_calibration_candidate_hard_blocked")] == "False"
+    assert 0.0 < float(point_row[_field_label("co2_calibration_weight_recommended")]) < 1.0
     assert sample_rows[0][_field_label("co2_source_segment_id")] == "ga02#1"
     assert sample_rows[0][_field_label("co2_source_segment_selected")] == "ga02#1"
     assert sample_rows[0][_field_label("co2_temporal_excluded")] == "False"
+    assert sample_rows[0][_field_label("co2_point_suitability_status")] == "advisory"
     assert _field_label("co2_decision_waterfall_status") == "气路决策瀑布结果"
     assert _field_label("co2_decision_selected_stage_path") == "气路决策阶段路径"
+    assert _field_label("co2_point_suitability_status") == "气路点适用性"
+    assert _field_label("co2_calibration_weight_recommended") == "气路推荐校准权重"
     assert _field_label("co2_source_segment_id") == "气路来源分段ID"
     assert _field_label("co2_temporal_contract_status") == "气路时间契约结果"
 
