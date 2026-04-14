@@ -85,6 +85,125 @@ def _dataset() -> list[dict[str, object]]:
     ]
 
 
+def _arbitration_payloads_for_guard(
+    *,
+    weighted_recommended: str,
+    best_by_score: str,
+    best_by_stability: str,
+    best_balanced_choice: str,
+    weighted_candidate_pool_point_count: int,
+    weighted_strong_support_pool_point_count: int,
+    weighted_weak_support_pool_ratio: float,
+    weighted_pre_fit_clean_first_applied: bool,
+    weighted_weighted_rmse: float,
+    baseline_weighted_rmse: float,
+    baseline_fit_variant_status: str = "available",
+    baseline_strong_support_pool_point_count: int = 4,
+    baseline_weak_support_pool_ratio: float = 0.0,
+) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
+    weighted_fit_payload = {
+        "summary": {
+            "recommended_fit_variant": weighted_recommended,
+            "point_count_total": 4,
+            "evaluation_point_count": 4,
+            "excluded_point_count": 0,
+        },
+        "fit_variants": [
+            {
+                "fit_variant_name": "baseline_unweighted_fit_only",
+                "fit_variant_status": baseline_fit_variant_status,
+                "weighted_fit": False,
+                "input_point_count": 4,
+                "input_group_count": 4,
+                "candidate_pool_point_count": 4,
+                "strong_support_pool_point_count": baseline_strong_support_pool_point_count,
+                "weak_support_pool_point_count": max(0, 4 - baseline_strong_support_pool_point_count),
+                "weak_support_pool_ratio": baseline_weak_support_pool_ratio,
+                "pre_fit_clean_first_applied": False,
+                "rmse": baseline_weighted_rmse,
+                "weighted_rmse": baseline_weighted_rmse,
+                "mae": 1.0,
+                "bias": 0.0,
+                "max_abs_error": 2.0,
+                "intercept": 0.0,
+                "slope": 1.0,
+            },
+            {
+                "fit_variant_name": "weighted_fit_advisory",
+                "fit_variant_status": "available",
+                "weighted_fit": True,
+                "input_point_count": weighted_strong_support_pool_point_count,
+                "input_group_count": weighted_strong_support_pool_point_count,
+                "candidate_pool_point_count": weighted_candidate_pool_point_count,
+                "strong_support_pool_point_count": weighted_strong_support_pool_point_count,
+                "weak_support_pool_point_count": max(0, weighted_candidate_pool_point_count - weighted_strong_support_pool_point_count),
+                "weak_support_pool_ratio": weighted_weak_support_pool_ratio,
+                "pre_fit_clean_first_applied": weighted_pre_fit_clean_first_applied,
+                "rmse": weighted_weighted_rmse,
+                "weighted_rmse": weighted_weighted_rmse,
+                "mae": 0.9,
+                "bias": 0.0,
+                "max_abs_error": 1.9,
+                "intercept": 0.0,
+                "slope": 1.0,
+            },
+        ],
+        "points": [],
+        "groups": [],
+    }
+    fit_stability_payload = {
+        "summary": {"recommended_fit_variant": best_by_stability},
+        "stability_variants": [
+            {
+                "fit_variant_name": "baseline_unweighted_fit_only",
+                "fit_variant_status": baseline_fit_variant_status,
+                "stability_recommendation": "robust",
+                "max_group_influence_score": 0.1,
+                "most_influential_group": "baseline-group",
+            },
+            {
+                "fit_variant_name": "weighted_fit_advisory",
+                "fit_variant_status": "available",
+                "stability_recommendation": "caution",
+                "max_group_influence_score": 0.2,
+                "most_influential_group": "weighted-group",
+            },
+        ],
+    }
+    bootstrap_payload = {
+        "summary": {
+            "best_by_score": best_by_score,
+            "best_by_stability": best_by_stability,
+            "best_balanced_choice": best_balanced_choice,
+            "group_count_total": 4,
+        },
+        "weighted_fit_advisory_summary": weighted_fit_payload["summary"],
+        "fit_variants": weighted_fit_payload["fit_variants"],
+        "variant_overall": [
+            {
+                "fit_variant_name": "baseline_unweighted_fit_only",
+                "fit_variant_status": baseline_fit_variant_status,
+                "weighted_fit": False,
+                "robustness_recommendation": "robust",
+                "max_group_fragility_score": 0.2,
+                "most_fragile_group": "baseline-group",
+                "worst_method_weighted_rmse_p95": baseline_weighted_rmse + 0.4,
+            },
+            {
+                "fit_variant_name": "weighted_fit_advisory",
+                "fit_variant_status": "available",
+                "weighted_fit": True,
+                "robustness_recommendation": "caution",
+                "max_group_fragility_score": 0.4,
+                "most_fragile_group": "weighted-group",
+                "worst_method_weighted_rmse_p95": weighted_weighted_rmse + 0.5,
+            },
+        ],
+        "groups": [],
+    }
+    return weighted_fit_payload, fit_stability_payload, bootstrap_payload
+
+
 def test_fit_arbitration_distinguishes_score_stability_and_balanced_choice() -> None:
     rows = _dataset()
     weighted_payload = build_co2_weighted_fit_advisory(rows)
@@ -124,6 +243,89 @@ def test_untrusted_points_do_not_enter_recommended_bundle() -> None:
     assert bundle["bundle_status"] == "advisory_only"
     assert bundle["candidate_point_count"] == 4
     assert bundle["manual_review_required"] is False
+
+
+def test_fit_arbitration_guards_thin_weighted_support_when_score_edge_is_only_marginal() -> None:
+    weighted_payload, stability_payload, bootstrap_payload = _arbitration_payloads_for_guard(
+        weighted_recommended="weighted_fit_advisory",
+        best_by_score="weighted_fit_advisory",
+        best_by_stability="baseline_unweighted_fit_only",
+        best_balanced_choice="weighted_fit_advisory",
+        weighted_candidate_pool_point_count=4,
+        weighted_strong_support_pool_point_count=2,
+        weighted_weak_support_pool_ratio=0.5,
+        weighted_pre_fit_clean_first_applied=True,
+        weighted_weighted_rmse=9.6,
+        baseline_weighted_rmse=9.9,
+    )
+
+    payload = build_co2_fit_arbitration_bundle(
+        [],
+        weighted_fit_payload=weighted_payload,
+        fit_stability_payload=stability_payload,
+        bootstrap_payload=bootstrap_payload,
+    )
+
+    assert payload["summary"]["best_by_score"] == "weighted_fit_advisory"
+    assert payload["summary"]["recommended_release_candidate"] == "baseline_unweighted_fit_only"
+    assert payload["summary"]["manual_review_required"] is False
+    assert "thin_strong_support_guard" in payload["summary"]["release_candidate_reason_chain"]
+    assert "score_vs_stability_conflict_resolved_by_support_guard" in payload["summary"]["release_candidate_reason_chain"]
+
+
+def test_fit_arbitration_falls_back_to_manual_review_when_thin_weighted_support_has_no_clear_baseline() -> None:
+    weighted_payload, stability_payload, bootstrap_payload = _arbitration_payloads_for_guard(
+        weighted_recommended="weighted_fit_advisory",
+        best_by_score="weighted_fit_advisory",
+        best_by_stability="weighted_fit_advisory",
+        best_balanced_choice="weighted_fit_advisory",
+        weighted_candidate_pool_point_count=4,
+        weighted_strong_support_pool_point_count=2,
+        weighted_weak_support_pool_ratio=0.5,
+        weighted_pre_fit_clean_first_applied=True,
+        weighted_weighted_rmse=9.6,
+        baseline_weighted_rmse=10.0,
+        baseline_fit_variant_status="unavailable",
+        baseline_strong_support_pool_point_count=0,
+        baseline_weak_support_pool_ratio=0.0,
+    )
+
+    payload = build_co2_fit_arbitration_bundle(
+        [],
+        weighted_fit_payload=weighted_payload,
+        fit_stability_payload=stability_payload,
+        bootstrap_payload=bootstrap_payload,
+    )
+
+    assert payload["summary"]["recommended_release_candidate"] == ""
+    assert payload["summary"]["manual_review_required"] is True
+    assert "manual_review_due_to_thin_weighted_support" in payload["summary"]["release_candidate_reason_chain"]
+
+
+def test_fit_arbitration_does_not_block_weighted_candidate_when_strong_support_is_not_thin() -> None:
+    weighted_payload, stability_payload, bootstrap_payload = _arbitration_payloads_for_guard(
+        weighted_recommended="weighted_fit_advisory",
+        best_by_score="weighted_fit_advisory",
+        best_by_stability="weighted_fit_advisory",
+        best_balanced_choice="weighted_fit_advisory",
+        weighted_candidate_pool_point_count=4,
+        weighted_strong_support_pool_point_count=4,
+        weighted_weak_support_pool_ratio=0.0,
+        weighted_pre_fit_clean_first_applied=False,
+        weighted_weighted_rmse=9.6,
+        baseline_weighted_rmse=10.2,
+    )
+
+    payload = build_co2_fit_arbitration_bundle(
+        [],
+        weighted_fit_payload=weighted_payload,
+        fit_stability_payload=stability_payload,
+        bootstrap_payload=bootstrap_payload,
+    )
+
+    assert payload["summary"]["recommended_release_candidate"] == "weighted_fit_advisory"
+    assert payload["summary"]["manual_review_required"] is False
+    assert "thin_strong_support_guard" not in payload["summary"]["release_candidate_reason_chain"]
 
 
 def test_arbitration_tool_writes_expected_artifacts(tmp_path: Path) -> None:

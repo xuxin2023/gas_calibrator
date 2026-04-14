@@ -13,11 +13,14 @@ from .co2_fit_stability_audit import (
     extract_candidate_rows_from_weighted_fit_payload,
 )
 from .co2_weighted_fit_advisory import (
+    _WEAK_SUPPORT_WEIGHTED_RMSE_MARGIN,
     _as_bool,
     _as_float,
     _as_text,
     build_co2_weighted_fit_advisory,
 )
+
+_THIN_STRONG_SUPPORT_MIN_POINTS = 2
 
 
 def _variant_map(rows: Sequence[Mapping[str, Any]], key: str = "fit_variant_name") -> Dict[str, Dict[str, Any]]:
@@ -76,6 +79,65 @@ def _variant_risk_list(
     return risks
 
 
+def _thin_strong_support_guard(
+    *,
+    candidate: str,
+    weighted_variants: Mapping[str, Mapping[str, Any]],
+    best_by_score: str,
+    best_by_stability: str,
+) -> Tuple[str, bool, List[str], bool]:
+    if candidate != "weighted_fit_advisory" or best_by_score != "weighted_fit_advisory":
+        return candidate, False, [], False
+
+    weighted_row = weighted_variants.get("weighted_fit_advisory", {})
+    baseline_row = weighted_variants.get("baseline_unweighted_fit_only", {})
+    if _as_text(weighted_row.get("fit_variant_status")) != "available":
+        return candidate, False, [], False
+
+    candidate_pool_point_count = int(weighted_row.get("candidate_pool_point_count") or 0)
+    strong_support_pool_point_count = int(weighted_row.get("strong_support_pool_point_count") or 0)
+    weak_support_pool_ratio = float(weighted_row.get("weak_support_pool_ratio") or 0.0)
+    clean_first_applied = _as_bool(weighted_row.get("pre_fit_clean_first_applied"))
+    thin_strong_support = (
+        clean_first_applied
+        and candidate_pool_point_count > strong_support_pool_point_count
+        and weak_support_pool_ratio > 0.0
+        and strong_support_pool_point_count <= _THIN_STRONG_SUPPORT_MIN_POINTS
+    )
+    if not thin_strong_support:
+        return candidate, False, [], False
+
+    weighted_weighted_rmse = _as_float(weighted_row.get("weighted_rmse"))
+    baseline_weighted_rmse = _as_float(baseline_row.get("weighted_rmse"))
+    if (
+        weighted_weighted_rmse is None
+        or baseline_weighted_rmse is None
+        or (baseline_weighted_rmse - weighted_weighted_rmse) > _WEAK_SUPPORT_WEIGHTED_RMSE_MARGIN
+    ):
+        return candidate, False, [], False
+
+    reasons = [
+        "thin_strong_support_guard",
+        f"weighted_candidate_pool_points={candidate_pool_point_count}",
+        f"weighted_strong_support_points={strong_support_pool_point_count}",
+        f"weighted_weak_support_pool_ratio={round(weak_support_pool_ratio, 6)}",
+        f"weighted_score_edge_vs_baseline={round(baseline_weighted_rmse - weighted_weighted_rmse, 6)}",
+    ]
+
+    baseline_available = _as_text(baseline_row.get("fit_variant_status")) == "available"
+    baseline_stronger_support = (
+        baseline_available
+        and int(baseline_row.get("strong_support_pool_point_count") or 0) > strong_support_pool_point_count
+        and float(baseline_row.get("weak_support_pool_ratio") or 0.0) <= weak_support_pool_ratio
+    )
+    if baseline_stronger_support:
+        reasons.append("prefer_baseline_unweighted_fit_only_due_to_stronger_support")
+        return "baseline_unweighted_fit_only", False, reasons, best_by_stability == "baseline_unweighted_fit_only"
+
+    reasons.append("manual_review_due_to_thin_weighted_support")
+    return "", True, reasons, False
+
+
 def _recommend_release_candidate(
     *,
     weighted_variants: Mapping[str, Mapping[str, Any]],
@@ -98,9 +160,24 @@ def _recommend_release_candidate(
     if _as_text(weighted_row.get("fit_variant_status")) != "available":
         return "", True, "selected_variant_unavailable", "selected_fit_variant_is_unavailable"
 
+    candidate, guard_manual_review, guard_reasons, conflict_resolved_by_guard = _thin_strong_support_guard(
+        candidate=candidate,
+        weighted_variants=weighted_variants,
+        best_by_score=best_by_score,
+        best_by_stability=best_by_stability,
+    )
+    manual_review_required = manual_review_required or guard_manual_review
+    reasons.extend(guard_reasons)
+    weighted_row = weighted_variants.get(candidate, {}) if candidate else {}
+    stability_row = stability_variants.get(candidate, {}) if candidate else {}
+    robustness_row = robustness_variants.get(candidate, {}) if candidate else {}
+
     if best_by_score and best_by_stability and best_by_score != best_by_stability:
-        manual_review_required = True
-        reasons.append("score_vs_stability_conflict")
+        if conflict_resolved_by_guard:
+            reasons.append("score_vs_stability_conflict_resolved_by_support_guard")
+        else:
+            manual_review_required = True
+            reasons.append("score_vs_stability_conflict")
     if candidate != best_by_score and best_by_score:
         reasons.append(f"prefer_balanced_over_score:{best_by_score}")
     if candidate != best_by_stability and best_by_stability:
