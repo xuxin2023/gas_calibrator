@@ -557,6 +557,11 @@ class ResultsGateway:
             "recognition_scope_rollup": recognition_scope_rollup,
             "reindex_manifest": reindex_manifest,
             "result_summary_text": result_summary_text,
+            "compact_summary_packs": ResultsGateway._build_compact_summary_packs(
+                taxonomy_summary=point_taxonomy_summary,
+                phase_coverage_summary=measurement_phase_coverage_report,
+                workbench_summary=workbench_evidence_summary,
+            ),
             "evidence_source": evidence_source,
             "evidence_state": evidence_state,
             "not_real_acceptance_evidence": not_real_acceptance_evidence,
@@ -1968,6 +1973,13 @@ class ResultsGateway:
             dict(workbench_summary.get("parity_resilience_summary") or {})
         )
 
+        # Build compact summary packs for surface-aware budget governance
+        _compact_packs = ResultsGateway._build_compact_summary_packs(
+            taxonomy_summary=taxonomy_summary,
+            phase_coverage_summary=phase_coverage_summary,
+            workbench_summary=workbench_summary,
+        )
+
         if measurement_core_stability_text:
             lines.append(
                 humanize_review_surface_text(
@@ -1991,12 +2003,12 @@ class ResultsGateway:
         if measurement_core_phase_coverage_text:
             lines.extend(measurement_review_lines.get("summary_lines") or [])
             lines.extend((measurement_review_lines.get("detail_lines") or [])[:4])
-            # Append V1.2 compact reviewer summary lines
-            lines.extend(_v12_compact.get("summary_lines") or [])
-            # Append phase evidence / governance / parity-resilience compact summary lines
-            lines.extend(_phase_evidence_compact.get("summary_lines") or [])
-            lines.extend(_governance_compact.get("summary_lines") or [])
-            lines.extend(_parity_resilience_compact.get("summary_lines") or [])
+            # Apply surface-aware budget governance for compact summary lines
+            _budget_result = apply_surface_budget(_compact_packs, surface="results_gateway")
+            lines.extend(_budget_result["must_retain"])
+            lines.extend(_budget_result["optional_expand"])
+            if _budget_result["truncated_count"] > 0:
+                lines.append(build_truncation_hint_line(_budget_result["truncated_count"]))
         if measurement_core_sidecar_text or dict(simulation_evidence_sidecar_bundle or {}):
             sidecar_contract_text = str(sidecar_summary.get("reviewer_note") or "").strip()
             lines.append(
@@ -2164,6 +2176,42 @@ class ResultsGateway:
             or "simulated_protocol"
         )
         return normalize_evidence_source(source)
+
+    @staticmethod
+    def _build_compact_summary_packs(
+        *,
+        taxonomy_summary: dict[str, Any] | None = None,
+        phase_coverage_summary: dict[str, Any] | None = None,
+        workbench_summary: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Build compact summary packs for surface-aware budget governance.
+
+        Returns a list of pack dicts, one per compact summary domain
+        that results_gateway surfaces.
+        """
+        _taxonomy = dict(taxonomy_summary or {})
+        _phase_coverage = dict(phase_coverage_summary or {})
+        _workbench = dict(workbench_summary or {})
+
+        _v12_compact_payload = {
+            "point_taxonomy_summary": _taxonomy,
+            "measurement_phase_coverage_report": _phase_coverage,
+            "phase_transition_bridge": dict(_phase_coverage.get("phase_transition_bridge") or {}),
+            "parity_resilience_summary": dict(_workbench.get("parity_resilience_summary") or {}),
+            "governance_handoff_summary": dict(_workbench.get("governance_handoff_summary") or {}),
+        }
+
+        packs = [
+            build_v12_alignment_pack(_v12_compact_payload),
+            build_phase_evidence_pack(_v12_compact_payload),
+            build_governance_handoff_pack(
+                dict(_workbench.get("governance_handoff_summary") or {})
+            ),
+            build_parity_resilience_pack(
+                dict(_workbench.get("parity_resilience_summary") or {})
+            ),
+        ]
+        return packs
 
     @staticmethod
     def _offline_diagnostic_detail_lines(
