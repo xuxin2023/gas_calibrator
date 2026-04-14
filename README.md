@@ -125,6 +125,10 @@ python run_v1_co2_fit_evidence_coverage_bundle.py --run-dir <completed_run_dir> 
 python run_v1_co2_point_evidence_provenance_bundle.py --run-dir <completed_run_dir> --output-dir <point_evidence_provenance_output_dir>
 ```
 
+```powershell
+python run_v1_co2_engineer_review_worklist_bundle.py --run-dir <completed_run_dir> --output-dir <engineer_review_output_dir>
+```
+
 These entrypoints keep V1-adjacent postprocess/sidecar flows easy to reach
 without changing `run_app.py`, without modifying the frozen V1 UI, and without
 promoting Step 2 sidecar capabilities into the V1 production path.
