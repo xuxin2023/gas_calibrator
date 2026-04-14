@@ -161,10 +161,12 @@ def test_weighted_fit_advisory_consumes_candidate_pack_without_rejudging() -> No
     variants = {row["fit_variant_name"]: row for row in payload["fit_variants"]}
     assert variants["baseline_unweighted_all_recommended"]["input_point_count"] == 3
     assert variants["baseline_unweighted_fit_only"]["input_point_count"] == 2
-    assert variants["weighted_fit_advisory"]["input_point_count"] == 3
-    assert pytest.approx(float(variants["weighted_fit_advisory"]["training_weight_sum"]), abs=1e-9) == 2.3
+    assert variants["weighted_fit_advisory"]["input_point_count"] == 2
+    assert pytest.approx(float(variants["weighted_fit_advisory"]["training_weight_sum"]), abs=1e-9) == 1.95
+    assert variants["weighted_fit_advisory"]["pre_fit_clean_first_applied"] is True
+    assert variants["weighted_fit_advisory"]["weak_support_pool_point_count"] == 1
     assert "hard_blocked:2" in variants["weighted_fit_advisory"]["excluded_reason_summary"]
-    assert payload["summary"]["recommended_fit_variant"] == "weighted_fit_advisory"
+    assert payload["summary"]["recommended_fit_variant"] == "baseline_unweighted_fit_only"
 
 
 def test_fallback_but_usable_point_enters_weighted_fit_with_lower_weight() -> None:
@@ -181,6 +183,47 @@ def test_fallback_but_usable_point_enters_weighted_fit_with_lower_weight() -> No
     assert pytest.approx(float(point["fit_training_weight"]), abs=1e-9) == 0.35
     assert point["co2_calibration_candidate_status"] == "advisory"
     assert point["measured_value"] == 560.0
+
+
+def test_weighted_fit_advisory_keeps_fallback_training_points_when_strong_support_is_insufficient() -> None:
+    rows = [
+        _candidate_row(
+            title="clean-500",
+            point_no=1,
+            target=500.0,
+            temp_c=20.0,
+            pressure_label="ambient",
+            measured=500.0,
+            suitability="fit",
+            recommended=True,
+            hard_blocked=False,
+            weight=1.0,
+            evidence_score=100.0,
+        ),
+        _candidate_row(
+            title="fallback-800",
+            point_no=2,
+            target=800.0,
+            temp_c=20.0,
+            pressure_label="ambient",
+            measured=810.0,
+            suitability="advisory",
+            recommended=True,
+            hard_blocked=False,
+            weight=0.4,
+            evidence_score=60.0,
+            measured_source="co2_trailing_window_fallback",
+            switch_reason="source_fallback",
+            temporal_status="warn",
+        ),
+    ]
+
+    payload = build_co2_weighted_fit_advisory(rows)
+    variants = {row["fit_variant_name"]: row for row in payload["fit_variants"]}
+
+    assert variants["weighted_fit_advisory"]["input_point_count"] == 2
+    assert variants["weighted_fit_advisory"]["pre_fit_clean_first_applied"] is False
+    assert variants["weighted_fit_advisory"]["weak_support_pool_point_count"] == 1
 
 
 def test_temporal_and_no_trusted_source_points_do_not_enter_weighted_fit() -> None:
@@ -223,8 +266,10 @@ def test_weighted_fit_advisory_prefers_stronger_support_when_score_gap_is_small(
     variants = {row["fit_variant_name"]: row for row in payload["fit_variants"]}
 
     assert payload["summary"]["recommended_fit_variant"] == "baseline_unweighted_fit_only"
-    assert variants["weighted_fit_advisory"]["weak_support_point_count"] == 1
+    assert variants["weighted_fit_advisory"]["weak_support_point_count"] == 0
+    assert variants["weighted_fit_advisory"]["weak_support_pool_point_count"] == 1
     assert variants["baseline_unweighted_fit_only"]["weak_support_point_count"] == 0
+    assert variants["weighted_fit_advisory"]["pre_fit_clean_first_applied"] is True
     assert "support_tie_break_within_weighted_rmse_margin" in payload["summary"]["recommended_fit_reason"]
     assert "prefer_stronger_support_over=weighted_fit_advisory" in payload["summary"]["recommended_fit_reason"]
 

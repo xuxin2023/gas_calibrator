@@ -231,7 +231,7 @@ def test_blocked_points_do_not_enter_weighted_bootstrap_baseline() -> None:
     weighted_variant = next(
         row for row in payload["variant_overall"] if row["fit_variant_name"] == "weighted_fit_advisory"
     )
-    assert weighted_variant["input_point_count"] == 5
+    assert weighted_variant["input_point_count"] == 4
 
 
 def test_grouped_bootstrap_and_repeated_subsample_are_reported() -> None:

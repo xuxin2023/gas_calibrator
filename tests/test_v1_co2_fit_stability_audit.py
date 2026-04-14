@@ -196,7 +196,8 @@ def test_fallback_point_participates_in_weighted_stability_with_lower_weight() -
     variants = {row["fit_variant_name"]: row for row in payload["fit_variants"]}
 
     assert variants["baseline_unweighted_all_recommended"]["input_point_count"] == 5
-    assert variants["weighted_fit_advisory"]["training_weight_sum"] == pytest.approx(4.12, abs=1e-9)
+    assert variants["weighted_fit_advisory"]["input_point_count"] == 4
+    assert variants["weighted_fit_advisory"]["training_weight_sum"] == pytest.approx(3.77, abs=1e-9)
     assert variants["baseline_unweighted_fit_only"]["input_point_count"] == 4
 
 

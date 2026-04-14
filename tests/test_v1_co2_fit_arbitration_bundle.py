@@ -111,7 +111,7 @@ def test_fallback_point_is_not_globally_killed_by_arbitration() -> None:
     variants = {row["fit_variant_name"]: row for row in payload["variants"]}
 
     assert variants["weighted_fit_advisory"]["best_by_score"] is False
-    assert variants["weighted_fit_advisory"]["candidate_point_count"] == 5
+    assert variants["weighted_fit_advisory"]["candidate_point_count"] == 4
     assert variants["weighted_fit_advisory"]["fit_variant_status"] == "available"
     assert variants["weighted_fit_advisory"]["weighted_fit"] is True
 
