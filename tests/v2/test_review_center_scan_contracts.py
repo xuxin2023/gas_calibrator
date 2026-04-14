@@ -29,8 +29,8 @@ from gas_calibrator.v2.ui_v2.review_center_scan_contracts import (
 
 
 class TestScanContractsVersion:
-    def test_version_is_2_7_x(self) -> None:
-        assert REVIEW_CENTER_SCAN_CONTRACTS_VERSION.startswith("2.7")
+    def test_version_is_2_13_x(self) -> None:
+        assert REVIEW_CENTER_SCAN_CONTRACTS_VERSION.startswith("2.13")
 
 
 class TestArtifactFamiliesStructure:
@@ -268,3 +268,56 @@ class TestStep2Boundary:
         assert not re.search(r'\bCOM\d+\b', source), "Real COM port reference found"
         assert not re.search(r'["\']serial["\']', source), "Serial port reference found"
         assert not re.search(r'["\']real_device["\']', source), "Real device reference found"
+
+
+# ---------------------------------------------------------------------------
+# 8. V1.2 alignment summary — compact summary pack consumption (Step 2.13)
+# ---------------------------------------------------------------------------
+
+
+class TestV12AlignmentSummaryPackConsumption:
+    def test_compact_summary_pack_present(self) -> None:
+        result = build_v12_alignment_summary(
+            parity_status="MATCH",
+            resilience_status="MATCH",
+        )
+        pack = result["v12_alignment_summary"]["compact_summary_pack"]
+        assert pack["summary_key"] == "v12_alignment"
+
+    def test_compact_summary_pack_version(self) -> None:
+        result = build_v12_alignment_summary()
+        pack = result["v12_alignment_summary"]["compact_summary_pack"]
+        assert pack["pack_version"] == "2.13.0"
+
+    def test_compact_summary_pack_simulation_only(self) -> None:
+        result = build_v12_alignment_summary()
+        pack = result["v12_alignment_summary"]["compact_summary_pack"]
+        assert pack["evidence_source"] == "simulated"
+        assert pack["not_real_acceptance_evidence"] is True
+        assert pack["not_ready_for_formal_claim"] is True
+
+    def test_compact_summary_sections_present(self) -> None:
+        result = build_v12_alignment_summary()
+        sections = result["v12_alignment_summary"]["compact_summary_sections"]
+        assert isinstance(sections, list)
+        assert len(sections) > 0
+
+    def test_compact_summary_budget_present(self) -> None:
+        result = build_v12_alignment_summary()
+        budget = result["v12_alignment_summary"]["compact_summary_budget"]
+        assert "total_lines" in budget
+        assert "pack_count" in budget
+        assert budget["pack_count"] == 1
+
+    def test_existing_fields_preserved(self) -> None:
+        result = build_v12_alignment_summary(
+            parity_status="MATCH",
+            resilience_status="MATCH",
+        )
+        summary = result["v12_alignment_summary"]
+        # Existing fields must still be present
+        assert "summary_line" in summary
+        assert "compact_summary_lines" in summary
+        assert "builders_version" in summary
+        assert isinstance(summary["summary_line"], str)
+        assert isinstance(summary["compact_summary_lines"], list)

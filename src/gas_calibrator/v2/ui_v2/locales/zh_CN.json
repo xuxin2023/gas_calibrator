@@ -2508,6 +2508,10 @@
       "resilience_status": "韧性状态：{value}",
       "parity_last_run": "最近一致性：{value}",
       "resilience_last_run": "最近韧性：{value}"
+    },
+    "compact_summary_budget": {
+      "truncated_hint": "（{count} 行摘要因预算截断未显示）",
+      "truncated_note": "摘要行预算已用尽"
     }
   }
 }

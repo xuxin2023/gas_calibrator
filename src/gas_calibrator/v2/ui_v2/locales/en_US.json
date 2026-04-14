@@ -2513,6 +2513,10 @@
       "resilience_status": "Resilience status: {value}",
       "parity_last_run": "Latest parity: {value}",
       "resilience_last_run": "Latest resilience: {value}"
+    },
+    "compact_summary_budget": {
+      "truncated_hint": "({count} summary lines truncated due to budget)",
+      "truncated_note": "Summary line budget exhausted"
     }
   }
 }
