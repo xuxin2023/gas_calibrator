@@ -284,6 +284,83 @@ def test_fit_evidence_coverage_can_confirm_supported_release_candidate() -> None
     assert summary["manual_review_required"] is False
 
 
+def test_fit_evidence_coverage_excludes_points_that_are_not_score_path_eligible() -> None:
+    fit_payload = _fit_payload(
+        recommended_release_candidate="weighted_fit_advisory",
+        manual_review_required=False,
+    )
+    points = [
+        _release_point(
+            title="clean-fit",
+            point_no=1,
+            candidate_status="fit",
+            recommended=True,
+            hard_blocked=False,
+            measured_source="co2_steady_state_window",
+            sampling_status="ready",
+            release_status="release_ready",
+            score_path_eligibility=True,
+            manual_review_required=False,
+            blocking_reason_chain="ready_for_release_review",
+        ),
+        _release_point(
+            title="not-score-path",
+            point_no=2,
+            candidate_status="advisory",
+            recommended=True,
+            hard_blocked=False,
+            measured_source="co2_trailing_window_fallback",
+            sampling_status="fallback_but_usable",
+            release_status="excluded",
+            score_path_eligibility=False,
+            manual_review_required=False,
+            blocking_reason_chain="not_score_path_eligible;sampling_not_ready_enough",
+            weight=0.35,
+            source_switch_reason="source_fallback",
+        ),
+        _release_point(
+            title="manual-but-eligible",
+            point_no=3,
+            candidate_status="advisory",
+            recommended=True,
+            hard_blocked=False,
+            measured_source="co2_trailing_window_fallback",
+            sampling_status="manual_review",
+            release_status="manual_review",
+            score_path_eligibility=True,
+            manual_review_required=True,
+            blocking_reason_chain="sampling_requires_manual_review",
+            weight=0.45,
+        ),
+    ]
+
+    payload = build_co2_fit_evidence_coverage_bundle(
+        fit_arbitration_payload=fit_payload,
+        release_readiness_payload=_release_payload(
+            best_fit_candidate="weighted_fit_advisory",
+            points=points,
+        ),
+    )
+
+    coverage = {row["candidate_name"]: row for row in payload["candidate_coverage"]}
+    trace = {
+        (row["point_title"], row["candidate_name"]): row for row in payload["point_traceability"]
+    }
+
+    weighted = coverage["weighted_fit_advisory"]
+    assert weighted["participating_points_count"] == 2
+    assert weighted["score_path_eligible_points_count"] == 2
+    assert weighted["excluded_points_count"] == 1
+
+    excluded_trace = trace[("not-score-path", "weighted_fit_advisory")]
+    assert excluded_trace["fit_participation_status"] == "excluded_not_score_path_eligible"
+    assert excluded_trace["score_path_eligibility"] is False
+
+    manual_trace = trace[("manual-but-eligible", "weighted_fit_advisory")]
+    assert manual_trace["fit_participation_status"] == "participating_advisory"
+    assert manual_trace["score_path_eligibility"] is True
+
+
 def test_fit_evidence_coverage_tool_writes_expected_artifacts(tmp_path: Path) -> None:
     fit_json = tmp_path / "fit_arbitration_summary.json"
     release_json = tmp_path / "release_readiness_summary.json"

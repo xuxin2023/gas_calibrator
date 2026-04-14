@@ -45,11 +45,18 @@ def _variant_participation_status(point: Mapping[str, Any], candidate_name: str)
     recommended = _as_bool(point.get("co2_calibration_candidate_recommended"))
     candidate_status = _as_text(point.get("co2_calibration_candidate_status"))
     weight = _as_float(point.get("co2_calibration_weight_recommended")) or 0.0
+    score_path_known = point.get("score_path_eligibility") not in (None, "")
+    score_path_eligible = _as_bool(point.get("score_path_eligibility"))
 
     if hard_blocked:
         return "excluded_hard_blocked"
     if not recommended:
         return "excluded_not_recommended"
+    # Release-readiness already decides whether a point may stay on the
+    # score-oriented advisory path. Coverage should not count points that were
+    # explicitly removed from that path as positive fit support.
+    if score_path_known and not score_path_eligible:
+        return "excluded_not_score_path_eligible"
     if candidate_name == "baseline_unweighted_fit_only" and candidate_status != "fit":
         return "excluded_not_fit_for_variant"
     if candidate_name == "weighted_fit_advisory" and weight <= 0.0:
