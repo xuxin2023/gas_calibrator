@@ -38,6 +38,7 @@ from ..validation.dewpoint_flush_gate import (
 )
 from .co2_bad_frame_qc import quarantine_co2_source_rows
 from .co2_decision_waterfall import build_co2_decision_waterfall
+from .co2_point_suitability import build_co2_point_suitability
 from .co2_sampling_contract import apply_co2_phase_sampling_contract
 from .co2_source_segment_contract import build_co2_source_segments
 from .co2_temporal_contract import apply_co2_temporal_sampling_contract
@@ -2754,6 +2755,14 @@ class CalibrationRunner:
             "co2_decision_stage_count",
             "co2_decision_selected_stage_path",
             "co2_decision_stage_summary",
+            "co2_point_suitability_status",
+            "co2_calibration_candidate_recommended",
+            "co2_calibration_candidate_hard_blocked",
+            "co2_calibration_weight_recommended",
+            "co2_evidence_score",
+            "co2_point_evidence_budget_reason",
+            "co2_point_evidence_budget_summary",
+            "co2_point_suitability_reason_chain",
             "pressure_gauge_stale_count",
             "pressure_gauge_total_count",
             "pressure_gauge_stale_ratio",
@@ -14080,6 +14089,14 @@ class CalibrationRunner:
             "co2_decision_stage_count": runtime_state.get("co2_decision_stage_count"),
             "co2_decision_selected_stage_path": runtime_state.get("co2_decision_selected_stage_path"),
             "co2_decision_stage_summary": runtime_state.get("co2_decision_stage_summary"),
+            "co2_point_suitability_status": runtime_state.get("co2_point_suitability_status"),
+            "co2_calibration_candidate_recommended": runtime_state.get("co2_calibration_candidate_recommended"),
+            "co2_calibration_candidate_hard_blocked": runtime_state.get("co2_calibration_candidate_hard_blocked"),
+            "co2_calibration_weight_recommended": runtime_state.get("co2_calibration_weight_recommended"),
+            "co2_evidence_score": runtime_state.get("co2_evidence_score"),
+            "co2_point_evidence_budget_reason": runtime_state.get("co2_point_evidence_budget_reason"),
+            "co2_point_evidence_budget_summary": runtime_state.get("co2_point_evidence_budget_summary"),
+            "co2_point_suitability_reason_chain": runtime_state.get("co2_point_suitability_reason_chain"),
             "dewpoint_time_to_gate": runtime_state.get("dewpoint_time_to_gate"),
             "dewpoint_tail_span_60s": runtime_state.get("dewpoint_tail_span_60s"),
             "dewpoint_tail_slope_60s": runtime_state.get("dewpoint_tail_slope_60s"),
@@ -15514,6 +15531,7 @@ class CalibrationRunner:
                 selected_candidate=selected_candidate,
             )
         )
+        result.update(build_co2_point_suitability(result))
         self._set_point_runtime_fields(point, phase=phase, **result)
         return result
 
