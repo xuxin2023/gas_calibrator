@@ -294,6 +294,20 @@ def _build_run_report(
         or verification_digest.get("readiness_status_summary")
         or "ready_for_readiness_mapping"
     )
+    # Compact summary pack — explicit consumption for historical surface
+    _raw_packs = list(summary_payload.get("compact_summary_packs") or [])
+    _compact_summary_packs = []
+    _compact_summary_order = []
+    _compact_summary_budget = {}
+    if _raw_packs and build_compact_summary_render_context is not None:
+        try:
+            _render_ctx = build_compact_summary_render_context(_raw_packs, surface="historical")
+            _compact_summary_packs = list(_render_ctx.get("compact_summary_packs") or [])
+            _compact_summary_order = list(_render_ctx.get("compact_summary_order") or [])
+            _compact_summary_budget = dict(_render_ctx.get("compact_summary_budget") or {})
+        except Exception:
+            pass
+
     return {
         "run_id": str(
             compatibility_scan_summary.get("run_id")
@@ -600,6 +614,9 @@ def _build_run_report(
         "uncertainty_primary_evidence_rewritten": bool(
             uncertainty_rollup.get("primary_evidence_rewritten", False)
         ),
+        "compact_summary_packs": _compact_summary_packs,
+        "compact_summary_order": _compact_summary_order,
+        "compact_summary_budget": _compact_summary_budget,
         "written_paths": written_paths,
     }
 

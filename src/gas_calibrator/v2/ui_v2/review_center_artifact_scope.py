@@ -21,8 +21,37 @@ from .artifact_registry_governance import (
 )
 from .i18n import display_artifact_role, t
 
+try:
+    from ..core.reviewer_summary_packs import build_compact_summary_render_context
+except ImportError:
+    build_compact_summary_render_context = None
+
 SOURCE_SCAN_ENTRY_LIMIT = 128
 SOURCE_SCAN_FILE_LIMIT = 64
+
+
+def _build_compact_summary_pack_fields(
+    packs: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Build compact summary pack fields for review_center surface rendering."""
+    _raw_packs = list(packs or [])
+    if _raw_packs and build_compact_summary_render_context is not None:
+        try:
+            _ctx = build_compact_summary_render_context(_raw_packs, surface="review_center")
+            return {
+                "compact_summary_packs": list(_ctx.get("compact_summary_packs") or []),
+                "compact_summary_sections": list(_ctx.get("compact_summary_sections") or []),
+                "compact_summary_order": list(_ctx.get("compact_summary_order") or []),
+                "compact_summary_budget": dict(_ctx.get("compact_summary_budget") or {}),
+            }
+        except Exception:
+            pass
+    return {
+        "compact_summary_packs": [],
+        "compact_summary_sections": [],
+        "compact_summary_order": [],
+        "compact_summary_budget": {},
+    }
 
 
 def decorate_source_rows(
@@ -160,6 +189,7 @@ def build_review_artifact_registry(
     files: list[dict[str, Any]],
     *,
     selection: dict[str, Any] | None = None,
+    compact_summary_packs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     all_rows = _normalize_artifact_rows(files)
     selection_payload = dict(selection or {})
@@ -300,6 +330,7 @@ def build_review_artifact_registry(
         "disclaimer_text": t("pages.reports.artifact_scope.disclaimer"),
         "export_warning_text": reviewer_display["export_warning_text"],
         "clear_enabled": scope != "all",
+        **_build_compact_summary_pack_fields(compact_summary_packs),
     }
 
 
