@@ -24,11 +24,15 @@ from ..core.reviewer_summary_builders import (
     build_parity_resilience_compact_summary as _build_parity_resilience_compact,
     REVIEWER_SUMMARY_BUILDERS_VERSION as _BUILDERS_VERSION,
 )
+from ..core.reviewer_summary_packs import (
+    build_v12_alignment_pack as _build_v12_alignment_pack,
+    REVIEWER_SUMMARY_PACKS_VERSION as _PACKS_VERSION,
+)
 
 # ---------------------------------------------------------------------------
 # Version
 # ---------------------------------------------------------------------------
-REVIEW_CENTER_SCAN_CONTRACTS_VERSION: str = "2.12.0"
+REVIEW_CENTER_SCAN_CONTRACTS_VERSION: str = "2.13.0"
 
 # ---------------------------------------------------------------------------
 # Artifact family definitions
@@ -266,6 +270,9 @@ def build_v12_alignment_summary(
     _v12_compact = _build_v12_compact(_v12_compact_payload)
     _summary_line = " | ".join(_v12_compact.get("summary_lines", []))
 
+    # Build compact summary pack for stable downstream consumption
+    _v12_pack = _build_v12_alignment_pack(_v12_compact_payload)
+
     return {
         "v12_alignment_summary": {
             "alignment_status": _alignment_status,
@@ -279,6 +286,12 @@ def build_v12_alignment_summary(
             "summary_line": _summary_line,
             "compact_summary_lines": list(_v12_compact.get("summary_lines", [])),
             "builders_version": _BUILDERS_VERSION,
+            "compact_summary_pack": _v12_pack,
+            "compact_summary_sections": [_v12_pack],
+            "compact_summary_budget": {
+                "total_lines": len(_v12_pack.get("summary_lines", [])),
+                "pack_count": 1,
+            },
         },
         # Step 2 boundary markers — this is simulation-only evidence
         "evidence_source": "simulated",

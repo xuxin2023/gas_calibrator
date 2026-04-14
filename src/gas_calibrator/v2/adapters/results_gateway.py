@@ -103,6 +103,16 @@ from ..core.reviewer_summary_builders import (
     build_governance_handoff_compact_summary,
     build_parity_resilience_compact_summary,
 )
+from ..core.reviewer_summary_packs import (
+    build_v12_alignment_pack,
+    build_phase_evidence_pack,
+    build_governance_handoff_pack,
+    build_parity_resilience_pack,
+)
+from ..core.compact_summary_budget import (
+    apply_surface_budget,
+    build_truncation_hint_line,
+)
 from ..ui_v2.artifact_registry_governance import build_current_run_governance
 from ..ui_v2.i18n import t
 
