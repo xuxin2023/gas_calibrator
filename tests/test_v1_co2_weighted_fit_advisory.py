@@ -164,6 +164,7 @@ def test_weighted_fit_advisory_consumes_candidate_pack_without_rejudging() -> No
     assert variants["weighted_fit_advisory"]["input_point_count"] == 3
     assert pytest.approx(float(variants["weighted_fit_advisory"]["training_weight_sum"]), abs=1e-9) == 2.3
     assert "hard_blocked:2" in variants["weighted_fit_advisory"]["excluded_reason_summary"]
+    assert payload["summary"]["recommended_fit_variant"] == "weighted_fit_advisory"
 
 
 def test_fallback_but_usable_point_enters_weighted_fit_with_lower_weight() -> None:
@@ -205,6 +206,27 @@ def test_grouped_weighted_summary_is_reported() -> None:
     assert weighted_500["point_count_total"] == 2
     assert pytest.approx(float(weighted_500["weight_sum"]), abs=1e-9) == 1.35
     assert weighted_500["group_recommended_for_fit"] is True
+
+
+def test_weighted_fit_advisory_prefers_stronger_support_when_score_gap_is_small() -> None:
+    rows = [
+        _candidate_row(title="clean-400", point_no=1, target=400.0, temp_c=20.0, pressure_label="ambient", measured=400.0, suitability="fit", recommended=True, hard_blocked=False, weight=1.0, evidence_score=100.0),
+        _candidate_row(title="clean-500", point_no=2, target=500.0, temp_c=20.0, pressure_label="ambient", measured=500.0, suitability="fit", recommended=True, hard_blocked=False, weight=0.95, evidence_score=97.0),
+        _candidate_row(title="fallback-500", point_no=3, target=500.0, temp_c=20.0, pressure_label="ambient", measured=560.0, suitability="advisory", recommended=True, hard_blocked=False, weight=0.35, evidence_score=58.0, measured_source="co2_trailing_window_fallback", switch_reason="source_fallback", temporal_status="warn"),
+        _candidate_row(title="clean-800", point_no=4, target=800.0, temp_c=20.0, pressure_label="ambient", measured=800.0, suitability="fit", recommended=True, hard_blocked=False, weight=0.92, evidence_score=96.0),
+        _candidate_row(title="clean-1000", point_no=5, target=1000.0, temp_c=20.0, pressure_label="ambient", measured=1000.0, suitability="fit", recommended=True, hard_blocked=False, weight=0.9, evidence_score=95.0),
+        _candidate_row(title="blocked-no-source", point_no=6, target=700.0, temp_c=20.0, pressure_label="ambient", measured=710.0, suitability="unfit", recommended=False, hard_blocked=True, weight=0.0, evidence_score=0.0, measured_source="co2_no_trusted_source"),
+        _candidate_row(title="blocked-temporal", point_no=7, target=600.0, temp_c=20.0, pressure_label="ambient", measured=610.0, suitability="unfit", recommended=False, hard_blocked=True, weight=0.0, evidence_score=0.0, measured_source="co2_no_trusted_source", temporal_status="fail", temporal_reason="timestamp_rollback_detected"),
+    ]
+
+    payload = build_co2_weighted_fit_advisory(rows)
+    variants = {row["fit_variant_name"]: row for row in payload["fit_variants"]}
+
+    assert payload["summary"]["recommended_fit_variant"] == "baseline_unweighted_fit_only"
+    assert variants["weighted_fit_advisory"]["weak_support_point_count"] == 1
+    assert variants["baseline_unweighted_fit_only"]["weak_support_point_count"] == 0
+    assert "support_tie_break_within_weighted_rmse_margin" in payload["summary"]["recommended_fit_reason"]
+    assert "prefer_stronger_support_over=weighted_fit_advisory" in payload["summary"]["recommended_fit_reason"]
 
 
 def test_weighted_fit_advisory_accepts_chinese_candidate_rows() -> None:

@@ -99,20 +99,21 @@ def test_fit_arbitration_distinguishes_score_stability_and_balanced_choice() -> 
     )
 
     summary = payload["summary"]
-    assert summary["best_by_score"] == "weighted_fit_advisory"
+    assert summary["best_by_score"] == "baseline_unweighted_fit_only"
     assert summary["best_by_stability"] == "baseline_unweighted_fit_only"
     assert summary["best_balanced_choice"] == "baseline_unweighted_fit_only"
     assert summary["recommended_release_candidate"] == "baseline_unweighted_fit_only"
-    assert summary["manual_review_required"] is True
+    assert summary["manual_review_required"] is False
 
 
 def test_fallback_point_is_not_globally_killed_by_arbitration() -> None:
     payload = build_co2_fit_arbitration_bundle(_dataset())
     variants = {row["fit_variant_name"]: row for row in payload["variants"]}
 
-    assert variants["weighted_fit_advisory"]["best_by_score"] is True
+    assert variants["weighted_fit_advisory"]["best_by_score"] is False
     assert variants["weighted_fit_advisory"]["candidate_point_count"] == 5
-    assert "score_leads_stability_conflict" in variants["weighted_fit_advisory"]["variant_top_risks"]
+    assert variants["weighted_fit_advisory"]["fit_variant_status"] == "available"
+    assert variants["weighted_fit_advisory"]["weighted_fit"] is True
 
 
 def test_untrusted_points_do_not_enter_recommended_bundle() -> None:
@@ -120,9 +121,9 @@ def test_untrusted_points_do_not_enter_recommended_bundle() -> None:
     bundle = payload["recommended_coefficient_bundle"]
 
     assert bundle["fit_variant_name"] == "baseline_unweighted_fit_only"
-    assert bundle["bundle_status"] == "manual_review_required"
+    assert bundle["bundle_status"] == "advisory_only"
     assert bundle["candidate_point_count"] == 4
-    assert bundle["manual_review_required"] is True
+    assert bundle["manual_review_required"] is False
 
 
 def test_arbitration_tool_writes_expected_artifacts(tmp_path: Path) -> None:

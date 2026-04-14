@@ -21,6 +21,8 @@ from .co2_calibration_candidate_pack import (
     build_co2_calibration_candidate_points,
 )
 
+_WEAK_SUPPORT_WEIGHTED_RMSE_MARGIN = 1.0
+
 
 def _as_text(value: Any) -> str:
     return str(value or "").strip()
@@ -129,6 +131,21 @@ def _training_points_for_variant(
     if variant_name == "weighted_fit_advisory":
         return [dict(row) for row in points if float(row.get("co2_calibration_weight_recommended") or 0.0) > 0.0]
     return []
+
+
+def _is_weak_support_training_point(row: Mapping[str, Any]) -> bool:
+    # This is an offline advisory-only proxy for "weaker support", not a live
+    # gate. We use already-existing point fields so close score candidates do
+    # not let fallback / source-switch / temporal-warn points dominate the
+    # recommendation when a similarly good clean/steady candidate exists.
+    if _as_text(row.get("co2_calibration_candidate_status")) != "fit":
+        return True
+    if _as_text(row.get("measured_value_source")) == "co2_trailing_window_fallback":
+        return True
+    if _as_text(row.get("co2_source_switch_reason")):
+        return True
+    temporal_status = _as_text(row.get("co2_temporal_contract_status")).lower()
+    return temporal_status in {"warn", "degraded", "fail", "fallback_row_count"}
 
 
 def _fit_affine_model(
@@ -285,6 +302,9 @@ def _variant_summary(
     evaluation_rows: Sequence[Mapping[str, Any]],
 ) -> Dict[str, Any]:
     variant_name = _as_text(spec.get("fit_variant_name"))
+    weak_support_point_count = sum(1 for row in training_points if _is_weak_support_training_point(row))
+    strong_support_point_count = max(0, len(training_points) - weak_support_point_count)
+    weak_support_ratio = round(weak_support_point_count / len(training_points), 6) if training_points else 0.0
     if not fit_result.get("available"):
         return {
             "fit_variant_name": variant_name,
@@ -295,6 +315,9 @@ def _variant_summary(
             "evaluation_point_count": len(evaluation_points),
             "evaluation_group_count": len({_as_text(row.get("co2_calibration_group_key")) for row in evaluation_points}),
             "excluded_point_count": len(excluded_points),
+            "strong_support_point_count": strong_support_point_count,
+            "weak_support_point_count": weak_support_point_count,
+            "weak_support_ratio": weak_support_ratio,
             "excluded_reason_summary": _reason_counter_text(excluded_points, "co2_calibration_reason_chain"),
             "fit_reason_chain": _as_text(fit_result.get("reason") or "fit_unavailable"),
             "recommended_fit_variant": False,
@@ -312,6 +335,9 @@ def _variant_summary(
         "evaluation_point_count": len(evaluation_points),
         "evaluation_group_count": len({_as_text(row.get("co2_calibration_group_key")) for row in evaluation_points}),
         "excluded_point_count": len(excluded_points),
+        "strong_support_point_count": strong_support_point_count,
+        "weak_support_point_count": weak_support_point_count,
+        "weak_support_ratio": weak_support_ratio,
         "excluded_reason_summary": ";".join(f"{reason}:{count}" for reason, count in Counter(_excluded_reason(row) for row in excluded_points).most_common(4)),
         "intercept": _round_or_none(_as_float(fit_result.get("intercept"))),
         "slope": _round_or_none(_as_float(fit_result.get("slope"))),
@@ -330,7 +356,9 @@ def _variant_summary(
             f"model=affine_target_from_measured;"
             f"training_points={len(training_points)};"
             f"weighted={bool(spec.get('weighted'))};"
-            f"candidate_statuses={_reason_counter_text(training_points, 'co2_calibration_candidate_status', top_n=3)}"
+            f"candidate_statuses={_reason_counter_text(training_points, 'co2_calibration_candidate_status', top_n=3)};"
+            f"weak_support_points={weak_support_point_count};"
+            f"weak_support_ratio={weak_support_ratio:.6f}"
         ),
         "recommended_fit_variant": False,
     }
@@ -341,7 +369,7 @@ def _recommend_variant(summaries: Sequence[Mapping[str, Any]]) -> Tuple[Optional
     if not available:
         return None, "no_available_fit_variant"
 
-    def _rank_key(row: Mapping[str, Any]) -> Tuple[float, float, float, int, int]:
+    def _score_rank_key(row: Mapping[str, Any]) -> Tuple[float, float, float, int, int]:
         return (
             float(row.get("weighted_rmse") or float("inf")),
             float(row.get("rmse") or float("inf")),
@@ -353,13 +381,48 @@ def _recommend_variant(summaries: Sequence[Mapping[str, Any]]) -> Tuple[Optional
             ),
         )
 
-    best = min(available, key=_rank_key)
-    reason = (
-        f"prefer_low_weighted_rmse={best.get('weighted_rmse')};"
-        f"rmse={best.get('rmse')};"
-        f"max_abs_error={best.get('max_abs_error')};"
-        f"input_points={best.get('input_point_count')}"
-    )
+    available_by_score = sorted(available, key=_score_rank_key)
+    leading = available_by_score[0]
+    leading_weighted_rmse = float(leading.get("weighted_rmse") or float("inf"))
+    close_by_score = [
+        row
+        for row in available_by_score
+        if float(row.get("weighted_rmse") or float("inf"))
+        <= leading_weighted_rmse + _WEAK_SUPPORT_WEIGHTED_RMSE_MARGIN
+    ]
+
+    def _support_rank_key(row: Mapping[str, Any]) -> Tuple[float, int, float, float, float, int, int]:
+        return (
+            float(row.get("weak_support_ratio") or 0.0),
+            int(row.get("weak_support_point_count") or 0),
+            float(row.get("weighted_rmse") or float("inf")),
+            float(row.get("rmse") or float("inf")),
+            float(row.get("max_abs_error") or float("inf")),
+            -int(row.get("input_point_count") or 0),
+            {"weighted_fit_advisory": 0, "baseline_unweighted_fit_only": 1, "baseline_unweighted_all_recommended": 2}.get(
+                _as_text(row.get("fit_variant_name")),
+                9,
+            ),
+        )
+
+    best = min(close_by_score, key=_support_rank_key)
+    reason_parts = [
+        f"prefer_low_weighted_rmse={best.get('weighted_rmse')}",
+        f"rmse={best.get('rmse')}",
+        f"max_abs_error={best.get('max_abs_error')}",
+        f"input_points={best.get('input_point_count')}",
+    ]
+    if len(close_by_score) > 1:
+        reason_parts.append(
+            f"support_tie_break_within_weighted_rmse_margin={_WEAK_SUPPORT_WEIGHTED_RMSE_MARGIN:.3f}"
+        )
+        reason_parts.append(f"weak_support_points={best.get('weak_support_point_count')}")
+        reason_parts.append(f"weak_support_ratio={best.get('weak_support_ratio')}")
+    if _as_text(best.get("fit_variant_name")) != _as_text(leading.get("fit_variant_name")):
+        reason_parts.append(
+            f"prefer_stronger_support_over={_as_text(leading.get('fit_variant_name')) or 'none'}"
+        )
+    reason = ";".join(reason_parts)
     return _as_text(best.get("fit_variant_name")), reason
 
 
