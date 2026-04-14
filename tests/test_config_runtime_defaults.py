@@ -32,6 +32,10 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["sampling"]["quality"]["co2_steady_state_max_abs_slope_ppm_per_s"] == 1.0
     assert cfg["workflow"]["sampling"]["quality"]["co2_phase_contract_enabled"] is True
     assert cfg["workflow"]["sampling"]["quality"]["co2_phase_head_exclusion_max_rows"] == 2
+    assert cfg["workflow"]["sampling"]["quality"]["co2_source_segment_contract_enabled"] is True
+    assert cfg["workflow"]["sampling"]["quality"]["co2_source_segment_head_exclusion_rows"] == 1
+    assert cfg["workflow"]["sampling"]["quality"]["co2_source_segment_min_rows_after_settle"] == 4
+    assert cfg["workflow"]["sampling"]["quality"]["co2_source_segment_min_settle_seconds"] == 0.0
     assert cfg["workflow"]["sampling"]["quality"]["co2_bad_frame_quarantine_enabled"] is True
     assert cfg["workflow"]["sampling"]["quality"]["co2_source_trust_enabled"] is True
     assert cfg["workflow"]["sampling"]["quality"]["co2_bad_frame_isolated_spike_delta_ppm"] == 50.0

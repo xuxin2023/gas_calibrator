@@ -38,6 +38,7 @@ from ..validation.dewpoint_flush_gate import (
 )
 from .co2_bad_frame_qc import quarantine_co2_source_rows
 from .co2_sampling_contract import apply_co2_phase_sampling_contract
+from .co2_source_segment_contract import build_co2_source_segments
 from .tuning import workflow_param
 
 
@@ -2713,7 +2714,16 @@ class CalibrationRunner:
             "co2_phase_contract_reason",
             "co2_candidate_rows_before_phase_gate",
             "co2_candidate_rows_after_phase_gate",
+            "co2_candidate_rows_before_segment_gate",
+            "co2_candidate_rows_after_segment_gate",
             "co2_candidate_rows_after_quarantine",
+            "co2_source_segment_id",
+            "co2_source_segment_rows",
+            "co2_source_segment_selected",
+            "co2_source_segment_settle_excluded_count",
+            "co2_source_segment_settle_excluded_ratio",
+            "co2_source_segment_reason_summary",
+            "co2_source_segment_contract_reason",
             "co2_bad_frame_count",
             "co2_bad_frame_ratio",
             "co2_soft_warn_count",
@@ -14013,7 +14023,16 @@ class CalibrationRunner:
             "co2_phase_contract_reason": runtime_state.get("co2_phase_contract_reason"),
             "co2_candidate_rows_before_phase_gate": runtime_state.get("co2_candidate_rows_before_phase_gate"),
             "co2_candidate_rows_after_phase_gate": runtime_state.get("co2_candidate_rows_after_phase_gate"),
+            "co2_candidate_rows_before_segment_gate": runtime_state.get("co2_candidate_rows_before_segment_gate"),
+            "co2_candidate_rows_after_segment_gate": runtime_state.get("co2_candidate_rows_after_segment_gate"),
             "co2_candidate_rows_after_quarantine": runtime_state.get("co2_candidate_rows_after_quarantine"),
+            "co2_source_segment_id": runtime_state.get("co2_source_segment_id"),
+            "co2_source_segment_rows": runtime_state.get("co2_source_segment_rows"),
+            "co2_source_segment_selected": runtime_state.get("co2_source_segment_selected"),
+            "co2_source_segment_settle_excluded_count": runtime_state.get("co2_source_segment_settle_excluded_count"),
+            "co2_source_segment_settle_excluded_ratio": runtime_state.get("co2_source_segment_settle_excluded_ratio"),
+            "co2_source_segment_reason_summary": runtime_state.get("co2_source_segment_reason_summary"),
+            "co2_source_segment_contract_reason": runtime_state.get("co2_source_segment_contract_reason"),
             "co2_bad_frame_count": runtime_state.get("co2_bad_frame_count"),
             "co2_bad_frame_ratio": runtime_state.get("co2_bad_frame_ratio"),
             "co2_soft_warn_count": runtime_state.get("co2_soft_warn_count"),
@@ -14907,6 +14926,22 @@ class CalibrationRunner:
                 0,
                 self._as_int(qcfg.get("co2_phase_head_exclusion_max_rows")) or 2,
             ),
+            "source_segment_contract_enabled": bool(
+                qcfg.get("co2_source_segment_contract_enabled", quality_enabled)
+            ),
+            "source_segment_head_exclusion_rows": max(
+                0,
+                self._as_int(qcfg.get("co2_source_segment_head_exclusion_rows")) or 1,
+            ),
+            "source_segment_min_rows_after_settle": max(
+                0,
+                self._as_int(qcfg.get("co2_source_segment_min_rows_after_settle"))
+                or (min_samples if min_samples is not None else 4),
+            ),
+            "source_segment_min_settle_seconds": max(
+                0.0,
+                float(qcfg.get("co2_source_segment_min_settle_seconds", 0.0) or 0.0),
+            ),
             "phase_head_step_max_delta_ppm": max(
                 float(max_range_ppm) * 4.0,
                 spike_delta_ppm if spike_delta_ppm is not None else 50.0,
@@ -15304,8 +15339,13 @@ class CalibrationRunner:
     def _co2_source_candidates_summary(self, candidates: List[Dict[str, Any]]) -> str:
         parts: List[str] = []
         for candidate in candidates or []:
+            segment_id = str(candidate.get("segment_id") or "")
+            source_label = str(candidate.get("source") or "")
+            if segment_id:
+                source_label = f"{source_label}/{segment_id}"
             parts.append(
-                f"{candidate.get('source')}[trust={candidate.get('trust_status')},"
+                f"{source_label}[trust={candidate.get('trust_status')},"
+                f"segment_rows={candidate.get('rows_after_segment_gate')}/{candidate.get('rows_before_segment_gate')},"
                 f"rows={candidate.get('rows_after_quarantine')}/{candidate.get('rows_before_quarantine')},"
                 f"hard={candidate.get('co2_bad_frame_count')},soft={candidate.get('co2_soft_warn_count')},"
                 f"steady={1 if candidate.get('has_steady_window') else 0}]"
@@ -15326,10 +15366,12 @@ class CalibrationRunner:
         return (
             int(candidate.get("trust_rank") or 0),
             *self._co2_window_selection_key(chosen),
+            self._as_int(candidate.get("rows_after_segment_gate")) or 0,
             self._as_int(candidate.get("rows_after_quarantine")) or 0,
             -(self._as_float(candidate.get("co2_bad_frame_ratio")) or 0.0),
             -(self._as_float(candidate.get("co2_soft_warn_ratio")) or 0.0),
             -int(candidate.get("source_priority") or 0),
+            self._as_int(candidate.get("segment_index")) or 0,
         )
 
     def _annotate_co2_source_row_diagnostics(
@@ -15338,12 +15380,14 @@ class CalibrationRunner:
         *,
         diagnostic_candidate: Optional[Dict[str, Any]],
         selected_source: Optional[str],
+        selected_segment_id: Optional[str] = None,
         selected_metrics: Optional[Dict[str, Any]] = None,
         selected_as_fallback: bool = False,
     ) -> None:
         candidate = diagnostic_candidate or {}
         row_diagnostics = dict(candidate.get("row_diagnostics") or {})
         phase_row_diagnostics = dict(candidate.get("phase_row_diagnostics") or {})
+        segment_row_diagnostics = dict(candidate.get("segment_row_diagnostics") or {})
         candidate_source = str(candidate.get("source") or "")
         selected_indices: set[int] = set()
         start_idx = self._as_int((selected_metrics or {}).get("co2_steady_window_start_sample_index"))
@@ -15355,8 +15399,19 @@ class CalibrationRunner:
             sample_index = row_idx + 1
             diag = dict(row_diagnostics.get(sample_index) or {})
             phase_diag = dict(phase_row_diagnostics.get(sample_index) or {})
+            segment_diag = dict(segment_row_diagnostics.get(sample_index) or {})
             row["co2_source_candidate"] = candidate_source
             row["co2_source_selected_for_value"] = str(selected_source or "")
+            row["co2_source_segment_id"] = str(segment_diag.get("co2_source_segment_id") or "")
+            row["co2_source_segment_selected"] = (
+                str(selected_segment_id or "")
+                if str(segment_diag.get("co2_source_segment_id") or "") == str(selected_segment_id or "")
+                else ""
+            )
+            row["co2_source_segment_settle_excluded"] = bool(
+                segment_diag.get("co2_source_segment_settle_excluded")
+            )
+            row["co2_source_segment_reason"] = str(segment_diag.get("co2_source_segment_reason") or "")
             row["co2_bad_frame"] = bool(diag.get("co2_bad_frame"))
             row["co2_bad_frame_reason"] = str(diag.get("co2_bad_frame_reason") or "")
             row["co2_soft_warn"] = bool(diag.get("co2_soft_warn"))
@@ -15364,12 +15419,18 @@ class CalibrationRunner:
             phase_label = str(phase_diag.get("co2_phase_label") or "")
             if sample_index in selected_indices:
                 phase_label = selected_label
+            elif row["co2_source_segment_settle_excluded"] and phase_label == "acquisition_candidate":
+                phase_label = "transition_excluded"
             elif row["co2_bad_frame"]:
                 phase_label = "quarantined_hard"
             elif row["co2_soft_warn"] and phase_label == "acquisition_candidate":
                 phase_label = "quarantined_soft"
             row["co2_phase_label"] = phase_label
-            row["co2_phase_reason"] = str(phase_diag.get("co2_phase_reason") or "")
+            phase_reason_parts = [
+                str(phase_diag.get("co2_phase_reason") or "").strip(),
+                str(segment_diag.get("co2_source_segment_reason") or "").strip(),
+            ]
+            row["co2_phase_reason"] = ";".join(part for part in phase_reason_parts if part)
 
     def _evaluate_co2_steady_state_window_qc(
         self,
@@ -15411,7 +15472,16 @@ class CalibrationRunner:
             "co2_phase_contract_reason": "",
             "co2_candidate_rows_before_phase_gate": 0,
             "co2_candidate_rows_after_phase_gate": 0,
+            "co2_candidate_rows_before_segment_gate": 0,
+            "co2_candidate_rows_after_segment_gate": 0,
             "co2_candidate_rows_after_quarantine": 0,
+            "co2_source_segment_id": "",
+            "co2_source_segment_rows": 0,
+            "co2_source_segment_selected": "",
+            "co2_source_segment_settle_excluded_count": 0,
+            "co2_source_segment_settle_excluded_ratio": 0.0,
+            "co2_source_segment_reason_summary": "",
+            "co2_source_segment_contract_reason": "",
             "co2_rows_before_quarantine": 0,
             "co2_rows_after_quarantine": 0,
             "co2_source_selected": None,
@@ -15455,6 +15525,7 @@ class CalibrationRunner:
         fallback_samples = max(int(cfg.get("fallback_samples") or min_samples), min_samples)
         for spec in source_specs:
             rows = self._co2_source_rows_for_quarantine(samples, spec=spec)
+            source_name = str(spec.get("source") or "primary")
             if bool(cfg.get("phase_contract_enabled")):
                 phase_contract = apply_co2_phase_sampling_contract(
                     rows,
@@ -15479,158 +15550,253 @@ class CalibrationRunner:
                         for row in rows
                     },
                 }
-            if bool(cfg.get("bad_frame_quarantine_enabled")):
-                quarantine = quarantine_co2_source_rows(
-                    list(phase_contract.get("eligible_rows") or []),
-                    hard_bad_status_tokens=list(quarantine_cfg.get("hard_bad_status_tokens") or []),
-                    soft_bad_status_tokens=list(quarantine_cfg.get("soft_bad_status_tokens") or []),
-                    invalid_sentinel_values=list(quarantine_cfg.get("invalid_sentinel_values") or []),
-                    invalid_sentinel_tolerance=float(quarantine_cfg.get("invalid_sentinel_tolerance") or 0.0),
-                    hard_bad_temp_values_c=list(quarantine_cfg.get("hard_bad_temp_values_c") or []),
-                    hard_bad_temp_value_tolerance_c=float(
-                        quarantine_cfg.get("hard_bad_temp_value_tolerance_c") or 0.05
-                    ),
-                    isolated_spike_delta_ppm=cfg.get("isolated_spike_delta_ppm"),
-                    isolated_neighbor_match_delta_ppm=cfg.get("neighbor_match_max_delta_ppm"),
+
+            eligible_rows = list(phase_contract.get("eligible_rows") or [])
+            first_segment_started_after_transition = False
+            if eligible_rows:
+                first_eligible_index = self._as_int(eligible_rows[0].get("sample_index")) or 0
+                if first_eligible_index > 1:
+                    first_segment_started_after_transition = any(
+                        row.get("usable") is False or row.get("value") is None
+                        for row in rows[: first_eligible_index - 1]
+                    )
+            if bool(cfg.get("source_segment_contract_enabled")):
+                segment_contract = build_co2_source_segments(
+                    eligible_rows,
+                    source=source_name,
+                    head_exclusion_rows=int(cfg.get("source_segment_head_exclusion_rows") or 0),
+                    min_rows_after_settle=int(cfg.get("source_segment_min_rows_after_settle") or min_samples),
+                    min_settle_seconds=float(cfg.get("source_segment_min_settle_seconds") or 0.0),
+                    first_segment_started_after_transition=first_segment_started_after_transition,
                 )
             else:
-                pass_through_series = [
-                    {
-                        "sample_index": int(row.get("sample_index") or 0),
-                        "sample_ts": row.get("sample_ts"),
-                        "value": row.get("value"),
-                    }
-                    for row in list(phase_contract.get("eligible_rows") or [])
-                    if row.get("value") is not None
-                    and (row.get("usable") not in (False,))
-                ]
-                quarantine = {
-                    "series": pass_through_series,
-                    "rows_before": len(list(phase_contract.get("eligible_rows") or [])),
-                    "rows_after": len(pass_through_series),
-                    "hard_reject_count": 0,
-                    "hard_reject_ratio": 0.0,
-                    "soft_warn_count": 0,
-                    "soft_warn_ratio": 0.0,
-                    "hard_reject_reason_summary": "",
-                    "soft_warn_reason_summary": "",
-                    "row_diagnostics": {
-                        int(row.get("sample_index") or 0): {
-                            "co2_bad_frame": False,
-                            "co2_bad_frame_reason": "",
-                            "co2_soft_warn": False,
-                            "co2_soft_warn_reason": "",
+                segment_id = f"{source_name}#1"
+                segment_contract = {
+                    "segments": [
+                        {
+                            "source": source_name,
+                            "segment_index": 1,
+                            "segment_id": segment_id,
+                            "rows_before_segment_gate": len(eligible_rows),
+                            "rows_after_segment_gate": len(eligible_rows),
+                            "source_segment_rows": len(eligible_rows),
+                            "segment_settle_excluded_count": 0,
+                            "segment_settle_excluded_ratio": 0.0,
+                            "segment_reason_summary": "",
+                            "segment_contract_reason": "",
+                            "eligible_rows": eligible_rows,
+                            "row_diagnostics": {
+                                int(row.get("sample_index") or 0): {
+                                    "co2_source_segment_id": segment_id,
+                                    "co2_source_segment_reason": "",
+                                    "co2_source_segment_settle_excluded": False,
+                                }
+                                for row in eligible_rows
+                            },
                         }
-                        for row in list(phase_contract.get("eligible_rows") or [])
-                    },
+                    ],
+                    "rows_before_segment_gate": len(eligible_rows),
+                    "rows_after_segment_gate": len(eligible_rows),
+                    "segment_settle_excluded_count": 0,
+                    "segment_settle_excluded_ratio": 0.0,
+                    "segment_reason_summary": "",
                 }
 
-            candidate: Dict[str, Any] = {
-                "source": str(spec.get("source") or "primary"),
-                "source_priority": int(spec.get("priority") or 0),
-                "value_key": str(spec.get("value_key") or "co2_ppm"),
-                "rows_before_phase_gate": int(phase_contract.get("rows_before_phase_gate") or 0),
-                "rows_after_phase_gate": int(phase_contract.get("rows_after_phase_gate") or 0),
-                "co2_phase_excluded_count": int(phase_contract.get("phase_excluded_count") or 0),
-                "co2_phase_excluded_ratio": float(phase_contract.get("phase_excluded_ratio") or 0.0),
-                "co2_phase_reason_summary": str(phase_contract.get("phase_reason_summary") or ""),
-                "co2_phase_contract_reason": str(phase_contract.get("phase_contract_reason") or ""),
-                "rows_before_quarantine": int(quarantine.get("rows_before") or 0),
-                "rows_after_quarantine": int(quarantine.get("rows_after") or 0),
-                "co2_bad_frame_count": int(quarantine.get("hard_reject_count") or 0),
-                "co2_bad_frame_ratio": float(quarantine.get("hard_reject_ratio") or 0.0),
-                "co2_soft_warn_count": int(quarantine.get("soft_warn_count") or 0),
-                "co2_soft_warn_ratio": float(quarantine.get("soft_warn_ratio") or 0.0),
-                "co2_quarantine_reason_summary": ";".join(
-                    part
-                    for part in (
-                        f"hard={quarantine.get('hard_reject_reason_summary')}"
-                        if quarantine.get("hard_reject_reason_summary")
-                        else "",
-                        f"soft={quarantine.get('soft_warn_reason_summary')}"
-                        if quarantine.get("soft_warn_reason_summary")
-                        else "",
-                    )
-                    if part
-                ),
-                "phase_row_diagnostics": dict(phase_contract.get("row_diagnostics") or {}),
-                "row_diagnostics": dict(quarantine.get("row_diagnostics") or {}),
-                "series": list(quarantine.get("series") or []),
-                "trust_rank": 0,
-                "trust_status": "untrusted",
-                "trust_reason": "",
-                "has_steady_window": False,
-                "chosen_metrics": None,
-                "steady_window_candidate_count": 0,
-            }
-
-            series = list(candidate.get("series") or [])
-            if len(series) < min_samples:
-                candidate["trust_reason"] = ";".join(
-                    part
-                    for part in (
-                        str(candidate.get("co2_phase_contract_reason") or ""),
-                        f"rows_after_phase_gate={candidate.get('rows_after_phase_gate')}",
-                        f"rows_after_quarantine={len(series)}<min_samples={min_samples}",
-                    )
-                    if part
-                )
-                candidates.append(candidate)
-                continue
-
-            candidate_metrics: List[Dict[str, Any]] = []
-            for start_idx in range(len(series)):
-                for end_idx in range(start_idx + min_samples - 1, len(series)):
-                    metrics = self._co2_steady_state_window_metrics(
-                        series[start_idx : end_idx + 1],
-                        value_key=str(candidate.get("value_key") or "co2_ppm"),
-                        analyzer_source=str(candidate.get("source") or "primary"),
-                    )
-                    if self._co2_steady_state_window_failures(metrics, cfg=cfg):
-                        continue
-                    candidate_metrics.append(metrics)
-            if candidate_metrics:
-                chosen = max(candidate_metrics, key=self._co2_window_selection_key)
-                candidate["trust_rank"] = 2
-                candidate["trust_status"] = "steady"
-                candidate["trust_reason"] = ";".join(
-                    part
-                    for part in (
-                        str(candidate.get("co2_phase_contract_reason") or ""),
-                        f"steady_window_candidates={len(candidate_metrics)}",
-                        f"rows_after_quarantine={len(series)}",
-                    )
-                    if part
-                )
-                candidate["has_steady_window"] = True
-                candidate["chosen_metrics"] = chosen
-                candidate["steady_window_candidate_count"] = len(candidate_metrics)
-                candidates.append(candidate)
-                continue
-
-            fallback_series = series[-fallback_samples:] if fallback_samples > 0 else []
-            if not fallback_series:
-                candidate["trust_reason"] = f"rows_after_quarantine={len(series)}<fallback_samples={fallback_samples}"
-                candidates.append(candidate)
-                continue
-            fallback_metrics = self._co2_steady_state_window_metrics(
-                fallback_series,
-                value_key=str(candidate.get("value_key") or "co2_ppm"),
-                analyzer_source=str(candidate.get("source") or "primary"),
-            )
-            fallback_reasons = self._co2_steady_state_window_failures(fallback_metrics, cfg=cfg)
-            candidate["trust_rank"] = 1
-            candidate["trust_status"] = "fallback"
-            candidate["trust_reason"] = ";".join(
-                [
-                    *([str(candidate.get("co2_phase_contract_reason"))] if candidate.get("co2_phase_contract_reason") else []),
-                    "no_qualified_steady_state_window",
-                    *fallback_reasons,
-                    "fallback=trailing_window",
+            segments = list(segment_contract.get("segments") or [])
+            if not segments:
+                segments = [
+                    {
+                        "source": source_name,
+                        "segment_index": 0,
+                        "segment_id": f"{source_name}#0",
+                        "rows_before_segment_gate": int(phase_contract.get("rows_after_phase_gate") or 0),
+                        "rows_after_segment_gate": 0,
+                        "source_segment_rows": int(phase_contract.get("rows_after_phase_gate") or 0),
+                        "segment_settle_excluded_count": 0,
+                        "segment_settle_excluded_ratio": 0.0,
+                        "segment_reason_summary": str(segment_contract.get("segment_reason_summary") or ""),
+                        "segment_contract_reason": "no_segment_after_phase_gate",
+                        "eligible_rows": [],
+                        "row_diagnostics": {},
+                    }
                 ]
-            )
-            candidate["chosen_metrics"] = fallback_metrics
-            candidates.append(candidate)
+
+            for segment in segments:
+                segment_rows = list(segment.get("eligible_rows") or [])
+                if bool(cfg.get("bad_frame_quarantine_enabled")):
+                    quarantine = quarantine_co2_source_rows(
+                        segment_rows,
+                        hard_bad_status_tokens=list(quarantine_cfg.get("hard_bad_status_tokens") or []),
+                        soft_bad_status_tokens=list(quarantine_cfg.get("soft_bad_status_tokens") or []),
+                        invalid_sentinel_values=list(quarantine_cfg.get("invalid_sentinel_values") or []),
+                        invalid_sentinel_tolerance=float(quarantine_cfg.get("invalid_sentinel_tolerance") or 0.0),
+                        hard_bad_temp_values_c=list(quarantine_cfg.get("hard_bad_temp_values_c") or []),
+                        hard_bad_temp_value_tolerance_c=float(
+                            quarantine_cfg.get("hard_bad_temp_value_tolerance_c") or 0.05
+                        ),
+                        isolated_spike_delta_ppm=cfg.get("isolated_spike_delta_ppm"),
+                        isolated_neighbor_match_delta_ppm=cfg.get("neighbor_match_max_delta_ppm"),
+                    )
+                else:
+                    pass_through_series = [
+                        {
+                            "sample_index": int(row.get("sample_index") or 0),
+                            "sample_ts": row.get("sample_ts"),
+                            "value": row.get("value"),
+                        }
+                        for row in segment_rows
+                        if row.get("value") is not None and (row.get("usable") not in (False,))
+                    ]
+                    quarantine = {
+                        "series": pass_through_series,
+                        "rows_before": len(segment_rows),
+                        "rows_after": len(pass_through_series),
+                        "hard_reject_count": 0,
+                        "hard_reject_ratio": 0.0,
+                        "soft_warn_count": 0,
+                        "soft_warn_ratio": 0.0,
+                        "hard_reject_reason_summary": "",
+                        "soft_warn_reason_summary": "",
+                        "row_diagnostics": {
+                            int(row.get("sample_index") or 0): {
+                                "co2_bad_frame": False,
+                                "co2_bad_frame_reason": "",
+                                "co2_soft_warn": False,
+                                "co2_soft_warn_reason": "",
+                            }
+                            for row in segment_rows
+                        },
+                    }
+
+                candidate: Dict[str, Any] = {
+                    "source": source_name,
+                    "source_priority": int(spec.get("priority") or 0),
+                    "value_key": str(spec.get("value_key") or "co2_ppm"),
+                    "segment_id": str(segment.get("segment_id") or ""),
+                    "segment_index": int(segment.get("segment_index") or 0),
+                    "rows_before_phase_gate": int(phase_contract.get("rows_before_phase_gate") or 0),
+                    "rows_after_phase_gate": int(phase_contract.get("rows_after_phase_gate") or 0),
+                    "co2_phase_excluded_count": int(phase_contract.get("phase_excluded_count") or 0),
+                    "co2_phase_excluded_ratio": float(phase_contract.get("phase_excluded_ratio") or 0.0),
+                    "co2_phase_reason_summary": str(phase_contract.get("phase_reason_summary") or ""),
+                    "co2_phase_contract_reason": str(phase_contract.get("phase_contract_reason") or ""),
+                    "rows_before_segment_gate": int(segment.get("rows_before_segment_gate") or 0),
+                    "rows_after_segment_gate": int(segment.get("rows_after_segment_gate") or 0),
+                    "co2_source_segment_id": str(segment.get("segment_id") or ""),
+                    "co2_source_segment_rows": int(segment.get("source_segment_rows") or 0),
+                    "co2_source_segment_settle_excluded_count": int(segment.get("segment_settle_excluded_count") or 0),
+                    "co2_source_segment_settle_excluded_ratio": float(segment.get("segment_settle_excluded_ratio") or 0.0),
+                    "co2_source_segment_reason_summary": str(segment.get("segment_reason_summary") or ""),
+                    "co2_source_segment_contract_reason": str(segment.get("segment_contract_reason") or ""),
+                    "rows_before_quarantine": int(quarantine.get("rows_before") or 0),
+                    "rows_after_quarantine": int(quarantine.get("rows_after") or 0),
+                    "co2_bad_frame_count": int(quarantine.get("hard_reject_count") or 0),
+                    "co2_bad_frame_ratio": float(quarantine.get("hard_reject_ratio") or 0.0),
+                    "co2_soft_warn_count": int(quarantine.get("soft_warn_count") or 0),
+                    "co2_soft_warn_ratio": float(quarantine.get("soft_warn_ratio") or 0.0),
+                    "co2_quarantine_reason_summary": ";".join(
+                        part
+                        for part in (
+                            f"hard={quarantine.get('hard_reject_reason_summary')}"
+                            if quarantine.get("hard_reject_reason_summary")
+                            else "",
+                            f"soft={quarantine.get('soft_warn_reason_summary')}"
+                            if quarantine.get("soft_warn_reason_summary")
+                            else "",
+                        )
+                        if part
+                    ),
+                    "phase_row_diagnostics": dict(phase_contract.get("row_diagnostics") or {}),
+                    "segment_row_diagnostics": dict(segment.get("row_diagnostics") or {}),
+                    "row_diagnostics": dict(quarantine.get("row_diagnostics") or {}),
+                    "series": list(quarantine.get("series") or []),
+                    "trust_rank": 0,
+                    "trust_status": "untrusted",
+                    "trust_reason": "",
+                    "has_steady_window": False,
+                    "chosen_metrics": None,
+                    "steady_window_candidate_count": 0,
+                }
+
+                series = list(candidate.get("series") or [])
+                if len(series) < min_samples:
+                    candidate["trust_reason"] = ";".join(
+                        part
+                        for part in (
+                            str(candidate.get("co2_phase_contract_reason") or ""),
+                            str(candidate.get("co2_source_segment_contract_reason") or ""),
+                            f"rows_after_phase_gate={candidate.get('rows_after_phase_gate')}",
+                            f"rows_after_segment_gate={candidate.get('rows_after_segment_gate')}",
+                            f"rows_after_quarantine={len(series)}<min_samples={min_samples}",
+                        )
+                        if part
+                    )
+                    candidates.append(candidate)
+                    continue
+
+                candidate_metrics: List[Dict[str, Any]] = []
+                for start_idx in range(len(series)):
+                    for end_idx in range(start_idx + min_samples - 1, len(series)):
+                        metrics = self._co2_steady_state_window_metrics(
+                            series[start_idx : end_idx + 1],
+                            value_key=str(candidate.get("value_key") or "co2_ppm"),
+                            analyzer_source=str(candidate.get("source") or "primary"),
+                        )
+                        if self._co2_steady_state_window_failures(metrics, cfg=cfg):
+                            continue
+                        candidate_metrics.append(metrics)
+                if candidate_metrics:
+                    chosen = max(candidate_metrics, key=self._co2_window_selection_key)
+                    candidate["trust_rank"] = 2
+                    candidate["trust_status"] = "steady"
+                    candidate["trust_reason"] = ";".join(
+                        part
+                        for part in (
+                            str(candidate.get("co2_phase_contract_reason") or ""),
+                            str(candidate.get("co2_source_segment_contract_reason") or ""),
+                            f"steady_window_candidates={len(candidate_metrics)}",
+                            f"rows_after_segment_gate={candidate.get('rows_after_segment_gate')}",
+                            f"rows_after_quarantine={len(series)}",
+                        )
+                        if part
+                    )
+                    candidate["has_steady_window"] = True
+                    candidate["chosen_metrics"] = chosen
+                    candidate["steady_window_candidate_count"] = len(candidate_metrics)
+                    candidates.append(candidate)
+                    continue
+
+                fallback_series = series[-fallback_samples:] if fallback_samples > 0 else []
+                if not fallback_series:
+                    candidate["trust_reason"] = ";".join(
+                        part
+                        for part in (
+                            str(candidate.get("co2_source_segment_contract_reason") or ""),
+                            f"rows_after_quarantine={len(series)}<fallback_samples={fallback_samples}",
+                        )
+                        if part
+                    )
+                    candidates.append(candidate)
+                    continue
+                fallback_metrics = self._co2_steady_state_window_metrics(
+                    fallback_series,
+                    value_key=str(candidate.get("value_key") or "co2_ppm"),
+                    analyzer_source=str(candidate.get("source") or "primary"),
+                )
+                fallback_reasons = self._co2_steady_state_window_failures(fallback_metrics, cfg=cfg)
+                candidate["trust_rank"] = 1
+                candidate["trust_status"] = "fallback"
+                candidate["trust_reason"] = ";".join(
+                    [
+                        *([str(candidate.get("co2_phase_contract_reason"))] if candidate.get("co2_phase_contract_reason") else []),
+                        *([str(candidate.get("co2_source_segment_contract_reason"))] if candidate.get("co2_source_segment_contract_reason") else []),
+                        "no_qualified_steady_state_window",
+                        *fallback_reasons,
+                        "fallback=trailing_window",
+                    ]
+                )
+                candidate["chosen_metrics"] = fallback_metrics
+                candidates.append(candidate)
 
         result["co2_source_candidates"] = self._co2_source_candidates_summary(candidates)
         diagnostic_candidate = None
@@ -15638,6 +15804,7 @@ class CalibrationRunner:
             diagnostic_candidate = max(
                 candidates,
                 key=lambda item: (
+                    self._as_int(item.get("rows_after_segment_gate")) or 0,
                     self._as_int(item.get("rows_after_quarantine")) or 0,
                     -(self._as_float(item.get("co2_bad_frame_ratio")) or 0.0),
                     -(self._as_float(item.get("co2_soft_warn_ratio")) or 0.0),
@@ -15669,7 +15836,16 @@ class CalibrationRunner:
                         "co2_phase_contract_reason": diagnostic_candidate.get("co2_phase_contract_reason"),
                         "co2_candidate_rows_before_phase_gate": diagnostic_candidate.get("rows_before_phase_gate"),
                         "co2_candidate_rows_after_phase_gate": diagnostic_candidate.get("rows_after_phase_gate"),
+                        "co2_candidate_rows_before_segment_gate": diagnostic_candidate.get("rows_before_segment_gate"),
+                        "co2_candidate_rows_after_segment_gate": diagnostic_candidate.get("rows_after_segment_gate"),
                         "co2_candidate_rows_after_quarantine": diagnostic_candidate.get("rows_after_quarantine"),
+                        "co2_source_segment_id": diagnostic_candidate.get("co2_source_segment_id"),
+                        "co2_source_segment_rows": diagnostic_candidate.get("co2_source_segment_rows"),
+                        "co2_source_segment_selected": "",
+                        "co2_source_segment_settle_excluded_count": diagnostic_candidate.get("co2_source_segment_settle_excluded_count"),
+                        "co2_source_segment_settle_excluded_ratio": diagnostic_candidate.get("co2_source_segment_settle_excluded_ratio"),
+                        "co2_source_segment_reason_summary": diagnostic_candidate.get("co2_source_segment_reason_summary"),
+                        "co2_source_segment_contract_reason": diagnostic_candidate.get("co2_source_segment_contract_reason"),
                         "co2_rows_before_quarantine": diagnostic_candidate.get("rows_before_quarantine"),
                         "co2_rows_after_quarantine": diagnostic_candidate.get("rows_after_quarantine"),
                         "co2_quarantine_reason_summary": diagnostic_candidate.get("co2_quarantine_reason_summary"),
@@ -15679,14 +15855,25 @@ class CalibrationRunner:
                 samples,
                 diagnostic_candidate=diagnostic_candidate,
                 selected_source=None,
+                selected_segment_id=None,
             )
             self._set_point_runtime_fields(point, phase=phase, **result)
             return result
 
         selected = max(trusted_candidates, key=self._co2_candidate_selection_key)
-        primary_candidate = next(
-            (candidate for candidate in candidates if str(candidate.get("source") or "") == "primary"),
-            None,
+        primary_candidates = [candidate for candidate in candidates if str(candidate.get("source") or "") == "primary"]
+        primary_candidate = max(primary_candidates, key=self._co2_candidate_selection_key) if primary_candidates else None
+        latest_primary_candidate = (
+            max(
+                primary_candidates,
+                key=lambda item: (
+                    self._as_int(item.get("segment_index")) or 0,
+                    self._as_int(item.get("rows_after_segment_gate")) or 0,
+                    self._as_int(item.get("rows_after_quarantine")) or 0,
+                ),
+            )
+            if primary_candidates
+            else None
         )
         result.update(
             {
@@ -15700,7 +15887,16 @@ class CalibrationRunner:
                 "co2_phase_contract_reason": selected.get("co2_phase_contract_reason"),
                 "co2_candidate_rows_before_phase_gate": selected.get("rows_before_phase_gate"),
                 "co2_candidate_rows_after_phase_gate": selected.get("rows_after_phase_gate"),
+                "co2_candidate_rows_before_segment_gate": selected.get("rows_before_segment_gate"),
+                "co2_candidate_rows_after_segment_gate": selected.get("rows_after_segment_gate"),
                 "co2_candidate_rows_after_quarantine": selected.get("rows_after_quarantine"),
+                "co2_source_segment_id": selected.get("co2_source_segment_id"),
+                "co2_source_segment_rows": selected.get("co2_source_segment_rows"),
+                "co2_source_segment_selected": selected.get("segment_id"),
+                "co2_source_segment_settle_excluded_count": selected.get("co2_source_segment_settle_excluded_count"),
+                "co2_source_segment_settle_excluded_ratio": selected.get("co2_source_segment_settle_excluded_ratio"),
+                "co2_source_segment_reason_summary": selected.get("co2_source_segment_reason_summary"),
+                "co2_source_segment_contract_reason": selected.get("co2_source_segment_contract_reason"),
                 "co2_rows_before_quarantine": selected.get("rows_before_quarantine"),
                 "co2_rows_after_quarantine": selected.get("rows_after_quarantine"),
                 "co2_source_selected": selected.get("source"),
@@ -15708,11 +15904,12 @@ class CalibrationRunner:
                 "co2_source_trust_reason": str(selected.get("trust_reason") or ""),
             }
         )
-        if str(selected.get("source") or "") != "primary" and primary_candidate is not None:
+        if str(selected.get("source") or "") != "primary" and latest_primary_candidate is not None:
             result["co2_source_switch_reason"] = (
-                f"primary_lost_to={selected.get('source')};"
-                f"primary_status={primary_candidate.get('trust_status')};"
-                f"primary_reason={primary_candidate.get('trust_reason')}"
+                f"primary_lost_to={selected.get('source')}/{selected.get('segment_id')};"
+                f"primary_segment={latest_primary_candidate.get('segment_id')};"
+                f"primary_status={latest_primary_candidate.get('trust_status')};"
+                f"primary_reason={latest_primary_candidate.get('trust_reason')}"
             )
 
         chosen = dict(selected.get("chosen_metrics") or {})
@@ -15735,6 +15932,7 @@ class CalibrationRunner:
                     *fallback_reasons,
                     "fallback=trailing_window",
                     f"source={selected.get('source')}",
+                    f"segment={selected.get('segment_id')}",
                     f"policy={policy}",
                 ]
             )
@@ -15750,6 +15948,7 @@ class CalibrationRunner:
             samples,
             diagnostic_candidate=selected,
             selected_source=str(selected.get("source") or ""),
+            selected_segment_id=str(selected.get("segment_id") or ""),
             selected_metrics=chosen,
             selected_as_fallback=bool(int(selected.get("trust_rank") or 0) < 2),
         )
