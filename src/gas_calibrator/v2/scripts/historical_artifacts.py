@@ -30,6 +30,11 @@ from ..core.reviewer_surface_payloads import (
 )
 from ._cli_safety import build_step2_historical_cli_lines
 
+try:
+    from ..core.reviewer_summary_packs import build_compact_summary_render_context
+except ImportError:
+    build_compact_summary_render_context = None
+
 
 def create_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(

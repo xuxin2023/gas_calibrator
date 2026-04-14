@@ -98,6 +98,7 @@ from ..review_center_artifact_scope import (
     build_review_scope_manifest_payload,
     render_review_scope_manifest_markdown,
 )
+from ...core.reviewer_summary_packs import build_compact_summary_render_context
 from ..review_scope_export_index import (
     INDEX_FILENAME as REVIEW_SCOPE_EXPORT_INDEX_FILENAME,
     build_review_scope_batch_id,
@@ -1552,6 +1553,26 @@ class AppFacade:
         recognition_scope_rollup = dict(payload.get("recognition_scope_rollup", {}) or {})
         reindex_manifest = dict(payload.get("reindex_manifest", {}) or {})
 
+        # Compact summary pack — explicit consumption for review_center surface
+        _raw_packs = list(payload.get("compact_summary_packs") or [])
+        if _raw_packs:
+            try:
+                _pack_ctx = build_compact_summary_render_context(_raw_packs, surface="review_center")
+                compact_summary_packs = list(_pack_ctx.get("compact_summary_packs") or [])
+                compact_summary_sections = list(_pack_ctx.get("compact_summary_sections") or [])
+                compact_summary_order = list(_pack_ctx.get("compact_summary_order") or [])
+                compact_summary_budget = dict(_pack_ctx.get("compact_summary_budget") or {})
+            except Exception:
+                compact_summary_packs = []
+                compact_summary_sections = []
+                compact_summary_order = []
+                compact_summary_budget = {}
+        else:
+            compact_summary_packs = []
+            compact_summary_sections = []
+            compact_summary_order = []
+            compact_summary_budget = {}
+
         sample_count = 0
         point_summary_count = 0
         if isinstance(results, dict):
@@ -2606,6 +2627,10 @@ class AppFacade:
             "compatibility_rollup": compatibility_rollup,
             "recognition_scope_rollup": recognition_scope_rollup,
             "reindex_manifest": reindex_manifest,
+            "compact_summary_packs": compact_summary_packs,
+            "compact_summary_sections": compact_summary_sections,
+            "compact_summary_order": compact_summary_order,
+            "compact_summary_budget": compact_summary_budget,
             "review_digest": review_digest,
             "review_digest_text": str(review_digest.get("summary_text", "") or ""),
             "review_center": review_center,
