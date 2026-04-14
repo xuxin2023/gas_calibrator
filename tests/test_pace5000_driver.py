@@ -727,3 +727,63 @@ def test_pace5000_query_reads_second_line_after_echo_with_serial_device() -> Non
 def test_parse_bool_state_rejects_error_strings_with_numeric_tokens() -> None:
     for text in ("ERROR 1", "BAD 1", "COMMAND 1 FAILED", "STATE_1_ERROR"):
         assert pace5000.Pace5000._parse_bool_state(text) is None
+
+
+def test_set_output_enabled_verified_waits_for_output_off(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.writes = []
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.writes.append(data)
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            if cmd == ":OUTP:STAT?":
+                return ":OUTP:STAT 0"
+            return ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    assert dev.set_output_enabled_verified(False) == 0
+    assert any(":OUTP 0" in write for write in dev.ser.writes)
+
+
+def test_set_output_isolated_verified_maps_isolated_true_to_closed_path(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.writes = []
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.writes.append(data)
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            if cmd == ":OUTP:ISOL:STAT?":
+                return ":OUTP:ISOL:STAT 0"
+            return ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    assert dev.set_output_isolated_verified(True) == 0
+    assert any(":OUTP:ISOL:STAT 0" in write for write in dev.ser.writes)

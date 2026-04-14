@@ -95,7 +95,7 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["humidity_generator"]["activation_verify_cooling_min_delta_c"] == 0.5
     assert cfg["workflow"]["safe_stop"]["perform_attempts"] == 4
     assert cfg["workflow"]["safe_stop"]["retry_delay_s"] == 2.0
-    assert cfg["workflow"]["pressure"]["capture_then_hold_enabled"] is False
+    assert cfg["workflow"]["pressure"]["capture_then_hold_enabled"] is True
     assert cfg["workflow"]["pressure"]["disable_output_during_sampling"] is True
     assert cfg["workflow"]["pressure"]["atmosphere_hold_strategy"] == "legacy_hold_thread"
     assert cfg["workflow"]["pressure"]["continuous_atmosphere_hold"] is True
@@ -110,8 +110,8 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["pressure"]["transition_pressure_gauge_continuous_mode"] == "P4"
     assert cfg["workflow"]["pressure"]["transition_pressure_gauge_continuous_drain_s"] == 0.12
     assert cfg["workflow"]["pressure"]["transition_pressure_gauge_continuous_read_timeout_s"] == 0.02
-    assert cfg["workflow"]["pressure"]["post_stable_sample_delay_s"] == 5.0
-    assert cfg["workflow"]["pressure"]["co2_post_stable_sample_delay_s"] == 5.0
+    assert cfg["workflow"]["pressure"]["post_stable_sample_delay_s"] == 10.0
+    assert cfg["workflow"]["pressure"]["co2_post_stable_sample_delay_s"] == 10.0
     assert cfg["workflow"]["pressure"]["transition_trace_enabled"] is True
     assert cfg["workflow"]["pressure"]["transition_trace_poll_s"] == 0.5
     assert cfg["workflow"]["pressure"]["handoff_fast_enabled"] is False
@@ -188,7 +188,7 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["pressure"]["h2o_output_off_hold_s"] == 10.0
     assert cfg["workflow"]["pressure"]["co2_output_off_max_abs_drift_hpa"] == 0.25
     assert cfg["workflow"]["pressure"]["h2o_output_off_max_abs_drift_hpa"] == 0.40
-    assert cfg["workflow"]["pressure"]["adaptive_pressure_sampling_enabled"] is False
+    assert cfg["workflow"]["pressure"]["adaptive_pressure_sampling_enabled"] is True
     assert cfg["workflow"]["pressure"]["use_pressure_gauge_for_sampling_gate"] is True
     assert cfg["workflow"]["pressure"]["sampling_gate_poll_s"] == 0.5
     assert cfg["workflow"]["pressure"]["co2_sampling_gate_window_s"] == 8.0
@@ -204,7 +204,7 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["pressure"]["co2_postseal_dewpoint_span_c"] == 0.12
     assert cfg["workflow"]["pressure"]["co2_postseal_dewpoint_slope_c_per_s"] == 0.04
     assert cfg["workflow"]["pressure"]["co2_postseal_dewpoint_min_samples"] == 6
-    assert cfg["workflow"]["pressure"]["co2_postseal_rebound_guard_enabled"] is False
+    assert cfg["workflow"]["pressure"]["co2_postseal_rebound_guard_enabled"] is True
     assert cfg["workflow"]["pressure"]["co2_postseal_rebound_window_s"] == 8.0
     assert cfg["workflow"]["pressure"]["co2_postseal_rebound_min_rise_c"] == 0.12
     assert cfg["workflow"]["pressure"]["co2_postseal_physical_qc_enabled"] is True

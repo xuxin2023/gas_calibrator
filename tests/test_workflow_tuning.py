@@ -40,3 +40,19 @@ def test_post_h2o_zero_flush_tuning_default_matches_runtime_default() -> None:
     )
 
     assert spec.default == 900.0
+
+
+def test_post_stable_sample_delay_tuning_defaults_match_runtime_defaults() -> None:
+    general = next(
+        item
+        for item in WORKFLOW_TUNABLE_PARAMETERS
+        if item.path == "workflow.pressure.post_stable_sample_delay_s"
+    )
+    co2 = next(
+        item
+        for item in WORKFLOW_TUNABLE_PARAMETERS
+        if item.path == "workflow.pressure.co2_post_stable_sample_delay_s"
+    )
+
+    assert general.default == 10.0
+    assert co2.default == 10.0

@@ -183,6 +183,9 @@ class Pace5000:
     def set_output(self, on: bool) -> None:
         self.write(f":OUTP {1 if on else 0}")
 
+    def set_output_enabled(self, enabled: bool) -> None:
+        self.set_output(bool(enabled))
+
     def set_output_mode_active(self) -> None:
         self.write(":OUTP:MODE ACT")
 
@@ -219,6 +222,31 @@ class Pace5000:
             raise RuntimeError("NO_RESPONSE")
         return value
 
+    def verify_output_enabled(
+        self,
+        enabled: bool,
+        *,
+        timeout_s: float = 5.0,
+        poll_s: float = 0.1,
+    ) -> int:
+        return self._wait_for_int_state(
+            self.get_output_state,
+            1 if enabled else 0,
+            timeout_s=timeout_s,
+            poll_s=poll_s,
+            label="OUTPUT",
+        )
+
+    def set_output_enabled_verified(
+        self,
+        enabled: bool,
+        *,
+        timeout_s: float = 5.0,
+        poll_s: float = 0.1,
+    ) -> int:
+        self.set_output_enabled(enabled)
+        return self.verify_output_enabled(enabled, timeout_s=timeout_s, poll_s=poll_s)
+
     def get_isolation_state(self) -> int:
         resp = self.query(":OUTP:ISOL:STAT?")
         value = self._parse_first_int(resp)
@@ -228,6 +256,35 @@ class Pace5000:
 
     def set_isolation_open(self, is_open: bool) -> None:
         self.write(f":OUTP:ISOL:STAT {1 if is_open else 0}")
+
+    def set_output_isolated(self, isolated: bool) -> None:
+        # SCPI uses 1=open path, 0=closed/isolated.
+        self.set_isolation_open(not bool(isolated))
+
+    def verify_output_isolated(
+        self,
+        isolated: bool,
+        *,
+        timeout_s: float = 5.0,
+        poll_s: float = 0.1,
+    ) -> int:
+        return self._wait_for_int_state(
+            self.get_isolation_state,
+            0 if isolated else 1,
+            timeout_s=timeout_s,
+            poll_s=poll_s,
+            label="ISOLATION",
+        )
+
+    def set_output_isolated_verified(
+        self,
+        isolated: bool,
+        *,
+        timeout_s: float = 5.0,
+        poll_s: float = 0.1,
+    ) -> int:
+        self.set_output_isolated(isolated)
+        return self.verify_output_isolated(isolated, timeout_s=timeout_s, poll_s=poll_s)
 
     def set_setpoint(self, value_hpa: float) -> None:
         # Per SCPI manual, control setpoint is written via LEV:IMM:AMPL.

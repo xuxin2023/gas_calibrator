@@ -750,3 +750,32 @@ def test_run_flushes_deferred_exports_before_coefficients(monkeypatch, tmp_path:
         ("heavy_flush", "before coefficient fitting"),
     ]
     assert order[2] == ("coeff", "")
+
+
+def test_same_gas_pressure_step_handoff_does_not_emit_atmosphere_enter_or_route_reopen(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {},
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    current_point = _co2_point(1, 400.0, 1000.0)
+    next_point = _co2_point(2, 400.0, 800.0)
+    runner._last_sealed_pressure_route_context = {
+        "phase": "co2",
+        "route_signature": runner._route_signature_for_point(current_point, phase="co2"),
+        "point_row": current_point.index,
+    }
+
+    mode = runner._prepare_sampling_handoff_mode(next_point, phase="co2")
+    logger.close()
+
+    assert mode == "same_gas_pressure_step_handoff"
+    trace_rows = _load_pressure_trace_rows(logger)
+    selected_rows = [row for row in trace_rows if row["trace_stage"] == "handoff_mode_selected"]
+    assert len(selected_rows) == 1
+    assert selected_rows[0]["handoff_mode"] == "same_gas_pressure_step_handoff"
+    assert not any(row["trace_stage"] == "atmosphere_enter_begin" for row in trace_rows)
+    assert not any(row["trace_stage"] == "route_open" for row in trace_rows)

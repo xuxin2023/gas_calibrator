@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 from gas_calibrator.data.points import CalibrationPoint
@@ -71,6 +72,18 @@ def _co2_point() -> CalibrationPoint:
     )
 
 
+def _prime_sealed_runtime(runner: CalibrationRunner, point: CalibrationPoint, *, phase: str = "co2") -> None:
+    now = time.time()
+    runner._set_point_runtime_fields(
+        point,
+        phase=phase,
+        timing_stages={
+            "route_sealed": now - 2.0,
+            "pressure_in_limits": now - 1.0,
+        },
+    )
+
+
 def test_adaptive_pressure_sampling_flag_off_keeps_old_wait_path(tmp_path: Path) -> None:
     logs = []
     logger = RunLogger(tmp_path)
@@ -81,11 +94,14 @@ def test_adaptive_pressure_sampling_flag_off_keeps_old_wait_path(tmp_path: Path)
         logs.append,
         lambda *_: None,
     )
-    runner._wait_pressure_and_primary_sensor_ready = lambda point: (_ for _ in ()).throw(
-        AssertionError("adaptive gate should not run when feature flag is disabled")
-    )
+    point = _co2_point()
+    _prime_sealed_runtime(runner, point)
+    runner._set_pressure_controller_sampling_isolation = lambda _point, **_kwargs: True
+    runner._wait_sampling_pressure_gate = lambda _point, **_kwargs: True
+    runner._wait_postseal_dewpoint_gate = lambda _point, **_kwargs: True
+    runner._wait_co2_presample_long_guard = lambda _point, **_kwargs: True
 
-    assert runner._wait_after_pressure_stable_before_sampling(_co2_point()) is True
+    assert runner._wait_after_pressure_stable_before_sampling(point) is True
     logger.close()
 
 
@@ -108,12 +124,17 @@ def test_wait_after_pressure_stable_uses_adaptive_gate_when_enabled(tmp_path: Pa
         lambda *_: None,
     )
     calls = {"count": 0}
-    runner._wait_pressure_and_primary_sensor_ready = lambda point: calls.__setitem__("count", calls["count"] + 1) or True
+    point = _co2_point()
+    _prime_sealed_runtime(runner, point)
+    runner._set_pressure_controller_sampling_isolation = lambda _point, **_kwargs: True
+    runner._wait_sampling_pressure_gate = lambda _point, **_kwargs: calls.__setitem__("count", calls["count"] + 1) or True
+    runner._wait_postseal_dewpoint_gate = lambda _point, **_kwargs: True
+    runner._wait_co2_presample_long_guard = lambda _point, **_kwargs: True
     runner._set_pressure_to_target = lambda point, recovery_attempted=False: (_ for _ in ()).throw(
         AssertionError("adaptive wait path should not re-capture pressure here")
     )
 
-    assert runner._wait_after_pressure_stable_before_sampling(_co2_point()) is True
+    assert runner._wait_after_pressure_stable_before_sampling(point) is True
     logger.close()
 
     assert calls["count"] == 1
@@ -215,12 +236,17 @@ def test_adaptive_mode_does_not_reapply_setpoint_in_wait_path(tmp_path: Path) ->
         lambda *_: None,
     )
     recaptures = {"count": 0}
+    point = _co2_point()
+    _prime_sealed_runtime(runner, point)
     runner._set_pressure_to_target = lambda point, recovery_attempted=False: recaptures.__setitem__(
         "count", recaptures["count"] + 1
     ) or True
-    runner._wait_pressure_and_primary_sensor_ready = lambda point: True
+    runner._set_pressure_controller_sampling_isolation = lambda _point, **_kwargs: True
+    runner._wait_sampling_pressure_gate = lambda _point, **_kwargs: True
+    runner._wait_postseal_dewpoint_gate = lambda _point, **_kwargs: True
+    runner._wait_co2_presample_long_guard = lambda _point, **_kwargs: True
 
-    assert runner._wait_after_pressure_stable_before_sampling(_co2_point()) is True
+    assert runner._wait_after_pressure_stable_before_sampling(point) is True
     logger.close()
 
     assert recaptures["count"] == 0
