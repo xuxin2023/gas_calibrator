@@ -20,7 +20,7 @@ from typing import Any
 # ---------------------------------------------------------------------------
 # Version
 # ---------------------------------------------------------------------------
-COMPACT_SUMMARY_BUDGET_VERSION: str = "2.13.0"
+COMPACT_SUMMARY_BUDGET_VERSION: str = "2.14.0"
 
 # ---------------------------------------------------------------------------
 # Surface default budgets — max compact summary lines per surface
@@ -158,4 +158,54 @@ def apply_surface_budget(
         "surface": surface,
         "budget": budget,
         "used": len(must_retain) + len(optional_expand),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Surface render result — unified render output for a surface
+# ---------------------------------------------------------------------------
+
+def build_surface_render_result(
+    packs: list[dict[str, Any]],
+    *,
+    surface: str,
+    budget: int | None = None,
+    lang: str = "zh",
+) -> dict[str, Any]:
+    """Build a unified render result for compact summary packs on a given surface.
+
+    Combines apply_surface_budget with line assembly and truncation hint,
+    producing a ready-to-use rendered_lines list plus diagnostic metadata.
+
+    Args:
+        packs: List of pack dicts, each with summary_key, priority, summary_lines.
+        surface: Surface name (e.g. "results_gateway").
+        budget: Override budget. If None, uses SURFACE_DEFAULT_BUDGETS[surface].
+        lang: "zh" (default) or "en".
+
+    Returns:
+        Dict with:
+        - rendered_lines: list[str] — all lines to display (must_retain + optional_expand + truncation hint)
+        - must_retain, optional_expand, truncated, truncated_count, truncated_pack_keys
+        - surface, budget, used
+        - pack_order: list[str] — summary_key in display order
+    """
+    budget_result = apply_surface_budget(packs, surface=surface, budget=budget)
+    rendered_lines = list(budget_result["must_retain"]) + list(budget_result["optional_expand"])
+    if budget_result["truncated_count"] > 0:
+        rendered_lines.append(build_truncation_hint_line(budget_result["truncated_count"], lang=lang))
+    # Deterministic pack order
+    sorted_packs = sorted(packs, key=lambda p: (p.get("priority", 99), p.get("summary_key", "")))
+    pack_order = [p["summary_key"] for p in sorted_packs]
+    return {
+        "rendered_lines": rendered_lines,
+        "must_retain": budget_result["must_retain"],
+        "optional_expand": budget_result["optional_expand"],
+        "truncated": budget_result["truncated"],
+        "truncated_count": budget_result["truncated_count"],
+        "truncated_pack_keys": budget_result["truncated_pack_keys"],
+        "surface": budget_result["surface"],
+        "budget": budget_result["budget"],
+        "used": budget_result["used"],
+        "pack_order": pack_order,
     }

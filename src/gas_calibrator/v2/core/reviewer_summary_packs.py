@@ -27,6 +27,7 @@ from .reviewer_summary_builders import (
     build_governance_handoff_compact_summary,
     build_parity_resilience_compact_summary,
 )
+from .compact_summary_budget import apply_surface_budget
 from .phase_evidence_display_contracts import (
     PHASE_EVIDENCE_STEP2_BOUNDARY,
 )
@@ -34,7 +35,7 @@ from .phase_evidence_display_contracts import (
 # ---------------------------------------------------------------------------
 # Version
 # ---------------------------------------------------------------------------
-REVIEWER_SUMMARY_PACKS_VERSION: str = "2.13.0"
+REVIEWER_SUMMARY_PACKS_VERSION: str = "2.14.0"
 
 # ---------------------------------------------------------------------------
 # Pack summary keys — the 6 compact summary domains
@@ -106,6 +107,67 @@ PACK_SURFACE_BUDGET_HINT: dict[str, dict[str, int]] = {
     "governance_handoff": {"results_gateway": 4, "review_center": 4, "historical": 3},
     "parity_resilience": {"results_gateway": 4, "review_center": 4, "historical": 3},
 }
+
+
+# ---------------------------------------------------------------------------
+# Pack sorting — deterministic ordering by (priority ASC, summary_key ASC)
+# ---------------------------------------------------------------------------
+
+def sort_packs_by_priority(packs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Sort compact summary packs by (priority ASC, summary_key ASC).
+
+    Returns a new list; does not modify the input list.
+    Deterministic: same input always produces same output.
+    """
+    return sorted(packs, key=lambda p: (p.get("priority", 99), p.get("summary_key", "")))
+
+
+# ---------------------------------------------------------------------------
+# Render context — unified context for downstream surface consumption
+# ---------------------------------------------------------------------------
+
+def build_compact_summary_render_context(
+    packs: list[dict[str, Any]],
+    *,
+    surface: str,
+    budget: int | None = None,
+    lang: str = "zh",
+) -> dict[str, Any]:
+    """Build a unified render context for compact summary packs on a given surface.
+
+    This is the primary entry point for downstream consumers (app_facade,
+    historical_artifacts, review_center_artifact_scope) to consume
+    compact_summary_packs with deterministic ordering and budget governance.
+
+    Args:
+        packs: List of pack dicts from compact_summary_packs.
+        surface: Surface name (e.g. "review_center", "historical").
+        budget: Override budget. If None, uses SURFACE_DEFAULT_BUDGETS[surface].
+        lang: "zh" (default) or "en".
+
+    Returns:
+        Dict with:
+        - compact_summary_packs: sorted packs
+        - compact_summary_sections: alias for compact_summary_packs (compat)
+        - compact_summary_order: list of summary_key in display order
+        - compact_summary_budget: budget usage summary dict
+    """
+    sorted_packs = sort_packs_by_priority(packs)
+    budget_result = apply_surface_budget(sorted_packs, surface=surface, budget=budget)
+    compact_summary_order = [p["summary_key"] for p in sorted_packs]
+    compact_summary_budget = {
+        "total_lines": budget_result["used"] + budget_result["truncated_count"],
+        "pack_count": len(sorted_packs),
+        "used": budget_result["used"],
+        "budget": budget_result["budget"],
+        "truncated_count": budget_result["truncated_count"],
+    }
+    return {
+        "compact_summary_packs": sorted_packs,
+        "compact_summary_sections": sorted_packs,
+        "compact_summary_order": compact_summary_order,
+        "compact_summary_budget": compact_summary_budget,
+    }
 
 
 # ---------------------------------------------------------------------------
