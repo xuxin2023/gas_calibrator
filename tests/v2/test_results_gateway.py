@@ -1454,12 +1454,12 @@ class TestResultsGatewayCompactSummaryBudget:
 
     def test_compact_summary_packs_in_read_results_payload(self):
         """read_results_payload must include compact_summary_packs field."""
-        facade = build_fake_facade()
-        # Use a real run dir if available, otherwise skip
-        run_dirs = list(facade._run_roots) if hasattr(facade, '_run_roots') else []
-        if not run_dirs:
-            pytest.skip("No run dirs available for integration test")
-        # This test verifies the field exists in the payload structure
-        # The actual content depends on run data
+        # Verify the pack structure is available and correct
         from gas_calibrator.v2.core.reviewer_summary_packs import PACK_SUMMARY_KEYS
         assert "v12_alignment" in PACK_SUMMARY_KEYS
+        # Verify _build_compact_summary_packs produces valid packs
+        packs = ResultsGateway._build_compact_summary_packs()
+        assert isinstance(packs, list)
+        for pack in packs:
+            assert "summary_key" in pack
+            assert "summary_lines" in pack
