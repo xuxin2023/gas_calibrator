@@ -115,3 +115,34 @@ def test_run_v1_co2_weighted_fit_advisory_delegates_arguments(monkeypatch) -> No
         "--output-dir",
         r"D:\logs\fit_out",
     ]
+
+
+def test_run_v1_co2_fit_stability_audit_delegates_arguments(monkeypatch) -> None:
+    module = _load_module(
+        "test_run_v1_co2_fit_stability_audit_entry",
+        "run_v1_co2_fit_stability_audit.py",
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_main(argv):
+        captured["argv"] = list(argv)
+        return 0
+
+    monkeypatch.setattr(module, "run_sidecar", _fake_main)
+
+    result = module.main(
+        [
+            "--weighted-fit-summary-json",
+            r"D:\logs\weighted_fit_summary.json",
+            "--output-dir",
+            r"D:\logs\stability_out",
+        ]
+    )
+
+    assert result == 0
+    assert captured["argv"] == [
+        "--weighted-fit-summary-json",
+        r"D:\logs\weighted_fit_summary.json",
+        "--output-dir",
+        r"D:\logs\stability_out",
+    ]
