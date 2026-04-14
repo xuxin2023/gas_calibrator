@@ -239,3 +239,34 @@ def test_run_v1_co2_sampling_settle_evidence_delegates_arguments(monkeypatch) ->
         "--output-dir",
         r"D:\logs\sampling_settle_out",
     ]
+
+
+def test_run_v1_co2_release_readiness_bundle_delegates_arguments(monkeypatch) -> None:
+    module = _load_module(
+        "test_run_v1_co2_release_readiness_bundle_entry",
+        "run_v1_co2_release_readiness_bundle.py",
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_main(argv):
+        captured["argv"] = list(argv)
+        return 0
+
+    monkeypatch.setattr(module, "run_sidecar", _fake_main)
+
+    result = module.main(
+        [
+            "--run-dir",
+            r"D:\logs\run_20260414_130000",
+            "--output-dir",
+            r"D:\logs\release_readiness_out",
+        ]
+    )
+
+    assert result == 0
+    assert captured["argv"] == [
+        "--run-dir",
+        r"D:\logs\run_20260414_130000",
+        "--output-dir",
+        r"D:\logs\release_readiness_out",
+    ]
