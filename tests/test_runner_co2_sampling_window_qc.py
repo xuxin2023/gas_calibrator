@@ -828,6 +828,24 @@ def test_evaluate_co2_steady_state_window_qc_keeps_clean_data_equal_to_hardened_
     assert current["co2_large_gap_count"] == 0
     assert pytest.approx(float(current["co2_effective_dwell_seconds"]), abs=1e-9) == 5.0
     assert pytest.approx(float(current["co2_cadence_coverage_ratio"]), abs=1e-9) == 1.0
+    assert current["co2_decision_waterfall_status"] == "pass"
+    assert current["co2_decision_stage_count"] == 6
+    assert (
+        current["co2_decision_selected_stage_path"]
+        == "phase:pass>source_segment:pass>temporal:pass>quarantine:pass>source_trust:pass>steady_state:pass"
+    )
+    lineage = current["co2_decision_lineage"]
+    assert lineage["selected_source"] == "primary"
+    assert lineage["selected_segment"].startswith("primary#")
+    assert [stage["stage_name"] for stage in lineage["stages"]] == [
+        "phase",
+        "source_segment",
+        "temporal",
+        "quarantine",
+        "source_trust",
+        "steady_state",
+    ]
+    assert {stage["status"] for stage in lineage["stages"]} == {"pass"}
 
 
 def test_evaluate_co2_steady_state_window_qc_temporal_contract_rejects_timestamp_rollback(
@@ -882,6 +900,19 @@ def test_evaluate_co2_steady_state_window_qc_temporal_contract_rejects_timestamp
     assert result["measured_value_source"] == "co2_no_trusted_source"
     assert result["co2_representative_value"] is None
     assert "effective_dwell_seconds=3.000<min_effective_dwell_seconds=4.000" in result["co2_temporal_contract_reason"]
+    assert result["co2_decision_waterfall_status"] == "fail"
+    assert "source_trust=no_trusted_source_after_quarantine" in result["co2_decision_waterfall_reason"]
+    assert "steady_state=no_trusted_source_after_quarantine;policy=warn;co2_no_trusted_source" in result[
+        "co2_decision_waterfall_reason"
+    ]
+    lineage = result["co2_decision_lineage"]
+    temporal_stage = next(stage for stage in lineage["stages"] if stage["stage_name"] == "temporal")
+    assert temporal_stage["status"] == "fail"
+    assert "timestamp_rollback" in temporal_stage["reason_summary"]
+    assert "effective_dwell_seconds=3.000<min_effective_dwell_seconds=4.000" in temporal_stage["reason_summary"]
+    source_stage = next(stage for stage in lineage["stages"] if stage["stage_name"] == "source_trust")
+    assert source_stage["status"] == "fail"
+    assert source_stage["reason_summary"] == "no_trusted_source_after_quarantine"
 
 
 def test_evaluate_co2_steady_state_window_qc_temporal_contract_rejects_large_gap_sparse_dwell(
@@ -1039,6 +1070,16 @@ def test_evaluate_co2_steady_state_window_qc_temporal_contract_can_fail_short_pr
     assert "rows_after_segment_gate=3<min_rows_after_segment_gate=4" in result["co2_source_switch_reason"]
     assert "effective_dwell_seconds=2.000<min_effective_dwell_seconds=4.000" in result["co2_source_switch_reason"]
     assert pytest.approx(result["co2_representative_value"], abs=1e-6) == 620.0125
+    assert result["co2_decision_waterfall_status"] == "warn"
+    assert "source_trust=primary_lost_to=ga02/ga02#1" in result["co2_decision_waterfall_reason"]
+    lineage = result["co2_decision_lineage"]
+    assert lineage["selected_source"] == "ga02"
+    assert lineage["selected_segment"] == "ga02#1"
+    source_stage = next(stage for stage in lineage["stages"] if stage["stage_name"] == "source_trust")
+    assert source_stage["status"] == "warn"
+    assert "primary_lost_to=ga02/ga02#1" in source_stage["reason_summary"]
+    assert "primary_segment=primary#1" in source_stage["reason_summary"]
+    assert "effective_dwell_seconds=2.000<min_effective_dwell_seconds=4.000" in source_stage["reason_summary"]
 
 
 def test_evaluate_co2_steady_state_window_qc_falls_back_to_next_usable_source(tmp_path: Path) -> None:
@@ -1216,6 +1257,12 @@ def test_sample_and_log_does_not_silently_emit_value_when_all_sources_untrusted(
     assert row[_field_label("measured_value_source")] == "co2_no_trusted_source"
     assert row[_field_label("co2_steady_window_reason")] == "no_trusted_source_after_quarantine;policy=warn"
     assert row[_field_label("co2_source_selected")] == ""
+    assert row[_field_label("co2_decision_waterfall_status")] == "fail"
+    assert row[_field_label("co2_decision_stage_count")] == "6"
+    assert "source_trust=no_trusted_source_after_quarantine" in row[_field_label("co2_decision_waterfall_reason")]
+    assert "source_trust:fail" in row[_field_label("co2_decision_selected_stage_path")]
+    assert "steady_state:warn" in row[_field_label("co2_decision_selected_stage_path")]
+    assert "source_trust[fail" in row[_field_label("co2_decision_stage_summary")]
     assert row[_field_label("point_quality_status")] == "warn"
 
     with logger.samples_path.open("r", encoding="utf-8", newline="") as handle:
@@ -1384,9 +1431,15 @@ def test_sample_and_log_exports_source_segment_contract_fields(tmp_path: Path) -
     assert point_row[_field_label("co2_temporal_contract_status")] == "pass"
     assert point_row[_field_label("co2_source_segment_selected")] == "ga02#1"
     assert point_row[_field_label("co2_source_selected")] == "ga02"
+    assert point_row[_field_label("co2_decision_waterfall_status")] == "warn"
+    assert point_row[_field_label("co2_decision_stage_count")] == "6"
+    assert "source_trust:warn" in point_row[_field_label("co2_decision_selected_stage_path")]
+    assert "source_trust[warn" in point_row[_field_label("co2_decision_stage_summary")]
     assert sample_rows[0][_field_label("co2_source_segment_id")] == "ga02#1"
     assert sample_rows[0][_field_label("co2_source_segment_selected")] == "ga02#1"
     assert sample_rows[0][_field_label("co2_temporal_excluded")] == "False"
+    assert _field_label("co2_decision_waterfall_status") == "气路决策瀑布结果"
+    assert _field_label("co2_decision_selected_stage_path") == "气路决策阶段路径"
     assert _field_label("co2_source_segment_id") == "气路来源分段ID"
     assert _field_label("co2_temporal_contract_status") == "气路时间契约结果"
 
