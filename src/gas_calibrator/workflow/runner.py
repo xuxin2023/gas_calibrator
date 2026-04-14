@@ -39,6 +39,7 @@ from ..validation.dewpoint_flush_gate import (
 from .co2_bad_frame_qc import quarantine_co2_source_rows
 from .co2_sampling_contract import apply_co2_phase_sampling_contract
 from .co2_source_segment_contract import build_co2_source_segments
+from .co2_temporal_contract import apply_co2_temporal_sampling_contract
 from .tuning import workflow_param
 
 
@@ -2716,7 +2717,19 @@ class CalibrationRunner:
             "co2_candidate_rows_after_phase_gate",
             "co2_candidate_rows_before_segment_gate",
             "co2_candidate_rows_after_segment_gate",
+            "co2_temporal_candidate_rows_before_gate",
+            "co2_temporal_candidate_rows_after_gate",
             "co2_candidate_rows_after_quarantine",
+            "co2_timestamp_monotonic",
+            "co2_duplicate_timestamp_count",
+            "co2_backward_timestamp_count",
+            "co2_large_gap_count",
+            "co2_effective_dwell_seconds",
+            "co2_nominal_dt_seconds",
+            "co2_cadence_coverage_ratio",
+            "co2_temporal_contract_status",
+            "co2_temporal_contract_reason",
+            "co2_temporal_fallback_reason",
             "co2_source_segment_id",
             "co2_source_segment_rows",
             "co2_source_segment_selected",
@@ -14025,7 +14038,19 @@ class CalibrationRunner:
             "co2_candidate_rows_after_phase_gate": runtime_state.get("co2_candidate_rows_after_phase_gate"),
             "co2_candidate_rows_before_segment_gate": runtime_state.get("co2_candidate_rows_before_segment_gate"),
             "co2_candidate_rows_after_segment_gate": runtime_state.get("co2_candidate_rows_after_segment_gate"),
+            "co2_temporal_candidate_rows_before_gate": runtime_state.get("co2_temporal_candidate_rows_before_gate"),
+            "co2_temporal_candidate_rows_after_gate": runtime_state.get("co2_temporal_candidate_rows_after_gate"),
             "co2_candidate_rows_after_quarantine": runtime_state.get("co2_candidate_rows_after_quarantine"),
+            "co2_timestamp_monotonic": runtime_state.get("co2_timestamp_monotonic"),
+            "co2_duplicate_timestamp_count": runtime_state.get("co2_duplicate_timestamp_count"),
+            "co2_backward_timestamp_count": runtime_state.get("co2_backward_timestamp_count"),
+            "co2_large_gap_count": runtime_state.get("co2_large_gap_count"),
+            "co2_effective_dwell_seconds": runtime_state.get("co2_effective_dwell_seconds"),
+            "co2_nominal_dt_seconds": runtime_state.get("co2_nominal_dt_seconds"),
+            "co2_cadence_coverage_ratio": runtime_state.get("co2_cadence_coverage_ratio"),
+            "co2_temporal_contract_status": runtime_state.get("co2_temporal_contract_status"),
+            "co2_temporal_contract_reason": runtime_state.get("co2_temporal_contract_reason"),
+            "co2_temporal_fallback_reason": runtime_state.get("co2_temporal_fallback_reason"),
             "co2_source_segment_id": runtime_state.get("co2_source_segment_id"),
             "co2_source_segment_rows": runtime_state.get("co2_source_segment_rows"),
             "co2_source_segment_selected": runtime_state.get("co2_source_segment_selected"),
@@ -14895,11 +14920,19 @@ class CalibrationRunner:
 
     def _co2_steady_state_qc_cfg(self) -> Dict[str, Any]:
         qcfg = self.cfg.get("workflow", {}).get("sampling", {}).get("quality", {})
+        sampling_cfg = self.cfg.get("workflow", {}).get("sampling", {})
         min_samples = self._as_int(qcfg.get("co2_steady_state_min_samples"))
         fallback_samples = self._as_int(qcfg.get("co2_steady_state_fallback_samples"))
         quality_enabled = bool(qcfg.get("enabled", True))
         max_range_ppm = float(qcfg.get("co2_steady_state_max_range_ppm", 8.0) or 8.0)
         spike_delta_ppm = self._as_float(qcfg.get("co2_bad_frame_isolated_spike_delta_ppm", 50.0))
+        cadence_interval_s = float(
+            sampling_cfg.get("co2_interval_s", sampling_cfg.get("interval_s", 1.0)) or 1.0
+        )
+        default_min_dwell_s = max(
+            0.0,
+            cadence_interval_s * max((min_samples if min_samples is not None else 4) - 1, 0),
+        )
         return {
             "enabled": bool(qcfg.get("co2_steady_state_enabled", quality_enabled)),
             "policy": self._normalized_policy(
@@ -14941,6 +14974,33 @@ class CalibrationRunner:
             "source_segment_min_settle_seconds": max(
                 0.0,
                 float(qcfg.get("co2_source_segment_min_settle_seconds", 0.0) or 0.0),
+            ),
+            "temporal_contract_enabled": bool(
+                qcfg.get("co2_temporal_contract_enabled", quality_enabled)
+            ),
+            "temporal_max_gap_factor": max(
+                1.0,
+                float(qcfg.get("co2_temporal_max_gap_factor", 3.0) or 3.0),
+            ),
+            "temporal_min_effective_dwell_seconds": max(
+                0.0,
+                float(
+                    qcfg.get(
+                        "co2_temporal_min_effective_dwell_seconds",
+                        default_min_dwell_s,
+                    )
+                    or 0.0
+                ),
+            ),
+            "temporal_min_cadence_coverage_ratio": max(
+                0.0,
+                min(
+                    1.0,
+                    float(qcfg.get("co2_temporal_min_cadence_coverage_ratio", 0.75) or 0.75),
+                ),
+            ),
+            "temporal_allow_row_fallback_without_timestamp": bool(
+                qcfg.get("co2_temporal_allow_row_fallback_without_timestamp", True)
             ),
             "phase_head_step_max_delta_ppm": max(
                 float(max_range_ppm) * 4.0,
@@ -15323,10 +15383,12 @@ class CalibrationRunner:
             ts = self._sample_row_wall_ts(row, key="sample_end_ts")
             if ts is None:
                 ts = self._sample_row_wall_ts(row, key="sample_ts")
+            ts_present = ts is not None
             rows.append(
                 {
                     "sample_index": row_idx + 1,
                     "sample_ts": float(row_idx) if ts is None else ts,
+                    "sample_ts_present": bool(ts_present),
                     "value": self._to_numeric_for_mean(row.get(str(spec.get("value_key") or ""))),
                     "usable": row.get(str(spec.get("usable_flag_key") or "")),
                     "frame_status": row.get(str(spec.get("status_key") or "")),
@@ -15345,7 +15407,9 @@ class CalibrationRunner:
                 source_label = f"{source_label}/{segment_id}"
             parts.append(
                 f"{source_label}[trust={candidate.get('trust_status')},"
+                f"temporal={candidate.get('co2_temporal_contract_status')},"
                 f"segment_rows={candidate.get('rows_after_segment_gate')}/{candidate.get('rows_before_segment_gate')},"
+                f"temporal_rows={candidate.get('rows_after_temporal_gate')}/{candidate.get('rows_before_temporal_gate')},"
                 f"rows={candidate.get('rows_after_quarantine')}/{candidate.get('rows_before_quarantine')},"
                 f"hard={candidate.get('co2_bad_frame_count')},soft={candidate.get('co2_soft_warn_count')},"
                 f"steady={1 if candidate.get('has_steady_window') else 0}]"
@@ -15366,6 +15430,7 @@ class CalibrationRunner:
         return (
             int(candidate.get("trust_rank") or 0),
             *self._co2_window_selection_key(chosen),
+            self._as_int(candidate.get("rows_after_temporal_gate")) or 0,
             self._as_int(candidate.get("rows_after_segment_gate")) or 0,
             self._as_int(candidate.get("rows_after_quarantine")) or 0,
             -(self._as_float(candidate.get("co2_bad_frame_ratio")) or 0.0),
@@ -15388,6 +15453,7 @@ class CalibrationRunner:
         row_diagnostics = dict(candidate.get("row_diagnostics") or {})
         phase_row_diagnostics = dict(candidate.get("phase_row_diagnostics") or {})
         segment_row_diagnostics = dict(candidate.get("segment_row_diagnostics") or {})
+        temporal_row_diagnostics = dict(candidate.get("temporal_row_diagnostics") or {})
         candidate_source = str(candidate.get("source") or "")
         selected_indices: set[int] = set()
         start_idx = self._as_int((selected_metrics or {}).get("co2_steady_window_start_sample_index"))
@@ -15400,6 +15466,7 @@ class CalibrationRunner:
             diag = dict(row_diagnostics.get(sample_index) or {})
             phase_diag = dict(phase_row_diagnostics.get(sample_index) or {})
             segment_diag = dict(segment_row_diagnostics.get(sample_index) or {})
+            temporal_diag = dict(temporal_row_diagnostics.get(sample_index) or {})
             row["co2_source_candidate"] = candidate_source
             row["co2_source_selected_for_value"] = str(selected_source or "")
             row["co2_source_segment_id"] = str(segment_diag.get("co2_source_segment_id") or "")
@@ -15412,6 +15479,8 @@ class CalibrationRunner:
                 segment_diag.get("co2_source_segment_settle_excluded")
             )
             row["co2_source_segment_reason"] = str(segment_diag.get("co2_source_segment_reason") or "")
+            row["co2_temporal_excluded"] = bool(temporal_diag.get("co2_temporal_excluded"))
+            row["co2_temporal_reason"] = str(temporal_diag.get("co2_temporal_reason") or "")
             row["co2_bad_frame"] = bool(diag.get("co2_bad_frame"))
             row["co2_bad_frame_reason"] = str(diag.get("co2_bad_frame_reason") or "")
             row["co2_soft_warn"] = bool(diag.get("co2_soft_warn"))
@@ -15419,6 +15488,8 @@ class CalibrationRunner:
             phase_label = str(phase_diag.get("co2_phase_label") or "")
             if sample_index in selected_indices:
                 phase_label = selected_label
+            elif row["co2_temporal_excluded"] and phase_label == "acquisition_candidate":
+                phase_label = "transition_excluded"
             elif row["co2_source_segment_settle_excluded"] and phase_label == "acquisition_candidate":
                 phase_label = "transition_excluded"
             elif row["co2_bad_frame"]:
@@ -15429,6 +15500,7 @@ class CalibrationRunner:
             phase_reason_parts = [
                 str(phase_diag.get("co2_phase_reason") or "").strip(),
                 str(segment_diag.get("co2_source_segment_reason") or "").strip(),
+                str(temporal_diag.get("co2_temporal_reason") or "").strip(),
             ]
             row["co2_phase_reason"] = ";".join(part for part in phase_reason_parts if part)
 
@@ -15474,7 +15546,19 @@ class CalibrationRunner:
             "co2_candidate_rows_after_phase_gate": 0,
             "co2_candidate_rows_before_segment_gate": 0,
             "co2_candidate_rows_after_segment_gate": 0,
+            "co2_temporal_candidate_rows_before_gate": 0,
+            "co2_temporal_candidate_rows_after_gate": 0,
             "co2_candidate_rows_after_quarantine": 0,
+            "co2_timestamp_monotonic": None,
+            "co2_duplicate_timestamp_count": 0,
+            "co2_backward_timestamp_count": 0,
+            "co2_large_gap_count": 0,
+            "co2_effective_dwell_seconds": None,
+            "co2_nominal_dt_seconds": None,
+            "co2_cadence_coverage_ratio": None,
+            "co2_temporal_contract_status": "skipped",
+            "co2_temporal_contract_reason": "",
+            "co2_temporal_fallback_reason": "",
             "co2_source_segment_id": "",
             "co2_source_segment_rows": 0,
             "co2_source_segment_selected": "",
@@ -15623,9 +15707,50 @@ class CalibrationRunner:
 
             for segment in segments:
                 segment_rows = list(segment.get("eligible_rows") or [])
+                if bool(cfg.get("temporal_contract_enabled")):
+                    temporal_contract = apply_co2_temporal_sampling_contract(
+                        segment_rows,
+                        min_rows_after_gate=min_samples,
+                        max_gap_factor=float(cfg.get("temporal_max_gap_factor") or 3.0),
+                        min_effective_dwell_seconds=float(
+                            cfg.get("temporal_min_effective_dwell_seconds") or 0.0
+                        ),
+                        min_cadence_coverage_ratio=float(
+                            cfg.get("temporal_min_cadence_coverage_ratio") or 0.0
+                        ),
+                        allow_row_fallback_without_timestamp=bool(
+                            cfg.get("temporal_allow_row_fallback_without_timestamp", True)
+                        ),
+                    )
+                else:
+                    temporal_contract = {
+                        "eligible_rows": list(segment_rows),
+                        "rows_before_temporal_gate": len(segment_rows),
+                        "rows_after_temporal_gate": len(segment_rows),
+                        "timestamp_monotonic": None,
+                        "duplicate_timestamp_count": 0,
+                        "backward_timestamp_count": 0,
+                        "large_gap_count": 0,
+                        "effective_dwell_seconds": None,
+                        "nominal_dt_seconds": None,
+                        "cadence_coverage_ratio": None,
+                        "temporal_contract_status": "pass",
+                        "temporal_contract_reason": "",
+                        "temporal_fallback_reason": "",
+                        "temporal_reason_summary": "",
+                        "row_diagnostics": {
+                            int(row.get("sample_index") or 0): {
+                                "co2_temporal_excluded": False,
+                                "co2_temporal_reason": "",
+                            }
+                            for row in segment_rows
+                        },
+                    }
+
+                temporal_rows = list(temporal_contract.get("eligible_rows") or [])
                 if bool(cfg.get("bad_frame_quarantine_enabled")):
                     quarantine = quarantine_co2_source_rows(
-                        segment_rows,
+                        temporal_rows,
                         hard_bad_status_tokens=list(quarantine_cfg.get("hard_bad_status_tokens") or []),
                         soft_bad_status_tokens=list(quarantine_cfg.get("soft_bad_status_tokens") or []),
                         invalid_sentinel_values=list(quarantine_cfg.get("invalid_sentinel_values") or []),
@@ -15644,12 +15769,12 @@ class CalibrationRunner:
                             "sample_ts": row.get("sample_ts"),
                             "value": row.get("value"),
                         }
-                        for row in segment_rows
+                        for row in temporal_rows
                         if row.get("value") is not None and (row.get("usable") not in (False,))
                     ]
                     quarantine = {
                         "series": pass_through_series,
-                        "rows_before": len(segment_rows),
+                        "rows_before": len(temporal_rows),
                         "rows_after": len(pass_through_series),
                         "hard_reject_count": 0,
                         "hard_reject_ratio": 0.0,
@@ -15664,7 +15789,7 @@ class CalibrationRunner:
                                 "co2_soft_warn": False,
                                 "co2_soft_warn_reason": "",
                             }
-                            for row in segment_rows
+                            for row in temporal_rows
                         },
                     }
 
@@ -15682,6 +15807,27 @@ class CalibrationRunner:
                     "co2_phase_contract_reason": str(phase_contract.get("phase_contract_reason") or ""),
                     "rows_before_segment_gate": int(segment.get("rows_before_segment_gate") or 0),
                     "rows_after_segment_gate": int(segment.get("rows_after_segment_gate") or 0),
+                    "rows_before_temporal_gate": int(temporal_contract.get("rows_before_temporal_gate") or 0),
+                    "rows_after_temporal_gate": int(temporal_contract.get("rows_after_temporal_gate") or 0),
+                    "co2_timestamp_monotonic": temporal_contract.get("timestamp_monotonic"),
+                    "co2_duplicate_timestamp_count": int(temporal_contract.get("duplicate_timestamp_count") or 0),
+                    "co2_backward_timestamp_count": int(temporal_contract.get("backward_timestamp_count") or 0),
+                    "co2_large_gap_count": int(temporal_contract.get("large_gap_count") or 0),
+                    "co2_effective_dwell_seconds": temporal_contract.get("effective_dwell_seconds"),
+                    "co2_nominal_dt_seconds": temporal_contract.get("nominal_dt_seconds"),
+                    "co2_cadence_coverage_ratio": temporal_contract.get("cadence_coverage_ratio"),
+                    "co2_temporal_contract_status": str(
+                        temporal_contract.get("temporal_contract_status") or "pass"
+                    ),
+                    "co2_temporal_contract_reason": str(
+                        temporal_contract.get("temporal_contract_reason") or ""
+                    ),
+                    "co2_temporal_fallback_reason": str(
+                        temporal_contract.get("temporal_fallback_reason") or ""
+                    ),
+                    "co2_temporal_reason_summary": str(
+                        temporal_contract.get("temporal_reason_summary") or ""
+                    ),
                     "co2_source_segment_id": str(segment.get("segment_id") or ""),
                     "co2_source_segment_rows": int(segment.get("source_segment_rows") or 0),
                     "co2_source_segment_settle_excluded_count": int(segment.get("segment_settle_excluded_count") or 0),
@@ -15697,6 +15843,9 @@ class CalibrationRunner:
                     "co2_quarantine_reason_summary": ";".join(
                         part
                         for part in (
+                            f"temporal={temporal_contract.get('temporal_reason_summary')}"
+                            if temporal_contract.get("temporal_reason_summary")
+                            else "",
                             f"hard={quarantine.get('hard_reject_reason_summary')}"
                             if quarantine.get("hard_reject_reason_summary")
                             else "",
@@ -15708,6 +15857,7 @@ class CalibrationRunner:
                     ),
                     "phase_row_diagnostics": dict(phase_contract.get("row_diagnostics") or {}),
                     "segment_row_diagnostics": dict(segment.get("row_diagnostics") or {}),
+                    "temporal_row_diagnostics": dict(temporal_contract.get("row_diagnostics") or {}),
                     "row_diagnostics": dict(quarantine.get("row_diagnostics") or {}),
                     "series": list(quarantine.get("series") or []),
                     "trust_rank": 0,
@@ -15719,14 +15869,18 @@ class CalibrationRunner:
                 }
 
                 series = list(candidate.get("series") or [])
-                if len(series) < min_samples:
+                temporal_failed = str(candidate.get("co2_temporal_contract_status") or "").lower() == "fail"
+                if temporal_failed or len(series) < min_samples:
                     candidate["trust_reason"] = ";".join(
                         part
                         for part in (
                             str(candidate.get("co2_phase_contract_reason") or ""),
                             str(candidate.get("co2_source_segment_contract_reason") or ""),
+                            str(candidate.get("co2_temporal_contract_reason") or ""),
+                            str(candidate.get("co2_temporal_fallback_reason") or ""),
                             f"rows_after_phase_gate={candidate.get('rows_after_phase_gate')}",
                             f"rows_after_segment_gate={candidate.get('rows_after_segment_gate')}",
+                            f"rows_after_temporal_gate={candidate.get('rows_after_temporal_gate')}",
                             f"rows_after_quarantine={len(series)}<min_samples={min_samples}",
                         )
                         if part
@@ -15754,7 +15908,10 @@ class CalibrationRunner:
                         for part in (
                             str(candidate.get("co2_phase_contract_reason") or ""),
                             str(candidate.get("co2_source_segment_contract_reason") or ""),
+                            str(candidate.get("co2_temporal_contract_reason") or ""),
+                            str(candidate.get("co2_temporal_fallback_reason") or ""),
                             f"steady_window_candidates={len(candidate_metrics)}",
+                            f"rows_after_temporal_gate={candidate.get('rows_after_temporal_gate')}",
                             f"rows_after_segment_gate={candidate.get('rows_after_segment_gate')}",
                             f"rows_after_quarantine={len(series)}",
                         )
@@ -15772,6 +15929,8 @@ class CalibrationRunner:
                         part
                         for part in (
                             str(candidate.get("co2_source_segment_contract_reason") or ""),
+                            str(candidate.get("co2_temporal_contract_reason") or ""),
+                            str(candidate.get("co2_temporal_fallback_reason") or ""),
                             f"rows_after_quarantine={len(series)}<fallback_samples={fallback_samples}",
                         )
                         if part
@@ -15790,6 +15949,8 @@ class CalibrationRunner:
                     [
                         *([str(candidate.get("co2_phase_contract_reason"))] if candidate.get("co2_phase_contract_reason") else []),
                         *([str(candidate.get("co2_source_segment_contract_reason"))] if candidate.get("co2_source_segment_contract_reason") else []),
+                        *([str(candidate.get("co2_temporal_contract_reason"))] if candidate.get("co2_temporal_contract_reason") else []),
+                        *([str(candidate.get("co2_temporal_fallback_reason"))] if candidate.get("co2_temporal_fallback_reason") else []),
                         "no_qualified_steady_state_window",
                         *fallback_reasons,
                         "fallback=trailing_window",
@@ -15804,6 +15965,7 @@ class CalibrationRunner:
             diagnostic_candidate = max(
                 candidates,
                 key=lambda item: (
+                    self._as_int(item.get("rows_after_temporal_gate")) or 0,
                     self._as_int(item.get("rows_after_segment_gate")) or 0,
                     self._as_int(item.get("rows_after_quarantine")) or 0,
                     -(self._as_float(item.get("co2_bad_frame_ratio")) or 0.0),
@@ -15838,7 +16000,19 @@ class CalibrationRunner:
                         "co2_candidate_rows_after_phase_gate": diagnostic_candidate.get("rows_after_phase_gate"),
                         "co2_candidate_rows_before_segment_gate": diagnostic_candidate.get("rows_before_segment_gate"),
                         "co2_candidate_rows_after_segment_gate": diagnostic_candidate.get("rows_after_segment_gate"),
+                        "co2_temporal_candidate_rows_before_gate": diagnostic_candidate.get("rows_before_temporal_gate"),
+                        "co2_temporal_candidate_rows_after_gate": diagnostic_candidate.get("rows_after_temporal_gate"),
                         "co2_candidate_rows_after_quarantine": diagnostic_candidate.get("rows_after_quarantine"),
+                        "co2_timestamp_monotonic": diagnostic_candidate.get("co2_timestamp_monotonic"),
+                        "co2_duplicate_timestamp_count": diagnostic_candidate.get("co2_duplicate_timestamp_count"),
+                        "co2_backward_timestamp_count": diagnostic_candidate.get("co2_backward_timestamp_count"),
+                        "co2_large_gap_count": diagnostic_candidate.get("co2_large_gap_count"),
+                        "co2_effective_dwell_seconds": diagnostic_candidate.get("co2_effective_dwell_seconds"),
+                        "co2_nominal_dt_seconds": diagnostic_candidate.get("co2_nominal_dt_seconds"),
+                        "co2_cadence_coverage_ratio": diagnostic_candidate.get("co2_cadence_coverage_ratio"),
+                        "co2_temporal_contract_status": diagnostic_candidate.get("co2_temporal_contract_status"),
+                        "co2_temporal_contract_reason": diagnostic_candidate.get("co2_temporal_contract_reason"),
+                        "co2_temporal_fallback_reason": diagnostic_candidate.get("co2_temporal_fallback_reason"),
                         "co2_source_segment_id": diagnostic_candidate.get("co2_source_segment_id"),
                         "co2_source_segment_rows": diagnostic_candidate.get("co2_source_segment_rows"),
                         "co2_source_segment_selected": "",
@@ -15889,7 +16063,19 @@ class CalibrationRunner:
                 "co2_candidate_rows_after_phase_gate": selected.get("rows_after_phase_gate"),
                 "co2_candidate_rows_before_segment_gate": selected.get("rows_before_segment_gate"),
                 "co2_candidate_rows_after_segment_gate": selected.get("rows_after_segment_gate"),
+                "co2_temporal_candidate_rows_before_gate": selected.get("rows_before_temporal_gate"),
+                "co2_temporal_candidate_rows_after_gate": selected.get("rows_after_temporal_gate"),
                 "co2_candidate_rows_after_quarantine": selected.get("rows_after_quarantine"),
+                "co2_timestamp_monotonic": selected.get("co2_timestamp_monotonic"),
+                "co2_duplicate_timestamp_count": selected.get("co2_duplicate_timestamp_count"),
+                "co2_backward_timestamp_count": selected.get("co2_backward_timestamp_count"),
+                "co2_large_gap_count": selected.get("co2_large_gap_count"),
+                "co2_effective_dwell_seconds": selected.get("co2_effective_dwell_seconds"),
+                "co2_nominal_dt_seconds": selected.get("co2_nominal_dt_seconds"),
+                "co2_cadence_coverage_ratio": selected.get("co2_cadence_coverage_ratio"),
+                "co2_temporal_contract_status": selected.get("co2_temporal_contract_status"),
+                "co2_temporal_contract_reason": selected.get("co2_temporal_contract_reason"),
+                "co2_temporal_fallback_reason": selected.get("co2_temporal_fallback_reason"),
                 "co2_source_segment_id": selected.get("co2_source_segment_id"),
                 "co2_source_segment_rows": selected.get("co2_source_segment_rows"),
                 "co2_source_segment_selected": selected.get("segment_id"),
