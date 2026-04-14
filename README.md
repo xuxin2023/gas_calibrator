@@ -105,6 +105,10 @@ python run_v1_co2_fit_stability_audit.py --weighted-fit-summary-json <weighted_f
 python run_v1_co2_bootstrap_robustness_audit.py --weighted-fit-summary-json <weighted_fit_summary_json> --output-dir <bootstrap_output_dir>
 ```
 
+```powershell
+python run_v1_co2_fit_arbitration_bundle.py --bootstrap-summary-json <bootstrap_fit_summary_json> --output-dir <arbitration_output_dir>
+```
+
 These entrypoints keep V1-adjacent postprocess/sidecar flows easy to reach
 without changing `run_app.py`, without modifying the frozen V1 UI, and without
 promoting Step 2 sidecar capabilities into the V1 production path.

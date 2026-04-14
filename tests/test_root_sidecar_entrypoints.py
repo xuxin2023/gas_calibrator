@@ -177,3 +177,34 @@ def test_run_v1_co2_bootstrap_robustness_audit_delegates_arguments(monkeypatch) 
         "--output-dir",
         r"D:\logs\bootstrap_out",
     ]
+
+
+def test_run_v1_co2_fit_arbitration_bundle_delegates_arguments(monkeypatch) -> None:
+    module = _load_module(
+        "test_run_v1_co2_fit_arbitration_bundle_entry",
+        "run_v1_co2_fit_arbitration_bundle.py",
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_main(argv):
+        captured["argv"] = list(argv)
+        return 0
+
+    monkeypatch.setattr(module, "run_sidecar", _fake_main)
+
+    result = module.main(
+        [
+            "--bootstrap-summary-json",
+            r"D:\logs\bootstrap_fit_summary.json",
+            "--output-dir",
+            r"D:\logs\arbitration_out",
+        ]
+    )
+
+    assert result == 0
+    assert captured["argv"] == [
+        "--bootstrap-summary-json",
+        r"D:\logs\bootstrap_fit_summary.json",
+        "--output-dir",
+        r"D:\logs\arbitration_out",
+    ]
