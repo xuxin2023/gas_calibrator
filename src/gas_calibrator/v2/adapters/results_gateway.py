@@ -97,21 +97,16 @@ from ..review_surface_formatter import (
     normalize_offline_diagnostic_line,
     offline_diagnostic_scope_label,
 )
-from ..core.reviewer_summary_builders import (
-    build_v12_alignment_compact_summary,
-    build_phase_evidence_compact_summary,
-    build_governance_handoff_compact_summary,
-    build_parity_resilience_compact_summary,
-)
 from ..core.reviewer_summary_packs import (
+    build_measurement_digest_pack,
+    build_readiness_digest_pack,
     build_v12_alignment_pack,
     build_phase_evidence_pack,
     build_governance_handoff_pack,
     build_parity_resilience_pack,
 )
 from ..core.compact_summary_budget import (
-    apply_surface_budget,
-    build_truncation_hint_line,
+    build_surface_render_result,
 )
 from ..ui_v2.artifact_registry_governance import build_current_run_governance
 from ..ui_v2.i18n import t
@@ -1962,16 +1957,6 @@ class ResultsGateway:
             "parity_resilience_summary": dict(workbench_summary.get("parity_resilience_summary") or {}),
             "governance_handoff_summary": dict(workbench_summary.get("governance_handoff_summary") or {}),
         }
-        _v12_compact = build_v12_alignment_compact_summary(_v12_compact_payload)
-
-        # Phase evidence / governance / parity-resilience compact summaries
-        _phase_evidence_compact = build_phase_evidence_compact_summary(_v12_compact_payload)
-        _governance_compact = build_governance_handoff_compact_summary(
-            dict(workbench_summary.get("governance_handoff_summary") or {})
-        )
-        _parity_resilience_compact = build_parity_resilience_compact_summary(
-            dict(workbench_summary.get("parity_resilience_summary") or {})
-        )
 
         # Build compact summary packs for surface-aware budget governance
         _compact_packs = ResultsGateway._build_compact_summary_packs(
@@ -2004,11 +1989,8 @@ class ResultsGateway:
             lines.extend(measurement_review_lines.get("summary_lines") or [])
             lines.extend((measurement_review_lines.get("detail_lines") or [])[:4])
             # Apply surface-aware budget governance for compact summary lines
-            _budget_result = apply_surface_budget(_compact_packs, surface="results_gateway")
-            lines.extend(_budget_result["must_retain"])
-            lines.extend(_budget_result["optional_expand"])
-            if _budget_result["truncated_count"] > 0:
-                lines.append(build_truncation_hint_line(_budget_result["truncated_count"]))
+            _render_result = build_surface_render_result(_compact_packs, surface="results_gateway", lang="zh")
+            lines.extend(_render_result["rendered_lines"])
         if measurement_core_sidecar_text or dict(simulation_evidence_sidecar_bundle or {}):
             sidecar_contract_text = str(sidecar_summary.get("reviewer_note") or "").strip()
             lines.append(
@@ -2202,6 +2184,8 @@ class ResultsGateway:
         }
 
         packs = [
+            build_measurement_digest_pack(_v12_compact_payload),
+            build_readiness_digest_pack(_v12_compact_payload),
             build_v12_alignment_pack(_v12_compact_payload),
             build_phase_evidence_pack(_v12_compact_payload),
             build_governance_handoff_pack(
