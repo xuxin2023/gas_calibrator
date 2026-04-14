@@ -202,9 +202,12 @@ def build_co2_point_suitability(result: Mapping[str, Any]) -> Dict[str, Any]:
 
     return {
         "co2_point_suitability_status": suitability_status,
+        "co2_calibration_candidate_status": suitability_status,
         "co2_calibration_candidate_recommended": calibration_candidate_recommended,
         "co2_calibration_candidate_hard_blocked": calibration_candidate_hard_blocked,
         "co2_calibration_weight_recommended": calibration_weight_recommended,
+        "co2_calibration_weight_reason": ";".join(reason_parts),
+        "co2_calibration_reason_chain": ";".join(reason_chain_parts),
         "co2_evidence_score": evidence_score,
         "co2_point_evidence_budget_reason": ";".join(reason_parts),
         "co2_point_evidence_budget_summary": evidence_budget_summary,
