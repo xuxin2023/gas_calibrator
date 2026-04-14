@@ -162,6 +162,8 @@ def test_weighted_fit_advisory_consumes_candidate_pack_without_rejudging() -> No
     assert variants["baseline_unweighted_all_recommended"]["input_point_count"] == 3
     assert variants["baseline_unweighted_fit_only"]["input_point_count"] == 2
     assert variants["weighted_fit_advisory"]["input_point_count"] == 2
+    assert variants["weighted_fit_advisory"]["candidate_pool_point_count"] == 3
+    assert variants["weighted_fit_advisory"]["strong_support_pool_point_count"] == 2
     assert pytest.approx(float(variants["weighted_fit_advisory"]["training_weight_sum"]), abs=1e-9) == 1.95
     assert variants["weighted_fit_advisory"]["pre_fit_clean_first_applied"] is True
     assert variants["weighted_fit_advisory"]["weak_support_pool_point_count"] == 1
@@ -222,6 +224,8 @@ def test_weighted_fit_advisory_keeps_fallback_training_points_when_strong_suppor
     variants = {row["fit_variant_name"]: row for row in payload["fit_variants"]}
 
     assert variants["weighted_fit_advisory"]["input_point_count"] == 2
+    assert variants["weighted_fit_advisory"]["candidate_pool_point_count"] == 2
+    assert variants["weighted_fit_advisory"]["strong_support_pool_point_count"] == 1
     assert variants["weighted_fit_advisory"]["pre_fit_clean_first_applied"] is False
     assert variants["weighted_fit_advisory"]["weak_support_pool_point_count"] == 1
 
@@ -266,6 +270,8 @@ def test_weighted_fit_advisory_prefers_stronger_support_when_score_gap_is_small(
     variants = {row["fit_variant_name"]: row for row in payload["fit_variants"]}
 
     assert payload["summary"]["recommended_fit_variant"] == "baseline_unweighted_fit_only"
+    assert variants["weighted_fit_advisory"]["candidate_pool_point_count"] == 5
+    assert variants["weighted_fit_advisory"]["strong_support_pool_point_count"] == 4
     assert variants["weighted_fit_advisory"]["weak_support_point_count"] == 0
     assert variants["weighted_fit_advisory"]["weak_support_pool_point_count"] == 1
     assert variants["baseline_unweighted_fit_only"]["weak_support_point_count"] == 0

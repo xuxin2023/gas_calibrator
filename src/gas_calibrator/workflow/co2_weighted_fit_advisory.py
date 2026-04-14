@@ -134,6 +134,38 @@ def _training_points_for_variant(
     return candidate_pool_points
 
 
+def _training_pool_summary(
+    points: Sequence[Mapping[str, Any]],
+    *,
+    variant_name: str,
+    candidate_pool_points: Optional[Sequence[Mapping[str, Any]]] = None,
+    training_points: Optional[Sequence[Mapping[str, Any]]] = None,
+) -> Dict[str, Any]:
+    candidate_pool = [dict(row) for row in (candidate_pool_points or _candidate_pool_points_for_variant(points, variant_name=variant_name))]
+    training_pool = [dict(row) for row in (training_points or _training_points_for_variant(points, variant_name=variant_name))]
+
+    weak_support_pool_point_count = sum(1 for row in candidate_pool if _is_weak_support_training_point(row))
+    strong_support_pool_point_count = max(0, len(candidate_pool) - weak_support_pool_point_count)
+    weak_support_pool_ratio = round(weak_support_pool_point_count / len(candidate_pool), 6) if candidate_pool else 0.0
+    weak_support_point_count = sum(1 for row in training_pool if _is_weak_support_training_point(row))
+    strong_support_point_count = max(0, len(training_pool) - weak_support_point_count)
+    weak_support_ratio = round(weak_support_point_count / len(training_pool), 6) if training_pool else 0.0
+
+    return {
+        "candidate_pool_point_count": len(candidate_pool),
+        "strong_support_pool_point_count": strong_support_pool_point_count,
+        "weak_support_pool_point_count": weak_support_pool_point_count,
+        "weak_support_pool_ratio": weak_support_pool_ratio,
+        "input_point_count": len(training_pool),
+        "strong_support_point_count": strong_support_point_count,
+        "weak_support_point_count": weak_support_point_count,
+        "weak_support_ratio": weak_support_ratio,
+        # We keep this explicit so downstream audits can prove they are using
+        # the same clean-first pool semantics as weighted_fit_advisory.
+        "pre_fit_clean_first_applied": weak_support_pool_point_count > weak_support_point_count,
+    }
+
+
 def _candidate_pool_points_for_variant(
     points: Sequence[Mapping[str, Any]],
     *,
@@ -332,24 +364,32 @@ def _variant_summary(
         evaluation_points,
         variant_name=variant_name,
     )
-    weak_support_pool_point_count = sum(1 for row in candidate_pool_points if _is_weak_support_training_point(row))
-    weak_support_pool_ratio = (
-        round(weak_support_pool_point_count / len(candidate_pool_points), 6) if candidate_pool_points else 0.0
+    pool_summary = _training_pool_summary(
+        evaluation_points,
+        variant_name=variant_name,
+        candidate_pool_points=candidate_pool_points,
+        training_points=training_points,
     )
-    weak_support_point_count = sum(1 for row in training_points if _is_weak_support_training_point(row))
-    strong_support_point_count = max(0, len(training_points) - weak_support_point_count)
-    weak_support_ratio = round(weak_support_point_count / len(training_points), 6) if training_points else 0.0
-    pre_fit_clean_first_applied = weak_support_pool_point_count > weak_support_point_count
+    candidate_pool_point_count = int(pool_summary["candidate_pool_point_count"])
+    strong_support_pool_point_count = int(pool_summary["strong_support_pool_point_count"])
+    weak_support_pool_point_count = int(pool_summary["weak_support_pool_point_count"])
+    weak_support_pool_ratio = float(pool_summary["weak_support_pool_ratio"])
+    strong_support_point_count = int(pool_summary["strong_support_point_count"])
+    weak_support_point_count = int(pool_summary["weak_support_point_count"])
+    weak_support_ratio = float(pool_summary["weak_support_ratio"])
+    pre_fit_clean_first_applied = bool(pool_summary["pre_fit_clean_first_applied"])
     if not fit_result.get("available"):
         return {
             "fit_variant_name": variant_name,
             "fit_variant_status": "unavailable",
             "weighted_fit": bool(spec.get("weighted")),
-            "input_point_count": len(training_points),
+            "input_point_count": int(pool_summary["input_point_count"]),
             "input_group_count": len({_as_text(row.get("co2_calibration_group_key")) for row in training_points}),
             "evaluation_point_count": len(evaluation_points),
             "evaluation_group_count": len({_as_text(row.get("co2_calibration_group_key")) for row in evaluation_points}),
             "excluded_point_count": len(excluded_points),
+            "candidate_pool_point_count": candidate_pool_point_count,
+            "strong_support_pool_point_count": strong_support_pool_point_count,
             "strong_support_point_count": strong_support_point_count,
             "weak_support_point_count": weak_support_point_count,
             "weak_support_ratio": weak_support_ratio,
@@ -368,11 +408,13 @@ def _variant_summary(
         "fit_variant_name": variant_name,
         "fit_variant_status": "available",
         "weighted_fit": bool(spec.get("weighted")),
-        "input_point_count": len(training_points),
+        "input_point_count": int(pool_summary["input_point_count"]),
         "input_group_count": len({_as_text(row.get("co2_calibration_group_key")) for row in training_points}),
         "evaluation_point_count": len(evaluation_points),
         "evaluation_group_count": len({_as_text(row.get("co2_calibration_group_key")) for row in evaluation_points}),
         "excluded_point_count": len(excluded_points),
+        "candidate_pool_point_count": candidate_pool_point_count,
+        "strong_support_pool_point_count": strong_support_pool_point_count,
         "strong_support_point_count": strong_support_point_count,
         "weak_support_point_count": weak_support_point_count,
         "weak_support_ratio": weak_support_ratio,

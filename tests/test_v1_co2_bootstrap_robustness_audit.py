@@ -232,12 +232,21 @@ def test_blocked_points_do_not_enter_weighted_bootstrap_baseline() -> None:
         row for row in payload["variant_overall"] if row["fit_variant_name"] == "weighted_fit_advisory"
     )
     assert weighted_variant["input_point_count"] == 4
+    assert weighted_variant["candidate_pool_point_count"] == 5
+    assert weighted_variant["strong_support_pool_point_count"] == 4
+    assert weighted_variant["weak_support_pool_point_count"] == 1
+    assert weighted_variant["pre_fit_clean_first_applied"] is True
 
 
 def test_grouped_bootstrap_and_repeated_subsample_are_reported() -> None:
     payload = build_co2_bootstrap_robustness_audit(_dataset(), bootstrap_rounds=10, subsample_rounds=10)
     methods = {row["resample_method"] for row in payload["resample_summaries"]}
     assert methods == {"grouped_bootstrap", "group_subsample"}
+    weighted_summaries = [
+        row for row in payload["resample_summaries"] if row["fit_variant_name"] == "weighted_fit_advisory"
+    ]
+    assert all(row["candidate_pool_point_count"] == 5 for row in weighted_summaries)
+    assert all(row["weak_support_pool_point_count"] == 1 for row in weighted_summaries)
 
     subgroup = [
         row
@@ -290,6 +299,50 @@ def test_bootstrap_audit_accepts_chinese_candidate_rows() -> None:
 
     assert payload["summary"]["evaluation_point_count"] == 2
     assert payload["summary"]["not_real_acceptance_evidence"] is True
+
+
+def test_bootstrap_keeps_fallback_training_points_when_strong_support_is_insufficient() -> None:
+    rows = [
+        _candidate_row(
+            title="clean-500",
+            point_no=1,
+            target=500.0,
+            temp_c=20.0,
+            pressure_label="ambient",
+            measured=500.0,
+            suitability="fit",
+            recommended=True,
+            hard_blocked=False,
+            weight=1.0,
+            evidence_score=100.0,
+        ),
+        _candidate_row(
+            title="fallback-800",
+            point_no=2,
+            target=800.0,
+            temp_c=20.0,
+            pressure_label="ambient",
+            measured=810.0,
+            suitability="advisory",
+            recommended=True,
+            hard_blocked=False,
+            weight=0.4,
+            evidence_score=60.0,
+            measured_source="co2_trailing_window_fallback",
+            switch_reason="source_fallback",
+            temporal_status="warn",
+        ),
+    ]
+
+    payload = build_co2_bootstrap_robustness_audit(rows, bootstrap_rounds=4, subsample_rounds=4)
+    weighted_variant = next(
+        row for row in payload["variant_overall"] if row["fit_variant_name"] == "weighted_fit_advisory"
+    )
+
+    assert weighted_variant["input_point_count"] == 2
+    assert weighted_variant["candidate_pool_point_count"] == 2
+    assert weighted_variant["weak_support_pool_point_count"] == 1
+    assert weighted_variant["pre_fit_clean_first_applied"] is False
 
 
 def test_bootstrap_tool_writes_expected_artifacts_from_weighted_and_stability_jsons(tmp_path: Path) -> None:
