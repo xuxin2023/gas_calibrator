@@ -21,6 +21,8 @@ from .co2_calibration_candidate_pack import (
     build_co2_calibration_candidate_points,
 )
 
+_WEAK_SUPPORT_WEIGHTED_RMSE_MARGIN = 1.0
+
 
 def _as_text(value: Any) -> str:
     return str(value or "").strip()
@@ -122,6 +124,53 @@ def _training_points_for_variant(
     *,
     variant_name: str,
 ) -> List[Dict[str, Any]]:
+    candidate_pool_points = _candidate_pool_points_for_variant(points, variant_name=variant_name)
+    if variant_name == "weighted_fit_advisory":
+        weighted_points = [dict(row) for row in candidate_pool_points]
+        strong_support_points = [dict(row) for row in weighted_points if not _is_weak_support_training_point(row)]
+        if _can_fit_from_training_points(strong_support_points):
+            return strong_support_points
+        return weighted_points
+    return candidate_pool_points
+
+
+def _training_pool_summary(
+    points: Sequence[Mapping[str, Any]],
+    *,
+    variant_name: str,
+    candidate_pool_points: Optional[Sequence[Mapping[str, Any]]] = None,
+    training_points: Optional[Sequence[Mapping[str, Any]]] = None,
+) -> Dict[str, Any]:
+    candidate_pool = [dict(row) for row in (candidate_pool_points or _candidate_pool_points_for_variant(points, variant_name=variant_name))]
+    training_pool = [dict(row) for row in (training_points or _training_points_for_variant(points, variant_name=variant_name))]
+
+    weak_support_pool_point_count = sum(1 for row in candidate_pool if _is_weak_support_training_point(row))
+    strong_support_pool_point_count = max(0, len(candidate_pool) - weak_support_pool_point_count)
+    weak_support_pool_ratio = round(weak_support_pool_point_count / len(candidate_pool), 6) if candidate_pool else 0.0
+    weak_support_point_count = sum(1 for row in training_pool if _is_weak_support_training_point(row))
+    strong_support_point_count = max(0, len(training_pool) - weak_support_point_count)
+    weak_support_ratio = round(weak_support_point_count / len(training_pool), 6) if training_pool else 0.0
+
+    return {
+        "candidate_pool_point_count": len(candidate_pool),
+        "strong_support_pool_point_count": strong_support_pool_point_count,
+        "weak_support_pool_point_count": weak_support_pool_point_count,
+        "weak_support_pool_ratio": weak_support_pool_ratio,
+        "input_point_count": len(training_pool),
+        "strong_support_point_count": strong_support_point_count,
+        "weak_support_point_count": weak_support_point_count,
+        "weak_support_ratio": weak_support_ratio,
+        # We keep this explicit so downstream audits can prove they are using
+        # the same clean-first pool semantics as weighted_fit_advisory.
+        "pre_fit_clean_first_applied": weak_support_pool_point_count > weak_support_point_count,
+    }
+
+
+def _candidate_pool_points_for_variant(
+    points: Sequence[Mapping[str, Any]],
+    *,
+    variant_name: str,
+) -> List[Dict[str, Any]]:
     if variant_name == "baseline_unweighted_all_recommended":
         return [dict(row) for row in points]
     if variant_name == "baseline_unweighted_fit_only":
@@ -129,6 +178,32 @@ def _training_points_for_variant(
     if variant_name == "weighted_fit_advisory":
         return [dict(row) for row in points if float(row.get("co2_calibration_weight_recommended") or 0.0) > 0.0]
     return []
+
+
+def _is_weak_support_training_point(row: Mapping[str, Any]) -> bool:
+    # This is an offline advisory-only proxy for "weaker support", not a live
+    # gate. We use already-existing point fields so close score candidates do
+    # not let fallback / source-switch / temporal-warn points dominate the
+    # recommendation when a similarly good clean/steady candidate exists.
+    if _as_text(row.get("co2_calibration_candidate_status")) != "fit":
+        return True
+    if _as_text(row.get("measured_value_source")) == "co2_trailing_window_fallback":
+        return True
+    if _as_text(row.get("co2_source_switch_reason")):
+        return True
+    temporal_status = _as_text(row.get("co2_temporal_contract_status")).lower()
+    return temporal_status in {"warn", "degraded", "fail", "fallback_row_count"}
+
+
+def _can_fit_from_training_points(points: Sequence[Mapping[str, Any]]) -> bool:
+    if len(points) < 2:
+        return False
+    unique_measured_values = {
+        round(float(row.get("measured_value") or 0.0), 9)
+        for row in points
+        if row.get("measured_value") is not None
+    }
+    return len(unique_measured_values) >= 2
 
 
 def _fit_affine_model(
@@ -285,16 +360,42 @@ def _variant_summary(
     evaluation_rows: Sequence[Mapping[str, Any]],
 ) -> Dict[str, Any]:
     variant_name = _as_text(spec.get("fit_variant_name"))
+    candidate_pool_points = _candidate_pool_points_for_variant(
+        evaluation_points,
+        variant_name=variant_name,
+    )
+    pool_summary = _training_pool_summary(
+        evaluation_points,
+        variant_name=variant_name,
+        candidate_pool_points=candidate_pool_points,
+        training_points=training_points,
+    )
+    candidate_pool_point_count = int(pool_summary["candidate_pool_point_count"])
+    strong_support_pool_point_count = int(pool_summary["strong_support_pool_point_count"])
+    weak_support_pool_point_count = int(pool_summary["weak_support_pool_point_count"])
+    weak_support_pool_ratio = float(pool_summary["weak_support_pool_ratio"])
+    strong_support_point_count = int(pool_summary["strong_support_point_count"])
+    weak_support_point_count = int(pool_summary["weak_support_point_count"])
+    weak_support_ratio = float(pool_summary["weak_support_ratio"])
+    pre_fit_clean_first_applied = bool(pool_summary["pre_fit_clean_first_applied"])
     if not fit_result.get("available"):
         return {
             "fit_variant_name": variant_name,
             "fit_variant_status": "unavailable",
             "weighted_fit": bool(spec.get("weighted")),
-            "input_point_count": len(training_points),
+            "input_point_count": int(pool_summary["input_point_count"]),
             "input_group_count": len({_as_text(row.get("co2_calibration_group_key")) for row in training_points}),
             "evaluation_point_count": len(evaluation_points),
             "evaluation_group_count": len({_as_text(row.get("co2_calibration_group_key")) for row in evaluation_points}),
             "excluded_point_count": len(excluded_points),
+            "candidate_pool_point_count": candidate_pool_point_count,
+            "strong_support_pool_point_count": strong_support_pool_point_count,
+            "strong_support_point_count": strong_support_point_count,
+            "weak_support_point_count": weak_support_point_count,
+            "weak_support_ratio": weak_support_ratio,
+            "weak_support_pool_point_count": weak_support_pool_point_count,
+            "weak_support_pool_ratio": weak_support_pool_ratio,
+            "pre_fit_clean_first_applied": pre_fit_clean_first_applied,
             "excluded_reason_summary": _reason_counter_text(excluded_points, "co2_calibration_reason_chain"),
             "fit_reason_chain": _as_text(fit_result.get("reason") or "fit_unavailable"),
             "recommended_fit_variant": False,
@@ -307,11 +408,19 @@ def _variant_summary(
         "fit_variant_name": variant_name,
         "fit_variant_status": "available",
         "weighted_fit": bool(spec.get("weighted")),
-        "input_point_count": len(training_points),
+        "input_point_count": int(pool_summary["input_point_count"]),
         "input_group_count": len({_as_text(row.get("co2_calibration_group_key")) for row in training_points}),
         "evaluation_point_count": len(evaluation_points),
         "evaluation_group_count": len({_as_text(row.get("co2_calibration_group_key")) for row in evaluation_points}),
         "excluded_point_count": len(excluded_points),
+        "candidate_pool_point_count": candidate_pool_point_count,
+        "strong_support_pool_point_count": strong_support_pool_point_count,
+        "strong_support_point_count": strong_support_point_count,
+        "weak_support_point_count": weak_support_point_count,
+        "weak_support_ratio": weak_support_ratio,
+        "weak_support_pool_point_count": weak_support_pool_point_count,
+        "weak_support_pool_ratio": weak_support_pool_ratio,
+        "pre_fit_clean_first_applied": pre_fit_clean_first_applied,
         "excluded_reason_summary": ";".join(f"{reason}:{count}" for reason, count in Counter(_excluded_reason(row) for row in excluded_points).most_common(4)),
         "intercept": _round_or_none(_as_float(fit_result.get("intercept"))),
         "slope": _round_or_none(_as_float(fit_result.get("slope"))),
@@ -330,7 +439,12 @@ def _variant_summary(
             f"model=affine_target_from_measured;"
             f"training_points={len(training_points)};"
             f"weighted={bool(spec.get('weighted'))};"
-            f"candidate_statuses={_reason_counter_text(training_points, 'co2_calibration_candidate_status', top_n=3)}"
+            f"candidate_statuses={_reason_counter_text(training_points, 'co2_calibration_candidate_status', top_n=3)};"
+            f"weak_support_points={weak_support_point_count};"
+            f"weak_support_ratio={weak_support_ratio:.6f};"
+            f"weak_support_pool_points={weak_support_pool_point_count};"
+            f"weak_support_pool_ratio={weak_support_pool_ratio:.6f};"
+            f"pre_fit_clean_first_applied={str(pre_fit_clean_first_applied).lower()}"
         ),
         "recommended_fit_variant": False,
     }
@@ -341,7 +455,7 @@ def _recommend_variant(summaries: Sequence[Mapping[str, Any]]) -> Tuple[Optional
     if not available:
         return None, "no_available_fit_variant"
 
-    def _rank_key(row: Mapping[str, Any]) -> Tuple[float, float, float, int, int]:
+    def _score_rank_key(row: Mapping[str, Any]) -> Tuple[float, float, float, int, int]:
         return (
             float(row.get("weighted_rmse") or float("inf")),
             float(row.get("rmse") or float("inf")),
@@ -353,13 +467,48 @@ def _recommend_variant(summaries: Sequence[Mapping[str, Any]]) -> Tuple[Optional
             ),
         )
 
-    best = min(available, key=_rank_key)
-    reason = (
-        f"prefer_low_weighted_rmse={best.get('weighted_rmse')};"
-        f"rmse={best.get('rmse')};"
-        f"max_abs_error={best.get('max_abs_error')};"
-        f"input_points={best.get('input_point_count')}"
-    )
+    available_by_score = sorted(available, key=_score_rank_key)
+    leading = available_by_score[0]
+    leading_weighted_rmse = float(leading.get("weighted_rmse") or float("inf"))
+    close_by_score = [
+        row
+        for row in available_by_score
+        if float(row.get("weighted_rmse") or float("inf"))
+        <= leading_weighted_rmse + _WEAK_SUPPORT_WEIGHTED_RMSE_MARGIN
+    ]
+
+    def _support_rank_key(row: Mapping[str, Any]) -> Tuple[float, int, float, float, float, int, int]:
+        return (
+            float(row.get("weak_support_pool_ratio") or 0.0),
+            int(row.get("weak_support_pool_point_count") or 0),
+            float(row.get("weighted_rmse") or float("inf")),
+            float(row.get("rmse") or float("inf")),
+            float(row.get("max_abs_error") or float("inf")),
+            -int(row.get("input_point_count") or 0),
+            {"weighted_fit_advisory": 0, "baseline_unweighted_fit_only": 1, "baseline_unweighted_all_recommended": 2}.get(
+                _as_text(row.get("fit_variant_name")),
+                9,
+            ),
+        )
+
+    best = min(close_by_score, key=_support_rank_key)
+    reason_parts = [
+        f"prefer_low_weighted_rmse={best.get('weighted_rmse')}",
+        f"rmse={best.get('rmse')}",
+        f"max_abs_error={best.get('max_abs_error')}",
+        f"input_points={best.get('input_point_count')}",
+    ]
+    if len(close_by_score) > 1:
+        reason_parts.append(
+            f"support_tie_break_within_weighted_rmse_margin={_WEAK_SUPPORT_WEIGHTED_RMSE_MARGIN:.3f}"
+        )
+        reason_parts.append(f"weak_support_pool_points={best.get('weak_support_pool_point_count')}")
+        reason_parts.append(f"weak_support_pool_ratio={best.get('weak_support_pool_ratio')}")
+    if _as_text(best.get("fit_variant_name")) != _as_text(leading.get("fit_variant_name")):
+        reason_parts.append(
+            f"prefer_stronger_support_over={_as_text(leading.get('fit_variant_name')) or 'none'}"
+        )
+    reason = ";".join(reason_parts)
     return _as_text(best.get("fit_variant_name")), reason
 
 

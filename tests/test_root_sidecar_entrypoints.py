@@ -177,3 +177,189 @@ def test_run_v1_co2_bootstrap_robustness_audit_delegates_arguments(monkeypatch) 
         "--output-dir",
         r"D:\logs\bootstrap_out",
     ]
+
+
+def test_run_v1_co2_fit_arbitration_bundle_delegates_arguments(monkeypatch) -> None:
+    module = _load_module(
+        "test_run_v1_co2_fit_arbitration_bundle_entry",
+        "run_v1_co2_fit_arbitration_bundle.py",
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_main(argv):
+        captured["argv"] = list(argv)
+        return 0
+
+    monkeypatch.setattr(module, "run_sidecar", _fake_main)
+
+    result = module.main(
+        [
+            "--bootstrap-summary-json",
+            r"D:\logs\bootstrap_fit_summary.json",
+            "--output-dir",
+            r"D:\logs\arbitration_out",
+        ]
+    )
+
+    assert result == 0
+    assert captured["argv"] == [
+        "--bootstrap-summary-json",
+        r"D:\logs\bootstrap_fit_summary.json",
+        "--output-dir",
+        r"D:\logs\arbitration_out",
+    ]
+
+
+def test_run_v1_co2_sampling_settle_evidence_delegates_arguments(monkeypatch) -> None:
+    module = _load_module(
+        "test_run_v1_co2_sampling_settle_evidence_entry",
+        "run_v1_co2_sampling_settle_evidence.py",
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_main(argv):
+        captured["argv"] = list(argv)
+        return 0
+
+    monkeypatch.setattr(module, "run_sidecar", _fake_main)
+
+    result = module.main(
+        [
+            "--run-dir",
+            r"D:\logs\run_20260414_120000",
+            "--output-dir",
+            r"D:\logs\sampling_settle_out",
+        ]
+    )
+
+    assert result == 0
+    assert captured["argv"] == [
+        "--run-dir",
+        r"D:\logs\run_20260414_120000",
+        "--output-dir",
+        r"D:\logs\sampling_settle_out",
+    ]
+
+
+def test_run_v1_co2_release_readiness_bundle_delegates_arguments(monkeypatch) -> None:
+    module = _load_module(
+        "test_run_v1_co2_release_readiness_bundle_entry",
+        "run_v1_co2_release_readiness_bundle.py",
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_main(argv):
+        captured["argv"] = list(argv)
+        return 0
+
+    monkeypatch.setattr(module, "run_sidecar", _fake_main)
+
+    result = module.main(
+        [
+            "--run-dir",
+            r"D:\logs\run_20260414_130000",
+            "--output-dir",
+            r"D:\logs\release_readiness_out",
+        ]
+    )
+
+    assert result == 0
+    assert captured["argv"] == [
+        "--run-dir",
+        r"D:\logs\run_20260414_130000",
+        "--output-dir",
+        r"D:\logs\release_readiness_out",
+    ]
+
+
+def test_run_v1_co2_fit_evidence_coverage_bundle_delegates_arguments(monkeypatch) -> None:
+    module = _load_module(
+        "test_run_v1_co2_fit_evidence_coverage_bundle_entry",
+        "run_v1_co2_fit_evidence_coverage_bundle.py",
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_main(argv):
+        captured["argv"] = list(argv)
+        return 0
+
+    monkeypatch.setattr(module, "run_sidecar", _fake_main)
+
+    result = module.main(
+        [
+            "--run-dir",
+            r"D:\logs\run_20260414_140000",
+            "--output-dir",
+            r"D:\logs\fit_evidence_out",
+        ]
+    )
+
+    assert result == 0
+    assert captured["argv"] == [
+        "--run-dir",
+        r"D:\logs\run_20260414_140000",
+        "--output-dir",
+        r"D:\logs\fit_evidence_out",
+    ]
+
+
+def test_run_v1_co2_point_evidence_provenance_bundle_delegates_arguments(monkeypatch) -> None:
+    module = _load_module(
+        "test_run_v1_co2_point_evidence_provenance_bundle_entry",
+        "run_v1_co2_point_evidence_provenance_bundle.py",
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_main(argv):
+        captured["argv"] = list(argv)
+        return 0
+
+    monkeypatch.setattr(module, "run_sidecar", _fake_main)
+
+    result = module.main(
+        [
+            "--run-dir",
+            r"D:\logs\run_20260414_150000",
+            "--output-dir",
+            r"D:\logs\point_evidence_out",
+        ]
+    )
+
+    assert result == 0
+    assert captured["argv"] == [
+        "--run-dir",
+        r"D:\logs\run_20260414_150000",
+        "--output-dir",
+        r"D:\logs\point_evidence_out",
+    ]
+
+
+def test_run_v1_co2_engineer_review_worklist_bundle_delegates_arguments(monkeypatch) -> None:
+    module = _load_module(
+        "test_run_v1_co2_engineer_review_worklist_bundle_entry",
+        "run_v1_co2_engineer_review_worklist_bundle.py",
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_main(argv):
+        captured["argv"] = list(argv)
+        return 0
+
+    monkeypatch.setattr(module, "run_sidecar", _fake_main)
+
+    result = module.main(
+        [
+            "--run-dir",
+            r"D:\logs\run_20260414_160000",
+            "--output-dir",
+            r"D:\logs\engineer_review_out",
+        ]
+    )
+
+    assert result == 0
+    assert captured["argv"] == [
+        "--run-dir",
+        r"D:\logs\run_20260414_160000",
+        "--output-dir",
+        r"D:\logs\engineer_review_out",
+    ]

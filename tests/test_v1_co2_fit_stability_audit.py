@@ -194,10 +194,16 @@ def test_fit_stability_audit_consumes_weighted_fit_payload_without_rejudging() -
 def test_fallback_point_participates_in_weighted_stability_with_lower_weight() -> None:
     payload = build_co2_fit_stability_audit(_dataset())
     variants = {row["fit_variant_name"]: row for row in payload["fit_variants"]}
+    stability_variants = {row["fit_variant_name"]: row for row in payload["stability_variants"]}
 
     assert variants["baseline_unweighted_all_recommended"]["input_point_count"] == 5
-    assert variants["weighted_fit_advisory"]["training_weight_sum"] == pytest.approx(4.12, abs=1e-9)
+    assert variants["weighted_fit_advisory"]["input_point_count"] == 4
+    assert variants["weighted_fit_advisory"]["training_weight_sum"] == pytest.approx(3.77, abs=1e-9)
     assert variants["baseline_unweighted_fit_only"]["input_point_count"] == 4
+    assert stability_variants["weighted_fit_advisory"]["candidate_pool_point_count"] == 5
+    assert stability_variants["weighted_fit_advisory"]["strong_support_pool_point_count"] == 4
+    assert stability_variants["weighted_fit_advisory"]["weak_support_pool_point_count"] == 1
+    assert stability_variants["weighted_fit_advisory"]["pre_fit_clean_first_applied"] is True
 
 
 def test_blocked_points_do_not_pollute_stability_baseline() -> None:
@@ -207,6 +213,48 @@ def test_blocked_points_do_not_pollute_stability_baseline() -> None:
     assert payload["summary"]["evaluation_point_count"] == 5
     assert payload["summary"]["excluded_point_count"] == 2
     assert "hard_blocked:2" in payload["summary"]["excluded_reason_summary"]
+
+
+def test_fit_stability_keeps_fallback_training_points_when_strong_support_is_insufficient() -> None:
+    rows = [
+        _candidate_row(
+            title="clean-500",
+            point_no=1,
+            target=500.0,
+            temp_c=20.0,
+            pressure_label="ambient",
+            measured=500.0,
+            suitability="fit",
+            recommended=True,
+            hard_blocked=False,
+            weight=1.0,
+            evidence_score=100.0,
+        ),
+        _candidate_row(
+            title="fallback-800",
+            point_no=2,
+            target=800.0,
+            temp_c=20.0,
+            pressure_label="ambient",
+            measured=810.0,
+            suitability="advisory",
+            recommended=True,
+            hard_blocked=False,
+            weight=0.4,
+            evidence_score=60.0,
+            measured_source="co2_trailing_window_fallback",
+            switch_reason="source_fallback",
+            temporal_status="warn",
+        ),
+    ]
+
+    payload = build_co2_fit_stability_audit(rows)
+    stability_variants = {row["fit_variant_name"]: row for row in payload["stability_variants"]}
+
+    assert stability_variants["weighted_fit_advisory"]["input_point_count"] == 2
+    assert stability_variants["weighted_fit_advisory"]["candidate_pool_point_count"] == 2
+    assert stability_variants["weighted_fit_advisory"]["weak_support_pool_point_count"] == 1
+    assert stability_variants["weighted_fit_advisory"]["pre_fit_clean_first_applied"] is False
 
 
 def test_leave_one_group_out_reports_group_influence_and_coefficient_deltas() -> None:
