@@ -74,3 +74,21 @@ def test_pace_post_isolation_diagnostic_override_sets_20s_window() -> None:
     assert payload["workflow"]["pressure"]["continuous_atmosphere_hold"] is False
     assert payload["workflow"]["pressure"]["co2_post_isolation_diagnostic_enabled"] is True
     assert payload["workflow"]["pressure"]["co2_post_isolation_window_s"] == 20.0
+
+
+def test_pace_fast5s_with_diag_fallback_override_enables_engineering_fast_capture() -> None:
+    path = Path("configs/overrides/v1_pace_fast5s_with_diag_fallback.json")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+
+    assert payload["base_config"].endswith("configs/default_config.json")
+    assert payload["devices"]["temperature_chamber"]["enabled"] is False
+    assert payload["devices"]["humidity_generator"]["enabled"] is False
+    assert payload["workflow"]["route_mode"] == "co2_only"
+    assert payload["workflow"]["skip_h2o"] is True
+    assert payload["workflow"]["selected_pressure_points"] == [800, 600, 500]
+    assert payload["workflow"]["pressure"]["capture_then_hold_enabled"] is True
+    assert payload["workflow"]["pressure"]["post_isolation_fast_capture_enabled"] is True
+    assert payload["workflow"]["pressure"]["post_isolation_fast_capture_allow_early_sample"] is True
+    assert payload["workflow"]["pressure"]["post_isolation_fast_capture_min_s"] == 5.0
+    assert payload["workflow"]["pressure"]["post_isolation_fast_capture_fallback_to_extended_diag"] is True
+    assert payload["workflow"]["pressure"]["post_isolation_extended_diag_window_s"] == 20.0

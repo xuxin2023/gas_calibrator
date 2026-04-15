@@ -31,8 +31,11 @@ PRESAMPLE_LOCK_ACTION_MAP = {
 }
 PACE_DIAG_CATEGORIES = (
     "pace_vent_in_progress_suspect",
+    "pace_vent_after_valve_config_open_suspect",
     "pace_vent_valve_left_open_suspect",
+    "pace_protective_vent_suspect",
     "pace_vent_popup_only",
+    "pace_vent_popup_stale_suspect",
     "pace_isolation_state_mismatch_suspect",
     "post_isolation_ambient_ingress_suspect",
     "sealed_path_leak_suspect",
@@ -56,6 +59,11 @@ POINT_SUMMARY_FIELDS = [
     "capture_hold_state",
     "post_isolation_status",
     "post_isolation_diagnosis",
+    "post_isolation_capture_mode",
+    "post_isolation_fast_capture_status",
+    "post_isolation_fast_capture_reason",
+    "post_isolation_fast_capture_elapsed_s",
+    "post_isolation_fast_capture_fallback",
     "post_isolation_pressure_drift_hpa",
     "post_isolation_dewpoint_rise_c",
     "pace_outp_state_query",
@@ -64,6 +72,9 @@ POINT_SUMMARY_FIELDS = [
     "pace_vent_status_query",
     "pace_vent_after_valve_state_query",
     "pace_vent_popup_state_query",
+    "pace_vent_elapsed_time_query",
+    "pace_vent_orpv_state_query",
+    "pace_vent_pupv_state_query",
     "pace_oper_cond_query",
     "pace_oper_pres_cond_query",
     "pressure_gate_result",
@@ -139,6 +150,13 @@ def _round_label(round_index: int) -> str:
     return f"round{int(round_index)}"
 
 
+def _co2_like_row(row: Mapping[str, Any]) -> bool:
+    phase = str(_pick_first(row, ("point_phase", "phase", "step", "gas_type")) or "").strip().lower()
+    if phase in {"co2", "carbon_dioxide"}:
+        return True
+    return _pick_first(row, ("target_co2_ppm", "co2_ppm_target", "co2_ppm")) not in (None, "")
+
+
 def discover_run_artifacts(run_dir: Path) -> Dict[str, Optional[Path]]:
     resolved = run_dir.resolve()
     points_candidates = sorted(
@@ -155,23 +173,28 @@ def discover_run_artifacts(run_dir: Path) -> Dict[str, Optional[Path]]:
 
 
 def _normalize_prebuilt_summary_row(row: Mapping[str, Any]) -> Dict[str, Any]:
-    return {
+    normalized = {
         "point_row": _safe_int(row.get("point_row")),
         "round_index": _safe_int(row.get("round_index")) or 1,
         "step_index": _safe_int(row.get("step_index")) or 0,
-        "pressure_hpa": _safe_int(row.get("pressure_hpa")),
+        "pressure_hpa": _safe_int(_pick_first(row, ("pressure_hpa", "pressure_target_hpa"))),
         "point_tag": str(row.get("point_tag") or ""),
         "status": str(row.get("status") or ""),
-        "co2_mean_ppm": _safe_float(row.get("co2_mean_ppm")),
+        "co2_mean_ppm": _safe_float(_pick_first(row, ("co2_mean_ppm", "co2_mean_primary_or_first", "co2_mean"))),
         "dewpoint_mean_c": _safe_float(row.get("dewpoint_mean_c")),
-        "h2o_mean_mmol": _safe_float(row.get("h2o_mean_mmol")),
+        "h2o_mean_mmol": _safe_float(_pick_first(row, ("h2o_mean_mmol", "h2o_mean_primary_or_first", "h2o_mean"))),
         "handoff_mode": str(row.get("handoff_mode") or ""),
         "pressure_in_limits": _safe_bool(row.get("pressure_in_limits")) or False,
-        "outp_state": _safe_int(row.get("outp_state")),
-        "isol_state": _safe_int(row.get("isol_state")),
-        "capture_hold_state": str(row.get("capture_hold_state") or ""),
+        "outp_state": _safe_int(_pick_first(row, ("outp_state", "pace_output_state", "pace_outp_state_query"))),
+        "isol_state": _safe_int(_pick_first(row, ("isol_state", "pace_isolation_state", "pace_isol_state_query"))),
+        "capture_hold_state": str(_pick_first(row, ("capture_hold_state", "capture_hold_status")) or ""),
         "post_isolation_status": str(row.get("post_isolation_status") or ""),
         "post_isolation_diagnosis": str(row.get("post_isolation_diagnosis") or ""),
+        "post_isolation_capture_mode": str(row.get("post_isolation_capture_mode") or ""),
+        "post_isolation_fast_capture_status": str(row.get("post_isolation_fast_capture_status") or ""),
+        "post_isolation_fast_capture_reason": str(row.get("post_isolation_fast_capture_reason") or ""),
+        "post_isolation_fast_capture_elapsed_s": _safe_float(row.get("post_isolation_fast_capture_elapsed_s")),
+        "post_isolation_fast_capture_fallback": _safe_bool(row.get("post_isolation_fast_capture_fallback")) or False,
         "post_isolation_pressure_drift_hpa": _safe_float(row.get("post_isolation_pressure_drift_hpa")),
         "post_isolation_dewpoint_rise_c": _safe_float(row.get("post_isolation_dewpoint_rise_c")),
         "pace_outp_state_query": _safe_int(row.get("pace_outp_state_query")),
@@ -180,26 +203,42 @@ def _normalize_prebuilt_summary_row(row: Mapping[str, Any]) -> Dict[str, Any]:
         "pace_vent_status_query": _safe_int(row.get("pace_vent_status_query")),
         "pace_vent_after_valve_state_query": str(row.get("pace_vent_after_valve_state_query") or ""),
         "pace_vent_popup_state_query": str(row.get("pace_vent_popup_state_query") or ""),
+        "pace_vent_elapsed_time_query": _safe_float(row.get("pace_vent_elapsed_time_query")),
+        "pace_vent_orpv_state_query": str(row.get("pace_vent_orpv_state_query") or ""),
+        "pace_vent_pupv_state_query": str(row.get("pace_vent_pupv_state_query") or ""),
         "pace_oper_cond_query": _safe_int(row.get("pace_oper_cond_query")),
         "pace_oper_pres_cond_query": _safe_int(row.get("pace_oper_pres_cond_query")),
         "pressure_gate_result": str(row.get("pressure_gate_result") or ""),
         "dewpoint_gate_result": str(row.get("dewpoint_gate_result") or ""),
-        "reject_reason": str(row.get("reject_reason") or ""),
+        "reject_reason": str(_pick_first(row, ("reject_reason", "root_cause_reject_reason", "point_quality_reason")) or ""),
         "forbidden_pre_sampling_actions": str(row.get("forbidden_pre_sampling_actions") or ""),
     }
+    if not normalized["status"]:
+        normalized["status"] = _point_status(
+            co2_mean_ppm=normalized["co2_mean_ppm"],
+            sampling_begin_ts=_pick_first(row, ("sampling_begin_ts",)),
+            capture_hold_state=normalized["capture_hold_state"],
+            post_isolation_status=normalized["post_isolation_status"],
+            reject_reason=normalized["reject_reason"],
+            post_isolation_diagnosis=normalized["post_isolation_diagnosis"],
+        )
+    return normalized
 
 
 def _row_key(row: Mapping[str, Any]) -> Tuple[Optional[int], str]:
-    return (
-        _safe_int(_pick_first(row, ("point_row", "row_index"))),
-        str(_pick_first(row, ("point_phase", "phase")) or "").strip().lower(),
-    )
+    phase = str(_pick_first(row, ("point_phase", "phase")) or "").strip().lower()
+    if not phase and _co2_like_row(row):
+        phase = "co2"
+    return (_safe_int(_pick_first(row, ("point_row", "row_index"))), phase)
 
 
 def _group_by_point(rows: Iterable[Mapping[str, Any]]) -> Dict[Tuple[Optional[int], str], List[Mapping[str, Any]]]:
     grouped: Dict[Tuple[Optional[int], str], List[Mapping[str, Any]]] = defaultdict(list)
     for row in rows:
-        grouped[_row_key(row)].append(row)
+        key = _row_key(row)
+        if key[0] is None:
+            continue
+        grouped[key].append(row)
     return grouped
 
 
@@ -242,695 +281,605 @@ def _trace_forbidden_actions(
             vent_status = _safe_int(row.get("pace_vent_status"))
         if vent_status == 1:
             actions.append("VENT 1")
-
     deduped: List[str] = []
     seen = set()
     for action in actions:
-        if not action or action in seen:
-            continue
-        seen.add(action)
-        deduped.append(action)
+        if action and action not in seen:
+            seen.add(action)
+            deduped.append(action)
     return deduped
+
+
+def _parse_round_index(point_tag: str, fallback: int) -> int:
+    text = str(point_tag or "")
+    match = re.search(r"\bround[_-]?(\d+)\b", text, re.IGNORECASE)
+    if match:
+        return int(match.group(1))
+    return int(fallback)
 
 
 def _point_status(
     *,
-    sampling_begin_ts: Optional[datetime],
-    pressure_in_limits: bool,
-    reject_reason: str,
     co2_mean_ppm: Optional[float],
-    capture_hold_state: str = "",
+    sampling_begin_ts: Any,
+    capture_hold_state: str,
+    post_isolation_status: str,
+    reject_reason: str,
+    post_isolation_diagnosis: str,
 ) -> str:
-    if sampling_begin_ts is not None or co2_mean_ppm is not None:
+    if co2_mean_ppm is not None or str(sampling_begin_ts or "").strip():
         return "sampled"
-    if pressure_in_limits or reject_reason or str(capture_hold_state or "").strip().lower() == "fail":
+    if reject_reason or capture_hold_state.lower() == "fail" or post_isolation_status.lower() == "fail":
         return "rejected_before_sampling"
-    return "pressure_not_stable"
+    if post_isolation_diagnosis and post_isolation_diagnosis not in {"pass", "pace_vent_popup_only", "pace_vent_popup_stale_suspect"}:
+        return "rejected_before_sampling"
+    return "unknown"
 
 
 def _build_point_result(
     *,
-    source_row: Optional[Mapping[str, Any]],
-    timing_row: Mapping[str, Any],
-    point_trace_rows: Sequence[Mapping[str, Any]],
-    round_index: int,
-) -> Optional[Dict[str, Any]]:
-    phase = str(
-        _pick_first(source_row or {}, ("point_phase", "phase"))
-        or _pick_first(timing_row, ("point_phase", "phase"))
-        or _latest_nonempty(point_trace_rows, ("point_phase",))
-        or ""
-    ).strip().lower()
-    if phase and phase != "co2":
-        return None
-
-    pressure_hpa = _safe_int(
-        _pick_first(source_row or {}, ("pressure_target_hpa",))
-        or _pick_first(timing_row, ("pressure_target_hpa",))
-        or _latest_nonempty(point_trace_rows, ("pressure_target_hpa",))
+    sample_rows: Sequence[Mapping[str, Any]],
+    timing_rows: Sequence[Mapping[str, Any]],
+    trace_rows: Sequence[Mapping[str, Any]],
+    round_index_fallback: int,
+) -> Dict[str, Any]:
+    rows = list(sample_rows) + list(timing_rows) + list(trace_rows)
+    row = rows[0] if rows else {}
+    point_row = _safe_int(_pick_first(row, ("point_row", "row_index")))
+    point_tag = str(_latest_nonempty(rows, ("point_tag",)) or "")
+    pressure_hpa = _safe_int(_latest_nonempty(rows, ("pressure_hpa", "pressure_target_hpa", "target_pressure_hpa")))
+    round_index = _safe_int(_latest_nonempty(rows, ("round_index",))) or _parse_round_index(point_tag, round_index_fallback)
+    step_index = _safe_int(_latest_nonempty(rows, ("step_index",)))
+    if step_index is None:
+        step_index = (PRESSURE_ORDER.get(pressure_hpa, point_row or 0) + 1) if pressure_hpa is not None else (point_row or 0)
+    pressure_in_limits_ts = _latest_nonempty(timing_rows, ("pressure_in_limits_ts",))
+    sampling_begin_ts = _latest_nonempty(timing_rows, ("sampling_begin_ts",))
+    if sampling_begin_ts in (None, ""):
+        for trace_row in trace_rows:
+            if str(trace_row.get("trace_stage") or "").strip() == "sampling_begin":
+                sampling_begin_ts = trace_row.get("ts")
+                break
+    forbidden_actions = _trace_forbidden_actions(
+        trace_rows,
+        pressure_in_limits_ts=_parse_ts(pressure_in_limits_ts),
+        sampling_begin_ts=_parse_ts(sampling_begin_ts),
     )
-    if pressure_hpa not in PRESSURE_ORDER:
-        return None
-
-    target_co2_ppm = _safe_int(
-        _pick_first(source_row or {}, ("target_co2_ppm", "co2_ppm"))
-        or _pick_first(timing_row, ("target_co2_ppm", "co2_ppm"))
-        or _latest_nonempty(point_trace_rows, ("target_co2_ppm", "co2_ppm"))
-    )
-    if target_co2_ppm not in (None, TARGET_CO2_PPM):
-        return None
-
-    pressure_in_limits_ts = _parse_ts(_pick_first(timing_row, ("pressure_in_limits_ts",)))
-    sampling_begin_ts = _parse_ts(_pick_first(timing_row, ("sampling_begin_ts",)))
-    pressure_in_limits = bool(pressure_in_limits_ts) or any(
-        str(trace_row.get("trace_stage") or "").strip() in {"pressure_in_limits", "pressure_in_limits_ready_check"}
-        for trace_row in point_trace_rows
-    )
-    capture_hold_state = str(
-        _pick_first(timing_row, ("capture_hold_status",))
-        or _latest_nonempty(point_trace_rows, ("capture_hold_status",))
-        or ""
-    )
+    explicit_forbidden = str(_latest_nonempty(rows, ("forbidden_pre_sampling_actions",)) or "").strip()
+    if explicit_forbidden:
+        for item in re.split(r"[;,|]", explicit_forbidden):
+            label = item.strip()
+            if label and label not in forbidden_actions:
+                forbidden_actions.append(label)
+    capture_hold_state = str(_latest_nonempty(rows, ("capture_hold_state", "capture_hold_status")) or "")
+    post_isolation_status = str(_latest_nonempty(rows, ("post_isolation_status",)) or "")
+    post_isolation_diagnosis = str(_latest_nonempty(rows, ("post_isolation_diagnosis",)) or "")
     reject_reason = str(
-        _pick_first(timing_row, ("root_cause_reject_reason",))
-        or _latest_nonempty(point_trace_rows, ("root_cause_reject_reason",))
-        or _pick_first(source_row or {}, ("point_quality_reason",))
-        or ""
+        _latest_nonempty(rows, ("reject_reason", "root_cause_reject_reason", "point_quality_reason")) or ""
     )
-
+    if not reject_reason and post_isolation_diagnosis not in {"", "pass", "pace_vent_popup_only", "pace_vent_popup_stale_suspect"}:
+        reject_reason = post_isolation_diagnosis
+    if not reject_reason and capture_hold_state.lower() == "fail":
+        reject_reason = "capture_hold_failed"
+    co2_mean_ppm = _safe_float(
+        _latest_nonempty(sample_rows, ("co2_mean_ppm", "co2_mean_primary_or_first", "co2_mean"))
+    )
+    dewpoint_mean_c = _safe_float(_latest_nonempty(sample_rows, ("dewpoint_mean_c",)))
+    h2o_mean_mmol = _safe_float(
+        _latest_nonempty(sample_rows, ("h2o_mean_mmol", "h2o_mean_primary_or_first", "h2o_mean"))
+    )
+    status = _point_status(
+        co2_mean_ppm=co2_mean_ppm,
+        sampling_begin_ts=sampling_begin_ts,
+        capture_hold_state=capture_hold_state,
+        post_isolation_status=post_isolation_status,
+        reject_reason=reject_reason,
+        post_isolation_diagnosis=post_isolation_diagnosis,
+    )
     return {
-        "point_row": _safe_int(
-            _pick_first(source_row or {}, ("point_row",))
-            or _pick_first(timing_row, ("point_row",))
-            or _latest_nonempty(point_trace_rows, ("point_row",))
-        ),
-        "round_index": int(round_index),
-        "step_index": PRESSURE_ORDER[pressure_hpa] + 1,
+        "point_row": point_row,
+        "round_index": round_index,
+        "step_index": step_index,
         "pressure_hpa": pressure_hpa,
-        "point_tag": str(
-            _pick_first(source_row or {}, ("point_tag",))
-            or _pick_first(timing_row, ("point_tag",))
-            or _latest_nonempty(point_trace_rows, ("point_tag",))
-            or ""
-        ),
-        "status": _point_status(
-            sampling_begin_ts=sampling_begin_ts,
-            pressure_in_limits=pressure_in_limits,
-            reject_reason=reject_reason,
-            co2_mean_ppm=_safe_float(_pick_first(source_row or {}, ("co2_mean_primary_or_first", "co2_mean"))),
-            capture_hold_state=capture_hold_state,
-        ),
-        "co2_mean_ppm": _safe_float(_pick_first(source_row or {}, ("co2_mean_primary_or_first", "co2_mean"))),
-        "dewpoint_mean_c": _safe_float(_pick_first(source_row or {}, ("dewpoint_mean_c", "dewpoint_c_snapshot"))),
-        "h2o_mean_mmol": _safe_float(_pick_first(source_row or {}, ("h2o_mean_primary_or_first", "h2o_mean"))),
-        "handoff_mode": str(
-            _pick_first(timing_row, ("handoff_mode",))
-            or _latest_nonempty(point_trace_rows, ("handoff_mode",))
-            or ""
-        ),
-        "pressure_in_limits": pressure_in_limits,
-        "outp_state": _safe_int(
-            _pick_first(timing_row, ("pace_output_state",))
-            or _latest_nonempty(point_trace_rows, ("pace_output_state",))
-        ),
-        "isol_state": _safe_int(
-            _pick_first(timing_row, ("pace_isolation_state",))
-            or _latest_nonempty(point_trace_rows, ("pace_isolation_state",))
-        ),
+        "point_tag": point_tag,
+        "status": status,
+        "co2_mean_ppm": co2_mean_ppm,
+        "dewpoint_mean_c": dewpoint_mean_c,
+        "h2o_mean_mmol": h2o_mean_mmol,
+        "handoff_mode": str(_latest_nonempty(rows, ("handoff_mode",)) or ""),
+        "pressure_in_limits": bool(str(pressure_in_limits_ts or "").strip()),
+        "outp_state": _safe_int(_latest_nonempty(rows, ("outp_state", "pace_outp_state_query", "pace_output_state"))),
+        "isol_state": _safe_int(_latest_nonempty(rows, ("isol_state", "pace_isol_state_query", "pace_isolation_state"))),
         "capture_hold_state": capture_hold_state,
-        "post_isolation_status": str(
-            _pick_first(timing_row, ("post_isolation_status",))
-            or _pick_first(source_row or {}, ("post_isolation_status",))
-            or _latest_nonempty(point_trace_rows, ("post_isolation_status",))
-            or ""
-        ),
-        "post_isolation_diagnosis": str(
-            _pick_first(timing_row, ("post_isolation_diagnosis",))
-            or _pick_first(source_row or {}, ("post_isolation_diagnosis",))
-            or _latest_nonempty(point_trace_rows, ("post_isolation_diagnosis",))
-            or ""
-        ),
-        "post_isolation_pressure_drift_hpa": _safe_float(
-            _pick_first(timing_row, ("post_isolation_pressure_drift_hpa",))
-            or _pick_first(source_row or {}, ("post_isolation_pressure_drift_hpa",))
-            or _latest_nonempty(point_trace_rows, ("post_isolation_pressure_drift_hpa",))
-        ),
-        "post_isolation_dewpoint_rise_c": _safe_float(
-            _pick_first(timing_row, ("post_isolation_dewpoint_rise_c",))
-            or _pick_first(source_row or {}, ("post_isolation_dewpoint_rise_c",))
-            or _latest_nonempty(point_trace_rows, ("post_isolation_dewpoint_rise_c",))
-        ),
-        "pace_outp_state_query": _safe_int(
-            _pick_first(timing_row, ("pace_outp_state_query",))
-            or _pick_first(source_row or {}, ("pace_outp_state_query",))
-            or _latest_nonempty(point_trace_rows, ("pace_outp_state_query",))
-        ),
-        "pace_isol_state_query": _safe_int(
-            _pick_first(timing_row, ("pace_isol_state_query",))
-            or _pick_first(source_row or {}, ("pace_isol_state_query",))
-            or _latest_nonempty(point_trace_rows, ("pace_isol_state_query",))
-        ),
-        "pace_mode_query": str(
-            _pick_first(timing_row, ("pace_mode_query",))
-            or _pick_first(source_row or {}, ("pace_mode_query",))
-            or _latest_nonempty(point_trace_rows, ("pace_mode_query",))
-            or ""
-        ),
-        "pace_vent_status_query": _safe_int(
-            _pick_first(timing_row, ("pace_vent_status_query",))
-            or _pick_first(source_row or {}, ("pace_vent_status_query",))
-            or _latest_nonempty(point_trace_rows, ("pace_vent_status_query", "pace_vent_status"))
-        ),
-        "pace_vent_after_valve_state_query": str(
-            _pick_first(timing_row, ("pace_vent_after_valve_state_query",))
-            or _pick_first(source_row or {}, ("pace_vent_after_valve_state_query",))
-            or _latest_nonempty(point_trace_rows, ("pace_vent_after_valve_state_query",))
-            or ""
-        ),
-        "pace_vent_popup_state_query": str(
-            _pick_first(timing_row, ("pace_vent_popup_state_query",))
-            or _pick_first(source_row or {}, ("pace_vent_popup_state_query",))
-            or _latest_nonempty(point_trace_rows, ("pace_vent_popup_state_query",))
-            or ""
-        ),
-        "pace_oper_cond_query": _safe_int(
-            _pick_first(timing_row, ("pace_oper_cond_query",))
-            or _pick_first(source_row or {}, ("pace_oper_cond_query",))
-            or _latest_nonempty(point_trace_rows, ("pace_oper_cond_query",))
-        ),
-        "pace_oper_pres_cond_query": _safe_int(
-            _pick_first(timing_row, ("pace_oper_pres_cond_query",))
-            or _pick_first(source_row or {}, ("pace_oper_pres_cond_query",))
-            or _latest_nonempty(point_trace_rows, ("pace_oper_pres_cond_query",))
-        ),
-        "pressure_gate_result": str(
-            _latest_nonempty(point_trace_rows, ("pressure_gate_status",))
-            or _pick_first(source_row or {}, ("pressure_gate_status",))
-            or ""
-        ),
-        "dewpoint_gate_result": str(
-            _pick_first(source_row or {}, ("dewpoint_gate_result",))
-            or _latest_nonempty(point_trace_rows, ("dewpoint_gate_status", "dewpoint_gate_result"))
-            or ""
-        ),
+        "post_isolation_status": post_isolation_status,
+        "post_isolation_diagnosis": post_isolation_diagnosis,
+        "post_isolation_capture_mode": str(_latest_nonempty(rows, ("post_isolation_capture_mode",)) or ""),
+        "post_isolation_fast_capture_status": str(_latest_nonempty(rows, ("post_isolation_fast_capture_status",)) or ""),
+        "post_isolation_fast_capture_reason": str(_latest_nonempty(rows, ("post_isolation_fast_capture_reason",)) or ""),
+        "post_isolation_fast_capture_elapsed_s": _safe_float(_latest_nonempty(rows, ("post_isolation_fast_capture_elapsed_s",))),
+        "post_isolation_fast_capture_fallback": _safe_bool(_latest_nonempty(rows, ("post_isolation_fast_capture_fallback",)))
+        or False,
+        "post_isolation_pressure_drift_hpa": _safe_float(_latest_nonempty(rows, ("post_isolation_pressure_drift_hpa",))),
+        "post_isolation_dewpoint_rise_c": _safe_float(_latest_nonempty(rows, ("post_isolation_dewpoint_rise_c",))),
+        "pace_outp_state_query": _safe_int(_latest_nonempty(rows, ("pace_outp_state_query",))),
+        "pace_isol_state_query": _safe_int(_latest_nonempty(rows, ("pace_isol_state_query",))),
+        "pace_mode_query": str(_latest_nonempty(rows, ("pace_mode_query",)) or ""),
+        "pace_vent_status_query": _safe_int(_latest_nonempty(rows, ("pace_vent_status_query", "pace_vent_status"))),
+        "pace_vent_after_valve_state_query": str(_latest_nonempty(rows, ("pace_vent_after_valve_state_query",)) or ""),
+        "pace_vent_popup_state_query": str(_latest_nonempty(rows, ("pace_vent_popup_state_query",)) or ""),
+        "pace_vent_elapsed_time_query": _safe_float(_latest_nonempty(rows, ("pace_vent_elapsed_time_query",))),
+        "pace_vent_orpv_state_query": str(_latest_nonempty(rows, ("pace_vent_orpv_state_query",)) or ""),
+        "pace_vent_pupv_state_query": str(_latest_nonempty(rows, ("pace_vent_pupv_state_query",)) or ""),
+        "pace_oper_cond_query": _safe_int(_latest_nonempty(rows, ("pace_oper_cond_query",))),
+        "pace_oper_pres_cond_query": _safe_int(_latest_nonempty(rows, ("pace_oper_pres_cond_query",))),
+        "pressure_gate_result": str(_latest_nonempty(rows, ("pressure_gate_result", "pressure_gate_status")) or ""),
+        "dewpoint_gate_result": str(_latest_nonempty(rows, ("dewpoint_gate_result",)) or ""),
         "reject_reason": reject_reason,
-        "forbidden_pre_sampling_actions": ",".join(
-            _trace_forbidden_actions(
-                point_trace_rows,
-                pressure_in_limits_ts=pressure_in_limits_ts,
-                sampling_begin_ts=sampling_begin_ts,
-            )
-        ),
+        "forbidden_pre_sampling_actions": "; ".join(forbidden_actions),
     }
 
 
-def load_run_point_results(run_dir: Path, *, round_index: int) -> Tuple[List[Dict[str, Any]], List[Dict[str, str]]]:
+def load_run_point_results(run_dir: Path, *, round_index_fallback: int = 1) -> List[Dict[str, Any]]:
     artifacts = discover_run_artifacts(run_dir)
-    aggregate_summary = artifacts.get("aggregate_summary")
-    if aggregate_summary is not None:
-        rows = [_normalize_prebuilt_summary_row(row) for row in _load_csv_rows(aggregate_summary)]
-        trace_rows = (
-            _load_csv_rows(artifacts["pressure_trace"])
-            if artifacts["pressure_trace"] and artifacts["pressure_trace"].exists()
-            else []
-        )
-        for row in rows:
-            row["round_index"] = int(row.get("round_index") or round_index)
-        return rows, trace_rows
-
     points_path = artifacts.get("points_summary")
-    if points_path is None or not points_path.exists():
-        raise FileNotFoundError(f"points summary not found under {run_dir}")
-
-    point_rows = _load_csv_rows(points_path)
-    timing_rows = (
-        _load_csv_rows(artifacts["point_timing_summary"])
-        if artifacts["point_timing_summary"] and artifacts["point_timing_summary"].exists()
-        else []
-    )
-    trace_rows = (
-        _load_csv_rows(artifacts["pressure_trace"])
-        if artifacts["pressure_trace"] and artifacts["pressure_trace"].exists()
-        else []
-    )
-
-    timing_by_point = {_row_key(row): row for row in timing_rows}
-    trace_by_point = _group_by_point(trace_rows)
-    points_by_key = {_row_key(row): row for row in point_rows}
-
-    results: List[Dict[str, Any]] = []
-    keys = set(points_by_key.keys()) | set(timing_by_point.keys()) | set(trace_by_point.keys())
-    for key in sorted(keys, key=lambda item: ((_safe_int(item[0]) or 0), str(item[1] or ""))):
-        result = _build_point_result(
-            source_row=points_by_key.get(key),
-            timing_row=timing_by_point.get(key, {}),
-            point_trace_rows=sorted(trace_by_point.get(key, []), key=lambda item: str(item.get("ts") or "")),
-            round_index=round_index,
+    timing_path = artifacts.get("point_timing_summary")
+    trace_path = artifacts.get("pressure_trace")
+    if points_path and timing_path and trace_path and points_path.exists() and timing_path.exists() and trace_path.exists():
+        sample_rows = [row for row in _load_csv_rows(points_path) if _co2_like_row(row)]
+        timing_rows = [row for row in _load_csv_rows(timing_path) if _co2_like_row(row)]
+        trace_rows = [row for row in _load_csv_rows(trace_path) if _co2_like_row(row)]
+        samples_by_point = _group_by_point(sample_rows)
+        timing_by_point = _group_by_point(timing_rows)
+        trace_by_point = _group_by_point(trace_rows)
+        point_keys = sorted(
+            set(samples_by_point) | set(timing_by_point) | set(trace_by_point),
+            key=lambda item: (item[0] or 0, item[1]),
         )
-        if result is not None:
-            results.append(result)
+        results = [
+            _build_point_result(
+                sample_rows=samples_by_point.get(key, []),
+                timing_rows=timing_by_point.get(key, []),
+                trace_rows=trace_by_point.get(key, []),
+                round_index_fallback=round_index_fallback,
+            )
+            for key in point_keys
+            if key[1] == "co2"
+        ]
+        return sorted(results, key=lambda row: (int(row["round_index"]), PRESSURE_ORDER.get(row["pressure_hpa"], 99)))
 
-    results.sort(key=lambda item: (int(item["round_index"]), int(item["step_index"])))
-    return results, trace_rows
+    aggregate_path = artifacts.get("aggregate_summary")
+    if aggregate_path and aggregate_path.exists():
+        rows = [_normalize_prebuilt_summary_row(row) for row in _load_csv_rows(aggregate_path) if _co2_like_row(row)]
+        for row in rows:
+            if not row["round_index"]:
+                row["round_index"] = round_index_fallback
+        return sorted(rows, key=lambda row: (int(row["round_index"]), PRESSURE_ORDER.get(row["pressure_hpa"], 99)))
+    raise FileNotFoundError(f"Could not locate usable artifacts under {run_dir}")
 
 
-def summarize_presample_lock_violations(trace_rows: Iterable[Mapping[str, Any]]) -> List[Dict[str, Any]]:
-    counter: Counter[str] = Counter()
-    for row in trace_rows:
-        if str(row.get("trace_stage") or "").strip() != "presample_lock_violation":
-            continue
-        counter[_parse_presample_lock_action(str(row.get("note") or ""))] += 1
-    return [{"action": action, "count": count} for action, count in sorted(counter.items())]
+def _load_trace_rows(run_dir: Path, *, round_index_fallback: int = 1) -> List[Dict[str, Any]]:
+    artifacts = discover_run_artifacts(run_dir)
+    trace_path = artifacts.get("pressure_trace")
+    if not trace_path or not trace_path.exists():
+        return []
+    rows = [dict(row) for row in _load_csv_rows(trace_path) if _co2_like_row(row)]
+    for row in rows:
+        point_tag = str(row.get("point_tag") or "")
+        row["round_index"] = _safe_int(row.get("round_index")) or _parse_round_index(point_tag, round_index_fallback)
+        row["pressure_hpa"] = _safe_int(_pick_first(row, ("pressure_hpa", "pressure_target_hpa", "target_pressure_hpa")))
+    return rows
 
 
-def summarize_reject_reasons(point_results: Iterable[Mapping[str, Any]]) -> List[Dict[str, Any]]:
-    counter: Counter[str] = Counter()
+def _sequence_metrics(point_results: Sequence[Mapping[str, Any]]) -> Dict[int, Dict[str, Any]]:
+    grouped: Dict[int, List[Mapping[str, Any]]] = defaultdict(list)
     for row in point_results:
-        reason = str(row.get("reject_reason") or "").strip()
-        if reason:
-            counter[reason] += 1
-    return [{"reject_reason": reason, "count": count} for reason, count in sorted(counter.items())]
-
-
-def summarize_post_isolation_diagnoses(point_results: Iterable[Mapping[str, Any]]) -> List[Dict[str, Any]]:
-    counter: Counter[str] = Counter()
-    for row in point_results:
-        diagnosis = str(row.get("post_isolation_diagnosis") or "").strip()
-        if diagnosis and diagnosis not in {"pass", "skipped"}:
-            counter[diagnosis] += 1
-    return [{"post_isolation_diagnosis": reason, "count": count} for reason, count in sorted(counter.items())]
-
-
-def summarize_pace_post_isolation_diagnoses(point_results: Iterable[Mapping[str, Any]]) -> List[Dict[str, Any]]:
-    counter: Counter[str] = Counter()
-    for row in point_results:
-        reject_reason = str(row.get("reject_reason") or "").strip()
-        diagnosis = str(row.get("post_isolation_diagnosis") or "").strip()
-        category = ""
-        if reject_reason in PACE_DIAG_CATEGORIES:
-            category = reject_reason
-        elif diagnosis in PACE_DIAG_CATEGORIES and diagnosis not in {"pass", "skipped"}:
-            category = diagnosis
-        if category:
-            counter[category] += 1
-    return [{"diagnosis": reason, "count": count} for reason, count in sorted(counter.items())]
-
-
-def _sequence_metrics(point_results: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
-    by_pressure: Dict[int, Mapping[str, Any]] = {
-        int(row["pressure_hpa"]): row
-        for row in point_results
-        if row.get("pressure_hpa") in PRESSURE_ORDER and row.get("co2_mean_ppm") is not None
-    }
-    co2_values = [float(by_pressure[p]["co2_mean_ppm"]) for p in REQUIRED_PRESSURES if p in by_pressure]
-    dew_values = [
-        float(by_pressure[p]["dewpoint_mean_c"])
-        for p in REQUIRED_PRESSURES
-        if p in by_pressure and by_pressure[p].get("dewpoint_mean_c") is not None
-    ]
-    h2o_values = [
-        float(by_pressure[p]["h2o_mean_mmol"])
-        for p in REQUIRED_PRESSURES
-        if p in by_pressure and by_pressure[p].get("h2o_mean_mmol") is not None
-    ]
-    co2_drop = None
-    dew_rise = None
-    h2o_rise = None
-    if 1000 in by_pressure and 500 in by_pressure:
-        co2_drop = float(by_pressure[1000]["co2_mean_ppm"]) - float(by_pressure[500]["co2_mean_ppm"])
-        if by_pressure[1000].get("dewpoint_mean_c") is not None and by_pressure[500].get("dewpoint_mean_c") is not None:
-            dew_rise = float(by_pressure[500]["dewpoint_mean_c"]) - float(by_pressure[1000]["dewpoint_mean_c"])
-        if by_pressure[1000].get("h2o_mean_mmol") is not None and by_pressure[500].get("h2o_mean_mmol") is not None:
-            h2o_rise = float(by_pressure[500]["h2o_mean_mmol"]) - float(by_pressure[1000]["h2o_mean_mmol"])
-    return {
-        "sampled_count": len(by_pressure),
-        "co2_monotonic_down": len(co2_values) >= 2
-        and all(later <= earlier + 1e-9 for earlier, later in zip(co2_values, co2_values[1:])),
-        "dew_monotonic_up": len(dew_values) >= 2
-        and all(later >= earlier - 1e-9 for earlier, later in zip(dew_values, dew_values[1:])),
-        "h2o_monotonic_up": len(h2o_values) >= 2
-        and all(later >= earlier - 1e-9 for earlier, later in zip(h2o_values, h2o_values[1:])),
-        "co2_drop_ppm": co2_drop,
-        "dew_rise_c": dew_rise,
-        "h2o_rise_mmol": h2o_rise,
-    }
+        grouped[int(row.get("round_index") or 1)].append(row)
+    metrics: Dict[int, Dict[str, Any]] = {}
+    for round_index, rows in sorted(grouped.items()):
+        ordered = sorted(rows, key=lambda item: PRESSURE_ORDER.get(_safe_int(item.get("pressure_hpa")), 99))
+        co2_values = [float(row["co2_mean_ppm"]) for row in ordered if row.get("co2_mean_ppm") is not None]
+        dew_values = [float(row["dewpoint_mean_c"]) for row in ordered if row.get("dewpoint_mean_c") is not None]
+        h2o_values = [float(row["h2o_mean_mmol"]) for row in ordered if row.get("h2o_mean_mmol") is not None]
+        metrics[round_index] = {
+            "sampled_points": sum(1 for row in ordered if row.get("status") == "sampled"),
+            "rejected_points": sum(1 for row in ordered if row.get("status") == "rejected_before_sampling"),
+            "co2_monotonic_down": len(co2_values) >= 3 and all(nxt < cur for cur, nxt in zip(co2_values, co2_values[1:])),
+            "dewpoint_monotonic_up": len(dew_values) >= 3 and all(nxt > cur for cur, nxt in zip(dew_values, dew_values[1:])),
+            "h2o_monotonic_up": len(h2o_values) >= 3 and all(nxt > cur for cur, nxt in zip(h2o_values, h2o_values[1:])),
+        }
+    return metrics
 
 
 def classify_ingress_result(point_results: Sequence[Mapping[str, Any]]) -> Tuple[str, Dict[str, Any]]:
-    round_groups: Dict[int, List[Mapping[str, Any]]] = defaultdict(list)
-    legacy_reopen_issue_count = 0
-    pace_vent_in_progress_count = 0
-    pace_vent_valve_left_open_count = 0
-    pace_vent_popup_only_count = 0
-    pace_isolation_state_mismatch_count = 0
-    post_isolation_ambient_ingress_count = 0
-    sealed_path_leak_count = 0
-    dead_volume_wet_release_count = 0
-    controller_hunting_count = 0
-    forbidden_count = 0
+    round_metrics = _sequence_metrics(point_results)
+    diagnosis_counter: Counter[str] = Counter()
+    reject_counter: Counter[str] = Counter()
+    forbidden_counter: Counter[str] = Counter()
+    category_point_counter: Counter[str] = Counter()
+    handoff_mismatch_count = 0
     for row in point_results:
-        round_groups[int(row.get("round_index") or 0)].append(row)
-        reject_reason = str(row.get("reject_reason") or "").strip()
         diagnosis = str(row.get("post_isolation_diagnosis") or "").strip()
-        if reject_reason == "ambient_ingress_suspect":
-            legacy_reopen_issue_count += 1
-        if reject_reason == "pace_vent_in_progress_suspect" or diagnosis == "pace_vent_in_progress_suspect":
-            pace_vent_in_progress_count += 1
-        if reject_reason == "pace_vent_valve_left_open_suspect" or diagnosis == "pace_vent_valve_left_open_suspect":
-            pace_vent_valve_left_open_count += 1
-        if diagnosis == "pace_vent_popup_only":
-            pace_vent_popup_only_count += 1
-        if reject_reason == "pace_isolation_state_mismatch_suspect" or diagnosis == "pace_isolation_state_mismatch_suspect":
-            pace_isolation_state_mismatch_count += 1
-        if reject_reason == "post_isolation_ambient_ingress_suspect" or diagnosis == "post_isolation_ambient_ingress_suspect":
-            post_isolation_ambient_ingress_count += 1
-        if reject_reason == "sealed_path_leak_suspect" or diagnosis == "sealed_path_leak_suspect":
-            sealed_path_leak_count += 1
-        if reject_reason == "dead_volume_wet_release_suspect" or diagnosis == "dead_volume_wet_release_suspect":
-            dead_volume_wet_release_count += 1
-        if reject_reason == "controller_hunting_suspect" or diagnosis == "controller_hunting_suspect":
-            controller_hunting_count += 1
-        if str(row.get("forbidden_pre_sampling_actions") or "").strip():
-            forbidden_count += 1
+        reject_reason = str(row.get("reject_reason") or "").strip()
+        forbidden = str(row.get("forbidden_pre_sampling_actions") or "").strip()
+        handoff_mode = str(row.get("handoff_mode") or "").strip()
+        if diagnosis:
+            diagnosis_counter[diagnosis] += 1
+        if reject_reason:
+            reject_counter[reject_reason] += 1
+        for category in {value for value in (reject_reason, diagnosis) if value}:
+            category_point_counter[category] += 1
+        if forbidden:
+            for item in re.split(r"[;,|]", forbidden):
+                label = item.strip()
+                if label:
+                    forbidden_counter[label] += 1
+        if handoff_mode and handoff_mode not in {"same_gas_pressure_step_handoff", "same_gas_superambient_precharge_handoff"}:
+            handoff_mismatch_count += 1
 
-    round_metrics = {round_index: _sequence_metrics(rows) for round_index, rows in sorted(round_groups.items())}
-    strong_issue = (
-        legacy_reopen_issue_count > 0
-        or forbidden_count > 0
-        or pace_vent_in_progress_count > 0
-        or pace_vent_valve_left_open_count > 0
-        or pace_isolation_state_mismatch_count > 0
-        or (post_isolation_ambient_ingress_count + sealed_path_leak_count) >= 2
+    old_reopen_count = handoff_mismatch_count + sum(
+        count for action, count in forbidden_counter.items() if action in {"atmosphere refresh", "route reopen"}
     )
-    mild_issue = False
-    sufficient_samples = True
-    for metrics in round_metrics.values():
-        if metrics["sampled_count"] < 3:
-            sufficient_samples = False
-            mild_issue = True
-            continue
-        co2_drop = _safe_float(metrics.get("co2_drop_ppm")) or 0.0
-        dew_rise = _safe_float(metrics.get("dew_rise_c")) or 0.0
-        h2o_rise = _safe_float(metrics.get("h2o_rise_mmol")) or 0.0
-        if metrics["co2_monotonic_down"] and co2_drop >= 80.0:
-            strong_issue = True
-        elif metrics["co2_monotonic_down"] and co2_drop >= 30.0:
-            mild_issue = True
-        if (metrics["dew_monotonic_up"] and dew_rise >= 1.0) or (metrics["h2o_monotonic_up"] and h2o_rise >= 0.8):
-            strong_issue = True
-        elif (metrics["dew_monotonic_up"] and dew_rise >= 0.3) or (metrics["h2o_monotonic_up"] and h2o_rise >= 0.2):
-            mild_issue = True
+    pace_vent_in_progress_count = category_point_counter["pace_vent_in_progress_suspect"]
+    pace_vent_after_valve_config_open_count = category_point_counter["pace_vent_after_valve_config_open_suspect"]
+    pace_vent_valve_left_open_count = category_point_counter["pace_vent_valve_left_open_suspect"]
+    pace_protective_vent_count = category_point_counter["pace_protective_vent_suspect"]
+    pace_popup_only_count = category_point_counter["pace_vent_popup_only"]
+    pace_popup_stale_count = category_point_counter["pace_vent_popup_stale_suspect"]
+    post_isolation_ambient_ingress_count = category_point_counter["post_isolation_ambient_ingress_suspect"]
+    sealed_path_leak_count = category_point_counter["sealed_path_leak_suspect"]
+    dead_volume_wet_release_count = category_point_counter["dead_volume_wet_release_suspect"]
+    controller_hunting_count = category_point_counter["controller_hunting_suspect"]
+    fast5s_pass_count = sum(
+        1
+        for row in point_results
+        if str(row.get("post_isolation_fast_capture_status") or "").strip().lower() == "pass"
+        and str(row.get("post_isolation_capture_mode") or "").strip().lower() == "fast5s"
+    )
+    fast5s_fallback_count = sum(
+        1
+        for row in point_results
+        if bool(row.get("post_isolation_fast_capture_fallback"))
+        or str(row.get("post_isolation_capture_mode") or "").strip().lower() == "extended20s"
+    )
+    if pace_vent_valve_left_open_count or pace_protective_vent_count or pace_vent_after_valve_config_open_count:
+        fast_capture_assessment = "5 秒快采失败且提示 vent-after-valve / protective vent"
+    elif post_isolation_ambient_ingress_count or sealed_path_leak_count:
+        fast_capture_assessment = "5 秒快采失败且提示 post-isolation ambient ingress"
+    elif dead_volume_wet_release_count:
+        fast_capture_assessment = "5 秒快采失败且提示 dead-volume wet release"
+    elif pace_popup_only_count or pace_popup_stale_count:
+        fast_capture_assessment = "5 秒快采失败但 20 秒诊断显示是 popup-only"
+    elif fast5s_pass_count:
+        fast_capture_assessment = "5 秒快采已足够"
+    else:
+        fast_capture_assessment = "未启用 5 秒快采或证据不足"
 
-    if (
-        post_isolation_ambient_ingress_count > 0
-        or sealed_path_leak_count > 0
-        or dead_volume_wet_release_count > 0
-        or controller_hunting_count > 0
-        or pace_vent_popup_only_count > 0
-    ):
-        mild_issue = True
-
-    if strong_issue:
+    severe_physical_count = (
+        old_reopen_count
+        + pace_vent_in_progress_count
+        + pace_vent_valve_left_open_count
+        + pace_protective_vent_count
+        + post_isolation_ambient_ingress_count
+        + sealed_path_leak_count
+    )
+    moderate_count = pace_vent_after_valve_config_open_count + pace_popup_only_count + pace_popup_stale_count
+    monotonic_pullback = any(
+        item["co2_monotonic_down"] or (item["dewpoint_monotonic_up"] and item["h2o_monotonic_up"])
+        for item in round_metrics.values()
+    )
+    if severe_physical_count > 0 or monotonic_pullback:
         conclusion = "混气仍明显存在"
-    elif mild_issue or not sufficient_samples:
+    elif dead_volume_wet_release_count > 0 or moderate_count > 0 or fast5s_fallback_count > 0:
         conclusion = "混气明显减轻但未完全解决"
     else:
         conclusion = "混气已基本解决"
 
-    return conclusion, {
-        "legacy_reopen_issue_count": legacy_reopen_issue_count,
+    metrics = {
+        "round_metrics": round_metrics,
+        "old_atmosphere_reopen_problem_count": old_reopen_count,
+        "handoff_mismatch_count": handoff_mismatch_count,
         "pace_vent_in_progress_count": pace_vent_in_progress_count,
+        "pace_vent_after_valve_config_open_count": pace_vent_after_valve_config_open_count,
         "pace_vent_valve_left_open_count": pace_vent_valve_left_open_count,
-        "pace_vent_popup_only_count": pace_vent_popup_only_count,
-        "pace_isolation_state_mismatch_count": pace_isolation_state_mismatch_count,
+        "pace_protective_vent_count": pace_protective_vent_count,
+        "pace_vent_popup_only_count": pace_popup_only_count,
+        "pace_vent_popup_stale_count": pace_popup_stale_count,
         "post_isolation_ambient_ingress_count": post_isolation_ambient_ingress_count,
         "sealed_path_leak_count": sealed_path_leak_count,
         "dead_volume_wet_release_count": dead_volume_wet_release_count,
         "controller_hunting_count": controller_hunting_count,
-        "forbidden_pre_sampling_action_point_count": forbidden_count,
-        "round_metrics": round_metrics,
-        "sufficient_samples": sufficient_samples,
+        "fast5s_pass_count": fast5s_pass_count,
+        "fast5s_fallback_count": fast5s_fallback_count,
+        "fast_capture_assessment": fast_capture_assessment,
+        "forbidden_action_counts": dict(forbidden_counter),
+        "reject_reason_counts": dict(reject_counter),
+        "diagnosis_counts": dict(diagnosis_counter),
     }
+    return conclusion, metrics
 
 
-def _write_csv(path: Path, fieldnames: Sequence[str], rows: Sequence[Mapping[str, Any]]) -> str:
+def _write_csv_rows(path: Path, rows: Sequence[Mapping[str, Any]], fieldnames: Sequence[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8-sig", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(fieldnames))
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         for row in rows:
             writer.writerow({field: row.get(field, "") for field in fieldnames})
-    return str(path)
 
 
-def _write_table_csv(path: Path, rows: Sequence[Mapping[str, Any]]) -> str:
-    if rows:
-        fieldnames = list(rows[0].keys())
-    else:
-        fieldnames = ["count"]
-    return _write_csv(path, fieldnames, rows)
+def _write_count_csv(path: Path, counter: Mapping[str, int], *, key_name: str) -> None:
+    rows = [{key_name: key, "count": value} for key, value in sorted(counter.items(), key=lambda item: (-item[1], item[0]))]
+    _write_csv_rows(path, rows, [key_name, "count"])
 
 
-def _plot_round_curves(
-    point_results: Sequence[Mapping[str, Any]],
-    trace_rows: Sequence[Mapping[str, Any]],
-    *,
-    output_dir: Path,
-) -> Dict[str, str]:
-    output_dir.mkdir(parents=True, exist_ok=True)
-    plots: Dict[str, str] = {}
+def _safe_plot_series(ax: Any, *, x_values: Sequence[int], y_values: Sequence[Optional[float]], label: str, marker: str = "o") -> None:
+    cleaned = [(x, y) for x, y in zip(x_values, y_values) if y is not None]
+    if not cleaned:
+        return
+    xs, ys = zip(*cleaned)
+    ax.plot(xs, ys, marker=marker, label=label)
 
-    round_groups: Dict[int, List[Mapping[str, Any]]] = defaultdict(list)
+
+def _plot_round_curves(point_results: Sequence[Mapping[str, Any]], output_dir: Path) -> Dict[str, str]:
+    grouped: Dict[int, List[Mapping[str, Any]]] = defaultdict(list)
     for row in point_results:
-        round_groups[int(row.get("round_index") or 0)].append(row)
+        grouped[int(row.get("round_index") or 1)].append(row)
 
-    def _sorted_rows(rows: Sequence[Mapping[str, Any]]) -> List[Mapping[str, Any]]:
-        return sorted(rows, key=lambda item: PRESSURE_ORDER.get(int(item.get("pressure_hpa") or 0), 999))
-
-    co2_path = output_dir / "pressure_vs_co2_rounds.png"
-    fig, ax = plt.subplots(figsize=(8, 5))
-    for round_index, rows in sorted(round_groups.items()):
-        sorted_rows = _sorted_rows(rows)
-        xs = [int(row["pressure_hpa"]) for row in sorted_rows if row.get("co2_mean_ppm") is not None]
-        ys = [float(row["co2_mean_ppm"]) for row in sorted_rows if row.get("co2_mean_ppm") is not None]
-        if xs:
-            ax.plot(xs, ys, marker="o", label=_round_label(round_index))
-    ax.set_title("Pressure vs CO2")
-    ax.set_xlabel("Pressure (hPa)")
+    co2_plot = output_dir / "pressure_vs_co2_rounds.png"
+    fig, ax = plt.subplots(figsize=(8.5, 5.0))
+    for round_index, rows in sorted(grouped.items()):
+        ordered = sorted(rows, key=lambda item: PRESSURE_ORDER.get(_safe_int(item.get("pressure_hpa")), 99))
+        filtered = [row for row in ordered if row.get("pressure_hpa") is not None]
+        _safe_plot_series(
+            ax,
+            x_values=[int(row["pressure_hpa"]) for row in filtered],
+            y_values=[_safe_float(row.get("co2_mean_ppm")) for row in filtered],
+            label=_round_label(round_index),
+        )
+    ax.set_title("pressure vs CO2")
+    ax.set_xlabel("pressure (hPa)")
     ax.set_ylabel("CO2 (ppm)")
-    ax.invert_xaxis()
     ax.grid(True, alpha=0.3)
-    handles, labels = ax.get_legend_handles_labels()
-    if handles:
+    if grouped:
         ax.legend()
     fig.tight_layout()
-    fig.savefig(co2_path, dpi=160)
+    fig.savefig(co2_plot, dpi=160)
     plt.close(fig)
-    plots["co2_plot"] = str(co2_path)
 
-    dew_path = output_dir / "pressure_vs_dewpoint_h2o_rounds.png"
-    fig, ax1 = plt.subplots(figsize=(8, 5))
-    ax2 = ax1.twinx()
-    for round_index, rows in sorted(round_groups.items()):
-        sorted_rows = _sorted_rows(rows)
-        dew_points = [(int(row["pressure_hpa"]), float(row["dewpoint_mean_c"])) for row in sorted_rows if row.get("dewpoint_mean_c") is not None]
-        h2o_points = [(int(row["pressure_hpa"]), float(row["h2o_mean_mmol"])) for row in sorted_rows if row.get("h2o_mean_mmol") is not None]
-        if dew_points:
-            ax1.plot(
-                [item[0] for item in dew_points],
-                [item[1] for item in dew_points],
-                marker="o",
-                label=f"{_round_label(round_index)} dewpoint",
-            )
-        if h2o_points:
-            ax2.plot(
-                [item[0] for item in h2o_points],
-                [item[1] for item in h2o_points],
-                marker="s",
-                linestyle="--",
-                label=f"{_round_label(round_index)} H2O",
-            )
-    ax1.set_title("Pressure vs Dewpoint / H2O")
-    ax1.set_xlabel("Pressure (hPa)")
-    ax1.set_ylabel("Dewpoint (C)")
-    ax2.set_ylabel("H2O (mmol)")
-    ax1.invert_xaxis()
-    ax1.grid(True, alpha=0.3)
-    handles1, labels1 = ax1.get_legend_handles_labels()
-    handles2, labels2 = ax2.get_legend_handles_labels()
-    if handles1 or handles2:
-        ax1.legend(handles1 + handles2, labels1 + labels2, loc="best")
+    dewpoint_plot = output_dir / "pressure_vs_dewpoint_h2o_rounds.png"
+    fig, (ax_dew, ax_h2o) = plt.subplots(2, 1, figsize=(8.5, 8.0), sharex=True)
+    for round_index, rows in sorted(grouped.items()):
+        ordered = sorted(rows, key=lambda item: PRESSURE_ORDER.get(_safe_int(item.get("pressure_hpa")), 99))
+        filtered = [row for row in ordered if row.get("pressure_hpa") is not None]
+        x_values = [int(row["pressure_hpa"]) for row in filtered]
+        _safe_plot_series(ax_dew, x_values=x_values, y_values=[_safe_float(row.get("dewpoint_mean_c")) for row in filtered], label=_round_label(round_index))
+        _safe_plot_series(ax_h2o, x_values=x_values, y_values=[_safe_float(row.get("h2o_mean_mmol")) for row in filtered], label=_round_label(round_index))
+    ax_dew.set_title("pressure vs dewpoint")
+    ax_dew.set_ylabel("dewpoint (C)")
+    ax_dew.grid(True, alpha=0.3)
+    ax_h2o.set_title("pressure vs H2O")
+    ax_h2o.set_xlabel("pressure (hPa)")
+    ax_h2o.set_ylabel("H2O (mmol)")
+    ax_h2o.grid(True, alpha=0.3)
+    if grouped:
+        ax_dew.legend()
+        ax_h2o.legend()
     fig.tight_layout()
-    fig.savefig(dew_path, dpi=160)
+    fig.savefig(dewpoint_plot, dpi=160)
     plt.close(fig)
-    plots["dewpoint_h2o_plot"] = str(dew_path)
 
-    drift_path = output_dir / "post_isolation_pressure_drift_vs_pressure.png"
-    fig, ax = plt.subplots(figsize=(8, 5))
-    for round_index, rows in sorted(round_groups.items()):
-        sorted_rows = _sorted_rows(rows)
-        points = [
-            (int(row["pressure_hpa"]), float(row["post_isolation_pressure_drift_hpa"]))
-            for row in sorted_rows
-            if row.get("post_isolation_pressure_drift_hpa") is not None
-        ]
-        if points:
-            ax.plot(
-                [item[0] for item in points],
-                [item[1] for item in points],
-                marker="o",
-                label=_round_label(round_index),
-            )
-    ax.set_title("Post-isolation Pressure Drift vs Pressure")
-    ax.set_xlabel("Pressure (hPa)")
-    ax.set_ylabel("Post-isolation drift (hPa)")
-    ax.invert_xaxis()
+    drift_plot = output_dir / "post_isolation_pressure_drift_vs_pressure.png"
+    fig, ax = plt.subplots(figsize=(8.5, 5.0))
+    for round_index, rows in sorted(grouped.items()):
+        ordered = sorted(rows, key=lambda item: PRESSURE_ORDER.get(_safe_int(item.get("pressure_hpa")), 99))
+        filtered = [row for row in ordered if row.get("pressure_hpa") is not None]
+        _safe_plot_series(ax, x_values=[int(row["pressure_hpa"]) for row in filtered], y_values=[_safe_float(row.get("post_isolation_pressure_drift_hpa")) for row in filtered], label=_round_label(round_index))
+    ax.set_title("post-isolation pressure drift vs pressure")
+    ax.set_xlabel("pressure (hPa)")
+    ax.set_ylabel("drift (hPa)")
     ax.grid(True, alpha=0.3)
-    handles, labels = ax.get_legend_handles_labels()
-    if handles:
+    if grouped:
         ax.legend()
     fig.tight_layout()
-    fig.savefig(drift_path, dpi=160)
+    fig.savefig(drift_plot, dpi=160)
     plt.close(fig)
-    plots["post_isolation_drift_plot"] = str(drift_path)
 
-    dew_rise_path = output_dir / "post_isolation_dewpoint_rise_vs_pressure.png"
-    fig, ax = plt.subplots(figsize=(8, 5))
-    for round_index, rows in sorted(round_groups.items()):
-        sorted_rows = _sorted_rows(rows)
-        points = [
-            (int(row["pressure_hpa"]), float(row["post_isolation_dewpoint_rise_c"]))
-            for row in sorted_rows
-            if row.get("post_isolation_dewpoint_rise_c") is not None
-        ]
-        if points:
-            ax.plot(
-                [item[0] for item in points],
-                [item[1] for item in points],
-                marker="o",
-                label=_round_label(round_index),
-            )
-    ax.set_title("Post-isolation Dewpoint Rise vs Pressure")
-    ax.set_xlabel("Pressure (hPa)")
-    ax.set_ylabel("Post-isolation dewpoint rise (C)")
-    ax.invert_xaxis()
+    dew_rise_plot = output_dir / "post_isolation_dewpoint_rise_vs_pressure.png"
+    fig, ax = plt.subplots(figsize=(8.5, 5.0))
+    for round_index, rows in sorted(grouped.items()):
+        ordered = sorted(rows, key=lambda item: PRESSURE_ORDER.get(_safe_int(item.get("pressure_hpa")), 99))
+        filtered = [row for row in ordered if row.get("pressure_hpa") is not None]
+        _safe_plot_series(ax, x_values=[int(row["pressure_hpa"]) for row in filtered], y_values=[_safe_float(row.get("post_isolation_dewpoint_rise_c")) for row in filtered], label=_round_label(round_index))
+    ax.set_title("post-isolation dewpoint rise vs pressure")
+    ax.set_xlabel("pressure (hPa)")
+    ax.set_ylabel("dewpoint rise (C)")
     ax.grid(True, alpha=0.3)
-    handles, labels = ax.get_legend_handles_labels()
-    if handles:
+    if grouped:
         ax.legend()
     fig.tight_layout()
-    fig.savefig(dew_rise_path, dpi=160)
+    fig.savefig(dew_rise_plot, dpi=160)
     plt.close(fig)
-    plots["post_isolation_dewpoint_rise_plot"] = str(dew_rise_path)
 
-    vent_path = output_dir / "pace_vent_status_timeline.png"
-    fig, ax = plt.subplots(figsize=(9, 5))
-    trace_groups: Dict[int, List[Mapping[str, Any]]] = defaultdict(list)
-    for row in trace_rows:
-        trace_groups[int(row.get("round_index") or 0)].append(row)
-    if not trace_groups:
-        trace_groups[0] = list(trace_rows)
-    for round_index, rows in sorted(trace_groups.items()):
-        series: List[Tuple[int, int]] = []
-        for idx, row in enumerate(rows):
-            vent_status = _safe_int(row.get("pace_vent_status_query"))
-            if vent_status is None:
-                vent_status = _safe_int(row.get("pace_vent_status"))
-            if vent_status is None:
-                continue
-            series.append((idx, int(vent_status)))
-        if series:
-            ax.step(
-                [item[0] for item in series],
-                [item[1] for item in series],
-                where="post",
-                label=_round_label(round_index) if round_index else "trace",
-            )
-    ax.set_title("PACE Vent Status Timeline")
-    ax.set_xlabel("Trace sample index")
-    ax.set_ylabel("PACE vent status")
+    return {
+        "co2_plot": str(co2_plot),
+        "dewpoint_h2o_plot": str(dewpoint_plot),
+        "post_isolation_drift_plot": str(drift_plot),
+        "post_isolation_dewpoint_rise_plot": str(dew_rise_plot),
+    }
+
+
+def _plot_trace_timelines(trace_rows: Sequence[Mapping[str, Any]], output_dir: Path) -> Dict[str, str]:
+    status_plot = output_dir / "pace_vent_status_timeline.png"
+    elapsed_plot = output_dir / "pace_vent_elapsed_time_timeline.png"
+    sorted_rows = sorted(
+        trace_rows,
+        key=lambda row: (
+            int(row.get("round_index") or 1),
+            PRESSURE_ORDER.get(_safe_int(row.get("pressure_hpa")), 99),
+            _parse_ts(row.get("ts")) or datetime.min,
+        ),
+    )
+    x_values = list(range(len(sorted_rows)))
+    status_values = [_safe_float(_pick_first(row, ("pace_vent_status_query", "pace_vent_status"))) for row in sorted_rows]
+    elapsed_values = [_safe_float(row.get("pace_vent_elapsed_time_query")) for row in sorted_rows]
+
+    fig, ax = plt.subplots(figsize=(9.0, 4.8))
+    _safe_plot_series(ax, x_values=x_values, y_values=status_values, label="VENT?", marker=".")
+    ax.set_title("PACE vent status timeline")
+    ax.set_xlabel("trace sample index")
+    ax.set_ylabel("VENT status")
     ax.grid(True, alpha=0.3)
-    handles, labels = ax.get_legend_handles_labels()
-    if handles:
-        ax.legend()
     fig.tight_layout()
-    fig.savefig(vent_path, dpi=160)
+    fig.savefig(status_plot, dpi=160)
     plt.close(fig)
-    plots["pace_vent_status_timeline_plot"] = str(vent_path)
 
-    return plots
+    fig, ax = plt.subplots(figsize=(9.0, 4.8))
+    _safe_plot_series(ax, x_values=x_values, y_values=elapsed_values, label="VENT ETIM", marker=".")
+    ax.set_title("PACE vent elapsed time timeline")
+    ax.set_xlabel("trace sample index")
+    ax.set_ylabel("elapsed time (s)")
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(elapsed_plot, dpi=160)
+    plt.close(fig)
+
+    return {
+        "pace_vent_status_timeline_plot": str(status_plot),
+        "pace_vent_elapsed_time_timeline_plot": str(elapsed_plot),
+    }
 
 
 def analyze_runs(run_dirs: Sequence[Path | str], *, output_dir: Path | str) -> Dict[str, Any]:
-    if not run_dirs:
-        raise ValueError("at least one run directory is required")
+    resolved_run_dirs = [Path(path).resolve() for path in run_dirs]
+    output_path = Path(output_dir).resolve()
+    output_path.mkdir(parents=True, exist_ok=True)
 
-    resolved_run_dirs = [Path(run_dir).resolve() for run_dir in run_dirs]
-    output_dir = Path(output_dir).resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
+    point_results: List[Dict[str, Any]] = []
+    trace_rows: List[Dict[str, Any]] = []
+    for run_index, run_dir in enumerate(resolved_run_dirs, start=1):
+        point_results.extend(load_run_point_results(run_dir, round_index_fallback=run_index))
+        trace_rows.extend(_load_trace_rows(run_dir, round_index_fallback=run_index))
 
-    all_point_results: List[Dict[str, Any]] = []
-    all_trace_rows: List[Dict[str, Any]] = []
-    for round_index, run_dir in enumerate(resolved_run_dirs, start=1):
-        point_results, trace_rows = load_run_point_results(run_dir, round_index=round_index)
-        for row in point_results:
-            row["round_index"] = round_index
-            all_point_results.append(dict(row))
-        for row in trace_rows:
-            enriched = dict(row)
-            enriched["round_index"] = round_index
-            all_trace_rows.append(enriched)
-
-    all_point_results.sort(key=lambda item: (int(item.get("round_index") or 0), int(item.get("step_index") or 0)))
-    presample_lock_violations = summarize_presample_lock_violations(all_trace_rows)
-    reject_reasons = summarize_reject_reasons(all_point_results)
-    post_isolation_diagnoses = summarize_post_isolation_diagnoses(all_point_results)
-    pace_post_isolation_diagnoses = summarize_pace_post_isolation_diagnoses(all_point_results)
-    conclusion, metrics = classify_ingress_result(all_point_results)
-    plots = _plot_round_curves(all_point_results, all_trace_rows, output_dir=output_dir)
-
-    point_summary_csv = _write_csv(output_dir / "same_gas_two_round_point_summary.csv", POINT_SUMMARY_FIELDS, all_point_results)
-    presample_lock_violations_csv = _write_table_csv(output_dir / "presample_lock_violations.csv", presample_lock_violations)
-    reject_reason_summary_csv = _write_table_csv(output_dir / "reject_reason_summary.csv", reject_reasons)
-    post_isolation_diagnosis_summary_csv = _write_table_csv(
-        output_dir / "post_isolation_diagnosis_summary.csv",
-        post_isolation_diagnoses,
+    point_results = sorted(
+        point_results,
+        key=lambda row: (
+            int(row.get("round_index") or 1),
+            PRESSURE_ORDER.get(_safe_int(row.get("pressure_hpa")), 99),
+            int(row.get("point_row") or 0),
+        ),
     )
-    pace_post_isolation_diagnosis_summary_csv = _write_table_csv(
-        output_dir / "pace_post_isolation_diagnosis_summary.csv",
-        pace_post_isolation_diagnoses,
+    point_summary_csv = output_path / "same_gas_two_round_point_summary.csv"
+    _write_csv_rows(point_summary_csv, point_results, POINT_SUMMARY_FIELDS)
+
+    presample_lock_rows: List[Dict[str, Any]] = []
+    for row in point_results:
+        forbidden = str(row.get("forbidden_pre_sampling_actions") or "").strip()
+        if not forbidden:
+            continue
+        for item in re.split(r"[;,|]", forbidden):
+            label = item.strip()
+            if label:
+                presample_lock_rows.append(
+                    {
+                        "round_index": row.get("round_index"),
+                        "pressure_hpa": row.get("pressure_hpa"),
+                        "point_row": row.get("point_row"),
+                        "point_tag": row.get("point_tag"),
+                        "action": label,
+                    }
+                )
+    presample_lock_csv = output_path / "presample_lock_violations.csv"
+    _write_csv_rows(presample_lock_csv, presample_lock_rows, ["round_index", "pressure_hpa", "point_row", "point_tag", "action"])
+
+    reject_counter = Counter(str(row.get("reject_reason") or "").strip() for row in point_results if row.get("reject_reason"))
+    reject_reason_csv = output_path / "reject_reason_summary.csv"
+    _write_count_csv(reject_reason_csv, reject_counter, key_name="reject_reason")
+
+    diagnosis_counter = Counter(str(row.get("post_isolation_diagnosis") or "").strip() for row in point_results if row.get("post_isolation_diagnosis"))
+    diagnosis_csv = output_path / "post_isolation_diagnosis_summary.csv"
+    _write_count_csv(diagnosis_csv, diagnosis_counter, key_name="post_isolation_diagnosis")
+
+    pace_diagnosis_counter = Counter({key: count for key, count in diagnosis_counter.items() if key in PACE_DIAG_CATEGORIES})
+    pace_diagnosis_csv = output_path / "pace_post_isolation_diagnosis_summary.csv"
+    _write_count_csv(pace_diagnosis_csv, pace_diagnosis_counter, key_name="pace_post_isolation_diagnosis")
+
+    protective_rows = [
+        {"state": "vent_orpv_enabled_points", "count": sum(1 for row in point_results if str(row.get("pace_vent_orpv_state_query") or "").upper() == "ENABLED")},
+        {"state": "vent_pupv_enabled_points", "count": sum(1 for row in point_results if str(row.get("pace_vent_pupv_state_query") or "").upper() == "ENABLED")},
+        {"state": "pace_protective_vent_suspect_points", "count": sum(1 for row in point_results if str(row.get("post_isolation_diagnosis") or "") == "pace_protective_vent_suspect")},
+    ]
+    protective_csv = output_path / "pace_protective_vent_state_summary.csv"
+    _write_csv_rows(protective_csv, protective_rows, ["state", "count"])
+
+    fast_capture_rows = [
+        {
+            "round_index": row.get("round_index"),
+            "pressure_hpa": row.get("pressure_hpa"),
+            "point_row": row.get("point_row"),
+            "point_tag": row.get("point_tag"),
+            "post_isolation_capture_mode": row.get("post_isolation_capture_mode"),
+            "post_isolation_fast_capture_status": row.get("post_isolation_fast_capture_status"),
+            "post_isolation_fast_capture_reason": row.get("post_isolation_fast_capture_reason"),
+            "post_isolation_fast_capture_elapsed_s": row.get("post_isolation_fast_capture_elapsed_s"),
+            "post_isolation_fast_capture_fallback": row.get("post_isolation_fast_capture_fallback"),
+            "post_isolation_diagnosis": row.get("post_isolation_diagnosis"),
+            "reject_reason": row.get("reject_reason"),
+        }
+        for row in point_results
+    ]
+    fast_capture_csv = output_path / "fast5s_vs_extended20s_point_summary.csv"
+    _write_csv_rows(
+        fast_capture_csv,
+        fast_capture_rows,
+        [
+            "round_index",
+            "pressure_hpa",
+            "point_row",
+            "point_tag",
+            "post_isolation_capture_mode",
+            "post_isolation_fast_capture_status",
+            "post_isolation_fast_capture_reason",
+            "post_isolation_fast_capture_elapsed_s",
+            "post_isolation_fast_capture_fallback",
+            "post_isolation_diagnosis",
+            "reject_reason",
+        ],
     )
 
-    summary_payload = {
+    conclusion, metrics = classify_ingress_result(point_results)
+    plots = {}
+    plots.update(_plot_round_curves(point_results, output_path))
+    plots.update(_plot_trace_timelines(trace_rows, output_path))
+
+    summary = {
         "run_dirs": [str(path) for path in resolved_run_dirs],
-        "output_dir": str(output_dir),
-        "point_summary_csv": point_summary_csv,
-        "presample_lock_violations_csv": presample_lock_violations_csv,
-        "reject_reason_summary_csv": reject_reason_summary_csv,
-        "post_isolation_diagnosis_summary_csv": post_isolation_diagnosis_summary_csv,
-        "pace_post_isolation_diagnosis_summary_csv": pace_post_isolation_diagnosis_summary_csv,
-        "plots": plots,
-        "point_results": all_point_results,
-        "metrics": metrics,
+        "target_co2_ppm": TARGET_CO2_PPM,
+        "required_pressures_hpa": REQUIRED_PRESSURES,
         "conclusion": conclusion,
+        "metrics": metrics,
+        "point_results": point_results,
+        "point_summary_csv": str(point_summary_csv),
+        "presample_lock_violations_csv": str(presample_lock_csv),
+        "reject_reason_summary_csv": str(reject_reason_csv),
+        "post_isolation_diagnosis_summary_csv": str(diagnosis_csv),
+        "pace_post_isolation_diagnosis_summary_csv": str(pace_diagnosis_csv),
+        "pace_protective_vent_state_summary_csv": str(protective_csv),
+        "fast5s_vs_extended20s_point_summary_csv": str(fast_capture_csv),
+        "plots": plots,
     }
-    summary_path = output_dir / "same_gas_two_round_summary.json"
-    summary_path.write_text(json.dumps(summary_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    summary_payload["summary_json"] = str(summary_path)
-    return summary_payload
-
-
-def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Analyze V1 800 ppm ingress smoke traces.")
-    parser.add_argument("run_dirs", nargs="+", help="One or more run output directories.")
-    parser.add_argument("--output-dir", required=True, help="Directory to write plots and summaries.")
-    return parser.parse_args(argv)
+    summary_json = output_path / "same_gas_two_round_summary.json"
+    summary["summary_json"] = str(summary_json)
+    summary_json.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    return summary
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    args = _parse_args(argv)
+    parser = argparse.ArgumentParser(description="Analyze V1 800 ppm ingress smoke artifacts.")
+    parser.add_argument("run_dirs", nargs="+", help="One or more run directories to analyze.")
+    parser.add_argument("--output-dir", required=True, help="Directory for plots and summary CSVs.")
+    args = parser.parse_args(argv)
     summary = analyze_runs(args.run_dirs, output_dir=args.output_dir)
-    print(json.dumps({"conclusion": summary["conclusion"], "summary_json": summary["summary_json"]}, ensure_ascii=False))
+    print(f"结论: {summary['conclusion']}")
+    print(f"汇总: {summary['summary_json']}")
     return 0
 
 

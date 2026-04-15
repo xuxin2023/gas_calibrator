@@ -460,6 +460,27 @@ class Pace5000:
         value = self.get_vent_popup_ack_enabled()
         return "ENABLED" if bool(value) else "DISABLED"
 
+    def get_vent_elapsed_time_s(self) -> float:
+        resp = self.query(":SOUR:PRES:LEV:IMM:AMPL:VENT:ETIM?")
+        value = self._parse_first_float(resp)
+        if value is None:
+            raise RuntimeError("NO_RESPONSE")
+        return float(value)
+
+    def get_vent_over_range_protect_state(self) -> str:
+        resp = self.query(":SOUR:PRES:LEV:IMM:AMPL:VENT:ORPV:STAT?")
+        value = self._parse_bool_state(resp)
+        if value is None:
+            raise RuntimeError("NO_RESPONSE")
+        return "ENABLED" if bool(value) else "DISABLED"
+
+    def get_vent_power_up_protect_state(self) -> str:
+        resp = self.query(":SOUR:PRES:LEV:IMM:AMPL:VENT:PUPV:STAT?")
+        value = self._parse_bool_state(resp)
+        if value is None:
+            raise RuntimeError("NO_RESPONSE")
+        return "ENABLED" if bool(value) else "DISABLED"
+
     def get_oper_condition(self) -> int:
         resp = self.query(":STAT:OPER:COND?")
         value = self._parse_first_int(resp)
@@ -496,6 +517,18 @@ class Pace5000:
             status["oper_pressure_condition"] = self.get_oper_pressure_condition()
         except Exception:
             status["oper_pressure_condition"] = ""
+        try:
+            status["vent_elapsed_time_s"] = self.get_vent_elapsed_time_s()
+        except Exception:
+            status["vent_elapsed_time_s"] = ""
+        try:
+            status["vent_orpv_state"] = self.get_vent_over_range_protect_state()
+        except Exception:
+            status["vent_orpv_state"] = ""
+        try:
+            status["vent_pupv_state"] = self.get_vent_power_up_protect_state()
+        except Exception:
+            status["vent_pupv_state"] = ""
         return status
 
     def wait_for_vent_idle(

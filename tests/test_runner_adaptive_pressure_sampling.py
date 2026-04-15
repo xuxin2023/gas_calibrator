@@ -255,6 +255,54 @@ def test_adaptive_mode_does_not_reapply_setpoint_in_wait_path(tmp_path: Path) ->
     assert recaptures["count"] == 0
 
 
+def test_fast5s_capture_can_sample_immediately_when_override_allows_early_sample(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "pressure": {
+                    "adaptive_pressure_sampling_enabled": True,
+                    "skip_fixed_post_stable_delay_when_adaptive": True,
+                    "post_isolation_fast_capture_enabled": True,
+                    "post_isolation_fast_capture_allow_early_sample": True,
+                }
+            }
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _co2_point()
+    _prime_sealed_runtime(runner, point)
+    runner._set_pressure_controller_sampling_isolation = lambda _point, **_kwargs: True
+
+    def _fast_pass(_point, **_kwargs):
+        runner._set_point_runtime_fields(
+            point,
+            phase="co2",
+            post_isolation_capture_mode="fast5s",
+            post_isolation_fast_capture_status="pass",
+            post_isolation_fast_capture_reason="clean_window",
+            post_isolation_fast_capture_fallback=False,
+        )
+        return True
+
+    runner._wait_post_isolation_leak_test = _fast_pass
+    runner._wait_sampling_pressure_gate = lambda _point, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("fast 5s early sample should skip extended gate chain")
+    )
+    runner._wait_postseal_dewpoint_gate = runner._wait_sampling_pressure_gate
+    runner._wait_co2_presample_long_guard = runner._wait_sampling_pressure_gate
+
+    assert runner._wait_after_pressure_stable_before_sampling(point) is True
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["post_isolation_capture_mode"] == "fast5s"
+    assert state["post_isolation_fast_capture_status"] == "pass"
+    assert state["timing_stages"]["sampling_begin"] is not None
+    logger.close()
+
+
 def test_pressure_point_order_unchanged_with_adaptive_flag(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner(

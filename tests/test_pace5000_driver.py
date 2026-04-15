@@ -899,6 +899,9 @@ def test_diagnostic_status_collects_best_effort_aux_fields(monkeypatch) -> None:
                 ":OUTP:MODE?": "ACT",
                 ":SOUR:PRES:LEV:IMM:AMPL:VENT:AFT:VVAL:STAT?": "OPEN",
                 ":SOUR:PRES:LEV:IMM:AMPL:VENT:APOP:STAT?": "ENABLED",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT:ETIM?": "7.5",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT:ORPV:STAT?": "ENABLED",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT:PUPV:STAT?": "DISABLED",
                 ":STAT:OPER:COND?": ":STAT:OPER:COND 3",
                 ":STAT:OPER:PRES:COND?": ":STAT:OPER:PRES:COND 5",
             }
@@ -919,5 +922,36 @@ def test_diagnostic_status_collects_best_effort_aux_fields(monkeypatch) -> None:
     assert status["output_mode"] == "ACT"
     assert status["vent_after_valve_state"] == "OPEN"
     assert status["vent_popup_state"] == "ENABLED"
+    assert status["vent_elapsed_time_s"] == 7.5
+    assert status["vent_orpv_state"] == "ENABLED"
+    assert status["vent_pupv_state"] == "DISABLED"
     assert status["oper_condition"] == 3
     assert status["oper_pressure_condition"] == 5
+
+
+def test_get_vent_elapsed_time_and_protective_states_parse_queries(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.responses = iter(["7.25", "ENABLED", "DISABLED"])
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.last_write = data
+
+        def query(self, data: str) -> str:
+            return next(self.responses)
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    assert dev.get_vent_elapsed_time_s() == 7.25
+    assert dev.get_vent_over_range_protect_state() == "ENABLED"
+    assert dev.get_vent_power_up_protect_state() == "DISABLED"

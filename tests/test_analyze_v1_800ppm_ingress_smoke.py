@@ -20,7 +20,17 @@ def _write_csv(path: Path, fieldnames, rows) -> None:
         writer.writerows(rows)
 
 
-def _make_run_dir(base: Path, *, co2_values, dew_values, h2o_values) -> Path:
+def _make_run_dir(
+    base: Path,
+    *,
+    co2_values,
+    dew_values,
+    h2o_values,
+    fast_status: str = "pass",
+    capture_mode: str = "fast5s",
+    fallback: str = "false",
+    diagnosis_by_pressure: dict[int, str] | None = None,
+) -> Path:
     run_dir = base
     timestamps = [
         "2026-04-15T10:00:00",
@@ -32,8 +42,10 @@ def _make_run_dir(base: Path, *, co2_values, dew_values, h2o_values) -> Path:
     point_rows = []
     timing_rows = []
     trace_rows = []
+    diagnosis_by_pressure = diagnosis_by_pressure or {}
     for index, pressure in enumerate(pressures, start=1):
         point_tag = f"round_step{index}_{pressure}hPa"
+        diagnosis = diagnosis_by_pressure.get(pressure, "pass")
         point_rows.append(
             {
                 "point_row": index,
@@ -46,7 +58,7 @@ def _make_run_dir(base: Path, *, co2_values, dew_values, h2o_values) -> Path:
                 "dewpoint_mean_c": dew_values[index - 1],
                 "dewpoint_gate_result": "stable",
                 "point_quality_reason": "",
-                "post_isolation_diagnosis": "pass",
+                "post_isolation_diagnosis": diagnosis,
                 "post_isolation_pressure_drift_hpa": 0.02 * index,
                 "post_isolation_dewpoint_rise_c": 0.01 * index,
             }
@@ -62,7 +74,12 @@ def _make_run_dir(base: Path, *, co2_values, dew_values, h2o_values) -> Path:
                 "handoff_mode": "same_gas_pressure_step_handoff",
                 "capture_hold_status": "pass",
                 "post_isolation_status": "pass",
-                "post_isolation_diagnosis": "pass",
+                "post_isolation_diagnosis": diagnosis,
+                "post_isolation_capture_mode": capture_mode,
+                "post_isolation_fast_capture_status": fast_status,
+                "post_isolation_fast_capture_reason": "",
+                "post_isolation_fast_capture_elapsed_s": "5.0",
+                "post_isolation_fast_capture_fallback": fallback,
                 "post_isolation_pressure_drift_hpa": 0.02 * index,
                 "post_isolation_dewpoint_rise_c": 0.01 * index,
                 "pace_output_state": "0",
@@ -74,6 +91,9 @@ def _make_run_dir(base: Path, *, co2_values, dew_values, h2o_values) -> Path:
                 "pace_vent_status_query": "0",
                 "pace_vent_after_valve_state_query": "CLOSED",
                 "pace_vent_popup_state_query": "DISABLED",
+                "pace_vent_elapsed_time_query": "0.0",
+                "pace_vent_orpv_state_query": "DISABLED",
+                "pace_vent_pupv_state_query": "DISABLED",
                 "pace_oper_cond_query": "1",
                 "pace_oper_pres_cond_query": "2",
                 "root_cause_reject_reason": "",
@@ -91,6 +111,11 @@ def _make_run_dir(base: Path, *, co2_values, dew_values, h2o_values) -> Path:
                     "capture_hold_status": "pass",
                     "post_isolation_status": "running",
                     "post_isolation_diagnosis": "",
+                    "post_isolation_capture_mode": capture_mode,
+                    "post_isolation_fast_capture_status": "running",
+                    "post_isolation_fast_capture_reason": "",
+                    "post_isolation_fast_capture_elapsed_s": "",
+                    "post_isolation_fast_capture_fallback": fallback,
                     "post_isolation_pressure_drift_hpa": "",
                     "post_isolation_dewpoint_rise_c": "",
                     "pressure_gate_status": "running",
@@ -104,6 +129,9 @@ def _make_run_dir(base: Path, *, co2_values, dew_values, h2o_values) -> Path:
                     "pace_vent_status_query": "0",
                     "pace_vent_after_valve_state_query": "CLOSED",
                     "pace_vent_popup_state_query": "DISABLED",
+                    "pace_vent_elapsed_time_query": "0.0",
+                    "pace_vent_orpv_state_query": "DISABLED",
+                    "pace_vent_pupv_state_query": "DISABLED",
                     "pace_oper_cond_query": "1",
                     "pace_oper_pres_cond_query": "2",
                     "root_cause_reject_reason": "",
@@ -118,7 +146,12 @@ def _make_run_dir(base: Path, *, co2_values, dew_values, h2o_values) -> Path:
                     "handoff_mode": "same_gas_pressure_step_handoff",
                     "capture_hold_status": "pass",
                     "post_isolation_status": "pass",
-                    "post_isolation_diagnosis": "pass",
+                    "post_isolation_diagnosis": diagnosis,
+                    "post_isolation_capture_mode": capture_mode,
+                    "post_isolation_fast_capture_status": fast_status,
+                    "post_isolation_fast_capture_reason": "",
+                    "post_isolation_fast_capture_elapsed_s": "5.0",
+                    "post_isolation_fast_capture_fallback": fallback,
                     "post_isolation_pressure_drift_hpa": 0.02 * index,
                     "post_isolation_dewpoint_rise_c": 0.01 * index,
                     "pressure_gate_status": "pass",
@@ -132,6 +165,9 @@ def _make_run_dir(base: Path, *, co2_values, dew_values, h2o_values) -> Path:
                     "pace_vent_status_query": "0",
                     "pace_vent_after_valve_state_query": "CLOSED",
                     "pace_vent_popup_state_query": "DISABLED",
+                    "pace_vent_elapsed_time_query": "0.0",
+                    "pace_vent_orpv_state_query": "DISABLED",
+                    "pace_vent_pupv_state_query": "DISABLED",
                     "pace_oper_cond_query": "1",
                     "pace_oper_pres_cond_query": "2",
                     "root_cause_reject_reason": "",
@@ -161,64 +197,12 @@ def _make_run_dir(base: Path, *, co2_values, dew_values, h2o_values) -> Path:
     )
     _write_csv(
         run_dir / "point_timing_summary.csv",
-        [
-            "point_row",
-            "point_phase",
-            "point_tag",
-            "pressure_target_hpa",
-            "pressure_in_limits_ts",
-            "sampling_begin_ts",
-            "handoff_mode",
-            "capture_hold_status",
-            "post_isolation_status",
-            "post_isolation_diagnosis",
-            "post_isolation_pressure_drift_hpa",
-            "post_isolation_dewpoint_rise_c",
-            "pace_output_state",
-            "pace_isolation_state",
-            "pace_vent_status",
-            "pace_outp_state_query",
-            "pace_isol_state_query",
-            "pace_mode_query",
-            "pace_vent_status_query",
-            "pace_vent_after_valve_state_query",
-            "pace_vent_popup_state_query",
-            "pace_oper_cond_query",
-            "pace_oper_pres_cond_query",
-            "root_cause_reject_reason",
-        ],
+        list(timing_rows[0].keys()),
         timing_rows,
     )
     _write_csv(
         run_dir / "pressure_transition_trace.csv",
-        [
-            "ts",
-            "point_row",
-            "point_phase",
-            "point_tag",
-            "trace_stage",
-            "handoff_mode",
-            "capture_hold_status",
-            "post_isolation_status",
-            "post_isolation_diagnosis",
-            "post_isolation_pressure_drift_hpa",
-            "post_isolation_dewpoint_rise_c",
-            "pressure_gate_status",
-            "pressure_gate_reason",
-            "pace_output_state",
-            "pace_isolation_state",
-            "pace_vent_status",
-            "pace_outp_state_query",
-            "pace_isol_state_query",
-            "pace_mode_query",
-            "pace_vent_status_query",
-            "pace_vent_after_valve_state_query",
-            "pace_vent_popup_state_query",
-            "pace_oper_cond_query",
-            "pace_oper_pres_cond_query",
-            "root_cause_reject_reason",
-            "note",
-        ],
+        list(trace_rows[0].keys()),
         trace_rows,
     )
     return run_dir
@@ -247,9 +231,12 @@ def test_analyze_v1_800ppm_ingress_smoke_outputs_expected_files(tmp_path: Path) 
     assert Path(summary["reject_reason_summary_csv"]).exists()
     assert Path(summary["post_isolation_diagnosis_summary_csv"]).exists()
     assert Path(summary["pace_post_isolation_diagnosis_summary_csv"]).exists()
+    assert Path(summary["pace_protective_vent_state_summary_csv"]).exists()
+    assert Path(summary["fast5s_vs_extended20s_point_summary_csv"]).exists()
     assert Path(summary["plots"]["co2_plot"]).exists()
     assert Path(summary["plots"]["dewpoint_h2o_plot"]).exists()
     assert Path(summary["plots"]["pace_vent_status_timeline_plot"]).exists()
+    assert Path(summary["plots"]["pace_vent_elapsed_time_timeline_plot"]).exists()
     assert Path(summary["plots"]["post_isolation_drift_plot"]).exists()
     assert Path(summary["plots"]["post_isolation_dewpoint_rise_plot"]).exists()
     assert (tmp_path / "analysis" / "same_gas_two_round_summary.json").exists()
@@ -266,7 +253,11 @@ def test_classify_ingress_result_flags_clear_low_pressure_pullback() -> None:
             "h2o_mean_mmol": h2o,
             "reject_reason": "",
             "post_isolation_diagnosis": "",
+            "post_isolation_fast_capture_status": "",
+            "post_isolation_capture_mode": "",
+            "post_isolation_fast_capture_fallback": False,
             "forbidden_pre_sampling_actions": "",
+            "handoff_mode": "same_gas_pressure_step_handoff",
         }
         for pressure, co2, dew, h2o in [
             (1000, 800.0, -35.0, 0.30),
@@ -312,6 +303,9 @@ def test_analyze_runs_supplements_trace_only_rejected_points(tmp_path: Path) -> 
 
     with (run_dir / "pressure_transition_trace.csv").open("r", encoding="utf-8-sig", newline="") as handle:
         trace_rows = list(csv.DictReader(handle))
+    for row in trace_rows:
+        if row["trace_stage"] == "sampling_begin" and row["point_row"] in {"2", "3", "4"}:
+            row["trace_stage"] = "post_isolation_failed"
     trace_rows.extend(
         [
             {
@@ -324,6 +318,11 @@ def test_analyze_runs_supplements_trace_only_rejected_points(tmp_path: Path) -> 
                 "capture_hold_status": "",
                 "post_isolation_status": "running",
                 "post_isolation_diagnosis": "",
+                "post_isolation_capture_mode": "extended20s",
+                "post_isolation_fast_capture_status": "fallback",
+                "post_isolation_fast_capture_reason": "vent_not_zero",
+                "post_isolation_fast_capture_elapsed_s": "5.0",
+                "post_isolation_fast_capture_fallback": "true",
                 "post_isolation_pressure_drift_hpa": "",
                 "post_isolation_dewpoint_rise_c": "",
                 "pressure_gate_status": "",
@@ -337,6 +336,9 @@ def test_analyze_runs_supplements_trace_only_rejected_points(tmp_path: Path) -> 
                 "pace_vent_status_query": "1",
                 "pace_vent_after_valve_state_query": "OPEN",
                 "pace_vent_popup_state_query": "DISABLED",
+                "pace_vent_elapsed_time_query": "9.0",
+                "pace_vent_orpv_state_query": "DISABLED",
+                "pace_vent_pupv_state_query": "DISABLED",
                 "pace_oper_cond_query": "1",
                 "pace_oper_pres_cond_query": "2",
                 "root_cause_reject_reason": "",
@@ -352,6 +354,11 @@ def test_analyze_runs_supplements_trace_only_rejected_points(tmp_path: Path) -> 
                 "capture_hold_status": "fail",
                 "post_isolation_status": "fail",
                 "post_isolation_diagnosis": "pace_vent_in_progress_suspect",
+                "post_isolation_capture_mode": "extended20s",
+                "post_isolation_fast_capture_status": "fallback",
+                "post_isolation_fast_capture_reason": "vent_not_zero",
+                "post_isolation_fast_capture_elapsed_s": "5.0",
+                "post_isolation_fast_capture_fallback": "true",
                 "post_isolation_pressure_drift_hpa": "0.60",
                 "post_isolation_dewpoint_rise_c": "0.25",
                 "pressure_gate_status": "",
@@ -365,6 +372,9 @@ def test_analyze_runs_supplements_trace_only_rejected_points(tmp_path: Path) -> 
                 "pace_vent_status_query": "1",
                 "pace_vent_after_valve_state_query": "OPEN",
                 "pace_vent_popup_state_query": "DISABLED",
+                "pace_vent_elapsed_time_query": "10.0",
+                "pace_vent_orpv_state_query": "DISABLED",
+                "pace_vent_pupv_state_query": "DISABLED",
                 "pace_oper_cond_query": "1",
                 "pace_oper_pres_cond_query": "2",
                 "root_cause_reject_reason": "pace_vent_in_progress_suspect",
@@ -384,7 +394,7 @@ def test_analyze_runs_supplements_trace_only_rejected_points(tmp_path: Path) -> 
     assert by_pressure[800]["reject_reason"] == "pace_vent_in_progress_suspect"
 
 
-def test_classify_ingress_result_tracks_post_isolation_categories() -> None:
+def test_classify_ingress_result_tracks_post_isolation_categories_and_fast_capture_assessment() -> None:
     module = _load_module()
     point_results = [
         {
@@ -395,7 +405,11 @@ def test_classify_ingress_result_tracks_post_isolation_categories() -> None:
             "h2o_mean_mmol": 0.30,
             "reject_reason": "",
             "post_isolation_diagnosis": "pass",
+            "post_isolation_capture_mode": "fast5s",
+            "post_isolation_fast_capture_status": "pass",
+            "post_isolation_fast_capture_fallback": False,
             "forbidden_pre_sampling_actions": "",
+            "handoff_mode": "same_gas_pressure_step_handoff",
         },
         {
             "round_index": 1,
@@ -403,9 +417,13 @@ def test_classify_ingress_result_tracks_post_isolation_categories() -> None:
             "co2_mean_ppm": None,
             "dewpoint_mean_c": None,
             "h2o_mean_mmol": None,
-            "reject_reason": "pace_vent_valve_left_open_suspect",
-            "post_isolation_diagnosis": "pace_vent_valve_left_open_suspect",
+            "reject_reason": "pace_vent_after_valve_config_open_suspect",
+            "post_isolation_diagnosis": "pace_vent_after_valve_config_open_suspect",
+            "post_isolation_capture_mode": "extended20s",
+            "post_isolation_fast_capture_status": "fallback",
+            "post_isolation_fast_capture_fallback": True,
             "forbidden_pre_sampling_actions": "",
+            "handoff_mode": "same_gas_pressure_step_handoff",
         },
         {
             "round_index": 1,
@@ -415,7 +433,11 @@ def test_classify_ingress_result_tracks_post_isolation_categories() -> None:
             "h2o_mean_mmol": None,
             "reject_reason": "dead_volume_wet_release_suspect",
             "post_isolation_diagnosis": "dead_volume_wet_release_suspect",
+            "post_isolation_capture_mode": "extended20s",
+            "post_isolation_fast_capture_status": "fallback",
+            "post_isolation_fast_capture_fallback": True,
             "forbidden_pre_sampling_actions": "",
+            "handoff_mode": "same_gas_pressure_step_handoff",
         },
         {
             "round_index": 1,
@@ -425,13 +447,18 @@ def test_classify_ingress_result_tracks_post_isolation_categories() -> None:
             "h2o_mean_mmol": None,
             "reject_reason": "controller_hunting_suspect",
             "post_isolation_diagnosis": "",
+            "post_isolation_capture_mode": "extended20s",
+            "post_isolation_fast_capture_status": "fallback",
+            "post_isolation_fast_capture_fallback": True,
             "forbidden_pre_sampling_actions": "",
+            "handoff_mode": "same_gas_pressure_step_handoff",
         },
     ]
 
     conclusion, metrics = module.classify_ingress_result(point_results)
 
-    assert conclusion == "混气仍明显存在"
-    assert metrics["pace_vent_valve_left_open_count"] == 1
+    assert conclusion == "混气明显减轻但未完全解决"
+    assert metrics["pace_vent_after_valve_config_open_count"] == 1
     assert metrics["dead_volume_wet_release_count"] == 1
     assert metrics["controller_hunting_count"] == 1
+    assert metrics["fast_capture_assessment"] == "5 秒快采失败且提示 vent-after-valve / protective vent"
