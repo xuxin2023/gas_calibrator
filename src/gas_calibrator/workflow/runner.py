@@ -10972,6 +10972,45 @@ class CalibrationRunner:
             return
         self._last_sealed_pressure_route_context = None
 
+    def _remember_last_sealed_pressure_route_context(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        reason: str = "",
+    ) -> Dict[str, Any]:
+        phase_text = str(phase or "").strip().lower()
+        point_row = self._as_int(getattr(point, "index", None))
+        if point_row is None or not phase_text:
+            return {}
+
+        context: Dict[str, Any] = {
+            "phase": phase_text,
+            "route_signature": self._route_signature_for_point(point, phase=phase_text),
+            "point_row": point_row,
+        }
+        runtime_state = dict(self._point_runtime_state(point, phase=phase_text) or {})
+        timing_stages = dict(runtime_state.get("timing_stages") or {})
+        timing_snapshot = {
+            stage_name: stage_ts
+            for stage_name in (
+                "route_open",
+                "soak_begin",
+                "soak_end",
+                "preseal_vent_off_begin",
+                "preseal_trigger_reached",
+                "route_sealed",
+            )
+            if (stage_ts := self._as_float(timing_stages.get(stage_name))) is not None
+        }
+        if timing_snapshot:
+            context["timing_stages"] = timing_snapshot
+        if str(reason or "").strip():
+            context["sealed_context_reason"] = str(reason or "").strip()
+
+        self._last_sealed_pressure_route_context = context
+        return dict(context)
+
     def _last_sealed_route_timing_snapshot(
         self,
         *,
@@ -15168,11 +15207,11 @@ class CalibrationRunner:
                 "adaptive_pressure_sampling",
                 "pressure gate + dewpoint gate + capture hold passed; skip fixed post-stable delay",
             )
-            self._last_sealed_pressure_route_context = {
-                "phase": phase,
-                "route_signature": self._route_signature_for_point(point, phase=phase),
-                "point_row": int(point.index),
-            }
+            self._remember_last_sealed_pressure_route_context(
+                point,
+                phase=phase,
+                reason="sampling_begin_ready_adaptive",
+            )
             return True
 
         post_stable_delay_s = 0.0
@@ -15226,11 +15265,11 @@ class CalibrationRunner:
                     )
                     + f"pressure_target={pressure_label}",
                 )
-                self._last_sealed_pressure_route_context = {
-                    "phase": phase,
-                    "route_signature": self._route_signature_for_point(point, phase=phase),
-                    "point_row": int(point.index),
-                }
+                self._remember_last_sealed_pressure_route_context(
+                    point,
+                    phase=phase,
+                    reason=f"{phase}_sampling_begin_ready_delay_elapsed",
+                )
                 return True
 
             self.log(
@@ -15244,11 +15283,11 @@ class CalibrationRunner:
                 f"elapsed_since_pressure_in_limits_s={elapsed_since_pressure_in_limits_s:.3f}; "
                 f"pressure_target={pressure_label}",
             )
-            self._last_sealed_pressure_route_context = {
-                "phase": phase,
-                "route_signature": self._route_signature_for_point(point, phase=phase),
-                "point_row": int(point.index),
-            }
+            self._remember_last_sealed_pressure_route_context(
+                point,
+                phase=phase,
+                reason=f"{phase}_sampling_begin_ready_delay_already_satisfied",
+            )
             return True
 
         if point.is_h2o_point:
@@ -15257,11 +15296,11 @@ class CalibrationRunner:
                 "h2o_post_stable_immediate",
                 "pressure gate + post-seal dewpoint gate complete; fixed post-stable delay disabled",
             )
-            self._last_sealed_pressure_route_context = {
-                "phase": phase,
-                "route_signature": self._route_signature_for_point(point, phase=phase),
-                "point_row": int(point.index),
-            }
+            self._remember_last_sealed_pressure_route_context(
+                point,
+                phase=phase,
+                reason="h2o_sampling_begin_ready_immediate",
+            )
             return True
 
         self.log("CO2 pressure stable; pressure gate + post-seal dewpoint gate complete; start sampling immediately")
@@ -15269,11 +15308,11 @@ class CalibrationRunner:
             "co2_post_stable_immediate",
             "pressure gate + post-seal dewpoint gate complete; fixed post-stable delay disabled",
         )
-        self._last_sealed_pressure_route_context = {
-            "phase": phase,
-            "route_signature": self._route_signature_for_point(point, phase=phase),
-            "point_row": int(point.index),
-        }
+        self._remember_last_sealed_pressure_route_context(
+            point,
+            phase=phase,
+            reason="co2_sampling_begin_ready_immediate",
+        )
         return True
 
     def _open_h2o_route_and_wait_ready(self, point: CalibrationPoint, *, point_tag: str = "") -> bool:
@@ -16150,6 +16189,11 @@ class CalibrationRunner:
                         else f"preseal_ready_failures={','.join(ready_failures)}"
                     )
                 ),
+            )
+            self._remember_last_sealed_pressure_route_context(
+                point,
+                phase=phase,
+                reason="route_sealed_for_pressure_control",
             )
             return True
         finally:

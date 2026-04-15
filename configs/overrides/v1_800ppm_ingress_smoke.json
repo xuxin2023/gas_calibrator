@@ -1,0 +1,68 @@
+{
+  "base_config": "D:/gas_calibrator/configs/default_config.json",
+  "paths": {
+    "points_excel": "D:/gas_calibrator/configs/points_v1_800ppm_ingress_smoke_20c.xlsx",
+    "output_dir": "D:/gas_calibrator/logs"
+  },
+  "devices": {
+    "temperature_chamber": {
+      "enabled": false
+    },
+    "humidity_generator": {
+      "enabled": false
+    }
+  },
+  "workflow": {
+    "collect_only": true,
+    "route_mode": "co2_only",
+    "skip_h2o": true,
+    "selected_temps_c": [
+      20.0
+    ],
+    "selected_pressure_points": [
+      1000,
+      800,
+      600,
+      500
+    ],
+    "skip_co2_ppm": [
+      0,
+      100,
+      200,
+      300,
+      400,
+      500,
+      600,
+      700,
+      900,
+      1000
+    ],
+    "preserve_explicit_point_matrix": true,
+    "pressure": {
+      "capture_then_hold_enabled": true,
+      "adaptive_pressure_sampling_enabled": true,
+      "use_pressure_gauge_for_sampling_gate": true,
+      "post_stable_sample_delay_s": 10.0,
+      "co2_post_stable_sample_delay_s": 10.0,
+      "skip_fixed_post_stable_delay_when_adaptive": true,
+      "co2_sampling_gate_window_s": 10.0,
+      "co2_sampling_gate_pressure_fill_s": 10.0,
+      "co2_postseal_rebound_guard_enabled": true,
+      "co2_presample_long_guard_enabled": true,
+      "co2_sampling_window_qc_enabled": true,
+      "continuous_atmosphere_hold": false
+    },
+    "stability": {
+      "gas_route_dewpoint_gate_enabled": true
+    }
+  },
+  "validation_package": {
+    "name": "v1_800ppm_ingress_smoke",
+    "rounds": 2,
+    "temperature_control": "disabled_room_temp",
+    "notes": [
+      "first live ingress smoke excludes 1100 hPa from the main sequence",
+      "run the same override twice back-to-back to obtain two rounds"
+    ]
+  }
+}

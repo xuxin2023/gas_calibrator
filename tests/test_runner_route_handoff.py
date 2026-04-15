@@ -779,3 +779,45 @@ def test_same_gas_pressure_step_handoff_does_not_emit_atmosphere_enter_or_route_
     assert selected_rows[0]["handoff_mode"] == "same_gas_pressure_step_handoff"
     assert not any(row["trace_stage"] == "atmosphere_enter_begin" for row in trace_rows)
     assert not any(row["trace_stage"] == "route_open" for row in trace_rows)
+
+
+def test_route_seal_context_is_remembered_before_sampling_for_follow_on_same_gas_point(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {},
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    sealed_point = _co2_point(1, 800.0, 1000.0)
+    follow_on_point = _co2_point(2, 800.0, 800.0)
+    runner._set_point_runtime_fields(
+        sealed_point,
+        phase="co2",
+        timing_stages={
+            "route_open": 100.0,
+            "soak_begin": 101.0,
+            "soak_end": 104.0,
+            "preseal_vent_off_begin": 105.0,
+            "preseal_trigger_reached": 106.0,
+            "route_sealed": 107.0,
+        },
+    )
+
+    remembered = runner._remember_last_sealed_pressure_route_context(
+        sealed_point,
+        phase="co2",
+        reason="route_sealed_for_pressure_control",
+    )
+    mode = runner._prepare_sampling_handoff_mode(follow_on_point, phase="co2")
+    logger.close()
+
+    assert remembered["phase"] == "co2"
+    assert remembered["point_row"] == sealed_point.index
+    assert remembered["timing_stages"]["route_sealed"] == 107.0
+    assert mode == "same_gas_pressure_step_handoff"
+    follow_on_state = runner._point_runtime_state(follow_on_point, phase="co2") or {}
+    inherited_stages = dict(follow_on_state.get("timing_stages") or {})
+    assert inherited_stages["route_open"] == 100.0
+    assert inherited_stages["route_sealed"] == 107.0
