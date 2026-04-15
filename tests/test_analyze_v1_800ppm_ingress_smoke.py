@@ -89,6 +89,9 @@ def _make_run_dir(
                 "pace_isol_state_query": "0",
                 "pace_mode_query": "ACT",
                 "pace_vent_status_query": "0",
+                "pace_vent_completed_latched": "false",
+                "pace_vent_clear_attempted": "false",
+                "pace_vent_clear_result": "not_needed",
                 "pace_vent_after_valve_state_query": "CLOSED",
                 "pace_vent_popup_state_query": "DISABLED",
                 "pace_vent_elapsed_time_query": "0.0",
@@ -96,6 +99,20 @@ def _make_run_dir(
                 "pace_vent_pupv_state_query": "DISABLED",
                 "pace_oper_cond_query": "1",
                 "pace_oper_pres_cond_query": "2",
+                "pace_effort_query": "0.0",
+                "pace_comp1_query": "0.0",
+                "pace_comp2_query": "0.0",
+                "pace_sens_pres_cont_query": str(float(pressure)),
+                "pace_sens_pres_bar_query": "1006.0",
+                "pace_sens_pres_inl_query": str(float(pressure)),
+                "pace_sens_pres_inl_state_query": "1",
+                "pace_sens_pres_inl_time_query": "5.0",
+                "pace_sens_inl_query": str(float(pressure)),
+                "pace_sens_inl_time_query": "5.0",
+                "pace_sens_slew_query": "0.0",
+                "pace_oper_pres_even_query": "4",
+                "pace_oper_pres_vent_complete_bit": "false",
+                "pace_oper_pres_in_limits_bit": "true",
                 "root_cause_reject_reason": "",
             }
         )
@@ -127,6 +144,9 @@ def _make_run_dir(
                     "pace_isol_state_query": "0",
                     "pace_mode_query": "ACT",
                     "pace_vent_status_query": "0",
+                    "pace_vent_completed_latched": "false",
+                    "pace_vent_clear_attempted": "false",
+                    "pace_vent_clear_result": "not_needed",
                     "pace_vent_after_valve_state_query": "CLOSED",
                     "pace_vent_popup_state_query": "DISABLED",
                     "pace_vent_elapsed_time_query": "0.0",
@@ -134,6 +154,20 @@ def _make_run_dir(
                     "pace_vent_pupv_state_query": "DISABLED",
                     "pace_oper_cond_query": "1",
                     "pace_oper_pres_cond_query": "2",
+                    "pace_effort_query": "0.0",
+                    "pace_comp1_query": "0.0",
+                    "pace_comp2_query": "0.0",
+                    "pace_sens_pres_cont_query": str(float(pressure)),
+                    "pace_sens_pres_bar_query": "1006.0",
+                    "pace_sens_pres_inl_query": str(float(pressure)),
+                    "pace_sens_pres_inl_state_query": "1",
+                    "pace_sens_pres_inl_time_query": "5.0",
+                    "pace_sens_inl_query": str(float(pressure)),
+                    "pace_sens_inl_time_query": "5.0",
+                    "pace_sens_slew_query": "0.0",
+                    "pace_oper_pres_even_query": "4",
+                    "pace_oper_pres_vent_complete_bit": "false",
+                    "pace_oper_pres_in_limits_bit": "true",
                     "root_cause_reject_reason": "",
                     "note": "",
                 },
@@ -163,6 +197,9 @@ def _make_run_dir(
                     "pace_isol_state_query": "0",
                     "pace_mode_query": "ACT",
                     "pace_vent_status_query": "0",
+                    "pace_vent_completed_latched": "false",
+                    "pace_vent_clear_attempted": "false",
+                    "pace_vent_clear_result": "not_needed",
                     "pace_vent_after_valve_state_query": "CLOSED",
                     "pace_vent_popup_state_query": "DISABLED",
                     "pace_vent_elapsed_time_query": "0.0",
@@ -170,6 +207,20 @@ def _make_run_dir(
                     "pace_vent_pupv_state_query": "DISABLED",
                     "pace_oper_cond_query": "1",
                     "pace_oper_pres_cond_query": "2",
+                    "pace_effort_query": "0.0",
+                    "pace_comp1_query": "0.0",
+                    "pace_comp2_query": "0.0",
+                    "pace_sens_pres_cont_query": str(float(pressure)),
+                    "pace_sens_pres_bar_query": "1006.0",
+                    "pace_sens_pres_inl_query": str(float(pressure)),
+                    "pace_sens_pres_inl_state_query": "1",
+                    "pace_sens_pres_inl_time_query": "5.0",
+                    "pace_sens_inl_query": str(float(pressure)),
+                    "pace_sens_inl_time_query": "5.0",
+                    "pace_sens_slew_query": "0.0",
+                    "pace_oper_pres_even_query": "4",
+                    "pace_oper_pres_vent_complete_bit": "false",
+                    "pace_oper_pres_in_limits_bit": "true",
                     "root_cause_reject_reason": "",
                     "note": "",
                 },
@@ -231,12 +282,15 @@ def test_analyze_v1_800ppm_ingress_smoke_outputs_expected_files(tmp_path: Path) 
     assert Path(summary["reject_reason_summary_csv"]).exists()
     assert Path(summary["post_isolation_diagnosis_summary_csv"]).exists()
     assert Path(summary["pace_post_isolation_diagnosis_summary_csv"]).exists()
+    assert Path(summary["pace_standard_status_summary_csv"]).exists()
     assert Path(summary["pace_protective_vent_state_summary_csv"]).exists()
-    assert Path(summary["fast5s_vs_extended20s_point_summary_csv"]).exists()
+    assert Path(summary["fast5s_vs_extended20s_with_effort_summary_csv"]).exists()
     assert Path(summary["plots"]["co2_plot"]).exists()
     assert Path(summary["plots"]["dewpoint_h2o_plot"]).exists()
-    assert Path(summary["plots"]["pace_vent_status_timeline_plot"]).exists()
-    assert Path(summary["plots"]["pace_vent_elapsed_time_timeline_plot"]).exists()
+    assert Path(summary["plots"]["pace_vent_state_vs_time_plot"]).exists()
+    assert Path(summary["plots"]["pace_effort_vs_time_plot"]).exists()
+    assert Path(summary["plots"]["pace_comp_supply_vacuum_vs_time_plot"]).exists()
+    assert Path(summary["plots"]["pace_inlimits_vs_time_plot"]).exists()
     assert Path(summary["plots"]["post_isolation_drift_plot"]).exists()
     assert Path(summary["plots"]["post_isolation_dewpoint_rise_plot"]).exists()
     assert (tmp_path / "analysis" / "same_gas_two_round_summary.json").exists()
@@ -334,6 +388,9 @@ def test_analyze_runs_supplements_trace_only_rejected_points(tmp_path: Path) -> 
                 "pace_isol_state_query": "0",
                 "pace_mode_query": "ACT",
                 "pace_vent_status_query": "1",
+                "pace_vent_completed_latched": "false",
+                "pace_vent_clear_attempted": "false",
+                "pace_vent_clear_result": "not_needed",
                 "pace_vent_after_valve_state_query": "OPEN",
                 "pace_vent_popup_state_query": "DISABLED",
                 "pace_vent_elapsed_time_query": "9.0",
@@ -341,6 +398,20 @@ def test_analyze_runs_supplements_trace_only_rejected_points(tmp_path: Path) -> 
                 "pace_vent_pupv_state_query": "DISABLED",
                 "pace_oper_cond_query": "1",
                 "pace_oper_pres_cond_query": "2",
+                "pace_effort_query": "0.0",
+                "pace_comp1_query": "0.0",
+                "pace_comp2_query": "0.0",
+                "pace_sens_pres_cont_query": "800.0",
+                "pace_sens_pres_bar_query": "1006.0",
+                "pace_sens_pres_inl_query": "800.0",
+                "pace_sens_pres_inl_state_query": "1",
+                "pace_sens_pres_inl_time_query": "5.0",
+                "pace_sens_inl_query": "800.0",
+                "pace_sens_inl_time_query": "5.0",
+                "pace_sens_slew_query": "0.0",
+                "pace_oper_pres_even_query": "4",
+                "pace_oper_pres_vent_complete_bit": "false",
+                "pace_oper_pres_in_limits_bit": "true",
                 "root_cause_reject_reason": "",
                 "note": "",
             },
@@ -370,6 +441,9 @@ def test_analyze_runs_supplements_trace_only_rejected_points(tmp_path: Path) -> 
                 "pace_isol_state_query": "0",
                 "pace_mode_query": "ACT",
                 "pace_vent_status_query": "1",
+                "pace_vent_completed_latched": "false",
+                "pace_vent_clear_attempted": "false",
+                "pace_vent_clear_result": "not_needed",
                 "pace_vent_after_valve_state_query": "OPEN",
                 "pace_vent_popup_state_query": "DISABLED",
                 "pace_vent_elapsed_time_query": "10.0",
@@ -377,6 +451,20 @@ def test_analyze_runs_supplements_trace_only_rejected_points(tmp_path: Path) -> 
                 "pace_vent_pupv_state_query": "DISABLED",
                 "pace_oper_cond_query": "1",
                 "pace_oper_pres_cond_query": "2",
+                "pace_effort_query": "0.0",
+                "pace_comp1_query": "0.0",
+                "pace_comp2_query": "0.0",
+                "pace_sens_pres_cont_query": "800.0",
+                "pace_sens_pres_bar_query": "1006.0",
+                "pace_sens_pres_inl_query": "800.0",
+                "pace_sens_pres_inl_state_query": "1",
+                "pace_sens_pres_inl_time_query": "5.0",
+                "pace_sens_inl_query": "800.0",
+                "pace_sens_inl_time_query": "5.0",
+                "pace_sens_slew_query": "0.0",
+                "pace_oper_pres_even_query": "4",
+                "pace_oper_pres_vent_complete_bit": "false",
+                "pace_oper_pres_in_limits_bit": "true",
                 "root_cause_reject_reason": "pace_vent_in_progress_suspect",
                 "note": "vent_status=1",
             },
@@ -462,3 +550,43 @@ def test_classify_ingress_result_tracks_post_isolation_categories_and_fast_captu
     assert metrics["dead_volume_wet_release_count"] == 1
     assert metrics["controller_hunting_count"] == 1
     assert metrics["fast_capture_assessment"] == "5 秒快采失败且提示 vent-after-valve / protective vent"
+
+
+def test_classify_ingress_result_distinguishes_standard_vent_and_effort_findings() -> None:
+    module = _load_module()
+    point_results = [
+        {
+            "round_index": 1,
+            "pressure_hpa": 800,
+            "co2_mean_ppm": None,
+            "dewpoint_mean_c": None,
+            "h2o_mean_mmol": None,
+            "reject_reason": "pace_vent_completed_latched_suspect",
+            "post_isolation_diagnosis": "pace_vent_completed_latched_suspect",
+            "post_isolation_capture_mode": "extended20s",
+            "post_isolation_fast_capture_status": "fallback",
+            "post_isolation_fast_capture_fallback": True,
+            "forbidden_pre_sampling_actions": "",
+            "handoff_mode": "same_gas_pressure_step_handoff",
+        },
+        {
+            "round_index": 1,
+            "pressure_hpa": 600,
+            "co2_mean_ppm": None,
+            "dewpoint_mean_c": None,
+            "h2o_mean_mmol": None,
+            "reject_reason": "pace_supply_vacuum_compensation_suspect",
+            "post_isolation_diagnosis": "pace_supply_vacuum_compensation_suspect",
+            "post_isolation_capture_mode": "extended20s",
+            "post_isolation_fast_capture_status": "fallback",
+            "post_isolation_fast_capture_fallback": True,
+            "forbidden_pre_sampling_actions": "",
+            "handoff_mode": "same_gas_pressure_step_handoff",
+        },
+    ]
+
+    _conclusion, metrics = module.classify_ingress_result(point_results)
+
+    assert metrics["pace_vent_completed_latched_count"] == 1
+    assert metrics["pace_supply_vacuum_compensation_count"] == 1
+    assert metrics["fast_capture_assessment"] == "5 秒快采失败且提示 VENT=2 锁存未清"

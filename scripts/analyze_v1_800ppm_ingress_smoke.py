@@ -31,6 +31,9 @@ PRESAMPLE_LOCK_ACTION_MAP = {
 }
 PACE_DIAG_CATEGORIES = (
     "pace_vent_in_progress_suspect",
+    "pace_vent_completed_latched_suspect",
+    "pace_effort_nonzero_after_output_off_suspect",
+    "pace_supply_vacuum_compensation_suspect",
     "pace_vent_after_valve_config_open_suspect",
     "pace_vent_valve_left_open_suspect",
     "pace_protective_vent_suspect",
@@ -70,6 +73,9 @@ POINT_SUMMARY_FIELDS = [
     "pace_isol_state_query",
     "pace_mode_query",
     "pace_vent_status_query",
+    "pace_vent_completed_latched",
+    "pace_vent_clear_attempted",
+    "pace_vent_clear_result",
     "pace_vent_after_valve_state_query",
     "pace_vent_popup_state_query",
     "pace_vent_elapsed_time_query",
@@ -77,6 +83,20 @@ POINT_SUMMARY_FIELDS = [
     "pace_vent_pupv_state_query",
     "pace_oper_cond_query",
     "pace_oper_pres_cond_query",
+    "pace_effort_query",
+    "pace_comp1_query",
+    "pace_comp2_query",
+    "pace_sens_pres_cont_query",
+    "pace_sens_pres_bar_query",
+    "pace_sens_pres_inl_query",
+    "pace_sens_pres_inl_state_query",
+    "pace_sens_pres_inl_time_query",
+    "pace_sens_inl_query",
+    "pace_sens_inl_time_query",
+    "pace_sens_slew_query",
+    "pace_oper_pres_even_query",
+    "pace_oper_pres_vent_complete_bit",
+    "pace_oper_pres_in_limits_bit",
     "pressure_gate_result",
     "dewpoint_gate_result",
     "reject_reason",
@@ -201,6 +221,9 @@ def _normalize_prebuilt_summary_row(row: Mapping[str, Any]) -> Dict[str, Any]:
         "pace_isol_state_query": _safe_int(row.get("pace_isol_state_query")),
         "pace_mode_query": str(row.get("pace_mode_query") or ""),
         "pace_vent_status_query": _safe_int(row.get("pace_vent_status_query")),
+        "pace_vent_completed_latched": _safe_bool(row.get("pace_vent_completed_latched")),
+        "pace_vent_clear_attempted": _safe_bool(row.get("pace_vent_clear_attempted")) or False,
+        "pace_vent_clear_result": str(row.get("pace_vent_clear_result") or ""),
         "pace_vent_after_valve_state_query": str(row.get("pace_vent_after_valve_state_query") or ""),
         "pace_vent_popup_state_query": str(row.get("pace_vent_popup_state_query") or ""),
         "pace_vent_elapsed_time_query": _safe_float(row.get("pace_vent_elapsed_time_query")),
@@ -208,6 +231,20 @@ def _normalize_prebuilt_summary_row(row: Mapping[str, Any]) -> Dict[str, Any]:
         "pace_vent_pupv_state_query": str(row.get("pace_vent_pupv_state_query") or ""),
         "pace_oper_cond_query": _safe_int(row.get("pace_oper_cond_query")),
         "pace_oper_pres_cond_query": _safe_int(row.get("pace_oper_pres_cond_query")),
+        "pace_effort_query": _safe_float(row.get("pace_effort_query")),
+        "pace_comp1_query": _safe_float(row.get("pace_comp1_query")),
+        "pace_comp2_query": _safe_float(row.get("pace_comp2_query")),
+        "pace_sens_pres_cont_query": _safe_float(row.get("pace_sens_pres_cont_query")),
+        "pace_sens_pres_bar_query": _safe_float(row.get("pace_sens_pres_bar_query")),
+        "pace_sens_pres_inl_query": _safe_float(row.get("pace_sens_pres_inl_query")),
+        "pace_sens_pres_inl_state_query": _safe_int(row.get("pace_sens_pres_inl_state_query")),
+        "pace_sens_pres_inl_time_query": _safe_float(row.get("pace_sens_pres_inl_time_query")),
+        "pace_sens_inl_query": _safe_float(row.get("pace_sens_inl_query")),
+        "pace_sens_inl_time_query": _safe_float(row.get("pace_sens_inl_time_query")),
+        "pace_sens_slew_query": _safe_float(row.get("pace_sens_slew_query")),
+        "pace_oper_pres_even_query": _safe_int(row.get("pace_oper_pres_even_query")),
+        "pace_oper_pres_vent_complete_bit": _safe_bool(row.get("pace_oper_pres_vent_complete_bit")),
+        "pace_oper_pres_in_limits_bit": _safe_bool(row.get("pace_oper_pres_in_limits_bit")),
         "pressure_gate_result": str(row.get("pressure_gate_result") or ""),
         "dewpoint_gate_result": str(row.get("dewpoint_gate_result") or ""),
         "reject_reason": str(_pick_first(row, ("reject_reason", "root_cause_reject_reason", "point_quality_reason")) or ""),
@@ -404,6 +441,9 @@ def _build_point_result(
         "pace_isol_state_query": _safe_int(_latest_nonempty(rows, ("pace_isol_state_query",))),
         "pace_mode_query": str(_latest_nonempty(rows, ("pace_mode_query",)) or ""),
         "pace_vent_status_query": _safe_int(_latest_nonempty(rows, ("pace_vent_status_query", "pace_vent_status"))),
+        "pace_vent_completed_latched": _safe_bool(_latest_nonempty(rows, ("pace_vent_completed_latched",))),
+        "pace_vent_clear_attempted": _safe_bool(_latest_nonempty(rows, ("pace_vent_clear_attempted",))) or False,
+        "pace_vent_clear_result": str(_latest_nonempty(rows, ("pace_vent_clear_result",)) or ""),
         "pace_vent_after_valve_state_query": str(_latest_nonempty(rows, ("pace_vent_after_valve_state_query",)) or ""),
         "pace_vent_popup_state_query": str(_latest_nonempty(rows, ("pace_vent_popup_state_query",)) or ""),
         "pace_vent_elapsed_time_query": _safe_float(_latest_nonempty(rows, ("pace_vent_elapsed_time_query",))),
@@ -411,6 +451,22 @@ def _build_point_result(
         "pace_vent_pupv_state_query": str(_latest_nonempty(rows, ("pace_vent_pupv_state_query",)) or ""),
         "pace_oper_cond_query": _safe_int(_latest_nonempty(rows, ("pace_oper_cond_query",))),
         "pace_oper_pres_cond_query": _safe_int(_latest_nonempty(rows, ("pace_oper_pres_cond_query",))),
+        "pace_effort_query": _safe_float(_latest_nonempty(rows, ("pace_effort_query",))),
+        "pace_comp1_query": _safe_float(_latest_nonempty(rows, ("pace_comp1_query",))),
+        "pace_comp2_query": _safe_float(_latest_nonempty(rows, ("pace_comp2_query",))),
+        "pace_sens_pres_cont_query": _safe_float(_latest_nonempty(rows, ("pace_sens_pres_cont_query",))),
+        "pace_sens_pres_bar_query": _safe_float(_latest_nonempty(rows, ("pace_sens_pres_bar_query",))),
+        "pace_sens_pres_inl_query": _safe_float(_latest_nonempty(rows, ("pace_sens_pres_inl_query",))),
+        "pace_sens_pres_inl_state_query": _safe_int(_latest_nonempty(rows, ("pace_sens_pres_inl_state_query",))),
+        "pace_sens_pres_inl_time_query": _safe_float(_latest_nonempty(rows, ("pace_sens_pres_inl_time_query",))),
+        "pace_sens_inl_query": _safe_float(_latest_nonempty(rows, ("pace_sens_inl_query", "pace_sens_pres_inl_query"))),
+        "pace_sens_inl_time_query": _safe_float(
+            _latest_nonempty(rows, ("pace_sens_inl_time_query", "pace_sens_pres_inl_time_query"))
+        ),
+        "pace_sens_slew_query": _safe_float(_latest_nonempty(rows, ("pace_sens_slew_query",))),
+        "pace_oper_pres_even_query": _safe_int(_latest_nonempty(rows, ("pace_oper_pres_even_query",))),
+        "pace_oper_pres_vent_complete_bit": _safe_bool(_latest_nonempty(rows, ("pace_oper_pres_vent_complete_bit",))),
+        "pace_oper_pres_in_limits_bit": _safe_bool(_latest_nonempty(rows, ("pace_oper_pres_in_limits_bit",))),
         "pressure_gate_result": str(_latest_nonempty(rows, ("pressure_gate_result", "pressure_gate_status")) or ""),
         "dewpoint_gate_result": str(_latest_nonempty(rows, ("dewpoint_gate_result",)) or ""),
         "reject_reason": reject_reason,
@@ -519,6 +575,9 @@ def classify_ingress_result(point_results: Sequence[Mapping[str, Any]]) -> Tuple
         count for action, count in forbidden_counter.items() if action in {"atmosphere refresh", "route reopen"}
     )
     pace_vent_in_progress_count = category_point_counter["pace_vent_in_progress_suspect"]
+    pace_vent_completed_latched_count = category_point_counter["pace_vent_completed_latched_suspect"]
+    pace_effort_nonzero_after_output_off_count = category_point_counter["pace_effort_nonzero_after_output_off_suspect"]
+    pace_supply_vacuum_compensation_count = category_point_counter["pace_supply_vacuum_compensation_suspect"]
     pace_vent_after_valve_config_open_count = category_point_counter["pace_vent_after_valve_config_open_suspect"]
     pace_vent_valve_left_open_count = category_point_counter["pace_vent_valve_left_open_suspect"]
     pace_protective_vent_count = category_point_counter["pace_protective_vent_suspect"]
@@ -540,7 +599,15 @@ def classify_ingress_result(point_results: Sequence[Mapping[str, Any]]) -> Tuple
         if bool(row.get("post_isolation_fast_capture_fallback"))
         or str(row.get("post_isolation_capture_mode") or "").strip().lower() == "extended20s"
     )
-    if pace_vent_valve_left_open_count or pace_protective_vent_count or pace_vent_after_valve_config_open_count:
+    if pace_vent_in_progress_count:
+        fast_capture_assessment = "5 秒快采失败且提示 vent 正在执行"
+    elif pace_vent_completed_latched_count:
+        fast_capture_assessment = "5 秒快采失败且提示 VENT=2 锁存未清"
+    elif pace_supply_vacuum_compensation_count:
+        fast_capture_assessment = "5 秒快采失败且提示供压/真空侧仍在补偿"
+    elif pace_effort_nonzero_after_output_off_count:
+        fast_capture_assessment = "5 秒快采失败且提示 OUTP OFF 后 effort 仍非零"
+    elif pace_vent_valve_left_open_count or pace_protective_vent_count or pace_vent_after_valve_config_open_count:
         fast_capture_assessment = "5 秒快采失败且提示 vent-after-valve / protective vent"
     elif post_isolation_ambient_ingress_count or sealed_path_leak_count:
         fast_capture_assessment = "5 秒快采失败且提示 post-isolation ambient ingress"
@@ -556,6 +623,9 @@ def classify_ingress_result(point_results: Sequence[Mapping[str, Any]]) -> Tuple
     severe_physical_count = (
         old_reopen_count
         + pace_vent_in_progress_count
+        + pace_vent_completed_latched_count
+        + pace_effort_nonzero_after_output_off_count
+        + pace_supply_vacuum_compensation_count
         + pace_vent_valve_left_open_count
         + pace_protective_vent_count
         + post_isolation_ambient_ingress_count
@@ -578,6 +648,9 @@ def classify_ingress_result(point_results: Sequence[Mapping[str, Any]]) -> Tuple
         "old_atmosphere_reopen_problem_count": old_reopen_count,
         "handoff_mismatch_count": handoff_mismatch_count,
         "pace_vent_in_progress_count": pace_vent_in_progress_count,
+        "pace_vent_completed_latched_count": pace_vent_completed_latched_count,
+        "pace_effort_nonzero_after_output_off_count": pace_effort_nonzero_after_output_off_count,
+        "pace_supply_vacuum_compensation_count": pace_supply_vacuum_compensation_count,
         "pace_vent_after_valve_config_open_count": pace_vent_after_valve_config_open_count,
         "pace_vent_valve_left_open_count": pace_vent_valve_left_open_count,
         "pace_protective_vent_count": pace_protective_vent_count,
@@ -609,6 +682,59 @@ def _write_csv_rows(path: Path, rows: Sequence[Mapping[str, Any]], fieldnames: S
 def _write_count_csv(path: Path, counter: Mapping[str, int], *, key_name: str) -> None:
     rows = [{key_name: key, "count": value} for key, value in sorted(counter.items(), key=lambda item: (-item[1], item[0]))]
     _write_csv_rows(path, rows, [key_name, "count"])
+
+
+def _build_standard_status_summary_rows(
+    point_results: Sequence[Mapping[str, Any]],
+    trace_rows: Sequence[Mapping[str, Any]],
+) -> List[Dict[str, Any]]:
+    rows = list(point_results) + list(trace_rows)
+    vent_counter: Counter[str] = Counter(
+        str(_safe_int(_pick_first(row, ("pace_vent_status_query", "pace_vent_status"))))
+        for row in rows
+        if _safe_int(_pick_first(row, ("pace_vent_status_query", "pace_vent_status"))) is not None
+    )
+    summary_rows = [
+        {"metric": "vent_status_0_count", "count": vent_counter.get("0", 0)},
+        {"metric": "vent_status_1_count", "count": vent_counter.get("1", 0)},
+        {"metric": "vent_status_2_count", "count": vent_counter.get("2", 0)},
+        {
+            "metric": "vent_completed_latched_points",
+            "count": sum(
+                1
+                for row in point_results
+                if _safe_bool(row.get("pace_vent_completed_latched")) is True
+                or _safe_int(row.get("pace_vent_status_query")) == 2
+            ),
+        },
+        {
+            "metric": "oper_pres_vent_complete_bit_points",
+            "count": sum(1 for row in point_results if _safe_bool(row.get("pace_oper_pres_vent_complete_bit")) is True),
+        },
+        {
+            "metric": "oper_pres_in_limits_bit_points",
+            "count": sum(1 for row in point_results if _safe_bool(row.get("pace_oper_pres_in_limits_bit")) is True),
+        },
+        {
+            "metric": "effort_nonzero_after_output_off_points",
+            "count": sum(
+                1
+                for row in point_results
+                if _safe_int(row.get("pace_outp_state_query")) == 0
+                and _safe_float(row.get("pace_effort_query")) is not None
+                and abs(float(_safe_float(row.get("pace_effort_query")) or 0.0)) > 0.01
+            ),
+        },
+        {
+            "metric": "supply_comp_positive_points",
+            "count": sum(1 for row in point_results if (_safe_float(row.get("pace_comp1_query")) or 0.0) > 0.0),
+        },
+        {
+            "metric": "vacuum_comp_negative_points",
+            "count": sum(1 for row in point_results if (_safe_float(row.get("pace_comp2_query")) or 0.0) < 0.0),
+        },
+    ]
+    return summary_rows
 
 
 def _safe_plot_series(ax: Any, *, x_values: Sequence[int], y_values: Sequence[Optional[float]], label: str, marker: str = "o") -> None:
@@ -708,8 +834,10 @@ def _plot_round_curves(point_results: Sequence[Mapping[str, Any]], output_dir: P
 
 
 def _plot_trace_timelines(trace_rows: Sequence[Mapping[str, Any]], output_dir: Path) -> Dict[str, str]:
-    status_plot = output_dir / "pace_vent_status_timeline.png"
-    elapsed_plot = output_dir / "pace_vent_elapsed_time_timeline.png"
+    vent_plot = output_dir / "pace_vent_state_vs_time.png"
+    effort_plot = output_dir / "pace_effort_vs_time.png"
+    comp_plot = output_dir / "pace_comp_supply_vacuum_vs_time.png"
+    inlimits_plot = output_dir / "pace_inlimits_vs_time.png"
     sorted_rows = sorted(
         trace_rows,
         key=lambda row: (
@@ -720,31 +848,69 @@ def _plot_trace_timelines(trace_rows: Sequence[Mapping[str, Any]], output_dir: P
     )
     x_values = list(range(len(sorted_rows)))
     status_values = [_safe_float(_pick_first(row, ("pace_vent_status_query", "pace_vent_status"))) for row in sorted_rows]
-    elapsed_values = [_safe_float(row.get("pace_vent_elapsed_time_query")) for row in sorted_rows]
+    effort_values = [_safe_float(row.get("pace_effort_query")) for row in sorted_rows]
+    comp1_values = [_safe_float(row.get("pace_comp1_query")) for row in sorted_rows]
+    comp2_values = [_safe_float(row.get("pace_comp2_query")) for row in sorted_rows]
+    inl_state_values = [
+        _safe_float(_pick_first(row, ("pace_sens_pres_inl_state_query", "pace_oper_pres_in_limits_bit")))
+        for row in sorted_rows
+    ]
+    inl_time_values = [
+        _safe_float(_pick_first(row, ("pace_sens_pres_inl_time_query", "pace_sens_inl_time_query")))
+        for row in sorted_rows
+    ]
 
     fig, ax = plt.subplots(figsize=(9.0, 4.8))
     _safe_plot_series(ax, x_values=x_values, y_values=status_values, label="VENT?", marker=".")
-    ax.set_title("PACE vent status timeline")
+    ax.set_title("PACE vent state vs time")
     ax.set_xlabel("trace sample index")
     ax.set_ylabel("VENT status")
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
-    fig.savefig(status_plot, dpi=160)
+    fig.savefig(vent_plot, dpi=160)
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(9.0, 4.8))
-    _safe_plot_series(ax, x_values=x_values, y_values=elapsed_values, label="VENT ETIM", marker=".")
-    ax.set_title("PACE vent elapsed time timeline")
+    _safe_plot_series(ax, x_values=x_values, y_values=effort_values, label="EFF?", marker=".")
+    ax.set_title("PACE effort vs time")
     ax.set_xlabel("trace sample index")
-    ax.set_ylabel("elapsed time (s)")
+    ax.set_ylabel("effort")
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
-    fig.savefig(elapsed_plot, dpi=160)
+    fig.savefig(effort_plot, dpi=160)
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(9.0, 4.8))
+    _safe_plot_series(ax, x_values=x_values, y_values=comp1_values, label="COMP1", marker=".")
+    _safe_plot_series(ax, x_values=x_values, y_values=comp2_values, label="COMP2", marker=".")
+    ax.set_title("PACE compensation source vs time")
+    ax.set_xlabel("trace sample index")
+    ax.set_ylabel("compensation pressure")
+    ax.grid(True, alpha=0.3)
+    if sorted_rows:
+        ax.legend()
+    fig.tight_layout()
+    fig.savefig(comp_plot, dpi=160)
+    plt.close(fig)
+
+    fig, (ax_state, ax_time) = plt.subplots(2, 1, figsize=(9.0, 7.0), sharex=True)
+    _safe_plot_series(ax_state, x_values=x_values, y_values=inl_state_values, label="INL?", marker=".")
+    ax_state.set_title("PACE in-limits vs time")
+    ax_state.set_ylabel("in-limits state")
+    ax_state.grid(True, alpha=0.3)
+    _safe_plot_series(ax_time, x_values=x_values, y_values=inl_time_values, label="INL:TIME?", marker=".")
+    ax_time.set_xlabel("trace sample index")
+    ax_time.set_ylabel("in-limits time (s)")
+    ax_time.grid(True, alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(inlimits_plot, dpi=160)
     plt.close(fig)
 
     return {
-        "pace_vent_status_timeline_plot": str(status_plot),
-        "pace_vent_elapsed_time_timeline_plot": str(elapsed_plot),
+        "pace_vent_state_vs_time_plot": str(vent_plot),
+        "pace_effort_vs_time_plot": str(effort_plot),
+        "pace_comp_supply_vacuum_vs_time_plot": str(comp_plot),
+        "pace_inlimits_vs_time_plot": str(inlimits_plot),
     }
 
 
@@ -802,6 +968,10 @@ def analyze_runs(run_dirs: Sequence[Path | str], *, output_dir: Path | str) -> D
     pace_diagnosis_csv = output_path / "pace_post_isolation_diagnosis_summary.csv"
     _write_count_csv(pace_diagnosis_csv, pace_diagnosis_counter, key_name="pace_post_isolation_diagnosis")
 
+    standard_status_rows = _build_standard_status_summary_rows(point_results, trace_rows)
+    standard_status_csv = output_path / "pace_standard_status_summary.csv"
+    _write_csv_rows(standard_status_csv, standard_status_rows, ["metric", "count"])
+
     protective_rows = [
         {"state": "vent_orpv_enabled_points", "count": sum(1 for row in point_results if str(row.get("pace_vent_orpv_state_query") or "").upper() == "ENABLED")},
         {"state": "vent_pupv_enabled_points", "count": sum(1 for row in point_results if str(row.get("pace_vent_pupv_state_query") or "").upper() == "ENABLED")},
@@ -821,12 +991,18 @@ def analyze_runs(run_dirs: Sequence[Path | str], *, output_dir: Path | str) -> D
             "post_isolation_fast_capture_reason": row.get("post_isolation_fast_capture_reason"),
             "post_isolation_fast_capture_elapsed_s": row.get("post_isolation_fast_capture_elapsed_s"),
             "post_isolation_fast_capture_fallback": row.get("post_isolation_fast_capture_fallback"),
+            "pace_effort_query": row.get("pace_effort_query"),
+            "pace_comp1_query": row.get("pace_comp1_query"),
+            "pace_comp2_query": row.get("pace_comp2_query"),
+            "pace_sens_pres_inl_state_query": row.get("pace_sens_pres_inl_state_query"),
+            "pace_sens_pres_inl_time_query": row.get("pace_sens_pres_inl_time_query"),
+            "pace_sens_slew_query": row.get("pace_sens_slew_query"),
             "post_isolation_diagnosis": row.get("post_isolation_diagnosis"),
             "reject_reason": row.get("reject_reason"),
         }
         for row in point_results
     ]
-    fast_capture_csv = output_path / "fast5s_vs_extended20s_point_summary.csv"
+    fast_capture_csv = output_path / "fast5s_vs_extended20s_with_effort_summary.csv"
     _write_csv_rows(
         fast_capture_csv,
         fast_capture_rows,
@@ -840,6 +1016,12 @@ def analyze_runs(run_dirs: Sequence[Path | str], *, output_dir: Path | str) -> D
             "post_isolation_fast_capture_reason",
             "post_isolation_fast_capture_elapsed_s",
             "post_isolation_fast_capture_fallback",
+            "pace_effort_query",
+            "pace_comp1_query",
+            "pace_comp2_query",
+            "pace_sens_pres_inl_state_query",
+            "pace_sens_pres_inl_time_query",
+            "pace_sens_slew_query",
             "post_isolation_diagnosis",
             "reject_reason",
         ],
@@ -862,8 +1044,9 @@ def analyze_runs(run_dirs: Sequence[Path | str], *, output_dir: Path | str) -> D
         "reject_reason_summary_csv": str(reject_reason_csv),
         "post_isolation_diagnosis_summary_csv": str(diagnosis_csv),
         "pace_post_isolation_diagnosis_summary_csv": str(pace_diagnosis_csv),
+        "pace_standard_status_summary_csv": str(standard_status_csv),
         "pace_protective_vent_state_summary_csv": str(protective_csv),
-        "fast5s_vs_extended20s_point_summary_csv": str(fast_capture_csv),
+        "fast5s_vs_extended20s_with_effort_summary_csv": str(fast_capture_csv),
         "plots": plots,
     }
     summary_json = output_path / "same_gas_two_round_summary.json"

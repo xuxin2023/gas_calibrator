@@ -151,7 +151,7 @@ def test_get_vent_status_queries_scpi_status(monkeypatch) -> None:
     assert dev.get_vent_status() == pace5000.Pace5000.VENT_STATUS_IN_PROGRESS
 
 
-def test_legacy_ge_druck_identity_accepts_completed_vent_status_for_control(monkeypatch) -> None:
+def test_legacy_ge_druck_identity_treats_completed_vent_status_as_latched_not_ready(monkeypatch) -> None:
     class FakeSerialDevice:
         def __init__(self, *args, **kwargs):
             self.queries = []
@@ -180,7 +180,7 @@ def test_legacy_ge_druck_identity_accepts_completed_vent_status_for_control(monk
     monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
     dev = pace5000.Pace5000("COM1", 9600)
 
-    assert dev.vent_status_allows_control(dev.get_vent_status()) is True
+    assert dev.vent_status_allows_control(dev.get_vent_status()) is False
     assert dev.supports_vent_after_valve_open() is False
     assert not any(":SOUR:PRES:LEV:IMM:AMPL:VENT:AFT:VVAL:STAT?" in cmd for cmd in dev.ser.queries)
 
@@ -217,7 +217,6 @@ def test_legacy_ge_druck_identity_accepts_trapped_vent_status_for_control(monkey
     assert dev.vent_status_allows_control(dev.get_vent_status()) is True
     assert dev.vent_terminal_statuses() == [
         pace5000.Pace5000.VENT_STATUS_IDLE,
-        pace5000.Pace5000.VENT_STATUS_COMPLETED,
         pace5000.Pace5000.VENT_STATUS_TRAPPED_PRESSURE,
     ]
 
@@ -362,13 +361,14 @@ def test_get_isolation_state_queries_scpi_status(monkeypatch) -> None:
     assert dev.get_isolation_state() == 1
 
 
-def test_enter_atmosphere_mode_opens_isolation_and_tolerates_terminal_vent_timeout(monkeypatch) -> None:
+def test_enter_atmosphere_mode_opens_isolation_and_clears_completed_vent_latch(monkeypatch) -> None:
     class FakeSerialDevice:
         def __init__(self, *args, **kwargs):
             self.writes = []
             self._vent_status = iter([
                 ":SOUR:PRES:LEV:IMM:AMPL:VENT 1",
                 ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT 0",
             ])
 
         def open(self):
@@ -398,10 +398,11 @@ def test_enter_atmosphere_mode_opens_isolation_and_tolerates_terminal_vent_timeo
 
     status = dev.enter_atmosphere_mode(timeout_s=1.0, poll_s=0.0)
 
-    assert status == pace5000.Pace5000.VENT_STATUS_TIMED_OUT
+    assert status == pace5000.Pace5000.VENT_STATUS_IDLE
     assert any(":OUTP 0" in w for w in dev.ser.writes)
     assert any(":OUTP:ISOL:STAT 1" in w for w in dev.ser.writes)
     assert any(":SOUR:PRES:LEV:IMM:AMPL:VENT 1" in w for w in dev.ser.writes)
+    assert any(":SOUR:PRES:LEV:IMM:AMPL:VENT 0" in w for w in dev.ser.writes)
 
 
 def test_exit_atmosphere_mode_keeps_output_path_open_without_enabling_output(monkeypatch) -> None:
@@ -442,11 +443,16 @@ def test_exit_atmosphere_mode_keeps_output_path_open_without_enabling_output(mon
     assert any(":SOUR:PRES:LEV:IMM:AMPL:VENT 0" in w for w in dev.ser.writes)
 
 
-def test_enter_atmosphere_mode_hold_open_reissues_vent(monkeypatch) -> None:
+def test_enter_atmosphere_mode_hold_open_argument_does_not_start_refresh_loop(monkeypatch) -> None:
     class FakeSerialDevice:
         def __init__(self, *args, **kwargs):
             self.writes = []
             self.port = "COM1"
+            self._vent_status = iter([
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT 1",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT 0",
+            ])
 
         def open(self):
             return None
@@ -460,7 +466,7 @@ def test_enter_atmosphere_mode_hold_open_reissues_vent(monkeypatch) -> None:
         def query(self, data: str) -> str:
             cmd = data.strip().upper()
             if cmd.startswith(":SOUR:PRES:LEV:IMM:AMPL:VENT?"):
-                return ":SOUR:PRES:LEV:IMM:AMPL:VENT 1"
+                return next(self._vent_status)
             if cmd.startswith(":OUTP:STAT?"):
                 return ":OUTP:STAT 0"
             if cmd.startswith(":OUTP:ISOL:STAT?"):
@@ -474,13 +480,12 @@ def test_enter_atmosphere_mode_hold_open_reissues_vent(monkeypatch) -> None:
     dev = pace5000.Pace5000("COM1", 9600)
 
     status = dev.enter_atmosphere_mode(timeout_s=1.0, poll_s=0.0, hold_open=True, hold_interval_s=0.02)
-    time.sleep(0.08)
-    assert dev.is_atmosphere_hold_active() is True
-    assert dev.stop_atmosphere_hold() is True
 
-    assert status == pace5000.Pace5000.VENT_STATUS_IN_PROGRESS
+    assert status == pace5000.Pace5000.VENT_STATUS_IDLE
     assert dev.is_atmosphere_hold_active() is False
-    assert sum(1 for w in dev.ser.writes if ":SOUR:PRES:LEV:IMM:AMPL:VENT 1" in w) >= 2
+    assert dev.stop_atmosphere_hold() is True
+    assert sum(1 for w in dev.ser.writes if ":SOUR:PRES:LEV:IMM:AMPL:VENT 1" in w) == 1
+    assert sum(1 for w in dev.ser.writes if ":SOUR:PRES:LEV:IMM:AMPL:VENT 0" in w) == 1
 
 
 def test_enter_atmosphere_mode_with_open_vent_valve_uses_single_vent(monkeypatch) -> None:
@@ -875,6 +880,49 @@ def test_get_oper_condition_queries_scpi_status(monkeypatch) -> None:
     assert dev.get_oper_pressure_condition() == 9
 
 
+def test_clear_completed_vent_latch_if_present_sends_vent_zero_and_waits_for_idle(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.writes = []
+            self.responses = iter(
+                [
+                    ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
+                    ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
+                    ":SOUR:PRES:LEV:IMM:AMPL:VENT 0",
+                ]
+            )
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.writes.append(data)
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            if cmd == ":SOUR:PRES:LEV:IMM:AMPL:VENT?":
+                return next(self.responses)
+            return ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    result = dev.clear_completed_vent_latch_if_present(timeout_s=0.2, poll_s=0.0)
+
+    assert result["before_status"] == 2
+    assert result["clear_attempted"] is True
+    assert result["after_status"] == 0
+    assert result["cleared"] is True
+    assert result["command"] == ":SOUR:PRES:LEV:IMM:AMPL:VENT 0"
+    assert any(":SOUR:PRES:LEV:IMM:AMPL:VENT 0" in write for write in dev.ser.writes)
+
+
 def test_diagnostic_status_collects_best_effort_aux_fields(monkeypatch) -> None:
     class FakeSerialDevice:
         def __init__(self, *args, **kwargs):
@@ -904,6 +952,14 @@ def test_diagnostic_status_collects_best_effort_aux_fields(monkeypatch) -> None:
                 ":SOUR:PRES:LEV:IMM:AMPL:VENT:PUPV:STAT?": "DISABLED",
                 ":STAT:OPER:COND?": ":STAT:OPER:COND 3",
                 ":STAT:OPER:PRES:COND?": ":STAT:OPER:PRES:COND 5",
+                ":STAT:OPER:PRES:EVEN?": ":STAT:OPER:PRES:EVEN 1",
+                ":SOUR:PRES:EFF?": ":SOUR:PRES:EFF 0.02",
+                ":SOUR:PRES:COMP1?": ":SOUR:PRES:COMP1 0.18",
+                ":SOUR:PRES:COMP2?": ":SOUR:PRES:COMP2 -0.01",
+                ":SENS:PRES:CONT?": ":SENS:PRES:CONT 1000.7",
+                ":SENS:PRES:BAR?": ":SENS:PRES:BAR 1013.2",
+                ":SENS:PRES:INL:TIME?": ":SENS:PRES:INL:TIME 12.0",
+                ":SENS:PRES:SLEW?": ":SENS:PRES:SLEW 0.003",
             }
             return mapping.get(cmd, "")
 
@@ -927,6 +983,58 @@ def test_diagnostic_status_collects_best_effort_aux_fields(monkeypatch) -> None:
     assert status["vent_pupv_state"] == "DISABLED"
     assert status["oper_condition"] == 3
     assert status["oper_pressure_condition"] == 5
+    assert status["oper_pressure_event"] == 1
+    assert status["oper_pressure_vent_complete_bit"] is True
+    assert status["oper_pressure_in_limits_bit"] is True
+    assert status["effort"] == 0.02
+    assert status["comp1"] == 0.18
+    assert status["comp2"] == -0.01
+    assert status["control_pressure_hpa"] == 1000.7
+    assert status["barometric_pressure_hpa"] == 1013.2
+    assert status["in_limits_pressure_hpa"] == 1000.5
+    assert status["in_limits_state"] == 1
+    assert status["in_limits_time_s"] == 12.0
+    assert status["measured_slew_hpa_s"] == 0.003
+    assert status["vent_completed_latched"] is False
+
+
+def test_clear_status_and_drain_system_errors_use_standard_scpi(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.writes = []
+            self.responses = iter(
+                [
+                    '-222,"Data out of range"',
+                    '0,"No error"',
+                ]
+            )
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.writes.append(data)
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            if cmd == ":SYST:ERR?":
+                return next(self.responses)
+            return ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    dev.clear_status()
+    drained = dev.drain_system_errors()
+
+    assert any("*CLS" in write for write in dev.ser.writes)
+    assert drained == ['-222,"Data out of range"']
 
 
 def test_get_vent_elapsed_time_and_protective_states_parse_queries(monkeypatch) -> None:

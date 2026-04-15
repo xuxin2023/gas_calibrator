@@ -60,6 +60,11 @@ class _FakePaceForSuperambient:
         return self.vent_status
 
 
+class _FakePaceForSuperambientWithBarometer(_FakePaceForSuperambient):
+    def get_barometric_pressure(self):
+        return 1006.5
+
+
 def _co2_point(pressure_hpa: float = 1100.0, *, index: int = 1) -> CalibrationPoint:
     return CalibrationPoint(
         index=index,
@@ -170,7 +175,7 @@ def test_same_gas_superambient_target_uses_closed_precharge_then_fine_trim(tmp_p
 
     runtime_state = runner._point_runtime_state(point, phase="co2") or {}
     assert runtime_state["handoff_mode"] == "same_gas_superambient_precharge_handoff"
-    assert runtime_state["ambient_reference_hpa"] == 1006.0
+    assert runtime_state["ambient_reference_hpa"] == 1007.0
     assert runtime_state["superambient_target_hpa"] == 1100.0
     assert runtime_state["superambient_precharge_margin_hpa"] == 8.0
     assert runtime_state["superambient_precharge_peak_hpa"] == pytest.approx(1108.2)
@@ -202,7 +207,7 @@ def test_same_gas_superambient_target_uses_closed_precharge_then_fine_trim(tmp_p
     timing_rows = _load_timing_rows(logger)
     assert len(timing_rows) == 1
     assert timing_rows[0]["handoff_mode"] == "same_gas_superambient_precharge_handoff"
-    assert timing_rows[0]["ambient_reference_hpa"] == "1006.0"
+    assert timing_rows[0]["ambient_reference_hpa"] == "1007.0"
     assert timing_rows[0]["superambient_precharge_result"] == "pass"
     assert timing_rows[0]["superambient_precharge_begin_ts"] != ""
     assert timing_rows[0]["superambient_precharge_end_ts"] != ""
@@ -295,3 +300,22 @@ def test_same_gas_non_superambient_target_does_not_switch_to_superambient_handof
     runtime_state = runner._point_runtime_state(point, phase="co2") or {}
     assert runtime_state.get("handoff_mode") not in {"same_gas_superambient_precharge_handoff"}
     assert runner._prepare_sampling_handoff_mode(follow_on_point, phase="co2") == "same_gas_pressure_step_handoff"
+
+
+def test_pressure_sequence_context_uses_pace_barometer_when_gauge_unavailable(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceForSuperambientWithBarometer()
+    runner = CalibrationRunner(
+        _runner_cfg(include_hold=True),
+        {"pace": pace},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _co2_point()
+
+    ambient_reference_hpa = runner._record_pressure_sequence_context(point, phase="co2", reason="barometer fallback")
+    logger.close()
+
+    assert ambient_reference_hpa == pytest.approx(1006.5)
+    assert runner._pressure_sequence_ambient_reference_hpa == pytest.approx(1006.5)

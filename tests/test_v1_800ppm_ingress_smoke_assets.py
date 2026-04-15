@@ -34,6 +34,8 @@ def test_v1_800ppm_ingress_override_sets_room_temp_same_gas_smoke_profile() -> N
     assert payload["workflow"]["pressure"]["co2_sampling_gate_window_s"] == 10.0
     assert payload["workflow"]["pressure"]["co2_sampling_gate_pressure_fill_s"] == 10.0
     assert payload["workflow"]["pressure"]["continuous_atmosphere_hold"] is False
+    assert payload["workflow"]["pressure"]["atmosphere_hold_strategy"] == "single_cycle_query_clear"
+    assert payload["workflow"]["pressure"]["same_gas_low_pressure_standard_control_enabled"] is True
     assert payload["workflow"]["stability"]["gas_route_dewpoint_gate_enabled"] is True
     assert payload["validation_package"]["rounds"] == 2
 
@@ -53,6 +55,8 @@ def test_low_pressure_post_isolation_diagnostic_override_sets_20s_window() -> No
     assert payload["workflow"]["pressure"]["adaptive_pressure_sampling_enabled"] is True
     assert payload["workflow"]["pressure"]["use_pressure_gauge_for_sampling_gate"] is True
     assert payload["workflow"]["pressure"]["continuous_atmosphere_hold"] is False
+    assert payload["workflow"]["pressure"]["atmosphere_hold_strategy"] == "single_cycle_query_clear"
+    assert payload["workflow"]["pressure"]["same_gas_low_pressure_standard_control_enabled"] is True
     assert payload["workflow"]["pressure"]["co2_post_isolation_diagnostic_enabled"] is True
     assert payload["workflow"]["pressure"]["co2_post_isolation_window_s"] == 20.0
 
@@ -72,6 +76,8 @@ def test_pace_post_isolation_diagnostic_override_sets_20s_window() -> None:
     assert payload["workflow"]["pressure"]["adaptive_pressure_sampling_enabled"] is True
     assert payload["workflow"]["pressure"]["use_pressure_gauge_for_sampling_gate"] is True
     assert payload["workflow"]["pressure"]["continuous_atmosphere_hold"] is False
+    assert payload["workflow"]["pressure"]["atmosphere_hold_strategy"] == "single_cycle_query_clear"
+    assert payload["workflow"]["pressure"]["same_gas_low_pressure_standard_control_enabled"] is True
     assert payload["workflow"]["pressure"]["co2_post_isolation_diagnostic_enabled"] is True
     assert payload["workflow"]["pressure"]["co2_post_isolation_window_s"] == 20.0
 
@@ -90,5 +96,11 @@ def test_pace_fast5s_with_diag_fallback_override_enables_engineering_fast_captur
     assert payload["workflow"]["pressure"]["post_isolation_fast_capture_enabled"] is True
     assert payload["workflow"]["pressure"]["post_isolation_fast_capture_allow_early_sample"] is True
     assert payload["workflow"]["pressure"]["post_isolation_fast_capture_min_s"] == 5.0
+    assert payload["workflow"]["pressure"]["post_isolation_fast_capture_require_vent_ok"] is True
+    assert payload["workflow"]["pressure"]["post_isolation_fast_capture_require_in_limits"] is True
+    assert payload["workflow"]["pressure"]["post_isolation_fast_capture_require_eff_zero"] is True
+    assert payload["workflow"]["pressure"]["post_isolation_fast_capture_eff_abs_max"] == 0.01
+    assert payload["workflow"]["pressure"]["post_isolation_fast_capture_slew_abs_max"] == 0.05
     assert payload["workflow"]["pressure"]["post_isolation_fast_capture_fallback_to_extended_diag"] is True
     assert payload["workflow"]["pressure"]["post_isolation_extended_diag_window_s"] == 20.0
+    assert payload["workflow"]["pressure"]["same_gas_low_pressure_standard_control_enabled"] is True

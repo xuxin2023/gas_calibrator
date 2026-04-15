@@ -97,10 +97,14 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["safe_stop"]["retry_delay_s"] == 2.0
     assert cfg["workflow"]["pressure"]["capture_then_hold_enabled"] is True
     assert cfg["workflow"]["pressure"]["disable_output_during_sampling"] is True
-    assert cfg["workflow"]["pressure"]["atmosphere_hold_strategy"] == "legacy_hold_thread"
-    assert cfg["workflow"]["pressure"]["continuous_atmosphere_hold"] is True
+    assert cfg["workflow"]["pressure"]["atmosphere_hold_strategy"] == "single_cycle_query_clear"
+    assert cfg["workflow"]["pressure"]["continuous_atmosphere_hold"] is False
     assert cfg["workflow"]["pressure"]["vent_after_valve_open"] is False
     assert cfg["workflow"]["pressure"]["vent_popup_ack_disable_for_automation"] is False
+    assert cfg["workflow"]["pressure"]["same_gas_low_pressure_standard_control_enabled"] is False
+    assert cfg["workflow"]["pressure"]["same_gas_low_pressure_standard_control_slew_mode"] == "LIN"
+    assert cfg["workflow"]["pressure"]["same_gas_low_pressure_standard_control_slew_hpa_per_s"] is None
+    assert cfg["workflow"]["pressure"]["same_gas_low_pressure_standard_control_overshoot_allowed"] is False
     assert cfg["workflow"]["pressure"]["co2_preseal_pressure_gauge_trigger_hpa"] == 1110.0
     assert cfg["workflow"]["pressure"]["h2o_preseal_pressure_gauge_trigger_hpa"] == 1110.0
     assert cfg["workflow"]["pressure"]["preseal_timeout_requires_invalid_gauge"] is True
@@ -200,7 +204,12 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["pressure"]["post_isolation_fast_capture_enabled"] is True
     assert cfg["workflow"]["pressure"]["post_isolation_fast_capture_allow_early_sample"] is False
     assert cfg["workflow"]["pressure"]["post_isolation_fast_capture_min_s"] == 5.0
+    assert cfg["workflow"]["pressure"]["post_isolation_fast_capture_require_vent_ok"] is True
     assert cfg["workflow"]["pressure"]["post_isolation_fast_capture_require_vent_zero"] is True
+    assert cfg["workflow"]["pressure"]["post_isolation_fast_capture_require_in_limits"] is True
+    assert cfg["workflow"]["pressure"]["post_isolation_fast_capture_require_eff_zero"] is True
+    assert cfg["workflow"]["pressure"]["post_isolation_fast_capture_eff_abs_max"] == 0.01
+    assert cfg["workflow"]["pressure"]["post_isolation_fast_capture_slew_abs_max"] == 0.05
     assert cfg["workflow"]["pressure"]["post_isolation_fast_capture_require_isol_closed"] is True
     assert cfg["workflow"]["pressure"]["post_isolation_fast_capture_fallback_to_extended_diag"] is True
     assert cfg["workflow"]["pressure"]["post_isolation_extended_diag_window_s"] == 20.0

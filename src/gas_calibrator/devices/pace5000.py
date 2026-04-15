@@ -16,7 +16,7 @@ class Pace5000:
     VENT_STATUS_IDLE = 0
     VENT_STATUS_IN_PROGRESS = 1
     VENT_STATUS_COMPLETED = 2
-    VENT_STATUS_TIMED_OUT = 2
+    VENT_STATUS_TIMED_OUT = 5
     VENT_STATUS_TRAPPED_PRESSURE = 3
     VENT_STATUS_ABORTED = 4
 
@@ -40,13 +40,15 @@ class Pace5000:
             serial_factory=serial_factory,
         )
         self._cmd_lock = threading.RLock()
-        self._vent_hold_stop = threading.Event()
         self._vent_hold_thread: Optional[threading.Thread] = None
         self._device_identity: Optional[str] = None
         self._device_identity_probed = False
         self._legacy_vent_status_model: Optional[bool] = None
         self._vent_after_valve_supported: Optional[bool] = None
         self._vent_popup_ack_supported: Optional[bool] = None
+        self._vent_elapsed_time_supported: Optional[bool] = None
+        self._vent_orpv_supported: Optional[bool] = None
+        self._vent_pupv_supported: Optional[bool] = None
         self.line_ending = self._normalize_line_ending(line_ending or "LF")
         self.query_line_endings = self._normalize_line_endings(query_line_endings)
         self.pressure_queries = self._normalize_pressure_queries(pressure_queries)
@@ -114,6 +116,16 @@ class Pace5000:
         except Exception:
             return None
 
+    @staticmethod
+    def _parse_last_float(text: str) -> Optional[float]:
+        matches = re.findall(r"[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?", text or "")
+        if not matches:
+            return None
+        try:
+            return float(matches[-1])
+        except Exception:
+            return None
+
     @classmethod
     def _parse_first_int(cls, text: str) -> Optional[int]:
         value = cls._parse_first_float(text)
@@ -158,6 +170,28 @@ class Pace5000:
     def write(self, cmd: str) -> None:
         with self._cmd_lock:
             self.ser.write(cmd + self.line_ending)
+
+    def clear_status(self) -> None:
+        self.write("*CLS")
+
+    def get_system_error(self) -> str:
+        return str(self.query(":SYST:ERR?") or "").strip()
+
+    def drain_system_errors(self, *, max_reads: int = 8) -> List[str]:
+        errors: List[str] = []
+        for _ in range(max(1, int(max_reads))):
+            try:
+                entry = self.get_system_error()
+            except Exception:
+                break
+            text = str(entry or "").strip()
+            if not text:
+                break
+            normalized = text.replace(" ", "").lower()
+            if normalized.startswith(":syst:err0") or normalized.startswith("0,") or "noerror" in normalized:
+                break
+            errors.append(text)
+        return errors
 
     def read(self) -> float:
         return self.read_pressure()
@@ -212,11 +246,34 @@ class Pace5000:
     def set_slew_mode_max(self) -> None:
         self.write(":SOUR:PRES:SLEW:MODE MAX")
 
+    def get_slew_mode(self) -> str:
+        resp = self.query(":SOUR:PRES:SLEW:MODE?")
+        text = str(resp or "").strip().upper()
+        if "LIN" in text:
+            return "LIN"
+        if "MAX" in text:
+            return "MAX"
+        raise RuntimeError("NO_RESPONSE")
+
     def set_slew_rate(self, value_hpa_per_s: float) -> None:
         self.write(f":SOUR:PRES:SLEW {float(value_hpa_per_s)}")
 
+    def get_slew_rate(self) -> float:
+        resp = self.query(":SOUR:PRES:SLEW?")
+        value = self._parse_first_float(resp)
+        if value is None:
+            raise RuntimeError("NO_RESPONSE")
+        return float(value)
+
     def set_overshoot_allowed(self, enabled: bool) -> None:
         self.write(f":SOUR:PRES:SLEW:OVER {1 if enabled else 0}")
+
+    def get_overshoot_allowed(self) -> bool:
+        resp = self.query(":SOUR:PRES:SLEW:OVER?")
+        value = self._parse_bool_state(resp)
+        if value is None:
+            raise RuntimeError("NO_RESPONSE")
+        return bool(value)
 
     def get_output_state(self) -> int:
         resp = self.query(":OUTP:STAT?")
@@ -327,6 +384,11 @@ class Pace5000:
         return self.get_vent_status()
 
     @staticmethod
+    def vent_status_is_completed_latched(status: Any) -> bool:
+        value = Pace5000._parse_first_int(str(status))
+        return value == Pace5000.VENT_STATUS_COMPLETED
+
+    @staticmethod
     def _looks_like_legacy_vent_status_identity(identity: str) -> bool:
         text = str(identity or "").strip().upper()
         if not text:
@@ -359,12 +421,13 @@ class Pace5000:
         if value is None:
             return False
         if self.has_legacy_vent_status_model():
-            # Older GE Druck PACE5000 firmware can report trapped pressure as the
-            # terminal vent state immediately before control resumes on sealed
-            # routes. Historical V1 real runs show 3/0/1 progressing to output-on.
+            # K0472 vent semantics treat status 2 as a completed vent latch that
+            # must be explicitly cleared by sending VENT 0. Older GE Druck V1
+            # field runs can still expose trapped-pressure status 3 immediately
+            # before control resumes on sealed routes, so we keep 3 as the only
+            # non-zero terminal state that can still allow control.
             return value in {
                 self.VENT_STATUS_IDLE,
-                self.VENT_STATUS_COMPLETED,
                 self.VENT_STATUS_TRAPPED_PRESSURE,
             }
         return value == self.VENT_STATUS_IDLE
@@ -373,12 +436,10 @@ class Pace5000:
         if self.has_legacy_vent_status_model():
             return [
                 self.VENT_STATUS_IDLE,
-                self.VENT_STATUS_COMPLETED,
                 self.VENT_STATUS_TRAPPED_PRESSURE,
             ]
         return [
             self.VENT_STATUS_IDLE,
-            self.VENT_STATUS_TIMED_OUT,
             self.VENT_STATUS_TRAPPED_PRESSURE,
             self.VENT_STATUS_ABORTED,
         ]
@@ -403,6 +464,15 @@ class Pace5000:
             self._vent_popup_ack_supported = False
             return False
         return True
+
+    def supports_vent_elapsed_time(self) -> bool:
+        return self._vent_elapsed_time_supported is not False
+
+    def supports_vent_over_range_protect(self) -> bool:
+        return self._vent_orpv_supported is not False
+
+    def supports_vent_power_up_protect(self) -> bool:
+        return self._vent_pupv_supported is not False
 
     def set_vent_after_valve_open(self, open_after_vent: bool) -> None:
         self._ensure_vent_aux_supported("_vent_after_valve_supported", "VENT_AFTER_VALVE_UNSUPPORTED")
@@ -461,25 +531,106 @@ class Pace5000:
         return "ENABLED" if bool(value) else "DISABLED"
 
     def get_vent_elapsed_time_s(self) -> float:
-        resp = self.query(":SOUR:PRES:LEV:IMM:AMPL:VENT:ETIM?")
+        self._ensure_vent_aux_supported("_vent_elapsed_time_supported", "VENT_ELAPSED_TIME_UNSUPPORTED")
+        try:
+            resp = self.query(":SOUR:PRES:LEV:IMM:AMPL:VENT:ETIM?")
+            value = self._parse_first_float(resp)
+        except Exception:
+            self._vent_elapsed_time_supported = False
+            raise
+        if value is None:
+            self._vent_elapsed_time_supported = False
+            raise RuntimeError("NO_RESPONSE")
+        self._vent_elapsed_time_supported = True
+        return float(value)
+
+    def get_vent_over_range_protect_state(self) -> str:
+        self._ensure_vent_aux_supported("_vent_orpv_supported", "VENT_ORPV_UNSUPPORTED")
+        try:
+            resp = self.query(":SOUR:PRES:LEV:IMM:AMPL:VENT:ORPV:STAT?")
+            value = self._parse_bool_state(resp)
+        except Exception:
+            self._vent_orpv_supported = False
+            raise
+        if value is None:
+            self._vent_orpv_supported = False
+            raise RuntimeError("NO_RESPONSE")
+        self._vent_orpv_supported = True
+        return "ENABLED" if bool(value) else "DISABLED"
+
+    def get_vent_power_up_protect_state(self) -> str:
+        self._ensure_vent_aux_supported("_vent_pupv_supported", "VENT_PUPV_UNSUPPORTED")
+        try:
+            resp = self.query(":SOUR:PRES:LEV:IMM:AMPL:VENT:PUPV:STAT?")
+            value = self._parse_bool_state(resp)
+        except Exception:
+            self._vent_pupv_supported = False
+            raise
+        if value is None:
+            self._vent_pupv_supported = False
+            raise RuntimeError("NO_RESPONSE")
+        self._vent_pupv_supported = True
+        return "ENABLED" if bool(value) else "DISABLED"
+
+    def get_effort(self) -> float:
+        resp = self.query(":SOUR:PRES:EFF?")
         value = self._parse_first_float(resp)
         if value is None:
             raise RuntimeError("NO_RESPONSE")
         return float(value)
 
-    def get_vent_over_range_protect_state(self) -> str:
-        resp = self.query(":SOUR:PRES:LEV:IMM:AMPL:VENT:ORPV:STAT?")
-        value = self._parse_bool_state(resp)
-        if value is None:
-            raise RuntimeError("NO_RESPONSE")
-        return "ENABLED" if bool(value) else "DISABLED"
+    def get_effort_query(self) -> float:
+        return self.get_effort()
 
-    def get_vent_power_up_protect_state(self) -> str:
-        resp = self.query(":SOUR:PRES:LEV:IMM:AMPL:VENT:PUPV:STAT?")
-        value = self._parse_bool_state(resp)
+    def get_compensation_pressure(self, source_index: int) -> float:
+        if int(source_index) not in (1, 2):
+            raise ValueError("source_index must be 1 (+supply) or 2 (-vacuum)")
+        resp = self.query(f":SOUR:PRES:COMP{int(source_index)}?")
+        value = self._parse_last_float(resp)
         if value is None:
             raise RuntimeError("NO_RESPONSE")
-        return "ENABLED" if bool(value) else "DISABLED"
+        return float(value)
+
+    def get_comp1(self) -> float:
+        return self.get_compensation_pressure(1)
+
+    def get_comp2(self) -> float:
+        return self.get_compensation_pressure(2)
+
+    def get_control_pressure(self) -> float:
+        resp = self.query(":SENS:PRES:CONT?")
+        value = self._parse_first_float(resp)
+        if value is None:
+            raise RuntimeError("NO_RESPONSE")
+        return float(value)
+
+    def get_barometric_pressure(self) -> float:
+        resp = self.query(":SENS:PRES:BAR?")
+        value = self._parse_first_float(resp)
+        if value is None:
+            raise RuntimeError("NO_RESPONSE")
+        return float(value)
+
+    def get_in_limits_setting(self) -> float:
+        resp = self.query(":SOUR:PRES:INL?")
+        value = self._parse_first_float(resp)
+        if value is None:
+            raise RuntimeError("NO_RESPONSE")
+        return float(value)
+
+    def get_in_limits_time_s(self) -> float:
+        resp = self.query(":SENS:PRES:INL:TIME?")
+        value = self._parse_first_float(resp)
+        if value is None:
+            raise RuntimeError("NO_RESPONSE")
+        return float(value)
+
+    def get_measured_slew_rate(self) -> float:
+        resp = self.query(":SENS:PRES:SLEW?")
+        value = self._parse_first_float(resp)
+        if value is None:
+            raise RuntimeError("NO_RESPONSE")
+        return float(value)
 
     def get_oper_condition(self) -> int:
         resp = self.query(":STAT:OPER:COND?")
@@ -494,6 +645,51 @@ class Pace5000:
         if value is None:
             raise RuntimeError("NO_RESPONSE")
         return value
+
+    def get_oper_pressure_event(self) -> int:
+        resp = self.query(":STAT:OPER:PRES:EVEN?")
+        value = self._parse_first_int(resp)
+        if value is None:
+            raise RuntimeError("NO_RESPONSE")
+        return value
+
+    @staticmethod
+    def oper_pressure_bit_is_set(register_value: Any, bit_index: int) -> Optional[bool]:
+        value = Pace5000._parse_first_int(str(register_value))
+        if value is None:
+            return None
+        return bool(int(value) & (1 << int(bit_index)))
+
+    def clear_completed_vent_latch_if_present(
+        self,
+        *,
+        timeout_s: float = 5.0,
+        poll_s: float = 0.25,
+    ) -> dict[str, Any]:
+        before_status = self.get_vent_status()
+        result = {
+            "before_status": before_status,
+            "clear_attempted": False,
+            "after_status": before_status,
+            "cleared": before_status == self.VENT_STATUS_IDLE,
+            "command": "",
+        }
+        if not self.vent_status_is_completed_latched(before_status):
+            return result
+
+        self.vent(False)
+        result["clear_attempted"] = True
+        result["command"] = ":SOUR:PRES:LEV:IMM:AMPL:VENT 0"
+        deadline = time.time() + max(0.5, float(timeout_s))
+        last_status = before_status
+        while time.time() < deadline:
+            last_status = self.get_vent_status()
+            result["after_status"] = last_status
+            if last_status == self.VENT_STATUS_IDLE:
+                result["cleared"] = True
+                return result
+            time.sleep(max(0.05, float(poll_s)))
+        raise RuntimeError(f"VENT_COMPLETED_LATCH_CLEAR_TIMEOUT(last_status={last_status})")
 
     def diagnostic_status(self) -> dict[str, Any]:
         status = self.status()
@@ -517,6 +713,64 @@ class Pace5000:
             status["oper_pressure_condition"] = self.get_oper_pressure_condition()
         except Exception:
             status["oper_pressure_condition"] = ""
+        try:
+            status["oper_pressure_event"] = self.get_oper_pressure_event()
+        except Exception:
+            status["oper_pressure_event"] = ""
+        vent_complete_cond = self.oper_pressure_bit_is_set(status.get("oper_pressure_condition"), 0)
+        vent_complete_event = self.oper_pressure_bit_is_set(status.get("oper_pressure_event"), 0)
+        in_limits_cond = self.oper_pressure_bit_is_set(status.get("oper_pressure_condition"), 2)
+        in_limits_event = self.oper_pressure_bit_is_set(status.get("oper_pressure_event"), 2)
+        status["oper_pressure_vent_complete_bit"] = (
+            True
+            if vent_complete_cond is True or vent_complete_event is True
+            else False
+            if vent_complete_cond is not None or vent_complete_event is not None
+            else ""
+        )
+        status["oper_pressure_in_limits_bit"] = (
+            True
+            if in_limits_cond is True or in_limits_event is True
+            else False
+            if in_limits_cond is not None or in_limits_event is not None
+            else ""
+        )
+        try:
+            status["effort"] = self.get_effort()
+        except Exception:
+            status["effort"] = ""
+        try:
+            status["comp1"] = self.get_comp1()
+        except Exception:
+            status["comp1"] = ""
+        try:
+            status["comp2"] = self.get_comp2()
+        except Exception:
+            status["comp2"] = ""
+        try:
+            status["control_pressure_hpa"] = self.get_control_pressure()
+        except Exception:
+            status["control_pressure_hpa"] = ""
+        try:
+            status["barometric_pressure_hpa"] = self.get_barometric_pressure()
+        except Exception:
+            status["barometric_pressure_hpa"] = ""
+        try:
+            inl_pressure, inl_state = self.get_in_limits()
+            status["in_limits_pressure_hpa"] = inl_pressure
+            status["in_limits_state"] = inl_state
+        except Exception:
+            status["in_limits_pressure_hpa"] = ""
+            status["in_limits_state"] = ""
+        try:
+            status["in_limits_time_s"] = self.get_in_limits_time_s()
+        except Exception:
+            status["in_limits_time_s"] = ""
+        try:
+            status["measured_slew_hpa_s"] = self.get_measured_slew_rate()
+        except Exception:
+            status["measured_slew_hpa_s"] = ""
+        status["vent_completed_latched"] = self.vent_status_is_completed_latched(status.get("vent_status"))
         try:
             status["vent_elapsed_time_s"] = self.get_vent_elapsed_time_s()
         except Exception:
@@ -542,22 +796,29 @@ class Pace5000:
             ok_statuses
             or [
                 self.VENT_STATUS_IDLE,
-                self.VENT_STATUS_TIMED_OUT,
                 self.VENT_STATUS_TRAPPED_PRESSURE,
                 self.VENT_STATUS_ABORTED,
             ]
         )
         deadline = time.time() + max(0.5, timeout_s)
         last_status: Optional[int] = None
+        clear_sent = False
         while time.time() < deadline:
             status = self.get_vent_status()
             last_status = status
-            if status != self.VENT_STATUS_IN_PROGRESS:
-                if status in accepted:
-                    return status
-                raise RuntimeError(f"VENT_STATUS_{status}")
-            time.sleep(max(0.05, poll_s))
-        raise RuntimeError(f"VENT_TIMEOUT(last_status={last_status})")
+            if status == self.VENT_STATUS_IN_PROGRESS:
+                time.sleep(max(0.05, poll_s))
+                continue
+            if status == self.VENT_STATUS_COMPLETED:
+                if not clear_sent:
+                    self.vent(False)
+                    clear_sent = True
+                time.sleep(max(0.05, poll_s))
+                continue
+            if status in accepted:
+                return status
+            raise RuntimeError(f"VENT_STATUS_{status}")
+        raise RuntimeError(f"VENT_TIMEOUT(last_status={last_status},clear_sent={clear_sent})")
 
     def _wait_for_int_state(
         self,
@@ -598,41 +859,15 @@ class Pace5000:
             time.sleep(max(0.05, poll_s))
         raise RuntimeError(f"{label}_STATE_{last_value}")
 
-    def _vent_hold_loop(self, interval_s: float) -> None:
-        interval = max(0.05, float(interval_s))
-        while not self._vent_hold_stop.wait(interval):
-            try:
-                self.vent(True)
-            except Exception:
-                # Best effort only; caller can still query status explicitly.
-                pass
-
     def start_atmosphere_hold(self, *, interval_s: float = 2.0) -> None:
-        self.stop_atmosphere_hold()
-        self._vent_hold_stop.clear()
-        self._vent_hold_thread = threading.Thread(
-            target=self._vent_hold_loop,
-            args=(float(interval_s),),
-            daemon=True,
-            name=f"pace5000-vent-hold-{self.ser.port}",
-        )
-        self._vent_hold_thread.start()
+        self._vent_hold_thread = None
 
     def is_atmosphere_hold_active(self) -> bool:
-        thread = self._vent_hold_thread
-        return bool(thread and thread.is_alive())
+        return False
 
     def stop_atmosphere_hold(self, *, timeout_s: float = 2.0) -> bool:
-        thread = self._vent_hold_thread
-        if thread is None:
-            self._vent_hold_stop.clear()
-            return True
-        self._vent_hold_stop.set()
-        thread.join(timeout=max(0.0, float(timeout_s)))
-        alive = thread.is_alive()
-        self._vent_hold_thread = thread if alive else None
-        self._vent_hold_stop.clear()
-        return not alive
+        self._vent_hold_thread = None
+        return True
 
     def enter_atmosphere_mode_with_open_vent_valve(
         self,
@@ -650,10 +885,7 @@ class Pace5000:
         if popup_ack_enabled is not None:
             self.set_vent_popup_ack_enabled(bool(popup_ack_enabled))
         self.vent(True)
-        status = self.wait_for_vent_idle(
-            timeout_s=timeout_s,
-            poll_s=poll_s,
-        )
+        status = self.wait_for_vent_idle(timeout_s=timeout_s, poll_s=poll_s)
         self._wait_for_int_state(
             self.get_output_state,
             0,
@@ -690,27 +922,7 @@ class Pace5000:
         self.set_output(False)
         self.set_isolation_open(True)
         self.vent(True)
-        if hold_open:
-            self.start_atmosphere_hold(interval_s=hold_interval_s)
-            self._wait_for_int_state(
-                self.get_output_state,
-                0,
-                timeout_s=min(timeout_s, 5.0),
-                poll_s=poll_s,
-                label="OUTPUT",
-            )
-            self._wait_for_int_state(
-                self.get_isolation_state,
-                1,
-                timeout_s=min(timeout_s, 5.0),
-                poll_s=poll_s,
-                label="ISOLATION",
-            )
-            return self.get_vent_status()
-        status = self.wait_for_vent_idle(
-            timeout_s=timeout_s,
-            poll_s=poll_s,
-        )
+        status = self.wait_for_vent_idle(timeout_s=timeout_s, poll_s=poll_s)
         self._wait_for_int_state(
             self.get_output_state,
             0,
@@ -738,10 +950,7 @@ class Pace5000:
         self.vent(False)
         # Keep the output path open so controlled pressure reaches the external line.
         self.set_isolation_open(True)
-        status = self.wait_for_vent_idle(
-            timeout_s=timeout_s,
-            poll_s=poll_s,
-        )
+        status = self.wait_for_vent_idle(timeout_s=timeout_s, poll_s=poll_s)
         self._wait_for_int_state(
             self.get_output_state,
             0,
@@ -772,7 +981,6 @@ class Pace5000:
                 ok_statuses=[
                     self.VENT_STATUS_IDLE,
                     self.VENT_STATUS_TRAPPED_PRESSURE,
-                    self.VENT_STATUS_TIMED_OUT,
                     self.VENT_STATUS_ABORTED,
                 ],
             )

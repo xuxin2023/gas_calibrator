@@ -121,13 +121,30 @@ _PRESSURE_TRACE_FIELDS = [
     "pace_isol_state_query",
     "pace_mode_query",
     "pace_vent_status_query",
+    "pace_vent_completed_latched",
+    "pace_vent_clear_attempted",
+    "pace_vent_clear_result",
     "pace_vent_after_valve_state_query",
     "pace_vent_popup_state_query",
     "pace_vent_elapsed_time_query",
     "pace_vent_orpv_state_query",
     "pace_vent_pupv_state_query",
+    "pace_effort_query",
+    "pace_comp1_query",
+    "pace_comp2_query",
+    "pace_sens_pres_cont_query",
+    "pace_sens_pres_bar_query",
+    "pace_sens_pres_inl_query",
+    "pace_sens_pres_inl_state_query",
+    "pace_sens_pres_inl_time_query",
+    "pace_sens_inl_query",
+    "pace_sens_inl_time_query",
+    "pace_sens_slew_query",
     "pace_oper_cond_query",
     "pace_oper_pres_cond_query",
+    "pace_oper_pres_even_query",
+    "pace_oper_pres_vent_complete_bit",
+    "pace_oper_pres_in_limits_bit",
     "vent_after_valve_supported",
     "vent_after_valve_open",
     "vent_popup_ack_enabled",
@@ -274,13 +291,30 @@ _POINT_TIMING_SUMMARY_FIELDS = [
     "pace_isol_state_query",
     "pace_mode_query",
     "pace_vent_status_query",
+    "pace_vent_completed_latched",
+    "pace_vent_clear_attempted",
+    "pace_vent_clear_result",
     "pace_vent_after_valve_state_query",
     "pace_vent_popup_state_query",
     "pace_vent_elapsed_time_query",
     "pace_vent_orpv_state_query",
     "pace_vent_pupv_state_query",
+    "pace_effort_query",
+    "pace_comp1_query",
+    "pace_comp2_query",
+    "pace_sens_pres_cont_query",
+    "pace_sens_pres_bar_query",
+    "pace_sens_pres_inl_query",
+    "pace_sens_pres_inl_state_query",
+    "pace_sens_pres_inl_time_query",
+    "pace_sens_inl_query",
+    "pace_sens_inl_time_query",
+    "pace_sens_slew_query",
     "pace_oper_cond_query",
     "pace_oper_pres_cond_query",
+    "pace_oper_pres_even_query",
+    "pace_oper_pres_vent_complete_bit",
+    "pace_oper_pres_in_limits_bit",
     "pressure_gauge_hpa",
     "dewpoint_c",
     "temp_c",
@@ -364,7 +398,7 @@ class CalibrationRunner:
         self._last_pressure_atmosphere_refresh_ts = 0.0
         self._pressure_atmosphere_hold_enabled = False
         self._pressure_atmosphere_refresh_error_logged = False
-        self._pressure_atmosphere_hold_strategy = "legacy_hold_thread"
+        self._pressure_atmosphere_hold_strategy = "single_cycle_query_clear"
         self._pace_vent_after_valve_supported: Optional[bool] = None
         self._pace_vent_after_valve_open: Optional[bool] = None
         self._pace_vent_after_valve_state_query: Optional[str] = None
@@ -374,6 +408,18 @@ class CalibrationRunner:
         self._pace_vent_elapsed_time_query: Optional[float] = None
         self._pace_vent_orpv_state_query: Optional[str] = None
         self._pace_vent_pupv_state_query: Optional[str] = None
+        self._pace_effort_query: Optional[float] = None
+        self._pace_comp1_query: Optional[float] = None
+        self._pace_comp2_query: Optional[float] = None
+        self._pace_sens_pres_cont_query: Optional[float] = None
+        self._pace_sens_pres_bar_query: Optional[float] = None
+        self._pace_sens_pres_inl_query: Optional[float] = None
+        self._pace_sens_pres_inl_state_query: Optional[int] = None
+        self._pace_sens_pres_inl_time_query: Optional[float] = None
+        self._pace_sens_slew_query: Optional[float] = None
+        self._pace_oper_pres_even_query: Optional[int] = None
+        self._pace_oper_pres_vent_complete_bit: Optional[bool] = None
+        self._pace_oper_pres_in_limits_bit: Optional[bool] = None
         self._disabled_analyzers: set[str] = set()
         self._disabled_analyzer_reasons: Dict[str, str] = {}
         self._disabled_analyzer_last_reprobe_ts: Dict[str, float] = {}
@@ -622,13 +668,30 @@ class CalibrationRunner:
             "pace_isol_state_query": "",
             "pace_mode_query": "",
             "pace_vent_status_query": "",
+            "pace_vent_completed_latched": "",
+            "pace_vent_clear_attempted": "",
+            "pace_vent_clear_result": "",
             "pace_vent_after_valve_state_query": "",
             "pace_vent_popup_state_query": "",
             "pace_vent_elapsed_time_query": "",
             "pace_vent_orpv_state_query": "",
             "pace_vent_pupv_state_query": "",
+            "pace_effort_query": "",
+            "pace_comp1_query": "",
+            "pace_comp2_query": "",
+            "pace_sens_pres_cont_query": "",
+            "pace_sens_pres_bar_query": "",
+            "pace_sens_pres_inl_query": "",
+            "pace_sens_pres_inl_state_query": "",
+            "pace_sens_pres_inl_time_query": "",
+            "pace_sens_inl_query": "",
+            "pace_sens_inl_time_query": "",
+            "pace_sens_slew_query": "",
             "pace_oper_cond_query": "",
             "pace_oper_pres_cond_query": "",
+            "pace_oper_pres_even_query": "",
+            "pace_oper_pres_vent_complete_bit": "",
+            "pace_oper_pres_in_limits_bit": "",
         }
         if not self._sampling_pace_state_cache_enabled():
             return snapshot
@@ -651,13 +714,33 @@ class CalibrationRunner:
             "pace_isol_state_query": snapshot.get("pace_isol_state_query", ""),
             "pace_mode_query": snapshot.get("pace_mode_query", ""),
             "pace_vent_status_query": snapshot.get("pace_vent_status_query", ""),
+            "pace_vent_completed_latched": snapshot.get("pace_vent_completed_latched", ""),
+            "pace_vent_clear_attempted": snapshot.get("pace_vent_clear_attempted", ""),
+            "pace_vent_clear_result": snapshot.get("pace_vent_clear_result", ""),
             "pace_vent_after_valve_state_query": snapshot.get("pace_vent_after_valve_state_query", ""),
             "pace_vent_popup_state_query": snapshot.get("pace_vent_popup_state_query", ""),
             "pace_vent_elapsed_time_query": snapshot.get("pace_vent_elapsed_time_query", ""),
             "pace_vent_orpv_state_query": snapshot.get("pace_vent_orpv_state_query", ""),
             "pace_vent_pupv_state_query": snapshot.get("pace_vent_pupv_state_query", ""),
+            "pace_effort_query": snapshot.get("pace_effort_query", ""),
+            "pace_comp1_query": snapshot.get("pace_comp1_query", ""),
+            "pace_comp2_query": snapshot.get("pace_comp2_query", ""),
+            "pace_sens_pres_cont_query": snapshot.get("pace_sens_pres_cont_query", ""),
+            "pace_sens_pres_bar_query": snapshot.get("pace_sens_pres_bar_query", ""),
+            "pace_sens_pres_inl_query": snapshot.get("pace_sens_pres_inl_query", ""),
+            "pace_sens_pres_inl_state_query": snapshot.get("pace_sens_pres_inl_state_query", ""),
+            "pace_sens_pres_inl_time_query": snapshot.get("pace_sens_pres_inl_time_query", ""),
+            "pace_sens_inl_query": snapshot.get("pace_sens_inl_query", snapshot.get("pace_sens_pres_inl_query", "")),
+            "pace_sens_inl_time_query": snapshot.get(
+                "pace_sens_inl_time_query",
+                snapshot.get("pace_sens_pres_inl_time_query", ""),
+            ),
+            "pace_sens_slew_query": snapshot.get("pace_sens_slew_query", ""),
             "pace_oper_cond_query": snapshot.get("pace_oper_cond_query", ""),
             "pace_oper_pres_cond_query": snapshot.get("pace_oper_pres_cond_query", ""),
+            "pace_oper_pres_even_query": snapshot.get("pace_oper_pres_even_query", ""),
+            "pace_oper_pres_vent_complete_bit": snapshot.get("pace_oper_pres_vent_complete_bit", ""),
+            "pace_oper_pres_in_limits_bit": snapshot.get("pace_oper_pres_in_limits_bit", ""),
         }
 
     def _pace_state_snapshot(self, pace: Any = None, *, refresh: bool = True) -> Dict[str, Any]:
@@ -693,6 +776,28 @@ class CalibrationRunner:
             return ""
         return true_text if bool(value) else false_text
 
+    @staticmethod
+    def _pace_oper_register_bit(value: Any, bit_index: int) -> Optional[bool]:
+        try:
+            parsed = int(float(value))
+        except Exception:
+            return None
+        return bool(parsed & (1 << int(bit_index)))
+
+    def _pace_vent_completed_latched_from_snapshot(self, snapshot: Mapping[str, Any]) -> Optional[bool]:
+        vent_status = self._as_int(snapshot.get("pace_vent_status_query"))
+        if vent_status == 2:
+            return True
+        vent_complete_cond = self._pace_oper_register_bit(snapshot.get("pace_oper_pres_cond_query"), 0)
+        if vent_complete_cond is True:
+            return True
+        vent_complete_event = self._pace_oper_register_bit(snapshot.get("pace_oper_pres_even_query"), 0)
+        if vent_complete_event is True:
+            return True
+        if vent_status is None and vent_complete_cond is None and vent_complete_event is None:
+            return None
+        return False
+
     def _pace_diagnostic_state_snapshot(
         self,
         pace: Any = None,
@@ -711,8 +816,25 @@ class CalibrationRunner:
         snapshot.setdefault("pace_vent_elapsed_time_query", "")
         snapshot.setdefault("pace_vent_orpv_state_query", "")
         snapshot.setdefault("pace_vent_pupv_state_query", "")
+        snapshot.setdefault("pace_effort_query", "")
+        snapshot.setdefault("pace_comp1_query", "")
+        snapshot.setdefault("pace_comp2_query", "")
+        snapshot.setdefault("pace_sens_pres_cont_query", "")
+        snapshot.setdefault("pace_sens_pres_bar_query", "")
+        snapshot.setdefault("pace_sens_pres_inl_query", "")
+        snapshot.setdefault("pace_sens_pres_inl_state_query", "")
+        snapshot.setdefault("pace_sens_pres_inl_time_query", "")
+        snapshot.setdefault("pace_sens_inl_query", "")
+        snapshot.setdefault("pace_sens_inl_time_query", "")
+        snapshot.setdefault("pace_sens_slew_query", "")
         snapshot.setdefault("pace_oper_cond_query", "")
         snapshot.setdefault("pace_oper_pres_cond_query", "")
+        snapshot.setdefault("pace_oper_pres_even_query", "")
+        snapshot.setdefault("pace_oper_pres_vent_complete_bit", "")
+        snapshot.setdefault("pace_oper_pres_in_limits_bit", "")
+        snapshot.setdefault("pace_vent_completed_latched", "")
+        snapshot.setdefault("pace_vent_clear_attempted", "")
+        snapshot.setdefault("pace_vent_clear_result", "")
         if not pace or not refresh:
             return snapshot
 
@@ -723,8 +845,19 @@ class CalibrationRunner:
             ("get_output_mode", "pace_mode_query"),
             ("get_oper_condition", "pace_oper_cond_query"),
             ("get_oper_pressure_condition", "pace_oper_pres_cond_query"),
+            ("get_oper_pressure_event", "pace_oper_pres_even_query"),
+            ("get_effort_query", "pace_effort_query"),
+            ("get_effort", "pace_effort_query"),
+            ("get_comp1", "pace_comp1_query"),
+            ("get_comp2", "pace_comp2_query"),
+            ("get_control_pressure", "pace_sens_pres_cont_query"),
+            ("get_barometric_pressure", "pace_sens_pres_bar_query"),
+            ("get_in_limits_time_s", "pace_sens_pres_inl_time_query"),
+            ("get_measured_slew_rate", "pace_sens_slew_query"),
         ):
             if key == "pace_mode_query" and refreshed.get(key) not in ("", None):
+                continue
+            if key == "pace_effort_query" and refreshed.get(key) not in ("", None):
                 continue
             getter = getattr(pace, attr_name, None)
             if not callable(getter):
@@ -734,6 +867,19 @@ class CalibrationRunner:
                 any_success = True
             except Exception:
                 refreshed[key] = snapshot.get(key, "")
+
+        get_in_limits = getattr(pace, "get_in_limits", None)
+        if refresh_aux and callable(get_in_limits):
+            try:
+                inl_pressure, inl_state = get_in_limits()
+                refreshed["pace_sens_pres_inl_query"] = inl_pressure
+                refreshed["pace_sens_pres_inl_state_query"] = inl_state
+                refreshed["pace_sens_inl_query"] = inl_pressure
+                any_success = True
+            except Exception:
+                refreshed["pace_sens_pres_inl_query"] = snapshot.get("pace_sens_pres_inl_query", "")
+                refreshed["pace_sens_pres_inl_state_query"] = snapshot.get("pace_sens_pres_inl_state_query", "")
+                refreshed["pace_sens_inl_query"] = snapshot.get("pace_sens_inl_query", "")
 
         if refresh_aux:
             getter = getattr(pace, "get_vent_after_valve_state", None)
@@ -814,6 +960,51 @@ class CalibrationRunner:
                 except Exception:
                     refreshed[key] = snapshot.get(key, getattr(self, cache_attr, "") or "")
 
+        refreshed["pace_sens_inl_query"] = (
+            refreshed.get("pace_sens_inl_query")
+            if refreshed.get("pace_sens_inl_query") not in ("", None)
+            else refreshed.get("pace_sens_pres_inl_query", "")
+        )
+        refreshed["pace_sens_inl_time_query"] = (
+            refreshed.get("pace_sens_pres_inl_time_query", "")
+        )
+        vent_complete_cond = self._pace_oper_register_bit(refreshed.get("pace_oper_pres_cond_query"), 0)
+        vent_complete_event = self._pace_oper_register_bit(refreshed.get("pace_oper_pres_even_query"), 0)
+        in_limits_cond = self._pace_oper_register_bit(refreshed.get("pace_oper_pres_cond_query"), 2)
+        in_limits_event = self._pace_oper_register_bit(refreshed.get("pace_oper_pres_even_query"), 2)
+        refreshed["pace_oper_pres_vent_complete_bit"] = (
+            True
+            if vent_complete_cond is True or vent_complete_event is True
+            else False
+            if vent_complete_cond is not None or vent_complete_event is not None
+            else ""
+        )
+        refreshed["pace_oper_pres_in_limits_bit"] = (
+            True
+            if in_limits_cond is True or in_limits_event is True
+            else False
+            if in_limits_cond is not None or in_limits_event is not None
+            else ""
+        )
+        refreshed["pace_vent_completed_latched"] = self._pace_vent_completed_latched_from_snapshot(refreshed)
+        if refreshed.get("pace_vent_clear_attempted") in ("", None):
+            refreshed["pace_vent_clear_attempted"] = snapshot.get("pace_vent_clear_attempted", "")
+        if refreshed.get("pace_vent_clear_result") in ("", None):
+            refreshed["pace_vent_clear_result"] = snapshot.get("pace_vent_clear_result", "")
+
+        self._pace_effort_query = self._as_float(refreshed.get("pace_effort_query"))
+        self._pace_comp1_query = self._as_float(refreshed.get("pace_comp1_query"))
+        self._pace_comp2_query = self._as_float(refreshed.get("pace_comp2_query"))
+        self._pace_sens_pres_cont_query = self._as_float(refreshed.get("pace_sens_pres_cont_query"))
+        self._pace_sens_pres_bar_query = self._as_float(refreshed.get("pace_sens_pres_bar_query"))
+        self._pace_sens_pres_inl_query = self._as_float(refreshed.get("pace_sens_pres_inl_query"))
+        self._pace_sens_pres_inl_state_query = self._as_int(refreshed.get("pace_sens_pres_inl_state_query"))
+        self._pace_sens_pres_inl_time_query = self._as_float(refreshed.get("pace_sens_pres_inl_time_query"))
+        self._pace_sens_slew_query = self._as_float(refreshed.get("pace_sens_slew_query"))
+        self._pace_oper_pres_even_query = self._as_int(refreshed.get("pace_oper_pres_even_query"))
+        self._pace_oper_pres_vent_complete_bit = refreshed.get("pace_oper_pres_vent_complete_bit")
+        self._pace_oper_pres_in_limits_bit = refreshed.get("pace_oper_pres_in_limits_bit")
+
         refreshed["vent_after_valve_supported"] = self._pace_vent_after_valve_supported
         refreshed["vent_after_valve_open"] = self._pace_vent_after_valve_open
         refreshed["vent_popup_ack_enabled"] = self._pace_vent_popup_ack_enabled
@@ -831,13 +1022,33 @@ class CalibrationRunner:
             "pace_isol_state_query": snapshot.get("pace_isol_state_query"),
             "pace_mode_query": snapshot.get("pace_mode_query"),
             "pace_vent_status_query": snapshot.get("pace_vent_status_query"),
+            "pace_vent_completed_latched": snapshot.get("pace_vent_completed_latched"),
+            "pace_vent_clear_attempted": snapshot.get("pace_vent_clear_attempted"),
+            "pace_vent_clear_result": snapshot.get("pace_vent_clear_result"),
             "pace_vent_after_valve_state_query": snapshot.get("pace_vent_after_valve_state_query"),
             "pace_vent_popup_state_query": snapshot.get("pace_vent_popup_state_query"),
             "pace_vent_elapsed_time_query": snapshot.get("pace_vent_elapsed_time_query"),
             "pace_vent_orpv_state_query": snapshot.get("pace_vent_orpv_state_query"),
             "pace_vent_pupv_state_query": snapshot.get("pace_vent_pupv_state_query"),
+            "pace_effort_query": snapshot.get("pace_effort_query"),
+            "pace_comp1_query": snapshot.get("pace_comp1_query"),
+            "pace_comp2_query": snapshot.get("pace_comp2_query"),
+            "pace_sens_pres_cont_query": snapshot.get("pace_sens_pres_cont_query"),
+            "pace_sens_pres_bar_query": snapshot.get("pace_sens_pres_bar_query"),
+            "pace_sens_pres_inl_query": snapshot.get("pace_sens_pres_inl_query"),
+            "pace_sens_pres_inl_state_query": snapshot.get("pace_sens_pres_inl_state_query"),
+            "pace_sens_pres_inl_time_query": snapshot.get("pace_sens_pres_inl_time_query"),
+            "pace_sens_inl_query": snapshot.get("pace_sens_inl_query", snapshot.get("pace_sens_pres_inl_query")),
+            "pace_sens_inl_time_query": snapshot.get(
+                "pace_sens_inl_time_query",
+                snapshot.get("pace_sens_pres_inl_time_query"),
+            ),
+            "pace_sens_slew_query": snapshot.get("pace_sens_slew_query"),
             "pace_oper_cond_query": snapshot.get("pace_oper_cond_query"),
             "pace_oper_pres_cond_query": snapshot.get("pace_oper_pres_cond_query"),
+            "pace_oper_pres_even_query": snapshot.get("pace_oper_pres_even_query"),
+            "pace_oper_pres_vent_complete_bit": snapshot.get("pace_oper_pres_vent_complete_bit"),
+            "pace_oper_pres_in_limits_bit": snapshot.get("pace_oper_pres_in_limits_bit"),
         }
 
     def _pressure_soft_control_trace_context(self) -> Dict[str, Any]:
@@ -853,7 +1064,9 @@ class CalibrationRunner:
             "vent_after_valve_supported": self._pace_vent_after_valve_supported,
             "vent_after_valve_open": self._pace_vent_after_valve_open,
             "vent_popup_ack_enabled": self._pace_vent_popup_ack_enabled,
-            "atmosphere_hold_strategy": self._pressure_atmosphere_hold_strategy,
+            "atmosphere_hold_strategy": self._normalized_atmosphere_hold_strategy_value(
+                self._pressure_atmosphere_hold_strategy
+            ),
         }
 
     def _pressure_trace_row(
@@ -878,13 +1091,30 @@ class CalibrationRunner:
         pace_isol_state_query: Any = None,
         pace_mode_query: Any = None,
         pace_vent_status_query: Any = None,
+        pace_vent_completed_latched: Any = None,
+        pace_vent_clear_attempted: Any = None,
+        pace_vent_clear_result: Any = None,
         pace_vent_after_valve_state_query: Any = None,
         pace_vent_popup_state_query: Any = None,
         pace_vent_elapsed_time_query: Any = None,
         pace_vent_orpv_state_query: Any = None,
         pace_vent_pupv_state_query: Any = None,
+        pace_effort_query: Any = None,
+        pace_comp1_query: Any = None,
+        pace_comp2_query: Any = None,
+        pace_sens_pres_cont_query: Any = None,
+        pace_sens_pres_bar_query: Any = None,
+        pace_sens_pres_inl_query: Any = None,
+        pace_sens_pres_inl_state_query: Any = None,
+        pace_sens_pres_inl_time_query: Any = None,
+        pace_sens_inl_query: Any = None,
+        pace_sens_inl_time_query: Any = None,
+        pace_sens_slew_query: Any = None,
         pace_oper_cond_query: Any = None,
         pace_oper_pres_cond_query: Any = None,
+        pace_oper_pres_even_query: Any = None,
+        pace_oper_pres_vent_complete_bit: Any = None,
+        pace_oper_pres_in_limits_bit: Any = None,
         vent_after_valve_supported: Any = None,
         vent_after_valve_open: Any = None,
         vent_popup_ack_enabled: Any = None,
@@ -987,6 +1217,9 @@ class CalibrationRunner:
                 "pace_isol_state_query": self._pressure_trace_cell(pace_isol_state_query),
                 "pace_mode_query": self._pressure_trace_cell(pace_mode_query),
                 "pace_vent_status_query": self._pressure_trace_cell(pace_vent_status_query),
+                "pace_vent_completed_latched": self._pressure_trace_cell(pace_vent_completed_latched),
+                "pace_vent_clear_attempted": self._pressure_trace_cell(pace_vent_clear_attempted),
+                "pace_vent_clear_result": self._pressure_trace_cell(pace_vent_clear_result),
                 "pace_vent_after_valve_state_query": self._pressure_trace_cell(
                     pace_vent_after_valve_state_query
                 ),
@@ -994,8 +1227,32 @@ class CalibrationRunner:
                 "pace_vent_elapsed_time_query": self._pressure_trace_cell(pace_vent_elapsed_time_query),
                 "pace_vent_orpv_state_query": self._pressure_trace_cell(pace_vent_orpv_state_query),
                 "pace_vent_pupv_state_query": self._pressure_trace_cell(pace_vent_pupv_state_query),
+                "pace_effort_query": self._pressure_trace_cell(pace_effort_query),
+                "pace_comp1_query": self._pressure_trace_cell(pace_comp1_query),
+                "pace_comp2_query": self._pressure_trace_cell(pace_comp2_query),
+                "pace_sens_pres_cont_query": self._pressure_trace_cell(pace_sens_pres_cont_query),
+                "pace_sens_pres_bar_query": self._pressure_trace_cell(pace_sens_pres_bar_query),
+                "pace_sens_pres_inl_query": self._pressure_trace_cell(pace_sens_pres_inl_query),
+                "pace_sens_pres_inl_state_query": self._pressure_trace_cell(pace_sens_pres_inl_state_query),
+                "pace_sens_pres_inl_time_query": self._pressure_trace_cell(pace_sens_pres_inl_time_query),
+                "pace_sens_inl_query": self._pressure_trace_cell(
+                    pace_sens_inl_query if pace_sens_inl_query is not None else pace_sens_pres_inl_query
+                ),
+                "pace_sens_inl_time_query": self._pressure_trace_cell(
+                    pace_sens_inl_time_query
+                    if pace_sens_inl_time_query is not None
+                    else pace_sens_pres_inl_time_query
+                ),
+                "pace_sens_slew_query": self._pressure_trace_cell(pace_sens_slew_query),
                 "pace_oper_cond_query": self._pressure_trace_cell(pace_oper_cond_query),
                 "pace_oper_pres_cond_query": self._pressure_trace_cell(pace_oper_pres_cond_query),
+                "pace_oper_pres_even_query": self._pressure_trace_cell(pace_oper_pres_even_query),
+                "pace_oper_pres_vent_complete_bit": self._pressure_trace_cell(
+                    pace_oper_pres_vent_complete_bit
+                ),
+                "pace_oper_pres_in_limits_bit": self._pressure_trace_cell(
+                    pace_oper_pres_in_limits_bit
+                ),
                 "vent_after_valve_supported": self._pressure_trace_cell(
                     atmosphere_cfg["vent_after_valve_supported"]
                     if vent_after_valve_supported is None
@@ -1119,13 +1376,30 @@ class CalibrationRunner:
         pace_isol_state_query: Any = None,
         pace_mode_query: Any = None,
         pace_vent_status_query: Any = None,
+        pace_vent_completed_latched: Any = None,
+        pace_vent_clear_attempted: Any = None,
+        pace_vent_clear_result: Any = None,
         pace_vent_after_valve_state_query: Any = None,
         pace_vent_popup_state_query: Any = None,
         pace_vent_elapsed_time_query: Any = None,
         pace_vent_orpv_state_query: Any = None,
         pace_vent_pupv_state_query: Any = None,
+        pace_effort_query: Any = None,
+        pace_comp1_query: Any = None,
+        pace_comp2_query: Any = None,
+        pace_sens_pres_cont_query: Any = None,
+        pace_sens_pres_bar_query: Any = None,
+        pace_sens_pres_inl_query: Any = None,
+        pace_sens_pres_inl_state_query: Any = None,
+        pace_sens_pres_inl_time_query: Any = None,
+        pace_sens_inl_query: Any = None,
+        pace_sens_inl_time_query: Any = None,
+        pace_sens_slew_query: Any = None,
         pace_oper_cond_query: Any = None,
         pace_oper_pres_cond_query: Any = None,
+        pace_oper_pres_even_query: Any = None,
+        pace_oper_pres_vent_complete_bit: Any = None,
+        pace_oper_pres_in_limits_bit: Any = None,
         vent_after_valve_supported: Any = None,
         vent_after_valve_open: Any = None,
         vent_popup_ack_enabled: Any = None,
@@ -1250,15 +1524,32 @@ class CalibrationRunner:
             or pace_isol_state_query is None
             or pace_mode_query is None
             or pace_vent_status_query is None
+            or pace_vent_completed_latched is None
+            or pace_vent_clear_attempted is None
+            or pace_vent_clear_result is None
             or pace_vent_after_valve_state_query is None
             or pace_vent_popup_state_query is None
             or pace_vent_elapsed_time_query is None
             or pace_vent_orpv_state_query is None
             or pace_vent_pupv_state_query is None
+            or pace_effort_query is None
+            or pace_comp1_query is None
+            or pace_comp2_query is None
+            or pace_sens_pres_cont_query is None
+            or pace_sens_pres_bar_query is None
+            or pace_sens_pres_inl_query is None
+            or pace_sens_pres_inl_state_query is None
+            or pace_sens_pres_inl_time_query is None
+            or pace_sens_inl_query is None
+            or pace_sens_inl_time_query is None
+            or pace_sens_slew_query is None
             or pace_oper_cond_query is None
             or pace_oper_pres_cond_query is None
+            or pace_oper_pres_even_query is None
+            or pace_oper_pres_vent_complete_bit is None
+            or pace_oper_pres_in_limits_bit is None
         ):
-            pace_state = self._pace_diagnostic_state_snapshot(pace, refresh=refresh_pace_state, refresh_aux=refresh_pace_state)
+            pace_state = self._pace_diagnostic_state_snapshot(pace, refresh=refresh_pace_state, refresh_aux=False)
             if pace_output_state is None:
                 pace_output_state = pace_state["pace_output_state"]
             if pace_isolation_state is None:
@@ -1273,6 +1564,12 @@ class CalibrationRunner:
                 pace_mode_query = pace_state.get("pace_mode_query")
             if pace_vent_status_query is None:
                 pace_vent_status_query = pace_state.get("pace_vent_status_query")
+            if pace_vent_completed_latched is None:
+                pace_vent_completed_latched = pace_state.get("pace_vent_completed_latched")
+            if pace_vent_clear_attempted is None:
+                pace_vent_clear_attempted = pace_state.get("pace_vent_clear_attempted")
+            if pace_vent_clear_result is None:
+                pace_vent_clear_result = pace_state.get("pace_vent_clear_result")
             if pace_vent_after_valve_state_query is None:
                 pace_vent_after_valve_state_query = pace_state.get("pace_vent_after_valve_state_query")
             if pace_vent_popup_state_query is None:
@@ -1283,10 +1580,38 @@ class CalibrationRunner:
                 pace_vent_orpv_state_query = pace_state.get("pace_vent_orpv_state_query")
             if pace_vent_pupv_state_query is None:
                 pace_vent_pupv_state_query = pace_state.get("pace_vent_pupv_state_query")
+            if pace_effort_query is None:
+                pace_effort_query = pace_state.get("pace_effort_query")
+            if pace_comp1_query is None:
+                pace_comp1_query = pace_state.get("pace_comp1_query")
+            if pace_comp2_query is None:
+                pace_comp2_query = pace_state.get("pace_comp2_query")
+            if pace_sens_pres_cont_query is None:
+                pace_sens_pres_cont_query = pace_state.get("pace_sens_pres_cont_query")
+            if pace_sens_pres_bar_query is None:
+                pace_sens_pres_bar_query = pace_state.get("pace_sens_pres_bar_query")
+            if pace_sens_pres_inl_query is None:
+                pace_sens_pres_inl_query = pace_state.get("pace_sens_pres_inl_query")
+            if pace_sens_pres_inl_state_query is None:
+                pace_sens_pres_inl_state_query = pace_state.get("pace_sens_pres_inl_state_query")
+            if pace_sens_pres_inl_time_query is None:
+                pace_sens_pres_inl_time_query = pace_state.get("pace_sens_pres_inl_time_query")
+            if pace_sens_inl_query is None:
+                pace_sens_inl_query = pace_state.get("pace_sens_inl_query")
+            if pace_sens_inl_time_query is None:
+                pace_sens_inl_time_query = pace_state.get("pace_sens_inl_time_query")
+            if pace_sens_slew_query is None:
+                pace_sens_slew_query = pace_state.get("pace_sens_slew_query")
             if pace_oper_cond_query is None:
                 pace_oper_cond_query = pace_state.get("pace_oper_cond_query")
             if pace_oper_pres_cond_query is None:
                 pace_oper_pres_cond_query = pace_state.get("pace_oper_pres_cond_query")
+            if pace_oper_pres_even_query is None:
+                pace_oper_pres_even_query = pace_state.get("pace_oper_pres_even_query")
+            if pace_oper_pres_vent_complete_bit is None:
+                pace_oper_pres_vent_complete_bit = pace_state.get("pace_oper_pres_vent_complete_bit")
+            if pace_oper_pres_in_limits_bit is None:
+                pace_oper_pres_in_limits_bit = pace_state.get("pace_oper_pres_in_limits_bit")
             if vent_after_valve_open is None:
                 vent_after_valve_open = pace_state.get("vent_after_valve_open")
             if vent_popup_ack_enabled is None:
@@ -1325,13 +1650,30 @@ class CalibrationRunner:
             pace_isol_state_query=pace_isol_state_query,
             pace_mode_query=pace_mode_query,
             pace_vent_status_query=pace_vent_status_query,
+            pace_vent_completed_latched=pace_vent_completed_latched,
+            pace_vent_clear_attempted=pace_vent_clear_attempted,
+            pace_vent_clear_result=pace_vent_clear_result,
             pace_vent_after_valve_state_query=pace_vent_after_valve_state_query,
             pace_vent_popup_state_query=pace_vent_popup_state_query,
             pace_vent_elapsed_time_query=pace_vent_elapsed_time_query,
             pace_vent_orpv_state_query=pace_vent_orpv_state_query,
             pace_vent_pupv_state_query=pace_vent_pupv_state_query,
+            pace_effort_query=pace_effort_query,
+            pace_comp1_query=pace_comp1_query,
+            pace_comp2_query=pace_comp2_query,
+            pace_sens_pres_cont_query=pace_sens_pres_cont_query,
+            pace_sens_pres_bar_query=pace_sens_pres_bar_query,
+            pace_sens_pres_inl_query=pace_sens_pres_inl_query,
+            pace_sens_pres_inl_state_query=pace_sens_pres_inl_state_query,
+            pace_sens_pres_inl_time_query=pace_sens_pres_inl_time_query,
+            pace_sens_inl_query=pace_sens_inl_query,
+            pace_sens_inl_time_query=pace_sens_inl_time_query,
+            pace_sens_slew_query=pace_sens_slew_query,
             pace_oper_cond_query=pace_oper_cond_query,
             pace_oper_pres_cond_query=pace_oper_pres_cond_query,
+            pace_oper_pres_even_query=pace_oper_pres_even_query,
+            pace_oper_pres_vent_complete_bit=pace_oper_pres_vent_complete_bit,
+            pace_oper_pres_in_limits_bit=pace_oper_pres_in_limits_bit,
             vent_after_valve_supported=vent_after_valve_supported,
             vent_after_valve_open=vent_after_valve_open,
             vent_popup_ack_enabled=vent_popup_ack_enabled,
@@ -1427,6 +1769,9 @@ class CalibrationRunner:
         pace_isol_state_query: Any = None,
         pace_mode_query: Any = None,
         pace_vent_status_query: Any = None,
+        pace_vent_completed_latched: Any = None,
+        pace_vent_clear_attempted: Any = None,
+        pace_vent_clear_result: Any = None,
         pace_vent_after_valve_state_query: Any = None,
         pace_vent_popup_state_query: Any = None,
         pace_vent_elapsed_time_query: Any = None,
@@ -1434,6 +1779,20 @@ class CalibrationRunner:
         pace_vent_pupv_state_query: Any = None,
         pace_oper_cond_query: Any = None,
         pace_oper_pres_cond_query: Any = None,
+        pace_effort_query: Any = None,
+        pace_comp1_query: Any = None,
+        pace_comp2_query: Any = None,
+        pace_sens_pres_cont_query: Any = None,
+        pace_sens_pres_bar_query: Any = None,
+        pace_sens_pres_inl_query: Any = None,
+        pace_sens_pres_inl_state_query: Any = None,
+        pace_sens_pres_inl_time_query: Any = None,
+        pace_sens_inl_query: Any = None,
+        pace_sens_inl_time_query: Any = None,
+        pace_sens_slew_query: Any = None,
+        pace_oper_pres_even_query: Any = None,
+        pace_oper_pres_vent_complete_bit: Any = None,
+        pace_oper_pres_in_limits_bit: Any = None,
         vent_after_valve_supported: Any = None,
         vent_after_valve_open: Any = None,
         vent_popup_ack_enabled: Any = None,
@@ -1535,6 +1894,9 @@ class CalibrationRunner:
                 pace_isol_state_query=pace_isol_state_query,
                 pace_mode_query=pace_mode_query,
                 pace_vent_status_query=pace_vent_status_query,
+                pace_vent_completed_latched=pace_vent_completed_latched,
+                pace_vent_clear_attempted=pace_vent_clear_attempted,
+                pace_vent_clear_result=pace_vent_clear_result,
                 pace_vent_after_valve_state_query=pace_vent_after_valve_state_query,
                 pace_vent_popup_state_query=pace_vent_popup_state_query,
                 pace_vent_elapsed_time_query=pace_vent_elapsed_time_query,
@@ -1542,6 +1904,20 @@ class CalibrationRunner:
                 pace_vent_pupv_state_query=pace_vent_pupv_state_query,
                 pace_oper_cond_query=pace_oper_cond_query,
                 pace_oper_pres_cond_query=pace_oper_pres_cond_query,
+                pace_effort_query=pace_effort_query,
+                pace_comp1_query=pace_comp1_query,
+                pace_comp2_query=pace_comp2_query,
+                pace_sens_pres_cont_query=pace_sens_pres_cont_query,
+                pace_sens_pres_bar_query=pace_sens_pres_bar_query,
+                pace_sens_pres_inl_query=pace_sens_pres_inl_query,
+                pace_sens_pres_inl_state_query=pace_sens_pres_inl_state_query,
+                pace_sens_pres_inl_time_query=pace_sens_pres_inl_time_query,
+                pace_sens_inl_query=pace_sens_inl_query,
+                pace_sens_inl_time_query=pace_sens_inl_time_query,
+                pace_sens_slew_query=pace_sens_slew_query,
+                pace_oper_pres_even_query=pace_oper_pres_even_query,
+                pace_oper_pres_vent_complete_bit=pace_oper_pres_vent_complete_bit,
+                pace_oper_pres_in_limits_bit=pace_oper_pres_in_limits_bit,
                 vent_after_valve_supported=vent_after_valve_supported,
                 vent_after_valve_open=vent_after_valve_open,
                 vent_popup_ack_enabled=vent_popup_ack_enabled,
@@ -2139,13 +2515,30 @@ class CalibrationRunner:
             "pace_isol_state_query": state.get("pace_isol_state_query"),
             "pace_mode_query": state.get("pace_mode_query"),
             "pace_vent_status_query": state.get("pace_vent_status_query"),
+            "pace_vent_completed_latched": state.get("pace_vent_completed_latched"),
+            "pace_vent_clear_attempted": state.get("pace_vent_clear_attempted"),
+            "pace_vent_clear_result": state.get("pace_vent_clear_result"),
             "pace_vent_after_valve_state_query": state.get("pace_vent_after_valve_state_query"),
             "pace_vent_popup_state_query": state.get("pace_vent_popup_state_query"),
             "pace_vent_elapsed_time_query": state.get("pace_vent_elapsed_time_query"),
             "pace_vent_orpv_state_query": state.get("pace_vent_orpv_state_query"),
             "pace_vent_pupv_state_query": state.get("pace_vent_pupv_state_query"),
+            "pace_effort_query": state.get("pace_effort_query"),
+            "pace_comp1_query": state.get("pace_comp1_query"),
+            "pace_comp2_query": state.get("pace_comp2_query"),
+            "pace_sens_pres_cont_query": state.get("pace_sens_pres_cont_query"),
+            "pace_sens_pres_bar_query": state.get("pace_sens_pres_bar_query"),
+            "pace_sens_pres_inl_query": state.get("pace_sens_pres_inl_query"),
+            "pace_sens_pres_inl_state_query": state.get("pace_sens_pres_inl_state_query"),
+            "pace_sens_pres_inl_time_query": state.get("pace_sens_pres_inl_time_query"),
+            "pace_sens_inl_query": state.get("pace_sens_inl_query"),
+            "pace_sens_inl_time_query": state.get("pace_sens_inl_time_query"),
+            "pace_sens_slew_query": state.get("pace_sens_slew_query"),
             "pace_oper_cond_query": state.get("pace_oper_cond_query"),
             "pace_oper_pres_cond_query": state.get("pace_oper_pres_cond_query"),
+            "pace_oper_pres_even_query": state.get("pace_oper_pres_even_query"),
+            "pace_oper_pres_vent_complete_bit": state.get("pace_oper_pres_vent_complete_bit"),
+            "pace_oper_pres_in_limits_bit": state.get("pace_oper_pres_in_limits_bit"),
             "pressure_gauge_hpa": state.get("pressure_gauge_hpa"),
             "dewpoint_c": state.get("dewpoint_c"),
             "temp_c": state.get("temp_c"),
@@ -2192,14 +2585,20 @@ class CalibrationRunner:
     def _abort_on_vent_off_failure(self) -> bool:
         return bool(self._wf("workflow.pressure.abort_on_vent_off_failure", True))
 
+    @staticmethod
+    def _normalized_atmosphere_hold_strategy_value(value: Any) -> str:
+        text = str(value or "").strip()
+        if text in {"legacy_hold_thread", "vent_valve_open_after_vent", "single_cycle_query_clear"}:
+            return "single_cycle_query_clear"
+        return "single_cycle_query_clear"
+
     def _atmosphere_hold_strategy(self) -> str:
-        text = str(self._wf("workflow.pressure.atmosphere_hold_strategy", "legacy_hold_thread") or "").strip()
-        if text == "legacy_hold_thread":
-            return "legacy_hold_thread"
-        return "vent_valve_open_after_vent"
+        return self._normalized_atmosphere_hold_strategy_value(
+            self._wf("workflow.pressure.atmosphere_hold_strategy", "single_cycle_query_clear")
+        )
 
     def _continuous_atmosphere_hold_enabled(self) -> bool:
-        return bool(self._wf("workflow.pressure.continuous_atmosphere_hold", True))
+        return False
 
     def _vent_hold_interval_s(self) -> float:
         return max(0.1, float(self._wf("workflow.pressure.vent_hold_interval_s", 2.0) or 2.0))
@@ -2385,15 +2784,44 @@ class CalibrationRunner:
     def _relay_bulk_write_enabled(self) -> bool:
         return bool(self._wf("workflow.relay.bulk_write_enabled", True))
 
-    def _update_atmosphere_reference_hpa(self, *, reason: str = "") -> Optional[float]:
+    def _read_pace_barometric_reference_hpa(self) -> Tuple[Optional[float], str]:
+        cached_barometric_hpa = self._as_float(self._pace_sens_pres_bar_query)
+        if cached_barometric_hpa is not None and math.isfinite(cached_barometric_hpa) and abs(cached_barometric_hpa) > 1e-9:
+            return float(cached_barometric_hpa), "pace_barometer_cache"
+        pace = self.devices.get("pace")
+        if not pace:
+            return None, "unavailable"
+        getter = getattr(pace, "get_barometric_pressure", None)
+        if not callable(getter):
+            return None, "unsupported"
+        try:
+            value = self._as_float(getter())
+        except Exception as exc:
+            self.log(f"PACE barometer read failed: {exc}")
+            return None, "error"
+        if value is None or not math.isfinite(value) or abs(float(value)) <= 1e-9:
+            return None, "zero_or_invalid"
+        self._pace_sens_pres_bar_query = float(value)
+        return float(value), "pace_barometer"
+
+    def _current_ambient_reference_candidate_hpa(self) -> Tuple[Optional[float], str]:
         pressure_now, source = self._read_preseal_pressure_gauge()
-        if pressure_now is None or source != "pressure_gauge":
+        if pressure_now is not None and source == "pressure_gauge":
+            return float(pressure_now), "pressure_gauge"
+        barometric_hpa, barometric_source = self._read_pace_barometric_reference_hpa()
+        if barometric_hpa is not None:
+            return float(barometric_hpa), barometric_source
+        return None, source or barometric_source
+
+    def _update_atmosphere_reference_hpa(self, *, reason: str = "") -> Optional[float]:
+        pressure_now, source = self._current_ambient_reference_candidate_hpa()
+        if pressure_now is None:
             return self._atmosphere_reference_hpa
         self._atmosphere_reference_hpa = float(pressure_now)
         extra = f" ({reason})" if reason else ""
         self.log(
             f"Atmosphere reference updated{extra}: "
-            f"pressure_gauge_hpa={self._atmosphere_reference_hpa:.3f}"
+            f"ambient_reference_hpa={self._atmosphere_reference_hpa:.3f} source={source}"
         )
         return self._atmosphere_reference_hpa
 
@@ -2432,11 +2860,12 @@ class CalibrationRunner:
         phase: str,
         reason: str = "",
     ) -> Optional[float]:
-        ambient_reference_hpa = self._as_float(self._atmosphere_reference_hpa)
+        pressure_now, _source = self._current_ambient_reference_candidate_hpa()
+        ambient_reference_hpa = None if pressure_now is None else float(pressure_now)
         if ambient_reference_hpa is None:
-            pressure_now, source = self._read_preseal_pressure_gauge()
-            if pressure_now is not None and source == "pressure_gauge":
-                ambient_reference_hpa = float(pressure_now)
+            ambient_reference_hpa = self._as_float(self._atmosphere_reference_hpa)
+        elif math.isfinite(ambient_reference_hpa):
+            self._atmosphere_reference_hpa = float(ambient_reference_hpa)
         self._pressure_sequence_ambient_reference_hpa = ambient_reference_hpa
         self._active_pressure_sequence_context = {
             "phase": str(phase or "").strip().lower(),
@@ -2446,7 +2875,7 @@ class CalibrationRunner:
             "recorded_wall_ts": time.time(),
             "reason": str(reason or ""),
         }
-        self._sanitize_pressure_sequence_pace_vent_policy(
+        self._clear_pressure_sequence_completed_vent_latch_if_present(
             point,
             phase=phase,
             reason=reason,
@@ -2454,6 +2883,9 @@ class CalibrationRunner:
         return ambient_reference_hpa
 
     def _resolve_superambient_ambient_reference_hpa(self) -> Tuple[Optional[float], str]:
+        barometric_hpa, barometric_source = self._read_pace_barometric_reference_hpa()
+        if barometric_hpa is not None:
+            return barometric_hpa, barometric_source
         atmosphere_reference_hpa = self._as_float(self._atmosphere_reference_hpa)
         if atmosphere_reference_hpa is not None:
             return atmosphere_reference_hpa, "latest_atmosphere_verified"
@@ -2500,8 +2932,37 @@ class CalibrationRunner:
                 self._wf("workflow.pressure.post_isolation_fast_capture_allow_early_sample", False)
             ),
             "min_s": min_s,
+            "require_vent_ok": bool(
+                self._wf(
+                    "workflow.pressure.post_isolation_fast_capture_require_vent_ok",
+                    self._wf("workflow.pressure.post_isolation_fast_capture_require_vent_zero", True),
+                )
+            ),
             "require_vent_zero": bool(
-                self._wf("workflow.pressure.post_isolation_fast_capture_require_vent_zero", True)
+                self._wf(
+                    "workflow.pressure.post_isolation_fast_capture_require_vent_zero",
+                    self._wf("workflow.pressure.post_isolation_fast_capture_require_vent_ok", True),
+                )
+            ),
+            "require_in_limits": bool(
+                self._wf("workflow.pressure.post_isolation_fast_capture_require_in_limits", True)
+            ),
+            "require_eff_zero": bool(
+                self._wf("workflow.pressure.post_isolation_fast_capture_require_eff_zero", True)
+            ),
+            "effort_abs_max": max(
+                0.0,
+                float(self._wf("workflow.pressure.post_isolation_fast_capture_eff_abs_max", 0.01) or 0.01),
+            ),
+            "slew_abs_max": max(
+                0.0,
+                float(
+                    self._wf(
+                        "workflow.pressure.post_isolation_fast_capture_slew_abs_max",
+                        self._wf("workflow.pressure.fast_capture_pressure_slope_max_hpa_s", 0.05),
+                    )
+                    or 0.05
+                ),
             ),
             "require_isol_closed": bool(
                 self._wf("workflow.pressure.post_isolation_fast_capture_require_isol_closed", True)
@@ -2535,12 +2996,43 @@ class CalibrationRunner:
         pace_popup_state = str(pace_snapshot.get("pace_vent_popup_state_query") or "").strip().upper()
         pace_orpv_state = str(pace_snapshot.get("pace_vent_orpv_state_query") or "").strip().upper()
         pace_pupv_state = str(pace_snapshot.get("pace_vent_pupv_state_query") or "").strip().upper()
+        pace_effort_query = self._as_float(pace_snapshot.get("pace_effort_query"))
+        pace_in_limits_state = self._as_int(pace_snapshot.get("pace_sens_pres_inl_state_query"))
+        pace_in_limits_time_s = self._as_float(
+            pace_snapshot.get("pace_sens_pres_inl_time_query", pace_snapshot.get("pace_sens_inl_time_query"))
+        )
+        pace_measured_slew_hpa_s = self._as_float(pace_snapshot.get("pace_sens_slew_query"))
+        pace_in_limits_bit = pace_snapshot.get("pace_oper_pres_in_limits_bit")
         if pace_outp_query not in (None, 0):
             return False, "output_not_off_verified"
         if bool(fast_cfg.get("require_isol_closed")) and pace_isol_query not in (None, 0):
             return False, "isolation_not_closed_verified"
-        if bool(fast_cfg.get("require_vent_zero")) and pace_vent_query not in (None, 0):
+        if bool(fast_cfg.get("require_vent_ok", fast_cfg.get("require_vent_zero"))):
+            if pace_vent_query is None:
+                return False, "vent_query_missing"
+            if pace_vent_query != 0:
+                return False, "vent_not_zero"
+        elif bool(fast_cfg.get("require_vent_zero")) and pace_vent_query not in (None, 0):
             return False, "vent_not_zero"
+        if bool(fast_cfg.get("require_in_limits")):
+            in_limits_ok = pace_in_limits_state == 1 or pace_in_limits_bit is True
+            if not in_limits_ok:
+                return False, "in_limits_not_verified"
+            if pace_in_limits_time_s is None:
+                return False, "in_limits_time_query_missing"
+            if float(pace_in_limits_time_s) < float(fast_cfg.get("min_s") or 0.0):
+                return False, "in_limits_time_not_ready"
+        if bool(fast_cfg.get("require_eff_zero")):
+            if pace_effort_query is None:
+                return False, "effort_query_missing"
+            if abs(float(pace_effort_query)) > float(fast_cfg.get("effort_abs_max") or 0.0):
+                return False, "effort_not_zero_after_output_off"
+        slew_abs_max = self._as_float(fast_cfg.get("slew_abs_max"))
+        if slew_abs_max is not None:
+            if pace_measured_slew_hpa_s is None:
+                return False, "slew_query_missing"
+            if abs(float(pace_measured_slew_hpa_s)) > float(slew_abs_max):
+                return False, "slew_not_quiet_after_output_off"
         if self._presample_lock_matches(point=point, phase=phase) is False and self._presample_lock_matches():
             return False, "presample_lock_mismatch"
         # AFT:VVAL is the configured post-vent valve policy, not direct proof
@@ -2566,7 +3058,7 @@ class CalibrationRunner:
             return False, "fast_capture_window_not_filled"
         return True, "fast_capture_clean"
 
-    def _sanitize_pressure_sequence_pace_vent_policy(
+    def _clear_pressure_sequence_completed_vent_latch_if_present(
         self,
         point: CalibrationPoint,
         *,
@@ -2574,67 +3066,144 @@ class CalibrationRunner:
         reason: str = "",
     ) -> Dict[str, Any]:
         phase_text = str(phase or "").strip().lower()
-        snapshot_before = self._pace_diagnostic_state_snapshot(refresh=True, refresh_aux=True)
+        pace = self.devices.get("pace")
+        status_clear_result = "not_available"
+        drained_errors: List[str] = []
+        if pace is not None:
+            clear_status = getattr(pace, "clear_status", None)
+            if callable(clear_status):
+                try:
+                    clear_status()
+                    status_clear_result = "*CLS sent"
+                except Exception as exc:
+                    status_clear_result = f"*CLS failed:{exc}"
+            drain_errors = getattr(pace, "drain_system_errors", None)
+            if callable(drain_errors):
+                try:
+                    drained_errors = [str(entry or "").strip() for entry in list(drain_errors()) if str(entry or "").strip()]
+                except Exception as exc:
+                    drained_errors = [f"drain_failed:{exc}"]
+        snapshot_before = self._pace_diagnostic_state_snapshot(refresh=True, refresh_aux=False)
+        before_vent_status = self._as_int(snapshot_before.get("pace_vent_status_query"))
+        completed_latched_before = self._pace_vent_completed_latched_from_snapshot(snapshot_before)
+        clear_attempted = False
+        clear_result_text = "not_needed"
+        clear_error = ""
         self._set_point_runtime_fields(point, phase=phase_text, **self._pace_snapshot_runtime_fields(snapshot_before))
         self._append_pressure_trace_row(
             point=point,
             route=phase_text,
             point_phase=phase_text,
-            trace_stage="pace_vent_policy_sanitize_begin",
+            trace_stage="pace_vent_clear_latch_begin",
             pressure_target_hpa=getattr(point, "target_pressure_hpa", None),
             pace_outp_state_query=snapshot_before.get("pace_outp_state_query"),
             pace_isol_state_query=snapshot_before.get("pace_isol_state_query"),
             pace_mode_query=snapshot_before.get("pace_mode_query"),
             pace_vent_status_query=snapshot_before.get("pace_vent_status_query"),
+            pace_vent_completed_latched=completed_latched_before,
+            pace_vent_clear_attempted=False,
+            pace_vent_clear_result="pending" if before_vent_status == 2 else "not_needed",
             pace_vent_after_valve_state_query=snapshot_before.get("pace_vent_after_valve_state_query"),
             pace_vent_popup_state_query=snapshot_before.get("pace_vent_popup_state_query"),
             pace_vent_elapsed_time_query=snapshot_before.get("pace_vent_elapsed_time_query"),
             pace_vent_orpv_state_query=snapshot_before.get("pace_vent_orpv_state_query"),
             pace_vent_pupv_state_query=snapshot_before.get("pace_vent_pupv_state_query"),
+            pace_effort_query=snapshot_before.get("pace_effort_query"),
+            pace_comp1_query=snapshot_before.get("pace_comp1_query"),
+            pace_comp2_query=snapshot_before.get("pace_comp2_query"),
+            pace_sens_pres_cont_query=snapshot_before.get("pace_sens_pres_cont_query"),
+            pace_sens_pres_bar_query=snapshot_before.get("pace_sens_pres_bar_query"),
+            pace_sens_pres_inl_query=snapshot_before.get("pace_sens_pres_inl_query"),
+            pace_sens_pres_inl_state_query=snapshot_before.get("pace_sens_pres_inl_state_query"),
+            pace_sens_pres_inl_time_query=snapshot_before.get("pace_sens_pres_inl_time_query"),
             pace_oper_cond_query=snapshot_before.get("pace_oper_cond_query"),
             pace_oper_pres_cond_query=snapshot_before.get("pace_oper_pres_cond_query"),
+            pace_oper_pres_even_query=snapshot_before.get("pace_oper_pres_even_query"),
+            pace_oper_pres_vent_complete_bit=snapshot_before.get("pace_oper_pres_vent_complete_bit"),
+            pace_oper_pres_in_limits_bit=snapshot_before.get("pace_oper_pres_in_limits_bit"),
             refresh_pace_state=False,
-            note=f"sequence_start sanitize before forcing VENT:AFT:VVAL CLOSED; reason={reason}",
+            note=(
+                f"sequence_start clear completed vent latch if present; reason={reason}; "
+                f"status_clear={status_clear_result}; "
+                f"syst_err_cleared={'|'.join(drained_errors) if drained_errors else 'none'}"
+            ),
         )
-        sanitize_result = "skipped"
-        sanitize_reason = "no_change_needed"
-        try:
-            self._set_pressure_controller_vent_after_valve_open(
-                False,
-                strict=False,
-                reason=f"sequence sanitize {reason}".strip(),
-            )
-            sanitize_result = "applied"
-        except Exception as exc:
-            sanitize_result = "failed"
-            sanitize_reason = str(exc)
-        snapshot_after = self._pace_diagnostic_state_snapshot(refresh=True, refresh_aux=True)
+        if pace is None:
+            clear_result_text = "skipped_no_pace"
+        else:
+            clear_latch = getattr(pace, "clear_completed_vent_latch_if_present", None)
+            if callable(clear_latch):
+                try:
+                    clear_summary = clear_latch(timeout_s=5.0, poll_s=0.25)
+                    clear_attempted = bool(clear_summary.get("clear_attempted"))
+                    if clear_attempted:
+                        if bool(clear_summary.get("cleared")):
+                            clear_result_text = (
+                                f"cleared_to_zero(before={clear_summary.get('before_status')},"
+                                f"after={clear_summary.get('after_status')})"
+                            )
+                        else:
+                            clear_result_text = (
+                                f"clear_attempted_not_zero(before={clear_summary.get('before_status')},"
+                                f"after={clear_summary.get('after_status')})"
+                            )
+                    else:
+                        clear_result_text = f"not_needed(status={clear_summary.get('before_status')})"
+                except Exception as exc:
+                    clear_attempted = before_vent_status == 2
+                    clear_error = str(exc)
+                    clear_result_text = f"failed:{clear_error}"
+            else:
+                clear_result_text = "skipped_clear_method_unavailable"
+        snapshot_after = self._pace_diagnostic_state_snapshot(refresh=True, refresh_aux=False)
+        snapshot_after["pace_vent_clear_attempted"] = clear_attempted
+        snapshot_after["pace_vent_clear_result"] = clear_result_text
+        snapshot_after["pace_vent_completed_latched"] = self._pace_vent_completed_latched_from_snapshot(snapshot_after)
+        self._update_pace_state_cache(snapshot_after)
         self._set_point_runtime_fields(point, phase=phase_text, **self._pace_snapshot_runtime_fields(snapshot_after))
         self._append_pressure_trace_row(
             point=point,
             route=phase_text,
             point_phase=phase_text,
-            trace_stage="pace_vent_policy_sanitize_end",
+            trace_stage="pace_vent_clear_latch_end",
             pressure_target_hpa=getattr(point, "target_pressure_hpa", None),
             pace_outp_state_query=snapshot_after.get("pace_outp_state_query"),
             pace_isol_state_query=snapshot_after.get("pace_isol_state_query"),
             pace_mode_query=snapshot_after.get("pace_mode_query"),
             pace_vent_status_query=snapshot_after.get("pace_vent_status_query"),
+            pace_vent_completed_latched=snapshot_after.get("pace_vent_completed_latched"),
+            pace_vent_clear_attempted=clear_attempted,
+            pace_vent_clear_result=clear_result_text,
             pace_vent_after_valve_state_query=snapshot_after.get("pace_vent_after_valve_state_query"),
             pace_vent_popup_state_query=snapshot_after.get("pace_vent_popup_state_query"),
             pace_vent_elapsed_time_query=snapshot_after.get("pace_vent_elapsed_time_query"),
             pace_vent_orpv_state_query=snapshot_after.get("pace_vent_orpv_state_query"),
             pace_vent_pupv_state_query=snapshot_after.get("pace_vent_pupv_state_query"),
+            pace_effort_query=snapshot_after.get("pace_effort_query"),
+            pace_comp1_query=snapshot_after.get("pace_comp1_query"),
+            pace_comp2_query=snapshot_after.get("pace_comp2_query"),
+            pace_sens_pres_cont_query=snapshot_after.get("pace_sens_pres_cont_query"),
+            pace_sens_pres_bar_query=snapshot_after.get("pace_sens_pres_bar_query"),
+            pace_sens_pres_inl_query=snapshot_after.get("pace_sens_pres_inl_query"),
+            pace_sens_pres_inl_state_query=snapshot_after.get("pace_sens_pres_inl_state_query"),
+            pace_sens_pres_inl_time_query=snapshot_after.get("pace_sens_pres_inl_time_query"),
             pace_oper_cond_query=snapshot_after.get("pace_oper_cond_query"),
             pace_oper_pres_cond_query=snapshot_after.get("pace_oper_pres_cond_query"),
+            pace_oper_pres_even_query=snapshot_after.get("pace_oper_pres_even_query"),
+            pace_oper_pres_vent_complete_bit=snapshot_after.get("pace_oper_pres_vent_complete_bit"),
+            pace_oper_pres_in_limits_bit=snapshot_after.get("pace_oper_pres_in_limits_bit"),
             refresh_pace_state=False,
-            note=f"sanitize_result={sanitize_result}; sanitize_reason={sanitize_reason}",
+            note=(
+                f"vent_clear_result={clear_result_text}"
+                if not clear_error
+                else f"vent_clear_result={clear_result_text}; error={clear_error}"
+            ),
         )
         return {
             "before": snapshot_before,
             "after": snapshot_after,
-            "status": sanitize_result,
-            "reason": sanitize_reason,
+            "status": "applied" if clear_attempted else "skipped",
+            "reason": clear_result_text,
         }
 
     def _sampling_fixed_rate_enabled(self) -> bool:
@@ -9263,6 +9832,11 @@ class CalibrationRunner:
 
         target = float(point.target_pressure_hpa)
         phase = "h2o" if point.is_h2o_point else "co2"
+        self._clear_pressure_sequence_completed_vent_latch_if_present(
+            point,
+            phase=phase,
+            reason="before pressure control ready-for-control check",
+        )
         self._emit_stage_event(
             current=self._stage_label_for_point(point, phase=phase),
             point=point,
@@ -9449,17 +10023,6 @@ class CalibrationRunner:
                         note="vent off command returned False before setpoint control",
                     )
                     return False
-                if self._pressure_atmosphere_hold_strategy == "vent_valve_open_after_vent":
-                    self._append_pressure_trace_row(
-                        point=point,
-                        route=phase,
-                        point_phase=phase,
-                        trace_stage="control_vent_after_valve_closed",
-                        pressure_target_hpa=target,
-                        read_pace_pressure=True,
-                        read_pressure_gauge=True,
-                        note="vent-after-valve restored to CLOSED before control",
-                    )
                 ready_for_control = self._ensure_pressure_controller_ready_for_control(
                     point,
                     phase=phase,
@@ -9505,17 +10068,6 @@ class CalibrationRunner:
                         note="vent off command returned False before setpoint control",
                     )
                     return False
-                if self._pressure_atmosphere_hold_strategy == "vent_valve_open_after_vent":
-                    self._append_pressure_trace_row(
-                        point=point,
-                        route=phase,
-                        point_phase=phase,
-                        trace_stage="control_vent_after_valve_closed",
-                        pressure_target_hpa=target,
-                        read_pace_pressure=True,
-                        read_pressure_gauge=True,
-                        note="vent-after-valve restored to CLOSED before control",
-                    )
                 if not self._ensure_pressure_controller_ready_for_control(
                     point,
                     phase=phase,
@@ -9536,6 +10088,11 @@ class CalibrationRunner:
                     if reused_preseal_ready
                     else "vent off command completed; controller ready before setpoint"
                 ),
+            )
+            self._configure_same_gas_low_pressure_standard_control(
+                pace,
+                point,
+                phase=phase,
             )
             pace.set_setpoint(target)
             self._append_pressure_trace_row(
@@ -9968,7 +10525,7 @@ class CalibrationRunner:
         return state, ""
 
     def _pressure_controller_ready_snapshot_requires_aux_refresh(self) -> bool:
-        return self._pressure_atmosphere_hold_strategy == "vent_valve_open_after_vent"
+        return False
 
     def _pressure_controller_ready_snapshot(
         self,
@@ -9995,7 +10552,9 @@ class CalibrationRunner:
         snapshot["vent_after_valve_open"] = self._pace_vent_after_valve_open
         snapshot["vent_popup_ack_enabled"] = self._pace_vent_popup_ack_enabled
         snapshot["vent_after_valve_supported"] = self._pace_vent_after_valve_supported
-        snapshot["atmosphere_hold_strategy"] = self._pressure_atmosphere_hold_strategy
+        snapshot["atmosphere_hold_strategy"] = self._normalized_atmosphere_hold_strategy_value(
+            self._pressure_atmosphere_hold_strategy
+        )
         return snapshot
 
     def _pressure_control_ready_wait_timeout_s(self) -> float:
@@ -10020,6 +10579,10 @@ class CalibrationRunner:
         status_value = self._as_int(vent_status)
         if status_value is None:
             return False
+        if status_value == 2:
+            # K0472: VENT?=2 is a completed vent latch until explicitly
+            # cleared with VENT 0, so it is never a control-ready state.
+            return False
         checker = getattr(pace, "vent_status_allows_control", None)
         if callable(checker):
             try:
@@ -10041,15 +10604,9 @@ class CalibrationRunner:
         output_state = self._as_int(snapshot.get("pace_output_state"))
         isolation_state = self._as_int(snapshot.get("pace_isolation_state"))
         hold_thread_active = bool(snapshot.get("hold_thread_active"))
-        vent_after_valve_open = snapshot.get("vent_after_valve_open")
-        atmosphere_hold_strategy = str(
-            snapshot.get("atmosphere_hold_strategy") or self._pressure_atmosphere_hold_strategy or ""
-        ).strip()
         trapped_pressure_status = self._as_int(getattr(pace, "VENT_STATUS_TRAPPED_PRESSURE", 3))
         if hold_thread_active:
             failures.append("atmosphere_hold_active")
-        if atmosphere_hold_strategy == "vent_valve_open_after_vent" and vent_after_valve_open is True:
-            failures.append("vent_after_valve_open")
         if vent_status is None:
             failures.append("vent_status_unavailable")
         elif (
@@ -10223,36 +10780,164 @@ class CalibrationRunner:
         )
         return False
 
-    def _enter_pressure_controller_atmosphere_with_legacy_hold(self, pace: Any, *, timeout_s: float) -> None:
-        enter_atmosphere = getattr(pace, "enter_atmosphere_mode", None)
-        if callable(enter_atmosphere):
-            try:
-                enter_atmosphere(
-                    timeout_s=timeout_s,
-                    hold_open=True,
-                    hold_interval_s=self._vent_hold_interval_s(),
+    def _enter_pressure_controller_atmosphere_single_cycle(
+        self,
+        pace: Any,
+        *,
+        timeout_s: float,
+        reason: str = "",
+        poll_s: float = 0.25,
+    ) -> None:
+        set_output = getattr(pace, "set_output", None)
+        if callable(set_output):
+            set_output(False)
+        set_isolation_open = getattr(pace, "set_isolation_open", None)
+        if callable(set_isolation_open):
+            set_isolation_open(True)
+        pace.vent(True)
+        self._append_pressure_trace_row(
+            point=None,
+            route="pressure",
+            trace_stage="atmosphere_vent_started",
+            atmosphere_hold_strategy="single_cycle_query_clear",
+            refresh_pace_state=True,
+            note=reason or "single vent cycle start",
+        )
+
+        deadline = time.time() + max(0.5, float(timeout_s))
+        saw_in_progress = False
+        clear_sent = False
+        while time.time() < deadline:
+            snapshot = self._pace_diagnostic_state_snapshot(pace, refresh=True, refresh_aux=True)
+            vent_status = self._as_int(snapshot.get("pace_vent_status_query"))
+            if vent_status == 1:
+                if not saw_in_progress:
+                    self._append_pressure_trace_row(
+                        point=None,
+                        route="pressure",
+                        trace_stage="atmosphere_vent_in_progress",
+                        atmosphere_hold_strategy="single_cycle_query_clear",
+                        pace_outp_state_query=snapshot.get("pace_outp_state_query"),
+                        pace_isol_state_query=snapshot.get("pace_isol_state_query"),
+                        pace_mode_query=snapshot.get("pace_mode_query"),
+                        pace_vent_status_query=snapshot.get("pace_vent_status_query"),
+                        pace_vent_completed_latched=snapshot.get("pace_vent_completed_latched"),
+                        pace_effort_query=snapshot.get("pace_effort_query"),
+                        pace_comp1_query=snapshot.get("pace_comp1_query"),
+                        pace_comp2_query=snapshot.get("pace_comp2_query"),
+                        pace_sens_pres_cont_query=snapshot.get("pace_sens_pres_cont_query"),
+                        pace_sens_pres_bar_query=snapshot.get("pace_sens_pres_bar_query"),
+                        pace_sens_pres_inl_query=snapshot.get("pace_sens_pres_inl_query"),
+                        pace_sens_pres_inl_state_query=snapshot.get("pace_sens_pres_inl_state_query"),
+                        pace_sens_pres_inl_time_query=snapshot.get("pace_sens_pres_inl_time_query"),
+                        pace_sens_inl_query=snapshot.get("pace_sens_inl_query"),
+                        pace_sens_inl_time_query=snapshot.get("pace_sens_inl_time_query"),
+                        pace_sens_slew_query=snapshot.get("pace_sens_slew_query"),
+                        pace_oper_cond_query=snapshot.get("pace_oper_cond_query"),
+                        pace_oper_pres_cond_query=snapshot.get("pace_oper_pres_cond_query"),
+                        pace_oper_pres_even_query=snapshot.get("pace_oper_pres_even_query"),
+                        pace_oper_pres_vent_complete_bit=snapshot.get("pace_oper_pres_vent_complete_bit"),
+                        pace_oper_pres_in_limits_bit=snapshot.get("pace_oper_pres_in_limits_bit"),
+                        refresh_pace_state=False,
+                        note="VENT?=1 vent in progress",
+                    )
+                    saw_in_progress = True
+                time.sleep(max(0.05, float(poll_s)))
+                continue
+            if vent_status == 2:
+                self._append_pressure_trace_row(
+                    point=None,
+                    route="pressure",
+                    trace_stage="atmosphere_vent_completed",
+                    atmosphere_hold_strategy="single_cycle_query_clear",
+                    pace_outp_state_query=snapshot.get("pace_outp_state_query"),
+                    pace_isol_state_query=snapshot.get("pace_isol_state_query"),
+                    pace_mode_query=snapshot.get("pace_mode_query"),
+                    pace_vent_status_query=snapshot.get("pace_vent_status_query"),
+                    pace_vent_completed_latched=True,
+                    pace_effort_query=snapshot.get("pace_effort_query"),
+                    pace_comp1_query=snapshot.get("pace_comp1_query"),
+                    pace_comp2_query=snapshot.get("pace_comp2_query"),
+                    pace_sens_pres_cont_query=snapshot.get("pace_sens_pres_cont_query"),
+                    pace_sens_pres_bar_query=snapshot.get("pace_sens_pres_bar_query"),
+                    pace_sens_pres_inl_query=snapshot.get("pace_sens_pres_inl_query"),
+                    pace_sens_pres_inl_state_query=snapshot.get("pace_sens_pres_inl_state_query"),
+                    pace_sens_pres_inl_time_query=snapshot.get("pace_sens_pres_inl_time_query"),
+                    pace_sens_inl_query=snapshot.get("pace_sens_inl_query"),
+                    pace_sens_inl_time_query=snapshot.get("pace_sens_inl_time_query"),
+                    pace_sens_slew_query=snapshot.get("pace_sens_slew_query"),
+                    pace_oper_cond_query=snapshot.get("pace_oper_cond_query"),
+                    pace_oper_pres_cond_query=snapshot.get("pace_oper_pres_cond_query"),
+                    pace_oper_pres_even_query=snapshot.get("pace_oper_pres_even_query"),
+                    pace_oper_pres_vent_complete_bit=snapshot.get("pace_oper_pres_vent_complete_bit"),
+                    pace_oper_pres_in_limits_bit=snapshot.get("pace_oper_pres_in_limits_bit"),
+                    refresh_pace_state=False,
+                    note="VENT?=2 vent completed latch observed",
                 )
-            except TypeError:
-                try:
-                    enter_atmosphere(timeout_s=timeout_s, hold_open=True)
-                except TypeError:
-                    try:
-                        enter_atmosphere(timeout_s=timeout_s)
-                    except TypeError:
-                        enter_atmosphere()
-        else:
-            set_output = getattr(pace, "set_output", None)
-            if callable(set_output):
-                set_output(False)
-            set_isolation_open = getattr(pace, "set_isolation_open", None)
-            if callable(set_isolation_open):
-                set_isolation_open(True)
-            pace.vent(True)
-            start_hold = getattr(pace, "start_atmosphere_hold", None)
-            if callable(start_hold):
-                start_hold(interval_s=self._vent_hold_interval_s())
-        self._pace_vent_after_valve_supported = False
-        self._pace_vent_after_valve_open = False
+                pace.vent(False)
+                clear_sent = True
+                self._append_pressure_trace_row(
+                    point=None,
+                    route="pressure",
+                    trace_stage="atmosphere_vent_clear_command",
+                    atmosphere_hold_strategy="single_cycle_query_clear",
+                    pace_vent_clear_attempted=True,
+                    pace_vent_clear_result="pending",
+                    refresh_pace_state=False,
+                    note="sent VENT 0 to clear completed vent latch",
+                )
+                break
+            if vent_status == 0 and not clear_sent:
+                self._pace_vent_after_valve_supported = False
+                self._pace_vent_after_valve_open = False
+                return
+            raise RuntimeError(f"VENT_STATUS_{vent_status}")
+
+        if not clear_sent:
+            raise RuntimeError("VENT_COMPLETED_LATCH_NOT_OBSERVED")
+
+        clear_deadline = time.time() + max(0.5, float(timeout_s))
+        last_status = 2
+        while time.time() < clear_deadline:
+            snapshot = self._pace_diagnostic_state_snapshot(pace, refresh=True, refresh_aux=True)
+            last_status = self._as_int(snapshot.get("pace_vent_status_query"))
+            if last_status == 0:
+                self._append_pressure_trace_row(
+                    point=None,
+                    route="pressure",
+                    trace_stage="atmosphere_vent_clear",
+                    atmosphere_hold_strategy="single_cycle_query_clear",
+                    pace_outp_state_query=snapshot.get("pace_outp_state_query"),
+                    pace_isol_state_query=snapshot.get("pace_isol_state_query"),
+                    pace_mode_query=snapshot.get("pace_mode_query"),
+                    pace_vent_status_query=snapshot.get("pace_vent_status_query"),
+                    pace_vent_completed_latched=snapshot.get("pace_vent_completed_latched"),
+                    pace_vent_clear_attempted=True,
+                    pace_vent_clear_result="cleared_to_zero",
+                    pace_effort_query=snapshot.get("pace_effort_query"),
+                    pace_comp1_query=snapshot.get("pace_comp1_query"),
+                    pace_comp2_query=snapshot.get("pace_comp2_query"),
+                    pace_sens_pres_cont_query=snapshot.get("pace_sens_pres_cont_query"),
+                    pace_sens_pres_bar_query=snapshot.get("pace_sens_pres_bar_query"),
+                    pace_sens_pres_inl_query=snapshot.get("pace_sens_pres_inl_query"),
+                    pace_sens_pres_inl_state_query=snapshot.get("pace_sens_pres_inl_state_query"),
+                    pace_sens_pres_inl_time_query=snapshot.get("pace_sens_pres_inl_time_query"),
+                    pace_sens_inl_query=snapshot.get("pace_sens_inl_query"),
+                    pace_sens_inl_time_query=snapshot.get("pace_sens_inl_time_query"),
+                    pace_sens_slew_query=snapshot.get("pace_sens_slew_query"),
+                    pace_oper_cond_query=snapshot.get("pace_oper_cond_query"),
+                    pace_oper_pres_cond_query=snapshot.get("pace_oper_pres_cond_query"),
+                    pace_oper_pres_even_query=snapshot.get("pace_oper_pres_even_query"),
+                    pace_oper_pres_vent_complete_bit=snapshot.get("pace_oper_pres_vent_complete_bit"),
+                    pace_oper_pres_in_limits_bit=snapshot.get("pace_oper_pres_in_limits_bit"),
+                    refresh_pace_state=False,
+                    note="VENT 0 clear completed; VENT? returned 0",
+                )
+                self._pace_vent_after_valve_supported = False
+                self._pace_vent_after_valve_open = False
+                return
+            time.sleep(max(0.05, float(poll_s)))
+        raise RuntimeError(f"VENT_CLEAR_TIMEOUT(last_status={last_status})")
 
     def _enter_pressure_controller_atmosphere_with_open_vent_valve(self, pace: Any, *, timeout_s: float) -> None:
         popup_ack_enabled = self._vent_popup_ack_override()
@@ -10287,7 +10972,6 @@ class CalibrationRunner:
             self._wf("workflow.pressure.vent_transition_timeout_s", max(5.0, vent_time_s))
         )
         requested_strategy = self._atmosphere_hold_strategy()
-        aux_restore_failed = False
         try:
             if not self._stop_pressure_controller_atmosphere_hold(
                 pace,
@@ -10308,55 +10992,16 @@ class CalibrationRunner:
                     trace_stage="atmosphere_hold_strategy_selected",
                     note=(
                         f"requested_strategy={requested_strategy} "
-                        f"vent_after_valve_open={self._vent_after_valve_open_enabled()} "
-                        f"popup_ack_override={self._vent_popup_ack_override()}"
+                        "VENT 1 single-shot -> poll VENT? -> VENT 0 clear completed latch"
                     ),
                     atmosphere_hold_strategy=requested_strategy,
                 )
-                strategy_used = requested_strategy
-                if requested_strategy == "vent_valve_open_after_vent" and self._vent_after_valve_open_enabled():
-                    try:
-                        self._enter_pressure_controller_atmosphere_with_open_vent_valve(
-                            pace,
-                            timeout_s=vent_transition_timeout_s,
-                        )
-                    except Exception as exc:
-                        strategy_used = "legacy_hold_thread"
-                        self._pace_vent_after_valve_supported = False
-                        self.log(
-                            "WARNING: pressure controller atmosphere hold strategy fallback -> "
-                            f"legacy hold thread ({exc})"
-                        )
-                        self._append_pressure_trace_row(
-                            point=None,
-                            route="pressure",
-                            trace_stage="atmosphere_hold_legacy_fallback",
-                            note=str(exc),
-                            atmosphere_hold_strategy=strategy_used,
-                        )
-                        self._enter_pressure_controller_atmosphere_with_legacy_hold(
-                            pace,
-                            timeout_s=vent_transition_timeout_s,
-                        )
-                else:
-                    if requested_strategy != "legacy_hold_thread":
-                        self.log(
-                            "WARNING: pressure controller atmosphere hold strategy fallback -> "
-                            "legacy hold thread (vent_after_valve_open disabled)"
-                        )
-                        self._append_pressure_trace_row(
-                            point=None,
-                            route="pressure",
-                            trace_stage="atmosphere_hold_legacy_fallback",
-                            note="vent_after_valve_open disabled by configuration",
-                            atmosphere_hold_strategy="legacy_hold_thread",
-                        )
-                    strategy_used = "legacy_hold_thread"
-                    self._enter_pressure_controller_atmosphere_with_legacy_hold(
-                        pace,
-                        timeout_s=vent_transition_timeout_s,
-                    )
-                self._pressure_atmosphere_hold_strategy = strategy_used
+                self._enter_pressure_controller_atmosphere_single_cycle(
+                    pace,
+                    timeout_s=vent_transition_timeout_s,
+                    reason=reason or "enter atmosphere mode",
+                )
+                self._pressure_atmosphere_hold_strategy = requested_strategy
                 self._refresh_pressure_controller_aux_state(pace)
                 self._append_pressure_trace_row(
                     point=None,
@@ -10368,22 +11013,6 @@ class CalibrationRunner:
                 )
             else:
                 self._refresh_pressure_controller_aux_state(pace)
-                need_restore_closed = (
-                    self._pressure_atmosphere_hold_strategy == "vent_valve_open_after_vent"
-                    and self._pace_vent_after_valve_open is True
-                )
-                if need_restore_closed:
-                    try:
-                        self._set_pressure_controller_vent_after_valve_open(
-                            False,
-                            strict=True,
-                            reason=reason,
-                        )
-                        self._refresh_pressure_controller_aux_state(pace)
-                    except Exception as exc:
-                        aux_restore_failed = True
-                        self.log(f"Pressure controller vent auxiliary restore failed ({state}): {exc}")
-                        raise
                 exit_atmosphere = getattr(pace, "exit_atmosphere_mode", None)
                 if callable(exit_atmosphere) and not fast_preseal_vent_off:
                     exit_atmosphere(timeout_s=vent_transition_timeout_s)
@@ -10409,8 +11038,7 @@ class CalibrationRunner:
                 self._clear_preseal_pressure_control_ready_state(
                     reason=f"vent_on_failed:{reason or 'unspecified'}"
                 )
-            if not aux_restore_failed:
-                self.log(f"Pressure controller vent command failed ({state}): {exc}")
+            self.log(f"Pressure controller vent command failed ({state}): {exc}")
             if vent_on or self._abort_on_vent_off_failure():
                 raise RuntimeError(f"Pressure controller vent {state} failed: {exc}") from exc
             return False
@@ -10435,32 +11063,7 @@ class CalibrationRunner:
         pace = self.devices.get("pace")
         if not pace:
             return
-
-        pcfg = self.cfg.get("workflow", {}).get("pressure", {})
-        interval_s = max(0.1, float(pcfg.get("vent_hold_interval_s", 2.0)))
-        now = time.time()
-        if not self._pressure_atmosphere_hold_enabled:
-            return
-        if self._pressure_atmosphere_hold_strategy != "legacy_hold_thread":
-            return
-        if not force and (now - self._last_pressure_atmosphere_refresh_ts) < interval_s:
-            return
-
-        try:
-            set_output = getattr(pace, "set_output", None)
-            if callable(set_output):
-                set_output(False)
-            set_isolation_open = getattr(pace, "set_isolation_open", None)
-            if callable(set_isolation_open):
-                set_isolation_open(True)
-            pace.vent(True)
-            self._last_pressure_atmosphere_refresh_ts = now
-            self._pressure_atmosphere_refresh_error_logged = False
-        except Exception as exc:
-            if not self._pressure_atmosphere_refresh_error_logged:
-                extra = f" ({reason})" if reason else ""
-                self.log(f"Pressure controller atmosphere refresh failed{extra}: {exc}")
-                self._pressure_atmosphere_refresh_error_logged = True
+        return
 
     def _enable_pressure_controller_output(self, reason: str = "") -> bool:
         if self._presample_lock_matches():
@@ -10496,9 +11099,6 @@ class CalibrationRunner:
         vent_status = self._as_int(snapshot.get("pace_vent_status"))
         output_state = self._as_int(snapshot.get("pace_output_state"))
         isolation_state = self._as_int(snapshot.get("pace_isolation_state"))
-        atmosphere_hold_strategy = str(
-            snapshot.get("atmosphere_hold_strategy") or self._pressure_atmosphere_hold_strategy or ""
-        ).strip()
         trapped_pressure_status = self._as_int(getattr(pace, "VENT_STATUS_TRAPPED_PRESSURE", 3))
         if vent_status is None:
             failures.append("vent_status_unavailable")
@@ -10520,8 +11120,6 @@ class CalibrationRunner:
             failures.append(f"isolation_state={isolation_state}")
         if snapshot.get("hold_thread_active"):
             failures.append("atmosphere_hold_active")
-        if atmosphere_hold_strategy == "vent_valve_open_after_vent" and snapshot.get("vent_after_valve_open") is True:
-            failures.append("vent_after_valve_open")
         return failures
 
     def _attempt_pressure_controller_output_on_recovery(
@@ -11598,6 +12196,88 @@ class CalibrationRunner:
             except Exception as exc:
                 self.log(f"Pressure soft-control warning: {name} failed: {exc}")
 
+    def _same_gas_low_pressure_standard_control_cfg(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+    ) -> Dict[str, Any]:
+        phase_text = str(phase or "").strip().lower()
+        last_context = dict(self._last_sealed_pressure_route_context or {})
+        current_signature = self._route_signature_for_point(point, phase=phase_text)
+        same_route = (
+            bool(last_context)
+            and str(last_context.get("phase") or "").strip().lower() == phase_text
+            and tuple(last_context.get("route_signature") or ()) == current_signature
+        )
+        slew_rate_hpa_per_s = self._as_float(
+            self._wf("workflow.pressure.same_gas_low_pressure_standard_control_slew_hpa_per_s", None)
+        )
+        return {
+            "enabled": bool(
+                self._wf("workflow.pressure.same_gas_low_pressure_standard_control_enabled", False)
+            )
+            and phase_text == "co2"
+            and self._is_co2_low_pressure_sealed_point(point)
+            and same_route,
+            "same_route": same_route,
+            "slew_mode": str(
+                self._wf("workflow.pressure.same_gas_low_pressure_standard_control_slew_mode", "LIN") or "LIN"
+            )
+            .strip()
+            .upper(),
+            "slew_hpa_per_s": slew_rate_hpa_per_s,
+            "overshoot_allowed": bool(
+                self._wf("workflow.pressure.same_gas_low_pressure_standard_control_overshoot_allowed", False)
+            ),
+        }
+
+    def _configure_same_gas_low_pressure_standard_control(
+        self,
+        pace: Any,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+    ) -> None:
+        cfg = self._same_gas_low_pressure_standard_control_cfg(point, phase=phase)
+        if not bool(cfg.get("enabled")):
+            return
+        commands: List[Tuple[str, Any, tuple[Any, ...]]] = []
+        if str(cfg.get("slew_mode") or "").upper() == "LIN":
+            commands.append(("set_slew_mode_linear", getattr(pace, "set_slew_mode_linear", None), ()))
+        slew_rate_hpa_per_s = self._as_float(cfg.get("slew_hpa_per_s"))
+        if slew_rate_hpa_per_s is not None:
+            commands.append(("set_slew_rate", getattr(pace, "set_slew_rate", None), (float(slew_rate_hpa_per_s),)))
+        commands.append(
+            (
+                "set_overshoot_allowed",
+                getattr(pace, "set_overshoot_allowed", None),
+                (bool(cfg.get("overshoot_allowed", False)),),
+            )
+        )
+        for name, fn, args in commands:
+            if not callable(fn):
+                self.log(f"Same-gas low-pressure standard control warning: {name} unsupported")
+                continue
+            try:
+                fn(*args)
+            except Exception as exc:
+                self.log(f"Same-gas low-pressure standard control warning: {name} failed: {exc}")
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            trace_stage="same_gas_low_pressure_standard_control_applied",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None),
+            refresh_pace_state=False,
+            note=(
+                "K0472 same-gas low-pressure standard control profile: "
+                f"slew_mode={cfg.get('slew_mode')} "
+                f"slew_hpa_per_s={slew_rate_hpa_per_s if slew_rate_hpa_per_s is not None else 'unchanged'} "
+                f"overshoot_allowed={cfg.get('overshoot_allowed')}"
+            ),
+        )
+
     def _pressure_sampling_gate_cfg(self, point: CalibrationPoint) -> Dict[str, Any]:
         cfg = {
             "enabled": bool(self._wf("workflow.pressure.adaptive_pressure_sampling_enabled", False)),
@@ -11809,8 +12489,34 @@ class CalibrationRunner:
                 1.0,
                 float(self._wf("workflow.pressure.post_isolation_fast_capture_min_s", 5.0) or 5.0),
             ),
+            "fast_capture_require_vent_ok": bool(
+                self._wf(
+                    "workflow.pressure.post_isolation_fast_capture_require_vent_ok",
+                    self._wf("workflow.pressure.post_isolation_fast_capture_require_vent_zero", True),
+                )
+            ),
             "fast_capture_require_vent_zero": bool(
                 self._wf("workflow.pressure.post_isolation_fast_capture_require_vent_zero", True)
+            ),
+            "fast_capture_require_in_limits": bool(
+                self._wf("workflow.pressure.post_isolation_fast_capture_require_in_limits", True)
+            ),
+            "fast_capture_require_eff_zero": bool(
+                self._wf("workflow.pressure.post_isolation_fast_capture_require_eff_zero", True)
+            ),
+            "fast_capture_eff_abs_max": max(
+                0.0,
+                float(self._wf("workflow.pressure.post_isolation_fast_capture_eff_abs_max", 0.01) or 0.01),
+            ),
+            "fast_capture_slew_abs_max": max(
+                0.0,
+                float(
+                    self._wf(
+                        "workflow.pressure.post_isolation_fast_capture_slew_abs_max",
+                        self._wf("workflow.pressure.fast_capture_pressure_slope_max_hpa_s", 0.05),
+                    )
+                    or 0.05
+                ),
             ),
             "fast_capture_require_isol_closed": bool(
                 self._wf("workflow.pressure.post_isolation_fast_capture_require_isol_closed", True)
@@ -11845,6 +12551,14 @@ class CalibrationRunner:
                     )
                     or 0.12
                 ),
+            ),
+            "effort_nonzero_abs_max": max(
+                0.0,
+                float(self._wf("workflow.pressure.post_isolation_effort_nonzero_abs_max", 0.01) or 0.01),
+            ),
+            "supply_vacuum_comp_source_min_abs": max(
+                0.0,
+                float(self._wf("workflow.pressure.post_isolation_comp_source_min_abs", 0.01) or 0.01),
             ),
         }
 
@@ -12495,7 +13209,7 @@ class CalibrationRunner:
     def _pace_terminal_vent_status_ok_for_sampling(vent_status: Optional[int]) -> bool:
         if vent_status is None:
             return False
-        return int(vent_status) in {0, 2, 3}
+        return int(vent_status) == 0
 
     def _set_pressure_controller_sampling_isolation(
         self,
@@ -13248,6 +13962,41 @@ class CalibrationRunner:
         )
         return {"status": "unavailable", "reason": reason}
 
+    def _pace_effort_nonzero_after_output_off(
+        self,
+        state: Mapping[str, Any],
+        *,
+        cfg: Mapping[str, Any],
+    ) -> bool:
+        pace_output_state = self._as_int(state.get("pace_output_state"))
+        pace_outp_query = self._as_int(state.get("pace_outp_state_query"))
+        if pace_output_state not in (None, 0) or pace_outp_query not in (None, 0):
+            return False
+        pace_effort_query = self._as_float(state.get("pace_effort_query"))
+        if pace_effort_query is None:
+            return False
+        return abs(float(pace_effort_query)) > float(cfg.get("effort_nonzero_abs_max") or 0.0)
+
+    def _pace_supply_vacuum_compensation_detected(
+        self,
+        state: Mapping[str, Any],
+        *,
+        cfg: Mapping[str, Any],
+    ) -> bool:
+        if not self._pace_effort_nonzero_after_output_off(state, cfg=cfg):
+            return False
+        pace_effort_query = self._as_float(state.get("pace_effort_query"))
+        pace_comp1_query = self._as_float(state.get("pace_comp1_query"))
+        pace_comp2_query = self._as_float(state.get("pace_comp2_query"))
+        comp_min_abs = float(cfg.get("supply_vacuum_comp_source_min_abs") or 0.0)
+        if pace_effort_query is None:
+            return False
+        if pace_effort_query > 0.0:
+            return pace_comp1_query is not None and abs(float(pace_comp1_query)) >= comp_min_abs
+        if pace_effort_query < 0.0:
+            return pace_comp2_query is not None and abs(float(pace_comp2_query)) >= comp_min_abs
+        return False
+
     def _diagnose_post_isolation_result(
         self,
         point: CalibrationPoint,
@@ -13266,6 +14015,17 @@ class CalibrationRunner:
         pace_vent_orpv_state = str(state.get("pace_vent_orpv_state_query") or "").strip().upper()
         pace_vent_pupv_state = str(state.get("pace_vent_pupv_state_query") or "").strip().upper()
         pace_vent_elapsed_s = self._as_float(state.get("pace_vent_elapsed_time_query"))
+        pace_effort_query = self._as_float(state.get("pace_effort_query"))
+        pace_comp1_query = self._as_float(state.get("pace_comp1_query"))
+        pace_comp2_query = self._as_float(state.get("pace_comp2_query"))
+        pace_oper_pres_cond_query = self._as_int(state.get("pace_oper_pres_cond_query"))
+        pace_oper_pres_even_query = self._as_int(state.get("pace_oper_pres_even_query"))
+        pace_oper_pres_vent_complete_bit = state.get("pace_oper_pres_vent_complete_bit")
+        if pace_oper_pres_vent_complete_bit in ("", None):
+            pace_oper_pres_vent_complete_bit = self._pace_oper_register_bit(pace_oper_pres_cond_query, 0)
+        pace_oper_pres_in_limits_bit = state.get("pace_oper_pres_in_limits_bit")
+        if pace_oper_pres_in_limits_bit in ("", None):
+            pace_oper_pres_in_limits_bit = self._pace_oper_register_bit(pace_oper_pres_cond_query, 2)
         drift_hpa = self._as_float(state.get("post_isolation_pressure_drift_hpa"))
         abs_drift_hpa = abs(drift_hpa) if drift_hpa is not None else None
         span_hpa = self._as_float(state.get("post_isolation_pressure_peak_hpa"))
@@ -13292,6 +14052,15 @@ class CalibrationRunner:
             or (abs_drift_hpa is not None and abs_drift_hpa >= float(cfg["pressure_drift_limit_hpa"]))
         )
         protective_vent_enabled = pace_vent_orpv_state == "ENABLED" or pace_vent_pupv_state == "ENABLED"
+        vent_completed_latched = self._pace_vent_completed_latched_from_snapshot(
+            {
+                "pace_vent_status_query": pace_vent_query,
+                "pace_oper_pres_cond_query": pace_oper_pres_cond_query,
+                "pace_oper_pres_even_query": pace_oper_pres_even_query,
+            }
+        )
+        supply_vacuum_compensation = self._pace_supply_vacuum_compensation_detected(state, cfg=cfg)
+        effort_nonzero_after_output_off = self._pace_effort_nonzero_after_output_off(state, cfg=cfg)
         popup_clean = (
             pace_vent_query in (None, 0)
             and pace_vent_after_state in {"", "CLOSED"}
@@ -13303,16 +14072,22 @@ class CalibrationRunner:
         )
         if pace_vent_query == 1:
             return "pace_vent_in_progress_suspect"
+        if vent_completed_latched is True:
+            return "pace_vent_completed_latched_suspect"
         if pace_isol_query not in (None, 0) or pace_isolation_state not in (None, 0):
             return "pace_isolation_state_mismatch_suspect"
         if pace_output_state not in (None, 0) or pace_outp_query not in (None, 0):
             return "controller_hunting_suspect"
-        if protective_vent_enabled and (drift_evidence or rebound_evidence or pace_vent_popup_state == "ENABLED"):
-            return "pace_protective_vent_suspect"
+        if supply_vacuum_compensation:
+            return "pace_supply_vacuum_compensation_suspect"
+        if effort_nonzero_after_output_off:
+            return "pace_effort_nonzero_after_output_off_suspect"
         if pace_vent_query in (None, 0) and pace_vent_after_state == "OPEN":
             if recover_toward_ambient or rebound_evidence or synced_rebound:
                 return "pace_vent_valve_left_open_suspect"
             return "pace_vent_after_valve_config_open_suspect"
+        if protective_vent_enabled and (drift_evidence or rebound_evidence or pace_vent_popup_state == "ENABLED"):
+            return "pace_protective_vent_suspect"
         if popup_clean:
             if pace_vent_elapsed_s is not None and pace_vent_elapsed_s > 0.0:
                 return "pace_vent_popup_stale_suspect"
@@ -13340,6 +14115,13 @@ class CalibrationRunner:
             )
         ):
             return "dead_volume_wet_release_suspect"
+        if (
+            pace_output_state not in (None, 0)
+            or pace_outp_query not in (None, 0)
+            or (pace_effort_query is not None and abs(float(pace_effort_query)) > float(cfg["effort_nonzero_abs_max"]))
+            or pace_oper_pres_in_limits_bit is False
+        ):
+            return "controller_hunting_suspect"
         return "pass"
 
     def _wait_post_isolation_leak_test(
@@ -13435,10 +14217,27 @@ class CalibrationRunner:
             pace_isol_state_query=pace_snapshot.get("pace_isol_state_query"),
             pace_mode_query=pace_snapshot.get("pace_mode_query"),
             pace_vent_status_query=pace_snapshot.get("pace_vent_status_query"),
+            pace_vent_completed_latched=pace_snapshot.get("pace_vent_completed_latched"),
+            pace_vent_clear_attempted=pace_snapshot.get("pace_vent_clear_attempted"),
+            pace_vent_clear_result=pace_snapshot.get("pace_vent_clear_result"),
             pace_vent_after_valve_state_query=pace_snapshot.get("pace_vent_after_valve_state_query"),
             pace_vent_popup_state_query=pace_snapshot.get("pace_vent_popup_state_query"),
+            pace_vent_elapsed_time_query=pace_snapshot.get("pace_vent_elapsed_time_query"),
+            pace_vent_orpv_state_query=pace_snapshot.get("pace_vent_orpv_state_query"),
+            pace_vent_pupv_state_query=pace_snapshot.get("pace_vent_pupv_state_query"),
             pace_oper_cond_query=pace_snapshot.get("pace_oper_cond_query"),
             pace_oper_pres_cond_query=pace_snapshot.get("pace_oper_pres_cond_query"),
+            pace_effort_query=pace_snapshot.get("pace_effort_query"),
+            pace_comp1_query=pace_snapshot.get("pace_comp1_query"),
+            pace_comp2_query=pace_snapshot.get("pace_comp2_query"),
+            pace_sens_pres_cont_query=pace_snapshot.get("pace_sens_pres_cont_query"),
+            pace_sens_pres_bar_query=pace_snapshot.get("pace_sens_pres_bar_query"),
+            pace_sens_pres_inl_query=pace_snapshot.get("pace_sens_pres_inl_query"),
+            pace_sens_pres_inl_state_query=pace_snapshot.get("pace_sens_pres_inl_state_query"),
+            pace_sens_pres_inl_time_query=pace_snapshot.get("pace_sens_pres_inl_time_query"),
+            pace_oper_pres_even_query=pace_snapshot.get("pace_oper_pres_even_query"),
+            pace_oper_pres_vent_complete_bit=pace_snapshot.get("pace_oper_pres_vent_complete_bit"),
+            pace_oper_pres_in_limits_bit=pace_snapshot.get("pace_oper_pres_in_limits_bit"),
             handoff_mode=handoff_mode,
             atmosphere_reference_hpa=ambient_reference_hpa,
             post_isolation_status="running",
@@ -13566,6 +14365,9 @@ class CalibrationRunner:
                 pace_isol_state_query=latest_pace_snapshot.get("pace_isol_state_query"),
                 pace_mode_query=latest_pace_snapshot.get("pace_mode_query"),
                 pace_vent_status_query=latest_pace_snapshot.get("pace_vent_status_query"),
+                pace_vent_completed_latched=latest_pace_snapshot.get("pace_vent_completed_latched"),
+                pace_vent_clear_attempted=latest_pace_snapshot.get("pace_vent_clear_attempted"),
+                pace_vent_clear_result=latest_pace_snapshot.get("pace_vent_clear_result"),
                 pace_vent_after_valve_state_query=latest_pace_snapshot.get("pace_vent_after_valve_state_query"),
                 pace_vent_popup_state_query=latest_pace_snapshot.get("pace_vent_popup_state_query"),
                 pace_vent_elapsed_time_query=latest_pace_snapshot.get("pace_vent_elapsed_time_query"),
@@ -13573,6 +14375,17 @@ class CalibrationRunner:
                 pace_vent_pupv_state_query=latest_pace_snapshot.get("pace_vent_pupv_state_query"),
                 pace_oper_cond_query=latest_pace_snapshot.get("pace_oper_cond_query"),
                 pace_oper_pres_cond_query=latest_pace_snapshot.get("pace_oper_pres_cond_query"),
+                pace_effort_query=latest_pace_snapshot.get("pace_effort_query"),
+                pace_comp1_query=latest_pace_snapshot.get("pace_comp1_query"),
+                pace_comp2_query=latest_pace_snapshot.get("pace_comp2_query"),
+                pace_sens_pres_cont_query=latest_pace_snapshot.get("pace_sens_pres_cont_query"),
+                pace_sens_pres_bar_query=latest_pace_snapshot.get("pace_sens_pres_bar_query"),
+                pace_sens_pres_inl_query=latest_pace_snapshot.get("pace_sens_pres_inl_query"),
+                pace_sens_pres_inl_state_query=latest_pace_snapshot.get("pace_sens_pres_inl_state_query"),
+                pace_sens_pres_inl_time_query=latest_pace_snapshot.get("pace_sens_pres_inl_time_query"),
+                pace_oper_pres_even_query=latest_pace_snapshot.get("pace_oper_pres_even_query"),
+                pace_oper_pres_vent_complete_bit=latest_pace_snapshot.get("pace_oper_pres_vent_complete_bit"),
+                pace_oper_pres_in_limits_bit=latest_pace_snapshot.get("pace_oper_pres_in_limits_bit"),
                 handoff_mode=handoff_mode,
                 atmosphere_reference_hpa=ambient_reference_hpa,
                 post_isolation_status=status,
@@ -13658,6 +14471,9 @@ class CalibrationRunner:
                 pace_isol_state_query=latest_pace_snapshot.get("pace_isol_state_query"),
                 pace_mode_query=latest_pace_snapshot.get("pace_mode_query"),
                 pace_vent_status_query=latest_pace_snapshot.get("pace_vent_status_query"),
+                pace_vent_completed_latched=latest_pace_snapshot.get("pace_vent_completed_latched"),
+                pace_vent_clear_attempted=latest_pace_snapshot.get("pace_vent_clear_attempted"),
+                pace_vent_clear_result=latest_pace_snapshot.get("pace_vent_clear_result"),
                 pace_vent_after_valve_state_query=latest_pace_snapshot.get("pace_vent_after_valve_state_query"),
                 pace_vent_popup_state_query=latest_pace_snapshot.get("pace_vent_popup_state_query"),
                 pace_vent_elapsed_time_query=latest_pace_snapshot.get("pace_vent_elapsed_time_query"),
@@ -13665,6 +14481,17 @@ class CalibrationRunner:
                 pace_vent_pupv_state_query=latest_pace_snapshot.get("pace_vent_pupv_state_query"),
                 pace_oper_cond_query=latest_pace_snapshot.get("pace_oper_cond_query"),
                 pace_oper_pres_cond_query=latest_pace_snapshot.get("pace_oper_pres_cond_query"),
+                pace_effort_query=latest_pace_snapshot.get("pace_effort_query"),
+                pace_comp1_query=latest_pace_snapshot.get("pace_comp1_query"),
+                pace_comp2_query=latest_pace_snapshot.get("pace_comp2_query"),
+                pace_sens_pres_cont_query=latest_pace_snapshot.get("pace_sens_pres_cont_query"),
+                pace_sens_pres_bar_query=latest_pace_snapshot.get("pace_sens_pres_bar_query"),
+                pace_sens_pres_inl_query=latest_pace_snapshot.get("pace_sens_pres_inl_query"),
+                pace_sens_pres_inl_state_query=latest_pace_snapshot.get("pace_sens_pres_inl_state_query"),
+                pace_sens_pres_inl_time_query=latest_pace_snapshot.get("pace_sens_pres_inl_time_query"),
+                pace_oper_pres_even_query=latest_pace_snapshot.get("pace_oper_pres_even_query"),
+                pace_oper_pres_vent_complete_bit=latest_pace_snapshot.get("pace_oper_pres_vent_complete_bit"),
+                pace_oper_pres_in_limits_bit=latest_pace_snapshot.get("pace_oper_pres_in_limits_bit"),
                 handoff_mode=handoff_mode,
                 atmosphere_reference_hpa=ambient_reference_hpa,
                 post_isolation_status="running",
@@ -13716,12 +14543,31 @@ class CalibrationRunner:
                     pace_pressure_hpa=ready_values.get("pace_pressure_hpa"),
                     pressure_gauge_hpa=ready_values.get("pressure_gauge_hpa"),
                     dewpoint_live_c=ready_values.get("dewpoint_live_c"),
+                    pace_outp_state_query=latest_pace_snapshot.get("pace_outp_state_query"),
+                    pace_isol_state_query=latest_pace_snapshot.get("pace_isol_state_query"),
+                    pace_mode_query=latest_pace_snapshot.get("pace_mode_query"),
                     pace_vent_status_query=latest_pace_snapshot.get("pace_vent_status_query"),
+                    pace_vent_completed_latched=latest_pace_snapshot.get("pace_vent_completed_latched"),
+                    pace_vent_clear_attempted=latest_pace_snapshot.get("pace_vent_clear_attempted"),
+                    pace_vent_clear_result=latest_pace_snapshot.get("pace_vent_clear_result"),
                     pace_vent_after_valve_state_query=latest_pace_snapshot.get("pace_vent_after_valve_state_query"),
                     pace_vent_popup_state_query=latest_pace_snapshot.get("pace_vent_popup_state_query"),
                     pace_vent_elapsed_time_query=latest_pace_snapshot.get("pace_vent_elapsed_time_query"),
                     pace_vent_orpv_state_query=latest_pace_snapshot.get("pace_vent_orpv_state_query"),
                     pace_vent_pupv_state_query=latest_pace_snapshot.get("pace_vent_pupv_state_query"),
+                    pace_effort_query=latest_pace_snapshot.get("pace_effort_query"),
+                    pace_comp1_query=latest_pace_snapshot.get("pace_comp1_query"),
+                    pace_comp2_query=latest_pace_snapshot.get("pace_comp2_query"),
+                    pace_sens_pres_cont_query=latest_pace_snapshot.get("pace_sens_pres_cont_query"),
+                    pace_sens_pres_bar_query=latest_pace_snapshot.get("pace_sens_pres_bar_query"),
+                    pace_sens_pres_inl_query=latest_pace_snapshot.get("pace_sens_pres_inl_query"),
+                    pace_sens_pres_inl_state_query=latest_pace_snapshot.get("pace_sens_pres_inl_state_query"),
+                    pace_sens_pres_inl_time_query=latest_pace_snapshot.get("pace_sens_pres_inl_time_query"),
+                    pace_oper_cond_query=latest_pace_snapshot.get("pace_oper_cond_query"),
+                    pace_oper_pres_cond_query=latest_pace_snapshot.get("pace_oper_pres_cond_query"),
+                    pace_oper_pres_even_query=latest_pace_snapshot.get("pace_oper_pres_even_query"),
+                    pace_oper_pres_vent_complete_bit=latest_pace_snapshot.get("pace_oper_pres_vent_complete_bit"),
+                    pace_oper_pres_in_limits_bit=latest_pace_snapshot.get("pace_oper_pres_in_limits_bit"),
                     post_isolation_capture_mode="fast5s",
                     post_isolation_fast_capture_status="pass" if fast_ok else "fail",
                     post_isolation_fast_capture_reason=fast_reason,
@@ -13847,6 +14693,9 @@ class CalibrationRunner:
             "ambient_ingress_suspect",
             "controller_hunting_suspect",
             "pace_vent_in_progress_suspect",
+            "pace_vent_completed_latched_suspect",
+            "pace_effort_nonzero_after_output_off_suspect",
+            "pace_supply_vacuum_compensation_suspect",
             "pace_vent_after_valve_config_open_suspect",
             "pace_vent_valve_left_open_suspect",
             "pace_protective_vent_suspect",
@@ -13862,6 +14711,9 @@ class CalibrationRunner:
         diagnosis = str(state.get("post_isolation_diagnosis") or "").strip()
         if diagnosis in {
             "pace_vent_in_progress_suspect",
+            "pace_vent_completed_latched_suspect",
+            "pace_effort_nonzero_after_output_off_suspect",
+            "pace_supply_vacuum_compensation_suspect",
             "pace_vent_after_valve_config_open_suspect",
             "pace_vent_valve_left_open_suspect",
             "pace_protective_vent_suspect",
@@ -13876,13 +14728,29 @@ class CalibrationRunner:
         pace_outp_query = self._as_int(state.get("pace_outp_state_query"))
         pace_isol_query = self._as_int(state.get("pace_isol_state_query"))
         pace_vent_query = self._as_int(state.get("pace_vent_status_query"))
+        pace_oper_pres_cond_query = self._as_int(state.get("pace_oper_pres_cond_query"))
+        pace_oper_pres_even_query = self._as_int(state.get("pace_oper_pres_even_query"))
         pace_vent_after_state = str(state.get("pace_vent_after_valve_state_query") or "").strip().upper()
         pace_vent_orpv_state = str(state.get("pace_vent_orpv_state_query") or "").strip().upper()
         pace_vent_pupv_state = str(state.get("pace_vent_pupv_state_query") or "").strip().upper()
+        vent_completed_latched = self._pace_vent_completed_latched_from_snapshot(
+            {
+                "pace_vent_status_query": pace_vent_query,
+                "pace_oper_pres_cond_query": pace_oper_pres_cond_query,
+                "pace_oper_pres_even_query": pace_oper_pres_even_query,
+            }
+        )
         if pace_vent_query == 1:
             return "pace_vent_in_progress_suspect"
+        if vent_completed_latched is True:
+            return "pace_vent_completed_latched_suspect"
         if pace_isolation_state not in (None, 0) or pace_isol_query not in (None, 0):
             return "pace_isolation_state_mismatch_suspect"
+        diag_cfg = self._post_isolation_leak_test_cfg(point)
+        if self._pace_supply_vacuum_compensation_detected(state, cfg=diag_cfg):
+            return "pace_supply_vacuum_compensation_suspect"
+        if self._pace_effort_nonzero_after_output_off(state, cfg=diag_cfg):
+            return "pace_effort_nonzero_after_output_off_suspect"
         if pace_output_state not in (None, 0) or pace_outp_query not in (None, 0):
             return "controller_hunting_suspect"
         if pace_vent_orpv_state == "ENABLED" or pace_vent_pupv_state == "ENABLED":
@@ -16852,10 +17720,27 @@ class CalibrationRunner:
                 pace_isol_state_query=runtime_snapshot.get("pace_isol_state_query"),
                 pace_mode_query=runtime_snapshot.get("pace_mode_query"),
                 pace_vent_status_query=runtime_snapshot.get("pace_vent_status_query"),
+                pace_vent_completed_latched=runtime_snapshot.get("pace_vent_completed_latched"),
+                pace_vent_clear_attempted=runtime_snapshot.get("pace_vent_clear_attempted"),
+                pace_vent_clear_result=runtime_snapshot.get("pace_vent_clear_result"),
                 pace_vent_after_valve_state_query=runtime_snapshot.get("pace_vent_after_valve_state_query"),
                 pace_vent_popup_state_query=runtime_snapshot.get("pace_vent_popup_state_query"),
+                pace_vent_elapsed_time_query=runtime_snapshot.get("pace_vent_elapsed_time_query"),
+                pace_vent_orpv_state_query=runtime_snapshot.get("pace_vent_orpv_state_query"),
+                pace_vent_pupv_state_query=runtime_snapshot.get("pace_vent_pupv_state_query"),
                 pace_oper_cond_query=runtime_snapshot.get("pace_oper_cond_query"),
                 pace_oper_pres_cond_query=runtime_snapshot.get("pace_oper_pres_cond_query"),
+                pace_effort_query=runtime_snapshot.get("pace_effort_query"),
+                pace_comp1_query=runtime_snapshot.get("pace_comp1_query"),
+                pace_comp2_query=runtime_snapshot.get("pace_comp2_query"),
+                pace_sens_pres_cont_query=runtime_snapshot.get("pace_sens_pres_cont_query"),
+                pace_sens_pres_bar_query=runtime_snapshot.get("pace_sens_pres_bar_query"),
+                pace_sens_pres_inl_query=runtime_snapshot.get("pace_sens_pres_inl_query"),
+                pace_sens_pres_inl_state_query=runtime_snapshot.get("pace_sens_pres_inl_state_query"),
+                pace_sens_pres_inl_time_query=runtime_snapshot.get("pace_sens_pres_inl_time_query"),
+                pace_oper_pres_even_query=runtime_snapshot.get("pace_oper_pres_even_query"),
+                pace_oper_pres_vent_complete_bit=runtime_snapshot.get("pace_oper_pres_vent_complete_bit"),
+                pace_oper_pres_in_limits_bit=runtime_snapshot.get("pace_oper_pres_in_limits_bit"),
                 superambient_target_hpa=runtime_snapshot.get("superambient_target_hpa"),
                 superambient_precharge_margin_hpa=runtime_snapshot.get("superambient_precharge_margin_hpa"),
                 superambient_precharge_peak_hpa=runtime_snapshot.get("superambient_precharge_peak_hpa"),

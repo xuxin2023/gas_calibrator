@@ -18,13 +18,21 @@ CSV_FIELDS = [
     "isol_state",
     "mode",
     "vent_status",
-    "vent_elapsed_time_s",
-    "after_vent_valve_state",
-    "popup_state",
-    "orpv_state",
-    "pupv_state",
+    "vent_completed_latched",
+    "effort",
+    "comp1",
+    "comp2",
+    "control_pressure_hpa",
+    "barometric_pressure_hpa",
+    "in_limits_pressure_hpa",
+    "in_limits_state",
+    "in_limits_time_s",
+    "measured_slew_hpa_s",
     "oper_cond",
     "oper_pres_cond",
+    "oper_pres_even",
+    "oper_pres_vent_complete_bit",
+    "oper_pres_in_limits_bit",
 ]
 
 
@@ -40,25 +48,34 @@ def _snapshot_row(status: Dict[str, Any], *, timestamp: Optional[str] = None) ->
         "isol_state": status.get("isolation_state", ""),
         "mode": status.get("output_mode", ""),
         "vent_status": status.get("vent_status", ""),
-        "vent_elapsed_time_s": status.get("vent_elapsed_time_s", ""),
-        # AFT:VVAL is the configured post-vent valve policy, not proof of the
-        # current instantaneous physical valve position.
-        "after_vent_valve_state": status.get("vent_after_valve_state", ""),
-        "popup_state": status.get("vent_popup_state", ""),
-        "orpv_state": status.get("vent_orpv_state", ""),
-        "pupv_state": status.get("vent_pupv_state", ""),
+        "vent_completed_latched": status.get("vent_completed_latched", ""),
+        "effort": status.get("effort", ""),
+        "comp1": status.get("comp1", ""),
+        "comp2": status.get("comp2", ""),
+        "control_pressure_hpa": status.get("control_pressure_hpa", ""),
+        "barometric_pressure_hpa": status.get("barometric_pressure_hpa", ""),
+        "in_limits_pressure_hpa": status.get("in_limits_pressure_hpa", ""),
+        "in_limits_state": status.get("in_limits_state", ""),
+        "in_limits_time_s": status.get("in_limits_time_s", ""),
+        "measured_slew_hpa_s": status.get("measured_slew_hpa_s", ""),
         "oper_cond": status.get("oper_condition", ""),
         "oper_pres_cond": status.get("oper_pressure_condition", ""),
+        "oper_pres_even": status.get("oper_pressure_event", ""),
+        "oper_pres_vent_complete_bit": status.get("oper_pressure_vent_complete_bit", ""),
+        "oper_pres_in_limits_bit": status.get("oper_pressure_in_limits_bit", ""),
     }
 
 
-def _sanitize_vent_policy(pace: Pace5000) -> Dict[str, Any]:
+def _sanitize_completed_vent_latch(pace: Pace5000) -> Dict[str, Any]:
     before = pace.diagnostic_status()
-    pace.set_vent_after_valve_open(False)
+    clear_result = pace.clear_completed_vent_latch_if_present()
     after = pace.diagnostic_status()
     return {
-        "performed": True,
-        "command": "VENT:AFT:VVAL:STAT CLOSed",
+        "performed": bool(clear_result.get("clear_attempted")),
+        "command": clear_result.get("command", ""),
+        "before_status": clear_result.get("before_status"),
+        "after_status": clear_result.get("after_status"),
+        "cleared": bool(clear_result.get("cleared", False)),
         "before": _snapshot_row(before),
         "after": _snapshot_row(after),
     }
@@ -92,7 +109,7 @@ def run_controller_only_diagnostic(
     pace.open()
     try:
         if allow_write_sanitize:
-            sanitize_summary = _sanitize_vent_policy(pace)
+            sanitize_summary = _sanitize_completed_vent_latch(pace)
         for index in range(max(1, int(samples))):
             rows.append(_snapshot_row(pace.diagnostic_status()))
             if index + 1 < max(1, int(samples)):
@@ -116,8 +133,8 @@ def run_controller_only_diagnostic(
         "rows": rows,
         "notes": [
             "read-only by default",
-            "allow-write-sanitize only sends VENT:AFT:VVAL:STAT CLOSed",
-            "no setpoint, output, or vent control actions are performed",
+            "allow-write-sanitize only sends VENT 0 when a completed vent latch is present",
+            "no setpoint, output enable, vent-on, main gas path, or non-standard extension writes are performed",
         ],
     }
     json_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -135,7 +152,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument(
         "--allow-write-sanitize",
         action="store_true",
-        help="Allow exactly one config write: VENT:AFT:VVAL:STAT CLOSed.",
+        help="Allow exactly one sanitize write: VENT 0 to clear a completed vent latch.",
     )
     args = parser.parse_args(argv)
     summary = run_controller_only_diagnostic(

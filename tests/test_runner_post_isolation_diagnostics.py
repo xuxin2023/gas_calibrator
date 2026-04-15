@@ -217,6 +217,27 @@ def test_presample_failure_root_cause_only_allows_controller_hunting_when_contro
         runner._presample_failure_root_cause(point, phase="co2", failure_stage="pressure_gate")
         == "controller_hunting_suspect"
     )
+
+    runner._set_point_runtime_fields(
+        point,
+        phase="co2",
+        post_isolation_diagnosis="",
+        pace_output_state=0,
+        pace_isolation_state=0,
+        pace_outp_state_query=0,
+        pace_isol_state_query=0,
+        pace_vent_status_query=0,
+        pace_effort_query=0.03,
+        pace_comp1_query=0.0,
+        pace_comp2_query=0.0,
+        pressure_gate_status="fail",
+        pressure_dew_sync_status="synchronous",
+    )
+
+    assert (
+        runner._presample_failure_root_cause(point, phase="co2", failure_stage="pressure_gate")
+        == "pace_effort_nonzero_after_output_off_suspect"
+    )
     logger.close()
 
 
@@ -247,6 +268,101 @@ def test_post_isolation_diagnostic_flags_pace_vent_in_progress(tmp_path: Path) -
     )
 
     assert diagnosis == "pace_vent_in_progress_suspect"
+    logger.close()
+
+
+def test_post_isolation_diagnostic_flags_pace_vent_completed_latched(tmp_path: Path) -> None:
+    logger, runner = _configure_runner(tmp_path)
+    point = _co2_point()
+    _prime_post_isolation_runtime(runner, point)
+    runner._set_point_runtime_fields(
+        point,
+        phase="co2",
+        post_isolation_pressure_drift_hpa=0.03,
+        post_isolation_dewpoint_rise_c=0.01,
+        post_isolation_pressure_peak_hpa=800.03,
+        post_isolation_pressure_min_hpa=800.00,
+        post_isolation_pressure_recovery_toward_ambient=False,
+        pace_outp_state_query=0,
+        pace_isol_state_query=0,
+        pace_vent_status_query=2,
+        pace_oper_pres_cond_query=1,
+        pace_oper_pres_even_query=1,
+        pace_vent_after_valve_state_query="CLOSED",
+        pace_vent_popup_state_query="DISABLED",
+    )
+
+    diagnosis = runner._diagnose_post_isolation_result(
+        point,
+        phase="co2",
+        cfg=runner._post_isolation_leak_test_cfg(point),
+    )
+
+    assert diagnosis == "pace_vent_completed_latched_suspect"
+    logger.close()
+
+
+def test_post_isolation_diagnostic_flags_effort_nonzero_after_output_off(tmp_path: Path) -> None:
+    logger, runner = _configure_runner(tmp_path)
+    point = _co2_point()
+    _prime_post_isolation_runtime(runner, point)
+    runner._set_point_runtime_fields(
+        point,
+        phase="co2",
+        post_isolation_pressure_drift_hpa=0.03,
+        post_isolation_dewpoint_rise_c=0.01,
+        post_isolation_pressure_peak_hpa=800.03,
+        post_isolation_pressure_min_hpa=800.00,
+        post_isolation_pressure_recovery_toward_ambient=False,
+        pace_outp_state_query=0,
+        pace_isol_state_query=0,
+        pace_vent_status_query=0,
+        pace_effort_query=0.03,
+        pace_comp1_query=0.001,
+        pace_comp2_query=0.0,
+        pace_vent_after_valve_state_query="CLOSED",
+        pace_vent_popup_state_query="DISABLED",
+    )
+
+    diagnosis = runner._diagnose_post_isolation_result(
+        point,
+        phase="co2",
+        cfg=runner._post_isolation_leak_test_cfg(point),
+    )
+
+    assert diagnosis == "pace_effort_nonzero_after_output_off_suspect"
+    logger.close()
+
+
+def test_post_isolation_diagnostic_flags_supply_vacuum_compensation(tmp_path: Path) -> None:
+    logger, runner = _configure_runner(tmp_path)
+    point = _co2_point()
+    _prime_post_isolation_runtime(runner, point)
+    runner._set_point_runtime_fields(
+        point,
+        phase="co2",
+        post_isolation_pressure_drift_hpa=0.04,
+        post_isolation_dewpoint_rise_c=0.01,
+        post_isolation_pressure_peak_hpa=800.04,
+        post_isolation_pressure_min_hpa=800.00,
+        post_isolation_pressure_recovery_toward_ambient=False,
+        pace_outp_state_query=0,
+        pace_isol_state_query=0,
+        pace_vent_status_query=0,
+        pace_effort_query=0.03,
+        pace_comp1_query=0.15,
+        pace_comp2_query=0.0,
+        pace_vent_after_valve_state_query="CLOSED",
+        pace_vent_popup_state_query="DISABLED",
+    )
+
+    diagnosis = runner._diagnose_post_isolation_result(
+        point,
+        phase="co2",
+        cfg=runner._post_isolation_leak_test_cfg(point),
+    )
+
+    assert diagnosis == "pace_supply_vacuum_compensation_suspect"
     logger.close()
 
 
@@ -504,13 +620,28 @@ def test_post_isolation_fast_capture_failure_falls_back_to_extended_diagnostic(
         "pace_isol_state_query": 0,
         "pace_mode_query": "ACT",
         "pace_vent_status_query": 0,
-        "pace_vent_after_valve_state_query": "OPEN",
+        "pace_vent_completed_latched": False,
+        "pace_vent_clear_attempted": False,
+        "pace_vent_clear_result": "not_needed",
+        "pace_vent_after_valve_state_query": "CLOSED",
         "pace_vent_popup_state_query": "DISABLED",
         "pace_vent_elapsed_time_query": 4.0,
         "pace_vent_orpv_state_query": "DISABLED",
         "pace_vent_pupv_state_query": "DISABLED",
+        "pace_effort_query": 0.03,
+        "pace_comp1_query": 0.12,
+        "pace_comp2_query": 0.0,
+        "pace_sens_pres_cont_query": 800.0,
+        "pace_sens_pres_bar_query": 1006.0,
+        "pace_sens_pres_inl_query": 800.0,
+        "pace_sens_pres_inl_state_query": 1,
+        "pace_sens_pres_inl_time_query": 5.0,
+        "pace_sens_slew_query": 0.0,
         "pace_oper_cond_query": 1,
         "pace_oper_pres_cond_query": 2,
+        "pace_oper_pres_even_query": 4,
+        "pace_oper_pres_vent_complete_bit": False,
+        "pace_oper_pres_in_limits_bit": True,
     }
 
     assert runner._wait_post_isolation_leak_test(
@@ -523,8 +654,261 @@ def test_post_isolation_fast_capture_failure_falls_back_to_extended_diagnostic(
     assert state["post_isolation_fast_capture_status"] in {"fallback", "fallback_complete"}
     assert state["post_isolation_fast_capture_fallback"] is True
     assert state["post_isolation_capture_mode"] == "extended20s"
-    assert state["post_isolation_diagnosis"] in {
-        "pace_vent_after_valve_config_open_suspect",
-        "pace_vent_valve_left_open_suspect",
+    assert state["post_isolation_fast_capture_reason"] == "effort_not_zero_after_output_off"
+    assert state["post_isolation_diagnosis"] == "pace_supply_vacuum_compensation_suspect"
+    logger.close()
+
+
+def test_post_isolation_fast_capture_falls_back_when_vent_not_zero(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    logger, runner = _configure_runner(
+        tmp_path,
+        overrides={
+            "co2_post_isolation_window_s": 1.0,
+            "co2_post_isolation_poll_s": 0.25,
+            "post_isolation_fast_capture_enabled": True,
+            "post_isolation_fast_capture_allow_early_sample": True,
+            "post_isolation_fast_capture_min_s": 1.0,
+            "post_isolation_fast_capture_fallback_to_extended_diag": True,
+            "post_isolation_extended_diag_window_s": 2.0,
+        },
+    )
+    point = _co2_point()
+    _prime_post_isolation_runtime(runner, point)
+    runner._atmosphere_reference_hpa = 1006.0
+    _install_post_isolation_sequences(
+        monkeypatch,
+        runner,
+        pressures=[800.00, 800.02, 800.03, 800.03, 800.03],
+        dewpoints=[-32.00, -31.99, -31.99, -31.98, -31.98],
+        h2o_values=[0.40, 0.40, 0.40, 0.40, 0.40],
+    )
+    runner._pace_diagnostic_state_snapshot = lambda *args, **kwargs: {
+        "pace_output_state": 0,
+        "pace_isolation_state": 0,
+        "pace_vent_status": 2,
+        "pace_outp_state_query": 0,
+        "pace_isol_state_query": 0,
+        "pace_mode_query": "ACT",
+        "pace_vent_status_query": 2,
+        "pace_vent_completed_latched": True,
+        "pace_vent_clear_attempted": False,
+        "pace_vent_clear_result": "not_needed",
+        "pace_vent_after_valve_state_query": "CLOSED",
+        "pace_vent_popup_state_query": "DISABLED",
+        "pace_vent_elapsed_time_query": 4.0,
+        "pace_vent_orpv_state_query": "DISABLED",
+        "pace_vent_pupv_state_query": "DISABLED",
+        "pace_effort_query": 0.0,
+        "pace_comp1_query": 0.0,
+        "pace_comp2_query": 0.0,
+        "pace_sens_pres_cont_query": 800.0,
+        "pace_sens_pres_bar_query": 1006.0,
+        "pace_sens_pres_inl_query": 800.0,
+        "pace_sens_pres_inl_state_query": 1,
+        "pace_sens_pres_inl_time_query": 5.0,
+        "pace_sens_slew_query": 0.0,
+        "pace_oper_cond_query": 1,
+        "pace_oper_pres_cond_query": 1,
+        "pace_oper_pres_even_query": 1,
+        "pace_oper_pres_vent_complete_bit": True,
+        "pace_oper_pres_in_limits_bit": True,
     }
+
+    assert runner._wait_post_isolation_leak_test(
+        point,
+        phase="co2",
+        context={"stop_event": None},
+        handoff_mode="same_gas_pressure_step_handoff",
+    ) is False
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["post_isolation_fast_capture_reason"] == "vent_not_zero"
+    assert state["post_isolation_capture_mode"] == "extended20s"
+    assert state["post_isolation_diagnosis"] == "pace_vent_completed_latched_suspect"
+    logger.close()
+
+
+def test_post_isolation_fast_capture_falls_back_when_in_limits_not_verified(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    logger, runner = _configure_runner(
+        tmp_path,
+        overrides={
+            "co2_post_isolation_window_s": 1.0,
+            "co2_post_isolation_poll_s": 0.25,
+            "post_isolation_fast_capture_enabled": True,
+            "post_isolation_fast_capture_allow_early_sample": True,
+            "post_isolation_fast_capture_min_s": 1.0,
+            "post_isolation_fast_capture_fallback_to_extended_diag": True,
+            "post_isolation_extended_diag_window_s": 2.0,
+        },
+    )
+    point = _co2_point()
+    _prime_post_isolation_runtime(runner, point)
+    runner._atmosphere_reference_hpa = 1006.0
+    _install_post_isolation_sequences(
+        monkeypatch,
+        runner,
+        pressures=[800.00, 800.02, 800.03, 800.03, 800.03],
+        dewpoints=[-32.00, -31.99, -31.99, -31.98, -31.98],
+        h2o_values=[0.40, 0.40, 0.40, 0.40, 0.40],
+    )
+    runner._pace_diagnostic_state_snapshot = lambda *args, **kwargs: {
+        "pace_output_state": 0,
+        "pace_isolation_state": 0,
+        "pace_vent_status": 0,
+        "pace_outp_state_query": 0,
+        "pace_isol_state_query": 0,
+        "pace_mode_query": "ACT",
+        "pace_vent_status_query": 0,
+        "pace_vent_completed_latched": False,
+        "pace_vent_clear_attempted": False,
+        "pace_vent_clear_result": "not_needed",
+        "pace_vent_after_valve_state_query": "CLOSED",
+        "pace_vent_popup_state_query": "DISABLED",
+        "pace_vent_elapsed_time_query": 4.0,
+        "pace_vent_orpv_state_query": "DISABLED",
+        "pace_vent_pupv_state_query": "DISABLED",
+        "pace_effort_query": 0.0,
+        "pace_comp1_query": 0.0,
+        "pace_comp2_query": 0.0,
+        "pace_sens_pres_cont_query": 800.0,
+        "pace_sens_pres_bar_query": 1006.0,
+        "pace_sens_pres_inl_query": 800.0,
+        "pace_sens_pres_inl_state_query": 0,
+        "pace_sens_pres_inl_time_query": 0.0,
+        "pace_sens_slew_query": 0.0,
+        "pace_oper_cond_query": 1,
+        "pace_oper_pres_cond_query": 0,
+        "pace_oper_pres_even_query": 0,
+        "pace_oper_pres_vent_complete_bit": False,
+        "pace_oper_pres_in_limits_bit": False,
+    }
+
+    assert runner._wait_post_isolation_leak_test(
+        point,
+        phase="co2",
+        context={"stop_event": None},
+        handoff_mode="same_gas_pressure_step_handoff",
+    ) is False
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["post_isolation_fast_capture_reason"] == "in_limits_not_verified"
+    assert state["post_isolation_capture_mode"] == "extended20s"
+    logger.close()
+
+
+def test_post_isolation_fast_capture_falls_back_when_slew_not_quiet(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    logger, runner = _configure_runner(
+        tmp_path,
+        overrides={
+            "co2_post_isolation_window_s": 1.0,
+            "co2_post_isolation_poll_s": 0.25,
+            "post_isolation_fast_capture_enabled": True,
+            "post_isolation_fast_capture_allow_early_sample": True,
+            "post_isolation_fast_capture_min_s": 1.0,
+            "post_isolation_fast_capture_fallback_to_extended_diag": True,
+            "post_isolation_extended_diag_window_s": 2.0,
+            "post_isolation_fast_capture_slew_abs_max": 0.01,
+        },
+    )
+    point = _co2_point()
+    _prime_post_isolation_runtime(runner, point)
+    runner._atmosphere_reference_hpa = 1006.0
+    _install_post_isolation_sequences(
+        monkeypatch,
+        runner,
+        pressures=[800.00, 800.02, 800.03, 800.03, 800.03],
+        dewpoints=[-32.00, -31.99, -31.99, -31.98, -31.98],
+        h2o_values=[0.40, 0.40, 0.40, 0.40, 0.40],
+    )
+    runner._pace_diagnostic_state_snapshot = lambda *args, **kwargs: {
+        "pace_output_state": 0,
+        "pace_isolation_state": 0,
+        "pace_vent_status": 0,
+        "pace_outp_state_query": 0,
+        "pace_isol_state_query": 0,
+        "pace_mode_query": "ACT",
+        "pace_vent_status_query": 0,
+        "pace_vent_completed_latched": False,
+        "pace_vent_clear_attempted": False,
+        "pace_vent_clear_result": "not_needed",
+        "pace_vent_after_valve_state_query": "CLOSED",
+        "pace_vent_popup_state_query": "DISABLED",
+        "pace_vent_elapsed_time_query": 4.0,
+        "pace_vent_orpv_state_query": "DISABLED",
+        "pace_vent_pupv_state_query": "DISABLED",
+        "pace_effort_query": 0.0,
+        "pace_comp1_query": 0.0,
+        "pace_comp2_query": 0.0,
+        "pace_sens_pres_cont_query": 800.0,
+        "pace_sens_pres_bar_query": 1006.0,
+        "pace_sens_pres_inl_query": 800.0,
+        "pace_sens_pres_inl_state_query": 1,
+        "pace_sens_pres_inl_time_query": 5.0,
+        "pace_sens_slew_query": 0.08,
+        "pace_oper_cond_query": 1,
+        "pace_oper_pres_cond_query": 4,
+        "pace_oper_pres_even_query": 4,
+        "pace_oper_pres_vent_complete_bit": False,
+        "pace_oper_pres_in_limits_bit": True,
+    }
+
+    assert runner._wait_post_isolation_leak_test(
+        point,
+        phase="co2",
+        context={"stop_event": None},
+        handoff_mode="same_gas_pressure_step_handoff",
+    ) is True
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["post_isolation_fast_capture_status"] in {"fallback", "fallback_complete"}
+    assert state["post_isolation_fast_capture_fallback"] is True
+    assert state["post_isolation_fast_capture_reason"] == "slew_not_quiet_after_output_off"
+    assert state["post_isolation_capture_mode"] == "extended20s"
+    logger.close()
+
+
+def test_post_isolation_standard_diagnostic_works_without_optional_extension_fields(tmp_path: Path) -> None:
+    logger, runner = _configure_runner(tmp_path)
+    point = _co2_point()
+    _prime_post_isolation_runtime(runner, point)
+    runner._set_point_runtime_fields(
+        point,
+        phase="co2",
+        post_isolation_pressure_drift_hpa=0.03,
+        post_isolation_dewpoint_rise_c=0.01,
+        post_isolation_pressure_peak_hpa=800.03,
+        post_isolation_pressure_min_hpa=800.00,
+        post_isolation_pressure_recovery_toward_ambient=False,
+        pace_outp_state_query=0,
+        pace_isol_state_query=0,
+        pace_mode_query="ACT",
+        pace_vent_status_query=2,
+        pace_vent_after_valve_state_query="",
+        pace_vent_popup_state_query="",
+        pace_vent_elapsed_time_query=None,
+        pace_vent_orpv_state_query="",
+        pace_vent_pupv_state_query="",
+        pace_effort_query=0.0,
+        pace_comp1_query=None,
+        pace_comp2_query=None,
+        pace_oper_cond_query=1,
+        pace_oper_pres_cond_query=1,
+        pace_oper_pres_even_query=1,
+        pace_oper_pres_vent_complete_bit=True,
+        pace_oper_pres_in_limits_bit=False,
+    )
+
+    diagnosis = runner._diagnose_post_isolation_result(
+        point,
+        phase="co2",
+        cfg=runner._post_isolation_leak_test_cfg(point),
+    )
+
+    assert diagnosis == "pace_vent_completed_latched_suspect"
     logger.close()
