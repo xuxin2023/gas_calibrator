@@ -46,6 +46,32 @@ def _load_pressure_trace_rows(logger: RunLogger):
         return list(csv.DictReader(handle))
 
 
+def _prime_post_stable_sampling_prereqs(
+    runner: CalibrationRunner,
+    point: CalibrationPoint,
+    *,
+    phase: str | None = None,
+    pressure_in_limits_ts: float | None = None,
+) -> None:
+    active_phase = phase or ("h2o" if point.is_h2o_point else "co2")
+    pressure_in_limits_value = (
+        float(pressure_in_limits_ts)
+        if pressure_in_limits_ts is not None
+        else float(runner_module.time.time()) - 1.0
+    )
+    runner._set_point_runtime_fields(
+        point,
+        phase=active_phase,
+        timing_stages={
+            "route_sealed": pressure_in_limits_value - 1.0,
+            "pressure_in_limits": pressure_in_limits_value,
+        },
+    )
+    runner._set_pressure_controller_sampling_isolation = lambda _point, **_kwargs: True
+    runner._wait_sampling_pressure_gate = lambda _point, **_kwargs: True
+    runner._wait_co2_presample_long_guard = lambda _point, **_kwargs: True
+
+
 def test_run_h2o_point_wait_order(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
@@ -284,7 +310,8 @@ def test_run_h2o_group_ambient_only_samples_open_route_without_pressure_control(
     logger.close()
 
     assert calls == [
-        "h2o_path_False",
+        "vent_False",
+        "baseline_route",
         "prepare_pressure",
         "prepare_humidity",
         "set_temperature",
@@ -357,7 +384,8 @@ def test_run_h2o_group_runs_ambient_before_sealed_pressure_control(tmp_path: Pat
     logger.close()
 
     assert calls == [
-        "h2o_path_False",
+        "vent_False",
+        "baseline_route",
         "prepare_pressure",
         "prepare_humidity",
         "set_temperature",
@@ -3655,7 +3683,8 @@ def test_run_h2o_group_skips_preseal_topoff_when_1100_not_selected(tmp_path: Pat
     logger.close()
 
     assert calls == [
-        "h2o_path_False",
+        "vent_False",
+        "baseline_route",
         "prepare_pressure",
         "prepare_humidity",
         "set_temperature",
@@ -3706,7 +3735,8 @@ def test_run_h2o_group_ambient_only_skips_preseal_soak(tmp_path: Path) -> None:
     logger.close()
 
     assert calls == [
-        "h2o_path_False",
+        "vent_False",
+        "baseline_route",
         "prepare_pressure",
         "prepare_humidity",
         "set_temperature",
@@ -3974,29 +4004,49 @@ def test_wait_after_pressure_stable_co2_starts_sampling_immediately_and_traces_b
     logger = RunLogger(tmp_path)
     messages: list[str] = []
     runner = CalibrationRunner(
-        {"workflow": {"pressure": {"post_stable_sample_delay_s": 0.0, "co2_post_stable_sample_delay_s": 0.0}}},
+        {
+            "workflow": {
+                "pressure": {
+                    "adaptive_pressure_sampling_enabled": False,
+                    "post_stable_sample_delay_s": 0.0,
+                    "co2_post_stable_sample_delay_s": 0.0,
+                }
+            }
+        },
         {},
         logger,
         messages.append,
         lambda *_: None,
     )
     point = _point_co2()
+    _prime_post_stable_sampling_prereqs(runner, point, phase="co2")
     runner._wait_postseal_dewpoint_gate = types.MethodType(lambda self, point, phase="", context=None: True, runner)
     assert runner._wait_after_pressure_stable_before_sampling(point) is True
     logger.close()
 
-    assert any("CO2 pressure stable; post-seal dewpoint gate complete; start sampling immediately" in message for message in messages)
+    assert any(
+        "CO2 pressure stable; pressure gate + post-seal dewpoint gate complete; start sampling immediately" in message
+        for message in messages
+    )
     trace_rows = _load_pressure_trace_rows(logger)
     sampling_begin_rows = [row for row in trace_rows if row["trace_stage"] == "sampling_begin"]
     assert len(sampling_begin_rows) == 1
     assert sampling_begin_rows[0]["trigger_reason"] == "co2_post_stable_immediate"
 
 
-def test_wait_after_pressure_stable_co2_honors_configured_delay(tmp_path: Path) -> None:
+def test_wait_after_pressure_stable_co2_honors_configured_delay(monkeypatch, tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     messages: list[str] = []
     runner = CalibrationRunner(
-        {"workflow": {"pressure": {"post_stable_sample_delay_s": 0.0, "co2_post_stable_sample_delay_s": 5.0}}},
+        {
+            "workflow": {
+                "pressure": {
+                    "adaptive_pressure_sampling_enabled": False,
+                    "post_stable_sample_delay_s": 0.0,
+                    "co2_post_stable_sample_delay_s": 5.0,
+                }
+            }
+        },
         {},
         logger,
         messages.append,
@@ -4010,6 +4060,8 @@ def test_wait_after_pressure_stable_co2_honors_configured_delay(tmp_path: Path) 
     runner._wait_postseal_dewpoint_gate = types.MethodType(lambda self, point, phase="", context=None: True, runner)
 
     point = _point_co2()
+    _prime_post_stable_sampling_prereqs(runner, point, phase="co2", pressure_in_limits_ts=100.0)
+    monkeypatch.setattr(runner_module.time, "time", lambda: 100.0)
     assert runner._wait_after_pressure_stable_before_sampling(point) is True
     logger.close()
 
@@ -4029,7 +4081,15 @@ def test_wait_after_pressure_stable_co2_tops_up_minimum_delay_from_pressure_in_l
     logger = RunLogger(tmp_path)
     messages: list[str] = []
     runner = CalibrationRunner(
-        {"workflow": {"pressure": {"post_stable_sample_delay_s": 0.0, "co2_post_stable_sample_delay_s": 5.0}}},
+        {
+            "workflow": {
+                "pressure": {
+                    "adaptive_pressure_sampling_enabled": False,
+                    "post_stable_sample_delay_s": 0.0,
+                    "co2_post_stable_sample_delay_s": 5.0,
+                }
+            }
+        },
         {},
         logger,
         messages.append,
@@ -4044,11 +4104,7 @@ def test_wait_after_pressure_stable_co2_tops_up_minimum_delay_from_pressure_in_l
         runner,
     )
     runner._wait_postseal_dewpoint_gate = types.MethodType(lambda self, point, phase="", context=None: True, runner)
-    runner._set_point_runtime_fields(
-        point,
-        phase="co2",
-        timing_stages={"pressure_in_limits": 97.0},
-    )
+    _prime_post_stable_sampling_prereqs(runner, point, phase="co2", pressure_in_limits_ts=97.0)
     monkeypatch.setattr(runner_module.time, "time", lambda: clock["now"])
 
     assert runner._wait_after_pressure_stable_before_sampling(point) is True
@@ -4065,7 +4121,21 @@ def test_wait_after_pressure_stable_co2_tops_up_minimum_delay_from_pressure_in_l
 
 def test_wait_after_pressure_stable_ready_check_uses_cached_fast_values(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
-    runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "pressure": {
+                    "adaptive_pressure_sampling_enabled": False,
+                    "post_stable_sample_delay_s": 0.0,
+                    "co2_post_stable_sample_delay_s": 0.0,
+                }
+            }
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
     now_mono = runner_module.time.monotonic()
     runner._pressure_transition_fast_signal_context = {
         "stop_event": None,
@@ -4100,6 +4170,8 @@ def test_wait_after_pressure_stable_ready_check_uses_cached_fast_values(tmp_path
     }
 
     point = _point_co2()
+    _prime_post_stable_sampling_prereqs(runner, point, phase="co2")
+    runner._wait_postseal_dewpoint_gate = types.MethodType(lambda self, point, phase="", context=None: True, runner)
     assert runner._wait_after_pressure_stable_before_sampling(point) is True
     logger.close()
 
@@ -4118,28 +4190,49 @@ def test_wait_after_pressure_stable_h2o_starts_sampling_immediately_and_traces_b
     logger = RunLogger(tmp_path)
     messages: list[str] = []
     runner = CalibrationRunner(
-        {"workflow": {"pressure": {"post_stable_sample_delay_s": 0.0, "co2_post_stable_sample_delay_s": 0.0}}},
+        {
+            "workflow": {
+                "pressure": {
+                    "adaptive_pressure_sampling_enabled": False,
+                    "post_stable_sample_delay_s": 0.0,
+                    "co2_post_stable_sample_delay_s": 0.0,
+                }
+            }
+        },
         {},
         logger,
         messages.append,
         lambda *_: None,
     )
+    point = _point_h2o()
+    _prime_post_stable_sampling_prereqs(runner, point, phase="h2o")
     runner._wait_postseal_dewpoint_gate = types.MethodType(lambda self, point, phase="", context=None: True, runner)
-    assert runner._wait_after_pressure_stable_before_sampling(_point_h2o()) is True
+    assert runner._wait_after_pressure_stable_before_sampling(point) is True
     logger.close()
 
-    assert any("H2O pressure stable; post-seal dewpoint gate complete; start sampling immediately" in message for message in messages)
+    assert any(
+        "H2O pressure stable; pressure gate + post-seal dewpoint gate complete; start sampling immediately" in message
+        for message in messages
+    )
     trace_rows = _load_pressure_trace_rows(logger)
     sampling_begin_rows = [row for row in trace_rows if row["trace_stage"] == "sampling_begin"]
     assert len(sampling_begin_rows) == 1
     assert sampling_begin_rows[0]["trigger_reason"] == "h2o_post_stable_immediate"
 
 
-def test_wait_after_pressure_stable_h2o_honors_configured_delay(tmp_path: Path) -> None:
+def test_wait_after_pressure_stable_h2o_honors_configured_delay(monkeypatch, tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     messages: list[str] = []
     runner = CalibrationRunner(
-        {"workflow": {"pressure": {"post_stable_sample_delay_s": 5.0, "co2_post_stable_sample_delay_s": 0.0}}},
+        {
+            "workflow": {
+                "pressure": {
+                    "adaptive_pressure_sampling_enabled": False,
+                    "post_stable_sample_delay_s": 5.0,
+                    "co2_post_stable_sample_delay_s": 0.0,
+                }
+            }
+        },
         {},
         logger,
         messages.append,
@@ -4153,6 +4246,8 @@ def test_wait_after_pressure_stable_h2o_honors_configured_delay(tmp_path: Path) 
     runner._wait_postseal_dewpoint_gate = types.MethodType(lambda self, point, phase="", context=None: True, runner)
 
     point = _point_h2o()
+    _prime_post_stable_sampling_prereqs(runner, point, phase="h2o", pressure_in_limits_ts=100.0)
+    monkeypatch.setattr(runner_module.time, "time", lambda: 100.0)
     assert runner._wait_after_pressure_stable_before_sampling(point) is True
     logger.close()
 
@@ -4202,6 +4297,9 @@ def test_wait_after_pressure_stable_co2_runs_postseal_dewpoint_gate(tmp_path: Pa
         {
             "workflow": {
                 "pressure": {
+                    "adaptive_pressure_sampling_enabled": False,
+                    "post_stable_sample_delay_s": 0.0,
+                    "co2_post_stable_sample_delay_s": 0.0,
                     "co2_postseal_dewpoint_window_s": 2.0,
                     "co2_postseal_dewpoint_timeout_s": 1.0,
                     "co2_postseal_dewpoint_span_c": 0.05,
@@ -4231,6 +4329,7 @@ def test_wait_after_pressure_stable_co2_runs_postseal_dewpoint_gate(tmp_path: Pa
     runner._refresh_pressure_transition_fast_signal_once = types.MethodType(lambda self, context, reason="": None, runner)
 
     point = _point_co2()
+    _prime_post_stable_sampling_prereqs(runner, point, phase="co2")
     assert runner._wait_after_pressure_stable_before_sampling(point) is True
     logger.close()
 
@@ -4253,6 +4352,9 @@ def test_wait_after_pressure_stable_h2o_runs_postseal_dewpoint_gate_with_live_va
         {
             "workflow": {
                 "pressure": {
+                    "adaptive_pressure_sampling_enabled": False,
+                    "post_stable_sample_delay_s": 0.0,
+                    "co2_post_stable_sample_delay_s": 0.0,
                     "h2o_postseal_dewpoint_window_s": 2.0,
                     "h2o_postseal_dewpoint_timeout_s": 1.0,
                     "h2o_postseal_dewpoint_span_c": 0.02,
@@ -4290,6 +4392,7 @@ def test_wait_after_pressure_stable_h2o_runs_postseal_dewpoint_gate_with_live_va
     runner._refresh_pressure_transition_fast_signal_once = types.MethodType(lambda self, context, reason="": None, runner)
 
     point = _point_h2o()
+    _prime_post_stable_sampling_prereqs(runner, point, phase="h2o")
     assert runner._wait_after_pressure_stable_before_sampling(point) is True
     logger.close()
 

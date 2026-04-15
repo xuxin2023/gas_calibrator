@@ -207,6 +207,13 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["pressure"]["co2_postseal_rebound_guard_enabled"] is True
     assert cfg["workflow"]["pressure"]["co2_postseal_rebound_window_s"] == 8.0
     assert cfg["workflow"]["pressure"]["co2_postseal_rebound_min_rise_c"] == 0.12
+    assert cfg["workflow"]["pressure"]["superambient_precharge_enabled"] is True
+    assert cfg["workflow"]["pressure"]["superambient_trigger_margin_hpa"] == 5.0
+    assert cfg["workflow"]["pressure"]["superambient_precharge_margin_hpa"] == 8.0
+    assert cfg["workflow"]["pressure"]["superambient_precharge_timeout_s"] == 30.0
+    assert cfg["workflow"]["pressure"]["superambient_precharge_same_gas_only"] is True
+    assert cfg["workflow"]["pressure"]["superambient_reject_without_closed_path"] is True
+    assert cfg["workflow"]["pressure"]["superambient_forbid_atmosphere_fallback"] is True
     assert cfg["workflow"]["pressure"]["co2_postseal_physical_qc_enabled"] is True
     assert cfg["workflow"]["pressure"]["co2_postseal_physical_qc_max_abs_delta_c"] == 1.0
     assert cfg["workflow"]["pressure"]["co2_postseal_physical_qc_policy"] == "warn"

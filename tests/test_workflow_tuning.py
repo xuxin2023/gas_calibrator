@@ -18,6 +18,10 @@ def test_workflow_tunable_parameters_have_unique_paths() -> None:
     assert len(paths) == len(set(paths))
     assert "workflow.pressure.stabilize_timeout_s" in paths
     assert "workflow.pressure.co2_post_h2o_vent_off_wait_s" in paths
+    assert "workflow.pressure.superambient_precharge_enabled" in paths
+    assert "workflow.pressure.superambient_trigger_margin_hpa" in paths
+    assert "workflow.pressure.superambient_precharge_margin_hpa" in paths
+    assert "workflow.pressure.superambient_precharge_timeout_s" in paths
     assert "workflow.stability.co2_route.preseal_soak_s" in paths
     assert "workflow.stability.co2_route.first_point_preseal_soak_s" in paths
     assert "workflow.stability.co2_route.post_h2o_zero_ppm_soak_s" in paths
@@ -56,3 +60,31 @@ def test_post_stable_sample_delay_tuning_defaults_match_runtime_defaults() -> No
 
     assert general.default == 10.0
     assert co2.default == 10.0
+
+
+def test_superambient_precharge_tuning_defaults_match_runtime_defaults() -> None:
+    enabled = next(
+        item
+        for item in WORKFLOW_TUNABLE_PARAMETERS
+        if item.path == "workflow.pressure.superambient_precharge_enabled"
+    )
+    trigger_margin = next(
+        item
+        for item in WORKFLOW_TUNABLE_PARAMETERS
+        if item.path == "workflow.pressure.superambient_trigger_margin_hpa"
+    )
+    precharge_margin = next(
+        item
+        for item in WORKFLOW_TUNABLE_PARAMETERS
+        if item.path == "workflow.pressure.superambient_precharge_margin_hpa"
+    )
+    timeout_s = next(
+        item
+        for item in WORKFLOW_TUNABLE_PARAMETERS
+        if item.path == "workflow.pressure.superambient_precharge_timeout_s"
+    )
+
+    assert enabled.default is True
+    assert trigger_margin.default == 5.0
+    assert precharge_margin.default == 8.0
+    assert timeout_s.default == 30.0

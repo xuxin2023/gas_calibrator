@@ -128,6 +128,11 @@ _PRESSURE_TRACE_FIELDS = [
     "handoff_total_ms",
     "handoff_mode",
     "atmosphere_reference_hpa",
+    "superambient_target_hpa",
+    "superambient_precharge_margin_hpa",
+    "superambient_precharge_peak_hpa",
+    "superambient_precharge_result",
+    "superambient_closed_path_verified",
     "handoff_safe_open_delta_hpa",
     "deferred_export_queue_len",
     "dewpoint_live_c",
@@ -178,6 +183,10 @@ _POINT_TIMING_SUMMARY_FIELDS = [
     "preseal_vent_off_begin_ts",
     "preseal_trigger_reached_ts",
     "route_sealed_ts",
+    "superambient_precharge_begin_ts",
+    "superambient_precharge_end_ts",
+    "superambient_fine_trim_begin_ts",
+    "superambient_fine_trim_end_ts",
     "capture_hold_begin_ts",
     "capture_hold_engaged_ts",
     "control_prepare_begin_ts",
@@ -199,6 +208,12 @@ _POINT_TIMING_SUMMARY_FIELDS = [
     "first_effective_sample_ts",
     "sampling_end_ts",
     "handoff_mode",
+    "ambient_reference_hpa",
+    "superambient_target_hpa",
+    "superambient_precharge_margin_hpa",
+    "superambient_precharge_peak_hpa",
+    "superambient_precharge_result",
+    "superambient_closed_path_verified",
     "capture_hold_status",
     "pace_output_state",
     "pace_isolation_state",
@@ -330,6 +345,8 @@ class CalibrationRunner:
         self._sample_handoff_request: Optional[Dict[str, Any]] = None
         self._sample_export_deferral_request: Optional[Dict[str, Any]] = None
         self._atmosphere_reference_hpa: Optional[float] = None
+        self._pressure_sequence_ambient_reference_hpa: Optional[float] = None
+        self._active_pressure_sequence_context: Optional[Dict[str, Any]] = None
         self._point_runtime_summary: Dict[Tuple[str, int], Dict[str, Any]] = {}
         self._lead_in_transition_stage_ts: Dict[str, float] = {}
         self._last_preseal_pressure_control_ready_invalidation: Optional[Dict[str, Any]] = None
@@ -622,6 +639,11 @@ class CalibrationRunner:
         handoff_total_ms: Any = None,
         handoff_mode: Any = None,
         atmosphere_reference_hpa: Any = None,
+        superambient_target_hpa: Any = None,
+        superambient_precharge_margin_hpa: Any = None,
+        superambient_precharge_peak_hpa: Any = None,
+        superambient_precharge_result: Any = None,
+        superambient_closed_path_verified: Any = None,
         handoff_safe_open_delta_hpa: Any = None,
         deferred_export_queue_len: Any = None,
         dewpoint_live_c: Any = None,
@@ -709,6 +731,11 @@ class CalibrationRunner:
                 "handoff_total_ms": self._pressure_trace_cell(handoff_total_ms),
                 "handoff_mode": self._pressure_trace_cell(handoff_mode),
                 "atmosphere_reference_hpa": self._pressure_trace_cell(atmosphere_reference_hpa),
+                "superambient_target_hpa": self._pressure_trace_cell(superambient_target_hpa),
+                "superambient_precharge_margin_hpa": self._pressure_trace_cell(superambient_precharge_margin_hpa),
+                "superambient_precharge_peak_hpa": self._pressure_trace_cell(superambient_precharge_peak_hpa),
+                "superambient_precharge_result": self._pressure_trace_cell(superambient_precharge_result),
+                "superambient_closed_path_verified": self._pressure_trace_cell(superambient_closed_path_verified),
                 "handoff_safe_open_delta_hpa": self._pressure_trace_cell(handoff_safe_open_delta_hpa),
                 "deferred_export_queue_len": self._pressure_trace_cell(deferred_export_queue_len),
                 "dewpoint_live_c": self._pressure_trace_cell(dewpoint_live_c),
@@ -783,6 +810,11 @@ class CalibrationRunner:
         handoff_total_ms: Any = None,
         handoff_mode: Any = None,
         atmosphere_reference_hpa: Any = None,
+        superambient_target_hpa: Any = None,
+        superambient_precharge_margin_hpa: Any = None,
+        superambient_precharge_peak_hpa: Any = None,
+        superambient_precharge_result: Any = None,
+        superambient_closed_path_verified: Any = None,
         handoff_safe_open_delta_hpa: Any = None,
         deferred_export_queue_len: Any = None,
         dewpoint_live_c: Any = None,
@@ -892,6 +924,11 @@ class CalibrationRunner:
             handoff_total_ms=handoff_total_ms,
             handoff_mode=handoff_mode,
             atmosphere_reference_hpa=atmosphere_reference_hpa,
+            superambient_target_hpa=superambient_target_hpa,
+            superambient_precharge_margin_hpa=superambient_precharge_margin_hpa,
+            superambient_precharge_peak_hpa=superambient_precharge_peak_hpa,
+            superambient_precharge_result=superambient_precharge_result,
+            superambient_closed_path_verified=superambient_closed_path_verified,
             handoff_safe_open_delta_hpa=handoff_safe_open_delta_hpa,
             deferred_export_queue_len=deferred_export_queue_len,
             dewpoint_live_c=dewpoint_live_c,
@@ -960,6 +997,11 @@ class CalibrationRunner:
         handoff_total_ms: Any = None,
         handoff_mode: Any = None,
         atmosphere_reference_hpa: Any = None,
+        superambient_target_hpa: Any = None,
+        superambient_precharge_margin_hpa: Any = None,
+        superambient_precharge_peak_hpa: Any = None,
+        superambient_precharge_result: Any = None,
+        superambient_closed_path_verified: Any = None,
         handoff_safe_open_delta_hpa: Any = None,
         deferred_export_queue_len: Any = None,
         dewpoint_live_c: Any = None,
@@ -1030,6 +1072,11 @@ class CalibrationRunner:
                 handoff_total_ms=handoff_total_ms,
                 handoff_mode=handoff_mode,
                 atmosphere_reference_hpa=atmosphere_reference_hpa,
+                superambient_target_hpa=superambient_target_hpa,
+                superambient_precharge_margin_hpa=superambient_precharge_margin_hpa,
+                superambient_precharge_peak_hpa=superambient_precharge_peak_hpa,
+                superambient_precharge_result=superambient_precharge_result,
+                superambient_closed_path_verified=superambient_closed_path_verified,
                 handoff_safe_open_delta_hpa=handoff_safe_open_delta_hpa,
                 deferred_export_queue_len=deferred_export_queue_len,
                 dewpoint_live_c=dewpoint_live_c,
@@ -1484,6 +1531,18 @@ class CalibrationRunner:
             "preseal_vent_off_begin_ts": self._timing_ts_text(self._as_float(stages.get("preseal_vent_off_begin"))),
             "preseal_trigger_reached_ts": self._timing_ts_text(self._as_float(stages.get("preseal_trigger_reached"))),
             "route_sealed_ts": self._timing_ts_text(self._as_float(stages.get("route_sealed"))),
+            "superambient_precharge_begin_ts": self._timing_ts_text(
+                self._as_float(stages.get("superambient_precharge_begin"))
+            ),
+            "superambient_precharge_end_ts": self._timing_ts_text(
+                self._as_float(stages.get("superambient_precharge_end"))
+            ),
+            "superambient_fine_trim_begin_ts": self._timing_ts_text(
+                self._as_float(stages.get("superambient_fine_trim_begin"))
+            ),
+            "superambient_fine_trim_end_ts": self._timing_ts_text(
+                self._as_float(stages.get("superambient_fine_trim_end"))
+            ),
             "capture_hold_begin_ts": self._timing_ts_text(self._as_float(stages.get("capture_hold_begin"))),
             "capture_hold_engaged_ts": self._timing_ts_text(self._as_float(stages.get("capture_hold_engaged"))),
             "control_prepare_begin_ts": self._timing_ts_text(self._as_float(stages.get("control_prepare_begin"))),
@@ -1517,6 +1576,12 @@ class CalibrationRunner:
             ),
             "sampling_end_ts": self._timing_ts_text(self._as_float(stages.get("sampling_end"))),
             "handoff_mode": state.get("handoff_mode"),
+            "ambient_reference_hpa": state.get("ambient_reference_hpa"),
+            "superambient_target_hpa": state.get("superambient_target_hpa"),
+            "superambient_precharge_margin_hpa": state.get("superambient_precharge_margin_hpa"),
+            "superambient_precharge_peak_hpa": state.get("superambient_precharge_peak_hpa"),
+            "superambient_precharge_result": state.get("superambient_precharge_result"),
+            "superambient_closed_path_verified": state.get("superambient_closed_path_verified"),
             "capture_hold_status": state.get("capture_hold_status"),
             "pace_output_state": state.get("pace_output_state"),
             "pace_isolation_state": state.get("pace_isolation_state"),
@@ -1746,6 +1811,70 @@ class CalibrationRunner:
             f"pressure_gauge_hpa={self._atmosphere_reference_hpa:.3f}"
         )
         return self._atmosphere_reference_hpa
+
+    def _superambient_precharge_cfg(self) -> Dict[str, Any]:
+        return {
+            "enabled": bool(self._wf("workflow.pressure.superambient_precharge_enabled", True)),
+            "trigger_margin_hpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.superambient_trigger_margin_hpa", 5.0) or 5.0),
+            ),
+            "precharge_margin_hpa": max(
+                0.0,
+                float(self._wf("workflow.pressure.superambient_precharge_margin_hpa", 8.0) or 8.0),
+            ),
+            "timeout_s": max(
+                0.1,
+                float(self._wf("workflow.pressure.superambient_precharge_timeout_s", 30.0) or 30.0),
+            ),
+            "same_gas_only": bool(self._wf("workflow.pressure.superambient_precharge_same_gas_only", True)),
+            "reject_without_closed_path": bool(
+                self._wf("workflow.pressure.superambient_reject_without_closed_path", True)
+            ),
+            "forbid_atmosphere_fallback": bool(
+                self._wf("workflow.pressure.superambient_forbid_atmosphere_fallback", True)
+            ),
+        }
+
+    def _clear_pressure_sequence_context(self, *, reason: str = "") -> None:
+        self._active_pressure_sequence_context = None
+        self._pressure_sequence_ambient_reference_hpa = None
+
+    def _record_pressure_sequence_context(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        reason: str = "",
+    ) -> Optional[float]:
+        ambient_reference_hpa = self._as_float(self._atmosphere_reference_hpa)
+        if ambient_reference_hpa is None:
+            pressure_now, source = self._read_preseal_pressure_gauge()
+            if pressure_now is not None and source == "pressure_gauge":
+                ambient_reference_hpa = float(pressure_now)
+        self._pressure_sequence_ambient_reference_hpa = ambient_reference_hpa
+        self._active_pressure_sequence_context = {
+            "phase": str(phase or "").strip().lower(),
+            "route_signature": self._route_signature_for_point(point, phase=phase),
+            "point_row": int(point.index),
+            "ambient_reference_hpa": ambient_reference_hpa,
+            "recorded_wall_ts": time.time(),
+            "reason": str(reason or ""),
+        }
+        return ambient_reference_hpa
+
+    def _resolve_superambient_ambient_reference_hpa(self) -> Tuple[Optional[float], str]:
+        atmosphere_reference_hpa = self._as_float(self._atmosphere_reference_hpa)
+        if atmosphere_reference_hpa is not None:
+            return atmosphere_reference_hpa, "latest_atmosphere_verified"
+        sequence_reference_hpa = self._as_float(self._pressure_sequence_ambient_reference_hpa)
+        if sequence_reference_hpa is not None:
+            return sequence_reference_hpa, "pressure_sequence_start"
+        context = dict(self._active_pressure_sequence_context or {})
+        context_reference_hpa = self._as_float(context.get("ambient_reference_hpa"))
+        if context_reference_hpa is not None:
+            return context_reference_hpa, "pressure_sequence_context"
+        return None, "unavailable"
 
     def _sampling_fixed_rate_enabled(self) -> bool:
         return bool(self._wf("workflow.sampling.fixed_rate_enabled", True))
@@ -8347,6 +8476,13 @@ class CalibrationRunner:
             phase=phase,
             wait_reason="控压中",
         )
+        superambient_triggered, superambient_ready = self._maybe_run_same_gas_superambient_precharge(
+            point,
+            phase=phase,
+            target_hpa=target,
+        )
+        if superambient_triggered and not superambient_ready:
+            return False
         prepared = (
             (not recovery_attempted)
             and
@@ -8698,6 +8834,31 @@ class CalibrationRunner:
                 note=f"pace_in_limits={inl}",
             )
             if inl == 1:
+                runtime_state = dict(self._point_runtime_state(point, phase=phase) or {})
+                if str(runtime_state.get("handoff_mode") or "").strip() == "same_gas_superambient_precharge_handoff":
+                    fine_trim_end_ts = time.time()
+                    state = self._point_runtime_state(point, phase=phase, create=True)
+                    if state is not None:
+                        state.setdefault("timing_stages", {})["superambient_fine_trim_end"] = fine_trim_end_ts
+                    self._append_pressure_trace_row(
+                        point=point,
+                        route=phase,
+                        point_phase=phase,
+                        trace_stage="superambient_fine_trim_end",
+                        pressure_target_hpa=target,
+                        handoff_mode="same_gas_superambient_precharge_handoff",
+                        atmosphere_reference_hpa=runtime_state.get("ambient_reference_hpa"),
+                        superambient_target_hpa=runtime_state.get("superambient_target_hpa"),
+                        superambient_precharge_margin_hpa=runtime_state.get("superambient_precharge_margin_hpa"),
+                        superambient_precharge_peak_hpa=runtime_state.get("superambient_precharge_peak_hpa"),
+                        superambient_precharge_result=runtime_state.get("superambient_precharge_result"),
+                        superambient_closed_path_verified=runtime_state.get("superambient_closed_path_verified"),
+                        pace_pressure_hpa=pressure_value,
+                        read_pressure_gauge=True,
+                        refresh_pace_state=False,
+                        event_ts=fine_trim_end_ts,
+                        note="PACE fine trim reached in-limits; presample lock will arm next",
+                    )
                 self._emit_stage_event(
                     current=self._stage_label_for_point(point, phase=phase),
                     point=point,
@@ -10811,6 +10972,508 @@ class CalibrationRunner:
             return
         self._last_sealed_pressure_route_context = None
 
+    def _last_sealed_route_timing_snapshot(
+        self,
+        *,
+        phase: str,
+        last_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, float]:
+        stage_names = (
+            "route_open",
+            "soak_begin",
+            "soak_end",
+            "preseal_vent_off_begin",
+            "preseal_trigger_reached",
+            "route_sealed",
+        )
+        context = dict(last_context or self._last_sealed_pressure_route_context or {})
+        snapshot: Dict[str, float] = {}
+
+        direct_stages = dict(context.get("timing_stages") or {})
+        for stage_name in stage_names:
+            stage_ts = self._as_float(direct_stages.get(stage_name))
+            if stage_ts is not None:
+                snapshot[stage_name] = stage_ts
+
+        source_phase = str(context.get("phase") or phase or "").strip().lower()
+        source_point_row = self._as_int(context.get("point_row"))
+        if source_phase and source_point_row is not None:
+            source_state = self._point_runtime_state(
+                phase=source_phase,
+                point_key=self._point_runtime_key_from_values(phase=source_phase, point_row=source_point_row),
+            )
+            source_stages = dict((source_state or {}).get("timing_stages") or {})
+            for stage_name in stage_names:
+                if stage_name in snapshot:
+                    continue
+                stage_ts = self._as_float(source_stages.get(stage_name))
+                if stage_ts is not None:
+                    snapshot[stage_name] = stage_ts
+
+        for stage_name in ("route_open", "soak_begin", "soak_end"):
+            if stage_name in snapshot:
+                continue
+            stage_ts = self._as_float(self._lead_in_transition_stage_ts.get(stage_name))
+            if stage_ts is not None:
+                snapshot[stage_name] = stage_ts
+        return snapshot
+
+    def _inherit_last_sealed_route_timing_stages(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        last_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, float]:
+        state = self._point_runtime_state(point, phase=phase, create=True)
+        if state is None:
+            return {}
+        stages = state.setdefault("timing_stages", {})
+        if self._as_float(stages.get("route_sealed")) is not None:
+            return {}
+
+        inherited: Dict[str, float] = {}
+        timing_snapshot = self._last_sealed_route_timing_snapshot(phase=phase, last_context=last_context)
+        for stage_name, stage_ts in timing_snapshot.items():
+            if self._as_float(stages.get(stage_name)) is None:
+                stages[stage_name] = stage_ts
+                inherited[stage_name] = stage_ts
+
+        if inherited:
+            context = dict(last_context or self._last_sealed_pressure_route_context or {})
+            source_point_row = self._as_int(context.get("point_row"))
+            inherited_names = ",".join(sorted(inherited.keys()))
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase,
+                point_phase=phase,
+                trace_stage="handoff_route_sealed_evidence_reused",
+                pressure_target_hpa=point.target_pressure_hpa,
+                handoff_mode="same_gas_pressure_step_handoff",
+                refresh_pace_state=False,
+                note=(
+                    f"inherited_stages={inherited_names} "
+                    f"source_point_row={source_point_row if source_point_row is not None else 'unknown'}"
+                ),
+            )
+        return inherited
+
+    def _same_gas_superambient_sequence_match(self, point: CalibrationPoint, *, phase: str) -> bool:
+        phase_text = str(phase or "").strip().lower()
+        route_signature = self._route_signature_for_point(point, phase=phase_text)
+        if not route_signature:
+            return False
+        active_context = dict(self._active_pressure_sequence_context or {})
+        if (
+            str(active_context.get("phase") or "").strip().lower() == phase_text
+            and tuple(active_context.get("route_signature") or ()) == route_signature
+        ):
+            return True
+        last_context = dict(self._last_sealed_pressure_route_context or {})
+        return (
+            str(last_context.get("phase") or "").strip().lower() == phase_text
+            and tuple(last_context.get("route_signature") or ()) == route_signature
+        )
+
+    def _superambient_guard_requires_reject_without_reference(
+        self,
+        target_hpa: float,
+        *,
+        cfg: Dict[str, Any],
+    ) -> bool:
+        # Without a verified ambient reference, only clearly positive-pressure targets
+        # are treated as superambient candidates; reject rather than guess a safe fallback.
+        return float(target_hpa) > (1000.0 + float(cfg.get("trigger_margin_hpa", 0.0) or 0.0))
+
+    def _superambient_precharge_open_valves(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+    ) -> Tuple[Optional[List[int]], bool, str]:
+        if str(phase or "").strip().lower() != "co2":
+            return None, False, "superambient_precharge_phase_unsupported"
+        if not self._same_gas_superambient_sequence_match(point, phase=phase):
+            return None, False, "superambient_precharge_requires_same_gas_sequence"
+        hold_valve = self._as_int(self.cfg.get("valves", {}).get("hold"))
+        if hold_valve is None:
+            return None, False, "superambient_precharge_hold_valve_missing"
+        route_open_valves = self._route_open_valves(point, phase=phase)
+        if not route_open_valves:
+            return None, False, "superambient_precharge_route_signature_missing"
+        open_valves = sorted({int(valve) for valve in route_open_valves + [hold_valve]})
+        return open_valves, True, ""
+
+    def _reject_superambient_precharge(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        target_hpa: float,
+        ambient_reference_hpa: Optional[float],
+        cfg: Dict[str, Any],
+        reject_reason: str,
+        note: str,
+        precharge_peak_hpa: Optional[float] = None,
+        closed_path_verified: Optional[bool] = None,
+    ) -> None:
+        self._set_point_runtime_fields(
+            point,
+            phase=phase,
+            handoff_mode="same_gas_superambient_precharge_handoff",
+            ambient_reference_hpa=ambient_reference_hpa,
+            superambient_target_hpa=float(target_hpa),
+            superambient_precharge_margin_hpa=float(cfg.get("precharge_margin_hpa", 0.0) or 0.0),
+            superambient_precharge_peak_hpa=precharge_peak_hpa,
+            superambient_precharge_result=reject_reason,
+            superambient_closed_path_verified=closed_path_verified,
+        )
+        self._set_root_cause_reject_reason(point, phase=phase, reason=reject_reason)
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            trace_stage="superambient_precharge_end",
+            pressure_target_hpa=target_hpa,
+            handoff_mode="same_gas_superambient_precharge_handoff",
+            atmosphere_reference_hpa=ambient_reference_hpa,
+            superambient_target_hpa=target_hpa,
+            superambient_precharge_margin_hpa=cfg.get("precharge_margin_hpa"),
+            superambient_precharge_peak_hpa=precharge_peak_hpa,
+            superambient_precharge_result=reject_reason,
+            superambient_closed_path_verified=closed_path_verified,
+            root_cause_reject_reason=reject_reason,
+            read_pressure_gauge=True,
+            refresh_pace_state=False,
+            note=note,
+        )
+
+    def _maybe_run_same_gas_superambient_precharge(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        target_hpa: float,
+    ) -> Tuple[bool, bool]:
+        cfg = self._superambient_precharge_cfg()
+        phase_text = str(phase or "").strip().lower()
+        if not bool(cfg.get("enabled")) or phase_text != "co2":
+            return False, True
+        if bool(cfg.get("same_gas_only")) and point.co2_ppm is None:
+            return False, True
+        if not self._same_gas_superambient_sequence_match(point, phase=phase_text):
+            return False, True
+
+        ambient_reference_hpa, ambient_source = self._resolve_superambient_ambient_reference_hpa()
+        if ambient_reference_hpa is None:
+            if not self._superambient_guard_requires_reject_without_reference(target_hpa, cfg=cfg):
+                return False, True
+            self._reject_superambient_precharge(
+                point,
+                phase=phase_text,
+                target_hpa=target_hpa,
+                ambient_reference_hpa=None,
+                cfg=cfg,
+                reject_reason="ambient_reference_unavailable",
+                note=(
+                    "same-gas superambient target requires verified ambient reference; "
+                    f"ambient_source={ambient_source}"
+                ),
+                closed_path_verified=False,
+            )
+            return True, False
+
+        trigger_threshold_hpa = float(ambient_reference_hpa) + float(cfg["trigger_margin_hpa"])
+        if float(target_hpa) <= trigger_threshold_hpa:
+            return False, True
+
+        open_valves, closed_path_verified, unavailable_reason = self._superambient_precharge_open_valves(
+            point,
+            phase=phase_text,
+        )
+        if not closed_path_verified or not open_valves:
+            reject_reason = "superambient_precharge_unavailable"
+            self._reject_superambient_precharge(
+                point,
+                phase=phase_text,
+                target_hpa=target_hpa,
+                ambient_reference_hpa=ambient_reference_hpa,
+                cfg=cfg,
+                reject_reason=reject_reason,
+                note=(
+                    "same-gas closed precharge path unavailable; "
+                    f"detail={unavailable_reason or 'unknown'} "
+                    f"forbid_atmosphere_fallback={bool(cfg.get('forbid_atmosphere_fallback'))}"
+                ),
+                closed_path_verified=False,
+            )
+            return True, False
+
+        pace = self.devices.get("pace")
+        if pace is None:
+            self._reject_superambient_precharge(
+                point,
+                phase=phase_text,
+                target_hpa=target_hpa,
+                ambient_reference_hpa=ambient_reference_hpa,
+                cfg=cfg,
+                reject_reason="superambient_precharge_unavailable",
+                note="PACE unavailable before superambient fine trim",
+                closed_path_verified=True,
+            )
+            return True, False
+
+        try:
+            self._set_pressure_controller_vent(False, reason="before same-gas superambient precharge")
+        except Exception as exc:
+            self._reject_superambient_precharge(
+                point,
+                phase=phase_text,
+                target_hpa=target_hpa,
+                ambient_reference_hpa=ambient_reference_hpa,
+                cfg=cfg,
+                reject_reason="superambient_precharge_unavailable",
+                note=f"failed to disconnect PACE from atmosphere before precharge: {exc}",
+                closed_path_verified=True,
+            )
+            return True, False
+
+        try:
+            set_output_verified = getattr(pace, "set_output_enabled_verified", None)
+            if callable(set_output_verified):
+                set_output_verified(False)
+            else:
+                set_output_enabled = getattr(pace, "set_output_enabled", None)
+                if callable(set_output_enabled):
+                    set_output_enabled(False)
+                else:
+                    set_output = getattr(pace, "set_output", None)
+                    if callable(set_output):
+                        set_output(False)
+                verify_output = getattr(pace, "verify_output_enabled", None)
+                if callable(verify_output):
+                    verify_output(False)
+                elif hasattr(pace, "get_output_state") and int(pace.get_output_state()) != 0:
+                    raise RuntimeError("OUTPUT_NOT_OFF")
+
+            set_isolated_verified = getattr(pace, "set_output_isolated_verified", None)
+            if callable(set_isolated_verified):
+                set_isolated_verified(True)
+            else:
+                set_isolated = getattr(pace, "set_output_isolated", None)
+                if callable(set_isolated):
+                    set_isolated(True)
+                else:
+                    set_isolation_open = getattr(pace, "set_isolation_open", None)
+                    if callable(set_isolation_open):
+                        set_isolation_open(False)
+                verify_isolated = getattr(pace, "verify_output_isolated", None)
+                if callable(verify_isolated):
+                    verify_isolated(True)
+                elif hasattr(pace, "get_isolation_state") and int(pace.get_isolation_state()) != 0:
+                    raise RuntimeError("ISOLATION_NOT_CLOSED")
+        except Exception as exc:
+            self._reject_superambient_precharge(
+                point,
+                phase=phase_text,
+                target_hpa=target_hpa,
+                ambient_reference_hpa=ambient_reference_hpa,
+                cfg=cfg,
+                reject_reason="superambient_precharge_unavailable",
+                note=f"failed to force PACE non-sampling isolation before precharge: {exc}",
+                closed_path_verified=True,
+            )
+            return True, False
+
+        precharge_margin_hpa = float(cfg["precharge_margin_hpa"])
+        precharge_target_hpa = float(target_hpa) + precharge_margin_hpa
+        overshoot_limit_hpa = precharge_target_hpa + max(5.0, precharge_margin_hpa)
+        timeout_s = float(cfg["timeout_s"])
+        poll_s = max(0.05, self._pressure_trace_poll_s(point))
+        begin_ts = time.time()
+        precharge_peak_hpa: Optional[float] = None
+        last_pressure_hpa: Optional[float] = None
+
+        self._set_point_runtime_fields(
+            point,
+            phase=phase_text,
+            handoff_mode="same_gas_superambient_precharge_handoff",
+            ambient_reference_hpa=ambient_reference_hpa,
+            superambient_target_hpa=float(target_hpa),
+            superambient_precharge_margin_hpa=precharge_margin_hpa,
+            superambient_precharge_peak_hpa=None,
+            superambient_precharge_result="running",
+            superambient_closed_path_verified=True,
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            trace_stage="superambient_precharge_begin",
+            pressure_target_hpa=target_hpa,
+            handoff_mode="same_gas_superambient_precharge_handoff",
+            atmosphere_reference_hpa=ambient_reference_hpa,
+            superambient_target_hpa=target_hpa,
+            superambient_precharge_margin_hpa=precharge_margin_hpa,
+            superambient_precharge_result="running",
+            superambient_closed_path_verified=True,
+            read_pressure_gauge=True,
+            refresh_pace_state=False,
+            event_ts=begin_ts,
+            note=(
+                f"ambient_source={ambient_source} precharge_target_hpa={precharge_target_hpa:.3f} "
+                f"open_valves={open_valves}"
+            ),
+        )
+
+        pressure_state = self._point_runtime_state(point, phase=phase_text, create=True)
+        if pressure_state is not None:
+            pressure_state.setdefault("timing_stages", {})["superambient_precharge_begin"] = begin_ts
+
+        start = time.time()
+        self._apply_valve_states(open_valves)
+        try:
+            while (time.time() - start) < timeout_s:
+                if self.stop_event.is_set():
+                    self._reject_superambient_precharge(
+                        point,
+                        phase=phase_text,
+                        target_hpa=target_hpa,
+                        ambient_reference_hpa=ambient_reference_hpa,
+                        cfg=cfg,
+                        reject_reason="superambient_precharge_timeout",
+                        note="interrupted while waiting for same-gas superambient precharge",
+                        precharge_peak_hpa=precharge_peak_hpa,
+                        closed_path_verified=True,
+                    )
+                    return True, False
+                self._check_pause()
+                pressure_now, pressure_source = self._read_preseal_pressure_gauge()
+                if pressure_now is not None and pressure_source == "pressure_gauge":
+                    last_pressure_hpa = float(pressure_now)
+                    if precharge_peak_hpa is None or last_pressure_hpa > precharge_peak_hpa:
+                        precharge_peak_hpa = last_pressure_hpa
+                    if last_pressure_hpa >= overshoot_limit_hpa:
+                        self._reject_superambient_precharge(
+                            point,
+                            phase=phase_text,
+                            target_hpa=target_hpa,
+                            ambient_reference_hpa=ambient_reference_hpa,
+                            cfg=cfg,
+                            reject_reason="superambient_precharge_overshoot",
+                            note=(
+                                f"same-gas precharge overshoot: pressure_gauge_hpa={last_pressure_hpa:.3f} "
+                                f"overshoot_limit_hpa={overshoot_limit_hpa:.3f}"
+                            ),
+                            precharge_peak_hpa=precharge_peak_hpa,
+                            closed_path_verified=True,
+                        )
+                        return True, False
+                    if last_pressure_hpa >= precharge_target_hpa:
+                        end_ts = time.time()
+                        self._apply_valve_states([])
+                        if pressure_state is not None:
+                            stages = pressure_state.setdefault("timing_stages", {})
+                            stages["route_sealed"] = end_ts
+                            stages["superambient_precharge_end"] = end_ts
+                        self._record_preseal_pressure_control_ready_state(
+                            point,
+                            phase=phase_text,
+                            defer_live_check=True,
+                        )
+                        self._set_point_runtime_fields(
+                            point,
+                            phase=phase_text,
+                            superambient_precharge_peak_hpa=precharge_peak_hpa,
+                            superambient_precharge_result="pass",
+                            superambient_closed_path_verified=True,
+                        )
+                        self._append_pressure_trace_row(
+                            point=point,
+                            route=phase_text,
+                            point_phase=phase_text,
+                            trace_stage="superambient_precharge_end",
+                            pressure_target_hpa=target_hpa,
+                            handoff_mode="same_gas_superambient_precharge_handoff",
+                            atmosphere_reference_hpa=ambient_reference_hpa,
+                            superambient_target_hpa=target_hpa,
+                            superambient_precharge_margin_hpa=precharge_margin_hpa,
+                            superambient_precharge_peak_hpa=precharge_peak_hpa,
+                            superambient_precharge_result="pass",
+                            superambient_closed_path_verified=True,
+                            pressure_gauge_hpa=last_pressure_hpa,
+                            refresh_pace_state=False,
+                            event_ts=end_ts,
+                            note=(
+                                f"same-gas closed precharge reached target: "
+                                f"pressure_gauge_hpa={last_pressure_hpa:.3f} "
+                                f"precharge_target_hpa={precharge_target_hpa:.3f}"
+                            ),
+                        )
+                        fine_trim_begin_ts = time.time()
+                        if pressure_state is not None:
+                            pressure_state.setdefault("timing_stages", {})["superambient_fine_trim_begin"] = fine_trim_begin_ts
+                        self._append_pressure_trace_row(
+                            point=point,
+                            route=phase_text,
+                            point_phase=phase_text,
+                            trace_stage="superambient_fine_trim_begin",
+                            pressure_target_hpa=target_hpa,
+                            handoff_mode="same_gas_superambient_precharge_handoff",
+                            atmosphere_reference_hpa=ambient_reference_hpa,
+                            superambient_target_hpa=target_hpa,
+                            superambient_precharge_margin_hpa=precharge_margin_hpa,
+                            superambient_precharge_peak_hpa=precharge_peak_hpa,
+                            superambient_precharge_result="pass",
+                            superambient_closed_path_verified=True,
+                            pressure_gauge_hpa=last_pressure_hpa,
+                            refresh_pace_state=False,
+                            event_ts=fine_trim_begin_ts,
+                            note="same-gas precharge complete; hand control to PACE for fine trim",
+                        )
+                        return True, True
+
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase_text,
+                    point_phase=phase_text,
+                    trace_stage="superambient_precharge_wait",
+                    pressure_target_hpa=target_hpa,
+                    trigger_reason=pressure_source,
+                    handoff_mode="same_gas_superambient_precharge_handoff",
+                    atmosphere_reference_hpa=ambient_reference_hpa,
+                    superambient_target_hpa=target_hpa,
+                    superambient_precharge_margin_hpa=precharge_margin_hpa,
+                    superambient_precharge_peak_hpa=precharge_peak_hpa,
+                    superambient_precharge_result="running",
+                    superambient_closed_path_verified=True,
+                    pressure_gauge_hpa=last_pressure_hpa,
+                    refresh_pace_state=False,
+                    note=(
+                        f"precharge_target_hpa={precharge_target_hpa:.3f} "
+                        f"last_pressure_hpa={last_pressure_hpa if last_pressure_hpa is not None else 'NA'}"
+                    ),
+                )
+                time.sleep(poll_s)
+        finally:
+            self._apply_valve_states([])
+
+        self._reject_superambient_precharge(
+            point,
+            phase=phase_text,
+            target_hpa=target_hpa,
+            ambient_reference_hpa=ambient_reference_hpa,
+            cfg=cfg,
+            reject_reason="superambient_precharge_timeout",
+            note=(
+                f"same-gas closed precharge timeout after {timeout_s:.3f}s; "
+                f"precharge_target_hpa={precharge_target_hpa:.3f}"
+            ),
+            precharge_peak_hpa=precharge_peak_hpa,
+            closed_path_verified=True,
+        )
+        return True, False
+
     def _prepare_sampling_handoff_mode(self, point: CalibrationPoint, *, phase: str) -> str:
         runtime_state = dict(self._point_runtime_state(point, phase=phase) or {})
         existing = str(runtime_state.get("handoff_mode") or "").strip()
@@ -10829,6 +11492,8 @@ class CalibrationRunner:
             phase=phase,
             handoff_mode=handoff_mode,
         )
+        if handoff_mode == "same_gas_pressure_step_handoff":
+            self._inherit_last_sealed_route_timing_stages(point, phase=phase, last_context=last_context)
         self._append_pressure_trace_row(
             point=point,
             route=phase,
@@ -10868,7 +11533,10 @@ class CalibrationRunner:
         phase: str,
         handoff_mode: str,
     ) -> bool:
-        if str(handoff_mode or "") == "same_gas_pressure_step_handoff":
+        if str(handoff_mode or "") in {
+            "same_gas_pressure_step_handoff",
+            "same_gas_superambient_precharge_handoff",
+        }:
             return True
         if str(phase or "").strip().lower() != "co2":
             return False
@@ -12283,6 +12951,7 @@ class CalibrationRunner:
 
     def _set_co2_route_baseline(self, *, reason: str = "") -> None:
         self._clear_last_sealed_pressure_route_context(reason="CO2 route baseline")
+        self._clear_pressure_sequence_context(reason="CO2 route baseline")
         self._set_pressure_controller_vent(True, reason=reason)
         self._apply_route_baseline_valves()
         self.log("CO2 route baseline applied: gas_main=OFF flow_switch=OFF h2o_path=OFF hold=OFF")
@@ -12292,12 +12961,14 @@ class CalibrationRunner:
 
     def _apply_idle_route_isolation(self, *, reason: str = "") -> None:
         self._clear_last_sealed_pressure_route_context(reason="idle route isolation")
+        self._clear_pressure_sequence_context(reason="idle route isolation")
         self._set_pressure_controller_vent(False, reason=reason)
         self._apply_route_baseline_valves()
         extra = f" ({reason})" if str(reason or "").strip() else ""
         self.log(f"Idle route isolation applied{extra}: route valves closed and pressure controller disconnected from atmosphere")
 
     def _cleanup_h2o_route(self, point: CalibrationPoint, *, reason: str = "") -> None:
+        self._clear_pressure_sequence_context(reason="cleanup H2O route")
         self._set_pressure_controller_vent(True, reason=reason)
         self._apply_route_baseline_valves()
 
@@ -14437,6 +15108,12 @@ class CalibrationRunner:
                 dew_temp_live_c=sampling_begin_values.get("dew_temp_live_c"),
                 dew_rh_live_pct=sampling_begin_values.get("dew_rh_live_pct"),
                 handoff_mode=runtime_snapshot.get("handoff_mode"),
+                atmosphere_reference_hpa=runtime_snapshot.get("ambient_reference_hpa"),
+                superambient_target_hpa=runtime_snapshot.get("superambient_target_hpa"),
+                superambient_precharge_margin_hpa=runtime_snapshot.get("superambient_precharge_margin_hpa"),
+                superambient_precharge_peak_hpa=runtime_snapshot.get("superambient_precharge_peak_hpa"),
+                superambient_precharge_result=runtime_snapshot.get("superambient_precharge_result"),
+                superambient_closed_path_verified=runtime_snapshot.get("superambient_closed_path_verified"),
                 capture_hold_status=runtime_snapshot.get("capture_hold_status"),
                 pressure_gate_status=runtime_snapshot.get("pressure_gate_status"),
                 pressure_gate_reason=runtime_snapshot.get("pressure_gate_reason"),
@@ -14601,6 +15278,7 @@ class CalibrationRunner:
 
     def _open_h2o_route_and_wait_ready(self, point: CalibrationPoint, *, point_tag: str = "") -> bool:
         self._clear_last_sealed_pressure_route_context(reason="opening H2O route for conditioning")
+        self._clear_pressure_sequence_context(reason="opening H2O route for conditioning")
         open_valves = self._h2o_open_valves(point)
         fast_handoff_used = self._complete_pending_route_handoff(
             point,
@@ -14640,8 +15318,18 @@ class CalibrationRunner:
             point_tag=point_tag or self._co2_point_tag(point),
             open_valves=open_valves,
         ):
+            self._record_pressure_sequence_context(
+                point,
+                phase="co2",
+                reason="fast handoff route already opened for same-gas pressure sequence",
+            )
             return
         self._set_co2_route_baseline(reason="before CO2 route conditioning")
+        self._record_pressure_sequence_context(
+            point,
+            phase="co2",
+            reason="before CO2 route conditioning",
+        )
         self._set_valves_for_co2(point)
         self._append_pressure_trace_row(
             point=point,
@@ -15549,6 +16237,12 @@ class CalibrationRunner:
             "dewpoint_gate_span_c": runtime_state.get("dewpoint_gate_span_c"),
             "dewpoint_gate_slope_c_per_s": runtime_state.get("dewpoint_gate_slope_c_per_s"),
             "handoff_mode": runtime_state.get("handoff_mode"),
+            "ambient_reference_hpa": runtime_state.get("ambient_reference_hpa"),
+            "superambient_target_hpa": runtime_state.get("superambient_target_hpa"),
+            "superambient_precharge_margin_hpa": runtime_state.get("superambient_precharge_margin_hpa"),
+            "superambient_precharge_peak_hpa": runtime_state.get("superambient_precharge_peak_hpa"),
+            "superambient_precharge_result": runtime_state.get("superambient_precharge_result"),
+            "superambient_closed_path_verified": runtime_state.get("superambient_closed_path_verified"),
             "capture_hold_status": runtime_state.get("capture_hold_status"),
             "capture_hold_reason": runtime_state.get("capture_hold_reason"),
             "pressure_gate_status": runtime_state.get("pressure_gate_status"),

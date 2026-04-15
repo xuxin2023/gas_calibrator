@@ -45,9 +45,9 @@ class _FakePaceForSamplingIsolation:
         return self.vent_status
 
 
-def _co2_point(pressure_hpa: float = 800.0) -> CalibrationPoint:
+def _co2_point(pressure_hpa: float = 800.0, *, index: int = 1) -> CalibrationPoint:
     return CalibrationPoint(
-        index=1,
+        index=index,
         temp_chamber_c=20.0,
         co2_ppm=400.0,
         hgen_temp_c=None,
@@ -71,7 +71,17 @@ def _prime_sealed_runtime(runner: CalibrationRunner, point: CalibrationPoint, *,
     )
 
 
-def test_sampling_isolation_requires_output_off_and_isol_closed(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "handoff_mode",
+    [
+        "same_gas_pressure_step_handoff",
+        "same_gas_superambient_precharge_handoff",
+    ],
+)
+def test_sampling_isolation_requires_output_off_and_isol_closed(
+    tmp_path: Path,
+    handoff_mode: str,
+) -> None:
     logger = RunLogger(tmp_path)
     pace = _FakePaceForSamplingIsolation()
     runner = CalibrationRunner(
@@ -98,7 +108,7 @@ def test_sampling_isolation_requires_output_off_and_isol_closed(tmp_path: Path) 
         point,
         phase="co2",
         context=None,
-        handoff_mode="same_gas_pressure_step_handoff",
+        handoff_mode=handoff_mode,
     ) is True
     logger.close()
 
@@ -112,7 +122,17 @@ def test_sampling_isolation_requires_output_off_and_isol_closed(tmp_path: Path) 
     assert runtime_state["pace_isolation_state"] == 0
 
 
-def test_low_pressure_sampling_rejects_when_atmosphere_refresh_detected(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "handoff_mode",
+    [
+        "same_gas_pressure_step_handoff",
+        "same_gas_superambient_precharge_handoff",
+    ],
+)
+def test_low_pressure_sampling_rejects_when_atmosphere_refresh_detected(
+    tmp_path: Path,
+    handoff_mode: str,
+) -> None:
     logger = RunLogger(tmp_path)
     pace = _FakePaceForSamplingIsolation()
     runner = CalibrationRunner(
@@ -141,7 +161,7 @@ def test_low_pressure_sampling_rejects_when_atmosphere_refresh_detected(tmp_path
         point,
         phase="co2",
         context=None,
-        handoff_mode="same_gas_pressure_step_handoff",
+        handoff_mode=handoff_mode,
     ) is False
     logger.close()
 
@@ -150,7 +170,81 @@ def test_low_pressure_sampling_rejects_when_atmosphere_refresh_detected(tmp_path
     assert runtime_state["root_cause_reject_reason"] == "ambient_ingress_suspect"
 
 
-def test_wait_after_pressure_stable_runs_capture_hold_then_pressure_and_dewpoint_gates(tmp_path: Path) -> None:
+def test_same_gas_follow_on_point_reuses_route_sealed_evidence(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceForSamplingIsolation()
+    runner = CalibrationRunner(
+        {"workflow": {"pressure": {"capture_then_hold_enabled": True, "co2_output_off_hold_s": 0.0}}},
+        {"pace": pace},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    sealed_point = _co2_point(pressure_hpa=1000.0, index=1)
+    follow_on_point = _co2_point(pressure_hpa=800.0, index=2)
+    _prime_sealed_runtime(runner, sealed_point)
+    runner._set_point_runtime_fields(
+        sealed_point,
+        phase="co2",
+        timing_stages={
+            "route_open": time.time() - 10.0,
+            "soak_begin": time.time() - 9.0,
+            "soak_end": time.time() - 5.0,
+            "preseal_vent_off_begin": time.time() - 4.0,
+            "preseal_trigger_reached": time.time() - 3.0,
+            "route_sealed": time.time() - 2.0,
+            "pressure_in_limits": time.time() - 1.0,
+        },
+    )
+    runner._set_point_runtime_fields(
+        follow_on_point,
+        phase="co2",
+        timing_stages={"pressure_in_limits": time.time() - 0.5},
+    )
+    runner._last_sealed_pressure_route_context = {
+        "phase": "co2",
+        "route_signature": runner._route_signature_for_point(sealed_point, phase="co2"),
+        "point_row": sealed_point.index,
+    }
+    runner._observe_pressure_hold_after_output_off = lambda _point: (
+        True,
+        {
+            "source": "pace",
+            "span_hpa": 0.02,
+            "max_abs_drift_hpa": 0.02,
+            "limit_hpa": 0.25,
+            "samples": 2,
+        },
+    )
+
+    handoff_mode = runner._prepare_sampling_handoff_mode(follow_on_point, phase="co2")
+    assert handoff_mode == "same_gas_pressure_step_handoff"
+    assert runner._set_pressure_controller_sampling_isolation(
+        follow_on_point,
+        phase="co2",
+        context=None,
+        handoff_mode=handoff_mode,
+    ) is True
+    logger.close()
+
+    follow_on_state = runner._point_runtime_state(follow_on_point, phase="co2") or {}
+    timing_stages = dict(follow_on_state.get("timing_stages") or {})
+    assert timing_stages["route_sealed"] is not None
+    assert timing_stages["route_open"] is not None
+    assert follow_on_state["capture_hold_status"] == "pass"
+
+
+@pytest.mark.parametrize(
+    "handoff_mode",
+    [
+        "same_gas_pressure_step_handoff",
+        "same_gas_superambient_precharge_handoff",
+    ],
+)
+def test_wait_after_pressure_stable_runs_capture_hold_then_pressure_and_dewpoint_gates(
+    tmp_path: Path,
+    handoff_mode: str,
+) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner(
         {
@@ -169,6 +263,7 @@ def test_wait_after_pressure_stable_runs_capture_hold_then_pressure_and_dewpoint
     )
     point = _co2_point()
     _prime_sealed_runtime(runner, point)
+    runner._set_point_runtime_fields(point, phase="co2", handoff_mode=handoff_mode)
     order = []
     runner._set_pressure_controller_sampling_isolation = (
         lambda _point, **_kwargs: order.append("capture_hold") or True
@@ -321,7 +416,14 @@ def test_wait_after_pressure_stable_rejects_hunting_before_sampling(tmp_path: Pa
     assert runner._presample_lock_state is None
 
 
-def test_presample_lock_blocks_vent_on_before_sampling_begin(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "handoff_mode",
+    [
+        "same_gas_pressure_step_handoff",
+        "same_gas_superambient_precharge_handoff",
+    ],
+)
+def test_presample_lock_blocks_vent_on_before_sampling_begin(tmp_path: Path, handoff_mode: str) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
     point = _co2_point()
@@ -329,7 +431,7 @@ def test_presample_lock_blocks_vent_on_before_sampling_begin(tmp_path: Path) -> 
     runner._arm_presample_sampling_lock(
         point,
         phase="co2",
-        handoff_mode="same_gas_pressure_step_handoff",
+        handoff_mode=handoff_mode,
     )
 
     with pytest.raises(RuntimeError, match="presample_lock_violation:vent_on"):
@@ -341,7 +443,14 @@ def test_presample_lock_blocks_vent_on_before_sampling_begin(tmp_path: Path) -> 
     assert runner._presample_lock_state is None
 
 
-def test_presample_lock_blocks_output_enable_before_sampling_begin(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "handoff_mode",
+    [
+        "same_gas_pressure_step_handoff",
+        "same_gas_superambient_precharge_handoff",
+    ],
+)
+def test_presample_lock_blocks_output_enable_before_sampling_begin(tmp_path: Path, handoff_mode: str) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
     point = _co2_point()
@@ -349,7 +458,7 @@ def test_presample_lock_blocks_output_enable_before_sampling_begin(tmp_path: Pat
     runner._arm_presample_sampling_lock(
         point,
         phase="co2",
-        handoff_mode="same_gas_pressure_step_handoff",
+        handoff_mode=handoff_mode,
     )
 
     with pytest.raises(RuntimeError, match="presample_lock_violation:output_enable"):
@@ -361,7 +470,14 @@ def test_presample_lock_blocks_output_enable_before_sampling_begin(tmp_path: Pat
     assert runner._presample_lock_state is None
 
 
-def test_presample_lock_blocks_route_reopen_before_sampling_begin(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "handoff_mode",
+    [
+        "same_gas_pressure_step_handoff",
+        "same_gas_superambient_precharge_handoff",
+    ],
+)
+def test_presample_lock_blocks_route_reopen_before_sampling_begin(tmp_path: Path, handoff_mode: str) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
     point = _co2_point()
@@ -369,7 +485,7 @@ def test_presample_lock_blocks_route_reopen_before_sampling_begin(tmp_path: Path
     runner._arm_presample_sampling_lock(
         point,
         phase="co2",
-        handoff_mode="same_gas_pressure_step_handoff",
+        handoff_mode=handoff_mode,
     )
 
     with pytest.raises(RuntimeError, match="presample_lock_violation:route_reopen"):
