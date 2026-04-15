@@ -787,3 +787,137 @@ def test_set_output_isolated_verified_maps_isolated_true_to_closed_path(monkeypa
 
     assert dev.set_output_isolated_verified(True) == 0
     assert any(":OUTP:ISOL:STAT 0" in write for write in dev.ser.writes)
+
+
+def test_get_vent_after_valve_state_parses_open_and_closed(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.responses = iter(["OPEN", "CLOSED"])
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.last_write = data
+
+        def query(self, data: str) -> str:
+            return next(self.responses)
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    assert dev.get_vent_after_valve_state() == "OPEN"
+    assert dev.get_vent_after_valve_state() == "CLOSED"
+
+
+def test_get_vent_popup_state_parses_enabled_and_disabled(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.responses = iter(["ENABLED", "DISABLED"])
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.last_write = data
+
+        def query(self, data: str) -> str:
+            return next(self.responses)
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    assert dev.get_vent_popup_state() == "ENABLED"
+    assert dev.get_vent_popup_state() == "DISABLED"
+
+
+def test_get_oper_condition_queries_scpi_status(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.last_write = data
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            if cmd == ":STAT:OPER:COND?":
+                return ":STAT:OPER:COND 17"
+            if cmd == ":STAT:OPER:PRES:COND?":
+                return ":STAT:OPER:PRES:COND 9"
+            return ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    assert dev.get_oper_condition() == 17
+    assert dev.get_oper_pressure_condition() == 9
+
+
+def test_diagnostic_status_collects_best_effort_aux_fields(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.last_write = data
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            mapping = {
+                ":SENS:PRES:INL?": ":SENS:PRES:INL 1000.5, 1",
+                ":OUTP:STAT?": ":OUTP:STAT 0",
+                ":OUTP:ISOL:STAT?": ":OUTP:ISOL:STAT 0",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT?": ":SOUR:PRES:LEV:IMM:AMPL:VENT 0",
+                ":OUTP:MODE?": "ACT",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT:AFT:VVAL:STAT?": "OPEN",
+                ":SOUR:PRES:LEV:IMM:AMPL:VENT:APOP:STAT?": "ENABLED",
+                ":STAT:OPER:COND?": ":STAT:OPER:COND 3",
+                ":STAT:OPER:PRES:COND?": ":STAT:OPER:PRES:COND 5",
+            }
+            return mapping.get(cmd, "")
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    status = dev.diagnostic_status()
+
+    assert status["pressure_hpa"] == 1000.5
+    assert status["output_state"] == 0
+    assert status["isolation_state"] == 0
+    assert status["vent_status"] == 0
+    assert status["output_mode"] == "ACT"
+    assert status["vent_after_valve_state"] == "OPEN"
+    assert status["vent_popup_state"] == "ENABLED"
+    assert status["oper_condition"] == 3
+    assert status["oper_pressure_condition"] == 5

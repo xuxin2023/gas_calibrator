@@ -22,6 +22,9 @@ def test_workflow_tunable_parameters_have_unique_paths() -> None:
     assert "workflow.pressure.superambient_trigger_margin_hpa" in paths
     assert "workflow.pressure.superambient_precharge_margin_hpa" in paths
     assert "workflow.pressure.superambient_precharge_timeout_s" in paths
+    assert "workflow.pressure.co2_post_isolation_diagnostic_enabled" in paths
+    assert "workflow.pressure.co2_post_isolation_window_s" in paths
+    assert "workflow.pressure.postseal_same_gas_dead_volume_purge_enabled" in paths
     assert "workflow.stability.co2_route.preseal_soak_s" in paths
     assert "workflow.stability.co2_route.first_point_preseal_soak_s" in paths
     assert "workflow.stability.co2_route.post_h2o_zero_ppm_soak_s" in paths
@@ -88,3 +91,25 @@ def test_superambient_precharge_tuning_defaults_match_runtime_defaults() -> None
     assert trigger_margin.default == 5.0
     assert precharge_margin.default == 8.0
     assert timeout_s.default == 30.0
+
+
+def test_post_isolation_diagnostic_tuning_defaults_match_runtime_defaults() -> None:
+    enabled = next(
+        item
+        for item in WORKFLOW_TUNABLE_PARAMETERS
+        if item.path == "workflow.pressure.co2_post_isolation_diagnostic_enabled"
+    )
+    window_s = next(
+        item
+        for item in WORKFLOW_TUNABLE_PARAMETERS
+        if item.path == "workflow.pressure.co2_post_isolation_window_s"
+    )
+    purge = next(
+        item
+        for item in WORKFLOW_TUNABLE_PARAMETERS
+        if item.path == "workflow.pressure.postseal_same_gas_dead_volume_purge_enabled"
+    )
+
+    assert enabled.default is True
+    assert window_s.default == 10.0
+    assert purge.default is False

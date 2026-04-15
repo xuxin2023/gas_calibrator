@@ -97,6 +97,7 @@ def test_adaptive_pressure_sampling_flag_off_keeps_old_wait_path(tmp_path: Path)
     point = _co2_point()
     _prime_sealed_runtime(runner, point)
     runner._set_pressure_controller_sampling_isolation = lambda _point, **_kwargs: True
+    runner._wait_post_isolation_leak_test = lambda _point, **_kwargs: True
     runner._wait_sampling_pressure_gate = lambda _point, **_kwargs: True
     runner._wait_postseal_dewpoint_gate = lambda _point, **_kwargs: True
     runner._wait_co2_presample_long_guard = lambda _point, **_kwargs: True
@@ -127,6 +128,7 @@ def test_wait_after_pressure_stable_uses_adaptive_gate_when_enabled(tmp_path: Pa
     point = _co2_point()
     _prime_sealed_runtime(runner, point)
     runner._set_pressure_controller_sampling_isolation = lambda _point, **_kwargs: True
+    runner._wait_post_isolation_leak_test = lambda _point, **_kwargs: True
     runner._wait_sampling_pressure_gate = lambda _point, **_kwargs: calls.__setitem__("count", calls["count"] + 1) or True
     runner._wait_postseal_dewpoint_gate = lambda _point, **_kwargs: True
     runner._wait_co2_presample_long_guard = lambda _point, **_kwargs: True
@@ -242,6 +244,7 @@ def test_adaptive_mode_does_not_reapply_setpoint_in_wait_path(tmp_path: Path) ->
         "count", recaptures["count"] + 1
     ) or True
     runner._set_pressure_controller_sampling_isolation = lambda _point, **_kwargs: True
+    runner._wait_post_isolation_leak_test = lambda _point, **_kwargs: True
     runner._wait_sampling_pressure_gate = lambda _point, **_kwargs: True
     runner._wait_postseal_dewpoint_gate = lambda _point, **_kwargs: True
     runner._wait_co2_presample_long_guard = lambda _point, **_kwargs: True

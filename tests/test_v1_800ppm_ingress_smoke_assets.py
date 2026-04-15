@@ -36,3 +36,41 @@ def test_v1_800ppm_ingress_override_sets_room_temp_same_gas_smoke_profile() -> N
     assert payload["workflow"]["pressure"]["continuous_atmosphere_hold"] is False
     assert payload["workflow"]["stability"]["gas_route_dewpoint_gate_enabled"] is True
     assert payload["validation_package"]["rounds"] == 2
+
+
+def test_low_pressure_post_isolation_diagnostic_override_sets_20s_window() -> None:
+    path = Path("configs/overrides/v1_low_pressure_post_isolation_diagnostic.json")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+
+    assert payload["base_config"].endswith("configs/default_config.json")
+    assert payload["devices"]["temperature_chamber"]["enabled"] is False
+    assert payload["devices"]["humidity_generator"]["enabled"] is False
+    assert payload["workflow"]["route_mode"] == "co2_only"
+    assert payload["workflow"]["skip_h2o"] is True
+    assert payload["workflow"]["selected_temps_c"] == [20.0]
+    assert payload["workflow"]["selected_pressure_points"] == [800, 600, 500]
+    assert payload["workflow"]["pressure"]["capture_then_hold_enabled"] is True
+    assert payload["workflow"]["pressure"]["adaptive_pressure_sampling_enabled"] is True
+    assert payload["workflow"]["pressure"]["use_pressure_gauge_for_sampling_gate"] is True
+    assert payload["workflow"]["pressure"]["continuous_atmosphere_hold"] is False
+    assert payload["workflow"]["pressure"]["co2_post_isolation_diagnostic_enabled"] is True
+    assert payload["workflow"]["pressure"]["co2_post_isolation_window_s"] == 20.0
+
+
+def test_pace_post_isolation_diagnostic_override_sets_20s_window() -> None:
+    path = Path("configs/overrides/v1_pace_post_isolation_diagnostic.json")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+
+    assert payload["base_config"].endswith("configs/default_config.json")
+    assert payload["devices"]["temperature_chamber"]["enabled"] is False
+    assert payload["devices"]["humidity_generator"]["enabled"] is False
+    assert payload["workflow"]["route_mode"] == "co2_only"
+    assert payload["workflow"]["skip_h2o"] is True
+    assert payload["workflow"]["selected_temps_c"] == [20.0]
+    assert payload["workflow"]["selected_pressure_points"] == [800, 600, 500]
+    assert payload["workflow"]["pressure"]["capture_then_hold_enabled"] is True
+    assert payload["workflow"]["pressure"]["adaptive_pressure_sampling_enabled"] is True
+    assert payload["workflow"]["pressure"]["use_pressure_gauge_for_sampling_gate"] is True
+    assert payload["workflow"]["pressure"]["continuous_atmosphere_hold"] is False
+    assert payload["workflow"]["pressure"]["co2_post_isolation_diagnostic_enabled"] is True
+    assert payload["workflow"]["pressure"]["co2_post_isolation_window_s"] == 20.0

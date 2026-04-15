@@ -188,6 +188,15 @@ def test_load_config_injects_minimal_runtime_defaults_for_new_fields(tmp_path: P
     assert cfg["workflow"]["pressure"]["h2o_output_off_hold_s"] == 10.0
     assert cfg["workflow"]["pressure"]["co2_output_off_max_abs_drift_hpa"] == 0.25
     assert cfg["workflow"]["pressure"]["h2o_output_off_max_abs_drift_hpa"] == 0.40
+    assert cfg["workflow"]["pressure"]["co2_post_isolation_diagnostic_enabled"] is True
+    assert cfg["workflow"]["pressure"]["co2_post_isolation_window_s"] == 10.0
+    assert cfg["workflow"]["pressure"]["co2_post_isolation_poll_s"] == 0.5
+    assert cfg["workflow"]["pressure"]["co2_post_isolation_pressure_drift_hpa"] == 0.35
+    assert cfg["workflow"]["pressure"]["co2_post_isolation_pressure_stable_span_hpa"] == 0.20
+    assert cfg["workflow"]["pressure"]["co2_post_isolation_dewpoint_rise_c"] == 0.12
+    assert cfg["workflow"]["pressure"]["co2_post_isolation_dewpoint_slope_c_per_s"] == 0.01
+    assert cfg["workflow"]["pressure"]["co2_post_isolation_ambient_recovery_min_hpa"] == 0.20
+    assert cfg["workflow"]["pressure"]["postseal_same_gas_dead_volume_purge_enabled"] is False
     assert cfg["workflow"]["pressure"]["adaptive_pressure_sampling_enabled"] is True
     assert cfg["workflow"]["pressure"]["use_pressure_gauge_for_sampling_gate"] is True
     assert cfg["workflow"]["pressure"]["sampling_gate_poll_s"] == 0.5

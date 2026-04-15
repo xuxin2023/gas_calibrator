@@ -268,6 +268,7 @@ def test_wait_after_pressure_stable_runs_capture_hold_then_pressure_and_dewpoint
     runner._set_pressure_controller_sampling_isolation = (
         lambda _point, **_kwargs: order.append("capture_hold") or True
     )
+    runner._wait_post_isolation_leak_test = lambda _point, **_kwargs: order.append("post_isolation_test") or True
     runner._wait_sampling_pressure_gate = lambda _point, **_kwargs: order.append("pressure_gate") or True
     runner._wait_postseal_dewpoint_gate = lambda _point, **_kwargs: order.append("dewpoint_gate") or True
     runner._wait_co2_presample_long_guard = lambda _point, **_kwargs: order.append("presample_guard") or True
@@ -275,7 +276,7 @@ def test_wait_after_pressure_stable_runs_capture_hold_then_pressure_and_dewpoint
     assert runner._wait_after_pressure_stable_before_sampling(point) is True
     logger.close()
 
-    assert order == ["capture_hold", "pressure_gate", "dewpoint_gate", "presample_guard"]
+    assert order == ["capture_hold", "post_isolation_test", "pressure_gate", "dewpoint_gate", "presample_guard"]
 
 
 def test_wait_after_pressure_stable_uses_remaining_fixed_delay_when_adaptive_skip_disabled(tmp_path: Path) -> None:
@@ -301,6 +302,7 @@ def test_wait_after_pressure_stable_uses_remaining_fixed_delay_when_adaptive_ski
     runtime_state["timing_stages"]["pressure_in_limits"] = time.time() - 3.0
     waits = []
     runner._set_pressure_controller_sampling_isolation = lambda _point, **_kwargs: True
+    runner._wait_post_isolation_leak_test = lambda _point, **_kwargs: True
     runner._wait_sampling_pressure_gate = lambda _point, **_kwargs: True
     runner._wait_postseal_dewpoint_gate = lambda _point, **_kwargs: True
     runner._wait_co2_presample_long_guard = lambda _point, **_kwargs: True
@@ -359,6 +361,7 @@ def test_wait_after_pressure_stable_rejects_rebound_veto_as_adsorption_tail(tmp_
     point = _co2_point()
     _prime_sealed_runtime(runner, point)
     runner._set_pressure_controller_sampling_isolation = lambda _point, **_kwargs: True
+    runner._wait_post_isolation_leak_test = lambda _point, **_kwargs: True
     runner._wait_sampling_pressure_gate = lambda _point, **_kwargs: True
 
     def _fail_dewpoint(_point, **_kwargs):
@@ -377,7 +380,7 @@ def test_wait_after_pressure_stable_rejects_rebound_veto_as_adsorption_tail(tmp_
     logger.close()
 
     runtime_state = runner._point_runtime_state(point, phase="co2") or {}
-    assert runtime_state["root_cause_reject_reason"] == "adsorption_tail_suspect"
+    assert runtime_state["root_cause_reject_reason"] == "dead_volume_wet_release_suspect"
 
 
 def test_wait_after_pressure_stable_rejects_hunting_before_sampling(tmp_path: Path) -> None:
@@ -392,6 +395,7 @@ def test_wait_after_pressure_stable_rejects_hunting_before_sampling(tmp_path: Pa
     point = _co2_point()
     _prime_sealed_runtime(runner, point)
     runner._set_pressure_controller_sampling_isolation = lambda _point, **_kwargs: True
+    runner._wait_post_isolation_leak_test = lambda _point, **_kwargs: True
 
     def _fail_pressure_gate(_point, **_kwargs):
         runner._set_point_runtime_fields(
@@ -516,6 +520,7 @@ def test_wait_after_pressure_stable_clears_presample_lock_on_sampling_begin(tmp_
     point = _co2_point()
     _prime_sealed_runtime(runner, point)
     runner._set_pressure_controller_sampling_isolation = lambda _point, **_kwargs: True
+    runner._wait_post_isolation_leak_test = lambda _point, **_kwargs: True
     runner._wait_sampling_pressure_gate = lambda _point, **_kwargs: True
     runner._wait_postseal_dewpoint_gate = lambda _point, **_kwargs: True
     runner._wait_co2_presample_long_guard = lambda _point, **_kwargs: True

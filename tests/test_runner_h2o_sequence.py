@@ -68,6 +68,7 @@ def _prime_post_stable_sampling_prereqs(
         },
     )
     runner._set_pressure_controller_sampling_isolation = lambda _point, **_kwargs: True
+    runner._wait_post_isolation_leak_test = lambda _point, **_kwargs: True
     runner._wait_sampling_pressure_gate = lambda _point, **_kwargs: True
     runner._wait_co2_presample_long_guard = lambda _point, **_kwargs: True
 

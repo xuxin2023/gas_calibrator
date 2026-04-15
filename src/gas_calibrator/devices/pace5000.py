@@ -203,6 +203,9 @@ class Pace5000:
             return "GAUG"
         raise RuntimeError("NO_RESPONSE")
 
+    def get_output_mode_query(self) -> str:
+        return self.get_output_mode()
+
     def set_slew_mode_linear(self) -> None:
         self.write(":SOUR:PRES:SLEW:MODE LIN")
 
@@ -320,6 +323,9 @@ class Pace5000:
             raise RuntimeError("NO_RESPONSE")
         return value
 
+    def get_vent_status_query(self) -> int:
+        return self.get_vent_status()
+
     @staticmethod
     def _looks_like_legacy_vent_status_identity(identity: str) -> bool:
         text = str(identity or "").strip().upper()
@@ -422,6 +428,10 @@ class Pace5000:
         self._vent_after_valve_supported = True
         return value
 
+    def get_vent_after_valve_state(self) -> str:
+        value = self.get_vent_after_valve_open()
+        return "OPEN" if bool(value) else "CLOSED"
+
     def set_vent_popup_ack_enabled(self, enabled: bool) -> None:
         self._ensure_vent_aux_supported("_vent_popup_ack_supported", "VENT_POPUP_ACK_UNSUPPORTED")
         state = "ENABled" if enabled else "DISabled"
@@ -445,6 +455,48 @@ class Pace5000:
             raise RuntimeError("NO_RESPONSE")
         self._vent_popup_ack_supported = True
         return value
+
+    def get_vent_popup_state(self) -> str:
+        value = self.get_vent_popup_ack_enabled()
+        return "ENABLED" if bool(value) else "DISABLED"
+
+    def get_oper_condition(self) -> int:
+        resp = self.query(":STAT:OPER:COND?")
+        value = self._parse_first_int(resp)
+        if value is None:
+            raise RuntimeError("NO_RESPONSE")
+        return value
+
+    def get_oper_pressure_condition(self) -> int:
+        resp = self.query(":STAT:OPER:PRES:COND?")
+        value = self._parse_first_int(resp)
+        if value is None:
+            raise RuntimeError("NO_RESPONSE")
+        return value
+
+    def diagnostic_status(self) -> dict[str, Any]:
+        status = self.status()
+        try:
+            status["output_mode"] = self.get_output_mode()
+        except Exception:
+            status["output_mode"] = ""
+        try:
+            status["vent_after_valve_state"] = self.get_vent_after_valve_state()
+        except Exception:
+            status["vent_after_valve_state"] = ""
+        try:
+            status["vent_popup_state"] = self.get_vent_popup_state()
+        except Exception:
+            status["vent_popup_state"] = ""
+        try:
+            status["oper_condition"] = self.get_oper_condition()
+        except Exception:
+            status["oper_condition"] = ""
+        try:
+            status["oper_pressure_condition"] = self.get_oper_pressure_condition()
+        except Exception:
+            status["oper_pressure_condition"] = ""
+        return status
 
     def wait_for_vent_idle(
         self,
@@ -723,12 +775,17 @@ class Pace5000:
         return float(nums[0]), 0
 
     def status(self) -> dict[str, Any]:
-        return {
+        status = {
             "pressure_hpa": self.read_pressure(),
             "output_state": self.get_output_state(),
             "isolation_state": self.get_isolation_state(),
             "vent_status": self.get_vent_status(),
         }
+        try:
+            status["output_mode"] = self.get_output_mode()
+        except Exception:
+            status["output_mode"] = ""
+        return status
 
     def selftest(self) -> dict[str, Any]:
         return self.status()
