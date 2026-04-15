@@ -80,6 +80,12 @@ from ..core.stage3_standards_alignment_matrix_artifact_entry import (
     STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_ARTIFACT_KEY,
     build_stage3_standards_alignment_matrix_artifact_entry,
 )
+from ..core.step2_closeout_verification import (
+    build_step2_closeout_verification_surface_payload,
+)
+from ..core.step2_final_closure_matrix import (
+    build_step2_final_closure_matrix_surface_payload,
+)
 from .method_confirmation_gateway import MethodConfirmationGateway
 from .recognition_scope_gateway import RecognitionScopeGateway
 from .software_validation_gateway import SoftwareValidationGateway
@@ -125,13 +131,13 @@ class ResultsGateway:
         self.output_files_provider = output_files_provider
 
     def read_results_payload(self) -> dict[str, Any]:
-        summary = self.load_json("summary.json")
-        manifest = self.load_json("manifest.json")
-        results = self.load_json("results.json")
-        analytics_summary = self.load_json("analytics_summary.json")
-        evidence_registry = self.load_json("evidence_registry.json")
-        workbench_action_report = self.load_json("workbench_action_report.json")
-        workbench_action_snapshot = self.load_json("workbench_action_snapshot.json")
+        summary = self.load_json("summary.json") or {}
+        manifest = self.load_json("manifest.json") or {}
+        results = self.load_json("results.json") or {}
+        analytics_summary = self.load_json("analytics_summary.json") or {}
+        evidence_registry = self.load_json("evidence_registry.json") or {}
+        workbench_action_report = self.load_json("workbench_action_report.json") or {}
+        workbench_action_snapshot = self.load_json("workbench_action_snapshot.json") or {}
         config_safety = self._read_summary_section(
             "config_safety",
             summary,
@@ -417,6 +423,136 @@ class ResultsGateway:
             or dict(workbench_action_report or {}).get("promotion_state")
             or "dry_run_only"
         )
+        # Build step2_closeout_readiness in the stable main chain (Step 2.19)
+        _closeout_packs = ResultsGateway._build_compact_summary_packs(
+            taxonomy_summary=point_taxonomy_summary,
+            phase_coverage_summary=measurement_phase_coverage_report,
+            workbench_summary=workbench_evidence_summary,
+        )
+        # Build config_governance_handoff early so closeout readiness uses canonical source (Step 2.20)
+        _config_governance_handoff = self._read_config_governance_handoff(
+            config_safety,
+            config_safety_review,
+            summary,
+            evidence_registry,
+            analytics_summary,
+            workbench_action_report,
+            workbench_action_snapshot,
+        )
+        try:
+            from ..core.step2_closeout_readiness_builder import build_step2_closeout_readiness
+            _step2_closeout_readiness = build_step2_closeout_readiness(
+                run_id=str(dict(summary or {}).get("run_id") or ""),
+                step2_readiness_summary=dict(results.get("step2_readiness_summary") or {}),
+                compact_summary_packs=_closeout_packs,
+                governance_handoff=dict(_config_governance_handoff or {}),
+                parity_resilience=dict(results.get("parity_resilience") or {}),
+                acceptance_governance=dict(results.get("acceptance_governance") or {}),
+                phase_evidence=dict(results.get("phase_evidence") or {}),
+            )
+            _step2_closeout_readiness["closeout_readiness_source"] = "rebuilt"
+        except Exception:
+            from ..core.step2_closeout_readiness_contracts import build_closeout_readiness_fallback
+            _step2_closeout_readiness = build_closeout_readiness_fallback()
+            _step2_closeout_readiness["closeout_readiness_source"] = "fallback"
+
+        # Build step2_closeout_package in the stable main chain (Step 2.22)
+        try:
+            from ..core.step2_closeout_package_builder import build_step2_closeout_package
+            _step2_closeout_package = build_step2_closeout_package(
+                run_id=str(dict(summary or {}).get("run_id") or ""),
+                step2_closeout_readiness=dict(_step2_closeout_readiness or {}),
+                step2_closeout_digest=dict(results.get("step2_closeout_digest") or {}),
+                stage_admission_review_pack=dict(results.get("stage_admission_review_pack") or {}),
+                engineering_isolation_admission_checklist=dict(results.get("engineering_isolation_admission_checklist") or {}),
+                compact_summary_packs=_closeout_packs,
+                governance_handoff=dict(_config_governance_handoff or {}),
+                parity_resilience=dict(results.get("parity_resilience") or {}),
+                phase_evidence=dict(results.get("phase_evidence") or {}),
+            )
+            _step2_closeout_package["closeout_package_source"] = "rebuilt"
+        except Exception:
+            from ..core.step2_closeout_package_builder import build_closeout_package_fallback
+            _step2_closeout_package = build_closeout_package_fallback()
+
+        # Build step2_freeze_audit in the stable main chain (Step 2.23)
+        try:
+            from ..core.step2_freeze_audit_builder import build_step2_freeze_audit
+            _step2_freeze_audit = build_step2_freeze_audit(
+                run_id=str(dict(summary or {}).get("run_id") or ""),
+                step2_closeout_package=dict(_step2_closeout_package or {}),
+                step2_closeout_readiness=dict(_step2_closeout_readiness or {}),
+                parity_resilience_summary=dict(results.get("parity_resilience") or {}),
+                governance_handoff=dict(_config_governance_handoff or {}),
+                acceptance_governance=dict(results.get("acceptance_governance") or {}),
+                phase_evidence=dict(results.get("phase_evidence") or {}),
+            )
+            _step2_freeze_audit["freeze_audit_source"] = "rebuilt"
+        except Exception:
+            from ..core.step2_freeze_audit_builder import build_freeze_audit_fallback
+            _step2_freeze_audit = build_freeze_audit_fallback()
+
+        # Build step3_admission_dossier in the stable main chain (Step 2.24)
+        try:
+            from ..core.step3_admission_dossier_builder import build_step3_admission_dossier
+            _step3_admission_dossier = build_step3_admission_dossier(
+                run_id=str(dict(summary or {}).get("run_id") or ""),
+                step2_freeze_audit=dict(_step2_freeze_audit or {}),
+                step2_closeout_package=dict(_step2_closeout_package or {}),
+                step2_closeout_readiness=dict(_step2_closeout_readiness or {}),
+                governance_handoff=dict(_config_governance_handoff or {}),
+                parity_resilience_summary=dict(results.get("parity_resilience") or {}),
+                phase_evidence=dict(results.get("phase_evidence") or {}),
+                acceptance_governance=dict(results.get("acceptance_governance") or {}),
+            )
+            _step3_admission_dossier["admission_dossier_source"] = "rebuilt"
+        except Exception:
+            from ..core.step3_admission_dossier_builder import build_admission_dossier_fallback
+            _step3_admission_dossier = build_admission_dossier_fallback()
+            _step3_admission_dossier["admission_dossier_source"] = "fallback"
+
+        # Build step2_closeout_verification in the stable main chain (Step 2.25)
+        _step2_closeout_verification = build_step2_closeout_verification_surface_payload(
+            run_id=str(dict(summary or {}).get("run_id") or ""),
+            step2_closeout_readiness=dict(_step2_closeout_readiness or {}),
+            step2_closeout_package=dict(_step2_closeout_package or {}),
+            step2_freeze_audit=dict(_step2_freeze_audit or {}),
+            step3_admission_dossier=dict(_step3_admission_dossier or {}),
+            governance_handoff=dict(_config_governance_handoff or {}),
+            parity_resilience_summary=dict(results.get("parity_resilience") or {}),
+            phase_evidence=dict(results.get("phase_evidence") or {}),
+        )
+
+        # Build step2_freeze_seal in the stable main chain (Step 2.25)
+        try:
+            from ..core.step2_freeze_seal_builder import build_step2_freeze_seal
+            _step2_freeze_seal = build_step2_freeze_seal(
+                run_id=str(dict(summary or {}).get("run_id") or ""),
+                step2_closeout_readiness=dict(_step2_closeout_readiness or {}),
+                step2_closeout_package=dict(_step2_closeout_package or {}),
+                step2_freeze_audit=dict(_step2_freeze_audit or {}),
+                step3_admission_dossier=dict(_step3_admission_dossier or {}),
+                step2_closeout_verification=dict(_step2_closeout_verification or {}),
+            )
+            _step2_freeze_seal["freeze_seal_source"] = "rebuilt"
+        except Exception:
+            from ..core.step2_freeze_seal_builder import build_freeze_seal_fallback
+            _step2_freeze_seal = build_freeze_seal_fallback()
+            _step2_freeze_seal["freeze_seal_source"] = "fallback"
+
+        _step2_final_closure_matrix = build_step2_final_closure_matrix_surface_payload(
+            run_id=str(dict(summary or {}).get("run_id") or ""),
+            step2_closeout_readiness=dict(_step2_closeout_readiness or {}),
+            step2_closeout_package=dict(_step2_closeout_package or {}),
+            step2_freeze_audit=dict(_step2_freeze_audit or {}),
+            step3_admission_dossier=dict(_step3_admission_dossier or {}),
+            step2_freeze_seal=dict(_step2_freeze_seal or {}),
+            surface_results=True,
+            surface_reports=True,
+            surface_historical=True,
+            surface_review_index=False,
+        )
+
         result_summary_text = self._build_result_summary_text(
             summary=summary,
             artifact_role_summary=artifact_role_summary,
@@ -481,15 +617,7 @@ class ResultsGateway:
             "reporting": dict(summary.get("reporting", {}) or {}) if isinstance(summary, dict) else {},
             "config_safety": config_safety,
             "config_safety_review": config_safety_review,
-            "config_governance_handoff": self._read_config_governance_handoff(
-                config_safety,
-                config_safety_review,
-                summary,
-                evidence_registry,
-                analytics_summary,
-                workbench_action_report,
-                workbench_action_snapshot,
-            ),
+            "config_governance_handoff": _config_governance_handoff,
             "artifact_exports": dict(summary.get("stats", {}).get("artifact_exports", {}) or {}) if isinstance(summary, dict) else {},
             "artifact_role_summary": artifact_role_summary,
             "workbench_evidence_summary": workbench_evidence_summary,
@@ -552,11 +680,14 @@ class ResultsGateway:
             "recognition_scope_rollup": recognition_scope_rollup,
             "reindex_manifest": reindex_manifest,
             "result_summary_text": result_summary_text,
-            "compact_summary_packs": ResultsGateway._build_compact_summary_packs(
-                taxonomy_summary=point_taxonomy_summary,
-                phase_coverage_summary=measurement_phase_coverage_report,
-                workbench_summary=workbench_evidence_summary,
-            ),
+            "compact_summary_packs": _closeout_packs,
+            "step2_closeout_readiness": _step2_closeout_readiness,
+            "step2_closeout_package": _step2_closeout_package,
+            "step2_freeze_audit": _step2_freeze_audit,
+            "step3_admission_dossier": _step3_admission_dossier,
+            "step2_closeout_verification": _step2_closeout_verification,
+            "step2_freeze_seal": _step2_freeze_seal,
+            "step2_final_closure_matrix": _step2_final_closure_matrix,
             "evidence_source": evidence_source,
             "evidence_state": evidence_state,
             "not_real_acceptance_evidence": not_real_acceptance_evidence,
@@ -1126,6 +1257,15 @@ class ResultsGateway:
             ),
             "stage3_real_validation_plan_artifact_entry": dict(stage3_real_validation_plan_entry),
             "stage3_standards_alignment_matrix_artifact_entry": dict(stage3_standards_alignment_matrix_entry),
+            "step2_closeout_readiness": dict(payload.get("step2_closeout_readiness") or {}),
+            "step2_closeout_package": dict(payload.get("step2_closeout_package") or {}),
+            "step2_freeze_audit": dict(payload.get("step2_freeze_audit") or {}),
+            "step3_admission_dossier": dict(payload.get("step3_admission_dossier") or {}),
+            "step2_closeout_verification": dict(payload.get("step2_closeout_verification") or {}),
+            "step2_freeze_seal": dict(payload.get("step2_freeze_seal") or {}),
+            "step2_final_closure_matrix": dict(payload.get("step2_final_closure_matrix") or {}),
+            "compact_summary_packs": list(payload.get("compact_summary_packs") or []),
+            "compact_summary_budget": dict(payload.get("compact_summary_budget") or {}),
             "evidence_source": str(payload.get("evidence_source", "") or "simulated_protocol"),
             "evidence_state": str(payload.get("evidence_state", "") or "collected"),
             "not_real_acceptance_evidence": bool(payload.get("not_real_acceptance_evidence", True)),

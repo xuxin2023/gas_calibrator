@@ -28,12 +28,29 @@ from ..core.reviewer_surface_contracts import (
 from ..core.reviewer_surface_payloads import (
     extract_wp6_closeout_payloads as _extract_wp6_closeout_payloads,
 )
+from ..core.step2_closeout_verification import (
+    build_step2_closeout_verification_surface_payload,
+)
+from ..core.step2_final_closure_matrix import (
+    build_step2_final_closure_matrix_surface_payload,
+)
 from ._cli_safety import build_step2_historical_cli_lines
 
 try:
     from ..core.reviewer_summary_packs import build_compact_summary_render_context
 except ImportError:
     build_compact_summary_render_context = None
+
+try:
+    from ..core.compact_summary_rendering import (
+        build_visible_sections as _shared_build_visible_sections,
+        build_compact_summary_pack_fields as _shared_build_pack_fields,
+        build_old_run_fallback as _shared_build_old_run_fallback,
+    )
+except ImportError:
+    _shared_build_visible_sections = None
+    _shared_build_pack_fields = None
+    _shared_build_old_run_fallback = None
 
 
 def create_argument_parser() -> argparse.ArgumentParser:
@@ -296,17 +313,63 @@ def _build_run_report(
     )
     # Compact summary pack — explicit consumption for historical surface
     _raw_packs = list(summary_payload.get("compact_summary_packs") or [])
-    _compact_summary_packs = []
-    _compact_summary_order = []
-    _compact_summary_budget = {}
-    if _raw_packs and build_compact_summary_render_context is not None:
+    if _shared_build_pack_fields is not None and _shared_build_visible_sections is not None:
+        _pack_fields = _shared_build_pack_fields(_raw_packs, surface="historical")
+        _compact_summary_packs = list(_pack_fields.get("compact_summary_packs") or [])
+        _compact_summary_sections = list(_pack_fields.get("compact_summary_sections") or [])
+        _compact_summary_order = list(_pack_fields.get("compact_summary_order") or [])
+        _compact_summary_budget = dict(_pack_fields.get("compact_summary_budget") or {})
+        _visible = _shared_build_visible_sections(
+            _compact_summary_packs, budget=_compact_summary_budget,
+        )
+        _rendered_summary_sections = list(_visible.get("rendered_summary_sections") or [])
+        _omitted_summary_sections = list(_visible.get("omitted_summary_sections") or [])
+        _compact_summary_budget_display = dict(_visible.get("compact_summary_budget_display") or {})
+    elif _raw_packs and build_compact_summary_render_context is not None:
         try:
             _render_ctx = build_compact_summary_render_context(_raw_packs, surface="historical")
             _compact_summary_packs = list(_render_ctx.get("compact_summary_packs") or [])
+            _compact_summary_sections = list(_render_ctx.get("compact_summary_sections") or [])
             _compact_summary_order = list(_render_ctx.get("compact_summary_order") or [])
             _compact_summary_budget = dict(_render_ctx.get("compact_summary_budget") or {})
+            if _shared_build_visible_sections is not None:
+                _visible = _shared_build_visible_sections(
+                    _compact_summary_packs, budget=_compact_summary_budget,
+                )
+                _rendered_summary_sections = list(_visible.get("rendered_summary_sections") or [])
+                _omitted_summary_sections = list(_visible.get("omitted_summary_sections") or [])
+                _compact_summary_budget_display = dict(_visible.get("compact_summary_budget_display") or {})
+            else:
+                _rendered_summary_sections = []
+                _omitted_summary_sections = []
+                _compact_summary_budget_display = {}
         except Exception:
-            pass
+            _compact_summary_packs = []
+            _compact_summary_sections = []
+            _compact_summary_order = []
+            _compact_summary_budget = {}
+            _rendered_summary_sections = []
+            _omitted_summary_sections = []
+            _compact_summary_budget_display = {}
+    else:
+        # Old-run fallback: use shared fallback when no packs available
+        if _shared_build_old_run_fallback is not None:
+            _fallback = _shared_build_old_run_fallback()
+            _compact_summary_packs = _fallback["compact_summary_packs"]
+            _compact_summary_sections = _fallback["compact_summary_sections"]
+            _compact_summary_order = _fallback["compact_summary_order"]
+            _compact_summary_budget = _fallback["compact_summary_budget"]
+            _rendered_summary_sections = _fallback["rendered_summary_sections"]
+            _omitted_summary_sections = _fallback["omitted_summary_sections"]
+            _compact_summary_budget_display = _fallback["compact_summary_budget_display"]
+        else:
+            _compact_summary_packs = []
+            _compact_summary_sections = []
+            _compact_summary_order = []
+            _compact_summary_budget = {}
+            _rendered_summary_sections = []
+            _omitted_summary_sections = []
+            _compact_summary_budget_display = {}
 
     return {
         "run_id": str(
@@ -615,10 +678,284 @@ def _build_run_report(
             uncertainty_rollup.get("primary_evidence_rewritten", False)
         ),
         "compact_summary_packs": _compact_summary_packs,
+        "compact_summary_sections": _compact_summary_sections,
         "compact_summary_order": _compact_summary_order,
         "compact_summary_budget": _compact_summary_budget,
+        "rendered_summary_sections": _rendered_summary_sections,
+        "omitted_summary_sections": _omitted_summary_sections,
+        "compact_summary_budget_display": _compact_summary_budget_display,
+        "compact_summary_legacy_mode": not bool(_raw_packs),
+        "step2_closeout_readiness": (
+            # Main path: prefer persisted closeout readiness (Step 2.19)
+            dict(summary_payload.get("step2_closeout_readiness") or {})
+            or _build_closeout_readiness_from_summary(summary_payload, _compact_summary_packs)
+        ),
+        "step2_closeout_package": (
+            # Main path: prefer persisted closeout package (Step 2.22)
+            dict(summary_payload.get("step2_closeout_package") or {})
+            or _build_closeout_package_from_summary(summary_payload, _compact_summary_packs)
+        ),
+        "step2_freeze_audit": (
+            # Main path: prefer persisted freeze audit (Step 2.23)
+            dict(summary_payload.get("step2_freeze_audit") or {})
+            or _build_freeze_audit_from_summary(summary_payload, _compact_summary_packs)
+        ),
+        "step3_admission_dossier": (
+            # Main path: prefer persisted admission dossier (Step 2.24)
+            dict(summary_payload.get("step3_admission_dossier") or {})
+            or _build_admission_dossier_from_summary(summary_payload, _compact_summary_packs)
+        ),
+        "step2_closeout_verification": (
+            # Main path: prefer persisted closeout verification (Step 2.25)
+            dict(summary_payload.get("step2_closeout_verification") or {})
+            or _build_closeout_verification_from_summary(summary_payload, _compact_summary_packs)
+        ),
+        "step2_freeze_seal": (
+            # Main path: prefer persisted freeze seal (Step 2.25)
+            dict(summary_payload.get("step2_freeze_seal") or {})
+            or _build_freeze_seal_from_summary(summary_payload, _compact_summary_packs)
+        ),
+        "step2_final_closure_matrix": (
+            dict(summary_payload.get("step2_final_closure_matrix") or {})
+            or _build_final_closure_matrix_from_summary(summary_payload, _compact_summary_packs)
+        ),
         "written_paths": written_paths,
     }
+
+
+def _build_closeout_readiness_from_summary(
+    summary_payload: dict[str, Any],
+    compact_summary_packs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build Step 2 closeout readiness from a historical run summary payload."""
+    try:
+        from gas_calibrator.v2.core.step2_closeout_readiness_builder import build_step2_closeout_readiness
+        result = build_step2_closeout_readiness(
+            run_id=str(summary_payload.get("run_id") or ""),
+            step2_readiness_summary=dict(summary_payload.get("step2_readiness_summary") or {}),
+            compact_summary_packs=compact_summary_packs,
+            governance_handoff=dict(summary_payload.get("config_governance_handoff") or {}),
+            parity_resilience=dict(summary_payload.get("parity_resilience") or {}),
+            acceptance_governance=dict(summary_payload.get("acceptance_governance") or {}),
+            phase_evidence=dict(summary_payload.get("phase_evidence") or {}),
+        )
+        result["closeout_readiness_source"] = "rebuilt"
+        return result
+    except Exception:
+        from gas_calibrator.v2.core.step2_closeout_readiness_contracts import build_closeout_readiness_fallback
+        result = build_closeout_readiness_fallback()
+        result["closeout_readiness_source"] = "fallback"
+        return result
+
+
+def _build_closeout_package_from_summary(
+    summary_payload: dict[str, Any],
+    compact_summary_packs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build Step 2 closeout package from a historical run summary payload."""
+    try:
+        from gas_calibrator.v2.core.step2_closeout_package_builder import build_step2_closeout_package
+        _closeout_readiness = (
+            dict(summary_payload.get("step2_closeout_readiness") or {})
+            or _build_closeout_readiness_from_summary(summary_payload, compact_summary_packs)
+        )
+        return build_step2_closeout_package(
+            run_id=str(summary_payload.get("run_id") or ""),
+            step2_closeout_readiness=_closeout_readiness,
+            step2_closeout_digest=dict(summary_payload.get("step2_closeout_digest") or {}),
+            stage_admission_review_pack=dict(summary_payload.get("stage_admission_review_pack") or {}),
+            engineering_isolation_admission_checklist=dict(summary_payload.get("engineering_isolation_admission_checklist") or {}),
+            compact_summary_packs=compact_summary_packs,
+            governance_handoff=dict(summary_payload.get("config_governance_handoff") or {}),
+            parity_resilience=dict(summary_payload.get("parity_resilience") or {}),
+            phase_evidence=dict(summary_payload.get("phase_evidence") or {}),
+        )
+    except Exception:
+        from gas_calibrator.v2.core.step2_closeout_package_builder import build_closeout_package_fallback
+        return build_closeout_package_fallback()
+
+
+def _build_freeze_audit_from_summary(
+    summary_payload: dict[str, Any],
+    compact_summary_packs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build Step 2 freeze audit from a historical run summary payload."""
+    try:
+        from gas_calibrator.v2.core.step2_freeze_audit_builder import build_step2_freeze_audit
+        _closeout_pkg = (
+            dict(summary_payload.get("step2_closeout_package") or {})
+            or _build_closeout_package_from_summary(summary_payload, compact_summary_packs)
+        )
+        _closeout_readiness = (
+            dict(summary_payload.get("step2_closeout_readiness") or {})
+            or _build_closeout_readiness_from_summary(summary_payload, compact_summary_packs)
+        )
+        return build_step2_freeze_audit(
+            run_id=str(summary_payload.get("run_id") or ""),
+            step2_closeout_package=_closeout_pkg if _closeout_pkg else None,
+            step2_closeout_readiness=_closeout_readiness if _closeout_readiness else None,
+            parity_resilience_summary=dict(summary_payload.get("parity_resilience") or {}),
+            governance_handoff=dict(summary_payload.get("config_governance_handoff") or {}),
+            acceptance_governance=dict(summary_payload.get("acceptance_governance") or {}),
+            phase_evidence=dict(summary_payload.get("phase_evidence") or {}),
+        )
+    except Exception:
+        from gas_calibrator.v2.core.step2_freeze_audit_builder import build_freeze_audit_fallback
+        return build_freeze_audit_fallback()
+
+
+def _build_admission_dossier_from_summary(
+    summary_payload: dict[str, Any],
+    compact_summary_packs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build Step 3 admission dossier from a historical run summary payload."""
+    try:
+        from gas_calibrator.v2.core.step3_admission_dossier_builder import build_step3_admission_dossier
+        _freeze_audit = (
+            dict(summary_payload.get("step2_freeze_audit") or {})
+            or _build_freeze_audit_from_summary(summary_payload, compact_summary_packs)
+        )
+        _closeout_pkg = (
+            dict(summary_payload.get("step2_closeout_package") or {})
+            or _build_closeout_package_from_summary(summary_payload, compact_summary_packs)
+        )
+        _closeout_readiness = (
+            dict(summary_payload.get("step2_closeout_readiness") or {})
+            or _build_closeout_readiness_from_summary(summary_payload, compact_summary_packs)
+        )
+        dossier = build_step3_admission_dossier(
+            run_id=str(summary_payload.get("run_id") or ""),
+            step2_freeze_audit=_freeze_audit if _freeze_audit else None,
+            step2_closeout_package=_closeout_pkg if _closeout_pkg else None,
+            step2_closeout_readiness=_closeout_readiness if _closeout_readiness else None,
+            governance_handoff=dict(summary_payload.get("config_governance_handoff") or {}),
+            parity_resilience_summary=dict(summary_payload.get("parity_resilience") or {}),
+            phase_evidence=dict(summary_payload.get("phase_evidence") or {}),
+            acceptance_governance=dict(summary_payload.get("acceptance_governance") or {}),
+        )
+        dossier["admission_dossier_source"] = "rebuilt"
+        return dossier
+    except Exception:
+        from gas_calibrator.v2.core.step3_admission_dossier_builder import build_admission_dossier_fallback
+        fb = build_admission_dossier_fallback()
+        fb["admission_dossier_source"] = "fallback"
+        return fb
+
+
+def _build_closeout_verification_from_summary(
+    summary_payload: dict[str, Any],
+    compact_summary_packs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build Step 2 closeout verification from a historical run summary payload."""
+    _readiness = (
+        dict(summary_payload.get("step2_closeout_readiness") or {})
+        or _build_closeout_readiness_from_summary(summary_payload, compact_summary_packs)
+    )
+    _pkg = (
+        dict(summary_payload.get("step2_closeout_package") or {})
+        or _build_closeout_package_from_summary(summary_payload, compact_summary_packs)
+    )
+    _audit = (
+        dict(summary_payload.get("step2_freeze_audit") or {})
+        or _build_freeze_audit_from_summary(summary_payload, compact_summary_packs)
+    )
+    _dossier = (
+        dict(summary_payload.get("step3_admission_dossier") or {})
+        or _build_admission_dossier_from_summary(summary_payload, compact_summary_packs)
+    )
+    return build_step2_closeout_verification_surface_payload(
+        run_id=str(summary_payload.get("run_id") or ""),
+        step2_closeout_readiness=_readiness if _readiness else None,
+        step2_closeout_package=_pkg if _pkg else None,
+        step2_freeze_audit=_audit if _audit else None,
+        step3_admission_dossier=_dossier if _dossier else None,
+        governance_handoff=dict(summary_payload.get("config_governance_handoff") or {}),
+        parity_resilience_summary=dict(summary_payload.get("parity_resilience") or {}),
+        phase_evidence=dict(summary_payload.get("phase_evidence") or {}),
+    )
+
+
+def _build_freeze_seal_from_summary(
+    summary_payload: dict[str, Any],
+    compact_summary_packs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build Step 2 freeze seal from a historical run summary payload."""
+    try:
+        from gas_calibrator.v2.core.step2_freeze_seal_builder import build_step2_freeze_seal
+        _readiness = (
+            dict(summary_payload.get("step2_closeout_readiness") or {})
+            or _build_closeout_readiness_from_summary(summary_payload, compact_summary_packs)
+        )
+        _pkg = (
+            dict(summary_payload.get("step2_closeout_package") or {})
+            or _build_closeout_package_from_summary(summary_payload, compact_summary_packs)
+        )
+        _audit = (
+            dict(summary_payload.get("step2_freeze_audit") or {})
+            or _build_freeze_audit_from_summary(summary_payload, compact_summary_packs)
+        )
+        _dossier = (
+            dict(summary_payload.get("step3_admission_dossier") or {})
+            or _build_admission_dossier_from_summary(summary_payload, compact_summary_packs)
+        )
+        _verification = (
+            dict(summary_payload.get("step2_closeout_verification") or {})
+            or _build_closeout_verification_from_summary(summary_payload, compact_summary_packs)
+        )
+        seal = build_step2_freeze_seal(
+            run_id=str(summary_payload.get("run_id") or ""),
+            step2_closeout_readiness=_readiness if _readiness else None,
+            step2_closeout_package=_pkg if _pkg else None,
+            step2_freeze_audit=_audit if _audit else None,
+            step3_admission_dossier=_dossier if _dossier else None,
+            step2_closeout_verification=_verification if _verification else None,
+        )
+        seal["freeze_seal_source"] = "rebuilt"
+        return seal
+    except Exception:
+        from gas_calibrator.v2.core.step2_freeze_seal_builder import build_freeze_seal_fallback
+        fb = build_freeze_seal_fallback()
+        fb["freeze_seal_source"] = "fallback"
+        return fb
+
+
+def _build_final_closure_matrix_from_summary(
+    summary_payload: dict[str, Any],
+    compact_summary_packs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build Step 2 final closure matrix from a historical run summary payload."""
+    _readiness = (
+        dict(summary_payload.get("step2_closeout_readiness") or {})
+        or _build_closeout_readiness_from_summary(summary_payload, compact_summary_packs)
+    )
+    _pkg = (
+        dict(summary_payload.get("step2_closeout_package") or {})
+        or _build_closeout_package_from_summary(summary_payload, compact_summary_packs)
+    )
+    _audit = (
+        dict(summary_payload.get("step2_freeze_audit") or {})
+        or _build_freeze_audit_from_summary(summary_payload, compact_summary_packs)
+    )
+    _dossier = (
+        dict(summary_payload.get("step3_admission_dossier") or {})
+        or _build_admission_dossier_from_summary(summary_payload, compact_summary_packs)
+    )
+    _seal = (
+        dict(summary_payload.get("step2_freeze_seal") or {})
+        or _build_freeze_seal_from_summary(summary_payload, compact_summary_packs)
+    )
+    return build_step2_final_closure_matrix_surface_payload(
+        run_id=str(summary_payload.get("run_id") or ""),
+        step2_closeout_readiness=_readiness if _readiness else None,
+        step2_closeout_package=_pkg if _pkg else None,
+        step2_freeze_audit=_audit if _audit else None,
+        step3_admission_dossier=_dossier if _dossier else None,
+        step2_freeze_seal=_seal if _seal else None,
+        surface_results=True,
+        surface_reports=True,
+        surface_historical=True,
+        surface_review_index=False,
+    )
 
 
 def _build_operation_report(

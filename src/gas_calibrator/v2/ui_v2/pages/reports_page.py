@@ -4,6 +4,35 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Any
 
+from ...core.compact_summary_rendering import (
+    build_compact_summary_display_text as _build_compact_display_text,
+    build_legacy_hint as _build_legacy_hint,
+)
+from ...core.step2_closeout_readiness_builder import (
+    build_step2_closeout_readiness as _build_closeout_readiness,
+)
+from ...core.step2_closeout_readiness_contracts import (
+    resolve_gate_status_label as _resolve_gate_status_label,
+)
+from ...core.step2_closeout_package_builder import (
+    build_step2_closeout_package as _build_closeout_package,
+    build_closeout_package_fallback as _build_closeout_package_fallback,
+)
+from ...core.step2_freeze_audit_builder import (
+    build_step2_freeze_audit as _build_freeze_audit,
+    build_freeze_audit_fallback as _build_freeze_audit_fallback,
+)
+from ...core.step2_freeze_seal_builder import (
+    build_step2_freeze_seal as _build_freeze_seal,
+    build_freeze_seal_fallback as _build_freeze_seal_fallback,
+)
+from ...core.step2_final_closure_matrix import (
+    build_step2_final_closure_matrix_surface_payload as _build_final_closure_matrix,
+)
+from ...core.step3_admission_dossier_builder import (
+    build_step3_admission_dossier as _build_admission_dossier,
+    build_admission_dossier_fallback as _build_admission_dossier_fallback,
+)
 from ...core.phase_transition_bridge_presenter import (
     build_phase_transition_bridge_digest,
     build_phase_transition_bridge_panel_payload,
@@ -29,6 +58,9 @@ class ReportsPage(ttk.Frame):
         super().__init__(parent, style="Card.TFrame")
         self.exporter = exporter
         self._artifact_rows: list[dict[str, Any]] = []
+        self._compact_summary_packs: list[dict[str, Any]] = []
+        self._compact_summary_budget: dict[str, Any] = {}
+        self._compact_summary_legacy_mode: bool = False
         self._artifact_scope_snapshot: dict[str, Any] = {"scope": "all"}
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
@@ -107,6 +139,7 @@ class ReportsPage(ttk.Frame):
         right.rowconfigure(4, weight=1)
         right.rowconfigure(5, weight=1)
         right.rowconfigure(6, weight=1)
+        right.rowconfigure(7, weight=1)
         self.export_bar = ExportBar(
             right,
             on_export_json=self._export_json,
@@ -147,11 +180,112 @@ class ReportsPage(ttk.Frame):
         self.ai_summary = AISummaryPanel(right, title=t("pages.reports.ai_report_summary"))
         self.ai_summary.grid(row=6, column=0, sticky="nsew")
 
+        self.compact_summary = self._text_panel(
+            right,
+            row=7,
+            title=t("pages.reports.compact_summary_panel", default="紧凑摘要"),
+        )
+        self.compact_summary_legacy_var = tk.StringVar(value="")
+        ttk.Label(
+            right,
+            textvariable=self.compact_summary_legacy_var,
+            style="Muted.TLabel",
+            wraplength=460,
+            justify="left",
+        ).grid(row=8, column=0, sticky="ew", pady=(0, 6))
+
+        self.closeout_readiness = self._text_panel(
+            right,
+            row=9,
+            title=t("pages.reports.closeout_readiness_panel", default="Step 2 收官就绪度"),
+        )
+        self.closeout_readiness_boundary_var = tk.StringVar(value="")
+        ttk.Label(
+            right,
+            textvariable=self.closeout_readiness_boundary_var,
+            style="Muted.TLabel",
+            wraplength=460,
+            justify="left",
+        ).grid(row=10, column=0, sticky="ew", pady=(0, 6))
+
+        self.closeout_package = self._text_panel(
+            right,
+            row=11,
+            title=t("pages.reports.closeout_package_panel", default="Step 2 收官包"),
+        )
+        self.closeout_package_boundary_var = tk.StringVar(value="")
+        ttk.Label(
+            right,
+            textvariable=self.closeout_package_boundary_var,
+            style="Muted.TLabel",
+            wraplength=460,
+            justify="left",
+        ).grid(row=12, column=0, sticky="ew", pady=(0, 6))
+
+        self.freeze_audit = self._text_panel(
+            right,
+            row=13,
+            title=t("pages.reports.freeze_audit_panel", default="Step 2 冻结审计"),
+        )
+        self.freeze_audit_boundary_var = tk.StringVar(value="")
+        ttk.Label(
+            right,
+            textvariable=self.freeze_audit_boundary_var,
+            style="Muted.TLabel",
+            wraplength=460,
+            justify="left",
+        ).grid(row=14, column=0, sticky="ew", pady=(0, 6))
+
+        self.freeze_seal = self._text_panel(
+            right,
+            row=15,
+            title=t("pages.reports.freeze_seal_panel", default="Step 2 封板守护"),
+        )
+        self.freeze_seal_boundary_var = tk.StringVar(value="")
+        ttk.Label(
+            right,
+            textvariable=self.freeze_seal_boundary_var,
+            style="Muted.TLabel",
+            wraplength=460,
+            justify="left",
+        ).grid(row=16, column=0, sticky="ew", pady=(0, 6))
+
+        self.admission_dossier = self._text_panel(
+            right,
+            row=19,
+            title=t("pages.reports.admission_dossier_panel", default="Step 3 准入材料"),
+        )
+        self.admission_dossier_boundary_var = tk.StringVar(value="")
+        ttk.Label(
+            right,
+            textvariable=self.admission_dossier_boundary_var,
+            style="Muted.TLabel",
+            wraplength=460,
+            justify="left",
+        ).grid(row=20, column=0, sticky="ew", pady=(0, 6))
+
+        self.final_closure_matrix = self._text_panel(
+            right,
+            row=17,
+            title=t("pages.reports.final_closure_matrix_panel", default="Step 2 最终封板矩阵"),
+        )
+        self.final_closure_matrix_boundary_var = tk.StringVar(value="")
+        ttk.Label(
+            right,
+            textvariable=self.final_closure_matrix_boundary_var,
+            style="Muted.TLabel",
+            wraplength=460,
+            justify="left",
+        ).grid(row=18, column=0, sticky="ew", pady=(0, 6))
+
     def render(self, snapshot: dict[str, Any]) -> None:
         rows = list(snapshot.get("files", []) or [])
         self._artifact_rows = [dict(item) for item in rows]
         self.run_dir_card.set_value(str(snapshot.get("run_dir", "--") or "--"))
         self.review_center.render(dict(snapshot.get("review_center", {}) or {}))
+        self._compact_summary_packs = list(snapshot.get("compact_summary_packs", []) or [])
+        self._compact_summary_budget = dict(snapshot.get("compact_summary_budget", {}) or {})
+        self._compact_summary_legacy_mode = bool(snapshot.get("compact_summary_legacy_mode", False))
         self._apply_artifact_scope(self.review_center.get_selection_snapshot())
         if not str(snapshot.get("result_summary_text", "") or "").strip():
             snapshot = dict(snapshot)
@@ -173,6 +307,13 @@ class ReportsPage(ttk.Frame):
         self._set_text(self.result_summary, result_summary_text)
         self._set_text(self.qc_summary, str(snapshot.get("qc_summary_text", "") or t("pages.reports.no_qc_summary", default="暂无质控审阅摘要")))
         self.ai_summary.set_text(str(snapshot.get("ai_summary_text", "") or t("pages.reports.no_ai_report_summary")))
+        self._render_compact_summary()
+        self._render_closeout_readiness(snapshot)
+        self._render_closeout_package(snapshot)
+        self._render_freeze_audit(snapshot)
+        self._render_freeze_seal(snapshot)
+        self._render_final_closure_matrix(snapshot)
+        self._render_admission_dossier(snapshot)
         self.export_bar.render(dict(snapshot.get("export", {}) or {}))
         self.page_scaffold._update_scroll_region()
 
@@ -408,7 +549,7 @@ class ReportsPage(ttk.Frame):
 
     def _apply_artifact_scope(self, selection: dict[str, Any] | None) -> None:
         self._artifact_scope_snapshot = dict(selection or {"scope": "all"})
-        scoped_view = build_artifact_scope_view(self._artifact_rows, selection=self._artifact_scope_snapshot)
+        scoped_view = build_artifact_scope_view(self._artifact_rows, selection=self._artifact_scope_snapshot, compact_summary_packs=self._compact_summary_packs)
         reviewer_display = dict(scoped_view.get("reviewer_display", {}) or {})
         self.artifacts.render(list(scoped_view.get("rows", []) or []))
         self.artifact_scope_var.set(
@@ -448,6 +589,300 @@ class ReportsPage(ttk.Frame):
         self.export_scope_notice_var.set(
             str(reviewer_display.get("export_warning_text") or scoped_view.get("export_warning_text") or "")
         )
+
+    def _render_compact_summary(self) -> None:
+        """Render compact summary pack content into the compact summary panel."""
+        display = _build_compact_display_text(
+            self._compact_summary_packs,
+            budget=self._compact_summary_budget,
+        )
+        display_text = str(display.get("display_text") or "")
+        legacy_hint = dict(display.get("legacy_hint") or {})
+        if not display_text.strip():
+            display_text = t("pages.reports.compact_summary_no_content", default="暂无紧凑摘要内容")
+        self._set_text(self.compact_summary, display_text)
+        if bool(legacy_hint.get("compact_summary_legacy_mode")) or self._compact_summary_legacy_mode:
+            self.compact_summary_legacy_var.set(
+                t("pages.reports.compact_summary_legacy_notice", default="兼容视图：旧运行未提供紧凑摘要包")
+            )
+        else:
+            self.compact_summary_legacy_var.set("")
+
+    def _render_closeout_readiness(self, snapshot: dict[str, Any]) -> None:
+        """Render Step 2 closeout readiness into the closeout readiness panel."""
+        closeout = dict(snapshot.get("step2_closeout_readiness") or {})
+        if not closeout:
+            closeout = _build_closeout_readiness(
+                run_id=str(snapshot.get("run_id") or ""),
+                step2_readiness_summary=dict(snapshot.get("step2_readiness_summary") or {}),
+                compact_summary_packs=self._compact_summary_packs,
+                governance_handoff=dict(snapshot.get("config_governance_handoff") or {}),
+                parity_resilience=dict(snapshot.get("parity_resilience") or {}),
+                acceptance_governance=dict(snapshot.get("acceptance_governance") or {}),
+                phase_evidence=dict(snapshot.get("phase_evidence") or {}),
+            )
+        summary_lines = list(closeout.get("reviewer_summary_lines") or [])
+        if not summary_lines:
+            summary_line = str(closeout.get("reviewer_summary_line") or "")
+            summary_lines = [summary_line] if summary_line else []
+        if not summary_lines:
+            summary_lines = [t("pages.reports.closeout_readiness_no_content", default="暂无收官就绪度数据")]
+        # Append gate field display lines (Step 2.20)
+        summary_lines.extend(self._build_gate_display_lines(closeout))
+        display_text = "\n".join(summary_lines)
+        self._set_text(self.closeout_readiness, display_text)
+        boundary = str(closeout.get("simulation_only_boundary") or "")
+        if boundary:
+            self.closeout_readiness_boundary_var.set(boundary)
+        else:
+            self.closeout_readiness_boundary_var.set(
+                t("pages.reports.closeout_readiness_boundary_notice", default="")
+            )
+
+    @staticmethod
+    def _build_gate_display_lines(closeout: dict[str, Any]) -> list[str]:
+        """Build gate field display lines from closeout readiness payload."""
+        lines: list[str] = []
+        gate_status = str(closeout.get("gate_status") or "")
+        gate_summary = dict(closeout.get("gate_summary") or {})
+        alignment = dict(closeout.get("closeout_gate_alignment") or {})
+
+        if not gate_status and not gate_summary:
+            lines.append(t("pages.reports.closeout_readiness_gate_no_data"))
+            return lines
+
+        # gate_status line
+        status_label = _resolve_gate_status_label(gate_status) if gate_status else "--"
+        lines.append(t("pages.reports.closeout_readiness_gate_status_line", status=status_label))
+
+        # gate_summary line
+        pass_count = int(gate_summary.get("pass_count", 0) or 0)
+        total_count = int(gate_summary.get("total_count", 0) or 0)
+        blocked_count = int(gate_summary.get("blocked_count", 0) or 0)
+        lines.append(t(
+            "pages.reports.closeout_readiness_gate_summary_line",
+            pass_count=pass_count,
+            total_count=total_count,
+            blocked_count=blocked_count,
+        ))
+
+        # closeout_gate_alignment line
+        aligned = bool(alignment.get("aligned", False))
+        if aligned:
+            lines.append(t("pages.reports.closeout_readiness_gate_alignment_aligned"))
+        else:
+            lines.append(t("pages.reports.closeout_readiness_gate_alignment_misaligned"))
+
+        return lines
+
+    def _render_closeout_package(self, snapshot: dict[str, Any]) -> None:
+        """Render Step 2 closeout package into the closeout package panel."""
+        pkg = dict(snapshot.get("step2_closeout_package") or {})
+        if not pkg:
+            # Build from existing payloads in snapshot
+            closeout = dict(snapshot.get("step2_closeout_readiness") or {})
+            if not closeout:
+                closeout = _build_closeout_readiness(
+                    run_id=str(snapshot.get("run_id") or ""),
+                    step2_readiness_summary=dict(snapshot.get("step2_readiness_summary") or {}),
+                    compact_summary_packs=self._compact_summary_packs,
+                    governance_handoff=dict(snapshot.get("config_governance_handoff") or {}),
+                    parity_resilience=dict(snapshot.get("parity_resilience") or {}),
+                    acceptance_governance=dict(snapshot.get("acceptance_governance") or {}),
+                    phase_evidence=dict(snapshot.get("phase_evidence") or {}),
+                )
+            pkg = _build_closeout_package(
+                run_id=str(snapshot.get("run_id") or ""),
+                step2_closeout_readiness=closeout,
+                step2_closeout_digest=dict(snapshot.get("step2_closeout_digest") or {}),
+                stage_admission_review_pack=dict(snapshot.get("stage_admission_review_pack") or {}),
+                engineering_isolation_admission_checklist=dict(snapshot.get("engineering_isolation_admission_checklist") or {}),
+                compact_summary_packs=self._compact_summary_packs,
+                governance_handoff=dict(snapshot.get("config_governance_handoff") or {}),
+                parity_resilience=dict(snapshot.get("parity_resilience") or {}),
+                phase_evidence=dict(snapshot.get("phase_evidence") or {}),
+            )
+        summary_lines = list(pkg.get("reviewer_summary_lines") or [])
+        if not summary_lines:
+            summary_line = str(pkg.get("reviewer_summary_line") or "")
+            summary_lines = [summary_line] if summary_line else []
+        if not summary_lines:
+            summary_lines = [t("pages.reports.closeout_package_no_content", default="暂无收官包数据")]
+        display_text = "\n".join(summary_lines)
+        self._set_text(self.closeout_package, display_text)
+        boundary = str(pkg.get("simulation_only_boundary") or "")
+        if boundary:
+            self.closeout_package_boundary_var.set(boundary)
+        else:
+            self.closeout_package_boundary_var.set(
+                t("pages.reports.closeout_package_boundary_notice", default="")
+            )
+
+    def _render_freeze_audit(self, snapshot: dict[str, Any]) -> None:
+        """Render Step 2 freeze audit into the freeze audit panel."""
+        audit = dict(snapshot.get("step2_freeze_audit") or {})
+        if not audit:
+            # Build from existing payloads in snapshot
+            pkg = dict(snapshot.get("step2_closeout_package") or {})
+            closeout = dict(snapshot.get("step2_closeout_readiness") or {})
+            audit = _build_freeze_audit(
+                run_id=str(snapshot.get("run_id") or ""),
+                step2_closeout_package=pkg if pkg else None,
+                step2_closeout_readiness=closeout if closeout else None,
+                parity_resilience_summary=dict(snapshot.get("parity_resilience") or {}),
+                governance_handoff=dict(snapshot.get("config_governance_handoff") or {}),
+                acceptance_governance=dict(snapshot.get("acceptance_governance") or {}),
+                phase_evidence=dict(snapshot.get("phase_evidence") or {}),
+            )
+        summary_lines = list(audit.get("reviewer_summary_lines") or [])
+        if not summary_lines:
+            summary_line = str(audit.get("reviewer_summary_line") or "")
+            summary_lines = [summary_line] if summary_line else []
+        if not summary_lines:
+            summary_lines = [t("pages.reports.freeze_audit_no_content", default="暂无冻结审计数据")]
+        display_text = "\n".join(summary_lines)
+        self._set_text(self.freeze_audit, display_text)
+        boundary = str(audit.get("simulation_only_boundary") or "")
+        if boundary:
+            self.freeze_audit_boundary_var.set(boundary)
+        else:
+            self.freeze_audit_boundary_var.set(
+                t("pages.reports.freeze_audit_boundary_notice", default="")
+            )
+
+    def _render_freeze_seal(self, snapshot: dict[str, Any]) -> None:
+        """Render Step 2 freeze seal into the freeze seal panel."""
+        seal = dict(snapshot.get("step2_freeze_seal") or {})
+        if not seal:
+            # Build from existing payloads in snapshot
+            readiness = dict(snapshot.get("step2_closeout_readiness") or {})
+            pkg = dict(snapshot.get("step2_closeout_package") or {})
+            audit = dict(snapshot.get("step2_freeze_audit") or {})
+            dossier = dict(snapshot.get("step3_admission_dossier") or {})
+            verification = dict(snapshot.get("step2_closeout_verification") or {})
+            seal = _build_freeze_seal(
+                run_id=str(snapshot.get("run_id") or ""),
+                step2_closeout_readiness=readiness if readiness else None,
+                step2_closeout_package=pkg if pkg else None,
+                step2_freeze_audit=audit if audit else None,
+                step3_admission_dossier=dossier if dossier else None,
+                step2_closeout_verification=verification if verification else None,
+            )
+        summary_lines = list(seal.get("reviewer_summary_lines") or [])
+        if not summary_lines:
+            summary_line = str(seal.get("reviewer_summary_line") or "")
+            summary_lines = [summary_line] if summary_line else []
+        if not summary_lines:
+            summary_lines = [t("pages.reports.freeze_seal_no_content", default="暂无封板守护数据")]
+        display_text = "\n".join(summary_lines)
+        self._set_text(self.freeze_seal, display_text)
+        boundary = str(seal.get("simulation_only_boundary") or "")
+        if boundary:
+            self.freeze_seal_boundary_var.set(boundary)
+        else:
+            self.freeze_seal_boundary_var.set(
+                t("pages.reports.freeze_seal_boundary_notice", default="")
+            )
+
+    def _render_final_closure_matrix(self, snapshot: dict[str, Any]) -> None:
+        """Render Step 2 final closure matrix into the reports page."""
+        matrix = dict(snapshot.get("step2_final_closure_matrix") or {})
+        if not matrix:
+            matrix = _build_final_closure_matrix(
+                run_id=str(snapshot.get("run_id") or ""),
+                step2_closeout_readiness=dict(snapshot.get("step2_closeout_readiness") or {}) or None,
+                step2_closeout_package=dict(snapshot.get("step2_closeout_package") or {}) or None,
+                step2_freeze_audit=dict(snapshot.get("step2_freeze_audit") or {}) or None,
+                step3_admission_dossier=dict(snapshot.get("step3_admission_dossier") or {}) or None,
+                step2_freeze_seal=dict(snapshot.get("step2_freeze_seal") or {}) or None,
+                surface_results=True,
+                surface_reports=True,
+                surface_historical=True,
+                surface_review_index=bool(dict(snapshot.get("review_center") or {})),
+            )
+        summary_lines = list(matrix.get("reviewer_summary_lines") or [])
+        if not summary_lines:
+            summary_line = str(matrix.get("reviewer_summary_line") or "")
+            summary_lines = [summary_line] if summary_line else []
+        if not summary_lines:
+            summary_lines = [
+                t(
+                    "pages.reports.final_closure_matrix_no_content",
+                    default="暂无最终封板矩阵数据",
+                )
+            ]
+        display_text = "\n".join(summary_lines)
+        self._set_text(self.final_closure_matrix, display_text)
+        boundary = str(matrix.get("simulation_only_boundary") or "")
+        if boundary:
+            self.final_closure_matrix_boundary_var.set(boundary)
+        else:
+            self.final_closure_matrix_boundary_var.set(
+                t("pages.reports.final_closure_matrix_boundary_notice", default="")
+            )
+
+    def _render_admission_dossier(self, snapshot: dict[str, Any]) -> None:
+        """Render Step 3 admission dossier into the admission dossier panel."""
+        dossier = dict(snapshot.get("step3_admission_dossier") or {})
+        if not dossier:
+            audit = dict(snapshot.get("step2_freeze_audit") or {})
+            pkg = dict(snapshot.get("step2_closeout_package") or {})
+            closeout = dict(snapshot.get("step2_closeout_readiness") or {})
+            dossier = _build_admission_dossier(
+                run_id=str(snapshot.get("run_id") or ""),
+                step2_freeze_audit=audit if audit else None,
+                step2_closeout_package=pkg if pkg else None,
+                step2_closeout_readiness=closeout if closeout else None,
+                governance_handoff=dict(snapshot.get("config_governance_handoff") or {}),
+                parity_resilience_summary=dict(snapshot.get("parity_resilience") or {}),
+                phase_evidence=dict(snapshot.get("phase_evidence") or {}),
+            )
+            dossier["admission_dossier_source"] = dossier.get("admission_dossier_source") or "rebuilt"
+        # Build display lines with full UI parity fields
+        summary_lines = list(dossier.get("reviewer_summary_lines") or [])
+        if not summary_lines:
+            summary_line = str(dossier.get("reviewer_summary_line") or "")
+            summary_lines = [summary_line] if summary_line else []
+        if not summary_lines:
+            summary_lines = [t("pages.reports.admission_dossier_no_content", default="暂无准入材料数据")]
+        # Append dossier_status, blockers, next_steps, admission_candidate_notice
+        dossier_status = str(dossier.get("dossier_status") or "")
+        dossier_status_label = str(dossier.get("dossier_status_label") or dossier_status)
+        if dossier_status_label and dossier_status_label not in summary_lines:
+            summary_lines.append(
+                t("pages.reports.admission_dossier_dossier_status", status=dossier_status_label,
+                  default=f"准入材料状态：{dossier_status_label}")
+            )
+        blockers = list(dossier.get("blockers") or [])
+        if blockers:
+            summary_lines.append(
+                t("pages.reports.admission_dossier_blockers_count", count=len(blockers),
+                  default=f"阻塞项（{len(blockers)}）：")
+            )
+            for blocker in blockers:
+                label = str(blocker.get("label_zh") or blocker.get("key") or "")
+                summary_lines.append(f"  - {label}")
+        next_steps = list(dossier.get("next_steps") or [])
+        if next_steps:
+            summary_lines.append(
+                t("pages.reports.admission_dossier_next_steps_count", count=len(next_steps),
+                  default=f"下一步（{len(next_steps)}）：")
+            )
+            for step in next_steps:
+                label = str(step.get("label_zh") or step.get("key") or "")
+                summary_lines.append(f"  - {label}")
+        admission_candidate_notice = str(dossier.get("admission_candidate_notice_zh") or "")
+        if admission_candidate_notice and admission_candidate_notice not in summary_lines:
+            summary_lines.append(admission_candidate_notice)
+        display_text = "\n".join(summary_lines)
+        self._set_text(self.admission_dossier, display_text)
+        boundary = str(dossier.get("simulation_only_boundary") or "")
+        if boundary:
+            self.admission_dossier_boundary_var.set(boundary)
+        else:
+            self.admission_dossier_boundary_var.set(
+                t("pages.reports.admission_dossier_boundary_notice", default="")
+            )
 
     def _clear_artifact_scope(self) -> None:
         self.review_center.clear_selection_scope()

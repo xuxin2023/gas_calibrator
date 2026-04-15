@@ -99,6 +99,13 @@ from ..review_center_artifact_scope import (
     render_review_scope_manifest_markdown,
 )
 from ...core.reviewer_summary_packs import build_compact_summary_render_context
+from ...core.compact_summary_rendering import (
+    build_rendered_sections as _shared_build_rendered_sections,
+    build_omitted_sections as _shared_build_omitted_sections,
+    build_budget_display as _shared_build_budget_display,
+    build_compact_summary_pack_fields as _shared_build_pack_fields,
+    build_old_run_fallback as _shared_build_old_run_fallback,
+)
 from ..review_scope_export_index import (
     INDEX_FILENAME as REVIEW_SCOPE_EXPORT_INDEX_FILENAME,
     build_review_scope_batch_id,
@@ -111,6 +118,12 @@ from ..review_center_scan_contracts import (
     allocate_family_budgets as _allocate_family_budgets,
     build_family_budget_summary as _build_family_budget_summary,
     build_v12_alignment_summary as _build_v12_alignment_summary,
+)
+from ...core.step2_closeout_verification import (
+    build_step2_closeout_verification_surface_payload as _build_closeout_verification_surface_payload,
+)
+from ...core.step2_final_closure_matrix import (
+    build_step2_final_closure_matrix_surface_payload as _build_final_closure_matrix_surface_payload,
 )
 from ..utils.app_info import APP_INFO
 from ..utils.preferences_store import PreferencesStore, merge_preferences
@@ -568,6 +581,32 @@ def _normalize_workbench_evidence_payload(
             dict(item) for item in list(qc_evidence_section.get("cards") or []) if isinstance(item, dict)
         ]
     return normalized
+
+
+
+# ---------------------------------------------------------------------------
+# Compact summary pack rendering helpers
+# ---------------------------------------------------------------------------
+
+def _build_rendered_sections(
+    packs: list[dict[str, Any]],
+    budget: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Build rendered summary sections from compact summary packs for results snapshot."""
+    return _shared_build_rendered_sections(packs, budget)
+
+
+def _build_omitted_sections(
+    packs: list[dict[str, Any]],
+    budget: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Build omitted summary sections from compact summary packs for results snapshot."""
+    return _shared_build_omitted_sections(packs, budget)
+
+
+def _build_budget_display(budget: dict[str, Any]) -> dict[str, Any]:
+    """Build budget display dict from compact summary budget."""
+    return _shared_build_budget_display(budget)
 
 
 class AppFacade:
@@ -1555,23 +1594,11 @@ class AppFacade:
 
         # Compact summary pack — explicit consumption for review_center surface
         _raw_packs = list(payload.get("compact_summary_packs") or [])
-        if _raw_packs:
-            try:
-                _pack_ctx = build_compact_summary_render_context(_raw_packs, surface="review_center")
-                compact_summary_packs = list(_pack_ctx.get("compact_summary_packs") or [])
-                compact_summary_sections = list(_pack_ctx.get("compact_summary_sections") or [])
-                compact_summary_order = list(_pack_ctx.get("compact_summary_order") or [])
-                compact_summary_budget = dict(_pack_ctx.get("compact_summary_budget") or {})
-            except Exception:
-                compact_summary_packs = []
-                compact_summary_sections = []
-                compact_summary_order = []
-                compact_summary_budget = {}
-        else:
-            compact_summary_packs = []
-            compact_summary_sections = []
-            compact_summary_order = []
-            compact_summary_budget = {}
+        _pack_fields = _shared_build_pack_fields(_raw_packs, surface="review_center")
+        compact_summary_packs = list(_pack_fields.get("compact_summary_packs") or [])
+        compact_summary_sections = list(_pack_fields.get("compact_summary_sections") or [])
+        compact_summary_order = list(_pack_fields.get("compact_summary_order") or [])
+        compact_summary_budget = dict(_pack_fields.get("compact_summary_budget") or {})
 
         sample_count = 0
         point_summary_count = 0
@@ -1986,6 +2013,14 @@ class AppFacade:
             wp6_closeout_bundle=_wp6_closeout_bundle,
             compatibility_scan_summary=compatibility_scan_summary,
             recognition_scope_rollup=recognition_scope_rollup,
+            step2_closeout_readiness=dict(payload.get("step2_closeout_readiness") or {}),
+            step2_closeout_package=dict(payload.get("step2_closeout_package") or {}),
+            step2_freeze_audit=dict(payload.get("step2_freeze_audit") or {}),
+            step3_admission_dossier=dict(payload.get("step3_admission_dossier") or {}),
+            step2_closeout_verification=dict(payload.get("step2_closeout_verification") or {}),
+            step2_freeze_seal=dict(payload.get("step2_freeze_seal") or {}),
+            step2_final_closure_matrix=dict(payload.get("step2_final_closure_matrix") or {}),
+            compact_summary_packs_for_closeout=compact_summary_packs,
         )
         review_digest = self._build_review_digest(
             suite_summary=suite_summary,
@@ -2631,6 +2666,9 @@ class AppFacade:
             "compact_summary_sections": compact_summary_sections,
             "compact_summary_order": compact_summary_order,
             "compact_summary_budget": compact_summary_budget,
+            "rendered_summary_sections": _build_rendered_sections(compact_summary_packs, compact_summary_budget),
+            "omitted_summary_sections": _build_omitted_sections(compact_summary_packs, compact_summary_budget),
+            "compact_summary_budget_display": _build_budget_display(compact_summary_budget),
             "review_digest": review_digest,
             "review_digest_text": str(review_digest.get("summary_text", "") or ""),
             "review_center": review_center,
@@ -2661,6 +2699,13 @@ class AppFacade:
                 "points_version": lineage_digest.get("points_version"),
                 "profile_version": lineage_digest.get("profile_version"),
             },
+            "step2_closeout_readiness": dict(payload.get("step2_closeout_readiness") or {}),
+            "step2_closeout_package": dict(payload.get("step2_closeout_package") or {}),
+            "step2_freeze_audit": dict(payload.get("step2_freeze_audit") or {}),
+            "step3_admission_dossier": dict(payload.get("step3_admission_dossier") or {}),
+            "step2_closeout_verification": dict(payload.get("step2_closeout_verification") or {}),
+            "step2_freeze_seal": dict(payload.get("step2_freeze_seal") or {}),
+            "step2_final_closure_matrix": dict(payload.get("step2_final_closure_matrix") or {}),
         }
 
     def _build_review_digest(
@@ -2759,7 +2804,44 @@ class AppFacade:
         wp6_closeout_bundle: _Wp6CloseoutBundle,
         compatibility_scan_summary: dict[str, Any],
         recognition_scope_rollup: dict[str, Any],
+        step2_closeout_readiness: dict[str, Any] | None = None,
+        step2_closeout_package: dict[str, Any] | None = None,
+        step2_freeze_audit: dict[str, Any] | None = None,
+        step3_admission_dossier: dict[str, Any] | None = None,
+        step2_closeout_verification: dict[str, Any] | None = None,
+        step2_freeze_seal: dict[str, Any] | None = None,
+        step2_final_closure_matrix: dict[str, Any] | None = None,
+        compact_summary_packs_for_closeout: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
+        closeout_readiness_payload = dict(step2_closeout_readiness or {})
+        closeout_package_payload = dict(step2_closeout_package or {})
+        freeze_audit_payload = dict(step2_freeze_audit or {})
+        admission_dossier_payload = dict(step3_admission_dossier or {})
+        closeout_verification_payload = dict(step2_closeout_verification or {})
+        freeze_seal_payload = dict(step2_freeze_seal or {})
+        final_closure_matrix_payload = dict(step2_final_closure_matrix or {})
+        if not final_closure_matrix_payload or "review_index" not in list(
+            final_closure_matrix_payload.get("audited_surfaces") or []
+        ):
+            final_closure_matrix_payload = _build_final_closure_matrix_surface_payload(
+                run_id=str(
+                    closeout_readiness_payload.get("run_id")
+                    or closeout_package_payload.get("run_id")
+                    or freeze_audit_payload.get("run_id")
+                    or admission_dossier_payload.get("run_id")
+                    or freeze_seal_payload.get("run_id")
+                    or ""
+                ),
+                step2_closeout_readiness=closeout_readiness_payload if closeout_readiness_payload else None,
+                step2_closeout_package=closeout_package_payload if closeout_package_payload else None,
+                step2_freeze_audit=freeze_audit_payload if freeze_audit_payload else None,
+                step3_admission_dossier=admission_dossier_payload if admission_dossier_payload else None,
+                step2_freeze_seal=freeze_seal_payload if freeze_seal_payload else None,
+                surface_results=True,
+                surface_reports=True,
+                surface_historical=True,
+                surface_review_index=True,
+            )
         compatibility_rollup = dict(
             dict(compatibility_scan_summary or {}).get("compatibility_rollup")
             or dict(dict(compatibility_scan_summary or {}).get("compatibility_overview") or {}).get("compatibility_rollup")
@@ -3129,6 +3211,14 @@ class AppFacade:
             "detail_hint": t("results.review_center.detail_hint"),
             "empty_detail": t("results.review_center.empty"),
             "disclaimer": t("results.review_center.disclaimer"),
+            "step2_closeout_readiness": closeout_readiness_payload,
+            "step2_closeout_package": closeout_package_payload,
+            "step2_freeze_audit": freeze_audit_payload,
+            "step3_admission_dossier": admission_dossier_payload,
+            "step2_closeout_verification": closeout_verification_payload,
+            "step2_freeze_seal": freeze_seal_payload,
+            "step2_final_closure_matrix": final_closure_matrix_payload,
+            "compact_summary_packs": list(compact_summary_packs_for_closeout or []),
         }
 
     def _enrich_review_evidence_item(
@@ -6080,6 +6170,200 @@ class AppFacade:
         payload["config_governance_handoff"] = dict(
             results.get("config_governance_handoff", {}) or payload.get("config_governance_handoff", {}) or {}
         )
+        payload["step2_final_closure_matrix"] = dict(
+            results.get("step2_final_closure_matrix", {})
+            or payload.get("step2_final_closure_matrix", {})
+            or {}
+        )
+        payload["compact_summary_packs"] = list(results.get("compact_summary_packs", []) or [])
+        payload["compact_summary_sections"] = list(results.get("compact_summary_sections", []) or [])
+        payload["compact_summary_order"] = list(results.get("compact_summary_order", []) or [])
+        payload["compact_summary_budget"] = dict(results.get("compact_summary_budget", {}) or {})
+        payload["rendered_summary_sections"] = list(results.get("rendered_summary_sections", []) or [])
+        payload["omitted_summary_sections"] = list(results.get("omitted_summary_sections", []) or [])
+        payload["compact_summary_budget_display"] = dict(results.get("compact_summary_budget_display", {}) or {})
+        # Old-run fallback: if no compact_summary_packs at all, use shared fallback
+        if not payload["compact_summary_packs"]:
+            _fallback = _shared_build_old_run_fallback()
+            payload["compact_summary_packs"] = _fallback["compact_summary_packs"]
+            payload["compact_summary_sections"] = _fallback["compact_summary_sections"]
+            payload["compact_summary_order"] = _fallback["compact_summary_order"]
+            payload["compact_summary_budget"] = _fallback["compact_summary_budget"]
+            payload["rendered_summary_sections"] = _fallback["rendered_summary_sections"]
+            payload["omitted_summary_sections"] = _fallback["omitted_summary_sections"]
+            payload["compact_summary_budget_display"] = _fallback["compact_summary_budget_display"]
+        # Step 2 closeout readiness — prefer persisted payload (Step 2.19)
+        _persisted_closeout = dict(payload.get("step2_closeout_readiness") or {})
+        if _persisted_closeout:
+            # Main path: use closeout readiness already built by results_gateway
+            payload["step2_closeout_readiness"] = _persisted_closeout
+        else:
+            # Secondary path: fallback to try/except build (only when persisted data unavailable)
+            try:
+                from ...core.step2_closeout_readiness_builder import build_step2_closeout_readiness
+                payload["step2_closeout_readiness"] = build_step2_closeout_readiness(
+                    run_id=str(payload.get("run_id") or ""),
+                    step2_readiness_summary=dict(payload.get("step2_readiness_summary") or results.get("step2_readiness_summary") or {}),
+                    compact_summary_packs=payload["compact_summary_packs"],
+                    governance_handoff=dict(payload.get("config_governance_handoff") or {}),
+                    parity_resilience=dict(results.get("parity_resilience") or {}),
+                    acceptance_governance=dict(results.get("acceptance_governance") or payload.get("acceptance_governance") or {}),
+                    phase_evidence=dict(results.get("phase_evidence") or {}),
+                )
+            except Exception:
+                from ...core.step2_closeout_readiness_contracts import build_closeout_readiness_fallback
+                payload["step2_closeout_readiness"] = build_closeout_readiness_fallback()
+        # Step 2 closeout package — prefer persisted payload (Step 2.22)
+        _persisted_closeout_pkg = dict(payload.get("step2_closeout_package") or {})
+        if _persisted_closeout_pkg:
+            # Main path: use closeout package already built by results_gateway
+            payload["step2_closeout_package"] = _persisted_closeout_pkg
+            payload["step2_closeout_package_source"] = "persisted"
+        else:
+            # Secondary path: fallback to try/except build (only when persisted data unavailable)
+            try:
+                from ...core.step2_closeout_package_builder import build_step2_closeout_package
+                _closeout_readiness = dict(payload.get("step2_closeout_readiness") or {})
+                payload["step2_closeout_package"] = build_step2_closeout_package(
+                    run_id=str(payload.get("run_id") or ""),
+                    step2_closeout_readiness=_closeout_readiness,
+                    step2_closeout_digest=dict(payload.get("step2_closeout_digest") or {}),
+                    stage_admission_review_pack=dict(payload.get("stage_admission_review_pack") or {}),
+                    engineering_isolation_admission_checklist=dict(payload.get("engineering_isolation_admission_checklist") or {}),
+                    compact_summary_packs=payload.get("compact_summary_packs"),
+                    governance_handoff=dict(payload.get("config_governance_handoff") or {}),
+                    parity_resilience=dict(results.get("parity_resilience") or {}),
+                    phase_evidence=dict(results.get("phase_evidence") or {}),
+                )
+                payload["step2_closeout_package_source"] = "rebuilt"
+            except Exception:
+                from ...core.step2_closeout_package_builder import build_closeout_package_fallback
+                payload["step2_closeout_package"] = build_closeout_package_fallback()
+                payload["step2_closeout_package_source"] = "fallback"
+        # Step 2 freeze audit — prefer persisted payload (Step 2.23)
+        _persisted_freeze_audit = dict(payload.get("step2_freeze_audit") or {})
+        if _persisted_freeze_audit:
+            # Main path: use freeze audit already built by results_gateway
+            payload["step2_freeze_audit"] = _persisted_freeze_audit
+            payload["step2_freeze_audit_source"] = "persisted"
+        else:
+            # Secondary path: fallback to try/except build
+            try:
+                from ...core.step2_freeze_audit_builder import build_step2_freeze_audit
+                _closeout_pkg = dict(payload.get("step2_closeout_package") or {})
+                _closeout_readiness = dict(payload.get("step2_closeout_readiness") or {})
+                payload["step2_freeze_audit"] = build_step2_freeze_audit(
+                    run_id=str(payload.get("run_id") or ""),
+                    step2_closeout_package=_closeout_pkg if _closeout_pkg else None,
+                    step2_closeout_readiness=_closeout_readiness if _closeout_readiness else None,
+                    parity_resilience_summary=dict(results.get("parity_resilience") or {}),
+                    governance_handoff=dict(payload.get("config_governance_handoff") or {}),
+                    acceptance_governance=dict(results.get("acceptance_governance") or payload.get("acceptance_governance") or {}),
+                    phase_evidence=dict(results.get("phase_evidence") or {}),
+                )
+                payload["step2_freeze_audit_source"] = "rebuilt"
+            except Exception:
+                from ...core.step2_freeze_audit_builder import build_freeze_audit_fallback
+                payload["step2_freeze_audit"] = build_freeze_audit_fallback()
+                payload["step2_freeze_audit_source"] = "fallback"
+
+        # Step 3 admission dossier — prefer persisted payload (Step 2.25)
+        _persisted_admission_dossier = dict(payload.get("step3_admission_dossier") or {})
+        if _persisted_admission_dossier:
+            payload["step3_admission_dossier"] = _persisted_admission_dossier
+            payload["admission_dossier_source"] = "persisted"
+        else:
+            try:
+                from ...core.step3_admission_dossier_builder import build_step3_admission_dossier
+                _freeze_audit = dict(payload.get("step2_freeze_audit") or {})
+                _closeout_pkg = dict(payload.get("step2_closeout_package") or {})
+                _closeout_readiness = dict(payload.get("step2_closeout_readiness") or {})
+                payload["step3_admission_dossier"] = build_step3_admission_dossier(
+                    run_id=str(payload.get("run_id") or ""),
+                    step2_freeze_audit=_freeze_audit if _freeze_audit else None,
+                    step2_closeout_package=_closeout_pkg if _closeout_pkg else None,
+                    step2_closeout_readiness=_closeout_readiness if _closeout_readiness else None,
+                    governance_handoff=dict(payload.get("config_governance_handoff") or {}),
+                    parity_resilience_summary=dict(results.get("parity_resilience") or {}),
+                    phase_evidence=dict(results.get("phase_evidence") or {}),
+                    acceptance_governance=dict(results.get("acceptance_governance") or payload.get("acceptance_governance") or {}),
+                )
+                payload["admission_dossier_source"] = "rebuilt"
+            except Exception:
+                from ...core.step3_admission_dossier_builder import build_admission_dossier_fallback
+                payload["step3_admission_dossier"] = build_admission_dossier_fallback()
+                payload["admission_dossier_source"] = "fallback"
+
+        # Step 2 closeout verification — prefer persisted payload (Step 2.25)
+        _persisted_closeout_verification = dict(payload.get("step2_closeout_verification") or {})
+        if _persisted_closeout_verification:
+            payload["step2_closeout_verification"] = _persisted_closeout_verification
+            payload["closeout_verification_source"] = str(
+                _persisted_closeout_verification.get("closeout_verification_source")
+                or _persisted_closeout_verification.get("verification_source")
+                or "persisted"
+            )
+        else:
+            _closeout_readiness = dict(payload.get("step2_closeout_readiness") or {})
+            _closeout_pkg = dict(payload.get("step2_closeout_package") or {})
+            _freeze_audit = dict(payload.get("step2_freeze_audit") or {})
+            _admission_dossier = dict(payload.get("step3_admission_dossier") or {})
+            payload["step2_closeout_verification"] = _build_closeout_verification_surface_payload(
+                run_id=str(payload.get("run_id") or ""),
+                step2_closeout_readiness=_closeout_readiness if _closeout_readiness else None,
+                step2_closeout_package=_closeout_pkg if _closeout_pkg else None,
+                step2_freeze_audit=_freeze_audit if _freeze_audit else None,
+                step3_admission_dossier=_admission_dossier if _admission_dossier else None,
+                governance_handoff=dict(payload.get("config_governance_handoff") or {}),
+                parity_resilience_summary=dict(results.get("parity_resilience") or {}),
+                phase_evidence=dict(results.get("phase_evidence") or {}),
+            )
+            payload["closeout_verification_source"] = str(
+                dict(payload.get("step2_closeout_verification") or {}).get("closeout_verification_source")
+                or dict(payload.get("step2_closeout_verification") or {}).get("verification_source")
+                or "fallback"
+            )
+
+        # Step 2 freeze seal — prefer persisted payload (Step 2.25)
+        _persisted_freeze_seal = dict(payload.get("step2_freeze_seal") or {})
+        if _persisted_freeze_seal:
+            payload["step2_freeze_seal"] = _persisted_freeze_seal
+            payload["freeze_seal_source"] = "persisted"
+        else:
+            try:
+                from ...core.step2_freeze_seal_builder import build_step2_freeze_seal
+                _closeout_readiness = dict(payload.get("step2_closeout_readiness") or {})
+                _closeout_pkg = dict(payload.get("step2_closeout_package") or {})
+                _freeze_audit = dict(payload.get("step2_freeze_audit") or {})
+                _admission_dossier = dict(payload.get("step3_admission_dossier") or {})
+                _closeout_verification = dict(payload.get("step2_closeout_verification") or {})
+                payload["step2_freeze_seal"] = build_step2_freeze_seal(
+                    run_id=str(payload.get("run_id") or ""),
+                    step2_closeout_readiness=_closeout_readiness if _closeout_readiness else None,
+                    step2_closeout_package=_closeout_pkg if _closeout_pkg else None,
+                    step2_freeze_audit=_freeze_audit if _freeze_audit else None,
+                    step3_admission_dossier=_admission_dossier if _admission_dossier else None,
+                    step2_closeout_verification=_closeout_verification if _closeout_verification else None,
+                )
+                payload["freeze_seal_source"] = "rebuilt"
+            except Exception:
+                from ...core.step2_freeze_seal_builder import build_freeze_seal_fallback
+                payload["step2_freeze_seal"] = build_freeze_seal_fallback()
+                payload["freeze_seal_source"] = "fallback"
+
+        payload["step2_final_closure_matrix"] = _build_final_closure_matrix_surface_payload(
+            run_id=str(payload.get("run_id") or ""),
+            step2_closeout_readiness=dict(payload.get("step2_closeout_readiness") or {}) or None,
+            step2_closeout_package=dict(payload.get("step2_closeout_package") or {}) or None,
+            step2_freeze_audit=dict(payload.get("step2_freeze_audit") or {}) or None,
+            step3_admission_dossier=dict(payload.get("step3_admission_dossier") or {}) or None,
+            step2_freeze_seal=dict(payload.get("step2_freeze_seal") or {}) or None,
+            surface_results=True,
+            surface_reports=True,
+            surface_historical=True,
+            surface_review_index=True,
+        )
+
         return payload
 
     def get_timeseries_snapshot(self, *, run_snapshot: Optional[dict[str, Any]] = None) -> dict[str, Any]:
@@ -6336,10 +6620,12 @@ class AppFacade:
         destination.mkdir(parents=True, exist_ok=True)
         self._busy_message = t("facade.export_review_manifesting")
         try:
+            _manifest_packs = list(reports_snapshot.get("compact_summary_packs") or [])
             payload = build_review_scope_manifest_payload(
                 list(reports_snapshot.get("files", []) or []),
                 selection=dict(selection or {"scope": "all"}),
                 run_dir=str(self.result_store.run_dir),
+                compact_summary_packs=_manifest_packs,
             )
             spectral_quality = self._build_review_scope_spectral_payload(
                 dict(reports_snapshot.get("spectral_quality_summary", {}) or {})
