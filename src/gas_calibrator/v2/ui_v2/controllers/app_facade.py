@@ -4697,6 +4697,8 @@ class AppFacade:
     def _build_offline_diagnostic_review_item(self, payload: dict[str, Any], path: Path) -> dict[str, Any]:
         if path.name == "isolation_comparison_summary.json":
             return self._build_analyzer_chain_diagnostic_review_item(payload, path)
+        if path.name == "control_flow_compare_report.json":
+            return self._build_control_flow_compare_review_item(payload, path)
         return self._build_room_temp_diagnostic_review_item(payload, path)
 
     def _build_room_temp_diagnostic_review_item(self, payload: dict[str, Any], path: Path) -> dict[str, Any]:
@@ -4894,6 +4896,123 @@ class AppFacade:
             evidence_state=str(payload.get("evidence_state") or "collected"),
             not_real_acceptance_evidence=bool(payload.get("not_real_acceptance_evidence", True)),
             key_fields=[continue_display, dominant_conclusion, recommendation],
+            artifact_paths=artifact_paths,
+            detail_analytics_summary=analytics_detail_summary,
+            detail_lineage_summary=lineage_detail_summary,
+        )
+
+    def _build_control_flow_compare_review_item(self, payload: dict[str, Any], path: Path) -> dict[str, Any]:
+        source_dir = path.parent
+        metadata = dict(payload.get("metadata") or {})
+        route_execution_summary = dict(payload.get("route_execution_summary") or {})
+        compare_status = str(payload.get("compare_status") or "MISMATCH").strip() or "MISMATCH"
+        validation_profile = str(
+            metadata.get("validation_profile") or payload.get("validation_profile") or "--"
+        ).strip() or "--"
+        target_route = str(
+            route_execution_summary.get("target_route")
+            or dict(payload.get("validation_scope") or {}).get("target_route")
+            or "--"
+        ).strip() or "--"
+        first_failure_phase = str(
+            payload.get("first_failure_phase") or route_execution_summary.get("first_failure_phase") or "--"
+        ).strip() or "--"
+        presence = dict(payload.get("presence") or {})
+        sample_count = dict(payload.get("sample_count") or {})
+        route_sequence = dict(payload.get("route_sequence") or {})
+        key_actions = dict(payload.get("key_actions") or {})
+        if not bool(presence.get("matches", True)):
+            next_check = "inspect point presence diff"
+        elif not bool(sample_count.get("matches", True)):
+            next_check = "inspect sample count diff"
+        elif not bool(route_sequence.get("matches", True)):
+            next_check = "inspect route trace diff"
+        elif any(not bool(dict(item or {}).get("matches", True)) for item in key_actions.values()):
+            next_check = "inspect key action mismatches"
+        elif bool(route_execution_summary.get("has_physical_route_mismatches", False)):
+            next_check = "inspect route physical mismatch"
+        elif first_failure_phase not in {"", "--"}:
+            next_check = f"review {first_failure_phase} failure"
+        elif compare_status.upper() == "MATCH":
+            next_check = "review compare report and keep simulated-only gate"
+        else:
+            next_check = "review compare report"
+        compare_status_display = humanize_offline_diagnostic_detail_value("compare_status", compare_status)
+        summary = self._humanize_ui_summary(
+            str(
+                payload.get("summary")
+                or (
+                    f"V1/V2 alignment | status {compare_status} | "
+                    f"profile {validation_profile} | target {target_route}"
+                    + (f" | first_failure {first_failure_phase}" if first_failure_phase not in {"", "--"} else "")
+                )
+            )
+        )
+        status = "diagnostic_only" if compare_status.upper() == "MATCH" else "degraded"
+        evidence_source = str(payload.get("evidence_source") or "diagnostic").strip() or "diagnostic"
+        if evidence_source.lower() in {"simulated", "simulated_protocol"}:
+            evidence_source = _normalize_simulated_evidence_source(evidence_source)
+        artifact_paths = self._offline_diagnostic_existing_paths(
+            [
+                path,
+                source_dir / "control_flow_compare_report.md",
+                *self._offline_diagnostic_payload_paths(source_dir, payload.get("artifacts")),
+            ]
+        )
+        artifact_scope_line = self._offline_diagnostic_scope_line(
+            artifact_count=len(artifact_paths),
+            plot_count=0,
+        )
+        compare_status_line = build_offline_diagnostic_detail_line("compare_status", compare_status)
+        validation_profile_line = build_offline_diagnostic_detail_line("validation_profile", validation_profile)
+        target_route_line = build_offline_diagnostic_detail_line("target_route", target_route)
+        first_failure_phase_line = build_offline_diagnostic_detail_line("first_failure_phase", first_failure_phase)
+        next_check_line = build_offline_diagnostic_detail_line("next_check", next_check)
+        bundle_dir_line = build_offline_diagnostic_detail_line("bundle_dir", source_dir)
+        primary_artifact_line = build_offline_diagnostic_detail_line("primary_artifact", path)
+        analytics_detail_summary = [
+            summary,
+            artifact_scope_line,
+            compare_status_line,
+            validation_profile_line,
+            target_route_line,
+            first_failure_phase_line,
+            next_check_line,
+        ]
+        lineage_detail_summary = [
+            artifact_scope_line,
+            bundle_dir_line,
+            primary_artifact_line,
+        ]
+        detail = "\n".join(
+            [
+                f"{t('results.review_center.detail.summary')}: {summary}",
+                f"{t('results.review_center.detail.status')}: {compare_status_display}",
+                f"{t('results.review_center.detail.source')}: {display_evidence_source(evidence_source, default=evidence_source)}",
+                f"{t('results.review_center.detail.state')}: {display_evidence_state(payload.get('evidence_state'), default=str(payload.get('evidence_state') or 'collected'))}",
+                f"{t('results.review_center.detail.path')}: {path}",
+                artifact_scope_line,
+                compare_status_line,
+                validation_profile_line,
+                target_route_line,
+                first_failure_phase_line,
+                next_check_line,
+                t("results.review_center.disclaimer"),
+            ]
+        )
+        return self._review_entry(
+            evidence_type="offline_diagnostic",
+            path=path,
+            generated_at=payload.get("generated_at"),
+            summary=summary,
+            detail_text=detail,
+            raw_status=compare_status,
+            status=status,
+            source_kind="run",
+            evidence_source=evidence_source,
+            evidence_state=str(payload.get("evidence_state") or "collected"),
+            not_real_acceptance_evidence=bool(payload.get("not_real_acceptance_evidence", True)),
+            key_fields=[compare_status_display, validation_profile, target_route, next_check],
             artifact_paths=artifact_paths,
             detail_analytics_summary=analytics_detail_summary,
             detail_lineage_summary=lineage_detail_summary,

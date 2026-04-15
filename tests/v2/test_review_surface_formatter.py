@@ -10,6 +10,7 @@ from gas_calibrator.v2.review_surface_formatter import (
     hydrate_review_scope_reviewer_display,
     build_offline_diagnostic_detail_line,
     collect_offline_diagnostic_detail_lines,
+    humanize_offline_diagnostic_summary_value,
     humanize_review_center_coverage_text,
     humanize_review_surface_text,
 )
@@ -36,6 +37,12 @@ def test_collect_offline_diagnostic_detail_lines_normalizes_scope_but_keeps_raw_
     )
     assert summary["review_highlight_lines"][0].endswith("scope artifacts 4 | plots 1")
     assert summary["detail_items"][0]["artifact_scope_summary"] == "artifacts 8 | plots 1"
+
+
+def test_humanize_offline_diagnostic_summary_value_supports_alignment_count() -> None:
+    normalized = humanize_offline_diagnostic_summary_value("room-temp 1 | analyzer-chain 1 | alignment 1 | artifacts 22")
+
+    assert normalized == "room-temp 1 | analyzer-chain 1 | 对齐 1 | 工件 22"
 
 
 def test_humanize_review_center_coverage_text_keeps_raw_payload_contract_out_of_band() -> None:

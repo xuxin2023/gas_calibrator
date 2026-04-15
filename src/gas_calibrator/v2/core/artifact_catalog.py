@@ -157,6 +157,28 @@ DEFAULT_ROLE_CATALOG: dict[str, list[str]] = {
         "analyzer_chain_compare_vs_8ch_report",
         "analyzer_chain_compare_vs_baseline_report",
         "analyzer_chain_operator_checklist",
+        "v1_v2_control_flow_compare_report",
+        "v1_v2_control_flow_compare_markdown",
+        "v1_v2_route_trace_diff",
+        "v1_v2_point_presence_diff",
+        "v1_v2_sample_count_diff",
+        "v1_v2_control_flow_compare_artifact_inventory",
+        "replacement_full_route_simulated_bundle",
+        "replacement_full_route_simulated_latest",
+        "replacement_full_route_simulated_diagnostic_bundle",
+        "replacement_full_route_simulated_diagnostic_latest",
+        "replacement_skip0_co2_only_simulated_bundle",
+        "replacement_skip0_co2_only_simulated_latest",
+        "replacement_h2o_only_simulated_bundle",
+        "replacement_h2o_only_simulated_latest",
+        "skip0_co2_only_replacement_bundle",
+        "skip0_co2_only_replacement_latest",
+        "skip0_co2_only_diagnostic_relaxed_bundle",
+        "skip0_co2_only_diagnostic_relaxed_latest",
+        "skip0_replacement_bundle",
+        "skip0_replacement_latest",
+        "h2o_only_replacement_bundle",
+        "h2o_only_replacement_latest",
     ],
     "formal_analysis": [
         "coefficient_report",
@@ -353,6 +375,27 @@ KNOWN_ARTIFACT_KEYS_BY_FILENAME: dict[str, str] = {
     "workbench_action_report.json": "workbench_action_report_json",
     "workbench_action_report.md": "workbench_action_report_markdown",
     "workbench_action_snapshot.json": "workbench_action_snapshot",
+    "control_flow_compare_report.json": "v1_v2_control_flow_compare_report",
+    "control_flow_compare_report.md": "v1_v2_control_flow_compare_markdown",
+    "route_trace_diff.txt": "v1_v2_route_trace_diff",
+    "point_presence_diff.json": "v1_v2_point_presence_diff",
+    "sample_count_diff.json": "v1_v2_sample_count_diff",
+    "replacement_full_route_simulated_bundle.json": "replacement_full_route_simulated_bundle",
+    "replacement_full_route_simulated_latest.json": "replacement_full_route_simulated_latest",
+    "replacement_full_route_simulated_diagnostic_bundle.json": "replacement_full_route_simulated_diagnostic_bundle",
+    "replacement_full_route_simulated_diagnostic_latest.json": "replacement_full_route_simulated_diagnostic_latest",
+    "replacement_skip0_co2_only_simulated_bundle.json": "replacement_skip0_co2_only_simulated_bundle",
+    "replacement_skip0_co2_only_simulated_latest.json": "replacement_skip0_co2_only_simulated_latest",
+    "replacement_h2o_only_simulated_bundle.json": "replacement_h2o_only_simulated_bundle",
+    "replacement_h2o_only_simulated_latest.json": "replacement_h2o_only_simulated_latest",
+    "skip0_co2_only_replacement_bundle.json": "skip0_co2_only_replacement_bundle",
+    "skip0_co2_only_replacement_latest.json": "skip0_co2_only_replacement_latest",
+    "skip0_co2_only_diagnostic_relaxed_bundle.json": "skip0_co2_only_diagnostic_relaxed_bundle",
+    "skip0_co2_only_diagnostic_relaxed_latest.json": "skip0_co2_only_diagnostic_relaxed_latest",
+    "skip0_replacement_bundle.json": "skip0_replacement_bundle",
+    "skip0_replacement_latest.json": "skip0_replacement_latest",
+    "h2o_only_replacement_bundle.json": "h2o_only_replacement_bundle",
+    "h2o_only_replacement_latest.json": "h2o_only_replacement_latest",
     "ai_run_summary.md": "ai_run_summary_markdown",
     "run_summary.txt": "run_summary_text",
     "route_trace.jsonl": "route_trace",
@@ -608,6 +651,19 @@ def _infer_diagnostic_artifact_key(path: Path, *, text: str) -> str:
             return "analyzer_chain_operator_checklist"
         if filename.endswith(".png"):
             return "analyzer_chain_diagnostic_plot"
+    if bundle_kind == "control_flow_compare":
+        if filename == "control_flow_compare_report.json":
+            return "v1_v2_control_flow_compare_report"
+        if filename == "control_flow_compare_report.md":
+            return "v1_v2_control_flow_compare_markdown"
+        if filename == "route_trace_diff.txt":
+            return "v1_v2_route_trace_diff"
+        if filename == "point_presence_diff.json":
+            return "v1_v2_point_presence_diff"
+        if filename == "sample_count_diff.json":
+            return "v1_v2_sample_count_diff"
+        if filename == "artifact_inventory.json":
+            return "v1_v2_control_flow_compare_artifact_inventory"
     if filename == "diagnostic_summary.json":
         return "room_temp_diagnostic_summary"
     if filename == "isolation_comparison_summary.json":
@@ -630,8 +686,12 @@ def _diagnostic_bundle_kind(path: Path, *, text: str) -> str:
             return "room_temp"
         if parent and (parent / "isolation_comparison_summary.json").exists():
             return "analyzer_chain"
+        if parent and (parent / "control_flow_compare_report.json").exists():
+            return "control_flow_compare"
     except Exception:
         pass
+    if "control_flow_compare" in normalized or "v1_v2_compare" in normalized:
+        return "control_flow_compare"
     if "analyzer_chain" in normalized or "chain_isolation" in normalized:
         return "analyzer_chain"
     if "room_temp" in normalized or "pressure_diagnostic" in normalized:
@@ -640,4 +700,6 @@ def _diagnostic_bundle_kind(path: Path, *, text: str) -> str:
         return "room_temp"
     if filename == "isolation_comparison_summary.json":
         return "analyzer_chain"
+    if filename == "control_flow_compare_report.json":
+        return "control_flow_compare"
     return ""

@@ -65,6 +65,9 @@ SUITE_ACCEPTANCE_PLAN_FILENAME = "suite_acceptance_plan.json"
 SUITE_EVIDENCE_REGISTRY_FILENAME = "suite_evidence_registry.json"
 ROOM_TEMP_DIAGNOSTIC_SUMMARY_FILENAME = "diagnostic_summary.json"
 ANALYZER_CHAIN_ISOLATION_SUMMARY_FILENAME = "isolation_comparison_summary.json"
+CONTROL_FLOW_COMPARE_REPORT_FILENAME = "control_flow_compare_report.json"
+CONTROL_FLOW_COMPARE_REPORT_MARKDOWN_FILENAME = "control_flow_compare_report.md"
+CONTROL_FLOW_COMPARE_ARTIFACT_INVENTORY_FILENAME = "artifact_inventory.json"
 
 
 def write_json(path: str | Path, payload: dict[str, Any]) -> Path:
@@ -656,8 +659,9 @@ def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
 
     room_temp_bundles = _discover_room_temp_diagnostic_bundles(root)
     analyzer_chain_bundles = _discover_analyzer_chain_isolation_bundles(root)
+    control_flow_compare_bundles = _discover_control_flow_compare_bundles(root)
     bundles = sorted(
-        [*room_temp_bundles, *analyzer_chain_bundles],
+        [*room_temp_bundles, *analyzer_chain_bundles, *control_flow_compare_bundles],
         key=lambda item: str(item.get("generated_at") or ""),
         reverse=True,
     )
@@ -691,25 +695,32 @@ def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
     latest_bundle = dict(bundles[0] or {})
     latest_room_temp = dict(room_temp_bundles[0] or {}) if room_temp_bundles else {}
     latest_analyzer_chain = dict(analyzer_chain_bundles[0] or {}) if analyzer_chain_bundles else {}
+    latest_control_flow_compare = dict(control_flow_compare_bundles[0] or {}) if control_flow_compare_bundles else {}
     detail_items = _build_offline_diagnostic_detail_items(
         latest_room_temp=latest_room_temp,
         latest_analyzer_chain=latest_analyzer_chain,
+        latest_control_flow_compare=latest_control_flow_compare,
     )
     detail_lines = [
         str(item.get("detail_line") or "").strip()
         for item in detail_items
         if str(item.get("detail_line") or "").strip()
     ]
-    summary = (
-        f"room-temp {len(room_temp_bundles)} | "
-        f"analyzer-chain {len(analyzer_chain_bundles)} | "
-        f"latest {str(latest_bundle.get('summary_text') or '--')}"
-    )
+    summary_parts = [
+        f"room-temp {len(room_temp_bundles)}",
+        f"analyzer-chain {len(analyzer_chain_bundles)}",
+    ]
+    if control_flow_compare_bundles:
+        summary_parts.append(f"alignment {len(control_flow_compare_bundles)}")
+    summary_parts.append(f"latest {str(latest_bundle.get('summary_text') or '--')}")
+    summary = " | ".join(summary_parts)
     coverage_parts = [
         f"room-temp {len(room_temp_bundles)}",
         f"analyzer-chain {len(analyzer_chain_bundles)}",
         f"artifacts {artifact_count}",
     ]
+    if control_flow_compare_bundles:
+        coverage_parts.insert(2, f"alignment {len(control_flow_compare_bundles)}")
     if plot_count:
         coverage_parts.append(f"plots {plot_count}")
     coverage_summary = " | ".join(coverage_parts)
@@ -750,18 +761,19 @@ def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
         ),
         "",
     )
-    review_highlight_lines = [
-        line
-        for line in detail_lines[:2]
-        if str(line or "").strip()
-    ]
-    if str(boundary_line).strip() and boundary_line not in review_highlight_lines:
+    review_highlight_lines = [line for line in detail_lines[:3] if str(line or "").strip()]
+    if (
+        str(boundary_line).strip()
+        and boundary_line not in review_highlight_lines
+        and len(review_highlight_lines) < 3
+    ):
         review_highlight_lines.append(boundary_line)
     return {
         "found": True,
         "bundle_count": len(bundles),
         "room_temp_count": len(room_temp_bundles),
         "analyzer_chain_count": len(analyzer_chain_bundles),
+        "control_flow_compare_count": len(control_flow_compare_bundles),
         "summary": summary,
         "detail_lines": detail_lines,
         "detail_items": detail_items,
@@ -780,6 +792,7 @@ def summarize_offline_diagnostic_adapters(run_dir: Path) -> dict[str, Any]:
         "bundles": bundles,
         "latest_room_temp": latest_room_temp,
         "latest_analyzer_chain": latest_analyzer_chain,
+        "latest_control_flow_compare": latest_control_flow_compare,
         "evidence_source": "diagnostic",
         "evidence_state": "collected",
         "acceptance_level": "diagnostic",
@@ -968,6 +981,30 @@ def _unique_existing_paths(values: Iterable[Any]) -> list[str]:
     return normalized
 
 
+def _path_is_within_root(root: Path, value: Any) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    try:
+        candidate = Path(text).expanduser().resolve()
+        root_resolved = Path(root).expanduser().resolve()
+    except Exception:
+        return False
+    try:
+        candidate.relative_to(root_resolved)
+    except ValueError:
+        return False
+    return True
+
+
+def _unique_existing_paths_within_root(root: Path, values: Iterable[Any]) -> list[str]:
+    return [
+        path
+        for path in _unique_existing_paths(values)
+        if _path_is_within_root(root, path)
+    ]
+
+
 def _flatten_plot_files(values: Any) -> list[str]:
     flattened: list[str] = []
 
@@ -1050,6 +1087,56 @@ def _analyzer_chain_summary_text(payload: dict[str, Any]) -> str:
         f"Analyzer-chain isolation | continue_s1 {continue_text} | "
         f"conclusion {dominant_conclusion} | next {recommendation}"
     )
+
+
+def _control_flow_compare_summary_text(payload: dict[str, Any]) -> str:
+    compare_status = str(payload.get("compare_status") or "MISMATCH").strip() or "MISMATCH"
+    metadata = dict(payload.get("metadata") or {})
+    route_execution_summary = dict(payload.get("route_execution_summary") or {})
+    validation_profile = str(
+        metadata.get("validation_profile") or payload.get("validation_profile") or "--"
+    ).strip() or "--"
+    target_route = str(
+        route_execution_summary.get("target_route")
+        or dict(payload.get("validation_scope") or {}).get("target_route")
+        or "--"
+    ).strip() or "--"
+    first_failure_phase = str(
+        payload.get("first_failure_phase") or route_execution_summary.get("first_failure_phase") or ""
+    ).strip()
+    summary = (
+        f"V1/V2 alignment | status {compare_status} | "
+        f"profile {validation_profile} | target {target_route}"
+    )
+    if first_failure_phase:
+        summary += f" | first_failure {first_failure_phase}"
+    return summary
+
+
+def _control_flow_compare_next_check(payload: dict[str, Any]) -> str:
+    presence = dict(payload.get("presence") or {})
+    sample_count = dict(payload.get("sample_count") or {})
+    route_sequence = dict(payload.get("route_sequence") or {})
+    route_execution_summary = dict(payload.get("route_execution_summary") or {})
+    key_actions = dict(payload.get("key_actions") or {})
+    if not bool(presence.get("matches", True)):
+        return "inspect point presence diff"
+    if not bool(sample_count.get("matches", True)):
+        return "inspect sample count diff"
+    if not bool(route_sequence.get("matches", True)):
+        return "inspect route trace diff"
+    if any(not bool(dict(item or {}).get("matches", True)) for item in key_actions.values()):
+        return "inspect key action mismatches"
+    if bool(route_execution_summary.get("has_physical_route_mismatches", False)):
+        return "inspect route physical mismatch"
+    first_failure_phase = str(
+        payload.get("first_failure_phase") or route_execution_summary.get("first_failure_phase") or ""
+    ).strip()
+    if first_failure_phase:
+        return f"review {first_failure_phase} failure"
+    if str(payload.get("compare_status") or "").strip().upper() == "MATCH":
+        return "review compare report and keep simulated-only gate"
+    return "review compare report"
 
 
 def _discover_room_temp_diagnostic_bundles(root: Path) -> list[dict[str, Any]]:
@@ -1166,6 +1253,61 @@ def _discover_analyzer_chain_isolation_bundles(root: Path) -> list[dict[str, Any
     return bundles
 
 
+def _discover_control_flow_compare_bundles(root: Path) -> list[dict[str, Any]]:
+    bundles: list[dict[str, Any]] = []
+    try:
+        report_paths = sorted(
+            root.rglob(CONTROL_FLOW_COMPARE_REPORT_FILENAME),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
+    except Exception:
+        report_paths = []
+    for report_path in report_paths:
+        payload = _load_json_dict(report_path)
+        source_dir = report_path.parent
+        metadata = dict(payload.get("metadata") or {})
+        route_execution_summary = dict(payload.get("route_execution_summary") or {})
+        artifact_map = dict(payload.get("artifacts") or {})
+        artifact_paths = _unique_existing_paths_within_root(
+            root,
+            [
+                report_path,
+                source_dir / CONTROL_FLOW_COMPARE_REPORT_MARKDOWN_FILENAME,
+                *(
+                    _resolve_bundle_path(source_dir, path)
+                    for path in artifact_map.values()
+                    if str(path or "").strip()
+                ),
+            ],
+        )
+        bundles.append(
+            {
+                "kind": "control_flow_compare",
+                "primary_artifact_path": str(report_path.resolve()),
+                "source_dir": str(source_dir.resolve()),
+                "generated_at": _generated_at_or_mtime(report_path, payload),
+                "summary_text": _control_flow_compare_summary_text(payload),
+                "artifact_paths": artifact_paths,
+                "plot_artifact_paths": [],
+                "compare_status": str(payload.get("compare_status") or "").strip(),
+                "validation_profile": str(
+                    metadata.get("validation_profile") or payload.get("validation_profile") or ""
+                ).strip(),
+                "target_route": str(
+                    route_execution_summary.get("target_route")
+                    or dict(payload.get("validation_scope") or {}).get("target_route")
+                    or ""
+                ).strip(),
+                "first_failure_phase": str(
+                    payload.get("first_failure_phase") or route_execution_summary.get("first_failure_phase") or ""
+                ).strip(),
+                "next_check": _control_flow_compare_next_check(payload),
+            }
+        )
+    return bundles
+
+
 def _normalize_review_evidence_source(value: Any, *, default: str = "--") -> str:
     text = str(value or "").strip()
     if not text:
@@ -1195,10 +1337,12 @@ def _build_offline_diagnostic_detail_items(
     *,
     latest_room_temp: dict[str, Any],
     latest_analyzer_chain: dict[str, Any],
+    latest_control_flow_compare: dict[str, Any],
 ) -> list[dict[str, Any]]:
     detail_items = [
         _build_room_temp_detail_item(latest_room_temp),
         _build_analyzer_chain_detail_item(latest_analyzer_chain),
+        _build_control_flow_compare_detail_item(latest_control_flow_compare),
     ]
     return [item for item in detail_items if item]
 
@@ -1262,6 +1406,40 @@ def _build_analyzer_chain_detail_item(bundle: dict[str, Any]) -> dict[str, Any]:
         "continue_s1": continue_text,
         "dominant_conclusion": dominant_conclusion,
         "recommendation": recommendation,
+        "artifact_scope_summary": artifact_scope_summary,
+        "artifact_count": len(list(payload.get("artifact_paths") or [])),
+        "plot_count": len(list(payload.get("plot_artifact_paths") or [])),
+    }
+
+
+def _build_control_flow_compare_detail_item(bundle: dict[str, Any]) -> dict[str, Any]:
+    payload = dict(bundle or {})
+    if not payload:
+        return {}
+    compare_status = str(payload.get("compare_status") or "--").strip() or "--"
+    validation_profile = str(payload.get("validation_profile") or "--").strip() or "--"
+    first_failure_phase = str(payload.get("first_failure_phase") or "--").strip() or "--"
+    next_check = str(payload.get("next_check") or "--").strip() or "--"
+    artifact_scope_summary = _offline_diagnostic_scope_summary(payload)
+    return {
+        "kind": "control_flow_compare",
+        "summary": str(payload.get("summary_text") or "").strip(),
+        "detail_line": (
+            "v1-v2 alignment latest | "
+            f"compare_status {compare_status} | "
+            f"profile {validation_profile} | "
+            f"first_failure {first_failure_phase} | "
+            f"next {next_check}"
+            + (f" | scope {artifact_scope_summary}" if artifact_scope_summary else "")
+        ),
+        "generated_at": str(payload.get("generated_at") or ""),
+        "primary_artifact_path": str(payload.get("primary_artifact_path") or ""),
+        "source_dir": str(payload.get("source_dir") or ""),
+        "compare_status": compare_status,
+        "validation_profile": validation_profile,
+        "first_failure_phase": first_failure_phase,
+        "target_route": str(payload.get("target_route") or "--").strip() or "--",
+        "next_check": next_check,
         "artifact_scope_summary": artifact_scope_summary,
         "artifact_count": len(list(payload.get("artifact_paths") or [])),
         "plot_count": len(list(payload.get("plot_artifact_paths") or [])),

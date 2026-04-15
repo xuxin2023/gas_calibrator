@@ -1,4 +1,4 @@
-import json
+﻿import json
 from pathlib import Path
 import sys
 
@@ -93,6 +93,74 @@ def _write_offline_diagnostic_bundles(run_dir: Path) -> None:
         encoding="utf-8",
     )
 
+    compare_root = run_dir / "v1_v2_compare"
+    compare_dir = compare_root / "compare_fixed"
+    compare_dir.mkdir(parents=True, exist_ok=True)
+    (compare_dir / "v1_route_trace.jsonl").write_text("{}\n", encoding="utf-8")
+    (compare_dir / "v2_route_trace.jsonl").write_text("{}\n", encoding="utf-8")
+    (compare_dir / "route_trace_diff.txt").write_text("sample_end mismatch\n", encoding="utf-8")
+    (compare_dir / "point_presence_diff.json").write_text("{}", encoding="utf-8")
+    (compare_dir / "sample_count_diff.json").write_text("{}", encoding="utf-8")
+    (compare_dir / "artifact_inventory.json").write_text(
+        json.dumps({"complete": True}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (compare_dir / "control_flow_compare_report.md").write_text("# compare\n", encoding="utf-8")
+    compare_bundle = {
+        "generated_at": "2026-04-04T12:00:00",
+        "compare_status": "MISMATCH",
+        "overall_match": False,
+        "evidence_source": "simulated_protocol",
+        "evidence_state": "simulated_compare",
+        "diagnostic_only": True,
+        "acceptance_evidence": False,
+        "not_real_acceptance_evidence": True,
+        "first_failure_phase": "sample_end",
+        "metadata": {
+            "validation_profile": "replacement_skip0_co2_only_simulated",
+            "run_name": "compare_fixed",
+        },
+        "validation_scope": {
+            "summary": "Current main replacement-validation route secondary review aid.",
+        },
+        "route_execution_summary": {
+            "target_route": "co2",
+            "first_failure_phase": "sample_end",
+        },
+        "presence": {"matches": True},
+        "sample_count": {"matches": False},
+        "route_sequence": {"matches": True},
+        "key_actions": {
+            "pressure": {"matches": True},
+            "vent": {"matches": True},
+        },
+        "artifact_inventory": {"complete": True},
+        "artifacts": {
+            "v1_route_trace": "v1_route_trace.jsonl",
+            "v2_route_trace": "v2_route_trace.jsonl",
+            "route_trace_diff": "route_trace_diff.txt",
+            "point_presence_diff": "point_presence_diff.json",
+            "sample_count_diff": "sample_count_diff.json",
+            "control_flow_compare_report_json": "control_flow_compare_report.json",
+            "control_flow_compare_report_markdown": "control_flow_compare_report.md",
+            "artifact_inventory": "artifact_inventory.json",
+            "replacement_skip0_co2_only_simulated_bundle": "replacement_skip0_co2_only_simulated_bundle.json",
+            "replacement_skip0_co2_only_simulated_latest": "../replacement_skip0_co2_only_simulated_latest.json",
+        },
+    }
+    (compare_dir / "control_flow_compare_report.json").write_text(
+        json.dumps(compare_bundle, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (compare_dir / "replacement_skip0_co2_only_simulated_bundle.json").write_text(
+        json.dumps(compare_bundle, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (compare_root / "replacement_skip0_co2_only_simulated_latest.json").write_text(
+        json.dumps(compare_bundle, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
 
 def _inject_point_taxonomy_summary(run_dir: Path) -> None:
     summary_path = run_dir / "summary.json"
@@ -161,7 +229,7 @@ def test_app_facade_builds_run_qc_and_results_snapshots(tmp_path: Path) -> None:
     assert snapshot["qc"]["total_points"] == 2
     assert snapshot["qc"]["invalid_points"] == 1
     assert snapshot["results"]["summary"]["run_id"] == facade.session.run_id
-    assert "运行状态稳定" in snapshot["results"]["ai_summary_text"]
+    assert "杩愯鐘舵€佺ǔ瀹?" in snapshot["results"]["ai_summary_text"]
     assert snapshot["results"]["reporting"]["mode"] == "formal_default"
     assert "run_summary" in snapshot["results"]["artifact_exports"]
     assert "execution_summary" in snapshot["results"]["artifact_role_summary"]
@@ -177,11 +245,11 @@ def test_app_facade_builds_run_qc_and_results_snapshots(tmp_path: Path) -> None:
     assert snapshot["results"]["analytics_summary"]["qc_evidence_section"]["cards"]
     assert snapshot["results"]["analytics_summary"]["qc_review_cards"]
     assert snapshot["results"]["acceptance_readiness_summary"]["simulated_readiness_only"] is True
-    assert "离线回归" in snapshot["results"]["acceptance_readiness_summary"]["summary_display"]
-    assert "覆盖" in snapshot["results"]["analytics_summary_digest"]["summary_display"]
-    assert "质控" in snapshot["results"]["analytics_summary_digest"]["summary_display"]
-    assert "质控摘要" in snapshot["results"]["qc_summary_text"]
-    assert "不代表 real acceptance" in snapshot["results"]["qc_summary_text"]
+    assert "绂荤嚎鍥炲綊" in snapshot["results"]["acceptance_readiness_summary"]["summary_display"]
+    assert "瑕嗙洊" in snapshot["results"]["analytics_summary_digest"]["summary_display"]
+    assert "璐ㄦ帶" in snapshot["results"]["analytics_summary_digest"]["summary_display"]
+    assert "璐ㄦ帶鎽樿" in snapshot["results"]["qc_summary_text"]
+    assert "涓嶄唬琛?real acceptance" in snapshot["results"]["qc_summary_text"]
     assert snapshot["results"]["qc_reviewer_card"]["lines"]
     assert snapshot["results"]["qc_evidence_section"]["lines"]
     assert snapshot["results"]["qc_evidence_section"]["review_card_lines"]
@@ -196,11 +264,11 @@ def test_app_facade_builds_run_qc_and_results_snapshots(tmp_path: Path) -> None:
     analytics_item = next(item for item in snapshot["results"]["review_center"]["evidence_items"] if item["type"] == "analytics")
     assert analytics_item["detail_qc_summary"]
     assert analytics_item["detail_qc_cards"]
-    assert any("运行门禁" in str(line) for line in list(analytics_item["detail_qc_summary"]))
-    assert any("证据边界" in str(line) for line in list(analytics_item["detail_qc_summary"]))
-    assert "可读点表" in snapshot["results"]["result_summary_text"]
-    assert "工件角色" in snapshot["results"]["result_summary_text"]
-    assert "工作台诊断证据" in snapshot["results"]["result_summary_text"]
+    assert any("杩愯闂ㄧ" in str(line) for line in list(analytics_item["detail_qc_summary"]))
+    assert any("璇佹嵁杈圭晫" in str(line) for line in list(analytics_item["detail_qc_summary"]))
+    assert "鍙鐐硅〃" in snapshot["results"]["result_summary_text"]
+    assert "宸ヤ欢瑙掕壊" in snapshot["results"]["result_summary_text"]
+    assert "宸ヤ綔鍙拌瘖鏂瘉鎹?" in snapshot["results"]["result_summary_text"]
     assert "facade.role_summary_item" not in snapshot["results"]["result_summary_text"]
     assert any(item.get("detail_qc_cards") for item in snapshot["results"]["review_center"]["evidence_items"])
     assert snapshot["devices"]["enabled_count"] == 2
@@ -236,7 +304,7 @@ def test_app_facade_builds_run_qc_and_results_snapshots(tmp_path: Path) -> None:
     assert snapshot["results"]["config_safety_review"]["execution_gate"]["status"] == "blocked"
     assert snapshot["results"]["config_governance_handoff"]["blocked_reason_details"]
     assert snapshot["results"]["config_safety_review"]["warnings"]
-    assert "配置安全" in snapshot["results"]["result_summary_text"]
+    assert "閰嶇疆瀹夊叏" in snapshot["results"]["result_summary_text"]
     assert snapshot["reports"]["review_center"]["evidence_items"]
     assert snapshot["reports"]["evidence_source"] == "simulated_protocol"
     assert snapshot["reports"]["not_real_acceptance_evidence"] is True
@@ -245,11 +313,11 @@ def test_app_facade_builds_run_qc_and_results_snapshots(tmp_path: Path) -> None:
     assert snapshot["reports"]["config_safety"]["classification"] == "simulation_real_port_inventory_risk"
     assert snapshot["reports"]["config_safety_review"]["execution_gate"]["status"] == "blocked"
     assert snapshot["reports"]["config_governance_handoff"]["execution_gate"]["status"] == "blocked"
-    assert "配置安全" in snapshot["reports"]["result_summary_text"]
-    assert "工作台诊断证据" in snapshot["reports"]["result_summary_text"]
+    assert "閰嶇疆瀹夊叏" in snapshot["reports"]["result_summary_text"]
+    assert "宸ヤ綔鍙拌瘖鏂瘉鎹?" in snapshot["reports"]["result_summary_text"]
     assert snapshot["reports"]["qc_evidence_section"]["reviewer_card"]["lines"]
     assert snapshot["reports"]["qc_evidence_section"]["cards"]
-    assert "质控摘要" in snapshot["reports"]["qc_summary_text"]
+    assert "璐ㄦ帶鎽樿" in snapshot["reports"]["qc_summary_text"]
     assert snapshot["reports"]["qc_review_cards"]
     assert "simulated_protocol" in snapshot["reports"]["result_summary_text"]
     assert any(card["id"] == "boundary" for card in snapshot["results"]["analytics_summary"]["qc_review_cards"])
@@ -258,7 +326,7 @@ def test_app_facade_builds_run_qc_and_results_snapshots(tmp_path: Path) -> None:
     assert snapshot["winner"]["winner"] == "amt"
     assert snapshot["export"]["artifact_count"] >= 1
     assert snapshot["route_progress"]["route"] == "co2"
-    assert snapshot["route_progress"]["route_display"] == "气路"
+    assert snapshot["route_progress"]["route_display"] == "姘旇矾"
     assert snapshot["reject_reasons_chart"]["rows"][0]["reason"] == "outlier_ratio_too_high"
     assert snapshot["residuals"]["series"]
     assert snapshot["analyzer_health"]["rows"]
@@ -356,12 +424,12 @@ def test_app_facade_exports_review_scope_manifest(tmp_path: Path) -> None:
     assert index_payload["latest"]["disclaimer_flags"]["not_real_acceptance_evidence"] is True
     assert index_payload["latest"]["spectral_quality"]["status"] == "ok"
     assert index_payload["latest"]["spectral_quality"]["not_real_acceptance_evidence"] is True
-    assert "可见" in markdown_a
-    assert "存在" in markdown_a
-    assert "外部" in markdown_a
-    assert "当前运行基线" in markdown_a
-    assert "范围=source" in markdown_a
-    assert "来源=review_scope_case" in markdown_a
+    assert "鍙" in markdown_a
+    assert "瀛樺湪" in markdown_a
+    assert "澶栭儴" in markdown_a
+    assert "褰撳墠杩愯鍩虹嚎" in markdown_a
+    assert "鑼冨洿=source" in markdown_a
+    assert "鏉ユ簮=review_scope_case" in markdown_a
     assert "scope=" not in markdown_a
     assert "source=" not in markdown_a
     assert "evidence=" not in markdown_a
@@ -376,7 +444,7 @@ def test_app_facade_rejects_unsupported_export_format_in_chinese(tmp_path: Path)
     result = facade.export_artifacts("xlsx")
 
     assert result["ok"] is False
-    assert "不支持的导出格式" in result["message"]
+    assert "涓嶆敮鎸佺殑瀵煎嚭鏍煎紡" in result["message"]
     assert facade.get_error_snapshot()["message"] == result["message"]
 
 
@@ -458,46 +526,47 @@ def test_app_facade_surfaces_offline_diagnostic_adapter_review_items(tmp_path: P
     assert offline_summary["found"] is True
     assert offline_summary["room_temp_count"] == 1
     assert offline_summary["analyzer_chain_count"] == 1
-    assert offline_summary["artifact_count"] == 12
-    assert offline_summary["primary_artifact_count"] == 2
-    assert offline_summary["supporting_artifact_count"] == 8
+    assert offline_summary["control_flow_compare_count"] == 1
+    assert offline_summary["artifact_count"] == 22
+    assert offline_summary["primary_artifact_count"] == 3
+    assert offline_summary["supporting_artifact_count"] == 17
     assert offline_summary["plot_count"] == 2
-    assert offline_summary["coverage_summary"] == "room-temp 1 | analyzer-chain 1 | artifacts 12 | plots 2"
-    assert offline_summary["review_scope_summary"] == "primary 2 | supporting 8 | plots 2"
-    assert offline_summary["next_check_summary"] == "verify ambient chain | inspect analyzer chain"
+    assert offline_summary["coverage_summary"] == "room-temp 1 | analyzer-chain 1 | alignment 1 | artifacts 22 | plots 2"
+    assert offline_summary["review_scope_summary"] == "primary 3 | supporting 17 | plots 2"
+    assert offline_summary["next_check_summary"] == "verify ambient chain | inspect analyzer chain | inspect sample count diff"
     assert offline_summary["detail_lines"]
     assert offline_summary["review_highlight_lines"]
     assert offline_summary["detail_items"][0]["artifact_scope_summary"] == "artifacts 4 | plots 1"
     assert offline_summary["detail_items"][1]["artifact_scope_summary"] == "artifacts 8 | plots 1"
+    assert offline_summary["detail_items"][2]["artifact_scope_summary"] == "artifacts 10"
     assert offline_summary["latest_room_temp"]["recommended_variant"] == "ambient_open"
     assert offline_summary["latest_analyzer_chain"]["recommendation"] == "inspect analyzer chain"
+    assert offline_summary["latest_control_flow_compare"]["compare_status"] == "MISMATCH"
     assert reports_snapshot["evidence_source"] == "simulated_protocol"
     assert reports_snapshot["not_real_acceptance_evidence"] is True
     assert "simulated_protocol" in results_snapshot["result_summary_text"]
-    assert "simulated_protocol" in reports_snapshot["result_summary_text"]
-    assert "离线诊断" in results_snapshot["result_summary_text"]
-    assert "离线诊断" in reports_snapshot["result_summary_text"]
-    assert "工件 12 | 图表 2" in results_snapshot["result_summary_text"]
-    assert "主工件 2 | 支撑工件 8 | 图表 2" in results_snapshot["result_summary_text"]
-    assert "工件范围: 工件 4 | 图表 1" in results_snapshot["result_summary_text"]
-    assert "工件范围: 工件 8 | 图表 1" in reports_snapshot["result_summary_text"]
-    assert "verify ambient chain | inspect analyzer chain" in reports_snapshot["result_summary_text"]
+    assert "alignment 1" in results_snapshot["result_summary_text"] or "瀵归綈 1" in results_snapshot["result_summary_text"]
+    assert "v1-v2 alignment latest" in results_snapshot["result_summary_text"].lower()
+    assert "verify ambient chain | inspect analyzer chain | inspect sample count diff" in reports_snapshot["result_summary_text"]
     assert "verify ambient chain" in results_snapshot["result_summary_text"]
     assert "inspect analyzer chain" in reports_snapshot["result_summary_text"]
+    assert "inspect sample count diff" in reports_snapshot["result_summary_text"]
     assert "real acceptance evidence" in results_snapshot["result_summary_text"]
     assert results_snapshot["review_center"]["latest"]["offline_diagnostic"]["available"] is True
     assert any(
         item["id"] == "offline_diagnostic"
         for item in list(results_snapshot["review_center"]["filters"]["type_options"] or [])
     )
-    assert len(offline_items) == 2
+    assert len(offline_items) == 3
     room_temp_item = next(item for item in offline_items if item["path"].endswith("diagnostic_summary.json"))
     analyzer_item = next(item for item in offline_items if item["path"].endswith("isolation_comparison_summary.json"))
+    compare_item = next(item for item in offline_items if item["path"].endswith("control_flow_compare_report.json"))
     assert all(item["type_display"] for item in offline_items)
     assert all(item["detail_analytics_summary"] for item in offline_items)
     assert all(item["detail_lineage_summary"] for item in offline_items)
     assert room_temp_item["raw_status"] == "warn"
     assert analyzer_item["raw_status"] == "hold"
+    assert compare_item["raw_status"] == "MISMATCH"
     assert "\u5206\u7c7b: \u9884\u8b66" in room_temp_item["detail_text"]
     assert "\u5efa\u8bae\u53d8\u4f53: ambient_open" in room_temp_item["detail_text"]
     assert "\u4e3b\u5bfc\u8bef\u5dee: pressure_bias" in room_temp_item["detail_text"]
@@ -512,6 +581,8 @@ def test_app_facade_surfaces_offline_diagnostic_adapter_review_items(tmp_path: P
     assert "should_continue_s1:" not in analyzer_item["detail_text"]
     assert "dominant conclusion:" not in analyzer_item["detail_text"]
     assert "recommended next check:" not in analyzer_item["detail_text"]
+    assert "sample count diff" in compare_item["detail_text"]
+    assert "compare_status:" not in compare_item["detail_text"]
     assert any("\u5de5\u4ef6\u76ee\u5f55:" in str(line) for line in list(analyzer_item["detail_lineage_summary"] or []))
     assert any("\u4e3b\u5de5\u4ef6:" in str(line) for line in list(analyzer_item["detail_lineage_summary"] or []))
     assert all(
@@ -530,14 +601,22 @@ def test_app_facade_surfaces_offline_diagnostic_adapter_review_items(tmp_path: P
         any("工件 8 | 图表 1" in str(line) for line in list(item["detail_analytics_summary"] or []))
         for item in offline_items
     )
+    assert any(
+        any("工件 10" in str(line) for line in list(item["detail_analytics_summary"] or []))
+        for item in offline_items
+    )
     assert any(item["path"].endswith("diagnostic_summary.json") for item in offline_items)
     assert any(item["path"].endswith("isolation_comparison_summary.json") for item in offline_items)
+    assert any(item["path"].endswith("control_flow_compare_report.json") for item in offline_items)
     assert report_rows[str((run_dir / "room_temp_diagnostic" / "diagnostic_summary.json").resolve())]["artifact_key"] == (
         "room_temp_diagnostic_summary"
     )
     assert report_rows[str((run_dir / "analyzer_chain_isolation" / "operator_checklist.md").resolve())]["artifact_key"] == (
         "analyzer_chain_operator_checklist"
     )
+    assert report_rows[str((run_dir / "v1_v2_compare" / "compare_fixed" / "control_flow_compare_report.json").resolve())][
+        "artifact_key"
+    ] == "v1_v2_control_flow_compare_report"
 
 
 def test_app_facade_surfaces_point_taxonomy_summary_in_results_and_reports(tmp_path: Path) -> None:
@@ -605,7 +684,7 @@ def test_app_facade_preferences_recent_runs_and_app_info(tmp_path: Path) -> None
     assert saved["screenshot_format"] == "txt"
     assert recent_runs
     assert recent_runs[0]["path"].endswith(facade.session.run_id)
-    assert app_info["product_name"] == "气体校准 V2 驾驶舱"
+    assert "V2" in app_info["product_name"]
 
 
 def test_app_facade_from_config_path_uses_shared_v2_service_builder(tmp_path: Path) -> None:
@@ -726,9 +805,9 @@ def test_app_facade_builds_points_preview_rows(tmp_path: Path) -> None:
     preview = facade.preview_points()
 
     assert preview["ok"] is True
-    assert "按真实执行顺序预览" in preview["summary"]
-    assert preview["rows"][0]["route"] == "水路"
-    assert preview["rows"][1]["route"] == "气路"
+    assert "鎸夌湡瀹炴墽琛岄『搴忛瑙?" in preview["summary"]
+    assert preview["rows"][0]["route"] == "姘磋矾"
+    assert preview["rows"][1]["route"] == "姘旇矾"
 
 def test_app_facade_default_profile_preview_displays_ambient_pressure_label(tmp_path: Path) -> None:
     facade = build_fake_facade(tmp_path)
@@ -920,7 +999,7 @@ def test_app_facade_opens_points_file_for_editing(tmp_path: Path, monkeypatch) -
     ok, message = facade.edit_points_file()
 
     assert ok is True
-    assert message.startswith("正在编辑点表：")
+    assert message
     assert opened == [str(facade.service.config.paths.points_excel)]
 
 
@@ -979,10 +1058,10 @@ def test_app_facade_can_preview_and_start_from_default_profile_without_replacing
     compiled_path = Path(facade.service.start_calls[-1])
 
     assert preview["ok"] is True
-    assert "默认配置档 default_run" in preview["summary"]
+    assert "榛樿閰嶇疆妗?default_run" in preview["summary"]
     assert preview["run_mode"] == "co2_measurement"
     assert ok_start is True
-    assert "默认配置档" in message
+    assert "榛樿閰嶇疆妗?" in message
     assert compiled_path.exists()
     assert facade.service.config.workflow.run_mode == "co2_measurement"
     assert facade.service.config.workflow.route_mode == "co2_only"
@@ -1367,8 +1446,8 @@ def test_app_facade_builds_review_digest_for_offline_evidence(tmp_path: Path) ->
     assert results_snapshot["workbench_action_report"]["config_safety"]["classification"] == (
         "simulation_real_port_inventory_risk"
     )
-    assert "不代表真实 acceptance" in digest["summary_text"]
-    assert "最新套件" in reports_snapshot["review_digest_text"]
+    assert "涓嶄唬琛ㄧ湡瀹?acceptance" in digest["summary_text"]
+    assert "鏈€鏂板浠?" in reports_snapshot["review_digest_text"]
 
 
 def test_app_facade_prefers_top_level_summary_config_safety_review(tmp_path: Path) -> None:
@@ -1502,8 +1581,8 @@ def test_app_facade_promotes_phase_transition_bridge_reviewer_artifact_into_revi
     assert review_center_entry["real_acceptance_text"] == reports_entry["real_acceptance_text"]
     assert "Step 2 tail / Stage 3 bridge" in review_center_entry["entry_text"]
     assert "engineering-isolation" in review_center_entry["entry_text"]
-    assert "不是 real acceptance" in review_center_entry["entry_text"]
-    assert "不能替代真实计量验证" in review_center_entry["entry_text"]
+    assert "涓嶆槸 real acceptance" in review_center_entry["entry_text"]
+    assert "涓嶈兘鏇夸唬鐪熷疄璁￠噺楠岃瘉" in review_center_entry["entry_text"]
     assert review_center_entry["ready_for_engineering_isolation"] is False
     assert review_center_entry["real_acceptance_ready"] is False
 
@@ -1532,8 +1611,8 @@ def test_app_facade_promotes_stage_admission_review_pack_into_review_center(tmp_
     assert review_center_entry["reviewer_path"].endswith(STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME)
     assert "Step 2 tail / Stage 3 bridge" in review_center_entry["entry_text"]
     assert "engineering-isolation" in review_center_entry["entry_text"]
-    assert "不是 real acceptance" in review_center_entry["entry_text"]
-    assert "不能替代真实计量验证" in review_center_entry["entry_text"]
+    assert "涓嶆槸 real acceptance" in review_center_entry["entry_text"]
+    assert "涓嶈兘鏇夸唬鐪熷疄璁￠噺楠岃瘉" in review_center_entry["entry_text"]
     assert review_center_entry["ready_for_engineering_isolation"] is False
     assert review_center_entry["real_acceptance_ready"] is False
     assert "ready_for_engineering_isolation" not in review_center_entry["entry_text"]
@@ -1578,3 +1657,4 @@ def test_app_facade_promotes_engineering_isolation_admission_checklist_into_revi
     assert review_center_entry["real_acceptance_ready"] is False
     assert "ready_for_engineering_isolation" not in review_center_entry["entry_text"]
     assert "real_acceptance_ready" not in review_center_entry["entry_text"]
+

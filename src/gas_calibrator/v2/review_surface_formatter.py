@@ -56,6 +56,10 @@ _OFFLINE_DIAGNOSTIC_DETAIL_LABELS = {
     "recommended_variant": ("results.review_center.detail.offline_diagnostic_recommended_variant", "\u5efa\u8bae\u53d8\u4f53"),
     "dominant_error": ("results.review_center.detail.offline_diagnostic_dominant_error", "\u4e3b\u5bfc\u8bef\u5dee"),
     "next_check": ("results.review_center.detail.offline_diagnostic_next_check", "\u4e0b\u4e00\u6b65\u68c0\u67e5"),
+    "compare_status": ("results.review_center.detail.offline_diagnostic_compare_status", "\u5bf9\u9f50\u72b6\u6001"),
+    "validation_profile": ("results.review_center.detail.offline_diagnostic_validation_profile", "\u5bf9\u9f50\u914d\u7f6e"),
+    "target_route": ("results.review_center.detail.offline_diagnostic_target_route", "\u76ee\u6807\u6c14\u8def"),
+    "first_failure_phase": ("results.review_center.detail.offline_diagnostic_first_failure_phase", "\u9996\u4e2a\u5931\u8d25\u9636\u6bb5"),
     "continue_s1": ("results.review_center.detail.offline_diagnostic_continue_s1", "S1 \u7ee7\u7eed\u5224\u5b9a"),
     "dominant_conclusion": ("results.review_center.detail.offline_diagnostic_dominant_conclusion", "\u4e3b\u5bfc\u7ed3\u8bba"),
     "recommended_next_check": (
@@ -75,6 +79,18 @@ _OFFLINE_DIAGNOSTIC_DETAIL_VALUE_LABELS = {
         "insufficient_evidence": (
             "results.review_center.detail.offline_diagnostic_value.insufficient_evidence",
             "\u8bc1\u636e\u4e0d\u8db3",
+        ),
+    },
+    "compare_status": {
+        "match": ("results.review_center.detail.offline_diagnostic_value.match", "\u5339\u914d"),
+        "mismatch": ("results.review_center.detail.offline_diagnostic_value.mismatch", "\u4e0d\u4e00\u81f4"),
+        "not_executed": (
+            "results.review_center.detail.offline_diagnostic_value.not_executed",
+            "\u672a\u6267\u884c",
+        ),
+        "invalid_profile_input": (
+            "results.review_center.detail.offline_diagnostic_value.invalid_profile_input",
+            "\u914d\u7f6e\u8f93\u5165\u65e0\u6548",
         ),
     },
     "continue_s1": {
@@ -318,6 +334,8 @@ def humanize_offline_diagnostic_summary_value(summary_value: str) -> str:
             continue
         prefix, remainder = (part.split(" ", 1) + [""])[:2]
         label = _OFFLINE_DIAGNOSTIC_DISPLAY_LABELS.get(prefix.lower())
+        if not label and prefix.lower() == "alignment":
+            label = t("results.review_center.detail.offline_diagnostic_alignment_count", default="\u5bf9\u9f50")
         if label:
             normalized_parts.append(f"{label} {remainder}".strip())
             continue

@@ -111,6 +111,12 @@ from ..core.reviewer_summary_packs import (
     build_governance_handoff_pack,
     build_parity_resilience_pack,
 )
+from ..core.reviewer_summary_builders import (
+    build_v12_alignment_compact_summary,
+    build_phase_evidence_compact_summary,
+    build_governance_handoff_compact_summary,
+    build_parity_resilience_compact_summary,
+)
 from ..core.compact_summary_budget import (
     build_surface_render_result,
 )
@@ -1452,14 +1458,19 @@ class ResultsGateway:
 
         lines.insert(4, f"{_RESULTS_LABELS['evidence_source']}: {evidence_source}")
         if offline_summary:
+            offline_counts: list[str] = [
+                f"room-temp {int(offline_summary.get('room_temp_count', 0) or 0)}",
+                f"analyzer-chain {int(offline_summary.get('analyzer_chain_count', 0) or 0)}",
+            ]
+            if int(offline_summary.get("control_flow_compare_count", 0) or 0) > 0:
+                offline_counts.append(
+                    f"alignment {int(offline_summary.get('control_flow_compare_count', 0) or 0)}"
+                )
             lines.append(
                 f"{_RESULTS_LABELS['offline_diagnostic']}: "
                 + str(
                     offline_summary.get("summary")
-                    or (
-                        f"room-temp {int(offline_summary.get('room_temp_count', 0) or 0)} | "
-                        f"analyzer-chain {int(offline_summary.get('analyzer_chain_count', 0) or 0)}"
-                    )
+                    or " | ".join(offline_counts)
                 )
             )
         if str(offline_summary.get("coverage_summary") or "").strip():

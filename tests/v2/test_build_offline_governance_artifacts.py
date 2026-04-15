@@ -93,6 +93,74 @@ def _write_offline_diagnostic_bundles(run_dir: Path) -> None:
         encoding="utf-8",
     )
 
+    compare_root = run_dir / "v1_v2_compare"
+    compare_dir = compare_root / "compare_fixed"
+    compare_dir.mkdir(parents=True, exist_ok=True)
+    (compare_dir / "v1_route_trace.jsonl").write_text("{}\n", encoding="utf-8")
+    (compare_dir / "v2_route_trace.jsonl").write_text("{}\n", encoding="utf-8")
+    (compare_dir / "route_trace_diff.txt").write_text("sample_end mismatch\n", encoding="utf-8")
+    (compare_dir / "point_presence_diff.json").write_text("{}", encoding="utf-8")
+    (compare_dir / "sample_count_diff.json").write_text("{}", encoding="utf-8")
+    (compare_dir / "artifact_inventory.json").write_text(
+        json.dumps({"complete": True}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (compare_dir / "control_flow_compare_report.md").write_text("# compare\n", encoding="utf-8")
+    compare_bundle = {
+        "generated_at": "2026-04-04T12:00:00",
+        "compare_status": "MISMATCH",
+        "overall_match": False,
+        "evidence_source": "simulated_protocol",
+        "evidence_state": "simulated_compare",
+        "diagnostic_only": True,
+        "acceptance_evidence": False,
+        "not_real_acceptance_evidence": True,
+        "first_failure_phase": "sample_end",
+        "metadata": {
+            "validation_profile": "replacement_skip0_co2_only_simulated",
+            "run_name": "compare_fixed",
+        },
+        "validation_scope": {
+            "summary": "Current main replacement-validation route secondary review aid.",
+        },
+        "route_execution_summary": {
+            "target_route": "co2",
+            "first_failure_phase": "sample_end",
+        },
+        "presence": {"matches": True},
+        "sample_count": {"matches": False},
+        "route_sequence": {"matches": True},
+        "key_actions": {
+            "pressure": {"matches": True},
+            "vent": {"matches": True},
+        },
+        "artifact_inventory": {"complete": True},
+        "artifacts": {
+            "v1_route_trace": "v1_route_trace.jsonl",
+            "v2_route_trace": "v2_route_trace.jsonl",
+            "route_trace_diff": "route_trace_diff.txt",
+            "point_presence_diff": "point_presence_diff.json",
+            "sample_count_diff": "sample_count_diff.json",
+            "control_flow_compare_report_json": "control_flow_compare_report.json",
+            "control_flow_compare_report_markdown": "control_flow_compare_report.md",
+            "artifact_inventory": "artifact_inventory.json",
+            "replacement_skip0_co2_only_simulated_bundle": "replacement_skip0_co2_only_simulated_bundle.json",
+            "replacement_skip0_co2_only_simulated_latest": "../replacement_skip0_co2_only_simulated_latest.json",
+        },
+    }
+    (compare_dir / "control_flow_compare_report.json").write_text(
+        json.dumps(compare_bundle, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (compare_dir / "replacement_skip0_co2_only_simulated_bundle.json").write_text(
+        json.dumps(compare_bundle, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (compare_root / "replacement_skip0_co2_only_simulated_latest.json").write_text(
+        json.dumps(compare_bundle, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
 
 def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     run_dir = tmp_path / "run_001"
@@ -215,15 +283,19 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert analytics_summary["config_safety_review"]["warnings"] == ["top-level warning"]
     assert analytics_summary["config_governance_handoff"]["execution_gate"]["status"] == "blocked"
     assert analytics_summary["offline_diagnostic_adapter_summary"]["found"] is True
-    assert analytics_summary["offline_diagnostic_adapter_summary"]["bundle_count"] == 2
+    assert analytics_summary["offline_diagnostic_adapter_summary"]["bundle_count"] == 3
     assert analytics_summary["offline_diagnostic_adapter_summary"]["coverage_summary"] == (
-        "room-temp 1 | analyzer-chain 1 | artifacts 12 | plots 2"
+        "room-temp 1 | analyzer-chain 1 | alignment 1 | artifacts 22 | plots 2"
     )
     assert analytics_summary["offline_diagnostic_adapter_summary"]["review_scope_summary"] == (
-        "primary 2 | supporting 8 | plots 2"
+        "primary 3 | supporting 17 | plots 2"
     )
     assert analytics_summary["offline_diagnostic_adapter_summary"]["next_check_summary"] == (
-        "verify ambient chain | inspect analyzer chain"
+        "verify ambient chain | inspect analyzer chain | inspect sample count diff"
+    )
+    assert analytics_summary["offline_diagnostic_adapter_summary"]["control_flow_compare_count"] == 1
+    assert analytics_summary["offline_diagnostic_adapter_summary"]["latest_control_flow_compare"]["compare_status"] == (
+        "MISMATCH"
     )
     assert analytics_summary["qc_evidence_section"]["cards"]
     assert analytics_summary["qc_review_cards"]
