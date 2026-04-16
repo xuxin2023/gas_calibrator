@@ -318,6 +318,27 @@ class _FakePaceSingleCycleVent(_FakePace):
         return 2
 
 
+class _FakePaceSingleCycleVentClearsToTrapped(_FakePaceSingleCycleVent):
+    VENT_STATUS_TRAPPED_PRESSURE = 3
+
+    def get_vent_status(self):
+        if not self._single_cycle_active:
+            return self.vent_status
+        self._single_cycle_query_count += 1
+        if self._single_cycle_clear_requested:
+            self.vent_status = 3
+            self._single_cycle_active = False
+            return 3
+        if self._single_cycle_query_count <= 2:
+            self.vent_status = 1
+            return 1
+        self.vent_status = 2
+        return 2
+
+    def vent_status_allows_control(self, status):
+        return int(status) in {0, 3}
+
+
 class _FakePaceOutputOnVentWindow(_FakePace):
     def enable_control_output(self):
         self.calls.append(("output_on",))
@@ -371,6 +392,22 @@ class _FakePaceCompletedVentLatchClears(_FakePace):
             "cleared": True,
             "command": ":SOUR:PRES:LEV:IMM:AMPL:VENT 0",
         }
+
+
+class _FakePaceCompletedVentLatchBitOnly(_FakePace):
+    def __init__(self):
+        super().__init__()
+        self.vent_status = 3
+
+    def clear_status(self):
+        self.calls.append(("clear_status",))
+
+    def drain_system_errors(self):
+        self.calls.append(("drain_system_errors",))
+        return []
+
+    def vent_status_allows_control(self, status):
+        return int(status) in {0, 3}
 
 
 class _FakePaceSlowExitForPreseal:
@@ -500,6 +537,38 @@ def test_set_pressure_controller_vent_on_does_not_depend_on_open_valve_extension
     assert not any("fallback -> legacy hold thread" in message for message in messages)
     trace_rows = _load_pressure_trace_rows(logger)
     assert not any(row["trace_stage"] == "atmosphere_hold_legacy_fallback" for row in trace_rows)
+    assert any(row["trace_stage"] == "atmosphere_enter_verified" for row in trace_rows)
+
+
+def test_set_pressure_controller_vent_on_accepts_legacy_trapped_pressure_after_clear(tmp_path: Path) -> None:
+    cfg = {
+        "workflow": {
+            "pressure": {
+                "vent_time_s": 0,
+                "vent_transition_timeout_s": 12,
+            }
+        }
+    }
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceSingleCycleVentClearsToTrapped()
+    runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+
+    runner._set_pressure_controller_vent(True, reason="legacy trapped after clear")
+    logger.close()
+
+    assert pace.calls == [
+        ("output", False),
+        ("isol", True),
+        ("vent", True),
+        ("vent", False),
+    ]
+    trace_rows = _load_pressure_trace_rows(logger)
+    assert any(
+        row["trace_stage"] == "atmosphere_vent_clear"
+        and row["pace_vent_status_query"].strip() == "3"
+        and row["pace_vent_clear_result"].strip() == "cleared_to_trapped_pressure"
+        for row in trace_rows
+    )
     assert any(row["trace_stage"] == "atmosphere_enter_verified" for row in trace_rows)
 
 
@@ -1106,6 +1175,74 @@ def test_set_pressure_to_target_clears_completed_vent_latch_at_sequence_start(tm
         and "Data out of range" in str(row["note"])
         for row in trace_rows
     )
+
+
+def test_force_clear_completed_vent_latch_when_status_is_trapped_but_oper_bit_is_still_set(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceCompletedVentLatchBitOnly()
+    runner = CalibrationRunner({}, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+    point = CalibrationPoint(
+        index=1,
+        temp_chamber_c=20.0,
+        co2_ppm=600.0,
+        hgen_temp_c=None,
+        hgen_rh_pct=None,
+        target_pressure_hpa=800.0,
+        dewpoint_c=None,
+        h2o_mmol=None,
+        raw_h2o=None,
+    )
+    snapshots = iter(
+        [
+            {
+                "pace_outp_state_query": 0,
+                "pace_isol_state_query": 1,
+                "pace_mode_query": "ACT",
+                "pace_vent_status_query": 3,
+                "pace_oper_pres_cond_query": 1,
+                "pace_oper_pres_even_query": 0,
+                "pace_oper_pres_vent_complete_bit": True,
+                "pace_oper_pres_in_limits_bit": False,
+            },
+            {
+                "pace_outp_state_query": 0,
+                "pace_isol_state_query": 1,
+                "pace_mode_query": "ACT",
+                "pace_vent_status_query": 3,
+                "pace_oper_pres_cond_query": 0,
+                "pace_oper_pres_even_query": 0,
+                "pace_oper_pres_vent_complete_bit": False,
+                "pace_oper_pres_in_limits_bit": False,
+            },
+            {
+                "pace_outp_state_query": 0,
+                "pace_isol_state_query": 1,
+                "pace_mode_query": "ACT",
+                "pace_vent_status_query": 3,
+                "pace_oper_pres_cond_query": 0,
+                "pace_oper_pres_even_query": 0,
+                "pace_oper_pres_vent_complete_bit": False,
+                "pace_oper_pres_in_limits_bit": False,
+            },
+        ]
+    )
+
+    runner._pace_diagnostic_state_snapshot = lambda *args, **kwargs: dict(next(snapshots))
+
+    summary = runner._clear_pressure_sequence_completed_vent_latch_if_present(
+        point,
+        phase="co2",
+        reason="unit test forced clear",
+    )
+    logger.close()
+
+    assert summary["status"] == "applied"
+    assert summary["reason"] == "cleared_to_trapped_pressure(before=3,after=3)"
+    assert pace.calls == [
+        ("clear_status",),
+        ("drain_system_errors",),
+        ("vent", False),
+    ]
 
 
 def test_set_pressure_controller_vent_off_for_preseal_skips_slow_exit_wait(tmp_path: Path) -> None:

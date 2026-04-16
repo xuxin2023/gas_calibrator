@@ -685,7 +685,7 @@ class Pace5000:
         while time.time() < deadline:
             last_status = self.get_vent_status()
             result["after_status"] = last_status
-            if last_status == self.VENT_STATUS_IDLE:
+            if last_status != self.VENT_STATUS_COMPLETED and self.vent_status_allows_control(last_status):
                 result["cleared"] = True
                 return result
             time.sleep(max(0.05, float(poll_s)))

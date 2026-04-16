@@ -923,6 +923,50 @@ def test_clear_completed_vent_latch_if_present_sends_vent_zero_and_waits_for_idl
     assert any(":SOUR:PRES:LEV:IMM:AMPL:VENT 0" in write for write in dev.ser.writes)
 
 
+def test_clear_completed_vent_latch_if_present_accepts_legacy_trapped_pressure_terminal_state(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.writes = []
+            self.responses = iter(
+                [
+                    ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
+                    ":SOUR:PRES:LEV:IMM:AMPL:VENT 3",
+                ]
+            )
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.writes.append(data)
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            if cmd == ":SOUR:PRES:LEV:IMM:AMPL:VENT?":
+                return next(self.responses)
+            return ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+    dev._device_identity_probed = True
+    dev._legacy_vent_status_model = True
+
+    result = dev.clear_completed_vent_latch_if_present(timeout_s=0.2, poll_s=0.0)
+
+    assert result["before_status"] == 2
+    assert result["clear_attempted"] is True
+    assert result["after_status"] == 3
+    assert result["cleared"] is True
+    assert result["command"] == ":SOUR:PRES:LEV:IMM:AMPL:VENT 0"
+    assert any(":SOUR:PRES:LEV:IMM:AMPL:VENT 0" in write for write in dev.ser.writes)
+
+
 def test_diagnostic_status_collects_best_effort_aux_fields(monkeypatch) -> None:
     class FakeSerialDevice:
         def __init__(self, *args, **kwargs):

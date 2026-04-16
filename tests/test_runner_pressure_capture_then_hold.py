@@ -44,6 +44,18 @@ class _FakePaceForSamplingIsolation:
     def get_vent_status(self):
         return self.vent_status
 
+    def vent_status_allows_control(self, status):
+        return int(status) == 0
+
+
+class _FakeLegacyPaceForSamplingIsolation(_FakePaceForSamplingIsolation):
+    def __init__(self):
+        super().__init__()
+        self.vent_status = 3
+
+    def vent_status_allows_control(self, status):
+        return int(status) in {0, 3}
+
 
 def _co2_point(pressure_hpa: float = 800.0, *, index: int = 1) -> CalibrationPoint:
     return CalibrationPoint(
@@ -118,6 +130,54 @@ def test_sampling_isolation_requires_output_off_and_isol_closed(
     ]
     runtime_state = runner._point_runtime_state(point, phase="co2") or {}
     assert runtime_state["capture_hold_status"] == "pass"
+    assert runtime_state["pace_output_state"] == 0
+    assert runtime_state["pace_isolation_state"] == 0
+
+
+@pytest.mark.parametrize(
+    "handoff_mode",
+    [
+        "same_gas_pressure_step_handoff",
+        "same_gas_superambient_precharge_handoff",
+    ],
+)
+def test_sampling_isolation_accepts_legacy_trapped_pressure_terminal_state(
+    tmp_path: Path,
+    handoff_mode: str,
+) -> None:
+    logger = RunLogger(tmp_path)
+    pace = _FakeLegacyPaceForSamplingIsolation()
+    runner = CalibrationRunner(
+        {"workflow": {"pressure": {"capture_then_hold_enabled": True, "co2_output_off_hold_s": 0.0}}},
+        {"pace": pace},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _co2_point()
+    _prime_sealed_runtime(runner, point)
+    runner._observe_pressure_hold_after_output_off = lambda _point: (
+        True,
+        {
+            "source": "pace",
+            "span_hpa": 0.02,
+            "max_abs_drift_hpa": 0.02,
+            "limit_hpa": 0.25,
+            "samples": 2,
+        },
+    )
+
+    assert runner._set_pressure_controller_sampling_isolation(
+        point,
+        phase="co2",
+        context=None,
+        handoff_mode=handoff_mode,
+    ) is True
+    logger.close()
+
+    runtime_state = runner._point_runtime_state(point, phase="co2") or {}
+    assert runtime_state["capture_hold_status"] == "pass"
+    assert runtime_state["pace_vent_status_query"] == 3
     assert runtime_state["pace_output_state"] == 0
     assert runtime_state["pace_isolation_state"] == 0
 

@@ -3086,6 +3086,7 @@ class CalibrationRunner:
         snapshot_before = self._pace_diagnostic_state_snapshot(refresh=True, refresh_aux=False)
         before_vent_status = self._as_int(snapshot_before.get("pace_vent_status_query"))
         completed_latched_before = self._pace_vent_completed_latched_from_snapshot(snapshot_before)
+        force_clear_latched = bool(completed_latched_before is True and before_vent_status != 2)
         clear_attempted = False
         clear_result_text = "not_needed"
         clear_error = ""
@@ -3102,7 +3103,7 @@ class CalibrationRunner:
             pace_vent_status_query=snapshot_before.get("pace_vent_status_query"),
             pace_vent_completed_latched=completed_latched_before,
             pace_vent_clear_attempted=False,
-            pace_vent_clear_result="pending" if before_vent_status == 2 else "not_needed",
+            pace_vent_clear_result="pending" if before_vent_status == 2 or completed_latched_before is True else "not_needed",
             pace_vent_after_valve_state_query=snapshot_before.get("pace_vent_after_valve_state_query"),
             pace_vent_popup_state_query=snapshot_before.get("pace_vent_popup_state_query"),
             pace_vent_elapsed_time_query=snapshot_before.get("pace_vent_elapsed_time_query"),
@@ -3128,20 +3129,77 @@ class CalibrationRunner:
                 f"syst_err_cleared={'|'.join(drained_errors) if drained_errors else 'none'}"
             ),
         )
+        snapshot_after_override: Optional[Dict[str, Any]] = None
         if pace is None:
             clear_result_text = "skipped_no_pace"
         else:
             clear_latch = getattr(pace, "clear_completed_vent_latch_if_present", None)
-            if callable(clear_latch):
+            if force_clear_latched:
+                vent_cmd = getattr(pace, "vent", None)
+                if callable(vent_cmd):
+                    try:
+                        vent_cmd(False)
+                        clear_attempted = True
+                        clear_deadline = time.time() + 5.0
+                        last_snapshot = dict(snapshot_before)
+                        while time.time() < clear_deadline:
+                            last_snapshot = self._pace_diagnostic_state_snapshot(refresh=True, refresh_aux=False)
+                            last_status = self._as_int(last_snapshot.get("pace_vent_status_query"))
+                            if (
+                                self._pace_vent_completed_latched_from_snapshot(last_snapshot) is not True
+                                and self._pace_vent_status_allows_control(pace, last_status)
+                            ):
+                                snapshot_after_override = dict(last_snapshot)
+                                if last_status == 0:
+                                    clear_result_text = (
+                                        f"cleared_to_zero(before={before_vent_status},after={last_status})"
+                                    )
+                                elif self._pace_trapped_pressure_allows_control(pace, last_status):
+                                    clear_result_text = (
+                                        f"cleared_to_trapped_pressure(before={before_vent_status},after={last_status})"
+                                    )
+                                else:
+                                    clear_result_text = (
+                                        f"cleared_to_terminal_status_{last_status}(before={before_vent_status},after={last_status})"
+                                    )
+                                break
+                            time.sleep(0.25)
+                        else:
+                            snapshot_after_override = dict(last_snapshot)
+                            clear_result_text = (
+                                f"clear_attempted_latch_still_set(before={before_vent_status},"
+                                f"after={self._as_int(last_snapshot.get('pace_vent_status_query'))})"
+                            )
+                    except Exception as exc:
+                        clear_attempted = True
+                        clear_error = str(exc)
+                        clear_result_text = f"failed:{clear_error}"
+                else:
+                    clear_attempted = True
+                    clear_result_text = "failed:vent_method_unavailable"
+            elif callable(clear_latch):
                 try:
                     clear_summary = clear_latch(timeout_s=5.0, poll_s=0.25)
                     clear_attempted = bool(clear_summary.get("clear_attempted"))
                     if clear_attempted:
                         if bool(clear_summary.get("cleared")):
-                            clear_result_text = (
-                                f"cleared_to_zero(before={clear_summary.get('before_status')},"
-                                f"after={clear_summary.get('after_status')})"
-                            )
+                            after_status = self._as_int(clear_summary.get("after_status"))
+                            if after_status == 0:
+                                clear_result_text = (
+                                    f"cleared_to_zero(before={clear_summary.get('before_status')},"
+                                    f"after={clear_summary.get('after_status')})"
+                                )
+                            elif self._pace_trapped_pressure_allows_control(pace, after_status):
+                                clear_result_text = (
+                                    f"cleared_to_trapped_pressure(before={clear_summary.get('before_status')},"
+                                    f"after={clear_summary.get('after_status')})"
+                                )
+                            else:
+                                clear_result_text = (
+                                    f"cleared_to_terminal_status_{clear_summary.get('after_status')}("
+                                    f"before={clear_summary.get('before_status')},"
+                                    f"after={clear_summary.get('after_status')})"
+                                )
                         else:
                             clear_result_text = (
                                 f"clear_attempted_not_zero(before={clear_summary.get('before_status')},"
@@ -3155,10 +3213,16 @@ class CalibrationRunner:
                     clear_result_text = f"failed:{clear_error}"
             else:
                 clear_result_text = "skipped_clear_method_unavailable"
-        snapshot_after = self._pace_diagnostic_state_snapshot(refresh=True, refresh_aux=False)
+        snapshot_after = snapshot_after_override or self._pace_diagnostic_state_snapshot(refresh=True, refresh_aux=False)
         snapshot_after["pace_vent_clear_attempted"] = clear_attempted
         snapshot_after["pace_vent_clear_result"] = clear_result_text
         snapshot_after["pace_vent_completed_latched"] = self._pace_vent_completed_latched_from_snapshot(snapshot_after)
+        if clear_attempted and snapshot_after["pace_vent_completed_latched"] is True and not clear_error:
+            clear_result_text = (
+                f"clear_attempted_latch_still_set(before={before_vent_status},"
+                f"after={self._as_int(snapshot_after.get('pace_vent_status_query'))})"
+            )
+            snapshot_after["pace_vent_clear_result"] = clear_result_text
         self._update_pace_state_cache(snapshot_after)
         self._set_point_runtime_fields(point, phase=phase_text, **self._pace_snapshot_runtime_fields(snapshot_after))
         self._append_pressure_trace_row(
@@ -10901,7 +10965,19 @@ class CalibrationRunner:
         while time.time() < clear_deadline:
             snapshot = self._pace_diagnostic_state_snapshot(pace, refresh=True, refresh_aux=True)
             last_status = self._as_int(snapshot.get("pace_vent_status_query"))
-            if last_status == 0:
+            if last_status is not None and last_status != 2 and self._pace_vent_status_allows_control(pace, last_status):
+                clear_result = (
+                    "cleared_to_zero"
+                    if last_status == 0
+                    else "cleared_to_trapped_pressure"
+                    if self._pace_trapped_pressure_allows_control(pace, last_status)
+                    else f"cleared_to_terminal_status_{last_status}"
+                )
+                clear_note = (
+                    "VENT 0 clear completed; VENT? returned 0"
+                    if last_status == 0
+                    else f"VENT 0 clear completed; VENT? returned control-ready terminal status {last_status}"
+                )
                 self._append_pressure_trace_row(
                     point=None,
                     route="pressure",
@@ -10913,7 +10989,7 @@ class CalibrationRunner:
                     pace_vent_status_query=snapshot.get("pace_vent_status_query"),
                     pace_vent_completed_latched=snapshot.get("pace_vent_completed_latched"),
                     pace_vent_clear_attempted=True,
-                    pace_vent_clear_result="cleared_to_zero",
+                    pace_vent_clear_result=clear_result,
                     pace_effort_query=snapshot.get("pace_effort_query"),
                     pace_comp1_query=snapshot.get("pace_comp1_query"),
                     pace_comp2_query=snapshot.get("pace_comp2_query"),
@@ -10931,7 +11007,7 @@ class CalibrationRunner:
                     pace_oper_pres_vent_complete_bit=snapshot.get("pace_oper_pres_vent_complete_bit"),
                     pace_oper_pres_in_limits_bit=snapshot.get("pace_oper_pres_in_limits_bit"),
                     refresh_pace_state=False,
-                    note="VENT 0 clear completed; VENT? returned 0",
+                    note=clear_note,
                 )
                 self._pace_vent_after_valve_supported = False
                 self._pace_vent_after_valve_open = False
@@ -13205,11 +13281,13 @@ class CalibrationRunner:
             return False
         return target_hpa < atmosphere_hpa
 
-    @staticmethod
-    def _pace_terminal_vent_status_ok_for_sampling(vent_status: Optional[int]) -> bool:
+    def _pace_terminal_vent_status_ok_for_sampling(self, pace: Any, vent_status: Optional[int]) -> bool:
         if vent_status is None:
             return False
-        return int(vent_status) == 0
+        # Capture-hold only needs a control-ready terminal vent status so we can
+        # proceed into the post-isolation diagnostic chain. Fast 5 s capture keeps
+        # its stricter VENT=0 requirement in _evaluate_post_isolation_fast_capture.
+        return self._pace_vent_status_allows_control(pace, vent_status)
 
     def _set_pressure_controller_sampling_isolation(
         self,
@@ -13379,7 +13457,7 @@ class CalibrationRunner:
                 )
             )
         )
-        if unexpected_refresh or not self._pace_terminal_vent_status_ok_for_sampling(vent_status):
+        if unexpected_refresh or not self._pace_terminal_vent_status_ok_for_sampling(pace, vent_status):
             reason = (
                 "unexpected_atmosphere_refresh_before_sampling"
                 if unexpected_refresh
