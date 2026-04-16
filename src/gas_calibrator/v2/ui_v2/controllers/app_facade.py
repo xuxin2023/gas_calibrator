@@ -4921,6 +4921,33 @@ class AppFacade:
         sample_count = dict(payload.get("sample_count") or {})
         route_sequence = dict(payload.get("route_sequence") or {})
         key_actions = dict(payload.get("key_actions") or {})
+        point_presence_diff = str(
+            payload.get("point_presence_diff")
+            or ("diff_present" if not bool(presence.get("matches", True)) else "no_diff")
+        ).strip() or "no_diff"
+        sample_count_diff = str(
+            payload.get("sample_count_diff")
+            or ("diff_present" if not bool(sample_count.get("matches", True)) else "no_diff")
+        ).strip() or "no_diff"
+        route_trace_diff = str(
+            payload.get("route_trace_diff")
+            or ("diff_present" if not bool(route_sequence.get("matches", True)) else "no_diff")
+        ).strip() or "no_diff"
+        key_action_mismatches = [
+            str(name).strip()
+            for name, item in key_actions.items()
+            if str(name).strip() and not bool(dict(item or {}).get("matches", True))
+        ]
+        if isinstance(payload.get("key_action_mismatches"), list):
+            key_action_mismatches = [
+                str(item).strip()
+                for item in list(payload.get("key_action_mismatches") or [])
+                if str(item).strip()
+            ]
+        physical_route_mismatch = str(
+            payload.get("physical_route_mismatch")
+            or ("yes" if bool(route_execution_summary.get("has_physical_route_mismatches", False)) else "no")
+        ).strip() or "no"
         if not bool(presence.get("matches", True)):
             next_check = "inspect point presence diff"
         elif not bool(sample_count.get("matches", True)):
@@ -4938,13 +4965,26 @@ class AppFacade:
         else:
             next_check = "review compare report"
         compare_status_display = humanize_offline_diagnostic_detail_value("compare_status", compare_status)
+        target_route_display = humanize_offline_diagnostic_detail_value("target_route", target_route)
+        first_failure_phase_display = humanize_offline_diagnostic_detail_value("first_failure_phase", first_failure_phase)
         summary = self._humanize_ui_summary(
             str(
                 payload.get("summary")
-                or (
-                    f"V1/V2 alignment | status {compare_status} | "
-                    f"profile {validation_profile} | target {target_route}"
-                    + (f" | first_failure {first_failure_phase}" if first_failure_phase not in {"", "--"} else "")
+                or t(
+                    "results.review_center.detail.offline_diagnostic_compare_summary",
+                    status=compare_status_display,
+                    profile=validation_profile,
+                    route=target_route_display,
+                    failure=first_failure_phase_display,
+                    default=(
+                        f"V1/V2 离线对齐 | 对齐状态 {compare_status_display} | "
+                        f"对齐配置 {validation_profile} | 目标气路 {target_route_display}"
+                        + (
+                            f" | 首个失败阶段 {first_failure_phase_display}"
+                            if first_failure_phase not in {"", "--"}
+                            else ""
+                        )
+                    ),
                 )
             )
         )
@@ -4963,21 +5003,27 @@ class AppFacade:
             artifact_count=len(artifact_paths),
             plot_count=0,
         )
-        compare_status_line = build_offline_diagnostic_detail_line("compare_status", compare_status)
-        validation_profile_line = build_offline_diagnostic_detail_line("validation_profile", validation_profile)
-        target_route_line = build_offline_diagnostic_detail_line("target_route", target_route)
-        first_failure_phase_line = build_offline_diagnostic_detail_line("first_failure_phase", first_failure_phase)
-        next_check_line = build_offline_diagnostic_detail_line("next_check", next_check)
+        compare_detail_line = build_offline_diagnostic_detail_item_line(
+            {
+                "kind": "control_flow_compare",
+                "compare_status": compare_status,
+                "validation_profile": validation_profile,
+                "target_route": target_route,
+                "point_presence_diff": point_presence_diff,
+                "sample_count_diff": sample_count_diff,
+                "route_trace_diff": route_trace_diff,
+                "key_action_mismatches": key_action_mismatches,
+                "physical_route_mismatch": physical_route_mismatch,
+                "first_failure_phase": first_failure_phase,
+                "next_check": next_check,
+            }
+        )
         bundle_dir_line = build_offline_diagnostic_detail_line("bundle_dir", source_dir)
         primary_artifact_line = build_offline_diagnostic_detail_line("primary_artifact", path)
         analytics_detail_summary = [
             summary,
             artifact_scope_line,
-            compare_status_line,
-            validation_profile_line,
-            target_route_line,
-            first_failure_phase_line,
-            next_check_line,
+            compare_detail_line,
         ]
         lineage_detail_summary = [
             artifact_scope_line,
@@ -4992,11 +5038,7 @@ class AppFacade:
                 f"{t('results.review_center.detail.state')}: {display_evidence_state(payload.get('evidence_state'), default=str(payload.get('evidence_state') or 'collected'))}",
                 f"{t('results.review_center.detail.path')}: {path}",
                 artifact_scope_line,
-                compare_status_line,
-                validation_profile_line,
-                target_route_line,
-                first_failure_phase_line,
-                next_check_line,
+                compare_detail_line,
                 t("results.review_center.disclaimer"),
             ]
         )

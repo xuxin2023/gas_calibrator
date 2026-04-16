@@ -134,13 +134,14 @@ def _write_offline_diagnostic_bundles(run_dir: Path) -> None:
         "route_execution_summary": {
             "target_route": "co2",
             "first_failure_phase": "sample_end",
+            "has_physical_route_mismatches": True,
         },
         "presence": {"matches": True},
         "sample_count": {"matches": False},
-        "route_sequence": {"matches": True},
+        "route_sequence": {"matches": False},
         "key_actions": {
             "pressure": {"matches": True},
-            "vent": {"matches": True},
+            "vent": {"matches": False},
         },
         "artifact_inventory": {"complete": True},
         "artifacts": {
@@ -240,7 +241,7 @@ def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> No
     assert results_payload["manifest"]["run_id"] == facade.session.run_id
     assert (
         "Run looks stable." in results_payload["ai_summary_text"]
-        or "杩愯鐘舵€佺ǔ瀹?" in results_payload["ai_summary_text"]
+        or "运行状态稳定" in results_payload["ai_summary_text"]
     )
     assert results_payload["acceptance_plan"]["promotion_state"] == "dry_run_only"
     assert results_payload["analytics_summary"]["artifact_type"] == "run_analytics_summary"
@@ -283,16 +284,16 @@ def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> No
     assert results_payload["verification_rollup"]["db_ready_stub"]["not_in_default_chain"] is True
     assert results_payload["verification_rollup"]["primary_evidence_rewritten"] is False
     assert "compatibility bundle" in results_payload["result_summary_text"]
-    assert "宸ヤ欢鍏煎" in results_payload["result_summary_text"]
-    assert "鍏煎鎬?rollup" in results_payload["result_summary_text"]
-    assert "璁ゅ彲鑼冨洿鍖?" in results_payload["result_summary_text"]
-    assert "鍐崇瓥瑙勫垯" in results_payload["result_summary_text"]
-    assert "绗﹀悎鎬ц竟鐣?" in results_payload["result_summary_text"]
-    assert "鏂规硶纭姒傝" in results_payload["result_summary_text"] or "Method confirmation overview" in results_payload["result_summary_text"]
-    assert "楠岃瘉鐭╅樀瀹屾暣搴?" in results_payload["result_summary_text"] or "Validation matrix completeness" in results_payload["result_summary_text"]
-    assert "楠岃瘉灏辩华鐘舵€?" in results_payload["result_summary_text"] or "Verification readiness status" in results_payload["result_summary_text"]
-    assert "閰嶇疆瀹夊叏" in results_payload["result_summary_text"]
-    assert "宸ヤ綔鍙拌瘖鏂瘉鎹?" in results_payload["result_summary_text"]
+    assert "工件兼容" in results_payload["result_summary_text"]
+    assert "兼容性 rollup" in results_payload["result_summary_text"]
+    assert "认可范围包" in results_payload["result_summary_text"]
+    assert "决策规则" in results_payload["result_summary_text"]
+    assert "符合性边界" in results_payload["result_summary_text"]
+    assert "方法确认概览" in results_payload["result_summary_text"] or "Method confirmation overview" in results_payload["result_summary_text"]
+    assert "验证矩阵完整度" in results_payload["result_summary_text"] or "Validation matrix completeness" in results_payload["result_summary_text"]
+    assert "验证就绪状态" in results_payload["result_summary_text"] or "Verification readiness status" in results_payload["result_summary_text"]
+    assert "配置安全" in results_payload["result_summary_text"]
+    assert "工作台诊断证据" in results_payload["result_summary_text"]
     assert results_payload["output_files"]
     assert reports_payload["run_dir"].endswith(facade.session.run_id)
     assert reports_payload["files"]
@@ -316,7 +317,7 @@ def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> No
     assert compatibility_row["note"]
     assert "Schema" in str(compatibility_row["role_status_display"])
     assert compatibility_row["compatibility_rollup"]["rollup_scope"] == "run-dir"
-    assert "鍏煎鎬?rollup" in str(compatibility_row["note"])
+    assert "兼容性 rollup" in str(compatibility_row["note"])
     assert "current_reader_mode" not in str(compatibility_row["note"])
     scope_row = next(
         row
@@ -340,8 +341,8 @@ def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> No
     assert "current_reader_mode" not in str(decision_row["note"])
     assert verification_row["verification_rollup_entry"]["review_surface"]["title_text"] == "Verification Rollup"
     assert "鐭╅樀" in str(verification_row["note"]) or "verification" in str(verification_row["note"]).lower()
-    assert "閰嶇疆瀹夊叏" in reports_payload["result_summary_text"]
-    assert "宸ヤ綔鍙拌瘖鏂瘉鎹?" in reports_payload["result_summary_text"]
+    assert "配置安全" in reports_payload["result_summary_text"]
+    assert "工作台诊断证据" in reports_payload["result_summary_text"]
 
 
 def test_results_gateway_reads_top_level_handoffs_when_stats_sections_are_missing(tmp_path: Path) -> None:
@@ -441,10 +442,10 @@ def test_results_gateway_builds_legacy_compatibility_payload_without_rewriting_p
     assert payload["verification_rollup"]["legacy_placeholder_used"] is True
     assert payload["verification_rollup"]["primary_evidence_rewritten"] is False
     assert "compatibility bundle" in payload["result_summary_text"]
-    assert "宸ヤ欢鍏煎" in payload["result_summary_text"]
-    assert "鍏煎鎬?rollup" in payload["result_summary_text"]
-    assert "璁ゅ彲鑼冨洿鍖?" in payload["result_summary_text"]
-    assert "鏂规硶纭姒傝" in payload["result_summary_text"] or "Method confirmation overview" in payload["result_summary_text"]
+    assert "工件兼容" in payload["result_summary_text"]
+    assert "兼容性 rollup" in payload["result_summary_text"] or "compatibility rollup" in payload["result_summary_text"]
+    assert "认可范围包" in payload["result_summary_text"] or "Scope package" in payload["result_summary_text"]
+    assert "方法确认概览" in payload["result_summary_text"] or "Method confirmation overview" in payload["result_summary_text"]
     assert not (run_dir / RUN_ARTIFACT_INDEX_FILENAME).exists()
     assert not (run_dir / REINDEX_MANIFEST_FILENAME).exists()
     assert summary_path.read_text(encoding="utf-8") == summary_text_before
@@ -854,6 +855,15 @@ def test_results_gateway_surfaces_offline_diagnostic_adapter_artifacts(tmp_path:
     assert summary["latest_room_temp"]["recommended_variant"] == "ambient_open"
     assert summary["latest_analyzer_chain"]["recommendation"] == "inspect analyzer chain"
     assert summary["latest_control_flow_compare"]["compare_status"] == "MISMATCH"
+    assert summary["latest_control_flow_compare"]["point_presence_diff"] == "no_diff"
+    assert summary["latest_control_flow_compare"]["sample_count_diff"] == "diff_present"
+    assert summary["latest_control_flow_compare"]["route_trace_diff"] == "diff_present"
+    assert summary["latest_control_flow_compare"]["key_action_mismatches"] == ["vent"]
+    assert summary["latest_control_flow_compare"]["physical_route_mismatch"] == "yes"
+    assert summary["detail_items"][2]["sample_count_diff"] == "diff_present"
+    assert summary["detail_items"][2]["route_trace_diff"] == "diff_present"
+    assert summary["detail_items"][2]["key_action_mismatches"] == ["vent"]
+    assert summary["detail_items"][2]["physical_route_mismatch"] == "yes"
     assert results_payload["evidence_source"] == "simulated_protocol"
     assert reports_payload["evidence_source"] == "simulated_protocol"
     assert any("Room-temp diagnostic summary" in str(line) for line in list(summary.get("review_lines") or []))
@@ -866,13 +876,25 @@ def test_results_gateway_surfaces_offline_diagnostic_adapter_artifacts(tmp_path:
     assert "离线诊断" in results_payload["result_summary_text"]
     assert "离线诊断" in reports_payload["result_summary_text"]
     assert "alignment 1" in results_payload["result_summary_text"] or "瀵归綈 1" in results_payload["result_summary_text"]
-    assert "v1-v2 alignment latest" in results_payload["result_summary_text"].lower()
+    assert "V1/V2 离线对齐" in results_payload["result_summary_text"] or "V1/V2 alignment" in results_payload["result_summary_text"]
     assert "verify ambient chain | inspect analyzer chain | inspect sample count diff" in reports_payload["result_summary_text"]
     assert "verify ambient chain" in results_payload["result_summary_text"]
     assert "inspect analyzer chain" in reports_payload["result_summary_text"]
     assert "inspect sample count diff" in reports_payload["result_summary_text"]
     assert "real acceptance evidence" in results_payload["result_summary_text"]
     assert "real acceptance evidence" in reports_payload["result_summary_text"]
+    assert results_payload["step2_closeout_package"]["compare_available"] is True
+    assert results_payload["step2_closeout_package"]["compare_status"] == "MISMATCH"
+    assert results_payload["step2_closeout_package"]["compare_sample_count_diff"] == "diff_present"
+    assert results_payload["step2_closeout_package"]["compare_route_trace_diff"] == "diff_present"
+    assert results_payload["step2_freeze_audit"]["compare_available"] is True
+    assert results_payload["step2_freeze_audit"]["compare_status"] == "MISMATCH"
+    assert results_payload["step2_final_closure_matrix"]["compare_available"] is True
+    assert results_payload["step2_final_closure_matrix"]["compare_status"] == "MISMATCH"
+    assert results_payload["step2_final_closure_matrix"]["compare_source_object"] in {
+        "step2_freeze_audit",
+        "step2_closeout_package",
+    }
     assert rows_by_path[str((run_dir / "room_temp_diagnostic" / "diagnostic_summary.json").resolve())]["artifact_role"] == (
         "diagnostic_analysis"
     )
@@ -924,13 +946,13 @@ def test_results_gateway_exposes_phase_transition_bridge_reviewer_markdown_as_fi
     assert reviewer_row["present_on_disk"] is True
     assert "Step 2 tail / Stage 3 bridge" in reviewer_row["role_status_display"]
     assert "engineering-isolation" in reviewer_row["role_status_display"]
-    assert "涓嶆槸 real acceptance" in reviewer_row["role_status_display"]
+    assert "real acceptance" in reviewer_row["role_status_display"]
     assert "涓嶈兘鏇夸唬鐪熷疄璁￠噺楠岃瘉" not in reviewer_row["name"]
     assert "Step 2 tail / Stage 3 bridge" in reviewer_entry["entry_text"]
     assert reviewer_entry["execute_now_text"] in reviewer_entry["entry_text"]
     assert reviewer_entry["defer_to_stage3_text"] in reviewer_entry["entry_text"]
-    assert "涓嶆槸 real acceptance" in reviewer_entry["entry_text"]
-    assert "涓嶈兘鏇夸唬鐪熷疄璁￠噺楠岃瘉" in reviewer_entry["entry_text"]
+    assert "不是 real acceptance" in reviewer_entry["entry_text"]
+    assert "不能替代真实计量验证" in reviewer_entry["entry_text"]
     assert reviewer_entry["ready_for_engineering_isolation"] is False
     assert reviewer_entry["real_acceptance_ready"] is False
 
@@ -965,19 +987,19 @@ def test_results_gateway_exposes_stage_admission_review_pack_as_first_class_arti
     assert pack_md_row["artifact_role"] == "formal_analysis"
     assert pack_json_row["stage_admission_review_pack_artifact_entry"]["path"] == pack_json_path
     assert pack_md_row["stage_admission_review_pack_artifact_entry"]["reviewer_path"] == pack_md_path
-    assert pack_json_row["name"] == "闃舵鍑嗗叆璇勫鍖?/ Stage Admission Review Pack (JSON)"
-    assert pack_md_row["name"] == "闃舵鍑嗗叆璇勫鍖?/ Stage Admission Review Pack (Markdown)"
+    assert pack_json_row["name"] == "阶段准入评审包 / Stage Admission Review Pack (JSON)"
+    assert pack_md_row["name"] == "阶段准入评审包 / Stage Admission Review Pack (Markdown)"
     assert pack_entry["summary_text"] == pack_json_row["note"] == pack_md_row["note"]
     assert "execution_summary" not in pack_json_row["role_status_display"]
     assert "Step 2 tail / Stage 3 bridge" in pack_json_row["role_status_display"]
     assert "engineering-isolation" in pack_json_row["role_status_display"]
-    assert "涓嶆槸 real acceptance" in pack_json_row["role_status_display"]
+    assert "不是 real acceptance" in pack_json_row["role_status_display"]
     assert "formal_analysis" not in pack_md_row["role_status_display"]
     assert "Step 2 tail / Stage 3 bridge" in pack_entry["entry_text"]
     assert pack_entry["execute_now_text"] in pack_entry["entry_text"]
     assert pack_entry["defer_to_stage3_text"] in pack_entry["entry_text"]
-    assert "涓嶆槸 real acceptance" in pack_entry["entry_text"]
-    assert "涓嶈兘鏇夸唬鐪熷疄璁￠噺楠岃瘉" in pack_entry["entry_text"]
+    assert "不是 real acceptance" in pack_entry["entry_text"]
+    assert "不能替代真实计量验证" in pack_entry["entry_text"]
     assert pack_entry["ready_for_engineering_isolation"] is False
     assert pack_entry["real_acceptance_ready"] is False
 
@@ -1017,8 +1039,8 @@ def test_results_gateway_exposes_engineering_isolation_admission_checklist_as_fi
         checklist_md_row["engineering_isolation_admission_checklist_artifact_entry"]["reviewer_path"]
         == checklist_md_path
     )
-    assert checklist_json_row["name"] == "宸ョ▼闅旂鍑嗗叆娓呭崟 / Engineering Isolation Admission Checklist (JSON)"
-    assert checklist_md_row["name"] == "宸ョ▼闅旂鍑嗗叆娓呭崟 / Engineering Isolation Admission Checklist (Markdown)"
+    assert checklist_json_row["name"] == "工程隔离准入清单 / Engineering Isolation Admission Checklist (JSON)"
+    assert checklist_md_row["name"] == "工程隔离准入清单 / Engineering Isolation Admission Checklist (Markdown)"
     assert checklist_entry["summary_text"] == checklist_json_row["note"] == checklist_md_row["note"]
     assert "execution_summary" not in checklist_json_row["role_status_display"]
     assert "formal_analysis" not in checklist_md_row["role_status_display"]
@@ -1065,8 +1087,8 @@ def test_results_gateway_exposes_stage3_real_validation_plan_as_first_class_arti
     assert stage3_md_row["artifact_role"] == "formal_analysis"
     assert stage3_json_row["stage3_real_validation_plan_artifact_entry"]["path"] == stage3_json_path
     assert stage3_md_row["stage3_real_validation_plan_artifact_entry"]["reviewer_path"] == stage3_md_path
-    assert stage3_json_row["name"] == "Stage 3 Real Validation Plan / 绗笁闃舵鐪熷疄楠岃瘉璁″垝 (JSON)"
-    assert stage3_md_row["name"] == "Stage 3 Real Validation Plan / 绗笁闃舵鐪熷疄楠岃瘉璁″垝 (Markdown)"
+    assert stage3_json_row["name"] == "Stage 3 Real Validation Plan / 第三阶段真实验证计划 (JSON)"
+    assert stage3_md_row["name"] == "Stage 3 Real Validation Plan / 第三阶段真实验证计划 (Markdown)"
     assert stage3_entry["summary_text"] == stage3_json_row["note"] == stage3_md_row["note"]
     assert "execution_summary" not in stage3_json_row["role_status_display"]
     assert "formal_analysis" not in stage3_md_row["role_status_display"]
@@ -1075,13 +1097,13 @@ def test_results_gateway_exposes_stage3_real_validation_plan_as_first_class_arti
     assert "simulation / offline / headless only" in stage3_md_row["role_status_display"]
     assert stage3_entry["role_text"] in stage3_entry["card_text"]
     assert stage3_entry["reviewer_note_text"] in stage3_entry["card_text"]
-    assert "绗笁闃舵鐪熷疄楠岃瘉璇佹嵁绫诲埆" in stage3_entry["card_text"]
-    assert "pass/fail contract 鎽樿" in stage3_entry["card_text"]
-    assert "Digest锛?" in stage3_entry["card_text"]
-    assert "JSON锛?" in stage3_entry["card_text"]
-    assert "Markdown锛?" in stage3_entry["card_text"]
-    assert "涓嶆槸 real acceptance" in stage3_entry["entry_text"]
-    assert "涓嶈兘鏇夸唬鐪熷疄璁￠噺楠岃瘉" in stage3_entry["entry_text"]
+    assert "第三阶段真实验证证据类别" in stage3_entry["card_text"]
+    assert "pass/fail contract 摘要" in stage3_entry["card_text"]
+    assert "Digest：" in stage3_entry["card_text"]
+    assert "JSON：" in stage3_entry["card_text"]
+    assert "Markdown：" in stage3_entry["card_text"]
+    assert "不是 real acceptance" in stage3_entry["entry_text"]
+    assert "不能替代真实计量验证" in stage3_entry["entry_text"]
     assert "ready_for_engineering_isolation" not in stage3_entry["entry_text"]
     assert "real_acceptance_ready" not in stage3_entry["entry_text"]
 
@@ -1117,10 +1139,10 @@ def test_results_gateway_exposes_stage3_standards_alignment_matrix_as_first_clas
     assert matrix_json_row["stage3_standards_alignment_matrix_artifact_entry"]["path"] == matrix_json_path
     assert matrix_md_row["stage3_standards_alignment_matrix_artifact_entry"]["reviewer_path"] == matrix_md_path
     assert matrix_json_row["name"] == (
-        "Stage 3 Standards Alignment Matrix / 绗笁闃舵鏍囧噯绗﹀悎鎬ф槧灏勪笌璇佹嵁瑕嗙洊鐭╅樀 (JSON)"
+        "Stage 3 Standards Alignment Matrix / 第三阶段标准符合性映射与证据覆盖矩阵 (JSON)"
     )
     assert matrix_md_row["name"] == (
-        "Stage 3 Standards Alignment Matrix / 绗笁闃舵鏍囧噯绗﹀悎鎬ф槧灏勪笌璇佹嵁瑕嗙洊鐭╅樀 (Markdown)"
+        "Stage 3 Standards Alignment Matrix / 第三阶段标准符合性映射与证据覆盖矩阵 (Markdown)"
     )
     assert matrix_entry["summary_text"] == matrix_json_row["note"] == matrix_md_row["note"]
     assert "Step 2 tail / Stage 3 bridge" in matrix_json_row["role_status_display"]
@@ -1182,12 +1204,12 @@ def test_results_gateway_exposes_measurement_core_evidence_artifacts(tmp_path: P
         "boundary_statements"
     ]
     assert "measurement phase coverage" in results_payload["result_summary_text"]
-    assert "payload 瀹屾暣闃舵" in results_payload["result_summary_text"]
-    assert "涓嬩竴姝ヨˉ璇佸伐浠?" in results_payload["result_summary_text"]
+    assert "payload 完整阶段" in results_payload["result_summary_text"]
+    assert "下一步补证工件" in results_payload["result_summary_text"]
     assert "sidecar-ready contract" in results_payload["result_summary_text"]
     assert "measurement phase coverage" in reports_payload["result_summary_text"]
-    assert "payload 瀹屾暣闃舵" in reports_payload["result_summary_text"]
-    assert "涓嬩竴姝ヨˉ璇佸伐浠?" in reports_payload["result_summary_text"]
+    assert "payload 完整阶段" in reports_payload["result_summary_text"]
+    assert "下一步补证工件" in reports_payload["result_summary_text"]
     assert "sidecar-ready contract" in reports_payload["result_summary_text"]
     assert "payload_phase_summary" in results_payload["simulation_evidence_sidecar_bundle"]["coverage_digest"]
 
@@ -1209,7 +1231,7 @@ def test_results_gateway_exposes_measurement_core_evidence_artifacts(tmp_path: P
     assert phase_coverage_json_row["artifact_key"] == "measurement_phase_coverage_report"
     assert phase_coverage_md_row["artifact_key"] == "measurement_phase_coverage_report_markdown"
     assert phase_coverage_json_row["artifact_role"] == "diagnostic_analysis"
-    assert "浠呬緵褰卞瓙璇勪及" in stability_json_row["role_status_display"]
+    assert "仅供影子评估" in stability_json_row["role_status_display"]
     assert "does not modify live sampling gate by default" in stability_json_row["note"]
     assert "fixed canonical states" in transition_json_row["note"]
     assert "Future database intake only" in sidecar_row["note"]
@@ -1313,15 +1335,12 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
     assert "Certificate Lifecycle Summary" in results_payload["result_summary_text"]
     assert "Pre-run Readiness Gate" in results_payload["result_summary_text"]
     assert (
-        "涓嶇‘瀹氬害姒傝" in results_payload["result_summary_text"]
+        "不确定度概览" in results_payload["result_summary_text"]
         or "Uncertainty overview" in results_payload["result_summary_text"]
     )
+    assert "预算完整度" in results_payload["result_summary_text"] or "Budget completeness" in results_payload["result_summary_text"]
     assert (
-        "棰勭畻瀹屾暣搴?" in results_payload["result_summary_text"]
-        or "Budget completeness" in results_payload["result_summary_text"]
-    )
-    assert (
-        "涓昏涓嶇‘瀹氬害璐＄尞" in results_payload["result_summary_text"]
+        "主要不确定度贡献" in results_payload["result_summary_text"]
         or "Top uncertainty contributors" in results_payload["result_summary_text"]
     )
     assert "Scope Readiness Summary" in reports_payload["result_summary_text"]
@@ -1479,7 +1498,7 @@ class TestResultsGatewayUsesV12CompactSummary:
         assert "boundary_markers" in result
         # Must have simulated-only note
         joined = " | ".join(result["summary_lines"])
-        assert "浠跨湡" in joined or "Simulated" in joined
+        assert "仅仿真" in joined or "Simulated" in joined
 
 
 # ---------------------------------------------------------------------------
@@ -1521,6 +1540,31 @@ class TestResultsGatewayCompactSummaryPacks:
         for pack in packs:
             assert "summary_lines" in pack
             assert isinstance(pack["summary_lines"], list)
+
+    def test_packs_with_offline_compare_summary_append_optional_compare_pack(self):
+        packs = ResultsGateway._build_compact_summary_packs(
+            offline_diagnostic_adapter_summary={
+                "latest_control_flow_compare": {
+                    "compare_status": "MISMATCH",
+                    "validation_profile": "replacement_skip0_co2_only_simulated",
+                    "target_route": "co2",
+                    "first_failure_phase": "sample_end",
+                    "point_presence_diff": "no_diff",
+                    "sample_count_diff": "diff_present",
+                    "route_trace_diff": "diff_present",
+                    "key_action_mismatches": ["vent"],
+                    "physical_route_mismatch": "yes",
+                    "next_check": "inspect sample count diff",
+                }
+            }
+        )
+
+        compare_pack = next(pack for pack in packs if pack["summary_key"] == "control_flow_compare")
+        assert len(packs) == 7
+        assert compare_pack["evidence_source"] == "simulated"
+        assert compare_pack["reviewer_only"] is True
+        assert compare_pack["not_real_acceptance_evidence"] is True
+        assert compare_pack["compare_status"] == "MISMATCH"
 
 
 class TestResultsGatewayCompactSummaryBudget:

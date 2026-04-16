@@ -48,12 +48,129 @@ from .step2_closeout_readiness_contracts import (
     CLOSEOUT_STATUS_REVIEWER_ONLY,
     resolve_closeout_status_label,
 )
+from .reviewer_summary_packs import extract_control_flow_compare_summary
 
 # ---------------------------------------------------------------------------
 # Version
 # ---------------------------------------------------------------------------
 
 CLOSEOUT_PACKAGE_BUILDER_VERSION: str = "2.22.0"
+
+
+def _build_compare_field_payload(compare: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "compare_available": bool(compare.get("available")),
+        "compare_status": str(compare.get("compare_status") or ""),
+        "compare_status_display": str(compare.get("compare_status_display") or ""),
+        "compare_summary_line": str(compare.get("compare_summary_line") or ""),
+        "compare_summary_lines": list(compare.get("compare_summary_lines") or []),
+        "compare_validation_profile": str(compare.get("validation_profile") or ""),
+        "compare_target_route": str(compare.get("target_route") or ""),
+        "compare_target_route_display": str(compare.get("target_route_display") or ""),
+        "compare_first_failure_phase": str(compare.get("first_failure_phase") or ""),
+        "compare_first_failure_phase_display": str(compare.get("first_failure_phase_display") or ""),
+        "compare_next_check": str(compare.get("next_check") or ""),
+        "compare_next_check_display": str(compare.get("next_check_display") or ""),
+        "compare_point_presence_diff": str(compare.get("point_presence_diff") or ""),
+        "compare_sample_count_diff": str(compare.get("sample_count_diff") or ""),
+        "compare_route_trace_diff": str(compare.get("route_trace_diff") or ""),
+        "compare_key_action_mismatches": list(compare.get("key_action_mismatches") or []),
+        "compare_physical_route_mismatch": str(compare.get("physical_route_mismatch") or ""),
+    }
+
+
+def _build_reviewer_summary_line_with_compare(
+    *,
+    package_status: str,
+    compare: dict[str, Any],
+    lang: str,
+) -> str:
+    base = _build_reviewer_summary_line(package_status=package_status, lang=lang)
+    if not bool(compare.get("available")):
+        return base
+    status = str(compare.get("compare_status_display") or compare.get("compare_status") or "--")
+    next_check = str(compare.get("next_check_display") or compare.get("next_check") or "--")
+    suffix = (
+        f" | Compare: {status} | Next check: {next_check}"
+        if lang == "en"
+        else f" | 对齐状态：{status} | 下一步检查：{next_check}"
+    )
+    return base + suffix
+
+
+def _build_reviewer_summary_lines_with_compare(
+    *,
+    package_status: str,
+    readiness: dict[str, Any],
+    compare: dict[str, Any],
+    lang: str,
+) -> list[str]:
+    lines = list(
+        _build_reviewer_summary_lines(
+            package_status=package_status,
+            readiness=readiness,
+            lang=lang,
+        )
+    )
+    if not bool(compare.get("available")):
+        return lines
+    compare_summary_line = str(compare.get("compare_summary_line") or "").strip()
+    if not compare_summary_line:
+        status = str(compare.get("compare_status_display") or compare.get("compare_status") or "--")
+        next_check = str(compare.get("next_check_display") or compare.get("next_check") or "--")
+        compare_summary_line = (
+            f"Compare: {status} | Next check: {next_check}"
+            if lang == "en"
+            else f"离线对齐：{status} | 下一步检查：{next_check}"
+        )
+    insert_at = 3 if len(lines) >= 3 else len(lines)
+    if compare_summary_line and compare_summary_line not in lines:
+        lines.insert(insert_at, compare_summary_line)
+    return lines
+
+
+def _build_sections_with_compare(
+    *,
+    readiness: dict[str, Any],
+    digest: dict[str, Any],
+    governance: dict[str, Any],
+    packs: list[dict[str, Any]],
+    parity: dict[str, Any],
+    phase: dict[str, Any],
+    stage_admission: dict[str, Any],
+    eng_isolation: dict[str, Any],
+    compare: dict[str, Any],
+    lang: str,
+) -> list[dict[str, Any]]:
+    sections = _build_sections(
+        readiness=readiness,
+        digest=digest,
+        governance=governance,
+        packs=packs,
+        parity=parity,
+        phase=phase,
+        stage_admission=stage_admission,
+        eng_isolation=eng_isolation,
+        lang=lang,
+    )
+    if not bool(compare.get("available")):
+        return sections
+    compare_fields = {
+        "compare_available": True,
+        "compare_status": str(compare.get("compare_status") or ""),
+        "compare_status_display": str(compare.get("compare_status_display") or ""),
+        "compare_summary_line": str(compare.get("compare_summary_line") or ""),
+        "compare_first_failure_phase": str(compare.get("first_failure_phase") or ""),
+        "compare_first_failure_phase_display": str(compare.get("first_failure_phase_display") or ""),
+        "compare_next_check": str(compare.get("next_check") or ""),
+        "compare_next_check_display": str(compare.get("next_check_display") or ""),
+    }
+    for index, section in enumerate(sections):
+        if str(section.get("key") or "") != "compact_summaries":
+            continue
+        sections[index] = {**section, **compare_fields}
+        break
+    return sections
 
 
 # ---------------------------------------------------------------------------
@@ -104,26 +221,29 @@ def build_step2_closeout_package(
     _governance = dict(governance_handoff or {})
     _parity = dict(parity_resilience or {})
     _phase = dict(phase_evidence or {})
+    _compare = extract_control_flow_compare_summary(_packs)
 
     # --- Derive package_status from closeout readiness ---
     closeout_status = str(_readiness.get("closeout_status") or CLOSEOUT_STATUS_REVIEWER_ONLY)
     package_status = closeout_status  # Same bucket system
 
     # --- Build reviewer summary line ---
-    reviewer_summary_line = _build_reviewer_summary_line(
+    reviewer_summary_line = _build_reviewer_summary_line_with_compare(
         package_status=package_status,
+        compare=_compare,
         lang=lang,
     )
 
     # --- Build reviewer summary lines (multi-line) ---
-    reviewer_summary_lines = _build_reviewer_summary_lines(
+    reviewer_summary_lines = _build_reviewer_summary_lines_with_compare(
         package_status=package_status,
         readiness=_readiness,
+        compare=_compare,
         lang=lang,
     )
 
     # --- Build sections ---
-    sections = _build_sections(
+    sections = _build_sections_with_compare(
         readiness=_readiness,
         digest=_digest,
         governance=_governance,
@@ -132,6 +252,7 @@ def build_step2_closeout_package(
         phase=_phase,
         stage_admission=_stage_admission,
         eng_isolation=_eng_isolation,
+        compare=_compare,
         lang=lang,
     )
 
@@ -173,6 +294,7 @@ def build_step2_closeout_package(
         "simulation_only_boundary": simulation_only_boundary,
         "source_versions": source_versions,
         "closeout_package_source": "rebuilt",
+        **_build_compare_field_payload(_compare),
         # Step 2 boundary markers — always enforced
         "evidence_source": "simulated",
         "not_real_acceptance_evidence": True,
@@ -453,6 +575,7 @@ def build_closeout_package_fallback(
         "simulation_only_boundary": _boundary,
         "source_versions": {},
         "closeout_package_source": "fallback",
+        **_build_compare_field_payload({}),
         # Step 2 boundary markers — all enforced
         "evidence_source": "simulated",
         "not_real_acceptance_evidence": True,

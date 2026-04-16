@@ -126,13 +126,14 @@ def _write_offline_diagnostic_bundles(run_dir: Path) -> None:
         "route_execution_summary": {
             "target_route": "co2",
             "first_failure_phase": "sample_end",
+            "has_physical_route_mismatches": True,
         },
         "presence": {"matches": True},
         "sample_count": {"matches": False},
-        "route_sequence": {"matches": True},
+        "route_sequence": {"matches": False},
         "key_actions": {
             "pressure": {"matches": True},
-            "vent": {"matches": True},
+            "vent": {"matches": False},
         },
         "artifact_inventory": {"complete": True},
         "artifacts": {
@@ -229,7 +230,7 @@ def test_app_facade_builds_run_qc_and_results_snapshots(tmp_path: Path) -> None:
     assert snapshot["qc"]["total_points"] == 2
     assert snapshot["qc"]["invalid_points"] == 1
     assert snapshot["results"]["summary"]["run_id"] == facade.session.run_id
-    assert "杩愯鐘舵€佺ǔ瀹?" in snapshot["results"]["ai_summary_text"]
+    assert "运行状态稳定" in snapshot["results"]["ai_summary_text"]
     assert snapshot["results"]["reporting"]["mode"] == "formal_default"
     assert "run_summary" in snapshot["results"]["artifact_exports"]
     assert "execution_summary" in snapshot["results"]["artifact_role_summary"]
@@ -245,11 +246,11 @@ def test_app_facade_builds_run_qc_and_results_snapshots(tmp_path: Path) -> None:
     assert snapshot["results"]["analytics_summary"]["qc_evidence_section"]["cards"]
     assert snapshot["results"]["analytics_summary"]["qc_review_cards"]
     assert snapshot["results"]["acceptance_readiness_summary"]["simulated_readiness_only"] is True
-    assert "绂荤嚎鍥炲綊" in snapshot["results"]["acceptance_readiness_summary"]["summary_display"]
-    assert "瑕嗙洊" in snapshot["results"]["analytics_summary_digest"]["summary_display"]
-    assert "璐ㄦ帶" in snapshot["results"]["analytics_summary_digest"]["summary_display"]
-    assert "璐ㄦ帶鎽樿" in snapshot["results"]["qc_summary_text"]
-    assert "涓嶄唬琛?real acceptance" in snapshot["results"]["qc_summary_text"]
+    assert "离线回归" in snapshot["results"]["acceptance_readiness_summary"]["summary_display"]
+    assert "覆盖" in snapshot["results"]["analytics_summary_digest"]["summary_display"]
+    assert "质控" in snapshot["results"]["analytics_summary_digest"]["summary_display"]
+    assert "质控摘要" in snapshot["results"]["qc_summary_text"]
+    assert "不代表 real acceptance evidence" in snapshot["results"]["qc_summary_text"]
     assert snapshot["results"]["qc_reviewer_card"]["lines"]
     assert snapshot["results"]["qc_evidence_section"]["lines"]
     assert snapshot["results"]["qc_evidence_section"]["review_card_lines"]
@@ -264,11 +265,11 @@ def test_app_facade_builds_run_qc_and_results_snapshots(tmp_path: Path) -> None:
     analytics_item = next(item for item in snapshot["results"]["review_center"]["evidence_items"] if item["type"] == "analytics")
     assert analytics_item["detail_qc_summary"]
     assert analytics_item["detail_qc_cards"]
-    assert any("杩愯闂ㄧ" in str(line) for line in list(analytics_item["detail_qc_summary"]))
-    assert any("璇佹嵁杈圭晫" in str(line) for line in list(analytics_item["detail_qc_summary"]))
-    assert "鍙鐐硅〃" in snapshot["results"]["result_summary_text"]
-    assert "宸ヤ欢瑙掕壊" in snapshot["results"]["result_summary_text"]
-    assert "宸ヤ綔鍙拌瘖鏂瘉鎹?" in snapshot["results"]["result_summary_text"]
+    assert any("运行门禁" in str(line) for line in list(analytics_item["detail_qc_summary"]))
+    assert any("证据边界" in str(line) for line in list(analytics_item["detail_qc_summary"]))
+    assert "可读点表" in snapshot["results"]["result_summary_text"]
+    assert "工件角色" in snapshot["results"]["result_summary_text"]
+    assert "工作台诊断证据" in snapshot["results"]["result_summary_text"]
     assert "facade.role_summary_item" not in snapshot["results"]["result_summary_text"]
     assert any(item.get("detail_qc_cards") for item in snapshot["results"]["review_center"]["evidence_items"])
     assert snapshot["devices"]["enabled_count"] == 2
@@ -304,7 +305,7 @@ def test_app_facade_builds_run_qc_and_results_snapshots(tmp_path: Path) -> None:
     assert snapshot["results"]["config_safety_review"]["execution_gate"]["status"] == "blocked"
     assert snapshot["results"]["config_governance_handoff"]["blocked_reason_details"]
     assert snapshot["results"]["config_safety_review"]["warnings"]
-    assert "閰嶇疆瀹夊叏" in snapshot["results"]["result_summary_text"]
+    assert "配置安全" in snapshot["results"]["result_summary_text"]
     assert snapshot["reports"]["review_center"]["evidence_items"]
     assert snapshot["reports"]["evidence_source"] == "simulated_protocol"
     assert snapshot["reports"]["not_real_acceptance_evidence"] is True
@@ -313,11 +314,11 @@ def test_app_facade_builds_run_qc_and_results_snapshots(tmp_path: Path) -> None:
     assert snapshot["reports"]["config_safety"]["classification"] == "simulation_real_port_inventory_risk"
     assert snapshot["reports"]["config_safety_review"]["execution_gate"]["status"] == "blocked"
     assert snapshot["reports"]["config_governance_handoff"]["execution_gate"]["status"] == "blocked"
-    assert "閰嶇疆瀹夊叏" in snapshot["reports"]["result_summary_text"]
-    assert "宸ヤ綔鍙拌瘖鏂瘉鎹?" in snapshot["reports"]["result_summary_text"]
+    assert "配置安全" in snapshot["reports"]["result_summary_text"]
+    assert "工作台诊断证据" in snapshot["reports"]["result_summary_text"]
     assert snapshot["reports"]["qc_evidence_section"]["reviewer_card"]["lines"]
     assert snapshot["reports"]["qc_evidence_section"]["cards"]
-    assert "璐ㄦ帶鎽樿" in snapshot["reports"]["qc_summary_text"]
+    assert "质控摘要" in snapshot["reports"]["qc_summary_text"]
     assert snapshot["reports"]["qc_review_cards"]
     assert "simulated_protocol" in snapshot["reports"]["result_summary_text"]
     assert any(card["id"] == "boundary" for card in snapshot["results"]["analytics_summary"]["qc_review_cards"])
@@ -326,7 +327,7 @@ def test_app_facade_builds_run_qc_and_results_snapshots(tmp_path: Path) -> None:
     assert snapshot["winner"]["winner"] == "amt"
     assert snapshot["export"]["artifact_count"] >= 1
     assert snapshot["route_progress"]["route"] == "co2"
-    assert snapshot["route_progress"]["route_display"] == "姘旇矾"
+    assert snapshot["route_progress"]["route_display"] == "气路"
     assert snapshot["reject_reasons_chart"]["rows"][0]["reason"] == "outlier_ratio_too_high"
     assert snapshot["residuals"]["series"]
     assert snapshot["analyzer_health"]["rows"]
@@ -424,12 +425,12 @@ def test_app_facade_exports_review_scope_manifest(tmp_path: Path) -> None:
     assert index_payload["latest"]["disclaimer_flags"]["not_real_acceptance_evidence"] is True
     assert index_payload["latest"]["spectral_quality"]["status"] == "ok"
     assert index_payload["latest"]["spectral_quality"]["not_real_acceptance_evidence"] is True
-    assert "鍙" in markdown_a
-    assert "瀛樺湪" in markdown_a
-    assert "澶栭儴" in markdown_a
-    assert "褰撳墠杩愯鍩虹嚎" in markdown_a
-    assert "鑼冨洿=source" in markdown_a
-    assert "鏉ユ簮=review_scope_case" in markdown_a
+    assert "可见" in markdown_a
+    assert "存在" in markdown_a
+    assert "外部" in markdown_a
+    assert "当前运行基线" in markdown_a
+    assert "范围=source" in markdown_a
+    assert "来源=review_scope_case" in markdown_a
     assert "scope=" not in markdown_a
     assert "source=" not in markdown_a
     assert "evidence=" not in markdown_a
@@ -444,7 +445,7 @@ def test_app_facade_rejects_unsupported_export_format_in_chinese(tmp_path: Path)
     result = facade.export_artifacts("xlsx")
 
     assert result["ok"] is False
-    assert "涓嶆敮鎸佺殑瀵煎嚭鏍煎紡" in result["message"]
+    assert "不支持的导出格式" in result["message"]
     assert facade.get_error_snapshot()["message"] == result["message"]
 
 
@@ -546,7 +547,10 @@ def test_app_facade_surfaces_offline_diagnostic_adapter_review_items(tmp_path: P
     assert reports_snapshot["not_real_acceptance_evidence"] is True
     assert "simulated_protocol" in results_snapshot["result_summary_text"]
     assert "alignment 1" in results_snapshot["result_summary_text"] or "瀵归綈 1" in results_snapshot["result_summary_text"]
-    assert "v1-v2 alignment latest" in results_snapshot["result_summary_text"].lower()
+    assert (
+        "latest v1/v2 alignment" in results_snapshot["result_summary_text"].lower()
+        or "V1/V2 离线对齐" in results_snapshot["result_summary_text"]
+    )
     assert "verify ambient chain | inspect analyzer chain | inspect sample count diff" in reports_snapshot["result_summary_text"]
     assert "verify ambient chain" in results_snapshot["result_summary_text"]
     assert "inspect analyzer chain" in reports_snapshot["result_summary_text"]
@@ -581,7 +585,15 @@ def test_app_facade_surfaces_offline_diagnostic_adapter_review_items(tmp_path: P
     assert "should_continue_s1:" not in analyzer_item["detail_text"]
     assert "dominant conclusion:" not in analyzer_item["detail_text"]
     assert "recommended next check:" not in analyzer_item["detail_text"]
-    assert "sample count diff" in compare_item["detail_text"]
+    assert "V1/V2 离线对齐" in compare_item["detail_text"]
+    assert "对齐状态: 不一致" in compare_item["detail_text"]
+    assert "对齐配置: replacement_skip0_co2_only_simulated" in compare_item["detail_text"]
+    assert "目标气路:" in compare_item["detail_text"]
+    assert "样本数差异: 存在差异" in compare_item["detail_text"]
+    assert "路由轨迹差异: 存在差异" in compare_item["detail_text"]
+    assert "关键动作不一致: vent" in compare_item["detail_text"]
+    assert "物理气路不一致: 是" in compare_item["detail_text"]
+    assert "下一步检查: 检查样本数差异" in compare_item["detail_text"]
     assert "compare_status:" not in compare_item["detail_text"]
     assert any("\u5de5\u4ef6\u76ee\u5f55:" in str(line) for line in list(analyzer_item["detail_lineage_summary"] or []))
     assert any("\u4e3b\u5de5\u4ef6:" in str(line) for line in list(analyzer_item["detail_lineage_summary"] or []))
@@ -805,9 +817,9 @@ def test_app_facade_builds_points_preview_rows(tmp_path: Path) -> None:
     preview = facade.preview_points()
 
     assert preview["ok"] is True
-    assert "鎸夌湡瀹炴墽琛岄『搴忛瑙?" in preview["summary"]
-    assert preview["rows"][0]["route"] == "姘磋矾"
-    assert preview["rows"][1]["route"] == "姘旇矾"
+    assert "按真实执行顺序预览" in preview["summary"]
+    assert preview["rows"][0]["route"] == "水路"
+    assert preview["rows"][1]["route"] == "气路"
 
 def test_app_facade_default_profile_preview_displays_ambient_pressure_label(tmp_path: Path) -> None:
     facade = build_fake_facade(tmp_path)
@@ -1058,10 +1070,10 @@ def test_app_facade_can_preview_and_start_from_default_profile_without_replacing
     compiled_path = Path(facade.service.start_calls[-1])
 
     assert preview["ok"] is True
-    assert "榛樿閰嶇疆妗?default_run" in preview["summary"]
+    assert "默认配置档 default_run" in preview["summary"]
     assert preview["run_mode"] == "co2_measurement"
     assert ok_start is True
-    assert "榛樿閰嶇疆妗?" in message
+    assert "默认配置档" in message
     assert compiled_path.exists()
     assert facade.service.config.workflow.run_mode == "co2_measurement"
     assert facade.service.config.workflow.route_mode == "co2_only"
@@ -1446,8 +1458,8 @@ def test_app_facade_builds_review_digest_for_offline_evidence(tmp_path: Path) ->
     assert results_snapshot["workbench_action_report"]["config_safety"]["classification"] == (
         "simulation_real_port_inventory_risk"
     )
-    assert "涓嶄唬琛ㄧ湡瀹?acceptance" in digest["summary_text"]
-    assert "鏈€鏂板浠?" in reports_snapshot["review_digest_text"]
+    assert "不代表真实 acceptance" in digest["summary_text"]
+    assert "最新套件" in reports_snapshot["review_digest_text"]
 
 
 def test_app_facade_prefers_top_level_summary_config_safety_review(tmp_path: Path) -> None:
@@ -1581,8 +1593,8 @@ def test_app_facade_promotes_phase_transition_bridge_reviewer_artifact_into_revi
     assert review_center_entry["real_acceptance_text"] == reports_entry["real_acceptance_text"]
     assert "Step 2 tail / Stage 3 bridge" in review_center_entry["entry_text"]
     assert "engineering-isolation" in review_center_entry["entry_text"]
-    assert "涓嶆槸 real acceptance" in review_center_entry["entry_text"]
-    assert "涓嶈兘鏇夸唬鐪熷疄璁￠噺楠岃瘉" in review_center_entry["entry_text"]
+    assert "不是 real acceptance" in review_center_entry["entry_text"]
+    assert "不能替代真实计量验证" in review_center_entry["entry_text"]
     assert review_center_entry["ready_for_engineering_isolation"] is False
     assert review_center_entry["real_acceptance_ready"] is False
 
@@ -1611,8 +1623,8 @@ def test_app_facade_promotes_stage_admission_review_pack_into_review_center(tmp_
     assert review_center_entry["reviewer_path"].endswith(STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME)
     assert "Step 2 tail / Stage 3 bridge" in review_center_entry["entry_text"]
     assert "engineering-isolation" in review_center_entry["entry_text"]
-    assert "涓嶆槸 real acceptance" in review_center_entry["entry_text"]
-    assert "涓嶈兘鏇夸唬鐪熷疄璁￠噺楠岃瘉" in review_center_entry["entry_text"]
+    assert "不是 real acceptance" in review_center_entry["entry_text"]
+    assert "不能替代真实计量验证" in review_center_entry["entry_text"]
     assert review_center_entry["ready_for_engineering_isolation"] is False
     assert review_center_entry["real_acceptance_ready"] is False
     assert "ready_for_engineering_isolation" not in review_center_entry["entry_text"]

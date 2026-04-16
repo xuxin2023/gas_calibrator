@@ -26,6 +26,7 @@ from .reviewer_summary_builders import (
     build_v12_alignment_compact_summary,
     build_governance_handoff_compact_summary,
     build_parity_resilience_compact_summary,
+    build_control_flow_compare_compact_summary,
 )
 from .compact_summary_budget import apply_surface_budget
 from .phase_evidence_display_contracts import (
@@ -35,7 +36,7 @@ from .phase_evidence_display_contracts import (
 # ---------------------------------------------------------------------------
 # Version
 # ---------------------------------------------------------------------------
-REVIEWER_SUMMARY_PACKS_VERSION: str = "2.14.0"
+REVIEWER_SUMMARY_PACKS_VERSION: str = "2.16.0"
 
 # ---------------------------------------------------------------------------
 # Pack summary keys — the 6 compact summary domains
@@ -48,6 +49,8 @@ PACK_SUMMARY_KEYS: tuple[str, ...] = (
     "governance_handoff",
     "parity_resilience",
 )
+
+CONTROL_FLOW_COMPARE_PACK_KEY: str = "control_flow_compare"
 
 # ---------------------------------------------------------------------------
 # Default priorities — lower number = higher priority (displayed first)
@@ -71,6 +74,7 @@ PACK_DEFAULT_MAX_LINES_HINT: dict[str, int] = {
     "v12_alignment": 8,
     "governance_handoff": 4,
     "parity_resilience": 4,
+    CONTROL_FLOW_COMPARE_PACK_KEY: 6,
 }
 
 # ---------------------------------------------------------------------------
@@ -83,6 +87,7 @@ PACK_DISPLAY_LABELS: dict[str, str] = {
     "v12_alignment": "V1.2 对齐摘要",
     "governance_handoff": "治理交接摘要",
     "parity_resilience": "一致性/韧性摘要",
+    CONTROL_FLOW_COMPARE_PACK_KEY: "V1/V2 离线对齐摘要",
     "header": "紧凑摘要包",
 }
 
@@ -93,6 +98,7 @@ PACK_DISPLAY_LABELS_EN: dict[str, str] = {
     "v12_alignment": "V1.2 Alignment Summary",
     "governance_handoff": "Governance Handoff Summary",
     "parity_resilience": "Parity/Resilience Summary",
+    CONTROL_FLOW_COMPARE_PACK_KEY: "V1/V2 Offline Compare Summary",
     "header": "Compact Summary Pack",
 }
 
@@ -106,6 +112,7 @@ PACK_SURFACE_BUDGET_HINT: dict[str, dict[str, int]] = {
     "v12_alignment": {"results_gateway": 8, "review_center": 8, "historical": 6},
     "governance_handoff": {"results_gateway": 4, "review_center": 4, "historical": 3},
     "parity_resilience": {"results_gateway": 4, "review_center": 4, "historical": 3},
+    CONTROL_FLOW_COMPARE_PACK_KEY: {"results_gateway": 6, "review_center": 6, "historical": 5},
 }
 
 
@@ -358,3 +365,105 @@ def build_parity_resilience_pack(
         max_lines_hint=max_lines_hint if max_lines_hint is not None else PACK_DEFAULT_MAX_LINES_HINT["parity_resilience"],
         surface_budget_hint=PACK_SURFACE_BUDGET_HINT["parity_resilience"],
     )
+
+
+def build_control_flow_compare_pack(
+    payload: dict[str, Any],
+    *,
+    priority: int | None = None,
+    max_lines_hint: int | None = None,
+) -> dict[str, Any]:
+    """Build an optional compact summary pack for offline control-flow compare evidence."""
+    builder_result = build_control_flow_compare_compact_summary(payload)
+    compare_compact = dict(builder_result.get("compare_compact") or {})
+    compare_status = str(compare_compact.get("compare_status") or "").strip().upper()
+    severity = str(compare_compact.get("severity") or "")
+    if not severity:
+        severity = "info" if compare_status == "MATCH" else "attention"
+    pack = _wrap_as_pack(
+        summary_key=CONTROL_FLOW_COMPARE_PACK_KEY,
+        builder_result=builder_result,
+        display_label=PACK_DISPLAY_LABELS[CONTROL_FLOW_COMPARE_PACK_KEY],
+        priority=priority if priority is not None else 15,
+        severity=severity,
+        max_lines_hint=max_lines_hint if max_lines_hint is not None else PACK_DEFAULT_MAX_LINES_HINT[CONTROL_FLOW_COMPARE_PACK_KEY],
+        surface_budget_hint=PACK_SURFACE_BUDGET_HINT[CONTROL_FLOW_COMPARE_PACK_KEY],
+    )
+    return {
+        **pack,
+        "compare_compact": compare_compact,
+        "compare_status": str(compare_compact.get("compare_status") or ""),
+        "compare_status_display": str(compare_compact.get("compare_status_display") or ""),
+        "validation_profile": str(compare_compact.get("validation_profile") or ""),
+        "target_route": str(compare_compact.get("target_route") or ""),
+        "target_route_display": str(compare_compact.get("target_route_display") or ""),
+        "first_failure_phase": str(compare_compact.get("first_failure_phase") or ""),
+        "first_failure_phase_display": str(compare_compact.get("first_failure_phase_display") or ""),
+        "next_check": str(compare_compact.get("next_check") or ""),
+        "next_check_display": str(compare_compact.get("next_check_display") or ""),
+        "readiness_mapping_only": True,
+        "real_acceptance_ready": False,
+    }
+
+
+def extract_control_flow_compare_summary(
+    packs: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """Extract a normalized control-flow compare summary from compact summary packs."""
+    for pack in list(packs or []):
+        current = dict(pack or {})
+        if str(current.get("summary_key") or "") != CONTROL_FLOW_COMPARE_PACK_KEY:
+            continue
+        compare_compact = dict(current.get("compare_compact") or {})
+        summary_lines = list(compare_compact.get("reviewer_summary_lines") or current.get("summary_lines") or [])
+        summary_line = str(compare_compact.get("reviewer_summary_line") or current.get("summary_line") or "").strip()
+        return {
+            "available": True,
+            "summary_key": CONTROL_FLOW_COMPARE_PACK_KEY,
+            "severity": str(current.get("severity") or compare_compact.get("severity") or ""),
+            "compare_status": str(compare_compact.get("compare_status") or current.get("compare_status") or ""),
+            "compare_status_display": str(compare_compact.get("compare_status_display") or current.get("compare_status_display") or ""),
+            "validation_profile": str(compare_compact.get("validation_profile") or current.get("validation_profile") or ""),
+            "target_route": str(compare_compact.get("target_route") or current.get("target_route") or ""),
+            "target_route_display": str(compare_compact.get("target_route_display") or current.get("target_route_display") or ""),
+            "first_failure_phase": str(compare_compact.get("first_failure_phase") or current.get("first_failure_phase") or ""),
+            "first_failure_phase_display": str(compare_compact.get("first_failure_phase_display") or current.get("first_failure_phase_display") or ""),
+            "next_check": str(compare_compact.get("next_check") or current.get("next_check") or ""),
+            "next_check_display": str(compare_compact.get("next_check_display") or current.get("next_check_display") or ""),
+            "point_presence_diff": str(compare_compact.get("point_presence_diff") or ""),
+            "sample_count_diff": str(compare_compact.get("sample_count_diff") or ""),
+            "route_trace_diff": str(compare_compact.get("route_trace_diff") or ""),
+            "key_action_mismatches": list(compare_compact.get("key_action_mismatches") or []),
+            "physical_route_mismatch": str(compare_compact.get("physical_route_mismatch") or ""),
+            "compare_summary_line": summary_line,
+            "compare_summary_lines": summary_lines,
+            "reviewer_only": True,
+            "readiness_mapping_only": True,
+            "not_real_acceptance_evidence": True,
+            "not_ready_for_formal_claim": True,
+            "real_acceptance_ready": False,
+        }
+    return {
+        "available": False,
+        "compare_summary_line": "",
+        "compare_summary_lines": [],
+        "compare_status": "",
+        "compare_status_display": "",
+        "validation_profile": "",
+        "target_route": "",
+        "target_route_display": "",
+        "first_failure_phase": "",
+        "first_failure_phase_display": "",
+        "next_check": "",
+        "next_check_display": "",
+        "point_presence_diff": "",
+        "sample_count_diff": "",
+        "route_trace_diff": "",
+        "key_action_mismatches": [],
+        "physical_route_mismatch": "",
+        "reviewer_only": True,
+        "readiness_mapping_only": True,
+        "not_real_acceptance_evidence": True,
+        "not_ready_for_formal_claim": True,
+        "real_acceptance_ready": False,
+    }

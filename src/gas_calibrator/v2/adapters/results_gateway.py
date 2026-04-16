@@ -104,6 +104,8 @@ from ..review_surface_formatter import (
     offline_diagnostic_scope_label,
 )
 from ..core.reviewer_summary_packs import (
+    CONTROL_FLOW_COMPARE_PACK_KEY,
+    build_control_flow_compare_pack,
     build_measurement_digest_pack,
     build_readiness_digest_pack,
     build_v12_alignment_pack,
@@ -434,6 +436,7 @@ class ResultsGateway:
             taxonomy_summary=point_taxonomy_summary,
             phase_coverage_summary=measurement_phase_coverage_report,
             workbench_summary=workbench_evidence_summary,
+            offline_diagnostic_adapter_summary=offline_diagnostic_adapter_summary,
         )
         # Build config_governance_handoff early so closeout readiness uses canonical source (Step 2.20)
         _config_governance_handoff = self._read_config_governance_handoff(
@@ -2114,6 +2117,11 @@ class ResultsGateway:
             taxonomy_summary=taxonomy_summary,
             phase_coverage_summary=phase_coverage_summary,
             workbench_summary=workbench_summary,
+            offline_diagnostic_adapter_summary=offline_summary,
+        )
+        _has_compare_pack = any(
+            str(pack.get("summary_key") or "") == CONTROL_FLOW_COMPARE_PACK_KEY
+            for pack in _compact_packs
         )
 
         if measurement_core_stability_text:
@@ -2139,8 +2147,19 @@ class ResultsGateway:
         if measurement_core_phase_coverage_text:
             lines.extend(measurement_review_lines.get("summary_lines") or [])
             lines.extend((measurement_review_lines.get("detail_lines") or [])[:4])
-            # Apply surface-aware budget governance for compact summary lines
-            _render_result = build_surface_render_result(_compact_packs, surface="results_gateway", lang="zh")
+        if measurement_core_phase_coverage_text or _has_compare_pack:
+            # Apply surface-aware budget governance for compact summary lines.
+            # This keeps compare-only runs visible even when phase coverage is absent.
+            _render_packs = (
+                _compact_packs
+                if measurement_core_phase_coverage_text
+                else [
+                    pack
+                    for pack in _compact_packs
+                    if str(pack.get("summary_key") or "") == CONTROL_FLOW_COMPARE_PACK_KEY
+                ]
+            )
+            _render_result = build_surface_render_result(_render_packs, surface="results_gateway", lang="zh")
             lines.extend(_render_result["rendered_lines"])
         if measurement_core_sidecar_text or dict(simulation_evidence_sidecar_bundle or {}):
             sidecar_contract_text = str(sidecar_summary.get("reviewer_note") or "").strip()
@@ -2316,6 +2335,7 @@ class ResultsGateway:
         taxonomy_summary: dict[str, Any] | None = None,
         phase_coverage_summary: dict[str, Any] | None = None,
         workbench_summary: dict[str, Any] | None = None,
+        offline_diagnostic_adapter_summary: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Build compact summary packs for surface-aware budget governance.
 
@@ -2325,6 +2345,7 @@ class ResultsGateway:
         _taxonomy = dict(taxonomy_summary or {})
         _phase_coverage = dict(phase_coverage_summary or {})
         _workbench = dict(workbench_summary or {})
+        _offline_summary = dict(offline_diagnostic_adapter_summary or {})
 
         _v12_compact_payload = {
             "point_taxonomy_summary": _taxonomy,
@@ -2346,6 +2367,13 @@ class ResultsGateway:
                 dict(_workbench.get("parity_resilience_summary") or {})
             ),
         ]
+        latest_compare = dict(_offline_summary.get("latest_control_flow_compare") or {})
+        if latest_compare:
+            packs.append(
+                build_control_flow_compare_pack(
+                    {"latest_control_flow_compare": latest_compare}
+                )
+            )
         return packs
 
     @staticmethod

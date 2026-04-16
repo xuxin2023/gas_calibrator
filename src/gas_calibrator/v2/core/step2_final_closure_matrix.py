@@ -99,6 +99,128 @@ MISSING_SURFACE_LABELS_EN: dict[str, str] = {
 }
 
 
+def _extract_compare_from_closure_objects(
+    objects: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    for source_object in ("step2_freeze_audit", "step2_closeout_package"):
+        payload = dict(objects.get(source_object, {}) or {})
+        if not bool(payload.get("compare_available")):
+            continue
+        return {
+            "compare_available": True,
+            "compare_source_object": source_object,
+            "compare_status": str(payload.get("compare_status") or ""),
+            "compare_status_display": str(payload.get("compare_status_display") or ""),
+            "compare_summary_line": str(payload.get("compare_summary_line") or ""),
+            "compare_summary_lines": list(payload.get("compare_summary_lines") or []),
+            "compare_validation_profile": str(payload.get("compare_validation_profile") or ""),
+            "compare_target_route": str(payload.get("compare_target_route") or ""),
+            "compare_target_route_display": str(payload.get("compare_target_route_display") or ""),
+            "compare_first_failure_phase": str(payload.get("compare_first_failure_phase") or ""),
+            "compare_first_failure_phase_display": str(payload.get("compare_first_failure_phase_display") or ""),
+            "compare_next_check": str(payload.get("compare_next_check") or ""),
+            "compare_next_check_display": str(payload.get("compare_next_check_display") or ""),
+        }
+    return {
+        "compare_available": False,
+        "compare_source_object": "",
+        "compare_status": "",
+        "compare_status_display": "",
+        "compare_summary_line": "",
+        "compare_summary_lines": [],
+        "compare_validation_profile": "",
+        "compare_target_route": "",
+        "compare_target_route_display": "",
+        "compare_first_failure_phase": "",
+        "compare_first_failure_phase_display": "",
+        "compare_next_check": "",
+        "compare_next_check_display": "",
+    }
+
+
+def _build_reviewer_summary_line_with_compare(
+    *,
+    closure_matrix_status: str,
+    drift_count: int,
+    missing_surface_count: int,
+    source_mismatch_count: int,
+    compare: dict[str, Any],
+    lang: str,
+) -> str:
+    base = _build_reviewer_summary_line(
+        closure_matrix_status=closure_matrix_status,
+        drift_count=drift_count,
+        missing_surface_count=missing_surface_count,
+        source_mismatch_count=source_mismatch_count,
+        lang=lang,
+    )
+    if not bool(compare.get("compare_available")):
+        return base
+    status = str(compare.get("compare_status_display") or compare.get("compare_status") or "--")
+    next_check = str(compare.get("compare_next_check_display") or compare.get("compare_next_check") or "--")
+    suffix = (
+        f" | Compare: {status} | Next check: {next_check}"
+        if lang == "en"
+        else f" | 对齐状态：{status} | 下一步检查：{next_check}"
+    )
+    return base + suffix
+
+
+def _build_reviewer_summary_lines_with_compare(
+    *,
+    closure_matrix_status: str,
+    audited_surfaces: list[str],
+    drift_sections: list[dict[str, Any]],
+    missing_surfaces: list[dict[str, Any]],
+    source_mismatches: list[dict[str, Any]],
+    compare: dict[str, Any],
+    lang: str,
+) -> list[str]:
+    lines = list(
+        _build_reviewer_summary_lines(
+            closure_matrix_status=closure_matrix_status,
+            audited_surfaces=audited_surfaces,
+            drift_sections=drift_sections,
+            missing_surfaces=missing_surfaces,
+            source_mismatches=source_mismatches,
+            lang=lang,
+        )
+    )
+    if not bool(compare.get("compare_available")):
+        return lines
+    compare_summary_line = str(compare.get("compare_summary_line") or "").strip()
+    if not compare_summary_line:
+        status = str(compare.get("compare_status_display") or compare.get("compare_status") or "--")
+        next_check = str(compare.get("compare_next_check_display") or compare.get("compare_next_check") or "--")
+        compare_summary_line = (
+            f"Compare: {status} | Next check: {next_check}"
+            if lang == "en"
+            else f"离线对齐：{status} | 下一步检查：{next_check}"
+        )
+    insert_at = 3 if len(lines) >= 3 else len(lines)
+    if compare_summary_line and compare_summary_line not in lines:
+        lines.insert(insert_at, compare_summary_line)
+    return lines
+
+
+def _build_audited_objects_summary_with_compare(
+    objects: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    summary = _build_audited_objects_summary(objects)
+    for index, item in enumerate(summary):
+        payload = dict(objects.get(str(item.get("key") or ""), {}) or {})
+        if not bool(payload.get("compare_available")):
+            continue
+        summary[index] = {
+            **item,
+            "compare_available": True,
+            "compare_status": str(payload.get("compare_status") or ""),
+            "compare_status_display": str(payload.get("compare_status_display") or ""),
+            "compare_summary_line": str(payload.get("compare_summary_line") or ""),
+        }
+    return summary
+
+
 def build_step2_final_closure_matrix(
     *,
     run_id: str = "",
@@ -132,25 +254,28 @@ def build_step2_final_closure_matrix(
     drift_sections.extend(_audit_status_field_naming(objects, lang=lang))
     source_mismatches = _audit_source_priority(objects, lang=lang)
     missing_surfaces = _audit_missing_surfaces(objects, surfaces, lang=lang)
+    compare = _extract_compare_from_closure_objects(objects)
     closure_matrix_status = _derive_status(
         drift_sections=drift_sections,
         source_mismatches=source_mismatches,
         missing_surfaces=missing_surfaces,
     )
     audited_surfaces = [surface for surface, available in surfaces.items() if available]
-    reviewer_summary_line = _build_reviewer_summary_line(
+    reviewer_summary_line = _build_reviewer_summary_line_with_compare(
         closure_matrix_status=closure_matrix_status,
         drift_count=len(drift_sections),
         missing_surface_count=len(missing_surfaces),
         source_mismatch_count=len(source_mismatches),
+        compare=compare,
         lang=lang,
     )
-    reviewer_summary_lines = _build_reviewer_summary_lines(
+    reviewer_summary_lines = _build_reviewer_summary_lines_with_compare(
         closure_matrix_status=closure_matrix_status,
         audited_surfaces=audited_surfaces,
         drift_sections=drift_sections,
         missing_surfaces=missing_surfaces,
         source_mismatches=source_mismatches,
+        compare=compare,
         lang=lang,
     )
 
@@ -166,7 +291,7 @@ def build_step2_final_closure_matrix(
             closure_matrix_status,
             lang=lang,
         ),
-        "audited_objects": _build_audited_objects_summary(objects),
+        "audited_objects": _build_audited_objects_summary_with_compare(objects),
         "audited_surfaces": audited_surfaces,
         "drift_sections": drift_sections,
         "missing_surfaces": missing_surfaces,
@@ -175,6 +300,7 @@ def build_step2_final_closure_matrix(
         "reviewer_summary_lines": reviewer_summary_lines,
         "simulation_only_boundary": resolve_simulation_only_boundary(lang=lang),
         "closure_matrix_source": "rebuilt",
+        **compare,
         "evidence_source": "simulated",
         "not_real_acceptance_evidence": True,
         "not_ready_for_formal_claim": True,
@@ -291,6 +417,7 @@ def build_final_closure_matrix_fallback(*, lang: str = "zh") -> dict[str, Any]:
         ],
         "simulation_only_boundary": resolve_simulation_only_boundary(lang=lang),
         "closure_matrix_source": "fallback",
+        **_extract_compare_from_closure_objects({}),
         "evidence_source": "simulated",
         "not_real_acceptance_evidence": True,
         "not_ready_for_formal_claim": True,

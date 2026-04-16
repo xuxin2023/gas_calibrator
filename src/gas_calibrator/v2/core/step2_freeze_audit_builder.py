@@ -62,6 +62,122 @@ from .step2_closeout_readiness_contracts import (
 FREEZE_AUDIT_BUILDER_VERSION: str = "2.23.0"
 
 
+def _extract_compare_from_closeout_package(pkg: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "compare_available": bool(pkg.get("compare_available")),
+        "compare_status": str(pkg.get("compare_status") or ""),
+        "compare_status_display": str(pkg.get("compare_status_display") or ""),
+        "compare_summary_line": str(pkg.get("compare_summary_line") or ""),
+        "compare_summary_lines": list(pkg.get("compare_summary_lines") or []),
+        "compare_validation_profile": str(pkg.get("compare_validation_profile") or ""),
+        "compare_target_route": str(pkg.get("compare_target_route") or ""),
+        "compare_target_route_display": str(pkg.get("compare_target_route_display") or ""),
+        "compare_first_failure_phase": str(pkg.get("compare_first_failure_phase") or ""),
+        "compare_first_failure_phase_display": str(pkg.get("compare_first_failure_phase_display") or ""),
+        "compare_next_check": str(pkg.get("compare_next_check") or ""),
+        "compare_next_check_display": str(pkg.get("compare_next_check_display") or ""),
+        "compare_point_presence_diff": str(pkg.get("compare_point_presence_diff") or ""),
+        "compare_sample_count_diff": str(pkg.get("compare_sample_count_diff") or ""),
+        "compare_route_trace_diff": str(pkg.get("compare_route_trace_diff") or ""),
+        "compare_key_action_mismatches": list(pkg.get("compare_key_action_mismatches") or []),
+        "compare_physical_route_mismatch": str(pkg.get("compare_physical_route_mismatch") or ""),
+    }
+
+
+def _build_audit_sections_with_compare(
+    *,
+    pkg: dict[str, Any],
+    readiness: dict[str, Any],
+    parity: dict[str, Any],
+    governance: dict[str, Any],
+    suite: dict[str, Any],
+    compare: dict[str, Any],
+    lang: str,
+) -> dict[str, dict[str, Any]]:
+    sections = _build_audit_sections(
+        pkg=pkg,
+        readiness=readiness,
+        parity=parity,
+        governance=governance,
+        suite=suite,
+        lang=lang,
+    )
+    if not bool(compare.get("compare_available")):
+        return sections
+    closeout = dict(sections.get("closeout") or {})
+    sections["closeout"] = {
+        **closeout,
+        "compare_available": True,
+        "compare_status": str(compare.get("compare_status") or ""),
+        "compare_status_display": str(compare.get("compare_status_display") or ""),
+        "compare_summary_line": str(compare.get("compare_summary_line") or ""),
+        "compare_first_failure_phase": str(compare.get("compare_first_failure_phase") or ""),
+        "compare_first_failure_phase_display": str(compare.get("compare_first_failure_phase_display") or ""),
+        "compare_next_check": str(compare.get("compare_next_check") or ""),
+        "compare_next_check_display": str(compare.get("compare_next_check_display") or ""),
+    }
+    return sections
+
+
+def _build_reviewer_summary_line_with_compare(
+    *,
+    audit_status: str,
+    freeze_candidate: bool,
+    compare: dict[str, Any],
+    lang: str,
+) -> str:
+    base = _build_reviewer_summary_line(
+        audit_status=audit_status,
+        freeze_candidate=freeze_candidate,
+        lang=lang,
+    )
+    if not bool(compare.get("compare_available")):
+        return base
+    status = str(compare.get("compare_status_display") or compare.get("compare_status") or "--")
+    next_check = str(compare.get("compare_next_check_display") or compare.get("compare_next_check") or "--")
+    suffix = (
+        f" | Compare: {status} | Next check: {next_check}"
+        if lang == "en"
+        else f" | 对齐状态：{status} | 下一步检查：{next_check}"
+    )
+    return base + suffix
+
+
+def _build_reviewer_summary_lines_with_compare(
+    *,
+    audit_status: str,
+    freeze_candidate: bool,
+    blockers: list[dict[str, str]],
+    next_steps: list[dict[str, str]],
+    compare: dict[str, Any],
+    lang: str,
+) -> list[str]:
+    lines = list(
+        _build_reviewer_summary_lines(
+            audit_status=audit_status,
+            freeze_candidate=freeze_candidate,
+            blockers=blockers,
+            next_steps=next_steps,
+            lang=lang,
+        )
+    )
+    if not bool(compare.get("compare_available")):
+        return lines
+    compare_summary_line = str(compare.get("compare_summary_line") or "").strip()
+    if not compare_summary_line:
+        status = str(compare.get("compare_status_display") or compare.get("compare_status") or "--")
+        next_check = str(compare.get("compare_next_check_display") or compare.get("compare_next_check") or "--")
+        compare_summary_line = (
+            f"Compare: {status} | Next check: {next_check}"
+            if lang == "en"
+            else f"离线对齐：{status} | 下一步检查：{next_check}"
+        )
+    insert_at = 4 if len(lines) >= 4 else len(lines)
+    if compare_summary_line and compare_summary_line not in lines:
+        lines.insert(insert_at, compare_summary_line)
+    return lines
+
+
 # ---------------------------------------------------------------------------
 # build_step2_freeze_audit — main entry point
 # ---------------------------------------------------------------------------
@@ -111,14 +227,16 @@ def build_step2_freeze_audit(
     _acceptance = dict(acceptance_governance or {})
     _phase = dict(phase_evidence or {})
     _suite = dict(suite_signals or {})
+    _compare = _extract_compare_from_closeout_package(_pkg)
 
     # --- Build audit sections ---
-    audit_sections = _build_audit_sections(
+    audit_sections = _build_audit_sections_with_compare(
         pkg=_pkg,
         readiness=_readiness,
         parity=_parity,
         governance=_governance,
         suite=_suite,
+        compare=_compare,
         lang=lang,
     )
 
@@ -152,18 +270,20 @@ def build_step2_freeze_audit(
     )
 
     # --- Build reviewer summary line ---
-    reviewer_summary_line = _build_reviewer_summary_line(
+    reviewer_summary_line = _build_reviewer_summary_line_with_compare(
         audit_status=audit_status,
         freeze_candidate=freeze_candidate,
+        compare=_compare,
         lang=lang,
     )
 
     # --- Build reviewer summary lines ---
-    reviewer_summary_lines = _build_reviewer_summary_lines(
+    reviewer_summary_lines = _build_reviewer_summary_lines_with_compare(
         audit_status=audit_status,
         freeze_candidate=freeze_candidate,
         blockers=blockers,
         next_steps=next_steps,
+        compare=_compare,
         lang=lang,
     )
 
@@ -193,6 +313,7 @@ def build_step2_freeze_audit(
         "freeze_candidate_notice_en": resolve_freeze_candidate_notice(lang="en"),
         "simulation_only_boundary": simulation_only_boundary,
         "freeze_audit_source": "rebuilt",
+        **_compare,
         # Step 2 boundary markers — always enforced
         "evidence_source": "simulated",
         "not_real_acceptance_evidence": True,
@@ -570,6 +691,7 @@ def build_freeze_audit_fallback(
         "freeze_candidate_notice_en": resolve_freeze_candidate_notice(lang="en"),
         "simulation_only_boundary": _boundary,
         "freeze_audit_source": "fallback",
+        **_extract_compare_from_closeout_package({}),
         # Step 2 boundary markers — all enforced
         "evidence_source": "simulated",
         "not_real_acceptance_evidence": True,

@@ -1139,6 +1139,24 @@ def _control_flow_compare_next_check(payload: dict[str, Any]) -> str:
     return "review compare report"
 
 
+def _control_flow_compare_diff_state(matches: Any) -> str:
+    return "diff_present" if matches is False else "no_diff"
+
+
+def _control_flow_compare_key_action_mismatches(payload: dict[str, Any]) -> list[str]:
+    explicit = payload.get("key_action_mismatches")
+    if isinstance(explicit, str):
+        return [item.strip() for item in explicit.split(",") if item.strip() and item.strip().lower() != "none"]
+    if isinstance(explicit, list):
+        return [str(item).strip() for item in explicit if str(item).strip() and str(item).strip().lower() != "none"]
+    key_actions = dict(payload.get("key_actions") or {})
+    return [
+        str(name).strip()
+        for name, item in key_actions.items()
+        if str(name).strip() and not bool(dict(item or {}).get("matches", True))
+    ]
+
+
 def _discover_room_temp_diagnostic_bundles(root: Path) -> list[dict[str, Any]]:
     bundles: list[dict[str, Any]] = []
     try:
@@ -1268,6 +1286,10 @@ def _discover_control_flow_compare_bundles(root: Path) -> list[dict[str, Any]]:
         source_dir = report_path.parent
         metadata = dict(payload.get("metadata") or {})
         route_execution_summary = dict(payload.get("route_execution_summary") or {})
+        presence = dict(payload.get("presence") or {})
+        sample_count = dict(payload.get("sample_count") or {})
+        route_sequence = dict(payload.get("route_sequence") or {})
+        key_action_mismatches = _control_flow_compare_key_action_mismatches(payload)
         artifact_map = dict(payload.get("artifacts") or {})
         artifact_paths = _unique_existing_paths_within_root(
             root,
@@ -1303,6 +1325,19 @@ def _discover_control_flow_compare_bundles(root: Path) -> list[dict[str, Any]]:
                     payload.get("first_failure_phase") or route_execution_summary.get("first_failure_phase") or ""
                 ).strip(),
                 "next_check": _control_flow_compare_next_check(payload),
+                "point_presence_diff": str(
+                    payload.get("point_presence_diff") or _control_flow_compare_diff_state(presence.get("matches", True))
+                ).strip(),
+                "sample_count_diff": str(
+                    payload.get("sample_count_diff") or _control_flow_compare_diff_state(sample_count.get("matches", True))
+                ).strip(),
+                "route_trace_diff": str(
+                    payload.get("route_trace_diff") or _control_flow_compare_diff_state(route_sequence.get("matches", True))
+                ).strip(),
+                "key_action_mismatches": key_action_mismatches,
+                "physical_route_mismatch": "yes"
+                if bool(payload.get("physical_route_mismatch") or route_execution_summary.get("has_physical_route_mismatches", False))
+                else "no",
             }
         )
     return bundles
@@ -1420,6 +1455,15 @@ def _build_control_flow_compare_detail_item(bundle: dict[str, Any]) -> dict[str,
     validation_profile = str(payload.get("validation_profile") or "--").strip() or "--"
     first_failure_phase = str(payload.get("first_failure_phase") or "--").strip() or "--"
     next_check = str(payload.get("next_check") or "--").strip() or "--"
+    point_presence_diff = str(payload.get("point_presence_diff") or "no_diff").strip() or "no_diff"
+    sample_count_diff = str(payload.get("sample_count_diff") or "no_diff").strip() or "no_diff"
+    route_trace_diff = str(payload.get("route_trace_diff") or "no_diff").strip() or "no_diff"
+    key_action_mismatches = [
+        str(item).strip()
+        for item in list(payload.get("key_action_mismatches") or [])
+        if str(item).strip()
+    ]
+    physical_route_mismatch = str(payload.get("physical_route_mismatch") or "no").strip() or "no"
     artifact_scope_summary = _offline_diagnostic_scope_summary(payload)
     return {
         "kind": "control_flow_compare",
@@ -1440,6 +1484,11 @@ def _build_control_flow_compare_detail_item(bundle: dict[str, Any]) -> dict[str,
         "first_failure_phase": first_failure_phase,
         "target_route": str(payload.get("target_route") or "--").strip() or "--",
         "next_check": next_check,
+        "point_presence_diff": point_presence_diff,
+        "sample_count_diff": sample_count_diff,
+        "route_trace_diff": route_trace_diff,
+        "key_action_mismatches": key_action_mismatches,
+        "physical_route_mismatch": physical_route_mismatch,
         "artifact_scope_summary": artifact_scope_summary,
         "artifact_count": len(list(payload.get("artifact_paths") or [])),
         "plot_count": len(list(payload.get("plot_artifact_paths") or [])),

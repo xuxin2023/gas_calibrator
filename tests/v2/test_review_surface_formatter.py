@@ -7,6 +7,7 @@ from gas_calibrator.v2.review_surface_formatter import (
     build_review_scope_counts_line,
     build_review_scope_reviewer_display,
     build_review_scope_selection_line,
+    build_offline_diagnostic_detail_item_line,
     hydrate_review_scope_reviewer_display,
     build_offline_diagnostic_detail_line,
     collect_offline_diagnostic_detail_lines,
@@ -31,10 +32,10 @@ def test_collect_offline_diagnostic_detail_lines_normalizes_scope_but_keeps_raw_
 
     lines = collect_offline_diagnostic_detail_lines(summary, limit=3)
 
-    assert lines[0] == "room-temp latest | classification warn | \u5de5\u4ef6\u8303\u56f4: \u5de5\u4ef6 4 | \u56fe\u8868 1"
-    assert lines[1] == (
+    assert lines[0] == (
         "analyzer-chain latest | continue_s1 hold | \u5de5\u4ef6\u8303\u56f4: \u5de5\u4ef6 8 | \u56fe\u8868 1"
     )
+    assert lines[1] == "room-temp latest | classification warn | \u5de5\u4ef6\u8303\u56f4: \u5de5\u4ef6 4 | \u56fe\u8868 1"
     assert summary["review_highlight_lines"][0].endswith("scope artifacts 4 | plots 1")
     assert summary["detail_items"][0]["artifact_scope_summary"] == "artifacts 8 | plots 1"
 
@@ -67,6 +68,36 @@ def test_build_offline_diagnostic_detail_line_humanizes_reviewer_labels_without_
     assert bundle_dir_line == "\u5de5\u4ef6\u76ee\u5f55: D:/tmp/run_scope"
     assert classification == "warn"
     assert continue_s1 == "hold"
+
+
+def test_build_offline_diagnostic_detail_item_line_localizes_compare_fields() -> None:
+    text = build_offline_diagnostic_detail_item_line(
+        {
+            "kind": "control_flow_compare",
+            "compare_status": "MISMATCH",
+            "validation_profile": "replacement_skip0_co2_only_simulated",
+            "target_route": "co2",
+            "point_presence_diff": "no_diff",
+            "sample_count_diff": "diff_present",
+            "route_trace_diff": "diff_present",
+            "key_action_mismatches": ["vent"],
+            "physical_route_mismatch": "yes",
+            "first_failure_phase": "sample_end",
+            "next_check": "inspect sample count diff",
+        }
+    )
+
+    assert "V1/V2 离线对齐" in text
+    assert "对齐状态: 不一致" in text
+    assert "对齐配置: replacement_skip0_co2_only_simulated" in text
+    assert "目标气路:" in text
+    assert "点位存在差异: 无差异" in text
+    assert "样本数差异: 存在差异" in text
+    assert "路由轨迹差异: 存在差异" in text
+    assert "关键动作不一致: vent" in text
+    assert "物理气路不一致: 是" in text
+    assert "首个失败阶段:" in text
+    assert "下一步检查: 检查样本数差异" in text
 
 
 def test_humanize_review_surface_text_normalizes_artifact_scope_and_risk_without_touching_raw_text() -> None:

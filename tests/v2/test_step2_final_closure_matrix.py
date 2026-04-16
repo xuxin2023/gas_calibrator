@@ -17,6 +17,7 @@ from gas_calibrator.v2.core.step2_freeze_audit_builder import build_step2_freeze
 from gas_calibrator.v2.core.step2_freeze_seal_builder import build_step2_freeze_seal
 from gas_calibrator.v2.core.step2_closeout_verification import build_step2_closeout_verification
 from gas_calibrator.v2.core.step3_admission_dossier_builder import build_step3_admission_dossier
+from gas_calibrator.v2.core.reviewer_summary_packs import build_control_flow_compare_pack
 
 
 def _build_closure_chain() -> tuple[dict, dict, dict, dict, dict]:
@@ -119,3 +120,71 @@ def test_final_closure_matrix_flags_missing_review_index_surface_without_formal_
     assert matrix["not_ready_for_formal_claim"] is True
     assert matrix["real_acceptance_ready"] is False
     assert "formal approval" not in matrix["reviewer_summary_line"].lower() or "not" in matrix["reviewer_summary_line"].lower()
+
+
+def test_final_closure_matrix_surfaces_compare_summary_from_closeout_chain() -> None:
+    readiness = build_step2_closeout_readiness(run_id="matrix-compare")
+    compare_pack = build_control_flow_compare_pack(
+        {
+            "latest_control_flow_compare": {
+                "compare_status": "MISMATCH",
+                "validation_profile": "replacement_skip0_co2_only_simulated",
+                "target_route": "co2",
+                "first_failure_phase": "sample_end",
+                "point_presence_diff": "no_diff",
+                "sample_count_diff": "diff_present",
+                "route_trace_diff": "diff_present",
+                "key_action_mismatches": ["vent"],
+                "physical_route_mismatch": "yes",
+                "next_check": "inspect sample count diff",
+            }
+        }
+    )
+    package = build_step2_closeout_package(
+        run_id="matrix-compare",
+        step2_closeout_readiness=readiness,
+        compact_summary_packs=[compare_pack],
+    )
+    audit = build_step2_freeze_audit(
+        run_id="matrix-compare",
+        step2_closeout_package=package,
+        step2_closeout_readiness=readiness,
+    )
+    dossier = build_step3_admission_dossier(
+        run_id="matrix-compare",
+        step2_freeze_audit=audit,
+        step2_closeout_package=package,
+        step2_closeout_readiness=readiness,
+    )
+    verification = build_step2_closeout_verification(
+        run_id="matrix-compare",
+        step2_closeout_readiness=readiness,
+        step2_closeout_package=package,
+        step2_freeze_audit=audit,
+        step3_admission_dossier=dossier,
+    )
+    seal = build_step2_freeze_seal(
+        run_id="matrix-compare",
+        step2_closeout_readiness=readiness,
+        step2_closeout_package=package,
+        step2_freeze_audit=audit,
+        step3_admission_dossier=dossier,
+        step2_closeout_verification=verification,
+    )
+
+    matrix = build_step2_final_closure_matrix(
+        run_id="matrix-compare",
+        step2_closeout_readiness=readiness,
+        step2_closeout_package=package,
+        step2_freeze_audit=audit,
+        step3_admission_dossier=dossier,
+        step2_freeze_seal=seal,
+    )
+
+    closeout_object = next(item for item in matrix["audited_objects"] if item["key"] == "step2_closeout_package")
+    assert matrix["compare_available"] is True
+    assert matrix["compare_status"] == "MISMATCH"
+    assert matrix["compare_source_object"] in {"step2_freeze_audit", "step2_closeout_package"}
+    assert any("离线对齐" in line or "Compare" in line for line in matrix["reviewer_summary_lines"])
+    assert closeout_object["compare_available"] is True
+    assert closeout_object["compare_status"] == "MISMATCH"

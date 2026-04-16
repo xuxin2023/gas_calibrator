@@ -126,13 +126,14 @@ def _write_offline_diagnostic_bundles(run_dir: Path) -> None:
         "route_execution_summary": {
             "target_route": "co2",
             "first_failure_phase": "sample_end",
+            "has_physical_route_mismatches": True,
         },
         "presence": {"matches": True},
         "sample_count": {"matches": False},
-        "route_sequence": {"matches": True},
+        "route_sequence": {"matches": False},
         "key_actions": {
             "pressure": {"matches": True},
-            "vent": {"matches": True},
+            "vent": {"matches": False},
         },
         "artifact_inventory": {"complete": True},
         "artifacts": {
@@ -296,6 +297,18 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     assert analytics_summary["offline_diagnostic_adapter_summary"]["control_flow_compare_count"] == 1
     assert analytics_summary["offline_diagnostic_adapter_summary"]["latest_control_flow_compare"]["compare_status"] == (
         "MISMATCH"
+    )
+    assert analytics_summary["offline_diagnostic_adapter_summary"]["latest_control_flow_compare"]["sample_count_diff"] == (
+        "diff_present"
+    )
+    assert analytics_summary["offline_diagnostic_adapter_summary"]["latest_control_flow_compare"]["route_trace_diff"] == (
+        "diff_present"
+    )
+    assert analytics_summary["offline_diagnostic_adapter_summary"]["latest_control_flow_compare"]["key_action_mismatches"] == [
+        "vent"
+    ]
+    assert analytics_summary["offline_diagnostic_adapter_summary"]["latest_control_flow_compare"]["physical_route_mismatch"] == (
+        "yes"
     )
     assert analytics_summary["qc_evidence_section"]["cards"]
     assert analytics_summary["qc_review_cards"]
