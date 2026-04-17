@@ -3487,7 +3487,7 @@ class CalibrationRunner:
                     control_ready_used=False,
                     block_scope="post_isolation_fast_capture",
                     hard_blocked=True,
-                    ui_ack_required=True,
+                    ui_ack_required=False,
                     control_ready_attempted=True,
                     control_ready_prevented=True,
                 )
@@ -3503,7 +3503,7 @@ class CalibrationRunner:
                     control_ready_used=False,
                     block_scope="post_isolation_fast_capture",
                     hard_blocked=True,
-                    ui_ack_required=True,
+                    ui_ack_required=False,
                     control_ready_attempted=True,
                     control_ready_prevented=True,
                 )
@@ -3663,7 +3663,7 @@ class CalibrationRunner:
                             ):
                                 snapshot_after_override = dict(last_snapshot)
                                 clear_result_text = (
-                                    f"clear_attempted_pending_ack(before={before_vent_status},after={last_status})"
+                                    f"clear_attempted_watchlist_status_3(before={before_vent_status},after={last_status})"
                                 )
                                 break
                             time.sleep(0.25)
@@ -3707,7 +3707,7 @@ class CalibrationRunner:
                                 and self._pace_legacy_vent_state_3_compatibility_enabled(pace)
                             ):
                                 clear_result_text = (
-                                    f"clear_attempted_pending_ack(before={clear_summary.get('before_status')},"
+                                    f"clear_attempted_watchlist_status_3(before={clear_summary.get('before_status')},"
                                     f"after={clear_summary.get('after_status')})"
                                 )
                             else:
@@ -3742,9 +3742,9 @@ class CalibrationRunner:
             vent_status=snapshot_after.get("pace_vent_status_query"),
             accept_scope="none",
             control_ready_used=False,
-            block_scope="vent_clear_pending_ack",
-            hard_blocked=("pending_ack" in clear_result_text),
-            ui_ack_required=("pending_ack" in clear_result_text),
+            block_scope="vent_clear_watchlist",
+            hard_blocked=("watchlist_status_3" in clear_result_text),
+            ui_ack_required=False,
             control_ready_attempted=False,
             control_ready_prevented=False,
         )
@@ -11471,9 +11471,6 @@ class CalibrationRunner:
     def _pressure_output_on_recovery_retries(self) -> int:
         return max(0, int(self._wf("workflow.pressure.output_on_recovery_retries", 1) or 1))
 
-    def _pressure_output_on_recovery_requires_trapped(self) -> bool:
-        return bool(self._wf("workflow.pressure.output_on_recovery_requires_trapped", True))
-
     def _pace_vent_status_allows_control(self, pace: Any, vent_status: Any) -> bool:
         status_value = self._as_int(vent_status)
         if status_value is None:
@@ -11484,16 +11481,11 @@ class CalibrationRunner:
             return False
         trapped_pressure_status = self._as_int(getattr(pace, "VENT_STATUS_TRAPPED_PRESSURE", 3))
         if trapped_pressure_status is not None and status_value == trapped_pressure_status:
-            # VENT?=3 is kept as a narrow firmware-compatibility signal only.
-            # General control-ready gates must not treat it as a normal ready state.
+            # VENT?=3 remains watchlist-only on legacy GE Druck units. Real
+            # read-only evidence does not close the loop between this value and
+            # the front-panel popup state, so automation must not depend on it.
             return False
         return status_value == 0
-
-    def _pace_trapped_pressure_allows_control(self, pace: Any, vent_status: Any) -> bool:
-        # Engineering policy: VENT?=3 is a legacy pending-acknowledgement
-        # signal only. Non-controller-only paths must never treat it as
-        # control-ready.
-        return False
 
     def _pressure_controller_ready_failures(self, snapshot: Dict[str, Any], pace: Any = None) -> List[str]:
         failures: List[str] = []
@@ -11507,7 +11499,7 @@ class CalibrationRunner:
         if vent_status is None:
             failures.append("vent_status_unavailable")
         elif trapped_pressure_status is not None and vent_status == trapped_pressure_status:
-            failures.append(f"vent_status={vent_status}(trapped_pressure)")
+            failures.append(f"vent_status={vent_status}(watchlist_only)")
         elif not self._pace_vent_status_allows_control(pace, vent_status):
             failures.append(f"vent_status={vent_status}")
         if output_state is None:
@@ -11544,7 +11536,7 @@ class CalibrationRunner:
             control_ready_used=False,
             block_scope="pressure_control_ready",
             hard_blocked=bool(failures),
-            ui_ack_required=bool(failures),
+            ui_ack_required=False,
             control_ready_attempted=True,
             control_ready_prevented=bool(failures),
         )
@@ -11595,7 +11587,7 @@ class CalibrationRunner:
                 control_ready_used=False,
                 block_scope="pressure_control_ready",
                 hard_blocked=bool(failures),
-                ui_ack_required=bool(failures),
+                ui_ack_required=False,
                 control_ready_attempted=True,
                 control_ready_prevented=bool(failures),
             )
@@ -11664,7 +11656,7 @@ class CalibrationRunner:
                 control_ready_used=False,
                 block_scope="pressure_control_ready",
                 hard_blocked=bool(failures),
-                ui_ack_required=bool(failures),
+                ui_ack_required=False,
                 control_ready_attempted=True,
                 control_ready_prevented=bool(failures),
             )
@@ -11901,9 +11893,9 @@ class CalibrationRunner:
                     last_status,
                     accept_scope="none",
                     control_ready_used=False,
-                    block_scope="vent_clear_pending_ack",
+                    block_scope="vent_clear_watchlist",
                     hard_blocked=True,
-                    ui_ack_required=True,
+                    ui_ack_required=False,
                     control_ready_attempted=False,
                     control_ready_prevented=False,
                 )
@@ -11918,7 +11910,7 @@ class CalibrationRunner:
                     pace_vent_status_query=snapshot.get("pace_vent_status_query"),
                     pace_vent_completed_latched=snapshot.get("pace_vent_completed_latched"),
                     pace_vent_clear_attempted=True,
-                    pace_vent_clear_result="pending_acknowledgement",
+                    pace_vent_clear_result="watchlist_status_3",
                     **legacy_vent3_trace,
                     pace_effort_query=snapshot.get("pace_effort_query"),
                     pace_comp1_query=snapshot.get("pace_comp1_query"),
@@ -11937,9 +11929,9 @@ class CalibrationRunner:
                     pace_oper_pres_vent_complete_bit=snapshot.get("pace_oper_pres_vent_complete_bit"),
                     pace_oper_pres_in_limits_bit=snapshot.get("pace_oper_pres_in_limits_bit"),
                     refresh_pace_state=False,
-                    note="VENT 0 sent, but VENT?=3 remains pending front-panel acknowledgement",
+                    note="VENT 0 sent, but VENT?=3 remains watchlist-only; popup correlation is not established",
                 )
-                raise RuntimeError(f"VENT_CLEAR_PENDING_ACK(last_status={last_status})")
+                raise RuntimeError(f"VENT_CLEAR_STATUS_3_WATCHLIST(last_status={last_status})")
             time.sleep(max(0.05, float(poll_s)))
         raise RuntimeError(f"VENT_CLEAR_TIMEOUT(last_status={last_status})")
 
@@ -12102,25 +12094,17 @@ class CalibrationRunner:
         self,
         snapshot: Dict[str, Any],
         pace: Any = None,
-        *,
-        allow_trapped_pressure: bool = False,
     ) -> List[str]:
         failures: List[str] = []
         vent_status = self._as_int(snapshot.get("pace_vent_status"))
         output_state = self._as_int(snapshot.get("pace_output_state"))
         isolation_state = self._as_int(snapshot.get("pace_isolation_state"))
         trapped_pressure_status = self._as_int(getattr(pace, "VENT_STATUS_TRAPPED_PRESSURE", 3))
-        trapped_ready_for_control = bool(
-            allow_trapped_pressure
-            and trapped_pressure_status is not None
-            and vent_status == trapped_pressure_status
-            and self._pace_trapped_pressure_allows_control(pace, vent_status)
-        )
         if vent_status is None:
             failures.append("vent_status_unavailable")
-        elif trapped_pressure_status is not None and vent_status == trapped_pressure_status and not trapped_ready_for_control:
-            failures.append(f"vent_status={vent_status}(trapped_pressure)")
-        elif not (self._pace_vent_status_allows_control(pace, vent_status) or trapped_ready_for_control):
+        elif trapped_pressure_status is not None and vent_status == trapped_pressure_status:
+            failures.append(f"vent_status={vent_status}(watchlist_only)")
+        elif not self._pace_vent_status_allows_control(pace, vent_status):
             failures.append(f"vent_status={vent_status}")
         if output_state is None:
             failures.append("output_state_unavailable")
@@ -12156,32 +12140,22 @@ class CalibrationRunner:
             isolation_state = self._as_int(snapshot.get("pace_isolation_state"))
             vent_ready_for_control = self._pace_vent_status_allows_control(pace, vent_status)
             trapped_pressure_active = trapped_pressure_status is not None and vent_status == trapped_pressure_status
-            trapped_ready_for_control = trapped_pressure_active and self._pace_trapped_pressure_allows_control(
-                pace,
-                vent_status,
-            )
             legacy_vent3_trace = self._record_legacy_vent3_runtime_fields(
                 point,
                 phase=phase,
                 pace=pace,
                 vent_status=vent_status,
-                accept_scope="output_recovery",
-                control_ready_used=trapped_ready_for_control,
+                accept_scope="none",
+                control_ready_used=False,
                 block_scope="output_recovery",
-                hard_blocked=bool(
-                    trapped_pressure_active and not trapped_ready_for_control
-                ),
-                ui_ack_required=bool(
-                    trapped_pressure_active and not trapped_ready_for_control
-                ),
+                hard_blocked=bool(trapped_pressure_active),
+                ui_ack_required=False,
                 control_ready_attempted=True,
-                control_ready_prevented=bool(
-                    trapped_pressure_active and not trapped_ready_for_control
-                ),
+                control_ready_prevented=bool(trapped_pressure_active),
             )
-            if output_state == 1 and isolation_state == 1 and (vent_ready_for_control or trapped_ready_for_control):
+            if output_state == 1 and isolation_state == 1 and vent_ready_for_control:
                 return True
-            if trapped_pressure_active and not trapped_ready_for_control:
+            if trapped_pressure_active:
                 self._append_pressure_trace_row(
                     point=point,
                     route=phase,
@@ -12193,13 +12167,10 @@ class CalibrationRunner:
                     pace_vent_status=snapshot.get("pace_vent_status"),
                     **legacy_vent3_trace,
                     refresh_pace_state=False,
-                    note="VENT?=3 remains atmosphere-connected pending front-panel OK; output recovery hard blocked",
+                    note="VENT?=3 remains watchlist-only; popup correlation is not established, so output recovery is blocked",
                 )
                 return False
-            if self._pressure_output_on_recovery_requires_trapped():
-                if not trapped_ready_for_control or isolation_state != 1:
-                    return False
-            elif not (vent_ready_for_control or trapped_ready_for_control) or isolation_state != 1:
+            if not vent_ready_for_control or isolation_state != 1:
                 return False
             self.log(
                 "Pressure controller output-on recovery attempt "
@@ -12252,7 +12223,6 @@ class CalibrationRunner:
                 pressure_target_hpa=pressure_target_hpa,
                 note=f"after output-on recovery attempt {attempt_idx + 1}",
                 allow_recovery=False,
-                allow_trapped_pressure=False,
             ):
                 return True
         return False
@@ -12265,7 +12235,6 @@ class CalibrationRunner:
         pressure_target_hpa: Optional[float],
         note: str = "",
         allow_recovery: bool = True,
-        allow_trapped_pressure: bool = False,
     ) -> bool:
         pace = self.devices.get("pace")
         if not pace:
@@ -12274,22 +12243,17 @@ class CalibrationRunner:
         failures = self._pressure_controller_output_on_failures(
             snapshot,
             pace,
-            allow_trapped_pressure=allow_trapped_pressure,
-        )
-        trapped_ready_for_control = bool(
-            allow_trapped_pressure
-            and self._pace_trapped_pressure_allows_control(pace, snapshot.get("pace_vent_status"))
         )
         legacy_vent3_trace = self._record_legacy_vent3_runtime_fields(
             point,
             phase=phase,
             pace=pace,
             vent_status=snapshot.get("pace_vent_status"),
-            accept_scope="output_recovery",
-            control_ready_used=(not failures and trapped_ready_for_control),
+            accept_scope="none",
+            control_ready_used=False,
             block_scope="output_on_verify",
             hard_blocked=bool(failures),
-            ui_ack_required=bool(failures),
+            ui_ack_required=False,
             control_ready_attempted=True,
             control_ready_prevented=bool(failures),
         )
@@ -12320,22 +12284,17 @@ class CalibrationRunner:
                 failures = self._pressure_controller_output_on_failures(
                     snapshot,
                     pace,
-                    allow_trapped_pressure=allow_trapped_pressure,
                 )
-            trapped_ready_for_control = bool(
-                allow_trapped_pressure
-                and self._pace_trapped_pressure_allows_control(pace, snapshot.get("pace_vent_status"))
-            )
             legacy_vent3_trace = self._record_legacy_vent3_runtime_fields(
                 point,
                 phase=phase,
                 pace=pace,
                 vent_status=snapshot.get("pace_vent_status"),
-                accept_scope="output_recovery",
-                control_ready_used=(not failures and trapped_ready_for_control),
+                accept_scope="none",
+                control_ready_used=False,
                 block_scope="output_on_verify",
                 hard_blocked=bool(failures),
-                ui_ack_required=bool(failures),
+                ui_ack_required=False,
                 control_ready_attempted=True,
                 control_ready_prevented=bool(failures),
             )
@@ -14503,7 +14462,7 @@ class CalibrationRunner:
                 control_ready_used=False,
                 block_scope="sampling_capture",
                 hard_blocked=not unexpected_refresh,
-                ui_ack_required=not unexpected_refresh,
+                ui_ack_required=False,
                 control_ready_attempted=not unexpected_refresh,
                 control_ready_prevented=not unexpected_refresh,
             )
@@ -15834,7 +15793,7 @@ class CalibrationRunner:
                 control_ready_used=False,
                 block_scope="post_isolation_diagnostic",
                 hard_blocked=True,
-                ui_ack_required=True,
+                ui_ack_required=False,
                 control_ready_attempted=True,
                 control_ready_prevented=True,
             )

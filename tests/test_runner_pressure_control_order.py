@@ -238,7 +238,7 @@ class _FakePaceLegacyVentTrapped(_FakePace):
         return True
 
     def vent_status_allows_control(self, status):
-        return int(status) in {0, 2, 3}
+        return int(status) == 0
 
     def enable_control_output(self):
         self.calls.append(("output_on",))
@@ -278,7 +278,7 @@ class _FakePaceLegacyOutputOnTrappedThenReady(_FakePace):
         return True
 
     def vent_status_allows_control(self, status):
-        return int(status) in {0, 2, 3}
+        return int(status) == 0
 
     def enable_control_output(self):
         self.calls.append(("output_on", self.phase))
@@ -557,7 +557,7 @@ def test_set_pressure_controller_vent_on_does_not_depend_on_open_valve_extension
     assert any(row["trace_stage"] == "atmosphere_enter_verified" for row in trace_rows)
 
 
-def test_set_pressure_controller_vent_on_blocks_legacy_trapped_pressure_pending_ack(tmp_path: Path) -> None:
+def test_set_pressure_controller_vent_on_blocks_legacy_watchlist_status_3(tmp_path: Path) -> None:
     cfg = {
         "workflow": {
             "pressure": {
@@ -570,7 +570,7 @@ def test_set_pressure_controller_vent_on_blocks_legacy_trapped_pressure_pending_
     pace = _FakePaceSingleCycleVentClearsToTrapped()
     runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
 
-    with pytest.raises(RuntimeError, match="VENT_CLEAR_PENDING_ACK"):
+    with pytest.raises(RuntimeError, match="VENT_CLEAR_STATUS_3_WATCHLIST"):
         runner._set_pressure_controller_vent(True, reason="legacy trapped after clear")
     logger.close()
 
@@ -584,11 +584,11 @@ def test_set_pressure_controller_vent_on_blocks_legacy_trapped_pressure_pending_
     assert any(
         row["trace_stage"] == "atmosphere_vent_clear"
         and row["pace_vent_status_query"].strip() == "3"
-        and row["pace_vent_clear_result"].strip() == "pending_acknowledgement"
+        and row["pace_vent_clear_result"].strip() == "watchlist_status_3"
         and row["legacy_vent3_control_ready_used"].strip().lower() != "true"
         and row["legacy_vent3_accept_scope"].strip() == "none"
-        and row["vent3_ui_ack_required"].strip().lower() == "true"
-        and row["vent3_block_scope"].strip() == "vent_clear_pending_ack"
+        and row["vent3_ui_ack_required"].strip().lower() == "false"
+        and row["vent3_block_scope"].strip() == "vent_clear_watchlist"
         for row in trace_rows
     )
     assert not any(row["trace_stage"] == "atmosphere_enter_verified" for row in trace_rows)
@@ -907,7 +907,7 @@ def test_set_pressure_to_target_rejects_trapped_pressure_before_setpoint_control
     assert not any(row["trace_stage"] == "pressure_control_wait" for row in trace_rows)
 
 
-def test_set_pressure_to_target_rejects_legacy_trapped_pressure_before_setpoint_control(tmp_path: Path) -> None:
+def test_set_pressure_to_target_rejects_legacy_watchlist_status_3_before_setpoint_control(tmp_path: Path) -> None:
     cfg = {
         "workflow": {
             "pressure": {
@@ -958,7 +958,7 @@ def test_set_pressure_to_target_rejects_legacy_trapped_pressure_before_setpoint_
     assert not any(row["trace_stage"] == "control_output_on_verified" for row in trace_rows)
 
 
-def test_set_pressure_to_target_rejects_output_recovery_while_still_trapped(tmp_path: Path) -> None:
+def test_set_pressure_to_target_rejects_output_recovery_while_vent_status_3_remains_watchlist_only(tmp_path: Path) -> None:
     cfg = {
         "workflow": {
             "pressure": {
@@ -999,7 +999,7 @@ def test_set_pressure_to_target_rejects_output_recovery_while_still_trapped(tmp_
     assert not any(row["trace_stage"] == "pressure_control_wait" for row in trace_rows)
 
 
-def test_set_pressure_to_target_blocks_output_recovery_when_legacy_trapped_ready(tmp_path: Path) -> None:
+def test_set_pressure_to_target_blocks_output_recovery_when_legacy_watchlist_status_3_persists(tmp_path: Path) -> None:
     cfg = {
         "workflow": {
             "pressure": {
@@ -1275,7 +1275,7 @@ def test_force_clear_completed_vent_latch_when_status_is_trapped_but_oper_bit_is
     logger.close()
 
     assert summary["status"] == "applied"
-    assert summary["reason"] == "clear_attempted_pending_ack(before=3,after=3)"
+    assert summary["reason"] == "clear_attempted_watchlist_status_3(before=3,after=3)"
     assert pace.calls == [
         ("clear_status",),
         ("drain_system_errors",),

@@ -57,7 +57,7 @@ class _FakeLegacyPaceForSamplingIsolation(_FakePaceForSamplingIsolation):
         return True
 
     def vent_status_allows_control(self, status):
-        return int(status) in {0, 3}
+        return int(status) == 0
 
 
 def _co2_point(pressure_hpa: float = 800.0, *, index: int = 1) -> CalibrationPoint:
@@ -144,7 +144,7 @@ def test_sampling_isolation_requires_output_off_and_isol_closed(
         "same_gas_superambient_precharge_handoff",
     ],
 )
-def test_sampling_isolation_blocks_legacy_trapped_pressure_pending_front_panel_ack(
+def test_sampling_isolation_blocks_legacy_watchlist_status_3(
     tmp_path: Path,
     handoff_mode: str,
 ) -> None:
@@ -184,7 +184,7 @@ def test_sampling_isolation_blocks_legacy_trapped_pressure_pending_front_panel_a
     assert runtime_state["pace_vent_status_query"] == 3
     assert runtime_state["pace_atmosphere_connected_latched_state_suspect"] is True
     assert runtime_state["vent3_hard_blocked"] is True
-    assert runtime_state["vent3_ui_ack_required"] is True
+    assert runtime_state["vent3_ui_ack_required"] is False
     assert runtime_state["vent3_control_ready_attempted"] is True
     assert runtime_state["vent3_control_ready_prevented"] is True
     assert runtime_state["vent3_block_scope"] == "sampling_capture"

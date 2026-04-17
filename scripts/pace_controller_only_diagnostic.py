@@ -344,7 +344,7 @@ def _controller_only_vent3_fields(
         "legacy_vent3_accept_scope": "controller_only" if is_vent3 else "none",
         "vent_status_3_count": 1 if is_vent3 else 0,
         "vent3_hard_blocked": False,
-        "vent3_ui_ack_required": is_vent3,
+        "vent3_ui_ack_required": False,
         "vent3_control_ready_attempted": False,
         "vent3_control_ready_prevented": False,
         "vent3_block_scope": "none",
@@ -468,7 +468,7 @@ def _build_matrix_analysis(rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         "legacy_vent3_control_ready_used": False,
         "legacy_vent3_accept_scope": "controller_only" if steps_with_vent_status_3 else "none",
         "vent3_hard_blocked": False,
-        "vent3_ui_ack_required": bool(steps_with_vent_status_3),
+        "vent3_ui_ack_required": False,
         "vent3_control_ready_attempted": False,
         "vent3_control_ready_prevented": False,
         "vent3_block_scope": "none",
@@ -663,6 +663,7 @@ def run_controller_only_matrix(
             "controller-only A-G matrix",
             "no setpoint, output enable, vent-on, or gas-path writes are performed",
             "matrix only uses *CLS, :STAT:OPER:PRES:EVEN?, and :SOUR:PRES:LEV:IMM:AMPL:VENT 0",
+            "VENT=3 is treated as watchlist-only; popup visibility and SCPI VENT values are not assumed to be one-to-one",
             "controller-only matrix intentionally excludes :SENS:PRES:CONT? because 02.00.07 can contaminate :SYST:ERR? with -113",
         ],
     }
@@ -781,17 +782,13 @@ def _build_ui_ack_analysis(samples: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     even_bit0_cleared_after_ack = bool(
         pre_ack_had_even_bit0 and post_even and all(value is False for value in post_even if value is not None)
     )
-    front_panel_ack_observed = bool(
-        ack_observed_in_samples
-        or vent3_cleared_after_ack
-        or cond_bit0_cleared_after_ack
-    )
+    front_panel_ack_observed = bool(ack_observed_in_samples)
     if pre_vents and all(value == Pace5000.VENT_STATUS_TRAPPED_PRESSURE for value in pre_vents if value is not None):
-        conclusion_codes.append("pre_ack_vent3_persistent")
+        conclusion_codes.append("pre_window_vent3_persistent")
     if vent3_cleared_after_ack:
-        conclusion_codes.append("front_panel_ack_clears_vent3")
+        conclusion_codes.append("vent_status_changed_after_ack_window")
     if cond_bit0_cleared_after_ack:
-        conclusion_codes.append("front_panel_ack_clears_cond_bit0")
+        conclusion_codes.append("cond_bit0_changed_after_ack_window")
     return {
         "vent_status_3_count": sum(
             1 for sample in samples if sample.get("snapshot", {}).get("parsed", {}).get("vent") == Pace5000.VENT_STATUS_TRAPPED_PRESSURE
@@ -806,7 +803,7 @@ def _build_ui_ack_analysis(samples: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         "legacy_vent3_control_ready_used": False,
         "legacy_vent3_accept_scope": "controller_only" if pre_samples else "none",
         "vent3_hard_blocked": False,
-        "vent3_ui_ack_required": any(sample.get("snapshot", {}).get("parsed", {}).get("vent_status_is_3") for sample in pre_samples),
+        "vent3_ui_ack_required": False,
         "vent3_control_ready_attempted": False,
         "vent3_control_ready_prevented": False,
         "vent3_block_scope": "none",
@@ -896,9 +893,10 @@ def run_controller_only_ui_ack_experiment(
         "analysis": _build_ui_ack_analysis(samples),
         "notes": [
             "controller-only UI acknowledgement experiment",
-            "phase1/phase2 are read-only snapshots while the front-panel OK popup remains visible",
-            "phase3 starts only after manual front-panel OK acknowledgement or the configured ack wait window",
+            "phase1/phase2 are read-only snapshots during the operator observation window before phase3",
+            "phase3 starts only after optional manual front-panel OK acknowledgement or the configured ack wait window",
             "this experiment never sends VENT 0 and does not treat SCPI VENT 0 as equivalent to front-panel OK",
+            "front-panel popup visibility and SCPI VENT values are not assumed to be one-to-one; real read-only runs have observed popup windows while SCPI still returned VENT=2",
             "controller-only experiment intentionally excludes :SENS:PRES:CONT? because 02.00.07 can contaminate :SYST:ERR? with -113",
         ],
     }

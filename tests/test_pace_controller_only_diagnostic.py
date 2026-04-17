@@ -179,6 +179,48 @@ class _FakeUiAckAlreadyDismissedPace:
         return responses[command]
 
 
+class _FakeUiAckStateChangeWithoutObservedAckPace:
+    def __init__(self):
+        self.calls = []
+        self.vent_query_count = 0
+
+    def open(self):
+        self.calls.append(("open",))
+
+    def close(self):
+        self.calls.append(("close",))
+
+    def _post_window_active(self) -> bool:
+        return self.vent_query_count >= 3
+
+    def query(self, command):
+        self.calls.append(("query", command))
+        if command == ":SOUR:PRES:LEV:IMM:AMPL:VENT?":
+            vent_status = 0 if self._post_window_active() else 3
+            self.vent_query_count += 1
+            return f":SOUR:PRES:LEV:IMM:AMPL:VENT {vent_status}"
+
+        cond_value = 0 if self._post_window_active() else 1
+        responses = {
+            "*IDN?": "*IDN GE Druck,Pace5000 User Interface,3213201,02.00.07",
+            ":INST:VERS?": ':INST:VERS "02.00.07"',
+            ":OUTP:STAT?": ":OUTP:STAT 0",
+            ":OUTP:ISOL:STAT?": ":OUTP:ISOL:STAT 1",
+            ":OUTP:MODE?": ":OUTP:MODE ACT",
+            ":SOUR:PRES:EFF?": ":SOUR:PRES:EFF 0.0",
+            ":SOUR:PRES:COMP1?": ":SOUR:PRES:COMP1 1615.1",
+            ":SOUR:PRES:COMP2?": ":SOUR:PRES:COMP2 78.7",
+            ":SENS:PRES:BAR?": ":SENS:PRES:BAR 1010.0",
+            ":SENS:PRES:INL?": ":SENS:PRES:INL 1008.6, 0",
+            ":SENS:PRES:INL:TIME?": ":SENS:PRES:INL:TIME 31.49",
+            ":SENS:PRES:SLEW?": ":SENS:PRES:SLEW 0.000",
+            ":STAT:OPER:PRES:COND?": f":STAT:OPER:PRES:COND {cond_value}",
+            ":STAT:OPER:PRES:EVEN?": ":STAT:OPER:PRES:EVEN 0",
+            ":SYST:ERR?": ':SYST:ERR 0,"No error"',
+        }
+        return responses[command]
+
+
 def test_controller_only_diagnostic_is_read_only_by_default(tmp_path: Path) -> None:
     module = _load_module()
     fake = _FakePace()
@@ -265,7 +307,7 @@ def test_controller_only_matrix_runs_a_to_g_without_touching_main_flow(tmp_path:
     assert summary["analysis"]["pace_atmosphere_connected_latched_state_suspect"] is True
     assert summary["analysis"]["legacy_vent3_control_ready_used"] is False
     assert summary["analysis"]["legacy_vent3_accept_scope"] == "controller_only"
-    assert summary["analysis"]["vent3_ui_ack_required"] is True
+    assert summary["analysis"]["vent3_ui_ack_required"] is False
     assert summary["analysis"]["syst_err_all_zero"] is True
     assert summary["analysis"]["eff_all_zero"] is True
     assert summary["analysis"]["observation_only_steps"] == [
@@ -329,7 +371,7 @@ def test_controller_only_ui_ack_experiment_tracks_manual_front_panel_ack(tmp_pat
     assert summary["analysis"]["legacy_vent3_accept_scope"] == "controller_only"
     assert summary["analysis"]["front_panel_ack_observed"] is True
     assert summary["analysis"]["vent3_post_ack_status"] == 0
-    assert "front_panel_ack_clears_vent3" in summary["analysis"]["conclusion_codes"]
+    assert "vent_status_changed_after_ack_window" in summary["analysis"]["conclusion_codes"]
     assert all(call != ("query", ":SENS:PRES:CONT?") for call in fake.calls)
     assert Path(summary["csv_path"]).exists()
     assert Path(summary["json_path"]).exists()
@@ -367,7 +409,33 @@ def test_controller_only_ui_ack_experiment_does_not_claim_ack_without_evidence(t
     assert summary["analysis"]["vent3_post_ack_status"] == 3
     assert summary["analysis"]["legacy_vent3_control_ready_used"] is False
     assert summary["analysis"]["legacy_vent3_accept_scope"] == "controller_only"
-    assert "front_panel_ack_clears_vent3" not in summary["analysis"]["conclusion_codes"]
+    assert "vent_status_changed_after_ack_window" not in summary["analysis"]["conclusion_codes"]
+    assert all(call != ("query", ":SENS:PRES:CONT?") for call in fake.calls)
+
+
+def test_controller_only_ui_ack_experiment_keeps_ack_unobserved_when_status_changes_without_callback(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    fake = _FakeUiAckStateChangeWithoutObservedAckPace()
+
+    summary = module.run_controller_only_ui_ack_experiment(
+        port="COM_TEST",
+        timeout=0.1,
+        output_dir=tmp_path,
+        interval_s=0.0,
+        hold_samples=2,
+        post_ack_samples=2,
+        ack_wait_s=0.0,
+        pace_factory=lambda *args, **kwargs: fake,
+    )
+
+    assert summary["analysis"]["vent3_persisted_before_ack"] is True
+    assert summary["analysis"]["vent3_cleared_after_ack"] is True
+    assert summary["analysis"]["cond_bit0_cleared_after_ack"] is True
+    assert summary["analysis"]["front_panel_ack_observed"] is False
+    assert "vent_status_changed_after_ack_window" in summary["analysis"]["conclusion_codes"]
+    assert "cond_bit0_changed_after_ack_window" in summary["analysis"]["conclusion_codes"]
     assert all(call != ("query", ":SENS:PRES:CONT?") for call in fake.calls)
 
 
