@@ -1,0 +1,50 @@
+{
+  "schema_version": "step2-human-governance-fixtures-v1",
+  "records": [
+    {
+      "record_id": "TRN-OP-SIM-LI-001",
+      "person_id": "OP-SIM-LI",
+      "module_id": "STEP2_SIMULATION_OPERATOR",
+      "module_title": "Step 2 simulation boundary",
+      "record_state": "current",
+      "completed_at": "2026-03-01",
+      "expires_at": "2027-03-01"
+    },
+    {
+      "record_id": "TRN-OP-SIM-LI-002",
+      "person_id": "OP-SIM-LI",
+      "module_id": "STEP2_ROUTE_GAS",
+      "module_title": "Step 2 gas-route reviewer mapping",
+      "record_state": "current",
+      "completed_at": "2026-03-02",
+      "expires_at": "2027-03-02"
+    },
+    {
+      "record_id": "TRN-OP-SIM-LI-003",
+      "person_id": "OP-SIM-LI",
+      "module_id": "STEP2_ROUTE_WATER",
+      "module_title": "Step 2 water-route reviewer mapping",
+      "record_state": "current",
+      "completed_at": "2026-03-02",
+      "expires_at": "2027-03-02"
+    },
+    {
+      "record_id": "TRN-OP-SIM-LI-004",
+      "person_id": "OP-SIM-LI",
+      "module_id": "STEP2_DUAL_CHECK_AWARENESS",
+      "module_title": "Step 2 dual-check placeholder awareness",
+      "record_state": "current",
+      "completed_at": "2026-03-03",
+      "expires_at": "2027-03-03"
+    },
+    {
+      "record_id": "TRN-RVW-STEP2-CHEN-001",
+      "person_id": "RVW-STEP2-CHEN",
+      "module_id": "STEP2_REVIEWER_BOUNDARY",
+      "module_title": "Reviewer-only boundary and non-claim rule",
+      "record_state": "current",
+      "completed_at": "2026-03-04",
+      "expires_at": "2027-03-04"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "schema_version": "step2-human-governance-fixtures-v1",
+  "sop_versions": [
+    {
+      "sop_id": "SOP-STEP2-CAL-SIM",
+      "title": "Step 2 模拟校准执行 SOP",
+      "category": "calibration",
+      "version": "v2.3",
+      "route_scope": ["gas", "water"],
+      "active_state": "current",
+      "reviewer_only_note": "Reviewer-facing binding only; not real release."
+    },
+    {
+      "sop_id": "SOP-STEP2-QC-REVIEW",
+      "title": "Step 2 QC 标记与复核 SOP",
+      "category": "qc",
+      "version": "v1.4",
+      "route_scope": ["gas", "water"],
+      "active_state": "current",
+      "reviewer_only_note": "Placeholder binding only; no electronic signoff."
+    },
+    {
+      "sop_id": "SOP-STEP2-RECOVERY-LOG",
+      "title": "Step 2 恢复动作日志 SOP",
+      "category": "recovery",
+      "version": "v1.1",
+      "route_scope": ["gas", "water"],
+      "active_state": "current",
+      "reviewer_only_note": "Recovery logging stays reviewer-facing in Step 2."
+    }
+  ]
+}

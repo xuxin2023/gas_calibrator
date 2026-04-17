@@ -1,0 +1,25 @@
+{
+  "schema_version": "step2-human-governance-fixtures-v1",
+  "authorizations": [
+    {
+      "authorization_id": "AUTH-OP-SIM-LI-STEP2",
+      "person_id": "OP-SIM-LI",
+      "authorization_state": "current",
+      "environment_scope": ["simulation", "offline", "headless"],
+      "route_scope": ["gas", "water"],
+      "action_scope": ["run_simulation", "bind_sop_version", "review_recovery_log"],
+      "summary_text": "OP-SIM-LI 已授权 Step 2 simulation/offline/headless 范围。",
+      "reviewer_only_note": "No real device access and no formal approval chain."
+    },
+    {
+      "authorization_id": "AUTH-RVW-STEP2-CHEN",
+      "person_id": "RVW-STEP2-CHEN",
+      "authorization_state": "current",
+      "environment_scope": ["simulation", "offline", "headless", "reviewer_only"],
+      "route_scope": ["gas", "water"],
+      "action_scope": ["review_metadata_bundle", "leave_placeholder_note"],
+      "summary_text": "RVW-STEP2-CHEN 仅做 reviewer-facing 审阅占位。",
+      "reviewer_only_note": "Reviewer placeholder only; not signoff authority."
+    }
+  ]
+}

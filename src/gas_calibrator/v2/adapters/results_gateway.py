@@ -23,6 +23,20 @@ from ..core.engineering_isolation_admission_checklist_artifact_entry import (
     ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_REVIEWER_ARTIFACT_KEY,
     build_engineering_isolation_admission_checklist_artifact_entry,
 )
+from ..core.engineering_isolation_gate_artifact_entry import (
+    build_engineering_isolation_gate_artifact_entry,
+)
+from ..core.engineering_isolation_gate_evaluator import (
+    ENGINEERING_ISOLATION_BLOCKERS_ARTIFACT_KEY,
+    ENGINEERING_ISOLATION_BLOCKERS_FILENAME,
+    ENGINEERING_ISOLATION_GATE_ARTIFACT_KEY,
+    ENGINEERING_ISOLATION_GATE_DIGEST_FILENAME,
+    ENGINEERING_ISOLATION_GATE_REVIEWER_ARTIFACT_KEY,
+    ENGINEERING_ISOLATION_GATE_RESULT_FILENAME,
+    ENGINEERING_ISOLATION_WARNINGS_ARTIFACT_KEY,
+    ENGINEERING_ISOLATION_WARNINGS_FILENAME,
+)
+from ..core.engineering_isolation_gate_repository import FileBackedEngineeringIsolationGateRepository
 from ..core.controlled_state_machine_profile import (
     STATE_TRANSITION_EVIDENCE_FILENAME,
     STATE_TRANSITION_EVIDENCE_MARKDOWN_FILENAME,
@@ -47,6 +61,7 @@ from ..core.artifact_compatibility import (
     RUN_ARTIFACT_INDEX_MARKDOWN_FILENAME,
     load_or_build_artifact_compatibility_payloads,
 )
+from ..core import human_governance_artifacts as human_governance
 from ..core import recognition_readiness_artifacts as recognition_readiness
 from ..core.offline_artifacts import build_point_taxonomy_handoff, summarize_offline_diagnostic_adapters
 from ..core.phase_transition_bridge_reviewer_artifact_entry import (
@@ -164,6 +179,7 @@ class ResultsGateway:
         summary = self.load_json("summary.json") or {}
         manifest = self.load_json("manifest.json") or {}
         results = self.load_json("results.json") or {}
+        acceptance_plan = self.load_json("acceptance_plan.json") or {}
         analytics_summary = self.load_json("analytics_summary.json") or {}
         (
             sidecar_index_summary,
@@ -562,6 +578,14 @@ class ResultsGateway:
         )
         uncertainty_digest = self._attach_uncertainty_binding(uncertainty_digest, uncertainty_binding)
         uncertainty_rollup = self._attach_uncertainty_binding(uncertainty_rollup, uncertainty_binding)
+        _human_governance_payloads = human_governance.build_human_governance_artifacts(
+            run_id=str(dict(summary or {}).get("run_id") or dict(manifest or {}).get("run_id") or self.run_dir.name),
+            run_dir=self.run_dir,
+            summary=summary,
+            manifest=manifest,
+            acceptance_plan=acceptance_plan,
+            workbench_action_report=workbench_action_report,
+        )
         # Build step2_closeout_readiness in the stable main chain (Step 2.19)
         _closeout_packs = ResultsGateway._build_compact_summary_packs(
             taxonomy_summary=point_taxonomy_summary,
@@ -577,6 +601,7 @@ class ResultsGateway:
             scope_comparison_view=scope_comparison_view,
             comparison_digest=comparison_digest,
             comparison_rollup=comparison_rollup,
+            human_governance_summary=dict(_human_governance_payloads.get("run_metadata_profile") or {}),
         )
         # Build config_governance_handoff early so closeout readiness uses canonical source (Step 2.20)
         _config_governance_handoff = self._read_config_governance_handoff(
@@ -701,6 +726,27 @@ class ResultsGateway:
             surface_historical=True,
             surface_review_index=False,
         )
+        _summary_stats = dict(dict(summary or {}).get("stats", {}) or {})
+        _stage_admission_review_pack = dict(
+            _summary_stats.get("stage_admission_review_pack")
+            or self.load_json(STAGE_ADMISSION_REVIEW_PACK_FILENAME)
+            or {}
+        )
+        _engineering_isolation_admission_checklist = dict(
+            _summary_stats.get("engineering_isolation_admission_checklist")
+            or self.load_json(ENGINEERING_ISOLATION_ADMISSION_CHECKLIST_FILENAME)
+            or {}
+        )
+        _stage3_real_validation_plan = dict(
+            _summary_stats.get("stage3_real_validation_plan")
+            or self.load_json(STAGE3_REAL_VALIDATION_PLAN_FILENAME)
+            or {}
+        )
+        _stage3_standards_alignment_matrix = dict(
+            _summary_stats.get("stage3_standards_alignment_matrix")
+            or self.load_json(STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME)
+            or {}
+        )
         _step2_closeout_snapshot = FileBackedStep2CloseoutRepository(
             self.run_dir,
             run_id=str(dict(summary or {}).get("run_id") or ""),
@@ -734,6 +780,62 @@ class ResultsGateway:
             sidecar_index_summary=sidecar_index_summary,
             review_copilot_payload=review_copilot_payload,
             model_governance_summary=model_governance_summary,
+            run_metadata_profile=dict(_human_governance_payloads.get("run_metadata_profile") or {}),
+            operator_authorization_profile=dict(
+                _human_governance_payloads.get("operator_authorization_profile") or {}
+            ),
+            training_record=dict(_human_governance_payloads.get("training_record") or {}),
+            sop_version_binding=dict(_human_governance_payloads.get("sop_version_binding") or {}),
+            qc_flag_catalog=dict(_human_governance_payloads.get("qc_flag_catalog") or {}),
+            recovery_action_log=dict(_human_governance_payloads.get("recovery_action_log") or {}),
+            reviewer_dual_check_placeholder=dict(
+                _human_governance_payloads.get("reviewer_dual_check_placeholder") or {}
+            ),
+        ).load_snapshot()
+        _engineering_isolation_gate_snapshot = FileBackedEngineeringIsolationGateRepository(
+            self.run_dir,
+            run_id=str(dict(summary or {}).get("run_id") or ""),
+            stage_admission_review_pack=_stage_admission_review_pack,
+            engineering_isolation_admission_checklist=_engineering_isolation_admission_checklist,
+            pre_run_readiness_gate=pre_run_readiness_gate,
+            step2_closeout_bundle=dict(_step2_closeout_snapshot.get("step2_closeout_bundle") or {}),
+            step2_closeout_compact_section=dict(_step2_closeout_snapshot.get("step2_closeout_compact_section") or {}),
+            stage3_standards_alignment_matrix=_stage3_standards_alignment_matrix,
+            stage3_real_validation_plan=_stage3_real_validation_plan,
+            scope_definition_pack=scope_definition_pack,
+            decision_rule_profile=decision_rule_profile,
+            conformity_statement_profile=conformity_statement_profile,
+            reference_asset_registry=reference_asset_registry,
+            certificate_lifecycle_summary=certificate_lifecycle_summary,
+            uncertainty_report_pack=uncertainty_report_pack,
+            uncertainty_rollup=uncertainty_rollup,
+            uncertainty_method_readiness_summary=uncertainty_method_readiness_summary,
+            method_confirmation_protocol=method_confirmation_protocol,
+            verification_rollup=verification_rollup,
+            software_validation_traceability_matrix=software_validation_traceability_matrix,
+            requirement_design_code_test_links=requirement_design_code_test_links,
+            validation_evidence_index=validation_evidence_index,
+            software_validation_rollup=software_validation_rollup,
+            audit_readiness_digest=audit_readiness_digest,
+            pt_ilc_registry=pt_ilc_registry,
+            comparison_evidence_pack=comparison_evidence_pack,
+            scope_comparison_view=scope_comparison_view,
+            comparison_digest=comparison_digest,
+            comparison_rollup=comparison_rollup,
+            sidecar_index_summary=sidecar_index_summary,
+            review_copilot_payload=review_copilot_payload,
+            model_governance_summary=model_governance_summary,
+            run_metadata_profile=dict(_human_governance_payloads.get("run_metadata_profile") or {}),
+            operator_authorization_profile=dict(
+                _human_governance_payloads.get("operator_authorization_profile") or {}
+            ),
+            training_record=dict(_human_governance_payloads.get("training_record") or {}),
+            sop_version_binding=dict(_human_governance_payloads.get("sop_version_binding") or {}),
+            qc_flag_catalog=dict(_human_governance_payloads.get("qc_flag_catalog") or {}),
+            recovery_action_log=dict(_human_governance_payloads.get("recovery_action_log") or {}),
+            reviewer_dual_check_placeholder=dict(
+                _human_governance_payloads.get("reviewer_dual_check_placeholder") or {}
+            ),
         ).load_snapshot()
 
         result_summary_text = self._build_result_summary_text(
@@ -786,12 +888,13 @@ class ResultsGateway:
             scope_comparison_view=scope_comparison_view,
             comparison_digest=comparison_digest,
             comparison_rollup=comparison_rollup,
+            human_governance_summary=dict(_human_governance_payloads.get("run_metadata_profile") or {}),
         )
         return {
             "summary": summary,
             "manifest": manifest,
             "results": results,
-            "acceptance_plan": self.load_json("acceptance_plan.json"),
+            "acceptance_plan": acceptance_plan,
             "analytics_summary": analytics_summary,
             "spectral_quality_summary": self.load_json("spectral_quality_summary.json"),
             "trend_registry": self.load_json("trend_registry.json"),
@@ -896,6 +999,17 @@ class ResultsGateway:
             "reindex_manifest": reindex_manifest,
             "result_summary_text": result_summary_text,
             "compact_summary_packs": _closeout_packs,
+            "run_metadata_profile": dict(_human_governance_payloads.get("run_metadata_profile") or {}),
+            "operator_authorization_profile": dict(
+                _human_governance_payloads.get("operator_authorization_profile") or {}
+            ),
+            "training_record": dict(_human_governance_payloads.get("training_record") or {}),
+            "sop_version_binding": dict(_human_governance_payloads.get("sop_version_binding") or {}),
+            "qc_flag_catalog": dict(_human_governance_payloads.get("qc_flag_catalog") or {}),
+            "recovery_action_log": dict(_human_governance_payloads.get("recovery_action_log") or {}),
+            "reviewer_dual_check_placeholder": dict(
+                _human_governance_payloads.get("reviewer_dual_check_placeholder") or {}
+            ),
             "step2_closeout_readiness": _step2_closeout_readiness,
             "step2_closeout_package": _step2_closeout_package,
             "step2_freeze_audit": _step2_freeze_audit,
@@ -912,6 +1026,21 @@ class ResultsGateway:
             ),
             "step2_closeout_compact_section": dict(
                 _step2_closeout_snapshot.get("step2_closeout_compact_section") or {}
+            ),
+            "engineering_isolation_gate_result": dict(
+                _engineering_isolation_gate_snapshot.get("engineering_isolation_gate_result") or {}
+            ),
+            "engineering_isolation_blockers": dict(
+                _engineering_isolation_gate_snapshot.get("engineering_isolation_blockers") or {}
+            ),
+            "engineering_isolation_warnings": dict(
+                _engineering_isolation_gate_snapshot.get("engineering_isolation_warnings") or {}
+            ),
+            "engineering_isolation_gate_digest_markdown": str(
+                _engineering_isolation_gate_snapshot.get("engineering_isolation_gate_digest_markdown") or ""
+            ),
+            "engineering_isolation_gate_compact_panel": dict(
+                _engineering_isolation_gate_snapshot.get("engineering_isolation_gate_compact_panel") or {}
             ),
             "evidence_source": evidence_source,
             "evidence_state": evidence_state,
@@ -1142,6 +1271,32 @@ class ResultsGateway:
         )
         if not bool(stage3_standards_alignment_matrix_entry.get("available", False)):
             stage3_standards_alignment_matrix_entry = {}
+        engineering_isolation_gate_result_section = dict(manifest.get(ENGINEERING_ISOLATION_GATE_ARTIFACT_KEY) or {})
+        engineering_isolation_gate_digest_section = dict(
+            manifest.get(ENGINEERING_ISOLATION_GATE_REVIEWER_ARTIFACT_KEY) or {}
+        )
+        engineering_isolation_gate_result_path = str(
+            engineering_isolation_gate_result_section.get("path") or ""
+        ).strip()
+        if not engineering_isolation_gate_result_path:
+            fallback_path = self.run_dir / ENGINEERING_ISOLATION_GATE_RESULT_FILENAME
+            if fallback_path.exists():
+                engineering_isolation_gate_result_path = str(fallback_path)
+        engineering_isolation_gate_digest_path = str(
+            engineering_isolation_gate_digest_section.get("path") or ""
+        ).strip()
+        if not engineering_isolation_gate_digest_path:
+            fallback_path = self.run_dir / ENGINEERING_ISOLATION_GATE_DIGEST_FILENAME
+            if fallback_path.exists():
+                engineering_isolation_gate_digest_path = str(fallback_path)
+        engineering_isolation_gate_entry = build_engineering_isolation_gate_artifact_entry(
+            artifact_path=engineering_isolation_gate_result_path,
+            reviewer_artifact_path=engineering_isolation_gate_digest_path,
+            manifest_section=engineering_isolation_gate_result_section,
+            reviewer_manifest_section=engineering_isolation_gate_digest_section,
+        )
+        if not bool(engineering_isolation_gate_entry.get("available", False)):
+            engineering_isolation_gate_entry = {}
         files = []
         seen: set[str] = set()
 
@@ -1193,6 +1348,10 @@ class ResultsGateway:
             row = self._decorate_stage3_standards_alignment_matrix_row(
                 row,
                 stage3_standards_alignment_matrix_entry=stage3_standards_alignment_matrix_entry,
+            )
+            row = self._decorate_engineering_isolation_gate_row(
+                row,
+                engineering_isolation_gate_entry=engineering_isolation_gate_entry,
             )
             row = self._decorate_multi_source_stability_row(
                 row,
@@ -1486,8 +1645,12 @@ class ResultsGateway:
             "engineering_isolation_admission_checklist_artifact_entry": dict(
                 engineering_isolation_admission_checklist_entry
             ),
+            "engineering_isolation_gate_artifact_entry": dict(engineering_isolation_gate_entry),
             "stage3_real_validation_plan_artifact_entry": dict(stage3_real_validation_plan_entry),
             "stage3_standards_alignment_matrix_artifact_entry": dict(stage3_standards_alignment_matrix_entry),
+            "engineering_isolation_gate_result": dict(payload.get("engineering_isolation_gate_result") or {}),
+            "engineering_isolation_blockers": dict(payload.get("engineering_isolation_blockers") or {}),
+            "engineering_isolation_warnings": dict(payload.get("engineering_isolation_warnings") or {}),
             "step2_closeout_readiness": dict(payload.get("step2_closeout_readiness") or {}),
             "step2_closeout_package": dict(payload.get("step2_closeout_package") or {}),
             "step2_freeze_audit": dict(payload.get("step2_freeze_audit") or {}),
@@ -2040,6 +2203,7 @@ class ResultsGateway:
         scope_comparison_view: dict[str, Any] | None,
         comparison_digest: dict[str, Any] | None,
         comparison_rollup: dict[str, Any] | None,
+        human_governance_summary: dict[str, Any] | None,
     ) -> str:
         summary_payload = dict(summary or {})
         stats = dict(summary_payload.get("stats", {}) or {})
@@ -2089,6 +2253,7 @@ class ResultsGateway:
         scope_comparison_payload = dict(scope_comparison_view or {})
         comparison_digest_payload = dict(comparison_digest or {})
         comparison_rollup_payload = dict(comparison_rollup or {})
+        human_governance_payload = dict(human_governance_summary or {})
         compatibility_overview = dict(compatibility_summary.get("compatibility_overview") or {})
         compatibility_rollup = dict(
             compatibility_summary.get("compatibility_rollup")
@@ -2227,6 +2392,20 @@ class ResultsGateway:
                     "facade.results.result_summary.taxonomy_stale_gauge",
                     value=str(point_taxonomy_summary.get("stale_gauge_summary") or ""),
                     default=f"{_RESULTS_SUMMARY_LABELS['taxonomy_stale_gauge']}：{str(point_taxonomy_summary.get('stale_gauge_summary') or '')}",
+                )
+            )
+
+        human_governance_line = str(
+            human_governance_payload.get("summary_line")
+            or dict(human_governance_payload.get("digest") or {}).get("summary")
+            or ""
+        ).strip()
+        if human_governance_line:
+            lines.append(
+                t(
+                    "facade.results.result_summary.human_governance",
+                    value=human_governance_line,
+                    default=f"人员/SOP治理: {human_governance_line}",
                 )
             )
 
@@ -3346,6 +3525,7 @@ class ResultsGateway:
         scope_comparison_view: dict[str, Any] | None = None,
         comparison_digest: dict[str, Any] | None = None,
         comparison_rollup: dict[str, Any] | None = None,
+        human_governance_summary: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Build compact summary packs for surface-aware budget governance.
 
@@ -3365,6 +3545,7 @@ class ResultsGateway:
         _scope_comparison = dict(scope_comparison_view or {})
         _comparison_digest = dict(comparison_digest or {})
         _comparison_rollup = dict(comparison_rollup or {})
+        _human_governance = dict(human_governance_summary or {})
 
         _v12_compact_payload = {
             "point_taxonomy_summary": _taxonomy,
@@ -3386,6 +3567,48 @@ class ResultsGateway:
                 dict(_workbench.get("parity_resilience_summary") or {})
             ),
         ]
+        human_governance_summary_line = str(
+            _human_governance.get("summary_line")
+            or dict(_human_governance.get("digest") or {}).get("summary")
+            or ""
+        ).strip()
+        if human_governance_summary_line:
+            human_governance_lines = [
+                str(item).strip()
+                for item in list(_human_governance.get("summary_lines") or [])
+                if str(item).strip()
+            ]
+            if not human_governance_lines:
+                human_governance_lines = [human_governance_summary_line]
+            packs.append(
+                {
+                    "summary_key": "human_governance",
+                    "display_label": "人员授权 / SOP / 元数据治理",
+                    "priority": 46,
+                    "severity": "info",
+                    "summary_line": human_governance_summary_line,
+                    "summary_lines": list(human_governance_lines),
+                    "compact_summary_lines": [
+                        *human_governance_lines[:4],
+                        "reviewer-only | placeholder-only | not real acceptance evidence",
+                    ],
+                    "max_lines_hint": 5,
+                    "surface_budget_hint": {"results_gateway": 5, "review_center": 5, "historical": 4},
+                    "boundary_markers": {
+                        "reviewer_only": True,
+                        "advisory_only": True,
+                        "not_real_acceptance_evidence": True,
+                        "not_ready_for_formal_claim": True,
+                    },
+                    "evidence_source": "simulated",
+                    "reviewer_only": True,
+                    "advisory_only": True,
+                    "not_real_acceptance_evidence": True,
+                    "not_ready_for_formal_claim": True,
+                    "not_device_control": True,
+                    "not_formal_metrology_conclusion": True,
+                }
+            )
         latest_compare = dict(_offline_summary.get("latest_control_flow_compare") or {})
         if latest_compare:
             packs.append(
@@ -3712,6 +3935,40 @@ class ResultsGateway:
             "note": str(entry.get("summary_text") or payload.get("note") or ""),
             "role_status_display": role_status_display or existing_role_status,
             "stage3_standards_alignment_matrix_artifact_entry": entry,
+        }
+
+    @classmethod
+    def _decorate_engineering_isolation_gate_row(
+        cls,
+        row: dict[str, Any],
+        *,
+        engineering_isolation_gate_entry: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload = dict(row or {})
+        artifact_key = str(payload.get("artifact_key") or "")
+        if artifact_key not in {
+            ENGINEERING_ISOLATION_GATE_ARTIFACT_KEY,
+            ENGINEERING_ISOLATION_GATE_REVIEWER_ARTIFACT_KEY,
+        }:
+            return payload
+        entry = dict(engineering_isolation_gate_entry or {})
+        if not entry:
+            return payload
+        is_reviewer_artifact = artifact_key == ENGINEERING_ISOLATION_GATE_REVIEWER_ARTIFACT_KEY
+        existing_role_status = str(payload.get("role_status_display") or "").strip()
+        entry_role_status = str(entry.get("role_status_display") or "").strip()
+        role_status_display = " | ".join(
+            part
+            for part in (existing_role_status, entry_role_status)
+            if str(part).strip()
+        )
+        return {
+            **payload,
+            "name": str(entry.get("name_text") or payload.get("name") or "")
+            + (" (Markdown)" if is_reviewer_artifact else " (JSON)"),
+            "note": str(entry.get("note_text") or payload.get("note") or ""),
+            "role_status_display": role_status_display or existing_role_status,
+            "engineering_isolation_gate_artifact_entry": entry,
         }
 
     @classmethod

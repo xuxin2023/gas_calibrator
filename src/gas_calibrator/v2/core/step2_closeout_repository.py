@@ -57,6 +57,13 @@ class FileBackedStep2CloseoutRepository:
         sidecar_index_summary: dict[str, Any] | None = None,
         review_copilot_payload: dict[str, Any] | None = None,
         model_governance_summary: dict[str, Any] | None = None,
+        run_metadata_profile: dict[str, Any] | None = None,
+        operator_authorization_profile: dict[str, Any] | None = None,
+        training_record: dict[str, Any] | None = None,
+        sop_version_binding: dict[str, Any] | None = None,
+        qc_flag_catalog: dict[str, Any] | None = None,
+        recovery_action_log: dict[str, Any] | None = None,
+        reviewer_dual_check_placeholder: dict[str, Any] | None = None,
     ) -> None:
         self.run_dir = Path(run_dir)
         self.builder_kwargs = {
@@ -92,6 +99,13 @@ class FileBackedStep2CloseoutRepository:
             "sidecar_index_summary": dict(sidecar_index_summary or {}),
             "review_copilot_payload": dict(review_copilot_payload or {}),
             "model_governance_summary": dict(model_governance_summary or {}),
+            "run_metadata_profile": dict(run_metadata_profile or {}),
+            "operator_authorization_profile": dict(operator_authorization_profile or {}),
+            "training_record": dict(training_record or {}),
+            "sop_version_binding": dict(sop_version_binding or {}),
+            "qc_flag_catalog": dict(qc_flag_catalog or {}),
+            "recovery_action_log": dict(recovery_action_log or {}),
+            "reviewer_dual_check_placeholder": dict(reviewer_dual_check_placeholder or {}),
         }
 
     def load_snapshot(self) -> dict[str, Any]:

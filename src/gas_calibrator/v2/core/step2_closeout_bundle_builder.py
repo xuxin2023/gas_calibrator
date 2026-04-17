@@ -6,7 +6,7 @@ from typing import Any, Sequence
 
 
 STEP2_CLOSEOUT_BUNDLE_SCHEMA_VERSION = "step2-closeout-bundle-v1"
-STEP2_CLOSEOUT_BUNDLE_BUILDER_VERSION = "2.27.0"
+STEP2_CLOSEOUT_BUNDLE_BUILDER_VERSION = "2.28.0"
 
 STEP2_CLOSEOUT_BUNDLE_FILENAME = "step2_closeout_bundle.json"
 STEP2_CLOSEOUT_EVIDENCE_INDEX_FILENAME = "step2_closeout_evidence_index.json"
@@ -48,6 +48,7 @@ _ALL_REQUIRED_CATEGORY_IDS = {
     "method_confirmation",
     "software_validation",
     "comparison",
+    "human_governance",
 }
 
 
@@ -85,6 +86,13 @@ def build_step2_closeout_bundle(
     sidecar_index_summary: dict[str, Any] | None = None,
     review_copilot_payload: dict[str, Any] | None = None,
     model_governance_summary: dict[str, Any] | None = None,
+    run_metadata_profile: dict[str, Any] | None = None,
+    operator_authorization_profile: dict[str, Any] | None = None,
+    training_record: dict[str, Any] | None = None,
+    sop_version_binding: dict[str, Any] | None = None,
+    qc_flag_catalog: dict[str, Any] | None = None,
+    recovery_action_log: dict[str, Any] | None = None,
+    reviewer_dual_check_placeholder: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     normalized_run_id = str(run_id or "").strip()
     normalized_run_dir = str(Path(run_dir)) if run_dir is not None else ""
@@ -155,6 +163,19 @@ def build_step2_closeout_bundle(
                 ("comparison_digest", comparison_digest, True),
                 ("comparison_rollup", comparison_rollup, True),
                 ("step2_closeout_digest", step2_closeout_digest, True),
+            ],
+        ),
+        _build_category(
+            "human_governance",
+            "\u4eba\u5458\u6388\u6743 / SOP / \u5143\u6570\u636e\u6cbb\u7406",
+            [
+                ("run_metadata_profile", run_metadata_profile, True),
+                ("operator_authorization_profile", operator_authorization_profile, True),
+                ("training_record", training_record, True),
+                ("sop_version_binding", sop_version_binding, True),
+                ("qc_flag_catalog", qc_flag_catalog, True),
+                ("recovery_action_log", recovery_action_log, True),
+                ("reviewer_dual_check_placeholder", reviewer_dual_check_placeholder, True),
             ],
         ),
         _build_category(

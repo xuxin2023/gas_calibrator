@@ -1,0 +1,41 @@
+{
+  "schema_version": "step2-human-governance-fixtures-v1",
+  "flags": [
+    {
+      "flag_code": "manual_override_placeholder",
+      "display_name": "手工干预占位",
+      "critical_action_label": "手工干预记录",
+      "severity": "high",
+      "requires_dual_check": true,
+      "route_scope": ["gas", "water"],
+      "reviewer_note": "If triggered in future, keep reviewer placeholder only in Step 2."
+    },
+    {
+      "flag_code": "sop_rebinding_placeholder",
+      "display_name": "SOP 重绑定占位",
+      "critical_action_label": "SOP 版本重绑定",
+      "severity": "medium",
+      "requires_dual_check": true,
+      "route_scope": ["gas", "water"],
+      "reviewer_note": "SOP rebinding can only be noted by reviewer in Step 2."
+    },
+    {
+      "flag_code": "recovery_closeout_placeholder",
+      "display_name": "恢复动作收口占位",
+      "critical_action_label": "恢复动作收口",
+      "severity": "medium",
+      "requires_dual_check": true,
+      "route_scope": ["gas", "water"],
+      "reviewer_note": "Recovery closeout remains placeholder-only before formal acceptance."
+    },
+    {
+      "flag_code": "reviewer_note_only",
+      "display_name": "审阅备注",
+      "critical_action_label": "reviewer 备注",
+      "severity": "low",
+      "requires_dual_check": false,
+      "route_scope": ["gas", "water"],
+      "reviewer_note": "General reviewer note placeholder."
+    }
+  ]
+}

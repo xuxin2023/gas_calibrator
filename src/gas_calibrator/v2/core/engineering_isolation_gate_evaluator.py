@@ -167,6 +167,13 @@ def build_engineering_isolation_gate_evaluator(
     sidecar_index_summary: dict[str, Any] | None = None,
     review_copilot_payload: dict[str, Any] | None = None,
     model_governance_summary: dict[str, Any] | None = None,
+    run_metadata_profile: dict[str, Any] | None = None,
+    operator_authorization_profile: dict[str, Any] | None = None,
+    training_record: dict[str, Any] | None = None,
+    sop_version_binding: dict[str, Any] | None = None,
+    qc_flag_catalog: dict[str, Any] | None = None,
+    recovery_action_log: dict[str, Any] | None = None,
+    reviewer_dual_check_placeholder: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     normalized_run_id = str(run_id or "").strip()
     normalized_run_dir = str(Path(run_dir)) if run_dir is not None else ""
@@ -205,6 +212,13 @@ def build_engineering_isolation_gate_evaluator(
     sidecar_index = dict(sidecar_index_summary or {})
     review_copilot = dict(review_copilot_payload or {})
     model_governance = dict(model_governance_summary or {})
+    run_metadata = dict(run_metadata_profile or {})
+    operator_authorization = dict(operator_authorization_profile or {})
+    training = dict(training_record or {})
+    sop_binding = dict(sop_version_binding or {})
+    qc_catalog = dict(qc_flag_catalog or {})
+    recovery_log = dict(recovery_action_log or {})
+    dual_check_placeholder = dict(reviewer_dual_check_placeholder or {})
 
     source_artifact_refs = _build_source_artifact_refs(
         run_dir=normalized_run_dir,
@@ -237,6 +251,13 @@ def build_engineering_isolation_gate_evaluator(
             "sidecar_index_summary": sidecar_index,
             "review_copilot_payload": review_copilot,
             "model_governance_summary": model_governance,
+            "run_metadata_profile": run_metadata,
+            "operator_authorization_profile": operator_authorization,
+            "training_record": training,
+            "sop_version_binding": sop_binding,
+            "qc_flag_catalog": qc_catalog,
+            "recovery_action_log": recovery_log,
+            "reviewer_dual_check_placeholder": dual_check_placeholder,
         },
     )
 
@@ -382,6 +403,129 @@ def build_engineering_isolation_gate_evaluator(
     blockers.extend(scope_binding_issues)
     if scope_binding_issues:
         bundle_suggestion_ids.append("scope_decision_bundle")
+
+    human_governance_issues: list[dict[str, Any]] = []
+    missing_human_governance_inputs = [
+        label
+        for label, present in (
+            ("run_metadata_profile", bool(run_metadata)),
+            ("operator_authorization_profile", bool(operator_authorization)),
+            ("training_record", bool(training)),
+            ("sop_version_binding", bool(sop_binding)),
+            ("qc_flag_catalog", bool(qc_catalog)),
+            ("recovery_action_log", bool(recovery_log)),
+            ("reviewer_dual_check_placeholder", bool(dual_check_placeholder)),
+        )
+        if not present
+    ]
+    if missing_human_governance_inputs:
+        human_governance_issues.extend(
+            _make_issue_rows(
+                check_id="personnel_sop_metadata_governance",
+                severity="blocker",
+                title="personnel / SOP / metadata governance inputs missing",
+                items=[f"missing reviewer governance input: {item}" for item in missing_human_governance_inputs],
+                source_artifacts=[
+                    "run_metadata_profile",
+                    "operator_authorization_profile",
+                    "training_record",
+                    "sop_version_binding",
+                    "qc_flag_catalog",
+                    "recovery_action_log",
+                    "reviewer_dual_check_placeholder",
+                ],
+                category="human_governance",
+            )
+        )
+    authorization_ready = bool(operator_authorization.get("authorization_ready", True))
+    if not missing_human_governance_inputs and not authorization_ready:
+        human_governance_issues.extend(
+            _make_issue_rows(
+                check_id="personnel_sop_metadata_governance",
+                severity="blocker",
+                title="operator authorization scope incomplete",
+                items=[
+                    _first_non_empty(
+                        dict(operator_authorization.get("digest") or {}).get("authorization_scope_summary"),
+                        _summary_text(operator_authorization),
+                        "operator authorization scope missing",
+                    )
+                ],
+                source_artifacts=["operator_authorization_profile"],
+                category="human_governance",
+            )
+        )
+    missing_training_modules = _text_list(training.get("missing_training_modules") or [])
+    if not missing_human_governance_inputs and missing_training_modules:
+        human_governance_issues.extend(
+            _make_issue_rows(
+                check_id="personnel_sop_metadata_governance",
+                severity="blocker",
+                title="operator training still incomplete",
+                items=[f"missing training module: {item}" for item in missing_training_modules],
+                source_artifacts=["training_record"],
+                category="human_governance",
+            )
+        )
+    placeholder_mode = str(
+        dual_check_placeholder.get("placeholder_mode")
+        or dual_check_placeholder.get("reviewer_note_only")
+        or ""
+    ).strip()
+    if dual_check_placeholder and placeholder_mode not in {"", "reviewer_note_only", "True", "true"}:
+        human_governance_issues.extend(
+            _make_issue_rows(
+                check_id="personnel_sop_metadata_governance",
+                severity="blocker",
+                title="dual-check placeholder boundary drifted",
+                items=[f"placeholder mode must stay reviewer_note_only, got {placeholder_mode}"],
+                source_artifacts=["reviewer_dual_check_placeholder"],
+                category="human_governance",
+            )
+        )
+    recovery_open_items = _text_list(recovery_log.get("open_action_items") or [])
+    if recovery_open_items:
+        warnings.extend(
+            _make_issue_rows(
+                check_id="personnel_sop_metadata_governance",
+                severity="warning",
+                title="recovery actions still need reviewer attention",
+                items=recovery_open_items,
+                source_artifacts=["recovery_action_log"],
+                category="human_governance",
+            )
+        )
+    checks.append(
+        _build_check_result(
+            check_id="personnel_sop_metadata_governance",
+            title="personnel / SOP / metadata governance",
+            issues=human_governance_issues,
+            fallback_status="advisory" if dual_check_placeholder or qc_catalog else "pass",
+            source_artifacts=[
+                "run_metadata_profile",
+                "operator_authorization_profile",
+                "training_record",
+                "sop_version_binding",
+                "qc_flag_catalog",
+                "recovery_action_log",
+                "reviewer_dual_check_placeholder",
+            ],
+            summary=_merge_text(
+                _summary_text(run_metadata),
+                _summary_text(sop_binding),
+                _summary_text(dual_check_placeholder),
+            ),
+        )
+    )
+    blockers.extend(human_governance_issues)
+    next_actions.extend(
+        _text_list(
+            [
+                dict(recovery_log.get("digest") or {}).get("recovery_action_summary"),
+                dict(dual_check_placeholder.get("digest") or {}).get("dual_check_summary"),
+            ]
+        )
+    )
 
     pre_run_blocking_items = _text_list(pre_run_gate.get("blocking_items") or [])
     pre_run_warning_items = _text_list(pre_run_gate.get("warning_items") or [])

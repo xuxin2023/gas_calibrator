@@ -1594,6 +1594,13 @@ class AppFacade:
         uncertainty_rollup = dict(payload.get("uncertainty_rollup", {}) or {})
         uncertainty_method_readiness_summary = dict(payload.get("uncertainty_method_readiness_summary", {}) or {})
         audit_readiness_digest = dict(payload.get("audit_readiness_digest", {}) or {})
+        run_metadata_profile = dict(payload.get("run_metadata_profile", {}) or {})
+        operator_authorization_profile = dict(payload.get("operator_authorization_profile", {}) or {})
+        training_record = dict(payload.get("training_record", {}) or {})
+        sop_version_binding = dict(payload.get("sop_version_binding", {}) or {})
+        qc_flag_catalog = dict(payload.get("qc_flag_catalog", {}) or {})
+        recovery_action_log = dict(payload.get("recovery_action_log", {}) or {})
+        reviewer_dual_check_placeholder = dict(payload.get("reviewer_dual_check_placeholder", {}) or {})
         _wp6_closeout_bundle = _build_wp6_closeout_bundle(
             payload, filename_module=recognition_readiness,
         )
@@ -2116,6 +2123,13 @@ class AppFacade:
             release_validation_manifest=release_validation_manifest,
             software_validation_rollup=software_validation_rollup,
             audit_readiness_digest=audit_readiness_digest,
+            run_metadata_profile=run_metadata_profile,
+            operator_authorization_profile=operator_authorization_profile,
+            training_record=training_record,
+            sop_version_binding=sop_version_binding,
+            qc_flag_catalog=qc_flag_catalog,
+            recovery_action_log=recovery_action_log,
+            reviewer_dual_check_placeholder=reviewer_dual_check_placeholder,
             wp6_closeout_bundle=_wp6_closeout_bundle,
             compatibility_scan_summary=compatibility_scan_summary,
             recognition_scope_rollup=recognition_scope_rollup,
@@ -2879,6 +2893,13 @@ class AppFacade:
             "uncertainty_rollup": uncertainty_rollup,
             "uncertainty_method_readiness_summary": uncertainty_method_readiness_summary,
             "audit_readiness_digest": audit_readiness_digest,
+            "run_metadata_profile": run_metadata_profile,
+            "operator_authorization_profile": operator_authorization_profile,
+            "training_record": training_record,
+            "sop_version_binding": sop_version_binding,
+            "qc_flag_catalog": qc_flag_catalog,
+            "recovery_action_log": recovery_action_log,
+            "reviewer_dual_check_placeholder": reviewer_dual_check_placeholder,
             "run_artifact_index": run_artifact_index,
             "artifact_contract_catalog": artifact_contract_catalog,
             "compatibility_scan_summary": compatibility_scan_summary,
@@ -3038,6 +3059,13 @@ class AppFacade:
         release_validation_manifest: dict[str, Any],
         software_validation_rollup: dict[str, Any],
         audit_readiness_digest: dict[str, Any],
+        run_metadata_profile: dict[str, Any],
+        operator_authorization_profile: dict[str, Any],
+        training_record: dict[str, Any],
+        sop_version_binding: dict[str, Any],
+        qc_flag_catalog: dict[str, Any],
+        recovery_action_log: dict[str, Any],
+        reviewer_dual_check_placeholder: dict[str, Any],
         wp6_closeout_bundle: _Wp6CloseoutBundle,
         compatibility_scan_summary: dict[str, Any],
         recognition_scope_rollup: dict[str, Any],
@@ -3135,6 +3163,13 @@ class AppFacade:
             release_evidence_pack_index=release_evidence_pack_index,
             release_validation_manifest=release_validation_manifest,
             audit_readiness_digest=audit_readiness_digest,
+            run_metadata_profile=run_metadata_profile,
+            operator_authorization_profile=operator_authorization_profile,
+            training_record=training_record,
+            sop_version_binding=sop_version_binding,
+            qc_flag_catalog=qc_flag_catalog,
+            recovery_action_log=recovery_action_log,
+            reviewer_dual_check_placeholder=reviewer_dual_check_placeholder,
             wp6_closeout_bundle=wp6_closeout_bundle,
             compatibility_scan_summary=compatibility_scan_summary,
         )
@@ -3246,8 +3281,12 @@ class AppFacade:
         phase_bridge_reviewer_artifact_entry: dict[str, Any] = {}
         stage_admission_review_pack_artifact_entry: dict[str, Any] = {}
         engineering_isolation_admission_checklist_artifact_entry: dict[str, Any] = {}
+        engineering_isolation_gate_artifact_entry: dict[str, Any] = {}
         stage3_real_validation_plan_artifact_entry: dict[str, Any] = {}
         stage3_standards_alignment_matrix_artifact_entry: dict[str, Any] = {}
+        engineering_isolation_gate_result: dict[str, Any] = {}
+        engineering_isolation_blockers: dict[str, Any] = {}
+        engineering_isolation_warnings: dict[str, Any] = {}
         try:
             reports_payload = dict(self.results_gateway.read_reports_payload() or {})
             phase_bridge_reviewer_artifact_entry = dict(
@@ -3259,22 +3298,39 @@ class AppFacade:
             engineering_isolation_admission_checklist_artifact_entry = dict(
                 reports_payload.get("engineering_isolation_admission_checklist_artifact_entry") or {}
             )
+            engineering_isolation_gate_artifact_entry = dict(
+                reports_payload.get("engineering_isolation_gate_artifact_entry") or {}
+            )
             stage3_real_validation_plan_artifact_entry = dict(
                 reports_payload.get("stage3_real_validation_plan_artifact_entry") or {}
             )
             stage3_standards_alignment_matrix_artifact_entry = dict(
                 reports_payload.get("stage3_standards_alignment_matrix_artifact_entry") or {}
             )
+            engineering_isolation_gate_result = dict(
+                reports_payload.get("engineering_isolation_gate_result") or {}
+            )
+            engineering_isolation_blockers = dict(
+                reports_payload.get("engineering_isolation_blockers") or {}
+            )
+            engineering_isolation_warnings = dict(
+                reports_payload.get("engineering_isolation_warnings") or {}
+            )
         except Exception:
             phase_bridge_reviewer_artifact_entry = {}
             stage_admission_review_pack_artifact_entry = {}
             engineering_isolation_admission_checklist_artifact_entry = {}
+            engineering_isolation_gate_artifact_entry = {}
             stage3_real_validation_plan_artifact_entry = {}
             stage3_standards_alignment_matrix_artifact_entry = {}
+            engineering_isolation_gate_result = {}
+            engineering_isolation_blockers = {}
+            engineering_isolation_warnings = {}
         reviewer_artifact_entries = _available_reviewer_artifact_entries(
             [
                 stage_admission_review_pack_artifact_entry,
                 engineering_isolation_admission_checklist_artifact_entry,
+                engineering_isolation_gate_artifact_entry,
                 stage3_real_validation_plan_artifact_entry,
                 stage3_standards_alignment_matrix_artifact_entry,
             ]
@@ -3363,8 +3419,12 @@ class AppFacade:
             "engineering_isolation_admission_checklist_artifact_entry": (
                 engineering_isolation_admission_checklist_artifact_entry
             ),
+            "engineering_isolation_gate_artifact_entry": engineering_isolation_gate_artifact_entry,
             "stage3_real_validation_plan_artifact_entry": stage3_real_validation_plan_artifact_entry,
             "stage3_standards_alignment_matrix_artifact_entry": stage3_standards_alignment_matrix_artifact_entry,
+            "engineering_isolation_gate_result": engineering_isolation_gate_result,
+            "engineering_isolation_blockers": engineering_isolation_blockers,
+            "engineering_isolation_warnings": engineering_isolation_warnings,
             "reviewer_artifact_entries": reviewer_artifact_entries,
             "filters": {
                 "selected_type": "all",
@@ -3655,6 +3715,13 @@ class AppFacade:
         release_evidence_pack_index: dict[str, Any],
         release_validation_manifest: dict[str, Any],
         audit_readiness_digest: dict[str, Any],
+        run_metadata_profile: dict[str, Any],
+        operator_authorization_profile: dict[str, Any],
+        training_record: dict[str, Any],
+        sop_version_binding: dict[str, Any],
+        qc_flag_catalog: dict[str, Any],
+        recovery_action_log: dict[str, Any],
+        reviewer_dual_check_placeholder: dict[str, Any],
         wp6_closeout_bundle: _Wp6CloseoutBundle,
         compatibility_scan_summary: dict[str, Any],
         force_refresh: bool = False,
@@ -3990,6 +4057,33 @@ class AppFacade:
                 )
                 if item:
                     items.append(item)
+
+        human_governance_payloads = [
+            dict(run_metadata_profile or {}),
+            dict(operator_authorization_profile or {}),
+            dict(training_record or {}),
+            dict(sop_version_binding or {}),
+            dict(qc_flag_catalog or {}),
+            dict(recovery_action_log or {}),
+            dict(reviewer_dual_check_placeholder or {}),
+        ]
+        for payload in human_governance_payloads:
+            if not payload:
+                continue
+            primary_path = str(
+                payload.get("path")
+                or dict(payload.get("artifact_paths") or {}).get(str(payload.get("artifact_type") or ""))
+                or dict(payload.get("artifact_paths") or {}).get("governance_fixture_operator_roster")
+                or dict(payload.get("artifact_paths") or {}).get("governance_fixture_authorization_scope")
+                or dict(payload.get("artifact_paths") or {}).get("governance_fixture_training_records")
+                or dict(payload.get("artifact_paths") or {}).get("governance_fixture_sop_versions")
+                or dict(payload.get("artifact_paths") or {}).get("governance_fixture_qc_flag_catalog")
+                or dict(payload.get("artifact_paths") or {}).get("summary_json")
+                or self.results_gateway.run_dir / f"{str(payload.get('artifact_type') or 'human_governance')}.json"
+            ).strip()
+            item = self._build_readiness_governance_review_item(payload, Path(primary_path))
+            if item:
+                items.append(item)
 
         analytics_path = str(analytics_summary.get("path") or analytics_summary.get("analytics_summary_json") or "")
         lineage_path = str(lineage_summary.get("path") or lineage_summary.get("lineage_summary_json") or "")
@@ -5798,6 +5892,16 @@ class AppFacade:
             f"Reference assets: {str(digest.get('scope_reference_assets_summary') or payload.get('reference_asset_refs_summary') or '--')}",
             f"Certificate lifecycle refs: {str(digest.get('certificate_lifecycle_summary') or payload.get('certificate_lifecycle_refs_summary') or '--')}",
         ]
+        human_governance_detail_lines = [
+            f"操作员绑定: {str(digest.get('operator_summary') or payload.get('operator_summary') or '--')}",
+            f"reviewer 绑定: {str(digest.get('reviewer_summary') or payload.get('reviewer_summary') or '--')}",
+            f"授权范围: {str(digest.get('authorization_scope_summary') or payload.get('authorization_scope_summary') or '--')}",
+            f"培训状态: {str(digest.get('training_status_summary') or payload.get('training_status_summary') or '--')}",
+            f"SOP 绑定: {str(digest.get('sop_binding_summary') or payload.get('sop_binding_summary') or '--')}",
+            f"双人复核占位: {str(digest.get('dual_check_summary') or payload.get('dual_check_summary') or '--')}",
+            f"恢复动作日志: {str(digest.get('recovery_action_summary') or payload.get('recovery_action_summary') or '--')}",
+            f"占位边界: {str(digest.get('placeholder_summary') or payload.get('placeholder_summary') or '--')}",
+        ]
         detail_lines = [
             f"{t('results.review_center.detail.summary')}: {summary}",
             f"{t('results.review_center.detail.status')}: {t(f'results.review_center.status.{str(payload.get('overall_status') or 'diagnostic_only')}', default=str(payload.get('overall_status') or 'diagnostic_only'))}",
@@ -5806,6 +5910,7 @@ class AppFacade:
             f"{t('results.review_center.detail.path')}: {path}",
             *[str(item) for item in list(localized_review_lines.get("summary_lines") or []) if str(item).strip()],
             *[str(item) for item in list(localized_review_lines.get("detail_lines") or []) if str(item).strip()],
+            *[line for line in human_governance_detail_lines if str(line).strip() and "--" not in line],
             *[line for line in comparison_detail_lines if str(line).strip() and "--" not in line],
             *[line for line in method_confirmation_detail_lines if str(line).strip()],
             *[line for line in software_validation_detail_lines if str(line).strip() and "--" not in line],
@@ -5852,6 +5957,14 @@ class AppFacade:
                 str(digest.get("fixture_summary") or ""),
                 str(digest.get("golden_case_summary") or ""),
                 str(digest.get("blocker_summary") or ""),
+                str(digest.get("operator_summary") or ""),
+                str(digest.get("reviewer_summary") or ""),
+                str(digest.get("authorization_scope_summary") or ""),
+                str(digest.get("training_status_summary") or ""),
+                str(digest.get("sop_binding_summary") or ""),
+                str(digest.get("dual_check_summary") or ""),
+                str(digest.get("recovery_action_summary") or ""),
+                str(digest.get("placeholder_summary") or ""),
                 str(digest.get("asset_count_summary") or ""),
                 str(digest.get("certificate_validity_summary") or ""),
                 str(digest.get("lot_binding_summary") or ""),
@@ -5899,6 +6012,14 @@ class AppFacade:
                 self._humanize_ui_summary(str(digest.get("calculation_chain_summary") or "")),
                 self._humanize_ui_summary(str(digest.get("fixture_summary") or "")),
                 self._humanize_ui_summary(str(digest.get("golden_case_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("operator_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("reviewer_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("authorization_scope_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("training_status_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("sop_binding_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("dual_check_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("recovery_action_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("placeholder_summary") or "")),
                 self._humanize_ui_summary(str(digest.get("asset_count_summary") or "")),
                 self._humanize_ui_summary(str(digest.get("certificate_validity_summary") or "")),
                 self._humanize_ui_summary(str(digest.get("lot_binding_summary") or "")),
