@@ -43,6 +43,8 @@ class Pace5000:
         self._vent_hold_thread: Optional[threading.Thread] = None
         self._device_identity: Optional[str] = None
         self._device_identity_probed = False
+        self._instrument_version: Optional[str] = None
+        self._instrument_version_probed = False
         self._legacy_vent_status_model: Optional[bool] = None
         self._vent_after_valve_supported: Optional[bool] = None
         self._vent_popup_ack_supported: Optional[bool] = None
@@ -52,6 +54,7 @@ class Pace5000:
         self.line_ending = self._normalize_line_ending(line_ending or "LF")
         self.query_line_endings = self._normalize_line_endings(query_line_endings)
         self.pressure_queries = self._normalize_pressure_queries(pressure_queries)
+        self._last_pressure_query_hint: Optional[tuple] = None
 
     @staticmethod
     def _normalize_line_ending(value: str) -> str:
@@ -352,18 +355,29 @@ class Pace5000:
 
     def read_pressure(self) -> float:
         last_exc: Optional[Exception] = None
-        for idx in range(3):
+        # Try cached hint first for fast path
+        hint = self._last_pressure_query_hint
+        if hint is not None:
+            try:
+                resp = self.query(hint[0], line_ending=hint[1])
+                value = self._parse_first_float(resp)
+                if value is not None:
+                    return value
+            except Exception:
+                pass
+        for idx in range(2):
             try:
                 for cmd in self.pressure_queries:
                     for term in self.query_line_endings:
                         resp = self.query(cmd, line_ending=term)
                         value = self._parse_first_float(resp)
                         if value is not None:
+                            self._last_pressure_query_hint = (cmd, term)
                             return value
                 last_exc = RuntimeError("NO_RESPONSE_OR_PARSE")
             except Exception as exc:
                 last_exc = exc
-            if idx < 2:
+            if idx < 1:
                 time.sleep(0.1)
         if last_exc:
             raise last_exc
@@ -411,36 +425,50 @@ class Pace5000:
     def get_device_identity(self) -> str:
         return str(self._probe_device_identity() or "")
 
+    def _probe_instrument_version(self) -> Optional[str]:
+        if self._instrument_version_probed:
+            return self._instrument_version
+        self._instrument_version_probed = True
+        try:
+            version = str(self.query(":INST:VERS?") or "").strip()
+        except Exception:
+            version = ""
+        if version:
+            self._instrument_version = version
+        return self._instrument_version
+
+    def get_instrument_version(self) -> str:
+        return str(self._probe_instrument_version() or "")
+
     def has_legacy_vent_status_model(self) -> bool:
         if self._legacy_vent_status_model is None:
             self._probe_device_identity()
         return bool(self._legacy_vent_status_model)
 
+    def has_legacy_vent_state_3_compatibility(self) -> bool:
+        if not self.has_legacy_vent_status_model():
+            return False
+        return self.get_instrument_version() == "02.00.07"
+
     def vent_status_allows_control(self, status: Any) -> bool:
         value = self._parse_first_int(str(status))
         if value is None:
             return False
-        if self.has_legacy_vent_status_model():
-            # K0472 vent semantics treat status 2 as a completed vent latch that
-            # must be explicitly cleared by sending VENT 0. Older GE Druck V1
-            # field runs can still expose trapped-pressure status 3 immediately
-            # before control resumes on sealed routes, so we keep 3 as the only
-            # non-zero terminal state that can still allow control.
-            return value in {
-                self.VENT_STATUS_IDLE,
-                self.VENT_STATUS_TRAPPED_PRESSURE,
-            }
+        if self.has_legacy_vent_state_3_compatibility():
+            # 02.00.07 can expose VENT?=3 as a legacy pending-acknowledgement
+            # state. Keep it observable via vent_terminal_statuses(), but do not
+            # treat it as control-ready.
+            return value == self.VENT_STATUS_IDLE
         return value == self.VENT_STATUS_IDLE
 
     def vent_terminal_statuses(self) -> List[int]:
-        if self.has_legacy_vent_status_model():
+        if self.has_legacy_vent_state_3_compatibility():
             return [
                 self.VENT_STATUS_IDLE,
                 self.VENT_STATUS_TRAPPED_PRESSURE,
             ]
         return [
             self.VENT_STATUS_IDLE,
-            self.VENT_STATUS_TRAPPED_PRESSURE,
             self.VENT_STATUS_ABORTED,
         ]
 
@@ -673,6 +701,7 @@ class Pace5000:
             "after_status": before_status,
             "cleared": before_status == self.VENT_STATUS_IDLE,
             "command": "",
+            "front_panel_ack_required": False,
         }
         if not self.vent_status_is_completed_latched(before_status):
             return result
@@ -685,14 +714,29 @@ class Pace5000:
         while time.time() < deadline:
             last_status = self.get_vent_status()
             result["after_status"] = last_status
-            if last_status != self.VENT_STATUS_COMPLETED and self.vent_status_allows_control(last_status):
+            if last_status == self.VENT_STATUS_IDLE:
                 result["cleared"] = True
+                return result
+            if (
+                self.has_legacy_vent_state_3_compatibility()
+                and last_status == self.VENT_STATUS_TRAPPED_PRESSURE
+            ):
+                result["front_panel_ack_required"] = True
                 return result
             time.sleep(max(0.05, float(poll_s)))
         raise RuntimeError(f"VENT_COMPLETED_LATCH_CLEAR_TIMEOUT(last_status={last_status})")
 
     def diagnostic_status(self) -> dict[str, Any]:
         status = self.status()
+        try:
+            status["device_identity"] = self.get_device_identity()
+        except Exception:
+            status["device_identity"] = ""
+        try:
+            status["instrument_version"] = self.get_instrument_version()
+        except Exception:
+            status["instrument_version"] = ""
+        status["legacy_vent_state_3_compatibility"] = self.has_legacy_vent_state_3_compatibility()
         try:
             status["output_mode"] = self.get_output_mode()
         except Exception:
@@ -792,17 +836,15 @@ class Pace5000:
         poll_s: float = 0.25,
         ok_statuses: Optional[Iterable[int]] = None,
     ) -> int:
-        accepted = set(
-            ok_statuses
-            or [
-                self.VENT_STATUS_IDLE,
-                self.VENT_STATUS_TRAPPED_PRESSURE,
-                self.VENT_STATUS_ABORTED,
-            ]
-        )
+        # Default accepted terminal statuses are for vent command completion
+        # observability only. Callers that need control-ready must pass
+        # ok_statuses=[VENT_STATUS_IDLE].
+        accepted = set(ok_statuses or self.vent_terminal_statuses())
         deadline = time.time() + max(0.5, timeout_s)
         last_status: Optional[int] = None
         clear_sent = False
+        clear_retries = 0
+        max_clear_retries = 5
         while time.time() < deadline:
             status = self.get_vent_status()
             last_status = status
@@ -810,15 +852,16 @@ class Pace5000:
                 time.sleep(max(0.05, poll_s))
                 continue
             if status == self.VENT_STATUS_COMPLETED:
-                if not clear_sent:
+                if not clear_sent or clear_retries < max_clear_retries:
                     self.vent(False)
                     clear_sent = True
+                    clear_retries += 1
                 time.sleep(max(0.05, poll_s))
                 continue
             if status in accepted:
                 return status
             raise RuntimeError(f"VENT_STATUS_{status}")
-        raise RuntimeError(f"VENT_TIMEOUT(last_status={last_status},clear_sent={clear_sent})")
+        raise RuntimeError(f"VENT_TIMEOUT(last_status={last_status},clear_sent={clear_sent},clear_retries={clear_retries})")
 
     def _wait_for_int_state(
         self,
@@ -974,20 +1017,11 @@ class Pace5000:
         poll_s: float = 0.1,
     ) -> None:
         self.set_isolation_open(True)
-        try:
-            self.wait_for_vent_idle(
-                timeout_s=max(0.5, timeout_s),
-                poll_s=poll_s,
-                ok_statuses=[
-                    self.VENT_STATUS_IDLE,
-                    self.VENT_STATUS_TRAPPED_PRESSURE,
-                    self.VENT_STATUS_ABORTED,
-                ],
-            )
-        except Exception:
-            # Best effort only. Some units report a terminal trapped-pressure status
-            # while still being ready to accept the next control command sequence.
-            pass
+        self.wait_for_vent_idle(
+            timeout_s=max(0.5, timeout_s),
+            poll_s=poll_s,
+            ok_statuses=[self.VENT_STATUS_IDLE],
+        )
         self.set_output_mode_active()
         try:
             self._wait_for_text_state(

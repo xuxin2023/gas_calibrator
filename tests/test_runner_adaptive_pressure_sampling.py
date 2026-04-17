@@ -263,6 +263,8 @@ def test_fast5s_capture_can_sample_immediately_when_override_allows_early_sample
                 "pressure": {
                     "adaptive_pressure_sampling_enabled": True,
                     "skip_fixed_post_stable_delay_when_adaptive": True,
+                    "capture_then_hold_enabled": True,
+                    "co2_post_isolation_diagnostic_enabled": True,
                     "post_isolation_fast_capture_enabled": True,
                     "post_isolation_fast_capture_allow_early_sample": True,
                 }
@@ -376,3 +378,34 @@ def test_soft_control_unsupported_commands_warn_only(tmp_path: Path) -> None:
     assert any("engineering-only" in msg.lower() and "non-default" in msg.lower() for msg in logs)
     assert any("pressure soft-control config enabled" in msg.lower() for msg in logs)
     assert any("unsupported" in msg.lower() for msg in logs)
+
+
+def test_same_gas_low_pressure_standard_control_uses_linear_slew_and_disables_overshoot(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceForConfigure()
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "pressure": {
+                    "same_gas_low_pressure_standard_control_enabled": True,
+                    "same_gas_low_pressure_standard_control_slew_hpa_per_s": 5.0,
+                    "low_pressure_same_gas_use_linear_slew": True,
+                    "low_pressure_same_gas_overshoot_allowed": False,
+                }
+            }
+        },
+        {"pace": pace},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _co2_point()
+    runner._route_signature_for_point = lambda *_args, **_kwargs: (7, 11)
+    runner._last_sealed_pressure_route_context = {"phase": "co2", "route_signature": (7, 11)}
+
+    runner._configure_same_gas_low_pressure_standard_control(pace, point, phase="co2")
+    logger.close()
+
+    assert ("slew_linear",) in pace.calls
+    assert ("slew_rate", 5.0) in pace.calls
+    assert ("overshoot", False) in pace.calls

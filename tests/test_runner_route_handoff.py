@@ -372,7 +372,7 @@ def test_route_handoff_fast_path_uses_safe_open_threshold_and_flushes_deferred_e
     logger.close()
 
     assert "begin_handoff" in pace.calls
-    assert any(call[0] == "vent_on" for call in pace.calls if isinstance(call, tuple))
+    assert not any(call[0] == "vent_on" for call in pace.calls if isinstance(call, tuple))
     assert opened_routes == [[7, 8]]
     assert flushed == ["sample:1:co2", "heavy:1:co2"]
     assert runner._deferred_sample_exports == []
@@ -424,6 +424,60 @@ def test_begin_pending_route_handoff_starts_transition_worker_without_sync_prime
     assert len(start_calls) == 1
     assert start_calls[0]["reason"] == "after route handoff vent"
     assert start_calls[0]["prime_immediately"] is False
+
+
+def test_begin_pending_route_handoff_falls_back_to_manual_vent_start_without_helper(tmp_path: Path) -> None:
+    class _FakePace:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def stop_atmosphere_hold(self):
+            self.calls.append("stop_hold")
+            return True
+
+        def set_output(self, on):
+            self.calls.append(("output", bool(on)))
+
+        def set_isolation_open(self, is_open):
+            self.calls.append(("isol", bool(is_open)))
+
+        def vent(self, on=True):
+            self.calls.append(("vent", bool(on)))
+
+    logger = RunLogger(tmp_path)
+    point_from = _co2_point(1, 400.0, 1100.0)
+    point_next = _co2_point(2, 800.0, 900.0)
+    pace = _FakePace()
+    runner = CalibrationRunner(
+        {"workflow": {"pressure": {"handoff_fast_enabled": True}}},
+        {"pace": pace, "pressure_gauge": object()},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    runner._last_sample_completion = {"sample_done_ts": 10.0}
+    runner._start_pressure_transition_fast_signal_context = types.MethodType(
+        lambda self, **_kwargs: {},
+        runner,
+    )
+
+    assert runner._begin_pending_route_handoff(
+        current_point=point_from,
+        current_phase="h2o",
+        current_point_tag="from",
+        next_point=point_next,
+        next_phase="co2",
+        next_point_tag="to",
+        next_open_valves=[7, 8],
+    ) is True
+    logger.close()
+
+    assert pace.calls == [
+        "stop_hold",
+        ("output", False),
+        ("isol", True),
+        ("vent", True),
+    ]
 
 
 def test_route_handoff_fast_path_uses_transition_gauge_cache_without_blocking_reads(
@@ -528,7 +582,7 @@ def test_route_handoff_fast_path_uses_transition_gauge_cache_without_blocking_re
     logger.close()
 
     assert "begin_handoff" in pace.calls
-    assert any(call[0] == "vent_on" for call in pace.calls if isinstance(call, tuple))
+    assert not any(call[0] == "vent_on" for call in pace.calls if isinstance(call, tuple))
     assert opened_routes == [[7, 8]]
     trace_rows = _load_pressure_trace_rows(logger)
     safe_rows = [row for row in trace_rows if row["trace_stage"] == "handoff_safe_to_open_reached"]

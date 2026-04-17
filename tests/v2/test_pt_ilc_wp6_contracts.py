@@ -254,6 +254,124 @@ class TestWp6ImporterContract:
         assert "extra_fields" in imported
         assert imported["extra_fields"]["custom_field"] == "custom_value"
 
+    def test_import_json_rows_payload_normalizes_trace_and_list_fields(self, tmp_path: Path) -> None:
+        payload = {
+            "scope_id": "scope-1",
+            "decision_rule_id": "dr-1",
+            "rows": [
+                {
+                    "comparison_id": "pt-rows-001",
+                    "comparison_type": "PT",
+                    "linked_uncertainty_case_ids": "unc-1|unc-2",
+                    "linked_method_confirmation_protocol_ids": "mc-1;mc-2",
+                    "linked_software_validation_release_ids": "sv-1,sv-2",
+                    "reference_asset_refs": "asset-1|asset-2",
+                    "certificate_lifecycle_refs": "cert-1;cert-2",
+                }
+            ],
+        }
+        json_file = tmp_path / "comparison_rows.json"
+        json_file.write_text(json.dumps(payload), encoding="utf-8")
+        result = import_comparison_from_json(json_file)
+        imported = result["imported_data"]
+        assert imported["row_count"] == 1
+        row = imported["rows"][0]
+        assert row["scope_id"] == "scope-1"
+        assert row["decision_rule_id"] == "dr-1"
+        assert row["import_mode"] == "local_json"
+        assert row["source_file"] == str(json_file)
+        assert row["linked_uncertainty_case_ids"] == ["unc-1", "unc-2"]
+        assert row["linked_method_confirmation_protocol_ids"] == ["mc-1", "mc-2"]
+        assert row["linked_software_validation_release_ids"] == ["sv-1", "sv-2"]
+        assert row["reference_asset_refs"] == ["asset-1", "asset-2"]
+        assert row["certificate_lifecycle_refs"] == ["cert-1", "cert-2"]
+
+    def test_import_csv_normalizes_trace_and_list_fields(self, tmp_path: Path) -> None:
+        csv_file = tmp_path / "comparison_linked.csv"
+        csv_file.write_text(
+            (
+                "comparison_id,comparison_type,scope_id,decision_rule_id,"
+                "linked_uncertainty_case_ids,linked_method_confirmation_protocol_ids,"
+                "linked_software_validation_release_ids,reference_asset_refs,certificate_lifecycle_refs\n"
+                "pt-001,PT,scope-1,dr-1,unc-1|unc-2,mc-1;mc-2,sv-1,asset-1|asset-2,cert-1;cert-2\n"
+            ),
+            encoding="utf-8",
+        )
+        result = import_comparison_from_csv(csv_file)
+        imported = result["imported_data"]
+        assert imported["row_count"] == 1
+        row = imported["rows"][0]
+        assert row["import_mode"] == "local_csv"
+        assert row["source_file"] == str(csv_file)
+        assert row["linked_uncertainty_case_ids"] == ["unc-1", "unc-2"]
+        assert row["linked_method_confirmation_protocol_ids"] == ["mc-1", "mc-2"]
+        assert row["linked_software_validation_release_ids"] == ["sv-1"]
+        assert row["reference_asset_refs"] == ["asset-1", "asset-2"]
+        assert row["certificate_lifecycle_refs"] == ["cert-1", "cert-2"]
+
+    def test_comparison_evidence_pack_auto_links_scope_decision_and_upstream_refs(self) -> None:
+        artifacts = build_wp6_artifacts(
+            run_id="test-run",
+            scope_definition_pack={"raw": {"scope_id": "scope-1", "scope_name": "CO2 scope"}, "digest": {}, "review_surface": {}},
+            decision_rule_profile={"raw": {"decision_rule_id": "dr-1"}, "digest": {}, "review_surface": {}},
+            reference_asset_registry={
+                "raw": {
+                    "assets": [
+                        {"asset_id": "asset-1"},
+                        {"asset_id": "asset-2"},
+                    ]
+                },
+                "digest": {},
+                "review_surface": {},
+            },
+            certificate_lifecycle_summary={
+                "raw": {
+                    "certificate_rows": [
+                        {"certificate_id": "cert-1"},
+                        {"certificate_id": "cert-2"},
+                    ]
+                },
+                "digest": {},
+                "review_surface": {},
+            },
+            pre_run_readiness_gate={"raw": {}, "digest": {}, "review_surface": {}},
+            uncertainty_report_pack={"raw": {"selected_result_case_id": "unc-1"}, "digest": {}, "review_surface": {}},
+            uncertainty_rollup={
+                "raw": {
+                    "case_ids": ["unc-1", "unc-2"],
+                    "method_confirmation_protocol_id": "mc-1",
+                },
+                "digest": {},
+                "review_surface": {},
+            },
+            method_confirmation_protocol={"raw": {"protocol_id": "mc-1"}, "digest": {}, "review_surface": {}},
+            verification_digest={"raw": {"method_confirmation_protocol_id": "mc-1"}, "digest": {}, "review_surface": {}},
+            software_validation_rollup={"raw": {"release_id": "sv-1"}, "digest": {}, "review_surface": {}},
+            path_map={
+                "reference_asset_registry": "/tmp/reference_asset_registry.json",
+                "certificate_lifecycle_summary": "/tmp/certificate_lifecycle_summary.json",
+            },
+            filenames={},
+            boundary_statements=["readiness mapping only"],
+        )
+        pack = artifacts["comparison_evidence_pack"]["raw"]
+        registry = artifacts["pt_ilc_registry"]["raw"]
+        rollup_digest = artifacts["comparison_rollup"]["digest"]
+        assert pack["scope_id"] == "scope-1"
+        assert pack["decision_rule_id"] == "dr-1"
+        assert pack["linked_uncertainty_case_ids"] == ["unc-1", "unc-2"]
+        assert pack["linked_method_confirmation_protocol_ids"] == ["mc-1"]
+        assert pack["linked_software_validation_release_ids"] == ["sv-1"]
+        assert pack["reference_asset_refs"] == ["asset-1", "asset-2"]
+        assert pack["certificate_lifecycle_refs"] == ["cert-1", "cert-2"]
+        assert pack["coverage_summary"]["scope_linked"] is True
+        assert pack["coverage_summary"]["decision_rule_linked"] is True
+        assert pack["coverage_summary"]["uncertainty_linked"] is True
+        assert pack["coverage_summary"]["method_confirmation_linked"] is True
+        assert pack["coverage_summary"]["software_validation_linked"] is True
+        assert registry["rows"][0]["source_file"].startswith("local_fixture://")
+        assert "comparison_import_trace_summary" in rollup_digest
+
 
 # ---------------------------------------------------------------------------
 # 3) repository / gateway contract
@@ -1605,4 +1723,3 @@ class TestStep25Boundary:
         assert len(bundle.readiness_pairs) == 7
         assert len(bundle.enriched_entries) == 7
         assert len(bundle.items()) == 7
-

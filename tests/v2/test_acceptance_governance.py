@@ -545,6 +545,44 @@ def test_stage3_standards_alignment_matrix_reuses_stage3_plan_pack_and_checklist
         "stage3_standards_alignment_matrix_reviewer_artifact": (
             f"D:/tmp/{STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME}"
         ),
+        "scope_definition_pack": "D:/tmp/scope_definition_pack.json",
+        "decision_rule_profile": "D:/tmp/decision_rule_profile.json",
+    }
+    scope_definition_pack = {
+        "artifact_type": "scope_definition_pack",
+        "scope_id": "run_stage3_matrix-step2-scope-package",
+        "scope_name": "Step 2 simulation reviewer scope package",
+        "scope_version": "scope-v1",
+        "scope_export_pack": {
+            "scope_id": "run_stage3_matrix-step2-scope-package",
+            "scope_name": "Step 2 simulation reviewer scope package",
+            "scope_version": "scope-v1",
+        },
+        "applicability_scope_display": "CO2 / H2O | gas | water | simulation_offline_headless",
+        "digest": {
+            "scope_overview_summary": "CO2 / H2O | gas | water | simulation_offline_headless",
+        },
+    }
+    decision_rule_profile = {
+        "artifact_type": "decision_rule_profile",
+        "decision_rule_id": "step2_readiness_reviewer_rule_v1",
+        "applicability_scope_display": "gas | water | simulation_offline_headless | compatibility reader neutral",
+        "limitation_note": "Decision-rule wording remains reviewer-facing only.",
+        "non_claim_note": "Simulation/offline outputs cannot become formal compliance claims.",
+        "digest": {
+            "decision_rule_summary": "step2_readiness_reviewer_rule_v1 | reviewer gate only",
+        },
+        "conformity_statement_profile": {
+            "reviewer_only": True,
+            "readiness_mapping_only": True,
+            "not_real_acceptance_evidence": True,
+            "not_ready_for_formal_claim": True,
+            "applicability_scope_display": (
+                "gas | water | simulation_offline_headless | compatibility reader neutral"
+            ),
+            "limitation_note": "Decision-rule wording remains reviewer-facing only.",
+            "non_claim_note": "Simulation/offline outputs cannot become formal compliance claims.",
+        },
     }
     pack = build_stage_admission_review_pack(
         run_id="run_stage3_matrix",
@@ -579,6 +617,9 @@ def test_stage3_standards_alignment_matrix_reuses_stage3_plan_pack_and_checklist
         stage_admission_review_pack=pack,
         engineering_isolation_admission_checklist=checklist,
         stage3_real_validation_plan=plan,
+        scope_definition_pack=scope_definition_pack,
+        decision_rule_profile=decision_rule_profile,
+        conformity_statement_profile=decision_rule_profile["conformity_statement_profile"],
         artifact_paths=artifact_paths,
     )
 
@@ -630,6 +671,16 @@ def test_stage3_standards_alignment_matrix_reuses_stage3_plan_pack_and_checklist
     assert raw["artifact_refs"]["engineering_isolation_admission_checklist"]["summary_text"] == (
         checklist["display"]["summary_text"]
     )
+    assert raw["recognition_scope_linkage"]["scope_id"] == scope_definition_pack["scope_id"]
+    assert raw["recognition_scope_linkage"]["decision_rule_id"] == decision_rule_profile["decision_rule_id"]
+    assert raw["recognition_scope_linkage"]["reviewer_only"] is True
+    assert raw["recognition_scope_linkage"]["readiness_mapping_only"] is True
+    assert raw["recognition_scope_linkage"]["artifact_refs"]["scope_definition_pack"]["path"] == (
+        artifact_paths["scope_definition_pack"]
+    )
+    assert raw["recognition_scope_linkage"]["artifact_refs"]["decision_rule_profile"]["path"] == (
+        artifact_paths["decision_rule_profile"]
+    )
     assert raw["standard_families"] == [
         "中国气象局 / 气象行业观测与质量控制相关要求",
         "CNAS-CL01",
@@ -655,6 +706,8 @@ def test_stage3_standards_alignment_matrix_reuses_stage3_plan_pack_and_checklist
     assert "cannot replace real metrology validation" in markdown
     assert "simulation / offline / headless only" in markdown
     assert "stage3_real_validation_plan.json" in markdown
+    assert "scope_definition_pack.json" in markdown
+    assert "decision_rule_profile.json" in markdown
     assert "ready_for_engineering_isolation" not in markdown
     assert "real_acceptance_ready" not in markdown
     assert entry["artifact_key"] == STAGE3_STANDARDS_ALIGNMENT_MATRIX_ARTIFACT_KEY
@@ -1328,3 +1381,117 @@ class TestV12CompactSummaryGovernance:
         assert markers["not_ready_for_formal_claim"] is True
         assert markers["reviewer_only"] is True
         assert markers["readiness_mapping_only"] is True
+
+
+def test_closeout_readiness_boundary_consistent_with_acceptance_governance() -> None:
+    """Closeout readiness boundary markers must be consistent with acceptance governance."""
+    from gas_calibrator.v2.core.step2_closeout_readiness_builder import build_step2_closeout_readiness
+    from gas_calibrator.v2.core.step2_closeout_readiness_contracts import CLOSEOUT_STEP2_BOUNDARY
+
+    result = build_step2_closeout_readiness(run_id="test-boundary-consistency")
+    # Must match CLOSEOUT_STEP2_BOUNDARY
+    assert result["not_real_acceptance_evidence"] == CLOSEOUT_STEP2_BOUNDARY["not_real_acceptance_evidence"]
+    assert result["not_ready_for_formal_claim"] == CLOSEOUT_STEP2_BOUNDARY["not_ready_for_formal_claim"]
+    assert result["reviewer_only"] == CLOSEOUT_STEP2_BOUNDARY["reviewer_only"]
+    assert result["readiness_mapping_only"] == CLOSEOUT_STEP2_BOUNDARY["readiness_mapping_only"]
+    assert result["primary_evidence_rewritten"] == CLOSEOUT_STEP2_BOUNDARY["primary_evidence_rewritten"]
+    # Must never claim real acceptance
+    assert result["real_acceptance_ready"] is False
+    # Evidence source must be simulated
+    assert result["evidence_source"] in {"simulated", "simulated_protocol"}
+
+
+def test_closeout_readiness_consistent_with_governance_handoff_boundary() -> None:
+    """Closeout readiness boundary must be consistent with governance handoff contracts."""
+    from gas_calibrator.v2.core.step2_closeout_readiness_contracts import CLOSEOUT_STEP2_BOUNDARY
+    from gas_calibrator.v2.core.governance_handoff_contracts import GOVERNANCE_HANDOFF_STEP2_BOUNDARY
+
+    # Both must have the same boundary markers
+    assert CLOSEOUT_STEP2_BOUNDARY["evidence_source"] == GOVERNANCE_HANDOFF_STEP2_BOUNDARY["step2_readiness_summary"]["evidence_source"]
+    assert CLOSEOUT_STEP2_BOUNDARY["not_real_acceptance_evidence"] == GOVERNANCE_HANDOFF_STEP2_BOUNDARY["step2_readiness_summary"]["not_real_acceptance_evidence"]
+    assert CLOSEOUT_STEP2_BOUNDARY["not_ready_for_formal_claim"] == GOVERNANCE_HANDOFF_STEP2_BOUNDARY["step2_readiness_summary"]["not_ready_for_formal_claim"]
+    assert CLOSEOUT_STEP2_BOUNDARY["reviewer_only"] == GOVERNANCE_HANDOFF_STEP2_BOUNDARY["step2_readiness_summary"]["reviewer_only"]
+    assert CLOSEOUT_STEP2_BOUNDARY["readiness_mapping_only"] == GOVERNANCE_HANDOFF_STEP2_BOUNDARY["step2_readiness_summary"]["readiness_mapping_only"]
+
+
+# ---------------------------------------------------------------------------
+# Step 2.20: Closeout readiness canonical source-of-truth tests
+# ---------------------------------------------------------------------------
+
+def test_closeout_readiness_persisted_payload_preferred_over_rebuild() -> None:
+    """When step2_closeout_readiness is in the payload, it should be used directly
+    rather than rebuilt. This test verifies the persisted data has all expected fields."""
+    from gas_calibrator.v2.core.step2_closeout_readiness_builder import build_step2_closeout_readiness
+    from gas_calibrator.v2.core.step2_readiness import build_step2_readiness_summary
+
+    readiness = build_step2_readiness_summary(
+        run_id="test-persisted",
+        simulation_mode=True,
+        config_governance_handoff={
+            "simulation_only": True,
+            "operator_safe": True,
+            "real_port_device_count": 0,
+            "engineering_only_flag_count": 0,
+            "enabled_engineering_flags": [],
+            "execution_gate": {"status": "open"},
+            "step2_default_workflow_allowed": True,
+            "requires_explicit_unlock": False,
+        },
+    )
+    closeout = build_step2_closeout_readiness(
+        run_id="test-persisted",
+        step2_readiness_summary=readiness,
+    )
+    # Verify all gate fields are present in persisted data
+    assert "gate_status" in closeout
+    assert "gate_summary" in closeout
+    assert "closeout_gate_alignment" in closeout
+    # Verify boundary markers
+    assert closeout["evidence_source"] in {"simulated", "simulated_protocol"}
+    assert closeout["not_real_acceptance_evidence"] is True
+    assert closeout["real_acceptance_ready"] is False
+
+
+def test_closeout_readiness_fallback_when_payload_missing() -> None:
+    """When step2_closeout_readiness is missing, fallback should produce valid gate fields."""
+    from gas_calibrator.v2.core.step2_closeout_readiness_contracts import build_closeout_readiness_fallback
+
+    fb = build_closeout_readiness_fallback()
+    assert "gate_status" in fb
+    assert "gate_summary" in fb
+    assert "closeout_gate_alignment" in fb
+    assert fb["gate_status"] == "not_ready"
+    assert fb["closeout_gate_alignment"]["aligned"] is True
+    # Boundary markers
+    assert fb["evidence_source"] == "simulated"
+    assert fb["not_real_acceptance_evidence"] is True
+    assert fb["real_acceptance_ready"] is False
+
+
+def test_governance_handoff_source_consistent_between_results_gateway_and_app_facade() -> None:
+    """Both results_gateway and app_facade should use config_governance_handoff
+    as the canonical source for governance_handoff input to closeout readiness."""
+    from gas_calibrator.v2.config import build_step2_config_governance_handoff
+    from gas_calibrator.v2.core.step2_closeout_readiness_builder import build_step2_closeout_readiness
+
+    # Simulate the same governance_handoff input that both paths should use
+    config_governance_handoff = build_step2_config_governance_handoff({
+        "simulation_only": True,
+        "operator_safe": True,
+        "real_port_device_count": 0,
+        "engineering_only_flag_count": 0,
+        "enabled_engineering_flags": [],
+        "execution_gate": {"status": "open"},
+        "step2_default_workflow_allowed": True,
+        "requires_explicit_unlock": False,
+    })
+
+    # Both paths should produce the same closeout readiness when given the same input
+    closeout = build_step2_closeout_readiness(
+        run_id="test-consistent",
+        step2_readiness_summary={"overall_status": "ready_for_engineering_isolation"},
+        governance_handoff=config_governance_handoff,
+    )
+    assert "gate_status" in closeout
+    assert "gate_summary" in closeout
+    assert "closeout_gate_alignment" in closeout

@@ -20,7 +20,7 @@ from typing import Any
 # ---------------------------------------------------------------------------
 # Version
 # ---------------------------------------------------------------------------
-COMPACT_SUMMARY_BUDGET_VERSION: str = "2.14.0"
+COMPACT_SUMMARY_BUDGET_VERSION: str = "2.16.0"
 
 # ---------------------------------------------------------------------------
 # Surface default budgets — max compact summary lines per surface

@@ -41,6 +41,8 @@
       "capture_then_hold_enabled": true,
       "adaptive_pressure_sampling_enabled": true,
       "use_pressure_gauge_for_sampling_gate": true,
+      "pace_upstream_check_valve_installed": true,
+      "post_isolation_pressure_truth_source": "external_gauge",
       "continuous_atmosphere_hold": false,
       "atmosphere_hold_strategy": "single_cycle_query_clear",
       "co2_post_isolation_diagnostic_enabled": true,
@@ -49,6 +51,8 @@
       "post_isolation_fast_capture_enabled": true,
       "post_isolation_fast_capture_allow_early_sample": true,
       "post_isolation_fast_capture_min_s": 5.0,
+      "fast_smoke_capture_min_s": 5.0,
+      "fast_smoke_capture_no_extended_fallback": false,
       "post_isolation_fast_capture_require_vent_ok": true,
       "post_isolation_fast_capture_require_vent_zero": true,
       "post_isolation_fast_capture_require_in_limits": true,
@@ -61,7 +65,12 @@
       "fast_capture_pressure_drift_max_hpa": 0.18,
       "fast_capture_pressure_slope_max_hpa_s": 0.05,
       "fast_capture_dewpoint_rise_max_c": 0.06,
+      "fast_smoke_pressure_drift_max_hpa": 0.18,
+      "fast_smoke_pressure_slope_max_hpa_s": 0.05,
+      "fast_smoke_dewpoint_rise_max_c": 0.06,
       "same_gas_low_pressure_standard_control_enabled": true,
+      "low_pressure_same_gas_use_linear_slew": true,
+      "low_pressure_same_gas_overshoot_allowed": false,
       "same_gas_low_pressure_standard_control_slew_hpa_per_s": 5.0,
       "same_gas_low_pressure_standard_control_overshoot_allowed": false,
       "co2_postseal_rebound_guard_enabled": true,
@@ -77,7 +86,8 @@
     "name": "v1_pace_fast5s_with_diag_fallback",
     "notes": [
       "engineering-only same-gas low-pressure fast capture override",
-      "attempts 5 s post-isolation clean capture and falls back to 20 s extended diagnostic when not clean"
+      "attempts 5 s post-isolation clean capture and falls back to 20 s extended diagnostic when not clean",
+      "keeps extended diagnostic fallback explicitly enabled under the upstream check-valve hardware profile"
     ]
   }
 }

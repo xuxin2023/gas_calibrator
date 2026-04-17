@@ -229,6 +229,27 @@ def test_review_center_builds_cross_run_index_from_recent_runs(tmp_path: Path, m
     assert "acceptance" in review_center["disclaimer"].lower()
 
 
+def test_review_center_index_summary_exposes_recognition_scope_binding(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+
+    rebuild_run(run_dir)
+
+    results_snapshot = facade.build_results_snapshot()
+    review_center = dict(results_snapshot.get("review_center") or {})
+    index_summary = dict(review_center.get("index_summary") or {})
+    recognition_scope_rollup = dict(index_summary.get("recognition_scope_rollup") or {})
+    recognition_binding = dict(recognition_scope_rollup.get("recognition_binding") or {})
+
+    assert recognition_binding["scope_id"] == results_snapshot["recognition_binding"]["scope_id"]
+    assert recognition_binding["decision_rule_id"] == results_snapshot["recognition_binding"]["decision_rule_id"]
+    assert recognition_binding["applicability_scope_display"]
+    assert recognition_binding["limitation_note"]
+    assert recognition_binding["non_claim_note"]
+    assert "simulation_offline_headless" in index_summary["recognition_scope_summary"]
+    assert "formal compliance" in index_summary["recognition_scope_summary"].lower()
+
+
 def test_review_center_artifact_discovery_uses_cache_budget_and_recent_run_invalidation(tmp_path: Path) -> None:
     facade = build_fake_facade(tmp_path)
     run_root = Path(facade.result_store.run_dir).parent

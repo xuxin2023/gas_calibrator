@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import math
+import os
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Sequence
@@ -565,41 +567,55 @@ def build_corrected_water_points_report(
 
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        notes_df.to_excel(writer, sheet_name="说明", index=False)
-        summary_df.to_excel(writer, sheet_name="汇总", index=False)
-        simplified_df.to_excel(writer, sheet_name="简化系数", index=False)
-        original_df.to_excel(writer, sheet_name="原始系数", index=False)
-        point_df.to_excel(writer, sheet_name="逐点对账", index=False)
-        range_df.to_excel(writer, sheet_name="分区间分析", index=False)
-        topn_df.to_excel(writer, sheet_name="误差TopN", index=False)
+    # Use temp file for atomic write to prevent truncation on crash
+    fd, tmp_path = tempfile.mkstemp(suffix=".xlsx", dir=output.parent)
+    os.close(fd)
+    tmp_output = Path(tmp_path)
+    try:
+        with pd.ExcelWriter(tmp_output, engine="openpyxl") as writer:
+            notes_df.to_excel(writer, sheet_name="说明", index=False)
+            summary_df.to_excel(writer, sheet_name="汇总", index=False)
+            simplified_df.to_excel(writer, sheet_name="简化系数", index=False)
+            original_df.to_excel(writer, sheet_name="原始系数", index=False)
+            point_df.to_excel(writer, sheet_name="逐点对账", index=False)
+            range_df.to_excel(writer, sheet_name="分区间分析", index=False)
+            topn_df.to_excel(writer, sheet_name="误差TopN", index=False)
 
-    if not h2o_selected_df.empty:
-        with pd.ExcelWriter(output, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
-            h2o_selected_df.to_excel(writer, sheet_name="H2O锚点入选", index=False)
-    if not h2o_anchor_gate_df.empty:
-        with pd.ExcelWriter(output, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
-            h2o_anchor_gate_df.to_excel(writer, sheet_name="H2O锚点门禁", index=False)
+        if not h2o_selected_df.empty:
+            with pd.ExcelWriter(tmp_output, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
+                h2o_selected_df.to_excel(writer, sheet_name="H2O锚点入选", index=False)
+        if not h2o_anchor_gate_df.empty:
+            with pd.ExcelWriter(tmp_output, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
+                h2o_anchor_gate_df.to_excel(writer, sheet_name="H2O锚点门禁", index=False)
 
-    workbook = load_workbook(output)
-    summary_sheet = workbook["汇总"]
-    header_cells = {str(cell.value or "").strip(): cell.column for cell in summary_sheet[1]}
-    suggestion_col = header_cells.get("综合建议")
-    fill_map = {
-        "采用": PatternFill(fill_type="solid", fgColor="C6EFCE"),
-        "视业务确认": PatternFill(fill_type="solid", fgColor="FFF2CC"),
-        "暂不采用": PatternFill(fill_type="solid", fgColor="F4CCCC"),
-    }
-    if suggestion_col is not None:
-        for row_idx in range(2, summary_sheet.max_row + 1):
-            suggestion = str(summary_sheet.cell(row_idx, suggestion_col).value or "").strip()
-            fill = fill_map.get(suggestion)
-            if fill is None:
-                continue
-            for col_idx in range(1, summary_sheet.max_column + 1):
-                summary_sheet.cell(row_idx, col_idx).fill = fill
-    workbook.save(output)
-    workbook.close()
+        workbook = load_workbook(tmp_output)
+        summary_sheet = workbook["汇总"]
+        header_cells = {str(cell.value or "").strip(): cell.column for cell in summary_sheet[1]}
+        suggestion_col = header_cells.get("综合建议")
+        fill_map = {
+            "采用": PatternFill(fill_type="solid", fgColor="C6EFCE"),
+            "视业务确认": PatternFill(fill_type="solid", fgColor="FFF2CC"),
+            "暂不采用": PatternFill(fill_type="solid", fgColor="F4CCCC"),
+        }
+        if suggestion_col is not None:
+            for row_idx in range(2, summary_sheet.max_row + 1):
+                suggestion = str(summary_sheet.cell(row_idx, suggestion_col).value or "").strip()
+                fill = fill_map.get(suggestion)
+                if fill is None:
+                    continue
+                for col_idx in range(1, summary_sheet.max_column + 1):
+                    summary_sheet.cell(row_idx, col_idx).fill = fill
+        workbook.save(tmp_output)
+        workbook.close()
+
+        os.replace(tmp_output, output)
+    except Exception:
+        # Clean up temp file on failure
+        try:
+            tmp_output.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
 
     return {
         "output_path": output,

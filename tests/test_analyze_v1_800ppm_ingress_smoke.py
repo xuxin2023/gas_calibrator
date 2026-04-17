@@ -30,6 +30,7 @@ def _make_run_dir(
     capture_mode: str = "fast5s",
     fallback: str = "false",
     diagnosis_by_pressure: dict[int, str] | None = None,
+    checkvalve: bool = False,
 ) -> Path:
     run_dir = base
     timestamps = [
@@ -56,6 +57,8 @@ def _make_run_dir(
                 "co2_mean_primary_or_first": co2_values[index - 1],
                 "h2o_mean_primary_or_first": h2o_values[index - 1],
                 "dewpoint_mean_c": dew_values[index - 1],
+                "pace_upstream_check_valve_installed": str(checkvalve).lower(),
+                "post_isolation_pressure_truth_source": "external_gauge" if checkvalve else "",
                 "dewpoint_gate_result": "stable",
                 "point_quality_reason": "",
                 "post_isolation_diagnosis": diagnosis,
@@ -236,13 +239,15 @@ def _make_run_dir(
             "pressure_target_hpa",
             "target_co2_ppm",
             "co2_mean_primary_or_first",
-            "h2o_mean_primary_or_first",
-            "dewpoint_mean_c",
-            "dewpoint_gate_result",
-            "point_quality_reason",
-            "post_isolation_diagnosis",
-            "post_isolation_pressure_drift_hpa",
-            "post_isolation_dewpoint_rise_c",
+                "h2o_mean_primary_or_first",
+                "dewpoint_mean_c",
+                "pace_upstream_check_valve_installed",
+                "post_isolation_pressure_truth_source",
+                "dewpoint_gate_result",
+                "point_quality_reason",
+                "post_isolation_diagnosis",
+                "post_isolation_pressure_drift_hpa",
+                "post_isolation_dewpoint_rise_c",
         ],
         point_rows,
     )
@@ -283,8 +288,10 @@ def test_analyze_v1_800ppm_ingress_smoke_outputs_expected_files(tmp_path: Path) 
     assert Path(summary["post_isolation_diagnosis_summary_csv"]).exists()
     assert Path(summary["pace_post_isolation_diagnosis_summary_csv"]).exists()
     assert Path(summary["pace_standard_status_summary_csv"]).exists()
+    assert Path(summary["baseline_plateau_summary_csv"]).exists()
     assert Path(summary["pace_protective_vent_state_summary_csv"]).exists()
     assert Path(summary["fast5s_vs_extended20s_with_effort_summary_csv"]).exists()
+    assert Path(summary["checkvalve_fast_smoke_summary_csv"]).exists()
     assert Path(summary["plots"]["co2_plot"]).exists()
     assert Path(summary["plots"]["dewpoint_h2o_plot"]).exists()
     assert Path(summary["plots"]["pace_vent_state_vs_time_plot"]).exists()
@@ -294,6 +301,7 @@ def test_analyze_v1_800ppm_ingress_smoke_outputs_expected_files(tmp_path: Path) 
     assert Path(summary["plots"]["post_isolation_drift_plot"]).exists()
     assert Path(summary["plots"]["post_isolation_dewpoint_rise_plot"]).exists()
     assert (tmp_path / "analysis" / "same_gas_two_round_summary.json").exists()
+    assert summary["conclusion_code"] == "cleared_or_not_observed"
 
 
 def test_classify_ingress_result_flags_clear_low_pressure_pullback() -> None:
@@ -590,3 +598,269 @@ def test_classify_ingress_result_distinguishes_standard_vent_and_effort_findings
     assert metrics["pace_vent_completed_latched_count"] == 1
     assert metrics["pace_supply_vacuum_compensation_count"] == 1
     assert metrics["fast_capture_assessment"] == "5 秒快采失败且提示 VENT=2 锁存未清"
+
+def test_classify_ingress_result_prioritizes_baseline_source_or_stream_problem() -> None:
+    module = _load_module()
+    point_results = [
+        {
+            "round_index": 1,
+            "pressure_hpa": 1000,
+            "target_co2_ppm": 800.0,
+            "co2_mean_ppm": 1515.4,
+            "dewpoint_mean_c": -35.0,
+            "h2o_mean_mmol": 0.30,
+            "reject_reason": "",
+            "post_isolation_diagnosis": "pass",
+            "post_isolation_capture_mode": "fast5s",
+            "post_isolation_fast_capture_status": "pass",
+            "post_isolation_fast_capture_fallback": False,
+            "forbidden_pre_sampling_actions": "",
+            "handoff_mode": "same_gas_pressure_step_handoff",
+            "status": "sampled",
+        },
+        {
+            "round_index": 1,
+            "pressure_hpa": 800,
+            "target_co2_ppm": 800.0,
+            "co2_mean_ppm": None,
+            "dewpoint_mean_c": None,
+            "h2o_mean_mmol": None,
+            "reject_reason": "sealed_path_leak_suspect",
+            "post_isolation_diagnosis": "sealed_path_leak_suspect",
+            "post_isolation_capture_mode": "extended20s",
+            "post_isolation_fast_capture_status": "fallback",
+            "post_isolation_fast_capture_fallback": True,
+            "forbidden_pre_sampling_actions": "",
+            "handoff_mode": "same_gas_pressure_step_handoff",
+            "status": "rejected_before_sampling",
+        },
+    ]
+
+    conclusion, metrics = module.classify_ingress_result(point_results)
+
+    assert conclusion == "near-ambient baseline points to source/stream mismatch before low-pressure inference"
+    assert metrics["conclusion_code"] == "baseline_source_or_stream_problem"
+    assert metrics["accepted_near_ambient_count"] == 1
+    assert metrics["baseline_large_delta_count"] == 1
+
+
+def test_classify_ingress_result_prioritizes_legacy_vent_state_problem() -> None:
+    module = _load_module()
+    point_results = [
+        {
+            "round_index": 1,
+            "pressure_hpa": 800,
+            "target_co2_ppm": 800.0,
+            "co2_mean_ppm": None,
+            "dewpoint_mean_c": None,
+            "h2o_mean_mmol": None,
+            "reject_reason": "pace_atmosphere_connected_latched_state_suspect",
+            "post_isolation_diagnosis": "pace_atmosphere_connected_latched_state_suspect",
+            "post_isolation_capture_mode": "extended20s",
+            "post_isolation_fast_capture_status": "fallback",
+            "post_isolation_fast_capture_fallback": True,
+            "forbidden_pre_sampling_actions": "",
+            "handoff_mode": "same_gas_pressure_step_handoff",
+            "status": "rejected_before_sampling",
+        }
+    ]
+
+    conclusion, metrics = module.classify_ingress_result(point_results)
+
+    assert conclusion == "legacy VENT=3 compatibility state still needs controller-only proof"
+    assert metrics["conclusion_code"] == "legacy_vent_state_problem"
+    assert metrics["pace_legacy_vent_state_3_count"] == 1
+
+
+def test_classify_ingress_result_reports_checkvalve_quick_smoke_pass() -> None:
+    module = _load_module()
+    point_results = [
+        {
+            "round_index": 1,
+            "pressure_hpa": 1000,
+            "target_co2_ppm": 800.0,
+            "co2_mean_ppm": 801.0,
+            "dewpoint_mean_c": -32.0,
+            "h2o_mean_mmol": 0.40,
+            "reject_reason": "",
+            "post_isolation_diagnosis": "pass",
+            "post_isolation_capture_mode": "fast5s",
+            "post_isolation_fast_capture_status": "pass",
+            "post_isolation_fast_capture_fallback": False,
+            "post_isolation_pressure_drift_hpa": 0.01,
+            "post_isolation_dewpoint_rise_c": 0.01,
+            "forbidden_pre_sampling_actions": "",
+            "handoff_mode": "same_gas_pressure_step_handoff",
+            "status": "sampled",
+            "pace_upstream_check_valve_installed": True,
+            "post_isolation_pressure_truth_source": "external_gauge",
+        },
+        {
+            "round_index": 1,
+            "pressure_hpa": 800,
+            "target_co2_ppm": 800.0,
+            "co2_mean_ppm": 800.0,
+            "dewpoint_mean_c": -32.0,
+            "h2o_mean_mmol": 0.40,
+            "reject_reason": "",
+            "post_isolation_diagnosis": "controller_side_state_only_without_analyzer_side_effect",
+            "post_isolation_capture_mode": "fast5s",
+            "post_isolation_fast_capture_status": "pass",
+            "post_isolation_fast_capture_fallback": False,
+            "post_isolation_pressure_drift_hpa": 0.01,
+            "post_isolation_dewpoint_rise_c": 0.01,
+            "forbidden_pre_sampling_actions": "",
+            "handoff_mode": "same_gas_pressure_step_handoff",
+            "status": "sampled",
+            "pace_upstream_check_valve_installed": True,
+            "post_isolation_pressure_truth_source": "external_gauge",
+        },
+    ]
+
+    conclusion, metrics = module.classify_ingress_result(point_results)
+
+    assert conclusion == "check-valve quick smoke passed on analyzer-side evidence"
+    assert metrics["conclusion_code"] == "checkvalve_quick_smoke_pass"
+
+
+def test_classify_ingress_result_reports_checkvalve_controller_side_only_state() -> None:
+    module = _load_module()
+    point_results = [
+        {
+            "round_index": 1,
+            "pressure_hpa": 800,
+            "target_co2_ppm": 800.0,
+            "co2_mean_ppm": None,
+            "dewpoint_mean_c": None,
+            "h2o_mean_mmol": None,
+            "reject_reason": "",
+            "post_isolation_diagnosis": "controller_side_state_only_without_analyzer_side_effect",
+            "post_isolation_capture_mode": "fast5s",
+            "post_isolation_fast_capture_status": "fail",
+            "post_isolation_fast_capture_fallback": False,
+            "post_isolation_pressure_drift_hpa": 0.02,
+            "post_isolation_dewpoint_rise_c": 0.01,
+            "forbidden_pre_sampling_actions": "",
+            "handoff_mode": "same_gas_pressure_step_handoff",
+            "status": "rejected_before_sampling",
+            "pace_upstream_check_valve_installed": True,
+            "post_isolation_pressure_truth_source": "external_gauge",
+        }
+    ]
+
+    conclusion, metrics = module.classify_ingress_result(point_results)
+
+    assert conclusion == "controller-side vent state persisted without analyzer-side effect under check-valve mode"
+    assert metrics["conclusion_code"] == "controller_side_state_only_without_analyzer_side_effect"
+    assert metrics["controller_side_only_without_analyzer_side_effect_count"] == 1
+
+
+def test_load_run_point_results_supports_live_chinese_points_csv(tmp_path: Path) -> None:
+    module = _load_module()
+    run_dir = tmp_path / "run_live_cn"
+    _write_csv(
+        run_dir / "points_test.csv",
+        [
+            "运行ID",
+            "会话ID",
+            "设备ID(追溯)",
+            "气体类型",
+            "步骤",
+            "点位编号",
+            "目标值",
+            "测量值",
+            "采样时间",
+            "窗口开始时间",
+            "窗口结束时间",
+            "窗口样本数",
+            "稳态标记",
+            "点位标题",
+            "校准点行号",
+            "流程阶段",
+            "点位标签",
+            "压力执行模式",
+            "压力目标标签",
+            "温箱目标温度C",
+            "目标二氧化碳浓度ppm",
+            "目标压力hPa",
+            "二氧化碳平均值",
+        ],
+        [
+            {
+                "运行ID": "run_live_cn",
+                "会话ID": "run_live_cn",
+                "设备ID(追溯)": "073",
+                "气体类型": "CO2",
+                "步骤": "co2",
+                "点位编号": "3",
+                "目标值": "800.0",
+                "测量值": "1515.4395",
+                "采样时间": "2026-04-16T00:28:52.787",
+                "窗口开始时间": "2026-04-16T00:28:43.785",
+                "窗口结束时间": "2026-04-16T00:28:52.787",
+                "窗口样本数": "10",
+                "稳态标记": "True",
+                "点位标题": "20°C环境，二氧化碳800ppm，气压1000hPa",
+                "校准点行号": "3",
+                "流程阶段": "co2",
+                "点位标签": "co2_groupa_800ppm_1000hpa",
+                "压力执行模式": "sealed_controlled",
+                "压力目标标签": "1000hPa",
+                "温箱目标温度C": "20.0",
+                "目标二氧化碳浓度ppm": "800.0",
+                "目标压力hPa": "1000.0",
+                "二氧化碳平均值": "1515.4395",
+            }
+        ],
+    )
+    _write_csv(
+        run_dir / "point_timing_summary.csv",
+        [
+            "point_row",
+            "point_phase",
+            "point_tag",
+            "pressure_target_hpa",
+            "pressure_in_limits_ts",
+            "sampling_begin_ts",
+            "handoff_mode",
+            "capture_hold_status",
+            "post_isolation_status",
+            "post_isolation_diagnosis",
+        ],
+        [
+            {
+                "point_row": "3",
+                "point_phase": "co2",
+                "point_tag": "co2_groupa_800ppm_1000hpa",
+                "pressure_target_hpa": "1000",
+                "pressure_in_limits_ts": "2026-04-16T00:28:42.578",
+                "sampling_begin_ts": "2026-04-16T00:28:36.424",
+                "handoff_mode": "same_gas_pressure_step_handoff",
+                "capture_hold_status": "pass",
+                "post_isolation_status": "skipped",
+                "post_isolation_diagnosis": "skipped",
+            }
+        ],
+    )
+    _write_csv(
+        run_dir / "pressure_transition_trace.csv",
+        ["ts", "point_row", "point_phase", "point_tag", "trace_stage"],
+        [
+            {
+                "ts": "2026-04-16T00:28:36.424",
+                "point_row": "3",
+                "point_phase": "co2",
+                "point_tag": "co2_groupa_800ppm_1000hpa",
+                "trace_stage": "sampling_begin",
+            }
+        ],
+    )
+
+    results = module.load_run_point_results(run_dir)
+
+    assert len(results) == 1
+    assert results[0]["point_row"] == 3
+    assert results[0]["pressure_hpa"] == 1000
+    assert results[0]["point_tag"] == "co2_groupa_800ppm_1000hpa"
+    assert results[0]["co2_mean_ppm"] == 1515.4395
+    assert results[0]["status"] == "sampled"

@@ -231,9 +231,10 @@ def test_plan_compiler_exposes_controlled_state_machine_profile_ready_shape() ->
 
     profile = compile_controlled_state_machine_profile(compiled)
 
-    assert profile["profile_version"] == "controlled_flex_v1"
+    assert profile["profile_version"] == "controlled_flex_v2"
     assert "PRESEAL_STABILITY" in profile["enabled_states"]
     assert "PRESSURE_STABLE" in profile["enabled_states"]
     assert "RUN_COMPLETE" in profile["enabled_states"]
     assert set(profile["route_families"]) >= {"water", "gas", "ambient"}
     assert profile["metadata"]["preview_point_count"] == len(compiled.preview_points)
+    assert profile["transition_policy_profile"]["feature_set_version"] == "controlled_state_machine.step2_offline_v2"

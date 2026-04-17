@@ -13,7 +13,7 @@ SUPPORT_DIR = Path(__file__).resolve().parent
 if str(SUPPORT_DIR) not in sys.path:
     sys.path.insert(0, str(SUPPORT_DIR))
 
-from ui_v2_support import build_fake_facade
+from ui_v2_support import build_fake_facade, build_fake_sidecar_index
 
 
 def _inject_point_taxonomy_summary(run_dir: Path) -> None:
@@ -126,6 +126,10 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
         "decision_rule_profile"
         in workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["artifact_paths"]
     )
+    assert (
+        "step2_closeout_bundle"
+        in workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["artifact_paths"]
+    )
     assert workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["compatibility_rollup"][
         "rollup_scope"
     ] == "run-dir"
@@ -202,6 +206,10 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
         "范围/规则 rollup" in str(line)
         for line in list(workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["summary_lines"] or [])
     )
+    assert any(
+        "Step 2 收尾总包" in str(line)
+        for line in list(workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["summary_lines"] or [])
+    )
     assert all(
         "scope_overview_summary" not in str(line)
         for line in list(workbench["workbench"]["live_snapshot_evidence"]["recognition_readiness_evidence"]["detail_lines"] or [])
@@ -215,6 +223,11 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
     assert str(workbench["workbench"]["preset_center"]["manager"]["selected_preset_capability_summary"] or "").strip()
     assert str(workbench["workbench"]["preset_center"]["manager"]["directory_summary"] or "").strip()
     assert workbench["engineer_summary"]["sections"]
+    assert any(
+        str(item.get("title") or "") == t("pages.devices.workbench.engineer_card.step2_closeout_bundle", default="Step 2 收尾总包")
+        and "Step 2 收尾总包" in str(item.get("summary") or "")
+        for item in list(workbench["engineer_summary"]["cards"] or [])
+    )
     assert set(workbench) >= {
         "analyzer",
         "pace",
@@ -280,6 +293,31 @@ def test_workbench_prefers_stored_point_taxonomy_summary_handoff(tmp_path: Path)
     assert workbench["evidence"]["point_taxonomy_summary"]["flush_gate_summary"] == "stored flush taxonomy"
     assert workbench["engineer_summary"]["diagnostics"]["point_taxonomy_summary"]["preseal_summary"] == (
         "stored preseal taxonomy"
+    )
+
+
+def test_workbench_surfaces_sidecar_analytics_ai_objects_without_control_actions(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    sidecar_index = build_fake_sidecar_index(tmp_path, run_id=facade.session.run_id)
+    facade.sidecar_index = sidecar_index
+    facade.results_gateway.sidecar_index = sidecar_index
+
+    snapshot = facade.get_device_workbench_snapshot()
+    sidecar_payload = snapshot["evidence"]["analytics_ai_sidecar"]
+
+    assert sidecar_payload["available"] is True
+    assert sidecar_payload["review_copilot_payload"]["risk_summary"] == "high risk | score 0.82 | unresolved pressure drift"
+    assert sidecar_payload["model_governance_summary"]["model_version"] == "risk-model-1.2.0"
+    assert sidecar_payload["not_device_control"] is True
+    assert sidecar_payload["not_coefficient_writeback"] is True
+    assert any(
+        str(card.get("title") or "") == t("pages.devices.workbench.engineer_card.analytics_ai_sidecar", default="analytics / AI 旁路")
+        for card in snapshot["engineer_summary"]["cards"]
+    )
+    assert any(
+        str(section.get("id") or "") == "analytics_ai_sidecar"
+        and "Review Copilot" in str(section.get("body_text") or "")
+        for section in snapshot["engineer_summary"]["sections"]
     )
 
 

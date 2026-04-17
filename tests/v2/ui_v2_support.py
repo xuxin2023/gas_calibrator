@@ -19,6 +19,7 @@ from gas_calibrator.v2.core.state_manager import StateManager
 from gas_calibrator.v2.qc.point_validator import PointValidationResult
 from gas_calibrator.v2.qc.qc_report import QCReport
 from gas_calibrator.v2.qc.quality_scorer import RunQualityScore
+from gas_calibrator.v2.storage.sidecar_index import SidecarIndexStore
 from gas_calibrator.v2.ui_v2.controllers.app_facade import AppFacade
 from gas_calibrator.v2.ui_v2.utils.preferences_store import PreferencesStore
 from gas_calibrator.v2.ui_v2.utils.recent_runs_store import RecentRunsStore
@@ -333,11 +334,116 @@ def build_fake_service(tmp_path: Path) -> FakeService:
     return service
 
 
-def build_fake_facade(tmp_path: Path) -> AppFacade:
+def build_fake_sidecar_index(
+    tmp_path: Path,
+    *,
+    backend: str = "file",
+    run_id: str,
+) -> SidecarIndexStore:
+    if backend == "sqlite":
+        store = SidecarIndexStore.sqlite_sidecar(tmp_path / "sidecar" / "index.sqlite")
+    else:
+        store = SidecarIndexStore.file_backed(tmp_path / "sidecar" / "index.json")
+    store.upsert("runs", {"run_id": run_id, "status": "completed"})
+    store.upsert("artifacts", {"run_id": run_id, "artifact_key": "summary.json", "path": "summary.json"})
+    store.upsert("manifests", {"run_id": run_id, "manifest_key": "manifest.json", "path": "manifest.json"})
+    store.upsert("reviews", {"run_id": run_id, "review_id": "review-1", "summary": "offline review ready"})
+    store.upsert("coefficients", {"run_id": run_id, "coefficient_id": "coef-1", "version": "v1"})
+    store.upsert(
+        "anomaly_cases",
+        {
+            "run_id": run_id,
+            "case_id": "anomaly-1",
+            "tag": "pressure_drift",
+            "severity": "high",
+            "state": "open",
+            "device": "pressure_gauge",
+            "window_refs": ["window:preseal"],
+            "root_cause_candidates": ["gauge drift", "seal leak"],
+            "reviewer_conclusion": "need replay verification",
+        },
+    )
+    store.upsert(
+        "anomaly_labels",
+        {
+            "run_id": run_id,
+            "label_id": "label-1",
+            "tag": "pressure_drift",
+            "severity": "high",
+            "state": "candidate",
+            "device": "pressure_gauge",
+        },
+    )
+    store.upsert(
+        "feature_snapshots",
+        {
+            "run_id": run_id,
+            "snapshot_id": "feature-1",
+            "feature_version": "feature_v2026_04",
+            "window_refs": ["window:preseal", "2026-04-17T12:00:00Z/2026-04-17T12:05:00Z"],
+            "signal_family": "pressure",
+            "values": {"span_hpa": 0.42, "slope_hpa_s": 0.03},
+            "linked_decision_diff": "decision drift +0.12",
+        },
+    )
+    store.upsert(
+        "model_registry",
+        {
+            "run_id": run_id,
+            "model_id": "model-1",
+            "model_version": "risk-model-1.2.0",
+            "feature_version": "feature_v2026_04",
+            "label_version": "labels_v3",
+            "evaluation_metrics": {"f1": 0.91, "precision": 0.93},
+            "release_status": "canary",
+            "rollback_target": "risk-model-1.1.4",
+            "human_review_required": True,
+        },
+    )
+    store.upsert(
+        "model_evaluations",
+        {
+            "run_id": run_id,
+            "evaluation_id": "eval-1",
+            "model_version": "risk-model-1.2.0",
+            "feature_version": "feature_v2026_04",
+            "label_version": "labels_v3",
+            "evaluation_metrics": {"auc": 0.95},
+            "release_status": "canary",
+            "rollback_target": "risk-model-1.1.4",
+            "human_review_required": True,
+        },
+    )
+    store.upsert(
+        "review_digests",
+        {
+            "run_id": run_id,
+            "digest_id": "digest-1",
+            "risk_summary": "high risk | pressure drift",
+            "evidence_gaps": ["missing external compare", "missing replay confirmation"],
+            "revalidation_suggestions": ["rerun pressure window", "review seal log"],
+            "standards_gap_navigation": [{"standard": "ISO17025", "gap": "missing trace chain"}],
+        },
+    )
+    store.upsert(
+        "run_risk_scores",
+        {
+            "run_id": run_id,
+            "score_id": "risk-1",
+            "risk_score": 0.82,
+            "risk_level": "high",
+            "risk_summary": "high risk | score 0.82 | unresolved pressure drift",
+        },
+    )
+    return store
+
+
+def build_fake_facade(tmp_path: Path, *, sidecar_index: SidecarIndexStore | None = None) -> AppFacade:
     runtime_paths = RuntimePaths.from_base_dir(tmp_path / "ui_v2_state").ensure_dirs()
     return AppFacade(
         service=build_fake_service(tmp_path),
         runtime_paths=runtime_paths,
         preferences_store=PreferencesStore(runtime_paths.preferences_path),
         recent_runs_store=RecentRunsStore(runtime_paths.recent_runs_path),
+        sidecar_index=sidecar_index,
     )

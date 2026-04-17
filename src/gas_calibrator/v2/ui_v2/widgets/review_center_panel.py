@@ -612,12 +612,38 @@ class ReviewCenterPanel(ttk.LabelFrame):
             justify="left",
         ).grid(row=1, column=0, sticky="ew", pady=(4, 0))
 
+        self.closeout_bundle_section = CollapsibleSection(
+            self,
+            title=t("step2_closeout_bundle.title", default="Step 2 收尾总包"),
+            expanded=True,
+        )
+        self.closeout_bundle_section.grid(row=15, column=0, sticky="nsew", pady=(6, 0))
+        self.closeout_bundle_section.body.columnconfigure(0, weight=1)
+        self.closeout_bundle_section.body.rowconfigure(1, weight=1)
+        self.closeout_bundle_text = tk.Text(
+            self.closeout_bundle_section.body, height=4 if compact else 6, wrap="word"
+        )
+        self.closeout_bundle_text.grid(row=0, column=0, sticky="nsew")
+        closeout_bundle_scroll = ttk.Scrollbar(
+            self.closeout_bundle_section.body, orient="vertical", command=self.closeout_bundle_text.yview
+        )
+        closeout_bundle_scroll.grid(row=0, column=1, sticky="ns", padx=(6, 0))
+        self.closeout_bundle_text.configure(yscrollcommand=closeout_bundle_scroll.set, state="disabled")
+        self.closeout_bundle_boundary_var = tk.StringVar(value="")
+        ttk.Label(
+            self.closeout_bundle_section.body,
+            textvariable=self.closeout_bundle_boundary_var,
+            style="Muted.TLabel",
+            wraplength=1120 if compact else 1320,
+            justify="left",
+        ).grid(row=1, column=0, sticky="ew", pady=(4, 0))
+
         self.freeze_audit_section = CollapsibleSection(
             self,
             title=t("freeze_audit.title", default="Step 2 冻结审计"),
             expanded=True,
         )
-        self.freeze_audit_section.grid(row=15, column=0, sticky="nsew", pady=(6, 0))
+        self.freeze_audit_section.grid(row=16, column=0, sticky="nsew", pady=(6, 0))
         self.freeze_audit_section.body.columnconfigure(0, weight=1)
         self.freeze_audit_section.body.rowconfigure(1, weight=1)
         self.freeze_audit_text = tk.Text(
@@ -643,7 +669,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
             title=t("freeze_seal.title", default="Step 2 封板守护"),
             expanded=True,
         )
-        self.freeze_seal_section.grid(row=16, column=0, sticky="nsew", pady=(6, 0))
+        self.freeze_seal_section.grid(row=17, column=0, sticky="nsew", pady=(6, 0))
         self.freeze_seal_section.body.columnconfigure(0, weight=1)
         self.freeze_seal_section.body.rowconfigure(1, weight=1)
         self.freeze_seal_text = tk.Text(
@@ -669,7 +695,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
             title=t("admission_dossier.title", default="Step 3 准入材料"),
             expanded=True,
         )
-        self.admission_dossier_section.grid(row=18, column=0, sticky="nsew", pady=(6, 0))
+        self.admission_dossier_section.grid(row=19, column=0, sticky="nsew", pady=(6, 0))
         self.admission_dossier_section.body.columnconfigure(0, weight=1)
         self.admission_dossier_section.body.rowconfigure(1, weight=1)
         self.admission_dossier_text = tk.Text(
@@ -695,7 +721,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
             title=t("final_closure_matrix.title", default="Step 2 最终封板矩阵"),
             expanded=True,
         )
-        self.final_closure_matrix_section.grid(row=17, column=0, sticky="nsew", pady=(6, 0))
+        self.final_closure_matrix_section.grid(row=18, column=0, sticky="nsew", pady=(6, 0))
         self.final_closure_matrix_section.body.columnconfigure(0, weight=1)
         self.final_closure_matrix_section.body.rowconfigure(1, weight=1)
         self.final_closure_matrix_text = tk.Text(
@@ -768,6 +794,7 @@ class ReviewCenterPanel(ttk.LabelFrame):
         self._render_compact_summary_from_payload()
         self._render_closeout_readiness_from_payload()
         self._render_closeout_package_from_payload()
+        self._render_closeout_bundle_from_payload()
         self._render_freeze_audit_from_payload()
         self._render_freeze_seal_from_payload()
         self._render_final_closure_matrix_from_payload()
@@ -1611,6 +1638,47 @@ class ReviewCenterPanel(ttk.LabelFrame):
             self.closeout_package_section.set_summary(status_label)
         else:
             self.closeout_package_section.set_summary("")
+
+    def _render_closeout_bundle_from_payload(self) -> None:
+        bundle = dict(self._payload.get("step2_closeout_bundle") or {})
+        compact = dict(self._payload.get("step2_closeout_compact_section") or {})
+        summary_markdown = str(self._payload.get("step2_closeout_summary_markdown") or "")
+        summary_lines = [str(item) for item in list(bundle.get("summary_lines") or compact.get("summary_lines") or []) if str(item).strip()]
+        if not summary_lines and summary_markdown.strip():
+            summary_lines = [line for line in summary_markdown.splitlines() if str(line).strip()]
+        if not summary_lines:
+            summary_lines = [
+                t("pages.reports.step2_closeout_bundle_no_content", default="暂无 Step 2 收尾总包数据")
+            ]
+        for label, rows in (
+            ("blocker", list(bundle.get("blocker_items") or compact.get("blocker_items") or [])),
+            ("warning", list(bundle.get("warning_items") or compact.get("warning_items") or [])),
+            ("info", list(bundle.get("info_items") or compact.get("info_items") or [])),
+        ):
+            if rows:
+                summary_lines.append(f"{label}: {str(rows[0])}")
+        display_text = "\n".join(summary_lines)
+        self.closeout_bundle_text.configure(state="normal")
+        self.closeout_bundle_text.delete("1.0", "end")
+        self.closeout_bundle_text.insert("1.0", display_text.strip() + "\n")
+        self.closeout_bundle_text.configure(state="disabled")
+        self.closeout_bundle_boundary_var.set(
+            " | ".join(
+                [
+                    "reviewer_only=true",
+                    "readiness_mapping_only=true",
+                    "not_real_acceptance_evidence=true",
+                    "not_ready_for_formal_claim=true",
+                    "file_artifact_first_preserved=true",
+                    "main_chain_dependency=false",
+                ]
+            )
+        )
+        section_summary = str(bundle.get("summary_line") or compact.get("summary_line") or "")
+        if section_summary:
+            self.closeout_bundle_section.set_summary(section_summary)
+        else:
+            self.closeout_bundle_section.set_summary("")
 
     def _render_freeze_audit_from_payload(self) -> None:
         """Render Step 2 freeze audit from the review center payload."""

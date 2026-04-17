@@ -11,10 +11,13 @@ __all__ = [
     "HistoryQueryService",
     "ProfileStore",
     "ProfileSummary",
+    "SidecarIndexStore",
     "StorageExporter",
     "StorageSettings",
     "load_storage_config_file",
+    "normalize_sidecar_record",
     "resolve_run_uuid",
+    "SIDECAR_COLLECTIONS",
     "stable_uuid",
 ]
 
@@ -25,10 +28,13 @@ _EXPORT_MAP = {
     "HistoryQueryService": (".queries", "HistoryQueryService"),
     "ProfileStore": (".profile_store", "ProfileStore"),
     "ProfileSummary": (".profile_store", "ProfileSummary"),
+    "SidecarIndexStore": (".sidecar_index", "SidecarIndexStore"),
     "StorageExporter": (".exporter", "StorageExporter"),
     "StorageSettings": (".database", "StorageSettings"),
+    "normalize_sidecar_record": (".sidecar_index", "normalize_sidecar_record"),
     "load_storage_config_file": (".database", "load_storage_config_file"),
     "resolve_run_uuid": (".database", "resolve_run_uuid"),
+    "SIDECAR_COLLECTIONS": (".sidecar_index", "SIDECAR_COLLECTIONS"),
     "stable_uuid": (".database", "stable_uuid"),
 }
 

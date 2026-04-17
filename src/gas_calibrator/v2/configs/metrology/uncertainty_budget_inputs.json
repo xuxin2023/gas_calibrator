@@ -1,0 +1,781 @@
+{
+  "schema_version": "step2-uncertainty-budget-fixtures-v1",
+  "fixture_set_id": "step2-uncertainty-budget-fixtures-default",
+  "fixture_summary": "Offline file-backed uncertainty budget fixtures for Step 2 reviewer packs.",
+  "reviewer_limitations": [
+    "placeholder values only",
+    "offline reproducible budget chain only",
+    "not real acceptance evidence",
+    "not ready for formal claim"
+  ],
+  "cases": [
+    {
+      "case_key": "co2-gas-route",
+      "budget_level": "point",
+      "route_type": "gas",
+      "measurand": "CO2",
+      "case_label": "CO2 point budget",
+      "point_context": {
+        "route_phase": "gas/sample_ready",
+        "mode": "simulation",
+        "target_window": "400 ppm offline reviewer baseline"
+      },
+      "reviewer_note": "Point-level CO2 budget for offline replay and reviewer comparison.",
+      "inputs": [
+        {
+          "quantity_key": "reference_setpoint",
+          "quantity_label": "Standard gas setpoint",
+          "distribution_type": "normal",
+          "quantity_value": 400.0,
+          "standard_uncertainty": 0.12,
+          "unit": "ppm",
+          "asset_type": "standard_gas",
+          "component_key": "reference_component",
+          "source_note": "Standard gas lot placeholder for Step 2 file-backed replay."
+        },
+        {
+          "quantity_key": "pressure_reference",
+          "quantity_label": "Pressure reference",
+          "distribution_type": "normal",
+          "quantity_value": 1013.2,
+          "standard_uncertainty": 0.8,
+          "unit": "hPa",
+          "asset_type": "digital_pressure_gauge",
+          "component_key": "pressure_handoff_component",
+          "source_note": "Offline pressure handoff placeholder."
+        },
+        {
+          "quantity_key": "temperature_reference",
+          "quantity_label": "Temperature reference",
+          "distribution_type": "normal",
+          "quantity_value": 25.0,
+          "standard_uncertainty": 0.5,
+          "unit": "degC",
+          "asset_type": "digital_thermometer",
+          "component_key": "environmental_component",
+          "source_note": "Offline temperature stability placeholder."
+        },
+        {
+          "quantity_key": "repeatability_sigma",
+          "quantity_label": "Repeatability sigma",
+          "distribution_type": "normal",
+          "quantity_value": 0.18,
+          "standard_uncertainty": 0.18,
+          "unit": "ppm",
+          "asset_type": "analyzer_under_test",
+          "component_key": "repeatability_component",
+          "source_note": "Simulation repeatability placeholder."
+        },
+        {
+          "quantity_key": "fit_residual",
+          "quantity_label": "Fit residual",
+          "distribution_type": "normal",
+          "quantity_value": 0.09,
+          "standard_uncertainty": 0.09,
+          "unit": "ppm",
+          "asset_type": "analyzer_under_test",
+          "component_key": "fit_residual_component",
+          "source_note": "Offline regression residual placeholder."
+        }
+      ],
+      "coefficients": [
+        {
+          "quantity_key": "reference_setpoint",
+          "coefficient_key": "dppm_dreference",
+          "coefficient_value": 1.0,
+          "component_key": "reference_component",
+          "source_note": "Direct standard gas mapping."
+        },
+        {
+          "quantity_key": "pressure_reference",
+          "coefficient_key": "dppm_dpressure",
+          "coefficient_value": 0.02,
+          "component_key": "pressure_handoff_component",
+          "source_note": "Pressure placeholder sensitivity."
+        },
+        {
+          "quantity_key": "temperature_reference",
+          "coefficient_key": "dppm_dtemperature",
+          "coefficient_value": 0.03,
+          "component_key": "environmental_component",
+          "source_note": "Temperature placeholder sensitivity."
+        },
+        {
+          "quantity_key": "repeatability_sigma",
+          "coefficient_key": "dppm_drepeatability",
+          "coefficient_value": 1.0,
+          "component_key": "repeatability_component",
+          "source_note": "Repeatability propagated directly."
+        },
+        {
+          "quantity_key": "fit_residual",
+          "coefficient_key": "dppm_dfit_residual",
+          "coefficient_value": 1.0,
+          "component_key": "fit_residual_component",
+          "source_note": "Fit residual propagated directly."
+        }
+      ],
+      "coverage_factor": 2.0,
+      "expected_combined_standard_uncertainty": 0.235332,
+      "expected_expanded_uncertainty": 0.470664
+    },
+    {
+      "case_key": "h2o-water-route",
+      "budget_level": "point",
+      "route_type": "water",
+      "measurand": "H2O",
+      "case_label": "H2O point budget",
+      "point_context": {
+        "route_phase": "water/preseal",
+        "mode": "simulation",
+        "target_window": "18 mmol/mol offline reviewer baseline"
+      },
+      "reviewer_note": "Point-level H2O budget with dew-point and environmental placeholders.",
+      "inputs": [
+        {
+          "quantity_key": "humidity_reference",
+          "quantity_label": "Humidity reference",
+          "distribution_type": "normal",
+          "quantity_value": 18.0,
+          "standard_uncertainty": 0.14,
+          "unit": "mmol/mol",
+          "asset_type": "humidity_generator",
+          "component_key": "reference_component",
+          "source_note": "Humidity generator placeholder."
+        },
+        {
+          "quantity_key": "dew_point_reference",
+          "quantity_label": "Dew-point reference",
+          "distribution_type": "normal",
+          "quantity_value": 6.2,
+          "standard_uncertainty": 0.22,
+          "unit": "degC",
+          "asset_type": "dewpoint_meter",
+          "component_key": "environmental_component",
+          "source_note": "Dew-point placeholder for offline replay."
+        },
+        {
+          "quantity_key": "temperature_reference",
+          "quantity_label": "Temperature reference",
+          "distribution_type": "normal",
+          "quantity_value": 24.8,
+          "standard_uncertainty": 0.4,
+          "unit": "degC",
+          "asset_type": "digital_thermometer",
+          "component_key": "environmental_component",
+          "source_note": "Ambient temperature placeholder."
+        },
+        {
+          "quantity_key": "pressure_reference",
+          "quantity_label": "Pressure reference",
+          "distribution_type": "normal",
+          "quantity_value": 1008.0,
+          "standard_uncertainty": 0.7,
+          "unit": "hPa",
+          "asset_type": "digital_pressure_gauge",
+          "component_key": "pressure_handoff_component",
+          "source_note": "Water-route pressure placeholder."
+        },
+        {
+          "quantity_key": "repeatability_sigma",
+          "quantity_label": "Repeatability sigma",
+          "distribution_type": "normal",
+          "quantity_value": 0.11,
+          "standard_uncertainty": 0.11,
+          "unit": "mmol/mol",
+          "asset_type": "analyzer_under_test",
+          "component_key": "repeatability_component",
+          "source_note": "Simulation repeatability placeholder."
+        },
+        {
+          "quantity_key": "fit_residual",
+          "quantity_label": "Fit residual",
+          "distribution_type": "normal",
+          "quantity_value": 0.08,
+          "standard_uncertainty": 0.08,
+          "unit": "mmol/mol",
+          "asset_type": "analyzer_under_test",
+          "component_key": "fit_residual_component",
+          "source_note": "Offline regression residual placeholder."
+        }
+      ],
+      "coefficients": [
+        {
+          "quantity_key": "humidity_reference",
+          "coefficient_key": "dh2o_dhumidity",
+          "coefficient_value": 1.0,
+          "component_key": "reference_component",
+          "source_note": "Direct humidity reference mapping."
+        },
+        {
+          "quantity_key": "dew_point_reference",
+          "coefficient_key": "dh2o_ddewpoint",
+          "coefficient_value": 0.12,
+          "component_key": "environmental_component",
+          "source_note": "Dew-point placeholder sensitivity."
+        },
+        {
+          "quantity_key": "temperature_reference",
+          "coefficient_key": "dh2o_dtemperature",
+          "coefficient_value": 0.04,
+          "component_key": "environmental_component",
+          "source_note": "Temperature placeholder sensitivity."
+        },
+        {
+          "quantity_key": "pressure_reference",
+          "coefficient_key": "dh2o_dpressure",
+          "coefficient_value": 0.05,
+          "component_key": "pressure_handoff_component",
+          "source_note": "Pressure placeholder sensitivity."
+        },
+        {
+          "quantity_key": "repeatability_sigma",
+          "coefficient_key": "dh2o_drepeatability",
+          "coefficient_value": 1.0,
+          "component_key": "repeatability_component",
+          "source_note": "Repeatability propagated directly."
+        },
+        {
+          "quantity_key": "fit_residual",
+          "coefficient_key": "dh2o_dfit_residual",
+          "coefficient_value": 1.0,
+          "component_key": "fit_residual_component",
+          "source_note": "Fit residual propagated directly."
+        }
+      ],
+      "coverage_factor": 2.0,
+      "expected_combined_standard_uncertainty": 0.200694,
+      "expected_expanded_uncertainty": 0.401388
+    },
+    {
+      "case_key": "ambient-diagnostic",
+      "budget_level": "point",
+      "route_type": "ambient",
+      "measurand": "ambient_diagnostic",
+      "case_label": "Ambient diagnostic point budget",
+      "point_context": {
+        "route_phase": "ambient/ambient_diagnostic",
+        "mode": "diagnostic",
+        "target_window": "ambient drift screen"
+      },
+      "reviewer_note": "Ambient point-level diagnostic budget used only for reviewer comparison.",
+      "inputs": [
+        {
+          "quantity_key": "ambient_temperature",
+          "quantity_label": "Ambient temperature",
+          "distribution_type": "normal",
+          "quantity_value": 24.5,
+          "standard_uncertainty": 0.6,
+          "unit": "degC",
+          "asset_type": "digital_thermometer",
+          "component_key": "environmental_component",
+          "source_note": "Ambient temperature placeholder."
+        },
+        {
+          "quantity_key": "ambient_humidity",
+          "quantity_label": "Ambient humidity",
+          "distribution_type": "rectangular",
+          "quantity_value": 54.0,
+          "standard_uncertainty": 1.5,
+          "unit": "pct",
+          "asset_type": "humidity_generator",
+          "component_key": "environmental_component",
+          "source_note": "Ambient humidity placeholder."
+        },
+        {
+          "quantity_key": "ambient_pressure",
+          "quantity_label": "Ambient pressure",
+          "distribution_type": "normal",
+          "quantity_value": 1009.0,
+          "standard_uncertainty": 0.9,
+          "unit": "hPa",
+          "asset_type": "digital_pressure_gauge",
+          "component_key": "pressure_handoff_component",
+          "source_note": "Ambient pressure placeholder."
+        },
+        {
+          "quantity_key": "diagnostic_repeatability",
+          "quantity_label": "Diagnostic repeatability",
+          "distribution_type": "normal",
+          "quantity_value": 0.07,
+          "standard_uncertainty": 0.07,
+          "unit": "ratio",
+          "asset_type": "analyzer_under_test",
+          "component_key": "repeatability_component",
+          "source_note": "Simulation repeatability placeholder."
+        },
+        {
+          "quantity_key": "diagnostic_fit_residual",
+          "quantity_label": "Diagnostic fit residual",
+          "distribution_type": "normal",
+          "quantity_value": 0.03,
+          "standard_uncertainty": 0.03,
+          "unit": "ratio",
+          "asset_type": "analyzer_under_test",
+          "component_key": "fit_residual_component",
+          "source_note": "Offline regression residual placeholder."
+        }
+      ],
+      "coefficients": [
+        {
+          "quantity_key": "ambient_temperature",
+          "coefficient_key": "dambient_dtemperature",
+          "coefficient_value": 0.05,
+          "component_key": "environmental_component",
+          "source_note": "Ambient temperature sensitivity."
+        },
+        {
+          "quantity_key": "ambient_humidity",
+          "coefficient_key": "dambient_dhumidity",
+          "coefficient_value": 0.01,
+          "component_key": "environmental_component",
+          "source_note": "Ambient humidity sensitivity."
+        },
+        {
+          "quantity_key": "ambient_pressure",
+          "coefficient_key": "dambient_dpressure",
+          "coefficient_value": 0.01,
+          "component_key": "pressure_handoff_component",
+          "source_note": "Ambient pressure sensitivity."
+        },
+        {
+          "quantity_key": "diagnostic_repeatability",
+          "coefficient_key": "dambient_drepeatability",
+          "coefficient_value": 1.0,
+          "component_key": "repeatability_component",
+          "source_note": "Repeatability propagated directly."
+        },
+        {
+          "quantity_key": "diagnostic_fit_residual",
+          "coefficient_key": "dambient_dfit_residual",
+          "coefficient_value": 1.0,
+          "component_key": "fit_residual_component",
+          "source_note": "Fit residual propagated directly."
+        }
+      ],
+      "coverage_factor": 2.0,
+      "expected_combined_standard_uncertainty": 0.083702,
+      "expected_expanded_uncertainty": 0.167404
+    },
+    {
+      "case_key": "writeback-rounding",
+      "budget_level": "route",
+      "route_type": "gas",
+      "measurand": "CO2",
+      "case_label": "CO2 route budget with rounding and writeback",
+      "route_context": {
+        "route_family": "gas",
+        "aggregation_mode": "route_rollup",
+        "target_window": "route-level coefficient roundtrip"
+      },
+      "reviewer_note": "Route-level budget with rounding and writeback verification placeholders.",
+      "inputs": [
+        {
+          "quantity_key": "reference_setpoint",
+          "quantity_label": "Standard gas setpoint",
+          "distribution_type": "normal",
+          "quantity_value": 800.0,
+          "standard_uncertainty": 0.1,
+          "unit": "ppm",
+          "asset_type": "standard_gas",
+          "component_key": "reference_component",
+          "source_note": "Route-level standard gas placeholder."
+        },
+        {
+          "quantity_key": "pressure_handoff_delta",
+          "quantity_label": "Pressure handoff delta",
+          "distribution_type": "triangular",
+          "quantity_value": 1.2,
+          "standard_uncertainty": 1.2,
+          "unit": "hPa",
+          "asset_type": "pressure_controller",
+          "component_key": "pressure_handoff_component",
+          "source_note": "Offline handoff delta placeholder."
+        },
+        {
+          "quantity_key": "route_repeatability",
+          "quantity_label": "Route repeatability",
+          "distribution_type": "normal",
+          "quantity_value": 0.12,
+          "standard_uncertainty": 0.12,
+          "unit": "ppm",
+          "asset_type": "analyzer_under_test",
+          "component_key": "repeatability_component",
+          "source_note": "Simulation route repeatability placeholder."
+        },
+        {
+          "quantity_key": "route_fit_residual",
+          "quantity_label": "Route fit residual",
+          "distribution_type": "normal",
+          "quantity_value": 0.04,
+          "standard_uncertainty": 0.04,
+          "unit": "ppm",
+          "asset_type": "analyzer_under_test",
+          "component_key": "fit_residual_component",
+          "source_note": "Offline route residual placeholder."
+        },
+        {
+          "quantity_key": "rounding_resolution",
+          "quantity_label": "Rounding resolution",
+          "distribution_type": "rectangular",
+          "quantity_value": 0.01,
+          "standard_uncertainty": 0.01,
+          "unit": "ppm",
+          "asset_type": "analyzer_under_test",
+          "component_key": "coefficient_rounding_component",
+          "source_note": "Coefficient rounding placeholder."
+        },
+        {
+          "quantity_key": "writeback_echo",
+          "quantity_label": "Writeback verification echo",
+          "distribution_type": "normal",
+          "quantity_value": 0.98,
+          "standard_uncertainty": 0.02,
+          "unit": "ratio",
+          "asset_type": "analyzer_under_test",
+          "component_key": "writeback_verification_component",
+          "source_note": "Writeback verification placeholder."
+        }
+      ],
+      "coefficients": [
+        {
+          "quantity_key": "reference_setpoint",
+          "coefficient_key": "droute_dreference",
+          "coefficient_value": 1.0,
+          "component_key": "reference_component",
+          "source_note": "Direct reference mapping."
+        },
+        {
+          "quantity_key": "pressure_handoff_delta",
+          "coefficient_key": "droute_dhandoff",
+          "coefficient_value": 0.05,
+          "component_key": "pressure_handoff_component",
+          "source_note": "Pressure handoff sensitivity."
+        },
+        {
+          "quantity_key": "route_repeatability",
+          "coefficient_key": "droute_drepeatability",
+          "coefficient_value": 1.0,
+          "component_key": "repeatability_component",
+          "source_note": "Repeatability propagated directly."
+        },
+        {
+          "quantity_key": "route_fit_residual",
+          "coefficient_key": "droute_dfit_residual",
+          "coefficient_value": 1.0,
+          "component_key": "fit_residual_component",
+          "source_note": "Fit residual propagated directly."
+        },
+        {
+          "quantity_key": "rounding_resolution",
+          "coefficient_key": "droute_drounding",
+          "coefficient_value": 0.6,
+          "component_key": "coefficient_rounding_component",
+          "source_note": "Rounding sensitivity."
+        },
+        {
+          "quantity_key": "writeback_echo",
+          "coefficient_key": "droute_dwriteback",
+          "coefficient_value": 0.9,
+          "component_key": "writeback_verification_component",
+          "source_note": "Writeback sensitivity."
+        }
+      ],
+      "coverage_factor": 2.0,
+      "expected_combined_standard_uncertainty": 0.17309,
+      "expected_expanded_uncertainty": 0.34618
+    },
+    {
+      "case_key": "pressure-handoff-seal-ingress",
+      "budget_level": "route",
+      "route_type": "water",
+      "measurand": "H2O",
+      "case_label": "H2O route budget with handoff and seal ingress",
+      "route_context": {
+        "route_family": "water",
+        "aggregation_mode": "route_rollup",
+        "target_window": "handoff and seal ingress screen"
+      },
+      "reviewer_note": "Route-level water budget with seal ingress placeholder.",
+      "inputs": [
+        {
+          "quantity_key": "humidity_reference",
+          "quantity_label": "Humidity reference",
+          "distribution_type": "normal",
+          "quantity_value": 22.0,
+          "standard_uncertainty": 0.15,
+          "unit": "mmol/mol",
+          "asset_type": "humidity_generator",
+          "component_key": "reference_component",
+          "source_note": "Water-route humidity placeholder."
+        },
+        {
+          "quantity_key": "dew_point_reference",
+          "quantity_label": "Dew-point reference",
+          "distribution_type": "normal",
+          "quantity_value": 7.0,
+          "standard_uncertainty": 0.18,
+          "unit": "degC",
+          "asset_type": "dewpoint_meter",
+          "component_key": "environmental_component",
+          "source_note": "Dew-point placeholder."
+        },
+        {
+          "quantity_key": "pressure_handoff_delta",
+          "quantity_label": "Pressure handoff delta",
+          "distribution_type": "triangular",
+          "quantity_value": 1.5,
+          "standard_uncertainty": 1.5,
+          "unit": "hPa",
+          "asset_type": "pressure_controller",
+          "component_key": "pressure_handoff_component",
+          "source_note": "Pressure handoff placeholder."
+        },
+        {
+          "quantity_key": "seal_ingress_indicator",
+          "quantity_label": "Seal ingress indicator",
+          "distribution_type": "rectangular",
+          "quantity_value": 0.05,
+          "standard_uncertainty": 0.05,
+          "unit": "ratio",
+          "asset_type": "analyzer_under_test",
+          "component_key": "seal_ingress_risk_component",
+          "source_note": "Seal ingress placeholder."
+        },
+        {
+          "quantity_key": "route_repeatability",
+          "quantity_label": "Route repeatability",
+          "distribution_type": "normal",
+          "quantity_value": 0.1,
+          "standard_uncertainty": 0.1,
+          "unit": "mmol/mol",
+          "asset_type": "analyzer_under_test",
+          "component_key": "repeatability_component",
+          "source_note": "Simulation route repeatability placeholder."
+        },
+        {
+          "quantity_key": "route_fit_residual",
+          "quantity_label": "Route fit residual",
+          "distribution_type": "normal",
+          "quantity_value": 0.06,
+          "standard_uncertainty": 0.06,
+          "unit": "mmol/mol",
+          "asset_type": "analyzer_under_test",
+          "component_key": "fit_residual_component",
+          "source_note": "Offline route residual placeholder."
+        }
+      ],
+      "coefficients": [
+        {
+          "quantity_key": "humidity_reference",
+          "coefficient_key": "droute_dhumidity",
+          "coefficient_value": 1.0,
+          "component_key": "reference_component",
+          "source_note": "Direct humidity mapping."
+        },
+        {
+          "quantity_key": "dew_point_reference",
+          "coefficient_key": "droute_ddewpoint",
+          "coefficient_value": 0.15,
+          "component_key": "environmental_component",
+          "source_note": "Dew-point sensitivity."
+        },
+        {
+          "quantity_key": "pressure_handoff_delta",
+          "coefficient_key": "droute_dhandoff",
+          "coefficient_value": 0.08,
+          "component_key": "pressure_handoff_component",
+          "source_note": "Pressure handoff sensitivity."
+        },
+        {
+          "quantity_key": "seal_ingress_indicator",
+          "coefficient_key": "droute_dseal",
+          "coefficient_value": 0.7,
+          "component_key": "seal_ingress_risk_component",
+          "source_note": "Seal ingress sensitivity."
+        },
+        {
+          "quantity_key": "route_repeatability",
+          "coefficient_key": "droute_drepeatability",
+          "coefficient_value": 1.0,
+          "component_key": "repeatability_component",
+          "source_note": "Repeatability propagated directly."
+        },
+        {
+          "quantity_key": "route_fit_residual",
+          "coefficient_key": "droute_dfit_residual",
+          "coefficient_value": 1.0,
+          "component_key": "fit_residual_component",
+          "source_note": "Fit residual propagated directly."
+        }
+      ],
+      "coverage_factor": 2.0,
+      "expected_combined_standard_uncertainty": 0.229028,
+      "expected_expanded_uncertainty": 0.458056
+    },
+    {
+      "case_key": "offline-result-rollup",
+      "budget_level": "result",
+      "route_type": "result",
+      "measurand": "system_result",
+      "case_label": "Offline result-level budget rollup",
+      "result_context": {
+        "aggregation_mode": "result_rollup",
+        "target_window": "Step 2 offline result summary",
+        "review_surface": "results_gateway and review_center"
+      },
+      "reviewer_note": "Result-level rollup bound to scope, decision rule, uncertainty case, and method protocol.",
+      "inputs": [
+        {
+          "quantity_key": "reference_setpoint",
+          "quantity_label": "Standard gas anchor",
+          "distribution_type": "normal",
+          "quantity_value": 400.0,
+          "standard_uncertainty": 0.13,
+          "unit": "ppm",
+          "asset_type": "standard_gas",
+          "component_key": "reference_component",
+          "source_note": "Result-level propagated reference anchor."
+        },
+        {
+          "quantity_key": "dew_point_reference",
+          "quantity_label": "Dew-point anchor",
+          "distribution_type": "normal",
+          "quantity_value": 6.5,
+          "standard_uncertainty": 0.2,
+          "unit": "degC",
+          "asset_type": "dewpoint_meter",
+          "component_key": "environmental_component",
+          "source_note": "Result-level dew-point anchor."
+        },
+        {
+          "quantity_key": "temperature_reference",
+          "quantity_label": "Temperature anchor",
+          "distribution_type": "normal",
+          "quantity_value": 25.0,
+          "standard_uncertainty": 0.4,
+          "unit": "degC",
+          "asset_type": "digital_thermometer",
+          "component_key": "environmental_component",
+          "source_note": "Result-level temperature anchor."
+        },
+        {
+          "quantity_key": "pressure_route_delta",
+          "quantity_label": "Pressure route delta",
+          "distribution_type": "triangular",
+          "quantity_value": 1.0,
+          "standard_uncertainty": 1.0,
+          "unit": "hPa",
+          "asset_type": "pressure_controller",
+          "component_key": "pressure_handoff_component",
+          "source_note": "Result-level route pressure placeholder."
+        },
+        {
+          "quantity_key": "result_repeatability",
+          "quantity_label": "Result repeatability",
+          "distribution_type": "normal",
+          "quantity_value": 0.09,
+          "standard_uncertainty": 0.09,
+          "unit": "result_unit",
+          "asset_type": "analyzer_under_test",
+          "component_key": "repeatability_component",
+          "source_note": "Result-level repeatability placeholder."
+        },
+        {
+          "quantity_key": "result_fit_residual",
+          "quantity_label": "Result fit residual",
+          "distribution_type": "normal",
+          "quantity_value": 0.05,
+          "standard_uncertainty": 0.05,
+          "unit": "result_unit",
+          "asset_type": "analyzer_under_test",
+          "component_key": "fit_residual_component",
+          "source_note": "Result-level fit residual placeholder."
+        },
+        {
+          "quantity_key": "rounding_resolution",
+          "quantity_label": "Rounding resolution",
+          "distribution_type": "rectangular",
+          "quantity_value": 0.01,
+          "standard_uncertainty": 0.01,
+          "unit": "result_unit",
+          "asset_type": "analyzer_under_test",
+          "component_key": "coefficient_rounding_component",
+          "source_note": "Result-level rounding placeholder."
+        },
+        {
+          "quantity_key": "writeback_echo",
+          "quantity_label": "Writeback verification echo",
+          "distribution_type": "normal",
+          "quantity_value": 0.99,
+          "standard_uncertainty": 0.02,
+          "unit": "ratio",
+          "asset_type": "analyzer_under_test",
+          "component_key": "writeback_verification_component",
+          "source_note": "Result-level writeback verification placeholder."
+        }
+      ],
+      "coefficients": [
+        {
+          "quantity_key": "reference_setpoint",
+          "coefficient_key": "dresult_dreference",
+          "coefficient_value": 1.0,
+          "component_key": "reference_component",
+          "source_note": "Direct propagated reference mapping."
+        },
+        {
+          "quantity_key": "dew_point_reference",
+          "coefficient_key": "dresult_ddewpoint",
+          "coefficient_value": 0.1,
+          "component_key": "environmental_component",
+          "source_note": "Dew-point sensitivity."
+        },
+        {
+          "quantity_key": "temperature_reference",
+          "coefficient_key": "dresult_dtemperature",
+          "coefficient_value": 0.02,
+          "component_key": "environmental_component",
+          "source_note": "Temperature sensitivity."
+        },
+        {
+          "quantity_key": "pressure_route_delta",
+          "coefficient_key": "dresult_dpressure",
+          "coefficient_value": 0.05,
+          "component_key": "pressure_handoff_component",
+          "source_note": "Pressure sensitivity."
+        },
+        {
+          "quantity_key": "result_repeatability",
+          "coefficient_key": "dresult_drepeatability",
+          "coefficient_value": 1.0,
+          "component_key": "repeatability_component",
+          "source_note": "Repeatability propagated directly."
+        },
+        {
+          "quantity_key": "result_fit_residual",
+          "coefficient_key": "dresult_dfit_residual",
+          "coefficient_value": 1.0,
+          "component_key": "fit_residual_component",
+          "source_note": "Fit residual propagated directly."
+        },
+        {
+          "quantity_key": "rounding_resolution",
+          "coefficient_key": "dresult_drounding",
+          "coefficient_value": 0.5,
+          "component_key": "coefficient_rounding_component",
+          "source_note": "Rounding sensitivity."
+        },
+        {
+          "quantity_key": "writeback_echo",
+          "coefficient_key": "dresult_dwriteback",
+          "coefficient_value": 0.8,
+          "component_key": "writeback_verification_component",
+          "source_note": "Writeback sensitivity."
+        }
+      ],
+      "coverage_factor": 2.0,
+      "expected_combined_standard_uncertainty": 0.175343,
+      "expected_expanded_uncertainty": 0.350686
+    }
+  ]
+}

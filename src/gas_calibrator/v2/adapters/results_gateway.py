@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
+from ..analytics.sidecar_views import build_sidecar_analytics_summary
 from ..config import build_step2_config_governance_handoff
 from ..core.acceptance_model import normalize_evidence_source
 from ..core.phase_evidence_display_contracts import (
@@ -86,6 +87,11 @@ from ..core.step2_closeout_verification import (
 from ..core.step2_final_closure_matrix import (
     build_step2_final_closure_matrix_surface_payload,
 )
+from ..core.step2_closeout_repository import FileBackedStep2CloseoutRepository
+from ..intelligence.review_copilot import (
+    build_model_governance_summary,
+    build_review_copilot_payload,
+)
 from .method_confirmation_gateway import MethodConfirmationGateway
 from .recognition_scope_gateway import RecognitionScopeGateway
 from .software_validation_gateway import SoftwareValidationGateway
@@ -134,15 +140,43 @@ class ResultsGateway:
         run_dir: Path,
         *,
         output_files_provider: Optional[Callable[[], Iterable[str]]] = None,
+        sidecar_index: Any | None = None,
     ) -> None:
         self.run_dir = Path(run_dir)
         self.output_files_provider = output_files_provider
+        self.sidecar_index = sidecar_index
+
+    def _build_sidecar_summary_bundle(
+        self,
+        *,
+        summary: dict[str, Any],
+        manifest: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+        if self.sidecar_index is None:
+            return {}, {}, {}
+        run_id = str(summary.get("run_id") or manifest.get("run_id") or self.run_dir.name)
+        analytics_sidecar = build_sidecar_analytics_summary(self.sidecar_index, run_id=run_id)
+        review_copilot = build_review_copilot_payload(self.sidecar_index, run_id=run_id)
+        model_governance = build_model_governance_summary(self.sidecar_index, run_id=run_id)
+        return analytics_sidecar, review_copilot, model_governance
 
     def read_results_payload(self) -> dict[str, Any]:
         summary = self.load_json("summary.json") or {}
         manifest = self.load_json("manifest.json") or {}
         results = self.load_json("results.json") or {}
         analytics_summary = self.load_json("analytics_summary.json") or {}
+        (
+            sidecar_index_summary,
+            review_copilot_payload,
+            model_governance_summary,
+        ) = self._build_sidecar_summary_bundle(summary=summary, manifest=manifest)
+        if sidecar_index_summary or review_copilot_payload or model_governance_summary:
+            analytics_summary = {
+                **dict(analytics_summary or {}),
+                "sidecar_index_summary": dict(sidecar_index_summary or {}),
+                "review_copilot_payload": dict(review_copilot_payload or {}),
+                "model_governance_summary": dict(model_governance_summary or {}),
+            }
         evidence_registry = self.load_json("evidence_registry.json") or {}
         workbench_action_report = self.load_json("workbench_action_report.json") or {}
         workbench_action_snapshot = self.load_json("workbench_action_snapshot.json") or {}
@@ -242,6 +276,54 @@ class ResultsGateway:
                 workbench_action_report,
                 workbench_action_snapshot,
             )
+        stability_policy_profile = dict(
+            dict(multi_source_stability_evidence or {}).get("stability_policy_profile")
+            or self._read_summary_section(
+                "stability_policy_profile",
+                summary,
+                evidence_registry,
+                analytics_summary,
+                workbench_action_report,
+                workbench_action_snapshot,
+            )
+            or {}
+        )
+        stability_decision_rollup = dict(
+            dict(multi_source_stability_evidence or {}).get("stability_decision_rollup")
+            or self._read_summary_section(
+                "stability_decision_rollup",
+                summary,
+                evidence_registry,
+                analytics_summary,
+                workbench_action_report,
+                workbench_action_snapshot,
+            )
+            or {}
+        )
+        shadow_stability_diff = dict(
+            dict(multi_source_stability_evidence or {}).get("shadow_stability_diff")
+            or self._read_summary_section(
+                "shadow_stability_diff",
+                summary,
+                evidence_registry,
+                analytics_summary,
+                workbench_action_report,
+                workbench_action_snapshot,
+            )
+            or {}
+        )
+        transition_policy_profile = dict(
+            dict(state_transition_evidence or {}).get("transition_policy_profile")
+            or self._read_summary_section(
+                "transition_policy_profile",
+                summary,
+                evidence_registry,
+                analytics_summary,
+                workbench_action_report,
+                workbench_action_snapshot,
+            )
+            or {}
+        )
         scope_readiness_summary = self.load_json(recognition_readiness.SCOPE_READINESS_SUMMARY_FILENAME)
         if not scope_readiness_summary:
             scope_readiness_summary = self._read_summary_section(
@@ -315,6 +397,7 @@ class ResultsGateway:
         ).read_payload()
         scope_definition_pack = dict(recognition_scope_payload.get("scope_definition_pack") or {})
         decision_rule_profile = dict(recognition_scope_payload.get("decision_rule_profile") or {})
+        conformity_statement_profile = dict(recognition_scope_payload.get("conformity_statement_profile") or {})
         reference_asset_registry = dict(recognition_scope_payload.get("reference_asset_registry") or {})
         certificate_lifecycle_summary = dict(recognition_scope_payload.get("certificate_lifecycle_summary") or {})
         pre_run_readiness_gate = dict(recognition_scope_payload.get("pre_run_readiness_gate") or {})
@@ -431,12 +514,69 @@ class ResultsGateway:
             or dict(workbench_action_report or {}).get("promotion_state")
             or "dry_run_only"
         )
+        recognition_binding = self._compose_recognition_binding(
+            scope_definition_pack=scope_definition_pack,
+            decision_rule_profile=decision_rule_profile,
+            conformity_statement_profile=conformity_statement_profile,
+            recognition_scope_rollup=recognition_scope_rollup,
+        )
+        scope_definition_pack = self._attach_recognition_binding(scope_definition_pack, recognition_binding)
+        decision_rule_profile = self._attach_recognition_binding(
+            decision_rule_profile,
+            recognition_binding,
+            conformity_statement_profile=conformity_statement_profile,
+        )
+        recognition_scope_rollup = self._attach_recognition_binding(
+            recognition_scope_rollup,
+            recognition_binding,
+            conformity_statement_profile=conformity_statement_profile,
+        )
+        summary = self._attach_recognition_binding_to_summary(summary, recognition_binding)
+        results = self._attach_recognition_binding_to_results(results, recognition_binding)
+        workbench_evidence_summary = self._attach_recognition_binding(workbench_evidence_summary, recognition_binding)
+        workbench_action_report = self._attach_recognition_binding(workbench_action_report, recognition_binding)
+        workbench_action_snapshot = self._attach_recognition_binding(workbench_action_snapshot, recognition_binding)
+        uncertainty_binding = self._compose_uncertainty_binding(
+            recognition_binding=recognition_binding,
+            budget_case=budget_case,
+            uncertainty_report_pack=uncertainty_report_pack,
+            uncertainty_digest=uncertainty_digest,
+            uncertainty_rollup=uncertainty_rollup,
+            method_confirmation_protocol=method_confirmation_protocol,
+            verification_rollup=verification_rollup,
+        )
+        uncertainty_model = self._attach_uncertainty_binding(uncertainty_model, uncertainty_binding)
+        uncertainty_input_set = self._attach_uncertainty_binding(uncertainty_input_set, uncertainty_binding)
+        sensitivity_coefficient_set = self._attach_uncertainty_binding(
+            sensitivity_coefficient_set,
+            uncertainty_binding,
+        )
+        budget_case = self._attach_uncertainty_binding(budget_case, uncertainty_binding)
+        uncertainty_golden_cases = self._attach_uncertainty_binding(
+            uncertainty_golden_cases,
+            uncertainty_binding,
+        )
+        uncertainty_report_pack = self._attach_uncertainty_binding(
+            uncertainty_report_pack,
+            uncertainty_binding,
+        )
+        uncertainty_digest = self._attach_uncertainty_binding(uncertainty_digest, uncertainty_binding)
+        uncertainty_rollup = self._attach_uncertainty_binding(uncertainty_rollup, uncertainty_binding)
         # Build step2_closeout_readiness in the stable main chain (Step 2.19)
         _closeout_packs = ResultsGateway._build_compact_summary_packs(
             taxonomy_summary=point_taxonomy_summary,
             phase_coverage_summary=measurement_phase_coverage_report,
             workbench_summary=workbench_evidence_summary,
             offline_diagnostic_adapter_summary=offline_diagnostic_adapter_summary,
+            sidecar_index_summary=sidecar_index_summary,
+            review_copilot_payload=review_copilot_payload,
+            model_governance_summary=model_governance_summary,
+            pt_ilc_registry=pt_ilc_registry,
+            external_comparison_importer=external_comparison_importer,
+            comparison_evidence_pack=comparison_evidence_pack,
+            scope_comparison_view=scope_comparison_view,
+            comparison_digest=comparison_digest,
+            comparison_rollup=comparison_rollup,
         )
         # Build config_governance_handoff early so closeout readiness uses canonical source (Step 2.20)
         _config_governance_handoff = self._read_config_governance_handoff(
@@ -561,6 +701,40 @@ class ResultsGateway:
             surface_historical=True,
             surface_review_index=False,
         )
+        _step2_closeout_snapshot = FileBackedStep2CloseoutRepository(
+            self.run_dir,
+            run_id=str(dict(summary or {}).get("run_id") or ""),
+            scope_definition_pack=scope_definition_pack,
+            decision_rule_profile=decision_rule_profile,
+            conformity_statement_profile=dict(decision_rule_profile.get("conformity_statement_profile") or {}),
+            reference_asset_registry=reference_asset_registry,
+            certificate_lifecycle_summary=certificate_lifecycle_summary,
+            pre_run_readiness_gate=pre_run_readiness_gate,
+            uncertainty_report_pack=uncertainty_report_pack,
+            uncertainty_rollup=uncertainty_rollup,
+            method_confirmation_protocol=method_confirmation_protocol,
+            verification_rollup=verification_rollup,
+            software_validation_traceability_matrix=software_validation_traceability_matrix,
+            requirement_design_code_test_links=requirement_design_code_test_links,
+            validation_evidence_index=validation_evidence_index,
+            change_impact_summary=change_impact_summary,
+            rollback_readiness_summary=rollback_readiness_summary,
+            release_manifest=release_manifest,
+            release_scope_summary=release_scope_summary,
+            release_boundary_digest=release_boundary_digest,
+            release_evidence_pack_index=release_evidence_pack_index,
+            release_validation_manifest=release_validation_manifest,
+            software_validation_rollup=software_validation_rollup,
+            audit_readiness_digest=audit_readiness_digest,
+            comparison_evidence_pack=comparison_evidence_pack,
+            scope_comparison_view=scope_comparison_view,
+            comparison_digest=comparison_digest,
+            comparison_rollup=comparison_rollup,
+            step2_closeout_digest=dict(results.get("step2_closeout_digest") or {}),
+            sidecar_index_summary=sidecar_index_summary,
+            review_copilot_payload=review_copilot_payload,
+            model_governance_summary=model_governance_summary,
+        ).load_snapshot()
 
         result_summary_text = self._build_result_summary_text(
             summary=summary,
@@ -603,6 +777,15 @@ class ResultsGateway:
             audit_readiness_digest=audit_readiness_digest,
             compatibility_scan_summary=compatibility_scan_summary,
             recognition_scope_rollup=recognition_scope_rollup,
+            sidecar_index_summary=sidecar_index_summary,
+            review_copilot_payload=review_copilot_payload,
+            model_governance_summary=model_governance_summary,
+            pt_ilc_registry=pt_ilc_registry,
+            external_comparison_importer=external_comparison_importer,
+            comparison_evidence_pack=comparison_evidence_pack,
+            scope_comparison_view=scope_comparison_view,
+            comparison_digest=comparison_digest,
+            comparison_rollup=comparison_rollup,
         )
         return {
             "summary": summary,
@@ -633,16 +816,34 @@ class ResultsGateway:
             "offline_diagnostic_adapter_summary": offline_diagnostic_adapter_summary,
             "point_taxonomy_summary": point_taxonomy_summary,
             "multi_source_stability_evidence": multi_source_stability_evidence,
+            "stability_policy_profile": stability_policy_profile,
+            "stability_decision_rollup": stability_decision_rollup,
+            "shadow_stability_diff": shadow_stability_diff,
             "state_transition_evidence": state_transition_evidence,
+            "transition_policy_profile": transition_policy_profile,
             "simulation_evidence_sidecar_bundle": simulation_evidence_sidecar_bundle,
             "measurement_phase_coverage_report": measurement_phase_coverage_report,
             "scope_definition_pack": scope_definition_pack,
             "decision_rule_profile": decision_rule_profile,
+            "conformity_statement_profile": conformity_statement_profile,
             "reference_asset_registry": reference_asset_registry,
             "certificate_lifecycle_summary": certificate_lifecycle_summary,
             "scope_readiness_summary": scope_readiness_summary,
             "certificate_readiness_summary": certificate_readiness_summary,
             "pre_run_readiness_gate": pre_run_readiness_gate,
+            "pre_run_gate_status": str(
+                dict(pre_run_readiness_gate.get("digest") or {}).get("pre_run_gate_status")
+                or pre_run_readiness_gate.get("gate_status")
+                or ""
+            ),
+            "pre_run_gate_legacy_status": str(
+                dict(pre_run_readiness_gate.get("digest") or {}).get("pre_run_gate_legacy_status")
+                or pre_run_readiness_gate.get("legacy_gate_status")
+                or ""
+            ),
+            "pre_run_gate_advisory_only": bool(pre_run_readiness_gate.get("advisory_only", True)),
+            "pre_run_gate_blocking_items": list(pre_run_readiness_gate.get("blocking_items") or []),
+            "pre_run_gate_warning_items": list(pre_run_readiness_gate.get("warning_items") or []),
             "method_confirmation_protocol": method_confirmation_protocol,
             "method_confirmation_matrix": method_confirmation_matrix,
             "route_specific_validation_matrix": route_specific_validation_matrix,
@@ -681,12 +882,17 @@ class ResultsGateway:
             "uncertainty_rollup": uncertainty_rollup,
             "uncertainty_method_readiness_summary": uncertainty_method_readiness_summary,
             "audit_readiness_digest": audit_readiness_digest,
+            "sidecar_index_summary": sidecar_index_summary,
+            "review_copilot_payload": review_copilot_payload,
+            "model_governance_summary": model_governance_summary,
             "run_artifact_index": run_artifact_index,
             "artifact_contract_catalog": artifact_contract_catalog,
             "compatibility_scan_summary": compatibility_scan_summary,
             "compatibility_overview": compatibility_overview,
             "compatibility_rollup": compatibility_rollup,
             "recognition_scope_rollup": recognition_scope_rollup,
+            "recognition_binding": recognition_binding,
+            "uncertainty_binding": uncertainty_binding,
             "reindex_manifest": reindex_manifest,
             "result_summary_text": result_summary_text,
             "compact_summary_packs": _closeout_packs,
@@ -697,6 +903,16 @@ class ResultsGateway:
             "step2_closeout_verification": _step2_closeout_verification,
             "step2_freeze_seal": _step2_freeze_seal,
             "step2_final_closure_matrix": _step2_final_closure_matrix,
+            "step2_closeout_bundle": dict(_step2_closeout_snapshot.get("step2_closeout_bundle") or {}),
+            "step2_closeout_evidence_index": dict(
+                _step2_closeout_snapshot.get("step2_closeout_evidence_index") or {}
+            ),
+            "step2_closeout_summary_markdown": str(
+                _step2_closeout_snapshot.get("step2_closeout_summary_markdown") or ""
+            ),
+            "step2_closeout_compact_section": dict(
+                _step2_closeout_snapshot.get("step2_closeout_compact_section") or {}
+            ),
             "evidence_source": evidence_source,
             "evidence_state": evidence_state,
             "not_real_acceptance_evidence": not_real_acceptance_evidence,
@@ -718,6 +934,7 @@ class ResultsGateway:
         measurement_phase_coverage_report = dict(payload.get("measurement_phase_coverage_report", {}) or {})
         scope_definition_pack = dict(payload.get("scope_definition_pack", {}) or {})
         decision_rule_profile = dict(payload.get("decision_rule_profile", {}) or {})
+        conformity_statement_profile = dict(payload.get("conformity_statement_profile", {}) or {})
         reference_asset_registry = dict(payload.get("reference_asset_registry", {}) or {})
         certificate_lifecycle_summary = dict(payload.get("certificate_lifecycle_summary", {}) or {})
         scope_readiness_summary = dict(payload.get("scope_readiness_summary", {}) or {})
@@ -771,6 +988,8 @@ class ResultsGateway:
         compatibility_overview = dict(payload.get("compatibility_overview", {}) or {})
         compatibility_rollup = dict(payload.get("compatibility_rollup", {}) or {})
         recognition_scope_rollup = dict(payload.get("recognition_scope_rollup", {}) or {})
+        recognition_binding = dict(payload.get("recognition_binding", {}) or {})
+        uncertainty_binding = dict(payload.get("uncertainty_binding", {}) or {})
         reindex_manifest = dict(payload.get("reindex_manifest", {}) or {})
         compatibility_lookup = self._build_artifact_compatibility_lookup(run_artifact_index)
 
@@ -1209,6 +1428,7 @@ class ResultsGateway:
             "measurement_phase_coverage_report": measurement_phase_coverage_report,
             "scope_definition_pack": scope_definition_pack,
             "decision_rule_profile": decision_rule_profile,
+            "conformity_statement_profile": conformity_statement_profile,
             "reference_asset_registry": reference_asset_registry,
             "certificate_lifecycle_summary": certificate_lifecycle_summary,
             "scope_readiness_summary": scope_readiness_summary,
@@ -1258,6 +1478,8 @@ class ResultsGateway:
             "compatibility_overview": compatibility_overview,
             "compatibility_rollup": compatibility_rollup,
             "recognition_scope_rollup": recognition_scope_rollup,
+            "recognition_binding": recognition_binding,
+            "uncertainty_binding": uncertainty_binding,
             "reindex_manifest": reindex_manifest,
             "phase_transition_bridge_reviewer_artifact_entry": dict(reviewer_artifact_entry),
             "stage_admission_review_pack_artifact_entry": dict(stage_admission_review_pack_entry),
@@ -1273,6 +1495,10 @@ class ResultsGateway:
             "step2_closeout_verification": dict(payload.get("step2_closeout_verification") or {}),
             "step2_freeze_seal": dict(payload.get("step2_freeze_seal") or {}),
             "step2_final_closure_matrix": dict(payload.get("step2_final_closure_matrix") or {}),
+            "step2_closeout_bundle": dict(payload.get("step2_closeout_bundle") or {}),
+            "step2_closeout_evidence_index": dict(payload.get("step2_closeout_evidence_index") or {}),
+            "step2_closeout_summary_markdown": str(payload.get("step2_closeout_summary_markdown") or ""),
+            "step2_closeout_compact_section": dict(payload.get("step2_closeout_compact_section") or {}),
             "compact_summary_packs": list(payload.get("compact_summary_packs") or []),
             "compact_summary_budget": dict(payload.get("compact_summary_budget") or {}),
             "evidence_source": str(payload.get("evidence_source", "") or "simulated_protocol"),
@@ -1351,6 +1577,418 @@ class ResultsGateway:
         return {}
 
     @staticmethod
+    def _compose_recognition_binding(
+        *,
+        scope_definition_pack: dict[str, Any] | None,
+        decision_rule_profile: dict[str, Any] | None,
+        conformity_statement_profile: dict[str, Any] | None,
+        recognition_scope_rollup: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        scope_payload = dict(scope_definition_pack or {})
+        decision_payload = dict(decision_rule_profile or {})
+        statement_payload = dict(conformity_statement_profile or {})
+        rollup_payload = dict(recognition_scope_rollup or {})
+        scope_export_pack = dict(scope_payload.get("scope_export_pack") or {})
+        return {
+            "scope_id": str(
+                rollup_payload.get("scope_id")
+                or scope_payload.get("scope_id")
+                or scope_export_pack.get("scope_id")
+                or ""
+            ).strip(),
+            "scope_name": str(
+                rollup_payload.get("scope_name")
+                or scope_payload.get("scope_name")
+                or scope_export_pack.get("scope_name")
+                or ""
+            ).strip(),
+            "scope_version": str(
+                rollup_payload.get("scope_version")
+                or scope_payload.get("scope_version")
+                or scope_export_pack.get("scope_version")
+                or ""
+            ).strip(),
+            "decision_rule_id": str(
+                rollup_payload.get("decision_rule_id")
+                or decision_payload.get("decision_rule_id")
+                or ""
+            ).strip(),
+            "applicability_scope": dict(
+                rollup_payload.get("applicability_scope")
+                or decision_payload.get("applicability_scope")
+                or scope_payload.get("applicability_scope")
+                or statement_payload.get("applicability_scope")
+                or {}
+            ),
+            "applicability_scope_display": str(
+                rollup_payload.get("applicability_scope_display")
+                or decision_payload.get("applicability_scope_display")
+                or scope_payload.get("applicability_scope_display")
+                or statement_payload.get("applicability_scope_display")
+                or ""
+            ).strip(),
+            "limitation_note": str(
+                rollup_payload.get("limitation_note")
+                or decision_payload.get("limitation_note")
+                or scope_payload.get("limitation_note")
+                or statement_payload.get("limitation_note")
+                or ""
+            ).strip(),
+            "non_claim_note": str(
+                rollup_payload.get("non_claim_note")
+                or decision_payload.get("non_claim_note")
+                or scope_payload.get("non_claim_note")
+                or statement_payload.get("non_claim_note")
+                or ""
+            ).strip(),
+            "readiness_status": str(
+                rollup_payload.get("readiness_status")
+                or decision_payload.get("readiness_status")
+                or scope_payload.get("readiness_status")
+                or "ready_for_readiness_mapping"
+            ).strip(),
+            "reviewer_only": bool(statement_payload.get("reviewer_only", True)),
+            "readiness_mapping_only": bool(statement_payload.get("readiness_mapping_only", True)),
+            "not_real_acceptance_evidence": bool(
+                rollup_payload.get(
+                    "not_real_acceptance_evidence",
+                    decision_payload.get(
+                        "not_real_acceptance_evidence",
+                        scope_payload.get("not_real_acceptance_evidence", True),
+                    ),
+                )
+            ),
+            "not_ready_for_formal_claim": bool(
+                rollup_payload.get(
+                    "not_ready_for_formal_claim",
+                    decision_payload.get(
+                        "not_ready_for_formal_claim",
+                        scope_payload.get("not_ready_for_formal_claim", True),
+                    ),
+                )
+            ),
+        }
+
+    @staticmethod
+    def _attach_recognition_binding(
+        payload: dict[str, Any] | None,
+        recognition_binding: dict[str, Any],
+        *,
+        conformity_statement_profile: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        data = dict(payload or {})
+        if not data:
+            return {}
+        binding = dict(recognition_binding or {})
+        data["recognition_binding"] = binding
+        for key in ("scope_id", "scope_name", "scope_version", "decision_rule_id", "limitation_note", "non_claim_note", "readiness_status"):
+            if str(binding.get(key) or "").strip() and not str(data.get(key) or "").strip():
+                data[key] = binding[key]
+        if binding.get("applicability_scope") and not isinstance(data.get("applicability_scope"), dict):
+            data["applicability_scope"] = dict(binding.get("applicability_scope") or {})
+        if str(binding.get("applicability_scope_display") or "").strip() and not str(data.get("applicability_scope_display") or "").strip():
+            data["applicability_scope_display"] = str(binding.get("applicability_scope_display") or "")
+        if conformity_statement_profile is not None and not data.get("conformity_statement_profile"):
+            data["conformity_statement_profile"] = dict(conformity_statement_profile or {})
+        return data
+
+    @classmethod
+    def _attach_recognition_binding_to_summary(
+        cls,
+        summary: dict[str, Any] | None,
+        recognition_binding: dict[str, Any],
+    ) -> dict[str, Any]:
+        data = dict(summary or {})
+        if not data:
+            return {}
+        stats = dict(data.get("stats") or {})
+        point_summaries = []
+        for item in list(stats.get("point_summaries") or []):
+            if not isinstance(item, dict):
+                continue
+            row = cls._attach_recognition_binding(item, recognition_binding)
+            row_stats = dict(row.get("stats") or {})
+            row_stats["recognition_binding"] = dict(recognition_binding)
+            for key in ("scope_id", "decision_rule_id", "limitation_note", "non_claim_note", "readiness_status"):
+                row_stats.setdefault(key, recognition_binding.get(key))
+            row["stats"] = row_stats
+            point_summaries.append(row)
+        stats["point_summaries"] = point_summaries
+        stats["recognition_binding"] = dict(recognition_binding)
+        data["stats"] = stats
+        data["recognition_binding"] = dict(recognition_binding)
+        return data
+
+    @classmethod
+    def _attach_recognition_binding_to_results(
+        cls,
+        results: dict[str, Any] | None,
+        recognition_binding: dict[str, Any],
+    ) -> dict[str, Any]:
+        data = dict(results or {})
+        if not data:
+            return {}
+        point_summaries = [
+            cls._attach_recognition_binding(dict(item), recognition_binding)
+            for item in list(data.get("point_summaries") or [])
+            if isinstance(item, dict)
+        ]
+        if point_summaries:
+            data["point_summaries"] = point_summaries
+        samples = [
+            cls._attach_recognition_binding(dict(item), recognition_binding)
+            for item in list(data.get("samples") or [])
+            if isinstance(item, dict)
+        ]
+        if samples:
+            data["samples"] = samples
+        data["recognition_binding"] = dict(recognition_binding)
+        return data
+
+    @staticmethod
+    def _compose_uncertainty_binding(
+        *,
+        recognition_binding: dict[str, Any] | None,
+        budget_case: dict[str, Any] | None,
+        uncertainty_report_pack: dict[str, Any] | None,
+        uncertainty_digest: dict[str, Any] | None,
+        uncertainty_rollup: dict[str, Any] | None,
+        method_confirmation_protocol: dict[str, Any] | None,
+        verification_rollup: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        recognition = dict(recognition_binding or {})
+        budget_payload = dict(budget_case or {})
+        report_payload = dict(uncertainty_report_pack or {})
+        digest_payload = dict(uncertainty_digest or {})
+        rollup_payload = dict(uncertainty_rollup or {})
+        protocol_payload = dict(method_confirmation_protocol or {})
+        verification_payload = dict(verification_rollup or {})
+        digest = dict(
+            rollup_payload.get("digest")
+            or digest_payload.get("digest")
+            or report_payload.get("digest")
+            or {}
+        )
+        budget_rows = [
+            dict(item)
+            for item in list(budget_payload.get("budget_case") or [])
+            if isinstance(item, dict)
+        ]
+        selected_budget_case = next(
+            (row for row in budget_rows if str(row.get("budget_level") or "").strip().lower() == "result"),
+            dict(budget_rows[-1]) if budget_rows else {},
+        )
+        scope_id = str(
+            rollup_payload.get("scope_id")
+            or report_payload.get("scope_id")
+            or selected_budget_case.get("scope_id")
+            or recognition.get("scope_id")
+            or ""
+        ).strip()
+        decision_rule_id = str(
+            rollup_payload.get("decision_rule_id")
+            or report_payload.get("decision_rule_id")
+            or selected_budget_case.get("decision_rule_id")
+            or recognition.get("decision_rule_id")
+            or ""
+        ).strip()
+        uncertainty_case_id = str(
+            rollup_payload.get("uncertainty_case_id")
+            or report_payload.get("uncertainty_case_id")
+            or digest_payload.get("uncertainty_case_id")
+            or selected_budget_case.get("uncertainty_case_id")
+            or ""
+        ).strip()
+        method_confirmation_protocol_id = str(
+            rollup_payload.get("method_confirmation_protocol_id")
+            or report_payload.get("method_confirmation_protocol_id")
+            or digest_payload.get("method_confirmation_protocol_id")
+            or protocol_payload.get("method_confirmation_protocol_id")
+            or protocol_payload.get("protocol_id")
+            or verification_payload.get("method_confirmation_protocol_id")
+            or ""
+        ).strip()
+        limitation_note = str(
+            rollup_payload.get("limitation_note")
+            or report_payload.get("limitation_note")
+            or selected_budget_case.get("limitation_note")
+            or recognition.get("limitation_note")
+            or ""
+        ).strip()
+        non_claim_note = str(
+            rollup_payload.get("non_claim_note")
+            or report_payload.get("non_claim_note")
+            or selected_budget_case.get("non_claim_note")
+            or recognition.get("non_claim_note")
+            or ""
+        ).strip()
+        budget_level_summary = str(
+            rollup_payload.get("budget_level_summary")
+            or report_payload.get("budget_level_summary")
+            or digest.get("budget_level_summary")
+            or ""
+        ).strip()
+        binding_summary = str(
+            rollup_payload.get("binding_summary")
+            or report_payload.get("binding_summary")
+            or digest.get("binding_summary")
+            or ""
+        ).strip()
+        calculation_chain_summary = str(
+            rollup_payload.get("calculation_chain_summary")
+            or report_payload.get("calculation_chain_summary")
+            or digest.get("calculation_chain_summary")
+            or ""
+        ).strip()
+        fixture_summary = str(
+            rollup_payload.get("fixture_summary")
+            or report_payload.get("fixture_summary")
+            or digest.get("fixture_summary")
+            or ""
+        ).strip()
+        golden_case_summary = str(
+            rollup_payload.get("golden_case_summary")
+            or report_payload.get("golden_case_summary")
+            or digest.get("golden_case_summary")
+            or ""
+        ).strip()
+        budget_level = str(
+            rollup_payload.get("budget_level")
+            or selected_budget_case.get("budget_level")
+            or ""
+        ).strip()
+        if not binding_summary:
+            binding_summary = " | ".join(
+                part
+                for part in (
+                    f"scope {scope_id}" if scope_id else "",
+                    f"decision rule {decision_rule_id}" if decision_rule_id else "",
+                    f"uncertainty case {uncertainty_case_id}" if uncertainty_case_id else "",
+                    f"method protocol {method_confirmation_protocol_id}"
+                    if method_confirmation_protocol_id
+                    else "",
+                )
+                if part
+            )
+        return {
+            "scope_id": scope_id,
+            "decision_rule_id": decision_rule_id,
+            "uncertainty_case_id": uncertainty_case_id,
+            "method_confirmation_protocol_id": method_confirmation_protocol_id,
+            "budget_level": budget_level,
+            "budget_level_summary": budget_level_summary,
+            "binding_summary": binding_summary,
+            "calculation_chain_summary": calculation_chain_summary,
+            "fixture_summary": fixture_summary,
+            "golden_case_summary": golden_case_summary,
+            "limitation_note": limitation_note,
+            "non_claim_note": non_claim_note,
+            "readiness_status": str(
+                rollup_payload.get("overall_status")
+                or report_payload.get("readiness_status")
+                or recognition.get("readiness_status")
+                or "ready_for_readiness_mapping"
+            ).strip(),
+            "ready_for_readiness_mapping": bool(
+                rollup_payload.get(
+                    "ready_for_readiness_mapping",
+                    report_payload.get("ready_for_readiness_mapping", True),
+                )
+            ),
+            "not_ready_for_formal_claim": bool(
+                rollup_payload.get(
+                    "not_ready_for_formal_claim",
+                    report_payload.get("not_ready_for_formal_claim", True),
+                )
+            ),
+            "not_real_acceptance_evidence": bool(
+                rollup_payload.get(
+                    "not_real_acceptance_evidence",
+                    report_payload.get("not_real_acceptance_evidence", True),
+                )
+            ),
+            "readiness_mapping_only": bool(
+                rollup_payload.get(
+                    "readiness_mapping_only",
+                    report_payload.get("readiness_mapping_only", True),
+                )
+            ),
+            "reviewer_only": bool(
+                rollup_payload.get("reviewer_only", report_payload.get("reviewer_only", True))
+            ),
+        }
+
+    @staticmethod
+    def _attach_uncertainty_binding(
+        payload: dict[str, Any] | None,
+        uncertainty_binding: dict[str, Any],
+    ) -> dict[str, Any]:
+        data = dict(payload or {})
+        if not data:
+            return {}
+        binding = dict(uncertainty_binding or {})
+        data["uncertainty_binding"] = binding
+        for key in (
+            "scope_id",
+            "decision_rule_id",
+            "uncertainty_case_id",
+            "method_confirmation_protocol_id",
+            "budget_level",
+            "budget_level_summary",
+            "binding_summary",
+            "calculation_chain_summary",
+            "fixture_summary",
+            "golden_case_summary",
+            "limitation_note",
+            "non_claim_note",
+            "readiness_status",
+        ):
+            if str(binding.get(key) or "").strip() and not str(data.get(key) or "").strip():
+                data[key] = binding[key]
+        for key in (
+            "ready_for_readiness_mapping",
+            "not_ready_for_formal_claim",
+            "not_real_acceptance_evidence",
+            "readiness_mapping_only",
+            "reviewer_only",
+        ):
+            data.setdefault(key, binding.get(key))
+        for collection_key in (
+            "input_quantity_set",
+            "sensitivity_coefficients",
+            "budget_case",
+            "golden_cases",
+        ):
+            rows = []
+            for item in list(data.get(collection_key) or []):
+                if not isinstance(item, dict):
+                    rows.append(item)
+                    continue
+                row = dict(item)
+                row["uncertainty_binding"] = binding
+                for key in (
+                    "scope_id",
+                    "decision_rule_id",
+                    "uncertainty_case_id",
+                    "method_confirmation_protocol_id",
+                    "budget_level",
+                    "limitation_note",
+                    "non_claim_note",
+                ):
+                    if str(binding.get(key) or "").strip() and not str(row.get(key) or "").strip():
+                        row[key] = binding[key]
+                for key in (
+                    "ready_for_readiness_mapping",
+                    "not_ready_for_formal_claim",
+                    "not_real_acceptance_evidence",
+                ):
+                    row.setdefault(key, binding.get(key))
+                rows.append(row)
+            if rows:
+                data[collection_key] = rows
+        return data
+
+    @staticmethod
     def _build_result_summary_text(
         *,
         summary: dict[str, Any] | None,
@@ -1393,6 +2031,15 @@ class ResultsGateway:
         audit_readiness_digest: dict[str, Any] | None,
         compatibility_scan_summary: dict[str, Any] | None,
         recognition_scope_rollup: dict[str, Any] | None,
+        sidecar_index_summary: dict[str, Any] | None,
+        review_copilot_payload: dict[str, Any] | None,
+        model_governance_summary: dict[str, Any] | None,
+        pt_ilc_registry: dict[str, Any] | None,
+        external_comparison_importer: dict[str, Any] | None,
+        comparison_evidence_pack: dict[str, Any] | None,
+        scope_comparison_view: dict[str, Any] | None,
+        comparison_digest: dict[str, Any] | None,
+        comparison_rollup: dict[str, Any] | None,
     ) -> str:
         summary_payload = dict(summary or {})
         stats = dict(summary_payload.get("stats", {}) or {})
@@ -1433,6 +2080,15 @@ class ResultsGateway:
         software_validation_rollup_payload = dict(software_validation_rollup or {})
         audit_readiness_payload = dict(audit_readiness_digest or {})
         compatibility_summary = dict(compatibility_scan_summary or {})
+        sidecar_index_payload = dict(sidecar_index_summary or {})
+        review_copilot_summary = dict(review_copilot_payload or {})
+        model_governance_payload = dict(model_governance_summary or {})
+        comparison_registry_payload = dict(pt_ilc_registry or {})
+        comparison_importer_payload = dict(external_comparison_importer or {})
+        comparison_evidence_payload = dict(comparison_evidence_pack or {})
+        scope_comparison_payload = dict(scope_comparison_view or {})
+        comparison_digest_payload = dict(comparison_digest or {})
+        comparison_rollup_payload = dict(comparison_rollup or {})
         compatibility_overview = dict(compatibility_summary.get("compatibility_overview") or {})
         compatibility_rollup = dict(
             compatibility_summary.get("compatibility_rollup")
@@ -1685,6 +2341,12 @@ class ResultsGateway:
                 )
 
         if scope_definition_payload or decision_rule_payload or scope_rollup:
+            recognition_binding = dict(
+                scope_rollup.get("recognition_binding")
+                or decision_rule_payload.get("recognition_binding")
+                or scope_definition_payload.get("recognition_binding")
+                or {}
+            )
             scope_overview_text = str(
                 scope_rollup.get("scope_overview_display")
                 or dict(scope_definition_payload.get("digest") or {}).get("scope_overview_summary")
@@ -1699,6 +2361,20 @@ class ResultsGateway:
                         default=f"{_RESULTS_SUMMARY_LABELS['scope_package']}：{scope_overview_text}",
                     )
                 )
+            scope_id_text = str(
+                recognition_binding.get("scope_id")
+                or scope_rollup.get("scope_id")
+                or scope_definition_payload.get("scope_id")
+                or ""
+            ).strip()
+            if scope_id_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.scope_identifier",
+                        value=scope_id_text,
+                        default=f"认可范围 ID：{scope_id_text}",
+                    )
+                )
             decision_rule_text = str(
                 scope_rollup.get("decision_rule_display")
                 or dict(decision_rule_payload.get("digest") or {}).get("decision_rule_summary")
@@ -1711,6 +2387,23 @@ class ResultsGateway:
                         "facade.results.result_summary.decision_rule_profile",
                         value=decision_rule_text,
                         default=f"{_RESULTS_SUMMARY_LABELS['decision_rule_profile']}：{decision_rule_text}",
+                    )
+                )
+            applicability_scope_text = str(
+                recognition_binding.get("applicability_scope_display")
+                or scope_rollup.get("applicability_scope_display")
+                or dict(decision_rule_payload.get("digest") or {}).get("applicability_scope_summary")
+                or dict(scope_definition_payload.get("digest") or {}).get("applicability_scope_summary")
+                or decision_rule_payload.get("applicability_scope_display")
+                or scope_definition_payload.get("applicability_scope_display")
+                or ""
+            ).strip()
+            if applicability_scope_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.scope_applicability",
+                        value=applicability_scope_text,
+                        default=f"适用边界：{applicability_scope_text}",
                     )
                 )
             conformity_boundary_text = str(
@@ -1780,6 +2473,39 @@ class ResultsGateway:
                         default=f"{_RESULTS_SUMMARY_LABELS['asset_readiness_overview']}: {reference_asset_text}",
                     )
                 )
+            asset_count_text = str(
+                dict(reference_asset_payload.get("digest") or {}).get("asset_count_summary")
+                or scope_rollup.get("asset_count_summary")
+                or ""
+            ).strip()
+            if asset_count_text:
+                lines.append(f"Asset count: {asset_count_text}")
+            certificate_validity_text = str(
+                dict(reference_asset_payload.get("digest") or {}).get("certificate_validity_summary")
+                or dict(certificate_lifecycle_payload.get("digest") or {}).get("certificate_validity_summary")
+                or scope_rollup.get("certificate_validity_summary")
+                or ""
+            ).strip()
+            if certificate_validity_text:
+                lines.append(f"Certificate validity: {certificate_validity_text}")
+            lot_binding_text = str(
+                dict(pre_run_gate_payload.get("digest") or {}).get("lot_binding_summary")
+                or dict(certificate_lifecycle_payload.get("digest") or {}).get("lot_binding_summary")
+                or dict(reference_asset_payload.get("digest") or {}).get("lot_binding_summary")
+                or scope_rollup.get("lot_binding_summary")
+                or ""
+            ).strip()
+            if lot_binding_text:
+                lines.append(f"Lot binding: {lot_binding_text}")
+            intermediate_check_text = str(
+                dict(pre_run_gate_payload.get("digest") or {}).get("intermediate_check_summary")
+                or dict(certificate_lifecycle_payload.get("digest") or {}).get("intermediate_check_summary")
+                or dict(reference_asset_payload.get("digest") or {}).get("intermediate_check_summary")
+                or scope_rollup.get("intermediate_check_summary")
+                or ""
+            ).strip()
+            if intermediate_check_text:
+                lines.append(f"Intermediate checks: {intermediate_check_text}")
             certificate_lifecycle_text = str(
                 dict(certificate_lifecycle_payload.get("digest") or {}).get("certificate_lifecycle_overview")
                 or dict(certificate_lifecycle_payload.get("digest") or {}).get("summary")
@@ -1892,6 +2618,58 @@ class ResultsGateway:
                         "facade.results.result_summary.uncertainty_data_completeness",
                         value=data_completeness_text,
                         default=f"{_RESULTS_SUMMARY_LABELS['uncertainty_data_completeness']}：{data_completeness_text}",
+                    )
+                )
+            budget_levels_text = str(
+                uncertainty_rollup_payload.get("budget_level_summary")
+                or uncertainty_digest_text.get("budget_level_summary")
+                or ""
+            ).strip()
+            if budget_levels_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.uncertainty_budget_levels",
+                        value=budget_levels_text,
+                        default=f"Uncertainty budget levels: {budget_levels_text}",
+                    )
+                )
+            binding_text = str(
+                uncertainty_rollup_payload.get("binding_summary")
+                or uncertainty_digest_text.get("binding_summary")
+                or ""
+            ).strip()
+            if binding_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.uncertainty_binding",
+                        value=binding_text,
+                        default=f"Uncertainty binding: {binding_text}",
+                    )
+                )
+            calculation_chain_text = str(
+                uncertainty_rollup_payload.get("calculation_chain_summary")
+                or uncertainty_digest_text.get("calculation_chain_summary")
+                or ""
+            ).strip()
+            if calculation_chain_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.uncertainty_calculation_chain",
+                        value=calculation_chain_text,
+                        default=f"Uncertainty calculation chain: {calculation_chain_text}",
+                    )
+                )
+            fixture_summary_text = str(
+                uncertainty_rollup_payload.get("fixture_summary")
+                or uncertainty_digest_text.get("fixture_summary")
+                or ""
+            ).strip()
+            if fixture_summary_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.uncertainty_fixture_summary",
+                        value=fixture_summary_text,
+                        default=f"Uncertainty fixture summary: {fixture_summary_text}",
                     )
                 )
             rollup_status_text = str(
@@ -2030,6 +2808,105 @@ class ResultsGateway:
                     )
                 )
 
+            coverage_items_text = str(
+                verification_digest_text.get("coverage_items_summary")
+                or verification_rollup_payload.get("coverage_items_summary")
+                or route_specific_validation_matrix_payload.get("coverage_items_summary")
+                or ""
+            ).strip()
+            if coverage_items_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.method_confirmation_coverage_items",
+                        value=coverage_items_text,
+                        default=f"方法确认覆盖项：{coverage_items_text}",
+                    )
+                )
+            validated_items_text = str(
+                verification_digest_text.get("validated_items_summary")
+                or verification_rollup_payload.get("validated_items_summary")
+                or validation_run_set_payload.get("validated_items_summary")
+                or ""
+            ).strip()
+            if validated_items_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.method_confirmation_validated_items",
+                        value=validated_items_text,
+                        default=f"已验证项：{validated_items_text}",
+                    )
+                )
+            unverified_items_text = str(
+                verification_digest_text.get("unverified_items_summary")
+                or verification_rollup_payload.get("unverified_items_summary")
+                or validation_run_set_payload.get("unverified_items_summary")
+                or ""
+            ).strip()
+            if unverified_items_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.method_confirmation_unverified_items",
+                        value=unverified_items_text,
+                        default=f"未验证项：{unverified_items_text}",
+                    )
+                )
+            validation_run_binding_text = str(
+                verification_digest_text.get("validation_run_binding_summary")
+                or verification_rollup_payload.get("validation_run_binding_summary")
+                or validation_run_set_payload.get("validation_run_binding_summary")
+                or ""
+            ).strip()
+            if validation_run_binding_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.method_confirmation_validation_run_bindings",
+                        value=validation_run_binding_text,
+                        default=f"验证运行绑定：{validation_run_binding_text}",
+                    )
+                )
+            source_artifact_refs_text = str(
+                verification_digest_text.get("source_artifact_refs_summary")
+                or verification_rollup_payload.get("source_artifact_refs_summary")
+                or validation_run_set_payload.get("source_artifact_refs_summary")
+                or ""
+            ).strip()
+            if source_artifact_refs_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.method_confirmation_source_artifacts",
+                        value=source_artifact_refs_text,
+                        default=f"来源 artifact refs：{source_artifact_refs_text}",
+                    )
+                )
+            linked_uncertainty_case_ids_text = str(
+                verification_digest_text.get("linked_uncertainty_case_ids_summary")
+                or verification_rollup_payload.get("linked_uncertainty_case_ids_summary")
+                or validation_run_set_payload.get("linked_uncertainty_case_ids_summary")
+                or ""
+            ).strip()
+            if linked_uncertainty_case_ids_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.method_confirmation_linked_uncertainty_cases",
+                        value=linked_uncertainty_case_ids_text,
+                        default=f"关联 uncertainty cases：{linked_uncertainty_case_ids_text}",
+                    )
+                )
+            linked_scope_decision_text = str(
+                verification_digest_text.get("linked_scope_decision_summary")
+                or verification_rollup_payload.get("linked_scope_decision_summary")
+                or validation_run_set_payload.get("linked_scope_decision_summary")
+                or ""
+            ).strip()
+            if linked_scope_decision_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.method_confirmation_linked_scope_decision",
+                        value=linked_scope_decision_text,
+                        default=f"关联 scope / decision rule：{linked_scope_decision_text}",
+                    )
+                )
+
         stability_digest = dict(stability_summary.get("digest") or {})
         transition_digest = dict(transition_summary.get("digest") or {})
         phase_coverage_digest = dict(phase_coverage_summary.get("digest") or {})
@@ -2043,6 +2920,21 @@ class ResultsGateway:
             if stability_summary
             else ""
         )
+        stability_policy_profile_text = (
+            str(dict(stability_summary.get("stability_policy_profile") or {}).get("summary_line") or "").strip()
+            if stability_summary
+            else ""
+        )
+        stability_decision_rollup_text = (
+            str(dict(stability_summary.get("stability_decision_rollup") or {}).get("summary_line") or "").strip()
+            if stability_summary
+            else ""
+        )
+        shadow_stability_diff_text = (
+            str(dict(stability_summary.get("shadow_stability_diff") or {}).get("summary_line") or "").strip()
+            if stability_summary
+            else ""
+        )
         measurement_core_transition_text = (
             str(
                 transition_digest.get("summary")
@@ -2050,6 +2942,11 @@ class ResultsGateway:
                 or transition_summary.get("overall_status")
                 or "--"
             )
+            if transition_summary
+            else ""
+        )
+        transition_policy_profile_text = (
+            str(dict(transition_summary.get("transition_policy_profile") or {}).get("summary_line") or "").strip()
             if transition_summary
             else ""
         )
@@ -2118,6 +3015,15 @@ class ResultsGateway:
             phase_coverage_summary=phase_coverage_summary,
             workbench_summary=workbench_summary,
             offline_diagnostic_adapter_summary=offline_summary,
+            sidecar_index_summary=sidecar_index_payload,
+            review_copilot_payload=review_copilot_summary,
+            model_governance_summary=model_governance_payload,
+            pt_ilc_registry=comparison_registry_payload,
+            external_comparison_importer=comparison_importer_payload,
+            comparison_evidence_pack=comparison_evidence_payload,
+            scope_comparison_view=scope_comparison_payload,
+            comparison_digest=comparison_digest_payload,
+            comparison_rollup=comparison_rollup_payload,
         )
         _has_compare_pack = any(
             str(pack.get("summary_key") or "") == CONTROL_FLOW_COMPARE_PACK_KEY
@@ -2134,6 +3040,13 @@ class ResultsGateway:
                     )
                 )
             )
+        for extra_text in (
+            stability_policy_profile_text,
+            stability_decision_rollup_text,
+            shadow_stability_diff_text,
+        ):
+            if extra_text:
+                lines.append(humanize_review_surface_text(extra_text))
         if measurement_core_transition_text:
             lines.append(
                 humanize_review_surface_text(
@@ -2144,6 +3057,23 @@ class ResultsGateway:
                     )
                 )
             )
+            limitation_text = str(
+                recognition_binding.get("limitation_note")
+                or scope_rollup.get("limitation_note")
+                or decision_rule_payload.get("limitation_note")
+                or scope_definition_payload.get("limitation_note")
+                or ""
+            ).strip()
+            if limitation_text:
+                lines.append(
+                    t(
+                        "facade.results.result_summary.scope_limitation",
+                        value=limitation_text,
+                        default=f"边界限制：{limitation_text}",
+                    )
+                )
+        if transition_policy_profile_text:
+            lines.append(humanize_review_surface_text(transition_policy_profile_text))
         if measurement_core_phase_coverage_text:
             lines.extend(measurement_review_lines.get("summary_lines") or [])
             lines.extend((measurement_review_lines.get("detail_lines") or [])[:4])
@@ -2171,6 +3101,34 @@ class ResultsGateway:
                         or sidecar_contract_text
                         or "future database intake / sidecar-ready"
                     )
+                )
+            )
+        if sidecar_index_payload:
+            lines.append(
+                humanize_review_surface_text(
+                    "Sidecar analytics: "
+                    + str(sidecar_index_payload.get("summary_line") or "--")
+                )
+            )
+        if review_copilot_summary:
+            lines.append(
+                humanize_review_surface_text(
+                    "Review Copilot: "
+                    + str(review_copilot_summary.get("risk_summary") or review_copilot_summary.get("summary_line") or "--")
+                )
+            )
+            if list(review_copilot_summary.get("evidence_gaps") or []):
+                lines.append(
+                    humanize_review_surface_text(
+                        "Evidence gaps: "
+                        + " | ".join(str(item) for item in list(review_copilot_summary.get("evidence_gaps") or [])[:3])
+                    )
+                )
+        if model_governance_payload:
+            lines.append(
+                humanize_review_surface_text(
+                    "Model governance: "
+                    + str(model_governance_payload.get("summary_line") or "--")
                 )
             )
         software_validation_overview_text = str(
@@ -2295,6 +3253,43 @@ class ResultsGateway:
                     default=f"{_RESULTS_SUMMARY_LABELS['release_evidence_pack_index']}：{release_pack_index_text}",
                 )
             )
+        if (
+            comparison_registry_payload
+            or comparison_importer_payload
+            or comparison_evidence_payload
+            or scope_comparison_payload
+            or comparison_digest_payload
+            or comparison_rollup_payload
+        ):
+            comparison_overview_text = str(
+                comparison_rollup_payload.get("rollup_summary_display")
+                or comparison_rollup_payload.get("comparison_overview_summary")
+                or dict(comparison_rollup_payload.get("digest") or {}).get("comparison_overview_summary")
+                or comparison_digest_payload.get("comparison_overview_summary")
+                or dict(comparison_digest_payload.get("digest") or {}).get("comparison_overview_summary")
+                or comparison_evidence_payload.get("comparison_overview_summary")
+                or ""
+            ).strip()
+            if comparison_overview_text:
+                lines.append(f"External comparison: {comparison_overview_text}")
+            comparison_import_trace_text = str(
+                comparison_rollup_payload.get("comparison_import_trace_summary")
+                or comparison_digest_payload.get("comparison_import_trace_summary")
+                or dict(comparison_rollup_payload.get("digest") or {}).get("comparison_import_trace_summary")
+                or dict(comparison_digest_payload.get("digest") or {}).get("comparison_import_trace_summary")
+                or comparison_evidence_payload.get("comparison_import_trace_summary")
+                or ""
+            ).strip()
+            if comparison_import_trace_text:
+                lines.append(f"External comparison import trace: {comparison_import_trace_text}")
+            comparison_coverage_text = str(
+                dict(comparison_rollup_payload.get("digest") or {}).get("current_evidence_coverage_summary")
+                or dict(comparison_digest_payload.get("digest") or {}).get("current_evidence_coverage_summary")
+                or dict(comparison_evidence_payload.get("digest") or {}).get("current_evidence_coverage_summary")
+                or ""
+            ).strip()
+            if comparison_coverage_text:
+                lines.append(f"External comparison linkage: {comparison_coverage_text}")
         for readiness_payload in (
             scope_definition_payload,
             decision_rule_payload,
@@ -2310,6 +3305,12 @@ class ResultsGateway:
             release_manifest_payload,
             release_boundary_payload,
             audit_readiness_payload,
+            comparison_registry_payload,
+            comparison_importer_payload,
+            comparison_evidence_payload,
+            scope_comparison_payload,
+            comparison_digest_payload,
+            comparison_rollup_payload,
         ):
             localized_lines = build_readiness_review_digest_lines(readiness_payload)
             lines.extend(localized_lines.get("summary_lines") or [])
@@ -2336,6 +3337,15 @@ class ResultsGateway:
         phase_coverage_summary: dict[str, Any] | None = None,
         workbench_summary: dict[str, Any] | None = None,
         offline_diagnostic_adapter_summary: dict[str, Any] | None = None,
+        sidecar_index_summary: dict[str, Any] | None = None,
+        review_copilot_payload: dict[str, Any] | None = None,
+        model_governance_summary: dict[str, Any] | None = None,
+        pt_ilc_registry: dict[str, Any] | None = None,
+        external_comparison_importer: dict[str, Any] | None = None,
+        comparison_evidence_pack: dict[str, Any] | None = None,
+        scope_comparison_view: dict[str, Any] | None = None,
+        comparison_digest: dict[str, Any] | None = None,
+        comparison_rollup: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Build compact summary packs for surface-aware budget governance.
 
@@ -2346,6 +3356,15 @@ class ResultsGateway:
         _phase_coverage = dict(phase_coverage_summary or {})
         _workbench = dict(workbench_summary or {})
         _offline_summary = dict(offline_diagnostic_adapter_summary or {})
+        _sidecar_index = dict(sidecar_index_summary or {})
+        _review_copilot = dict(review_copilot_payload or {})
+        _model_governance = dict(model_governance_summary or {})
+        _comparison_registry = dict(pt_ilc_registry or {})
+        _comparison_importer = dict(external_comparison_importer or {})
+        _comparison_evidence = dict(comparison_evidence_pack or {})
+        _scope_comparison = dict(scope_comparison_view or {})
+        _comparison_digest = dict(comparison_digest or {})
+        _comparison_rollup = dict(comparison_rollup or {})
 
         _v12_compact_payload = {
             "point_taxonomy_summary": _taxonomy,
@@ -2373,6 +3392,137 @@ class ResultsGateway:
                 build_control_flow_compare_pack(
                     {"latest_control_flow_compare": latest_compare}
                 )
+            )
+        sidecar_summary = str(_sidecar_index.get("summary_line") or "").strip()
+        review_copilot_summary = str(
+            _review_copilot.get("summary_line") or _review_copilot.get("risk_summary") or ""
+        ).strip()
+        model_governance_line = str(_model_governance.get("summary_line") or "").strip()
+        if sidecar_summary or review_copilot_summary or model_governance_line:
+            packs.append(
+                {
+                    "summary_key": "analytics_ai_sidecar",
+                    "display_label": "Analytics / AI sidecar",
+                    "priority": 52,
+                    "severity": "info",
+                    "summary_line": sidecar_summary or review_copilot_summary or model_governance_line,
+                    "summary_lines": [
+                        *([sidecar_summary] if sidecar_summary else []),
+                        *([review_copilot_summary] if review_copilot_summary else []),
+                        *([model_governance_line] if model_governance_line else []),
+                        "sidecar-only | reviewer-only | no control actions",
+                    ],
+                    "compact_summary_lines": [
+                        *([sidecar_summary] if sidecar_summary else []),
+                        *([review_copilot_summary] if review_copilot_summary else []),
+                        *([model_governance_line] if model_governance_line else []),
+                        "sidecar-only | reviewer-only | not ready for formal claim",
+                    ],
+                    "max_lines_hint": 5,
+                    "surface_budget_hint": {"results_gateway": 5, "review_center": 5, "historical": 4},
+                    "boundary_markers": {
+                        "reviewer_only": True,
+                        "advisory_only": True,
+                        "sidecar_only": True,
+                        "not_real_acceptance_evidence": True,
+                        "not_ready_for_formal_claim": True,
+                    },
+                    "evidence_source": "simulated",
+                    "reviewer_only": True,
+                    "advisory_only": True,
+                    "sidecar_only": True,
+                    "not_real_acceptance_evidence": True,
+                    "not_ready_for_formal_claim": True,
+                    "not_device_control": True,
+                    "not_sampling_release": True,
+                    "not_coefficient_writeback": True,
+                    "not_formal_metrology_conclusion": True,
+                    "backend": str(_sidecar_index.get("backend") or ""),
+                    "index_path": str(_sidecar_index.get("index_path") or ""),
+                    "risk_summary": str(_review_copilot.get("risk_summary") or ""),
+                    "release_status": str(_model_governance.get("release_status") or ""),
+                }
+            )
+        comparison_overview = str(
+            _comparison_rollup.get("rollup_summary_display")
+            or _comparison_rollup.get("comparison_overview_summary")
+            or dict(_comparison_rollup.get("digest") or {}).get("comparison_overview_summary")
+            or _comparison_digest.get("comparison_overview_summary")
+            or dict(_comparison_digest.get("digest") or {}).get("comparison_overview_summary")
+            or _comparison_evidence.get("comparison_overview_summary")
+            or ""
+        ).strip()
+        if comparison_overview:
+            comparison_import_trace = str(
+                _comparison_rollup.get("comparison_import_trace_summary")
+                or _comparison_digest.get("comparison_import_trace_summary")
+                or dict(_comparison_rollup.get("digest") or {}).get("comparison_import_trace_summary")
+                or dict(_comparison_digest.get("digest") or {}).get("comparison_import_trace_summary")
+                or _comparison_evidence.get("comparison_import_trace_summary")
+                or ""
+            ).strip()
+            comparison_linkage = str(
+                dict(_comparison_rollup.get("digest") or {}).get("current_evidence_coverage_summary")
+                or dict(_comparison_digest.get("digest") or {}).get("current_evidence_coverage_summary")
+                or dict(_comparison_evidence.get("digest") or {}).get("current_evidence_coverage_summary")
+                or ""
+            ).strip()
+            packs.append(
+                {
+                    "summary_key": "external_comparison",
+                    "display_label": "External comparison",
+                    "priority": 55,
+                    "severity": "info",
+                    "summary_line": comparison_overview,
+                    "summary_lines": [
+                        comparison_overview,
+                        *([comparison_import_trace] if comparison_import_trace else []),
+                        *([comparison_linkage] if comparison_linkage else []),
+                        "local-file-only | reviewer-only | not real acceptance evidence",
+                    ],
+                    "compact_summary_lines": [
+                        comparison_overview,
+                        *([comparison_import_trace] if comparison_import_trace else []),
+                        *([comparison_linkage] if comparison_linkage else []),
+                        "local-file-only | reviewer-only | not ready for formal claim",
+                    ],
+                    "max_lines_hint": 5,
+                    "surface_budget_hint": {"results_gateway": 5, "review_center": 5, "historical": 4},
+                    "boundary_markers": {
+                        "simulation_only": True,
+                        "reviewer_only": True,
+                        "readiness_mapping_only": True,
+                        "not_real_acceptance_evidence": True,
+                        "not_ready_for_formal_claim": True,
+                    },
+                    "evidence_source": "simulated",
+                    "reviewer_only": True,
+                    "readiness_mapping_only": True,
+                    "not_real_acceptance_evidence": True,
+                    "not_ready_for_formal_claim": True,
+                    "primary_evidence_rewritten": False,
+                    "scope_id": str(
+                        _comparison_rollup.get("scope_id")
+                        or _comparison_digest.get("scope_id")
+                        or _comparison_evidence.get("scope_id")
+                        or _scope_comparison.get("scope_id")
+                        or _comparison_registry.get("scope_id")
+                        or ""
+                    ),
+                    "decision_rule_id": str(
+                        _comparison_rollup.get("decision_rule_id")
+                        or _comparison_digest.get("decision_rule_id")
+                        or _comparison_evidence.get("decision_rule_id")
+                        or _scope_comparison.get("decision_rule_id")
+                        or _comparison_registry.get("decision_rule_id")
+                        or ""
+                    ),
+                    "source_file": str(
+                        _comparison_importer.get("source_file")
+                        or _comparison_registry.get("source_file")
+                        or ""
+                    ),
+                }
             )
         return packs
 
@@ -3102,6 +4252,11 @@ class ResultsGateway:
             return artifact_row
         is_markdown = path_name == markdown_filename
         boundary_summary = " | ".join(collect_boundary_digest_lines(evidence_payload))
+        note_parts = [
+            str(digest.get("summary") or review_surface.get("summary_text") or "").strip(),
+            str(review_surface.get("reviewer_note") or "").strip(),
+            str(artifact_row.get("note") or "").strip(),
+        ]
         role_status_display = " | ".join(
             part
             for part in (
@@ -3115,12 +4270,7 @@ class ResultsGateway:
             **artifact_row,
             "name": str(review_surface.get("title_text") or artifact_row.get("name") or "")
             + (" (Markdown)" if is_markdown else " (JSON)"),
-            "note": str(
-                review_surface.get("reviewer_note")
-                or digest.get("summary")
-                or artifact_row.get("note")
-                or ""
-            ),
+            "note": " | ".join(dict.fromkeys(part for part in note_parts if part)),
             "role_status_display": role_status_display or str(artifact_row.get("role_status_display") or ""),
             entry_key: {
                 "review_surface": review_surface,
@@ -3133,6 +4283,281 @@ class ResultsGateway:
                 "anchor_id": str(evidence_payload.get("anchor_id") or review_surface.get("anchor_id") or ""),
                 "anchor_label": str(evidence_payload.get("anchor_label") or review_surface.get("anchor_label") or ""),
                 "readiness_status": str(evidence_payload.get("readiness_status") or digest.get("readiness_status") or ""),
+                "scope_id": str(
+                    evidence_payload.get("scope_id")
+                    or dict(evidence_payload.get("recognition_binding") or {}).get("scope_id")
+                    or ""
+                ),
+                "decision_rule_id": str(
+                    evidence_payload.get("decision_rule_id")
+                    or dict(evidence_payload.get("recognition_binding") or {}).get("decision_rule_id")
+                    or ""
+                ),
+                "uncertainty_case_id": str(
+                    evidence_payload.get("uncertainty_case_id")
+                    or dict(evidence_payload.get("uncertainty_binding") or {}).get("uncertainty_case_id")
+                    or ""
+                ),
+                "method_confirmation_protocol_id": str(
+                    evidence_payload.get("method_confirmation_protocol_id")
+                    or dict(evidence_payload.get("uncertainty_binding") or {}).get(
+                        "method_confirmation_protocol_id"
+                    )
+                    or ""
+                ),
+                "limitation_note": str(
+                    evidence_payload.get("limitation_note")
+                    or dict(evidence_payload.get("recognition_binding") or {}).get("limitation_note")
+                    or dict(evidence_payload.get("uncertainty_binding") or {}).get("limitation_note")
+                    or digest.get("limitation_note_summary")
+                    or ""
+                ),
+                "non_claim_note": str(
+                    evidence_payload.get("non_claim_note")
+                    or dict(evidence_payload.get("recognition_binding") or {}).get("non_claim_note")
+                    or dict(evidence_payload.get("uncertainty_binding") or {}).get("non_claim_note")
+                    or digest.get("non_claim_digest")
+                    or ""
+                ),
+                "budget_level_summary": str(
+                    evidence_payload.get("budget_level_summary")
+                    or dict(evidence_payload.get("uncertainty_binding") or {}).get("budget_level_summary")
+                    or digest.get("budget_level_summary")
+                    or ""
+                ),
+                "binding_summary": str(
+                    evidence_payload.get("binding_summary")
+                    or dict(evidence_payload.get("uncertainty_binding") or {}).get("binding_summary")
+                    or digest.get("binding_summary")
+                    or ""
+                ),
+                "calculation_chain_summary": str(
+                    evidence_payload.get("calculation_chain_summary")
+                    or dict(evidence_payload.get("uncertainty_binding") or {}).get(
+                        "calculation_chain_summary"
+                    )
+                    or digest.get("calculation_chain_summary")
+                    or ""
+                ),
+                "fixture_summary": str(
+                    evidence_payload.get("fixture_summary")
+                    or dict(evidence_payload.get("uncertainty_binding") or {}).get("fixture_summary")
+                    or digest.get("fixture_summary")
+                    or ""
+                ),
+                "golden_case_summary": str(
+                    evidence_payload.get("golden_case_summary")
+                    or dict(evidence_payload.get("uncertainty_binding") or {}).get("golden_case_summary")
+                    or digest.get("golden_case_summary")
+                    or ""
+                ),
+                "applicability_scope_display": str(
+                    evidence_payload.get("applicability_scope_display")
+                    or dict(evidence_payload.get("recognition_binding") or {}).get("applicability_scope_display")
+                    or digest.get("applicability_scope_summary")
+                    or ""
+                ),
+                "asset_count_summary": str(
+                    evidence_payload.get("asset_count_summary") or digest.get("asset_count_summary") or ""
+                ),
+                "certificate_validity_summary": str(
+                    evidence_payload.get("certificate_validity_summary") or digest.get("certificate_validity_summary") or ""
+                ),
+                "lot_binding_summary": str(
+                    evidence_payload.get("lot_binding_summary") or digest.get("lot_binding_summary") or ""
+                ),
+                "intermediate_check_summary": str(
+                    evidence_payload.get("intermediate_check_summary") or digest.get("intermediate_check_summary") or ""
+                ),
+                "pre_run_gate_status": str(
+                    evidence_payload.get("gate_status")
+                    or digest.get("pre_run_gate_status")
+                    or ""
+                ),
+                "pre_run_gate_legacy_status": str(
+                    evidence_payload.get("legacy_gate_status")
+                    or digest.get("pre_run_gate_legacy_status")
+                    or ""
+                ),
+                "advisory_only": bool(evidence_payload.get("advisory_only", False)),
+                "device_control_allowed": bool(evidence_payload.get("device_control_allowed", False)),
+                "real_control_permitted": bool(evidence_payload.get("real_control_permitted", False)),
+                "recognition_binding": dict(evidence_payload.get("recognition_binding") or {}),
+                "uncertainty_binding": dict(evidence_payload.get("uncertainty_binding") or {}),
+                "conformity_statement_profile": dict(evidence_payload.get("conformity_statement_profile") or {}),
+                "linked_scope_id": str(
+                    evidence_payload.get("linked_scope_id")
+                    or digest.get("linked_scope_id")
+                    or evidence_payload.get("scope_id")
+                    or ""
+                ),
+                "linked_decision_rule_id": str(
+                    evidence_payload.get("linked_decision_rule_id")
+                    or digest.get("linked_decision_rule_id")
+                    or evidence_payload.get("decision_rule_id")
+                    or ""
+                ),
+                "linked_uncertainty_case_ids": [
+                    str(item)
+                    for item in list(
+                        evidence_payload.get("linked_uncertainty_case_ids")
+                        or digest.get("linked_uncertainty_case_ids")
+                        or []
+                    )
+                    if str(item).strip()
+                ],
+                "coverage_items": [
+                    dict(item)
+                    for item in list(evidence_payload.get("coverage_items") or [])
+                    if isinstance(item, dict)
+                ],
+                "validated_items": list(evidence_payload.get("validated_items") or []),
+                "unverified_items": list(evidence_payload.get("unverified_items") or []),
+                "validation_run_refs": [
+                    dict(item)
+                    for item in list(evidence_payload.get("validation_run_refs") or [])
+                    if isinstance(item, dict)
+                ],
+                "bound_run_refs": [
+                    dict(item)
+                    for item in list(
+                        evidence_payload.get("bound_run_refs")
+                        or evidence_payload.get("validation_run_refs")
+                        or []
+                    )
+                    if isinstance(item, dict)
+                ],
+                "bound_run_ref_ids": list(
+                    evidence_payload.get("bound_run_ref_ids")
+                    or [
+                        str(item.get("ref_id") or "").strip()
+                        for item in list(evidence_payload.get("validation_run_refs") or [])
+                        if isinstance(item, dict) and str(item.get("ref_id") or "").strip()
+                    ]
+                ),
+                "coverage_item_ids": list(evidence_payload.get("coverage_item_ids") or []),
+                "validation_binding_status": str(evidence_payload.get("validation_binding_status") or ""),
+                "source_artifact_refs": [
+                    dict(item)
+                    for item in list(evidence_payload.get("source_artifact_refs") or [])
+                    if isinstance(item, dict)
+                ],
+                "coverage_items_summary": str(
+                    evidence_payload.get("coverage_items_summary")
+                    or digest.get("coverage_items_summary")
+                    or ""
+                ),
+                "validated_items_summary": str(
+                    evidence_payload.get("validated_items_summary")
+                    or digest.get("validated_items_summary")
+                    or ""
+                ),
+                "unverified_items_summary": str(
+                    evidence_payload.get("unverified_items_summary")
+                    or digest.get("unverified_items_summary")
+                    or ""
+                ),
+                "validation_run_binding_summary": str(
+                    evidence_payload.get("validation_run_binding_summary")
+                    or digest.get("validation_run_binding_summary")
+                    or ""
+                ),
+                "source_artifact_refs_summary": str(
+                    evidence_payload.get("source_artifact_refs_summary")
+                    or digest.get("source_artifact_refs_summary")
+                    or ""
+                ),
+                "linked_uncertainty_case_ids_summary": str(
+                    evidence_payload.get("linked_uncertainty_case_ids_summary")
+                    or digest.get("linked_uncertainty_case_ids_summary")
+                    or ""
+                ),
+                "linked_scope_decision_summary": str(
+                    evidence_payload.get("linked_scope_decision_summary")
+                    or digest.get("linked_scope_decision_summary")
+                    or ""
+                ),
+                "changed_modules": [
+                    dict(item)
+                    for item in list(evidence_payload.get("changed_modules") or [])
+                    if isinstance(item, dict)
+                ],
+                "changed_module_paths": [
+                    str(item)
+                    for item in list(evidence_payload.get("changed_module_paths") or [])
+                    if str(item).strip()
+                ],
+                "changed_modules_summary": str(evidence_payload.get("changed_modules_summary") or ""),
+                "impacts_main_execution_chain": bool(evidence_payload.get("impacts_main_execution_chain", False)),
+                "main_execution_chain_impact_summary": str(
+                    evidence_payload.get("main_execution_chain_impact_summary") or ""
+                ),
+                "impacts_artifact_schema": bool(evidence_payload.get("impacts_artifact_schema", False)),
+                "artifact_schema_impact_summary": str(
+                    evidence_payload.get("artifact_schema_impact_summary") or ""
+                ),
+                "impacts_results_surface": bool(evidence_payload.get("impacts_results_surface", False)),
+                "results_surface_impact_summary": str(
+                    evidence_payload.get("results_surface_impact_summary") or ""
+                ),
+                "impacts_review_center_surface": bool(
+                    evidence_payload.get("impacts_review_center_surface", False)
+                ),
+                "review_center_surface_impact_summary": str(
+                    evidence_payload.get("review_center_surface_impact_summary") or ""
+                ),
+                "impacts_workbench_surface": bool(evidence_payload.get("impacts_workbench_surface", False)),
+                "workbench_surface_impact_summary": str(
+                    evidence_payload.get("workbench_surface_impact_summary") or ""
+                ),
+                "rollback_mode": str(evidence_payload.get("rollback_mode") or ""),
+                "rollback_scope_summary": str(evidence_payload.get("rollback_scope_summary") or ""),
+                "file_artifact_first": bool(evidence_payload.get("file_artifact_first", False)),
+                "sidecar_revocable": bool(evidence_payload.get("sidecar_revocable", False)),
+                "primary_evidence_preserved": bool(
+                    evidence_payload.get("primary_evidence_preserved", True)
+                ),
+                "touches_primary_evidence": bool(evidence_payload.get("touches_primary_evidence", False)),
+                "rollback_steps": [
+                    str(item)
+                    for item in list(evidence_payload.get("rollback_steps") or [])
+                    if str(item).strip()
+                ],
+                "fingerprint_kind": str(evidence_payload.get("fingerprint_kind") or ""),
+                "fingerprint_scope": str(evidence_payload.get("fingerprint_scope") or ""),
+                "reviewer_trace_only": bool(evidence_payload.get("reviewer_trace_only", False)),
+                "formal_anti_tamper_claim": bool(
+                    evidence_payload.get("formal_anti_tamper_claim", False)
+                ),
+                "tamper_evidence_claimed": bool(
+                    evidence_payload.get("tamper_evidence_claimed", False)
+                ),
+                "config_fingerprint": str(evidence_payload.get("config_fingerprint") or ""),
+                "release_input_digest": str(evidence_payload.get("release_input_digest") or ""),
+                "digest_scope": str(evidence_payload.get("digest_scope") or ""),
+                "hash_registry_id": str(evidence_payload.get("hash_registry_id") or ""),
+                "trace_purpose": str(evidence_payload.get("trace_purpose") or ""),
+                "event_store_mode": str(evidence_payload.get("event_store_mode") or ""),
+                "compatibility_alias_of": str(evidence_payload.get("compatibility_alias_of") or ""),
+                "events": [
+                    dict(item)
+                    for item in list(evidence_payload.get("events") or [])
+                    if isinstance(item, dict)
+                ],
+                "linked_surface_visibility": [
+                    str(item)
+                    for item in list(
+                        evidence_payload.get("linked_surface_visibility")
+                        or review_surface.get("linked_surface_visibility")
+                        or []
+                    )
+                    if str(item).strip()
+                ],
+                "surface_visibility_summary": str(
+                    evidence_payload.get("surface_visibility_summary")
+                    or review_surface.get("surface_visibility_summary")
+                    or ""
+                ),
                 "linked_artifact_refs": [dict(item) for item in list(evidence_payload.get("linked_artifact_refs") or []) if isinstance(item, dict)],
                 "linked_measurement_phase_artifacts": [
                     dict(item) for item in list(evidence_payload.get("linked_measurement_phase_artifacts") or []) if isinstance(item, dict)
@@ -3200,6 +4625,10 @@ class ResultsGateway:
                     or dict(digest).get("phase_contrast_summary")
                     or ""
                 ),
+                "stability_policy_profile": dict(evidence_payload.get("stability_policy_profile") or {}),
+                "stability_decision_rollup": dict(evidence_payload.get("stability_decision_rollup") or {}),
+                "shadow_stability_diff": dict(evidence_payload.get("shadow_stability_diff") or {}),
+                "transition_policy_profile": dict(evidence_payload.get("transition_policy_profile") or {}),
             },
         }
 

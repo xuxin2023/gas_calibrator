@@ -29,6 +29,7 @@ class DatabaseReadyRecognitionScopeRepositoryStub:
         return {
             "scope_definition_pack": {},
             "decision_rule_profile": {},
+            "conformity_statement_profile": {},
             "reference_asset_registry": {},
             "certificate_lifecycle_summary": {},
             "pre_run_readiness_gate": {},
@@ -115,6 +116,7 @@ class FileBackedRecognitionScopeRepository:
         return {
             "scope_definition_pack": scope_payload,
             "decision_rule_profile": decision_payload,
+            "conformity_statement_profile": dict(decision_payload.get("conformity_statement_profile") or {}),
             "reference_asset_registry": reference_asset_registry,
             "certificate_lifecycle_summary": certificate_lifecycle_summary,
             "pre_run_readiness_gate": pre_run_readiness_gate,
@@ -252,6 +254,23 @@ class FileBackedRecognitionScopeRepository:
                 "not_ready_for_formal_claim": bool(payload.get("not_ready_for_formal_claim", True)),
             }
         )
+        payload["conformity_statement_profile"] = dict(
+            payload.get("conformity_statement_profile")
+            or {
+                "profile_id": str(payload.get("decision_rule_id") or "step2_reviewer_conformity_boundary_v1"),
+                "statement_template": str(payload.get("statement_template") or ""),
+                "statement_template_metadata": dict(payload.get("statement_template_metadata") or {}),
+                "reviewer_only": True,
+                "readiness_mapping_only": True,
+                "not_real_acceptance_evidence": bool(payload.get("not_real_acceptance_evidence", True)),
+                "not_ready_for_formal_claim": bool(payload.get("not_ready_for_formal_claim", True)),
+                "applicability_scope": dict(payload.get("applicability_scope") or {}),
+                "applicability_scope_display": str(payload.get("applicability_scope_display") or ""),
+                "limitation_note": str(payload.get("limitation_note") or ""),
+                "non_claim_note": str(payload.get("non_claim_note") or ""),
+                "reviewer_gate": dict(payload.get("reviewer_gate") or {}),
+            }
+        )
         default_digest = {
             "summary": str(
                 dict(payload.get("digest") or {}).get("summary")
@@ -307,8 +326,64 @@ class FileBackedRecognitionScopeRepository:
                 if str(item).strip()
             )
             or str(dict(payload.get("digest") or {}).get("required_evidence_categories_summary") or "--"),
+            "applicability_scope_summary": str(
+                payload.get("applicability_scope_display")
+                or dict(payload.get("conformity_statement_profile") or {}).get("applicability_scope_display")
+                or dict(payload.get("digest") or {}).get("applicability_scope_summary")
+                or "--"
+            ),
+            "limitation_note_summary": str(
+                payload.get("limitation_note")
+                or dict(payload.get("conformity_statement_profile") or {}).get("limitation_note")
+                or dict(payload.get("digest") or {}).get("limitation_note_summary")
+                or "--"
+            ),
         }
         payload["digest"] = {**default_digest, **dict(payload.get("digest") or {})}
+        payload["recognition_binding"] = {
+            **dict(payload.get("recognition_binding") or {}),
+            "scope_id": str(payload.get("scope_id") or dict(payload.get("scope_export_pack") or {}).get("scope_id") or "").strip(),
+            "scope_name": str(payload.get("scope_name") or dict(payload.get("scope_export_pack") or {}).get("scope_name") or "").strip(),
+            "scope_version": str(payload.get("scope_version") or dict(payload.get("scope_export_pack") or {}).get("scope_version") or "").strip(),
+            "decision_rule_id": str(
+                payload.get("decision_rule_id")
+                or dict(payload.get("scope_overview") or {}).get("decision_rule_id")
+                or dict(payload.get("decision_rule_overview") or {}).get("decision_rule_id")
+                or ""
+            ).strip(),
+            "applicability_scope": dict(
+                payload.get("applicability_scope")
+                or dict(payload.get("conformity_statement_profile") or {}).get("applicability_scope")
+                or {}
+            ),
+            "applicability_scope_display": str(
+                payload.get("applicability_scope_display")
+                or dict(payload.get("conformity_statement_profile") or {}).get("applicability_scope_display")
+                or payload["digest"].get("applicability_scope_summary")
+                or ""
+            ).strip(),
+            "limitation_note": str(
+                payload.get("limitation_note")
+                or dict(payload.get("conformity_statement_profile") or {}).get("limitation_note")
+                or payload["digest"].get("limitation_note_summary")
+                or ""
+            ).strip(),
+            "non_claim_note": str(
+                payload.get("non_claim_note")
+                or dict(payload.get("conformity_statement_profile") or {}).get("non_claim_note")
+                or payload["digest"].get("non_claim_digest")
+                or ""
+            ).strip(),
+            "readiness_status": str(payload.get("readiness_status") or "ready_for_readiness_mapping"),
+            "reviewer_only": bool(
+                dict(payload.get("conformity_statement_profile") or {}).get("reviewer_only", True)
+            ),
+            "readiness_mapping_only": bool(
+                dict(payload.get("conformity_statement_profile") or {}).get("readiness_mapping_only", True)
+            ),
+            "not_real_acceptance_evidence": bool(payload.get("not_real_acceptance_evidence", True)),
+            "not_ready_for_formal_claim": bool(payload.get("not_ready_for_formal_claim", True)),
+        }
         default_review_surface = {
             "title_text": title_text,
             "reviewer_note": "File-backed reviewer scope payload only; primary evidence stays unchanged and no formal claim is created.",
@@ -316,11 +391,13 @@ class FileBackedRecognitionScopeRepository:
             "summary_lines": [
                 f"scope overview: {str(payload['digest'].get('scope_overview_summary') or '--')}",
                 f"decision rule: {str(payload['digest'].get('decision_rule_summary') or '--')}",
+                f"applicability scope: {str(payload['digest'].get('applicability_scope_summary') or '--')}",
                 f"non-claim: {str(payload['digest'].get('conformity_boundary_summary') or '--')}",
             ],
             "detail_lines": [
                 f"current coverage: {str(payload['digest'].get('current_coverage_summary') or '--')}",
                 f"required evidence categories: {str(payload['digest'].get('required_evidence_categories_summary') or '--')}",
+                f"limitation: {str(payload['digest'].get('limitation_note_summary') or '--')}",
             ],
             "artifact_paths": dict(payload.get("artifact_paths") or {}),
             "phase_filters": ["step2_tail_recognition_ready"],
@@ -380,6 +457,29 @@ class FileBackedRecognitionScopeRepository:
             or registry_digest.get("summary")
             or "--"
         )
+        asset_count_summary = str(
+            registry_digest.get("asset_count_summary")
+            or registry_digest.get("asset_readiness_overview")
+            or "--"
+        )
+        certificate_validity_summary = str(
+            registry_digest.get("certificate_validity_summary")
+            or lifecycle_digest.get("certificate_validity_summary")
+            or gate_digest.get("certificate_validity_summary")
+            or "--"
+        )
+        lot_binding_summary = str(
+            gate_digest.get("lot_binding_summary")
+            or lifecycle_digest.get("lot_binding_summary")
+            or registry_digest.get("lot_binding_summary")
+            or "--"
+        )
+        intermediate_check_summary = str(
+            gate_digest.get("intermediate_check_summary")
+            or lifecycle_digest.get("intermediate_check_summary")
+            or registry_digest.get("intermediate_check_summary")
+            or "--"
+        )
         certificate_lifecycle_overview = str(
             lifecycle_digest.get("certificate_lifecycle_overview")
             or lifecycle_digest.get("summary")
@@ -388,6 +488,11 @@ class FileBackedRecognitionScopeRepository:
         pre_run_gate_status = str(
             gate_digest.get("pre_run_gate_status")
             or pre_run_readiness_gate.get("gate_status")
+            or "--"
+        )
+        pre_run_gate_legacy_status = str(
+            gate_digest.get("pre_run_gate_legacy_status")
+            or pre_run_readiness_gate.get("legacy_gate_status")
             or "--"
         )
         blocking_digest = str(gate_digest.get("blocker_summary") or "--")
@@ -409,10 +514,15 @@ class FileBackedRecognitionScopeRepository:
         summary_lines = [
             f"scope package: {str(scope_digest.get('scope_overview_summary') or scope_digest.get('summary') or '--')}",
             f"decision rule: {str(decision_digest.get('decision_rule_summary') or decision_payload.get('decision_rule_id') or '--')}",
+            f"applicability scope: {str(decision_digest.get('applicability_scope_summary') or scope_digest.get('applicability_scope_summary') or '--')}",
             f"conformity boundary: {str(decision_digest.get('conformity_boundary_summary') or scope_payload.get('non_claim_note') or '--')}",
             f"reader mode: {reader_mode_display}",
             f"readiness status: {readiness_status}",
             f"asset readiness: {asset_readiness_overview}",
+            f"asset count: {asset_count_summary}",
+            f"certificate validity: {certificate_validity_summary}",
+            f"lot binding: {lot_binding_summary}",
+            f"intermediate checks: {intermediate_check_summary}",
             f"certificate lifecycle: {certificate_lifecycle_overview}",
             f"pre-run gate: {pre_run_gate_status}",
         ]
@@ -442,21 +552,67 @@ class FileBackedRecognitionScopeRepository:
             "reader_mode_display": reader_mode_display,
             "canonical_direct": reader_mode == "canonical_direct",
             "compatibility_adapter": reader_mode == "compatibility_adapter",
+            "scope_id": str(scope_payload.get("scope_id") or dict(scope_payload.get("scope_export_pack") or {}).get("scope_id") or "--"),
+            "scope_name": str(scope_payload.get("scope_name") or dict(scope_payload.get("scope_export_pack") or {}).get("scope_name") or "--"),
+            "scope_version": str(scope_payload.get("scope_version") or dict(scope_payload.get("scope_export_pack") or {}).get("scope_version") or "--"),
+            "decision_rule_id": str(decision_payload.get("decision_rule_id") or "--"),
             "scope_overview_display": str(scope_digest.get("scope_overview_summary") or scope_digest.get("summary") or "--"),
             "decision_rule_display": str(decision_digest.get("decision_rule_summary") or decision_payload.get("decision_rule_id") or "--"),
+            "applicability_scope_display": str(
+                decision_digest.get("applicability_scope_summary")
+                or scope_digest.get("applicability_scope_summary")
+                or "--"
+            ),
             "conformity_boundary_display": str(
                 decision_digest.get("conformity_boundary_summary")
                 or scope_payload.get("non_claim_note")
                 or "--"
             ),
             "asset_readiness_overview": asset_readiness_overview,
+            "asset_count_summary": asset_count_summary,
+            "certificate_validity_summary": certificate_validity_summary,
+            "lot_binding_summary": lot_binding_summary,
+            "intermediate_check_summary": intermediate_check_summary,
             "certificate_lifecycle_overview": certificate_lifecycle_overview,
             "pre_run_gate_status": pre_run_gate_status,
+            "pre_run_gate_legacy_status": pre_run_gate_legacy_status,
             "blocking_digest": blocking_digest,
             "warning_digest": warning_digest,
             "scope_reference_assets_summary": scope_reference_assets_summary,
             "decision_rule_dependency_summary": decision_rule_dependency_summary,
+            "limitation_note": str(
+                decision_payload.get("limitation_note")
+                or scope_payload.get("limitation_note")
+                or decision_digest.get("limitation_note_summary")
+                or "--"
+            ),
             "non_claim_note": str(decision_payload.get("non_claim_note") or scope_payload.get("non_claim_note") or "--"),
+            "conformity_statement_profile": dict(decision_payload.get("conformity_statement_profile") or {}),
+            "recognition_binding": {
+                **dict(scope_payload.get("recognition_binding") or {}),
+                **dict(decision_payload.get("recognition_binding") or {}),
+                "scope_id": str(scope_payload.get("scope_id") or dict(scope_payload.get("scope_export_pack") or {}).get("scope_id") or "").strip(),
+                "scope_name": str(scope_payload.get("scope_name") or dict(scope_payload.get("scope_export_pack") or {}).get("scope_name") or "").strip(),
+                "scope_version": str(scope_payload.get("scope_version") or dict(scope_payload.get("scope_export_pack") or {}).get("scope_version") or "").strip(),
+                "decision_rule_id": str(decision_payload.get("decision_rule_id") or "").strip(),
+                "applicability_scope_display": str(
+                    decision_digest.get("applicability_scope_summary")
+                    or scope_digest.get("applicability_scope_summary")
+                    or ""
+                ).strip(),
+                "limitation_note": str(
+                    decision_payload.get("limitation_note")
+                    or scope_payload.get("limitation_note")
+                    or decision_digest.get("limitation_note_summary")
+                    or ""
+                ).strip(),
+                "non_claim_note": str(decision_payload.get("non_claim_note") or scope_payload.get("non_claim_note") or "").strip(),
+                "readiness_status": readiness_status,
+                "reviewer_only": True,
+                "readiness_mapping_only": True,
+                "not_real_acceptance_evidence": True,
+                "not_ready_for_formal_claim": True,
+            },
             "standard_family": list(scope_payload.get("standard_family") or decision_payload.get("standard_family") or []),
             "required_evidence_categories": list(
                 scope_payload.get("required_evidence_categories")
@@ -483,9 +639,15 @@ class FileBackedRecognitionScopeRepository:
             "summary_lines": summary_lines,
             "detail_lines": [
                 f"repository/gateway: {RECOGNITION_SCOPE_REPOSITORY_MODE} / {RECOGNITION_SCOPE_GATEWAY_MODE}",
+                f"limitation: {str(decision_payload.get('limitation_note') or scope_payload.get('limitation_note') or '--')}",
                 "non-claim: simulation/offline/shadow outputs remain reviewer-only and readiness-mapping only",
+                f"asset count summary: {asset_count_summary}",
+                f"certificate validity summary: {certificate_validity_summary}",
+                f"lot binding summary: {lot_binding_summary}",
+                f"intermediate check summary: {intermediate_check_summary}",
                 f"blocking digest: {blocking_digest}",
                 f"warning digest: {warning_digest}",
+                f"pre-run gate legacy status: {pre_run_gate_legacy_status}",
                 "primary evidence rewritten: false",
             ],
         }

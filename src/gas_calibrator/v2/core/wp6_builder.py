@@ -958,6 +958,1168 @@ _SIMULATED_ONLY_SIGNALS = (
 )
 
 
+_COMPARISON_LIST_FIELDS = (
+    "linked_uncertainty_case_ids",
+    "linked_method_confirmation_protocol_ids",
+    "linked_software_validation_release_ids",
+    "reference_asset_refs",
+    "certificate_lifecycle_refs",
+)
+
+
+def _comparison_text_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        for token in ("|", ";", "\n", "\r", "\t"):
+            text = text.replace(token, ",")
+        return _dedupe([part.strip() for part in text.split(",") if part.strip()])
+    return _dedupe(_safe_list(value))
+
+
+def _comparison_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = payload.get("rows") or payload.get("comparisons") or payload.get("comparison_rows") or []
+    return [dict(item) for item in list(rows) if isinstance(item, dict)]
+
+
+def _normalize_comparison_type_v2(value: Any) -> str:
+    candidate = _safe_str(value).strip()
+    return candidate if candidate in COMPARISON_TYPES else "readiness_demo"
+
+
+def _normalize_import_mode_v2(value: Any, *, default: str) -> str:
+    candidate = _safe_str(value).strip() or default
+    return candidate if candidate in IMPORT_MODES else default
+
+
+def _id_summary(values: list[str]) -> str:
+    return " | ".join(_dedupe(values)) or "--"
+
+
+def _count_summary(values: list[str]) -> str:
+    counts: dict[str, int] = {}
+    for item in values:
+        text = str(item or "").strip()
+        if text:
+            counts[text] = counts.get(text, 0) + 1
+    return " | ".join(f"{key} {value}" for key, value in sorted(counts.items())) or "--"
+
+
+def _resolve_comparison_linkages_v2(common: dict[str, Any]) -> dict[str, Any]:
+    ref_rows = [dict(item) for item in list(common["ref_raw"].get("assets") or common["ref_raw"].get("reference_assets") or []) if isinstance(item, dict)]
+    cert_rows = [
+        dict(item)
+        for item in list(
+            common["cert_raw"].get("certificate_rows")
+            or common["cert_raw"].get("certificates")
+            or common["cert_raw"].get("certificate_lifecycle_rows")
+            or []
+        )
+        if isinstance(item, dict)
+    ]
+    uncertainty_case_ids = _dedupe(
+        _comparison_text_list(common["unc_roll"].get("case_ids"))
+        + _comparison_text_list(common["unc_raw"].get("case_ids"))
+        + _comparison_text_list(common["unc_raw"].get("uncertainty_case_ids"))
+        + [
+            str(value).strip()
+            for value in (
+                common["unc_roll"].get("selected_result_case_id"),
+                common["unc_raw"].get("selected_result_case_id"),
+                common["unc_raw"].get("uncertainty_case_id"),
+            )
+            if str(value or "").strip()
+        ]
+    )
+    method_protocol_ids = _dedupe(
+        [
+            str(value).strip()
+            for value in (
+                common["mc_raw"].get("protocol_id"),
+                common["mc_raw"].get("method_confirmation_protocol_id"),
+                common["unc_roll"].get("method_confirmation_protocol_id"),
+                common["unc_raw"].get("method_confirmation_protocol_id"),
+                common["vd_raw"].get("protocol_id"),
+                common["vd_raw"].get("method_confirmation_protocol_id"),
+            )
+            if str(value or "").strip()
+        ]
+    )
+    software_release_ids = _dedupe(
+        [
+            str(value).strip()
+            for value in (
+                common["sv_raw"].get("release_id"),
+                common["sv_raw"].get("release_manifest_id"),
+                common["sv_raw"].get("linked_release_manifest_id"),
+            )
+            if str(value or "").strip()
+        ]
+    )
+    if not software_release_ids:
+        software_release_ids = [f"{common['run_id']}-release-manifest"]
+    reference_asset_refs = _dedupe(
+        [str(item.get("asset_id") or "").strip() for item in ref_rows if str(item.get("asset_id") or "").strip()]
+        + _comparison_text_list(common["vd_raw"].get("reference_asset_ids"))
+        + _comparison_text_list(common["mc_raw"].get("reference_assets"))
+    )
+    certificate_lifecycle_refs = _dedupe(
+        [str(item.get("certificate_id") or "").strip() for item in cert_rows if str(item.get("certificate_id") or "").strip()]
+        + _comparison_text_list(common["mc_raw"].get("certificate_lifecycle_refs"))
+        + _comparison_text_list(common["vd_raw"].get("certificate_lifecycle_refs"))
+    )
+    if not reference_asset_refs and str(common["path_map"].get("reference_asset_registry") or "").strip():
+        reference_asset_refs = [str(common["path_map"]["reference_asset_registry"])]
+    if not certificate_lifecycle_refs and str(common["path_map"].get("certificate_lifecycle_summary") or "").strip():
+        certificate_lifecycle_refs = [str(common["path_map"]["certificate_lifecycle_summary"])]
+    return {
+        "scope_id": common["scope_id"],
+        "scope_name": common["scope_name"],
+        "decision_rule_id": common["decision_rule_id"],
+        "linked_uncertainty_case_ids": uncertainty_case_ids,
+        "linked_method_confirmation_protocol_ids": method_protocol_ids,
+        "linked_software_validation_release_ids": software_release_ids,
+        "reference_asset_refs": reference_asset_refs,
+        "certificate_lifecycle_refs": certificate_lifecycle_refs,
+    }
+
+
+def _build_default_registry_rows_v2(run_id: str, common: dict[str, Any], linkages: dict[str, Any]) -> list[dict[str, Any]]:
+    base = {
+        "comparison_version": WP6_COMPARISON_VERSION,
+        "scope_id": linkages["scope_id"],
+        "decision_rule_id": linkages["decision_rule_id"],
+        "status": "readiness_mapping_only",
+        "evidence_source": "simulated",
+        "import_mode": "manual_fixture",
+        "reviewer_only": True,
+        "readiness_mapping_only": True,
+        "not_real_acceptance_evidence": True,
+        "not_ready_for_formal_claim": True,
+        "primary_evidence_rewritten": False,
+        "linked_uncertainty_case_ids": list(linkages["linked_uncertainty_case_ids"]),
+        "linked_method_confirmation_protocol_ids": list(linkages["linked_method_confirmation_protocol_ids"]),
+        "linked_software_validation_release_ids": list(linkages["linked_software_validation_release_ids"]),
+        "reference_asset_refs": list(linkages["reference_asset_refs"]),
+        "certificate_lifecycle_refs": list(linkages["certificate_lifecycle_refs"]),
+        "limitation_note": common["limitation_note"],
+        "non_claim_note": common["non_claim_note"],
+    }
+    return [
+        {
+            **base,
+            "comparison_id": f"{run_id}-pt-demo-001",
+            "comparison_type": "PT",
+            "source_file": f"local_fixture://{run_id}/external_comparison_pt.json",
+            "scheme_name": "PT readiness fixture",
+            "participant_code": "PT-DEMO-A",
+            "comparison_scope_summary": f"{common['scope_name']} / {common['scope_id']}",
+            "comparison_digest": "PT local fixture normalized for reviewer-only linkage mapping.",
+            "reference_value": "1.000",
+            "reported_value": "1.003",
+            "difference_summary": "+0.003",
+            "normalized_result": "z=0.20",
+        },
+        {
+            **base,
+            "comparison_id": f"{run_id}-ilc-demo-001",
+            "comparison_type": "ILC",
+            "source_file": f"local_fixture://{run_id}/external_comparison_ilc.csv",
+            "scheme_name": "ILC readiness fixture",
+            "participant_code": "ILC-DEMO-B",
+            "comparison_scope_summary": f"{common['scope_name']} / {common['scope_id']}",
+            "comparison_digest": "ILC local fixture normalized for reviewer-only linkage mapping.",
+            "reference_value": "0.500",
+            "reported_value": "0.498",
+            "difference_summary": "-0.002",
+            "normalized_result": "En=0.10",
+        },
+    ]
+
+
+def _build_comparison_context_v2(common: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
+    linkages = _resolve_comparison_linkages_v2(common)
+    comparison_types = [str(row.get("comparison_type") or "readiness_demo") for row in rows]
+    import_modes = [str(row.get("import_mode") or "manual_fixture") for row in rows]
+    source_files = _dedupe([str(row.get("source_file") or "").strip() for row in rows if str(row.get("source_file") or "").strip()])
+    coverage_summary = {
+        "scope_linked": bool(linkages["scope_id"]),
+        "decision_rule_linked": bool(linkages["decision_rule_id"]),
+        "uncertainty_linked": bool(linkages["linked_uncertainty_case_ids"]),
+        "method_confirmation_linked": bool(linkages["linked_method_confirmation_protocol_ids"]),
+        "software_validation_linked": bool(linkages["linked_software_validation_release_ids"]),
+        "reference_assets_linked": bool(linkages["reference_asset_refs"]),
+        "certificates_linked": bool(linkages["certificate_lifecycle_refs"]),
+    }
+    coverage_summary["overall_coverage"] = (
+        "linked_readiness_only"
+        if all(bool(value) for key, value in coverage_summary.items() if key != "overall_coverage")
+        else "partial_readiness_only"
+    )
+    gaps: list[str] = []
+    if not coverage_summary["uncertainty_linked"]:
+        gaps.append("uncertainty linkage pending")
+    if not coverage_summary["method_confirmation_linked"]:
+        gaps.append("method confirmation linkage pending")
+    if not coverage_summary["software_validation_linked"]:
+        gaps.append("software validation linkage pending")
+    if not coverage_summary["reference_assets_linked"]:
+        gaps.append("reference asset linkage pending")
+    if not coverage_summary["certificates_linked"]:
+        gaps.append("certificate lifecycle linkage pending")
+    gaps.extend(
+        [
+            "local comparison import remains reviewer-only and readiness-mapping-only",
+            "no formal PT/ILC or external comparison conclusion is produced in Step 2",
+        ]
+    )
+    reviewer_actions = [
+        "check local-file traces and normalized schema before using the pack for review",
+        "confirm scope and decision-rule binding matches the current readiness package",
+        "keep all comparison evidence reviewer-only and do not issue a formal claim",
+    ]
+    if not coverage_summary["uncertainty_linked"]:
+        reviewer_actions.append("backfill uncertainty linkage before wider readiness handoff")
+    if not coverage_summary["method_confirmation_linked"]:
+        reviewer_actions.append("backfill method confirmation linkage before Step 3 planning")
+    overview_summary = (
+        f"external comparison rows {len(rows)} | "
+        f"types {_count_summary(comparison_types)} | "
+        f"scope {linkages['scope_id']} | decision rule {linkages['decision_rule_id']}"
+    )
+    return {
+        "rows": [dict(row) for row in rows],
+        "linkages": linkages,
+        "comparison_type_summary": _count_summary(comparison_types),
+        "comparison_types_present": _dedupe(comparison_types),
+        "source_files": source_files,
+        "import_mode_summary": _count_summary(import_modes),
+        "coverage_summary": coverage_summary,
+        "gap_summary": gaps,
+        "reviewer_actions": reviewer_actions,
+        "scope_overview_summary": f"{linkages['scope_name']} ({linkages['scope_id']})",
+        "decision_rule_summary": linkages["decision_rule_id"],
+        "protocol_overview_summary": _id_summary(linkages["linked_method_confirmation_protocol_ids"]),
+        "matrix_completeness_summary": (
+            f"rows {len(rows)} | types {_count_summary(comparison_types)} | import {_count_summary(import_modes)}"
+        ),
+        "current_evidence_coverage_summary": (
+            f"uncertainty {len(linkages['linked_uncertainty_case_ids'])} | "
+            f"method {len(linkages['linked_method_confirmation_protocol_ids'])} | "
+            f"software {len(linkages['linked_software_validation_release_ids'])} | "
+            f"assets {len(linkages['reference_asset_refs'])} | "
+            f"certificates {len(linkages['certificate_lifecycle_refs'])}"
+        ),
+        "top_gaps_summary": " | ".join(gaps[:3]),
+        "readiness_status_summary": "reviewer-only external comparison mapping; not ready for a formal claim",
+        "missing_evidence_summary": " | ".join(gaps),
+        "comparison_overview_summary": overview_summary,
+        "comparison_import_trace_summary": (
+            f"source files {len(source_files)} | import modes {_count_summary(import_modes)} | evidence_source simulated"
+        ),
+        "linked_scope_decision_summary": f"{linkages['scope_id']} | {linkages['decision_rule_id']}",
+        "linked_uncertainty_case_ids_summary": _id_summary(linkages["linked_uncertainty_case_ids"]),
+        "linked_method_confirmation_protocol_ids_summary": _id_summary(linkages["linked_method_confirmation_protocol_ids"]),
+        "linked_software_validation_release_ids_summary": _id_summary(linkages["linked_software_validation_release_ids"]),
+        "reference_asset_refs_summary": _id_summary(linkages["reference_asset_refs"]),
+        "certificate_lifecycle_refs_summary": _id_summary(linkages["certificate_lifecycle_refs"]),
+        "imported_source_summary": {
+            "row_count": len(rows),
+            "source_count": len(source_files),
+            "import_modes": list(_dedupe(import_modes)),
+            "all_simulated": True,
+        },
+        "compact_summary_lines": [
+            overview_summary,
+            (
+                f"linked uncertainty {len(linkages['linked_uncertainty_case_ids'])} | "
+                f"method {len(linkages['linked_method_confirmation_protocol_ids'])} | "
+                f"software {len(linkages['linked_software_validation_release_ids'])}"
+            ),
+            (
+                f"reference assets {len(linkages['reference_asset_refs'])} | "
+                f"certificates {len(linkages['certificate_lifecycle_refs'])}"
+            ),
+            "local-file-only import | simulated evidence | reviewer-only",
+            "not real acceptance evidence | not ready for formal claim",
+        ],
+    }
+
+
+def _comparison_batch_payload_v2(
+    rows: list[dict[str, Any]],
+    *,
+    source_file: str,
+    import_mode: str,
+) -> dict[str, Any]:
+    return {
+        "rows": [dict(row) for row in rows],
+        "row_count": len(rows),
+        "comparison_types_present": _dedupe([str(row.get("comparison_type") or "") for row in rows]),
+        "source_file": source_file,
+        "source_files": _dedupe([str(row.get("source_file") or source_file).strip() for row in rows if str(row.get("source_file") or source_file).strip()]),
+        "import_mode": import_mode,
+        "evidence_source": "simulated",
+        "schema_normalized": True,
+    }
+
+
+def _normalize_comparison_payload(
+    payload: dict[str, Any],
+    *,
+    source_file: str = "",
+    import_mode: str = "local_json",
+    inherited_defaults: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    combined = dict(inherited_defaults or {})
+    combined.update(dict(payload or {}))
+    normalized = {
+        "comparison_id": _safe_str(combined.get("comparison_id") or "unknown"),
+        "comparison_version": _safe_str(combined.get("comparison_version") or WP6_COMPARISON_VERSION),
+        "comparison_type": _normalize_comparison_type_v2(combined.get("comparison_type")),
+        "scope_id": _safe_str(combined.get("scope_id") or ""),
+        "decision_rule_id": _safe_str(combined.get("decision_rule_id") or ""),
+        "status": _safe_str(combined.get("status") or "imported_readiness_demo"),
+        "scheme_name": _safe_str(combined.get("scheme_name") or combined.get("comparison_scheme") or ""),
+        "participant_code": _safe_str(combined.get("participant_code") or combined.get("participant_id") or ""),
+        "comparison_scope_summary": _safe_str(combined.get("comparison_scope_summary") or ""),
+        "comparison_digest": _safe_str(combined.get("comparison_digest") or combined.get("summary") or ""),
+        "reference_value": _safe_str(combined.get("reference_value") or combined.get("assigned_value") or ""),
+        "reported_value": _safe_str(combined.get("reported_value") or ""),
+        "difference_summary": _safe_str(combined.get("difference_summary") or combined.get("difference") or ""),
+        "normalized_result": _safe_str(combined.get("normalized_result") or combined.get("z_score") or combined.get("en_value") or ""),
+        "evidence_source": "simulated",
+        "import_mode": _normalize_import_mode_v2(combined.get("import_mode"), default=import_mode),
+        "source_file": _safe_str(source_file or combined.get("source_file") or ""),
+        "schema_normalized": True,
+        "reviewer_only": True,
+        "readiness_mapping_only": True,
+        "not_real_acceptance_evidence": True,
+        "not_ready_for_formal_claim": True,
+        "primary_evidence_rewritten": False,
+        "limitation_note": _LIMITATION_NOTE,
+        "non_claim_note": _NON_CLAIM_NOTE,
+    }
+    for field in _COMPARISON_LIST_FIELDS:
+        normalized[field] = _comparison_text_list(combined.get(field))
+    excluded = {
+        "rows",
+        "comparisons",
+        "comparison_rows",
+        "comparison_id",
+        "comparison_version",
+        "comparison_type",
+        "scope_id",
+        "decision_rule_id",
+        "status",
+        "scheme_name",
+        "comparison_scheme",
+        "participant_code",
+        "participant_id",
+        "comparison_scope_summary",
+        "comparison_digest",
+        "reference_value",
+        "assigned_value",
+        "reported_value",
+        "difference_summary",
+        "difference",
+        "normalized_result",
+        "z_score",
+        "en_value",
+        "evidence_source",
+        "import_mode",
+        "source_file",
+        "schema_normalized",
+        "reviewer_only",
+        "readiness_mapping_only",
+        "not_real_acceptance_evidence",
+        "not_ready_for_formal_claim",
+        "primary_evidence_rewritten",
+        "limitation_note",
+        "non_claim_note",
+        *_COMPARISON_LIST_FIELDS,
+    }
+    normalized["extra_fields"] = {
+        key: value
+        for key, value in combined.items()
+        if key not in excluded
+    }
+    return normalized
+
+
+def import_comparison_from_json(file_path: Path) -> dict[str, Any]:
+    if not file_path.exists():
+        return {
+            "status": "warning",
+            "warning_type": "file_not_found",
+            "message": f"file not found: {file_path}",
+            "imported_data": {},
+            "evidence_source": "simulated",
+            "reviewer_only": True,
+            "readiness_mapping_only": True,
+            "not_real_acceptance_evidence": True,
+        }
+    try:
+        payload = json.loads(file_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        return {
+            "status": "warning",
+            "warning_type": "json_parse_error",
+            "message": f"json parse failed: {exc}",
+            "imported_data": {},
+            "evidence_source": "simulated",
+            "reviewer_only": True,
+            "readiness_mapping_only": True,
+            "not_real_acceptance_evidence": True,
+        }
+    if not isinstance(payload, dict):
+        return {
+            "status": "warning",
+            "warning_type": "invalid_schema",
+            "message": "json root must be an object",
+            "imported_data": {},
+            "evidence_source": "simulated",
+            "reviewer_only": True,
+            "readiness_mapping_only": True,
+            "not_real_acceptance_evidence": True,
+        }
+    rows = _comparison_rows(payload)
+    if rows:
+        inherited_defaults = {
+            key: value for key, value in payload.items() if key not in {"rows", "comparisons", "comparison_rows"}
+        }
+        imported_data = _comparison_batch_payload_v2(
+            [
+                _normalize_comparison_payload(
+                    row,
+                    source_file=str(file_path),
+                    import_mode="local_json",
+                    inherited_defaults=inherited_defaults,
+                )
+                for row in rows
+            ],
+            source_file=str(file_path),
+            import_mode="local_json",
+        )
+    else:
+        imported_data = _normalize_comparison_payload(
+            payload,
+            source_file=str(file_path),
+            import_mode="local_json",
+        )
+    return {
+        "status": "ok",
+        "warning_type": None,
+        "message": "imported local json and normalized schema for reviewer-only readiness mapping",
+        "imported_data": imported_data,
+        "evidence_source": "simulated",
+        "import_mode": "local_json",
+        "source_file": str(file_path),
+        "reviewer_only": True,
+        "readiness_mapping_only": True,
+        "not_real_acceptance_evidence": True,
+        "not_ready_for_formal_claim": True,
+        "primary_evidence_rewritten": False,
+    }
+
+
+def import_comparison_from_csv(file_path: Path) -> dict[str, Any]:
+    if not file_path.exists():
+        return {
+            "status": "warning",
+            "warning_type": "file_not_found",
+            "message": f"file not found: {file_path}",
+            "imported_data": {},
+            "evidence_source": "simulated",
+            "reviewer_only": True,
+            "readiness_mapping_only": True,
+            "not_real_acceptance_evidence": True,
+        }
+    try:
+        text = file_path.read_text(encoding="utf-8")
+        reader = csv.DictReader(io.StringIO(text))
+        rows = [dict(row) for row in reader]
+    except Exception as exc:
+        return {
+            "status": "warning",
+            "warning_type": "csv_parse_error",
+            "message": f"csv parse failed: {exc}",
+            "imported_data": {},
+            "evidence_source": "simulated",
+            "reviewer_only": True,
+            "readiness_mapping_only": True,
+            "not_real_acceptance_evidence": True,
+        }
+    normalized_rows = [
+        _normalize_comparison_payload(
+            row,
+            source_file=str(file_path),
+            import_mode="local_csv",
+        )
+        for row in rows
+    ]
+    return {
+        "status": "ok",
+        "warning_type": None,
+        "message": f"imported {len(normalized_rows)} local csv rows and normalized schema",
+        "imported_data": _comparison_batch_payload_v2(
+            normalized_rows,
+            source_file=str(file_path),
+            import_mode="local_csv",
+        ),
+        "evidence_source": "simulated",
+        "import_mode": "local_csv",
+        "source_file": str(file_path),
+        "reviewer_only": True,
+        "readiness_mapping_only": True,
+        "not_real_acceptance_evidence": True,
+        "not_ready_for_formal_claim": True,
+        "primary_evidence_rewritten": False,
+    }
+
+
+def _pt_ilc_registry_artifact(
+    *,
+    run_id: str,
+    common: dict[str, Any],
+    path_map: dict[str, str],
+    filenames: dict[str, str],
+    boundary_statements: list[str],
+) -> dict[str, Any]:
+    comparison_id = f"{run_id}-pt-ilc-registry"
+    linkages = _resolve_comparison_linkages_v2(common)
+    rows = _build_default_registry_rows_v2(run_id, common, linkages)
+    context = _build_comparison_context_v2(common, rows)
+    digest = {
+        "comparison_id": comparison_id,
+        "entry_count": len(rows),
+        "comparison_types_present": list(context["comparison_types_present"]),
+        "all_simulated": True,
+        "scope_overview_summary": context["scope_overview_summary"],
+        "decision_rule_summary": context["decision_rule_summary"],
+        "matrix_completeness_summary": context["matrix_completeness_summary"],
+        "current_evidence_coverage_summary": context["current_evidence_coverage_summary"],
+        "readiness_status_summary": context["readiness_status_summary"],
+        "comparison_import_trace_summary": context["comparison_import_trace_summary"],
+        "summary": context["comparison_overview_summary"],
+    }
+    return _bundle(
+        run_id=run_id,
+        artifact_type="pt_ilc_registry",
+        filename=filenames.get("pt_ilc_registry", PT_ILC_REGISTRY_FILENAME),
+        markdown_filename=filenames.get("pt_ilc_registry_markdown", PT_ILC_REGISTRY_MARKDOWN_FILENAME),
+        artifact_role="pt_ilc_registry",
+        title_text="PT/ILC Registry",
+        reviewer_note=common["reviewer_note"],
+        summary_text=context["comparison_overview_summary"],
+        summary_lines=[
+            f"rows: {len(rows)}",
+            f"types: {context['comparison_type_summary']}",
+            f"import trace: {context['comparison_import_trace_summary']}",
+            "all rows remain simulated and reviewer-only",
+        ],
+        detail_lines=[
+            f"comparison_id: {comparison_id}",
+            f"scope_id: {common['scope_id']}",
+            f"decision_rule_id: {common['decision_rule_id']}",
+            f"linked uncertainty: {context['linked_uncertainty_case_ids_summary']}",
+            f"linked method: {context['linked_method_confirmation_protocol_ids_summary']}",
+            f"linked software validation: {context['linked_software_validation_release_ids_summary']}",
+        ],
+        artifact_paths=_base_artifact_paths(path_map, "pt_ilc_registry", "comparison_evidence_pack", "comparison_rollup"),
+        body={
+            "comparison_id": comparison_id,
+            "comparison_version": WP6_COMPARISON_VERSION,
+            "rows": rows,
+            "scope_id": common["scope_id"],
+            "decision_rule_id": common["decision_rule_id"],
+            **dict(context["linkages"]),
+            "source_files": list(context["source_files"]),
+            "import_mode": "manual_fixture",
+            "comparison_overview_summary": context["comparison_overview_summary"],
+            "comparison_import_trace_summary": context["comparison_import_trace_summary"],
+            "compact_summary_lines": list(context["compact_summary_lines"]),
+            "reviewer_only": True,
+            "readiness_mapping_only": True,
+            "not_real_acceptance_evidence": True,
+            "not_ready_for_formal_claim": True,
+            "primary_evidence_rewritten": False,
+            "limitation_note": common["limitation_note"],
+            "non_claim_note": common["non_claim_note"],
+        },
+        digest=digest,
+        boundary_statements=boundary_statements,
+        evidence_categories=["recognition_readiness", "pt_ilc_comparison"],
+    )
+
+
+def _importer_artifact(
+    *,
+    run_id: str,
+    common: dict[str, Any],
+    path_map: dict[str, str],
+    filenames: dict[str, str],
+    boundary_statements: list[str],
+) -> dict[str, Any]:
+    importer_id = f"{run_id}-comparison-importer"
+    supported_formats = ["json", "csv"]
+    import_schema = {
+        "json_root_modes": ["single_row_object", "object_with_rows", "object_with_comparisons"],
+        "csv_columns": [
+            "comparison_id",
+            "comparison_version",
+            "comparison_type",
+            "scope_id",
+            "decision_rule_id",
+            "status",
+            "scheme_name",
+            "participant_code",
+            "reference_value",
+            "reported_value",
+            "difference_summary",
+            "normalized_result",
+            "linked_uncertainty_case_ids",
+            "linked_method_confirmation_protocol_ids",
+            "linked_software_validation_release_ids",
+            "reference_asset_refs",
+            "certificate_lifecycle_refs",
+        ],
+        "trace_fields": ["source_file", "import_mode", "evidence_source"],
+        "required_fields": ["comparison_id"],
+        "auto_linkage_fields": list(_COMPARISON_LIST_FIELDS) + ["scope_id", "decision_rule_id"],
+        "conservative_defaults": {
+            "comparison_type": "readiness_demo",
+            "status": "imported_readiness_demo",
+            "evidence_source": "simulated",
+            "import_mode": "local_json/local_csv",
+        },
+        "network_access": False,
+        "offline_only": True,
+    }
+    digest = {
+        "importer_id": importer_id,
+        "supported_formats": supported_formats,
+        "network_access": False,
+        "offline_only": True,
+        "scope_overview_summary": f"{common['scope_name']} ({common['scope_id']})",
+        "decision_rule_summary": common["decision_rule_id"],
+        "current_evidence_coverage_summary": "local JSON/CSV import with conservative normalization and explicit trace fields",
+        "readiness_status_summary": "offline importer only; no network and no formal external-comparison conclusion",
+        "summary": "local JSON/CSV import normalizes schema and stamps source_file/import_mode/evidence_source",
+    }
+    return _bundle(
+        run_id=run_id,
+        artifact_type="external_comparison_importer",
+        filename=filenames.get("external_comparison_importer", EXTERNAL_COMPARISON_IMPORTER_FILENAME),
+        markdown_filename=filenames.get("external_comparison_importer_markdown", EXTERNAL_COMPARISON_IMPORTER_MARKDOWN_FILENAME),
+        artifact_role="external_comparison_importer",
+        title_text="External Comparison Importer",
+        reviewer_note=common["reviewer_note"],
+        summary_text="offline-only importer for local JSON/CSV external comparison files",
+        summary_lines=[
+            f"supported formats: {', '.join(supported_formats)}",
+            "schema normalize: enabled",
+            "trace fields: source_file / import_mode / evidence_source",
+            "network access: disabled",
+        ],
+        detail_lines=[
+            f"importer_id: {importer_id}",
+            "local-file-only: true",
+            "conservative defaults: reviewer-only / readiness-mapping-only / simulated",
+            "no connection to third-party PT/ILC systems is allowed in Step 2",
+        ],
+        artifact_paths=_base_artifact_paths(path_map, "external_comparison_importer", "pt_ilc_registry"),
+        body={
+            "importer_id": importer_id,
+            "supported_formats": supported_formats,
+            "supported_import_modes": list(IMPORT_MODES),
+            "import_schema": import_schema,
+            "network_access": False,
+            "offline_only": True,
+            "default_evidence_source": "simulated",
+            "schema_validation": "normalize_and_conservative_defaults",
+            "legacy_compatibility": True,
+            "missing_field_policy": "conservative_placeholder",
+            "invalid_input_policy": "reviewer_friendly_warning",
+            "reviewer_only": True,
+            "readiness_mapping_only": True,
+            "not_real_acceptance_evidence": True,
+            "not_ready_for_formal_claim": True,
+            "primary_evidence_rewritten": False,
+            "limitation_note": common["limitation_note"],
+            "non_claim_note": common["non_claim_note"],
+        },
+        digest=digest,
+        boundary_statements=boundary_statements,
+        evidence_categories=["recognition_readiness", "pt_ilc_comparison"],
+    )
+
+
+def _comparison_evidence_pack_artifact(
+    *,
+    run_id: str,
+    common: dict[str, Any],
+    registry: dict[str, Any],
+    path_map: dict[str, str],
+    filenames: dict[str, str],
+    boundary_statements: list[str],
+) -> dict[str, Any]:
+    pack_id = f"{run_id}-comparison-evidence-pack"
+    context = _build_comparison_context_v2(common, _comparison_rows(dict(registry.get("raw") or {})))
+    linkages = dict(context["linkages"])
+    coverage_summary = dict(context["coverage_summary"])
+    digest = {
+        "pack_id": pack_id,
+        "coverage": coverage_summary,
+        "gap_count": len(context["gap_summary"]),
+        "reviewer_action_count": len(context["reviewer_actions"]),
+        "scope_overview_summary": context["scope_overview_summary"],
+        "decision_rule_summary": context["decision_rule_summary"],
+        "protocol_overview_summary": context["protocol_overview_summary"],
+        "matrix_completeness_summary": context["matrix_completeness_summary"],
+        "current_evidence_coverage_summary": context["current_evidence_coverage_summary"],
+        "top_gaps_summary": context["top_gaps_summary"],
+        "readiness_status_summary": context["readiness_status_summary"],
+        "missing_evidence_summary": context["missing_evidence_summary"],
+        "linked_scope_decision_summary": context["linked_scope_decision_summary"],
+        "linked_uncertainty_case_ids_summary": context["linked_uncertainty_case_ids_summary"],
+        "linked_method_confirmation_protocol_ids_summary": context["linked_method_confirmation_protocol_ids_summary"],
+        "linked_software_validation_release_ids_summary": context["linked_software_validation_release_ids_summary"],
+        "scope_reference_assets_summary": context["reference_asset_refs_summary"],
+        "certificate_lifecycle_summary": context["certificate_lifecycle_refs_summary"],
+        "comparison_overview_summary": context["comparison_overview_summary"],
+        "comparison_import_trace_summary": context["comparison_import_trace_summary"],
+        "summary": context["comparison_overview_summary"],
+    }
+    return _bundle(
+        run_id=run_id,
+        artifact_type="comparison_evidence_pack",
+        filename=filenames.get("comparison_evidence_pack", COMPARISON_EVIDENCE_PACK_FILENAME),
+        markdown_filename=filenames.get("comparison_evidence_pack_markdown", COMPARISON_EVIDENCE_PACK_MARKDOWN_FILENAME),
+        artifact_role="comparison_evidence_pack",
+        title_text="Comparison Evidence Pack",
+        reviewer_note=common["reviewer_note"],
+        summary_text=context["comparison_overview_summary"],
+        summary_lines=[
+            f"coverage: {coverage_summary['overall_coverage']}",
+            f"import trace: {context['comparison_import_trace_summary']}",
+            f"gaps: {len(context['gap_summary'])}",
+            f"reviewer actions: {len(context['reviewer_actions'])}",
+        ],
+        detail_lines=[
+            f"pack_id: {pack_id}",
+            f"linked scope/decision: {context['linked_scope_decision_summary']}",
+            f"linked uncertainty: {context['linked_uncertainty_case_ids_summary']}",
+            f"linked method: {context['linked_method_confirmation_protocol_ids_summary']}",
+            f"linked software validation: {context['linked_software_validation_release_ids_summary']}",
+            "formal external-comparison conclusions stay out of scope in Step 2",
+        ],
+        artifact_paths=_base_artifact_paths(path_map, "comparison_evidence_pack", "pt_ilc_registry", "scope_comparison_view", "comparison_digest", "comparison_rollup"),
+        body={
+            "pack_id": pack_id,
+            "comparison_rows": list(context["rows"]),
+            "comparison_overview": {
+                "comparison_types": list(context["comparison_types_present"]),
+                "status": "readiness_mapping_only",
+            },
+            "imported_source_summary": dict(context["imported_source_summary"]),
+            "scope_id": linkages["scope_id"],
+            "decision_rule_id": linkages["decision_rule_id"],
+            "linked_uncertainty_case_ids": list(linkages["linked_uncertainty_case_ids"]),
+            "linked_method_confirmation_protocol_ids": list(linkages["linked_method_confirmation_protocol_ids"]),
+            "linked_software_validation_release_ids": list(linkages["linked_software_validation_release_ids"]),
+            "reference_asset_refs": list(linkages["reference_asset_refs"]),
+            "certificate_lifecycle_refs": list(linkages["certificate_lifecycle_refs"]),
+            "scope_linkage": {"scope_id": linkages["scope_id"], "scope_name": linkages["scope_name"]},
+            "decision_rule_linkage": {"decision_rule_id": linkages["decision_rule_id"]},
+            "uncertainty_linkage": {"linked_uncertainty_case_ids": list(linkages["linked_uncertainty_case_ids"])},
+            "method_confirmation_linkage": {"linked_method_confirmation_protocol_ids": list(linkages["linked_method_confirmation_protocol_ids"])},
+            "software_validation_linkage": {"linked_software_validation_release_ids": list(linkages["linked_software_validation_release_ids"])},
+            "reference_asset_linkage": {"reference_asset_refs": list(linkages["reference_asset_refs"])},
+            "certificate_lifecycle_linkage": {"certificate_lifecycle_refs": list(linkages["certificate_lifecycle_refs"])},
+            "coverage_summary": coverage_summary,
+            "gap_summary": list(context["gap_summary"]),
+            "reviewer_actions": list(context["reviewer_actions"]),
+            "comparison_overview_summary": context["comparison_overview_summary"],
+            "comparison_import_trace_summary": context["comparison_import_trace_summary"],
+            "compact_summary_lines": list(context["compact_summary_lines"]),
+            "non_claim_note": common["non_claim_note"],
+            "reviewer_only": True,
+            "readiness_mapping_only": True,
+            "not_real_acceptance_evidence": True,
+            "not_ready_for_formal_claim": True,
+            "primary_evidence_rewritten": False,
+            "limitation_note": common["limitation_note"],
+        },
+        digest=digest,
+        boundary_statements=boundary_statements,
+        evidence_categories=["recognition_readiness", "pt_ilc_comparison"],
+    )
+
+
+def _scope_comparison_view_artifact(
+    *,
+    run_id: str,
+    common: dict[str, Any],
+    registry: dict[str, Any],
+    path_map: dict[str, str],
+    filenames: dict[str, str],
+    boundary_statements: list[str],
+) -> dict[str, Any]:
+    view_id = f"{run_id}-scope-comparison-view"
+    context = _build_comparison_context_v2(common, _comparison_rows(dict(registry.get("raw") or {})))
+    digest = {
+        "view_id": view_id,
+        "scope_id": common["scope_id"],
+        "comparison_entries": len(context["rows"]),
+        "all_simulated": True,
+        "scope_overview_summary": context["scope_overview_summary"],
+        "decision_rule_summary": context["decision_rule_summary"],
+        "matrix_completeness_summary": context["matrix_completeness_summary"],
+        "current_evidence_coverage_summary": context["current_evidence_coverage_summary"],
+        "top_gaps_summary": context["top_gaps_summary"],
+        "readiness_status_summary": context["readiness_status_summary"],
+        "comparison_overview_summary": context["comparison_overview_summary"],
+        "summary": context["comparison_overview_summary"],
+    }
+    return _bundle(
+        run_id=run_id,
+        artifact_type="scope_comparison_view",
+        filename=filenames.get("scope_comparison_view", SCOPE_COMPARISON_VIEW_FILENAME),
+        markdown_filename=filenames.get("scope_comparison_view_markdown", SCOPE_COMPARISON_VIEW_MARKDOWN_FILENAME),
+        artifact_role="scope_comparison_view",
+        title_text="Scope Comparison View",
+        reviewer_note=common["reviewer_note"],
+        summary_text=context["comparison_overview_summary"],
+        summary_lines=[
+            f"scope_id: {common['scope_id']}",
+            f"decision_rule_id: {common['decision_rule_id']}",
+            f"rows: {len(context['rows'])}",
+            f"coverage: {context['current_evidence_coverage_summary']}",
+        ],
+        detail_lines=[
+            f"view_id: {view_id}",
+            f"types: {context['comparison_type_summary']}",
+            f"import trace: {context['comparison_import_trace_summary']}",
+            "scope view is navigational and does not imply scope equivalence",
+        ],
+        artifact_paths=_base_artifact_paths(path_map, "scope_comparison_view", "comparison_evidence_pack"),
+        body={
+            "view_id": view_id,
+            "scope_id": common["scope_id"],
+            "scope_name": common["scope_name"],
+            "decision_rule_id": common["decision_rule_id"],
+            "comparison_entries": [
+                {
+                    "comparison_id": str(row.get("comparison_id") or ""),
+                    "comparison_type": str(row.get("comparison_type") or ""),
+                    "status": str(row.get("status") or ""),
+                    "import_mode": str(row.get("import_mode") or ""),
+                    "source_file": str(row.get("source_file") or ""),
+                    "evidence_source": str(row.get("evidence_source") or "simulated"),
+                    "normalized_result": str(row.get("normalized_result") or ""),
+                }
+                for row in context["rows"]
+            ],
+            "linked_uncertainty_case_ids": list(context["linkages"]["linked_uncertainty_case_ids"]),
+            "linked_method_confirmation_protocol_ids": list(context["linkages"]["linked_method_confirmation_protocol_ids"]),
+            "linked_software_validation_release_ids": list(context["linkages"]["linked_software_validation_release_ids"]),
+            "reference_asset_refs": list(context["linkages"]["reference_asset_refs"]),
+            "certificate_lifecycle_refs": list(context["linkages"]["certificate_lifecycle_refs"]),
+            "current_evidence_coverage": context["coverage_summary"]["overall_coverage"],
+            "comparison_overview_summary": context["comparison_overview_summary"],
+            "comparison_import_trace_summary": context["comparison_import_trace_summary"],
+            "gaps": list(context["gap_summary"]),
+            "reviewer_actions": list(context["reviewer_actions"]),
+            "compact_summary_lines": list(context["compact_summary_lines"]),
+            "reviewer_only": True,
+            "readiness_mapping_only": True,
+            "not_real_acceptance_evidence": True,
+            "not_ready_for_formal_claim": True,
+            "primary_evidence_rewritten": False,
+            "non_claim_note": common["non_claim_note"],
+            "limitation_note": common["limitation_note"],
+        },
+        digest=digest,
+        boundary_statements=boundary_statements,
+        evidence_categories=["recognition_readiness", "pt_ilc_comparison"],
+    )
+
+
+def _comparison_digest_artifact(
+    *,
+    run_id: str,
+    common: dict[str, Any],
+    evidence_pack: dict[str, Any],
+    registry: dict[str, Any],
+    path_map: dict[str, str],
+    filenames: dict[str, str],
+    boundary_statements: list[str],
+) -> dict[str, Any]:
+    digest_id = f"{run_id}-comparison-digest"
+    context = _build_comparison_context_v2(common, _comparison_rows(dict(registry.get("raw") or {})))
+    ep_digest = dict(evidence_pack.get("digest") or {})
+    digest = {
+        "digest_id": digest_id,
+        "scope_id": common["scope_id"],
+        "decision_rule_id": common["decision_rule_id"],
+        "coverage": ep_digest.get("coverage", context["coverage_summary"]),
+        "gap_count": ep_digest.get("gap_count", len(context["gap_summary"])),
+        "reviewer_action_count": ep_digest.get("reviewer_action_count", len(context["reviewer_actions"])),
+        "all_simulated": True,
+        "scope_overview_summary": context["scope_overview_summary"],
+        "decision_rule_summary": context["decision_rule_summary"],
+        "protocol_overview_summary": context["protocol_overview_summary"],
+        "matrix_completeness_summary": context["matrix_completeness_summary"],
+        "current_evidence_coverage_summary": context["current_evidence_coverage_summary"],
+        "top_gaps_summary": context["top_gaps_summary"],
+        "readiness_status_summary": context["readiness_status_summary"],
+        "missing_evidence_summary": context["missing_evidence_summary"],
+        "comparison_overview_summary": context["comparison_overview_summary"],
+        "comparison_import_trace_summary": context["comparison_import_trace_summary"],
+        "linked_scope_decision_summary": context["linked_scope_decision_summary"],
+        "linked_uncertainty_case_ids_summary": context["linked_uncertainty_case_ids_summary"],
+        "linked_method_confirmation_protocol_ids_summary": context["linked_method_confirmation_protocol_ids_summary"],
+        "linked_software_validation_release_ids_summary": context["linked_software_validation_release_ids_summary"],
+        "summary": context["comparison_overview_summary"],
+    }
+    return _bundle(
+        run_id=run_id,
+        artifact_type="comparison_digest",
+        filename=filenames.get("comparison_digest", COMPARISON_DIGEST_FILENAME),
+        markdown_filename=filenames.get("comparison_digest_markdown", COMPARISON_DIGEST_MARKDOWN_FILENAME),
+        artifact_role="comparison_digest",
+        title_text="Comparison Digest",
+        reviewer_note=common["reviewer_note"],
+        summary_text=context["comparison_overview_summary"],
+        summary_lines=[
+            f"scope_id: {common['scope_id']}",
+            f"gap count: {digest['gap_count']}",
+            f"reviewer actions: {digest['reviewer_action_count']}",
+            f"import trace: {context['comparison_import_trace_summary']}",
+        ],
+        detail_lines=[
+            f"digest_id: {digest_id}",
+            f"coverage: {context['coverage_summary']['overall_coverage']}",
+            f"linked scope/decision: {context['linked_scope_decision_summary']}",
+            "digest remains reviewer-side and cannot be used as a formal comparison claim",
+        ],
+        artifact_paths=_base_artifact_paths(path_map, "comparison_digest", "comparison_evidence_pack"),
+        body={
+            "digest_id": digest_id,
+            "scope_id": common["scope_id"],
+            "decision_rule_id": common["decision_rule_id"],
+            "coverage_summary": dict(context["coverage_summary"]),
+            "gap_count": digest["gap_count"],
+            "reviewer_action_count": digest["reviewer_action_count"],
+            "comparison_overview_summary": context["comparison_overview_summary"],
+            "comparison_import_trace_summary": context["comparison_import_trace_summary"],
+            "compact_summary_lines": list(context["compact_summary_lines"]),
+            "reviewer_only": True,
+            "readiness_mapping_only": True,
+            "not_real_acceptance_evidence": True,
+            "not_ready_for_formal_claim": True,
+            "primary_evidence_rewritten": False,
+            "non_claim_note": common["non_claim_note"],
+            "limitation_note": common["limitation_note"],
+        },
+        digest=digest,
+        boundary_statements=boundary_statements,
+        evidence_categories=["recognition_readiness", "pt_ilc_comparison"],
+    )
+
+
+def _comparison_rollup_artifact(
+    *,
+    run_id: str,
+    common: dict[str, Any],
+    evidence_pack: dict[str, Any],
+    comparison_digest: dict[str, Any],
+    registry: dict[str, Any],
+    path_map: dict[str, str],
+    filenames: dict[str, str],
+    boundary_statements: list[str],
+) -> dict[str, Any]:
+    rollup_id = f"{run_id}-comparison-rollup"
+    context = _build_comparison_context_v2(common, _comparison_rows(dict(registry.get("raw") or {})))
+    summary_display = f"{context['comparison_overview_summary']} | local-file-only | reviewer-only"
+    digest = {
+        "rollup_id": rollup_id,
+        "scope_id": common["scope_id"],
+        "decision_rule_id": common["decision_rule_id"],
+        "comparison_overview_summary": summary_display,
+        "scope_overview_summary": context["scope_overview_summary"],
+        "decision_rule_summary": context["decision_rule_summary"],
+        "protocol_overview_summary": context["protocol_overview_summary"],
+        "matrix_completeness_summary": context["matrix_completeness_summary"],
+        "current_evidence_coverage_summary": context["current_evidence_coverage_summary"],
+        "top_gaps_summary": context["top_gaps_summary"],
+        "readiness_status_summary": context["readiness_status_summary"],
+        "comparison_import_trace_summary": context["comparison_import_trace_summary"],
+        "linked_scope_decision_summary": context["linked_scope_decision_summary"],
+        "linked_uncertainty_case_ids_summary": context["linked_uncertainty_case_ids_summary"],
+        "linked_method_confirmation_protocol_ids_summary": context["linked_method_confirmation_protocol_ids_summary"],
+        "linked_software_validation_release_ids_summary": context["linked_software_validation_release_ids_summary"],
+        "scope_reference_assets_summary": context["reference_asset_refs_summary"],
+        "certificate_lifecycle_summary": context["certificate_lifecycle_refs_summary"],
+        "summary": summary_display,
+        "all_simulated": True,
+    }
+    return _bundle(
+        run_id=run_id,
+        artifact_type="comparison_rollup",
+        filename=filenames.get("comparison_rollup", COMPARISON_ROLLUP_FILENAME),
+        markdown_filename=filenames.get("comparison_rollup_markdown", COMPARISON_ROLLUP_MARKDOWN_FILENAME),
+        artifact_role="comparison_rollup",
+        title_text="Comparison Rollup",
+        reviewer_note=common["reviewer_note"],
+        summary_text=summary_display,
+        summary_lines=[
+            summary_display,
+            f"scope_id: {common['scope_id']}",
+            f"decision_rule_id: {common['decision_rule_id']}",
+            f"coverage: {context['coverage_summary']['overall_coverage']}",
+            "no formal PT/ILC or external comparison conclusion is produced",
+        ],
+        detail_lines=[
+            f"rollup_id: {rollup_id}",
+            "repository/gateway: file_artifact_first / file_backed_default",
+            "db_ready_stub: enabled=false, not_in_default_chain=true",
+            "primary_evidence_rewritten=false",
+            common["limitation_note"],
+        ],
+        artifact_paths=_base_artifact_paths(path_map, "comparison_rollup", "comparison_digest", "comparison_evidence_pack"),
+        body={
+            "rollup_id": rollup_id,
+            "scope_id": common["scope_id"],
+            "decision_rule_id": common["decision_rule_id"],
+            "rollup_summary_display": summary_display,
+            "comparison_overview_summary": context["comparison_overview_summary"],
+            "comparison_import_trace_summary": context["comparison_import_trace_summary"],
+            "linked_scope_decision_summary": context["linked_scope_decision_summary"],
+            "linked_uncertainty_case_ids_summary": context["linked_uncertainty_case_ids_summary"],
+            "linked_method_confirmation_protocol_ids_summary": context["linked_method_confirmation_protocol_ids_summary"],
+            "linked_software_validation_release_ids_summary": context["linked_software_validation_release_ids_summary"],
+            "reference_asset_refs_summary": context["reference_asset_refs_summary"],
+            "certificate_lifecycle_refs_summary": context["certificate_lifecycle_refs_summary"],
+            "linked_surface_visibility": ["results", "review_center", "workbench", "historical_artifacts"],
+            "rollup_scope": "run-dir",
+            "artifact_count": 6,
+            "legacy_placeholder_used": False,
+            "missing_artifact_types": [],
+            "compact_summary_lines": list(context["compact_summary_lines"]),
+            "db_ready_stub": {
+                "enabled": False,
+                "mode": "db_ready_stub",
+                "default_path": False,
+                "requires_explicit_injection": True,
+                "not_in_default_chain": True,
+            },
+            "reviewer_only": True,
+            "readiness_mapping_only": True,
+            "not_real_acceptance_evidence": True,
+            "not_ready_for_formal_claim": True,
+            "primary_evidence_rewritten": False,
+            "non_claim_note": common["non_claim_note"],
+            "limitation_note": common["limitation_note"],
+        },
+        digest=digest,
+        boundary_statements=boundary_statements,
+        evidence_categories=["recognition_readiness", "pt_ilc_comparison"],
+    )
+
+
+def build_wp6_artifacts(
+    *,
+    run_id: str,
+    scope_definition_pack: dict[str, Any],
+    decision_rule_profile: dict[str, Any],
+    reference_asset_registry: dict[str, Any],
+    certificate_lifecycle_summary: dict[str, Any],
+    pre_run_readiness_gate: dict[str, Any],
+    uncertainty_report_pack: dict[str, Any],
+    uncertainty_rollup: dict[str, Any],
+    method_confirmation_protocol: dict[str, Any],
+    verification_digest: dict[str, Any],
+    software_validation_rollup: dict[str, Any],
+    path_map: dict[str, str],
+    filenames: dict[str, str],
+    boundary_statements: list[str],
+) -> dict[str, dict[str, Any]]:
+    common = _common_context(
+        run_id=run_id,
+        scope_definition_pack=scope_definition_pack,
+        decision_rule_profile=decision_rule_profile,
+        reference_asset_registry=reference_asset_registry,
+        certificate_lifecycle_summary=certificate_lifecycle_summary,
+        pre_run_readiness_gate=pre_run_readiness_gate,
+        uncertainty_report_pack=uncertainty_report_pack,
+        uncertainty_rollup=uncertainty_rollup,
+        method_confirmation_protocol=method_confirmation_protocol,
+        verification_digest=verification_digest,
+        software_validation_rollup=software_validation_rollup,
+        path_map=path_map,
+    )
+    registry = _pt_ilc_registry_artifact(
+        run_id=run_id,
+        common=common,
+        path_map=path_map,
+        filenames=filenames,
+        boundary_statements=boundary_statements,
+    )
+    importer = _importer_artifact(
+        run_id=run_id,
+        common=common,
+        path_map=path_map,
+        filenames=filenames,
+        boundary_statements=boundary_statements,
+    )
+    evidence_pack = _comparison_evidence_pack_artifact(
+        run_id=run_id,
+        common=common,
+        registry=registry,
+        path_map=path_map,
+        filenames=filenames,
+        boundary_statements=boundary_statements,
+    )
+    scope_view = _scope_comparison_view_artifact(
+        run_id=run_id,
+        common=common,
+        registry=registry,
+        path_map=path_map,
+        filenames=filenames,
+        boundary_statements=boundary_statements,
+    )
+    comparison_digest = _comparison_digest_artifact(
+        run_id=run_id,
+        common=common,
+        evidence_pack=evidence_pack,
+        registry=registry,
+        path_map=path_map,
+        filenames=filenames,
+        boundary_statements=boundary_statements,
+    )
+    comparison_rollup = _comparison_rollup_artifact(
+        run_id=run_id,
+        common=common,
+        evidence_pack=evidence_pack,
+        comparison_digest=comparison_digest,
+        registry=registry,
+        path_map=path_map,
+        filenames=filenames,
+        boundary_statements=boundary_statements,
+    )
+    return {
+        "pt_ilc_registry": registry,
+        "external_comparison_importer": importer,
+        "comparison_evidence_pack": evidence_pack,
+        "scope_comparison_view": scope_view,
+        "comparison_digest": comparison_digest,
+        "comparison_rollup": comparison_rollup,
+    }
+
+
 def _extract_boundary_flags(payload: dict[str, Any]) -> dict[str, Any]:
     """Extract Step 2 boundary flags from a payload, searching multiple nesting levels.
 

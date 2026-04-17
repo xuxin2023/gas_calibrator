@@ -60,6 +60,11 @@ _OFFLINE_DIAGNOSTIC_DETAIL_LABELS = {
     "validation_profile": ("results.review_center.detail.offline_diagnostic_validation_profile", "\u5bf9\u9f50\u914d\u7f6e"),
     "target_route": ("results.review_center.detail.offline_diagnostic_target_route", "\u76ee\u6807\u6c14\u8def"),
     "first_failure_phase": ("results.review_center.detail.offline_diagnostic_first_failure_phase", "\u9996\u4e2a\u5931\u8d25\u9636\u6bb5"),
+    "point_presence_diff": ("results.review_center.detail.offline_diagnostic_point_presence_diff", "\u70b9\u4f4d\u5b58\u5728\u5dee\u5f02"),
+    "sample_count_diff": ("results.review_center.detail.offline_diagnostic_sample_count_diff", "\u6837\u672c\u6570\u5dee\u5f02"),
+    "route_trace_diff": ("results.review_center.detail.offline_diagnostic_route_trace_diff", "\u8def\u7531\u8f68\u8ff9\u5dee\u5f02"),
+    "key_action_mismatches": ("results.review_center.detail.offline_diagnostic_key_action_mismatches", "\u5173\u952e\u52a8\u4f5c\u4e0d\u4e00\u81f4"),
+    "physical_route_mismatch": ("results.review_center.detail.offline_diagnostic_physical_route_mismatch", "\u7269\u7406\u6c14\u8def\u4e0d\u4e00\u81f4"),
     "continue_s1": ("results.review_center.detail.offline_diagnostic_continue_s1", "S1 \u7ee7\u7eed\u5224\u5b9a"),
     "dominant_conclusion": ("results.review_center.detail.offline_diagnostic_dominant_conclusion", "\u4e3b\u5bfc\u7ed3\u8bba"),
     "recommended_next_check": (
@@ -96,6 +101,22 @@ _OFFLINE_DIAGNOSTIC_DETAIL_VALUE_LABELS = {
     "continue_s1": {
         "continue": ("results.review_center.detail.offline_diagnostic_value.continue", "\u7ee7\u7eed"),
         "hold": ("results.review_center.detail.offline_diagnostic_value.hold", "\u4fdd\u6301"),
+    },
+    "point_presence_diff": {
+        "diff_present": ("results.review_center.detail.offline_diagnostic_value.diff_present", "\u5b58\u5728\u5dee\u5f02"),
+        "no_diff": ("results.review_center.detail.offline_diagnostic_value.no_diff", "\u65e0\u5dee\u5f02"),
+    },
+    "sample_count_diff": {
+        "diff_present": ("results.review_center.detail.offline_diagnostic_value.diff_present", "\u5b58\u5728\u5dee\u5f02"),
+        "no_diff": ("results.review_center.detail.offline_diagnostic_value.no_diff", "\u65e0\u5dee\u5f02"),
+    },
+    "route_trace_diff": {
+        "diff_present": ("results.review_center.detail.offline_diagnostic_value.diff_present", "\u5b58\u5728\u5dee\u5f02"),
+        "no_diff": ("results.review_center.detail.offline_diagnostic_value.no_diff", "\u65e0\u5dee\u5f02"),
+    },
+    "physical_route_mismatch": {
+        "yes": ("results.review_center.detail.offline_diagnostic_value.yes", "\u662f"),
+        "no": ("results.review_center.detail.offline_diagnostic_value.no", "\u5426"),
     },
 }
 
@@ -343,11 +364,66 @@ def humanize_offline_diagnostic_summary_value(summary_value: str) -> str:
     return " | ".join(normalized_parts)
 
 
+def _humanize_offline_compare_next_check(text: str) -> str:
+    lower = text.lower()
+    mapping = {
+        "inspect point presence diff": (
+            "results.review_center.detail.offline_diagnostic_value.inspect_point_presence_diff",
+            "\u68c0\u67e5\u70b9\u4f4d\u5b58\u5728\u5dee\u5f02",
+        ),
+        "inspect sample count diff": (
+            "results.review_center.detail.offline_diagnostic_value.inspect_sample_count_diff",
+            "\u68c0\u67e5\u6837\u672c\u6570\u5dee\u5f02",
+        ),
+        "inspect route trace diff": (
+            "results.review_center.detail.offline_diagnostic_value.inspect_route_trace_diff",
+            "\u68c0\u67e5\u8def\u7531\u8f68\u8ff9\u5dee\u5f02",
+        ),
+        "inspect key action mismatches": (
+            "results.review_center.detail.offline_diagnostic_value.inspect_key_action_mismatches",
+            "\u68c0\u67e5\u5173\u952e\u52a8\u4f5c\u4e0d\u4e00\u81f4",
+        ),
+        "inspect route physical mismatch": (
+            "results.review_center.detail.offline_diagnostic_value.inspect_route_physical_mismatch",
+            "\u68c0\u67e5\u7269\u7406\u6c14\u8def\u4e0d\u4e00\u81f4",
+        ),
+        "review compare report and keep simulated-only gate": (
+            "results.review_center.detail.offline_diagnostic_value.review_compare_report_keep_gate",
+            "\u590d\u6838\u5bf9\u9f50\u62a5\u544a\u5e76\u4fdd\u6301\u4ec5\u4eff\u771f\u95e8\u7981",
+        ),
+        "review compare report": (
+            "results.review_center.detail.offline_diagnostic_value.review_compare_report",
+            "\u590d\u6838\u5bf9\u9f50\u62a5\u544a",
+        ),
+    }
+    if lower in mapping:
+        key, default = mapping[lower]
+        return t(key, default=default)
+    if lower.startswith("review ") and lower.endswith(" failure"):
+        phase = text[7:-8].strip()
+        return t(
+            "results.review_center.detail.offline_diagnostic_value.review_failure_phase",
+            phase=phase,
+            default=f"\u590d\u6838 {phase} \u5931\u8d25\u9636\u6bb5",
+        )
+    return text
+
+
 def humanize_offline_diagnostic_detail_value(field_key: str, value: Any) -> str:
     text = str(value or "").strip()
     if not text:
         return ""
     key = str(field_key or "").strip().lower()
+    if key == "target_route":
+        return display_route(text, default=text)
+    if key == "first_failure_phase":
+        return display_phase(text, default=text)
+    if key == "next_check":
+        return _humanize_offline_compare_next_check(text)
+    if key == "key_action_mismatches":
+        if text.lower() == "none":
+            return t("common.none")
+        return text
     value_key, default = _OFFLINE_DIAGNOSTIC_DETAIL_VALUE_LABELS.get(key, {}).get(text.lower(), (None, None))
     if value_key:
         return t(value_key, default=default)
@@ -1119,6 +1195,28 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
             or t("common.none")
         )
     )
+    recognition_binding = dict(raw.get("recognition_binding") or {})
+    scope_identifier_summary = humanize_review_surface_text(
+        str(recognition_binding.get("scope_id") or raw.get("scope_id") or t("common.none"))
+    )
+    applicability_scope_summary = humanize_review_surface_text(
+        str(
+            digest.get("applicability_scope_summary")
+            or raw.get("applicability_scope_display")
+            or recognition_binding.get("applicability_scope_display")
+            or dict(raw.get("conformity_statement_profile") or {}).get("applicability_scope_display")
+            or t("common.none")
+        )
+    )
+    limitation_note_summary = humanize_review_surface_text(
+        str(
+            digest.get("limitation_note_summary")
+            or raw.get("limitation_note")
+            or recognition_binding.get("limitation_note")
+            or dict(raw.get("conformity_statement_profile") or {}).get("limitation_note")
+            or t("common.none")
+        )
+    )
     standard_family_summary = humanize_review_surface_text(
         " | ".join(str(item).strip() for item in list(raw.get("standard_family") or []) if str(item).strip())
         or str(digest.get("standard_family_summary") or t("common.none"))
@@ -1131,6 +1229,18 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
     )
     asset_readiness_overview = humanize_review_surface_text(
         str(raw.get("asset_readiness_overview") or digest.get("asset_readiness_overview") or t("common.none"))
+    )
+    asset_count_summary = humanize_review_surface_text(
+        str(digest.get("asset_count_summary") or asset_readiness_overview or t("common.none"))
+    )
+    certificate_validity_summary = humanize_review_surface_text(
+        str(digest.get("certificate_validity_summary") or t("common.none"))
+    )
+    lot_binding_summary = humanize_review_surface_text(
+        str(digest.get("lot_binding_summary") or t("common.none"))
+    )
+    intermediate_check_summary = humanize_review_surface_text(
+        str(digest.get("intermediate_check_summary") or t("common.none"))
     )
     certificate_lifecycle_overview = humanize_review_surface_text(
         str(
@@ -1199,10 +1309,24 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
             default=f"{_READINESS_DIGEST['conformity_boundary']}：{conformity_boundary_summary}",
         ),
         t(
+            "results.review_center.detail.readiness.scope_identifier_line",
+            value=scope_identifier_summary,
+            default=f"scope_id: {scope_identifier_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.applicability_scope_line",
+            value=applicability_scope_summary,
+            default=f"适用边界：{applicability_scope_summary}",
+        ),
+        t(
             "results.review_center.detail.readiness.asset_readiness_overview_line",
             value=asset_readiness_overview,
             default=f"{_READINESS_DIGEST['scope_overview']}: {asset_readiness_overview}",
         ),
+        f"Asset count: {asset_count_summary}",
+        f"Certificate validity: {certificate_validity_summary}",
+        f"Lot binding: {lot_binding_summary}",
+        f"Intermediate checks: {intermediate_check_summary}",
         t(
             "results.review_center.detail.readiness.certificate_lifecycle_overview_line",
             value=certificate_lifecycle_overview,
@@ -1330,6 +1454,10 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
             value=asset_readiness_overview,
             default=f"{_READINESS_DIGEST['scope_overview']}: {asset_readiness_overview}",
         ),
+        f"Asset count: {asset_count_summary}",
+        f"Certificate validity: {certificate_validity_summary}",
+        f"Lot binding: {lot_binding_summary}",
+        f"Intermediate checks: {intermediate_check_summary}",
         t(
             "results.review_center.detail.readiness.certificate_lifecycle_overview_line",
             value=certificate_lifecycle_overview,
@@ -1349,6 +1477,11 @@ def build_readiness_review_digest_lines(payload: dict[str, Any]) -> dict[str, li
             "results.review_center.detail.readiness.decision_rule_dependency_line",
             value=decision_rule_dependency_summary,
             default=f"{_READINESS_DIGEST['decision_rule']}: {decision_rule_dependency_summary}",
+        ),
+        t(
+            "results.review_center.detail.readiness.limitation_note_line",
+            value=limitation_note_summary,
+            default=f"边界限制：{limitation_note_summary}",
         ),
         t(
             "results.review_center.detail.readiness.current_coverage_line",
@@ -1752,6 +1885,31 @@ def build_offline_diagnostic_detail_item_line(item: Any) -> str:
     payload = dict(item or {}) if isinstance(item, dict) else {}
     if not payload:
         return ""
+    if str(payload.get("kind") or "").strip() == "control_flow_compare":
+        parts = [
+            t(
+                "results.review_center.detail.offline_diagnostic_compare_heading",
+                default="V1/V2 \u79bb\u7ebf\u5bf9\u9f50",
+            ),
+            build_offline_diagnostic_detail_line("compare_status", payload.get("compare_status")),
+            build_offline_diagnostic_detail_line("validation_profile", payload.get("validation_profile")),
+            build_offline_diagnostic_detail_line("target_route", payload.get("target_route")),
+            build_offline_diagnostic_detail_line("point_presence_diff", payload.get("point_presence_diff")),
+            build_offline_diagnostic_detail_line("sample_count_diff", payload.get("sample_count_diff")),
+            build_offline_diagnostic_detail_line("route_trace_diff", payload.get("route_trace_diff")),
+            build_offline_diagnostic_detail_line(
+                "key_action_mismatches",
+                ", ".join(str(item).strip() for item in list(payload.get("key_action_mismatches") or []) if str(item).strip())
+                or "none",
+            ),
+            build_offline_diagnostic_detail_line("physical_route_mismatch", payload.get("physical_route_mismatch")),
+            build_offline_diagnostic_detail_line("first_failure_phase", payload.get("first_failure_phase")),
+            build_offline_diagnostic_detail_line("next_check", payload.get("next_check")),
+        ]
+        scope = str(payload.get("artifact_scope_summary") or "").strip()
+        if scope:
+            parts.append(build_offline_diagnostic_scope_line(scope))
+        return " | ".join(part for part in parts if str(part).strip())
     line = normalize_offline_diagnostic_line(str(payload.get("detail_line") or payload.get("summary") or "").strip())
     scope = str(payload.get("artifact_scope_summary") or "").strip()
     if scope and scope.lower() not in line.lower():
@@ -1767,6 +1925,12 @@ def collect_offline_diagnostic_detail_lines(
 ) -> list[str]:
     summary = dict(offline_diagnostic_adapter_summary or {})
     lines: list[str] = []
+    for item in list(summary.get("detail_items") or []):
+        text = build_offline_diagnostic_detail_item_line(item)
+        if text and text not in lines:
+            lines.append(text)
+        if len(lines) >= limit:
+            return lines[:limit]
     for item in list(summary.get("review_highlight_lines") or summary.get("detail_lines") or []):
         text = normalize_offline_diagnostic_line(str(item).strip())
         if text and text not in lines:

@@ -10,6 +10,7 @@ from .context_builders import (
 from .explainers import FitExplainer, QCExplainer, RunExplainer
 from .llm_client import LLMClient, LLMConfig, MockLLMClient, OpenAIClient, create_llm_client
 from .runtime import AIRuntime
+from .review_copilot import build_model_governance_summary, build_review_copilot_payload
 from .summarizer import Summarizer
 
 __all__ = [
@@ -27,6 +28,8 @@ __all__ = [
     "RunContext",
     "RunExplainer",
     "Summarizer",
+    "build_model_governance_summary",
+    "build_review_copilot_payload",
     "build_fit_context",
     "build_qc_context",
     "build_run_context",

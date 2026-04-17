@@ -347,11 +347,17 @@ def perform_safe_stop_with_retries(
     cfg: Optional[Dict[str, Any]] = None,
     attempts: int = 3,
     retry_delay_s: float = 1.5,
+    global_timeout_s: float = 60.0,
 ) -> Dict[str, Any]:
     max_attempts = max(1, int(attempts))
     delay_s = max(0.0, float(retry_delay_s))
+    deadline = time.time() + max(1.0, float(global_timeout_s))
     last_result: Dict[str, Any] = {}
     for attempt in range(1, max_attempts + 1):
+        if time.time() >= deadline:
+            log_fn(f"safe-stop global timeout ({global_timeout_s}s) exceeded before attempt {attempt}")
+            last_result["safe_stop_timeout"] = True
+            break
         if attempt > 1:
             log_fn(f"safe-stop retry {attempt}/{max_attempts}")
         result = perform_safe_stop(devices, log_fn=log_fn, cfg=cfg)
@@ -364,7 +370,11 @@ def perform_safe_stop_with_retries(
             return result
         log_fn(f"safe-stop verification failed: {', '.join(issues)}")
         if attempt < max_attempts and delay_s > 0:
-            time.sleep(delay_s)
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                last_result["safe_stop_timeout"] = True
+                break
+            time.sleep(min(delay_s, remaining))
     return last_result
 
 

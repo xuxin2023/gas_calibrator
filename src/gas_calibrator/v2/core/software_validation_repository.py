@@ -155,8 +155,13 @@ class FileBackedSoftwareValidationRepository:
             )
         snapshot["software_validation_rollup"] = self._build_rollup(
             traceability_payload=dict(snapshot.get("software_validation_traceability_matrix") or {}),
+            change_impact_payload=dict(snapshot.get("change_impact_summary") or {}),
+            rollback_payload=dict(snapshot.get("rollback_readiness_summary") or {}),
             hash_registry_payload=dict(snapshot.get("artifact_hash_registry") or {}),
+            audit_event_payload=dict(snapshot.get("audit_event_store") or {}),
             environment_payload=dict(snapshot.get("environment_fingerprint") or {}),
+            config_payload=dict(snapshot.get("config_fingerprint") or {}),
+            release_input_payload=dict(snapshot.get("release_input_digest") or {}),
             release_manifest_payload=dict(snapshot.get("release_manifest") or {}),
             audit_payload=dict(snapshot.get("audit_readiness_digest") or {}),
         )
@@ -204,21 +209,44 @@ class FileBackedSoftwareValidationRepository:
         self,
         *,
         traceability_payload: dict[str, Any],
+        change_impact_payload: dict[str, Any],
+        rollback_payload: dict[str, Any],
         hash_registry_payload: dict[str, Any],
+        audit_event_payload: dict[str, Any],
         environment_payload: dict[str, Any],
+        config_payload: dict[str, Any],
+        release_input_payload: dict[str, Any],
         release_manifest_payload: dict[str, Any],
         audit_payload: dict[str, Any],
     ) -> dict[str, Any]:
         traceability_digest = dict(traceability_payload.get("digest") or {})
+        change_impact_digest = dict(change_impact_payload.get("digest") or {})
+        rollback_digest = dict(rollback_payload.get("digest") or {})
         hash_digest = dict(hash_registry_payload.get("digest") or {})
+        audit_event_digest = dict(audit_event_payload.get("digest") or {})
+        config_digest = dict(config_payload.get("digest") or {})
+        release_input_digest = dict(release_input_payload.get("digest") or {})
         release_digest = dict(release_manifest_payload.get("digest") or {})
         audit_digest = dict(audit_payload.get("digest") or {})
         summary_lines = [
             str(traceability_digest.get("summary") or "software validation traceability"),
+            str(change_impact_digest.get("summary") or "change impact"),
+            str(rollback_digest.get("summary") or "rollback readiness"),
             str(hash_digest.get("summary") or "artifact hash registry"),
+            str(config_digest.get("summary") or "config fingerprint"),
+            str(release_input_digest.get("summary") or "release input digest"),
             str(release_digest.get("summary") or "release manifest"),
             str(audit_digest.get("summary") or "audit readiness"),
         ]
+        linked_surface_visibility = [
+            *list(_LINKED_SURFACES),
+            *[
+                str(item)
+                for item in list(change_impact_payload.get("linked_surface_visibility") or [])
+                if str(item).strip()
+            ],
+        ]
+        linked_surface_visibility = list(dict.fromkeys(linked_surface_visibility))
         return {
             "schema_version": SOFTWARE_VALIDATION_REPOSITORY_SCHEMA_VERSION,
             "index_schema_version": SOFTWARE_VALIDATION_REPOSITORY_SCHEMA_VERSION,
@@ -238,15 +266,45 @@ class FileBackedSoftwareValidationRepository:
                 "requires_explicit_injection": True,
                 "not_in_default_chain": True,
             },
-            "linked_surface_visibility": list(_LINKED_SURFACES),
+            "linked_surface_visibility": linked_surface_visibility,
             "traceability_summary": str(traceability_digest.get("summary") or "--"),
             "traceability_completeness_summary": str(
                 traceability_payload.get("traceability_completeness")
                 or traceability_digest.get("current_coverage_summary")
                 or "--"
             ),
+            "change_impact_summary": str(change_impact_digest.get("summary") or "--"),
+            "changed_modules_summary": str(
+                change_impact_payload.get("changed_modules_summary")
+                or change_impact_digest.get("current_coverage_summary")
+                or "--"
+            ),
+            "main_execution_chain_impacted": bool(change_impact_payload.get("impacts_main_execution_chain", False)),
+            "main_execution_chain_impact_summary": str(
+                change_impact_payload.get("main_execution_chain_impact_summary") or "--"
+            ),
+            "artifact_schema_impacted": bool(change_impact_payload.get("impacts_artifact_schema", False)),
+            "artifact_schema_impact_summary": str(
+                change_impact_payload.get("artifact_schema_impact_summary") or "--"
+            ),
+            "results_surface_impacted": bool(change_impact_payload.get("impacts_results_surface", False)),
+            "review_center_surface_impacted": bool(change_impact_payload.get("impacts_review_center_surface", False)),
+            "workbench_surface_impacted": bool(change_impact_payload.get("impacts_workbench_surface", False)),
+            "rollback_summary": str(rollback_digest.get("summary") or "--"),
+            "rollback_mode": str(rollback_payload.get("rollback_mode") or "--"),
+            "rollback_scope_summary": str(
+                rollback_payload.get("rollback_scope_summary")
+                or rollback_digest.get("current_coverage_summary")
+                or "--"
+            ),
+            "file_artifact_first": bool(rollback_payload.get("file_artifact_first", False)),
+            "sidecar_revocable": bool(rollback_payload.get("sidecar_revocable", False)),
+            "primary_evidence_preserved": bool(rollback_payload.get("primary_evidence_preserved", True)),
             "hash_registry_summary": str(hash_digest.get("summary") or "--"),
+            "audit_event_summary": str(audit_event_digest.get("summary") or "--"),
             "environment_summary": str(environment_payload.get("environment_summary") or "--"),
+            "config_fingerprint_summary": str(config_digest.get("summary") or "--"),
+            "release_input_summary": str(release_input_digest.get("summary") or "--"),
             "release_manifest_summary": str(release_digest.get("summary") or "--"),
             "parity_status": str(release_manifest_payload.get("parity_status") or "--"),
             "resilience_status": str(release_manifest_payload.get("resilience_status") or "--"),
@@ -261,6 +319,9 @@ class FileBackedSoftwareValidationRepository:
             "detail_lines": [
                 f"repository/gateway: {SOFTWARE_VALIDATION_REPOSITORY_MODE} / {SOFTWARE_VALIDATION_GATEWAY_MODE}",
                 f"environment: {str(environment_payload.get('environment_summary') or '--')}",
+                f"change impact: {str(change_impact_digest.get('summary') or '--')}",
+                f"rollback: {str(rollback_digest.get('summary') or '--')}",
+                f"config / release input: {str(config_digest.get('summary') or '--')} | {str(release_input_digest.get('summary') or '--')}",
                 "non-claim: reviewer-only / simulation-only / not real acceptance evidence",
                 "primary evidence rewritten: false",
             ],

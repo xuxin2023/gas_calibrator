@@ -1,0 +1,47 @@
+{
+  "schema_version": "step2-local-metrology-fixtures-v1",
+  "plans": [
+    {
+      "plan_id": "ICP-SG-2026-001",
+      "asset_id": "asset-standard-gas-sg-001",
+      "status": "due_soon",
+      "due_at": "2026-05-01",
+      "plan_kind": "intermediate_check"
+    },
+    {
+      "plan_id": "ICP-HG-2026-001",
+      "asset_id": "asset-humidity-generator-hg-001",
+      "status": "pass",
+      "due_at": "2026-05-15",
+      "plan_kind": "intermediate_check"
+    },
+    {
+      "plan_id": "ICP-PG-2026-001",
+      "asset_id": "asset-pressure-gauge-pg-001",
+      "status": "overdue",
+      "due_at": "2026-04-01",
+      "plan_kind": "intermediate_check"
+    },
+    {
+      "plan_id": "ICP-TC-2026-001",
+      "asset_id": "asset-temp-chamber-tc-001",
+      "status": "pass",
+      "due_at": "2026-06-01",
+      "plan_kind": "intermediate_check"
+    },
+    {
+      "plan_id": "ICP-TH-2026-001",
+      "asset_id": "asset-thermometer-th-001",
+      "status": "pass",
+      "due_at": "2026-06-15",
+      "plan_kind": "intermediate_check"
+    },
+    {
+      "plan_id": "ICP-PC-2026-001",
+      "asset_id": "asset-pressure-controller-pc-001",
+      "status": "due_soon",
+      "due_at": "2026-04-25",
+      "plan_kind": "intermediate_check"
+    }
+  ]
+}

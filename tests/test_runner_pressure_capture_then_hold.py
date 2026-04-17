@@ -53,6 +53,9 @@ class _FakeLegacyPaceForSamplingIsolation(_FakePaceForSamplingIsolation):
         super().__init__()
         self.vent_status = 3
 
+    def has_legacy_vent_state_3_compatibility(self):
+        return True
+
     def vent_status_allows_control(self, status):
         return int(status) in {0, 3}
 
@@ -141,7 +144,7 @@ def test_sampling_isolation_requires_output_off_and_isol_closed(
         "same_gas_superambient_precharge_handoff",
     ],
 )
-def test_sampling_isolation_accepts_legacy_trapped_pressure_terminal_state(
+def test_sampling_isolation_blocks_legacy_trapped_pressure_pending_front_panel_ack(
     tmp_path: Path,
     handoff_mode: str,
 ) -> None:
@@ -172,14 +175,47 @@ def test_sampling_isolation_accepts_legacy_trapped_pressure_terminal_state(
         phase="co2",
         context=None,
         handoff_mode=handoff_mode,
+    ) is False
+    logger.close()
+
+    runtime_state = runner._point_runtime_state(point, phase="co2") or {}
+    assert runtime_state["capture_hold_status"] == "fail"
+    assert runtime_state["capture_hold_reason"] == "pace_vent_status_not_terminal:3"
+    assert runtime_state["pace_vent_status_query"] == 3
+    assert runtime_state["pace_atmosphere_connected_latched_state_suspect"] is True
+    assert runtime_state["vent3_hard_blocked"] is True
+    assert runtime_state["vent3_ui_ack_required"] is True
+    assert runtime_state["vent3_control_ready_attempted"] is True
+    assert runtime_state["vent3_control_ready_prevented"] is True
+    assert runtime_state["vent3_block_scope"] == "sampling_capture"
+
+
+def test_sampling_isolation_skips_when_capture_then_hold_disabled(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceForSamplingIsolation()
+    runner = CalibrationRunner(
+        {"workflow": {"pressure": {"capture_then_hold_enabled": False}}},
+        {"pace": pace},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _co2_point()
+    _prime_sealed_runtime(runner, point)
+    runner._observe_pressure_hold_after_output_off = lambda _point: pytest.fail("capture hold should be skipped when disabled")
+
+    assert runner._set_pressure_controller_sampling_isolation(
+        point,
+        phase="co2",
+        context=None,
+        handoff_mode="same_gas_pressure_step_handoff",
     ) is True
     logger.close()
 
     runtime_state = runner._point_runtime_state(point, phase="co2") or {}
-    assert runtime_state["capture_hold_status"] == "pass"
-    assert runtime_state["pace_vent_status_query"] == 3
-    assert runtime_state["pace_output_state"] == 0
-    assert runtime_state["pace_isolation_state"] == 0
+    assert pace.calls == []
+    assert runtime_state["capture_hold_status"] == "skipped"
+    assert runtime_state["capture_hold_reason"] == "capture_then_hold_disabled"
 
 
 @pytest.mark.parametrize(

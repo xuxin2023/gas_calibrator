@@ -35,8 +35,8 @@ from gas_calibrator.v2.core.compact_summary_budget import (
 # ---------------------------------------------------------------------------
 
 class TestBudgetVersion:
-    def test_version_is_2_13_0(self):
-        assert COMPACT_SUMMARY_BUDGET_VERSION == "2.13.0"
+    def test_version_is_2_16_0(self):
+        assert COMPACT_SUMMARY_BUDGET_VERSION == "2.16.0"
 
 
 # ---------------------------------------------------------------------------

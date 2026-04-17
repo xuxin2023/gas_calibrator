@@ -1,0 +1,28 @@
+{
+  "base_config": "D:/gas_calibrator/configs/overrides/v1_800ppm_ingress_smoke.json",
+  "workflow": {
+    "stability": {
+      "sensor": {
+        "baseline_sanity_gate": {
+          "enabled": true,
+          "policy": "reject",
+          "same_gas_only": true,
+          "target_co2_ppm": 800.0,
+          "target_co2_tolerance_ppm": 120.0,
+          "pressure_min_hpa": 980.0,
+          "pressure_max_hpa": 1020.0,
+          "plateau_sample_count": 5,
+          "plateau_read_interval_s": 0.4,
+          "max_plateau_span_ppm": 40.0
+        }
+      }
+    }
+  },
+  "validation_package": {
+    "name": "v1_800ppm_baseline_sanity_check",
+    "notes": [
+      "smoke-only near-ambient baseline sanity gate for same-gas 800 ppm diagnostics",
+      "rejects stable but clearly wrong near-ambient CO2 plateaus before low-pressure inference"
+    ]
+  }
+}

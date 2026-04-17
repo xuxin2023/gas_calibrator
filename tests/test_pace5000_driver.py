@@ -1,5 +1,7 @@
 import time
 
+import pytest
+
 from gas_calibrator.devices import pace5000
 from gas_calibrator.devices.serial_base import ReplaySerial
 
@@ -185,7 +187,7 @@ def test_legacy_ge_druck_identity_treats_completed_vent_status_as_latched_not_re
     assert not any(":SOUR:PRES:LEV:IMM:AMPL:VENT:AFT:VVAL:STAT?" in cmd for cmd in dev.ser.queries)
 
 
-def test_legacy_ge_druck_identity_accepts_trapped_vent_status_for_control(monkeypatch) -> None:
+def test_legacy_ge_druck_identity_tracks_trapped_vent_status_without_control_ready(monkeypatch) -> None:
     class FakeSerialDevice:
         def __init__(self, *args, **kwargs):
             self.queries = []
@@ -204,6 +206,8 @@ def test_legacy_ge_druck_identity_accepts_trapped_vent_status_for_control(monkey
             self.queries.append(cmd)
             if cmd == "*IDN?":
                 return "GE Druck,Pace5000 User Interface,3213201,02.00.07"
+            if cmd == ":INST:VERS?":
+                return "02.00.07"
             if cmd.startswith(":SOUR:PRES:LEV:IMM:AMPL:VENT?"):
                 return ":SOUR:PRES:LEV:IMM:AMPL:VENT 3"
             raise AssertionError(f"unexpected query: {data}")
@@ -214,10 +218,48 @@ def test_legacy_ge_druck_identity_accepts_trapped_vent_status_for_control(monkey
     monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
     dev = pace5000.Pace5000("COM1", 9600)
 
-    assert dev.vent_status_allows_control(dev.get_vent_status()) is True
+    assert dev.vent_status_allows_control(dev.get_vent_status()) is False
     assert dev.vent_terminal_statuses() == [
         pace5000.Pace5000.VENT_STATUS_IDLE,
         pace5000.Pace5000.VENT_STATUS_TRAPPED_PRESSURE,
+    ]
+
+
+def test_legacy_ge_druck_identity_rejects_trapped_vent_status_without_known_compatibility_version(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.queries = []
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.last_write = data
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            self.queries.append(cmd)
+            if cmd == "*IDN?":
+                return "GE Druck,Pace5000 User Interface,3213201,02.00.08"
+            if cmd == ":INST:VERS?":
+                return "02.00.08"
+            if cmd.startswith(":SOUR:PRES:LEV:IMM:AMPL:VENT?"):
+                return ":SOUR:PRES:LEV:IMM:AMPL:VENT 3"
+            raise AssertionError(f"unexpected query: {data}")
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    assert dev.vent_status_allows_control(dev.get_vent_status()) is False
+    assert dev.vent_terminal_statuses() == [
+        pace5000.Pace5000.VENT_STATUS_IDLE,
+        pace5000.Pace5000.VENT_STATUS_ABORTED,
     ]
 
 
@@ -421,6 +463,10 @@ def test_exit_atmosphere_mode_keeps_output_path_open_without_enabling_output(mon
 
         def query(self, data: str) -> str:
             cmd = data.strip().upper()
+            if cmd == "*IDN?":
+                return "GE Druck,Pace5000 User Interface,3213201,02.00.07"
+            if cmd == ":INST:VERS?":
+                return "02.00.07"
             if cmd.startswith(":SOUR:PRES:LEV:IMM:AMPL:VENT?"):
                 return ":SOUR:PRES:LEV:IMM:AMPL:VENT 3"
             if cmd.startswith(":OUTP:STAT?"):
@@ -581,6 +627,11 @@ def test_enable_control_output_sets_active_mode_and_output_on(monkeypatch) -> No
             self.writes.append(data)
 
         def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            if cmd == ":SOUR:PRES:LEV:IMM:AMPL:VENT?":
+                return ":SOUR:PRES:LEV:IMM:AMPL:VENT 0"
+            if cmd == ":OUTP:MODE?":
+                return ":OUTP:MODE ACT"
             return ""
 
         def readline(self) -> str:
@@ -593,6 +644,42 @@ def test_enable_control_output_sets_active_mode_and_output_on(monkeypatch) -> No
 
     assert any(":OUTP:MODE ACT" in w for w in dev.ser.writes)
     assert any(":OUTP 1" in w for w in dev.ser.writes)
+
+
+def test_enable_control_output_rejects_legacy_trapped_pressure_pending_ack(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.writes = []
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.writes.append(data)
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            if cmd == "*IDN?":
+                return "GE Druck,Pace5000 User Interface,3213201,02.00.07"
+            if cmd == ":INST:VERS?":
+                return "02.00.07"
+            if cmd == ":SOUR:PRES:LEV:IMM:AMPL:VENT?":
+                return ":SOUR:PRES:LEV:IMM:AMPL:VENT 3"
+            return ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    with pytest.raises(RuntimeError, match="VENT_"):
+        dev.enable_control_output(timeout_s=0.5, poll_s=0.0)
+
+    assert not any(":OUTP 1" in w for w in dev.ser.writes)
 
 
 def test_set_setpoint_uses_level_amplitude_command(monkeypatch) -> None:
@@ -920,16 +1007,18 @@ def test_clear_completed_vent_latch_if_present_sends_vent_zero_and_waits_for_idl
     assert result["after_status"] == 0
     assert result["cleared"] is True
     assert result["command"] == ":SOUR:PRES:LEV:IMM:AMPL:VENT 0"
+    assert result["front_panel_ack_required"] is False
     assert any(":SOUR:PRES:LEV:IMM:AMPL:VENT 0" in write for write in dev.ser.writes)
 
 
-def test_clear_completed_vent_latch_if_present_accepts_legacy_trapped_pressure_terminal_state(monkeypatch) -> None:
+def test_clear_completed_vent_latch_if_present_keeps_legacy_trapped_pressure_as_not_cleared(monkeypatch) -> None:
     class FakeSerialDevice:
         def __init__(self, *args, **kwargs):
             self.writes = []
             self.responses = iter(
                 [
                     ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
+                    ":SOUR:PRES:LEV:IMM:AMPL:VENT 3",
                     ":SOUR:PRES:LEV:IMM:AMPL:VENT 3",
                 ]
             )
@@ -956,14 +1045,17 @@ def test_clear_completed_vent_latch_if_present_accepts_legacy_trapped_pressure_t
     dev = pace5000.Pace5000("COM1", 9600)
     dev._device_identity_probed = True
     dev._legacy_vent_status_model = True
+    dev._instrument_version_probed = True
+    dev._instrument_version = "02.00.07"
 
     result = dev.clear_completed_vent_latch_if_present(timeout_s=0.2, poll_s=0.0)
 
     assert result["before_status"] == 2
     assert result["clear_attempted"] is True
     assert result["after_status"] == 3
-    assert result["cleared"] is True
+    assert result["cleared"] is False
     assert result["command"] == ":SOUR:PRES:LEV:IMM:AMPL:VENT 0"
+    assert result["front_panel_ack_required"] is True
     assert any(":SOUR:PRES:LEV:IMM:AMPL:VENT 0" in write for write in dev.ser.writes)
 
 

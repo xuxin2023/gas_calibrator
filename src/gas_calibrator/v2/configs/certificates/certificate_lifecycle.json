@@ -1,0 +1,124 @@
+{
+  "schema_version": "step2-local-metrology-fixtures-v1",
+  "certificates": [
+    {
+      "certificate_id": "CERT-SG-2026-001",
+      "asset_id": "asset-standard-gas-sg-001",
+      "asset_name": "Standard Gas Lot SG-2026-CO2-01",
+      "certificate_status": "reviewer_stub_only",
+      "certificate_version": "stub-v1",
+      "valid_from": "2026-01-01",
+      "valid_to": "2026-12-31",
+      "expiry_status": "valid",
+      "calibration_source": "external_calibration",
+      "file_links": [
+        {
+          "link_id": "cert-file-sg-001",
+          "file_name": "CERT-SG-2026-001.pdf",
+          "file_path": "fixtures/certificates/CERT-SG-2026-001.pdf",
+          "file_kind": "certificate_pdf"
+        }
+      ]
+    },
+    {
+      "certificate_id": "CERT-HG-2024-017",
+      "asset_id": "asset-humidity-generator-hg-001",
+      "asset_name": "Humidity Generator HG-STEP2-01",
+      "certificate_status": "expired_certificate",
+      "certificate_version": "stub-v1",
+      "valid_from": "2025-04-01",
+      "valid_to": "2026-03-31",
+      "expiry_status": "expired",
+      "calibration_source": "external_calibration",
+      "file_links": [
+        {
+          "link_id": "cert-file-hg-017",
+          "file_name": "CERT-HG-2024-017.pdf",
+          "file_path": "fixtures/certificates/CERT-HG-2024-017.pdf",
+          "file_kind": "certificate_pdf"
+        }
+      ]
+    },
+    {
+      "certificate_id": "CERT-DP-MISSING",
+      "asset_id": "asset-dewpoint-meter-dp-001",
+      "asset_name": "Dewpoint Meter DP-STEP2-01",
+      "certificate_status": "missing_certificate",
+      "certificate_version": "missing",
+      "valid_from": "",
+      "valid_to": "",
+      "expiry_status": "missing",
+      "calibration_source": "external_calibration",
+      "file_links": []
+    },
+    {
+      "certificate_id": "CERT-PG-2026-021",
+      "asset_id": "asset-pressure-gauge-pg-001",
+      "asset_name": "Digital Pressure Gauge PG-STEP2-01",
+      "certificate_status": "reviewer_stub_only",
+      "certificate_version": "stub-v1",
+      "valid_from": "2026-01-15",
+      "valid_to": "2026-10-01",
+      "expiry_status": "valid",
+      "calibration_source": "internal_calibration",
+      "file_links": [
+        {
+          "link_id": "cert-file-pg-021",
+          "file_name": "CERT-PG-2026-021.pdf",
+          "file_path": "fixtures/certificates/CERT-PG-2026-021.pdf",
+          "file_kind": "certificate_pdf"
+        }
+      ]
+    },
+    {
+      "certificate_id": "CERT-TC-2026-004",
+      "asset_id": "asset-temp-chamber-tc-001",
+      "asset_name": "Temperature Chamber TC-STEP2-01",
+      "certificate_status": "reviewer_stub_only",
+      "certificate_version": "stub-v1",
+      "valid_from": "2026-02-01",
+      "valid_to": "2026-11-15",
+      "expiry_status": "valid",
+      "calibration_source": "internal_calibration",
+      "file_links": [
+        {
+          "link_id": "cert-file-tc-004",
+          "file_name": "CERT-TC-2026-004.pdf",
+          "file_path": "fixtures/certificates/CERT-TC-2026-004.pdf",
+          "file_kind": "certificate_pdf"
+        }
+      ]
+    },
+    {
+      "certificate_id": "CERT-TH-2026-031",
+      "asset_id": "asset-thermometer-th-001",
+      "asset_name": "Digital Thermometer TH-STEP2-01",
+      "certificate_status": "valid_certificate",
+      "certificate_version": "released-v1",
+      "valid_from": "2026-02-10",
+      "valid_to": "2026-11-30",
+      "expiry_status": "valid",
+      "calibration_source": "external_calibration",
+      "file_links": [
+        {
+          "link_id": "cert-file-th-031",
+          "file_name": "CERT-TH-2026-031.pdf",
+          "file_path": "fixtures/certificates/CERT-TH-2026-031.pdf",
+          "file_kind": "certificate_pdf"
+        }
+      ]
+    },
+    {
+      "certificate_id": "CERT-PC-2026-008",
+      "asset_id": "asset-pressure-controller-pc-001",
+      "asset_name": "Pressure Controller PC-STEP2-01",
+      "certificate_status": "reviewer_stub_only",
+      "certificate_version": "stub-v1",
+      "valid_from": "2026-02-01",
+      "valid_to": "2026-10-31",
+      "expiry_status": "valid",
+      "calibration_source": "internal_calibration",
+      "file_links": []
+    }
+  ]
+}

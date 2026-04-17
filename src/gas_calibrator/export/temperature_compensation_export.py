@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import csv
+import os
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Sequence
 
@@ -182,11 +184,23 @@ def build_temperature_compensation_results(
 
 
 def _write_csv(path: Path, rows: Sequence[Dict[str, Any]], fieldnames: Sequence[str]) -> None:
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(fieldnames), extrasaction="ignore")
-        writer.writeheader()
-        for row in rows:
-            writer.writerow(row)
+    """Write CSV atomically using temp file + os.replace to prevent truncation on crash."""
+    fd, tmp_path = tempfile.mkstemp(suffix=".csv", dir=path.parent)
+    os.close(fd)
+    tmp = Path(tmp_path)
+    try:
+        with tmp.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(fieldnames), extrasaction="ignore")
+            writer.writeheader()
+            for row in rows:
+                writer.writerow(row)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            tmp.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
 
 
 def _append_sheet(wb: Workbook, name: str, rows: Sequence[Dict[str, Any]], fieldnames: Sequence[str]) -> None:
@@ -220,14 +234,37 @@ def export_temperature_compensation_artifacts(
     _write_csv(results_csv, results, RESULT_FIELDS)
 
     commands = [str(row.get("command_string") or "").strip() for row in results if str(row.get("command_string") or "").strip()]
-    commands_txt.write_text("\n".join(commands), encoding="utf-8")
+    # Atomic write for commands text
+    fd, tmp_cmd = tempfile.mkstemp(suffix=".txt", dir=run_dir)
+    os.close(fd)
+    try:
+        Path(tmp_cmd).write_text("\n".join(commands), encoding="utf-8")
+        os.replace(tmp_cmd, commands_txt)
+    except Exception:
+        try:
+            Path(tmp_cmd).unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
 
-    wb = Workbook()
-    wb.remove(wb.active)
-    _append_sheet(wb, "温度校准观测", observations_rows, OBSERVATION_FIELDS)
-    _append_sheet(wb, "温度补偿系数", results, RESULT_FIELDS)
-    wb.save(workbook_path)
-    wb.close()
+    # Atomic write for workbook
+    fd, tmp_wb = tempfile.mkstemp(suffix=".xlsx", dir=run_dir)
+    os.close(fd)
+    tmp_wb_path = Path(tmp_wb)
+    try:
+        wb = Workbook()
+        wb.remove(wb.active)
+        _append_sheet(wb, "温度校准观测", observations_rows, OBSERVATION_FIELDS)
+        _append_sheet(wb, "温度补偿系数", results, RESULT_FIELDS)
+        wb.save(tmp_wb_path)
+        wb.close()
+        os.replace(tmp_wb_path, workbook_path)
+    except Exception:
+        try:
+            tmp_wb_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
 
     return {
         "observations": observations_rows,

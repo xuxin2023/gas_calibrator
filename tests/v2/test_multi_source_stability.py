@@ -135,6 +135,13 @@ def test_multi_source_stability_reports_signal_groups_and_partial_coverage() -> 
     assert "h2o_signal" not in raw["available_channels_by_group"]["analyzer_raw"]
     assert raw["stability_decisions"][0]["partial_coverage"] is True
     assert raw["stability_decisions"][0]["decision_result"] == "partial_coverage_gap"
+    assert raw["stability_policy_profile"]["artifact_type"] == "stability_policy_profile"
+    assert raw["stability_decision_rollup"]["artifact_type"] == "stability_decision_rollup"
+    assert raw["shadow_stability_diff"]["artifact_type"] == "shadow_stability_diff"
+    assert raw["stability_layer_evaluations"][0]["raw_response"]["failure_reasons"]
+    assert raw["stability_layer_evaluations"][0]["output_result"]["next_action_recommendation"] == "wait_for_output_stability"
+    assert raw["reviewer_only"] is True
+    assert raw["not_ready_for_formal_claim"] is True
     assert raw["review_surface"]["anchor_id"] == "multi-source-stability-evidence"
     assert "shadow evaluation only" in raw["boundary_statements"]
     assert "does not modify live sampling gate by default" in raw["boundary_statements"]
@@ -174,6 +181,14 @@ def test_multi_source_stability_applies_route_specific_shadow_policies() -> None
     assert decisions_by_route["ambient"]["policy_version"] == "shadow_ambient_v1"
     assert decisions_by_route["gas"]["hard_gate_passed"] is True
     assert decisions_by_route["water"]["hold_time_met"] is True
+    assert evidence["raw"]["stability_policy_profile"]["feature_set_version"] == "multi_source_stability.step2_shadow_v2"
+    assert evidence["raw"]["shadow_stability_diff"]["summary_line"]
+    assert evidence["raw"]["shadow_stability_diff"]["changed_window_count"] >= 1
+    assert all(
+        str(item.get("decision_diff") or "").strip()
+        and str(item.get("candidate_decision_result") or "").startswith("candidate_")
+        for item in list(evidence["raw"]["shadow_evaluation_results"] or [])
+    )
     assert evidence["raw"]["review_surface"]["route_filters"] == ["gas", "water", "ambient"]
     assert "Step 2 tail / Stage 3 bridge" in evidence["raw"]["digest"]["summary"]
     assert any(
@@ -221,9 +236,16 @@ def test_simulation_evidence_sidecar_bundle_stays_contract_only() -> None:
         SIMULATION_EVIDENCE_SIDECAR_BUNDLE_FILENAME
     )
     assert bundle["stores"]["stability_windows"]
+    assert bundle["stores"]["stability_layer_evaluations"]
+    assert bundle["stores"]["stability_policy_profile"]
+    assert bundle["stores"]["shadow_stability_diff"]
     assert bundle["stores"]["state_transition_logs"]
+    assert bundle["stores"]["transition_policy_profile"]
     assert bundle["phase_index"]
     assert bundle["policy_registry_summary"]["stability_policy_versions"] >= 1
+    assert bundle["policy_registry_summary"]["candidate_stability_policy_versions"] >= 1
+    assert bundle["policy_registry_summary"]["candidate_policy_versions"]
+    assert bundle["policy_registry_summary"]["feature_set_versions"]
     assert "Step 2 tail / Stage 3 bridge" in bundle["coverage_digest"]["summary"]
     assert bundle["coverage_digest"]["actual_phase_summary"] != "--"
     assert "payload_phase_summary" in bundle["coverage_digest"]

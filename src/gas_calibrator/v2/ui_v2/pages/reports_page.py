@@ -222,9 +222,23 @@ class ReportsPage(ttk.Frame):
             justify="left",
         ).grid(row=12, column=0, sticky="ew", pady=(0, 6))
 
-        self.freeze_audit = self._text_panel(
+        self.closeout_bundle = self._text_panel(
             right,
             row=13,
+            title=t("pages.reports.step2_closeout_bundle_panel", default="Step 2 收尾总包"),
+        )
+        self.closeout_bundle_boundary_var = tk.StringVar(value="")
+        ttk.Label(
+            right,
+            textvariable=self.closeout_bundle_boundary_var,
+            style="Muted.TLabel",
+            wraplength=460,
+            justify="left",
+        ).grid(row=14, column=0, sticky="ew", pady=(0, 6))
+
+        self.freeze_audit = self._text_panel(
+            right,
+            row=15,
             title=t("pages.reports.freeze_audit_panel", default="Step 2 冻结审计"),
         )
         self.freeze_audit_boundary_var = tk.StringVar(value="")
@@ -234,11 +248,11 @@ class ReportsPage(ttk.Frame):
             style="Muted.TLabel",
             wraplength=460,
             justify="left",
-        ).grid(row=14, column=0, sticky="ew", pady=(0, 6))
+        ).grid(row=16, column=0, sticky="ew", pady=(0, 6))
 
         self.freeze_seal = self._text_panel(
             right,
-            row=15,
+            row=17,
             title=t("pages.reports.freeze_seal_panel", default="Step 2 封板守护"),
         )
         self.freeze_seal_boundary_var = tk.StringVar(value="")
@@ -248,11 +262,11 @@ class ReportsPage(ttk.Frame):
             style="Muted.TLabel",
             wraplength=460,
             justify="left",
-        ).grid(row=16, column=0, sticky="ew", pady=(0, 6))
+        ).grid(row=18, column=0, sticky="ew", pady=(0, 6))
 
         self.admission_dossier = self._text_panel(
             right,
-            row=19,
+            row=21,
             title=t("pages.reports.admission_dossier_panel", default="Step 3 准入材料"),
         )
         self.admission_dossier_boundary_var = tk.StringVar(value="")
@@ -262,11 +276,11 @@ class ReportsPage(ttk.Frame):
             style="Muted.TLabel",
             wraplength=460,
             justify="left",
-        ).grid(row=20, column=0, sticky="ew", pady=(0, 6))
+        ).grid(row=22, column=0, sticky="ew", pady=(0, 6))
 
         self.final_closure_matrix = self._text_panel(
             right,
-            row=17,
+            row=19,
             title=t("pages.reports.final_closure_matrix_panel", default="Step 2 最终封板矩阵"),
         )
         self.final_closure_matrix_boundary_var = tk.StringVar(value="")
@@ -276,7 +290,7 @@ class ReportsPage(ttk.Frame):
             style="Muted.TLabel",
             wraplength=460,
             justify="left",
-        ).grid(row=18, column=0, sticky="ew", pady=(0, 6))
+        ).grid(row=20, column=0, sticky="ew", pady=(0, 6))
 
     def render(self, snapshot: dict[str, Any]) -> None:
         rows = list(snapshot.get("files", []) or [])
@@ -310,6 +324,7 @@ class ReportsPage(ttk.Frame):
         self._render_compact_summary()
         self._render_closeout_readiness(snapshot)
         self._render_closeout_package(snapshot)
+        self._render_closeout_bundle(snapshot)
         self._render_freeze_audit(snapshot)
         self._render_freeze_seal(snapshot)
         self._render_final_closure_matrix(snapshot)
@@ -717,6 +732,31 @@ class ReportsPage(ttk.Frame):
             self.closeout_package_boundary_var.set(
                 t("pages.reports.closeout_package_boundary_notice", default="")
             )
+
+    def _render_closeout_bundle(self, snapshot: dict[str, Any]) -> None:
+        bundle = dict(snapshot.get("step2_closeout_bundle") or {})
+        compact = dict(snapshot.get("step2_closeout_compact_section") or {})
+        summary_markdown = str(snapshot.get("step2_closeout_summary_markdown") or "")
+        summary_lines = [str(item) for item in list(bundle.get("summary_lines") or compact.get("summary_lines") or []) if str(item).strip()]
+        if not summary_lines and summary_markdown.strip():
+            summary_lines = [line for line in summary_markdown.splitlines() if str(line).strip()]
+        if not summary_lines:
+            summary_lines = [
+                t("pages.reports.step2_closeout_bundle_no_content", default="暂无 Step 2 收尾总包数据")
+            ]
+        for label, rows in (
+            ("blocker", list(bundle.get("blocker_items") or compact.get("blocker_items") or [])),
+            ("warning", list(bundle.get("warning_items") or compact.get("warning_items") or [])),
+            ("info", list(bundle.get("info_items") or compact.get("info_items") or [])),
+        ):
+            if rows:
+                summary_lines.append(f"{label}: {str(rows[0])}")
+        self._set_text(self.closeout_bundle, "\n".join(summary_lines))
+        self.closeout_bundle_boundary_var.set(
+            "reviewer_only=true | readiness_mapping_only=true | "
+            "not_real_acceptance_evidence=true | not_ready_for_formal_claim=true | "
+            "file_artifact_first_preserved=true | main_chain_dependency=false"
+        )
 
     def _render_freeze_audit(self, snapshot: dict[str, Any]) -> None:
         """Render Step 2 freeze audit into the freeze audit panel."""

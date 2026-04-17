@@ -39,6 +39,7 @@ from gas_calibrator.v2.core.measurement_phase_coverage import (
     MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME,
 )
 from gas_calibrator.v2.core import recognition_readiness_artifacts as recognition_readiness
+from gas_calibrator.v2.storage.sidecar_index import SidecarIndexStore
 from gas_calibrator.v2.ui_v2.artifact_registry_governance import build_role_by_key
 from gas_calibrator.v2.scripts.build_offline_governance_artifacts import rebuild_run
 
@@ -46,7 +47,7 @@ SUPPORT_DIR = Path(__file__).resolve().parent
 if str(SUPPORT_DIR) not in sys.path:
     sys.path.insert(0, str(SUPPORT_DIR))
 
-from ui_v2_support import build_fake_facade
+from ui_v2_support import build_fake_facade, build_fake_sidecar_index
 
 
 def _write_offline_diagnostic_bundles(run_dir: Path) -> None:
@@ -269,11 +270,43 @@ def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> No
     assert results_payload["scope_definition_pack"]["scope_export_pack"]["ready_for_readiness_mapping"] is True
     assert results_payload["scope_definition_pack"]["not_real_acceptance_evidence"] is True
     assert results_payload["decision_rule_profile"]["decision_rule_id"]
+    assert results_payload["conformity_statement_profile"]["reviewer_only"] is True
+    assert results_payload["conformity_statement_profile"]["readiness_mapping_only"] is True
+    assert results_payload["step2_closeout_bundle"]["reviewer_only"] is True
+    assert results_payload["step2_closeout_bundle"]["readiness_mapping_only"] is True
+    assert results_payload["step2_closeout_bundle"]["not_real_acceptance_evidence"] is True
+    assert results_payload["step2_closeout_bundle"]["not_ready_for_formal_claim"] is True
+    assert results_payload["step2_closeout_bundle"]["file_artifact_first_preserved"] is True
+    assert results_payload["step2_closeout_bundle"]["main_chain_dependency"] is False
+    assert "sidecar" not in list(results_payload["step2_closeout_bundle"]["missing_evidence_categories"] or [])
+    assert "step2_closeout_evidence_index" in results_payload["step2_closeout_bundle"]["artifact_paths"]
+    assert results_payload["step2_closeout_evidence_index"]["reviewer_only"] is True
+    assert results_payload["step2_closeout_compact_section"]["main_chain_dependency"] is False
+    assert "Step 2 \u6536\u5c3e\u603b\u5305" in results_payload["step2_closeout_summary_markdown"]
     assert results_payload["decision_rule_profile"]["acceptance_contract"]["non_primary_evidence_chain"] is True
     assert results_payload["recognition_scope_rollup"]["repository_mode"] == "file_artifact_first"
     assert results_payload["recognition_scope_rollup"]["gateway_mode"] == "file_backed_default"
     assert results_payload["recognition_scope_rollup"]["db_ready_stub"]["not_in_default_chain"] is True
     assert results_payload["recognition_scope_rollup"]["primary_evidence_rewritten"] is False
+    assert results_payload["recognition_binding"]["scope_id"] == results_payload["scope_definition_pack"]["scope_id"]
+    assert results_payload["recognition_binding"]["decision_rule_id"] == results_payload["decision_rule_profile"]["decision_rule_id"]
+    assert results_payload["summary"]["recognition_binding"]["scope_id"] == results_payload["recognition_binding"]["scope_id"]
+    assert results_payload["summary"]["stats"]["recognition_binding"]["decision_rule_id"] == results_payload["recognition_binding"]["decision_rule_id"]
+    assert all(
+        dict(item).get("scope_id") == results_payload["recognition_binding"]["scope_id"]
+        and dict(item).get("decision_rule_id") == results_payload["recognition_binding"]["decision_rule_id"]
+        and dict(item).get("limitation_note")
+        and dict(item).get("non_claim_note")
+        and dict(item).get("readiness_status")
+        for item in list(results_payload["summary"]["stats"]["point_summaries"] or [])
+        if isinstance(item, dict)
+    )
+    assert all(
+        dict(item).get("scope_id") == results_payload["recognition_binding"]["scope_id"]
+        and dict(item).get("decision_rule_id") == results_payload["recognition_binding"]["decision_rule_id"]
+        for item in list(results_payload["results"].get("point_summaries") or [])
+        if isinstance(item, dict)
+    )
     assert results_payload["method_confirmation_protocol"]["artifact_type"] == "method_confirmation_protocol"
     assert results_payload["route_specific_validation_matrix"]["artifact_type"] == "route_specific_validation_matrix"
     assert results_payload["validation_run_set"]["artifact_type"] == "validation_run_set"
@@ -283,15 +316,42 @@ def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> No
     assert results_payload["verification_rollup"]["gateway_mode"] == "file_backed_default"
     assert results_payload["verification_rollup"]["db_ready_stub"]["not_in_default_chain"] is True
     assert results_payload["verification_rollup"]["primary_evidence_rewritten"] is False
+    assert results_payload["uncertainty_binding"]["scope_id"] == results_payload["recognition_binding"]["scope_id"]
+    assert results_payload["uncertainty_binding"]["decision_rule_id"] == results_payload["recognition_binding"]["decision_rule_id"]
+    assert results_payload["uncertainty_binding"]["uncertainty_case_id"] == results_payload["uncertainty_rollup"][
+        "uncertainty_case_id"
+    ]
+    assert results_payload["uncertainty_binding"]["method_confirmation_protocol_id"] == results_payload[
+        "method_confirmation_protocol"
+    ]["protocol_id"]
+    assert results_payload["uncertainty_binding"]["not_real_acceptance_evidence"] is True
+    assert results_payload["uncertainty_binding"]["not_ready_for_formal_claim"] is True
+    assert results_payload["uncertainty_report_pack"]["uncertainty_binding"]["uncertainty_case_id"]
+    assert results_payload["uncertainty_digest"]["uncertainty_binding"]["method_confirmation_protocol_id"]
+    assert results_payload["uncertainty_rollup"]["budget_level_summary"]
+    assert results_payload["uncertainty_rollup"]["binding_summary"]
+    assert results_payload["uncertainty_rollup"]["calculation_chain_summary"]
+    assert results_payload["uncertainty_rollup"]["fixture_summary"]
     assert "compatibility bundle" in results_payload["result_summary_text"]
     assert "工件兼容" in results_payload["result_summary_text"]
     assert "兼容性 rollup" in results_payload["result_summary_text"]
     assert "认可范围包" in results_payload["result_summary_text"]
+    assert "认可范围 ID" in results_payload["result_summary_text"]
     assert "决策规则" in results_payload["result_summary_text"]
+    assert "适用边界" in results_payload["result_summary_text"]
+    assert "边界限制" in results_payload["result_summary_text"]
     assert "符合性边界" in results_payload["result_summary_text"]
+    assert "Asset count:" in results_payload["result_summary_text"]
+    assert "Certificate validity:" in results_payload["result_summary_text"]
+    assert "Lot binding:" in results_payload["result_summary_text"]
+    assert "Intermediate checks:" in results_payload["result_summary_text"]
     assert "方法确认概览" in results_payload["result_summary_text"] or "Method confirmation overview" in results_payload["result_summary_text"]
     assert "验证矩阵完整度" in results_payload["result_summary_text"] or "Validation matrix completeness" in results_payload["result_summary_text"]
     assert "验证就绪状态" in results_payload["result_summary_text"] or "Verification readiness status" in results_payload["result_summary_text"]
+    assert results_payload["uncertainty_rollup"]["budget_level_summary"]
+    assert results_payload["uncertainty_binding"]["uncertainty_case_id"]
+    assert results_payload["uncertainty_rollup"]["calculation_chain_summary"]
+    assert results_payload["uncertainty_rollup"]["fixture_summary"]
     assert "配置安全" in results_payload["result_summary_text"]
     assert "工作台诊断证据" in results_payload["result_summary_text"]
     assert results_payload["output_files"]
@@ -309,6 +369,17 @@ def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> No
     assert reports_payload["compatibility_rollup"]["primary_evidence_rewritten"] is False
     assert reports_payload["verification_rollup"]["artifact_type"] == "verification_rollup"
     assert reports_payload["verification_rollup"]["db_ready_stub"]["not_in_default_chain"] is True
+    assert reports_payload["recognition_binding"]["scope_id"] == results_payload["recognition_binding"]["scope_id"]
+    assert reports_payload["uncertainty_binding"]["uncertainty_case_id"] == results_payload["uncertainty_binding"][
+        "uncertainty_case_id"
+    ]
+    assert reports_payload["uncertainty_binding"]["method_confirmation_protocol_id"] == results_payload[
+        "uncertainty_binding"
+    ]["method_confirmation_protocol_id"]
+    assert reports_payload["conformity_statement_profile"]["reviewer_only"] is True
+    assert reports_payload["step2_closeout_bundle"]["reviewer_only"] is True
+    assert reports_payload["step2_closeout_bundle"]["main_chain_dependency"] is False
+    assert reports_payload["step2_closeout_compact_section"]["summary_key"] == "step2_closeout"
     compatibility_row = next(
         row for row in reports_payload["files"] if Path(str(row.get("path") or "")).name == COMPATIBILITY_SCAN_SUMMARY_FILENAME
     )
@@ -334,15 +405,131 @@ def test_results_gateway_reads_summary_results_and_reports(tmp_path: Path) -> No
         for row in reports_payload["files"]
         if Path(str(row.get("path") or "")).name == recognition_readiness.VERIFICATION_ROLLUP_FILENAME
     )
+    uncertainty_report_row = next(
+        row
+        for row in reports_payload["files"]
+        if Path(str(row.get("path") or "")).name == recognition_readiness.UNCERTAINTY_REPORT_PACK_FILENAME
+    )
+    uncertainty_rollup_row = next(
+        row
+        for row in reports_payload["files"]
+        if Path(str(row.get("path") or "")).name == recognition_readiness.UNCERTAINTY_ROLLUP_FILENAME
+    )
+    step2_closeout_bundle_row = next(
+        row
+        for row in reports_payload["files"]
+        if Path(str(row.get("path") or "")).name == recognition_readiness.STEP2_CLOSEOUT_BUNDLE_FILENAME
+    )
     assert "scope" in str(scope_row["name"]).lower()
     assert "formal" not in str(scope_row["note"]).lower() or "not" in str(scope_row["note"]).lower()
     assert "current_reader_mode" not in str(scope_row["note"])
+    assert scope_row["scope_definition_pack_entry"]["scope_id"] == results_payload["recognition_binding"]["scope_id"]
+    assert scope_row["scope_definition_pack_entry"]["applicability_scope_display"]
+    assert scope_row["scope_definition_pack_entry"]["recognition_binding"]["scope_id"] == (
+        results_payload["recognition_binding"]["scope_id"]
+    )
+    assert scope_row["scope_definition_pack_entry"]["recognition_binding"]["limitation_note"]
+    assert scope_row["scope_definition_pack_entry"]["readiness_status"] == "ready_for_readiness_mapping"
     assert "decision" in str(decision_row["name"]).lower()
     assert "current_reader_mode" not in str(decision_row["note"])
+    assert decision_row["decision_rule_profile_entry"]["decision_rule_id"] == results_payload["recognition_binding"]["decision_rule_id"]
+    assert decision_row["decision_rule_profile_entry"]["conformity_statement_profile"]["reviewer_only"] is True
+    assert (
+        decision_row["decision_rule_profile_entry"]["conformity_statement_profile"]["statement_template_metadata"][
+            "reviewer_only"
+        ]
+        is True
+    )
+    assert decision_row["decision_rule_profile_entry"]["recognition_binding"]["decision_rule_id"] == (
+        results_payload["recognition_binding"]["decision_rule_id"]
+    )
+    assert decision_row["decision_rule_profile_entry"]["recognition_binding"]["non_claim_note"]
     assert verification_row["verification_rollup_entry"]["review_surface"]["title_text"] == "Verification Rollup"
     assert "鐭╅樀" in str(verification_row["note"]) or "verification" in str(verification_row["note"]).lower()
+    assert uncertainty_report_row["uncertainty_report_pack_entry"]["scope_id"] == results_payload["recognition_binding"][
+        "scope_id"
+    ]
+    assert uncertainty_report_row["uncertainty_report_pack_entry"]["decision_rule_id"] == results_payload[
+        "recognition_binding"
+    ]["decision_rule_id"]
+    assert uncertainty_report_row["uncertainty_report_pack_entry"]["uncertainty_case_id"] == results_payload[
+        "uncertainty_binding"
+    ]["uncertainty_case_id"]
+    assert uncertainty_report_row["uncertainty_report_pack_entry"]["method_confirmation_protocol_id"] == (
+        results_payload["uncertainty_binding"]["method_confirmation_protocol_id"]
+    )
+    assert uncertainty_report_row["uncertainty_report_pack_entry"]["binding_summary"]
+    assert uncertainty_report_row["uncertainty_report_pack_entry"]["calculation_chain_summary"]
+    assert uncertainty_report_row["uncertainty_report_pack_entry"]["fixture_summary"]
+    assert uncertainty_report_row["uncertainty_report_pack_entry"]["uncertainty_binding"][
+        "uncertainty_case_id"
+    ] == results_payload["uncertainty_binding"]["uncertainty_case_id"]
+    assert uncertainty_rollup_row["uncertainty_rollup_entry"]["uncertainty_case_id"] == results_payload[
+        "uncertainty_binding"
+    ]["uncertainty_case_id"]
+    assert uncertainty_rollup_row["uncertainty_rollup_entry"]["method_confirmation_protocol_id"] == (
+        results_payload["uncertainty_binding"]["method_confirmation_protocol_id"]
+    )
+    assert uncertainty_rollup_row["uncertainty_rollup_entry"]["budget_level_summary"]
+    assert uncertainty_rollup_row["uncertainty_rollup_entry"]["binding_summary"]
+    assert uncertainty_rollup_row["uncertainty_rollup_entry"]["calculation_chain_summary"]
+    assert uncertainty_rollup_row["uncertainty_rollup_entry"]["fixture_summary"]
+    assert step2_closeout_bundle_row["artifact_key"] == "step2_closeout_bundle"
+    assert step2_closeout_bundle_row["artifact_role"] == "diagnostic_analysis"
     assert "配置安全" in reports_payload["result_summary_text"]
     assert "工作台诊断证据" in reports_payload["result_summary_text"]
+    assert reports_payload["uncertainty_rollup"]["budget_level_summary"]
+    assert reports_payload["uncertainty_binding"]["uncertainty_case_id"]
+
+
+def test_results_gateway_surfaces_method_confirmation_linkage_digest_in_reports(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+
+    gateway = ResultsGateway(
+        run_dir,
+        output_files_provider=facade.service.get_output_files,
+    )
+    results_payload = gateway.read_results_payload()
+    reports_payload = gateway.read_reports_payload()
+    rows_by_path = {
+        str(Path(str(row.get("path") or "")).resolve()): dict(row)
+        for row in reports_payload["files"]
+    }
+    validation_run_path = str((run_dir / recognition_readiness.VALIDATION_RUN_SET_FILENAME).resolve())
+    verification_rollup_path = str((run_dir / recognition_readiness.VERIFICATION_ROLLUP_FILENAME).resolve())
+    validation_run_entry = rows_by_path[validation_run_path]["validation_run_set_entry"]
+    verification_rollup_entry = rows_by_path[verification_rollup_path]["verification_rollup_entry"]
+
+    for text in (
+        "方法确认覆盖项",
+        "已验证项",
+        "未验证项",
+        "验证运行绑定",
+        "来源 artifact refs",
+        "关联 uncertainty cases",
+        "关联 scope / decision rule",
+    ):
+        assert text in results_payload["result_summary_text"]
+        assert text in reports_payload["result_summary_text"]
+
+    assert validation_run_entry["coverage_items_summary"]
+    assert validation_run_entry["validated_items_summary"]
+    assert validation_run_entry["unverified_items_summary"]
+    assert validation_run_entry["validation_run_binding_summary"]
+    assert validation_run_entry["source_artifact_refs_summary"]
+    assert validation_run_entry["linked_uncertainty_case_ids_summary"]
+    assert validation_run_entry["linked_scope_decision_summary"]
+    assert validation_run_entry["coverage_items"]
+    assert validation_run_entry["validation_run_refs"]
+    assert validation_run_entry["source_artifact_refs"]
+    assert verification_rollup_entry["coverage_items"]
+    assert verification_rollup_entry["validated_items_summary"]
+    assert verification_rollup_entry["source_artifact_refs"]
+    assert verification_rollup_entry["linked_scope_id"]
+    assert verification_rollup_entry["linked_decision_rule_id"]
+    assert verification_rollup_entry["linked_uncertainty_case_ids"]
 
 
 def test_results_gateway_reads_top_level_handoffs_when_stats_sections_are_missing(tmp_path: Path) -> None:
@@ -1193,7 +1380,11 @@ def test_results_gateway_exposes_measurement_core_evidence_artifacts(tmp_path: P
     assert Path(phase_coverage_md_path).exists()
 
     assert results_payload["multi_source_stability_evidence"]["artifact_type"] == "multi_source_stability_evidence"
+    assert results_payload["stability_policy_profile"]["artifact_type"] == "stability_policy_profile"
+    assert results_payload["stability_decision_rollup"]["artifact_type"] == "stability_decision_rollup"
+    assert results_payload["shadow_stability_diff"]["artifact_type"] == "shadow_stability_diff"
     assert results_payload["state_transition_evidence"]["artifact_type"] == "state_transition_evidence"
+    assert results_payload["transition_policy_profile"]["artifact_type"] == "transition_policy_profile"
     assert results_payload["simulation_evidence_sidecar_bundle"]["artifact_type"] == "simulation_evidence_sidecar_bundle"
     assert results_payload["measurement_phase_coverage_report"]["artifact_type"] == "measurement_phase_coverage_report"
     assert "shadow evaluation only" in results_payload["multi_source_stability_evidence"]["boundary_statements"]
@@ -1207,6 +1398,7 @@ def test_results_gateway_exposes_measurement_core_evidence_artifacts(tmp_path: P
     assert "payload 完整阶段" in results_payload["result_summary_text"]
     assert "下一步补证工件" in results_payload["result_summary_text"]
     assert "sidecar-ready contract" in results_payload["result_summary_text"]
+    assert "candidate" in results_payload["result_summary_text"].lower()
     assert "measurement phase coverage" in reports_payload["result_summary_text"]
     assert "payload 完整阶段" in reports_payload["result_summary_text"]
     assert "下一步补证工件" in reports_payload["result_summary_text"]
@@ -1233,7 +1425,10 @@ def test_results_gateway_exposes_measurement_core_evidence_artifacts(tmp_path: P
     assert phase_coverage_json_row["artifact_role"] == "diagnostic_analysis"
     assert "仅供影子评估" in stability_json_row["role_status_display"]
     assert "does not modify live sampling gate by default" in stability_json_row["note"]
+    assert stability_json_row["multi_source_stability_evidence_entry"]["stability_policy_profile"]["artifact_type"] == "stability_policy_profile"
+    assert stability_json_row["multi_source_stability_evidence_entry"]["shadow_stability_diff"]["artifact_type"] == "shadow_stability_diff"
     assert "fixed canonical states" in transition_json_row["note"]
+    assert transition_json_row["state_transition_evidence_entry"]["transition_policy_profile"]["artifact_type"] == "transition_policy_profile"
     assert "Future database intake only" in sidecar_row["note"]
     assert "richer simulation coverage only" in phase_coverage_json_row["note"]
     assert "payload-complete" in phase_coverage_json_row["measurement_phase_coverage_report_entry"]["digest"]["summary"]
@@ -1374,7 +1569,10 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
     assert "Step 2 reviewer readiness only" in scope_row["role_status_display"]
     assert "formal scope approval" in scope_row["note"]
     assert "reference asset ledger" in reference_asset_row["note"].lower()
-    assert "certificate lifecycle skeleton" in certificate_lifecycle_row["note"].lower()
+    assert (
+        "certificate lifecycle skeleton" in certificate_lifecycle_row["note"].lower()
+        or "reviewer ledger" in certificate_lifecycle_row["note"].lower()
+    )
     assert "missing certificates" in certificate_row["note"].lower()
     assert "pass results" in certificate_row["note"].lower()
     assert "advisory" in pre_run_gate_row["note"].lower()
@@ -1427,7 +1625,14 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
     assert results_payload["certificate_lifecycle_summary"]["certificate_rows"]
     assert results_payload["certificate_readiness_summary"]["asset_status_rows"]
     assert results_payload["pre_run_readiness_gate"]["checks"]
-    assert results_payload["pre_run_readiness_gate"]["gate_status"] == "blocked_for_formal_claim"
+    assert results_payload["pre_run_readiness_gate"]["gate_status"] == "block"
+    assert results_payload["pre_run_readiness_gate"]["legacy_gate_status"] == "blocked_for_formal_claim"
+    assert results_payload["pre_run_readiness_gate"]["advisory_only"] is True
+    assert results_payload["pre_run_readiness_gate"]["device_control_allowed"] is False
+    assert results_payload["pre_run_readiness_gate"]["real_control_permitted"] is False
+    assert results_payload["pre_run_gate_status"] == "block"
+    assert results_payload["pre_run_gate_legacy_status"] == "blocked_for_formal_claim"
+    assert results_payload["pre_run_gate_advisory_only"] is True
     assert results_payload["uncertainty_report_pack"]["top_contributors"]
     assert results_payload["uncertainty_digest"]["digest"]["uncertainty_overview_summary"]
     assert results_payload["uncertainty_rollup"]["budget_completeness_summary"]
@@ -1465,6 +1670,95 @@ def test_results_gateway_exposes_recognition_readiness_artifacts(tmp_path: Path)
         assert "accreditation" not in note_text
         assert "acceptance_level" not in note_text
         assert "compliance claim" not in note_text
+
+
+def test_results_gateway_exposes_software_validation_sidechain_rows(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+    gateway = ResultsGateway(
+        run_dir,
+        output_files_provider=facade.service.get_output_files,
+    )
+
+    results_payload = gateway.read_results_payload()
+    reports_payload = gateway.read_reports_payload()
+    rows_by_path = {
+        str(Path(str(row.get("path") or "")).resolve()): dict(row)
+        for row in reports_payload["files"]
+    }
+
+    expected_rows = {
+        "requirement_design_code_test_links": recognition_readiness.REQUIREMENT_DESIGN_CODE_TEST_LINKS_FILENAME,
+        "validation_evidence_index": recognition_readiness.VALIDATION_EVIDENCE_INDEX_FILENAME,
+        "change_impact_summary": recognition_readiness.CHANGE_IMPACT_SUMMARY_FILENAME,
+        "rollback_readiness_summary": recognition_readiness.ROLLBACK_READINESS_SUMMARY_FILENAME,
+        "audit_event_store": recognition_readiness.AUDIT_EVENT_STORE_FILENAME,
+        "config_fingerprint": recognition_readiness.CONFIG_FINGERPRINT_FILENAME,
+        "release_input_digest": recognition_readiness.RELEASE_INPUT_DIGEST_FILENAME,
+        "release_validation_manifest": recognition_readiness.RELEASE_VALIDATION_MANIFEST_FILENAME,
+    }
+
+    for artifact_key, filename in expected_rows.items():
+        payload = dict(results_payload[artifact_key])
+        row = rows_by_path[str((run_dir / filename).resolve())]
+        entry = dict(row[f"{artifact_key}_entry"])
+        assert payload["artifact_type"] == artifact_key
+        assert payload["not_real_acceptance_evidence"] is True
+        assert payload["not_ready_for_formal_claim"] is True
+        assert payload["primary_evidence_rewritten"] is False
+        assert row["artifact_key"] == artifact_key
+        assert entry["review_surface"]["anchor_id"] == artifact_key.replace("_", "-")
+        assert set(entry["linked_surface_visibility"]) >= {
+            "results_payload",
+            "reports",
+            "review_center",
+            "workbench_recognition_readiness",
+        }
+
+    change_row = rows_by_path[str((run_dir / recognition_readiness.CHANGE_IMPACT_SUMMARY_FILENAME).resolve())]
+    change_entry = dict(change_row["change_impact_summary_entry"])
+    rollback_row = rows_by_path[str((run_dir / recognition_readiness.ROLLBACK_READINESS_SUMMARY_FILENAME).resolve())]
+    rollback_entry = dict(rollback_row["rollback_readiness_summary_entry"])
+    audit_event_row = rows_by_path[str((run_dir / recognition_readiness.AUDIT_EVENT_STORE_FILENAME).resolve())]
+    audit_event_entry = dict(audit_event_row["audit_event_store_entry"])
+    config_row = rows_by_path[str((run_dir / recognition_readiness.CONFIG_FINGERPRINT_FILENAME).resolve())]
+    config_entry = dict(config_row["config_fingerprint_entry"])
+    release_input_row = rows_by_path[str((run_dir / recognition_readiness.RELEASE_INPUT_DIGEST_FILENAME).resolve())]
+    release_input_entry = dict(release_input_row["release_input_digest_entry"])
+    release_validation_row = rows_by_path[
+        str((run_dir / recognition_readiness.RELEASE_VALIDATION_MANIFEST_FILENAME).resolve())
+    ]
+    release_validation_entry = dict(release_validation_row["release_validation_manifest_entry"])
+
+    assert change_entry["changed_modules_summary"]
+    assert change_entry["impacts_main_execution_chain"] is False
+    assert change_entry["impacts_artifact_schema"] is True
+    assert change_entry["impacts_results_surface"] is True
+    assert change_entry["impacts_review_center_surface"] is True
+    assert change_entry["impacts_workbench_surface"] is True
+    assert "main execution chain" in str(change_entry["main_execution_chain_impact_summary"]).lower()
+
+    assert rollback_entry["rollback_mode"] == "file_artifact_first"
+    assert rollback_entry["file_artifact_first"] is True
+    assert rollback_entry["sidecar_revocable"] is True
+    assert rollback_entry["primary_evidence_preserved"] is True
+    assert rollback_entry["touches_primary_evidence"] is False
+    assert rollback_entry["rollback_steps"]
+    assert "file-artifact-first" in str(rollback_entry["rollback_scope_summary"]).lower()
+
+    assert audit_event_entry["event_store_mode"] == "file_backed_reviewer_trace"
+    assert audit_event_entry["reviewer_trace_only"] is True
+    assert config_entry["fingerprint_scope"] == "file_backed_reviewer_trace"
+    assert config_entry["reviewer_trace_only"] is True
+    assert config_entry["formal_anti_tamper_claim"] is False
+    assert release_input_entry["digest_scope"] == "file_backed_reviewer_trace"
+    assert release_input_entry["reviewer_trace_only"] is True
+    assert release_input_entry["formal_anti_tamper_claim"] is False
+    assert release_validation_entry["compatibility_alias_of"] == "release_manifest"
+    assert release_validation_entry["artifact_paths"]["release_validation_manifest"].endswith(
+        recognition_readiness.RELEASE_VALIDATION_MANIFEST_FILENAME
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1566,6 +1860,61 @@ class TestResultsGatewayCompactSummaryPacks:
         assert compare_pack["not_real_acceptance_evidence"] is True
         assert compare_pack["compare_status"] == "MISMATCH"
 
+    def test_comparison_payload_appends_external_comparison_pack(self):
+        packs = ResultsGateway._build_compact_summary_packs(
+            pt_ilc_registry={"scope_id": "scope-1", "decision_rule_id": "dr-1"},
+            external_comparison_importer={"source_file": "D:/tmp/comparison.json"},
+            comparison_evidence_pack={
+                "comparison_overview_summary": "external comparison rows 2",
+                "comparison_import_trace_summary": "source files 2 | import modes local_json 1 | local_csv 1",
+                "digest": {"current_evidence_coverage_summary": "uncertainty 2 | method 1 | software 1 | assets 2 | certificates 2"},
+            },
+            comparison_rollup={
+                "rollup_summary_display": "external comparison rows 2 | local-file-only | reviewer-only",
+                "scope_id": "scope-1",
+                "decision_rule_id": "dr-1",
+                "digest": {
+                    "comparison_overview_summary": "external comparison rows 2 | local-file-only | reviewer-only",
+                    "comparison_import_trace_summary": "source files 2 | import modes local_json 1 | local_csv 1",
+                    "current_evidence_coverage_summary": "uncertainty 2 | method 1 | software 1 | assets 2 | certificates 2",
+                },
+            },
+        )
+        comparison_pack = next(pack for pack in packs if pack["summary_key"] == "external_comparison")
+        assert comparison_pack["display_label"] == "External comparison"
+        assert comparison_pack["evidence_source"] == "simulated"
+        assert comparison_pack["reviewer_only"] is True
+        assert comparison_pack["readiness_mapping_only"] is True
+        assert comparison_pack["not_real_acceptance_evidence"] is True
+        assert comparison_pack["not_ready_for_formal_claim"] is True
+        assert comparison_pack["scope_id"] == "scope-1"
+        assert comparison_pack["decision_rule_id"] == "dr-1"
+        assert any("local-file-only" in line for line in comparison_pack["summary_lines"])
+
+    def test_sidecar_payload_appends_analytics_ai_sidecar_pack(self):
+        packs = ResultsGateway._build_compact_summary_packs(
+            sidecar_index_summary={
+                "summary_line": "旁路索引 file | runs 1 | artifacts 1 | reviews 1 | anomalies 1 | features 1 | risk 1",
+                "backend": "file",
+                "index_path": "D:/tmp/sidecar/index.json",
+            },
+            review_copilot_payload={
+                "summary_line": "Review Copilot | high risk | 证据缺口 2 | 复验建议 1 | standards 1",
+                "risk_summary": "high risk | score 0.82",
+            },
+            model_governance_summary={
+                "summary_line": "model risk-model-1.2.0 | feature feature_v2026_04 | label labels_v3 | release canary | rollback risk-model-1.1.4",
+                "release_status": "canary",
+            },
+        )
+        sidecar_pack = next(pack for pack in packs if pack["summary_key"] == "analytics_ai_sidecar")
+        assert sidecar_pack["display_label"] == "Analytics / AI sidecar"
+        assert sidecar_pack["backend"] == "file"
+        assert sidecar_pack["reviewer_only"] is True
+        assert sidecar_pack["not_device_control"] is True
+        assert sidecar_pack["not_ready_for_formal_claim"] is True
+        assert any("Review Copilot" in line for line in sidecar_pack["summary_lines"])
+
 
 class TestResultsGatewayCompactSummaryBudget:
     """Verify results_gateway applies surface budget governance to compact summary lines."""
@@ -1591,6 +1940,52 @@ class TestResultsGatewayCompactSummaryBudget:
         for pack in packs:
             assert "summary_key" in pack
             assert "summary_lines" in pack
+
+
+def test_results_gateway_surfaces_sidecar_analytics_ai_summary(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+    sidecar_index = build_fake_sidecar_index(tmp_path, run_id=facade.session.run_id)
+    gateway = ResultsGateway(
+        run_dir,
+        output_files_provider=facade.service.get_output_files,
+        sidecar_index=sidecar_index,
+    )
+
+    payload = gateway.read_results_payload()
+
+    assert payload["sidecar_index_summary"]["available"] is True
+    assert payload["review_copilot_payload"]["risk_summary"] == "high risk | score 0.82 | unresolved pressure drift"
+    assert payload["model_governance_summary"]["model_version"] == "risk-model-1.2.0"
+    assert any(
+        pack["summary_key"] == "analytics_ai_sidecar"
+        for pack in list(payload.get("compact_summary_packs") or [])
+    )
+    assert "Sidecar analytics:" in payload["result_summary_text"]
+    assert "Review Copilot:" in payload["result_summary_text"]
+    assert "Model governance:" in payload["result_summary_text"]
+
+
+def test_results_gateway_default_chain_survives_missing_sidecar_sqlite(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+    missing_sidecar = SidecarIndexStore.sqlite_sidecar(tmp_path / "missing-sidecar" / "index.sqlite")
+    gateway = ResultsGateway(
+        run_dir,
+        output_files_provider=facade.service.get_output_files,
+        sidecar_index=missing_sidecar,
+    )
+
+    payload = gateway.read_results_payload()
+
+    assert payload["summary"]
+    assert payload["manifest"]
+    assert "工作台诊断证据" in payload["result_summary_text"]
+    assert payload["sidecar_index_summary"] == {}
+    assert payload["review_copilot_payload"] == {}
+    assert payload["model_governance_summary"] == {}
 
 
 # ---------------------------------------------------------------------------

@@ -287,7 +287,7 @@ class TestV12AlignmentSummaryPackConsumption:
     def test_compact_summary_pack_version(self) -> None:
         result = build_v12_alignment_summary()
         pack = result["v12_alignment_summary"]["compact_summary_pack"]
-        assert pack["pack_version"] == "2.13.0"
+        assert pack["pack_version"] == "2.16.0"
 
     def test_compact_summary_pack_simulation_only(self) -> None:
         result = build_v12_alignment_summary()

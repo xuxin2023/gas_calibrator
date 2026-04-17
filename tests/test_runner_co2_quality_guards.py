@@ -395,3 +395,71 @@ def test_build_point_summary_row_includes_long_guard_and_sampling_window_qc_fiel
     assert row["sampling_window_dewpoint_last_c"] == -23.6
     assert row["sampling_window_qc_status"] == "warn"
     assert row["sampling_window_qc_reason"] == "range_c=0.500>max_range_c=0.200;policy=warn"
+
+
+def test_wait_co2_preseal_baseline_sanity_gate_rejects_stable_wrong_plateau_under_override(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "stability": {
+                    "sensor": {
+                        "baseline_sanity_gate": {
+                            "enabled": True,
+                            "policy": "reject",
+                            "same_gas_only": True,
+                            "target_co2_ppm": 800.0,
+                            "target_co2_tolerance_ppm": 120.0,
+                            "pressure_min_hpa": 980.0,
+                            "pressure_max_hpa": 1020.0,
+                            "plateau_sample_count": 4,
+                            "plateau_read_interval_s": 0.0,
+                            "max_plateau_span_ppm": 25.0,
+                        }
+                    }
+                }
+            }
+        },
+        {"gas_analyzer": object()},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = CalibrationPoint(
+        index=3,
+        temp_chamber_c=20.0,
+        co2_ppm=800.0,
+        hgen_temp_c=None,
+        hgen_rh_pct=None,
+        target_pressure_hpa=1000.0,
+        dewpoint_c=None,
+        h2o_mmol=None,
+        raw_h2o=None,
+        co2_group="A",
+    )
+    readings = iter([1514.8, 1515.2, 1515.5, 1515.1])
+
+    runner._active_gas_analyzers = types.MethodType(
+        lambda self: [("ga01", object(), {})],
+        runner,
+    )
+    runner._resolve_sensor_frame_acceptance_mode = types.MethodType(
+        lambda self, *_args, **_kwargs: "usable_only",
+        runner,
+    )
+    runner._read_sensor_parsed = types.MethodType(
+        lambda self, *_args, **_kwargs: ("", {"co2_ppm": next(readings)}),
+        runner,
+    )
+    runner._sampling_window_wait = types.MethodType(lambda self, *_args, **_kwargs: True, runner)
+
+    assert runner._wait_co2_preseal_baseline_sanity_gate(point) is False
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2")
+    assert state is not None
+    assert state["baseline_sanity_gate_status"] == "fail"
+    assert state["baseline_sanity_target_co2_ppm"] == 800.0
+    assert round(float(state["baseline_sanity_plateau_mean_ppm"]), 3) == 1515.15
+    assert state["baseline_sanity_plateau_count"] == 4
+    assert state["root_cause_reject_reason"] == "baseline_precondition_wrong_plateau_suspect"

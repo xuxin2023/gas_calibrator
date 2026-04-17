@@ -26,6 +26,21 @@ try:
 except ImportError:
     build_compact_summary_render_context = None
 
+try:
+    from ..core.compact_summary_rendering import (
+        build_visible_sections as _shared_build_visible_sections,
+        build_compact_summary_pack_fields as _shared_build_pack_fields,
+        build_full_compact_summary_view as _shared_build_full_view,
+        build_old_run_fallback as _shared_build_old_run_fallback,
+        build_legacy_hint as _shared_build_legacy_hint,
+    )
+except ImportError:
+    _shared_build_visible_sections = None
+    _shared_build_pack_fields = None
+    _shared_build_full_view = None
+    _shared_build_old_run_fallback = None
+    _shared_build_legacy_hint = None
+
 SOURCE_SCAN_ENTRY_LIMIT = 128
 SOURCE_SCAN_FILE_LIMIT = 64
 
@@ -34,6 +49,9 @@ def _build_compact_summary_pack_fields(
     packs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build compact summary pack fields for review_center surface rendering."""
+    if _shared_build_pack_fields is not None:
+        return _shared_build_pack_fields(packs, surface="review_center")
+    # Fallback when shared helper is not importable
     _raw_packs = list(packs or [])
     if _raw_packs and build_compact_summary_render_context is not None:
         try:
@@ -51,6 +69,91 @@ def _build_compact_summary_pack_fields(
         "compact_summary_sections": [],
         "compact_summary_order": [],
         "compact_summary_budget": {},
+    }
+
+
+def _build_compact_summary_pack_visible_sections(
+    pack_fields: dict[str, Any],
+) -> dict[str, Any]:
+    """Build reviewer-facing visible sections from compact summary pack fields.
+
+    Produces:
+    - rendered_summary_sections: list of dicts with display_label, summary_line,
+      summary_lines (compact, budget-controlled), priority, severity
+    - omitted_summary_sections: list of dicts for packs whose lines were fully truncated
+    """
+    if _shared_build_visible_sections is not None:
+        return _shared_build_visible_sections(
+            list(pack_fields.get("compact_summary_packs") or []),
+            budget=dict(pack_fields.get("compact_summary_budget") or {}),
+        )
+    # Fallback when shared helper is not importable
+    packs = list(pack_fields.get("compact_summary_packs") or [])
+    budget = dict(pack_fields.get("compact_summary_budget") or {})
+    used = int(budget.get("used", 0) or 0)
+    total_lines = int(budget.get("total_lines", 0) or 0)
+    truncated_count = int(budget.get("truncated_count", 0) or 0)
+
+    rendered: list[dict[str, Any]] = []
+    omitted: list[dict[str, Any]] = []
+    lines_remaining = used
+
+    for pack in packs:
+        summary_key = str(pack.get("summary_key", ""))
+        display_label = str(pack.get("display_label") or summary_key)
+        summary_line = str(pack.get("summary_line") or "")
+        all_lines = list(pack.get("compact_summary_lines") or pack.get("summary_lines") or [])
+        priority = int(pack.get("priority", 99) or 99)
+        severity = str(pack.get("severity", "info") or "info")
+
+        if lines_remaining <= 0 and not all_lines:
+            omitted.append({
+                "summary_key": summary_key,
+                "display_label": display_label,
+                "priority": priority,
+                "severity": severity,
+                "reason": "budget_exhausted",
+            })
+            continue
+
+        show_count = min(len(all_lines), lines_remaining) if lines_remaining > 0 else 0
+        shown_lines = all_lines[:show_count]
+        pack_truncated = len(all_lines) - show_count
+
+        if show_count > 0:
+            rendered.append({
+                "summary_key": summary_key,
+                "display_label": display_label,
+                "summary_line": summary_line,
+                "summary_lines": shown_lines,
+                "priority": priority,
+                "severity": severity,
+                "truncated": pack_truncated > 0,
+                "truncated_count": pack_truncated,
+            })
+            lines_remaining -= show_count
+        elif all_lines:
+            omitted.append({
+                "summary_key": summary_key,
+                "display_label": display_label,
+                "priority": priority,
+                "severity": severity,
+                "reason": "budget_truncated",
+                "total_lines": len(all_lines),
+            })
+
+    budget_display = {
+        "used": used,
+        "budget": int(budget.get("budget", 0) or 0),
+        "total_lines": total_lines,
+        "truncated_count": truncated_count,
+        "pack_count": int(budget.get("pack_count", 0) or 0),
+    }
+
+    return {
+        "rendered_summary_sections": rendered,
+        "omitted_summary_sections": omitted,
+        "compact_summary_budget_display": budget_display,
     }
 
 
@@ -181,8 +284,9 @@ def build_artifact_scope_view(
     files: list[dict[str, Any]],
     *,
     selection: dict[str, Any] | None = None,
+    compact_summary_packs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    return build_review_artifact_registry(files, selection=selection)
+    return build_review_artifact_registry(files, selection=selection, compact_summary_packs=compact_summary_packs)
 
 
 def build_review_artifact_registry(
@@ -330,7 +434,9 @@ def build_review_artifact_registry(
         "disclaimer_text": t("pages.reports.artifact_scope.disclaimer"),
         "export_warning_text": reviewer_display["export_warning_text"],
         "clear_enabled": scope != "all",
-        **_build_compact_summary_pack_fields(compact_summary_packs),
+        **(_pack_fields := _build_compact_summary_pack_fields(compact_summary_packs)),
+        **_build_compact_summary_pack_visible_sections(_pack_fields),
+        "compact_summary_legacy_mode": not bool(list(compact_summary_packs or [])),
     }
 
 
@@ -339,8 +445,9 @@ def build_review_scope_manifest_payload(
     *,
     selection: dict[str, Any] | None = None,
     run_dir: str = "",
+    compact_summary_packs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    registry = build_review_artifact_registry(files, selection=selection)
+    registry = build_review_artifact_registry(files, selection=selection, compact_summary_packs=compact_summary_packs)
     rows = [_build_manifest_row(row) for row in list(registry.get("rows", []) or [])]
     selection_snapshot = _sanitize_selection_snapshot(selection)
     scope_summary = {
@@ -403,6 +510,17 @@ def build_review_scope_manifest_payload(
     )
     if stage3_standards_alignment_matrix_entry:
         payload["stage3_standards_alignment_matrix_artifact_entry"] = stage3_standards_alignment_matrix_entry
+    # Compact summary pack fields and visible rendering
+    _pack_fields = _build_compact_summary_pack_fields(compact_summary_packs)
+    payload["compact_summary_packs"] = list(_pack_fields.get("compact_summary_packs") or [])
+    payload["compact_summary_sections"] = list(_pack_fields.get("compact_summary_sections") or [])
+    payload["compact_summary_order"] = list(_pack_fields.get("compact_summary_order") or [])
+    payload["compact_summary_budget"] = dict(_pack_fields.get("compact_summary_budget") or {})
+    _visible = _build_compact_summary_pack_visible_sections(_pack_fields)
+    payload["rendered_summary_sections"] = list(_visible.get("rendered_summary_sections") or [])
+    payload["omitted_summary_sections"] = list(_visible.get("omitted_summary_sections") or [])
+    payload["compact_summary_budget_display"] = dict(_visible.get("compact_summary_budget_display") or {})
+    payload["compact_summary_legacy_mode"] = not bool(list(compact_summary_packs or []))
     return payload
 
 
@@ -456,6 +574,44 @@ def render_review_scope_manifest_markdown(payload: dict[str, Any]) -> str:
             )
             + " |"
         )
+    lines.append("")
+    # Compact summary pack visible rendering in markdown
+    rendered_sections = list(payload.get("rendered_summary_sections") or [])
+    omitted_sections = list(payload.get("omitted_summary_sections") or [])
+    budget_display = dict(payload.get("compact_summary_budget_display") or {})
+    if rendered_sections:
+        lines.append(f"## {t('reviewer_summary.compact_summary_pack.header')}")
+        lines.append("")
+        for section in rendered_sections:
+            label = str(section.get("display_label") or section.get("summary_key", ""))
+            severity = str(section.get("severity", "info") or "info")
+            section_lines = list(section.get("summary_lines") or [])
+            truncated = bool(section.get("truncated", False))
+            lines.append(f"### {label}")
+            if severity != "info":
+                lines.append(f"*{severity}*")
+            for sl in section_lines:
+                lines.append(f"- {sl}")
+            if truncated:
+                tc = int(section.get("truncated_count", 0) or 0)
+                lines.append(t("reviewer_summary.compact_summary_budget.truncated_hint", count=tc))
+            lines.append("")
+        if omitted_sections:
+            omitted_labels = ", ".join(
+                str(s.get("display_label") or s.get("summary_key", "")) for s in omitted_sections
+            )
+            lines.append(f"*{t('reviewer_summary.compact_summary_pack.omitted_sections', default='已省略的摘要节')}: {omitted_labels}*")
+            lines.append("")
+        if budget_display:
+            lines.append(
+                f"*{t('reviewer_summary.compact_summary_pack.used_lines')}: {budget_display.get('used', 0)} / "
+                f"{t('reviewer_summary.compact_summary_pack.budget_lines')}: {budget_display.get('budget', 0)}*"
+            )
+            lines.append("")
+    # Legacy hint
+    if bool(payload.get("compact_summary_legacy_mode", False)):
+        lines.append(f"*{t('reviewer_summary.compact_summary_pack.legacy_hint', default='未提供紧凑摘要包，已使用兼容渲染')}*")
+        lines.append("")
     lines.append("")
     return "\n".join(lines)
 

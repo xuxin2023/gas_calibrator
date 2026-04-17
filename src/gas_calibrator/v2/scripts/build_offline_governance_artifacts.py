@@ -41,6 +41,7 @@ from ..core.phase_transition_bridge_reviewer_artifact import (
     PHASE_TRANSITION_BRIDGE_REVIEWER_FILENAME,
     build_phase_transition_bridge_reviewer_artifact,
 )
+from ..core import recognition_readiness_artifacts as recognition_readiness
 from ..core.stage_admission_review_pack import (
     STAGE_ADMISSION_REVIEW_PACK_FILENAME,
     STAGE_ADMISSION_REVIEW_PACK_REVIEWER_FILENAME,
@@ -204,6 +205,10 @@ def _augment_run_payload_with_step2_readiness(
         encoding="utf-8",
     )
     analytics_summary["stage3_real_validation_plan"] = dict(stage3_real_validation_plan.get("raw") or {})
+    scope_definition_pack_path = run_dir / recognition_readiness.SCOPE_DEFINITION_PACK_FILENAME
+    decision_rule_profile_path = run_dir / recognition_readiness.DECISION_RULE_PROFILE_FILENAME
+    scope_definition_pack = _load_json(scope_definition_pack_path) if scope_definition_pack_path.exists() else {}
+    decision_rule_profile = _load_json(decision_rule_profile_path) if decision_rule_profile_path.exists() else {}
     stage3_standards_alignment_matrix = build_stage3_standards_alignment_matrix(
         run_id=run_id,
         step2_readiness_summary=readiness_summary,
@@ -212,6 +217,9 @@ def _augment_run_payload_with_step2_readiness(
         stage_admission_review_pack=stage_admission_review_pack,
         engineering_isolation_admission_checklist=engineering_isolation_admission_checklist,
         stage3_real_validation_plan=stage3_real_validation_plan,
+        scope_definition_pack=scope_definition_pack,
+        decision_rule_profile=decision_rule_profile,
+        conformity_statement_profile=dict(decision_rule_profile.get("conformity_statement_profile") or {}),
         artifact_paths={
             "step2_readiness_summary": readiness_path,
             "metrology_calibration_contract": metrology_path,
@@ -225,6 +233,8 @@ def _augment_run_payload_with_step2_readiness(
             ),
             "stage3_real_validation_plan": stage3_real_validation_plan_path,
             "stage3_real_validation_plan_reviewer_artifact": stage3_real_validation_plan_reviewer_path,
+            "scope_definition_pack": scope_definition_pack_path,
+            "decision_rule_profile": decision_rule_profile_path,
         },
     )
     stage3_standards_alignment_matrix_path = write_json(

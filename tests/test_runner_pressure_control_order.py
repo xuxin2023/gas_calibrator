@@ -1,4 +1,6 @@
 from pathlib import Path
+
+import pytest
 import csv
 
 from gas_calibrator.data.points import CalibrationPoint
@@ -87,6 +89,9 @@ class _FakePace:
 
     def get_vent_status(self):
         return self.vent_status
+
+    def has_legacy_vent_state_3_compatibility(self):
+        return False
 
 
 class _FakePaceFallback:
@@ -229,6 +234,9 @@ class _FakePaceLegacyVentTrapped(_FakePace):
     def get_vent_status(self):
         return 3
 
+    def has_legacy_vent_state_3_compatibility(self):
+        return True
+
     def vent_status_allows_control(self, status):
         return int(status) in {0, 2, 3}
 
@@ -265,6 +273,9 @@ class _FakePaceLegacyOutputOnTrappedThenReady(_FakePace):
 
     def get_vent_status(self):
         return self.vent_status
+
+    def has_legacy_vent_state_3_compatibility(self):
+        return True
 
     def vent_status_allows_control(self, status):
         return int(status) in {0, 2, 3}
@@ -334,6 +345,9 @@ class _FakePaceSingleCycleVentClearsToTrapped(_FakePaceSingleCycleVent):
             return 1
         self.vent_status = 2
         return 2
+
+    def has_legacy_vent_state_3_compatibility(self):
+        return True
 
     def vent_status_allows_control(self, status):
         return int(status) in {0, 3}
@@ -405,6 +419,9 @@ class _FakePaceCompletedVentLatchBitOnly(_FakePace):
     def drain_system_errors(self):
         self.calls.append(("drain_system_errors",))
         return []
+
+    def has_legacy_vent_state_3_compatibility(self):
+        return True
 
     def vent_status_allows_control(self, status):
         return int(status) in {0, 3}
@@ -540,7 +557,7 @@ def test_set_pressure_controller_vent_on_does_not_depend_on_open_valve_extension
     assert any(row["trace_stage"] == "atmosphere_enter_verified" for row in trace_rows)
 
 
-def test_set_pressure_controller_vent_on_accepts_legacy_trapped_pressure_after_clear(tmp_path: Path) -> None:
+def test_set_pressure_controller_vent_on_blocks_legacy_trapped_pressure_pending_ack(tmp_path: Path) -> None:
     cfg = {
         "workflow": {
             "pressure": {
@@ -553,7 +570,8 @@ def test_set_pressure_controller_vent_on_accepts_legacy_trapped_pressure_after_c
     pace = _FakePaceSingleCycleVentClearsToTrapped()
     runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
 
-    runner._set_pressure_controller_vent(True, reason="legacy trapped after clear")
+    with pytest.raises(RuntimeError, match="VENT_CLEAR_PENDING_ACK"):
+        runner._set_pressure_controller_vent(True, reason="legacy trapped after clear")
     logger.close()
 
     assert pace.calls == [
@@ -566,10 +584,14 @@ def test_set_pressure_controller_vent_on_accepts_legacy_trapped_pressure_after_c
     assert any(
         row["trace_stage"] == "atmosphere_vent_clear"
         and row["pace_vent_status_query"].strip() == "3"
-        and row["pace_vent_clear_result"].strip() == "cleared_to_trapped_pressure"
+        and row["pace_vent_clear_result"].strip() == "pending_acknowledgement"
+        and row["legacy_vent3_control_ready_used"].strip().lower() != "true"
+        and row["legacy_vent3_accept_scope"].strip() == "none"
+        and row["vent3_ui_ack_required"].strip().lower() == "true"
+        and row["vent3_block_scope"].strip() == "vent_clear_pending_ack"
         for row in trace_rows
     )
-    assert any(row["trace_stage"] == "atmosphere_enter_verified" for row in trace_rows)
+    assert not any(row["trace_stage"] == "atmosphere_enter_verified" for row in trace_rows)
 
 
 def test_set_pressure_to_target_closes_vent_before_setpoint_and_output(tmp_path: Path) -> None:
@@ -885,7 +907,7 @@ def test_set_pressure_to_target_rejects_trapped_pressure_before_setpoint_control
     assert not any(row["trace_stage"] == "pressure_control_wait" for row in trace_rows)
 
 
-def test_set_pressure_to_target_accepts_legacy_trapped_pressure_before_setpoint_control(tmp_path: Path) -> None:
+def test_set_pressure_to_target_rejects_legacy_trapped_pressure_before_setpoint_control(tmp_path: Path) -> None:
     cfg = {
         "workflow": {
             "pressure": {
@@ -911,17 +933,29 @@ def test_set_pressure_to_target_accepts_legacy_trapped_pressure_before_setpoint_
     pace = _FakePaceLegacyVentTrapped()
     runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
 
-    assert runner._set_pressure_to_target(point) is True
+    assert runner._set_pressure_to_target(point) is False
     logger.close()
 
     assert pace.calls == [
         ("vent_off", 12.0),
-        ("setpoint", 500.0),
-        ("output_on",),
+        ("vent_off", 12.0),
     ]
     trace_rows = _load_pressure_trace_rows(logger)
-    assert any(row["trace_stage"] == "control_ready_verified" for row in trace_rows)
-    assert any(row["trace_stage"] == "control_output_on_verified" for row in trace_rows)
+    assert any(
+        row["trace_stage"] == "control_ready_failed"
+        and row["pace_vent_status"].strip() == "3"
+        and row["pace_legacy_vent_state_3_suspect"].strip().lower() == "true"
+        and row["pace_atmosphere_connected_latched_state_suspect"].strip().lower() == "true"
+        and row["legacy_vent3_control_ready_used"].strip().lower() != "true"
+        and row["legacy_vent3_accept_scope"].strip() == "none"
+        and row["vent3_hard_blocked"].strip().lower() == "true"
+        and row["vent3_control_ready_attempted"].strip().lower() == "true"
+        and row["vent3_control_ready_prevented"].strip().lower() == "true"
+        and row["vent3_block_scope"].strip() == "pressure_control_ready"
+        for row in trace_rows
+    )
+    assert not any(row["trace_stage"] == "control_ready_verified" for row in trace_rows)
+    assert not any(row["trace_stage"] == "control_output_on_verified" for row in trace_rows)
 
 
 def test_set_pressure_to_target_rejects_output_recovery_while_still_trapped(tmp_path: Path) -> None:
@@ -965,7 +999,7 @@ def test_set_pressure_to_target_rejects_output_recovery_while_still_trapped(tmp_
     assert not any(row["trace_stage"] == "pressure_control_wait" for row in trace_rows)
 
 
-def test_set_pressure_to_target_allows_output_recovery_when_legacy_trapped_ready(tmp_path: Path) -> None:
+def test_set_pressure_to_target_blocks_output_recovery_when_legacy_trapped_ready(tmp_path: Path) -> None:
     cfg = {
         "workflow": {
             "pressure": {
@@ -992,7 +1026,7 @@ def test_set_pressure_to_target_allows_output_recovery_when_legacy_trapped_ready
     pace._in_limits_sequence = [(500.0, 1)]
     runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
 
-    assert runner._set_pressure_to_target(point) is True
+    assert runner._set_pressure_to_target(point) is False
     logger.close()
 
     assert pace.calls == [
@@ -1000,14 +1034,18 @@ def test_set_pressure_to_target_allows_output_recovery_when_legacy_trapped_ready
         ("setpoint", 500.0),
         ("output_on", "first"),
         ("output", False),
-        ("isol", True),
-        ("vent", False),
-        ("setpoint", 500.0),
-        ("output_on", "second"),
     ]
     trace_rows = _load_pressure_trace_rows(logger)
-    assert any(row["trace_stage"] == "control_output_on_recovery_begin" for row in trace_rows)
-    assert any(row["trace_stage"] == "control_output_on_verified" for row in trace_rows)
+    assert any(
+        row["trace_stage"] == "control_output_on_failed"
+        and row["pace_vent_status"].strip() == "3"
+        and row["legacy_vent3_control_ready_used"].strip().lower() != "true"
+        and row["legacy_vent3_accept_scope"].strip() == "none"
+        and row["vent3_control_ready_attempted"].strip().lower() == "true"
+        and row["vent3_control_ready_prevented"].strip().lower() == "true"
+        and row["vent3_block_scope"].strip() == "output_on_verify"
+        for row in trace_rows
+    )
 
 
 def test_set_pressure_to_target_aborts_when_output_on_verification_detects_vent_window(tmp_path: Path) -> None:
@@ -1237,7 +1275,7 @@ def test_force_clear_completed_vent_latch_when_status_is_trapped_but_oper_bit_is
     logger.close()
 
     assert summary["status"] == "applied"
-    assert summary["reason"] == "cleared_to_trapped_pressure(before=3,after=3)"
+    assert summary["reason"] == "clear_attempted_pending_ack(before=3,after=3)"
     assert pace.calls == [
         ("clear_status",),
         ("drain_system_errors",),

@@ -226,6 +226,19 @@ def test_reports_page_displays_snapshot() -> None:
                 "result_summary_text": "运行与治理摘要：离线诊断 room-temp 1 | analyzer-chain 1\n配置安全：blocked",
                 "qc_summary_text": "质控摘要：运行门禁 warn | 点级门禁 warn\n证据边界：仅供 simulation/offline 审阅，不代表 real acceptance evidence。",
                 "ai_summary_text": "# AI Run Summary\nStable",
+                "step2_closeout_bundle": {
+                    "summary_line": "Step 2 收尾总包 ready for internal review",
+                    "summary_lines": [
+                        "Step 2 收尾总包 ready for internal review",
+                        "blocker/warning/info: 0/1/1",
+                    ],
+                    "warning_items": ["comparison bundle requires reviewer attention"],
+                },
+                "step2_closeout_compact_section": {
+                    "summary_key": "step2_closeout",
+                    "summary_line": "Step 2 收尾总包 ready for internal review",
+                },
+                "step2_closeout_summary_markdown": "# Step 2 收尾总包\n\nStep 2 收尾总包 ready for internal review\n",
                 "export": {"available_formats": ["json", "csv", "all"], "last_export_message": "Ready"},
             }
         )
@@ -240,6 +253,7 @@ def test_reports_page_displays_snapshot() -> None:
         assert "离线诊断 room-temp 1" in page.result_summary.get("1.0", "end")
         assert "质控摘要" in page.qc_summary.get("1.0", "end")
         assert "Stable" in page.ai_summary.text.get("1.0", "end")
+        assert "Step 2 收尾总包 ready for internal review" in page.closeout_bundle.get("1.0", "end")
 
         page.export_bar.export_all()
         page.export_bar.export_review_manifest()
@@ -982,6 +996,18 @@ def test_reports_page_artifact_list_surfaces_stage3_standards_alignment_matrix_f
         root.destroy()
 
 
+def test_reports_page_result_summary_includes_external_comparison_closeout(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    rebuild_run(Path(facade.result_store.run_dir))
+    reports = facade.get_reports_snapshot()
+
+    compact_summary_packs = list(reports.get("compact_summary_packs") or [])
+    assert any(pack["summary_key"] == "external_comparison" for pack in compact_summary_packs)
+    comparison_pack = next(pack for pack in compact_summary_packs if pack["summary_key"] == "external_comparison")
+    assert any("external comparison rows" in str(line).lower() for line in list(comparison_pack.get("summary_lines") or []))
+    assert any("local-file-only" in str(line) for line in list(comparison_pack.get("compact_summary_lines") or []))
+
+
 def test_reports_page_displays_closeout_readiness() -> None:
     """Reports page should display Step 2 closeout readiness panel."""
     from gas_calibrator.v2.core.step2_closeout_readiness_builder import build_step2_closeout_readiness
@@ -1270,6 +1296,28 @@ def test_reports_page_renders_freeze_audit_from_closeout_package() -> None:
         })
         text_content = page.freeze_audit.get("1.0", "end")
         assert text_content.strip(), "Freeze audit panel should be built from closeout package"
+    finally:
+        root.destroy()
+
+
+def test_reports_page_surfaces_uncertainty_summary_from_rebuilt_run(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+    results_snapshot = facade.build_results_snapshot()
+    reports_snapshot = facade.get_reports_snapshot(results_snapshot=results_snapshot)
+
+    root = make_root()
+    try:
+        page = ReportsPage(root)
+        page.render(reports_snapshot)
+
+        summary_text = page.result_summary.get("1.0", "end")
+
+        assert "budget levels" in summary_text.lower()
+        assert "uncertainty binding" in summary_text.lower()
+        assert "calculation chain" in summary_text.lower()
+        assert "fixture" in summary_text.lower()
     finally:
         root.destroy()
 

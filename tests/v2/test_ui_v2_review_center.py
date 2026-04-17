@@ -31,7 +31,7 @@ SUPPORT_DIR = Path(__file__).resolve().parent
 if str(SUPPORT_DIR) not in sys.path:
     sys.path.insert(0, str(SUPPORT_DIR))
 
-from ui_v2_support import build_fake_facade, make_root
+from ui_v2_support import build_fake_facade, build_fake_sidecar_index, make_root
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -245,7 +245,16 @@ def test_review_center_aggregates_multi_evidence_and_acceptance_readiness(tmp_pa
     risk_summary = review_center["risk_summary"]
     diagnostics = dict(review_center.get("diagnostics", {}) or {})
 
-    assert {"suite", "parity", "resilience", "workbench", "analytics", "artifact_compatibility"} <= evidence_types
+    assert {
+        "suite",
+        "parity",
+        "resilience",
+        "workbench",
+        "analytics",
+        "artifact_compatibility",
+        "stability",
+        "state_transition",
+    } <= evidence_types
     assert review_center["acceptance_readiness"]["simulated_only"] is True
     assert review_center["operator_focus"]["summary"]
     assert review_center["reviewer_focus"]["summary"]
@@ -267,9 +276,10 @@ def test_review_center_aggregates_multi_evidence_and_acceptance_readiness(tmp_pa
     assert review_center["index_summary"]["recognition_scope_rollup"]["asset_readiness_overview"]
     assert review_center["index_summary"]["recognition_scope_rollup"]["certificate_lifecycle_overview"]
     assert review_center["index_summary"]["recognition_scope_rollup"]["pre_run_gate_status"] in {
-        "ok_for_reviewer_mapping",
-        "warning_reviewer_attention",
-        "blocked_for_formal_claim",
+        "pass",
+        "warning",
+        "block",
+        "diagnostic_only",
     }
     assert "兼容性 rollup" in str(review_center["index_summary"]["compatibility_summary"] or "")
     assert "兼容性 rollup" in str(review_center["index_summary"]["summary"] or "")
@@ -288,6 +298,8 @@ def test_review_center_aggregates_multi_evidence_and_acceptance_readiness(tmp_pa
     analytics_item = next(item for item in review_center["evidence_items"] if item["type"] == "analytics")
     suite_item = next(item for item in review_center["evidence_items"] if item["type"] == "suite")
     workbench_item = next(item for item in review_center["evidence_items"] if item["type"] == "workbench")
+    stability_item = next(item for item in review_center["evidence_items"] if item["type"] == "stability")
+    transition_item = next(item for item in review_center["evidence_items"] if item["type"] == "state_transition")
     compatibility_item = next(
         item for item in review_center["evidence_items"] if item["type"] == "artifact_compatibility"
     )
@@ -305,6 +317,10 @@ def test_review_center_aggregates_multi_evidence_and_acceptance_readiness(tmp_pa
     assert workbench_item["detail_qc_cards"]
     assert any("配置安全" in str(line) for line in list(analytics_item["detail_analytics_summary"]))
     assert any("配置安全" in str(line) for line in list(workbench_item["detail_analytics_summary"]))
+    assert any("candidate" in str(line).lower() or "routes" in str(line).lower() for line in list(stability_item["detail_analytics_summary"]))
+    assert any("策略" in str(line) or "policy" in str(line).lower() for line in list(stability_item["detail_lineage_summary"]))
+    assert any("策略" in str(line) or "policy" in str(line).lower() for line in list(transition_item["detail_text"].splitlines()))
+    assert "controlled_state_machine.step2_offline_v2" in list(transition_item.get("policy_version_filters") or [])
     assert any("运行门禁" in str(line) for line in list(analytics_item["detail_qc_summary"]))
     assert any("结果分级" in str(line) for line in list(analytics_item["detail_qc_summary"]))
     assert any("证据边界" in str(line) for line in list(analytics_item["detail_qc_summary"]))
@@ -341,12 +357,17 @@ def test_review_center_aggregates_multi_evidence_and_acceptance_readiness(tmp_pa
         or "??????" in str(item.get("detail_text") or "")
         for item in readiness_items
     )
+    assert any("Asset count:" in str(item.get("detail_text") or "") for item in readiness_items)
+    assert any("Certificate validity:" in str(item.get("detail_text") or "") for item in readiness_items)
+    assert any("Lot binding:" in str(item.get("detail_text") or "") for item in readiness_items)
+    assert any("Intermediate checks:" in str(item.get("detail_text") or "") for item in readiness_items)
     assert any("认可范围概览" in str(item.get("detail_text") or "") for item in readiness_items)
     assert any("决策规则概览" in str(item.get("detail_text") or "") for item in readiness_items)
     assert any("符合性边界" in str(item.get("detail_text") or "") for item in readiness_items)
     assert all("required_evidence_categories" not in str(item.get("detail_text") or "") for item in readiness_items)
     assert compatibility_item["status"] == "diagnostic_only"
     assert any(item["id"] == "analytics" for item in review_center["filters"]["type_options"])
+    assert any(item["id"] == "stability" for item in review_center["filters"]["type_options"])
     assert any(item["id"] == "artifact_compatibility" for item in review_center["filters"]["type_options"])
     assert any(item["id"] == "run" for item in review_center["filters"]["source_options"])
     assert any(item["id"] == "30d" for item in review_center["filters"]["time_options"])
@@ -480,6 +501,41 @@ def test_review_center_surfaces_measurement_phase_payload_and_trace_only_summary
     assert "compliance" not in str(measurement_item.get("detail_text") or "").lower()
 
 
+def test_review_center_surfaces_method_confirmation_linkage_digest(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    rebuild_run(Path(facade.result_store.run_dir))
+
+    review_center = facade.build_results_snapshot()["review_center"]
+    readiness_items = [
+        item for item in list(review_center.get("evidence_items") or []) if item.get("type") == "readiness_governance"
+    ]
+    validation_run_set_item = next(item for item in readiness_items if item.get("anchor_id") == "validation-run-set")
+    verification_rollup_item = next(item for item in readiness_items if item.get("anchor_id") == "verification-rollup")
+
+    for text in (
+        "覆盖项",
+        "已验证项",
+        "未验证项",
+        "验证运行绑定",
+        "来源 artifact refs",
+        "关联 uncertainty cases",
+        "关联 scope / decision rule",
+    ):
+        assert text in str(validation_run_set_item.get("detail_text") or "")
+
+    assert any("bound" in str(field).lower() or "missing" in str(field).lower() for field in list(validation_run_set_item.get("key_fields") or []))
+    assert any("scope " in str(field).lower() for field in list(validation_run_set_item.get("key_fields") or []))
+    assert any(
+        "replay:" in str(line).lower() or "sidecar:" in str(line).lower()
+        for line in list(verification_rollup_item.get("detail_lineage_summary") or [])
+    )
+    assert any(
+        "scope " in str(field).lower() or "decision rule" in str(field).lower()
+        for field in list(verification_rollup_item.get("key_fields") or [])
+    )
+    assert "sidecar" in str(review_center["index_summary"]["verification_summary"] or "").lower()
+
+
 def test_review_center_surfaces_recognition_readiness_governance_items(tmp_path: Path) -> None:
     facade = build_fake_facade(tmp_path)
     rebuild_run(Path(facade.result_store.run_dir))
@@ -497,6 +553,16 @@ def test_review_center_surfaces_recognition_readiness_governance_items(tmp_path:
     assert review_center["index_summary"]["verification_rollup"]["repository_mode"] == "file_artifact_first"
     assert review_center["index_summary"]["verification_rollup"]["gateway_mode"] == "file_backed_default"
     assert review_center["index_summary"]["verification_rollup"]["db_ready_stub"]["not_in_default_chain"] is True
+    assert review_center["index_summary"]["software_validation_rollup"]["repository_mode"] == "file_artifact_first"
+    assert review_center["index_summary"]["software_validation_rollup"]["gateway_mode"] == "file_backed_default"
+    assert review_center["index_summary"]["software_validation_rollup"]["db_ready_stub"]["not_in_default_chain"] is True
+    assert review_center["index_summary"]["change_impact_summary"]
+    assert review_center["index_summary"]["rollback_summary"]
+    assert review_center["index_summary"]["audit_event_summary"]
+    assert review_center["index_summary"]["config_fingerprint_summary"]
+    assert review_center["index_summary"]["release_input_summary"]
+    assert "point" in str(review_center["index_summary"]["uncertainty_summary"] or "").lower()
+    assert "uncertainty case" in str(review_center["index_summary"]["uncertainty_summary"] or "").lower()
     assert "不确定度 rollup" in str(review_center["index_summary"]["summary"] or "") or "Uncertainty rollup" in str(
         review_center["index_summary"]["summary"] or ""
     )
@@ -517,6 +583,12 @@ def test_review_center_surfaces_recognition_readiness_governance_items(tmp_path:
     validation_run_set_item = next(item for item in readiness_items if item.get("anchor_id") == "validation-run-set")
     verification_digest_item = next(item for item in readiness_items if item.get("anchor_id") == "verification-digest")
     verification_rollup_item = next(item for item in readiness_items if item.get("anchor_id") == "verification-rollup")
+    links_item = next(item for item in readiness_items if item.get("anchor_id") == "requirement-design-code-test-links")
+    evidence_index_item = next(item for item in readiness_items if item.get("anchor_id") == "validation-evidence-index")
+    change_impact_item = next(item for item in readiness_items if item.get("anchor_id") == "change-impact-summary")
+    rollback_item = next(item for item in readiness_items if item.get("anchor_id") == "rollback-readiness-summary")
+    config_fingerprint_item = next(item for item in readiness_items if item.get("anchor_id") == "config-fingerprint")
+    release_input_item = next(item for item in readiness_items if item.get("anchor_id") == "release-input-digest")
     uncertainty_report_pack_item = next(
         item for item in readiness_items if item.get("anchor_id") == "uncertainty-report-pack"
     )
@@ -529,6 +601,9 @@ def test_review_center_surfaces_recognition_readiness_governance_items(tmp_path:
     uncertainty_item = next(
         item for item in readiness_items if item.get("anchor_id") == "uncertainty-method-readiness-summary"
     )
+    release_validation_item = next(
+        item for item in readiness_items if item.get("anchor_id") == "release-validation-manifest"
+    )
     audit_item = next(item for item in readiness_items if item.get("anchor_id") == "audit-readiness-digest")
 
     assert "package + decision rule profile" in str(scope_item.get("summary") or "")
@@ -540,6 +615,10 @@ def test_review_center_surfaces_recognition_readiness_governance_items(tmp_path:
         route_matrix_item.get("detail_text") or ""
     )
     assert "validation run set" in str(validation_run_set_item.get("summary") or "").lower()
+    assert "requirement" in str(links_item.get("summary") or "").lower()
+    assert "evidence index" in str(evidence_index_item.get("summary") or "").lower()
+    assert "change impact" in str(change_impact_item.get("summary") or "").lower()
+    assert "rollback" in str(rollback_item.get("summary") or "").lower()
     assert "reviewer actions" in str(verification_digest_item.get("detail_text") or "").lower() or "审阅动作" in str(
         verification_digest_item.get("detail_text") or ""
     )
@@ -549,6 +628,9 @@ def test_review_center_surfaces_recognition_readiness_governance_items(tmp_path:
     assert "reviewer-only" in str(uncertainty_digest_item.get("summary") or "").lower()
     assert "uncertainty rollup" in str(uncertainty_rollup_item.get("summary") or "").lower()
     assert "uncertainty / method confirmation readiness" in str(uncertainty_item.get("summary") or "")
+    assert "trace" in str(config_fingerprint_item.get("detail_text") or "").lower()
+    assert "release input" in str(release_input_item.get("summary") or "").lower()
+    assert Path(str(release_validation_item.get("path") or "")).name == "release_validation_manifest.json"
     assert "software validation / audit readiness" in str(audit_item.get("summary") or "")
     assert "recognition_readiness" in list(scope_item.get("evidence_category_filters") or [])
     assert "boundary:simulation_offline_headless_only" in list(scope_item.get("boundary_filters") or [])
@@ -575,11 +657,97 @@ def test_review_center_surfaces_recognition_readiness_governance_items(tmp_path:
     assert any("Ambient baseline stabilization rule" in str(line) for line in list(scope_item.get("detail_lineage_summary") or []))
     assert any("Ambient stabilization window" in str(line) for line in list(uncertainty_item.get("detail_lineage_summary") or []))
     assert any("Software event log chain" in str(line) for line in list(audit_item.get("detail_lineage_summary") or []))
+    assert any(
+        "software_validation_builder" in str(line)
+        for line in list(change_impact_item.get("detail_lineage_summary") or [])
+    )
+    assert any("main execution chain" in str(field).lower() for field in list(change_impact_item.get("key_fields") or []))
+    assert any("file-artifact-first" in str(field).lower() for field in list(rollback_item.get("key_fields") or []))
+    assert any(
+        "file_backed_reviewer_trace" in str(field)
+        for field in list(config_fingerprint_item.get("key_fields") or [])
+    )
+    assert any(
+        "results_payload | reports | review_center | workbench_recognition_readiness" in str(line)
+        for line in list(release_input_item.get("detail_lineage_summary") or [])
+    )
+    assert any(
+        "point" in str(line).lower() and "result" in str(line).lower()
+        for line in list(uncertainty_report_pack_item.get("detail_lineage_summary") or [])
+    )
+    assert any(
+        "uncertainty case" in str(line).lower()
+        for line in list(uncertainty_report_pack_item.get("detail_lineage_summary") or [])
+    )
+    assert any(
+        "coefficients" in str(line).lower() or "expanded u" in str(line).lower()
+        for line in list(uncertainty_report_pack_item.get("detail_lineage_summary") or [])
+    )
+    assert any(
+        "fixture" in str(line).lower()
+        for line in list(uncertainty_report_pack_item.get("detail_lineage_summary") or [])
+    )
+    assert any(
+        "uncertainty case" in str(line).lower()
+        for line in list(uncertainty_rollup_item.get("detail_lineage_summary") or [])
+    )
+    assert any(
+        "golden" in str(line).lower()
+        for line in list(uncertainty_rollup_item.get("detail_lineage_summary") or [])
+    )
     for item in readiness_items:
         detail_text = str(item.get("detail_text") or "").lower()
         assert "real acceptance ready" not in detail_text
         assert "\"compliant\"" not in detail_text
         assert "\"accredited\"" not in detail_text
+
+
+def test_review_center_surfaces_wp6_external_comparison_summary(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    rebuild_run(Path(facade.result_store.run_dir))
+
+    results = facade.build_results_snapshot()
+    review_center = results["review_center"]
+    readiness_items = [
+        item for item in list(review_center.get("evidence_items") or []) if item.get("type") == "readiness_governance"
+    ]
+    comparison_item = next(item for item in readiness_items if item.get("anchor_id") == "comparison-rollup")
+
+    assert any(pack["summary_key"] == "external_comparison" for pack in list(results.get("compact_summary_packs") or []))
+    assert "Comparison summary:" in str(comparison_item.get("detail_text") or "")
+    assert "Comparison import trace:" in str(comparison_item.get("detail_text") or "")
+    assert "Linked uncertainty cases:" in str(comparison_item.get("detail_text") or "")
+    assert "Linked software validation:" in str(comparison_item.get("detail_text") or "")
+    assert comparison_item.get("not_real_acceptance_evidence") is True
+    assert any("external comparison rows" in str(field).lower() for field in list(comparison_item.get("key_fields") or []))
+
+
+def test_review_center_surfaces_sidecar_review_copilot_and_model_governance(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    sidecar_index = build_fake_sidecar_index(tmp_path, run_id=facade.session.run_id)
+    facade.sidecar_index = sidecar_index
+    facade.results_gateway.sidecar_index = sidecar_index
+    rebuild_run(Path(facade.result_store.run_dir))
+
+    results = facade.build_results_snapshot()
+    review_center = results["review_center"]
+    analytics_item = next(
+        item for item in list(review_center.get("evidence_items") or []) if item.get("type") == "analytics"
+    )
+
+    assert results["sidecar_index_summary"]["available"] is True
+    assert "旁路索引摘要" in str(analytics_item.get("detail_text") or "")
+    assert "Copilot 风险摘要" in str(analytics_item.get("detail_text") or "")
+    assert "Copilot 证据缺口" in str(analytics_item.get("detail_text") or "")
+    assert "模型治理" in str(analytics_item.get("detail_text") or "")
+    assert any(
+        "high risk" in str(line).lower()
+        for line in list(analytics_item.get("detail_analytics_summary") or [])
+    )
+    assert any(
+        "canary" in str(field).lower()
+        for field in list(analytics_item.get("key_fields") or [])
+    )
 
 
 def test_review_center_panel_filters_by_type_status_and_source_without_implying_real_acceptance() -> None:
@@ -1572,5 +1740,66 @@ def test_review_center_panel_exposes_selection_contract_and_visible_source_disam
         assert evidence_snapshot["selected_evidence_artifact_paths"] == [
             "D:/tmp/branch_a/shared_run/analytics_summary.json"
         ]
+    finally:
+        root.destroy()
+
+
+def test_review_center_renders_step2_closeout_bundle_section() -> None:
+    root = make_root()
+    try:
+        panel = ReviewCenterPanel(root, compact=True)
+        payload = {
+            "operator_focus": {"summary": "operator"},
+            "reviewer_focus": {"summary": "reviewer"},
+            "approver_focus": {"summary": "approver"},
+            "risk_summary": {"level": "low", "level_display": "low", "summary": "risk summary"},
+            "acceptance_readiness": {"summary": "offline readiness only"},
+            "analytics_summary": {"summary": "analytics"},
+            "lineage_summary": {"summary": "lineage"},
+            "index_summary": {"summary": "index", "sources": []},
+            "filters": {
+                "selected_type": "all",
+                "selected_status": "all",
+                "selected_time": "all",
+                "selected_source": "all",
+                "type_options": [{"id": "all", "label": t("results.review_center.filter.all_types")}],
+                "status_options": [{"id": "all", "label": t("results.review_center.filter.all_statuses")}],
+                "time_options": [{"id": "all", "label": t("results.review_center.filter.all_time"), "window_seconds": None}],
+                "source_options": [{"id": "all", "label": t("results.review_center.filter.all_sources")}],
+                "phase_options": [{"id": "all", "label": t("results.review_center.filter.all_phases")}],
+                "artifact_role_options": [{"id": "all", "label": t("results.review_center.filter.all_artifact_roles")}],
+                "evidence_category_options": [{"id": "all", "label": t("results.review_center.filter.all_evidence_categories")}],
+                "boundary_options": [{"id": "all", "label": t("results.review_center.filter.all_boundaries")}],
+                "anchor_options": [{"id": "all", "label": t("results.review_center.filter.all_anchors")}],
+                "route_options": [{"id": "all", "label": t("results.review_center.filter.all_routes", default="全部路由")}],
+                "signal_family_options": [{"id": "all", "label": t("results.review_center.filter.all_signal_families", default="全部信号家族")}],
+                "decision_result_options": [{"id": "all", "label": t("results.review_center.filter.all_decision_results", default="全部判定结果")}],
+                "policy_version_options": [{"id": "all", "label": t("results.review_center.filter.all_policy_versions", default="全部策略版本")}],
+                "evidence_source_options": [{"id": "all", "label": t("results.review_center.filter.all_evidence_sources", default="全部证据来源")}],
+            },
+            "evidence_items": [],
+            "detail_hint": "select evidence",
+            "empty_detail": "no evidence",
+            "disclaimer": "offline only",
+            "step2_closeout_bundle": {
+                "summary_line": "Step 2 收尾总包 ready for internal review",
+                "summary_lines": [
+                    "Step 2 收尾总包 ready for internal review",
+                    "blocker/warning/info: 0/1/1",
+                ],
+                "warning_items": ["comparison bundle requires reviewer attention"],
+            },
+            "step2_closeout_compact_section": {
+                "summary_key": "step2_closeout",
+                "summary_line": "Step 2 收尾总包 ready for internal review",
+            },
+            "step2_closeout_summary_markdown": "# Step 2 收尾总包\n\nStep 2 收尾总包 ready for internal review\n",
+        }
+
+        panel.render(payload)
+        root.update_idletasks()
+
+        assert "Step 2 收尾总包 ready for internal review" in panel.closeout_bundle_text.get("1.0", "end")
+        assert "reviewer_only=true" in panel.closeout_bundle_boundary_var.get()
     finally:
         root.destroy()

@@ -96,6 +96,10 @@ def test_pace_fast5s_with_diag_fallback_override_enables_engineering_fast_captur
     assert payload["workflow"]["pressure"]["post_isolation_fast_capture_enabled"] is True
     assert payload["workflow"]["pressure"]["post_isolation_fast_capture_allow_early_sample"] is True
     assert payload["workflow"]["pressure"]["post_isolation_fast_capture_min_s"] == 5.0
+    assert payload["workflow"]["pressure"]["pace_upstream_check_valve_installed"] is True
+    assert payload["workflow"]["pressure"]["post_isolation_pressure_truth_source"] == "external_gauge"
+    assert payload["workflow"]["pressure"]["fast_smoke_capture_min_s"] == 5.0
+    assert payload["workflow"]["pressure"]["fast_smoke_capture_no_extended_fallback"] is False
     assert payload["workflow"]["pressure"]["post_isolation_fast_capture_require_vent_ok"] is True
     assert payload["workflow"]["pressure"]["post_isolation_fast_capture_require_in_limits"] is True
     assert payload["workflow"]["pressure"]["post_isolation_fast_capture_require_eff_zero"] is True
@@ -104,3 +108,32 @@ def test_pace_fast5s_with_diag_fallback_override_enables_engineering_fast_captur
     assert payload["workflow"]["pressure"]["post_isolation_fast_capture_fallback_to_extended_diag"] is True
     assert payload["workflow"]["pressure"]["post_isolation_extended_diag_window_s"] == 20.0
     assert payload["workflow"]["pressure"]["same_gas_low_pressure_standard_control_enabled"] is True
+    assert payload["workflow"]["pressure"]["low_pressure_same_gas_use_linear_slew"] is True
+    assert payload["workflow"]["pressure"]["low_pressure_same_gas_overshoot_allowed"] is False
+
+
+def test_checkvalve_fast_smoke_override_sets_5s_external_gauge_quick_profile() -> None:
+    path = Path("configs/overrides/v1_800ppm_ingress_checkvalve_fast_smoke.json")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+
+    assert payload["base_config"].endswith("configs/default_config.json")
+    assert payload["paths"]["points_excel"].endswith("configs/points_v1_800ppm_ingress_smoke_20c.xlsx")
+    assert payload["devices"]["temperature_chamber"]["enabled"] is False
+    assert payload["devices"]["humidity_generator"]["enabled"] is False
+    assert payload["workflow"]["route_mode"] == "co2_only"
+    assert payload["workflow"]["skip_h2o"] is True
+    assert payload["workflow"]["selected_temps_c"] == [20.0]
+    assert payload["workflow"]["selected_pressure_points"] == [1000, 800, 600, 500]
+    assert payload["workflow"]["pressure"]["capture_then_hold_enabled"] is True
+    assert payload["workflow"]["pressure"]["adaptive_pressure_sampling_enabled"] is True
+    assert payload["workflow"]["pressure"]["use_pressure_gauge_for_sampling_gate"] is True
+    assert payload["workflow"]["pressure"]["pace_upstream_check_valve_installed"] is True
+    assert payload["workflow"]["pressure"]["post_isolation_pressure_truth_source"] == "external_gauge"
+    assert payload["workflow"]["pressure"]["post_isolation_fast_capture_enabled"] is True
+    assert payload["workflow"]["pressure"]["post_isolation_fast_capture_allow_early_sample"] is True
+    assert payload["workflow"]["pressure"]["fast_smoke_capture_min_s"] == 5.0
+    assert payload["workflow"]["pressure"]["fast_smoke_capture_no_extended_fallback"] is True
+    assert payload["workflow"]["pressure"]["low_pressure_same_gas_use_linear_slew"] is True
+    assert payload["workflow"]["pressure"]["low_pressure_same_gas_overshoot_allowed"] is False
+    assert payload["workflow"]["pressure"]["same_gas_low_pressure_standard_control_enabled"] is True
+    assert payload["validation_package"]["rounds"] == 2

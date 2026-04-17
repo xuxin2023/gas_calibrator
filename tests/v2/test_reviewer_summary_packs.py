@@ -74,8 +74,8 @@ def _has_chinese(s: str) -> bool:
 # ---------------------------------------------------------------------------
 
 class TestPackVersion:
-    def test_version_is_2_13_0(self):
-        assert REVIEWER_SUMMARY_PACKS_VERSION == "2.13.0"
+    def test_version_is_2_16_0(self):
+        assert REVIEWER_SUMMARY_PACKS_VERSION == "2.16.0"
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +202,7 @@ class TestSimulationOnlyMarkers:
     ])
     def test_pack_version(self, builder_fn):
         result = builder_fn({})
-        assert result["pack_version"] == "2.13.0"
+        assert result["pack_version"] == "2.16.0"
 
 
 # ---------------------------------------------------------------------------

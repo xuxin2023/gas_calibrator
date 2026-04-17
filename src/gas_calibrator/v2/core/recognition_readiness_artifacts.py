@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import os
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -53,6 +56,11 @@ from .reviewer_surface_contracts import (
     STEP2_CLOSEOUT_DIGEST_FILENAME,
     STEP2_CLOSEOUT_DIGEST_MARKDOWN_FILENAME,
     REVIEWER_SURFACE_CONTRACTS_VERSION,
+)
+from .step2_closeout_bundle_builder import (
+    STEP2_CLOSEOUT_BUNDLE_FILENAME,
+    STEP2_CLOSEOUT_EVIDENCE_INDEX_FILENAME,
+    STEP2_CLOSEOUT_SUMMARY_FILENAME,
 )
 
 SCOPE_DEFINITION_PACK_FILENAME = "scope_definition_pack.json"
@@ -155,6 +163,8 @@ RECOGNITION_READINESS_SUMMARY_FILENAMES = (
     COMPARISON_DIGEST_FILENAME,
     COMPARISON_ROLLUP_FILENAME,
     STEP2_CLOSEOUT_DIGEST_FILENAME,
+    STEP2_CLOSEOUT_BUNDLE_FILENAME,
+    STEP2_CLOSEOUT_EVIDENCE_INDEX_FILENAME,
 )
 from .software_validation_builder import build_software_validation_wp5_artifacts
 from .uncertainty_builder import build_uncertainty_wp3_artifacts
@@ -170,6 +180,17 @@ RECOGNITION_READINESS_BOUNDARY_STATEMENTS = [
     "not accreditation claim",
     "cannot replace real metrology validation",
 ]
+
+READINESS_FIXTURE_ROOT_ENV = "GC_V2_READINESS_FIXTURE_ROOT"
+READINESS_FIXTURE_SCHEMA_VERSION = "step2-local-metrology-fixtures-v1"
+REFERENCE_ASSET_FIXTURE_PATH = ("assets", "reference_assets.json")
+STANDARD_GAS_LOT_FIXTURE_PATH = ("assets", "standard_gas_lots.json")
+CERTIFICATE_LIFECYCLE_FIXTURE_PATH = ("certificates", "certificate_lifecycle.json")
+INTERMEDIATE_CHECK_PLAN_FIXTURE_PATH = ("metrology", "intermediate_check_plan.json")
+INTERMEDIATE_CHECK_RECORD_FIXTURE_PATH = ("metrology", "intermediate_check_records.json")
+OUT_OF_TOLERANCE_FIXTURE_PATH = ("metrology", "out_of_tolerance_events.json")
+PRE_RUN_GATE_RULES_FIXTURE_PATH = ("metrology", "pre_run_gate_rules.json")
+UNCERTAINTY_BUDGET_INPUT_FIXTURE_PATH = ("metrology", "uncertainty_budget_inputs.json")
 
 METHOD_CONFIRMATION_VALIDATION_DIMENSIONS = [
     "linearity",
@@ -724,6 +745,7 @@ def build_recognition_readiness_artifacts(
     measurement_phase_coverage_report: dict[str, Any] | None = None,
     run_dir: str | Path | None = None,
     artifact_paths: dict[str, Any] | None = None,
+    fixtures_root: str | Path | None = None,
 ) -> dict[str, dict[str, Any]]:
     sample_rows = [sample for sample in list(samples or []) if isinstance(sample, SamplingResult)]
     point_rows = [dict(item) for item in list(point_summaries or []) if isinstance(item, dict)]
@@ -738,6 +760,7 @@ def build_recognition_readiness_artifacts(
     phase_coverage_payload = dict((measurement_phase_coverage_report or {}).get("raw") or measurement_phase_coverage_report or {})
     run_dir_path = Path(run_dir) if run_dir is not None else Path(str(run_id))
     path_map = _artifact_path_map(dict(artifact_paths or {}))
+    metrology_fixtures = load_metrology_registry_fixtures(fixtures_root=fixtures_root)
 
     route_families = _route_families(sample_rows, point_rows, phase_coverage_payload)
     payload_complete_phases = _phase_pairs(
@@ -802,20 +825,22 @@ def build_recognition_readiness_artifacts(
         phase_digest=phase_digest,
         path_map=path_map,
     )
-    reference_asset_registry = _build_reference_asset_registry(
+    reference_asset_registry = _build_reference_asset_registry_from_fixtures(
         run_id=run_id,
         scope_definition_pack=scope_definition_pack,
         decision_rule_profile=decision_rule_profile,
         sample_digest=sample_digest,
         payload_backed_phases=payload_backed_phases,
         path_map=path_map,
+        metrology_fixtures=metrology_fixtures,
     )
-    certificate_lifecycle_summary = _build_certificate_lifecycle_summary(
+    certificate_lifecycle_summary = _build_certificate_lifecycle_summary_from_fixtures(
         run_id=run_id,
         scope_definition_pack=scope_definition_pack,
         decision_rule_profile=decision_rule_profile,
         reference_asset_registry=reference_asset_registry,
         path_map=path_map,
+        metrology_fixtures=metrology_fixtures,
     )
     certificate_readiness_summary = _build_certificate_readiness_summary(
         run_id=run_id,
@@ -823,7 +848,7 @@ def build_recognition_readiness_artifacts(
         certificate_lifecycle_summary=certificate_lifecycle_summary,
         path_map=path_map,
     )
-    pre_run_readiness_gate = _build_pre_run_readiness_gate(
+    pre_run_readiness_gate = _build_pre_run_readiness_gate_from_fixtures(
         run_id=run_id,
         scope_definition_pack=scope_definition_pack,
         decision_rule_profile=decision_rule_profile,
@@ -831,6 +856,7 @@ def build_recognition_readiness_artifacts(
         certificate_lifecycle_summary=certificate_lifecycle_summary,
         certificate_readiness_summary=certificate_readiness_summary,
         path_map=path_map,
+        metrology_fixtures=metrology_fixtures,
     )
     metrology_traceability_stub = _build_metrology_traceability_stub(
         run_id=run_id,
@@ -846,6 +872,8 @@ def build_recognition_readiness_artifacts(
         certificate_lifecycle_summary=certificate_lifecycle_summary,
         pre_run_readiness_gate=pre_run_readiness_gate,
         path_map=path_map,
+        uncertainty_fixture=dict(metrology_fixtures.get("uncertainty_budget_inputs") or {}),
+        fixture_artifact_paths=_fixture_artifact_paths(metrology_fixtures),
         filenames={
             "uncertainty_model": UNCERTAINTY_MODEL_FILENAME,
             "uncertainty_model_markdown": UNCERTAINTY_MODEL_MARKDOWN_FILENAME,
@@ -887,6 +915,11 @@ def build_recognition_readiness_artifacts(
         trace_only_phases=trace_only_phases,
         gap_phases=gap_phases,
         path_map=path_map,
+        point_rows=point_rows,
+        sample_digest=sample_digest,
+        measurement_phase_coverage_report=measurement_phase_coverage_report,
+        simulation_evidence_sidecar_bundle=simulation_evidence_sidecar_bundle,
+        run_dir=run_dir,
     )
     method_confirmation_protocol = dict(method_confirmation_wp4_artifacts.get("method_confirmation_protocol") or {})
     method_confirmation_matrix = dict(method_confirmation_wp4_artifacts.get("method_confirmation_matrix") or {})
@@ -1126,6 +1159,23 @@ def _build_scope_definition_pack(
         "Reviewer-only scope package; simulated/offline/shadow outputs cannot become formal compliance, "
         "accreditation, or final pass-fail metrology claims."
     )
+    scope_id = f"{run_id}-step2-scope-package"
+    scope_name = "Step 2 simulation reviewer scope package"
+    scope_version = str(version_payload.get("profile_version") or version_payload.get("config_version") or "scope-v1")
+    analyzer_model = sample_digest["analyzers"] or ["simulation_analyzer_population"]
+    applicability_scope = {
+        "measurand": list(measurands),
+        "route_type": list(route_families),
+        "environment_mode": "simulation_offline_headless",
+        "analyzer_model": list(analyzer_model),
+        "temperature_range": sample_digest["temperature_range"],
+        "pressure_range": sample_digest["pressure_range"],
+        "gas_or_humidity_range": dict(sample_digest.get("gas_or_humidity_range") or {}),
+    }
+    applicability_scope_display = (
+        f"{' / '.join(measurands)} | {' | '.join(route_families) or '--'} | simulation_offline_headless | "
+        f"analyzers {' | '.join(analyzer_model)}"
+    )
     decision_rule_reference = {
         "decision_rule_id": "step2_readiness_reviewer_rule_v1",
         "artifact_path": path_map["decision_rule_profile"],
@@ -1194,8 +1244,25 @@ def _build_scope_definition_pack(
         "scope_overview_summary": f"{' / '.join(measurands)} | {' | '.join(route_families) or '--'} | simulation_offline_headless",
         "decision_rule_summary": f"{decision_rule_reference['decision_rule_id']} | reviewer gate only",
         "conformity_boundary_summary": non_claim_note,
+        "applicability_scope_summary": applicability_scope_display,
+        "limitation_note_summary": limitation_note,
         "standard_family_summary": " | ".join(standard_families),
         "required_evidence_categories_summary": " | ".join(required_evidence_categories),
+    }
+    recognition_binding = {
+        "scope_id": scope_id,
+        "scope_name": scope_name,
+        "scope_version": scope_version,
+        "decision_rule_id": decision_rule_reference["decision_rule_id"],
+        "applicability_scope": dict(applicability_scope),
+        "applicability_scope_display": applicability_scope_display,
+        "limitation_note": limitation_note,
+        "non_claim_note": non_claim_note,
+        "readiness_status": readiness_mapping_status,
+        "reviewer_only": True,
+        "readiness_mapping_only": True,
+        "not_real_acceptance_evidence": True,
+        "not_ready_for_formal_claim": True,
     }
     raw = {
         "schema_version": "1.0",
@@ -1207,20 +1274,20 @@ def _build_scope_definition_pack(
         "evidence_state": "reviewer_readiness_only",
         "not_real_acceptance_evidence": True,
         "boundary_statements": list(RECOGNITION_READINESS_BOUNDARY_STATEMENTS),
-        "scope_id": f"{run_id}-step2-scope-package",
-        "scope_name": "Step 2 simulation reviewer scope package",
-        "scope_version": str(version_payload.get("profile_version") or version_payload.get("config_version") or "scope-v1"),
+        "scope_id": scope_id,
+        "scope_name": scope_name,
+        "scope_version": scope_version,
         "measurand": measurands,
         "route_type": list(route_families),
         "environment_mode": "simulation_offline_headless",
-        "analyzer_model": sample_digest["analyzers"] or ["simulation_analyzer_population"],
+        "analyzer_model": analyzer_model,
         "measurand_family": "dual",
         "route_applicability": route_families,
         "temperature_range": sample_digest["temperature_range"],
         "pressure_range": sample_digest["pressure_range"],
         "gas_or_humidity_range": dict(sample_digest.get("gas_or_humidity_range") or {}),
         "humidity_mode": "water + ambient simulation coverage",
-        "analyzer_population_scope": sample_digest["analyzers"] or ["simulation_analyzer_population"],
+        "analyzer_population_scope": analyzer_model,
         "reference_chain": [
             {
                 "reference_name": "standard_gas_or_humidity_source",
@@ -1267,6 +1334,8 @@ def _build_scope_definition_pack(
             "decision_rule_profile": path_map["decision_rule_profile"],
         },
         "artifact_paths": artifact_paths,
+        "applicability_scope": applicability_scope,
+        "applicability_scope_display": applicability_scope_display,
         "standard_family": standard_families,
         "topic_or_control_object": "scope boundary, route applicability, reference chain placeholder, and reviewer-facing readiness mapping",
         "linked_existing_artifacts": [
@@ -1284,10 +1353,11 @@ def _build_scope_definition_pack(
         "gap_note": gap_note,
         "limitation_note": limitation_note,
         "non_claim_note": non_claim_note,
+        "recognition_binding": recognition_binding,
         "scope_package": {
-            "scope_id": f"{run_id}-step2-scope-package",
-            "scope_name": "Step 2 simulation reviewer scope package",
-            "scope_version": str(version_payload.get("profile_version") or version_payload.get("config_version") or "scope-v1"),
+            "scope_id": scope_id,
+            "scope_name": scope_name,
+            "scope_version": scope_version,
             "ready_for_readiness_mapping": True,
             "not_ready_for_formal_claim": True,
             "gap_note": gap_note,
@@ -1295,9 +1365,9 @@ def _build_scope_definition_pack(
             "non_claim_note": non_claim_note,
         },
         "scope_export_pack": {
-            "scope_id": f"{run_id}-step2-scope-package",
-            "scope_name": "Step 2 simulation reviewer scope package",
-            "scope_version": str(version_payload.get("profile_version") or version_payload.get("config_version") or "scope-v1"),
+            "scope_id": scope_id,
+            "scope_name": scope_name,
+            "scope_version": scope_version,
             "environment_mode": "simulation_offline_headless",
             "ready_for_readiness_mapping": True,
             "not_ready_for_formal_claim": True,
@@ -1341,6 +1411,7 @@ def _build_scope_definition_pack(
             f"- standard_family: {' | '.join(raw['standard_family'])}",
             f"- required_evidence_categories: {' | '.join(raw['required_evidence_categories'])}",
             f"- readiness_status: {raw['readiness_status']}",
+            f"- applicability_scope: {raw['applicability_scope_display']}",
             f"- limitation_note: {raw['limitation_note']}",
             f"- non_claim_note: {raw['non_claim_note']}",
             f"- payload_backed_phases: {' | '.join(payload_backed_phases) or '--'}",
@@ -1451,6 +1522,31 @@ def _build_decision_rule_profile(
         "Formal acceptance limits, guard band release policy, and live decision gates remain out of scope. "
         "Only reviewer digest and readiness mapping outputs are permitted."
     )
+    applicability_scope = {
+        "route_type": list(route_families),
+        "environment_mode": "simulation_offline_headless",
+        "compatibility_reader_neutral": True,
+    }
+    applicability_scope_display = (
+        f"{' | '.join(route_families) or '--'} | simulation_offline_headless | compatibility reader neutral"
+    )
+    conformity_statement_profile["statement_template_metadata"] = {
+        "template_id": "step2_reviewer_conformity_boundary_template_v1",
+        "template_version": "v1",
+        "language_mode": "zh_default_en_fallback",
+        "reviewer_only": True,
+        "readiness_mapping_only": True,
+        "not_real_acceptance_evidence": True,
+        "not_ready_for_formal_claim": True,
+    }
+    conformity_statement_profile["reviewer_only"] = True
+    conformity_statement_profile["readiness_mapping_only"] = True
+    conformity_statement_profile["not_real_acceptance_evidence"] = True
+    conformity_statement_profile["not_ready_for_formal_claim"] = True
+    conformity_statement_profile["applicability_scope"] = dict(applicability_scope)
+    conformity_statement_profile["applicability_scope_display"] = applicability_scope_display
+    conformity_statement_profile["limitation_note"] = limitation_note
+    conformity_statement_profile["non_claim_note"] = non_claim_note
     artifact_paths = {
         "decision_rule_profile": path_map["decision_rule_profile"],
         "decision_rule_profile_markdown": path_map["decision_rule_profile_markdown"],
@@ -1492,9 +1588,26 @@ def _build_decision_rule_profile(
         "reviewer_next_step_digest": "keep conformity wording reviewer-only and tie only to file-backed sidecars/indexes",
         "decision_rule_summary": f"{decision_rule_id} | reviewer gate only",
         "conformity_boundary_summary": non_claim_note,
+        "applicability_scope_summary": applicability_scope_display,
+        "limitation_note_summary": limitation_note,
         "standard_family_summary": " | ".join(standard_families),
         "required_evidence_categories_summary": " | ".join(required_evidence_categories),
         "tolerance_source_summary": "current analytics/qc thresholds + reviewer digests",
+    }
+    recognition_binding = {
+        "scope_id": f"{run_id}-step2-scope-package",
+        "scope_name": "Step 2 simulation reviewer scope package",
+        "scope_version": str(version_payload.get("profile_version") or version_payload.get("config_version") or "scope-v1"),
+        "decision_rule_id": decision_rule_id,
+        "applicability_scope": dict(applicability_scope),
+        "applicability_scope_display": applicability_scope_display,
+        "limitation_note": limitation_note,
+        "non_claim_note": non_claim_note,
+        "readiness_status": "ready_for_readiness_mapping",
+        "reviewer_only": True,
+        "readiness_mapping_only": True,
+        "not_real_acceptance_evidence": True,
+        "not_ready_for_formal_claim": True,
     }
     raw = {
         "schema_version": "1.0",
@@ -1519,6 +1632,9 @@ def _build_decision_rule_profile(
             "scope": "reviewer_stub_only",
             "formal_release_ready": False,
         },
+        "pass_rule": "ready_for_readiness_mapping",
+        "fail_rule": "reviewer_gap_blocks_mapping",
+        "inconclusive_rule": "reviewer_follow_up_required",
         "pass_fail_inconclusive_rule": {
             "pass": "ready_for_readiness_mapping",
             "fail": "reviewer_gap_blocks_mapping",
@@ -1526,11 +1642,9 @@ def _build_decision_rule_profile(
             "formal_pass_fail_metrology_conclusion_enabled": False,
         },
         "statement_template": conformity_statement_profile["statement_template"],
-        "applicability_scope": {
-            "route_type": list(route_families),
-            "environment_mode": "simulation_offline_headless",
-            "compatibility_reader_neutral": True,
-        },
+        "statement_template_metadata": dict(conformity_statement_profile["statement_template_metadata"]),
+        "applicability_scope": applicability_scope,
+        "applicability_scope_display": applicability_scope_display,
         "reviewer_gate": reviewer_gate,
         "exception_clause": (
             "Compatibility adapter, missing released certificates, or trace-only phases all keep the output in reviewer-only mode."
@@ -1579,6 +1693,7 @@ def _build_decision_rule_profile(
         "gap_note": gap_note,
         "limitation_note": limitation_note,
         "non_claim_note": non_claim_note,
+        "recognition_binding": recognition_binding,
         "linked_artifacts": {
             "scope_definition_pack": path_map["scope_definition_pack"],
             "scope_readiness_summary": path_map["scope_readiness_summary"],
@@ -1595,6 +1710,8 @@ def _build_decision_rule_profile(
         "conformity_boundary": {
             "summary": non_claim_note,
             "reviewer_only": True,
+            "readiness_mapping_only": True,
+            "not_real_acceptance_evidence": True,
             "formal_claim_ready": False,
             "prohibited_outputs": list(reviewer_gate["deny_outputs"]),
         },
@@ -1616,8 +1733,10 @@ def _build_decision_rule_profile(
             f"- version: {raw['version']}",
             f"- source_standard_or_method: {' | '.join(raw['source_standard_or_method'])}",
             f"- statement_template: {raw['statement_template']}",
+            f"- statement_template_metadata: {raw['statement_template_metadata']}",
             f"- reviewer_gate: {raw['reviewer_gate']['mode']}",
             f"- current_stage_applicability: {raw['current_stage_applicability']}",
+            f"- applicability_scope: {raw['applicability_scope_display']}",
             f"- tolerance_source: {raw['tolerance_source']['source']}",
             f"- evaluation_dimensions: {' | '.join(raw['evaluation_dimensions'])}",
             f"- payload_phases: {raw['phase_digest']['payload_phases']}",
@@ -3083,6 +3202,11 @@ def build_method_confirmation_wp4_artifacts(
     trace_only_phases: list[str],
     gap_phases: list[str],
     path_map: dict[str, str],
+    point_rows: list[dict[str, Any]] | None = None,
+    sample_digest: dict[str, Any] | None = None,
+    measurement_phase_coverage_report: dict[str, Any] | None = None,
+    simulation_evidence_sidecar_bundle: dict[str, Any] | None = None,
+    run_dir: str | Path | None = None,
 ) -> dict[str, dict[str, Any]]:
     scope_raw = dict(scope_definition_pack.get("raw") or {})
     decision_raw = dict(decision_rule_profile.get("raw") or {})
@@ -3098,6 +3222,14 @@ def build_method_confirmation_wp4_artifacts(
     scope_name = str(scope_raw.get("scope_name") or "Step 2 simulation reviewer scope package")
     decision_rule_id = str(decision_raw.get("decision_rule_id") or "step2_readiness_reviewer_rule_v1")
     protocol_id = f"{run_id}-method-confirmation-protocol"
+    artifact_ids = {
+        "method_confirmation_protocol_id": protocol_id,
+        "method_confirmation_matrix_id": f"{protocol_id}-matrix",
+        "route_specific_validation_matrix_id": f"{protocol_id}-route-matrix",
+        "validation_run_set_id": f"{protocol_id}-run-set",
+        "verification_digest_id": f"{protocol_id}-verification-digest",
+        "verification_rollup_id": f"{protocol_id}-verification-rollup",
+    }
     protocol_version = "v1.2-step2-reviewer"
     validation_matrix_version = "v1.2-step2-validation-matrix"
     limitation_note = "当前仅生成 simulation-only / reviewer-facing / file-artifact-first 的方法确认骨架。"
@@ -3148,6 +3280,24 @@ def build_method_confirmation_wp4_artifacts(
                 profile=profile,
             )
         )
+    linkages = derive_method_confirmation_step2_linkages(
+        run_id=run_id,
+        run_dir=run_dir,
+        path_map=path_map,
+        route_profiles=route_profiles,
+        point_rows=point_rows,
+        sample_digest=sample_digest,
+        measurement_phase_coverage_report=measurement_phase_coverage_report,
+        simulation_evidence_sidecar_bundle=simulation_evidence_sidecar_bundle,
+    )
+    validation_runs = [
+        _enrich_method_confirmation_validation_run(
+            validation_run=dict(item),
+            profile=profile,
+            linkages=linkages,
+        )
+        for item, profile in zip(validation_runs, route_profiles)
+    ]
     current_coverage = [
         str(item.get("current_evidence_coverage") or "").strip()
         for item in route_rollups
@@ -3165,15 +3315,20 @@ def build_method_confirmation_wp4_artifacts(
         f"protocol {protocol_id} | scope {scope_id} | decision rule {decision_rule_id} | "
         f"routes {len(route_profiles)} | dimensions {len(METHOD_CONFIRMATION_VALIDATION_DIMENSIONS)}"
     )
-    matrix_completeness_summary = " | ".join(
-        str(item.get("matrix_completeness_summary") or "").strip()
-        for item in route_rollups
-        if str(item.get("matrix_completeness_summary") or "").strip()
+    matrix_completeness_summary = str(
+        linkages.get("matrix_completeness_summary")
+        or " | ".join(
+            str(item.get("matrix_completeness_summary") or "").strip()
+            for item in route_rollups
+            if str(item.get("matrix_completeness_summary") or "").strip()
+        )
     )
-    current_coverage_summary = " | ".join(current_coverage)
-    top_gaps_summary = " | ".join(top_gaps)
-    reviewer_action_summary = " | ".join(reviewer_actions)
-    readiness_status_summary = "ready_for_readiness_mapping | reviewer-only | simulated"
+    current_coverage_summary = str(linkages.get("current_evidence_coverage_summary") or " | ".join(current_coverage))
+    top_gaps_summary = str(linkages.get("top_gaps_summary") or " | ".join(top_gaps))
+    reviewer_action_summary = str(linkages.get("reviewer_action_summary") or " | ".join(reviewer_actions))
+    readiness_status_summary = str(
+        linkages.get("readiness_status_summary") or "ready_for_readiness_mapping | reviewer-only | simulated"
+    )
     scope_reference_assets_summary = " | ".join(
         _dedupe(str(item.get("asset_id") or "").strip() for item in reference_assets if str(item.get("asset_id") or "").strip())
     )
@@ -3195,6 +3350,8 @@ def build_method_confirmation_wp4_artifacts(
         non_claim_note=non_claim_note,
         reviewer_note=reviewer_note,
         path_map=path_map,
+        artifact_ids=artifact_ids,
+        linkages=linkages,
     )
     base_digest = _method_confirmation_digest(
         summary="方法确认骨架 / reviewer-only / readiness mapping only",
@@ -3210,6 +3367,13 @@ def build_method_confirmation_wp4_artifacts(
         scope_reference_assets_summary=scope_reference_assets_summary,
         decision_rule_dependency_summary=decision_rule_dependency_summary,
         required_evidence_categories_summary=required_evidence_categories_summary,
+        coverage_items_summary=str(linkages.get("coverage_items_summary") or ""),
+        validated_items_summary=str(linkages.get("validated_items_summary") or ""),
+        unverified_items_summary=str(linkages.get("unverified_items_summary") or ""),
+        validation_run_binding_summary=str(linkages.get("validation_run_binding_summary") or ""),
+        source_artifact_refs_summary=str(linkages.get("source_artifact_refs_summary") or ""),
+        linked_uncertainty_case_ids_summary=str(linkages.get("linked_uncertainty_case_ids_summary") or ""),
+        linked_scope_decision_summary=str(linkages.get("linked_scope_decision_summary") or ""),
     )
     return _build_method_confirmation_wp4_bundle_set(
         run_id=run_id,
@@ -3234,7 +3398,509 @@ def build_method_confirmation_wp4_artifacts(
         rollup_raw=rollup_raw,
         digest_raw=digest_raw,
         uncertainty_budget_stub=uncertainty_budget_stub,
+        artifact_ids=artifact_ids,
+        linkages=linkages,
     )
+
+
+def derive_method_confirmation_step2_linkages(
+    *,
+    run_id: str,
+    run_dir: str | Path | None,
+    path_map: dict[str, str],
+    route_profiles: list[dict[str, Any]] | None,
+    point_rows: list[dict[str, Any]] | None,
+    sample_digest: dict[str, Any] | None,
+    measurement_phase_coverage_report: dict[str, Any] | None,
+    simulation_evidence_sidecar_bundle: dict[str, Any] | None,
+) -> dict[str, Any]:
+    profiles = [dict(item) for item in list(route_profiles or []) if isinstance(item, dict)]
+    sample_digest_payload = dict(sample_digest or {})
+    phase_coverage_payload = dict(measurement_phase_coverage_report or {})
+    phase_coverage_digest = dict(phase_coverage_payload.get("digest") or {})
+    sidecar_payload = dict(simulation_evidence_sidecar_bundle or {})
+    sidecar_stores = dict(sidecar_payload.get("stores") or {})
+    analyzers = [
+        str(item).strip()
+        for item in list(sample_digest_payload.get("analyzers") or [])
+        if str(item).strip()
+    ]
+    analyzer_count = len(analyzers)
+    analyzer_population_label = "multi_analyzer_population" if analyzer_count > 1 else "single_analyzer_population"
+    analyzer_chain_length_label = "chain_length_gt1" if analyzer_count > 1 else "chain_length_eq1"
+    compare_refs = _discover_method_confirmation_compare_refs(run_dir=run_dir)
+    replay_run_ref = next((dict(item) for item in compare_refs if str(item.get("ref_type") or "") == "replay_run"), {})
+    simulated_compare_ref = next(
+        (dict(item) for item in compare_refs if str(item.get("ref_type") or "") == "simulated_compare_run"),
+        {},
+    )
+    smoke_run_ref = _build_method_confirmation_smoke_run_ref(
+        run_id=run_id,
+        run_dir=run_dir,
+        path_map=path_map,
+        measurement_phase_coverage_report=phase_coverage_payload,
+    )
+    sidecar_ref = _build_method_confirmation_sidecar_ref(
+        run_id=run_id,
+        run_dir=run_dir,
+        path_map=path_map,
+        simulation_evidence_sidecar_bundle=sidecar_payload,
+    )
+    validation_run_refs = [
+        dict(item)
+        for item in (replay_run_ref, simulated_compare_ref, smoke_run_ref, sidecar_ref)
+        if isinstance(item, dict) and (str(item.get("ref_id") or "").strip() or str(item.get("path") or "").strip())
+    ]
+    validation_run_ref_ids = _dedupe(
+        str(item.get("ref_id") or "").strip() for item in validation_run_refs if str(item.get("ref_id") or "").strip()
+    )
+    route_profiles_by_family = {
+        str(item.get("route_family") or "").strip(): dict(item)
+        for item in profiles
+        if str(item.get("route_family") or "").strip()
+    }
+    bound_ref_ids_by_type = {
+        str(item.get("ref_type") or "").strip(): str(item.get("ref_id") or "").strip()
+        for item in validation_run_refs
+        if str(item.get("ref_type") or "").strip() and str(item.get("ref_id") or "").strip()
+    }
+    route_specs = (
+        ("co2_route", "gas", "CO2 route", "CO2"),
+        ("h2o_route", "water", "H2O route", "H2O"),
+        ("ambient_open_diagnostic", "ambient", "ambient/open diagnostic", "ambient"),
+    )
+    coverage_items: list[dict[str, Any]] = []
+    for item_id, family, label, measurand in route_specs:
+        profile = dict(route_profiles_by_family.get(family) or {})
+        present = bool(profile)
+        bound_run_ref_ids = _dedupe(
+            bound_ref_ids_by_type.get(ref_type)
+            for ref_type in ("smoke_run", "sidecar_evidence", "simulated_compare_run", "replay_run")
+        )
+        coverage_items.append(
+            {
+                "item_id": item_id,
+                "label": label,
+                "category": "route",
+                "route_family": family,
+                "measurand": measurand,
+                "coverage_basis": str(
+                    profile.get("route_label")
+                    or f"{label} mapped in reviewer matrix"
+                ),
+                "status": "validated" if present and bool(bound_run_ref_ids) else "unverified",
+                "bound_run_ref_ids": bound_run_ref_ids,
+                "linked_uncertainty_case_ids": _dedupe([str(profile.get("uncertainty_case_id") or "").strip()]),
+            }
+        )
+    temperature_range = str(sample_digest_payload.get("temperature_range") or "").strip()
+    pressure_range = str(sample_digest_payload.get("pressure_range") or "").strip()
+    phase_summary = str(phase_coverage_digest.get("actual_phase_summary") or phase_coverage_digest.get("summary") or "").strip()
+    common_ref_ids = _dedupe(
+        bound_ref_ids_by_type.get(ref_type)
+        for ref_type in ("smoke_run", "sidecar_evidence", "simulated_compare_run", "replay_run")
+    )
+    coverage_items.extend(
+        [
+            {
+                "item_id": "temperature_points",
+                "label": "temperature points",
+                "category": "condition",
+                "coverage_basis": temperature_range or phase_summary or "temperature points not declared",
+                "status": "validated" if temperature_range and temperature_range != "--" else "unverified",
+                "bound_run_ref_ids": list(common_ref_ids),
+                "linked_uncertainty_case_ids": _dedupe(
+                    str(item.get("uncertainty_case_id") or "").strip() for item in profiles
+                ),
+            },
+            {
+                "item_id": "pressure_points",
+                "label": "pressure points",
+                "category": "condition",
+                "coverage_basis": pressure_range or phase_summary or "pressure points not declared",
+                "status": "validated" if pressure_range and pressure_range != "--" else "unverified",
+                "bound_run_ref_ids": list(common_ref_ids),
+                "linked_uncertainty_case_ids": _dedupe(
+                    str(item.get("uncertainty_case_id") or "").strip() for item in profiles
+                ),
+            },
+            {
+                "item_id": "analyzer_population",
+                "label": "analyzer population",
+                "category": "analyzer",
+                "coverage_basis": f"{analyzer_population_label} | analyzers {analyzer_count}",
+                "status": "validated" if analyzer_count > 0 else "unverified",
+                "bound_run_ref_ids": list(common_ref_ids),
+                "linked_uncertainty_case_ids": _dedupe(
+                    str(item.get("uncertainty_case_id") or "").strip() for item in profiles
+                ),
+            },
+            {
+                "item_id": "analyzer_chain_length",
+                "label": "analyzer chain length",
+                "category": "analyzer",
+                "coverage_basis": f"{analyzer_chain_length_label} | analyzers {analyzer_count}",
+                "status": "validated" if analyzer_count > 0 else "unverified",
+                "bound_run_ref_ids": list(common_ref_ids),
+                "linked_uncertainty_case_ids": _dedupe(
+                    str(item.get("uncertainty_case_id") or "").strip() for item in profiles
+                ),
+            },
+        ]
+    )
+    validated_items = [
+        str(item.get("item_id") or "")
+        for item in coverage_items
+        if str(item.get("status") or "") == "validated" and str(item.get("item_id") or "").strip()
+    ]
+    unverified_items = [
+        str(item.get("item_id") or "")
+        for item in coverage_items
+        if str(item.get("status") or "") != "validated" and str(item.get("item_id") or "").strip()
+    ]
+    linked_uncertainty_case_ids = _dedupe(
+        str(item.get("uncertainty_case_id") or "").strip() for item in profiles if str(item.get("uncertainty_case_id") or "").strip()
+    )
+    linked_scope_id = str(
+        next((item.get("scope_id") for item in profiles if str(item.get("scope_id") or "").strip()), "")
+    ).strip()
+    linked_decision_rule_id = str(
+        next((item.get("decision_rule_id") for item in profiles if str(item.get("decision_rule_id") or "").strip()), "")
+    ).strip()
+    source_artifact_refs = _build_method_confirmation_source_artifact_refs(
+        path_map=path_map,
+        validation_run_refs=validation_run_refs,
+    )
+    coverage_items_summary = " | ".join(str(item.get("item_id") or "") for item in coverage_items if str(item.get("item_id") or "").strip())
+    validated_items_summary = " | ".join(validated_items) or "--"
+    unverified_items_summary = " | ".join(unverified_items) or "--"
+    validation_run_binding_summary = " | ".join(
+        f"{label}:{'bound' if ref else 'missing'}"
+        for label, ref in (
+            ("replay", replay_run_ref),
+            ("sim_compare", simulated_compare_ref),
+            ("smoke", smoke_run_ref),
+            ("sidecar", sidecar_ref),
+        )
+    )
+    source_artifact_refs_summary = " | ".join(
+        _dedupe(
+            Path(str(item.get("path") or "")).name or str(item.get("ref_id") or "")
+            for item in source_artifact_refs
+            if str(item.get("path") or item.get("ref_id") or "").strip()
+        )
+    )
+    linked_uncertainty_case_ids_summary = " | ".join(linked_uncertainty_case_ids) or "--"
+    linked_scope_decision_summary = " | ".join(
+        part
+        for part in (
+            f"scope {linked_scope_id}" if linked_scope_id else "",
+            f"decision rule {linked_decision_rule_id}" if linked_decision_rule_id else "",
+        )
+        if part
+    ) or "--"
+    matrix_completeness_summary = (
+        f"coverage items {len(validated_items)}/{len(coverage_items)} | "
+        f"route profiles {len(profiles)} | bound refs {len(validation_run_refs)}/4"
+    )
+    current_evidence_coverage_summary = (
+        f"validated {len(validated_items)}/{len(coverage_items)} | "
+        f"phase {phase_summary or '--'} | "
+        f"bindings {validation_run_binding_summary}"
+    )
+    gap_fragments = []
+    if not replay_run_ref:
+        gap_fragments.append("missing replay run")
+    if not simulated_compare_ref:
+        gap_fragments.append("missing simulated compare run")
+    if not smoke_run_ref:
+        gap_fragments.append("missing smoke run")
+    if not sidecar_ref:
+        gap_fragments.append("missing sidecar evidence")
+    gap_fragments.extend(f"unverified {item}" for item in unverified_items)
+    top_gaps_summary = " | ".join(gap_fragments) or "offline reviewer mapping coverage present for all declared items"
+    reviewer_actions = []
+    if not replay_run_ref:
+        reviewer_actions.append("bind replay run for offline method confirmation traceability")
+    if not simulated_compare_ref:
+        reviewer_actions.append("bind simulated compare run for route-level reviewer evidence")
+    if not smoke_run_ref:
+        reviewer_actions.append("bind current run smoke summary into validation_run_set")
+    if not sidecar_ref:
+        reviewer_actions.append("bind sidecar evidence bundle before reviewer digest rollup")
+    reviewer_actions.append("keep reviewer-only / non-claim / not-real-acceptance boundary")
+    reviewer_action_summary = " | ".join(_dedupe(reviewer_actions))
+    readiness_status_summary = (
+        f"validated {len(validated_items)}/{len(coverage_items)} | "
+        f"run refs {len(validation_run_refs)}/4 | reviewer-only | readiness mapping only | not real acceptance"
+    )
+    return {
+        "coverage_items": coverage_items,
+        "validated_items": validated_items,
+        "unverified_items": unverified_items,
+        "validation_run_refs": validation_run_refs,
+        "validation_run_ref_ids": validation_run_ref_ids,
+        "source_artifact_refs": source_artifact_refs,
+        "linked_uncertainty_case_ids": linked_uncertainty_case_ids,
+        "linked_scope_id": linked_scope_id,
+        "linked_decision_rule_id": linked_decision_rule_id,
+        "coverage_items_summary": coverage_items_summary,
+        "validated_items_summary": validated_items_summary,
+        "unverified_items_summary": unverified_items_summary,
+        "validation_run_binding_summary": validation_run_binding_summary,
+        "source_artifact_refs_summary": source_artifact_refs_summary,
+        "linked_uncertainty_case_ids_summary": linked_uncertainty_case_ids_summary,
+        "linked_scope_decision_summary": linked_scope_decision_summary,
+        "matrix_completeness_summary": matrix_completeness_summary,
+        "current_evidence_coverage_summary": current_evidence_coverage_summary,
+        "top_gaps_summary": top_gaps_summary,
+        "reviewer_action_summary": reviewer_action_summary,
+        "readiness_status_summary": readiness_status_summary,
+    }
+
+
+def _enrich_method_confirmation_validation_run(
+    *,
+    validation_run: dict[str, Any],
+    profile: dict[str, Any],
+    linkages: dict[str, Any],
+) -> dict[str, Any]:
+    data = dict(validation_run or {})
+    route_family = str(profile.get("route_family") or data.get("route_family") or "").strip()
+    coverage_item_id = {
+        "gas": "co2_route",
+        "water": "h2o_route",
+        "ambient": "ambient_open_diagnostic",
+    }.get(route_family, "")
+    coverage_item_ids = _dedupe(
+        [
+            coverage_item_id,
+            "temperature_points",
+            "pressure_points",
+            "analyzer_population",
+            "analyzer_chain_length",
+        ]
+    )
+    bound_run_refs = [dict(item) for item in list(linkages.get("validation_run_refs") or []) if isinstance(item, dict)]
+    bound_run_ref_ids = _dedupe(
+        str(item.get("ref_id") or "").strip() for item in bound_run_refs if str(item.get("ref_id") or "").strip()
+    )
+    linked_uncertainty_case_ids = _dedupe(
+        [
+            str(profile.get("uncertainty_case_id") or "").strip(),
+            *list(linkages.get("linked_uncertainty_case_ids") or []),
+        ]
+    )
+    data["coverage_item_ids"] = coverage_item_ids
+    data["bound_run_ref_ids"] = bound_run_ref_ids
+    data["bound_run_refs"] = bound_run_refs
+    data["validation_run_refs"] = bound_run_refs
+    data["validation_binding_status"] = (
+        "bound_offline_reviewer_refs" if bound_run_ref_ids else "missing_offline_reviewer_refs"
+    )
+    data["source_artifact_refs"] = [
+        dict(item) for item in list(linkages.get("source_artifact_refs") or []) if isinstance(item, dict)
+    ]
+    data["linked_uncertainty_case_ids"] = linked_uncertainty_case_ids
+    data["linked_scope_id"] = str(linkages.get("linked_scope_id") or data.get("scope_id") or "")
+    data["linked_decision_rule_id"] = str(linkages.get("linked_decision_rule_id") or data.get("decision_rule_id") or "")
+    data["coverage_items_summary"] = str(linkages.get("coverage_items_summary") or "")
+    data["validated_items_summary"] = str(linkages.get("validated_items_summary") or "")
+    data["unverified_items_summary"] = str(linkages.get("unverified_items_summary") or "")
+    data["validation_run_binding_summary"] = str(linkages.get("validation_run_binding_summary") or "")
+    data["source_artifact_refs_summary"] = str(linkages.get("source_artifact_refs_summary") or "")
+    data["linked_uncertainty_case_ids_summary"] = str(linkages.get("linked_uncertainty_case_ids_summary") or "")
+    data["linked_scope_decision_summary"] = str(linkages.get("linked_scope_decision_summary") or "")
+    return data
+
+
+def _build_method_confirmation_source_artifact_refs(
+    *,
+    path_map: dict[str, str],
+    validation_run_refs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def _remember(ref_id: str, artifact_type: str, path: str, label: str) -> None:
+        key = "|".join((ref_id.strip(), artifact_type.strip(), path.strip()))
+        if not key.strip() or key in seen:
+            return
+        seen.add(key)
+        refs.append(
+            {
+                "ref_id": ref_id,
+                "artifact_type": artifact_type,
+                "path": path,
+                "label": label,
+                "not_real_acceptance_evidence": True,
+            }
+        )
+
+    for item in list(validation_run_refs or []):
+        ref_id = str(dict(item).get("ref_id") or "").strip()
+        artifact_type = str(dict(item).get("artifact_type") or dict(item).get("ref_type") or "").strip()
+        path = str(dict(item).get("path") or "").strip()
+        label = str(dict(item).get("label") or ref_id or artifact_type).strip()
+        if ref_id or path:
+            _remember(ref_id or path, artifact_type or "validation_run_ref", path, label)
+    for key, artifact_type in (
+        ("method_confirmation_protocol", "method_confirmation_protocol"),
+        ("method_confirmation_matrix", "method_confirmation_matrix"),
+        ("route_specific_validation_matrix", "route_specific_validation_matrix"),
+        ("validation_run_set", "validation_run_set"),
+        ("verification_digest", "verification_digest"),
+        ("verification_rollup", "verification_rollup"),
+        ("measurement_phase_coverage_report", "measurement_phase_coverage_report"),
+        ("simulation_evidence_sidecar_bundle", "simulation_evidence_sidecar_bundle"),
+        ("scope_definition_pack", "scope_definition_pack"),
+        ("decision_rule_profile", "decision_rule_profile"),
+        ("uncertainty_report_pack", "uncertainty_report_pack"),
+        ("uncertainty_rollup", "uncertainty_rollup"),
+    ):
+        path = str(path_map.get(key) or "").strip()
+        if path:
+            _remember(key, artifact_type, path, Path(path).name)
+    return refs
+
+
+def _discover_method_confirmation_compare_refs(*, run_dir: str | Path | None) -> list[dict[str, Any]]:
+    root = Path(run_dir) if run_dir is not None else None
+    if root in (None, Path("")) or not root.exists():
+        return []
+    refs: list[dict[str, Any]] = []
+    seen_types: set[str] = set()
+    try:
+        report_paths = sorted(
+            root.rglob("control_flow_compare_report.json"),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
+    except Exception:
+        report_paths = []
+    for report_path in report_paths:
+        payload = _read_method_confirmation_json(report_path)
+        if not payload:
+            continue
+        evidence_state = str(payload.get("evidence_state") or "").strip()
+        ref_type = "replay_run" if evidence_state == "replay" else "simulated_compare_run"
+        if ref_type in seen_types:
+            continue
+        seen_types.add(ref_type)
+        effective_validation_mode = dict(payload.get("effective_validation_mode") or {})
+        bench_context = dict(payload.get("bench_context") or {})
+        compare_status = str(payload.get("compare_status") or "").strip()
+        target_route = str(
+            bench_context.get("target_route")
+            or effective_validation_mode.get("target_route")
+            or ""
+        ).strip()
+        refs.append(
+            {
+                "ref_id": f"{Path(report_path).parent.name}:{ref_type}",
+                "ref_type": ref_type,
+                "artifact_type": "control_flow_compare_report",
+                "label": ref_type.replace("_", " "),
+                "path": str(report_path),
+                "evidence_source": str(payload.get("evidence_source") or "simulated"),
+                "evidence_state": evidence_state or "simulated_protocol",
+                "status": compare_status or "available",
+                "summary": " | ".join(
+                    part
+                    for part in (
+                        compare_status,
+                        evidence_state or "simulated_protocol",
+                        target_route,
+                    )
+                    if part
+                ),
+                "not_real_acceptance_evidence": bool(payload.get("not_real_acceptance_evidence", True)),
+            }
+        )
+    return refs
+
+
+def _build_method_confirmation_smoke_run_ref(
+    *,
+    run_id: str,
+    run_dir: str | Path | None,
+    path_map: dict[str, str],
+    measurement_phase_coverage_report: dict[str, Any],
+) -> dict[str, Any]:
+    root = Path(run_dir) if run_dir is not None else None
+    summary_path = (root / "summary.json") if root not in (None, Path("")) else None
+    summary_text = str(
+        dict(measurement_phase_coverage_report.get("digest") or {}).get("summary")
+        or dict(measurement_phase_coverage_report.get("digest") or {}).get("actual_phase_summary")
+        or f"{run_id} simulated smoke summary"
+    ).strip()
+    if summary_path is None or not summary_path.exists():
+        summary_path_text = str(path_map.get("measurement_phase_coverage_report") or "")
+    else:
+        summary_path_text = str(summary_path)
+    if not summary_path_text:
+        return {}
+    return {
+        "ref_id": f"{run_id}:smoke_run",
+        "ref_type": "smoke_run",
+        "artifact_type": "summary_json",
+        "label": "smoke run",
+        "path": summary_path_text,
+        "evidence_source": "simulated",
+        "evidence_state": "simulated_smoke",
+        "status": "available",
+        "summary": summary_text,
+        "not_real_acceptance_evidence": True,
+    }
+
+
+def _build_method_confirmation_sidecar_ref(
+    *,
+    run_id: str,
+    run_dir: str | Path | None,
+    path_map: dict[str, str],
+    simulation_evidence_sidecar_bundle: dict[str, Any],
+) -> dict[str, Any]:
+    payload = dict(simulation_evidence_sidecar_bundle or {})
+    sidecar_path = str(
+        path_map.get("simulation_evidence_sidecar_bundle")
+        or dict(payload.get("artifact_paths") or {}).get("simulation_evidence_sidecar_bundle")
+        or (
+            str(Path(run_dir) / "simulation_evidence_sidecar_bundle.json")
+            if run_dir not in (None, "")
+            else ""
+        )
+    ).strip()
+    if not sidecar_path:
+        return {}
+    stores = dict(payload.get("stores") or {})
+    store_summary = " | ".join(
+        f"{key} {len(list(value or []))}"
+        for key, value in list(stores.items())[:4]
+    )
+    return {
+        "ref_id": f"{run_id}:sidecar_evidence",
+        "ref_type": "sidecar_evidence",
+        "artifact_type": "simulation_evidence_sidecar_bundle",
+        "label": "sidecar evidence",
+        "path": sidecar_path,
+        "evidence_source": str(payload.get("evidence_source") or "simulated"),
+        "evidence_state": "reviewer_sidecar_ready",
+        "status": "available",
+        "summary": str(payload.get("reviewer_note") or store_summary or "simulation evidence sidecar bundle"),
+        "not_real_acceptance_evidence": True,
+    }
+
+
+def _read_method_confirmation_json(path: str | Path) -> dict[str, Any]:
+    target = Path(path)
+    if not target.exists():
+        return {}
+    try:
+        payload = json.loads(target.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return dict(payload) if isinstance(payload, dict) else {}
 
 
 def _method_confirmation_artifact_paths(path_map: dict[str, str]) -> dict[str, str]:
@@ -3275,19 +3941,46 @@ def _method_confirmation_common_body(
     non_claim_note: str,
     reviewer_note: str,
     path_map: dict[str, str],
+    artifact_ids: dict[str, str],
+    linkages: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         "protocol_id": protocol_id,
+        "method_confirmation_protocol_id": protocol_id,
+        "method_confirmation_matrix_id": str(artifact_ids.get("method_confirmation_matrix_id") or ""),
+        "route_specific_validation_matrix_id": str(artifact_ids.get("route_specific_validation_matrix_id") or ""),
+        "validation_run_set_id": str(artifact_ids.get("validation_run_set_id") or ""),
+        "verification_digest_id": str(artifact_ids.get("verification_digest_id") or ""),
+        "verification_rollup_id": str(artifact_ids.get("verification_rollup_id") or ""),
         "protocol_version": protocol_version,
         "scope_id": scope_id,
         "decision_rule_id": decision_rule_id,
         "uncertainty_case_id": uncertainty_case_id,
+        "linked_scope_id": str(linkages.get("linked_scope_id") or scope_id),
+        "linked_decision_rule_id": str(linkages.get("linked_decision_rule_id") or decision_rule_id),
+        "linked_uncertainty_case_ids": list(linkages.get("linked_uncertainty_case_ids") or []),
         "measurand": "multi-route",
         "route_type": "mixed",
         "environment_mode": "simulation_only",
         "analyzer_model": "step2-reviewer-placeholder",
         "validation_matrix_version": validation_matrix_version,
         "validation_dimensions": list(METHOD_CONFIRMATION_VALIDATION_DIMENSIONS),
+        "coverage_items": [dict(item) for item in list(linkages.get("coverage_items") or []) if isinstance(item, dict)],
+        "validated_items": [str(item) for item in list(linkages.get("validated_items") or []) if str(item).strip()],
+        "unverified_items": [str(item) for item in list(linkages.get("unverified_items") or []) if str(item).strip()],
+        "validation_run_refs": [
+            dict(item) for item in list(linkages.get("validation_run_refs") or []) if isinstance(item, dict)
+        ],
+        "source_artifact_refs": [
+            dict(item) for item in list(linkages.get("source_artifact_refs") or []) if isinstance(item, dict)
+        ],
+        "coverage_items_summary": str(linkages.get("coverage_items_summary") or ""),
+        "validated_items_summary": str(linkages.get("validated_items_summary") or ""),
+        "unverified_items_summary": str(linkages.get("unverified_items_summary") or ""),
+        "validation_run_binding_summary": str(linkages.get("validation_run_binding_summary") or ""),
+        "source_artifact_refs_summary": str(linkages.get("source_artifact_refs_summary") or ""),
+        "linked_uncertainty_case_ids_summary": str(linkages.get("linked_uncertainty_case_ids_summary") or ""),
+        "linked_scope_decision_summary": str(linkages.get("linked_scope_decision_summary") or ""),
         "validation_status": "reviewer_placeholder_only",
         "reviewer_only": True,
         "readiness_mapping_only": True,
@@ -3319,6 +4012,13 @@ def _method_confirmation_common_body(
             "uncertainty_report_pack": path_map["uncertainty_report_pack"],
             "uncertainty_digest": path_map["uncertainty_digest"],
             "uncertainty_rollup": path_map["uncertainty_rollup"],
+            "measurement_phase_coverage_report": str(path_map.get("measurement_phase_coverage_report") or ""),
+            "simulation_evidence_sidecar_bundle": str(path_map.get("simulation_evidence_sidecar_bundle") or ""),
+            "method_confirmation_matrix": path_map["method_confirmation_matrix"],
+            "route_specific_validation_matrix": path_map["route_specific_validation_matrix"],
+            "validation_run_set": path_map["validation_run_set"],
+            "verification_digest": path_map["verification_digest"],
+            "verification_rollup": path_map["verification_rollup"],
         },
     }
 
@@ -3338,6 +4038,13 @@ def _method_confirmation_digest(
     scope_reference_assets_summary: str,
     decision_rule_dependency_summary: str,
     required_evidence_categories_summary: str,
+    coverage_items_summary: str,
+    validated_items_summary: str,
+    unverified_items_summary: str,
+    validation_run_binding_summary: str,
+    source_artifact_refs_summary: str,
+    linked_uncertainty_case_ids_summary: str,
+    linked_scope_decision_summary: str,
 ) -> dict[str, Any]:
     return {
         "summary": summary,
@@ -3357,6 +4064,13 @@ def _method_confirmation_digest(
         "scope_reference_assets_summary": scope_reference_assets_summary,
         "decision_rule_dependency_summary": decision_rule_dependency_summary,
         "required_evidence_categories_summary": required_evidence_categories_summary,
+        "coverage_items_summary": coverage_items_summary,
+        "validated_items_summary": validated_items_summary,
+        "unverified_items_summary": unverified_items_summary,
+        "validation_run_binding_summary": validation_run_binding_summary,
+        "source_artifact_refs_summary": source_artifact_refs_summary,
+        "linked_uncertainty_case_ids_summary": linked_uncertainty_case_ids_summary,
+        "linked_scope_decision_summary": linked_scope_decision_summary,
         "warning_summary": "reviewer-only / simulated / placeholder evidence rows",
     }
 
@@ -3458,7 +4172,16 @@ def _build_method_confirmation_wp4_bundle_set(
     rollup_raw: dict[str, Any],
     digest_raw: dict[str, Any],
     uncertainty_budget_stub: dict[str, Any],
+    artifact_ids: dict[str, str],
+    linkages: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
+    coverage_items_summary = str(linkages.get("coverage_items_summary") or "--")
+    validated_items_summary = str(linkages.get("validated_items_summary") or "--")
+    unverified_items_summary = str(linkages.get("unverified_items_summary") or "--")
+    validation_run_binding_summary = str(linkages.get("validation_run_binding_summary") or "--")
+    source_artifact_refs_summary = str(linkages.get("source_artifact_refs_summary") or "--")
+    linked_uncertainty_case_ids_summary = str(linkages.get("linked_uncertainty_case_ids_summary") or "--")
+    linked_scope_decision_summary = str(linkages.get("linked_scope_decision_summary") or "--")
     matrix_body = {
         **common_body,
         "route_specific_protocols": route_profiles,
@@ -3492,8 +4215,15 @@ def _build_method_confirmation_wp4_bundle_set(
             f"matrix completeness: {matrix_completeness_summary}",
             f"current evidence coverage: {current_coverage_summary}",
             f"reviewer actions: {reviewer_action_summary}",
+            f"coverage items: {coverage_items_summary}",
+            f"validation run bindings: {validation_run_binding_summary}",
         ],
         detail_lines=[
+            f"validated items: {validated_items_summary}",
+            f"unverified items: {unverified_items_summary}",
+            f"source artifact refs: {source_artifact_refs_summary}",
+            f"linked uncertainty case ids: {linked_uncertainty_case_ids_summary}",
+            f"linked scope / decision rule: {linked_scope_decision_summary}",
             f"linked uncertainty budget stub: {str(dict(uncertainty_budget_stub.get('digest') or {}).get('summary') or '--')}",
             f"linked route matrix: {path_map['route_specific_validation_matrix']}",
             f"linked verification digest: {path_map['verification_digest']}",
@@ -3516,9 +4246,16 @@ def _build_method_confirmation_wp4_bundle_set(
             f"matrix completeness: {matrix_completeness_summary}",
             f"current evidence coverage: {current_coverage_summary}",
             f"top gaps: {top_gaps_summary}",
+            f"coverage items: {coverage_items_summary}",
+            f"validation run bindings: {validation_run_binding_summary}",
         ],
         detail_lines=[
             f"reviewer actions: {reviewer_action_summary}",
+            f"validated items: {validated_items_summary}",
+            f"unverified items: {unverified_items_summary}",
+            f"source artifact refs: {source_artifact_refs_summary}",
+            f"linked uncertainty case ids: {linked_uncertainty_case_ids_summary}",
+            f"linked scope / decision rule: {linked_scope_decision_summary}",
             f"linked uncertainty report: {path_map['uncertainty_report_pack']}",
             f"linked pre-run gate: {path_map['pre_run_readiness_gate']}",
             f"non-claim: {non_claim_note}",
@@ -3540,10 +4277,17 @@ def _build_method_confirmation_wp4_bundle_set(
             f"matrix completeness: {matrix_completeness_summary}",
             f"current evidence coverage: {current_coverage_summary}",
             f"readiness status: {readiness_status_summary}",
+            f"coverage items: {coverage_items_summary}",
+            f"validation run bindings: {validation_run_binding_summary}",
         ],
         detail_lines=[
             f"top gaps: {top_gaps_summary}",
             f"reviewer actions: {reviewer_action_summary}",
+            f"validated items: {validated_items_summary}",
+            f"unverified items: {unverified_items_summary}",
+            f"source artifact refs: {source_artifact_refs_summary}",
+            f"linked uncertainty case ids: {linked_uncertainty_case_ids_summary}",
+            f"linked scope / decision rule: {linked_scope_decision_summary}",
             f"golden linkage source: {path_map['uncertainty_golden_cases']}",
             f"non-claim: {non_claim_note}",
         ],
@@ -3564,8 +4308,15 @@ def _build_method_confirmation_wp4_bundle_set(
             f"linked run ids: {run_id}",
             f"matrix completeness: {matrix_completeness_summary}",
             f"current evidence coverage: {current_coverage_summary}",
+            f"coverage items: {coverage_items_summary}",
+            f"validation run bindings: {validation_run_binding_summary}",
         ],
         detail_lines=[
+            f"validated items: {validated_items_summary}",
+            f"unverified items: {unverified_items_summary}",
+            f"source artifact refs: {source_artifact_refs_summary}",
+            f"linked uncertainty case ids: {linked_uncertainty_case_ids_summary}",
+            f"linked scope / decision rule: {linked_scope_decision_summary}",
             f"reference assets: {str(base_digest.get('scope_reference_assets_summary') or '--')}",
             f"certificate lifecycle: {path_map['certificate_lifecycle_summary']}",
             f"uncertainty refs: {path_map['uncertainty_report_pack']} | {path_map['uncertainty_rollup']}",
@@ -3595,9 +4346,16 @@ def _build_method_confirmation_wp4_bundle_set(
             f"current evidence coverage: {current_coverage_summary}",
             f"top gaps: {top_gaps_summary}",
             f"reviewer actions: {reviewer_action_summary}",
+            f"coverage items: {coverage_items_summary}",
+            f"validation run bindings: {validation_run_binding_summary}",
         ],
         detail_lines=[
             f"readiness status: {readiness_status_summary}",
+            f"validated items: {validated_items_summary}",
+            f"unverified items: {unverified_items_summary}",
+            f"source artifact refs: {source_artifact_refs_summary}",
+            f"linked uncertainty case ids: {linked_uncertainty_case_ids_summary}",
+            f"linked scope / decision rule: {linked_scope_decision_summary}",
             f"linked uncertainty digest: {str(digest_raw.get('summary') or '--')}",
             f"linked uncertainty rollup: {str(rollup_raw.get('rollup_summary_display') or '--')}",
             f"non-claim: {non_claim_note}",
@@ -3620,9 +4378,16 @@ def _build_method_confirmation_wp4_bundle_set(
             f"current evidence coverage: {current_coverage_summary}",
             f"top gaps: {top_gaps_summary}",
             f"reviewer actions: {reviewer_action_summary}",
+            f"coverage items: {coverage_items_summary}",
+            f"validation run bindings: {validation_run_binding_summary}",
         ],
         detail_lines=[
             f"readiness status: {readiness_status_summary}",
+            f"validated items: {validated_items_summary}",
+            f"unverified items: {unverified_items_summary}",
+            f"source artifact refs: {source_artifact_refs_summary}",
+            f"linked uncertainty case ids: {linked_uncertainty_case_ids_summary}",
+            f"linked scope / decision rule: {linked_scope_decision_summary}",
             f"validation run set: {path_map['validation_run_set']}",
             f"linked uncertainty rollup: {path_map['uncertainty_rollup']}",
             f"non-claim: {non_claim_note}",
@@ -3992,7 +4757,8 @@ def _method_confirmation_validation_run(
             "verification_rollup": path_map["verification_rollup"],
         },
         "reference_assets": list(profile.get("reference_asset_ids") or []),
-        "certificate_lifecycle_refs": list(profile.get("certificate_lifecycle_refs") or []),
+        "certificate_lifecycle_refs": list(profile.get("certificate_lifecycle_refs") or [])
+        or [path_map["certificate_lifecycle_summary"]],
         "pre_run_gate_refs": [
             str(gate_raw.get("gate_id") or f"{run_id}-pre-run-readiness-gate"),
             path_map["pre_run_readiness_gate"],
@@ -4631,6 +5397,22 @@ def _enrich_recognition_readiness_artifact(
         boundary_filter_rows,
         non_claim_filter_rows,
     )
+    conformity_statement_profile = dict(raw.get("conformity_statement_profile") or {})
+    recognition_binding = dict(raw.get("recognition_binding") or {})
+    applicability_scope_summary = str(
+        raw.get("applicability_scope_display")
+        or recognition_binding.get("applicability_scope_display")
+        or conformity_statement_profile.get("applicability_scope_display")
+        or dict(raw.get("digest") or {}).get("applicability_scope_summary")
+        or ""
+    ).strip()
+    limitation_note_summary = str(
+        raw.get("limitation_note")
+        or recognition_binding.get("limitation_note")
+        or conformity_statement_profile.get("limitation_note")
+        or dict(raw.get("digest") or {}).get("limitation_note_summary")
+        or ""
+    ).strip()
     digest = dict(raw.get("digest") or {})
     digest["readiness_status"] = readiness_status
     if missing_evidence:
@@ -4667,6 +5449,10 @@ def _enrich_recognition_readiness_artifact(
         digest["boundary_digest"] = boundary_digest
     if non_claim_digest:
         digest["non_claim_digest"] = non_claim_digest
+    if applicability_scope_summary:
+        digest["applicability_scope_summary"] = applicability_scope_summary
+    if limitation_note_summary:
+        digest["limitation_note_summary"] = limitation_note_summary
     raw["anchor_id"] = anchor_id
     raw["anchor_label"] = anchor_label
     raw["taxonomy_contract_version"] = TAXONOMY_CONTRACT_VERSION
@@ -4708,6 +5494,45 @@ def _enrich_recognition_readiness_artifact(
     raw["reviewer_next_step_digest"] = reviewer_next_step_digest
     raw["reviewer_next_step_fragments"] = reviewer_next_step_fragments
     raw["reviewer_next_step_fragment_keys"] = fragment_rows_to_keys(reviewer_next_step_fragments) or linked_reviewer_next_step_fragment_keys
+    raw["recognition_binding"] = {
+        **recognition_binding,
+        "scope_id": str(raw.get("scope_id") or recognition_binding.get("scope_id") or "").strip(),
+        "scope_name": str(raw.get("scope_name") or recognition_binding.get("scope_name") or "").strip(),
+        "scope_version": str(raw.get("scope_version") or recognition_binding.get("scope_version") or "").strip(),
+        "decision_rule_id": str(raw.get("decision_rule_id") or recognition_binding.get("decision_rule_id") or "").strip(),
+        "applicability_scope": dict(
+            raw.get("applicability_scope")
+            or recognition_binding.get("applicability_scope")
+            or conformity_statement_profile.get("applicability_scope")
+            or {}
+        ),
+        "applicability_scope_display": applicability_scope_summary,
+        "limitation_note": limitation_note_summary,
+        "non_claim_note": str(
+            raw.get("non_claim_note")
+            or recognition_binding.get("non_claim_note")
+            or conformity_statement_profile.get("non_claim_note")
+            or non_claim_digest
+            or ""
+        ).strip(),
+        "readiness_status": readiness_status,
+        "reviewer_only": bool(
+            recognition_binding.get("reviewer_only")
+            if recognition_binding
+            else conformity_statement_profile.get("reviewer_only", True)
+        ),
+        "readiness_mapping_only": bool(
+            recognition_binding.get("readiness_mapping_only")
+            if recognition_binding
+            else conformity_statement_profile.get("readiness_mapping_only", True)
+        ),
+        "not_real_acceptance_evidence": bool(
+            raw.get("not_real_acceptance_evidence", recognition_binding.get("not_real_acceptance_evidence", True))
+        ),
+        "not_ready_for_formal_claim": bool(
+            raw.get("not_ready_for_formal_claim", recognition_binding.get("not_ready_for_formal_claim", True))
+        ),
+    }
     raw["digest"] = digest
     if review_surface:
         review_surface["anchor_id"] = anchor_id
@@ -4738,6 +5563,7 @@ def _enrich_recognition_readiness_artifact(
                 f"readiness impact: {linked_readiness_impact_summary}" if linked_readiness_impact_summary else "",
                 f"reviewer next step: {reviewer_next_step_digest}" if reviewer_next_step_digest else "",
                 f"next required artifacts: {' | '.join(next_required_artifacts)}" if next_required_artifacts else "",
+                f"applicability scope: {applicability_scope_summary}" if applicability_scope_summary else "",
                 f"boundary: {boundary_digest}" if boundary_digest else "",
             ],
         )
@@ -4757,6 +5583,7 @@ def _enrich_recognition_readiness_artifact(
                 f"blockers: {' | '.join(blockers)}" if blockers else "",
                 f"next required artifacts: {' | '.join(next_required_artifacts)}" if next_required_artifacts else "",
                 f"reviewer next step: {reviewer_next_step_digest}" if reviewer_next_step_digest else "",
+                f"limitation: {limitation_note_summary}" if limitation_note_summary else "",
                 f"boundary: {boundary_digest}" if boundary_digest else "",
                 f"non-claim digest: {non_claim_digest}" if non_claim_digest else "",
             ],
@@ -5105,6 +5932,1674 @@ def _merge_unique_lines(existing: list[str], extra: list[str]) -> list[str]:
     return _dedupe([*list(existing or []), *[str(item).strip() for item in extra if str(item).strip()]])
 
 
+def _resolve_readiness_fixture_root(fixtures_root: str | Path | None = None) -> Path:
+    if fixtures_root is not None:
+        return Path(fixtures_root)
+    env_value = str(os.getenv(READINESS_FIXTURE_ROOT_ENV) or "").strip()
+    if env_value:
+        return Path(env_value)
+    return Path(__file__).resolve().parents[1] / "configs"
+
+
+def _read_readiness_fixture(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _readiness_fixture_paths(fixtures_root: str | Path | None = None) -> dict[str, Path]:
+    root = _resolve_readiness_fixture_root(fixtures_root)
+    return {
+        "reference_assets": root.joinpath(*REFERENCE_ASSET_FIXTURE_PATH),
+        "standard_gas_lots": root.joinpath(*STANDARD_GAS_LOT_FIXTURE_PATH),
+        "certificate_lifecycle": root.joinpath(*CERTIFICATE_LIFECYCLE_FIXTURE_PATH),
+        "intermediate_check_plan": root.joinpath(*INTERMEDIATE_CHECK_PLAN_FIXTURE_PATH),
+        "intermediate_check_records": root.joinpath(*INTERMEDIATE_CHECK_RECORD_FIXTURE_PATH),
+        "out_of_tolerance_events": root.joinpath(*OUT_OF_TOLERANCE_FIXTURE_PATH),
+        "pre_run_gate_rules": root.joinpath(*PRE_RUN_GATE_RULES_FIXTURE_PATH),
+        "uncertainty_budget_inputs": root.joinpath(*UNCERTAINTY_BUDGET_INPUT_FIXTURE_PATH),
+    }
+
+
+def _fixture_rows(payload: dict[str, Any], *keys: str) -> list[dict[str, Any]]:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, list):
+            return [dict(item) for item in value if isinstance(item, dict)]
+    return []
+
+
+def _step2_fixture_row(row: dict[str, Any], *, evidence_source: str = "simulated") -> dict[str, Any]:
+    return {
+        **dict(row or {}),
+        "reviewer_stub_only": True,
+        "readiness_mapping_only": True,
+        "not_released_for_formal_claim": False if bool(dict(row or {}).get("released_for_formal_claim")) else True,
+        "evidence_source": str(dict(row or {}).get("evidence_source") or evidence_source),
+        "not_real_acceptance_evidence": bool(dict(row or {}).get("not_real_acceptance_evidence", True)),
+    }
+
+
+def load_metrology_registry_fixtures(
+    *,
+    fixtures_root: str | Path | None = None,
+) -> dict[str, Any]:
+    fixture_paths = _readiness_fixture_paths(fixtures_root)
+    reference_assets_payload = _read_readiness_fixture(fixture_paths["reference_assets"])
+    standard_gas_lots_payload = _read_readiness_fixture(fixture_paths["standard_gas_lots"])
+    certificate_lifecycle_payload = _read_readiness_fixture(fixture_paths["certificate_lifecycle"])
+    intermediate_check_plan_payload = _read_readiness_fixture(fixture_paths["intermediate_check_plan"])
+    intermediate_check_records_payload = _read_readiness_fixture(fixture_paths["intermediate_check_records"])
+    out_of_tolerance_payload = _read_readiness_fixture(fixture_paths["out_of_tolerance_events"])
+    pre_run_gate_rules_payload = _read_readiness_fixture(fixture_paths["pre_run_gate_rules"])
+    uncertainty_budget_inputs_payload = _read_readiness_fixture(fixture_paths["uncertainty_budget_inputs"])
+    return {
+        "schema_version": READINESS_FIXTURE_SCHEMA_VERSION,
+        "fixture_root": str(_resolve_readiness_fixture_root(fixtures_root)),
+        "fixture_paths": {name: str(path) for name, path in fixture_paths.items()},
+        "reference_assets": _fixture_rows(reference_assets_payload, "assets", "reference_assets"),
+        "standard_gas_lots": _fixture_rows(standard_gas_lots_payload, "lots", "standard_gas_lots"),
+        "certificate_rows": _fixture_rows(certificate_lifecycle_payload, "certificates", "certificate_rows"),
+        "intermediate_check_plans": _fixture_rows(
+            intermediate_check_plan_payload,
+            "plans",
+            "intermediate_check_plans",
+        ),
+        "intermediate_check_records": _fixture_rows(
+            intermediate_check_records_payload,
+            "records",
+            "intermediate_check_records",
+        ),
+        "out_of_tolerance_events": _fixture_rows(
+            out_of_tolerance_payload,
+            "events",
+            "out_of_tolerance_events",
+        ),
+        "pre_run_gate_rules": dict(pre_run_gate_rules_payload or {}),
+        "uncertainty_budget_inputs": dict(uncertainty_budget_inputs_payload or {}),
+    }
+
+
+def _status_summary(
+    rows: Iterable[dict[str, Any]],
+    field_name: str,
+    *,
+    order: Iterable[str] | None = None,
+    empty: str = "none",
+) -> str:
+    counts: dict[str, int] = defaultdict(int)
+    for row in list(rows or []):
+        status = str(dict(row or {}).get(field_name) or "").strip()
+        if status:
+            counts[status] += 1
+    if not counts:
+        return empty
+    parts: list[str] = []
+    seen: set[str] = set()
+    for status in list(order or []):
+        if status in counts:
+            parts.append(f"{status} {counts[status]}")
+            seen.add(status)
+    for status in sorted(counts):
+        if status in seen:
+            continue
+        parts.append(f"{status} {counts[status]}")
+    return " | ".join(parts) if parts else empty
+
+
+def _fixture_artifact_paths(metrology_fixtures: dict[str, Any]) -> dict[str, str]:
+    fixture_paths = {
+        f"readiness_fixture_{name}": str(path).strip()
+        for name, path in dict(metrology_fixtures.get("fixture_paths") or {}).items()
+        if str(path).strip()
+    }
+    fixture_root = str(metrology_fixtures.get("fixture_root") or "").strip()
+    if fixture_root:
+        fixture_paths["readiness_fixture_root"] = fixture_root
+    fixture_paths["readiness_fixture_schema_version"] = str(
+        metrology_fixtures.get("schema_version") or READINESS_FIXTURE_SCHEMA_VERSION
+    ).strip()
+    return fixture_paths
+
+
+def _rule_statuses(group: dict[str, Any], key: str, default: Iterable[str]) -> set[str]:
+    values = group.get(key)
+    if isinstance(values, (list, tuple, set)):
+        normalized = {str(item).strip() for item in values if str(item).strip()}
+        if normalized:
+            return normalized
+    return {str(item).strip() for item in default if str(item).strip()}
+
+
+def _normalize_gate_reason(category: str, target: str, status: str) -> str:
+    category_text = str(category or "").replace("_", " ").strip()
+    target_text = str(target or "--").strip()
+    status_text = str(status or "--").strip()
+    return f"{category_text}: {target_text} -> {status_text}"
+
+
+def _check_status(blocking: list[str], warning: list[str], *, fallback: str = "pass") -> str:
+    if blocking:
+        return "block"
+    if warning:
+        return "warning"
+    return fallback
+
+
+def evaluate_pre_run_readiness_gate(
+    *,
+    reference_assets: Iterable[dict[str, Any]],
+    lot_bindings: Iterable[dict[str, Any]] | None = None,
+    out_of_tolerance_events: Iterable[dict[str, Any]] | None = None,
+    rules: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    assets = [dict(item) for item in list(reference_assets or []) if isinstance(item, dict)]
+    lot_rows = [dict(item) for item in list(lot_bindings or []) if isinstance(item, dict)]
+    oot_rows = [dict(item) for item in list(out_of_tolerance_events or []) if isinstance(item, dict)]
+    rules_payload = dict(rules or {})
+    block_conditions = dict(rules_payload.get("block_conditions") or {})
+    warning_conditions = dict(rules_payload.get("warning_conditions") or {})
+    advisory_only = True
+    device_control_allowed = False
+    manual_override_placeholder = dict(
+        rules_payload.get("manual_reviewer_override_placeholder")
+        or {
+            "allowed": False,
+            "mode": "reviewer_note_only",
+            "note": "Step 3 placeholder only; no live gate override in Step 2.",
+        }
+    )
+    block_certificate_statuses = _rule_statuses(
+        block_conditions,
+        "certificate_statuses",
+        ("missing_certificate", "expired_certificate"),
+    )
+    warning_certificate_statuses = _rule_statuses(
+        warning_conditions,
+        "certificate_statuses",
+        ("reviewer_stub_only",),
+    )
+    block_intermediate_statuses = _rule_statuses(
+        block_conditions,
+        "intermediate_check_statuses",
+        ("missing_intermediate_check", "overdue"),
+    )
+    warning_intermediate_statuses = _rule_statuses(
+        warning_conditions,
+        "intermediate_check_statuses",
+        ("due_soon",),
+    )
+    block_lot_binding_statuses = _rule_statuses(
+        block_conditions,
+        "lot_binding_statuses",
+        ("missing_binding_approval", "unbound_lot"),
+    )
+    warning_lot_binding_statuses = _rule_statuses(
+        warning_conditions,
+        "lot_binding_statuses",
+        ("reviewer_note_required", "warning_pending_reviewer_note"),
+    )
+    block_lot_usage_statuses = _rule_statuses(
+        block_conditions,
+        "lot_usage_linkage_statuses",
+        ("missing_usage_linkage",),
+    )
+    warning_lot_usage_statuses = _rule_statuses(
+        warning_conditions,
+        "lot_usage_linkage_statuses",
+        ("lot_usage_sidecar_pending",),
+    )
+    block_oot_statuses = _rule_statuses(
+        block_conditions,
+        "out_of_tolerance_statuses",
+        ("open",),
+    )
+    warning_oot_statuses = _rule_statuses(
+        warning_conditions,
+        "out_of_tolerance_statuses",
+        ("investigating",),
+    )
+    block_quarantine_states = _rule_statuses(
+        block_conditions,
+        "quarantine_states",
+        ("quarantined_pending_review",),
+    )
+    warning_quarantine_states = _rule_statuses(
+        warning_conditions,
+        "quarantine_states",
+        (),
+    )
+    warning_substitute_statuses = _rule_statuses(
+        warning_conditions,
+        "substitute_approval_statuses",
+        ("reviewer_note_required", "missing_approval"),
+    )
+
+    blocking_by_category: dict[str, list[str]] = defaultdict(list)
+    warning_by_category: dict[str, list[str]] = defaultdict(list)
+
+    for asset in assets:
+        asset_name = str(asset.get("asset_name") or asset.get("asset_id") or "--")
+        asset_type = str(asset.get("asset_type") or "").strip()
+        certificate_status = str(asset.get("certificate_status") or "").strip()
+        if asset_type != "analyzer_under_test" and certificate_status in block_certificate_statuses:
+            blocking_by_category["certificate_validity"].append(
+                _normalize_gate_reason("certificate", asset_name, certificate_status)
+            )
+        elif asset_type != "analyzer_under_test" and certificate_status in warning_certificate_statuses:
+            warning_by_category["certificate_validity"].append(
+                _normalize_gate_reason("certificate", asset_name, certificate_status)
+            )
+
+        certificate_file_links = [
+            dict(item)
+            for item in list(asset.get("certificate_file_links") or [])
+            if isinstance(item, dict)
+        ]
+        certificate_required = asset_type != "analyzer_under_test" and certificate_status not in {
+            "",
+            "missing_certificate",
+            "not_applicable",
+            "not_applicable_for_reference_chain",
+        }
+        if certificate_required and not certificate_file_links:
+            warning_by_category["certificate_file_linkage"].append(
+                _normalize_gate_reason("certificate file", asset_name, "missing_file_link")
+            )
+
+        intermediate_status = str(asset.get("intermediate_check_status") or "").strip()
+        if intermediate_status in block_intermediate_statuses:
+            blocking_by_category["intermediate_check"].append(
+                _normalize_gate_reason("intermediate check", asset_name, intermediate_status)
+            )
+        elif intermediate_status in warning_intermediate_statuses:
+            warning_by_category["intermediate_check"].append(
+                _normalize_gate_reason("intermediate check", asset_name, intermediate_status)
+            )
+
+        quarantine_state = str(asset.get("quarantine_state") or "").strip()
+        if quarantine_state in block_quarantine_states:
+            blocking_by_category["quarantine_state"].append(
+                _normalize_gate_reason("quarantine", asset_name, quarantine_state)
+            )
+        elif quarantine_state in warning_quarantine_states:
+            warning_by_category["quarantine_state"].append(
+                _normalize_gate_reason("quarantine", asset_name, quarantine_state)
+            )
+
+        substitute_required = bool(asset.get("substitute_standard_chain_required"))
+        substitute_status = str(asset.get("substitute_standard_chain_approval_status") or "").strip()
+        if substitute_required and substitute_status in warning_substitute_statuses:
+            warning_by_category["substitute_standard_chain_approval"].append(
+                _normalize_gate_reason("substitute approval", asset_name, substitute_status)
+            )
+
+        if asset_type != "analyzer_under_test":
+            if not list(asset.get("linked_scope_ids") or []):
+                warning_by_category["scope_decision_asset_integrity"].append(
+                    _normalize_gate_reason("scope binding", asset_name, "missing_scope_link")
+                )
+            if not list(asset.get("linked_decision_rule_ids") or []):
+                warning_by_category["scope_decision_asset_integrity"].append(
+                    _normalize_gate_reason("decision binding", asset_name, "missing_decision_rule_link")
+                )
+
+    for lot_row in lot_rows:
+        lot_name = str(lot_row.get("lot_id") or lot_row.get("binding_id") or "--")
+        binding_status = str(lot_row.get("binding_status") or "").strip()
+        if binding_status in block_lot_binding_statuses:
+            blocking_by_category["lot_binding"].append(
+                _normalize_gate_reason("lot binding", lot_name, binding_status)
+            )
+        elif binding_status in warning_lot_binding_statuses:
+            warning_by_category["lot_binding"].append(
+                _normalize_gate_reason("lot binding", lot_name, binding_status)
+            )
+        usage_status = str(lot_row.get("lot_usage_linkage") or "").strip()
+        if usage_status in block_lot_usage_statuses:
+            blocking_by_category["lot_usage_linkage"].append(
+                _normalize_gate_reason("lot usage", lot_name, usage_status)
+            )
+        elif usage_status in warning_lot_usage_statuses:
+            warning_by_category["lot_usage_linkage"].append(
+                _normalize_gate_reason("lot usage", lot_name, usage_status)
+            )
+
+    for oot_row in oot_rows:
+        event_target = str(oot_row.get("asset_id") or oot_row.get("event_id") or "--")
+        event_status = str(oot_row.get("event_status") or "").strip()
+        if event_status in block_oot_statuses:
+            blocking_by_category["out_of_tolerance"].append(
+                _normalize_gate_reason("out of tolerance", event_target, event_status)
+            )
+        elif event_status in warning_oot_statuses:
+            warning_by_category["out_of_tolerance"].append(
+                _normalize_gate_reason("out of tolerance", event_target, event_status)
+            )
+
+    blocking_items = _normalize_text_list(
+        [
+            item
+            for items in blocking_by_category.values()
+            for item in items
+        ]
+    )
+    warning_items = _normalize_text_list(
+        [
+            *(
+                item
+                for items in warning_by_category.values()
+                for item in items
+            ),
+            "advisory only: gate remains offline reviewer output and cannot drive devices",
+        ]
+    )
+    if not assets and not lot_rows and not oot_rows:
+        gate_status = "diagnostic_only"
+    elif blocking_items:
+        gate_status = "block"
+    elif warning_items and any(
+        item != "advisory only: gate remains offline reviewer output and cannot drive devices"
+        for item in warning_items
+    ):
+        gate_status = "warning"
+    else:
+        gate_status = "pass"
+    overall_status = {
+        "block": "failed",
+        "warning": "degraded",
+        "pass": "passed",
+        "diagnostic_only": "diagnostic_only",
+    }[gate_status]
+    reviewer_actions = _normalize_text_list(
+        [
+            "keep Step 2 gate advisory-only and do not use it to open COM or control equipment",
+            (
+                "close certificate validity or linkage gaps in local registry fixtures before Step 3 planning"
+                if blocking_by_category["certificate_validity"] or warning_by_category["certificate_file_linkage"]
+                else ""
+            ),
+            (
+                "close lot binding and lot usage linkage notes before any future formal path discussion"
+                if blocking_by_category["lot_binding"]
+                or warning_by_category["lot_binding"]
+                or blocking_by_category["lot_usage_linkage"]
+                or warning_by_category["lot_usage_linkage"]
+                else ""
+            ),
+            (
+                "close overdue intermediate checks and OOT events before any future formal path discussion"
+                if blocking_by_category["intermediate_check"]
+                or warning_by_category["intermediate_check"]
+                or blocking_by_category["out_of_tolerance"]
+                or warning_by_category["out_of_tolerance"]
+                else ""
+            ),
+            str(manual_override_placeholder.get("note") or ""),
+        ]
+    )
+    checks = [
+        {
+            "check_id": "certificate_validity",
+            "status": _check_status(
+                blocking_by_category["certificate_validity"],
+                warning_by_category["certificate_validity"],
+            ),
+            "summary": " | ".join(
+                blocking_by_category["certificate_validity"]
+                or warning_by_category["certificate_validity"]
+                or ["certificate validity covered by local registry fixtures"]
+            ),
+        },
+        {
+            "check_id": "certificate_file_linkage",
+            "status": _check_status(
+                blocking_by_category["certificate_file_linkage"],
+                warning_by_category["certificate_file_linkage"],
+            ),
+            "summary": " | ".join(
+                blocking_by_category["certificate_file_linkage"]
+                or warning_by_category["certificate_file_linkage"]
+                or ["certificate file linkage present or not required"]
+            ),
+        },
+        {
+            "check_id": "lot_binding",
+            "status": _check_status(
+                blocking_by_category["lot_binding"],
+                warning_by_category["lot_binding"],
+                fallback="diagnostic_only" if not lot_rows else "pass",
+            ),
+            "summary": " | ".join(
+                blocking_by_category["lot_binding"]
+                or warning_by_category["lot_binding"]
+                or (["no lot binding rows loaded"] if not lot_rows else ["lot binding covered"])
+            ),
+        },
+        {
+            "check_id": "lot_usage_linkage",
+            "status": _check_status(
+                blocking_by_category["lot_usage_linkage"],
+                warning_by_category["lot_usage_linkage"],
+                fallback="diagnostic_only" if not lot_rows else "pass",
+            ),
+            "summary": " | ".join(
+                blocking_by_category["lot_usage_linkage"]
+                or warning_by_category["lot_usage_linkage"]
+                or (["no lot usage linkage rows loaded"] if not lot_rows else ["lot usage linkage covered"])
+            ),
+        },
+        {
+            "check_id": "intermediate_check",
+            "status": _check_status(
+                blocking_by_category["intermediate_check"],
+                warning_by_category["intermediate_check"],
+            ),
+            "summary": " | ".join(
+                blocking_by_category["intermediate_check"]
+                or warning_by_category["intermediate_check"]
+                or ["intermediate checks covered by local registry fixtures"]
+            ),
+        },
+        {
+            "check_id": "out_of_tolerance",
+            "status": _check_status(
+                blocking_by_category["out_of_tolerance"],
+                warning_by_category["out_of_tolerance"],
+                fallback="diagnostic_only" if not oot_rows else "pass",
+            ),
+            "summary": " | ".join(
+                blocking_by_category["out_of_tolerance"]
+                or warning_by_category["out_of_tolerance"]
+                or (["no OOT rows loaded"] if not oot_rows else ["no blocking OOT events"])
+            ),
+        },
+        {
+            "check_id": "substitute_standard_chain_approval",
+            "status": _check_status(
+                blocking_by_category["substitute_standard_chain_approval"],
+                warning_by_category["substitute_standard_chain_approval"],
+            ),
+            "summary": " | ".join(
+                blocking_by_category["substitute_standard_chain_approval"]
+                or warning_by_category["substitute_standard_chain_approval"]
+                or ["no substitute standard approval warnings"]
+            ),
+        },
+        {
+            "check_id": "scope_decision_asset_integrity",
+            "status": _check_status(
+                blocking_by_category["scope_decision_asset_integrity"],
+                warning_by_category["scope_decision_asset_integrity"],
+            ),
+            "summary": " | ".join(
+                blocking_by_category["scope_decision_asset_integrity"]
+                or warning_by_category["scope_decision_asset_integrity"]
+                or ["scope and decision rule linkage covered"]
+            ),
+        },
+        {
+            "check_id": "advisory_boundary",
+            "status": "pass",
+            "summary": "advisory only / offline only / no live device control",
+        },
+    ]
+    return {
+        "gate_status": gate_status,
+        "overall_status": overall_status,
+        "blocking_items": blocking_items,
+        "warning_items": warning_items,
+        "reviewer_actions": reviewer_actions,
+        "checks": checks,
+        "advisory_only": advisory_only,
+        "device_control_allowed": device_control_allowed,
+        "real_control_permitted": False,
+        "would_open_real_com": False,
+        "would_drive_real_hardware": False,
+        "manual_reviewer_override_placeholder": manual_override_placeholder,
+        "legacy_gate_status": {
+            "pass": "ok_for_reviewer_mapping",
+            "warning": "warning_reviewer_attention",
+            "block": "blocked_for_formal_claim",
+            "diagnostic_only": "diagnostic_only",
+        }[gate_status],
+    }
+
+
+def _rows_by_asset_id(rows: Iterable[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in list(rows or []):
+        payload = dict(row or {})
+        asset_id = str(payload.get("asset_id") or "").strip()
+        if asset_id:
+            grouped[asset_id].append(payload)
+    return grouped
+
+
+def _primary_row_for_asset(
+    rows: dict[str, list[dict[str, Any]]],
+    asset_id: str,
+    *,
+    fallback_key: str | None = None,
+    fallback_value: str | None = None,
+) -> dict[str, Any]:
+    candidates = [dict(item) for item in list(rows.get(asset_id) or []) if isinstance(item, dict)]
+    if fallback_key and fallback_value:
+        for candidate in candidates:
+            if str(candidate.get(fallback_key) or "").strip() == str(fallback_value).strip():
+                return candidate
+    return candidates[0] if candidates else {}
+
+
+def _derive_intermediate_check_state(
+    asset: dict[str, Any],
+    plan_rows: list[dict[str, Any]],
+    record_rows: list[dict[str, Any]],
+) -> dict[str, str]:
+    explicit_status = str(asset.get("intermediate_check_status") or "").strip()
+    explicit_due = str(asset.get("intermediate_check_due") or "").strip()
+    explicit_last = str(asset.get("last_check_at") or "").strip()
+    if explicit_status:
+        return {
+            "intermediate_check_status": explicit_status,
+            "intermediate_check_due": explicit_due,
+            "last_check_at": explicit_last,
+        }
+    latest_plan = plan_rows[0] if plan_rows else {}
+    latest_record = record_rows[0] if record_rows else {}
+    status = str(
+        latest_plan.get("status")
+        or latest_record.get("status")
+        or (
+            "not_applicable_for_reference_chain"
+            if str(asset.get("asset_type") or "") == "analyzer_under_test"
+            else "missing_intermediate_check"
+        )
+    ).strip()
+    if status == "scheduled":
+        status = "due_soon"
+    elif status == "pass" and latest_plan and str(latest_plan.get("status") or "").strip() == "due_soon":
+        status = "due_soon"
+    return {
+        "intermediate_check_status": status or "missing_intermediate_check",
+        "intermediate_check_due": str(latest_plan.get("due_at") or explicit_due or "").strip(),
+        "last_check_at": str(latest_record.get("performed_at") or explicit_last or "").strip(),
+    }
+
+
+def _derive_lot_binding_state(asset: dict[str, Any], lot_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    explicit_required = bool(asset.get("lot_binding_required"))
+    explicit_status = str(asset.get("lot_binding_status") or "").strip()
+    explicit_ids = [str(item).strip() for item in list(asset.get("lot_binding_ids") or []) if str(item).strip()]
+    if explicit_status:
+        return {
+            "lot_binding_required": explicit_required or bool(lot_rows),
+            "lot_binding_status": explicit_status,
+            "lot_binding_ids": explicit_ids or [
+                str(item.get("binding_id") or "").strip()
+                for item in lot_rows
+                if str(item.get("binding_id") or "").strip()
+            ],
+        }
+    statuses = [
+        str(item.get("binding_status") or "").strip()
+        for item in lot_rows
+        if str(item.get("binding_status") or "").strip()
+    ]
+    if not explicit_required and not lot_rows:
+        return {
+            "lot_binding_required": False,
+            "lot_binding_status": "not_required",
+            "lot_binding_ids": explicit_ids,
+        }
+    if any(status in {"missing_binding_approval", "unbound_lot"} for status in statuses):
+        status = "missing_binding_approval"
+    elif any(status in {"reviewer_note_required", "warning_pending_reviewer_note"} for status in statuses):
+        status = "warning_pending_reviewer_note"
+    elif any(status == "approved" for status in statuses):
+        status = "approved"
+    else:
+        status = "unbound_lot"
+    return {
+        "lot_binding_required": True,
+        "lot_binding_status": status,
+        "lot_binding_ids": explicit_ids or [
+            str(item.get("binding_id") or "").strip()
+            for item in lot_rows
+            if str(item.get("binding_id") or "").strip()
+        ],
+    }
+
+
+def _asset_readiness_state(
+    *,
+    asset_type: str,
+    certificate_status: str,
+    intermediate_check_status: str,
+    lot_binding_status: str,
+    quarantine_state: str,
+    substitute_standard_chain_required: bool,
+    substitute_standard_chain_approval_status: str,
+) -> str:
+    if asset_type == "analyzer_under_test":
+        return "ready_for_readiness_mapping"
+    if certificate_status in {"missing_certificate", "expired_certificate"}:
+        return "blocked_for_formal_claim"
+    if intermediate_check_status in {"missing_intermediate_check", "overdue"}:
+        return "blocked_for_formal_claim"
+    if lot_binding_status in {"missing_binding_approval", "unbound_lot"}:
+        return "blocked_for_formal_claim"
+    if quarantine_state in {"quarantined_pending_review"}:
+        return "blocked_for_formal_claim"
+    if substitute_standard_chain_required and substitute_standard_chain_approval_status in {
+        "missing_approval",
+        "reviewer_note_required",
+    }:
+        return "warning_reviewer_attention"
+    if certificate_status in {"reviewer_stub_only"} or intermediate_check_status in {"due_soon"}:
+        return "warning_reviewer_attention"
+    if lot_binding_status in {"warning_pending_reviewer_note", "reviewer_note_required"}:
+        return "warning_reviewer_attention"
+    return "ok_for_reviewer_mapping"
+
+
+def _build_reference_asset_rows_from_fixtures(
+    *,
+    metrology_fixtures: dict[str, Any],
+    scope_id: str,
+    scope_name: str,
+    decision_rule_id: str,
+    linked_run_artifacts: list[str],
+) -> list[dict[str, Any]]:
+    reference_assets = [
+        dict(item)
+        for item in list(metrology_fixtures.get("reference_assets") or [])
+        if isinstance(item, dict)
+    ]
+    certificate_rows_by_asset = _rows_by_asset_id(list(metrology_fixtures.get("certificate_rows") or []))
+    lot_rows_by_asset = _rows_by_asset_id(list(metrology_fixtures.get("standard_gas_lots") or []))
+    plan_rows_by_asset = _rows_by_asset_id(list(metrology_fixtures.get("intermediate_check_plans") or []))
+    record_rows_by_asset = _rows_by_asset_id(list(metrology_fixtures.get("intermediate_check_records") or []))
+    oot_rows_by_asset = _rows_by_asset_id(list(metrology_fixtures.get("out_of_tolerance_events") or []))
+    asset_rows: list[dict[str, Any]] = []
+    for asset_fixture in reference_assets:
+        asset_id = str(asset_fixture.get("asset_id") or "").strip()
+        asset_type = str(asset_fixture.get("asset_type") or "").strip()
+        certificate_row = _primary_row_for_asset(
+            certificate_rows_by_asset,
+            asset_id,
+            fallback_key="certificate_id",
+            fallback_value=str(asset_fixture.get("certificate_id") or "").strip(),
+        )
+        lot_rows = list(lot_rows_by_asset.get(asset_id) or [])
+        plan_rows = list(plan_rows_by_asset.get(asset_id) or [])
+        record_rows = list(record_rows_by_asset.get(asset_id) or [])
+        oot_rows = list(oot_rows_by_asset.get(asset_id) or [])
+        certificate_status = str(
+            asset_fixture.get("certificate_status")
+            or certificate_row.get("certificate_status")
+            or (
+                "not_applicable_for_reference_chain"
+                if asset_type == "analyzer_under_test"
+                else "missing_certificate"
+            )
+        ).strip()
+        certificate_version = str(
+            asset_fixture.get("certificate_version")
+            or certificate_row.get("certificate_version")
+            or ("n/a" if asset_type == "analyzer_under_test" else "missing")
+        ).strip()
+        valid_from = str(asset_fixture.get("valid_from") or certificate_row.get("valid_from") or "").strip()
+        valid_to = str(asset_fixture.get("valid_to") or certificate_row.get("valid_to") or "").strip()
+        expiry_status = str(
+            asset_fixture.get("expiry_status")
+            or certificate_row.get("expiry_status")
+            or (
+                "not_applicable"
+                if asset_type == "analyzer_under_test"
+                else ("expired" if certificate_status == "expired_certificate" else "valid")
+            )
+        ).strip()
+        intermediate_state = _derive_intermediate_check_state(asset_fixture, plan_rows, record_rows)
+        lot_binding_state = _derive_lot_binding_state(asset_fixture, lot_rows)
+        substitute_required = bool(asset_fixture.get("substitute_standard_chain_required"))
+        substitute_status = str(
+            asset_fixture.get("substitute_standard_chain_approval_status")
+            or "not_required"
+        ).strip()
+        certificate_file_links = [
+            _step2_fixture_row(dict(item))
+            for item in list(
+                certificate_row.get("file_links")
+                or asset_fixture.get("certificate_file_links")
+                or []
+            )
+            if isinstance(item, dict)
+        ]
+        lot_usage_linkage = str(
+            asset_fixture.get("lot_usage_linkage")
+            or next(
+                (
+                    str(item.get("lot_usage_linkage") or "").strip()
+                    for item in lot_rows
+                    if str(item.get("lot_usage_linkage") or "").strip()
+                ),
+                "",
+            )
+            or "not_required"
+        ).strip()
+        row = _asset_row(
+            asset_id=asset_id,
+            asset_name=str(asset_fixture.get("asset_name") or asset_id),
+            asset_type=asset_type,
+            manufacturer=str(asset_fixture.get("manufacturer") or ""),
+            model=str(asset_fixture.get("model") or ""),
+            serial_or_lot=str(asset_fixture.get("serial_or_lot") or ""),
+            role_in_reference_chain=str(asset_fixture.get("role_in_reference_chain") or "reference_asset"),
+            measurand_scope=list(asset_fixture.get("measurand_scope") or []),
+            route_scope=list(asset_fixture.get("route_scope") or []),
+            environment_scope=list(asset_fixture.get("environment_scope") or []),
+            owner_state=str(asset_fixture.get("owner_state") or "reviewer_managed_stub"),
+            active_state=str(asset_fixture.get("active_state") or "active_for_reviewer_mapping"),
+            quarantine_state=str(asset_fixture.get("quarantine_state") or "not_quarantined"),
+            certificate_status=certificate_status,
+            certificate_id=str(
+                asset_fixture.get("certificate_id")
+                or certificate_row.get("certificate_id")
+                or ""
+            ),
+            certificate_version=certificate_version,
+            valid_from=valid_from,
+            valid_to=valid_to,
+            expiry_status=expiry_status,
+            intermediate_check_status=intermediate_state["intermediate_check_status"],
+            intermediate_check_due=intermediate_state["intermediate_check_due"],
+            last_check_at=intermediate_state["last_check_at"],
+            limitation_note=str(asset_fixture.get("limitation_note") or ""),
+            non_claim_note=str(asset_fixture.get("non_claim_note") or ""),
+            reviewer_note=str(asset_fixture.get("reviewer_note") or ""),
+            linked_run_artifacts=linked_run_artifacts,
+            linked_scope_ids=list(asset_fixture.get("linked_scope_ids") or [scope_id]),
+            linked_scope_names=list(asset_fixture.get("linked_scope_names") or [scope_name]),
+            linked_decision_rule_ids=list(asset_fixture.get("linked_decision_rule_ids") or [decision_rule_id]),
+            lot_binding_required=lot_binding_state["lot_binding_required"],
+            lot_binding_status=lot_binding_state["lot_binding_status"],
+            lot_binding_ids=lot_binding_state["lot_binding_ids"],
+            substitute_standard_chain_required=substitute_required,
+            substitute_standard_chain_approval_status=substitute_status,
+            substitute_standard_chain_approval_ref=str(
+                asset_fixture.get("substitute_standard_chain_approval_ref") or ""
+            ),
+            readiness_status=_asset_readiness_state(
+                asset_type=asset_type,
+                certificate_status=certificate_status,
+                intermediate_check_status=intermediate_state["intermediate_check_status"],
+                lot_binding_status=lot_binding_state["lot_binding_status"],
+                quarantine_state=str(asset_fixture.get("quarantine_state") or "not_quarantined"),
+                substitute_standard_chain_required=substitute_required,
+                substitute_standard_chain_approval_status=substitute_status,
+            ),
+            asset_type_aliases=list(asset_fixture.get("asset_type_aliases") or []),
+        )
+        row.update(
+            {
+                "calibration_source": str(
+                    certificate_row.get("calibration_source")
+                    or asset_fixture.get("calibration_source")
+                    or "not_applicable"
+                ),
+                "certificate_file_links": certificate_file_links,
+                "lot_usage_linkage": lot_usage_linkage,
+                "lot_usage_linked_routes": _dedupe(
+                    [
+                        *[
+                            str(item).strip()
+                            for item in list(asset_fixture.get("lot_usage_linked_routes") or [])
+                            if str(item).strip()
+                        ],
+                        *[
+                            str(route).strip()
+                            for item in lot_rows
+                            for route in list(item.get("lot_usage_linked_routes") or [])
+                            if str(route).strip()
+                        ],
+                    ]
+                ),
+                "manual_reviewer_override_placeholder": dict(
+                    asset_fixture.get("manual_reviewer_override_placeholder")
+                    or {
+                        "allowed": False,
+                        "mode": "reviewer_note_only",
+                        "note": "Step 3 placeholder only; no live gate override in Step 2.",
+                    }
+                ),
+                "certificate_file_link_count": len(certificate_file_links),
+                "intermediate_check_plan_ids": [
+                    str(item.get("plan_id") or "").strip()
+                    for item in plan_rows
+                    if str(item.get("plan_id") or "").strip()
+                ],
+                "intermediate_check_record_ids": [
+                    str(item.get("record_id") or "").strip()
+                    for item in record_rows
+                    if str(item.get("record_id") or "").strip()
+                ],
+                "open_out_of_tolerance_count": sum(
+                    1 for item in oot_rows if str(item.get("event_status") or "").strip() == "open"
+                ),
+            }
+        )
+        asset_rows.append(row)
+    return asset_rows
+
+
+def _certificate_validity_summary_from_assets(assets: Iterable[dict[str, Any]]) -> str:
+    rows = [
+        dict(item)
+        for item in list(assets or [])
+        if str(dict(item).get("asset_type") or "").strip() != "analyzer_under_test"
+    ]
+    return _status_summary(
+        rows,
+        "certificate_status",
+        order=(
+            "valid_certificate",
+            "reviewer_stub_only",
+            "expired_certificate",
+            "missing_certificate",
+            "not_applicable_for_reference_chain",
+        ),
+    )
+
+
+def _lot_binding_summary_from_rows(rows: Iterable[dict[str, Any]]) -> str:
+    return _status_summary(
+        rows,
+        "binding_status",
+        order=("approved", "warning_pending_reviewer_note", "reviewer_note_required", "missing_binding_approval"),
+    )
+
+
+def _intermediate_summary_from_assets(assets: Iterable[dict[str, Any]]) -> str:
+    rows = [
+        dict(item)
+        for item in list(assets or [])
+        if str(dict(item).get("asset_type") or "").strip() != "analyzer_under_test"
+    ]
+    return _status_summary(
+        rows,
+        "intermediate_check_status",
+        order=("pass", "due_soon", "overdue", "missing_intermediate_check", "not_applicable_for_reference_chain"),
+    )
+
+
+def _calibration_source_summary_from_assets(assets: Iterable[dict[str, Any]]) -> str:
+    return _status_summary(
+        list(assets or []),
+        "calibration_source",
+        order=("external_calibration", "internal_calibration", "not_applicable"),
+    )
+
+
+def _lot_binding_summary_from_assets(assets: Iterable[dict[str, Any]]) -> str:
+    return _status_summary(
+        list(assets or []),
+        "lot_binding_status",
+        order=("approved", "warning_pending_reviewer_note", "missing_binding_approval", "unbound_lot", "not_required"),
+    )
+
+
+def _lot_usage_linkage_summary_from_assets(assets: Iterable[dict[str, Any]]) -> str:
+    return _status_summary(
+        list(assets or []),
+        "lot_usage_linkage",
+        order=("linked_to_usage_log", "lot_usage_sidecar_pending", "missing_usage_linkage", "not_required"),
+    )
+
+
+def _certificate_file_link_summary_from_assets(assets: Iterable[dict[str, Any]]) -> str:
+    rows = [
+        dict(item)
+        for item in list(assets or [])
+        if str(dict(item).get("asset_type") or "").strip() != "analyzer_under_test"
+        and str(dict(item).get("certificate_status") or "").strip() not in {
+            "",
+            "missing_certificate",
+            "not_applicable",
+            "not_applicable_for_reference_chain",
+        }
+    ]
+    linked_assets = sum(1 for item in rows if int(item.get("certificate_file_link_count", 0) or 0) > 0)
+    total_links = sum(int(item.get("certificate_file_link_count", 0) or 0) for item in rows)
+    return f"linked assets {linked_assets}/{len(rows)} | files {total_links}" if rows else "not_required"
+
+
+def _build_reference_asset_registry_from_fixtures(
+    *,
+    run_id: str,
+    scope_definition_pack: dict[str, Any],
+    decision_rule_profile: dict[str, Any],
+    sample_digest: dict[str, Any],
+    payload_backed_phases: list[str],
+    path_map: dict[str, str],
+    metrology_fixtures: dict[str, Any],
+) -> dict[str, Any]:
+    scope_raw = dict(scope_definition_pack.get("raw") or {})
+    decision_raw = dict(decision_rule_profile.get("raw") or {})
+    scope_id = str(scope_raw.get("scope_id") or f"{run_id}-step2-scope-package").strip()
+    scope_name = str(scope_raw.get("scope_name") or "Step 2 simulation reviewer scope package").strip()
+    decision_rule_id = str(decision_raw.get("decision_rule_id") or "step2_readiness_reviewer_rule_v1").strip()
+    linked_run_artifacts = [
+        path_map["scope_definition_pack"],
+        path_map["decision_rule_profile"],
+        path_map["scope_readiness_summary"],
+        path_map["measurement_phase_coverage_report"],
+    ]
+    assets = _build_reference_asset_rows_from_fixtures(
+        metrology_fixtures=metrology_fixtures,
+        scope_id=scope_id,
+        scope_name=scope_name,
+        decision_rule_id=decision_rule_id,
+        linked_run_artifacts=linked_run_artifacts,
+    )
+    standard_gas_lots = [
+        _step2_fixture_row(dict(item))
+        for item in list(metrology_fixtures.get("standard_gas_lots") or [])
+        if isinstance(item, dict)
+    ]
+    reference_assets = [
+        dict(item)
+        for item in assets
+        if str(dict(item).get("asset_type") or "").strip() != "analyzer_under_test"
+    ]
+    blocked_assets = [
+        str(item.get("asset_name") or item.get("asset_id") or "").strip()
+        for item in reference_assets
+        if str(item.get("readiness_status") or "").strip() == "blocked_for_formal_claim"
+    ]
+    warning_assets = [
+        str(item.get("asset_name") or item.get("asset_id") or "").strip()
+        for item in reference_assets
+        if str(item.get("readiness_status") or "").strip() == "warning_reviewer_attention"
+    ]
+    asset_count_summary = (
+        f"asset count {len(assets)} | reference chain {len(reference_assets)} | "
+        f"analyzer groups {len(assets) - len(reference_assets)}"
+    )
+    certificate_validity_summary = _certificate_validity_summary_from_assets(assets)
+    lot_binding_summary = _lot_binding_summary_from_assets(assets)
+    lot_usage_linkage_summary = _lot_usage_linkage_summary_from_assets(assets)
+    intermediate_check_summary = _intermediate_summary_from_assets(assets)
+    calibration_source_summary = _calibration_source_summary_from_assets(assets)
+    certificate_file_link_summary = _certificate_file_link_summary_from_assets(assets)
+    current_coverage = [
+        asset_count_summary,
+        f"certificate validity {certificate_validity_summary}",
+        f"lot binding {lot_binding_summary}",
+        f"intermediate checks {intermediate_check_summary}",
+        f"payload phases {' | '.join(payload_backed_phases) or '--'}",
+    ]
+    missing_evidence = _normalize_text_list(
+        [
+            (
+                "certificate validity attention remains in local registry fixtures"
+                if any(
+                    str(item.get("certificate_status") or "").strip()
+                    in {"missing_certificate", "expired_certificate", "reviewer_stub_only"}
+                    for item in reference_assets
+                )
+                else ""
+            ),
+            (
+                "intermediate check attention remains in local registry fixtures"
+                if any(
+                    str(item.get("intermediate_check_status") or "").strip()
+                    in {"missing_intermediate_check", "overdue", "due_soon"}
+                    for item in reference_assets
+                )
+                else ""
+            ),
+            (
+                "lot binding or lot usage linkage remains open in local registry fixtures"
+                if any(
+                    str(item.get("lot_binding_status") or "").strip()
+                    in {"missing_binding_approval", "unbound_lot", "warning_pending_reviewer_note"}
+                    or str(item.get("lot_usage_linkage") or "").strip()
+                    in {"missing_usage_linkage", "lot_usage_sidecar_pending"}
+                    for item in reference_assets
+                )
+                else ""
+            ),
+            (
+                "certificate file linkage remains incomplete in local registry fixtures"
+                if certificate_file_link_summary != "not_required"
+                and certificate_file_link_summary.startswith("linked assets 0/")
+                else ""
+            ),
+        ]
+    )
+    blockers = [
+        "reference asset registry stays reviewer-only and advisory-only in Step 2",
+        "local registry fixtures cannot become real acceptance or formal compliance evidence",
+    ]
+    digest = {
+        "summary": (
+            "reference asset registry | file-backed reviewer ledger | "
+            f"{asset_count_summary} | certificate validity {certificate_validity_summary}"
+        ),
+        "scope_overview_summary": scope_name,
+        "decision_rule_summary": f"{decision_rule_id} | reviewer dependency mapping only",
+        "conformity_boundary_summary": (
+            "reference asset registry remains advisory-only in Step 2 and cannot drive real devices or formal claims."
+        ),
+        "asset_readiness_overview": asset_count_summary,
+        "asset_count_summary": asset_count_summary,
+        "certificate_validity_summary": certificate_validity_summary,
+        "lot_binding_summary": lot_binding_summary,
+        "lot_usage_linkage_summary": lot_usage_linkage_summary,
+        "intermediate_check_summary": intermediate_check_summary,
+        "calibration_source_summary": calibration_source_summary,
+        "certificate_file_link_summary": certificate_file_link_summary,
+        "scope_reference_assets_summary": " | ".join(
+            _dedupe(
+                f"{str(item.get('asset_name') or '').strip()} ({str(item.get('asset_type') or '').strip()})"
+                for item in reference_assets
+                if str(item.get("asset_name") or "").strip()
+            )
+        ),
+        "decision_rule_dependency_summary": (
+            "certificate lifecycle summary | standard gas lot binding | "
+            "intermediate checks | pre-run readiness gate"
+        ),
+        "current_coverage_summary": " | ".join(current_coverage),
+        "missing_evidence_summary": " | ".join(missing_evidence) or "all required local registry fixtures loaded",
+        "blocker_summary": " | ".join(blockers),
+        "reviewer_next_step_digest": (
+            "keep the local registry file-backed, close offline certificate or lot gaps, and stay advisory-only in Step 2"
+        ),
+        "non_claim_digest": (
+            "file-backed registry rows are simulated reviewer evidence only and are not real acceptance evidence."
+        ),
+    }
+    overall_status = "failed" if blocked_assets else ("degraded" if warning_assets else ("passed" if assets else "diagnostic_only"))
+    bundle = _summary_raw(
+        run_id=run_id,
+        artifact_type="reference_asset_registry",
+        overall_status=overall_status,
+        title_text="Reference Asset Registry",
+        reviewer_note=(
+            "File-backed local reference asset ledger only. "
+            "It remains simulation/offline/advisory-only and does not change any live equipment behavior."
+        ),
+        summary_text=digest["summary"],
+        summary_lines=[
+            f"asset count: {asset_count_summary}",
+            f"certificate validity: {certificate_validity_summary}",
+            f"lot binding: {lot_binding_summary}",
+            f"intermediate checks: {intermediate_check_summary}",
+        ],
+        detail_lines=[
+            f"lot usage linkage: {lot_usage_linkage_summary}",
+            f"certificate file linkage: {certificate_file_link_summary}",
+            f"calibration source: {calibration_source_summary}",
+            f"current coverage: {digest['current_coverage_summary']}",
+            f"missing evidence: {digest['missing_evidence_summary']}",
+            f"blockers: {digest['blocker_summary']}",
+            f"scope_definition_pack: {path_map['scope_definition_pack']}",
+            f"decision_rule_profile: {path_map['decision_rule_profile']}",
+        ],
+        anchor_id="reference-asset-registry",
+        anchor_label="Reference asset registry",
+        evidence_categories=["recognition_readiness", "reference_asset_registry", "asset_readiness"],
+        artifact_paths={
+            "scope_definition_pack": path_map["scope_definition_pack"],
+            "decision_rule_profile": path_map["decision_rule_profile"],
+            "scope_readiness_summary": path_map["scope_readiness_summary"],
+            "reference_asset_registry": path_map["reference_asset_registry"],
+            "reference_asset_registry_markdown": path_map["reference_asset_registry_markdown"],
+            **_fixture_artifact_paths(metrology_fixtures),
+        },
+        body={
+            "assets": assets,
+            "asset_count": len(assets),
+            "asset_count_summary": asset_count_summary,
+            "standard_gas_lots": standard_gas_lots,
+            "certificate_validity_summary": certificate_validity_summary,
+            "lot_binding_summary": lot_binding_summary,
+            "lot_usage_linkage_summary": lot_usage_linkage_summary,
+            "intermediate_check_summary": intermediate_check_summary,
+            "calibration_source_summary": calibration_source_summary,
+            "certificate_file_link_summary": certificate_file_link_summary,
+            "blocked_asset_names": blocked_assets,
+            "warning_asset_names": warning_assets,
+            "reviewer_stub_only": True,
+            "readiness_mapping_only": True,
+            "not_released_for_formal_claim": True,
+            "ready_for_readiness_mapping": True,
+            "primary_evidence_rewritten": False,
+            "linked_artifacts": {
+                "scope_definition_pack": path_map["scope_definition_pack"],
+                "decision_rule_profile": path_map["decision_rule_profile"],
+                "scope_readiness_summary": path_map["scope_readiness_summary"],
+            },
+            "current_coverage": current_coverage,
+            "missing_evidence": missing_evidence,
+            "blockers": blockers,
+            "next_required_artifacts": [
+                "certificate_lifecycle_summary",
+                "pre_run_readiness_gate",
+                "certificate_readiness_summary",
+            ],
+            "non_claim_note": (
+                "Reference asset registry rows are reviewer-only simulation artifacts and cannot support real acceptance."
+            ),
+            "limitation_note": (
+                "Step 2 uses local file-backed metrology fixtures only; no default DB, no real COM, and no live control."
+            ),
+        },
+        digest=digest,
+        filename=REFERENCE_ASSET_REGISTRY_FILENAME,
+        markdown_filename=REFERENCE_ASSET_REGISTRY_MARKDOWN_FILENAME,
+    )
+    raw = dict(bundle.get("raw") or {})
+    raw["evidence_source"] = "simulated"
+    raw["review_surface"] = {
+        **dict(raw.get("review_surface") or {}),
+        "evidence_source_filters": ["simulated", "reviewer_readiness_only"],
+    }
+    bundle["raw"] = raw
+    bundle["digest"] = dict(raw.get("digest") or {})
+    bundle["markdown"] = _render_markdown(
+        "Reference Asset Registry",
+        [
+            f"- asset_count: {asset_count_summary}",
+            f"- certificate_validity_summary: {certificate_validity_summary}",
+            f"- lot_binding_summary: {lot_binding_summary}",
+            f"- lot_usage_linkage_summary: {lot_usage_linkage_summary}",
+            f"- intermediate_check_summary: {intermediate_check_summary}",
+            f"- calibration_source_summary: {calibration_source_summary}",
+            f"- certificate_file_link_summary: {certificate_file_link_summary}",
+            *[
+                (
+                    f"- asset: {str(row.get('asset_name') or '--')} | "
+                    f"certificate_status={str(row.get('certificate_status') or '--')} | "
+                    f"lot_binding_status={str(row.get('lot_binding_status') or '--')} | "
+                    f"intermediate_check_status={str(row.get('intermediate_check_status') or '--')}"
+                )
+                for row in assets
+            ],
+            f"- non_claim_note: {str(raw.get('non_claim_note') or '--')}",
+        ],
+    )
+    return bundle
+
+
+def _build_certificate_lifecycle_summary_from_fixtures(
+    *,
+    run_id: str,
+    scope_definition_pack: dict[str, Any],
+    decision_rule_profile: dict[str, Any],
+    reference_asset_registry: dict[str, Any],
+    path_map: dict[str, str],
+    metrology_fixtures: dict[str, Any],
+) -> dict[str, Any]:
+    scope_raw = dict(scope_definition_pack.get("raw") or {})
+    decision_raw = dict(decision_rule_profile.get("raw") or {})
+    scope_name = str(scope_raw.get("scope_name") or "Step 2 simulation reviewer scope package").strip()
+    decision_rule_id = str(decision_raw.get("decision_rule_id") or "step2_readiness_reviewer_rule_v1").strip()
+    assets = [dict(item) for item in list(dict(reference_asset_registry.get("raw") or {}).get("assets") or [])]
+    certificate_rows = [
+        _step2_fixture_row(dict(item))
+        for item in list(metrology_fixtures.get("certificate_rows") or [])
+        if isinstance(item, dict)
+    ]
+    lot_bindings = [
+        _step2_fixture_row(dict(item))
+        for item in list(metrology_fixtures.get("standard_gas_lots") or [])
+        if isinstance(item, dict)
+    ]
+    intermediate_check_plans = [
+        _step2_fixture_row(dict(item))
+        for item in list(metrology_fixtures.get("intermediate_check_plans") or [])
+        if isinstance(item, dict)
+    ]
+    intermediate_check_records = [
+        _step2_fixture_row(dict(item))
+        for item in list(metrology_fixtures.get("intermediate_check_records") or [])
+        if isinstance(item, dict)
+    ]
+    out_of_tolerance_events = [
+        _step2_fixture_row(dict(item))
+        for item in list(metrology_fixtures.get("out_of_tolerance_events") or [])
+        if isinstance(item, dict)
+    ]
+    certificate_validity_summary = _certificate_validity_summary_from_assets(assets)
+    lot_binding_summary = _lot_binding_summary_from_rows(lot_bindings)
+    intermediate_check_summary = _intermediate_summary_from_assets(assets)
+    calibration_source_summary = _calibration_source_summary_from_assets(assets)
+    certificate_file_link_summary = _certificate_file_link_summary_from_assets(assets)
+    open_oot_count = sum(
+        1 for item in out_of_tolerance_events if str(item.get("event_status") or "").strip() == "open"
+    )
+    missing_evidence = _normalize_text_list(
+        [
+            (
+                "certificate validity attention remains in the lifecycle ledger"
+                if any(
+                    str(item.get("certificate_status") or "").strip()
+                    in {"missing_certificate", "expired_certificate", "reviewer_stub_only"}
+                    for item in assets
+                    if str(item.get("asset_type") or "").strip() != "analyzer_under_test"
+                )
+                else ""
+            ),
+            (
+                "lot binding or usage linkage remains open in the lifecycle ledger"
+                if any(
+                    str(item.get("binding_status") or "").strip()
+                    in {"missing_binding_approval", "reviewer_note_required", "warning_pending_reviewer_note", "unbound_lot"}
+                    or str(item.get("lot_usage_linkage") or "").strip()
+                    in {"missing_usage_linkage", "lot_usage_sidecar_pending"}
+                    for item in lot_bindings
+                )
+                else ""
+            ),
+            (
+                "intermediate checks remain due or missing in the lifecycle ledger"
+                if any(
+                    str(item.get("intermediate_check_status") or "").strip()
+                    in {"missing_intermediate_check", "overdue", "due_soon"}
+                    for item in assets
+                    if str(item.get("asset_type") or "").strip() != "analyzer_under_test"
+                )
+                else ""
+            ),
+            "out-of-tolerance events remain open in the lifecycle ledger" if open_oot_count else "",
+        ]
+    )
+    digest = {
+        "summary": (
+            "certificate lifecycle summary | file-backed reviewer ledger | "
+            f"certificates {len(certificate_rows)} | lot bindings {len(lot_bindings)} | OOT open {open_oot_count}"
+        ),
+        "scope_overview_summary": scope_name,
+        "decision_rule_summary": f"{decision_rule_id} | reviewer dependency mapping only",
+        "conformity_boundary_summary": (
+            "certificate lifecycle output remains advisory-only in Step 2 and cannot support formal compliance claims."
+        ),
+        "certificate_lifecycle_overview": (
+            f"certificate rows {len(certificate_rows)} | lot bindings {len(lot_bindings)} | "
+            f"intermediate plans {len(intermediate_check_plans)} | records {len(intermediate_check_records)} | "
+            f"OOT events {len(out_of_tolerance_events)}"
+        ),
+        "asset_count_summary": str(dict(reference_asset_registry.get("digest") or {}).get("asset_count_summary") or ""),
+        "certificate_validity_summary": certificate_validity_summary,
+        "lot_binding_summary": lot_binding_summary,
+        "intermediate_check_summary": intermediate_check_summary,
+        "calibration_source_summary": calibration_source_summary,
+        "certificate_file_link_summary": certificate_file_link_summary,
+        "scope_reference_assets_summary": str(
+            dict(reference_asset_registry.get("digest") or {}).get("scope_reference_assets_summary") or ""
+        ),
+        "decision_rule_dependency_summary": (
+            "certificate file linkage | internal/external calibration source | "
+            "lot binding and lot usage linkage | intermediate checks | OOT events"
+        ),
+        "current_coverage_summary": (
+            f"scope linkage: {scope_name} | decision rule dependency: {decision_rule_id} | "
+            f"certificate validity: {certificate_validity_summary} | lot binding: {lot_binding_summary} | "
+            f"intermediate checks: {intermediate_check_summary}"
+        ),
+        "missing_evidence_summary": " | ".join(missing_evidence) or "all lifecycle rows loaded from local fixtures",
+        "blocker_summary": (
+            "lifecycle rows remain reviewer-only, advisory-only, and not released for formal claim"
+        ),
+        "reviewer_next_step_digest": (
+            "keep certificate files, lot bindings, intermediate checks, and OOT events linked in local fixtures only"
+        ),
+        "non_claim_digest": (
+            "lifecycle rows are simulated reviewer artifacts only and are not real acceptance evidence."
+        ),
+    }
+    overall_status = "failed" if missing_evidence else ("passed" if certificate_rows or lot_bindings else "diagnostic_only")
+    bundle = _summary_raw(
+        run_id=run_id,
+        artifact_type="certificate_lifecycle_summary",
+        overall_status=overall_status,
+        title_text="Certificate Lifecycle Summary",
+        reviewer_note=(
+            "File-backed certificate, lot binding, intermediate check, and OOT ledger only. "
+            "It remains advisory-only and never drives real equipment."
+        ),
+        summary_text=digest["summary"],
+        summary_lines=[
+            f"certificate validity: {certificate_validity_summary}",
+            f"lot binding: {lot_binding_summary}",
+            f"intermediate checks: {intermediate_check_summary}",
+            f"certificate file linkage: {certificate_file_link_summary}",
+        ],
+        detail_lines=[
+            f"calibration source: {calibration_source_summary}",
+            f"current coverage: {digest['current_coverage_summary']}",
+            f"missing evidence: {digest['missing_evidence_summary']}",
+            f"reference_asset_registry: {path_map['reference_asset_registry']}",
+            f"scope_definition_pack: {path_map['scope_definition_pack']}",
+        ],
+        anchor_id="certificate-lifecycle-summary",
+        anchor_label="Certificate lifecycle summary",
+        evidence_categories=["recognition_readiness", "certificate_lifecycle", "readiness_mapping"],
+        artifact_paths={
+            "scope_definition_pack": path_map["scope_definition_pack"],
+            "decision_rule_profile": path_map["decision_rule_profile"],
+            "reference_asset_registry": path_map["reference_asset_registry"],
+            "certificate_lifecycle_summary": path_map["certificate_lifecycle_summary"],
+            "certificate_lifecycle_summary_markdown": path_map["certificate_lifecycle_summary_markdown"],
+            "certificate_readiness_summary": path_map["certificate_readiness_summary"],
+            "pre_run_readiness_gate": path_map["pre_run_readiness_gate"],
+            **_fixture_artifact_paths(metrology_fixtures),
+        },
+        body={
+            "certificate_rows": certificate_rows,
+            "lot_bindings": lot_bindings,
+            "intermediate_check_plans": intermediate_check_plans,
+            "intermediate_check_records": intermediate_check_records,
+            "out_of_tolerance_events": out_of_tolerance_events,
+            "certificate_validity_summary": certificate_validity_summary,
+            "lot_binding_summary": lot_binding_summary,
+            "intermediate_check_summary": intermediate_check_summary,
+            "calibration_source_summary": calibration_source_summary,
+            "certificate_file_link_summary": certificate_file_link_summary,
+            "reviewer_stub_only": True,
+            "readiness_mapping_only": True,
+            "not_released_for_formal_claim": True,
+            "not_ready_for_formal_claim": True,
+            "ready_for_readiness_mapping": True,
+            "primary_evidence_rewritten": False,
+            "linked_artifacts": {
+                "scope_definition_pack": path_map["scope_definition_pack"],
+                "decision_rule_profile": path_map["decision_rule_profile"],
+                "reference_asset_registry": path_map["reference_asset_registry"],
+                "certificate_readiness_summary": path_map["certificate_readiness_summary"],
+                "pre_run_readiness_gate": path_map["pre_run_readiness_gate"],
+            },
+            "limitation_note": (
+                "Step 2 lifecycle closure is local and file-backed only; it does not create formal compliance claims."
+            ),
+            "non_claim_note": (
+                "Certificate lifecycle rows are simulated reviewer artifacts only and cannot support real acceptance."
+            ),
+        },
+        digest=digest,
+        filename=CERTIFICATE_LIFECYCLE_SUMMARY_FILENAME,
+        markdown_filename=CERTIFICATE_LIFECYCLE_SUMMARY_MARKDOWN_FILENAME,
+    )
+    raw = dict(bundle.get("raw") or {})
+    raw["evidence_source"] = "simulated"
+    raw["review_surface"] = {
+        **dict(raw.get("review_surface") or {}),
+        "evidence_source_filters": ["simulated", "reviewer_readiness_only"],
+    }
+    bundle["raw"] = raw
+    bundle["digest"] = dict(raw.get("digest") or {})
+    bundle["markdown"] = _render_markdown(
+        "Certificate Lifecycle Summary",
+        [
+            f"- certificate_validity_summary: {certificate_validity_summary}",
+            f"- lot_binding_summary: {lot_binding_summary}",
+            f"- intermediate_check_summary: {intermediate_check_summary}",
+            f"- calibration_source_summary: {calibration_source_summary}",
+            f"- certificate_file_link_summary: {certificate_file_link_summary}",
+            *[
+                (
+                    f"- certificate: {str(row.get('certificate_id') or '--')} | "
+                    f"asset_id={str(row.get('asset_id') or '--')} | "
+                    f"status={str(row.get('certificate_status') or '--')} | "
+                    f"source={str(row.get('calibration_source') or '--')}"
+                )
+                for row in certificate_rows
+            ],
+            *[
+                (
+                    f"- lot_binding: {str(row.get('lot_id') or '--')} | "
+                    f"binding_status={str(row.get('binding_status') or '--')} | "
+                    f"usage={str(row.get('lot_usage_linkage') or '--')}"
+                )
+                for row in lot_bindings
+            ],
+            f"- non_claim_note: {str(raw.get('non_claim_note') or '--')}",
+        ],
+    )
+    return bundle
+
+
+def _build_pre_run_readiness_gate_from_fixtures(
+    *,
+    run_id: str,
+    scope_definition_pack: dict[str, Any],
+    decision_rule_profile: dict[str, Any],
+    reference_asset_registry: dict[str, Any],
+    certificate_lifecycle_summary: dict[str, Any],
+    certificate_readiness_summary: dict[str, Any],
+    path_map: dict[str, str],
+    metrology_fixtures: dict[str, Any],
+) -> dict[str, Any]:
+    scope_raw = dict(scope_definition_pack.get("raw") or {})
+    decision_raw = dict(decision_rule_profile.get("raw") or {})
+    scope_name = str(scope_raw.get("scope_name") or "Step 2 simulation reviewer scope package").strip()
+    decision_rule_id = str(decision_raw.get("decision_rule_id") or "step2_readiness_reviewer_rule_v1").strip()
+    assets = [dict(item) for item in list(dict(reference_asset_registry.get("raw") or {}).get("assets") or [])]
+    lifecycle_raw = dict(certificate_lifecycle_summary.get("raw") or {})
+    lot_bindings = [dict(item) for item in list(lifecycle_raw.get("lot_bindings") or []) if isinstance(item, dict)]
+    out_of_tolerance_events = [
+        dict(item) for item in list(lifecycle_raw.get("out_of_tolerance_events") or []) if isinstance(item, dict)
+    ]
+    evaluation = evaluate_pre_run_readiness_gate(
+        reference_assets=assets,
+        lot_bindings=lot_bindings,
+        out_of_tolerance_events=out_of_tolerance_events,
+        rules=dict(metrology_fixtures.get("pre_run_gate_rules") or {}),
+    )
+    certificate_missing_assets = [
+        str(item.get("asset_name") or item.get("asset_id") or "").strip()
+        for item in assets
+        if str(item.get("asset_type") or "").strip() != "analyzer_under_test"
+        and str(item.get("certificate_status") or "").strip() == "missing_certificate"
+    ]
+    checks = [
+        {
+            "check_id": "certificate_missing",
+            "status": "block" if certificate_missing_assets else ("diagnostic_only" if not assets else "pass"),
+            "summary": " | ".join(certificate_missing_assets) or "no missing certificate assets",
+        },
+        *[dict(item) for item in list(evaluation.get("checks") or []) if isinstance(item, dict)],
+    ]
+    scope_reference_assets = [
+        f"{str(item.get('asset_name') or '').strip()} ({str(item.get('asset_type') or '').strip()})"
+        for item in assets
+        if str(item.get("asset_type") or "").strip() != "analyzer_under_test"
+        and str(item.get("asset_name") or "").strip()
+    ]
+    decision_rule_dependencies = [
+        "certificate validity and file linkage",
+        "standard gas lot binding and lot usage linkage",
+        "intermediate check plan and record",
+        "out-of-tolerance closure",
+        "manual reviewer note placeholder only",
+    ]
+    certificate_validity_summary = _certificate_validity_summary_from_assets(assets)
+    lot_binding_summary = _lot_binding_summary_from_assets(assets)
+    lot_usage_linkage_summary = _lot_usage_linkage_summary_from_assets(assets)
+    intermediate_check_summary = _intermediate_summary_from_assets(assets)
+    calibration_source_summary = _calibration_source_summary_from_assets(assets)
+    certificate_file_link_summary = _certificate_file_link_summary_from_assets(assets)
+    asset_count_summary = str(dict(reference_asset_registry.get("digest") or {}).get("asset_count_summary") or "")
+    digest = {
+        "summary": (
+            "pre-run readiness gate | offline evaluator | advisory only | "
+            f"gate {str(evaluation.get('gate_status') or '--')} | {asset_count_summary}"
+        ),
+        "scope_overview_summary": scope_name,
+        "decision_rule_summary": f"{decision_rule_id} | offline reviewer gate only",
+        "conformity_boundary_summary": (
+            "pre-run readiness gate remains advisory-only in Step 2 and cannot open COM or control real devices."
+        ),
+        "asset_readiness_overview": asset_count_summary,
+        "certificate_lifecycle_overview": str(
+            dict(certificate_lifecycle_summary.get("digest") or {}).get("certificate_lifecycle_overview")
+            or dict(certificate_lifecycle_summary.get("digest") or {}).get("summary")
+            or "--"
+        ),
+        "asset_count_summary": asset_count_summary,
+        "certificate_validity_summary": certificate_validity_summary,
+        "lot_binding_summary": lot_binding_summary,
+        "lot_usage_linkage_summary": lot_usage_linkage_summary,
+        "intermediate_check_summary": intermediate_check_summary,
+        "calibration_source_summary": calibration_source_summary,
+        "certificate_file_link_summary": certificate_file_link_summary,
+        "pre_run_gate_status": str(evaluation.get("gate_status") or "diagnostic_only"),
+        "pre_run_gate_legacy_status": str(evaluation.get("legacy_gate_status") or "diagnostic_only"),
+        "scope_reference_assets_summary": " | ".join(scope_reference_assets) or "--",
+        "decision_rule_dependency_summary": " | ".join(decision_rule_dependencies),
+        "current_coverage_summary": (
+            f"certificate validity: {certificate_validity_summary} | lot binding: {lot_binding_summary} | "
+            f"lot usage linkage: {lot_usage_linkage_summary} | intermediate checks: {intermediate_check_summary}"
+        ),
+        "missing_evidence_summary": " | ".join(
+            list(evaluation.get("blocking_items") or [])
+            or list(evaluation.get("warning_items") or [])
+        )
+        or "no blocking or warning items",
+        "blocker_summary": " | ".join(list(evaluation.get("blocking_items") or [])) or "no blocking items",
+        "warning_summary": " | ".join(list(evaluation.get("warning_items") or [])) or "no warning items",
+        "reviewer_action_summary": " | ".join(list(evaluation.get("reviewer_actions") or [])) or "--",
+        "reviewer_next_step_digest": (
+            list(evaluation.get("reviewer_actions") or ["keep the gate advisory-only in Step 2"])[0]
+        ),
+        "next_required_artifacts_summary": "certificate_lifecycle_summary | pre_run_readiness_gate | certificate_readiness_summary",
+        "non_claim_digest": (
+            "pre-run readiness gate is advisory-only reviewer output and is not real acceptance evidence."
+        ),
+    }
+    bundle = _summary_raw(
+        run_id=run_id,
+        artifact_type="pre_run_readiness_gate",
+        overall_status=str(evaluation.get("overall_status") or "diagnostic_only"),
+        title_text="Pre-run Readiness Gate",
+        reviewer_note=(
+            "Offline file-backed gate evaluator only. "
+            "It reports pass/warning/block/diagnostic_only for reviewers and never drives equipment."
+        ),
+        summary_text=digest["summary"],
+        summary_lines=[
+            f"gate status: {digest['pre_run_gate_status']}",
+            f"asset count: {asset_count_summary}",
+            f"certificate validity: {certificate_validity_summary}",
+            f"lot binding: {lot_binding_summary}",
+            f"intermediate checks: {intermediate_check_summary}",
+        ],
+        detail_lines=[
+            f"lot usage linkage: {lot_usage_linkage_summary}",
+            f"certificate file linkage: {certificate_file_link_summary}",
+            f"blocking items: {digest['blocker_summary']}",
+            f"warning items: {digest['warning_summary']}",
+            f"reviewer actions: {digest['reviewer_action_summary']}",
+            f"certificate_readiness_summary: {path_map['certificate_readiness_summary']}",
+        ],
+        anchor_id="pre-run-readiness-gate",
+        anchor_label="Pre-run readiness gate",
+        evidence_categories=["recognition_readiness", "pre_run_gate", "readiness_mapping"],
+        artifact_paths={
+            "scope_definition_pack": path_map["scope_definition_pack"],
+            "decision_rule_profile": path_map["decision_rule_profile"],
+            "reference_asset_registry": path_map["reference_asset_registry"],
+            "certificate_lifecycle_summary": path_map["certificate_lifecycle_summary"],
+            "certificate_readiness_summary": path_map["certificate_readiness_summary"],
+            "pre_run_readiness_gate": path_map["pre_run_readiness_gate"],
+            "pre_run_readiness_gate_markdown": path_map["pre_run_readiness_gate_markdown"],
+            **_fixture_artifact_paths(metrology_fixtures),
+        },
+        body={
+            "gate_status": str(evaluation.get("gate_status") or "diagnostic_only"),
+            "legacy_gate_status": str(evaluation.get("legacy_gate_status") or "diagnostic_only"),
+            "blocking_items": list(evaluation.get("blocking_items") or []),
+            "warning_items": list(evaluation.get("warning_items") or []),
+            "reviewer_actions": list(evaluation.get("reviewer_actions") or []),
+            "checks": checks,
+            "readiness_status": "ready_for_readiness_mapping",
+            "non_claim_note": (
+                "Current run is limited to readiness mapping; the Step 2 gate is advisory only and cannot become a formal claim gate."
+            ),
+            "not_ready_for_formal_claim": True,
+            "ready_for_readiness_mapping": True,
+            "reviewer_stub_only": True,
+            "readiness_mapping_only": True,
+            "not_released_for_formal_claim": True,
+            "primary_evidence_rewritten": False,
+            "scope_reference_assets": scope_reference_assets,
+            "decision_rule_dependencies": decision_rule_dependencies,
+            "asset_count_summary": asset_count_summary,
+            "certificate_validity_summary": certificate_validity_summary,
+            "lot_binding_summary": lot_binding_summary,
+            "lot_usage_linkage_summary": lot_usage_linkage_summary,
+            "intermediate_check_summary": intermediate_check_summary,
+            "calibration_source_summary": calibration_source_summary,
+            "certificate_file_link_summary": certificate_file_link_summary,
+            "advisory_only": bool(evaluation.get("advisory_only", True)),
+            "device_control_allowed": bool(evaluation.get("device_control_allowed", False)),
+            "real_control_permitted": bool(evaluation.get("real_control_permitted", False)),
+            "would_open_real_com": bool(evaluation.get("would_open_real_com", False)),
+            "would_drive_real_hardware": bool(evaluation.get("would_drive_real_hardware", False)),
+            "manual_reviewer_override_placeholder": dict(
+                evaluation.get("manual_reviewer_override_placeholder") or {}
+            ),
+            "linked_artifacts": {
+                "scope_definition_pack": path_map["scope_definition_pack"],
+                "decision_rule_profile": path_map["decision_rule_profile"],
+                "reference_asset_registry": path_map["reference_asset_registry"],
+                "certificate_lifecycle_summary": path_map["certificate_lifecycle_summary"],
+                "certificate_readiness_summary": path_map["certificate_readiness_summary"],
+            },
+            "limitation_note": (
+                "This gate is offline, reviewer-facing, and advisory-only. It cannot open COM, drive devices, or enforce live control."
+            ),
+        },
+        digest=digest,
+        filename=PRE_RUN_READINESS_GATE_FILENAME,
+        markdown_filename=PRE_RUN_READINESS_GATE_MARKDOWN_FILENAME,
+    )
+    raw = dict(bundle.get("raw") or {})
+    raw["evidence_source"] = "simulated"
+    raw["review_surface"] = {
+        **dict(raw.get("review_surface") or {}),
+        "evidence_source_filters": ["simulated", "reviewer_readiness_only"],
+    }
+    bundle["raw"] = raw
+    bundle["digest"] = dict(raw.get("digest") or {})
+    bundle["markdown"] = _render_markdown(
+        "Pre-run Readiness Gate",
+        [
+            f"- gate_status: {str(evaluation.get('gate_status') or '--')}",
+            f"- legacy_gate_status: {str(evaluation.get('legacy_gate_status') or '--')}",
+            f"- asset_count_summary: {asset_count_summary}",
+            f"- certificate_validity_summary: {certificate_validity_summary}",
+            f"- lot_binding_summary: {lot_binding_summary}",
+            f"- lot_usage_linkage_summary: {lot_usage_linkage_summary}",
+            f"- intermediate_check_summary: {intermediate_check_summary}",
+            f"- certificate_file_link_summary: {certificate_file_link_summary}",
+            *[f"- blocking_item: {item}" for item in list(evaluation.get("blocking_items") or [])],
+            *[f"- warning_item: {item}" for item in list(evaluation.get("warning_items") or [])],
+            *[f"- reviewer_action: {item}" for item in list(evaluation.get("reviewer_actions") or [])],
+            "- control_boundary: advisory only / no real COM / no real device control",
+            f"- non_claim_note: {str(raw.get('non_claim_note') or '--')}",
+        ],
+    )
+    return bundle
+
+
 def _append_readiness_markdown_section(markdown: str, *, raw: dict[str, Any]) -> str:
     base = str(markdown or "").rstrip()
     lines = [
@@ -5325,6 +7820,9 @@ def _artifact_path_map(artifact_paths: dict[str, Any]) -> dict[str, str]:
         "release_validation_manifest_markdown": RELEASE_VALIDATION_MANIFEST_MARKDOWN_FILENAME,
         "audit_readiness_digest": AUDIT_READINESS_DIGEST_FILENAME,
         "audit_readiness_digest_markdown": AUDIT_READINESS_DIGEST_MARKDOWN_FILENAME,
+        "step2_closeout_bundle": STEP2_CLOSEOUT_BUNDLE_FILENAME,
+        "step2_closeout_evidence_index": STEP2_CLOSEOUT_EVIDENCE_INDEX_FILENAME,
+        "step2_closeout_summary_markdown": STEP2_CLOSEOUT_SUMMARY_FILENAME,
     }
     merged = {key: str(artifact_paths.get(key) or value) for key, value in new_paths.items()}
     for key in (

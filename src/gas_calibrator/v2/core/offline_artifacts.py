@@ -47,6 +47,10 @@ from .artifact_compatibility import (
 )
 from .models import CalibrationPoint, SamplingResult
 from . import recognition_readiness_artifacts as recognition_readiness
+from .step2_closeout_bundle_builder import (
+    STEP2_CLOSEOUT_BOUNDARY_SUMMARY,
+    build_step2_closeout_bundle,
+)
 from .reviewer_surface_contracts import (
     WP6_CLOSEOUT_ARTIFACT_ROLES as _SHARED_WP6_CLOSEOUT_ROLES,
 )
@@ -1868,6 +1872,9 @@ def export_run_offline_artifacts(
         "comparison_rollup_markdown": str(run_dir / recognition_readiness.COMPARISON_ROLLUP_MARKDOWN_FILENAME),
         "step2_closeout_digest": str(run_dir / recognition_readiness.STEP2_CLOSEOUT_DIGEST_FILENAME),
         "step2_closeout_digest_markdown": str(run_dir / recognition_readiness.STEP2_CLOSEOUT_DIGEST_MARKDOWN_FILENAME),
+        "step2_closeout_bundle": str(run_dir / recognition_readiness.STEP2_CLOSEOUT_BUNDLE_FILENAME),
+        "step2_closeout_evidence_index": str(run_dir / recognition_readiness.STEP2_CLOSEOUT_EVIDENCE_INDEX_FILENAME),
+        "step2_closeout_summary_markdown": str(run_dir / recognition_readiness.STEP2_CLOSEOUT_SUMMARY_FILENAME),
     }
     recognition_readiness_artifacts = recognition_readiness.build_recognition_readiness_artifacts(
         run_id=run_id,
@@ -1894,6 +1901,95 @@ def export_run_offline_artifacts(
         markdown_path = run_dir / str(bundle.get("markdown_filename") or f"{artifact_key}.md")
         markdown_path.write_text(str(bundle.get("markdown") or ""), encoding="utf-8")
         recognition_readiness_written_paths[str(artifact_key)] = (json_path, markdown_path)
+    step2_closeout_snapshot = build_step2_closeout_bundle(
+        run_id=run_id,
+        run_dir=run_dir,
+        scope_definition_pack=dict(
+            recognition_readiness_artifacts.get("scope_definition_pack", {}).get("raw") or {}
+        ),
+        decision_rule_profile=dict(
+            recognition_readiness_artifacts.get("decision_rule_profile", {}).get("raw") or {}
+        ),
+        conformity_statement_profile=dict(
+            dict(recognition_readiness_artifacts.get("decision_rule_profile", {}).get("raw") or {}).get(
+                "conformity_statement_profile"
+            )
+            or {}
+        ),
+        reference_asset_registry=dict(
+            recognition_readiness_artifacts.get("reference_asset_registry", {}).get("raw") or {}
+        ),
+        certificate_lifecycle_summary=dict(
+            recognition_readiness_artifacts.get("certificate_lifecycle_summary", {}).get("raw") or {}
+        ),
+        pre_run_readiness_gate=dict(
+            recognition_readiness_artifacts.get("pre_run_readiness_gate", {}).get("raw") or {}
+        ),
+        uncertainty_report_pack=dict(
+            recognition_readiness_artifacts.get("uncertainty_report_pack", {}).get("raw") or {}
+        ),
+        uncertainty_rollup=dict(recognition_readiness_artifacts.get("uncertainty_rollup", {}).get("raw") or {}),
+        method_confirmation_protocol=dict(
+            recognition_readiness_artifacts.get("method_confirmation_protocol", {}).get("raw") or {}
+        ),
+        verification_rollup=dict(recognition_readiness_artifacts.get("verification_rollup", {}).get("raw") or {}),
+        software_validation_traceability_matrix=dict(
+            recognition_readiness_artifacts.get("software_validation_traceability_matrix", {}).get("raw") or {}
+        ),
+        requirement_design_code_test_links=dict(
+            recognition_readiness_artifacts.get("requirement_design_code_test_links", {}).get("raw") or {}
+        ),
+        validation_evidence_index=dict(
+            recognition_readiness_artifacts.get("validation_evidence_index", {}).get("raw") or {}
+        ),
+        change_impact_summary=dict(
+            recognition_readiness_artifacts.get("change_impact_summary", {}).get("raw") or {}
+        ),
+        rollback_readiness_summary=dict(
+            recognition_readiness_artifacts.get("rollback_readiness_summary", {}).get("raw") or {}
+        ),
+        release_manifest=dict(recognition_readiness_artifacts.get("release_manifest", {}).get("raw") or {}),
+        release_scope_summary=dict(
+            recognition_readiness_artifacts.get("release_scope_summary", {}).get("raw") or {}
+        ),
+        release_boundary_digest=dict(
+            recognition_readiness_artifacts.get("release_boundary_digest", {}).get("raw") or {}
+        ),
+        release_evidence_pack_index=dict(
+            recognition_readiness_artifacts.get("release_evidence_pack_index", {}).get("raw") or {}
+        ),
+        release_validation_manifest=dict(
+            recognition_readiness_artifacts.get("release_validation_manifest", {}).get("raw") or {}
+        ),
+        software_validation_rollup={},
+        audit_readiness_digest=dict(
+            recognition_readiness_artifacts.get("audit_readiness_digest", {}).get("raw") or {}
+        ),
+        comparison_evidence_pack=dict(
+            recognition_readiness_artifacts.get("comparison_evidence_pack", {}).get("raw") or {}
+        ),
+        scope_comparison_view=dict(
+            recognition_readiness_artifacts.get("scope_comparison_view", {}).get("raw") or {}
+        ),
+        comparison_digest=dict(recognition_readiness_artifacts.get("comparison_digest", {}).get("raw") or {}),
+        comparison_rollup=dict(recognition_readiness_artifacts.get("comparison_rollup", {}).get("raw") or {}),
+        step2_closeout_digest=dict(
+            recognition_readiness_artifacts.get("step2_closeout_digest", {}).get("raw") or {}
+        ),
+    )
+    step2_closeout_bundle_path = write_json(
+        run_dir / recognition_readiness.STEP2_CLOSEOUT_BUNDLE_FILENAME,
+        dict(step2_closeout_snapshot.get("step2_closeout_bundle") or {}),
+    )
+    step2_closeout_evidence_index_path = write_json(
+        run_dir / recognition_readiness.STEP2_CLOSEOUT_EVIDENCE_INDEX_FILENAME,
+        dict(step2_closeout_snapshot.get("step2_closeout_evidence_index") or {}),
+    )
+    step2_closeout_summary_path = run_dir / recognition_readiness.STEP2_CLOSEOUT_SUMMARY_FILENAME
+    step2_closeout_summary_path.write_text(
+        str(step2_closeout_snapshot.get("step2_closeout_summary_markdown") or ""),
+        encoding="utf-8",
+    )
     compatibility_output_files = [
         str(acceptance_path),
         str(analytics_path),
@@ -1908,6 +2004,9 @@ def export_run_offline_artifacts(
         str(simulation_evidence_sidecar_bundle_path),
         str(measurement_phase_coverage_path),
         str(measurement_phase_coverage_markdown_path),
+        str(step2_closeout_bundle_path),
+        str(step2_closeout_evidence_index_path),
+        str(step2_closeout_summary_path),
         *[
             str(path)
             for paths in recognition_readiness_written_paths.values()
@@ -2005,6 +2104,9 @@ def export_run_offline_artifacts(
         "software_validation_traceability_matrix": "execution_summary",
         "release_validation_manifest": "execution_summary",
         "audit_readiness_digest": "diagnostic_analysis",
+        "step2_closeout_bundle": "diagnostic_analysis",
+        "step2_closeout_evidence_index": "diagnostic_analysis",
+        "step2_closeout_summary_markdown": "formal_analysis",
     }
     # Merge shared WP6+closeout roles
     recognition_readiness_roles.update(_SHARED_WP6_CLOSEOUT_ROLES)
@@ -2045,6 +2147,9 @@ def export_run_offline_artifacts(
             "overall_status": str(dict(multi_source_stability_evidence.get("raw") or {}).get("overall_status") or ""),
             "coverage_status": str(dict(multi_source_stability_evidence.get("raw") or {}).get("coverage_status") or ""),
             "review_surface": dict(dict(multi_source_stability_evidence.get("raw") or {}).get("review_surface") or {}),
+            "stability_policy_profile": dict(dict(multi_source_stability_evidence.get("raw") or {}).get("stability_policy_profile") or {}),
+            "stability_decision_rollup": dict(dict(multi_source_stability_evidence.get("raw") or {}).get("stability_decision_rollup") or {}),
+            "shadow_stability_diff": dict(dict(multi_source_stability_evidence.get("raw") or {}).get("shadow_stability_diff") or {}),
         },
         "multi_source_stability_evidence_digest": dict(multi_source_stability_evidence.get("digest") or {}),
         "state_transition_evidence": {
@@ -2053,6 +2158,7 @@ def export_run_offline_artifacts(
             "overall_status": str(dict(state_transition_evidence.get("raw") or {}).get("overall_status") or ""),
             "review_surface": dict(dict(state_transition_evidence.get("raw") or {}).get("review_surface") or {}),
             "illegal_transition_count": len(list(dict(state_transition_evidence.get("raw") or {}).get("illegal_transitions") or [])),
+            "transition_policy_profile": dict(dict(state_transition_evidence.get("raw") or {}).get("transition_policy_profile") or {}),
         },
         "state_transition_evidence_digest": dict(state_transition_evidence.get("digest") or {}),
         "simulation_evidence_sidecar_bundle": {
@@ -2086,6 +2192,39 @@ def export_run_offline_artifacts(
             "digest": bundle_digest,
         }
         summary_stats[f"{artifact_key}_digest"] = bundle_digest
+    summary_stats["step2_closeout_bundle"] = {
+        "path": str(step2_closeout_bundle_path),
+        "artifact_type": "step2_closeout_bundle",
+        "overall_status": (
+            "blocker"
+            if list(dict(step2_closeout_snapshot.get("step2_closeout_bundle") or {}).get("blocker_items") or [])
+            else "ok"
+        ),
+        "review_surface": {
+            "summary_lines": list(
+                dict(step2_closeout_snapshot.get("step2_closeout_bundle") or {}).get("summary_lines") or []
+            ),
+        },
+        "digest": dict(step2_closeout_snapshot.get("step2_closeout_compact_section") or {}),
+    }
+    summary_stats["step2_closeout_bundle_digest"] = dict(
+        step2_closeout_snapshot.get("step2_closeout_compact_section") or {}
+    )
+    summary_stats["step2_closeout_evidence_index"] = {
+        "path": str(step2_closeout_evidence_index_path),
+        "artifact_type": "step2_closeout_evidence_index",
+        "missing_evidence_categories": list(
+            dict(step2_closeout_snapshot.get("step2_closeout_evidence_index") or {}).get(
+                "missing_evidence_categories"
+            )
+            or []
+        ),
+    }
+    summary_stats["step2_closeout_summary_markdown"] = {
+        "path": str(step2_closeout_summary_path),
+        "artifact_type": "step2_closeout_summary",
+        "summary": str(dict(step2_closeout_snapshot.get("step2_closeout_bundle") or {}).get("summary_line") or ""),
+    }
     for artifact_key, bundle in compatibility_bundle.items():
         json_path, markdown_path = compatibility_written_paths[str(artifact_key)]
         bundle_raw = dict(bundle.get("raw") or {})
@@ -2135,6 +2274,9 @@ def export_run_offline_artifacts(
             "decision_summary": str(dict(multi_source_stability_evidence.get("digest") or {}).get("decision_summary") or ""),
             "gap_summary": str(dict(multi_source_stability_evidence.get("digest") or {}).get("gap_summary") or ""),
             "boundary_summary": str(dict(multi_source_stability_evidence.get("digest") or {}).get("boundary_summary") or ""),
+            "stability_policy_profile": dict(dict(multi_source_stability_evidence.get("raw") or {}).get("stability_policy_profile") or {}),
+            "stability_decision_rollup": dict(dict(multi_source_stability_evidence.get("raw") or {}).get("stability_decision_rollup") or {}),
+            "shadow_stability_diff": dict(dict(multi_source_stability_evidence.get("raw") or {}).get("shadow_stability_diff") or {}),
         },
         "state_transition_evidence": {
             "path": str(state_transition_evidence_path),
@@ -2143,6 +2285,7 @@ def export_run_offline_artifacts(
             "transition_summary": str(dict(state_transition_evidence.get("digest") or {}).get("transition_summary") or ""),
             "recovery_summary": str(dict(state_transition_evidence.get("digest") or {}).get("recovery_summary") or ""),
             "boundary_summary": str(dict(state_transition_evidence.get("digest") or {}).get("boundary_summary") or ""),
+            "transition_policy_profile": dict(dict(state_transition_evidence.get("raw") or {}).get("transition_policy_profile") or {}),
         },
         "simulation_evidence_sidecar_bundle": {
             "path": str(simulation_evidence_sidecar_bundle_path),
@@ -2177,6 +2320,31 @@ def export_run_offline_artifacts(
             "boundary_summary": " | ".join(list(bundle_raw.get("boundary_statements") or [])),
             "review_surface": dict(bundle_raw.get("review_surface") or {}),
         }
+    manifest_sections["step2_closeout_bundle"] = {
+        "path": str(step2_closeout_bundle_path),
+        "artifact_type": "step2_closeout_bundle",
+        "summary": str(dict(step2_closeout_snapshot.get("step2_closeout_bundle") or {}).get("summary_line") or ""),
+        "boundary_summary": STEP2_CLOSEOUT_BOUNDARY_SUMMARY,
+        "review_surface": {
+            "summary_lines": list(
+                dict(step2_closeout_snapshot.get("step2_closeout_bundle") or {}).get("summary_lines") or []
+            ),
+        },
+    }
+    manifest_sections["step2_closeout_evidence_index"] = {
+        "path": str(step2_closeout_evidence_index_path),
+        "artifact_type": "step2_closeout_evidence_index",
+        "summary": str(
+            dict(step2_closeout_snapshot.get("step2_closeout_bundle") or {}).get("summary_line") or ""
+        ),
+        "boundary_summary": STEP2_CLOSEOUT_BOUNDARY_SUMMARY,
+    }
+    manifest_sections["step2_closeout_summary_markdown"] = {
+        "path": str(step2_closeout_summary_path),
+        "artifact_type": "step2_closeout_summary",
+        "summary": str(dict(step2_closeout_snapshot.get("step2_closeout_bundle") or {}).get("summary_line") or ""),
+        "boundary_summary": STEP2_CLOSEOUT_BOUNDARY_SUMMARY,
+    }
     for artifact_key, bundle in compatibility_bundle.items():
         json_path, markdown_path = compatibility_written_paths[str(artifact_key)]
         bundle_raw = dict(bundle.get("raw") or {})
@@ -2222,6 +2390,9 @@ def export_run_offline_artifacts(
                 for paths in recognition_readiness_written_paths.values()
                 for path in paths
             ],
+            str(step2_closeout_bundle_path),
+            str(step2_closeout_evidence_index_path),
+            str(step2_closeout_summary_path),
             *[
                 str(path)
                 for paths in compatibility_written_paths.values()

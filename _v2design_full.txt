@@ -1,0 +1,305 @@
+气体分析仪自动校准标定平台
+详细设计方案
+V1.3（V2 主方案 / V1 保护版 / 计量增强修订）
+面向 CO₂ / H₂O 气体分析仪自动校准、计量追溯、审阅取证、AI 增强、认可就绪、国家级/国际级计量平台补齐与逐步业务替代的系统性设计文件
+建议用途：
+1）项目级统一设计基线；2）后续 Codex 提示词母版；3）V2 架构评审与阶段验收依据
+
+执行摘要
+本方案面向 CO₂ / H₂O 气体分析仪自动校准标定平台的中长期建设，目标不是单纯做一套自动化采集程序，而是构建一个能够承接计量溯源、方法确认、审阅取证、标准映射与逐步业务替代的高标准平台。项目总体采用“V1 守稳、V2 独立、文件主链、数据库旁路、证据先行”的架构原则。
+在项目实施路径上，本方案坚持“三步走”：第一阶段完成离线、仿真、headless 与治理工件的闭环；第二阶段建立 engineering-isolation 准入与 reviewer 能力；第三阶段再进入真实台架验证、方法确认与外部可比性建设。任何阶段内的新增能力都不得反向破坏 V1。
+V1.3 在保持“三步走”与 V1 保护边界不变的前提下，进一步把“面向国家级/国际级计量校准平台的补齐路线”纳入主方案：新增目标分级、差距补齐清单、章节级调整建议和后续工作包规划；AI 当前仍仅允许以旁路评估、shadow 判稳、异常提示、证据导航和审阅辅助形式存在，不得在第三阶段前进入设备控制、正式采样放行、系数写入或正式计量结论主链。
+在本次增强修订中，平台进一步补齐认可范围包、决策规则、标准器与证书治理、不确定度预算、方法确认、软件验证审计、外部比对、元数据与人员授权，以及面向华为 CodeArts 代码智能体的工程化实施要求，使 V2 后续开发从“架构正确”进一步走向“认可可收口、软件可审计、证据可评审”的高标准平台路线。
+
+1  项目定位与建设目标
+1.1 平台定位
+本项目定位为气体分析仪自动校准标定平台，而非单一的设备通信程序或结果导出工具。平台应同时覆盖设备协同控制、采样与判稳、模型计算、结果治理、审阅取证、标准映射、数据库检索、跨 run 分析、知识导航和阶段验收支持等完整能力链。
+1.2 建设目标
+• 工程目标：稳定完成温箱、水路、气路、露点、压力、参考标准器、分析仪的协同控制与流程编排。
+• 数据目标：所有关键结果都能追溯到原始帧、窗口统计、算法版本、配置版本、标准器与证书信息。
+• 计量目标：逐步具备方法确认、不确定度表达、标准映射和 reviewer evidence pack 生成能力。
+• 替代目标：在不影响 V1 的前提下推进 V2，从仿真闭环走向 engineering-isolation，再走向有限范围替代。
+• 行业目标：形成可与 CNAS / ISO / WMO / 气象行业质量控制要求对齐的高标准平台架构。
+• 智能化目标：建立可审计、可回放、可复核的智能分析能力，用于异常识别、趋势预警、跨 run 对比、审阅辅助与维护建议。
+• 知识化目标：围绕 run、设备、标准器、证书、策略、异常和 reviewer 工件建立结构化知识组织能力，支撑证据导航、自然语言检索和后续知识库建设。
+1.3 适用范围
+当前适用对象为 CO₂ / H₂O 气体分析仪及其参考/环境设备组合，包括：最多 8 台分析仪串联、双压湿度发生器、露点仪、数字压力计、压力控制器、温度箱、参考数字温度计与标准气体。
+1.4 长期硬约束
+表 1  项目长期硬约束
+2  三步走战略与阶段边界
+本项目的实施路线必须围绕既定“三步走”展开，避免 V2 因局部需求膨胀而提前跨线。三步走不是形式上的排期，而是风险控制的总闸。
+表 2  三步走战略定义
+2.1 当前阶段定位
+依据当前项目推进节奏，V2 的现实定位应保持在“第二阶段收尾 / 第三阶段准入桥”。也就是说，当前重点是把 reviewer-facing 工件、标准映射、证据覆盖、阶段闸控、仿真验证与数据库旁路规划做实，而不是提前把真机能力和主流程替代揉在一起。
+2.2 V1/V2 共存原则
+• V1 继续承担当前生产校准责任；V2 不得在没有充分对照证据的前提下替代 V1。
+• V2 所有高风险改动先在 simulation / offline / headless 链验证，再进入 engineering-isolation。
+• 阶段准入必须依赖显式闸控与 reviewer 工件，而不是靠临时经验判断。
+3  标准体系与对标策略
+平台要实现“国际行业领先、行业认可的高标准计量检定平台”，并不意味着当前即可宣称已获得认可。正确做法是先建立标准承接能力与证据映射框架，再通过第三阶段真实验证和后续外部评审逐步收敛到正式认可路径。
+表 3  建议对齐的标准与框架家族
+
+4  总体架构设计
+总体架构采用“设备与协议层 → 适配层 → 流程编排层 → 采样与 QC 层 → 算法层 → 结果治理与审阅层 → Analytics Center → AI/知识辅助层 → 数据库旁路层”的分层结构，并通过 V2 的 governance/reviewer 工件把阶段边界、证据边界和 AI 边界显式化。
+表 4  平台分层与职责
+4.1 reviewer 工件家族
+• stage_admission_review_pack：阶段准入材料与 reviewer 摘要。
+• engineering_isolation_admission_checklist：第二阶段进入 engineering-isolation 的闸控清单。
+• stage3_real_validation_plan：第三阶段真实验证的 required evidence、依赖关系与 pass/fail contract。
+• stage3_standards_alignment_matrix：标准家族映射、覆盖情况、缺口与 reviewer 导航入口。
+• run_evidence_pack：单次 run 的结构化证据打包，包括原始记录、配置、算法、日志和异常。
+4.2 Analytics Center
+Analytics Center 作为 V2 的分析中枢，负责把 run 内部链路分析、跨 run 对比、个体分析仪画像、压温露点联动分析、露点反弹/混气嫌疑定位等能力统一沉淀为平台对象。
+• run 内联动分析：压力、露点、温度、ratio、density、ppm 的协同变化分析。
+• 跨 run 对比分析：不同策略、不同 analyzer、不同温压工况的差异聚合。
+• 长期健康画像：响应时延、稳定时间、漂移趋势、异常频次与维护建议。
+4.3 AI / 知识辅助层
+AI / 知识辅助层优先面向 reviewer、质量负责人和研发人员提供结构化辅助，不直接替代确定性工艺控制。当前阶段其定位应严格限定在审阅导航、异常提示、报告草稿和知识问答等旁路能力。
+• Review Copilot：自动汇总 run 风险、证据缺口与复验建议。
+• 知识检索：按 analyzer、run、温度点、压力点、异常类型和标准主题导航历史证据。
+• Advisory 输出：仅输出提示、评分和解释，不直接写入控制动作。
+5  控制流程与受控自由度状态机
+流程设计的核心任务是把“设备动作序列”升级为“可审计、可配置、可回放”的工艺执行图。状态机必须固定主状态集合与合法跳转白名单，同时允许通过策略和配方控制局部自由度。
+表 5  建议的主状态集合
+5.1 自由度来源
+平台自由度不体现在随意跳状态，而体现在流程启用、策略选择和异常处理三个维度。
+• 流程启用自由度：是否启用环境大气点、哪些压力点生效、是否只跑水路或只跑气路、是否允许封路前二次判稳。
+• 策略自由度：dewpoint_stability_policy、pressure_handoff_policy、analyzer_raw_stability_policy、sample_window_policy、strict_metrology_policy、fast_acceptance_policy。
+• 异常处理自由度：判稳失败是否延时重试、是否回退到前一状态、某 analyzer 是否允许剔除、是否触发整轮中止。
+5.2 状态库 + 策略库 + 配方编译器
+建议在 V2 中明确三层对象：状态库定义主状态集合和合法跳转；策略库定义各状态内的规则、阈值与重试方式；配方编译器根据温度点、路线、气点、压力点、环境模式和策略版本生成具体执行图。这样既保留工艺自由度，又能保证同一配方反复运行时保持同一流程结构。
+6  多源判稳与数据质量设计
+判稳是平台可信度的关键。对于气体分析仪，仅依赖露点、压力和温度这些参考信号不足以确认分析仪本体已稳定；仅依赖最终 ppm/density 输出又可能掩盖 ratio/raw 响应尚未收敛的问题。因此平台必须采用多源判稳。
+表 6  多源判稳四层模型
+6.1 三段式判稳原则
+• 硬门槛：温度、压力、露点斜率、ratio 窗口跨度、帧新鲜度、状态字等任一不满足，则绝不采样。
+• 稳定评分：对 span、slope、std、drift index、valid ratio、jump count 等统计特征进行综合评分。
+• 连续保持：必须在最近 N 秒内持续满足门槛与评分要求，避免瞬时碰线误判。
+6.2 按路线配置判稳策略
+水路应优先保证温度、露点、压力与 ratio 的顺序稳定；气路则应重点强调“封路前预判稳—封路—立即控压—原始响应二次确认—输出复核”的链条；环境大气/诊断模式则可以降低正式采样约束，重点做 raw ratio 漂移、压温关联和基线健康分析。
+6.3 shadow 判稳评估
+为降低直接替换主判稳链的风险，建议在 V2 中引入 shadow stability evaluation。即：主策略决定流程是否前进，shadow 策略只做平行计算并输出差异，不干预流程。该机制特别适合新引入的 ratio 判稳、多源综合评分与不同路由下的阈值优化。
+6.4 AI 判稳与 shadow 评估边界
+多源判稳的主判定链必须保持规则化、可审计、可回放。AI/模型分数只允许作为 shadow 结果与 reviewer 参考，不得在第三阶段前单独作为允许封路、允许采样或允许写回系数的唯一依据。
+• 主判稳结果与 shadow 判稳结果必须分开留痕。
+• 需要保存 feature_set_version、shadow_score、decision_diff 与人工复核结论。
+• shadow 评估优先用于 ratio 判稳、多源评分优化与异常预警，而非直接接管流程。
+
+7  数据模型与算法框架
+基础数据模型建议分为原始层、过程层和结果层；在其上叠加分析特征层、异常标签层和模型治理层，分别服务于高级分析、AI 旁路评估与 reviewer 导航。原始层承载设备原始帧、命令响应、参考表数据与控制事件；过程层承载判稳窗口、采样窗口、QC 状态与上下文；结果层承载点结果、拟合结果、系数、残差、不确定度和 reviewer digest。
+表 7  数据层次与关键对象
+7.1 算法链建议
+• 帧质量与新鲜度检查。
+• 时间对齐与参考值清洗。
+• 温度、压力、基线等基础修正。
+• 水汽交叉干扰与模型化补偿。
+• 拟合、回代与对账。
+• 系数格式化、写回、回读验证。
+• 方法确认与不确定度合成。
+7.2 系数与版本管理
+建议独立管理配置版本、算法版本、设备固件版本、系数版本、标准器证书版本和报告模板版本。对写回分析仪的校准系数，需要同时保存原始计算结果、舍入规则、写入格式、写入前后快照与回读校验结果。
+7.3 特征、异常标签与模型治理对象
+V2 建议把高级分析与 AI 相关对象显式建模，而不是散落在日志、脚本和临时报表里。
+• 分析特征：raw ratio 特征、density/ppm 耦合特征、pressure handoff 特征、dewpoint rebound 特征、freshness/jump/lag 特征。
+• 异常标签：异常类型、严重级别、发生状态、关联设备、关联窗口、根因候选与复验结论。
+• 模型治理：model_version、feature_version、label_version、train_data_scope、evaluation_metrics、release_status 与 rollback_target。
+8  数据库与工件治理设计
+数据库在总体路线内属于必须建设的底座，但当前阶段的正确方式是“文件工件主链 + 数据库旁路索引 + 后续平滑升级”。也就是说，json / md / csv / manifest / summary 继续作为主证据工件，数据库优先承担索引、检索、聚合、版本关联和 reviewer 查询，不得先成为 V1 或默认 V2 执行链的单点依赖。
+表 8  数据库分期建设建议
+8.1 判稳与状态机数据库对象
+• stability_policy_versions：保存判稳策略定义及版本。
+• stability_windows / stability_decisions：保存窗口统计与判稳结果。
+• raw_signal_snapshots：保存关键 ratio/raw/density 快照。
+• state_transition_logs：保存状态迁移与触发原因。
+• shadow_evaluation_results：保存主策略与 shadow 策略差异。
+8.2 AI-ready 旁路对象
+在保持文件工件主链不变的前提下，数据库一期即可先承接一组 AI-ready 的旁路对象，为后续 Analytics Center、Review Copilot 和 shadow 模型提供索引基础。
+• analyzer_health_profiles：分析仪长期健康画像与关键统计摘要。
+• anomaly_cases / anomaly_labels：异常案例、标签、严重度与复验结论。
+• feature_snapshots：关键窗口的特征快照与版本信息。
+• model_registry / model_evaluations：模型、评估、发布状态与回滚目标。
+• review_digests / run_risk_scores：面向 reviewer 的摘要、风险分与导航入口。
+9  计量实现与标准映射路径
+第三阶段真正要补齐的，不只是“真机跑通”，而是把结果—方法—标准器—证书—算法—审阅链全部闭成计量级证据。为此，本方案建议把标准映射矩阵、溯源树和 reviewer evidence pack 作为并行工件建设。
+9.1 standards alignment matrix
+建议在 V2 中保留 dedicated reviewer artifact：stage3_standards_alignment_matrix。其每一行最少应包含：standard_family、topic_or_control_object、applicability、linked_existing_artifacts、required_evidence_categories、current_evidence_coverage、readiness_status、gap_note、non_claim、digest。
+9.2 结果溯源树
+每次正式 run 都应能生成结果溯源树：结果 → 模型/算法版本 → 参考测量值 → 标准器/标准气 → 证书/来源 → 有效期/限制条件。平台只要把这条链结构化保存，后续 reviewer、质量负责人和外部评审才有可能快速判断结果是否可信。
+9.3 方法确认与不确定度
+不确定度不是最后附加的一页说明，而应作为平台级对象预留：包括被测量定义、测量模型、输入量、灵敏度系数、合成标准不确定度、扩展不确定度、覆盖因子与报告规则。第三阶段前至少要把对象模型、数据来源和计算接口设计好。
+10  测试体系与验收门槛
+平台的测试不应局限于 pytest 通过，而应形成“单元测试—仿真集成—治理回归—闸控验证—engineering-isolation—真实方法确认”的分层体系。阶段切换必须依据门槛表，而不是靠“感觉已经差不多”。
+表 9  建议的阶段门槛（G0–G6）
+10.1 智能能力准入线
+AI 与高级分析能力不应绕开三步走单独野生增长，应附着在既有阶段门槛上，以 shadow、旁路和人工复核闭环为准入基础。
+• G1-A：Analytics Center 的离线结果可复现、可对账。
+• G2-A：异常识别与 shadow 判稳模型只允许旁路运行，且评估报告完整。
+• G3-A：Review Copilot 可服务真机 evidence 导航，但不得直接干预控制链。
+• G4-A：模型治理、人工复核与回滚机制闭环跑通后，才允许进入有限 advisory 试点。
+11  项目实施路线与近期重点
+结合当前项目进度，近期最合理的工作顺序是：先固化设计边界和 reviewer 工件能力，再补 standards matrix 与 evidence coverage，然后把数据库一期做成旁路索引层，并同步完成 AI / Analytics 的旁路对象、异常标签与 reviewer 辅助能力打底，之后再进入 engineering-isolation 真机准备。
+表 10  未来工作优先级建议
+要把本项目做成国际行业领先、行业认可的高标准计量检定平台，关键不在于功能堆叠，而在于六条链是否同时成立：控制链可靠、数据链可信、证据链完整、标准链可映射、认可链可收口、智能链可审计。当前项目路线总体正确：V1 守稳，V2 独立推进；先把仿真、治理工件、reviewer 能力、数据库旁路和 AI 旁路对象做实，再把认可范围、决策规则、标准器治理、不确定度、方法确认、软件审计与外部比对补成运行级体系。
+本方案建议立即把“多源判稳”“受控自由度状态机”“数据库旁路先行”“标准映射的非声明边界”“AI 非主链边界”“认可范围包与决策规则”“标准器/证书/期间核查治理”“不确定度与方法确认”“软件验证与审计留痕”九项设计原则固定为后续开发底座。这样后续每一轮 CodeArts/Codex 提示词、代码评审与阶段验收，都能回到同一设计源头，不再碎片化推进。
+本方案建议立即把“多源判稳”“受控自由度状态机”“数据库旁路先行”“标准映射的非声明边界”“AI 非主链边界”“模型治理与 Review Copilot”六项设计原则固定为后续开发底座。这样后续每一轮 Codex 提示词、代码评审与阶段验收，都能回到同一设计源头，不再碎片化推进。
+13  AI 增强与高级分析设计
+V1.3 在不改变三步走与 V1 保护主战略的前提下，把“国家级/国际级计量校准平台补齐设计”正式并入主方案：AI 增强与高级分析继续保留旁路定位，同时把认可范围、决策规则、标准器治理、不确定度、方法确认、软件审计、外部比对、人员授权、数据库与知识底座进一步收敛为可执行的后续工作包。
+13.1 AI 的平台定位
+AI 在本平台中的首要价值，不是替代工艺控制，而是提升异常解释、跨 run 分析、审阅效率、知识组织和长期健康管理能力。它应服务于 reviewer、研发、质量负责人和未来业务化审阅链。
+13.2 AI 的非主链边界
+AI 的边界必须先在设计文件中锁死，再进入实现与评估。当前阶段只允许 AI 以旁路提示、评分与解释形式存在。
+13.3 Analytics Center
+Analytics Center 应作为 V2 的高级分析中枢，统一承接 run 内分析、跨 run 对比、异常模式识别和分析仪健康画像。
+• 联动分析：压力 / 露点 / 温度 / ratio / density / ppm 的耦合关系。
+• 异常诊断：露点反弹、可能混气、pressure handoff 延迟与分析仪慢响应。
+• 长期趋势：稳定时间、漂移趋势、异常频次、维护建议与设备画像。
+13.4 异常标签与案例库
+平台应建立统一异常 taxonomy，把高频问题变成可标注、可检索、可复核、可训练的对象，而不是散落在人工描述中。
+13.5 Review Copilot
+Review Copilot 优先面向 reviewer 和质量负责人，自动生成本轮 run 风险摘要、证据缺口、复验建议和 standards gap 导航，不直接替代人工审阅。
+• 自动串联原始帧、窗口统计、控制事件与异常记录。
+• 生成 run 级 digest、风险摘要、失败原因和下一步补证建议。
+• 支持按 analyzer、run、工况、异常与标准主题自然语言检索。
+13.6 模型治理与 shadow evaluation
+任何 AI / 机器学习能力都必须在平台内拥有最小治理闭环。模型版本、特征版本、训练范围、评估报告、发布状态和回滚目标必须结构化保存。
+• 先离线评估，再 shadow 运行，再有限 advisory。
+• 模型版本不等于计量算法版本，两者必须分开治理。
+• 必须保留人工复核结论与回滚入口，不允许黑箱替代正式结论链。
+13.7 分阶段落地策略
+AI 能力的实施顺序应服从三步走，不单独扩线。
+• 第一/第二阶段：离线分析、shadow 判稳、异常识别、reviewer 辅助与知识检索。
+• 第三阶段前期：真机旁路提示、受限 advisory、维护建议与 evidence pack 自动组织。
+• 不允许事项：AI 直接接管控制链、直接生成正式计量结论、直接替代 V1 / V2 主校准链。
+
+14  认可就绪运行体系与工程化落地
+当前 V2 方案已经形成了较稳的架构与证据底盘，但若目标是“国际行业领先、行业认可的高标准计量检定平台标杆”，则还必须在 AI 与高级分析之外，补齐一层更硬的认可就绪运行体系。该体系关注的不是单次 run 能否完成，而是平台能否长期、稳定、可审计地给出可评审、可声明、可比对的有效结果。
+14.1 认可范围包与声明边界
+平台应在 reviewer artifact 之外，新增可机器读取、可版本化、可导出的 scope package，用于明确平台当前真正能够覆盖和声明的能力边界。scope package 至少应包含被测量、适用路线、水路/气路/环境模式、温度范围、压力范围、标准气/湿度范围、适用 analyzer 类型、方法版本、算法版本、决策规则版本、适用证据和限制条件。
+• 建议对象：scope_definition、scope_version、applicability_profile、limitation_note、non_claim_note、scope_export_pack。
+• 每次 run 必须自动绑定其所属 scope；不在 scope 内的结果只允许做研究、诊断或 readiness mapping，不得输出正式符合性表述。
+• 平台必须明确“已具备声明条件”“仅具备准备度映射”“仍需补证”三类状态，避免 reviewer 工件与正式认可表述混淆。
+14.2 决策规则与符合性声明
+决策规则不应在报告阶段临时口头判断，而应作为平台级对象与方法、范围和不确定度绑定。平台需把 acceptance limit、guard band、所用不确定度来源、pass/fail/inconclusive 规则、符合性声明模板以及不声明条件一起固化。
+• 建议对象：decision_rule_profile、conformity_statement_profile、acceptance_contract、statement_template_version。
+• simulation、offline 或 shadow 结果不得自动进入正式符合性声明；未完成真实证据闭环的内容只能输出 readiness mapping。
+• reviewer 视图必须能追溯“本次结论使用了哪一套决策规则、哪一版不确定度、对应哪个 scope”。
+14.3 标准器、证书、期间核查与资产治理
+计量溯源不仅是报告中的一棵树，还必须变成运行期的强约束。平台应把标准气、湿度发生器、露点仪、数字压力计、温箱、数字温度计、压力控制器以及分析仪本体统一纳入资产与证书治理。
+• 建议对象：reference_asset_registry、certificate_lifecycle、lot_binding、intermediate_check_plan、intermediate_check_record、out_of_tolerance_event。
+• run 前必须执行 pre_run_readiness_gate：对证书有效期、期间核查状态、停用/送校状态、替代标准链审批状态进行检查，不满足条件则禁止进入准正式链。
+• 标准气体应按气瓶 lot / 证书 / 有效期 / 使用批次进行绑定；内部校准活动与外部检定校准需区分并按版本留痕。
+14.4 不确定度预算引擎
+不确定度不应只停留在对象预留层，而应逐步升级为可执行的预算与报告引擎。平台至少要支持点级预算、路线级预算和结果级预算三个层面，并能把输入量、灵敏度、合成标准不确定度、扩展不确定度和覆盖因子结构化保存。
+• 建议对象：uncertainty_model、uncertainty_input_set、sensitivity_coefficient_set、budget_case、uncertainty_report_pack。
+• 关键输入建议包含：标准气/湿度发生器、露点、压力、温度、分析仪重复性、拟合残差、封路控压影响、系数舍入与写回验证。
+• 第三阶段前至少要先完成对象模型、计算接口、黄金样例与 reviewer 报告格式，再逐步补齐全部物理模型。
+14.5 方法确认与验证矩阵
+方法确认应被设计成一套可执行、可复验、可审阅的验证矩阵，而不是“第三阶段再做”的笼统要求。平台需明确哪些项目必须验证、在哪些工况下验证、如何判定通过以及如何与 scope 绑定。
+• 建议对象：method_confirmation_protocol、route_specific_validation_matrix、golden_dataset、validation_run_set、verification_digest。
+• 建议项目包括：线性、重复性、再现性、漂移、温度影响、压力影响、路线切换影响、封路后混气敏感性、采样新鲜度、系数写回前后偏差。
+• 水路、气路、环境点应分别建模；温度点、压力点、分析仪链路长度和参考链组合应形成受控的验证矩阵。
+14.6 软件验证、审计留痕与防篡改
+若平台要走向认可级应用，软件本身也必须可审计。除代码测试外，还应建立需求-设计-实现-测试追踪关系、发布基线、配置快照、环境指纹、数据库 migration 版本、关键工件哈希与审阅审批链。
+• 建议对象：software_validation_traceability_matrix、release_manifest、environment_fingerprint、audit_event_store、artifact_hash_registry、signed_review_approval。
+• 配置版本、方法版本、算法版本、模型版本和软件发布版本必须分开治理，避免一处变更污染全部结论。
+• 任何进入 engineering-isolation 或第三阶段桥接的变更，都应同时具备设计更新、测试证据、artifact 变更摘要与回滚路径。
+14.7 外部比对、PT/ILC 与国际可比性
+国际认可不仅看内部自动化和追溯，还看平台是否为外部可比性准备了可收口的证据。V2 应预留 PT / ILC / 外部一致性对象，支持导入、关联和 reviewer 打包。
+• 建议对象：pt_ilc_registry、external_comparison_importer、comparison_evidence_pack、scope_comparison_view。
+• 在外部比对完成前，平台只允许声明“已具备比对准备度”或“已形成对外一致性接口”，不得过度表述为已建立国际可比性。
+• 外部比对结果应与 scope、方法、标准器链、不确定度和 run evidence 自动关联。
+14.8 元数据、人员授权与 SOP 治理
+高标准平台不仅管理仪器和算法，还要管理人、SOP 与元数据。平台应把操作员资质、角色权限、SOP 版本、关键动作复核、QC 码和异常恢复动作纳入统一元数据链。
+• 建议对象：run_metadata_profile、operator_authorization_profile、training_record、sop_version_binding、qc_flag_catalog、recovery_action_log。
+• 对关键动作（例如标准链切换、准正式系数写回、认可范围内报告导出）建议引入双人复核或 reviewer 闸控。
+• 元数据设计应兼顾 WMO/GAW 对数据文档、质量说明和历史资料可解释性的要求。
+14.9 面向华为 CodeArts 代码智能体的工程化实施要求
+后续若由华为 CodeArts 代码智能体继续推进 V2，应把本方案从“文档基线”升级为“工程规则”。CodeArts 在项目级规则、技能、MCP 和设计文档维护方面具备较强的工程化承载能力，但前提是先把长期边界与交付模式固化。
+• 项目级 Rules 建议固化：V1 保护、三步走阶段边界、AI 非主链、仿真不得冒充真实证据、任何工作包必须同时交付设计更新/代码/schema/tests/artifacts。
+• Skills 建议沉淀：SDD 活文档维护、schema/migration 生成、review pack 生成、uncertainty pack 样例生成、standards gap 报告、simulation/parity smoke。
+• MCP / 工具链建议接入：仓库检索、测试运行器、artifact parser、日志诊断、数据库预览和差异对账工具。
+• 文档策略建议：docx 继续作为正式版归档，repo 内同步维护 Markdown 活文档，使设计、代码与需求变更持续同源。
+
+15  面向国家级 / 国际级计量校准平台的补齐设计与后续路线
+本章基于当前 V2 仓库现状和本方案 V1.2 已有设计进行补强。当前 V2 已经形成分析中心、质量控制、数据库旁路、智能辅助、评审工作台、证据治理以及范围包 / 决策规则 / 不确定度 / 方法确认 / PT-ILC 准备度工件等平台基础，但这些能力在现阶段仍主要服务于第二阶段的 reviewer-facing、readiness-mapping 和 offline hardening，尚未闭合为真实标准器链、真实方法确认、真实不确定度预算、真实外部比对和正式声明能力。
+因此，后续设计重点不应再停留在“增加功能点”，而应转向“补闭环”：即补齐标准器与证书治理闭环、不确定度闭环、方法确认闭环、软件审计闭环、PT/ILC 与外部比对闭环、正式报告与声明闭环、人员授权与 SOP 闭环，以及面向长期运行的数据库与知识闭环。
+15.1 基于当前 V2 现状的计量化判断
+从计量校准角度看，当前 V2 的优势已经不在于“能否再做一个界面”，而在于它已经具备把测量过程、测量证据、测量结论和审核链条结构化管理的条件；但其短板也同样明确，即真实 acceptance 证据、真实方法学闭环和真实外部可比性尚未建立。
+表 11  基于当前 V2 现状的计量能力判断
+
+设计判断：当前 V2 已足以承担“计量数字底座”的建设任务，但还不能把“平台骨架”误判成“国家级/国际级计量能力闭环”。后续必须把真实标准器链、真实方法链和真实声明链补成强约束。
+15.2 目标分级与标准体系承接方式
+“国家级”“国际级”“行业领先”三个目标不宜混为一个阶段。更稳妥的设计方式，是先把目标拆成由低到高的三个能力层级：一是国内高水平 / 认可就绪层，二是国际可接受 / 外部可比层，三是行业领先 / 网络化治理层；如进一步追求国家计量院级国际最高互认，则应单列为更高层级，不作为当前 V2 的直接声明目标。
+表 12  面向不同目标层级的程序与非程序补齐要求
+设计判断：V2 的直接建设目标应优先锁定在“国内高水平 / 认可就绪层”，并同步为“国际可接受 / 外部可比层”预留结构；不要在真实外部比对和正式认可之前，直接写成“已达国际级”或“已具备国际最高互认能力”。
+15.3 面向国家级 / 国际级平台仍需补齐的核心设计对象
+结合当前 V2 现状和本方案 V1.2 已有条目，后续真正决定平台上限的不是“再补几个页面”，而是以下核心对象是否被系统化、可执行、可审计地落地。
+表 13  需要补齐的核心对象与关键交付物
+设计判断：上述对象中，优先级最高的不是 AI，而是 scope / decision / reference / uncertainty / method / software audit 六条链；这些链不闭合，平台就很难从“好用”跨到“可认可、可声明、可外部比较”。
+15.4 对现有 V1.2 各章节的直接调整建议
+V1.2 的总体方向无需推倒重来，但若目标升级到国家级 / 国际级计量校准平台，就需要把若干章节从“设计正确”提升到“运行可审、声明可控、评审可落”。
+表 14  对现有章节的增补与调整建议
+设计判断：现有 V1.2 的大方向已经较稳，本次不建议推翻原方案；更合理的做法是以“章节级增补”的方式，把计量闭环、声明边界和运行制度补上。
+15.5 后续设计与工程化工作包规划
+后续推进应继续遵守“V1 保护、V2 独立、阶段闸控、证据先行”的长期边界。建议把后续工作拆为一组从标准链到方法链、再到声明链和替代链的连续工作包，而不是在多个方向上同时发散。
+表 15  面向国家级 / 国际级计量平台的后续工作包建议
+强制边界建议：
+• 任何 simulated / replay / reviewer-only / readiness-mapping 工件，一律不得写成正式计量结论、正式认可结论或正式替代结论。
+• 任何 AI / 机器学习输出，在真实 acceptance 和正式审批链闭合之前，一律不得直接触发设备控制、采样放行、系数写回或正式声明。
+• 任何超出 scope package 适用范围的结果，只允许进入研究、诊断、补证或 readiness mapping，不得进入正式报告与正式声明。
+• V1 必须继续保持可用，直到 G3–G6 相关真机证据、回滚预案、方法确认和数值一致性真正收口。
+本章结论：若目标是国家级 / 国际级计量校准平台，V2 的下一阶段建设重点不应再是“是否再增加更多页面”，而应是“是否把标准链、方法链、证据链、声明链和运行制度全部闭合”。V1.3 因此建议把后续实施重心正式转移到认可范围、决策规则、标准器治理、不确定度、方法确认、软件审计、PT/ILC 与正式报告链这八类对象上。
+附录 A  关键术语
+表 16  术语表
+附录 B  参考依据（建议对齐的官方来源）
+• ISO / IEC / BIPM 官方：ISO/IEC 17025:2017（2023 年复审确认继续有效）、ISO 10012:2026、JCGM 100:2008（GUM）、JCGM 101:2008（蒙特卡罗补充）和 JCGM 200:2012（VIM）。
+• CNAS / 国家计量技术规范：CNAS-CL01:2018（2019 年第一次修订）、CNAS-CL01-G001:2024、CNAS-CL01-G002:2021、CNAS-CL01-G003:2021（2023-1-1 第一次修订）、CNAS-CL01-G004:2023、CNAS-CL06《测量结果的溯源性要求》、JJF 1059.1-2012《测量不确定度评定与表示》。
+• ILAC 官方文件与政策：ILAC G8:09/2019、ILAC G18:01/2024、ILAC G24:2022、ILAC P9:01/2024、ILAC P10:07/2020、ILAC P14:09/2020；如涉及对外认可说明，应同时参考 ILAC MRA 官方说明。
+• 气体分析、参考物质与能力验证：ISO 6142-1:2015、ISO 6143:2025、ISO 6145-1:2019（2024 年复审确认继续有效）、ISO 12963:2017 及 Amd 1:2020、ISO/IEC 17043:2023、ISO 17034:2016（2022 年复审确认继续有效，后续将进入修订）。
+• 国际网络与行业参考：WMO/GAW Quality Assurance、GAW Calibration Centres、QX/T 118—2020；如目标进一步升级到国家计量院级国际最高互认，则应参考 BIPM 的 CIPM MRA、KCDB / CMC 体系；如进入法制计量或监管型场景，再叠加 OIML 相关文件。
+附录 C  AI 与高级分析术语
+本附录用于统一 V1.3 新增对象的术语口径。
+附录 D  异常标签建议清单
+以下清单用于指导标签命名、案例归档和 reviewer 导航，不直接等同于最终根因结论。
+附录 E  模型治理最小字段
+模型治理最小字段用于确保 AI/机器学习能力可追溯、可评估、可回滚。
+
+附录 F  认可范围包与决策规则最小字段
+本附录用于把“可认可、可声明、可评审”的核心对象最小化建模，便于 V2 在文件工件与数据库旁路中先行落地。
+建议字段（scope package）
+• scope_id / scope_name / scope_version
+• measurand / route_type / environment_mode / analyzer_model
+• temperature_range / pressure_range / gas_or_humidity_range
+• reference_chain / standard_gas_lot_policy / certificate_set
+• method_version / algorithm_version / uncertainty_profile / decision_rule_profile
+• linked_evidence_categories / readiness_status / limitation_note / non_claim_note
+建议字段（decision rule）
+• decision_rule_id / source_standard_or_method / acceptance_limit
+• guard_band_policy / uncertainty_source_scope / pass_fail_inconclusive_rule
+• statement_template / applicability_scope / reviewer_gate / exception_clause
+附录 G  不确定度预算与方法确认对象建议
+本附录用于把第三阶段前应先固化的对象模型收拢成可交付字段，便于 CodeArts 工作包逐项实现。
+建议字段（uncertainty budget）
+• uncertainty_case_id / measurand / route / point_context
+• input_quantity_set / distribution_type / sensitivity_coefficients
+• repeatability_component / reference_component / fit_residual_component / environmental_component
+• combined_standard_uncertainty / coverage_factor / expanded_uncertainty / report_rule
+建议字段（method confirmation）
+• protocol_id / scope_binding / validation_matrix_version / golden_dataset_id
+• linearity / repeatability / reproducibility / drift / temperature_effect / pressure_effect
+• route_switch_effect / seal_ingress_sensitivity / freshness_check / writeback_verification
+• acceptance_contract / reviewer_conclusion / revalidation_trigger
+附录 H  CodeArts 项目规则与首批工作包建议
+本附录用于指导后续由华为 CodeArts 代码智能体持续推进 V2 时的项目级治理方式。
+建议项目级规则
+• 绝不修改 V1 生产主流程；高风险能力只允许在 V2 独立链推进。
+• 第二阶段默认只允许 simulation / offline / headless；不得把仿真写成 real acceptance evidence。
+• AI / 机器学习结果只允许先旁路、先 shadow、先 advisory，不得直接控制主链。
+• 每个工作包必须同时交付：设计更新、代码改动、schema/migration、测试证据、示例 artifacts、回滚说明。
+首批 6 个工作包建议
+• WP1：scope package + decision_rule_profile + conformity_statement_profile。
+• WP2：reference_asset_registry + certificate_lifecycle + pre_run_readiness_gate。
+• WP3：uncertainty budget engine skeleton + golden cases + report pack。
+• WP4：method_confirmation_protocol + validation matrix + verification digest。
+• WP5：software validation traceability + audit hash + release manifest。
+• WP6：PT/ILC importer + comparison evidence pack + reviewer navigation。

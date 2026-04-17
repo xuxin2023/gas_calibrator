@@ -9,14 +9,21 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-import matplotlib
+try:
+    import matplotlib
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+except Exception:  # pragma: no cover - optional dependency in engineering envs
+    matplotlib = None
+    plt = None
 
 
 REQUIRED_PRESSURES = [1000, 800, 600, 500]
 TARGET_CO2_PPM = 800
+BASELINE_TOLERANCE_PPM = 120.0
+NEAR_AMBIENT_PRESSURE_MIN_HPA = 980
+NEAR_AMBIENT_PRESSURE_MAX_HPA = 1020
 PRESSURE_ORDER = {pressure: index for index, pressure in enumerate(REQUIRED_PRESSURES)}
 FORBIDDEN_TRACE_STAGES = {
     "atmosphere_enter_begin": "atmosphere refresh",
@@ -31,6 +38,9 @@ PRESAMPLE_LOCK_ACTION_MAP = {
 }
 PACE_DIAG_CATEGORIES = (
     "pace_vent_in_progress_suspect",
+    "controller_side_state_only_without_analyzer_side_effect",
+    "pace_legacy_vent_state_3_suspect",
+    "pace_atmosphere_connected_latched_state_suspect",
     "pace_vent_completed_latched_suspect",
     "pace_effort_nonzero_after_output_off_suspect",
     "pace_supply_vacuum_compensation_suspect",
@@ -52,10 +62,13 @@ POINT_SUMMARY_FIELDS = [
     "pressure_hpa",
     "point_tag",
     "status",
+    "target_co2_ppm",
     "co2_mean_ppm",
     "dewpoint_mean_c",
     "h2o_mean_mmol",
     "handoff_mode",
+    "pace_upstream_check_valve_installed",
+    "post_isolation_pressure_truth_source",
     "pressure_in_limits",
     "outp_state",
     "isol_state",
@@ -73,6 +86,7 @@ POINT_SUMMARY_FIELDS = [
     "pace_isol_state_query",
     "pace_mode_query",
     "pace_vent_status_query",
+    "pace_legacy_vent_state_3_suspect",
     "pace_vent_completed_latched",
     "pace_vent_clear_attempted",
     "pace_vent_clear_result",
@@ -97,11 +111,26 @@ POINT_SUMMARY_FIELDS = [
     "pace_oper_pres_even_query",
     "pace_oper_pres_vent_complete_bit",
     "pace_oper_pres_in_limits_bit",
+    "baseline_sanity_gate_status",
+    "baseline_sanity_gate_reason",
+    "baseline_sanity_target_co2_ppm",
+    "baseline_sanity_plateau_mean_ppm",
+    "baseline_sanity_plateau_span_ppm",
+    "baseline_sanity_plateau_count",
     "pressure_gate_result",
     "dewpoint_gate_result",
     "reject_reason",
     "forbidden_pre_sampling_actions",
 ]
+
+POINT_PHASE_FIELDS = ("point_phase", "phase", "step", "gas_type", "流程阶段", "气体类型", "步骤")
+POINT_ROW_FIELDS = ("point_row", "row_index", "校准点行号", "点位编号")
+POINT_TAG_FIELDS = ("point_tag", "点位标签")
+PRESSURE_FIELDS = ("pressure_hpa", "pressure_target_hpa", "target_pressure_hpa", "目标压力hPa")
+TARGET_CO2_FIELDS = ("target_co2_ppm", "co2_ppm_target", "co2_ppm", "目标二氧化碳浓度ppm", "目标值")
+CO2_MEAN_FIELDS = ("co2_mean_ppm", "co2_mean_primary_or_first", "co2_mean", "二氧化碳平均值", "测量值")
+DEWPOINT_MEAN_FIELDS = ("dewpoint_mean_c", "露点仪露点C_平均值")
+H2O_MEAN_FIELDS = ("h2o_mean_mmol", "h2o_mean_primary_or_first", "h2o_mean", "水平均值")
 
 
 def _safe_float(value: Any) -> Optional[float]:
@@ -170,11 +199,55 @@ def _round_label(round_index: int) -> str:
     return f"round{int(round_index)}"
 
 
+def _is_near_ambient_pressure(pressure_hpa: Any) -> bool:
+    pressure_value = _safe_int(pressure_hpa)
+    if pressure_value is None:
+        return False
+    return NEAR_AMBIENT_PRESSURE_MIN_HPA <= pressure_value <= NEAR_AMBIENT_PRESSURE_MAX_HPA
+
+
+def _checkvalve_mode_active(row: Mapping[str, Any]) -> bool:
+    return _safe_bool(row.get("pace_upstream_check_valve_installed")) is True
+
+
+def _checkvalve_pressure_drift_failure(row: Mapping[str, Any]) -> bool:
+    diagnosis = str(row.get("post_isolation_diagnosis") or "").strip()
+    drift_hpa = _safe_float(row.get("post_isolation_pressure_drift_hpa"))
+    return diagnosis in {
+        "post_isolation_ambient_ingress_suspect",
+        "sealed_path_leak_suspect",
+        "pace_vent_valve_left_open_suspect",
+        "pace_protective_vent_suspect",
+    } or (drift_hpa is not None and abs(float(drift_hpa)) >= 0.18)
+
+
+def _checkvalve_dewpoint_failure(row: Mapping[str, Any]) -> bool:
+    diagnosis = str(row.get("post_isolation_diagnosis") or "").strip()
+    dew_rise_c = _safe_float(row.get("post_isolation_dewpoint_rise_c"))
+    return diagnosis == "dead_volume_wet_release_suspect" or (
+        dew_rise_c is not None and float(dew_rise_c) >= 0.06
+    )
+
+
+def _checkvalve_controller_side_only(row: Mapping[str, Any]) -> bool:
+    diagnosis = str(row.get("post_isolation_diagnosis") or "").strip()
+    if diagnosis not in {
+        "controller_side_state_only_without_analyzer_side_effect",
+        "pace_legacy_vent_state_3_suspect",
+        "pace_atmosphere_connected_latched_state_suspect",
+        "pace_vent_completed_latched_suspect",
+    }:
+        return False
+    if _checkvalve_pressure_drift_failure(row) or _checkvalve_dewpoint_failure(row):
+        return False
+    return str(row.get("reject_reason") or "").strip() == ""
+
+
 def _co2_like_row(row: Mapping[str, Any]) -> bool:
-    phase = str(_pick_first(row, ("point_phase", "phase", "step", "gas_type")) or "").strip().lower()
+    phase = str(_pick_first(row, POINT_PHASE_FIELDS) or "").strip().lower()
     if phase in {"co2", "carbon_dioxide"}:
         return True
-    return _pick_first(row, ("target_co2_ppm", "co2_ppm_target", "co2_ppm")) not in (None, "")
+    return _pick_first(row, TARGET_CO2_FIELDS) not in (None, "")
 
 
 def discover_run_artifacts(run_dir: Path) -> Dict[str, Optional[Path]]:
@@ -194,16 +267,19 @@ def discover_run_artifacts(run_dir: Path) -> Dict[str, Optional[Path]]:
 
 def _normalize_prebuilt_summary_row(row: Mapping[str, Any]) -> Dict[str, Any]:
     normalized = {
-        "point_row": _safe_int(row.get("point_row")),
+        "point_row": _safe_int(_pick_first(row, POINT_ROW_FIELDS)),
         "round_index": _safe_int(row.get("round_index")) or 1,
         "step_index": _safe_int(row.get("step_index")) or 0,
-        "pressure_hpa": _safe_int(_pick_first(row, ("pressure_hpa", "pressure_target_hpa"))),
-        "point_tag": str(row.get("point_tag") or ""),
+        "pressure_hpa": _safe_int(_pick_first(row, PRESSURE_FIELDS)),
+        "point_tag": str(_pick_first(row, POINT_TAG_FIELDS) or ""),
         "status": str(row.get("status") or ""),
-        "co2_mean_ppm": _safe_float(_pick_first(row, ("co2_mean_ppm", "co2_mean_primary_or_first", "co2_mean"))),
-        "dewpoint_mean_c": _safe_float(row.get("dewpoint_mean_c")),
-        "h2o_mean_mmol": _safe_float(_pick_first(row, ("h2o_mean_mmol", "h2o_mean_primary_or_first", "h2o_mean"))),
+        "target_co2_ppm": _safe_float(_pick_first(row, TARGET_CO2_FIELDS)),
+        "co2_mean_ppm": _safe_float(_pick_first(row, CO2_MEAN_FIELDS)),
+        "dewpoint_mean_c": _safe_float(_pick_first(row, DEWPOINT_MEAN_FIELDS)),
+        "h2o_mean_mmol": _safe_float(_pick_first(row, H2O_MEAN_FIELDS)),
         "handoff_mode": str(row.get("handoff_mode") or ""),
+        "pace_upstream_check_valve_installed": _safe_bool(row.get("pace_upstream_check_valve_installed")) or False,
+        "post_isolation_pressure_truth_source": str(row.get("post_isolation_pressure_truth_source") or ""),
         "pressure_in_limits": _safe_bool(row.get("pressure_in_limits")) or False,
         "outp_state": _safe_int(_pick_first(row, ("outp_state", "pace_output_state", "pace_outp_state_query"))),
         "isol_state": _safe_int(_pick_first(row, ("isol_state", "pace_isolation_state", "pace_isol_state_query"))),
@@ -221,6 +297,7 @@ def _normalize_prebuilt_summary_row(row: Mapping[str, Any]) -> Dict[str, Any]:
         "pace_isol_state_query": _safe_int(row.get("pace_isol_state_query")),
         "pace_mode_query": str(row.get("pace_mode_query") or ""),
         "pace_vent_status_query": _safe_int(row.get("pace_vent_status_query")),
+        "pace_legacy_vent_state_3_suspect": _safe_bool(row.get("pace_legacy_vent_state_3_suspect")) or False,
         "pace_vent_completed_latched": _safe_bool(row.get("pace_vent_completed_latched")),
         "pace_vent_clear_attempted": _safe_bool(row.get("pace_vent_clear_attempted")) or False,
         "pace_vent_clear_result": str(row.get("pace_vent_clear_result") or ""),
@@ -245,6 +322,12 @@ def _normalize_prebuilt_summary_row(row: Mapping[str, Any]) -> Dict[str, Any]:
         "pace_oper_pres_even_query": _safe_int(row.get("pace_oper_pres_even_query")),
         "pace_oper_pres_vent_complete_bit": _safe_bool(row.get("pace_oper_pres_vent_complete_bit")),
         "pace_oper_pres_in_limits_bit": _safe_bool(row.get("pace_oper_pres_in_limits_bit")),
+        "baseline_sanity_gate_status": str(row.get("baseline_sanity_gate_status") or ""),
+        "baseline_sanity_gate_reason": str(row.get("baseline_sanity_gate_reason") or ""),
+        "baseline_sanity_target_co2_ppm": _safe_float(row.get("baseline_sanity_target_co2_ppm")),
+        "baseline_sanity_plateau_mean_ppm": _safe_float(row.get("baseline_sanity_plateau_mean_ppm")),
+        "baseline_sanity_plateau_span_ppm": _safe_float(row.get("baseline_sanity_plateau_span_ppm")),
+        "baseline_sanity_plateau_count": _safe_int(row.get("baseline_sanity_plateau_count")),
         "pressure_gate_result": str(row.get("pressure_gate_result") or ""),
         "dewpoint_gate_result": str(row.get("dewpoint_gate_result") or ""),
         "reject_reason": str(_pick_first(row, ("reject_reason", "root_cause_reject_reason", "point_quality_reason")) or ""),
@@ -263,10 +346,10 @@ def _normalize_prebuilt_summary_row(row: Mapping[str, Any]) -> Dict[str, Any]:
 
 
 def _row_key(row: Mapping[str, Any]) -> Tuple[Optional[int], str]:
-    phase = str(_pick_first(row, ("point_phase", "phase")) or "").strip().lower()
+    phase = str(_pick_first(row, POINT_PHASE_FIELDS) or "").strip().lower()
     if not phase and _co2_like_row(row):
         phase = "co2"
-    return (_safe_int(_pick_first(row, ("point_row", "row_index"))), phase)
+    return (_safe_int(_pick_first(row, POINT_ROW_FIELDS)), phase)
 
 
 def _group_by_point(rows: Iterable[Mapping[str, Any]]) -> Dict[Tuple[Optional[int], str], List[Mapping[str, Any]]]:
@@ -362,9 +445,9 @@ def _build_point_result(
 ) -> Dict[str, Any]:
     rows = list(sample_rows) + list(timing_rows) + list(trace_rows)
     row = rows[0] if rows else {}
-    point_row = _safe_int(_pick_first(row, ("point_row", "row_index")))
-    point_tag = str(_latest_nonempty(rows, ("point_tag",)) or "")
-    pressure_hpa = _safe_int(_latest_nonempty(rows, ("pressure_hpa", "pressure_target_hpa", "target_pressure_hpa")))
+    point_row = _safe_int(_pick_first(row, POINT_ROW_FIELDS))
+    point_tag = str(_latest_nonempty(rows, POINT_TAG_FIELDS) or "")
+    pressure_hpa = _safe_int(_latest_nonempty(rows, PRESSURE_FIELDS))
     round_index = _safe_int(_latest_nonempty(rows, ("round_index",))) or _parse_round_index(point_tag, round_index_fallback)
     step_index = _safe_int(_latest_nonempty(rows, ("step_index",)))
     if step_index is None:
@@ -397,13 +480,9 @@ def _build_point_result(
         reject_reason = post_isolation_diagnosis
     if not reject_reason and capture_hold_state.lower() == "fail":
         reject_reason = "capture_hold_failed"
-    co2_mean_ppm = _safe_float(
-        _latest_nonempty(sample_rows, ("co2_mean_ppm", "co2_mean_primary_or_first", "co2_mean"))
-    )
-    dewpoint_mean_c = _safe_float(_latest_nonempty(sample_rows, ("dewpoint_mean_c",)))
-    h2o_mean_mmol = _safe_float(
-        _latest_nonempty(sample_rows, ("h2o_mean_mmol", "h2o_mean_primary_or_first", "h2o_mean"))
-    )
+    co2_mean_ppm = _safe_float(_latest_nonempty(sample_rows, CO2_MEAN_FIELDS))
+    dewpoint_mean_c = _safe_float(_latest_nonempty(sample_rows, DEWPOINT_MEAN_FIELDS))
+    h2o_mean_mmol = _safe_float(_latest_nonempty(sample_rows, H2O_MEAN_FIELDS))
     status = _point_status(
         co2_mean_ppm=co2_mean_ppm,
         sampling_begin_ts=sampling_begin_ts,
@@ -419,10 +498,18 @@ def _build_point_result(
         "pressure_hpa": pressure_hpa,
         "point_tag": point_tag,
         "status": status,
+        "target_co2_ppm": _safe_float(_latest_nonempty(rows, TARGET_CO2_FIELDS)),
         "co2_mean_ppm": co2_mean_ppm,
         "dewpoint_mean_c": dewpoint_mean_c,
         "h2o_mean_mmol": h2o_mean_mmol,
         "handoff_mode": str(_latest_nonempty(rows, ("handoff_mode",)) or ""),
+        "pace_upstream_check_valve_installed": _safe_bool(
+            _latest_nonempty(rows, ("pace_upstream_check_valve_installed",))
+        )
+        or False,
+        "post_isolation_pressure_truth_source": str(
+            _latest_nonempty(rows, ("post_isolation_pressure_truth_source",)) or ""
+        ),
         "pressure_in_limits": bool(str(pressure_in_limits_ts or "").strip()),
         "outp_state": _safe_int(_latest_nonempty(rows, ("outp_state", "pace_outp_state_query", "pace_output_state"))),
         "isol_state": _safe_int(_latest_nonempty(rows, ("isol_state", "pace_isol_state_query", "pace_isolation_state"))),
@@ -441,6 +528,10 @@ def _build_point_result(
         "pace_isol_state_query": _safe_int(_latest_nonempty(rows, ("pace_isol_state_query",))),
         "pace_mode_query": str(_latest_nonempty(rows, ("pace_mode_query",)) or ""),
         "pace_vent_status_query": _safe_int(_latest_nonempty(rows, ("pace_vent_status_query", "pace_vent_status"))),
+        "pace_legacy_vent_state_3_suspect": _safe_bool(
+            _latest_nonempty(rows, ("pace_legacy_vent_state_3_suspect",))
+        )
+        or False,
         "pace_vent_completed_latched": _safe_bool(_latest_nonempty(rows, ("pace_vent_completed_latched",))),
         "pace_vent_clear_attempted": _safe_bool(_latest_nonempty(rows, ("pace_vent_clear_attempted",))) or False,
         "pace_vent_clear_result": str(_latest_nonempty(rows, ("pace_vent_clear_result",)) or ""),
@@ -467,6 +558,12 @@ def _build_point_result(
         "pace_oper_pres_even_query": _safe_int(_latest_nonempty(rows, ("pace_oper_pres_even_query",))),
         "pace_oper_pres_vent_complete_bit": _safe_bool(_latest_nonempty(rows, ("pace_oper_pres_vent_complete_bit",))),
         "pace_oper_pres_in_limits_bit": _safe_bool(_latest_nonempty(rows, ("pace_oper_pres_in_limits_bit",))),
+        "baseline_sanity_gate_status": str(_latest_nonempty(rows, ("baseline_sanity_gate_status",)) or ""),
+        "baseline_sanity_gate_reason": str(_latest_nonempty(rows, ("baseline_sanity_gate_reason",)) or ""),
+        "baseline_sanity_target_co2_ppm": _safe_float(_latest_nonempty(rows, ("baseline_sanity_target_co2_ppm",))),
+        "baseline_sanity_plateau_mean_ppm": _safe_float(_latest_nonempty(rows, ("baseline_sanity_plateau_mean_ppm",))),
+        "baseline_sanity_plateau_span_ppm": _safe_float(_latest_nonempty(rows, ("baseline_sanity_plateau_span_ppm",))),
+        "baseline_sanity_plateau_count": _safe_int(_latest_nonempty(rows, ("baseline_sanity_plateau_count",))),
         "pressure_gate_result": str(_latest_nonempty(rows, ("pressure_gate_result", "pressure_gate_status")) or ""),
         "dewpoint_gate_result": str(_latest_nonempty(rows, ("dewpoint_gate_result",)) or ""),
         "reject_reason": reject_reason,
@@ -552,11 +649,32 @@ def classify_ingress_result(point_results: Sequence[Mapping[str, Any]]) -> Tuple
     forbidden_counter: Counter[str] = Counter()
     category_point_counter: Counter[str] = Counter()
     handoff_mismatch_count = 0
+    accepted_near_ambient_count = 0
+    accepted_low_pressure_count = 0
+    baseline_large_delta_count = 0
+    baseline_wrong_plateau_count = 0
     for row in point_results:
         diagnosis = str(row.get("post_isolation_diagnosis") or "").strip()
         reject_reason = str(row.get("reject_reason") or "").strip()
         forbidden = str(row.get("forbidden_pre_sampling_actions") or "").strip()
         handoff_mode = str(row.get("handoff_mode") or "").strip()
+        pressure_hpa = _safe_int(row.get("pressure_hpa"))
+        target_co2_ppm = _safe_float(row.get("target_co2_ppm"))
+        if target_co2_ppm is None:
+            target_co2_ppm = _safe_float(row.get("baseline_sanity_target_co2_ppm"))
+        if target_co2_ppm is None:
+            target_co2_ppm = float(TARGET_CO2_PPM)
+        co2_mean_ppm = _safe_float(row.get("co2_mean_ppm"))
+        status = str(row.get("status") or "").strip().lower()
+        if status == "sampled":
+            if _is_near_ambient_pressure(pressure_hpa):
+                accepted_near_ambient_count += 1
+                if co2_mean_ppm is not None and abs(float(co2_mean_ppm) - float(target_co2_ppm)) > BASELINE_TOLERANCE_PPM:
+                    baseline_large_delta_count += 1
+            elif pressure_hpa is not None:
+                accepted_low_pressure_count += 1
+        if reject_reason == "baseline_precondition_wrong_plateau_suspect":
+            baseline_wrong_plateau_count += 1
         if diagnosis:
             diagnosis_counter[diagnosis] += 1
         if reject_reason:
@@ -575,6 +693,10 @@ def classify_ingress_result(point_results: Sequence[Mapping[str, Any]]) -> Tuple
         count for action, count in forbidden_counter.items() if action in {"atmosphere refresh", "route reopen"}
     )
     pace_vent_in_progress_count = category_point_counter["pace_vent_in_progress_suspect"]
+    pace_legacy_vent_state_3_count = (
+        category_point_counter["pace_legacy_vent_state_3_suspect"]
+        + category_point_counter["pace_atmosphere_connected_latched_state_suspect"]
+    )
     pace_vent_completed_latched_count = category_point_counter["pace_vent_completed_latched_suspect"]
     pace_effort_nonzero_after_output_off_count = category_point_counter["pace_effort_nonzero_after_output_off_suspect"]
     pace_supply_vacuum_compensation_count = category_point_counter["pace_supply_vacuum_compensation_suspect"]
@@ -620,9 +742,13 @@ def classify_ingress_result(point_results: Sequence[Mapping[str, Any]]) -> Tuple
     else:
         fast_capture_assessment = "未启用 5 秒快采或证据不足"
 
+    if pace_legacy_vent_state_3_count and not any(_checkvalve_mode_active(row) for row in point_results):
+        fast_capture_assessment = "5s fast capture blocked by legacy VENT=3 compatibility-only state"
+
     severe_physical_count = (
         old_reopen_count
         + pace_vent_in_progress_count
+        + pace_legacy_vent_state_3_count
         + pace_vent_completed_latched_count
         + pace_effort_nonzero_after_output_off_count
         + pace_supply_vacuum_compensation_count
@@ -642,6 +768,61 @@ def classify_ingress_result(point_results: Sequence[Mapping[str, Any]]) -> Tuple
         conclusion = "混气明显减轻但未完全解决"
     else:
         conclusion = "混气已基本解决"
+
+    baseline_source_or_stream_problem_count = (
+        baseline_large_delta_count
+        + baseline_wrong_plateau_count
+        + category_point_counter["baseline_source_mismatch_suspect"]
+        + category_point_counter["baseline_stream_mismatch_suspect"]
+        + category_point_counter["baseline_precondition_wrong_plateau_suspect"]
+    )
+    checkvalve_mode_point_count = sum(1 for row in point_results if _checkvalve_mode_active(row))
+    checkvalve_external_pressure_drift_failure_count = sum(
+        1 for row in point_results if _checkvalve_mode_active(row) and _checkvalve_pressure_drift_failure(row)
+    )
+    checkvalve_dewpoint_rise_failure_count = sum(
+        1 for row in point_results if _checkvalve_mode_active(row) and _checkvalve_dewpoint_failure(row)
+    )
+    controller_side_only_without_analyzer_side_effect_count = sum(
+        1 for row in point_results if _checkvalve_mode_active(row) and _checkvalve_controller_side_only(row)
+    )
+    if checkvalve_mode_point_count > 0:
+        if (
+            fast5s_pass_count > 0
+            and checkvalve_external_pressure_drift_failure_count == 0
+            and checkvalve_dewpoint_rise_failure_count == 0
+            and old_reopen_count == 0
+            and pace_vent_in_progress_count == 0
+            and controller_hunting_count == 0
+        ):
+            conclusion_code = "checkvalve_quick_smoke_pass"
+            conclusion = "check-valve quick smoke passed on analyzer-side evidence"
+        elif checkvalve_external_pressure_drift_failure_count > 0:
+            conclusion_code = "checkvalve_quick_smoke_failed_by_external_pressure_drift"
+            conclusion = "check-valve quick smoke failed on analyzer-side external-pressure drift"
+        elif checkvalve_dewpoint_rise_failure_count > 0:
+            conclusion_code = "checkvalve_quick_smoke_failed_by_dewpoint_rise"
+            conclusion = "check-valve quick smoke failed on post-isolation dewpoint rise"
+        elif controller_side_only_without_analyzer_side_effect_count > 0:
+            conclusion_code = "controller_side_state_only_without_analyzer_side_effect"
+            conclusion = "controller-side vent state persisted without analyzer-side effect under check-valve mode"
+        elif severe_physical_count > 0 or dead_volume_wet_release_count > 0 or moderate_count > 0 or monotonic_pullback:
+            conclusion_code = "post_isolation_physical_leak_or_wet_release_still_present"
+            conclusion = "post-isolation physical leak or wet release still present under check-valve quick smoke"
+        else:
+            conclusion_code = "mixed_but_improved"
+    elif pace_legacy_vent_state_3_count > 0:
+        conclusion_code = "legacy_vent_state_problem"
+        conclusion = "legacy VENT=3 compatibility state still needs controller-only proof"
+    elif baseline_source_or_stream_problem_count > 0:
+        conclusion_code = "baseline_source_or_stream_problem"
+        conclusion = "near-ambient baseline points to source/stream mismatch before low-pressure inference"
+    elif severe_physical_count > 0 or monotonic_pullback:
+        conclusion_code = "post_isolation_low_pressure_problem"
+    elif dead_volume_wet_release_count > 0 or moderate_count > 0 or fast5s_fallback_count > 0:
+        conclusion_code = "mixed_but_improved"
+    else:
+        conclusion_code = "cleared_or_not_observed"
 
     metrics = {
         "round_metrics": round_metrics,
@@ -667,6 +848,23 @@ def classify_ingress_result(point_results: Sequence[Mapping[str, Any]]) -> Tuple
         "reject_reason_counts": dict(reject_counter),
         "diagnosis_counts": dict(diagnosis_counter),
     }
+    metrics.update(
+        {
+            "conclusion_code": conclusion_code,
+            "pace_legacy_vent_state_3_count": pace_legacy_vent_state_3_count,
+            "accepted_near_ambient_count": accepted_near_ambient_count,
+            "accepted_low_pressure_count": accepted_low_pressure_count,
+            "baseline_large_delta_count": baseline_large_delta_count,
+            "baseline_wrong_plateau_count": baseline_wrong_plateau_count,
+            "baseline_source_or_stream_problem_count": baseline_source_or_stream_problem_count,
+            "checkvalve_mode_point_count": checkvalve_mode_point_count,
+            "checkvalve_external_pressure_drift_failure_count": checkvalve_external_pressure_drift_failure_count,
+            "checkvalve_dewpoint_rise_failure_count": checkvalve_dewpoint_rise_failure_count,
+            "controller_side_only_without_analyzer_side_effect_count": (
+                controller_side_only_without_analyzer_side_effect_count
+            ),
+        }
+    )
     return conclusion, metrics
 
 
@@ -698,6 +896,26 @@ def _build_standard_status_summary_rows(
         {"metric": "vent_status_0_count", "count": vent_counter.get("0", 0)},
         {"metric": "vent_status_1_count", "count": vent_counter.get("1", 0)},
         {"metric": "vent_status_2_count", "count": vent_counter.get("2", 0)},
+        {"metric": "vent_status_3_count", "count": vent_counter.get("3", 0)},
+        {
+            "metric": "accepted_near_ambient_count",
+            "count": sum(
+                1
+                for row in point_results
+                if str(row.get("status") or "").strip().lower() == "sampled"
+                and _is_near_ambient_pressure(row.get("pressure_hpa"))
+            ),
+        },
+        {
+            "metric": "accepted_low_pressure_count",
+            "count": sum(
+                1
+                for row in point_results
+                if str(row.get("status") or "").strip().lower() == "sampled"
+                and not _is_near_ambient_pressure(row.get("pressure_hpa"))
+                and _safe_int(row.get("pressure_hpa")) is not None
+            ),
+        },
         {
             "metric": "vent_completed_latched_points",
             "count": sum(
@@ -737,6 +955,52 @@ def _build_standard_status_summary_rows(
     return summary_rows
 
 
+def _build_baseline_plateau_rows(point_results: Sequence[Mapping[str, Any]]) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for row in point_results:
+        pressure_hpa = _safe_int(row.get("pressure_hpa"))
+        if not _is_near_ambient_pressure(pressure_hpa):
+            continue
+        target_co2_ppm = _safe_float(row.get("target_co2_ppm"))
+        if target_co2_ppm is None:
+            target_co2_ppm = _safe_float(row.get("baseline_sanity_target_co2_ppm"))
+        if target_co2_ppm is None:
+            target_co2_ppm = float(TARGET_CO2_PPM)
+        plateau_mean_ppm = _safe_float(row.get("baseline_sanity_plateau_mean_ppm"))
+        co2_mean_ppm = _safe_float(row.get("co2_mean_ppm"))
+        abs_delta_ppm = None
+        if co2_mean_ppm is not None:
+            abs_delta_ppm = abs(float(co2_mean_ppm) - float(target_co2_ppm))
+        elif plateau_mean_ppm is not None:
+            abs_delta_ppm = abs(float(plateau_mean_ppm) - float(target_co2_ppm))
+        rows.append(
+            {
+                "round_index": row.get("round_index"),
+                "pressure_hpa": pressure_hpa,
+                "point_row": row.get("point_row"),
+                "point_tag": row.get("point_tag"),
+                "status": row.get("status"),
+                "target_co2_ppm": target_co2_ppm,
+                "co2_mean_ppm": co2_mean_ppm,
+                "baseline_sanity_gate_status": row.get("baseline_sanity_gate_status"),
+                "baseline_sanity_gate_reason": row.get("baseline_sanity_gate_reason"),
+                "baseline_sanity_plateau_mean_ppm": plateau_mean_ppm,
+                "baseline_sanity_plateau_span_ppm": _safe_float(row.get("baseline_sanity_plateau_span_ppm")),
+                "baseline_sanity_plateau_count": _safe_int(row.get("baseline_sanity_plateau_count")),
+                "abs_delta_ppm": abs_delta_ppm,
+                "reject_reason": row.get("reject_reason"),
+                "post_isolation_diagnosis": row.get("post_isolation_diagnosis"),
+            }
+        )
+    return rows
+
+
+def _write_placeholder_plot(path: Path) -> str:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"")
+    return str(path)
+
+
 def _safe_plot_series(ax: Any, *, x_values: Sequence[int], y_values: Sequence[Optional[float]], label: str, marker: str = "o") -> None:
     cleaned = [(x, y) for x, y in zip(x_values, y_values) if y is not None]
     if not cleaned:
@@ -746,6 +1010,17 @@ def _safe_plot_series(ax: Any, *, x_values: Sequence[int], y_values: Sequence[Op
 
 
 def _plot_round_curves(point_results: Sequence[Mapping[str, Any]], output_dir: Path) -> Dict[str, str]:
+    if plt is None:
+        return {
+            "co2_plot": _write_placeholder_plot(output_dir / "pressure_vs_co2_rounds.png"),
+            "dewpoint_h2o_plot": _write_placeholder_plot(output_dir / "pressure_vs_dewpoint_h2o_rounds.png"),
+            "post_isolation_drift_plot": _write_placeholder_plot(
+                output_dir / "post_isolation_pressure_drift_vs_pressure.png"
+            ),
+            "post_isolation_dewpoint_rise_plot": _write_placeholder_plot(
+                output_dir / "post_isolation_dewpoint_rise_vs_pressure.png"
+            ),
+        }
     grouped: Dict[int, List[Mapping[str, Any]]] = defaultdict(list)
     for row in point_results:
         grouped[int(row.get("round_index") or 1)].append(row)
@@ -834,6 +1109,15 @@ def _plot_round_curves(point_results: Sequence[Mapping[str, Any]], output_dir: P
 
 
 def _plot_trace_timelines(trace_rows: Sequence[Mapping[str, Any]], output_dir: Path) -> Dict[str, str]:
+    if plt is None:
+        return {
+            "pace_vent_state_vs_time_plot": _write_placeholder_plot(output_dir / "pace_vent_state_vs_time.png"),
+            "pace_effort_vs_time_plot": _write_placeholder_plot(output_dir / "pace_effort_vs_time.png"),
+            "pace_comp_supply_vacuum_vs_time_plot": _write_placeholder_plot(
+                output_dir / "pace_comp_supply_vacuum_vs_time.png"
+            ),
+            "pace_inlimits_vs_time_plot": _write_placeholder_plot(output_dir / "pace_inlimits_vs_time.png"),
+        }
     vent_plot = output_dir / "pace_vent_state_vs_time.png"
     effort_plot = output_dir / "pace_effort_vs_time.png"
     comp_plot = output_dir / "pace_comp_supply_vacuum_vs_time.png"
@@ -971,6 +1255,29 @@ def analyze_runs(run_dirs: Sequence[Path | str], *, output_dir: Path | str) -> D
     standard_status_rows = _build_standard_status_summary_rows(point_results, trace_rows)
     standard_status_csv = output_path / "pace_standard_status_summary.csv"
     _write_csv_rows(standard_status_csv, standard_status_rows, ["metric", "count"])
+    baseline_plateau_rows = _build_baseline_plateau_rows(point_results)
+    baseline_plateau_csv = output_path / "baseline_plateau_summary.csv"
+    _write_csv_rows(
+        baseline_plateau_csv,
+        baseline_plateau_rows,
+        [
+            "round_index",
+            "pressure_hpa",
+            "point_row",
+            "point_tag",
+            "status",
+            "target_co2_ppm",
+            "co2_mean_ppm",
+            "baseline_sanity_gate_status",
+            "baseline_sanity_gate_reason",
+            "baseline_sanity_plateau_mean_ppm",
+            "baseline_sanity_plateau_span_ppm",
+            "baseline_sanity_plateau_count",
+            "abs_delta_ppm",
+            "reject_reason",
+            "post_isolation_diagnosis",
+        ],
+    )
 
     protective_rows = [
         {"state": "vent_orpv_enabled_points", "count": sum(1 for row in point_results if str(row.get("pace_vent_orpv_state_query") or "").upper() == "ENABLED")},
@@ -1026,8 +1333,65 @@ def analyze_runs(run_dirs: Sequence[Path | str], *, output_dir: Path | str) -> D
             "reject_reason",
         ],
     )
+    checkvalve_fast_smoke_rows = [
+        {
+            "round_index": row.get("round_index"),
+            "pressure_hpa": row.get("pressure_hpa"),
+            "point_row": row.get("point_row"),
+            "point_tag": row.get("point_tag"),
+            "pace_upstream_check_valve_installed": row.get("pace_upstream_check_valve_installed"),
+            "post_isolation_pressure_truth_source": row.get("post_isolation_pressure_truth_source"),
+            "post_isolation_capture_mode": row.get("post_isolation_capture_mode"),
+            "post_isolation_fast_capture_status": row.get("post_isolation_fast_capture_status"),
+            "post_isolation_fast_capture_reason": row.get("post_isolation_fast_capture_reason"),
+            "post_isolation_fast_capture_fallback": row.get("post_isolation_fast_capture_fallback"),
+            "post_isolation_pressure_drift_hpa": row.get("post_isolation_pressure_drift_hpa"),
+            "post_isolation_dewpoint_rise_c": row.get("post_isolation_dewpoint_rise_c"),
+            "post_isolation_diagnosis": row.get("post_isolation_diagnosis"),
+            "pace_vent_status_query": row.get("pace_vent_status_query"),
+            "pace_legacy_vent_state_3_suspect": row.get("pace_legacy_vent_state_3_suspect"),
+            "pace_vent_completed_latched": row.get("pace_vent_completed_latched"),
+            "checkvalve_row_assessment": (
+                "external_pressure_drift_failure"
+                if _checkvalve_pressure_drift_failure(row)
+                else "dewpoint_rise_failure"
+                if _checkvalve_dewpoint_failure(row)
+                else "controller_side_only_without_analyzer_side_effect"
+                if _checkvalve_controller_side_only(row)
+                else "clean_or_not_checkvalve"
+            ),
+            "reject_reason": row.get("reject_reason"),
+        }
+        for row in point_results
+    ]
+    checkvalve_fast_smoke_csv = output_path / "checkvalve_fast_smoke_summary.csv"
+    _write_csv_rows(
+        checkvalve_fast_smoke_csv,
+        checkvalve_fast_smoke_rows,
+        [
+            "round_index",
+            "pressure_hpa",
+            "point_row",
+            "point_tag",
+            "pace_upstream_check_valve_installed",
+            "post_isolation_pressure_truth_source",
+            "post_isolation_capture_mode",
+            "post_isolation_fast_capture_status",
+            "post_isolation_fast_capture_reason",
+            "post_isolation_fast_capture_fallback",
+            "post_isolation_pressure_drift_hpa",
+            "post_isolation_dewpoint_rise_c",
+            "post_isolation_diagnosis",
+            "pace_vent_status_query",
+            "pace_legacy_vent_state_3_suspect",
+            "pace_vent_completed_latched",
+            "checkvalve_row_assessment",
+            "reject_reason",
+        ],
+    )
 
     conclusion, metrics = classify_ingress_result(point_results)
+    conclusion_code = str(metrics.get("conclusion_code") or "")
     plots = {}
     plots.update(_plot_round_curves(point_results, output_path))
     plots.update(_plot_trace_timelines(trace_rows, output_path))
@@ -1036,6 +1400,7 @@ def analyze_runs(run_dirs: Sequence[Path | str], *, output_dir: Path | str) -> D
         "run_dirs": [str(path) for path in resolved_run_dirs],
         "target_co2_ppm": TARGET_CO2_PPM,
         "required_pressures_hpa": REQUIRED_PRESSURES,
+        "conclusion_code": conclusion_code,
         "conclusion": conclusion,
         "metrics": metrics,
         "point_results": point_results,
@@ -1045,8 +1410,10 @@ def analyze_runs(run_dirs: Sequence[Path | str], *, output_dir: Path | str) -> D
         "post_isolation_diagnosis_summary_csv": str(diagnosis_csv),
         "pace_post_isolation_diagnosis_summary_csv": str(pace_diagnosis_csv),
         "pace_standard_status_summary_csv": str(standard_status_csv),
+        "baseline_plateau_summary_csv": str(baseline_plateau_csv),
         "pace_protective_vent_state_summary_csv": str(protective_csv),
         "fast5s_vs_extended20s_with_effort_summary_csv": str(fast_capture_csv),
+        "checkvalve_fast_smoke_summary_csv": str(checkvalve_fast_smoke_csv),
         "plots": plots,
     }
     summary_json = output_path / "same_gas_two_round_summary.json"

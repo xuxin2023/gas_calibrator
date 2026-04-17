@@ -22,6 +22,7 @@ from ...config import (
     hydrate_step2_config_safety_summary,
     summarize_step2_config_safety,
 )
+from ...analytics.sidecar_views import build_sidecar_analytics_summary
 from ...adapters.results_gateway import ResultsGateway
 from ...core.acceptance_model import build_validation_acceptance_snapshot, normalize_evidence_source
 from ...core.controlled_state_machine_profile import (
@@ -54,6 +55,10 @@ from ...core.reviewer_surface_payloads import (
 )
 from ...core.offline_artifacts import build_point_taxonomy_handoff
 from ...domain.mode_models import ModeProfile, RunMode
+from ...intelligence.review_copilot import (
+    build_model_governance_summary,
+    build_review_copilot_payload,
+)
 from ...review_surface_formatter import (
     build_measurement_review_digest_lines,
     build_readiness_review_digest_lines,
@@ -125,6 +130,7 @@ from ...core.step2_closeout_verification import (
 from ...core.step2_final_closure_matrix import (
     build_step2_final_closure_matrix_surface_payload as _build_final_closure_matrix_surface_payload,
 )
+from ...core.step2_closeout_repository import FileBackedStep2CloseoutRepository
 from ..utils.app_info import APP_INFO
 from ..utils.preferences_store import PreferencesStore, merge_preferences
 from ..utils.recent_runs_store import RecentRunsStore
@@ -621,6 +627,7 @@ class AppFacade:
         runtime_paths: Optional[RuntimePaths] = None,
         preferences_store: Optional[PreferencesStore] = None,
         recent_runs_store: Optional[RecentRunsStore] = None,
+        sidecar_index: Any | None = None,
     ) -> None:
         if service is not None:
             self.service = service
@@ -636,9 +643,11 @@ class AppFacade:
         self.session = self.service.session
         self.event_bus = self.service.event_bus
         self.result_store = self.service.result_store
+        self.sidecar_index = sidecar_index
         self.results_gateway = ResultsGateway(
             self.result_store.run_dir,
             output_files_provider=self.service.get_output_files,
+            sidecar_index=sidecar_index,
         )
         self.runtime_paths = (runtime_paths or RuntimePaths.default()).ensure_dirs()
         self.preferences_store = preferences_store or PreferencesStore(self.runtime_paths.preferences_path)
@@ -1522,6 +1531,9 @@ class AppFacade:
         artifact_role_summary = dict(payload.get("artifact_role_summary", {}) or {})
         acceptance_plan = dict(payload.get("acceptance_plan", {}) or {})
         analytics_summary = dict(payload.get("analytics_summary", {}) or {})
+        sidecar_index_summary = dict(payload.get("sidecar_index_summary", {}) or {})
+        review_copilot_payload = dict(payload.get("review_copilot_payload", {}) or {})
+        model_governance_summary = dict(payload.get("model_governance_summary", {}) or {})
         spectral_quality_summary = dict(payload.get("spectral_quality_summary", {}) or {})
         trend_registry = dict(payload.get("trend_registry", {}) or {})
         lineage_summary = dict(payload.get("lineage_summary", {}) or {})
@@ -1540,6 +1552,7 @@ class AppFacade:
         measurement_phase_coverage_report = dict(payload.get("measurement_phase_coverage_report", {}) or {})
         scope_definition_pack = dict(payload.get("scope_definition_pack", {}) or {})
         decision_rule_profile = dict(payload.get("decision_rule_profile", {}) or {})
+        conformity_statement_profile = dict(payload.get("conformity_statement_profile", {}) or {})
         reference_asset_registry = dict(payload.get("reference_asset_registry", {}) or {})
         certificate_lifecycle_summary = dict(payload.get("certificate_lifecycle_summary", {}) or {})
         scope_readiness_summary = dict(payload.get("scope_readiness_summary", {}) or {})
@@ -1590,6 +1603,7 @@ class AppFacade:
         compatibility_overview = dict(payload.get("compatibility_overview", {}) or {})
         compatibility_rollup = dict(payload.get("compatibility_rollup", {}) or {})
         recognition_scope_rollup = dict(payload.get("recognition_scope_rollup", {}) or {})
+        recognition_binding = dict(payload.get("recognition_binding", {}) or {})
         reindex_manifest = dict(payload.get("reindex_manifest", {}) or {})
 
         # Compact summary pack — explicit consumption for review_center surface
@@ -1822,6 +1836,62 @@ class AppFacade:
                 or "--"
             )
         )
+        method_confirmation_coverage_items_text = self._humanize_ui_summary(
+            str(
+                verification_digest_values.get("coverage_items_summary")
+                or verification_rollup.get("coverage_items_summary")
+                or route_specific_validation_matrix.get("coverage_items_summary")
+                or "--"
+            )
+        )
+        method_confirmation_validated_items_text = self._humanize_ui_summary(
+            str(
+                verification_digest_values.get("validated_items_summary")
+                or verification_rollup.get("validated_items_summary")
+                or validation_run_set.get("validated_items_summary")
+                or "--"
+            )
+        )
+        method_confirmation_unverified_items_text = self._humanize_ui_summary(
+            str(
+                verification_digest_values.get("unverified_items_summary")
+                or verification_rollup.get("unverified_items_summary")
+                or validation_run_set.get("unverified_items_summary")
+                or "--"
+            )
+        )
+        method_confirmation_validation_run_bindings_text = self._humanize_ui_summary(
+            str(
+                verification_digest_values.get("validation_run_binding_summary")
+                or verification_rollup.get("validation_run_binding_summary")
+                or validation_run_set.get("validation_run_binding_summary")
+                or "--"
+            )
+        )
+        method_confirmation_source_artifacts_text = self._humanize_ui_summary(
+            str(
+                verification_digest_values.get("source_artifact_refs_summary")
+                or verification_rollup.get("source_artifact_refs_summary")
+                or validation_run_set.get("source_artifact_refs_summary")
+                or "--"
+            )
+        )
+        method_confirmation_linked_uncertainty_cases_text = self._humanize_ui_summary(
+            str(
+                verification_digest_values.get("linked_uncertainty_case_ids_summary")
+                or verification_rollup.get("linked_uncertainty_case_ids_summary")
+                or validation_run_set.get("linked_uncertainty_case_ids_summary")
+                or "--"
+            )
+        )
+        method_confirmation_linked_scope_decision_text = self._humanize_ui_summary(
+            str(
+                verification_digest_values.get("linked_scope_decision_summary")
+                or verification_rollup.get("linked_scope_decision_summary")
+                or validation_run_set.get("linked_scope_decision_summary")
+                or "--"
+            )
+        )
         audit_readiness_text = self._humanize_ui_summary(
             str(dict(audit_readiness_digest.get("digest") or {}).get("summary") or "--")
         )
@@ -1857,12 +1927,40 @@ class AppFacade:
                 or "--"
             )
         )
+        scope_identifier_text = self._humanize_ui_summary(
+            str(
+                recognition_binding.get("scope_id")
+                or recognition_scope_rollup.get("scope_id")
+                or scope_definition_pack.get("scope_id")
+                or "--"
+            )
+        )
+        scope_applicability_text = self._humanize_ui_summary(
+            str(
+                recognition_binding.get("applicability_scope_display")
+                or recognition_scope_rollup.get("applicability_scope_display")
+                or decision_rule_digest.get("applicability_scope_summary")
+                or scope_definition_digest.get("applicability_scope_summary")
+                or decision_rule_profile.get("applicability_scope_display")
+                or scope_definition_pack.get("applicability_scope_display")
+                or "--"
+            )
+        )
         conformity_boundary_text = self._humanize_ui_summary(
             str(
                 recognition_scope_rollup.get("conformity_boundary_display")
                 or decision_rule_digest.get("conformity_boundary_summary")
                 or decision_rule_profile.get("non_claim_note")
                 or scope_definition_pack.get("non_claim_note")
+                or "--"
+            )
+        )
+        scope_limitation_text = self._humanize_ui_summary(
+            str(
+                recognition_binding.get("limitation_note")
+                or recognition_scope_rollup.get("limitation_note")
+                or decision_rule_profile.get("limitation_note")
+                or scope_definition_pack.get("limitation_note")
                 or "--"
             )
         )
@@ -2001,13 +2099,21 @@ class AppFacade:
             uncertainty_digest=uncertainty_digest,
             uncertainty_rollup=uncertainty_rollup,
             uncertainty_method_readiness_summary=uncertainty_method_readiness_summary,
+            requirement_design_code_test_links=requirement_design_code_test_links,
+            validation_evidence_index=validation_evidence_index,
+            change_impact_summary=change_impact_summary,
+            rollback_readiness_summary=rollback_readiness_summary,
             software_validation_traceability_matrix=software_validation_traceability_matrix,
             artifact_hash_registry=artifact_hash_registry,
+            audit_event_store=audit_event_store,
             environment_fingerprint=environment_fingerprint,
+            config_fingerprint=config_fingerprint,
+            release_input_digest=release_input_digest,
             release_manifest=release_manifest,
             release_scope_summary=release_scope_summary,
             release_boundary_digest=release_boundary_digest,
             release_evidence_pack_index=release_evidence_pack_index,
+            release_validation_manifest=release_validation_manifest,
             software_validation_rollup=software_validation_rollup,
             audit_readiness_digest=audit_readiness_digest,
             wp6_closeout_bundle=_wp6_closeout_bundle,
@@ -2015,6 +2121,10 @@ class AppFacade:
             recognition_scope_rollup=recognition_scope_rollup,
             step2_closeout_readiness=dict(payload.get("step2_closeout_readiness") or {}),
             step2_closeout_package=dict(payload.get("step2_closeout_package") or {}),
+            step2_closeout_bundle=dict(payload.get("step2_closeout_bundle") or {}),
+            step2_closeout_evidence_index=dict(payload.get("step2_closeout_evidence_index") or {}),
+            step2_closeout_summary_markdown=str(payload.get("step2_closeout_summary_markdown") or ""),
+            step2_closeout_compact_section=dict(payload.get("step2_closeout_compact_section") or {}),
             step2_freeze_audit=dict(payload.get("step2_freeze_audit") or {}),
             step3_admission_dossier=dict(payload.get("step3_admission_dossier") or {}),
             step2_closeout_verification=dict(payload.get("step2_closeout_verification") or {}),
@@ -2119,12 +2229,45 @@ class AppFacade:
                     else []
                 ),
                 *(
+                    [
+                        t(
+                            "facade.results.result_summary.scope_identifier",
+                            value=scope_identifier_text,
+                            default=f"认可范围 ID：{scope_identifier_text}",
+                        )
+                    ]
+                    if scope_definition_pack or recognition_scope_rollup
+                    else []
+                ),
+                *(
                     [t("facade.results.result_summary.decision_rule_profile", value=decision_rule_profile_text)]
                     if decision_rule_profile or recognition_scope_rollup
                     else []
                 ),
                 *(
+                    [
+                        t(
+                            "facade.results.result_summary.scope_applicability",
+                            value=scope_applicability_text,
+                            default=f"适用边界：{scope_applicability_text}",
+                        )
+                    ]
+                    if decision_rule_profile or scope_definition_pack or recognition_scope_rollup
+                    else []
+                ),
+                *(
                     [t("facade.results.result_summary.conformity_boundary", value=conformity_boundary_text)]
+                    if decision_rule_profile or scope_definition_pack or recognition_scope_rollup
+                    else []
+                ),
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.scope_limitation",
+                            value=scope_limitation_text,
+                            default=f"边界限制：{scope_limitation_text}",
+                        )
+                    ]
                     if decision_rule_profile or scope_definition_pack or recognition_scope_rollup
                     else []
                 ),
@@ -2396,6 +2539,83 @@ class AppFacade:
                 *(
                     [
                         t(
+                            "facade.results.result_summary.method_confirmation_coverage_items",
+                            value=method_confirmation_coverage_items_text,
+                            default=f"方法确认覆盖项：{method_confirmation_coverage_items_text}",
+                        )
+                    ]
+                    if route_specific_validation_matrix or verification_digest or verification_rollup
+                    else []
+                ),
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.method_confirmation_validated_items",
+                            value=method_confirmation_validated_items_text,
+                            default=f"已验证项：{method_confirmation_validated_items_text}",
+                        )
+                    ]
+                    if route_specific_validation_matrix or verification_digest or verification_rollup
+                    else []
+                ),
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.method_confirmation_unverified_items",
+                            value=method_confirmation_unverified_items_text,
+                            default=f"未验证项：{method_confirmation_unverified_items_text}",
+                        )
+                    ]
+                    if route_specific_validation_matrix or verification_digest or verification_rollup
+                    else []
+                ),
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.method_confirmation_validation_run_bindings",
+                            value=method_confirmation_validation_run_bindings_text,
+                            default=f"验证运行绑定：{method_confirmation_validation_run_bindings_text}",
+                        )
+                    ]
+                    if route_specific_validation_matrix or verification_digest or verification_rollup
+                    else []
+                ),
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.method_confirmation_source_artifacts",
+                            value=method_confirmation_source_artifacts_text,
+                            default=f"来源 artifact refs：{method_confirmation_source_artifacts_text}",
+                        )
+                    ]
+                    if route_specific_validation_matrix or verification_digest or verification_rollup
+                    else []
+                ),
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.method_confirmation_linked_uncertainty_cases",
+                            value=method_confirmation_linked_uncertainty_cases_text,
+                            default=f"关联 uncertainty cases：{method_confirmation_linked_uncertainty_cases_text}",
+                        )
+                    ]
+                    if route_specific_validation_matrix or verification_digest or verification_rollup
+                    else []
+                ),
+                *(
+                    [
+                        t(
+                            "facade.results.result_summary.method_confirmation_linked_scope_decision",
+                            value=method_confirmation_linked_scope_decision_text,
+                            default=f"关联 scope / decision rule：{method_confirmation_linked_scope_decision_text}",
+                        )
+                    ]
+                    if route_specific_validation_matrix or verification_digest or verification_rollup
+                    else []
+                ),
+                *(
+                    [
+                        t(
                             "facade.results.result_summary.uncertainty_overview",
                             value=uncertainty_overview_text,
                             default=f"不确定度概览：{uncertainty_overview_text}",
@@ -2599,6 +2819,9 @@ class AppFacade:
             "artifact_role_summary": artifact_role_summary,
             "acceptance_plan": acceptance_plan,
             "analytics_summary": analytics_summary,
+            "sidecar_index_summary": sidecar_index_summary,
+            "review_copilot_payload": review_copilot_payload,
+            "model_governance_summary": model_governance_summary,
             "spectral_quality_summary": spectral_quality_summary,
             "trend_registry": trend_registry,
             "lineage_summary": lineage_summary,
@@ -2618,6 +2841,7 @@ class AppFacade:
             "measurement_phase_coverage_report": measurement_phase_coverage_report,
             "scope_definition_pack": scope_definition_pack,
             "decision_rule_profile": decision_rule_profile,
+            "conformity_statement_profile": conformity_statement_profile,
             "reference_asset_registry": reference_asset_registry,
             "certificate_lifecycle_summary": certificate_lifecycle_summary,
             "scope_readiness_summary": scope_readiness_summary,
@@ -2661,6 +2885,7 @@ class AppFacade:
             "compatibility_overview": compatibility_overview,
             "compatibility_rollup": compatibility_rollup,
             "recognition_scope_rollup": recognition_scope_rollup,
+            "recognition_binding": recognition_binding,
             "reindex_manifest": reindex_manifest,
             "compact_summary_packs": compact_summary_packs,
             "compact_summary_sections": compact_summary_sections,
@@ -2701,6 +2926,10 @@ class AppFacade:
             },
             "step2_closeout_readiness": dict(payload.get("step2_closeout_readiness") or {}),
             "step2_closeout_package": dict(payload.get("step2_closeout_package") or {}),
+            "step2_closeout_bundle": dict(payload.get("step2_closeout_bundle") or {}),
+            "step2_closeout_evidence_index": dict(payload.get("step2_closeout_evidence_index") or {}),
+            "step2_closeout_summary_markdown": str(payload.get("step2_closeout_summary_markdown") or ""),
+            "step2_closeout_compact_section": dict(payload.get("step2_closeout_compact_section") or {}),
             "step2_freeze_audit": dict(payload.get("step2_freeze_audit") or {}),
             "step3_admission_dossier": dict(payload.get("step3_admission_dossier") or {}),
             "step2_closeout_verification": dict(payload.get("step2_closeout_verification") or {}),
@@ -2792,13 +3021,21 @@ class AppFacade:
         uncertainty_digest: dict[str, Any],
         uncertainty_rollup: dict[str, Any],
         uncertainty_method_readiness_summary: dict[str, Any],
+        requirement_design_code_test_links: dict[str, Any],
+        validation_evidence_index: dict[str, Any],
+        change_impact_summary: dict[str, Any],
+        rollback_readiness_summary: dict[str, Any],
         software_validation_traceability_matrix: dict[str, Any],
         artifact_hash_registry: dict[str, Any],
+        audit_event_store: dict[str, Any],
         environment_fingerprint: dict[str, Any],
+        config_fingerprint: dict[str, Any],
+        release_input_digest: dict[str, Any],
         release_manifest: dict[str, Any],
         release_scope_summary: dict[str, Any],
         release_boundary_digest: dict[str, Any],
         release_evidence_pack_index: dict[str, Any],
+        release_validation_manifest: dict[str, Any],
         software_validation_rollup: dict[str, Any],
         audit_readiness_digest: dict[str, Any],
         wp6_closeout_bundle: _Wp6CloseoutBundle,
@@ -2806,6 +3043,10 @@ class AppFacade:
         recognition_scope_rollup: dict[str, Any],
         step2_closeout_readiness: dict[str, Any] | None = None,
         step2_closeout_package: dict[str, Any] | None = None,
+        step2_closeout_bundle: dict[str, Any] | None = None,
+        step2_closeout_evidence_index: dict[str, Any] | None = None,
+        step2_closeout_summary_markdown: str = "",
+        step2_closeout_compact_section: dict[str, Any] | None = None,
         step2_freeze_audit: dict[str, Any] | None = None,
         step3_admission_dossier: dict[str, Any] | None = None,
         step2_closeout_verification: dict[str, Any] | None = None,
@@ -2815,6 +3056,9 @@ class AppFacade:
     ) -> dict[str, Any]:
         closeout_readiness_payload = dict(step2_closeout_readiness or {})
         closeout_package_payload = dict(step2_closeout_package or {})
+        closeout_bundle_payload = dict(step2_closeout_bundle or {})
+        closeout_evidence_index_payload = dict(step2_closeout_evidence_index or {})
+        closeout_compact_payload = dict(step2_closeout_compact_section or {})
         freeze_audit_payload = dict(step2_freeze_audit or {})
         admission_dossier_payload = dict(step3_admission_dossier or {})
         closeout_verification_payload = dict(step2_closeout_verification or {})
@@ -2875,13 +3119,21 @@ class AppFacade:
             uncertainty_digest=uncertainty_digest,
             uncertainty_rollup=uncertainty_rollup,
             uncertainty_method_readiness_summary=uncertainty_method_readiness_summary,
+            requirement_design_code_test_links=requirement_design_code_test_links,
+            validation_evidence_index=validation_evidence_index,
+            change_impact_summary=change_impact_summary,
+            rollback_readiness_summary=rollback_readiness_summary,
             software_validation_traceability_matrix=software_validation_traceability_matrix,
             artifact_hash_registry=artifact_hash_registry,
+            audit_event_store=audit_event_store,
             environment_fingerprint=environment_fingerprint,
+            config_fingerprint=config_fingerprint,
+            release_input_digest=release_input_digest,
             release_manifest=release_manifest,
             release_scope_summary=release_scope_summary,
             release_boundary_digest=release_boundary_digest,
             release_evidence_pack_index=release_evidence_pack_index,
+            release_validation_manifest=release_validation_manifest,
             audit_readiness_digest=audit_readiness_digest,
             wp6_closeout_bundle=wp6_closeout_bundle,
             compatibility_scan_summary=compatibility_scan_summary,
@@ -3213,6 +3465,10 @@ class AppFacade:
             "disclaimer": t("results.review_center.disclaimer"),
             "step2_closeout_readiness": closeout_readiness_payload,
             "step2_closeout_package": closeout_package_payload,
+            "step2_closeout_bundle": closeout_bundle_payload,
+            "step2_closeout_evidence_index": closeout_evidence_index_payload,
+            "step2_closeout_summary_markdown": str(step2_closeout_summary_markdown or ""),
+            "step2_closeout_compact_section": closeout_compact_payload,
             "step2_freeze_audit": freeze_audit_payload,
             "step3_admission_dossier": admission_dossier_payload,
             "step2_closeout_verification": closeout_verification_payload,
@@ -3383,13 +3639,21 @@ class AppFacade:
         uncertainty_digest: dict[str, Any],
         uncertainty_rollup: dict[str, Any],
         uncertainty_method_readiness_summary: dict[str, Any],
+        requirement_design_code_test_links: dict[str, Any],
+        validation_evidence_index: dict[str, Any],
+        change_impact_summary: dict[str, Any],
+        rollback_readiness_summary: dict[str, Any],
         software_validation_traceability_matrix: dict[str, Any],
         artifact_hash_registry: dict[str, Any],
+        audit_event_store: dict[str, Any],
         environment_fingerprint: dict[str, Any],
+        config_fingerprint: dict[str, Any],
+        release_input_digest: dict[str, Any],
         release_manifest: dict[str, Any],
         release_scope_summary: dict[str, Any],
         release_boundary_digest: dict[str, Any],
         release_evidence_pack_index: dict[str, Any],
+        release_validation_manifest: dict[str, Any],
         audit_readiness_digest: dict[str, Any],
         wp6_closeout_bundle: _Wp6CloseoutBundle,
         compatibility_scan_summary: dict[str, Any],
@@ -3638,6 +3902,22 @@ class AppFacade:
                 dict(uncertainty_method_readiness_summary or {}),
             ),
             (
+                recognition_readiness.REQUIREMENT_DESIGN_CODE_TEST_LINKS_FILENAME,
+                dict(requirement_design_code_test_links or {}),
+            ),
+            (
+                recognition_readiness.VALIDATION_EVIDENCE_INDEX_FILENAME,
+                dict(validation_evidence_index or {}),
+            ),
+            (
+                recognition_readiness.CHANGE_IMPACT_SUMMARY_FILENAME,
+                dict(change_impact_summary or {}),
+            ),
+            (
+                recognition_readiness.ROLLBACK_READINESS_SUMMARY_FILENAME,
+                dict(rollback_readiness_summary or {}),
+            ),
+            (
                 recognition_readiness.SOFTWARE_VALIDATION_TRACEABILITY_MATRIX_FILENAME,
                 dict(software_validation_traceability_matrix or {}),
             ),
@@ -3646,8 +3926,20 @@ class AppFacade:
                 dict(artifact_hash_registry or {}),
             ),
             (
+                recognition_readiness.AUDIT_EVENT_STORE_FILENAME,
+                dict(audit_event_store or {}),
+            ),
+            (
                 recognition_readiness.ENVIRONMENT_FINGERPRINT_FILENAME,
                 dict(environment_fingerprint or {}),
+            ),
+            (
+                recognition_readiness.CONFIG_FINGERPRINT_FILENAME,
+                dict(config_fingerprint or {}),
+            ),
+            (
+                recognition_readiness.RELEASE_INPUT_DIGEST_FILENAME,
+                dict(release_input_digest or {}),
             ),
             (
                 recognition_readiness.RELEASE_MANIFEST_FILENAME,
@@ -3664,6 +3956,10 @@ class AppFacade:
             (
                 recognition_readiness.RELEASE_EVIDENCE_PACK_INDEX_FILENAME,
                 dict(release_evidence_pack_index or {}),
+            ),
+            (
+                recognition_readiness.RELEASE_VALIDATION_MANIFEST_FILENAME,
+                dict(release_validation_manifest or {}),
             ),
             (
                 recognition_readiness.AUDIT_READINESS_DIGEST_FILENAME,
@@ -4492,6 +4788,29 @@ class AppFacade:
         analyzer_health_digest = dict(payload.get("analyzer_health_digest", {}) or {})
         fault_attribution_summary = dict(payload.get("fault_attribution_summary", {}) or {})
         unified_review_summary = dict(payload.get("unified_review_summary", {}) or {})
+        sidecar_index_summary = dict(payload.get("sidecar_index_summary", {}) or {})
+        review_copilot_payload = dict(payload.get("review_copilot_payload", {}) or {})
+        model_governance_summary = dict(payload.get("model_governance_summary", {}) or {})
+        if (not sidecar_index_summary or not review_copilot_payload or not model_governance_summary) and getattr(
+            self, "sidecar_index", None
+        ) is not None:
+            run_id = str(
+                payload.get("run_id")
+                or getattr(getattr(self, "session", None), "run_id", "")
+                or path.parent.name
+            )
+            sidecar_index_summary = sidecar_index_summary or build_sidecar_analytics_summary(
+                self.sidecar_index,
+                run_id=run_id,
+            )
+            review_copilot_payload = review_copilot_payload or build_review_copilot_payload(
+                self.sidecar_index,
+                run_id=run_id,
+            )
+            model_governance_summary = model_governance_summary or build_model_governance_summary(
+                self.sidecar_index,
+                run_id=run_id,
+            )
         lineage_path = path.parent / "lineage_summary.json"
         lineage_payload = self._load_json_dict(lineage_path) if lineage_path.exists() else dict(fallback_lineage or {})
         spectral_path = path.parent / "spectral_quality_summary.json"
@@ -4558,6 +4877,30 @@ class AppFacade:
             f"{t('results.review_center.detail.analytics_fault', default='主故障归因')}: "
             f"{str(fault_attribution_summary.get('primary_fault') or '--')}",
         ]
+        if sidecar_index_summary:
+            analytics_detail_summary.append(
+                f"{t('results.review_center.detail.analytics_sidecar_summary', default='旁路索引摘要')}: {str(sidecar_index_summary.get('summary_line') or '--')}"
+            )
+            analytics_detail_summary.append(
+                f"{t('results.review_center.detail.analytics_sidecar_path', default='旁路索引路径')}: {str(sidecar_index_summary.get('index_path') or '--')}"
+            )
+        if review_copilot_payload:
+            analytics_detail_summary.append(
+                f"{t('results.review_center.detail.analytics_review_copilot_risk', default='Copilot 风险摘要')}: {str(review_copilot_payload.get('risk_summary') or '--')}"
+            )
+            analytics_detail_summary.append(
+                f"{t('results.review_center.detail.analytics_review_copilot_gaps', default='Copilot 证据缺口')}: {' | '.join(str(item) for item in list(review_copilot_payload.get('evidence_gaps') or [])[:3]) or '--'}"
+            )
+            analytics_detail_summary.append(
+                f"{t('results.review_center.detail.analytics_review_copilot_recheck', default='Copilot 复验建议')}: {' | '.join(str(item) for item in list(review_copilot_payload.get('revalidation_suggestions') or [])[:3]) or '--'}"
+            )
+        if model_governance_summary:
+            analytics_detail_summary.append(
+                f"{t('results.review_center.detail.analytics_model_governance', default='模型治理')}: {str(model_governance_summary.get('summary_line') or '--')}"
+            )
+            analytics_detail_summary.append(
+                f"{t('results.review_center.detail.analytics_model_release', default='模型发布状态')}: {str(model_governance_summary.get('release_status') or '--')}"
+            )
         for line in self._review_detail_lines(dict(unified_review_summary.get("analytics_summary") or {}).get("lines")):
             if line not in analytics_detail_summary:
                 analytics_detail_summary.append(line)
@@ -4592,6 +4935,16 @@ class AppFacade:
                 f"{t('results.review_center.detail.analytics_health', default='分析仪健康')}: {str(analyzer_health_digest.get('overall_status') or '--')}",
                 f"{t('results.review_center.detail.analytics_fault', default='主故障归因')}: {str(fault_attribution_summary.get('primary_fault') or '--')}",
                 f"{t('results.review_center.detail.analytics_lineage')}: {lineage_summary}",
+                *(
+                    [
+                        f"{t('results.review_center.detail.analytics_sidecar_summary', default='旁路索引摘要')}: {str(sidecar_index_summary.get('summary_line') or '--')}",
+                        f"{t('results.review_center.detail.analytics_review_copilot_risk', default='Copilot 风险摘要')}: {str(review_copilot_payload.get('risk_summary') or '--')}",
+                        f"{t('results.review_center.detail.analytics_review_copilot_gaps', default='Copilot 证据缺口')}: {' | '.join(str(item) for item in list(review_copilot_payload.get('evidence_gaps') or [])[:3]) or '--'}",
+                        f"{t('results.review_center.detail.analytics_model_governance', default='模型治理')}: {str(model_governance_summary.get('summary_line') or '--')}",
+                    ]
+                    if (sidecar_index_summary or review_copilot_payload or model_governance_summary)
+                    else []
+                ),
                 f"{t('results.review_center.detail.spectral_status')}: {self._display_spectral_quality_status(spectral_payload.get('status'))}",
                 t("results.review_center.disclaimer"),
             ]
@@ -4613,6 +4966,9 @@ class AppFacade:
                 display_reference_quality(reference_stats.get("reference_quality")),
                 str(export_status.get("overall_status") or "--"),
                 str(lineage_payload.get("config_version") or "--"),
+                str(sidecar_index_summary.get("backend") or "--"),
+                str(review_copilot_payload.get("risk_summary") or "--"),
+                str(model_governance_summary.get("release_status") or "--"),
             ],
             artifact_paths=[
                 str(path),
@@ -5063,6 +5419,9 @@ class AppFacade:
     def _build_stability_review_item(self, payload: dict[str, Any], path: Path) -> dict[str, Any]:
         review_surface = dict(payload.get("review_surface") or {})
         digest = dict(payload.get("digest") or {})
+        policy_profile = dict(payload.get("stability_policy_profile") or {})
+        decision_rollup = dict(payload.get("stability_decision_rollup") or {})
+        shadow_diff = dict(payload.get("shadow_stability_diff") or {})
         summary = self._humanize_ui_summary(
             str(
                 digest.get("summary")
@@ -5077,6 +5436,9 @@ class AppFacade:
             f"{t('results.review_center.detail.source')}: {display_evidence_source(payload.get('evidence_source'), default=str(payload.get('evidence_source') or 'simulated_protocol'))}",
             f"{t('results.review_center.detail.state')}: {display_evidence_state(payload.get('evidence_state'), default=str(payload.get('evidence_state') or 'shadow_only'))}",
             f"{t('results.review_center.detail.path')}: {path}",
+            f"{t('results.review_center.detail.policy', default='策略轮廓')}: {policy_profile.get('summary_line', '--')}",
+            f"{t('results.review_center.detail.rollup', default='决策汇总')}: {decision_rollup.get('summary_line', '--')}",
+            f"{t('results.review_center.detail.shadow_diff', default='影子差异')}: {shadow_diff.get('summary_line', '--')}",
             *[str(item) for item in list(review_surface.get("summary_lines") or []) if str(item).strip()],
             *[str(item) for item in list(review_surface.get("detail_lines") or []) if str(item).strip()],
             t("results.review_center.disclaimer"),
@@ -5103,6 +5465,9 @@ class AppFacade:
             not_real_acceptance_evidence=bool(payload.get("not_real_acceptance_evidence", True)),
             key_fields=[
                 str(digest.get("policy_summary") or ""),
+                str(policy_profile.get("summary_line") or ""),
+                str(decision_rollup.get("summary_line") or ""),
+                str(shadow_diff.get("summary_line") or ""),
                 str(digest.get("coverage_summary") or ""),
                 str(digest.get("decision_summary") or ""),
             ],
@@ -5133,6 +5498,7 @@ class AppFacade:
     def _build_state_transition_review_item(self, payload: dict[str, Any], path: Path) -> dict[str, Any]:
         review_surface = dict(payload.get("review_surface") or {})
         digest = dict(payload.get("digest") or {})
+        transition_policy_profile = dict(payload.get("transition_policy_profile") or {})
         summary = self._humanize_ui_summary(
             str(
                 digest.get("summary")
@@ -5147,6 +5513,7 @@ class AppFacade:
             f"{t('results.review_center.detail.source')}: {display_evidence_source(payload.get('evidence_source'), default=str(payload.get('evidence_source') or 'simulated_protocol'))}",
             f"{t('results.review_center.detail.state')}: {display_evidence_state(payload.get('evidence_state'), default=str(payload.get('evidence_state') or 'shadow_only'))}",
             f"{t('results.review_center.detail.path')}: {path}",
+            f"{t('results.review_center.detail.policy', default='策略轮廓')}: {transition_policy_profile.get('summary_line', '--')}",
             *[str(item) for item in list(review_surface.get("summary_lines") or []) if str(item).strip()],
             *[str(item) for item in list(review_surface.get("detail_lines") or []) if str(item).strip()],
             t("results.review_center.disclaimer"),
@@ -5174,6 +5541,7 @@ class AppFacade:
             key_fields=[
                 str(digest.get("transition_summary") or ""),
                 str(digest.get("recovery_summary") or ""),
+                str(transition_policy_profile.get("summary_line") or ""),
                 f"illegal {len(list(payload.get('illegal_transitions') or []))}",
             ],
             artifact_paths=artifact_paths,
@@ -5396,6 +5764,40 @@ class AppFacade:
                 or "recognition readiness governance"
             )
         )
+        method_confirmation_detail_lines = [
+            f"覆盖项: {str(digest.get('coverage_items_summary') or payload.get('coverage_items_summary') or '--')}",
+            f"已验证项: {str(digest.get('validated_items_summary') or payload.get('validated_items_summary') or '--')}",
+            f"未验证项: {str(digest.get('unverified_items_summary') or payload.get('unverified_items_summary') or '--')}",
+            f"验证运行绑定: {str(digest.get('validation_run_binding_summary') or payload.get('validation_run_binding_summary') or '--')}",
+            f"来源 artifact refs: {str(digest.get('source_artifact_refs_summary') or payload.get('source_artifact_refs_summary') or '--')}",
+            f"关联 uncertainty cases: {str(digest.get('linked_uncertainty_case_ids_summary') or payload.get('linked_uncertainty_case_ids_summary') or '--')}",
+            f"关联 scope / decision rule: {str(digest.get('linked_scope_decision_summary') or payload.get('linked_scope_decision_summary') or '--')}",
+        ]
+        software_validation_detail_lines = [
+            f"Changed modules: {str(payload.get('changed_modules_summary') or '--')}",
+            f"Main execution chain impact: {str(payload.get('main_execution_chain_impact_summary') or '--')}",
+            f"Artifact schema impact: {str(payload.get('artifact_schema_impact_summary') or '--')}",
+            (
+                "Linked surfaces impact: "
+                f"results {str(payload.get('results_surface_impact_summary') or '--')} | "
+                f"review_center {str(payload.get('review_center_surface_impact_summary') or '--')} | "
+                f"workbench {str(payload.get('workbench_surface_impact_summary') or '--')}"
+            ),
+            f"Rollback mode: {str(payload.get('rollback_mode') or '--')}",
+            f"Rollback scope: {str(payload.get('rollback_scope_summary') or '--')}",
+            f"Visible surfaces: {str(payload.get('surface_visibility_summary') or '--')}",
+            f"Trace purpose: {str(payload.get('trace_purpose') or '--')}",
+            f"Fingerprint scope: {str(payload.get('fingerprint_scope') or '--')}",
+        ]
+        comparison_detail_lines = [
+            f"Comparison summary: {str(digest.get('comparison_overview_summary') or payload.get('comparison_overview_summary') or '--')}",
+            f"Comparison import trace: {str(digest.get('comparison_import_trace_summary') or payload.get('comparison_import_trace_summary') or '--')}",
+            f"Linked uncertainty cases: {str(digest.get('linked_uncertainty_case_ids_summary') or payload.get('linked_uncertainty_case_ids_summary') or '--')}",
+            f"Linked method confirmation: {str(digest.get('linked_method_confirmation_protocol_ids_summary') or payload.get('linked_method_confirmation_protocol_ids_summary') or '--')}",
+            f"Linked software validation: {str(digest.get('linked_software_validation_release_ids_summary') or payload.get('linked_software_validation_release_ids_summary') or '--')}",
+            f"Reference assets: {str(digest.get('scope_reference_assets_summary') or payload.get('reference_asset_refs_summary') or '--')}",
+            f"Certificate lifecycle refs: {str(digest.get('certificate_lifecycle_summary') or payload.get('certificate_lifecycle_refs_summary') or '--')}",
+        ]
         detail_lines = [
             f"{t('results.review_center.detail.summary')}: {summary}",
             f"{t('results.review_center.detail.status')}: {t(f'results.review_center.status.{str(payload.get('overall_status') or 'diagnostic_only')}', default=str(payload.get('overall_status') or 'diagnostic_only'))}",
@@ -5404,6 +5806,9 @@ class AppFacade:
             f"{t('results.review_center.detail.path')}: {path}",
             *[str(item) for item in list(localized_review_lines.get("summary_lines") or []) if str(item).strip()],
             *[str(item) for item in list(localized_review_lines.get("detail_lines") or []) if str(item).strip()],
+            *[line for line in comparison_detail_lines if str(line).strip() and "--" not in line],
+            *[line for line in method_confirmation_detail_lines if str(line).strip()],
+            *[line for line in software_validation_detail_lines if str(line).strip() and "--" not in line],
             t("results.review_center.disclaimer"),
         ]
         artifact_paths = [
@@ -5431,6 +5836,8 @@ class AppFacade:
                 str(digest.get("decision_rule_summary") or ""),
                 str(digest.get("conformity_boundary_summary") or ""),
                 str(digest.get("standard_family_summary") or ""),
+                str(digest.get("comparison_overview_summary") or ""),
+                str(digest.get("comparison_import_trace_summary") or ""),
                 str(digest.get("required_evidence_categories_summary") or ""),
                 str(digest.get("protocol_overview_summary") or ""),
                 str(digest.get("matrix_completeness_summary") or ""),
@@ -5439,10 +5846,42 @@ class AppFacade:
                 str(digest.get("readiness_status_summary") or ""),
                 str(digest.get("current_coverage_summary") or ""),
                 str(digest.get("missing_evidence_summary") or ""),
+                str(digest.get("budget_level_summary") or ""),
+                str(digest.get("binding_summary") or ""),
+                str(digest.get("calculation_chain_summary") or ""),
+                str(digest.get("fixture_summary") or ""),
+                str(digest.get("golden_case_summary") or ""),
                 str(digest.get("blocker_summary") or ""),
+                str(digest.get("asset_count_summary") or ""),
+                str(digest.get("certificate_validity_summary") or ""),
+                str(digest.get("lot_binding_summary") or ""),
+                str(digest.get("intermediate_check_summary") or ""),
+                str(digest.get("pre_run_gate_status") or ""),
                 str(digest.get("artifact_hash_summary") or ""),
                 str(digest.get("linked_measurement_phase_summary") or ""),
                 str(digest.get("next_required_artifacts_summary") or ""),
+                str(digest.get("coverage_items_summary") or payload.get("coverage_items_summary") or ""),
+                str(digest.get("validated_items_summary") or payload.get("validated_items_summary") or ""),
+                str(digest.get("unverified_items_summary") or payload.get("unverified_items_summary") or ""),
+                str(digest.get("validation_run_binding_summary") or payload.get("validation_run_binding_summary") or ""),
+                str(digest.get("source_artifact_refs_summary") or payload.get("source_artifact_refs_summary") or ""),
+                str(
+                    digest.get("linked_uncertainty_case_ids_summary")
+                    or payload.get("linked_uncertainty_case_ids_summary")
+                    or ""
+                ),
+                str(digest.get("linked_scope_decision_summary") or payload.get("linked_scope_decision_summary") or ""),
+                str(payload.get("changed_modules_summary") or ""),
+                str(payload.get("main_execution_chain_impact_summary") or ""),
+                str(payload.get("artifact_schema_impact_summary") or ""),
+                str(payload.get("results_surface_impact_summary") or ""),
+                str(payload.get("review_center_surface_impact_summary") or ""),
+                str(payload.get("workbench_surface_impact_summary") or ""),
+                str(payload.get("rollback_mode") or ""),
+                str(payload.get("rollback_scope_summary") or ""),
+                str(payload.get("surface_visibility_summary") or ""),
+                str(payload.get("trace_purpose") or ""),
+                str(payload.get("fingerprint_scope") or ""),
             ],
             artifact_paths=artifact_paths,
             detail_analytics_summary=list(localized_review_lines.get("summary_lines") or []),
@@ -5455,6 +5894,55 @@ class AppFacade:
                 self._humanize_ui_summary(str(digest.get("current_evidence_coverage_summary") or "")),
                 self._humanize_ui_summary(str(digest.get("top_gaps_summary") or "")),
                 self._humanize_ui_summary(str(digest.get("readiness_status_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("budget_level_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("binding_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("calculation_chain_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("fixture_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("golden_case_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("asset_count_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("certificate_validity_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("lot_binding_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("intermediate_check_summary") or "")),
+                self._humanize_ui_summary(str(digest.get("pre_run_gate_status") or "")),
+                self._humanize_ui_summary(
+                    str(digest.get("coverage_items_summary") or payload.get("coverage_items_summary") or "")
+                ),
+                self._humanize_ui_summary(
+                    str(digest.get("validated_items_summary") or payload.get("validated_items_summary") or "")
+                ),
+                self._humanize_ui_summary(
+                    str(digest.get("unverified_items_summary") or payload.get("unverified_items_summary") or "")
+                ),
+                self._humanize_ui_summary(
+                    str(
+                        digest.get("validation_run_binding_summary")
+                        or payload.get("validation_run_binding_summary")
+                        or ""
+                    )
+                ),
+                self._humanize_ui_summary(
+                    str(digest.get("source_artifact_refs_summary") or payload.get("source_artifact_refs_summary") or "")
+                ),
+                self._humanize_ui_summary(
+                    str(
+                        digest.get("linked_uncertainty_case_ids_summary")
+                        or payload.get("linked_uncertainty_case_ids_summary")
+                        or ""
+                    )
+                ),
+                self._humanize_ui_summary(
+                    str(digest.get("linked_scope_decision_summary") or payload.get("linked_scope_decision_summary") or "")
+                ),
+                self._humanize_ui_summary(str(payload.get("changed_modules_summary") or "")),
+                self._humanize_ui_summary(str(payload.get("main_execution_chain_impact_summary") or "")),
+                self._humanize_ui_summary(str(payload.get("artifact_schema_impact_summary") or "")),
+                self._humanize_ui_summary(str(payload.get("results_surface_impact_summary") or "")),
+                self._humanize_ui_summary(str(payload.get("review_center_surface_impact_summary") or "")),
+                self._humanize_ui_summary(str(payload.get("workbench_surface_impact_summary") or "")),
+                self._humanize_ui_summary(str(payload.get("rollback_scope_summary") or "")),
+                self._humanize_ui_summary(str(payload.get("surface_visibility_summary") or "")),
+                self._humanize_ui_summary(str(payload.get("trace_purpose") or "")),
+                self._humanize_ui_summary(str(payload.get("fingerprint_scope") or "")),
                 *[str(item) for item in list(localized_review_lines.get("detail_lines") or []) if str(item).strip()],
             ],
             phase_filters=list(review_surface.get("phase_filters") or []),
@@ -5780,31 +6268,108 @@ class AppFacade:
             )
         )
         recognition_scope_rollup_payload = dict(recognition_scope_rollup or {})
+        recognition_scope_binding = dict(recognition_scope_rollup_payload.get("recognition_binding") or {})
         recognition_scope_summary = self._humanize_ui_summary(
-            t(
-                "facade.results.result_summary.recognition_scope_rollup",
-                value=str(recognition_scope_rollup_payload.get("rollup_summary_display") or t("common.none")),
-                default="范围/规则 rollup：{value}",
+            "\n".join(
+                fragment
+                for fragment in (
+                    t(
+                        "facade.results.result_summary.recognition_scope_rollup",
+                        value=str(recognition_scope_rollup_payload.get("rollup_summary_display") or t("common.none")),
+                        default="范围/规则 rollup：{value}",
+                    ),
+                    (
+                        t(
+                            "facade.results.result_summary.scope_applicability",
+                            value=str(
+                                recognition_scope_binding.get("applicability_scope_display")
+                                or recognition_scope_rollup_payload.get("applicability_scope_display")
+                                or t("common.none")
+                            ),
+                            default="适用边界：{value}",
+                        )
+                        if str(
+                            recognition_scope_binding.get("applicability_scope_display")
+                            or recognition_scope_rollup_payload.get("applicability_scope_display")
+                            or ""
+                        ).strip()
+                        else ""
+                    ),
+                    (
+                        t(
+                            "facade.results.result_summary.scope_non_claim",
+                            value=str(
+                                recognition_scope_binding.get("non_claim_note")
+                                or recognition_scope_rollup_payload.get("non_claim_note")
+                                or t("common.none")
+                            ),
+                            default="不声明条件：{value}",
+                        )
+                        if str(
+                            recognition_scope_binding.get("non_claim_note")
+                            or recognition_scope_rollup_payload.get("non_claim_note")
+                            or ""
+                        ).strip()
+                        else ""
+                    ),
+                )
+                if str(fragment or "").strip()
             )
         )
         verification_rollup_payload = dict(verification_rollup or {})
+        verification_digest_payload = dict(verification_rollup_payload.get("digest") or {})
         verification_summary = self._humanize_ui_summary(
             t(
                 "facade.results.result_summary.verification_rollup",
                 value=str(
-                    verification_rollup_payload.get("rollup_summary_display")
-                    or dict(verification_rollup_payload.get("digest") or {}).get("matrix_completeness_summary")
+                    " | ".join(
+                        part
+                        for part in (
+                            str(
+                                verification_rollup_payload.get("rollup_summary_display")
+                                or verification_digest_payload.get("matrix_completeness_summary")
+                                or ""
+                            ).strip(),
+                            str(
+                                verification_digest_payload.get("validation_run_binding_summary")
+                                or verification_rollup_payload.get("validation_run_binding_summary")
+                                or ""
+                            ).strip(),
+                            str(
+                                verification_digest_payload.get("linked_uncertainty_case_ids_summary")
+                                or verification_rollup_payload.get("linked_uncertainty_case_ids_summary")
+                                or ""
+                            ).strip(),
+                        )
+                        if part
+                    )
+                    or verification_rollup_payload.get("rollup_summary_display")
+                    or verification_digest_payload.get("matrix_completeness_summary")
                     or t("common.none")
                 ),
                 default="验证 rollup：{value}",
             )
         )
         uncertainty_rollup_payload = dict(uncertainty_rollup or {})
+        uncertainty_summary_value = " | ".join(
+            part
+            for part in (
+                str(
+                    uncertainty_rollup_payload.get("rollup_summary_display")
+                    or uncertainty_rollup_payload.get("overview_display")
+                    or ""
+                ).strip(),
+                str(uncertainty_rollup_payload.get("budget_level_summary") or "").strip(),
+                str(uncertainty_rollup_payload.get("binding_summary") or "").strip(),
+            )
+            if part
+        )
         uncertainty_summary = self._humanize_ui_summary(
             t(
                 "facade.results.result_summary.uncertainty_rollup",
                 value=str(
-                    uncertainty_rollup_payload.get("rollup_summary_display")
+                    uncertainty_summary_value
+                    or uncertainty_rollup_payload.get("rollup_summary_display")
                     or uncertainty_rollup_payload.get("overview_display")
                     or t("common.none")
                 ),
@@ -5852,6 +6417,22 @@ class AppFacade:
                 ),
                 default="Release manifest：{value}",
             )
+        )
+        change_impact_summary = self._humanize_ui_summary(
+            f"Change impact: {str(software_validation_rollup_payload.get('change_impact_summary') or t('common.none'))}"
+        )
+        rollback_summary = self._humanize_ui_summary(
+            f"Rollback readiness: {str(software_validation_rollup_payload.get('rollback_summary') or t('common.none'))}"
+        )
+        audit_event_summary = self._humanize_ui_summary(
+            f"Audit event store: {str(software_validation_rollup_payload.get('audit_event_summary') or t('common.none'))}"
+        )
+        config_fingerprint_summary = self._humanize_ui_summary(
+            "Config fingerprint: "
+            f"{str(software_validation_rollup_payload.get('config_fingerprint_summary') or t('common.none'))}"
+        )
+        release_input_summary = self._humanize_ui_summary(
+            f"Release input digest: {str(software_validation_rollup_payload.get('release_input_summary') or t('common.none'))}"
         )
         summary_text = t(
             "results.review_center.index.summary",
@@ -5904,6 +6485,11 @@ class AppFacade:
             "software_validation_summary": software_validation_summary,
             "traceability_summary": traceability_summary,
             "audit_hash_summary": audit_hash_summary,
+            "change_impact_summary": change_impact_summary,
+            "rollback_summary": rollback_summary,
+            "audit_event_summary": audit_event_summary,
+            "config_fingerprint_summary": config_fingerprint_summary,
+            "release_input_summary": release_input_summary,
             "release_manifest_summary": release_manifest_summary,
             "coverage_gaps_display": coverage_gaps_display,
             "source_kind_summary": source_kind_summary,
@@ -5922,6 +6508,11 @@ class AppFacade:
                     software_validation_summary,
                     traceability_summary,
                     audit_hash_summary,
+                    change_impact_summary,
+                    rollback_summary,
+                    audit_event_summary,
+                    config_fingerprint_summary,
+                    release_input_summary,
                     release_manifest_summary,
                     diagnostics_summary,
                 )
@@ -6336,6 +6927,26 @@ class AppFacade:
             or payload.get("step2_final_closure_matrix", {})
             or {}
         )
+        payload["step2_closeout_bundle"] = dict(
+            results.get("step2_closeout_bundle", {})
+            or payload.get("step2_closeout_bundle", {})
+            or {}
+        )
+        payload["step2_closeout_evidence_index"] = dict(
+            results.get("step2_closeout_evidence_index", {})
+            or payload.get("step2_closeout_evidence_index", {})
+            or {}
+        )
+        payload["step2_closeout_summary_markdown"] = str(
+            results.get("step2_closeout_summary_markdown", "")
+            or payload.get("step2_closeout_summary_markdown", "")
+            or ""
+        )
+        payload["step2_closeout_compact_section"] = dict(
+            results.get("step2_closeout_compact_section", {})
+            or payload.get("step2_closeout_compact_section", {})
+            or {}
+        )
         payload["compact_summary_packs"] = list(results.get("compact_summary_packs", []) or [])
         payload["compact_summary_sections"] = list(results.get("compact_summary_sections", []) or [])
         payload["compact_summary_order"] = list(results.get("compact_summary_order", []) or [])
@@ -6401,6 +7012,53 @@ class AppFacade:
                 from ...core.step2_closeout_package_builder import build_closeout_package_fallback
                 payload["step2_closeout_package"] = build_closeout_package_fallback()
                 payload["step2_closeout_package_source"] = "fallback"
+        if not dict(payload.get("step2_closeout_bundle") or {}):
+            _closeout_snapshot = FileBackedStep2CloseoutRepository(
+                self.results_gateway.run_dir,
+                run_id=str(payload.get("run_id") or ""),
+                scope_definition_pack=dict(payload.get("scope_definition_pack") or {}),
+                decision_rule_profile=dict(payload.get("decision_rule_profile") or {}),
+                conformity_statement_profile=dict(payload.get("conformity_statement_profile") or {}),
+                reference_asset_registry=dict(payload.get("reference_asset_registry") or {}),
+                certificate_lifecycle_summary=dict(payload.get("certificate_lifecycle_summary") or {}),
+                pre_run_readiness_gate=dict(payload.get("pre_run_readiness_gate") or {}),
+                uncertainty_report_pack=dict(payload.get("uncertainty_report_pack") or {}),
+                uncertainty_rollup=dict(payload.get("uncertainty_rollup") or {}),
+                method_confirmation_protocol=dict(payload.get("method_confirmation_protocol") or {}),
+                verification_rollup=dict(payload.get("verification_rollup") or {}),
+                software_validation_traceability_matrix=dict(
+                    payload.get("software_validation_traceability_matrix") or {}
+                ),
+                requirement_design_code_test_links=dict(payload.get("requirement_design_code_test_links") or {}),
+                validation_evidence_index=dict(payload.get("validation_evidence_index") or {}),
+                change_impact_summary=dict(payload.get("change_impact_summary") or {}),
+                rollback_readiness_summary=dict(payload.get("rollback_readiness_summary") or {}),
+                release_manifest=dict(payload.get("release_manifest") or {}),
+                release_scope_summary=dict(payload.get("release_scope_summary") or {}),
+                release_boundary_digest=dict(payload.get("release_boundary_digest") or {}),
+                release_evidence_pack_index=dict(payload.get("release_evidence_pack_index") or {}),
+                release_validation_manifest=dict(payload.get("release_validation_manifest") or {}),
+                software_validation_rollup=dict(payload.get("software_validation_rollup") or {}),
+                audit_readiness_digest=dict(payload.get("audit_readiness_digest") or {}),
+                comparison_evidence_pack=dict(payload.get("comparison_evidence_pack") or {}),
+                scope_comparison_view=dict(payload.get("scope_comparison_view") or {}),
+                comparison_digest=dict(payload.get("comparison_digest") or {}),
+                comparison_rollup=dict(payload.get("comparison_rollup") or {}),
+                step2_closeout_digest=dict(payload.get("step2_closeout_digest") or {}),
+                sidecar_index_summary=dict(payload.get("sidecar_index_summary") or {}),
+                review_copilot_payload=dict(payload.get("review_copilot_payload") or {}),
+                model_governance_summary=dict(payload.get("model_governance_summary") or {}),
+            ).load_snapshot()
+            payload["step2_closeout_bundle"] = dict(_closeout_snapshot.get("step2_closeout_bundle") or {})
+            payload["step2_closeout_evidence_index"] = dict(
+                _closeout_snapshot.get("step2_closeout_evidence_index") or {}
+            )
+            payload["step2_closeout_summary_markdown"] = str(
+                _closeout_snapshot.get("step2_closeout_summary_markdown") or ""
+            )
+            payload["step2_closeout_compact_section"] = dict(
+                _closeout_snapshot.get("step2_closeout_compact_section") or {}
+            )
         # Step 2 freeze audit — prefer persisted payload (Step 2.23)
         _persisted_freeze_audit = dict(payload.get("step2_freeze_audit") or {})
         if _persisted_freeze_audit:

@@ -1,0 +1,18 @@
+{
+  "schema_version": "step2-local-metrology-fixtures-v1",
+  "lots": [
+    {
+      "binding_id": "LOT-BIND-SG-2026-001",
+      "asset_id": "asset-standard-gas-sg-001",
+      "lot_id": "LOT-SG-2026-CO2-01",
+      "binding_status": "missing_binding_approval",
+      "gas_components": ["CO2", "H2O"],
+      "use_batch_id": "USE-BATCH-2026-04-STEP2-001",
+      "certificate_id": "CERT-SG-2026-001",
+      "lot_usage_linkage": "lot_usage_sidecar_pending",
+      "lot_usage_linked_routes": ["gas", "water"],
+      "reviewer_note": "Reviewer note pending for lot binding approval.",
+      "released_for_formal_claim": false
+    }
+  ]
+}

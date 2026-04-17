@@ -43,10 +43,19 @@ def test_uncertainty_wp3_object_model_golden_cases_and_results_contract(tmp_path
     golden_cases = list(payload["uncertainty_golden_cases"].get("golden_cases") or [])
     input_rows = list(payload["uncertainty_input_set"].get("input_quantity_set") or [])
     coefficient_rows = list(payload["sensitivity_coefficient_set"].get("sensitivity_coefficients") or [])
+    budget_levels = {str(item.get("budget_level") or "") for item in budget_cases}
+    input_quantity_keys = {str(item.get("quantity_key") or "") for item in input_rows}
+    fixture_paths = dict(payload["uncertainty_report_pack"].get("artifact_paths") or {})
+    uncertainty_binding = dict(results_payload.get("uncertainty_binding") or {})
+    result_budget_case = next(
+        item for item in budget_cases if str(item.get("budget_level") or "") == "result"
+    )
     required_case_fields = {
         "uncertainty_case_id",
         "scope_id",
         "decision_rule_id",
+        "method_confirmation_protocol_id",
+        "budget_level",
         "route_type",
         "measurand",
         "point_context",
@@ -62,8 +71,11 @@ def test_uncertainty_wp3_object_model_golden_cases_and_results_contract(tmp_path
         "coefficient_rounding_component",
         "writeback_verification_component",
         "combined_standard_uncertainty",
+        "expected_combined_standard_uncertainty",
         "coverage_factor",
         "expanded_uncertainty",
+        "expected_expanded_uncertainty",
+        "golden_case_status",
         "report_rule",
         "evidence_source",
         "ready_for_readiness_mapping",
@@ -82,6 +94,17 @@ def test_uncertainty_wp3_object_model_golden_cases_and_results_contract(tmp_path
     assert len(golden_cases) >= 5
     assert len(input_rows) >= 20
     assert len(coefficient_rows) >= 20
+    assert {"point", "route", "result"} <= budget_levels
+    assert {
+        "reference_setpoint",
+        "dew_point_reference",
+        "pressure_reference",
+        "temperature_reference",
+        "repeatability_sigma",
+        "fit_residual",
+        "rounding_resolution",
+        "writeback_echo",
+    } <= input_quantity_keys
     assert all(required_case_fields <= set(dict(item)) for item in budget_cases)
     assert all(dict(item).get("evidence_source") == "simulated" for item in budget_cases)
     assert all(bool(dict(item).get("ready_for_readiness_mapping")) for item in budget_cases)
@@ -101,12 +124,24 @@ def test_uncertainty_wp3_object_model_golden_cases_and_results_contract(tmp_path
     )
     assert any("writeback-rounding" in str(item.get("uncertainty_case_id") or "") for item in budget_cases)
     assert any("pressure-handoff-seal-ingress" in str(item.get("uncertainty_case_id") or "") for item in budget_cases)
+    assert any("offline-result-rollup" in str(item.get("uncertainty_case_id") or "") for item in budget_cases)
     assert all(dict(item).get("traceability_summary") for item in golden_cases)
     assert all(dict(item).get("reviewer_only") is True for item in golden_cases)
     assert all(dict(item).get("readiness_mapping_only") is True for item in golden_cases)
     assert all(dict(item).get("non_claim") is True for item in golden_cases)
+    assert all(str(dict(item).get("golden_case_status") or "") == "match" for item in golden_cases)
+    assert all(dict(item).get("method_confirmation_protocol_id") for item in golden_cases)
     assert payload["uncertainty_report_pack"]["top_contributors"]
     assert payload["uncertainty_report_pack"]["data_completeness"]["placeholder_only"] is True
+    assert payload["uncertainty_report_pack"]["budget_level_summary"]
+    assert payload["uncertainty_report_pack"]["binding_summary"]
+    assert payload["uncertainty_report_pack"]["calculation_chain_summary"]
+    assert payload["uncertainty_report_pack"]["fixture_summary"]
+    assert payload["uncertainty_report_pack"]["golden_case_summary"]
+    assert payload["uncertainty_report_pack"]["uncertainty_case_id"] == result_budget_case["uncertainty_case_id"]
+    assert payload["uncertainty_report_pack"]["method_confirmation_protocol_id"] == result_budget_case[
+        "method_confirmation_protocol_id"
+    ]
     assert payload["uncertainty_rollup"]["repository_mode"] == "file_artifact_first"
     assert payload["uncertainty_rollup"]["gateway_mode"] == "file_backed_default"
     assert payload["uncertainty_rollup"]["db_ready_stub"]["not_in_default_chain"] is True
@@ -115,7 +150,26 @@ def test_uncertainty_wp3_object_model_golden_cases_and_results_contract(tmp_path
     assert payload["uncertainty_rollup"]["not_ready_for_formal_claim"] is True
     assert payload["uncertainty_rollup"]["report_pack_available"] is True
     assert payload["uncertainty_rollup"]["report_pack_available_on_disk"] is True
+    assert payload["uncertainty_digest"]["uncertainty_case_id"] == result_budget_case["uncertainty_case_id"]
+    assert payload["uncertainty_rollup"]["uncertainty_case_id"] == result_budget_case["uncertainty_case_id"]
+    assert payload["uncertainty_rollup"]["method_confirmation_protocol_id"] == result_budget_case[
+        "method_confirmation_protocol_id"
+    ]
+    assert payload["uncertainty_rollup"]["budget_level_summary"]
+    assert payload["uncertainty_rollup"]["binding_summary"]
+    assert payload["uncertainty_rollup"]["calculation_chain_summary"]
+    assert payload["uncertainty_rollup"]["fixture_summary"]
+    assert payload["uncertainty_rollup"]["rollup_summary_display"]
+    assert any("uncertainty_budget_inputs.json" in str(value) for value in fixture_paths.values())
     assert snapshot["uncertainty_rollup"]["rollup_summary_display"]
+    assert uncertainty_binding["scope_id"] == results_payload["recognition_binding"]["scope_id"]
+    assert uncertainty_binding["decision_rule_id"] == results_payload["recognition_binding"]["decision_rule_id"]
+    assert uncertainty_binding["uncertainty_case_id"] == result_budget_case["uncertainty_case_id"]
+    assert uncertainty_binding["method_confirmation_protocol_id"] == result_budget_case[
+        "method_confirmation_protocol_id"
+    ]
+    assert uncertainty_binding["not_real_acceptance_evidence"] is True
+    assert uncertainty_binding["not_ready_for_formal_claim"] is True
     assert (
         "不确定度概览" in results_payload["result_summary_text"]
         or "Uncertainty overview" in results_payload["result_summary_text"]
@@ -128,6 +182,10 @@ def test_uncertainty_wp3_object_model_golden_cases_and_results_contract(tmp_path
         "主要不确定度贡献" in results_payload["result_summary_text"]
         or "Top uncertainty contributors" in results_payload["result_summary_text"]
     )
+    assert "budget levels" in results_payload["result_summary_text"].lower()
+    assert "uncertainty binding" in results_payload["result_summary_text"].lower()
+    assert "calculation chain" in results_payload["result_summary_text"].lower()
+    assert "fixture" in results_payload["result_summary_text"].lower()
     assert results_payload["uncertainty_report_pack"]["artifact_type"] == "uncertainty_report_pack"
     assert results_payload["uncertainty_digest"]["artifact_type"] == "uncertainty_digest"
     assert results_payload["uncertainty_rollup"]["artifact_type"] == "uncertainty_rollup"

@@ -14,6 +14,7 @@ from ...config import (
     hydrate_step2_config_safety_summary,
     summarize_step2_config_safety,
 )
+from ...analytics.sidecar_views import build_sidecar_analytics_summary
 from ...core.controlled_state_machine_profile import STATE_TRANSITION_EVIDENCE_FILENAME
 from ...core.multi_source_stability import (
     MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME,
@@ -26,6 +27,10 @@ from ...core.reviewer_surface_contracts import (
 )
 from ...core.reviewer_surface_payloads import (
     extract_wp6_closeout_payloads as _extract_wp6_closeout_payloads,
+)
+from ...intelligence.review_copilot import (
+    build_model_governance_summary,
+    build_review_copilot_payload,
 )
 from ...core.offline_artifacts import build_point_taxonomy_handoff
 from ...core.device_factory import DeviceFactory, DeviceType
@@ -330,10 +335,18 @@ class DeviceWorkbenchController:
         stability_digest = dict(stability.get("digest") or {})
         transition_digest = dict(transition.get("digest") or {})
         phase_coverage_digest = dict(phase_coverage.get("digest") or {})
+        stability_policy_profile = dict(stability.get("stability_policy_profile") or {})
+        stability_decision_rollup = dict(stability.get("stability_decision_rollup") or {})
+        shadow_stability_diff = dict(stability.get("shadow_stability_diff") or {})
+        transition_policy_profile = dict(transition.get("transition_policy_profile") or {})
         localized_measurement_lines = build_measurement_review_digest_lines(phase_coverage)
         summary_lines = [
             humanize_review_surface_text(str(stability_digest.get("summary") or "").strip()),
+            humanize_review_surface_text(str(stability_policy_profile.get("summary_line") or "").strip()),
+            humanize_review_surface_text(str(stability_decision_rollup.get("summary_line") or "").strip()),
+            humanize_review_surface_text(str(shadow_stability_diff.get("summary_line") or "").strip()),
             humanize_review_surface_text(str(transition_digest.get("summary") or "").strip()),
+            humanize_review_surface_text(str(transition_policy_profile.get("summary_line") or "").strip()),
             *[str(item).strip() for item in list(localized_measurement_lines.get("summary_lines") or []) if str(item).strip()],
             str(sidecar.get("reviewer_note") or "").strip(),
         ]
@@ -417,7 +430,11 @@ class DeviceWorkbenchController:
             "detail_lines": detail_lines,
             "boundary_lines": boundary_lines,
             "multi_source_stability_evidence": stability,
+            "stability_policy_profile": stability_policy_profile,
+            "stability_decision_rollup": stability_decision_rollup,
+            "shadow_stability_diff": shadow_stability_diff,
             "state_transition_evidence": transition,
+            "transition_policy_profile": transition_policy_profile,
             "simulation_evidence_sidecar_bundle": sidecar,
             "measurement_phase_coverage_report": phase_coverage,
             "compatibility_scan_summary": compatibility_summary,
@@ -470,15 +487,23 @@ class DeviceWorkbenchController:
         validation_run_set = dict(payload.get("validation_run_set") or {})
         verification_digest = dict(payload.get("verification_digest") or {})
         verification_rollup = dict(payload.get("verification_rollup") or {})
+        requirement_design_code_test_links = dict(payload.get("requirement_design_code_test_links") or {})
+        validation_evidence_index = dict(payload.get("validation_evidence_index") or {})
+        change_impact_summary = dict(payload.get("change_impact_summary") or {})
+        rollback_readiness_summary = dict(payload.get("rollback_readiness_summary") or {})
         software_validation_traceability_matrix = dict(
             payload.get("software_validation_traceability_matrix") or {}
         )
         artifact_hash_registry = dict(payload.get("artifact_hash_registry") or {})
+        audit_event_store = dict(payload.get("audit_event_store") or {})
         environment_fingerprint = dict(payload.get("environment_fingerprint") or {})
+        config_fingerprint = dict(payload.get("config_fingerprint") or {})
+        release_input_digest = dict(payload.get("release_input_digest") or {})
         release_manifest = dict(payload.get("release_manifest") or {})
         release_scope_summary = dict(payload.get("release_scope_summary") or {})
         release_boundary_digest = dict(payload.get("release_boundary_digest") or {})
         release_evidence_pack_index = dict(payload.get("release_evidence_pack_index") or {})
+        release_validation_manifest = dict(payload.get("release_validation_manifest") or {})
         software_validation_rollup = dict(payload.get("software_validation_rollup") or {})
         uncertainty_model = dict(payload.get("uncertainty_model") or {})
         uncertainty_input_set = dict(payload.get("uncertainty_input_set") or {})
@@ -491,6 +516,9 @@ class DeviceWorkbenchController:
         uncertainty_summary = dict(payload.get("uncertainty_method_readiness_summary") or {})
         audit_summary = dict(payload.get("audit_readiness_digest") or {})
         _wp6_closeout = _extract_wp6_closeout_payloads(payload)
+        step2_closeout_bundle = dict(payload.get("step2_closeout_bundle") or {})
+        step2_closeout_evidence_index = dict(payload.get("step2_closeout_evidence_index") or {})
+        step2_closeout_compact_section = dict(payload.get("step2_closeout_compact_section") or {})
         recognition_scope_rollup = dict(payload.get("recognition_scope_rollup") or {})
         compatibility_summary = dict(payload.get("compatibility_scan_summary") or {})
         compatibility_overview = dict(compatibility_summary.get("compatibility_overview") or {})
@@ -513,13 +541,21 @@ class DeviceWorkbenchController:
             "validation_run_set": validation_run_set,
             "verification_digest": verification_digest,
             "verification_rollup": verification_rollup,
+            "requirement_design_code_test_links": requirement_design_code_test_links,
+            "validation_evidence_index": validation_evidence_index,
+            "change_impact_summary": change_impact_summary,
+            "rollback_readiness_summary": rollback_readiness_summary,
             "software_validation_traceability_matrix": software_validation_traceability_matrix,
             "artifact_hash_registry": artifact_hash_registry,
+            "audit_event_store": audit_event_store,
             "environment_fingerprint": environment_fingerprint,
+            "config_fingerprint": config_fingerprint,
+            "release_input_digest": release_input_digest,
             "release_manifest": release_manifest,
             "release_scope_summary": release_scope_summary,
             "release_boundary_digest": release_boundary_digest,
             "release_evidence_pack_index": release_evidence_pack_index,
+            "release_validation_manifest": release_validation_manifest,
             "uncertainty_model": uncertainty_model,
             "uncertainty_input_set": uncertainty_input_set,
             "sensitivity_coefficient_set": sensitivity_coefficient_set,
@@ -537,6 +573,9 @@ class DeviceWorkbenchController:
             "comparison_digest": _wp6_closeout["comparison_digest"],
             "comparison_rollup": _wp6_closeout["comparison_rollup"],
             "step2_closeout_digest": _wp6_closeout["step2_closeout_digest"],
+            "step2_closeout_bundle": step2_closeout_bundle,
+            "step2_closeout_evidence_index": step2_closeout_evidence_index,
+            "step2_closeout_compact_section": step2_closeout_compact_section,
         }
         if not any(payloads.values()):
             return {}
@@ -565,6 +604,30 @@ class DeviceWorkbenchController:
                 path_text = str(path or "").strip()
                 if path_text:
                     artifact_paths[str(label)] = path_text
+        registry_digest = dict(reference_asset_registry.get("digest") or {})
+        lifecycle_digest = dict(certificate_lifecycle_summary.get("digest") or {})
+        gate_digest = dict(pre_run_readiness_gate.get("digest") or {})
+        explicit_readiness_lines = [
+            f"Asset count: {str(registry_digest.get('asset_count_summary') or recognition_scope_rollup.get('asset_count_summary') or '').strip()}",
+            f"Certificate validity: {str(registry_digest.get('certificate_validity_summary') or lifecycle_digest.get('certificate_validity_summary') or recognition_scope_rollup.get('certificate_validity_summary') or '').strip()}",
+            f"Lot binding: {str(gate_digest.get('lot_binding_summary') or lifecycle_digest.get('lot_binding_summary') or registry_digest.get('lot_binding_summary') or recognition_scope_rollup.get('lot_binding_summary') or '').strip()}",
+            f"Intermediate checks: {str(gate_digest.get('intermediate_check_summary') or lifecycle_digest.get('intermediate_check_summary') or registry_digest.get('intermediate_check_summary') or recognition_scope_rollup.get('intermediate_check_summary') or '').strip()}",
+            f"Pre-run gate: {str(gate_digest.get('pre_run_gate_status') or pre_run_readiness_gate.get('gate_status') or recognition_scope_rollup.get('pre_run_gate_status') or '').strip()}",
+        ]
+        for line in explicit_readiness_lines:
+            if line.endswith(":"):
+                continue
+            if line.strip() and line not in summary_lines:
+                summary_lines.append(line)
+        explicit_detail_lines = [
+            f"Blocking items: {str(gate_digest.get('blocker_summary') or '').strip()}",
+            f"Warning items: {str(gate_digest.get('warning_summary') or '').strip()}",
+        ]
+        for line in explicit_detail_lines:
+            if line.endswith(":"):
+                continue
+            if line.strip() and line not in detail_lines:
+                detail_lines.append(line)
         software_validation_overview = str(
             software_validation_rollup.get("rollup_summary_display")
             or software_validation_rollup.get("release_manifest_summary")
@@ -749,6 +812,37 @@ class DeviceWorkbenchController:
             extra_boundary = str(recognition_scope_rollup.get("conformity_boundary_display") or "").strip()
             if extra_boundary and extra_boundary not in boundary_lines:
                 boundary_lines.append(extra_boundary)
+        if step2_closeout_bundle or step2_closeout_compact_section:
+            closeout_summary = str(
+                step2_closeout_compact_section.get("summary_line")
+                or step2_closeout_bundle.get("summary_line")
+                or ""
+            ).strip()
+            if closeout_summary and closeout_summary not in summary_lines:
+                summary_lines.append(closeout_summary)
+            for category in list(
+                step2_closeout_bundle.get("missing_evidence_categories")
+                or step2_closeout_compact_section.get("missing_evidence_categories")
+                or []
+            ):
+                text = t(
+                    "pages.devices.workbench.recognition_readiness.step2_closeout_missing",
+                    category=str(category),
+                    default=f"Step 2 \u6536\u5c3e\u603b\u5305\u7f3a\u5931: {str(category)}",
+                )
+                if text not in detail_lines:
+                    detail_lines.append(text)
+            for label, path in dict(step2_closeout_bundle.get("artifact_paths") or {}).items():
+                path_text = str(path or "").strip()
+                if path_text:
+                    artifact_paths[str(label)] = path_text
+            closeout_boundary = (
+                "reviewer_only=true | readiness_mapping_only=true | "
+                "not_real_acceptance_evidence=true | not_ready_for_formal_claim=true | "
+                "file_artifact_first_preserved=true | main_chain_dependency=false"
+            )
+            if closeout_boundary not in boundary_lines:
+                boundary_lines.append(closeout_boundary)
 
         return {
             "available": True,
@@ -762,7 +856,53 @@ class DeviceWorkbenchController:
             "verification_rollup": verification_rollup,
             "software_validation_rollup": software_validation_rollup,
             "compatibility_scan_summary": compatibility_summary,
+            "step2_closeout_bundle": step2_closeout_bundle,
+            "step2_closeout_evidence_index": step2_closeout_evidence_index,
+            "step2_closeout_compact_section": step2_closeout_compact_section,
             **payloads,
+        }
+
+    def _load_analytics_ai_sidecar(self) -> dict[str, Any]:
+        sidecar_index = getattr(self.facade, "sidecar_index", None)
+        if sidecar_index is None:
+            return {}
+        run_id = str(getattr(getattr(self.facade, "session", None), "run_id", "") or "")
+        analytics_sidecar = build_sidecar_analytics_summary(sidecar_index, run_id=run_id)
+        review_copilot = build_review_copilot_payload(sidecar_index, run_id=run_id)
+        model_governance = build_model_governance_summary(sidecar_index, run_id=run_id)
+        if not (analytics_sidecar or review_copilot or model_governance):
+            return {}
+        summary_line = str(
+            analytics_sidecar.get("summary_line")
+            or review_copilot.get("summary_line")
+            or model_governance.get("summary_line")
+            or ""
+        ).strip()
+        summary_lines = [
+            str(item).strip()
+            for item in (
+                list(analytics_sidecar.get("summary_lines") or [])
+                + list(review_copilot.get("summary_lines") or [])
+                + list(model_governance.get("summary_lines") or [])
+            )
+            if str(item).strip()
+        ]
+        return {
+            "available": True,
+            "summary_line": summary_line,
+            "summary_lines": summary_lines,
+            "analytics_sidecar_summary": analytics_sidecar,
+            "review_copilot_payload": review_copilot,
+            "model_governance_summary": model_governance,
+            "reviewer_only": True,
+            "advisory_only": True,
+            "sidecar_only": True,
+            "not_real_acceptance_evidence": True,
+            "not_ready_for_formal_claim": True,
+            "not_device_control": True,
+            "not_sampling_release": True,
+            "not_coefficient_writeback": True,
+            "not_formal_metrology_conclusion": True,
         }
 
     @staticmethod
@@ -2533,6 +2673,7 @@ class DeviceWorkbenchController:
         point_taxonomy_summary = self._point_taxonomy_snapshot()
         measurement_core_evidence = self._load_measurement_core_evidence()
         recognition_readiness_evidence = self._load_recognition_readiness_evidence()
+        analytics_ai_sidecar = self._load_analytics_ai_sidecar()
         engineer_summary = self._build_engineer_summary(
             analyzer_snapshot=analyzer_snapshot,
             pace_snapshot=pace_snapshot,
@@ -2553,6 +2694,7 @@ class DeviceWorkbenchController:
             point_taxonomy_summary=point_taxonomy_summary,
             measurement_core_evidence=measurement_core_evidence,
             recognition_readiness_evidence=recognition_readiness_evidence,
+            analytics_ai_sidecar=analytics_ai_sidecar,
         )
         return {
             "meta": {
@@ -2657,6 +2799,7 @@ class DeviceWorkbenchController:
                     "point_taxonomy_summary": point_taxonomy_summary,
                     "measurement_core_evidence": measurement_core_evidence,
                     "recognition_readiness_evidence": recognition_readiness_evidence,
+                    "analytics_ai_sidecar": analytics_ai_sidecar,
                 },
                 "qc_review_summary": dict(qc_review_summary),
                 "qc_reviewer_card": dict(qc_review_summary.get("reviewer_card") or {}),
@@ -2666,6 +2809,7 @@ class DeviceWorkbenchController:
                 "config_safety_review": config_safety_review,
                 "config_governance_handoff": dict(config_governance_payload.get("config_governance_handoff") or {}),
                 "point_taxonomy_summary": point_taxonomy_summary,
+                "analytics_ai_sidecar": analytics_ai_sidecar,
             },
             "evidence": {
                 **self._workbench_evidence_boundary(),
@@ -2683,6 +2827,7 @@ class DeviceWorkbenchController:
                 "point_taxonomy_summary": point_taxonomy_summary,
                 "measurement_core_evidence": measurement_core_evidence,
                 "recognition_readiness_evidence": recognition_readiness_evidence,
+                "analytics_ai_sidecar": analytics_ai_sidecar,
             },
             "history": history_payload,
             "operator_summary": operator_summary,
@@ -4040,6 +4185,7 @@ class DeviceWorkbenchController:
         point_taxonomy_summary: dict[str, Any],
         measurement_core_evidence: dict[str, Any],
         recognition_readiness_evidence: dict[str, Any],
+        analytics_ai_sidecar: dict[str, Any],
     ) -> dict[str, Any]:
         diagnostics = {
             "reference_quality": reference_quality,
@@ -4073,6 +4219,7 @@ class DeviceWorkbenchController:
                 "panel_status": dict(pressure_snapshot.get("panel_status", {}) or {}),
                 "injection_state": dict(pressure_snapshot.get("injection_state", {}) or {}),
             },
+            "analytics_ai_sidecar": dict(analytics_ai_sidecar or {}),
         }
         analyzer_panel = dict(analyzer_snapshot.get("panel_status", {}) or {})
         pace_panel = dict(pace_snapshot.get("panel_status", {}) or {})
@@ -4309,6 +4456,17 @@ class DeviceWorkbenchController:
             for item in list(recognition_readiness_evidence.get("boundary_lines") or [])
             if str(item).strip()
         ]
+        step2_closeout_summary = str(
+            dict(recognition_readiness_evidence.get("step2_closeout_compact_section") or {}).get("summary_line")
+            or dict(recognition_readiness_evidence.get("step2_closeout_bundle") or {}).get("summary_line")
+            or t("common.none")
+        )
+        analytics_ai_sidecar_summary = str(analytics_ai_sidecar.get("summary_line") or t("common.none"))
+        analytics_ai_sidecar_lines = [
+            str(item)
+            for item in list(analytics_ai_sidecar.get("summary_lines") or [])
+            if str(item).strip()
+        ]
         cards = [
             {
                 "title": t("pages.devices.workbench.engineer_card.reference"),
@@ -4372,6 +4530,20 @@ class DeviceWorkbenchController:
                     default="认可就绪治理骨架",
                 ),
                 "summary": recognition_readiness_summary,
+            },
+            {
+                "title": t(
+                    "pages.devices.workbench.engineer_card.step2_closeout_bundle",
+                    default="Step 2 收尾总包",
+                ),
+                "summary": step2_closeout_summary,
+            },
+            {
+                "title": t(
+                    "pages.devices.workbench.engineer_card.analytics_ai_sidecar",
+                    default="analytics / AI 旁路",
+                ),
+                "summary": analytics_ai_sidecar_summary,
             },
         ]
         device_lines = [
@@ -4766,6 +4938,16 @@ class DeviceWorkbenchController:
                 )
                 or t("common.none"),
                 "expanded": bool(recognition_readiness_evidence.get("available", False)),
+            },
+            {
+                "id": "analytics_ai_sidecar",
+                "title": t(
+                    "pages.devices.workbench.engineer_section.analytics_ai_sidecar.title",
+                    default="analytics / AI 旁路",
+                ),
+                "summary": analytics_ai_sidecar_summary,
+                "body_text": "\n".join(analytics_ai_sidecar_lines) or t("common.none"),
+                "expanded": bool(analytics_ai_sidecar),
             },
             {
                 "id": "suite_analytics",

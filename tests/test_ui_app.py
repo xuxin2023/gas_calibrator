@@ -469,7 +469,7 @@ def test_build_runtime_cfg_disables_calibration_fit(monkeypatch) -> None:
         root.destroy()
 
 
-def test_build_runtime_cfg_enables_postrun_corrected_delivery(monkeypatch) -> None:
+def test_build_runtime_cfg_strips_postrun_corrected_delivery_from_v1_ui(monkeypatch) -> None:
     monkeypatch.setattr(app_module, "load_config", lambda _path: _basic_cfg())
     monkeypatch.setattr(app_module, "load_points_from_excel", lambda *_args, **_kwargs: _points(20.0))
 
@@ -479,22 +479,7 @@ def test_build_runtime_cfg_enables_postrun_corrected_delivery(monkeypatch) -> No
         ui = app_module.App(root)
         ui.postrun_delivery_var.set(True)
         runtime_cfg = ui._build_runtime_cfg()
-        assert runtime_cfg["workflow"]["postrun_corrected_delivery"]["enabled"] is True
-    finally:
-        root.destroy()
-
-
-def test_build_runtime_cfg_disables_postrun_corrected_delivery(monkeypatch) -> None:
-    monkeypatch.setattr(app_module, "load_config", lambda _path: _basic_cfg())
-    monkeypatch.setattr(app_module, "load_points_from_excel", lambda *_args, **_kwargs: _points(20.0))
-
-    root = tk.Tk()
-    root.withdraw()
-    try:
-        ui = app_module.App(root)
-        ui.postrun_delivery_var.set(False)
-        runtime_cfg = ui._build_runtime_cfg()
-        assert runtime_cfg["workflow"]["postrun_corrected_delivery"]["enabled"] is False
+        assert "postrun_corrected_delivery" not in runtime_cfg["workflow"]
     finally:
         root.destroy()
 
@@ -555,9 +540,9 @@ def test_load_config_reads_calibration_fit_switch(monkeypatch) -> None:
         root.destroy()
 
 
-def test_load_config_reads_postrun_corrected_delivery_switch(monkeypatch) -> None:
+def test_load_config_ignores_postrun_corrected_delivery_switch(monkeypatch) -> None:
     cfg = _basic_cfg()
-    cfg["workflow"]["postrun_corrected_delivery"] = {"enabled": False}
+    cfg["workflow"]["postrun_corrected_delivery"] = {"enabled": True}
     monkeypatch.setattr(app_module, "load_config", lambda _path: cfg)
     monkeypatch.setattr(app_module, "load_points_from_excel", lambda *_args, **_kwargs: _points(20.0))
 
@@ -566,7 +551,8 @@ def test_load_config_reads_postrun_corrected_delivery_switch(monkeypatch) -> Non
     try:
         ui = app_module.App(root)
         assert ui.postrun_delivery_var.get() is False
-        assert "自动交付：关闭" in ui.summary_var.get()
+        assert str(ui.postrun_delivery_check.cget("state")) == "disabled"
+        assert "自动交付" not in ui.summary_var.get()
     finally:
         root.destroy()
 
