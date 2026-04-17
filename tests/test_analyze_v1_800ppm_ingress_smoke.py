@@ -667,7 +667,7 @@ def test_classify_ingress_result_prioritizes_legacy_vent_state_problem() -> None
 
     conclusion, metrics = module.classify_ingress_result(point_results)
 
-    assert conclusion == "legacy VENT=3 compatibility state still needs controller-only proof"
+    assert conclusion == "legacy VENT=3 remains watchlist-only and blocks low-pressure inference"
     assert metrics["conclusion_code"] == "legacy_vent_state_problem"
     assert metrics["pace_legacy_vent_state_3_count"] == 1
 

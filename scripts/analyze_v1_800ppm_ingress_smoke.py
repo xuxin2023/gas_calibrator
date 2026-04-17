@@ -743,7 +743,7 @@ def classify_ingress_result(point_results: Sequence[Mapping[str, Any]]) -> Tuple
         fast_capture_assessment = "未启用 5 秒快采或证据不足"
 
     if pace_legacy_vent_state_3_count and not any(_checkvalve_mode_active(row) for row in point_results):
-        fast_capture_assessment = "5s fast capture blocked by legacy VENT=3 compatibility-only state"
+        fast_capture_assessment = "5s fast capture blocked by legacy VENT=3 watchlist-only state"
 
     severe_physical_count = (
         old_reopen_count
@@ -813,7 +813,7 @@ def classify_ingress_result(point_results: Sequence[Mapping[str, Any]]) -> Tuple
             conclusion_code = "mixed_but_improved"
     elif pace_legacy_vent_state_3_count > 0:
         conclusion_code = "legacy_vent_state_problem"
-        conclusion = "legacy VENT=3 compatibility state still needs controller-only proof"
+        conclusion = "legacy VENT=3 remains watchlist-only and blocks low-pressure inference"
     elif baseline_source_or_stream_problem_count > 0:
         conclusion_code = "baseline_source_or_stream_problem"
         conclusion = "near-ambient baseline points to source/stream mismatch before low-pressure inference"

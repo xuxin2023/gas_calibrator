@@ -302,11 +302,11 @@ def test_controller_only_matrix_runs_a_to_g_without_touching_main_flow(tmp_path:
     assert summary["steps"][3]["vent_complete_bit_before"] is True
     assert summary["steps"][3]["vent_complete_bit_after"] is True
     assert summary["steps"][0]["legacy_vent3_control_ready_used"] is False
-    assert summary["steps"][0]["legacy_vent3_accept_scope"] == "controller_only"
+    assert summary["steps"][0]["legacy_vent3_accept_scope"] == "none"
     assert summary["analysis"]["vent_status_3_count"] == 7
     assert summary["analysis"]["pace_atmosphere_connected_latched_state_suspect"] is True
     assert summary["analysis"]["legacy_vent3_control_ready_used"] is False
-    assert summary["analysis"]["legacy_vent3_accept_scope"] == "controller_only"
+    assert summary["analysis"]["legacy_vent3_accept_scope"] == "none"
     assert summary["analysis"]["vent3_watchlist_only"] is True
     assert summary["analysis"]["syst_err_all_zero"] is True
     assert summary["analysis"]["eff_all_zero"] is True
@@ -368,7 +368,7 @@ def test_controller_only_ui_ack_experiment_marks_callback_invocation_in_post_win
     assert summary["analysis"]["vent3_cleared_after_window"] is True
     assert summary["analysis"]["cond_bit0_cleared_after_window"] is True
     assert summary["analysis"]["legacy_vent3_control_ready_used"] is False
-    assert summary["analysis"]["legacy_vent3_accept_scope"] == "controller_only"
+    assert summary["analysis"]["legacy_vent3_accept_scope"] == "none"
     assert summary["analysis"]["ack_callback_invoked"] is True
     assert summary["analysis"]["vent3_post_window_status"] == 0
     assert "vent_status_changed_after_window" in summary["analysis"]["conclusion_codes"]
@@ -408,7 +408,7 @@ def test_controller_only_ui_ack_experiment_keeps_callback_marker_false_without_c
     assert summary["analysis"]["ack_callback_invoked"] is False
     assert summary["analysis"]["vent3_post_window_status"] == 3
     assert summary["analysis"]["legacy_vent3_control_ready_used"] is False
-    assert summary["analysis"]["legacy_vent3_accept_scope"] == "controller_only"
+    assert summary["analysis"]["legacy_vent3_accept_scope"] == "none"
     assert "vent_status_changed_after_window" not in summary["analysis"]["conclusion_codes"]
     assert all(call != ("query", ":SENS:PRES:CONT?") for call in fake.calls)
 
@@ -465,6 +465,6 @@ def test_controller_only_ui_ack_experiment_does_not_infer_callback_when_popup_st
     assert summary["analysis"]["ack_callback_invoked"] is False
     assert summary["analysis"]["vent3_post_window_status"] == 2
     assert summary["analysis"]["legacy_vent3_control_ready_used"] is False
-    assert summary["analysis"]["legacy_vent3_accept_scope"] == "controller_only"
+    assert summary["analysis"]["legacy_vent3_accept_scope"] == "none"
     assert summary["analysis"]["conclusion_codes"] == []
     assert all(call != ("query", ":SENS:PRES:CONT?") for call in fake.calls)

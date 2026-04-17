@@ -341,7 +341,7 @@ def _controller_only_vent3_fields(
         "pace_legacy_vent_state_3_suspect": is_vent3,
         "pace_atmosphere_connected_latched_state_suspect": is_vent3,
         "legacy_vent3_control_ready_used": False,
-        "legacy_vent3_accept_scope": "controller_only" if is_vent3 else "none",
+        "legacy_vent3_accept_scope": "none",
         "vent_status_3_count": 1 if is_vent3 else 0,
         "vent3_hard_blocked": False,
         "vent3_watchlist_only": bool(is_vent3),
@@ -466,7 +466,7 @@ def _build_matrix_analysis(rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         "pace_legacy_vent_state_3_suspect": bool(steps_with_vent_status_3),
         "pace_atmosphere_connected_latched_state_suspect": bool(steps_with_vent_status_3),
         "legacy_vent3_control_ready_used": False,
-        "legacy_vent3_accept_scope": "controller_only" if steps_with_vent_status_3 else "none",
+        "legacy_vent3_accept_scope": "none",
         "vent3_hard_blocked": False,
         "vent3_watchlist_only": bool(steps_with_vent_status_3),
         "vent3_control_ready_attempted": False,
@@ -801,7 +801,7 @@ def _build_ui_ack_analysis(samples: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
             for sample in samples
         ),
         "legacy_vent3_control_ready_used": False,
-        "legacy_vent3_accept_scope": "controller_only" if pre_samples else "none",
+        "legacy_vent3_accept_scope": "none",
         "vent3_hard_blocked": False,
         "vent3_watchlist_only": any(
             sample.get("snapshot", {}).get("parsed", {}).get("vent3_watchlist_only") for sample in samples
