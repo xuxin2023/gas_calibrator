@@ -74,12 +74,12 @@ MATRIX_CSV_FIELDS = [
     "legacy_vent3_accept_scope",
     "vent_status_3_count",
     "vent3_hard_blocked",
-    "vent3_ui_ack_required",
+    "vent3_watchlist_only",
     "vent3_control_ready_attempted",
     "vent3_control_ready_prevented",
     "vent3_block_scope",
-    "front_panel_ack_observed",
-    "vent3_post_ack_status",
+    "ack_callback_invoked",
+    "vent3_post_window_status",
     "clear_attempt_sequence",
     "clear_result",
     "vent_complete_bit_before",
@@ -123,12 +123,12 @@ UI_ACK_CSV_FIELDS = [
     "legacy_vent3_accept_scope",
     "vent_status_3_count",
     "vent3_hard_blocked",
-    "vent3_ui_ack_required",
+    "vent3_watchlist_only",
     "vent3_control_ready_attempted",
     "vent3_control_ready_prevented",
     "vent3_block_scope",
-    "front_panel_ack_observed",
-    "vent3_post_ack_status",
+    "ack_callback_invoked",
+    "vent3_post_window_status",
 ]
 
 MATRIX_QUERY_COMMANDS = [
@@ -332,8 +332,8 @@ def _decode_oper_bits(value: Optional[int]) -> Dict[str, Optional[bool]]:
 def _controller_only_vent3_fields(
     vent_value: Optional[int],
     *,
-    front_panel_ack_observed: bool = False,
-    post_ack_status: Any = None,
+    ack_callback_invoked: bool = False,
+    post_window_status: Any = None,
 ) -> Dict[str, Any]:
     is_vent3 = vent_value == Pace5000.VENT_STATUS_TRAPPED_PRESSURE
     return {
@@ -344,12 +344,12 @@ def _controller_only_vent3_fields(
         "legacy_vent3_accept_scope": "controller_only" if is_vent3 else "none",
         "vent_status_3_count": 1 if is_vent3 else 0,
         "vent3_hard_blocked": False,
-        "vent3_ui_ack_required": False,
+        "vent3_watchlist_only": bool(is_vent3),
         "vent3_control_ready_attempted": False,
         "vent3_control_ready_prevented": False,
         "vent3_block_scope": "none",
-        "front_panel_ack_observed": bool(front_panel_ack_observed),
-        "vent3_post_ack_status": "" if post_ack_status in ("", None) else post_ack_status,
+        "ack_callback_invoked": bool(ack_callback_invoked),
+        "vent3_post_window_status": "" if post_window_status in ("", None) else post_window_status,
     }
 
 
@@ -468,12 +468,12 @@ def _build_matrix_analysis(rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         "legacy_vent3_control_ready_used": False,
         "legacy_vent3_accept_scope": "controller_only" if steps_with_vent_status_3 else "none",
         "vent3_hard_blocked": False,
-        "vent3_ui_ack_required": False,
+        "vent3_watchlist_only": bool(steps_with_vent_status_3),
         "vent3_control_ready_attempted": False,
         "vent3_control_ready_prevented": False,
         "vent3_block_scope": "none",
-        "front_panel_ack_observed": False,
-        "vent3_post_ack_status": "",
+        "ack_callback_invoked": False,
+        "vent3_post_window_status": "",
         "clear_attempts": clear_attempts,
         "observation_only_steps": observation_only_steps,
         "eff_all_zero": eff_all_zero,
@@ -527,12 +527,12 @@ def _matrix_snapshot_row(step: Dict[str, Any]) -> Dict[str, Any]:
         "legacy_vent3_accept_scope": step.get("legacy_vent3_accept_scope", "none"),
         "vent_status_3_count": step.get("vent_status_3_count", 0),
         "vent3_hard_blocked": step.get("vent3_hard_blocked", False),
-        "vent3_ui_ack_required": step.get("vent3_ui_ack_required", False),
+        "vent3_watchlist_only": step.get("vent3_watchlist_only", False),
         "vent3_control_ready_attempted": step.get("vent3_control_ready_attempted", False),
         "vent3_control_ready_prevented": step.get("vent3_control_ready_prevented", False),
         "vent3_block_scope": step.get("vent3_block_scope", "none"),
-        "front_panel_ack_observed": step.get("front_panel_ack_observed", False),
-        "vent3_post_ack_status": step.get("vent3_post_ack_status", ""),
+        "ack_callback_invoked": step.get("ack_callback_invoked", False),
+        "vent3_post_window_status": step.get("vent3_post_window_status", ""),
         "clear_attempt_sequence": step.get("clear_attempt_sequence", ""),
         "clear_result": step.get("clear_result", ""),
         "vent_complete_bit_before": step.get("vent_complete_bit_before", ""),
@@ -674,15 +674,15 @@ def run_controller_only_matrix(
 def _take_allowed_snapshot(
     pace: Pace5000,
     *,
-    front_panel_ack_observed: bool = False,
+    ack_callback_invoked: bool = False,
 ) -> Dict[str, Any]:
     snapshot = _query_allowed_snapshot(pace)
     parsed = _parsed_allowed_snapshot(snapshot)
     parsed.update(
         _controller_only_vent3_fields(
             parsed.get("vent"),
-            front_panel_ack_observed=front_panel_ack_observed,
-            post_ack_status=parsed.get("vent") if front_panel_ack_observed else None,
+            ack_callback_invoked=ack_callback_invoked,
+            post_window_status=parsed.get("vent") if ack_callback_invoked else None,
         )
     )
     snapshot["parsed"] = parsed
@@ -734,18 +734,18 @@ def _ui_ack_snapshot_row(sample: Dict[str, Any]) -> Dict[str, Any]:
         "legacy_vent3_accept_scope": parsed.get("legacy_vent3_accept_scope", "none"),
         "vent_status_3_count": parsed.get("vent_status_3_count", 0),
         "vent3_hard_blocked": parsed.get("vent3_hard_blocked", False),
-        "vent3_ui_ack_required": parsed.get("vent3_ui_ack_required", False),
+        "vent3_watchlist_only": parsed.get("vent3_watchlist_only", False),
         "vent3_control_ready_attempted": parsed.get("vent3_control_ready_attempted", False),
         "vent3_control_ready_prevented": parsed.get("vent3_control_ready_prevented", False),
         "vent3_block_scope": parsed.get("vent3_block_scope", "none"),
-        "front_panel_ack_observed": parsed.get("front_panel_ack_observed", False),
-        "vent3_post_ack_status": parsed.get("vent3_post_ack_status", ""),
+        "ack_callback_invoked": parsed.get("ack_callback_invoked", False),
+        "vent3_post_window_status": parsed.get("vent3_post_window_status", ""),
     }
 
 
 def _build_ui_ack_analysis(samples: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
-    pre_samples = [sample for sample in samples if sample.get("phase") != "phase3_post_ack"]
-    post_samples = [sample for sample in samples if sample.get("phase") == "phase3_post_ack"]
+    pre_samples = [sample for sample in samples if sample.get("phase") != "phase3_post_window"]
+    post_samples = [sample for sample in samples if sample.get("phase") == "phase3_post_window"]
     pre_vents = [sample.get("snapshot", {}).get("parsed", {}).get("vent") for sample in pre_samples]
     post_vents = [sample.get("snapshot", {}).get("parsed", {}).get("vent") for sample in post_samples]
     pre_cond = [
@@ -765,30 +765,30 @@ def _build_ui_ack_analysis(samples: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         for sample in post_samples
     ]
     conclusion_codes: List[str] = []
-    pre_ack_had_vent3 = any(value == Pace5000.VENT_STATUS_TRAPPED_PRESSURE for value in pre_vents if value is not None)
-    pre_ack_had_cond_bit0 = any(value is True for value in pre_cond if value is not None)
-    pre_ack_had_even_bit0 = any(value is True for value in pre_even if value is not None)
-    ack_observed_in_samples = any(
-        sample.get("snapshot", {}).get("parsed", {}).get("front_panel_ack_observed")
+    pre_window_had_vent3 = any(value == Pace5000.VENT_STATUS_TRAPPED_PRESSURE for value in pre_vents if value is not None)
+    pre_window_had_cond_bit0 = any(value is True for value in pre_cond if value is not None)
+    pre_window_had_even_bit0 = any(value is True for value in pre_even if value is not None)
+    callback_invoked_in_samples = any(
+        sample.get("snapshot", {}).get("parsed", {}).get("ack_callback_invoked")
         for sample in post_samples
     )
-    vent3_cleared_after_ack = bool(post_vents) and all(
+    vent3_cleared_after_window = bool(post_vents) and all(
         value != Pace5000.VENT_STATUS_TRAPPED_PRESSURE for value in post_vents if value is not None
     )
-    vent3_cleared_after_ack = bool(pre_ack_had_vent3 and vent3_cleared_after_ack)
-    cond_bit0_cleared_after_ack = bool(
-        pre_ack_had_cond_bit0 and post_cond and all(value is False for value in post_cond if value is not None)
+    vent3_cleared_after_window = bool(pre_window_had_vent3 and vent3_cleared_after_window)
+    cond_bit0_cleared_after_window = bool(
+        pre_window_had_cond_bit0 and post_cond and all(value is False for value in post_cond if value is not None)
     )
-    even_bit0_cleared_after_ack = bool(
-        pre_ack_had_even_bit0 and post_even and all(value is False for value in post_even if value is not None)
+    even_bit0_cleared_after_window = bool(
+        pre_window_had_even_bit0 and post_even and all(value is False for value in post_even if value is not None)
     )
-    front_panel_ack_observed = bool(ack_observed_in_samples)
+    ack_callback_invoked = bool(callback_invoked_in_samples)
     if pre_vents and all(value == Pace5000.VENT_STATUS_TRAPPED_PRESSURE for value in pre_vents if value is not None):
         conclusion_codes.append("pre_window_vent3_persistent")
-    if vent3_cleared_after_ack:
-        conclusion_codes.append("vent_status_changed_after_ack_window")
-    if cond_bit0_cleared_after_ack:
-        conclusion_codes.append("cond_bit0_changed_after_ack_window")
+    if vent3_cleared_after_window:
+        conclusion_codes.append("vent_status_changed_after_window")
+    if cond_bit0_cleared_after_window:
+        conclusion_codes.append("cond_bit0_changed_after_window")
     return {
         "vent_status_3_count": sum(
             1 for sample in samples if sample.get("snapshot", {}).get("parsed", {}).get("vent") == Pace5000.VENT_STATUS_TRAPPED_PRESSURE
@@ -803,24 +803,26 @@ def _build_ui_ack_analysis(samples: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
         "legacy_vent3_control_ready_used": False,
         "legacy_vent3_accept_scope": "controller_only" if pre_samples else "none",
         "vent3_hard_blocked": False,
-        "vent3_ui_ack_required": False,
+        "vent3_watchlist_only": any(
+            sample.get("snapshot", {}).get("parsed", {}).get("vent3_watchlist_only") for sample in samples
+        ),
         "vent3_control_ready_attempted": False,
         "vent3_control_ready_prevented": False,
         "vent3_block_scope": "none",
-        "front_panel_ack_observed": front_panel_ack_observed,
-        "vent3_post_ack_status": post_vents[0] if post_vents else "",
-        "pre_ack_vent_values": pre_vents,
-        "post_ack_vent_values": post_vents,
-        "pre_ack_cond_bit0_values": pre_cond,
-        "post_ack_cond_bit0_values": post_cond,
-        "pre_ack_even_bit0_values": pre_even,
-        "post_ack_even_bit0_values": post_even,
-        "vent3_persisted_before_ack": bool(pre_vents) and all(
+        "ack_callback_invoked": ack_callback_invoked,
+        "vent3_post_window_status": post_vents[0] if post_vents else "",
+        "pre_window_vent_values": pre_vents,
+        "post_window_vent_values": post_vents,
+        "pre_window_cond_bit0_values": pre_cond,
+        "post_window_cond_bit0_values": post_cond,
+        "pre_window_even_bit0_values": pre_even,
+        "post_window_even_bit0_values": post_even,
+        "vent3_persisted_before_window": bool(pre_vents) and all(
             value == Pace5000.VENT_STATUS_TRAPPED_PRESSURE for value in pre_vents if value is not None
         ),
-        "vent3_cleared_after_ack": vent3_cleared_after_ack,
-        "cond_bit0_cleared_after_ack": cond_bit0_cleared_after_ack,
-        "even_bit0_cleared_after_ack": even_bit0_cleared_after_ack,
+        "vent3_cleared_after_window": vent3_cleared_after_window,
+        "cond_bit0_cleared_after_window": cond_bit0_cleared_after_window,
+        "even_bit0_cleared_after_window": even_bit0_cleared_after_window,
         "conclusion_codes": conclusion_codes,
     }
 
@@ -843,9 +845,9 @@ def run_controller_only_ui_ack_experiment(
     factory = pace_factory or Pace5000
     pace = factory(port, baudrate=baudrate, timeout=timeout)
     samples: List[Dict[str, Any]] = []
-    ack_confirmed = False
+    callback_invoked = False
 
-    def _record_phase(phase: str, count: int, *, front_panel_ack_observed: bool) -> None:
+    def _record_phase(phase: str, count: int, *, ack_callback_invoked: bool) -> None:
         total = max(1, int(count))
         for index in range(total):
             samples.append(
@@ -855,7 +857,7 @@ def run_controller_only_ui_ack_experiment(
                     "timestamp": _timestamp(),
                     "snapshot": _take_allowed_snapshot(
                         pace,
-                        front_panel_ack_observed=front_panel_ack_observed,
+                        ack_callback_invoked=ack_callback_invoked,
                     ),
                 }
             )
@@ -864,15 +866,18 @@ def run_controller_only_ui_ack_experiment(
 
     pace.open()
     try:
-        _record_phase("phase1_popup_initial", 1, front_panel_ack_observed=False)
-        _record_phase("phase2_popup_hold", hold_samples, front_panel_ack_observed=False)
+        _record_phase("phase1_window_initial", 1, ack_callback_invoked=False)
+        _record_phase("phase2_window_hold", hold_samples, ack_callback_invoked=False)
         if callable(ack_callback):
             ack_callback()
-            ack_confirmed = True
+            callback_invoked = True
         elif ack_wait_s > 0:
-            print(f"Wait {ack_wait_s:.1f}s for manual front-panel OK acknowledgement, then post-ack sampling continues.")
+            print(
+                f"Wait {ack_wait_s:.1f}s for the manual observation window, "
+                "then post-window sampling continues."
+            )
             time.sleep(max(0.0, float(ack_wait_s)))
-        _record_phase("phase3_post_ack", post_ack_samples, front_panel_ack_observed=ack_confirmed)
+        _record_phase("phase3_post_window", post_ack_samples, ack_callback_invoked=callback_invoked)
     finally:
         pace.close()
 
@@ -885,17 +890,17 @@ def run_controller_only_ui_ack_experiment(
         "timeout": timeout,
         "interval_s": max(0.0, float(interval_s)),
         "hold_samples": max(1, int(hold_samples)),
-        "post_ack_samples": max(1, int(post_ack_samples)),
+        "post_window_samples": max(1, int(post_ack_samples)),
         "ack_wait_s": max(0.0, float(ack_wait_s)),
         "csv_path": str(csv_path),
         "json_path": str(json_path),
         "samples": samples,
         "analysis": _build_ui_ack_analysis(samples),
         "notes": [
-            "controller-only UI acknowledgement experiment",
+            "controller-only UI observation-window experiment",
             "phase1/phase2 are read-only snapshots during the operator observation window before phase3",
-            "phase3 starts only after optional manual front-panel OK acknowledgement or the configured ack wait window",
-            "this experiment never sends VENT 0 and does not treat SCPI VENT 0 as equivalent to front-panel OK",
+            "phase3 starts only after the optional callback step or the configured observation wait window",
+            "this experiment never sends VENT 0 and does not treat SCPI VENT 0 as equivalent to a front-panel popup or manual acknowledgement",
             "front-panel popup visibility and SCPI VENT values are not assumed to be one-to-one; real read-only runs have observed popup windows while SCPI still returned VENT=2",
             "controller-only experiment intentionally excludes :SENS:PRES:CONT? because 02.00.07 can contaminate :SYST:ERR? with -113",
         ],
@@ -925,11 +930,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument(
         "--ui-ack-experiment",
         action="store_true",
-        help="Run the controller-only front-panel OK acknowledgement experiment using only allowed read-only queries.",
+        help="Run the controller-only front-panel observation-window experiment using only allowed read-only queries.",
     )
-    parser.add_argument("--ui-ack-hold-samples", type=int, default=5, help="Number of read-only samples while the OK popup remains on screen.")
-    parser.add_argument("--ui-ack-post-samples", type=int, default=5, help="Number of read-only samples after manual front-panel OK acknowledgement.")
-    parser.add_argument("--ui-ack-wait-s", type=float, default=15.0, help="Wait window for the operator to press front-panel OK before post-ack sampling.")
+    parser.add_argument("--ui-ack-hold-samples", type=int, default=5, help="Number of read-only samples during the on-screen observation window.")
+    parser.add_argument("--ui-ack-post-samples", type=int, default=5, help="Number of read-only samples in the post-window phase.")
+    parser.add_argument("--ui-ack-wait-s", type=float, default=15.0, help="Observation wait window before post-window sampling begins.")
     args = parser.parse_args(argv)
     if args.ui_ack_experiment:
         summary = run_controller_only_ui_ack_experiment(

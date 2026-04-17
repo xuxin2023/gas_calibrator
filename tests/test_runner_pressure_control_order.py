@@ -587,7 +587,7 @@ def test_set_pressure_controller_vent_on_blocks_legacy_watchlist_status_3(tmp_pa
         and row["pace_vent_clear_result"].strip() == "watchlist_status_3"
         and row["legacy_vent3_control_ready_used"].strip().lower() != "true"
         and row["legacy_vent3_accept_scope"].strip() == "none"
-        and row["vent3_ui_ack_required"].strip().lower() == "false"
+        and row["vent3_watchlist_only"].strip().lower() == "true"
         and row["vent3_block_scope"].strip() == "vent_clear_watchlist"
         for row in trace_rows
     )

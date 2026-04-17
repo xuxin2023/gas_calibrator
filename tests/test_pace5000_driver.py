@@ -1007,7 +1007,7 @@ def test_clear_completed_vent_latch_if_present_sends_vent_zero_and_waits_for_idl
     assert result["after_status"] == 0
     assert result["cleared"] is True
     assert result["command"] == ":SOUR:PRES:LEV:IMM:AMPL:VENT 0"
-    assert result["front_panel_ack_required"] is False
+    assert result["vent3_watchlist_observed"] is False
     assert any(":SOUR:PRES:LEV:IMM:AMPL:VENT 0" in write for write in dev.ser.writes)
 
 
@@ -1055,7 +1055,7 @@ def test_clear_completed_vent_latch_if_present_keeps_legacy_watchlist_status_3_a
     assert result["after_status"] == 3
     assert result["cleared"] is False
     assert result["command"] == ":SOUR:PRES:LEV:IMM:AMPL:VENT 0"
-    assert result["front_panel_ack_required"] is False
+    assert result["vent3_watchlist_observed"] is True
     assert any(":SOUR:PRES:LEV:IMM:AMPL:VENT 0" in write for write in dev.ser.writes)
 
 

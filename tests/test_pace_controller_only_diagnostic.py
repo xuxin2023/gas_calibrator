@@ -307,7 +307,7 @@ def test_controller_only_matrix_runs_a_to_g_without_touching_main_flow(tmp_path:
     assert summary["analysis"]["pace_atmosphere_connected_latched_state_suspect"] is True
     assert summary["analysis"]["legacy_vent3_control_ready_used"] is False
     assert summary["analysis"]["legacy_vent3_accept_scope"] == "controller_only"
-    assert summary["analysis"]["vent3_ui_ack_required"] is False
+    assert summary["analysis"]["vent3_watchlist_only"] is True
     assert summary["analysis"]["syst_err_all_zero"] is True
     assert summary["analysis"]["eff_all_zero"] is True
     assert summary["analysis"]["observation_only_steps"] == [
@@ -327,7 +327,7 @@ def test_controller_only_matrix_runs_a_to_g_without_touching_main_flow(tmp_path:
     assert Path(summary["json_path"]).exists()
 
 
-def test_controller_only_ui_ack_experiment_tracks_manual_front_panel_ack(tmp_path: Path) -> None:
+def test_controller_only_ui_ack_experiment_marks_callback_invocation_in_post_window(tmp_path: Path) -> None:
     module = _load_module()
     fake = _FakeUiAckPace()
 
@@ -344,40 +344,40 @@ def test_controller_only_ui_ack_experiment_tracks_manual_front_panel_ack(tmp_pat
     )
 
     assert [sample["phase"] for sample in summary["samples"][:4]] == [
-        "phase1_popup_initial",
-        "phase2_popup_hold",
-        "phase2_popup_hold",
-        "phase2_popup_hold",
+        "phase1_window_initial",
+        "phase2_window_hold",
+        "phase2_window_hold",
+        "phase2_window_hold",
     ]
     assert all(
         sample["snapshot"]["parsed"]["vent"] == 3
         for sample in summary["samples"]
-        if sample["phase"] != "phase3_post_ack"
+        if sample["phase"] != "phase3_post_window"
     )
     assert all(
         sample["snapshot"]["parsed"]["vent"] == 0
         for sample in summary["samples"]
-        if sample["phase"] == "phase3_post_ack"
+        if sample["phase"] == "phase3_post_window"
     )
     assert all(
-        sample["snapshot"]["parsed"]["front_panel_ack_observed"] is True
+        sample["snapshot"]["parsed"]["ack_callback_invoked"] is True
         for sample in summary["samples"]
-        if sample["phase"] == "phase3_post_ack"
+        if sample["phase"] == "phase3_post_window"
     )
-    assert summary["analysis"]["vent3_persisted_before_ack"] is True
-    assert summary["analysis"]["vent3_cleared_after_ack"] is True
-    assert summary["analysis"]["cond_bit0_cleared_after_ack"] is True
+    assert summary["analysis"]["vent3_persisted_before_window"] is True
+    assert summary["analysis"]["vent3_cleared_after_window"] is True
+    assert summary["analysis"]["cond_bit0_cleared_after_window"] is True
     assert summary["analysis"]["legacy_vent3_control_ready_used"] is False
     assert summary["analysis"]["legacy_vent3_accept_scope"] == "controller_only"
-    assert summary["analysis"]["front_panel_ack_observed"] is True
-    assert summary["analysis"]["vent3_post_ack_status"] == 0
-    assert "vent_status_changed_after_ack_window" in summary["analysis"]["conclusion_codes"]
+    assert summary["analysis"]["ack_callback_invoked"] is True
+    assert summary["analysis"]["vent3_post_window_status"] == 0
+    assert "vent_status_changed_after_window" in summary["analysis"]["conclusion_codes"]
     assert all(call != ("query", ":SENS:PRES:CONT?") for call in fake.calls)
     assert Path(summary["csv_path"]).exists()
     assert Path(summary["json_path"]).exists()
 
 
-def test_controller_only_ui_ack_experiment_does_not_claim_ack_without_evidence(tmp_path: Path) -> None:
+def test_controller_only_ui_ack_experiment_keeps_callback_marker_false_without_callback(tmp_path: Path) -> None:
     module = _load_module()
     fake = _FakeUiAckPace()
 
@@ -395,25 +395,25 @@ def test_controller_only_ui_ack_experiment_does_not_claim_ack_without_evidence(t
     assert all(
         sample["snapshot"]["parsed"]["vent"] == 3
         for sample in summary["samples"]
-        if sample["phase"] == "phase3_post_ack"
+        if sample["phase"] == "phase3_post_window"
     )
     assert all(
-        sample["snapshot"]["parsed"]["front_panel_ack_observed"] is False
+        sample["snapshot"]["parsed"]["ack_callback_invoked"] is False
         for sample in summary["samples"]
-        if sample["phase"] == "phase3_post_ack"
+        if sample["phase"] == "phase3_post_window"
     )
-    assert summary["analysis"]["vent3_persisted_before_ack"] is True
-    assert summary["analysis"]["vent3_cleared_after_ack"] is False
-    assert summary["analysis"]["cond_bit0_cleared_after_ack"] is False
-    assert summary["analysis"]["front_panel_ack_observed"] is False
-    assert summary["analysis"]["vent3_post_ack_status"] == 3
+    assert summary["analysis"]["vent3_persisted_before_window"] is True
+    assert summary["analysis"]["vent3_cleared_after_window"] is False
+    assert summary["analysis"]["cond_bit0_cleared_after_window"] is False
+    assert summary["analysis"]["ack_callback_invoked"] is False
+    assert summary["analysis"]["vent3_post_window_status"] == 3
     assert summary["analysis"]["legacy_vent3_control_ready_used"] is False
     assert summary["analysis"]["legacy_vent3_accept_scope"] == "controller_only"
-    assert "vent_status_changed_after_ack_window" not in summary["analysis"]["conclusion_codes"]
+    assert "vent_status_changed_after_window" not in summary["analysis"]["conclusion_codes"]
     assert all(call != ("query", ":SENS:PRES:CONT?") for call in fake.calls)
 
 
-def test_controller_only_ui_ack_experiment_keeps_ack_unobserved_when_status_changes_without_callback(
+def test_controller_only_ui_ack_experiment_keeps_callback_unset_when_status_changes_without_callback(
     tmp_path: Path,
 ) -> None:
     module = _load_module()
@@ -430,16 +430,16 @@ def test_controller_only_ui_ack_experiment_keeps_ack_unobserved_when_status_chan
         pace_factory=lambda *args, **kwargs: fake,
     )
 
-    assert summary["analysis"]["vent3_persisted_before_ack"] is True
-    assert summary["analysis"]["vent3_cleared_after_ack"] is True
-    assert summary["analysis"]["cond_bit0_cleared_after_ack"] is True
-    assert summary["analysis"]["front_panel_ack_observed"] is False
-    assert "vent_status_changed_after_ack_window" in summary["analysis"]["conclusion_codes"]
-    assert "cond_bit0_changed_after_ack_window" in summary["analysis"]["conclusion_codes"]
+    assert summary["analysis"]["vent3_persisted_before_window"] is True
+    assert summary["analysis"]["vent3_cleared_after_window"] is True
+    assert summary["analysis"]["cond_bit0_cleared_after_window"] is True
+    assert summary["analysis"]["ack_callback_invoked"] is False
+    assert "vent_status_changed_after_window" in summary["analysis"]["conclusion_codes"]
+    assert "cond_bit0_changed_after_window" in summary["analysis"]["conclusion_codes"]
     assert all(call != ("query", ":SENS:PRES:CONT?") for call in fake.calls)
 
 
-def test_controller_only_ui_ack_experiment_does_not_infer_ack_when_popup_state_never_appears(tmp_path: Path) -> None:
+def test_controller_only_ui_ack_experiment_does_not_infer_callback_when_popup_state_never_appears(tmp_path: Path) -> None:
     module = _load_module()
     fake = _FakeUiAckAlreadyDismissedPace()
 
@@ -459,11 +459,11 @@ def test_controller_only_ui_ack_experiment_does_not_infer_ack_when_popup_state_n
         for sample in summary["samples"]
     )
     assert summary["analysis"]["vent_status_3_count"] == 0
-    assert summary["analysis"]["vent3_persisted_before_ack"] is False
-    assert summary["analysis"]["vent3_cleared_after_ack"] is False
-    assert summary["analysis"]["cond_bit0_cleared_after_ack"] is False
-    assert summary["analysis"]["front_panel_ack_observed"] is False
-    assert summary["analysis"]["vent3_post_ack_status"] == 2
+    assert summary["analysis"]["vent3_persisted_before_window"] is False
+    assert summary["analysis"]["vent3_cleared_after_window"] is False
+    assert summary["analysis"]["cond_bit0_cleared_after_window"] is False
+    assert summary["analysis"]["ack_callback_invoked"] is False
+    assert summary["analysis"]["vent3_post_window_status"] == 2
     assert summary["analysis"]["legacy_vent3_control_ready_used"] is False
     assert summary["analysis"]["legacy_vent3_accept_scope"] == "controller_only"
     assert summary["analysis"]["conclusion_codes"] == []

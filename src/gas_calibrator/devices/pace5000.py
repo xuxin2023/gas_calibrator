@@ -456,7 +456,7 @@ class Pace5000:
             return False
         if self.has_legacy_vent_state_3_compatibility() and value == self.VENT_STATUS_TRAPPED_PRESSURE:
             # Real read-only runs do not provide a reliable closed loop proving
-            # that VENT?=3 maps to the front-panel OK popup. We have also
+            # that VENT?=3 maps to the front-panel confirmation popup. We have also
             # observed the popup while SCPI still reported VENT?=2. Keep VENT=3
             # as a watchlist-only observation and never treat it as control-ready.
             return False
@@ -697,7 +697,7 @@ class Pace5000:
             "after_status": before_status,
             "cleared": before_status == self.VENT_STATUS_IDLE,
             "command": "",
-            "front_panel_ack_required": False,
+            "vent3_watchlist_observed": False,
         }
         if not self.vent_status_is_completed_latched(before_status):
             return result
@@ -717,8 +717,9 @@ class Pace5000:
                 self.has_legacy_vent_state_3_compatibility()
                 and last_status == self.VENT_STATUS_TRAPPED_PRESSURE
             ):
-                # Keep VENT=3 observable for diagnostics, but do not infer that
-                # the controller is waiting on a front-panel acknowledgement.
+                # Keep VENT=3 observable for diagnostics, but do not infer any
+                # proven mapping to a front-panel popup or acknowledgement flow.
+                result["vent3_watchlist_observed"] = True
                 return result
             time.sleep(max(0.05, float(poll_s)))
         raise RuntimeError(f"VENT_COMPLETED_LATCH_CLEAR_TIMEOUT(last_status={last_status})")

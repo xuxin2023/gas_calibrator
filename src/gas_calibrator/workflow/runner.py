@@ -127,12 +127,12 @@ _PRESSURE_TRACE_FIELDS = [
     "legacy_vent3_accept_scope",
     "vent_status_3_count",
     "vent3_hard_blocked",
-    "vent3_ui_ack_required",
+    "vent3_watchlist_only",
     "vent3_control_ready_attempted",
     "vent3_control_ready_prevented",
     "vent3_block_scope",
-    "front_panel_ack_observed",
-    "vent3_post_ack_status",
+    "ack_callback_invoked",
+    "vent3_post_window_status",
     "pace_vent_completed_latched",
     "pace_vent_clear_attempted",
     "pace_vent_clear_result",
@@ -315,12 +315,12 @@ _POINT_TIMING_SUMMARY_FIELDS = [
     "legacy_vent3_accept_scope",
     "vent_status_3_count",
     "vent3_hard_blocked",
-    "vent3_ui_ack_required",
+    "vent3_watchlist_only",
     "vent3_control_ready_attempted",
     "vent3_control_ready_prevented",
     "vent3_block_scope",
-    "front_panel_ack_observed",
-    "vent3_post_ack_status",
+    "ack_callback_invoked",
+    "vent3_post_window_status",
     "pace_vent_completed_latched",
     "pace_vent_clear_attempted",
     "pace_vent_clear_result",
@@ -890,11 +890,11 @@ class CalibrationRunner:
         control_ready_used: bool = False,
         block_scope: str = "none",
         hard_blocked: bool = False,
-        ui_ack_required: bool = False,
+        watchlist_only: bool = False,
         control_ready_attempted: bool = False,
         control_ready_prevented: bool = False,
-        front_panel_ack_observed: Any = None,
-        post_ack_status: Any = None,
+        ack_callback_invoked: Any = None,
+        post_window_status: Any = None,
     ) -> Dict[str, Any]:
         is_suspect = self._pace_legacy_vent_state_3_suspect_from_snapshot(
             pace,
@@ -914,18 +914,20 @@ class CalibrationRunner:
             "legacy_vent3_accept_scope": self._legacy_vent3_accept_scope(accept_scope if used else "none"),
             "vent_status_3_count": 1 if is_suspect else 0,
             "vent3_hard_blocked": blocked,
-            "vent3_ui_ack_required": bool(is_suspect and ui_ack_required),
+            # VENT=3 remains observation-only; this flag only records that the
+            # watchlist state was carried into trace/runtime fields.
+            "vent3_watchlist_only": bool(is_suspect and watchlist_only),
             "vent3_control_ready_attempted": attempted,
             "vent3_control_ready_prevented": prevented,
             "vent3_block_scope": self._vent3_block_scope(
                 block_scope if (blocked or attempted or prevented) else "none"
             ),
-            "front_panel_ack_observed": (
+            "ack_callback_invoked": (
                 ""
-                if front_panel_ack_observed in ("", None)
-                else bool(front_panel_ack_observed)
+                if ack_callback_invoked in ("", None)
+                else bool(ack_callback_invoked)
             ),
-            "vent3_post_ack_status": "" if post_ack_status in ("", None) else post_ack_status,
+            "vent3_post_window_status": "" if post_window_status in ("", None) else post_window_status,
         }
 
     def _record_legacy_vent3_runtime_fields(
@@ -939,11 +941,11 @@ class CalibrationRunner:
         control_ready_used: bool = False,
         block_scope: str = "none",
         hard_blocked: bool = False,
-        ui_ack_required: bool = False,
+        watchlist_only: bool = False,
         control_ready_attempted: bool = False,
         control_ready_prevented: bool = False,
-        front_panel_ack_observed: Any = None,
-        post_ack_status: Any = None,
+        ack_callback_invoked: Any = None,
+        post_window_status: Any = None,
     ) -> Dict[str, Any]:
         trace_fields = self._pace_legacy_vent3_trace_fields(
             pace,
@@ -952,11 +954,11 @@ class CalibrationRunner:
             control_ready_used=control_ready_used,
             block_scope=block_scope,
             hard_blocked=hard_blocked,
-            ui_ack_required=ui_ack_required,
+            watchlist_only=watchlist_only,
             control_ready_attempted=control_ready_attempted,
             control_ready_prevented=control_ready_prevented,
-            front_panel_ack_observed=front_panel_ack_observed,
-            post_ack_status=post_ack_status,
+            ack_callback_invoked=ack_callback_invoked,
+            post_window_status=post_window_status,
         )
         phase_text = str(phase or "").strip().lower()
         if point is None or not phase_text:
@@ -973,12 +975,12 @@ class CalibrationRunner:
         prev_used = bool(self._as_optional_bool(state.get("legacy_vent3_control_ready_used")))
         prev_scope = self._legacy_vent3_accept_scope(state.get("legacy_vent3_accept_scope"))
         prev_blocked = bool(self._as_optional_bool(state.get("vent3_hard_blocked")))
-        prev_ui_ack_required = bool(self._as_optional_bool(state.get("vent3_ui_ack_required")))
+        prev_watchlist_only = bool(self._as_optional_bool(state.get("vent3_watchlist_only")))
         prev_attempted = bool(self._as_optional_bool(state.get("vent3_control_ready_attempted")))
         prev_prevented = bool(self._as_optional_bool(state.get("vent3_control_ready_prevented")))
         prev_block_scope = self._vent3_block_scope(state.get("vent3_block_scope"))
-        prev_front_panel_ack_observed = self._as_optional_bool(state.get("front_panel_ack_observed"))
-        prev_post_ack_status = state.get("vent3_post_ack_status")
+        prev_ack_callback_invoked = self._as_optional_bool(state.get("ack_callback_invoked"))
+        prev_post_window_status = state.get("vent3_post_window_status")
         prev_count = self._as_int(state.get("vent_status_3_count")) or 0
         runtime_fields = {
             "pace_legacy_vent_state_3_suspect": prev_suspect or trace_fields["pace_legacy_vent_state_3_suspect"],
@@ -989,19 +991,19 @@ class CalibrationRunner:
             "legacy_vent3_accept_scope": trace_fields["legacy_vent3_accept_scope"],
             "vent_status_3_count": prev_count + int(trace_fields["vent_status_3_count"] or 0),
             "vent3_hard_blocked": prev_blocked or trace_fields["vent3_hard_blocked"],
-            "vent3_ui_ack_required": prev_ui_ack_required or trace_fields["vent3_ui_ack_required"],
+            "vent3_watchlist_only": prev_watchlist_only or trace_fields["vent3_watchlist_only"],
             "vent3_control_ready_attempted": prev_attempted or trace_fields["vent3_control_ready_attempted"],
             "vent3_control_ready_prevented": prev_prevented or trace_fields["vent3_control_ready_prevented"],
             "vent3_block_scope": trace_fields["vent3_block_scope"],
-            "front_panel_ack_observed": (
-                prev_front_panel_ack_observed
-                if trace_fields["front_panel_ack_observed"] in ("", None)
-                else bool(trace_fields["front_panel_ack_observed"])
+            "ack_callback_invoked": (
+                prev_ack_callback_invoked
+                if trace_fields["ack_callback_invoked"] in ("", None)
+                else bool(trace_fields["ack_callback_invoked"])
             ),
-            "vent3_post_ack_status": (
-                prev_post_ack_status
-                if trace_fields["vent3_post_ack_status"] in ("", None)
-                else trace_fields["vent3_post_ack_status"]
+            "vent3_post_window_status": (
+                prev_post_window_status
+                if trace_fields["vent3_post_window_status"] in ("", None)
+                else trace_fields["vent3_post_window_status"]
             ),
         }
         if (
@@ -1335,12 +1337,12 @@ class CalibrationRunner:
         legacy_vent3_accept_scope: Any = None,
         vent_status_3_count: Any = None,
         vent3_hard_blocked: Any = None,
-        vent3_ui_ack_required: Any = None,
+        vent3_watchlist_only: Any = None,
         vent3_control_ready_attempted: Any = None,
         vent3_control_ready_prevented: Any = None,
         vent3_block_scope: Any = None,
-        front_panel_ack_observed: Any = None,
-        vent3_post_ack_status: Any = None,
+        ack_callback_invoked: Any = None,
+        vent3_post_window_status: Any = None,
         pace_vent_completed_latched: Any = None,
         pace_vent_clear_attempted: Any = None,
         pace_vent_clear_result: Any = None,
@@ -1496,12 +1498,12 @@ class CalibrationRunner:
             "legacy_vent3_accept_scope": self._pressure_trace_cell(legacy_vent3_accept_scope),
             "vent_status_3_count": self._pressure_trace_cell(vent_status_3_count),
             "vent3_hard_blocked": self._pressure_trace_cell(vent3_hard_blocked),
-            "vent3_ui_ack_required": self._pressure_trace_cell(vent3_ui_ack_required),
+            "vent3_watchlist_only": self._pressure_trace_cell(vent3_watchlist_only),
             "vent3_control_ready_attempted": self._pressure_trace_cell(vent3_control_ready_attempted),
             "vent3_control_ready_prevented": self._pressure_trace_cell(vent3_control_ready_prevented),
             "vent3_block_scope": self._pressure_trace_cell(vent3_block_scope),
-            "front_panel_ack_observed": self._pressure_trace_cell(front_panel_ack_observed),
-            "vent3_post_ack_status": self._pressure_trace_cell(vent3_post_ack_status),
+            "ack_callback_invoked": self._pressure_trace_cell(ack_callback_invoked),
+            "vent3_post_window_status": self._pressure_trace_cell(vent3_post_window_status),
             "pace_vent_completed_latched": self._pressure_trace_cell(pace_vent_completed_latched),
             "pace_vent_clear_attempted": self._pressure_trace_cell(pace_vent_clear_attempted),
             "pace_vent_clear_result": self._pressure_trace_cell(pace_vent_clear_result),
@@ -1673,12 +1675,12 @@ class CalibrationRunner:
         legacy_vent3_accept_scope: Any = None,
         vent_status_3_count: Any = None,
         vent3_hard_blocked: Any = None,
-        vent3_ui_ack_required: Any = None,
+        vent3_watchlist_only: Any = None,
         vent3_control_ready_attempted: Any = None,
         vent3_control_ready_prevented: Any = None,
         vent3_block_scope: Any = None,
-        front_panel_ack_observed: Any = None,
-        vent3_post_ack_status: Any = None,
+        ack_callback_invoked: Any = None,
+        vent3_post_window_status: Any = None,
         pace_vent_completed_latched: Any = None,
         pace_vent_clear_attempted: Any = None,
         pace_vent_clear_result: Any = None,
@@ -1949,18 +1951,18 @@ class CalibrationRunner:
             )
         if vent3_hard_blocked is None:
             vent3_hard_blocked = runtime_state.get("vent3_hard_blocked")
-        if vent3_ui_ack_required is None:
-            vent3_ui_ack_required = runtime_state.get("vent3_ui_ack_required")
+        if vent3_watchlist_only is None:
+            vent3_watchlist_only = runtime_state.get("vent3_watchlist_only")
         if vent3_control_ready_attempted is None:
             vent3_control_ready_attempted = runtime_state.get("vent3_control_ready_attempted")
         if vent3_control_ready_prevented is None:
             vent3_control_ready_prevented = runtime_state.get("vent3_control_ready_prevented")
         if vent3_block_scope is None:
             vent3_block_scope = runtime_state.get("vent3_block_scope")
-        if front_panel_ack_observed is None:
-            front_panel_ack_observed = runtime_state.get("front_panel_ack_observed")
-        if vent3_post_ack_status is None:
-            vent3_post_ack_status = runtime_state.get("vent3_post_ack_status")
+        if ack_callback_invoked is None:
+            ack_callback_invoked = runtime_state.get("ack_callback_invoked")
+        if vent3_post_window_status is None:
+            vent3_post_window_status = runtime_state.get("vent3_post_window_status")
         if post_isolation_capture_mode is None:
             post_isolation_capture_mode = runtime_state.get("post_isolation_capture_mode")
         if post_isolation_fast_capture_status is None:
@@ -1998,12 +2000,12 @@ class CalibrationRunner:
             legacy_vent3_accept_scope=legacy_vent3_accept_scope,
             vent_status_3_count=vent_status_3_count,
             vent3_hard_blocked=vent3_hard_blocked,
-            vent3_ui_ack_required=vent3_ui_ack_required,
+            vent3_watchlist_only=vent3_watchlist_only,
             vent3_control_ready_attempted=vent3_control_ready_attempted,
             vent3_control_ready_prevented=vent3_control_ready_prevented,
             vent3_block_scope=vent3_block_scope,
-            front_panel_ack_observed=front_panel_ack_observed,
-            vent3_post_ack_status=vent3_post_ack_status,
+            ack_callback_invoked=ack_callback_invoked,
+            vent3_post_window_status=vent3_post_window_status,
             pace_vent_completed_latched=pace_vent_completed_latched,
             pace_vent_clear_attempted=pace_vent_clear_attempted,
             pace_vent_clear_result=pace_vent_clear_result,
@@ -2129,12 +2131,12 @@ class CalibrationRunner:
         legacy_vent3_accept_scope: Any = None,
         vent_status_3_count: Any = None,
         vent3_hard_blocked: Any = None,
-        vent3_ui_ack_required: Any = None,
+        vent3_watchlist_only: Any = None,
         vent3_control_ready_attempted: Any = None,
         vent3_control_ready_prevented: Any = None,
         vent3_block_scope: Any = None,
-        front_panel_ack_observed: Any = None,
-        vent3_post_ack_status: Any = None,
+        ack_callback_invoked: Any = None,
+        vent3_post_window_status: Any = None,
         pace_vent_completed_latched: Any = None,
         pace_vent_clear_attempted: Any = None,
         pace_vent_clear_result: Any = None,
@@ -2272,12 +2274,12 @@ class CalibrationRunner:
                 legacy_vent3_accept_scope=legacy_vent3_accept_scope,
                 vent_status_3_count=vent_status_3_count,
                 vent3_hard_blocked=vent3_hard_blocked,
-                vent3_ui_ack_required=vent3_ui_ack_required,
+                vent3_watchlist_only=vent3_watchlist_only,
                 vent3_control_ready_attempted=vent3_control_ready_attempted,
                 vent3_control_ready_prevented=vent3_control_ready_prevented,
                 vent3_block_scope=vent3_block_scope,
-                front_panel_ack_observed=front_panel_ack_observed,
-                vent3_post_ack_status=vent3_post_ack_status,
+                ack_callback_invoked=ack_callback_invoked,
+                vent3_post_window_status=vent3_post_window_status,
                 pace_vent_completed_latched=pace_vent_completed_latched,
                 pace_vent_clear_attempted=pace_vent_clear_attempted,
                 pace_vent_clear_result=pace_vent_clear_result,
@@ -2913,12 +2915,12 @@ class CalibrationRunner:
             "legacy_vent3_accept_scope": state.get("legacy_vent3_accept_scope"),
             "vent_status_3_count": state.get("vent_status_3_count"),
             "vent3_hard_blocked": state.get("vent3_hard_blocked"),
-            "vent3_ui_ack_required": state.get("vent3_ui_ack_required"),
+            "vent3_watchlist_only": state.get("vent3_watchlist_only"),
             "vent3_control_ready_attempted": state.get("vent3_control_ready_attempted"),
             "vent3_control_ready_prevented": state.get("vent3_control_ready_prevented"),
             "vent3_block_scope": state.get("vent3_block_scope"),
-            "front_panel_ack_observed": state.get("front_panel_ack_observed"),
-            "vent3_post_ack_status": state.get("vent3_post_ack_status"),
+            "ack_callback_invoked": state.get("ack_callback_invoked"),
+            "vent3_post_window_status": state.get("vent3_post_window_status"),
             "pace_vent_completed_latched": state.get("pace_vent_completed_latched"),
             "pace_vent_clear_attempted": state.get("pace_vent_clear_attempted"),
             "pace_vent_clear_result": state.get("pace_vent_clear_result"),
@@ -3487,7 +3489,7 @@ class CalibrationRunner:
                     control_ready_used=False,
                     block_scope="post_isolation_fast_capture",
                     hard_blocked=True,
-                    ui_ack_required=False,
+                    watchlist_only=True,
                     control_ready_attempted=True,
                     control_ready_prevented=True,
                 )
@@ -3503,7 +3505,7 @@ class CalibrationRunner:
                     control_ready_used=False,
                     block_scope="post_isolation_fast_capture",
                     hard_blocked=True,
-                    ui_ack_required=False,
+                    watchlist_only=True,
                     control_ready_attempted=True,
                     control_ready_prevented=True,
                 )
@@ -3744,7 +3746,7 @@ class CalibrationRunner:
             control_ready_used=False,
             block_scope="vent_clear_watchlist",
             hard_blocked=("watchlist_status_3" in clear_result_text),
-            ui_ack_required=False,
+            watchlist_only=True,
             control_ready_attempted=False,
             control_ready_prevented=False,
         )
@@ -5065,12 +5067,12 @@ class CalibrationRunner:
             "legacy_vent3_accept_scope",
             "vent_status_3_count",
             "vent3_hard_blocked",
-            "vent3_ui_ack_required",
+            "vent3_watchlist_only",
             "vent3_control_ready_attempted",
             "vent3_control_ready_prevented",
             "vent3_block_scope",
-            "front_panel_ack_observed",
-            "vent3_post_ack_status",
+            "ack_callback_invoked",
+            "vent3_post_window_status",
             "pace_vent_after_valve_state_query",
             "pace_vent_popup_state_query",
             "pace_vent_elapsed_time_query",
@@ -11536,7 +11538,7 @@ class CalibrationRunner:
             control_ready_used=False,
             block_scope="pressure_control_ready",
             hard_blocked=bool(failures),
-            ui_ack_required=False,
+            watchlist_only=True,
             control_ready_attempted=True,
             control_ready_prevented=bool(failures),
         )
@@ -11587,7 +11589,7 @@ class CalibrationRunner:
                 control_ready_used=False,
                 block_scope="pressure_control_ready",
                 hard_blocked=bool(failures),
-                ui_ack_required=False,
+                watchlist_only=True,
                 control_ready_attempted=True,
                 control_ready_prevented=bool(failures),
             )
@@ -11656,7 +11658,7 @@ class CalibrationRunner:
                 control_ready_used=False,
                 block_scope="pressure_control_ready",
                 hard_blocked=bool(failures),
-                ui_ack_required=False,
+                watchlist_only=True,
                 control_ready_attempted=True,
                 control_ready_prevented=bool(failures),
             )
@@ -11844,7 +11846,7 @@ class CalibrationRunner:
                     control_ready_used=False,
                     block_scope="none",
                     hard_blocked=False,
-                    ui_ack_required=False,
+                    watchlist_only=True,
                     control_ready_attempted=False,
                     control_ready_prevented=False,
                 )
@@ -11895,7 +11897,7 @@ class CalibrationRunner:
                     control_ready_used=False,
                     block_scope="vent_clear_watchlist",
                     hard_blocked=True,
-                    ui_ack_required=False,
+                    watchlist_only=True,
                     control_ready_attempted=False,
                     control_ready_prevented=False,
                 )
@@ -12149,7 +12151,7 @@ class CalibrationRunner:
                 control_ready_used=False,
                 block_scope="output_recovery",
                 hard_blocked=bool(trapped_pressure_active),
-                ui_ack_required=False,
+                watchlist_only=True,
                 control_ready_attempted=True,
                 control_ready_prevented=bool(trapped_pressure_active),
             )
@@ -12253,7 +12255,7 @@ class CalibrationRunner:
             control_ready_used=False,
             block_scope="output_on_verify",
             hard_blocked=bool(failures),
-            ui_ack_required=False,
+            watchlist_only=True,
             control_ready_attempted=True,
             control_ready_prevented=bool(failures),
         )
@@ -12294,7 +12296,7 @@ class CalibrationRunner:
                 control_ready_used=False,
                 block_scope="output_on_verify",
                 hard_blocked=bool(failures),
-                ui_ack_required=False,
+                watchlist_only=True,
                 control_ready_attempted=True,
                 control_ready_prevented=bool(failures),
             )
@@ -14462,7 +14464,7 @@ class CalibrationRunner:
                 control_ready_used=False,
                 block_scope="sampling_capture",
                 hard_blocked=not unexpected_refresh,
-                ui_ack_required=False,
+                watchlist_only=True,
                 control_ready_attempted=not unexpected_refresh,
                 control_ready_prevented=not unexpected_refresh,
             )
@@ -15793,7 +15795,7 @@ class CalibrationRunner:
                 control_ready_used=False,
                 block_scope="post_isolation_diagnostic",
                 hard_blocked=True,
-                ui_ack_required=False,
+                watchlist_only=True,
                 control_ready_attempted=True,
                 control_ready_prevented=True,
             )
@@ -20163,12 +20165,12 @@ class CalibrationRunner:
             "legacy_vent3_accept_scope": runtime_state.get("legacy_vent3_accept_scope"),
             "vent_status_3_count": runtime_state.get("vent_status_3_count"),
             "vent3_hard_blocked": runtime_state.get("vent3_hard_blocked"),
-            "vent3_ui_ack_required": runtime_state.get("vent3_ui_ack_required"),
+            "vent3_watchlist_only": runtime_state.get("vent3_watchlist_only"),
             "vent3_control_ready_attempted": runtime_state.get("vent3_control_ready_attempted"),
             "vent3_control_ready_prevented": runtime_state.get("vent3_control_ready_prevented"),
             "vent3_block_scope": runtime_state.get("vent3_block_scope"),
-            "front_panel_ack_observed": runtime_state.get("front_panel_ack_observed"),
-            "vent3_post_ack_status": runtime_state.get("vent3_post_ack_status"),
+            "ack_callback_invoked": runtime_state.get("ack_callback_invoked"),
+            "vent3_post_window_status": runtime_state.get("vent3_post_window_status"),
             "pace_vent_after_valve_state_query": runtime_state.get("pace_vent_after_valve_state_query"),
             "pace_vent_popup_state_query": runtime_state.get("pace_vent_popup_state_query"),
             "pace_vent_elapsed_time_query": runtime_state.get("pace_vent_elapsed_time_query"),

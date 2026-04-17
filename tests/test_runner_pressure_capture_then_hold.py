@@ -184,7 +184,7 @@ def test_sampling_isolation_blocks_legacy_watchlist_status_3(
     assert runtime_state["pace_vent_status_query"] == 3
     assert runtime_state["pace_atmosphere_connected_latched_state_suspect"] is True
     assert runtime_state["vent3_hard_blocked"] is True
-    assert runtime_state["vent3_ui_ack_required"] is False
+    assert runtime_state["vent3_watchlist_only"] is True
     assert runtime_state["vent3_control_ready_attempted"] is True
     assert runtime_state["vent3_control_ready_prevented"] is True
     assert runtime_state["vent3_block_scope"] == "sampling_capture"
