@@ -1364,7 +1364,9 @@ def test_set_pressure_controller_vent_off_blocks_legacy_completed_latch_auto_cle
     )
 
 
-def test_force_clear_completed_vent_latch_when_status_is_trapped_but_oper_bit_is_still_set(tmp_path: Path) -> None:
+def test_force_clear_completed_vent_latch_is_blocked_when_status_is_trapped_but_oper_bit_is_still_set(
+    tmp_path: Path,
+) -> None:
     logger = RunLogger(tmp_path)
     pace = _FakePaceCompletedVentLatchBitOnly()
     runner = CalibrationRunner({}, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
@@ -1423,13 +1425,69 @@ def test_force_clear_completed_vent_latch_when_status_is_trapped_but_oper_bit_is
     )
     logger.close()
 
-    assert summary["status"] == "applied"
-    assert summary["reason"] == "clear_attempted_watchlist_status_3(before=3,after=3)"
+    assert summary["status"] == "blocked"
+    assert summary["manual_intervention_required"] is True
+    assert summary["reason"] == "legacy_completed_latch_bit_only_force_clear_blocked(before=3,cond=1,event=0)"
+    assert summary["after"]["pace_vent_status_query"] == 3
+    assert summary["after"]["pace_vent_completed_latched"] is True
     assert pace.calls == [
         ("clear_status",),
         ("drain_system_errors",),
-        ("vent", False),
     ]
+    assert not any(call == ("vent", False) for call in pace.calls)
+
+
+def test_set_pressure_to_target_stops_when_sequence_start_bit_only_force_clear_is_blocked(
+    tmp_path: Path,
+) -> None:
+    cfg = {
+        "workflow": {
+            "pressure": {
+                "vent_time_s": 0,
+                "vent_transition_timeout_s": 12,
+                "stabilize_timeout_s": 0.1,
+            }
+        }
+    }
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceCompletedVentLatchBitOnly()
+    runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+    point = CalibrationPoint(
+        index=1,
+        temp_chamber_c=20.0,
+        co2_ppm=600.0,
+        hgen_temp_c=20.0,
+        hgen_rh_pct=30.0,
+        target_pressure_hpa=1100.0,
+        dewpoint_c=None,
+        h2o_mmol=None,
+        raw_h2o=None,
+    )
+    snapshots = iter(
+        [
+            {
+                "pace_outp_state_query": 0,
+                "pace_isol_state_query": 1,
+                "pace_mode_query": "ACT",
+                "pace_vent_status_query": 3,
+                "pace_oper_pres_cond_query": 1,
+                "pace_oper_pres_even_query": 0,
+                "pace_oper_pres_vent_complete_bit": True,
+                "pace_oper_pres_in_limits_bit": False,
+            }
+        ]
+    )
+
+    runner._pace_diagnostic_state_snapshot = lambda *args, **kwargs: dict(next(snapshots))
+
+    assert runner._set_pressure_to_target(point) is False
+    logger.close()
+
+    assert pace.calls == [
+        ("clear_status",),
+        ("drain_system_errors",),
+    ]
+    assert not any(call[0] in {"vent_off", "vent", "setpoint", "output", "output_on", "isol"} for call in pace.calls)
 
 
 def test_set_pressure_controller_vent_off_for_preseal_skips_slow_exit_wait(tmp_path: Path) -> None:
