@@ -67,7 +67,15 @@ def t(key: str, *, locale: str | None = None, default: str | None = None, **kwar
     if text is None:
         text = default if default is not None else key
     if kwargs:
-        text = text.format_map({name: value for name, value in kwargs.items()})
+        values = {name: value for name, value in kwargs.items()}
+        try:
+            text = text.format_map(values)
+        except (KeyError, ValueError):
+            fallback = default if default is not None else key
+            try:
+                text = str(fallback).format_map(values)
+            except (KeyError, ValueError):
+                text = str(fallback)
     return text
 
 

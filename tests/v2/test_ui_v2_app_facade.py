@@ -290,7 +290,7 @@ def test_app_facade_builds_run_qc_and_results_snapshots(tmp_path: Path) -> None:
     assert report_rows["lineage_summary.json"]["artifact_role"] == "execution_summary"
     assert report_rows["evidence_registry.json"]["artifact_role"] == "execution_summary"
     assert report_rows["coefficient_registry.json"]["artifact_role"] == "formal_analysis"
-    assert report_rows["ai_run_summary.md"]["artifact_role"] == "unclassified"
+    assert report_rows["ai_run_summary.md"]["artifact_role"] == "diagnostic_analysis"
     assert report_rows["ai_run_summary.md"]["export_status_known"] is False
     summary_payload = json.loads((Path(facade.result_store.run_dir) / "summary.json").read_text(encoding="utf-8"))
     assert summary_payload["config_safety"]["execution_gate"]["status"] == "blocked"

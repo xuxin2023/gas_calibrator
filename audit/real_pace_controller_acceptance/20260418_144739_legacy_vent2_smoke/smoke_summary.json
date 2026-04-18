@@ -1,0 +1,24 @@
+﻿{
+    "output_dir":  "D:\\gas_calibrator\\audit\\real_pace_controller_acceptance\\20260418_144739_legacy_vent2_smoke",
+    "baseline_json":  "D:\\gas_calibrator\\audit\\real_pace_controller_acceptance\\20260418_144739_legacy_vent2_smoke\\baseline_readonly\\pace_controller_only_diagnostic.json",
+    "smoke_executed":  false,
+    "precondition_hit":  false,
+    "precondition_reason":  "baseline_vent_is_0",
+    "program_auto_sent_vent0":  false,
+    "observed_vent2_to_vent3":  false,
+    "blocked_or_skipped_observed":  false,
+    "manual_intervention_required_observed":  false,
+    "conclusion":  "precondition_not_met",
+    "baseline":  {
+                     "timestamp":  "2026-04-18T14:48:05",
+                     "vent":  0,
+                     "outp_stat":  0,
+                     "outp_isol_stat":  1,
+                     "oper_pres_cond":  0,
+                     "oper_pres_even":  0,
+                     "syst_err":  ":SYST:ERR 0, No error",
+                     "pressure_hpa":  "",
+                     "barometric_pressure_hpa":  1007.4755997,
+                     "in_limits_pressure_hpa":  1328.7546387
+                 }
+}

@@ -63,6 +63,7 @@ from ..core.artifact_compatibility import (
 )
 from ..core import human_governance_artifacts as human_governance
 from ..core import recognition_readiness_artifacts as recognition_readiness
+from ..core import step2_reviewer_readiness_artifacts as step2_reviewer_readiness
 from ..core.offline_artifacts import build_point_taxonomy_handoff, summarize_offline_diagnostic_adapters
 from ..core.phase_transition_bridge_reviewer_artifact_entry import (
     PHASE_TRANSITION_BRIDGE_REVIEWER_ARTIFACT_KEY,
@@ -586,6 +587,43 @@ class ResultsGateway:
             acceptance_plan=acceptance_plan,
             workbench_action_report=workbench_action_report,
         )
+        _human_governance_payloads = {
+            "run_metadata_profile": dict(
+                self.load_json(human_governance.RUN_METADATA_PROFILE_FILENAME)
+                or _human_governance_payloads.get("run_metadata_profile")
+                or {}
+            ),
+            "operator_authorization_profile": dict(
+                self.load_json(human_governance.OPERATOR_AUTHORIZATION_PROFILE_FILENAME)
+                or _human_governance_payloads.get("operator_authorization_profile")
+                or {}
+            ),
+            "training_record": dict(
+                self.load_json(human_governance.TRAINING_RECORD_FILENAME)
+                or _human_governance_payloads.get("training_record")
+                or {}
+            ),
+            "sop_version_binding": dict(
+                self.load_json(human_governance.SOP_VERSION_BINDING_FILENAME)
+                or _human_governance_payloads.get("sop_version_binding")
+                or {}
+            ),
+            "qc_flag_catalog": dict(
+                self.load_json(human_governance.QC_FLAG_CATALOG_FILENAME)
+                or _human_governance_payloads.get("qc_flag_catalog")
+                or {}
+            ),
+            "recovery_action_log": dict(
+                self.load_json(human_governance.RECOVERY_ACTION_LOG_FILENAME)
+                or _human_governance_payloads.get("recovery_action_log")
+                or {}
+            ),
+            "reviewer_dual_check_placeholder": dict(
+                self.load_json(human_governance.REVIEWER_DUAL_CHECK_PLACEHOLDER_FILENAME)
+                or _human_governance_payloads.get("reviewer_dual_check_placeholder")
+                or {}
+            ),
+        }
         # Build step2_closeout_readiness in the stable main chain (Step 2.19)
         _closeout_packs = ResultsGateway._build_compact_summary_packs(
             taxonomy_summary=point_taxonomy_summary,
@@ -747,6 +785,74 @@ class ResultsGateway:
             or self.load_json(STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME)
             or {}
         )
+        _step2_reviewer_payloads = step2_reviewer_readiness.build_step2_reviewer_readiness_artifacts(
+            run_id=str(dict(summary or {}).get("run_id") or dict(manifest or {}).get("run_id") or self.run_dir.name),
+            run_dir=self.run_dir,
+            summary=summary,
+            manifest=manifest,
+            results=results,
+            scope_definition_pack=scope_definition_pack,
+            decision_rule_profile=decision_rule_profile,
+            conformity_statement_profile=conformity_statement_profile,
+            reference_asset_registry=reference_asset_registry,
+            certificate_lifecycle_summary=certificate_lifecycle_summary,
+            uncertainty_report_pack=uncertainty_report_pack,
+            uncertainty_rollup=uncertainty_rollup,
+            method_confirmation_protocol=method_confirmation_protocol,
+            verification_rollup=verification_rollup,
+            software_validation_traceability_matrix=software_validation_traceability_matrix,
+            release_manifest=release_manifest,
+            comparison_evidence_pack=comparison_evidence_pack,
+            comparison_rollup=comparison_rollup,
+            stage3_standards_alignment_matrix=_stage3_standards_alignment_matrix,
+            run_metadata_profile=dict(_human_governance_payloads.get("run_metadata_profile") or {}),
+            operator_authorization_profile=dict(
+                _human_governance_payloads.get("operator_authorization_profile") or {}
+            ),
+            training_record=dict(_human_governance_payloads.get("training_record") or {}),
+            sop_version_binding=dict(_human_governance_payloads.get("sop_version_binding") or {}),
+            qc_flag_catalog=dict(_human_governance_payloads.get("qc_flag_catalog") or {}),
+            recovery_action_log=dict(_human_governance_payloads.get("recovery_action_log") or {}),
+            reviewer_dual_check_placeholder=dict(
+                _human_governance_payloads.get("reviewer_dual_check_placeholder") or {}
+            ),
+            sidecar_index_summary=sidecar_index_summary,
+            review_copilot_payload=review_copilot_payload,
+            model_governance_summary=model_governance_summary,
+            existing_ai_run_summary_text=self.load_text(step2_reviewer_readiness.AI_RUN_SUMMARY_FILENAME),
+        )
+        _step2_closeout_digest = dict(
+            self.load_json(step2_reviewer_readiness.STEP2_CLOSEOUT_DIGEST_FILENAME)
+            or dict(results.get("step2_closeout_digest") or {})
+            or _step2_reviewer_payloads.get("step2_closeout_digest")
+            or {}
+        )
+        _evidence_coverage_matrix = dict(
+            self.load_json(step2_reviewer_readiness.EVIDENCE_COVERAGE_MATRIX_FILENAME)
+            or _step2_reviewer_payloads.get("evidence_coverage_matrix")
+            or {}
+        )
+        _result_traceability_tree = dict(
+            self.load_json(step2_reviewer_readiness.RESULT_TRACEABILITY_TREE_FILENAME)
+            or _step2_reviewer_payloads.get("result_traceability_tree")
+            or {}
+        )
+        _evidence_lineage_index = dict(
+            self.load_json(step2_reviewer_readiness.EVIDENCE_LINEAGE_INDEX_FILENAME)
+            or _step2_reviewer_payloads.get("evidence_lineage_index")
+            or {}
+        )
+        _reviewer_anchor_navigation = dict(
+            self.load_json(step2_reviewer_readiness.REVIEWER_ANCHOR_NAVIGATION_FILENAME)
+            or _step2_reviewer_payloads.get("reviewer_anchor_navigation")
+            or {}
+        )
+        _ai_run_summary_payload = dict(_step2_reviewer_payloads.get("ai_run_summary_payload") or {})
+        _ai_summary_text = (
+            self.load_text(step2_reviewer_readiness.AI_RUN_SUMMARY_FILENAME)
+            or str(_step2_reviewer_payloads.get("ai_run_summary_markdown") or "")
+            or self.load_text("run_summary.txt")
+        )
         _step2_closeout_snapshot = FileBackedStep2CloseoutRepository(
             self.run_dir,
             run_id=str(dict(summary or {}).get("run_id") or ""),
@@ -776,10 +882,15 @@ class ResultsGateway:
             scope_comparison_view=scope_comparison_view,
             comparison_digest=comparison_digest,
             comparison_rollup=comparison_rollup,
-            step2_closeout_digest=dict(results.get("step2_closeout_digest") or {}),
+            step2_closeout_digest=_step2_closeout_digest,
+            evidence_coverage_matrix=_evidence_coverage_matrix,
+            result_traceability_tree=_result_traceability_tree,
+            evidence_lineage_index=_evidence_lineage_index,
+            reviewer_anchor_navigation=_reviewer_anchor_navigation,
             sidecar_index_summary=sidecar_index_summary,
             review_copilot_payload=review_copilot_payload,
             model_governance_summary=model_governance_summary,
+            ai_run_summary_payload=_ai_run_summary_payload,
             run_metadata_profile=dict(_human_governance_payloads.get("run_metadata_profile") or {}),
             operator_authorization_profile=dict(
                 _human_governance_payloads.get("operator_authorization_profile") or {}
@@ -907,7 +1018,7 @@ class ResultsGateway:
             "suite_evidence_registry": self.load_json("suite_evidence_registry.json"),
             "workbench_action_report": workbench_action_report,
             "workbench_action_snapshot": workbench_action_snapshot,
-            "ai_summary_text": self.load_text("ai_run_summary.md") or self.load_text("run_summary.txt"),
+            "ai_summary_text": _ai_summary_text,
             "output_files": self.list_output_files(),
             "reporting": dict(summary.get("reporting", {}) or {}) if isinstance(summary, dict) else {},
             "config_safety": config_safety,
@@ -1018,6 +1129,7 @@ class ResultsGateway:
             "step2_freeze_seal": _step2_freeze_seal,
             "step2_final_closure_matrix": _step2_final_closure_matrix,
             "step2_closeout_bundle": dict(_step2_closeout_snapshot.get("step2_closeout_bundle") or {}),
+            "step2_closeout_digest": _step2_closeout_digest,
             "step2_closeout_evidence_index": dict(
                 _step2_closeout_snapshot.get("step2_closeout_evidence_index") or {}
             ),
@@ -1027,6 +1139,11 @@ class ResultsGateway:
             "step2_closeout_compact_section": dict(
                 _step2_closeout_snapshot.get("step2_closeout_compact_section") or {}
             ),
+            "evidence_coverage_matrix": _evidence_coverage_matrix,
+            "result_traceability_tree": _result_traceability_tree,
+            "evidence_lineage_index": _evidence_lineage_index,
+            "reviewer_anchor_navigation": _reviewer_anchor_navigation,
+            "ai_run_summary_payload": _ai_run_summary_payload,
             "engineering_isolation_gate_result": dict(
                 _engineering_isolation_gate_snapshot.get("engineering_isolation_gate_result") or {}
             ),
@@ -1659,9 +1776,15 @@ class ResultsGateway:
             "step2_freeze_seal": dict(payload.get("step2_freeze_seal") or {}),
             "step2_final_closure_matrix": dict(payload.get("step2_final_closure_matrix") or {}),
             "step2_closeout_bundle": dict(payload.get("step2_closeout_bundle") or {}),
+            "step2_closeout_digest": dict(payload.get("step2_closeout_digest") or {}),
             "step2_closeout_evidence_index": dict(payload.get("step2_closeout_evidence_index") or {}),
             "step2_closeout_summary_markdown": str(payload.get("step2_closeout_summary_markdown") or ""),
             "step2_closeout_compact_section": dict(payload.get("step2_closeout_compact_section") or {}),
+            "evidence_coverage_matrix": dict(payload.get("evidence_coverage_matrix") or {}),
+            "result_traceability_tree": dict(payload.get("result_traceability_tree") or {}),
+            "evidence_lineage_index": dict(payload.get("evidence_lineage_index") or {}),
+            "reviewer_anchor_navigation": dict(payload.get("reviewer_anchor_navigation") or {}),
+            "ai_run_summary_payload": dict(payload.get("ai_run_summary_payload") or {}),
             "compact_summary_packs": list(payload.get("compact_summary_packs") or []),
             "compact_summary_budget": dict(payload.get("compact_summary_budget") or {}),
             "evidence_source": str(payload.get("evidence_source", "") or "simulated_protocol"),

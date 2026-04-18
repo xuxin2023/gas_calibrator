@@ -2439,6 +2439,17 @@
     "engineering_isolation_admission_checklist": "工程隔离准入清单",
     "engineering_isolation_admission_checklist_reviewer": "工程隔离准入清单审阅"
   },
+  "results.review_center.engineering_isolation_gate.blockers": "阻塞项：{value}",
+  "results.review_center.engineering_isolation_gate.warnings": "警示项：{value}",
+  "results.review_center.engineering_isolation_gate.unresolved_gaps": "未闭合缺口：{value}",
+  "results.review_center.engineering_isolation_gate.suggested_next_actions": "建议下一步：{value}",
+  "pages.devices.workbench.engineer_card.bridge_readiness": "准入桥接总闸",
+  "pages.devices.workbench.engineer_section.bridge_readiness.title": "准入桥接总闸",
+  "pages.devices.workbench.engineer_section.bridge_readiness.summary": "桥接状态：{status}",
+  "pages.devices.workbench.bridge_readiness.blocker_line": "桥接阻塞：{value}",
+  "pages.devices.workbench.bridge_readiness.warning_line": "桥接警示：{value}",
+  "pages.devices.workbench.bridge_readiness.gap_line": "桥接缺口：{value}",
+  "pages.devices.workbench.bridge_readiness.next_action_line": "桥接下一步：{value}",
   "phase_evidence": {
     "point_taxonomy_summary": "点位语义摘要",
     "measurement_phase_coverage_report": "测量阶段覆盖",

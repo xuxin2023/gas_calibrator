@@ -58,6 +58,13 @@ def _bundle() -> dict[str, object]:
         comparison_digest=_payload("comparison_digest"),
         comparison_rollup=_payload("comparison_rollup"),
         step2_closeout_digest=_payload("step2_closeout_digest"),
+        run_metadata_profile=_payload("run_metadata_profile"),
+        operator_authorization_profile=_payload("operator_authorization_profile"),
+        training_record=_payload("training_record"),
+        sop_version_binding=_payload("sop_version_binding"),
+        qc_flag_catalog=_payload("qc_flag_catalog"),
+        recovery_action_log=_payload("recovery_action_log"),
+        reviewer_dual_check_placeholder=_payload("reviewer_dual_check_placeholder"),
     )
 
 

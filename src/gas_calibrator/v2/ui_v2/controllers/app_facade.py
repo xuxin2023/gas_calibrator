@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from collections import Counter, deque
 import copy
@@ -43,6 +43,7 @@ from ...core.reviewer_fragments_contract import (
     normalize_fragment_filter_rows,
 )
 from ...core import recognition_readiness_artifacts as recognition_readiness
+from ...core import step2_reviewer_readiness_artifacts as step2_reviewer_readiness
 from ...core.reviewer_surface_contracts import (
     WP6_CLOSEOUT_ARTIFACT_KEYS as _SHARED_WP6_CLOSEOUT_KEYS,
     WP6_CLOSEOUT_DISPLAY_LABELS as _SHARED_WP6_CLOSEOUT_DISPLAY_LABELS,
@@ -262,12 +263,45 @@ def _build_fragment_filter_options(
     ]
 
 
+def _build_anchor_options(
+    rows: list[dict[str, Any]],
+    *,
+    all_label_default: str,
+) -> list[dict[str, str]]:
+    options: list[dict[str, str]] = [
+        {"id": "all", "label": t("results.review_center.filter.all_anchors", default=all_label_default)}
+    ]
+    seen: set[str] = {"all"}
+    for row in list(rows or []):
+        payload = dict(row or {})
+        anchor_id = str(payload.get("anchor_id") or "").strip()
+        if not anchor_id or anchor_id in seen:
+            continue
+        seen.add(anchor_id)
+        options.append(
+            {
+                "id": anchor_id,
+                "label": str(
+                    payload.get("anchor_label")
+                    or payload.get("label")
+                    or payload.get("name_text")
+                    or payload.get("title_text")
+                    or anchor_id
+                ),
+            }
+        )
+    return options
+
+
 def _build_reviewer_filter_options(entries: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]]:
     available_entries = _available_reviewer_artifact_entries(entries)
     phase_values = _dedupe_entry_filter_values(available_entries, "phase_filters")
     artifact_role_values = _dedupe_entry_filter_values(available_entries, "artifact_role_filters")
     standard_family_values = _dedupe_entry_filter_values(available_entries, "standard_family_filters")
     evidence_category_values = _dedupe_entry_filter_values(available_entries, "evidence_category_filters")
+    readiness_status_values = _dedupe_entry_filter_values(available_entries, "readiness_status_filters")
+    missing_coverage_values = _dedupe_entry_filter_values(available_entries, "missing_coverage_filters")
+    gap_values = _dedupe_entry_filter_values(available_entries, "gap_filters")
     boundary_rows = _dedupe_fragment_filter_rows(
         [
             row
@@ -276,52 +310,50 @@ def _build_reviewer_filter_options(entries: list[dict[str, Any]]) -> dict[str, l
             if isinstance(row, dict)
         ]
     )
-    anchor_options = [
-        {
-            "id": str(item.get("anchor_id") or ""),
-            "label": str(item.get("anchor_label") or item.get("name_text") or item.get("title_text") or ""),
-        }
-        for item in available_entries
-        if str(item.get("anchor_id") or "").strip()
+    anchor_rows = [
+        *[
+            {
+                "anchor_id": str(item.get("anchor_id") or ""),
+                "anchor_label": str(item.get("anchor_label") or item.get("name_text") or item.get("title_text") or ""),
+            }
+            for item in available_entries
+            if str(item.get("anchor_id") or "").strip()
+        ],
+        *[
+            dict(row)
+            for entry in available_entries
+            for row in list(entry.get("anchor_rows") or [])
+            if isinstance(row, dict)
+        ],
     ]
     return {
         "phase_options": [
             {"id": "all", "label": t("results.review_center.filter.all_phases", default="全部阶段")}
-        ]
-        + [
-            {"id": value, "label": _REVIEW_CENTER_PHASE_OPTION_LABELS.get(value, value)}
-            for value in phase_values
-        ],
+        ] + [{"id": value, "label": _REVIEW_CENTER_PHASE_OPTION_LABELS.get(value, value)} for value in phase_values],
         "artifact_role_options": [
             {"id": "all", "label": t("results.review_center.filter.all_artifact_roles", default="全部工件角色")}
-        ]
-        + [
-            {
-                "id": value,
-                "label": display_artifact_role(
-                    value,
-                    default=value,
-                ),
-            }
-            for value in artifact_role_values
-        ],
+        ] + [{"id": value, "label": display_artifact_role(value, default=value)} for value in artifact_role_values],
         "standard_family_options": [
-            {"id": "all", "label": t("results.review_center.filter.all_standard_families", default="全部标准家族")}
-        ]
-        + [{"id": value, "label": value} for value in standard_family_values],
+            {"id": "all", "label": t("results.review_center.filter.all_standard_families", default="全部标准族")}
+        ] + [{"id": value, "label": value} for value in standard_family_values],
         "evidence_category_options": [
             {"id": "all", "label": t("results.review_center.filter.all_evidence_categories", default="全部证据类别")}
-        ]
-        + [{"id": value, "label": value} for value in evidence_category_values],
+        ] + [{"id": value, "label": value} for value in evidence_category_values],
+        "readiness_status_options": [
+            {"id": "all", "label": t("results.review_center.filter.all_readiness_status", default="全部就绪状态")}
+        ] + [{"id": value, "label": value} for value in readiness_status_values],
+        "missing_coverage_options": [
+            {"id": "all", "label": t("results.review_center.filter.all_missing_coverage", default="全部缺口覆盖")}
+        ] + [{"id": value, "label": value} for value in missing_coverage_values],
+        "gap_options": [
+            {"id": "all", "label": t("results.review_center.filter.all_gaps", default="全部 gaps")}
+        ] + [{"id": value, "label": value} for value in gap_values],
         "boundary_options": _build_fragment_filter_options(
             boundary_rows,
             all_label_key="results.review_center.filter.all_boundaries",
             all_label_default="全部边界",
         ),
-        "anchor_options": [
-            {"id": "all", "label": t("results.review_center.filter.all_anchors", default="全部锚点")}
-        ]
-        + anchor_options,
+        "anchor_options": _build_anchor_options(anchor_rows, all_label_default="全部锚点"),
     }
 
 
@@ -361,7 +393,11 @@ def _merge_filter_options(*option_groups: list[dict[str, str]]) -> list[dict[str
 def _build_measurement_core_filter_options(items: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]]:
     phase_values = _dedupe_item_filter_values(items, "phase_filters")
     artifact_role_values = _dedupe_item_filter_values(items, "artifact_role_filters")
+    standard_family_values = _dedupe_item_filter_values(items, "standard_family_filters")
     evidence_category_values = _dedupe_item_filter_values(items, "evidence_category_filters")
+    readiness_status_values = _dedupe_item_filter_values(items, "readiness_status_filters")
+    missing_coverage_values = _dedupe_item_filter_values(items, "missing_coverage_filters")
+    gap_values = _dedupe_item_filter_values(items, "gap_filters")
     boundary_rows = _dedupe_fragment_filter_rows(
         [
             row
@@ -370,13 +406,21 @@ def _build_measurement_core_filter_options(items: list[dict[str, Any]]) -> dict[
             if isinstance(row, dict)
         ]
     )
-    anchor_values = [
-        {
-            "id": str(item.get("anchor_id") or ""),
-            "label": str(item.get("anchor_label") or item.get("summary") or item.get("type_display") or ""),
-        }
-        for item in items
-        if str(item.get("anchor_id") or "").strip()
+    anchor_rows = [
+        *[
+            {
+                "anchor_id": str(item.get("anchor_id") or ""),
+                "anchor_label": str(item.get("anchor_label") or item.get("summary") or item.get("type_display") or ""),
+            }
+            for item in items
+            if str(item.get("anchor_id") or "").strip()
+        ],
+        *[
+            dict(row)
+            for item in items
+            for row in list(item.get("anchor_rows") or [])
+            if isinstance(row, dict)
+        ],
     ]
     route_values = _dedupe_item_filter_values(items, "route_filters")
     signal_family_values = _dedupe_item_filter_values(items, "signal_family_filters")
@@ -385,33 +429,43 @@ def _build_measurement_core_filter_options(items: list[dict[str, Any]]) -> dict[
     evidence_source_values = _dedupe_item_filter_values(items, "evidence_source_filters")
     return {
         "phase_options": [
-            {"id": "all", "label": t("results.review_center.filter.all_phases", default="鍏ㄩ儴闃舵")}
+            {"id": "all", "label": t("results.review_center.filter.all_phases", default="全部阶段")}
         ] + [{"id": value, "label": _REVIEW_CENTER_PHASE_OPTION_LABELS.get(value, value)} for value in phase_values],
         "artifact_role_options": [
-            {"id": "all", "label": t("results.review_center.filter.all_artifact_roles", default="鍏ㄩ儴宸ヤ欢瑙掕壊")}
+            {"id": "all", "label": t("results.review_center.filter.all_artifact_roles", default="全部工件角色")}
         ] + [{"id": value, "label": display_artifact_role(value, default=value)} for value in artifact_role_values],
+        "standard_family_options": [
+            {"id": "all", "label": t("results.review_center.filter.all_standard_families", default="全部标准族")}
+        ] + [{"id": value, "label": value} for value in standard_family_values],
         "evidence_category_options": [
-            {"id": "all", "label": t("results.review_center.filter.all_evidence_categories", default="鍏ㄩ儴璇佹嵁绫诲埆")}
+            {"id": "all", "label": t("results.review_center.filter.all_evidence_categories", default="全部证据类别")}
         ] + [{"id": value, "label": value} for value in evidence_category_values],
+        "readiness_status_options": [
+            {"id": "all", "label": t("results.review_center.filter.all_readiness_status", default="全部就绪状态")}
+        ] + [{"id": value, "label": value} for value in readiness_status_values],
+        "missing_coverage_options": [
+            {"id": "all", "label": t("results.review_center.filter.all_missing_coverage", default="全部缺口覆盖")}
+        ] + [{"id": value, "label": value} for value in missing_coverage_values],
+        "gap_options": [
+            {"id": "all", "label": t("results.review_center.filter.all_gaps", default="全部 gaps")}
+        ] + [{"id": value, "label": value} for value in gap_values],
         "boundary_options": _build_fragment_filter_options(
             boundary_rows,
             all_label_key="results.review_center.filter.all_boundaries",
             all_label_default="全部边界",
         ),
-        "anchor_options": [
-            {"id": "all", "label": t("results.review_center.filter.all_anchors", default="鍏ㄩ儴閿氱偣")}
-        ] + anchor_values,
+        "anchor_options": _build_anchor_options(anchor_rows, all_label_default="全部锚点"),
         "route_options": [
-            {"id": "all", "label": t("results.review_center.filter.all_routes", default="鍏ㄩ儴璺敱")}
+            {"id": "all", "label": t("results.review_center.filter.all_routes", default="全部 route")}
         ] + [{"id": value, "label": value} for value in route_values],
         "signal_family_options": [
-            {"id": "all", "label": t("results.review_center.filter.all_signal_families", default="鍏ㄩ儴淇″彿瀹舵棌")}
+            {"id": "all", "label": t("results.review_center.filter.all_signal_families", default="全部 signal family")}
         ] + [{"id": value, "label": value} for value in signal_family_values],
         "decision_result_options": [
-            {"id": "all", "label": t("results.review_center.filter.all_decision_results", default="鍏ㄩ儴鍒ゅ畾缁撴灉")}
+            {"id": "all", "label": t("results.review_center.filter.all_decision_results", default="全部 decision result")}
         ] + [{"id": value, "label": value} for value in decision_result_values],
         "policy_version_options": [
-            {"id": "all", "label": t("results.review_center.filter.all_policy_versions", default="鍏ㄩ儴绛栫暐鐗堟湰")}
+            {"id": "all", "label": t("results.review_center.filter.all_policy_versions", default="全部 policy version")}
         ] + [{"id": value, "label": value} for value in policy_version_values],
         "evidence_source_options": [
             {
@@ -536,7 +590,7 @@ def _normalize_workbench_evidence_payload(
         qc_review_summary.setdefault(
             "evidence_section",
             {
-                "title": "质控摘要",
+                "title": "璐ㄦ帶鎽樿",
                 "summary": str(reviewer_card.get("summary") or qc_review_summary.get("summary") or "").strip(),
                 "lines": [str(item).strip() for item in list(reviewer_card.get("lines") or []) if str(item).strip()],
                 "sections": [dict(item) for item in list(reviewer_card.get("sections") or []) if isinstance(item, dict)],
@@ -1226,27 +1280,27 @@ class AppFacade:
         inventory = dict(config_safety_review.get("inventory") or config_safety.get("inventory") or {})
         lines = [
             f"配置安全: {str(config_safety_review.get('summary') or config_safety.get('summary') or '--')}",
-            f"库存分类: {str(config_safety.get('classification_display') or config_safety.get('classification') or '--')}",
-            f"库存摘要: {str(config_safety_review.get('inventory_summary') or config_safety.get('inventory_summary') or '--')}",
+            f"搴撳瓨鍒嗙被: {str(config_safety.get('classification_display') or config_safety.get('classification') or '--')}",
+            f"搴撳瓨鎽樿: {str(config_safety_review.get('inventory_summary') or config_safety.get('inventory_summary') or '--')}",
         ]
         if execution_gate:
             lines.append(
-                "默认工作流闸门: "
+                "榛樿宸ヤ綔娴侀椄闂? "
                 + str(execution_gate.get("status") or "--")
                 + " | "
                 + str(execution_gate.get("summary") or "--")
             )
         if inventory:
             lines.append(
-                "库存治理: "
-                f"已启用设备 {int(inventory.get('enabled_device_count', 0) or 0)} 台 / "
-                f"real-COM {int(inventory.get('real_port_device_count', 0) or 0)} 台 / "
-                f"engineering-only {int(inventory.get('engineering_only_flag_count', 0) or 0)} 项"
+                "搴撳瓨娌荤悊: "
+                f"宸插惎鐢ㄨ澶?{int(inventory.get('enabled_device_count', 0) or 0)} 鍙?/ "
+                f"real-COM {int(inventory.get('real_port_device_count', 0) or 0)} 鍙?/ "
+                f"engineering-only {int(inventory.get('engineering_only_flag_count', 0) or 0)}"
             )
         blocked_reason_details = list(config_safety_review.get("blocked_reason_details") or [])
         if blocked_reason_details:
             lines.extend(
-                f"阻断原因: {str(item.get('title') or '--')} | {str(item.get('summary') or '--')}"
+                f"闃绘柇鍘熷洜: {str(item.get('title') or '--')} | {str(item.get('summary') or '--')}"
                 for item in blocked_reason_details[:2]
             )
         real_ports = [
@@ -1256,7 +1310,7 @@ class AppFacade:
         ]
         if real_ports:
             lines.append(
-                "real-COM 风险设备: "
+                "real-COM 椋庨櫓璁惧: "
                 + ", ".join(f"{item.get('device', '--')}={item.get('port', '--')}" for item in real_ports[:4])
             )
         engineering_flags = [
@@ -1270,15 +1324,15 @@ class AppFacade:
         ]
         if engineering_flags:
             lines.append(
-                "engineering-only 开关: "
+                "engineering-only 寮€鍏? "
                 + ", ".join(str(item.get("config_path") or "--") for item in engineering_flags[:4])
             )
         warnings = [str(item).strip() for item in list(config_safety_review.get("warnings") or []) if str(item).strip()]
         if warnings:
-            lines.extend(f"治理提醒: {warning}" for warning in warnings[:2])
+            lines.extend(f"娌荤悊鎻愰啋: {warning}" for warning in warnings[:2])
         badges = [str(item.get("label") or "--") for item in list(config_safety.get("badges") or []) if str(item.get("label") or "").strip()]
         if badges:
-            lines.append("治理标记: " + " / ".join(badges))
+            lines.append("娌荤悊鏍囪: " + " / ".join(badges))
         return [str(item).strip() for item in lines if str(item).strip()]
 
     @staticmethod
@@ -1322,7 +1376,7 @@ class AppFacade:
             normalized.append(
                 {
                     "id": str(item.get("id") or f"card_{index}").strip() or f"card_{index}",
-                    "title": title or t("pages.qc.reviewer_card_title", default="审阅卡片"),
+                    "title": title or t("pages.qc.reviewer_card_title", default="瀹￠槄鍗＄墖"),
                     "summary": summary or (lines[0] if lines else t("common.none")),
                     "lines": lines,
                 }
@@ -1409,7 +1463,7 @@ class AppFacade:
             limit=3,
         )
         if workbench_qc_lines:
-            workbench_summary_line = f"工作台质控摘要: {workbench_qc_lines[0]}"
+            workbench_summary_line = f"宸ヤ綔鍙拌川鎺ф憳瑕? {workbench_qc_lines[0]}"
             if workbench_summary_line not in lines:
                 lines.append(workbench_summary_line)
         review_sections = [
@@ -1464,7 +1518,7 @@ class AppFacade:
             promotion_state=str(workbench_evidence_summary.get("promotion_state") or "dry_run_only"),
         )
         return {
-            "title": "质控证据",
+            "title": "璐ㄦ帶璇佹嵁",
             "summary": summary_text,
             "lines": [str(item).strip() for item in lines if str(item).strip()],
             "reviewer_card": reviewer_card,
@@ -1505,15 +1559,17 @@ class AppFacade:
         if qc_lines:
             lines.extend(qc_lines[:6])
         if workbench_qc_lines:
-            lines.append(f"工作台质控摘要: {workbench_qc_lines[0]}")
+            lines.append(f"宸ヤ綔鍙拌川鎺ф憳瑕? {workbench_qc_lines[0]}")
         if workbench_qc_lines:
-            workbench_summary_line = f"工作台质控摘要: {workbench_qc_lines[0]}"
+            workbench_summary_line = f"宸ヤ綔鍙拌川鎺ф憳瑕? {workbench_qc_lines[0]}"
             if workbench_summary_line not in lines:
                 lines.append(workbench_summary_line)
         for line in self._config_safety_detail_lines(config_safety, config_safety_review)[:4]:
             if line not in lines:
                 lines.append(line)
-        boundary_note = "证据边界: 仅供 simulation/offline/headless 审阅，不代表 real acceptance evidence。"
+        boundary_note = (
+            "璇佹嵁杈圭晫: 浠呬緵 simulation/offline/headless 瀹￠槄锛屼笉浠ｈ〃 real acceptance evidence"
+        )
         if boundary_note not in lines:
             lines.append(boundary_note)
         return "\n".join(line for line in lines if line).strip()
@@ -1601,6 +1657,12 @@ class AppFacade:
         qc_flag_catalog = dict(payload.get("qc_flag_catalog", {}) or {})
         recovery_action_log = dict(payload.get("recovery_action_log", {}) or {})
         reviewer_dual_check_placeholder = dict(payload.get("reviewer_dual_check_placeholder", {}) or {})
+        step2_closeout_digest = dict(payload.get("step2_closeout_digest", {}) or {})
+        evidence_coverage_matrix = dict(payload.get("evidence_coverage_matrix", {}) or {})
+        result_traceability_tree = dict(payload.get("result_traceability_tree", {}) or {})
+        evidence_lineage_index = dict(payload.get("evidence_lineage_index", {}) or {})
+        reviewer_anchor_navigation = dict(payload.get("reviewer_anchor_navigation", {}) or {})
+        ai_run_summary_payload = dict(payload.get("ai_run_summary_payload", {}) or {})
         _wp6_closeout_bundle = _build_wp6_closeout_bundle(
             payload, filename_module=recognition_readiness,
         )
@@ -1613,7 +1675,7 @@ class AppFacade:
         recognition_binding = dict(payload.get("recognition_binding", {}) or {})
         reindex_manifest = dict(payload.get("reindex_manifest", {}) or {})
 
-        # Compact summary pack — explicit consumption for review_center surface
+        # Compact summary pack 鈥?explicit consumption for review_center surface
         _raw_packs = list(payload.get("compact_summary_packs") or [])
         _pack_fields = _shared_build_pack_fields(_raw_packs, surface="review_center")
         compact_summary_packs = list(_pack_fields.get("compact_summary_packs") or [])
@@ -2051,7 +2113,7 @@ class AppFacade:
         ]
         measurement_core_summary_text = "\n".join(
             line for line in measurement_core_summary_lines if str(line).strip()
-        ) or t("pages.results.no_measurement_core_summary", default="暂无 measurement-core 摘要")
+        ) or t("pages.results.no_measurement_core_summary", default="鏆傛棤 measurement-core 鎽樿")
         result_evidence_source = _normalize_simulated_evidence_source(workbench_evidence_summary.get("evidence_source"))
         if not point_taxonomy_summary:
             point_taxonomy_summary = build_point_taxonomy_handoff(list(summary_stats.get("point_summaries", []) or []))
@@ -2130,6 +2192,12 @@ class AppFacade:
             qc_flag_catalog=qc_flag_catalog,
             recovery_action_log=recovery_action_log,
             reviewer_dual_check_placeholder=reviewer_dual_check_placeholder,
+            step2_closeout_digest=step2_closeout_digest,
+            evidence_coverage_matrix=evidence_coverage_matrix,
+            result_traceability_tree=result_traceability_tree,
+            evidence_lineage_index=evidence_lineage_index,
+            reviewer_anchor_navigation=reviewer_anchor_navigation,
+            ai_run_summary_payload=ai_run_summary_payload,
             wp6_closeout_bundle=_wp6_closeout_bundle,
             compatibility_scan_summary=compatibility_scan_summary,
             recognition_scope_rollup=recognition_scope_rollup,
@@ -2194,7 +2262,7 @@ class AppFacade:
                 t("facade.results.result_summary.artifact_roles", value=artifact_role_text),
                 t("facade.results.result_summary.lineage_config_version", value=lineage_digest.get("config_version", "--")),
                 t("facade.results.result_summary.suite_summary", value=suite_digest_text),
-                f"证据来源: {result_evidence_source}",
+                f"璇佹嵁鏉ユ簮: {result_evidence_source}",
                 *(
                     [
                         t(
@@ -2215,7 +2283,7 @@ class AppFacade:
                                 )
                                 if part
                             ),
-                            default="工件兼容: "
+                            default="宸ヤ欢鍏煎: "
                             + " | ".join(
                                 part
                                 for part in (
@@ -2348,7 +2416,7 @@ class AppFacade:
                     t(
                         "facade.results.result_summary.offline_diagnostic_detail",
                         value=line,
-                        default=f"离线诊断补充: {line}",
+                        default=f"绂荤嚎璇婃柇琛ュ厖: {line}",
                     )
                     for line in offline_diagnostic_detail_lines
                 ],
@@ -2449,7 +2517,7 @@ class AppFacade:
                         t(
                             "facade.results.result_summary.scope_readiness",
                             value=scope_readiness_text,
-                            default=f"认可范围 / decision rule readiness: {scope_readiness_text}",
+                            default=f"璁ゅ彲鑼冨洿 / decision rule readiness: {scope_readiness_text}",
                         )
                     ]
                     if scope_readiness_summary
@@ -2489,7 +2557,7 @@ class AppFacade:
                         t(
                             "facade.results.result_summary.validation_matrix_completeness",
                             value=validation_matrix_completeness_text,
-                            default=f"验证矩阵完整度：{validation_matrix_completeness_text}",
+                            default=f"楠岃瘉鐭╅樀瀹屾暣搴︼細{validation_matrix_completeness_text}",
                         )
                     ]
                     if route_specific_validation_matrix or verification_digest or verification_rollup
@@ -2544,7 +2612,7 @@ class AppFacade:
                         t(
                             "facade.results.result_summary.verification_readiness_status",
                             value=verification_readiness_status_text,
-                            default=f"验证就绪状态：{verification_readiness_status_text}",
+                            default=f"楠岃瘉灏辩华鐘舵€侊細{verification_readiness_status_text}",
                         )
                     ]
                     if route_specific_validation_matrix or verification_digest or verification_rollup
@@ -2555,7 +2623,7 @@ class AppFacade:
                         t(
                             "facade.results.result_summary.method_confirmation_coverage_items",
                             value=method_confirmation_coverage_items_text,
-                            default=f"方法确认覆盖项：{method_confirmation_coverage_items_text}",
+                            default=f"鏂规硶纭瑕嗙洊椤癸細{method_confirmation_coverage_items_text}",
                         )
                     ]
                     if route_specific_validation_matrix or verification_digest or verification_rollup
@@ -2643,7 +2711,7 @@ class AppFacade:
                         t(
                             "facade.results.result_summary.uncertainty_budget_completeness",
                             value=uncertainty_budget_completeness_text,
-                            default=f"预算完整度：{uncertainty_budget_completeness_text}",
+                            default=f"棰勭畻瀹屾暣搴︼細{uncertainty_budget_completeness_text}",
                         )
                     ]
                     if uncertainty_report_pack or uncertainty_digest or uncertainty_rollup
@@ -2665,7 +2733,7 @@ class AppFacade:
                         t(
                             "facade.results.result_summary.uncertainty_data_completeness",
                             value=uncertainty_data_completeness_text,
-                            default=f"数据完整度：{uncertainty_data_completeness_text}",
+                            default=f"鏁版嵁瀹屾暣搴︼細{uncertainty_data_completeness_text}",
                         )
                     ]
                     if uncertainty_report_pack or uncertainty_digest or uncertainty_rollup
@@ -2782,12 +2850,12 @@ class AppFacade:
                         or compatibility_scan_summary.get("schema_or_contract_version_summary")
                         or "--"
                     ),
-                    default="工件合同/Schema: {value}",
+                    default="宸ヤ欢鍚堝悓/Schema: {value}",
                 ),
                 t(
                     "facade.results.result_summary.artifact_compatibility_recommendation",
                     value=str(compatibility_overview.get("regenerate_recommendation_display") or "--"),
-                    default="兼容建议: {value}",
+                    default="鍏煎寤鸿: {value}",
                 ),
                 t(
                     "facade.results.result_summary.artifact_compatibility_rollup",
@@ -2796,7 +2864,7 @@ class AppFacade:
                         or compatibility_overview.get("rollup_summary_display")
                         or "--"
                     ),
-                    default="兼容性 rollup：{value}",
+                    default="鍏煎鎬?rollup锛歿value}",
                 ),
                 t(
                     "facade.results.result_summary.artifact_compatibility_boundary",
@@ -2805,7 +2873,7 @@ class AppFacade:
                         or compatibility_overview.get("non_primary_chain_display")
                         or "--"
                     ),
-                    default="兼容边界: {value}",
+                    default="鍏煎杈圭晫: {value}",
                 ),
                 t(
                     "facade.results.result_summary.artifact_compatibility_non_claim",
@@ -2814,7 +2882,7 @@ class AppFacade:
                         or compatibility_scan_summary.get("non_claim_digest")
                         or "--"
                     ),
-                    default="兼容 non-claim: {value}",
+                    default="鍏煎 non-claim: {value}",
                 ),
             ]
             result_text = "\n".join(
@@ -2947,10 +3015,16 @@ class AppFacade:
             },
             "step2_closeout_readiness": dict(payload.get("step2_closeout_readiness") or {}),
             "step2_closeout_package": dict(payload.get("step2_closeout_package") or {}),
+            "step2_closeout_digest": step2_closeout_digest,
             "step2_closeout_bundle": dict(payload.get("step2_closeout_bundle") or {}),
             "step2_closeout_evidence_index": dict(payload.get("step2_closeout_evidence_index") or {}),
             "step2_closeout_summary_markdown": str(payload.get("step2_closeout_summary_markdown") or ""),
             "step2_closeout_compact_section": dict(payload.get("step2_closeout_compact_section") or {}),
+            "evidence_coverage_matrix": evidence_coverage_matrix,
+            "result_traceability_tree": result_traceability_tree,
+            "evidence_lineage_index": evidence_lineage_index,
+            "reviewer_anchor_navigation": reviewer_anchor_navigation,
+            "ai_run_summary_payload": ai_run_summary_payload,
             "step2_freeze_audit": dict(payload.get("step2_freeze_audit") or {}),
             "step3_admission_dossier": dict(payload.get("step3_admission_dossier") or {}),
             "step2_closeout_verification": dict(payload.get("step2_closeout_verification") or {}),
@@ -2995,7 +3069,7 @@ class AppFacade:
             f"{t('results.review_digest.suite', default='最新套件')}: {latest_suite.get('summary', t('common.none'))}",
             f"{t('results.review_digest.parity', default='最新一致性')}: {latest_parity.get('summary', t('common.none'))}",
             f"{t('results.review_digest.resilience', default='最新导出韧性')}: {latest_resilience.get('summary', t('common.none'))}",
-            f"{t('results.review_digest.workbench', default='最新工作台证据')}: {latest_workbench.get('summary', t('common.none'))}",
+            f"{t('results.review_digest.workbench', default='鏈€鏂板伐浣滃彴璇佹嵁')}: {latest_workbench.get('summary', t('common.none'))}",
             f"{t('results.review_digest.readiness', default='当前验收就绪度')}: {readiness_text or t('common.none')}",
             t(
                 "results.review_digest.disclaimer",
@@ -3066,6 +3140,12 @@ class AppFacade:
         qc_flag_catalog: dict[str, Any],
         recovery_action_log: dict[str, Any],
         reviewer_dual_check_placeholder: dict[str, Any],
+        step2_closeout_digest: dict[str, Any],
+        evidence_coverage_matrix: dict[str, Any],
+        result_traceability_tree: dict[str, Any],
+        evidence_lineage_index: dict[str, Any],
+        reviewer_anchor_navigation: dict[str, Any],
+        ai_run_summary_payload: dict[str, Any],
         wp6_closeout_bundle: _Wp6CloseoutBundle,
         compatibility_scan_summary: dict[str, Any],
         recognition_scope_rollup: dict[str, Any],
@@ -3170,6 +3250,12 @@ class AppFacade:
             qc_flag_catalog=qc_flag_catalog,
             recovery_action_log=recovery_action_log,
             reviewer_dual_check_placeholder=reviewer_dual_check_placeholder,
+            step2_closeout_digest=step2_closeout_digest,
+            evidence_coverage_matrix=evidence_coverage_matrix,
+            result_traceability_tree=result_traceability_tree,
+            evidence_lineage_index=evidence_lineage_index,
+            reviewer_anchor_navigation=reviewer_anchor_navigation,
+            ai_run_summary_payload=ai_run_summary_payload,
             wp6_closeout_bundle=wp6_closeout_bundle,
             compatibility_scan_summary=compatibility_scan_summary,
         )
@@ -3353,7 +3439,7 @@ class AppFacade:
         measurement_filter_options["boundary_options"] = _build_fragment_filter_options(
             measurement_boundary_rows,
             all_label_key="results.review_center.filter.all_boundaries",
-            all_label_default="全部边界",
+            all_label_default="鍏ㄩ儴杈圭晫",
         )
         return {
             "latest": latest_items,
@@ -3435,6 +3521,9 @@ class AppFacade:
                 "selected_artifact_role": "all",
                 "selected_standard_family": "all",
                 "selected_evidence_category": "all",
+                "selected_readiness_status": "all",
+                "selected_missing_coverage": "all",
+                "selected_gap": "all",
                 "selected_boundary": "all",
                 "selected_anchor": "all",
                 "selected_route": "all",
@@ -3450,8 +3539,8 @@ class AppFacade:
                     {"id": "workbench", "label": t("results.review_center.type.workbench")},
                     {"id": "analytics", "label": t("results.review_center.type.analytics")},
                     {"id": "offline_diagnostic", "label": t("results.review_center.type.offline_diagnostic")},
-                    {"id": "stability", "label": t("results.review_center.type.stability", default="澶氭簮鍒ょǔ")},
-                    {"id": "state_transition", "label": t("results.review_center.type.state_transition", default="鍙楁帶鐘舵€佹満")},
+                    {"id": "stability", "label": t("results.review_center.type.stability", default="stability")},
+                    {"id": "state_transition", "label": t("results.review_center.type.state_transition", default="閸欐甯堕悩鑸碘偓浣规簚")},
                     {
                         "id": "measurement_phase_coverage",
                         "label": t(
@@ -3463,14 +3552,14 @@ class AppFacade:
                         "id": "artifact_compatibility",
                         "label": t(
                             "results.review_center.type.artifact_compatibility",
-                            default="工件兼容 / 再索引",
+                            default="artifact compatibility / reindex",
                         ),
                     },
                     {
                         "id": "readiness_governance",
                         "label": t(
                             "results.review_center.type.readiness_governance",
-                            default="认可就绪治理骨架",
+                            default="璁ゅ彲灏辩华娌荤悊楠ㄦ灦",
                         ),
                     },
                 ],
@@ -3501,10 +3590,25 @@ class AppFacade:
                     reviewer_filter_options["artifact_role_options"],
                     measurement_filter_options["artifact_role_options"],
                 ),
-                "standard_family_options": reviewer_filter_options["standard_family_options"],
+                "standard_family_options": _merge_filter_options(
+                    reviewer_filter_options["standard_family_options"],
+                    measurement_filter_options["standard_family_options"],
+                ),
                 "evidence_category_options": _merge_filter_options(
                     reviewer_filter_options["evidence_category_options"],
                     measurement_filter_options["evidence_category_options"],
+                ),
+                "readiness_status_options": _merge_filter_options(
+                    reviewer_filter_options["readiness_status_options"],
+                    measurement_filter_options["readiness_status_options"],
+                ),
+                "missing_coverage_options": _merge_filter_options(
+                    reviewer_filter_options["missing_coverage_options"],
+                    measurement_filter_options["missing_coverage_options"],
+                ),
+                "gap_options": _merge_filter_options(
+                    reviewer_filter_options["gap_options"],
+                    measurement_filter_options["gap_options"],
                 ),
                 "boundary_options": _merge_filter_options(
                     reviewer_filter_options["boundary_options"],
@@ -3525,10 +3629,16 @@ class AppFacade:
             "disclaimer": t("results.review_center.disclaimer"),
             "step2_closeout_readiness": closeout_readiness_payload,
             "step2_closeout_package": closeout_package_payload,
+            "step2_closeout_digest": step2_closeout_digest,
             "step2_closeout_bundle": closeout_bundle_payload,
             "step2_closeout_evidence_index": closeout_evidence_index_payload,
             "step2_closeout_summary_markdown": str(step2_closeout_summary_markdown or ""),
             "step2_closeout_compact_section": closeout_compact_payload,
+            "evidence_coverage_matrix": evidence_coverage_matrix,
+            "result_traceability_tree": result_traceability_tree,
+            "evidence_lineage_index": evidence_lineage_index,
+            "reviewer_anchor_navigation": reviewer_anchor_navigation,
+            "ai_run_summary_payload": ai_run_summary_payload,
             "step2_freeze_audit": freeze_audit_payload,
             "step3_admission_dossier": admission_dossier_payload,
             "step2_closeout_verification": closeout_verification_payload,
@@ -3722,6 +3832,12 @@ class AppFacade:
         qc_flag_catalog: dict[str, Any],
         recovery_action_log: dict[str, Any],
         reviewer_dual_check_placeholder: dict[str, Any],
+        step2_closeout_digest: dict[str, Any],
+        evidence_coverage_matrix: dict[str, Any],
+        result_traceability_tree: dict[str, Any],
+        evidence_lineage_index: dict[str, Any],
+        reviewer_anchor_navigation: dict[str, Any],
+        ai_run_summary_payload: dict[str, Any],
         wp6_closeout_bundle: _Wp6CloseoutBundle,
         compatibility_scan_summary: dict[str, Any],
         force_refresh: bool = False,
@@ -4031,6 +4147,30 @@ class AppFacade:
             (
                 recognition_readiness.AUDIT_READINESS_DIGEST_FILENAME,
                 dict(audit_readiness_digest or {}),
+            ),
+            (
+                step2_reviewer_readiness.STEP2_CLOSEOUT_DIGEST_FILENAME,
+                dict(step2_closeout_digest or {}),
+            ),
+            (
+                step2_reviewer_readiness.EVIDENCE_COVERAGE_MATRIX_FILENAME,
+                dict(evidence_coverage_matrix or {}),
+            ),
+            (
+                step2_reviewer_readiness.RESULT_TRACEABILITY_TREE_FILENAME,
+                dict(result_traceability_tree or {}),
+            ),
+            (
+                step2_reviewer_readiness.EVIDENCE_LINEAGE_INDEX_FILENAME,
+                dict(evidence_lineage_index or {}),
+            ),
+            (
+                step2_reviewer_readiness.REVIEWER_ANCHOR_NAVIGATION_FILENAME,
+                dict(reviewer_anchor_navigation or {}),
+            ),
+            (
+                step2_reviewer_readiness.AI_RUN_SUMMARY_FILENAME,
+                dict(ai_run_summary_payload or {}),
             ),
         ] + wp6_closeout_bundle.readiness_pairs
         for filename, fallback_payload in readiness_summary_payloads:
@@ -4460,7 +4600,7 @@ class AppFacade:
             if len(candidates) >= max(1, int(limit)):
                 continue
             # When using family-aware budget, skip deep scan if direct path
-            # already found a candidate in this root — preserves budget for
+            # already found a candidate in this root 鈥?preserves budget for
             # other roots that may also contain the artifact.
             if family_budget is not None and len(candidates) > 0:
                 continue
@@ -4725,8 +4865,8 @@ class AppFacade:
                 f"{t('results.review_center.detail.state')}: {display_evidence_state(payload.get('evidence_state'), default=str(payload.get('evidence_state') or 'simulated_workbench'))}",
                 f"{t('results.review_center.detail.current_device')}: {payload.get('current_device_display', '--')}",
                 f"{t('results.review_center.detail.current_action')}: {payload.get('current_action_display', '--')}",
-                f"{t('results.review_center.detail.acceptance_level', default='验收层级')}: {acceptance_level}",
-                f"{t('results.review_center.detail.promotion_state', default='晋升状态')}: {promotion_state}",
+                f"{t('results.review_center.detail.acceptance_level', default='楠屾敹灞傜骇')}: {acceptance_level}",
+                f"{t('results.review_center.detail.promotion_state', default='promotion state')}: {promotion_state}",
                 f"{t('results.review_center.detail.path')}: {path}",
                 t("results.review_center.disclaimer"),
             ]
@@ -4802,11 +4942,11 @@ class AppFacade:
             counts_payload = dict(route_counts or {})
             route_breakdown_lines.append(
                 (
-                    f"{t('results.review_center.detail.qc_route_breakdown', default='路由分布')} {route_name}: "
-                    f"{t('pages.qc.level.pass', default='通过')} {int(counts_payload.get('pass', 0) or 0)} / "
-                    f"{t('pages.qc.level.warn', default='预警')} {int(counts_payload.get('warn', 0) or 0)} / "
-                    f"{t('pages.qc.level.reject', default='拒绝')} {int(counts_payload.get('reject', 0) or 0)} / "
-                    f"{t('pages.qc.level.skipped', default='跳过')} {int(counts_payload.get('skipped', 0) or 0)}"
+                    f"{t('results.review_center.detail.qc_route_breakdown', default='璺敱鍒嗗竷')} {route_name}: "
+                    f"{t('pages.qc.level.pass', default='閫氳繃')} {int(counts_payload.get('pass', 0) or 0)} / "
+                    f"{t('pages.qc.level.warn', default='棰勮')} {int(counts_payload.get('warn', 0) or 0)} / "
+                    f"{t('pages.qc.level.reject', default='鎷掔粷')} {int(counts_payload.get('reject', 0) or 0)} / "
+                    f"{t('pages.qc.level.skipped', default='璺宠繃')} {int(counts_payload.get('skipped', 0) or 0)}"
                 )
             )
         taxonomy_fragments = []
@@ -4822,38 +4962,38 @@ class AppFacade:
             )
         failed_check_summary = ", ".join(failed_check_fragments) or "--"
         lines = self._review_detail_lines(reviewer_card.get("lines")) or [
-            f"{t('results.review_center.detail.qc_summary', default='质控摘要')}: {summary_text}",
-            f"{t('results.review_center.detail.qc_reviewer_card', default='审阅卡片')}: {summary_text}",
+            f"{t('results.review_center.detail.qc_summary', default='璐ㄦ帶鎽樿')}: {summary_text}",
+            f"{t('results.review_center.detail.qc_reviewer_card', default='瀹￠槄鍗＄墖')}: {summary_text}",
             (
-                f"{t('results.review_center.detail.qc_run_gate', default='运行门禁')}: "
+                f"{t('results.review_center.detail.qc_run_gate', default='杩愯闂ㄧ')}: "
                 f"{str(run_gate.get('status') or '--')} | "
-                f"{t('results.review_center.detail.qc_gate_reason', default='原因')}: {str(run_gate.get('reason') or '--')}"
+                f"{t('results.review_center.detail.qc_gate_reason', default='鍘熷洜')}: {str(run_gate.get('reason') or '--')}"
             ),
             (
-                f"{t('results.review_center.detail.qc_point_gate', default='点级门禁')}: "
+                f"{t('results.review_center.detail.qc_point_gate', default='鐐圭骇闂ㄧ')}: "
                 f"{str(point_gate.get('status') or '--')} | "
-                f"{t('results.review_center.detail.qc_flagged_routes', default='关注路由')}: {flagged_routes}"
+                f"{t('results.review_center.detail.qc_flagged_routes', default='鍏虫敞璺敱')}: {flagged_routes}"
             ),
             (
-                f"{t('results.review_center.detail.qc_decision_breakdown', default='结果分级')}: "
-                f"{t('pages.qc.level.pass', default='通过')} {int(decision_counts.get('pass', 0) or 0)} / "
-                f"{t('pages.qc.level.warn', default='预警')} {int(decision_counts.get('warn', 0) or 0)} / "
-                f"{t('pages.qc.level.reject', default='拒绝')} {int(decision_counts.get('reject', 0) or 0)} / "
-                f"{t('pages.qc.level.skipped', default='跳过')} {int(decision_counts.get('skipped', 0) or 0)}"
+                f"{t('results.review_center.detail.qc_decision_breakdown', default='缁撴灉鍒嗙骇')}: "
+                f"{t('pages.qc.level.pass', default='閫氳繃')} {int(decision_counts.get('pass', 0) or 0)} / "
+                f"{t('pages.qc.level.warn', default='棰勮')} {int(decision_counts.get('warn', 0) or 0)} / "
+                f"{t('pages.qc.level.reject', default='鎷掔粷')} {int(decision_counts.get('reject', 0) or 0)} / "
+                f"{t('pages.qc.level.skipped', default='璺宠繃')} {int(decision_counts.get('skipped', 0) or 0)}"
             ),
             (
-                f"{t('results.review_center.detail.qc_top_reject_reason', default='主要拒绝原因')}: {top_reject_reason} | "
-                f"{t('results.review_center.detail.qc_top_failed_check', default='失败检查')}: {top_failed_check}"
+                f"{t('results.review_center.detail.qc_top_reject_reason', default='涓昏鎷掔粷鍘熷洜')}: {top_reject_reason} | "
+                f"{t('results.review_center.detail.qc_top_failed_check', default='top failed check')}: {top_failed_check}"
             ),
             *route_breakdown_lines[:2],
             (
-                f"{t('results.review_center.detail.qc_reject_taxonomy', default='拒绝原因分类')}: {taxonomy_summary} | "
-                f"{t('results.review_center.detail.qc_failed_check_taxonomy', default='失败检查分类')}: {failed_check_summary}"
+                f"{t('results.review_center.detail.qc_reject_taxonomy', default='鎷掔粷鍘熷洜鍒嗙被')}: {taxonomy_summary} | "
+                f"{t('results.review_center.detail.qc_failed_check_taxonomy', default='failed check taxonomy')}: {failed_check_summary}"
             ),
         ]
         for line in explicit_lines[:3]:
             if line not in lines:
-                lines.append(f"{t('results.review_center.detail.qc_reviewer_note', default='审阅结论')}: {line}")
+                lines.append(f"{t('results.review_center.detail.qc_reviewer_note', default='瀹￠槄缁撹')}: {line}")
         for line in reviewer_lines[:2]:
             if line not in lines:
                 lines.append(line)
@@ -4962,13 +5102,13 @@ class AppFacade:
             f"{str(reference_stats.get('reference_quality_trend') or '--')}",
             f"{t('results.review_center.detail.analytics_export_status')}: "
             f"{str(export_status.get('overall_status') or '--')}",
-            f"{t('results.review_center.detail.analytics_drift', default='漂移趋势')}: "
+            f"{t('results.review_center.detail.analytics_drift', default='婕傜Щ瓒嬪娍')}: "
             f"{str(drift_summary.get('overall_trend') or '--')}",
-            f"{t('results.review_center.detail.analytics_control_chart', default='控制图状态')}: "
+            f"{t('results.review_center.detail.analytics_control_chart', default='control chart status')}: "
             f"{str(control_chart_summary.get('status') or '--')}",
-            f"{t('results.review_center.detail.analytics_health', default='分析仪健康')}: "
+            f"{t('results.review_center.detail.analytics_health', default='analytics health')}: "
             f"{str(analyzer_health_digest.get('overall_status') or '--')}",
-            f"{t('results.review_center.detail.analytics_fault', default='主故障归因')}: "
+            f"{t('results.review_center.detail.analytics_fault', default='primary fault')}: "
             f"{str(fault_attribution_summary.get('primary_fault') or '--')}",
         ]
         if sidecar_index_summary:
@@ -4993,7 +5133,7 @@ class AppFacade:
                 f"{t('results.review_center.detail.analytics_model_governance', default='模型治理')}: {str(model_governance_summary.get('summary_line') or '--')}"
             )
             analytics_detail_summary.append(
-                f"{t('results.review_center.detail.analytics_model_release', default='模型发布状态')}: {str(model_governance_summary.get('release_status') or '--')}"
+                f"{t('results.review_center.detail.analytics_model_release', default='model release status')}: {str(model_governance_summary.get('release_status') or '--')}"
             )
         for line in self._review_detail_lines(dict(unified_review_summary.get("analytics_summary") or {}).get("lines")):
             if line not in analytics_detail_summary:
@@ -5018,16 +5158,16 @@ class AppFacade:
                 f"{t('results.review_center.detail.source')}: {display_evidence_source(evidence_source, default=evidence_source)}",
                 f"{t('results.review_center.detail.state')}: {display_evidence_state(payload.get('evidence_state'), default=str(payload.get('evidence_state') or 'collected'))}",
                 f"{t('results.review_center.detail.path')}: {path}",
-                f"{t('results.review_center.detail.qc_summary', default='质控摘要')}: {qc_detail_summary[0] if qc_detail_summary else t('common.none')}",
-                f"{t('results.review_center.detail.qc_run_gate', default='运行门禁')}: {str(dict(qc_overview.get('run_gate') or {}).get('status') or '--')}",
-                f"{t('results.review_center.detail.qc_point_gate', default='点级门禁')}: {str(dict(qc_overview.get('point_gate_summary') or {}).get('status') or '--')}",
+                f"{t('results.review_center.detail.qc_summary', default='璐ㄦ帶鎽樿')}: {qc_detail_summary[0] if qc_detail_summary else t('common.none')}",
+                f"{t('results.review_center.detail.qc_run_gate', default='杩愯闂ㄧ')}: {str(dict(qc_overview.get('run_gate') or {}).get('status') or '--')}",
+                f"{t('results.review_center.detail.qc_point_gate', default='鐐圭骇闂ㄧ')}: {str(dict(qc_overview.get('point_gate_summary') or {}).get('status') or '--')}",
                 f"{t('results.review_center.detail.analytics_reference_quality')}: {display_reference_quality(reference_stats.get('reference_quality'))}",
                 f"{t('results.review_center.detail.analytics_reference_trend')}: {str(reference_stats.get('reference_quality_trend') or '--')}",
                 f"{t('results.review_center.detail.analytics_export_status')}: {str(export_status.get('overall_status') or '--')}",
-                f"{t('results.review_center.detail.analytics_drift', default='漂移趋势')}: {str(drift_summary.get('overall_trend') or '--')}",
-                f"{t('results.review_center.detail.analytics_control_chart', default='控制图状态')}: {str(control_chart_summary.get('status') or '--')}",
-                f"{t('results.review_center.detail.analytics_health', default='分析仪健康')}: {str(analyzer_health_digest.get('overall_status') or '--')}",
-                f"{t('results.review_center.detail.analytics_fault', default='主故障归因')}: {str(fault_attribution_summary.get('primary_fault') or '--')}",
+                f"{t('results.review_center.detail.analytics_drift', default='婕傜Щ瓒嬪娍')}: {str(drift_summary.get('overall_trend') or '--')}",
+                f"{t('results.review_center.detail.analytics_control_chart', default='control chart status')}: {str(control_chart_summary.get('status') or '--')}",
+                f"{t('results.review_center.detail.analytics_health', default='analytics health')}: {str(analyzer_health_digest.get('overall_status') or '--')}",
+                f"{t('results.review_center.detail.analytics_fault', default='primary fault')}: {str(fault_attribution_summary.get('primary_fault') or '--')}",
                 f"{t('results.review_center.detail.analytics_lineage')}: {lineage_summary}",
                 *(
                     [
@@ -5427,10 +5567,10 @@ class AppFacade:
                     route=target_route_display,
                     failure=first_failure_phase_display,
                     default=(
-                        f"V1/V2 离线对齐 | 对齐状态 {compare_status_display} | "
-                        f"对齐配置 {validation_profile} | 目标气路 {target_route_display}"
+                        f"V1/V2 绂荤嚎瀵归綈 | 瀵归綈鐘舵€?{compare_status_display} | "
+                        f"瀵归綈閰嶇疆 {validation_profile} | 鐩爣姘旇矾 {target_route_display}"
                         + (
-                            f" | 首个失败阶段 {first_failure_phase_display}"
+                            f" | 棣栦釜澶辫触闃舵 {first_failure_phase_display}"
                             if first_failure_phase not in {"", "--"}
                             else ""
                         )
@@ -5530,9 +5670,9 @@ class AppFacade:
             f"{t('results.review_center.detail.source')}: {display_evidence_source(payload.get('evidence_source'), default=str(payload.get('evidence_source') or 'simulated_protocol'))}",
             f"{t('results.review_center.detail.state')}: {display_evidence_state(payload.get('evidence_state'), default=str(payload.get('evidence_state') or 'shadow_only'))}",
             f"{t('results.review_center.detail.path')}: {path}",
-            f"{t('results.review_center.detail.policy', default='策略轮廓')}: {policy_profile.get('summary_line', '--')}",
-            f"{t('results.review_center.detail.rollup', default='决策汇总')}: {decision_rollup.get('summary_line', '--')}",
-            f"{t('results.review_center.detail.shadow_diff', default='影子差异')}: {shadow_diff.get('summary_line', '--')}",
+            f"{t('results.review_center.detail.policy', default='绛栫暐杞粨')}: {policy_profile.get('summary_line', '--')}",
+            f"{t('results.review_center.detail.rollup', default='decision rollup')}: {decision_rollup.get('summary_line', '--')}",
+            f"{t('results.review_center.detail.shadow_diff', default='褰卞瓙宸紓')}: {shadow_diff.get('summary_line', '--')}",
             *[str(item) for item in list(review_surface.get("summary_lines") or []) if str(item).strip()],
             *[str(item) for item in list(review_surface.get("detail_lines") or []) if str(item).strip()],
             t("results.review_center.disclaimer"),
@@ -5607,7 +5747,7 @@ class AppFacade:
             f"{t('results.review_center.detail.source')}: {display_evidence_source(payload.get('evidence_source'), default=str(payload.get('evidence_source') or 'simulated_protocol'))}",
             f"{t('results.review_center.detail.state')}: {display_evidence_state(payload.get('evidence_state'), default=str(payload.get('evidence_state') or 'shadow_only'))}",
             f"{t('results.review_center.detail.path')}: {path}",
-            f"{t('results.review_center.detail.policy', default='策略轮廓')}: {transition_policy_profile.get('summary_line', '--')}",
+            f"{t('results.review_center.detail.policy', default='绛栫暐杞粨')}: {transition_policy_profile.get('summary_line', '--')}",
             *[str(item) for item in list(review_surface.get("summary_lines") or []) if str(item).strip()],
             *[str(item) for item in list(review_surface.get("detail_lines") or []) if str(item).strip()],
             t("results.review_center.disclaimer"),
@@ -5767,34 +5907,34 @@ class AppFacade:
             f"{t('results.review_center.detail.source')}: {display_evidence_source(payload.get('evidence_source'), default=str(payload.get('evidence_source') or 'simulated_protocol'))}",
             f"{t('results.review_center.detail.state')}: {display_evidence_state(payload.get('evidence_state'), default=str(payload.get('evidence_state') or 'shadow_only'))}",
             f"{t('results.review_center.detail.path')}: {path}",
-            f"读取方式: {str(payload.get('current_reader_mode_display') or payload.get('current_reader_mode') or '--')}",
-            f"兼容状态: {str(payload.get('compatibility_status_display') or payload.get('compatibility_status') or '--')}",
-            f"建议动作: {'仅重建 reviewer/index sidecar' if bool(payload.get('regenerate_recommended', False)) else '当前 compatibility sidecar 已就绪'}",
-            f"边界摘要: {str(payload.get('boundary_digest') or digest.get('boundary_summary') or '--')}",
-            f"非主张摘要: {str(payload.get('non_claim_digest') or digest.get('non_claim_summary') or '--')}",
-            "说明: regenerate/reindex 仅作用于 reviewer/index sidecar，不改写原始主证据",
+            f"璇诲彇鏂瑰紡: {str(payload.get('current_reader_mode_display') or payload.get('current_reader_mode') or '--')}",
+            f"鍏煎鐘舵€? {str(payload.get('compatibility_status_display') or payload.get('compatibility_status') or '--')}",
+            f"寤鸿鍔ㄤ綔: {'仅重建 reviewer/index sidecar' if bool(payload.get('regenerate_recommended', False)) else '当前 compatibility sidecar 已就绪'}",
+            f"杈圭晫鎽樿: {str(payload.get('boundary_digest') or digest.get('boundary_summary') or '--')}",
+            f"闈炰富寮犳憳瑕? {str(payload.get('non_claim_digest') or digest.get('non_claim_summary') or '--')}",
+            "璇存槑: regenerate/reindex 浠呬綔鐢ㄤ簬 reviewer/index sidecar锛屼笉鏀瑰啓鍘熷涓昏瘉鎹?",
             t("results.review_center.disclaimer"),
         ]
         if str(compatibility_overview.get("schema_contract_summary_display") or "").strip():
             detail_lines.insert(
                 5,
-                f"合同/Schema: {str(compatibility_overview.get('schema_contract_summary_display') or '--')}",
+                f"鍚堝悓/Schema: {str(compatibility_overview.get('schema_contract_summary_display') or '--')}",
             )
         if str(compatibility_overview.get("regenerate_recommendation_display") or "").strip():
             detail_lines.append(
-                f"兼容建议: {str(compatibility_overview.get('regenerate_recommendation_display') or '--')}"
+                f"鍏煎寤鸿: {str(compatibility_overview.get('regenerate_recommendation_display') or '--')}"
             )
         if str(compatibility_rollup.get("rollup_summary_display") or "").strip():
             detail_lines.append(
                 t(
                     "facade.results.result_summary.artifact_compatibility_rollup",
                     value=str(compatibility_rollup.get("rollup_summary_display") or "--"),
-                    default="兼容性 rollup：{value}",
+                    default="鍏煎鎬?rollup锛歿value}",
                 )
             )
         if str(compatibility_overview.get("non_primary_boundary_display") or "").strip():
             detail_lines.append(
-                f"兼容边界: {str(compatibility_overview.get('non_primary_boundary_display') or '--')}"
+                f"鍏煎杈圭晫: {str(compatibility_overview.get('non_primary_boundary_display') or '--')}"
             )
         artifact_paths = [
             str(path),
@@ -5823,7 +5963,7 @@ class AppFacade:
                 t(
                     "facade.results.result_summary.artifact_compatibility_rollup",
                     value=str(compatibility_rollup.get("rollup_summary_display") or ""),
-                    default="兼容性 rollup：{value}",
+                    default="鍏煎鎬?rollup锛歿value}",
                 ),
                 str(digest.get("regenerate_summary") or ""),
             ],
@@ -5859,13 +5999,13 @@ class AppFacade:
             )
         )
         method_confirmation_detail_lines = [
-            f"覆盖项: {str(digest.get('coverage_items_summary') or payload.get('coverage_items_summary') or '--')}",
-            f"已验证项: {str(digest.get('validated_items_summary') or payload.get('validated_items_summary') or '--')}",
-            f"未验证项: {str(digest.get('unverified_items_summary') or payload.get('unverified_items_summary') or '--')}",
-            f"验证运行绑定: {str(digest.get('validation_run_binding_summary') or payload.get('validation_run_binding_summary') or '--')}",
-            f"来源 artifact refs: {str(digest.get('source_artifact_refs_summary') or payload.get('source_artifact_refs_summary') or '--')}",
-            f"关联 uncertainty cases: {str(digest.get('linked_uncertainty_case_ids_summary') or payload.get('linked_uncertainty_case_ids_summary') or '--')}",
-            f"关联 scope / decision rule: {str(digest.get('linked_scope_decision_summary') or payload.get('linked_scope_decision_summary') or '--')}",
+            f"瑕嗙洊椤? {str(digest.get('coverage_items_summary') or payload.get('coverage_items_summary') or '--')}",
+            f"宸查獙璇侀」: {str(digest.get('validated_items_summary') or payload.get('validated_items_summary') or '--')}",
+            f"鏈獙璇侀」: {str(digest.get('unverified_items_summary') or payload.get('unverified_items_summary') or '--')}",
+            f"楠岃瘉杩愯缁戝畾: {str(digest.get('validation_run_binding_summary') or payload.get('validation_run_binding_summary') or '--')}",
+            f"鏉ユ簮 artifact refs: {str(digest.get('source_artifact_refs_summary') or payload.get('source_artifact_refs_summary') or '--')}",
+            f"鍏宠仈 uncertainty cases: {str(digest.get('linked_uncertainty_case_ids_summary') or payload.get('linked_uncertainty_case_ids_summary') or '--')}",
+            f"鍏宠仈 scope / decision rule: {str(digest.get('linked_scope_decision_summary') or payload.get('linked_scope_decision_summary') or '--')}",
         ]
         software_validation_detail_lines = [
             f"Changed modules: {str(payload.get('changed_modules_summary') or '--')}",
@@ -5893,14 +6033,14 @@ class AppFacade:
             f"Certificate lifecycle refs: {str(digest.get('certificate_lifecycle_summary') or payload.get('certificate_lifecycle_refs_summary') or '--')}",
         ]
         human_governance_detail_lines = [
-            f"操作员绑定: {str(digest.get('operator_summary') or payload.get('operator_summary') or '--')}",
-            f"reviewer 绑定: {str(digest.get('reviewer_summary') or payload.get('reviewer_summary') or '--')}",
-            f"授权范围: {str(digest.get('authorization_scope_summary') or payload.get('authorization_scope_summary') or '--')}",
-            f"培训状态: {str(digest.get('training_status_summary') or payload.get('training_status_summary') or '--')}",
-            f"SOP 绑定: {str(digest.get('sop_binding_summary') or payload.get('sop_binding_summary') or '--')}",
-            f"双人复核占位: {str(digest.get('dual_check_summary') or payload.get('dual_check_summary') or '--')}",
-            f"恢复动作日志: {str(digest.get('recovery_action_summary') or payload.get('recovery_action_summary') or '--')}",
-            f"占位边界: {str(digest.get('placeholder_summary') or payload.get('placeholder_summary') or '--')}",
+            f"鎿嶄綔鍛樼粦瀹? {str(digest.get('operator_summary') or payload.get('operator_summary') or '--')}",
+            f"reviewer 缁戝畾: {str(digest.get('reviewer_summary') or payload.get('reviewer_summary') or '--')}",
+            f"鎺堟潈鑼冨洿: {str(digest.get('authorization_scope_summary') or payload.get('authorization_scope_summary') or '--')}",
+            f"鍩硅鐘舵€? {str(digest.get('training_status_summary') or payload.get('training_status_summary') or '--')}",
+            f"SOP 缁戝畾: {str(digest.get('sop_binding_summary') or payload.get('sop_binding_summary') or '--')}",
+            f"鍙屼汉澶嶆牳鍗犱綅: {str(digest.get('dual_check_summary') or payload.get('dual_check_summary') or '--')}",
+            f"鎭㈠鍔ㄤ綔鏃ュ織: {str(digest.get('recovery_action_summary') or payload.get('recovery_action_summary') or '--')}",
+            f"鍗犱綅杈圭晫: {str(digest.get('placeholder_summary') or payload.get('placeholder_summary') or '--')}",
         ]
         detail_lines = [
             f"{t('results.review_center.detail.summary')}: {summary}",
@@ -6067,13 +6207,22 @@ class AppFacade:
                 *[str(item) for item in list(localized_review_lines.get("detail_lines") or []) if str(item).strip()],
             ],
             phase_filters=list(review_surface.get("phase_filters") or []),
-            artifact_role_filters=["diagnostic_analysis"],
+            artifact_role_filters=list(review_surface.get("artifact_role_filters") or ["diagnostic_analysis"]),
             standard_family_filters=list(review_surface.get("standard_family_filters") or []),
-            evidence_category_filters=list(payload.get("evidence_categories") or []),
+            evidence_category_filters=list(
+                payload.get("evidence_categories")
+                or review_surface.get("evidence_category_filters")
+                or []
+            ),
+            readiness_status_filters=list(review_surface.get("readiness_status_filters") or []),
+            missing_coverage_filters=list(review_surface.get("missing_coverage_filters") or []),
+            gap_filters=list(review_surface.get("gap_filters") or []),
             boundary_filter_rows=[dict(item) for item in list(review_surface.get("boundary_filter_rows") or []) if isinstance(item, dict)],
             boundary_filters=list(review_surface.get("boundary_filters") or []),
             anchor_id=str(review_surface.get("anchor_id") or ""),
             anchor_label=str(review_surface.get("anchor_label") or ""),
+            anchor_rows=[dict(item) for item in list(review_surface.get("anchor_rows") or []) if isinstance(item, dict)],
+            anchor_filters=list(review_surface.get("anchor_filters") or []),
             route_filters=list(review_surface.get("route_filters") or []),
             signal_family_filters=list(review_surface.get("signal_family_filters") or []),
             decision_result_filters=list(review_surface.get("decision_result_filters") or []),
@@ -6110,10 +6259,15 @@ class AppFacade:
         artifact_role_filters: Optional[list[str]] = None,
         standard_family_filters: Optional[list[str]] = None,
         evidence_category_filters: Optional[list[str]] = None,
+        readiness_status_filters: Optional[list[str]] = None,
+        missing_coverage_filters: Optional[list[str]] = None,
+        gap_filters: Optional[list[str]] = None,
         boundary_filter_rows: Optional[list[dict[str, Any]]] = None,
         boundary_filters: Optional[list[str]] = None,
         anchor_id: str = "",
         anchor_label: str = "",
+        anchor_rows: Optional[list[dict[str, Any]]] = None,
+        anchor_filters: Optional[list[str]] = None,
         route_filters: Optional[list[str]] = None,
         signal_family_filters: Optional[list[str]] = None,
         decision_result_filters: Optional[list[str]] = None,
@@ -6184,10 +6338,19 @@ class AppFacade:
             "evidence_category_filters": [
                 str(item).strip() for item in list(evidence_category_filters or []) if str(item).strip()
             ],
+            "readiness_status_filters": [
+                str(item).strip() for item in list(readiness_status_filters or []) if str(item).strip()
+            ],
+            "missing_coverage_filters": [
+                str(item).strip() for item in list(missing_coverage_filters or []) if str(item).strip()
+            ],
+            "gap_filters": [str(item).strip() for item in list(gap_filters or []) if str(item).strip()],
             "boundary_filter_rows": [dict(item) for item in list(boundary_filter_rows or []) if isinstance(item, dict)],
             "boundary_filters": [str(item).strip() for item in list(boundary_filters or []) if str(item).strip()],
             "anchor_id": str(anchor_id or "").strip(),
             "anchor_label": str(anchor_label or "").strip(),
+            "anchor_rows": [dict(item) for item in list(anchor_rows or []) if isinstance(item, dict)],
+            "anchor_filters": [str(item).strip() for item in list(anchor_filters or []) if str(item).strip()],
             "route_filters": [str(item).strip() for item in list(route_filters or []) if str(item).strip()],
             "signal_family_filters": [
                 str(item).strip() for item in list(signal_family_filters or []) if str(item).strip()
@@ -6290,7 +6453,7 @@ class AppFacade:
                 else t(
                     "results.review_center.index.gaps_line",
                     missing=" / ".join(missing_labels),
-                    default=f"缺 {', '.join(missing_labels)}",
+                    default=f"缺: {', '.join(missing_labels)}",
                 )
             )
             sources.append(
@@ -6339,7 +6502,7 @@ class AppFacade:
                 "results.review_center.index.missing_type_count",
                 type=t(f"results.review_center.type.{name}"),
                 count=count,
-                default=f"{t(f'results.review_center.type.{name}')} 缺 {count}",
+                default=f"{t(f'results.review_center.type.{name}')} 缂?{count}",
             )
             for name, count in missing_by_type.items()
             if int(count or 0) > 0
@@ -6385,7 +6548,7 @@ class AppFacade:
             t(
                 "facade.results.result_summary.artifact_compatibility_rollup",
                 value=str(compatibility_rollup_payload.get("rollup_summary_display") or t("common.none")),
-                default="兼容性 rollup：{value}",
+                default="鍏煎鎬?rollup锛歿value}",
             )
         )
         recognition_scope_rollup_payload = dict(recognition_scope_rollup or {})
@@ -6397,7 +6560,7 @@ class AppFacade:
                     t(
                         "facade.results.result_summary.recognition_scope_rollup",
                         value=str(recognition_scope_rollup_payload.get("rollup_summary_display") or t("common.none")),
-                        default="范围/规则 rollup：{value}",
+                        default="鑼冨洿/瑙勫垯 rollup锛歿value}",
                     ),
                     (
                         t(
@@ -6407,7 +6570,7 @@ class AppFacade:
                                 or recognition_scope_rollup_payload.get("applicability_scope_display")
                                 or t("common.none")
                             ),
-                            default="适用边界：{value}",
+                            default="閫傜敤杈圭晫锛歿value}",
                         )
                         if str(
                             recognition_scope_binding.get("applicability_scope_display")
@@ -6424,7 +6587,7 @@ class AppFacade:
                                 or recognition_scope_rollup_payload.get("non_claim_note")
                                 or t("common.none")
                             ),
-                            default="不声明条件：{value}",
+                            default="涓嶅０鏄庢潯浠讹細{value}",
                         )
                         if str(
                             recognition_scope_binding.get("non_claim_note")
@@ -6468,7 +6631,7 @@ class AppFacade:
                     or verification_digest_payload.get("matrix_completeness_summary")
                     or t("common.none")
                 ),
-                default="验证 rollup：{value}",
+                default="楠岃瘉 rollup锛歿value}",
             )
         )
         uncertainty_rollup_payload = dict(uncertainty_rollup or {})
@@ -6494,7 +6657,7 @@ class AppFacade:
                     or uncertainty_rollup_payload.get("overview_display")
                     or t("common.none")
                 ),
-                default="不确定度 rollup：{value}",
+                default="涓嶇‘瀹氬害 rollup锛歿value}",
             )
         )
         software_validation_rollup_payload = dict(software_validation_rollup or {})
@@ -6506,7 +6669,7 @@ class AppFacade:
                     or software_validation_rollup_payload.get("release_manifest_summary")
                     or t("common.none")
                 ),
-                default="软件验证总览：{value}",
+                default="杞欢楠岃瘉鎬昏锛歿value}",
             )
         )
         traceability_summary = self._humanize_ui_summary(
@@ -6516,7 +6679,7 @@ class AppFacade:
                     software_validation_rollup_payload.get("traceability_completeness_summary")
                     or t("common.none")
                 ),
-                default="追溯完整度：{value}",
+                default="杩芥函瀹屾暣搴︼細{value}",
             )
         )
         audit_hash_summary = self._humanize_ui_summary(
@@ -6526,7 +6689,7 @@ class AppFacade:
                     software_validation_rollup_payload.get("hash_registry_summary")
                     or t("common.none")
                 ),
-                default="审计哈希：{value}",
+                default="瀹¤鍝堝笇锛歿value}",
             )
         )
         release_manifest_summary = self._humanize_ui_summary(
@@ -6536,7 +6699,7 @@ class AppFacade:
                     software_validation_rollup_payload.get("release_manifest_summary")
                     or t("common.none")
                 ),
-                default="Release manifest：{value}",
+                default="Release manifest锛歿value}",
             )
         )
         change_impact_summary = self._humanize_ui_summary(
@@ -6842,7 +7005,7 @@ class AppFacade:
                     suite=suite_summary.get("suite", "--"),
                     passed=counts.get("passed", 0),
                     total=counts.get("total", 0),
-                    default=f"{suite_summary.get('suite', '--')} {counts.get('passed', 0)}/{counts.get('total', 0)} 通过",
+                    default=f"{suite_summary.get('suite', '--')} {counts.get('passed', 0)}/{counts.get('total', 0)} 閫氳繃",
                 )
             )
         )
@@ -6856,13 +7019,13 @@ class AppFacade:
     def _summarize_external_review_artifact(self, filename: str, *, kind: str) -> dict[str, Any]:
         path = self._latest_review_artifact_path(filename)
         if path is None:
-            return {"available": False, "summary": t("results.review_digest.none", default="暂无"), "path": ""}
+            return {"available": False, "summary": t("results.review_digest.none", default="鏆傛棤"), "path": ""}
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
-            return {"available": True, "summary": t("results.review_digest.unreadable", default="已找到但无法读取"), "path": str(path)}
+            return {"available": True, "summary": t("results.review_digest.unreadable", default="宸叉壘鍒颁絾鏃犳硶璇诲彇"), "path": str(path)}
         if not isinstance(payload, dict):
-            return {"available": True, "summary": t("results.review_digest.unreadable", default="已找到但无法读取"), "path": str(path)}
+            return {"available": True, "summary": t("results.review_digest.unreadable", default="宸叉壘鍒颁絾鏃犳硶璇诲彇"), "path": str(path)}
         if kind == "suite":
             counts = dict(payload.get("counts", {}) or {})
             summary = t(
@@ -6870,7 +7033,7 @@ class AppFacade:
                 suite=payload.get("suite", "--"),
                 passed=counts.get("passed", 0),
                 total=counts.get("total", 0),
-                default=f"{payload.get('suite', '--')} {counts.get('passed', 0)}/{counts.get('total', 0)} 通过",
+                default=f"{payload.get('suite', '--')} {counts.get('passed', 0)}/{counts.get('total', 0)} 閫氳繃",
             )
             status = "MATCH" if bool(payload.get("all_passed", False)) else "MISMATCH"
         elif kind == "parity":
@@ -6880,7 +7043,7 @@ class AppFacade:
                 matched=summary_payload.get("cases_matched", 0),
                 total=summary_payload.get("cases_total", 0),
                 failed=",".join(summary_payload.get("failed_cases", []) or []) or t("common.none"),
-                default=f"{summary_payload.get('cases_matched', 0)}/{summary_payload.get('cases_total', 0)} 匹配",
+                default=f"{summary_payload.get('cases_matched', 0)}/{summary_payload.get('cases_total', 0)} 鍖归厤",
             )
             status = str(payload.get("status", "--") or "--")
         else:
@@ -6890,7 +7053,7 @@ class AppFacade:
                 "results.review_digest.resilience_summary_line",
                 matched=matched,
                 total=len(cases),
-                default=f"{matched}/{len(cases)} 项通过",
+                default=f"{matched}/{len(cases)} 椤归€氳繃",
             )
             status = str(payload.get("status", "--") or "--")
         return {
@@ -6905,7 +7068,7 @@ class AppFacade:
 
     def _summarize_workbench_review(self, workbench_evidence_summary: dict[str, Any]) -> dict[str, Any]:
         if not workbench_evidence_summary:
-            return {"available": False, "summary": t("results.review_digest.none", default="暂无")}
+            return {"available": False, "summary": t("results.review_digest.none", default="鏆傛棤")}
         evidence_source = _normalize_simulated_evidence_source(workbench_evidence_summary.get("evidence_source"))
         return {
             "available": True,
@@ -6949,11 +7112,11 @@ class AppFacade:
             {
                 "algorithm": default_algorithm,
                 "source": "config.algorithm",
-                "source_display": "配置.algorithm",
+                "source_display": "閰嶇疆.algorithm",
                 "status": "default",
-                "status_display": "默认",
+                "status_display": "榛樿",
                 "note": "Current default algorithm",
-                "note_display": "当前默认算法",
+                "note_display": "褰撳墠榛樿绠楁硶",
             }
         )
         for candidate in candidates:
@@ -6963,7 +7126,7 @@ class AppFacade:
                 {
                     "algorithm": candidate,
                     "source": "config.algorithm",
-                    "source_display": "配置.algorithm",
+                    "source_display": "閰嶇疆.algorithm",
                     "status": "candidate",
                     "status_display": "候选",
                     "note": "Configured candidate",
@@ -6974,11 +7137,11 @@ class AppFacade:
             {
                 "algorithm": str(self.config.coefficients.model or "--"),
                 "source": "config.coefficients",
-                "source_display": "配置.coefficients",
+                "source_display": "閰嶇疆.coefficients",
                 "status": "enabled" if bool(self.config.coefficients.enabled) else "disabled",
-                "status_display": "启用" if bool(self.config.coefficients.enabled) else "禁用",
+                "status_display": "鍚敤" if bool(self.config.coefficients.enabled) else "绂佺敤",
                 "note": "Coefficient fitting model",
-                "note_display": "系数拟合模型",
+                "note_display": "绯绘暟鎷熷悎妯″瀷",
             }
         )
         if bool(self.config.coefficients.auto_fit):
@@ -6986,11 +7149,11 @@ class AppFacade:
                 {
                     "algorithm": "ratio_poly_report",
                     "source": "artifacts",
-                    "source_display": "工件",
+                    "source_display": "宸ヤ欢",
                     "status": "active",
-                    "status_display": "启用",
+                    "status_display": "鍚敤",
                     "note": "Ratio-poly export path enabled",
-                    "note_display": "已启用 ratio-poly 导出路径",
+                    "note_display": "宸插惎鐢?ratio-poly 瀵煎嚭璺緞",
                 }
             )
         return {
@@ -7063,9 +7226,39 @@ class AppFacade:
             or payload.get("step2_closeout_summary_markdown", "")
             or ""
         )
+        payload["step2_closeout_digest"] = dict(
+            results.get("step2_closeout_digest", {})
+            or payload.get("step2_closeout_digest", {})
+            or {}
+        )
         payload["step2_closeout_compact_section"] = dict(
             results.get("step2_closeout_compact_section", {})
             or payload.get("step2_closeout_compact_section", {})
+            or {}
+        )
+        payload["evidence_coverage_matrix"] = dict(
+            results.get("evidence_coverage_matrix", {})
+            or payload.get("evidence_coverage_matrix", {})
+            or {}
+        )
+        payload["result_traceability_tree"] = dict(
+            results.get("result_traceability_tree", {})
+            or payload.get("result_traceability_tree", {})
+            or {}
+        )
+        payload["evidence_lineage_index"] = dict(
+            results.get("evidence_lineage_index", {})
+            or payload.get("evidence_lineage_index", {})
+            or {}
+        )
+        payload["reviewer_anchor_navigation"] = dict(
+            results.get("reviewer_anchor_navigation", {})
+            or payload.get("reviewer_anchor_navigation", {})
+            or {}
+        )
+        payload["ai_run_summary_payload"] = dict(
+            results.get("ai_run_summary_payload", {})
+            or payload.get("ai_run_summary_payload", {})
             or {}
         )
         payload["compact_summary_packs"] = list(results.get("compact_summary_packs", []) or [])
@@ -7085,7 +7278,7 @@ class AppFacade:
             payload["rendered_summary_sections"] = _fallback["rendered_summary_sections"]
             payload["omitted_summary_sections"] = _fallback["omitted_summary_sections"]
             payload["compact_summary_budget_display"] = _fallback["compact_summary_budget_display"]
-        # Step 2 closeout readiness — prefer persisted payload (Step 2.19)
+        # Step 2 closeout readiness 鈥?prefer persisted payload (Step 2.19)
         _persisted_closeout = dict(payload.get("step2_closeout_readiness") or {})
         if _persisted_closeout:
             # Main path: use closeout readiness already built by results_gateway
@@ -7106,7 +7299,7 @@ class AppFacade:
             except Exception:
                 from ...core.step2_closeout_readiness_contracts import build_closeout_readiness_fallback
                 payload["step2_closeout_readiness"] = build_closeout_readiness_fallback()
-        # Step 2 closeout package — prefer persisted payload (Step 2.22)
+        # Step 2 closeout package 鈥?prefer persisted payload (Step 2.22)
         _persisted_closeout_pkg = dict(payload.get("step2_closeout_package") or {})
         if _persisted_closeout_pkg:
             # Main path: use closeout package already built by results_gateway
@@ -7166,11 +7359,17 @@ class AppFacade:
                 comparison_digest=dict(payload.get("comparison_digest") or {}),
                 comparison_rollup=dict(payload.get("comparison_rollup") or {}),
                 step2_closeout_digest=dict(payload.get("step2_closeout_digest") or {}),
+                evidence_coverage_matrix=dict(payload.get("evidence_coverage_matrix") or {}),
+                result_traceability_tree=dict(payload.get("result_traceability_tree") or {}),
+                evidence_lineage_index=dict(payload.get("evidence_lineage_index") or {}),
+                reviewer_anchor_navigation=dict(payload.get("reviewer_anchor_navigation") or {}),
                 sidecar_index_summary=dict(payload.get("sidecar_index_summary") or {}),
                 review_copilot_payload=dict(payload.get("review_copilot_payload") or {}),
                 model_governance_summary=dict(payload.get("model_governance_summary") or {}),
+                ai_run_summary_payload=dict(payload.get("ai_run_summary_payload") or {}),
             ).load_snapshot()
             payload["step2_closeout_bundle"] = dict(_closeout_snapshot.get("step2_closeout_bundle") or {})
+            payload["step2_closeout_digest"] = dict(_closeout_snapshot.get("step2_closeout_digest") or {})
             payload["step2_closeout_evidence_index"] = dict(
                 _closeout_snapshot.get("step2_closeout_evidence_index") or {}
             )
@@ -7180,7 +7379,12 @@ class AppFacade:
             payload["step2_closeout_compact_section"] = dict(
                 _closeout_snapshot.get("step2_closeout_compact_section") or {}
             )
-        # Step 2 freeze audit — prefer persisted payload (Step 2.23)
+            payload["evidence_coverage_matrix"] = dict(_closeout_snapshot.get("evidence_coverage_matrix") or {})
+            payload["result_traceability_tree"] = dict(_closeout_snapshot.get("result_traceability_tree") or {})
+            payload["evidence_lineage_index"] = dict(_closeout_snapshot.get("evidence_lineage_index") or {})
+            payload["reviewer_anchor_navigation"] = dict(_closeout_snapshot.get("reviewer_anchor_navigation") or {})
+            payload["ai_run_summary_payload"] = dict(_closeout_snapshot.get("ai_run_summary_payload") or {})
+        # Step 2 freeze audit 鈥?prefer persisted payload (Step 2.23)
         _persisted_freeze_audit = dict(payload.get("step2_freeze_audit") or {})
         if _persisted_freeze_audit:
             # Main path: use freeze audit already built by results_gateway
@@ -7207,7 +7411,7 @@ class AppFacade:
                 payload["step2_freeze_audit"] = build_freeze_audit_fallback()
                 payload["step2_freeze_audit_source"] = "fallback"
 
-        # Step 3 admission dossier — prefer persisted payload (Step 2.25)
+        # Step 3 admission dossier 鈥?prefer persisted payload (Step 2.25)
         _persisted_admission_dossier = dict(payload.get("step3_admission_dossier") or {})
         if _persisted_admission_dossier:
             payload["step3_admission_dossier"] = _persisted_admission_dossier
@@ -7234,7 +7438,7 @@ class AppFacade:
                 payload["step3_admission_dossier"] = build_admission_dossier_fallback()
                 payload["admission_dossier_source"] = "fallback"
 
-        # Step 2 closeout verification — prefer persisted payload (Step 2.25)
+        # Step 2 closeout verification 鈥?prefer persisted payload (Step 2.25)
         _persisted_closeout_verification = dict(payload.get("step2_closeout_verification") or {})
         if _persisted_closeout_verification:
             payload["step2_closeout_verification"] = _persisted_closeout_verification
@@ -7264,7 +7468,7 @@ class AppFacade:
                 or "fallback"
             )
 
-        # Step 2 freeze seal — prefer persisted payload (Step 2.25)
+        # Step 2 freeze seal 鈥?prefer persisted payload (Step 2.25)
         _persisted_freeze_seal = dict(payload.get("step2_freeze_seal") or {})
         if _persisted_freeze_seal:
             payload["step2_freeze_seal"] = _persisted_freeze_seal
@@ -7482,7 +7686,7 @@ class AppFacade:
                     "status": status if name not in disabled else "disabled",
                     "status_display": display_device_status(status if name not in disabled else "disabled"),
                     "health": max(0, health),
-                    "note": self._humanize_ui_summary(", ".join(notes)) if notes else "稳定",
+                    "note": self._humanize_ui_summary(", ".join(notes)) if notes else "绋冲畾",
                 }
             )
         for name in sorted(disabled):
@@ -8177,7 +8381,7 @@ class AppFacade:
             ("Review invalid points before fitting.", "拟合前请复核无效点。"),
             ("Readable Points:", "可读点表："),
             ("Results File:", "结果文件："),
-            ("Default:", "默认算法："),
+            ("Default:", "默认："),
             ("No AI summary artifact available.", "暂无 AI 摘要工件。"),
         )
         for source, target in phrase_replacements:
@@ -8376,8 +8580,8 @@ class AppFacade:
         route = str(getattr(point, "route", "") or "").strip()
         pressure_text = str(getattr(point, "pressure_display_label", None) or "--")
         return (
-            f"#{point.index} 温度={format_temperature_c(point.temperature_c)} "
-            f"CO2={format_ppm(point.co2_ppm)} 压力={pressure_text} 路由={display_route(route or '--', default='--')}"
+            f"#{point.index} 娓╁害={format_temperature_c(point.temperature_c)} "
+            f"CO2={format_ppm(point.co2_ppm)} 鍘嬪姏={pressure_text} 璺敱={display_route(route or '--', default='--')}"
         )
 
     @staticmethod

@@ -19,6 +19,9 @@ from gas_calibrator.v2.core.engineering_isolation_admission_checklist import (
 from gas_calibrator.v2.core.stage3_real_validation_plan import (
     STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME,
 )
+from gas_calibrator.v2.core.engineering_isolation_gate_evaluator import (
+    ENGINEERING_ISOLATION_GATE_DIGEST_FILENAME,
+)
 from gas_calibrator.v2.core.measurement_phase_coverage import (
     MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME,
     MEASUREMENT_PHASE_COVERAGE_REPORT_MARKDOWN_FILENAME,
@@ -1320,6 +1323,44 @@ def test_review_center_panel_exposes_stage3_standards_alignment_matrix_and_ancho
 
         assert panel.stage3_real_validation_plan_frame.winfo_manager() == "grid"
         assert panel.stage3_standards_alignment_matrix_frame.winfo_ismapped() == 0
+    finally:
+        root.destroy()
+
+
+def test_review_center_panel_exposes_engineering_isolation_gate_bridge_view(
+    tmp_path: Path,
+) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+    payload = facade.build_results_snapshot()["review_center"]
+    gate_entry = dict(payload.get("engineering_isolation_gate_artifact_entry", {}) or {})
+    gate_result = dict(payload.get("engineering_isolation_gate_result", {}) or {})
+    gate_surface = dict(gate_result.get("review_surface") or {})
+
+    root = make_root()
+    try:
+        panel = ReviewCenterPanel(root, compact=True)
+        panel.render(payload)
+        root.update_idletasks()
+
+        assert panel.engineering_isolation_gate_frame.winfo_manager() == "grid"
+        assert panel.engineering_isolation_gate_title_var.get() == gate_entry["name_text"]
+        assert panel.engineering_isolation_gate_status_var.get() == gate_result["gate_level_display"]
+        assert panel.engineering_isolation_gate_path_var.get().endswith(ENGINEERING_ISOLATION_GATE_DIGEST_FILENAME)
+        assert gate_result["note"] in panel.engineering_isolation_gate_note_var.get()
+        assert any(
+            str(line).strip() in panel.engineering_isolation_gate_note_var.get()
+            for line in list(gate_surface.get("blocker_lines") or [])[:1]
+        )
+        assert any(
+            str(line).strip() in panel.engineering_isolation_gate_note_var.get()
+            for line in list(gate_surface.get("suggested_next_action_lines") or [])[:1]
+        )
+        assert "not formal admission approval" in panel.engineering_isolation_gate_note_var.get()
+        assert "not real acceptance" in panel.engineering_isolation_gate_note_var.get()
+        assert "formal admission approved" not in panel.engineering_isolation_gate_note_var.get()
+        assert "real acceptance approved" not in panel.engineering_isolation_gate_note_var.get()
     finally:
         root.destroy()
 

@@ -40,3 +40,6 @@ points.xlsx
 build/
 dist/
 node_modules/
+
+# Windows reserved device names
+nul

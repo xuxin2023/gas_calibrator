@@ -1,0 +1,45 @@
+{
+  "port": "COM31",
+  "baudrate": 9600,
+  "timeout": 1.0,
+  "samples": 1,
+  "interval_s": 0.2,
+  "allow_write_sanitize": false,
+  "sanitize_summary": {
+    "performed": false
+  },
+  "csv_path": "D:\\gas_calibrator\\audit\\real_pace_controller_acceptance\\20260417_184505_post_helper_check\\pace_controller_only_diagnostic.csv",
+  "json_path": "D:\\gas_calibrator\\audit\\real_pace_controller_acceptance\\20260417_184505_post_helper_check\\pace_controller_only_diagnostic.json",
+  "rows": [
+    {
+      "timestamp": "2026-04-17T18:45:24",
+      "idn": "*IDN GE Druck,Pace5000 User Interface,3213201,02.00.07",
+      "inst_vers": ":INST:VERS \"02.00.07\"",
+      "pressure_hpa": "",
+      "outp_state": 0,
+      "isol_state": 1,
+      "mode": "ACT",
+      "vent_status": 3,
+      "vent_completed_latched": false,
+      "effort": 0.0,
+      "comp1": 1687.5726691,
+      "comp2": 79.4875244,
+      "barometric_pressure_hpa": 1008.676544,
+      "in_limits_pressure_hpa": 1230.21875,
+      "in_limits_state": 0,
+      "in_limits_time_s": 11194.0259999,
+      "measured_slew_hpa_s": -0.007911,
+      "oper_cond": "",
+      "oper_pres_cond": 1,
+      "oper_pres_even": 0,
+      "oper_pres_vent_complete_bit": true,
+      "oper_pres_in_limits_bit": false,
+      "syst_err": ":SYST:ERR 0, No error"
+    }
+  ],
+  "notes": [
+    "read-only by default",
+    "allow-write-sanitize only sends VENT 0 when a completed vent latch is present",
+    "no setpoint, output enable, vent-on, main gas path, or non-standard extension writes are performed"
+  ]
+}

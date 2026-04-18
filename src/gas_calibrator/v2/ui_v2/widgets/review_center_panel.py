@@ -72,6 +72,9 @@ class ReviewCenterPanel(ttk.LabelFrame):
         self._artifact_role_lookup: dict[str, str] = {}
         self._standard_family_lookup: dict[str, str] = {}
         self._evidence_category_lookup: dict[str, str] = {}
+        self._readiness_status_lookup: dict[str, str] = {}
+        self._missing_coverage_lookup: dict[str, str] = {}
+        self._gap_lookup: dict[str, str] = {}
         self._boundary_lookup: dict[str, str] = {}
         self._anchor_lookup: dict[str, str] = {}
         self._route_lookup: dict[str, str] = {}
@@ -102,6 +105,9 @@ class ReviewCenterPanel(ttk.LabelFrame):
         self.artifact_role_filter_var = tk.StringVar(value="")
         self.standard_family_filter_var = tk.StringVar(value="")
         self.evidence_category_filter_var = tk.StringVar(value="")
+        self.readiness_status_filter_var = tk.StringVar(value="")
+        self.missing_coverage_filter_var = tk.StringVar(value="")
+        self.gap_filter_var = tk.StringVar(value="")
         self.boundary_filter_var = tk.StringVar(value="")
         self.anchor_filter_var = tk.StringVar(value="")
         self.route_filter_var = tk.StringVar(value="")
@@ -180,6 +186,45 @@ class ReviewCenterPanel(ttk.LabelFrame):
         )
         self.evidence_source_filter.grid(row=2, column=9, sticky="w", padx=(6, 12), pady=(4, 0))
         self.evidence_source_filter.bind("<<ComboboxSelected>>", self._on_filter_changed, add="+")
+        ttk.Label(
+            toolbar,
+            text=t("results.review_center.filter.readiness_status", default="就绪状态"),
+            style="Muted.TLabel",
+        ).grid(row=3, column=0, sticky="w", pady=(4, 0))
+        self.readiness_status_filter = ttk.Combobox(
+            toolbar,
+            textvariable=self.readiness_status_filter_var,
+            state="readonly",
+            width=18,
+        )
+        self.readiness_status_filter.grid(row=3, column=1, sticky="w", padx=(6, 12), pady=(4, 0))
+        self.readiness_status_filter.bind("<<ComboboxSelected>>", self._on_filter_changed, add="+")
+        ttk.Label(
+            toolbar,
+            text=t("results.review_center.filter.missing_coverage", default="缺口覆盖"),
+            style="Muted.TLabel",
+        ).grid(row=3, column=2, sticky="w", pady=(4, 0))
+        self.missing_coverage_filter = ttk.Combobox(
+            toolbar,
+            textvariable=self.missing_coverage_filter_var,
+            state="readonly",
+            width=18,
+        )
+        self.missing_coverage_filter.grid(row=3, column=3, sticky="w", padx=(6, 12), pady=(4, 0))
+        self.missing_coverage_filter.bind("<<ComboboxSelected>>", self._on_filter_changed, add="+")
+        ttk.Label(
+            toolbar,
+            text=t("results.review_center.filter.gap", default="blocker / gap"),
+            style="Muted.TLabel",
+        ).grid(row=3, column=4, sticky="w", pady=(4, 0))
+        self.gap_filter = ttk.Combobox(
+            toolbar,
+            textvariable=self.gap_filter_var,
+            state="readonly",
+            width=24,
+        )
+        self.gap_filter.grid(row=3, column=5, sticky="w", padx=(6, 12), pady=(4, 0))
+        self.gap_filter.bind("<<ComboboxSelected>>", self._on_filter_changed, add="+")
 
         self.index_var = tk.StringVar(value="")
         ttk.Label(
@@ -403,8 +448,45 @@ class ReviewCenterPanel(ttk.LabelFrame):
         ).grid(row=3, column=0, sticky="ew", pady=(2, 0))
         self.stage3_standards_alignment_matrix_frame.grid_remove()
 
+        self.engineering_isolation_gate_frame = ttk.Frame(self, style="Card.TFrame")
+        self.engineering_isolation_gate_frame.grid(row=8, column=0, sticky="ew", pady=(0, 6))
+        self.engineering_isolation_gate_frame.columnconfigure(0, weight=1)
+        self.engineering_isolation_gate_title_var = tk.StringVar(value="")
+        self.engineering_isolation_gate_status_var = tk.StringVar(value="")
+        self.engineering_isolation_gate_path_var = tk.StringVar(value="")
+        self.engineering_isolation_gate_note_var = tk.StringVar(value="")
+        ttk.Label(
+            self.engineering_isolation_gate_frame,
+            textvariable=self.engineering_isolation_gate_title_var,
+            style="Section.TLabel",
+            wraplength=1120 if compact else 1320,
+            justify="left",
+        ).grid(row=0, column=0, sticky="w", pady=(0, 4))
+        ttk.Label(
+            self.engineering_isolation_gate_frame,
+            textvariable=self.engineering_isolation_gate_status_var,
+            justify="left",
+            wraplength=1120 if compact else 1320,
+            style="Muted.TLabel",
+        ).grid(row=1, column=0, sticky="ew")
+        ttk.Label(
+            self.engineering_isolation_gate_frame,
+            textvariable=self.engineering_isolation_gate_path_var,
+            justify="left",
+            wraplength=1120 if compact else 1320,
+            style="Muted.TLabel",
+        ).grid(row=2, column=0, sticky="ew", pady=(2, 0))
+        ttk.Label(
+            self.engineering_isolation_gate_frame,
+            textvariable=self.engineering_isolation_gate_note_var,
+            justify="left",
+            wraplength=1120 if compact else 1320,
+            style="Muted.TLabel",
+        ).grid(row=3, column=0, sticky="ew", pady=(2, 0))
+        self.engineering_isolation_gate_frame.grid_remove()
+
         source_frame = ttk.Frame(self, style="Card.TFrame")
-        source_frame.grid(row=8, column=0, sticky="ew", pady=(0, 6))
+        source_frame.grid(row=9, column=0, sticky="ew", pady=(0, 6))
         source_frame.columnconfigure(0, weight=1)
         source_frame.columnconfigure(1, weight=1)
         source_frame.rowconfigure(1, weight=1)
@@ -843,6 +925,9 @@ class ReviewCenterPanel(ttk.LabelFrame):
         artifact_role_options = [dict(item) for item in list(filters.get("artifact_role_options", []) or [])]
         standard_family_options = [dict(item) for item in list(filters.get("standard_family_options", []) or [])]
         evidence_category_options = [dict(item) for item in list(filters.get("evidence_category_options", []) or [])]
+        readiness_status_options = [dict(item) for item in list(filters.get("readiness_status_options", []) or [])]
+        missing_coverage_options = [dict(item) for item in list(filters.get("missing_coverage_options", []) or [])]
+        gap_options = [dict(item) for item in list(filters.get("gap_options", []) or [])]
         boundary_options = [dict(item) for item in list(filters.get("boundary_options", []) or [])]
         anchor_options = [dict(item) for item in list(filters.get("anchor_options", []) or [])]
         route_options = [dict(item) for item in list(filters.get("route_options", []) or [])]
@@ -866,6 +951,18 @@ class ReviewCenterPanel(ttk.LabelFrame):
         self._evidence_category_lookup = {
             str(item.get("label") or ""): str(item.get("id") or "")
             for item in evidence_category_options
+        }
+        self._readiness_status_lookup = {
+            str(item.get("label") or ""): str(item.get("id") or "")
+            for item in readiness_status_options
+        }
+        self._missing_coverage_lookup = {
+            str(item.get("label") or ""): str(item.get("id") or "")
+            for item in missing_coverage_options
+        }
+        self._gap_lookup = {
+            str(item.get("label") or ""): str(item.get("id") or "")
+            for item in gap_options
         }
         self._boundary_lookup = {
             str(item.get("label") or ""): str(item.get("id") or "")
@@ -920,6 +1017,21 @@ class ReviewCenterPanel(ttk.LabelFrame):
             for item in evidence_category_options
             if str(item.get("label") or "").strip()
         ]
+        readiness_status_labels = [
+            str(item.get("label") or "")
+            for item in readiness_status_options
+            if str(item.get("label") or "").strip()
+        ]
+        missing_coverage_labels = [
+            str(item.get("label") or "")
+            for item in missing_coverage_options
+            if str(item.get("label") or "").strip()
+        ]
+        gap_labels = [
+            str(item.get("label") or "")
+            for item in gap_options
+            if str(item.get("label") or "").strip()
+        ]
         boundary_labels = [
             str(item.get("label") or "")
             for item in boundary_options
@@ -955,6 +1067,9 @@ class ReviewCenterPanel(ttk.LabelFrame):
         self.artifact_role_filter.configure(values=artifact_role_labels)
         self.standard_family_filter.configure(values=standard_family_labels)
         self.evidence_category_filter.configure(values=evidence_category_labels)
+        self.readiness_status_filter.configure(values=readiness_status_labels)
+        self.missing_coverage_filter.configure(values=missing_coverage_labels)
+        self.gap_filter.configure(values=gap_labels)
         self.boundary_filter.configure(values=boundary_labels)
         self.anchor_filter.configure(values=anchor_labels)
         self.route_filter.configure(values=route_labels)
@@ -1034,6 +1149,30 @@ class ReviewCenterPanel(ttk.LabelFrame):
             ),
             evidence_category_labels[0] if evidence_category_labels else "",
         )
+        default_readiness_status = next(
+            (
+                str(item.get("label") or "")
+                for item in readiness_status_options
+                if str(item.get("id") or "") == str(filters.get("selected_readiness_status") or "all")
+            ),
+            readiness_status_labels[0] if readiness_status_labels else "",
+        )
+        default_missing_coverage = next(
+            (
+                str(item.get("label") or "")
+                for item in missing_coverage_options
+                if str(item.get("id") or "") == str(filters.get("selected_missing_coverage") or "all")
+            ),
+            missing_coverage_labels[0] if missing_coverage_labels else "",
+        )
+        default_gap = next(
+            (
+                str(item.get("label") or "")
+                for item in gap_options
+                if str(item.get("id") or "") == str(filters.get("selected_gap") or "all")
+            ),
+            gap_labels[0] if gap_labels else "",
+        )
         default_boundary = next(
             (
                 str(item.get("label") or "")
@@ -1098,6 +1237,12 @@ class ReviewCenterPanel(ttk.LabelFrame):
             self.standard_family_filter_var.set(default_standard_family)
         if default_evidence_category:
             self.evidence_category_filter_var.set(default_evidence_category)
+        if default_readiness_status:
+            self.readiness_status_filter_var.set(default_readiness_status)
+        if default_missing_coverage:
+            self.missing_coverage_filter_var.set(default_missing_coverage)
+        if default_gap:
+            self.gap_filter_var.set(default_gap)
         if default_boundary:
             self.boundary_filter_var.set(default_boundary)
         if default_anchor:
@@ -1134,6 +1279,15 @@ class ReviewCenterPanel(ttk.LabelFrame):
             str(self.evidence_category_filter_var.get() or ""),
             "all",
         )
+        selected_readiness_status = self._readiness_status_lookup.get(
+            str(self.readiness_status_filter_var.get() or ""),
+            "all",
+        )
+        selected_missing_coverage = self._missing_coverage_lookup.get(
+            str(self.missing_coverage_filter_var.get() or ""),
+            "all",
+        )
+        selected_gap = self._gap_lookup.get(str(self.gap_filter_var.get() or ""), "all")
         selected_boundary = self._boundary_lookup.get(str(self.boundary_filter_var.get() or ""), "all")
         selected_anchor = self._anchor_lookup.get(str(self.anchor_filter_var.get() or ""), "all")
         selected_route = self._route_lookup.get(str(self.route_filter_var.get() or ""), "all")
@@ -1164,6 +1318,9 @@ class ReviewCenterPanel(ttk.LabelFrame):
             selected_artifact_role=selected_artifact_role,
             selected_standard_family=selected_standard_family,
             selected_evidence_category=selected_evidence_category,
+            selected_readiness_status=selected_readiness_status,
+            selected_missing_coverage=selected_missing_coverage,
+            selected_gap=selected_gap,
             selected_boundary=selected_boundary,
             selected_anchor=selected_anchor,
             selected_route=selected_route,
@@ -1365,6 +1522,77 @@ class ReviewCenterPanel(ttk.LabelFrame):
             self.stage3_standards_alignment_matrix_path_var.set("")
             self.stage3_standards_alignment_matrix_note_var.set("")
             self.stage3_standards_alignment_matrix_frame.grid_remove()
+        engineering_isolation_gate_view = dict(
+            self._active_view.get("engineering_isolation_gate_view", {}) or {}
+        )
+        if bool(engineering_isolation_gate_view.get("available", False)):
+            blocker_lines = [
+                str(item).strip()
+                for item in list(engineering_isolation_gate_view.get("blocker_lines") or [])
+                if str(item).strip()
+            ]
+            warning_lines = [
+                str(item).strip()
+                for item in list(engineering_isolation_gate_view.get("warning_lines") or [])
+                if str(item).strip()
+            ]
+            unresolved_gap_lines = [
+                str(item).strip()
+                for item in list(engineering_isolation_gate_view.get("unresolved_gap_lines") or [])
+                if str(item).strip()
+            ]
+            next_action_lines = [
+                str(item).strip()
+                for item in list(engineering_isolation_gate_view.get("suggested_next_action_lines") or [])
+                if str(item).strip()
+            ]
+            detail_lines = [
+                str(engineering_isolation_gate_view.get("summary_text") or "").strip(),
+                str(engineering_isolation_gate_view.get("bridge_note_text") or "").strip(),
+                t(
+                    "results.review_center.engineering_isolation_gate.blockers",
+                    value=" | ".join(blocker_lines) if blocker_lines else t("common.none"),
+                    default=f"阻塞项：{' | '.join(blocker_lines) if blocker_lines else t('common.none')}",
+                ),
+                t(
+                    "results.review_center.engineering_isolation_gate.warnings",
+                    value=" | ".join(warning_lines) if warning_lines else t("common.none"),
+                    default=f"警示项：{' | '.join(warning_lines) if warning_lines else t('common.none')}",
+                ),
+                t(
+                    "results.review_center.engineering_isolation_gate.unresolved_gaps",
+                    value=" | ".join(unresolved_gap_lines) if unresolved_gap_lines else t("common.none"),
+                    default=(
+                        f"未闭合缺口：{' | '.join(unresolved_gap_lines) if unresolved_gap_lines else t('common.none')}"
+                    ),
+                ),
+                t(
+                    "results.review_center.engineering_isolation_gate.suggested_next_actions",
+                    value=" | ".join(next_action_lines) if next_action_lines else t("common.none"),
+                    default=(
+                        f"建议下一步：{' | '.join(next_action_lines) if next_action_lines else t('common.none')}"
+                    ),
+                ),
+            ]
+            self.engineering_isolation_gate_title_var.set(
+                str(engineering_isolation_gate_view.get("title_text") or t("common.none"))
+            )
+            self.engineering_isolation_gate_status_var.set(
+                str(engineering_isolation_gate_view.get("status_line") or t("common.none"))
+            )
+            self.engineering_isolation_gate_path_var.set(
+                str(engineering_isolation_gate_view.get("artifact_path_text") or t("common.none"))
+            )
+            self.engineering_isolation_gate_note_var.set(
+                "\n".join(line for line in detail_lines if str(line).strip())
+            )
+            self.engineering_isolation_gate_frame.grid()
+        else:
+            self.engineering_isolation_gate_title_var.set("")
+            self.engineering_isolation_gate_status_var.set("")
+            self.engineering_isolation_gate_path_var.set("")
+            self.engineering_isolation_gate_note_var.set("")
+            self.engineering_isolation_gate_frame.grid_remove()
         self.index_var.set(str(self._active_view.get("index_text") or t("common.none")))
         self.source_scope_var.set(
             str(

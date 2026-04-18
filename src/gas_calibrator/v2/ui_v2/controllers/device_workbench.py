@@ -516,10 +516,29 @@ class DeviceWorkbenchController:
         uncertainty_summary = dict(payload.get("uncertainty_method_readiness_summary") or {})
         audit_summary = dict(payload.get("audit_readiness_digest") or {})
         _wp6_closeout = _extract_wp6_closeout_payloads(payload)
+        step2_closeout_digest = dict(
+            payload.get("step2_closeout_digest") or _wp6_closeout["step2_closeout_digest"] or {}
+        )
         step2_closeout_bundle = dict(payload.get("step2_closeout_bundle") or {})
         step2_closeout_evidence_index = dict(payload.get("step2_closeout_evidence_index") or {})
         step2_closeout_compact_section = dict(payload.get("step2_closeout_compact_section") or {})
+        evidence_coverage_matrix = dict(payload.get("evidence_coverage_matrix") or {})
+        result_traceability_tree = dict(payload.get("result_traceability_tree") or {})
+        evidence_lineage_index = dict(payload.get("evidence_lineage_index") or {})
+        reviewer_anchor_navigation = dict(payload.get("reviewer_anchor_navigation") or {})
+        ai_run_summary_payload = dict(payload.get("ai_run_summary_payload") or {})
+        engineering_isolation_gate_result = dict(payload.get("engineering_isolation_gate_result") or {})
+        engineering_isolation_blockers = dict(payload.get("engineering_isolation_blockers") or {})
+        engineering_isolation_warnings = dict(payload.get("engineering_isolation_warnings") or {})
+        engineering_isolation_gate_compact_panel = dict(payload.get("engineering_isolation_gate_compact_panel") or {})
         recognition_scope_rollup = dict(payload.get("recognition_scope_rollup") or {})
+        run_metadata_profile = dict(payload.get("run_metadata_profile") or {})
+        operator_authorization_profile = dict(payload.get("operator_authorization_profile") or {})
+        training_record = dict(payload.get("training_record") or {})
+        sop_version_binding = dict(payload.get("sop_version_binding") or {})
+        qc_flag_catalog = dict(payload.get("qc_flag_catalog") or {})
+        recovery_action_log = dict(payload.get("recovery_action_log") or {})
+        reviewer_dual_check_placeholder = dict(payload.get("reviewer_dual_check_placeholder") or {})
         compatibility_summary = dict(payload.get("compatibility_scan_summary") or {})
         compatibility_overview = dict(compatibility_summary.get("compatibility_overview") or {})
         compatibility_rollup = dict(
@@ -572,10 +591,23 @@ class DeviceWorkbenchController:
             "scope_comparison_view": _wp6_closeout["scope_comparison_view"],
             "comparison_digest": _wp6_closeout["comparison_digest"],
             "comparison_rollup": _wp6_closeout["comparison_rollup"],
-            "step2_closeout_digest": _wp6_closeout["step2_closeout_digest"],
+            "step2_closeout_digest": step2_closeout_digest,
             "step2_closeout_bundle": step2_closeout_bundle,
             "step2_closeout_evidence_index": step2_closeout_evidence_index,
             "step2_closeout_compact_section": step2_closeout_compact_section,
+            "evidence_coverage_matrix": evidence_coverage_matrix,
+            "result_traceability_tree": result_traceability_tree,
+            "evidence_lineage_index": evidence_lineage_index,
+            "reviewer_anchor_navigation": reviewer_anchor_navigation,
+            "ai_run_summary_payload": ai_run_summary_payload,
+            "engineering_isolation_gate_result": engineering_isolation_gate_result,
+            "run_metadata_profile": run_metadata_profile,
+            "operator_authorization_profile": operator_authorization_profile,
+            "training_record": training_record,
+            "sop_version_binding": sop_version_binding,
+            "qc_flag_catalog": qc_flag_catalog,
+            "recovery_action_log": recovery_action_log,
+            "reviewer_dual_check_placeholder": reviewer_dual_check_placeholder,
         }
         if not any(payloads.values()):
             return {}
@@ -628,6 +660,101 @@ class DeviceWorkbenchController:
                 continue
             if line.strip() and line not in detail_lines:
                 detail_lines.append(line)
+        scope_id = str(
+            step2_closeout_bundle.get("scope_id")
+            or step2_closeout_digest.get("scope_id")
+            or scope_definition_pack.get("scope_id")
+            or dict(scope_definition_pack.get("scope_export_pack") or {}).get("scope_id")
+            or ""
+        ).strip()
+        decision_rule_id = str(
+            step2_closeout_bundle.get("decision_rule_id")
+            or step2_closeout_digest.get("decision_rule_id")
+            or decision_rule_profile.get("decision_rule_id")
+            or ""
+        ).strip()
+        limitation_note = str(
+            step2_closeout_bundle.get("limitation_note")
+            or step2_closeout_digest.get("limitation_note")
+            or decision_rule_profile.get("limitation_note")
+            or ""
+        ).strip()
+        non_claim_note = str(
+            step2_closeout_bundle.get("non_claim_note")
+            or step2_closeout_digest.get("non_claim_note")
+            or decision_rule_profile.get("non_claim_note")
+            or ""
+        ).strip()
+        uncertainty_case_id = str(
+            step2_closeout_bundle.get("uncertainty_case_id")
+            or uncertainty_rollup.get("uncertainty_case_id")
+            or uncertainty_report_pack.get("uncertainty_case_id")
+            or ""
+        ).strip()
+        method_confirmation_protocol_id = str(
+            step2_closeout_bundle.get("method_confirmation_protocol_id")
+            or method_confirmation_protocol.get("protocol_id")
+            or method_confirmation_protocol.get("method_confirmation_protocol_id")
+            or ""
+        ).strip()
+        verification_rollup_id = str(
+            step2_closeout_bundle.get("verification_rollup_id")
+            or verification_rollup.get("verification_rollup_id")
+            or verification_rollup.get("verification_digest_id")
+            or ""
+        ).strip()
+        compact_surface_lines = [
+            (
+                f"Scope / decision: {scope_id or '--'} | {decision_rule_id or '--'}"
+                if scope_id or decision_rule_id
+                else ""
+            ),
+            (
+                "Uncertainty / method: "
+                + " | ".join(
+                    fragment
+                    for fragment in (
+                        uncertainty_case_id or "--",
+                        method_confirmation_protocol_id or "--",
+                        verification_rollup_id or "--",
+                    )
+                    if fragment
+                )
+                if uncertainty_case_id or method_confirmation_protocol_id or verification_rollup_id
+                else ""
+            ),
+            str(dict(evidence_coverage_matrix.get("digest") or {}).get("summary") or "").strip(),
+            str(dict(result_traceability_tree.get("digest") or {}).get("summary") or "").strip(),
+            str(dict(evidence_lineage_index.get("digest") or {}).get("summary") or "").strip(),
+            str(
+                ai_run_summary_payload.get("summary_line")
+                or dict(ai_run_summary_payload.get("digest") or {}).get("summary")
+                or ""
+            ).strip(),
+        ]
+        for line in compact_surface_lines:
+            if line and line not in summary_lines:
+                summary_lines.append(line)
+        if limitation_note and f"limitation_note: {limitation_note}" not in detail_lines:
+            detail_lines.append(f"limitation_note: {limitation_note}")
+        if non_claim_note and f"non_claim_note: {non_claim_note}" not in detail_lines:
+            detail_lines.append(f"non_claim_note: {non_claim_note}")
+        human_governance_summary = " | ".join(
+            line
+            for line in (
+                str(dict(run_metadata_profile.get("digest") or {}).get("summary") or "").strip(),
+                str(dict(operator_authorization_profile.get("digest") or {}).get("authorization_scope_summary") or "").strip(),
+                str(dict(training_record.get("digest") or {}).get("training_status_summary") or "").strip(),
+                str(dict(sop_version_binding.get("digest") or {}).get("sop_binding_summary") or "").strip(),
+                str(dict(reviewer_dual_check_placeholder.get("digest") or {}).get("dual_check_summary") or "").strip(),
+            )
+            if line
+        ).strip()
+        if human_governance_summary and f"Human governance: {human_governance_summary}" not in detail_lines:
+            detail_lines.append(f"Human governance: {human_governance_summary}")
+        recovery_summary = str(dict(recovery_action_log.get("digest") or {}).get("recovery_action_summary") or "").strip()
+        if recovery_summary and f"Recovery actions: {recovery_summary}" not in detail_lines:
+            detail_lines.append(f"Recovery actions: {recovery_summary}")
         software_validation_overview = str(
             software_validation_rollup.get("rollup_summary_display")
             or software_validation_rollup.get("release_manifest_summary")
@@ -843,6 +970,59 @@ class DeviceWorkbenchController:
             )
             if closeout_boundary not in boundary_lines:
                 boundary_lines.append(closeout_boundary)
+        if engineering_isolation_gate_result or engineering_isolation_gate_compact_panel:
+            gate_review_surface = dict(engineering_isolation_gate_result.get("review_surface") or {})
+            gate_summary = str(
+                engineering_isolation_gate_compact_panel.get("summary_line")
+                or gate_review_surface.get("summary_text")
+                or engineering_isolation_gate_result.get("note")
+                or ""
+            ).strip()
+            if gate_summary and gate_summary not in summary_lines:
+                summary_lines.append(gate_summary)
+            for line in list(gate_review_surface.get("blocker_lines") or [])[:4]:
+                text = t(
+                    "pages.devices.workbench.bridge_readiness.blocker_line",
+                    value=str(line),
+                    default=f"bridge blocker: {str(line)}",
+                )
+                if text not in detail_lines:
+                    detail_lines.append(text)
+            for line in list(gate_review_surface.get("warning_lines") or [])[:4]:
+                text = t(
+                    "pages.devices.workbench.bridge_readiness.warning_line",
+                    value=str(line),
+                    default=f"bridge warning: {str(line)}",
+                )
+                if text not in detail_lines:
+                    detail_lines.append(text)
+            for line in list(gate_review_surface.get("unresolved_gap_lines") or [])[:4]:
+                text = t(
+                    "pages.devices.workbench.bridge_readiness.gap_line",
+                    value=str(line),
+                    default=f"bridge gap: {str(line)}",
+                )
+                if text not in detail_lines:
+                    detail_lines.append(text)
+            for line in list(gate_review_surface.get("suggested_next_action_lines") or [])[:4]:
+                text = t(
+                    "pages.devices.workbench.bridge_readiness.next_action_line",
+                    value=str(line),
+                    default=f"bridge next: {str(line)}",
+                )
+                if text not in detail_lines:
+                    detail_lines.append(text)
+            for label, path in dict(engineering_isolation_gate_result.get("artifact_paths") or {}).items():
+                path_text = str(path or "").strip()
+                if path_text:
+                    artifact_paths[str(label)] = path_text
+            for item in list(engineering_isolation_gate_result.get("boundary_statements") or []):
+                text = str(item or "").strip()
+                if text and text not in boundary_lines:
+                    boundary_lines.append(text)
+        ai_boundary_summary = str(dict(ai_run_summary_payload.get("digest") or {}).get("boundary_summary") or "").strip()
+        if ai_boundary_summary and ai_boundary_summary not in boundary_lines:
+            boundary_lines.append(ai_boundary_summary)
 
         return {
             "available": True,
@@ -856,26 +1036,49 @@ class DeviceWorkbenchController:
             "verification_rollup": verification_rollup,
             "software_validation_rollup": software_validation_rollup,
             "compatibility_scan_summary": compatibility_summary,
+            "step2_closeout_digest": step2_closeout_digest,
             "step2_closeout_bundle": step2_closeout_bundle,
             "step2_closeout_evidence_index": step2_closeout_evidence_index,
             "step2_closeout_compact_section": step2_closeout_compact_section,
+            "evidence_coverage_matrix": evidence_coverage_matrix,
+            "result_traceability_tree": result_traceability_tree,
+            "evidence_lineage_index": evidence_lineage_index,
+            "reviewer_anchor_navigation": reviewer_anchor_navigation,
+            "ai_run_summary_payload": ai_run_summary_payload,
+            "engineering_isolation_gate_result": engineering_isolation_gate_result,
+            "engineering_isolation_blockers": engineering_isolation_blockers,
+            "engineering_isolation_warnings": engineering_isolation_warnings,
+            "engineering_isolation_gate_compact_panel": engineering_isolation_gate_compact_panel,
+            "run_metadata_profile": run_metadata_profile,
+            "operator_authorization_profile": operator_authorization_profile,
+            "training_record": training_record,
+            "sop_version_binding": sop_version_binding,
+            "qc_flag_catalog": qc_flag_catalog,
+            "recovery_action_log": recovery_action_log,
+            "reviewer_dual_check_placeholder": reviewer_dual_check_placeholder,
             **payloads,
         }
 
     def _load_analytics_ai_sidecar(self) -> dict[str, Any]:
+        gateway = getattr(self.facade, "results_gateway", None)
+        results_payload = dict(gateway.read_results_payload() or {}) if gateway is not None else {}
+        persisted_ai_summary = dict(results_payload.get("ai_run_summary_payload") or {})
         sidecar_index = getattr(self.facade, "sidecar_index", None)
-        if sidecar_index is None:
+        if sidecar_index is None and not persisted_ai_summary:
             return {}
         run_id = str(getattr(getattr(self.facade, "session", None), "run_id", "") or "")
-        analytics_sidecar = build_sidecar_analytics_summary(sidecar_index, run_id=run_id)
-        review_copilot = build_review_copilot_payload(sidecar_index, run_id=run_id)
-        model_governance = build_model_governance_summary(sidecar_index, run_id=run_id)
-        if not (analytics_sidecar or review_copilot or model_governance):
+        analytics_sidecar = build_sidecar_analytics_summary(sidecar_index, run_id=run_id) if sidecar_index is not None else {}
+        review_copilot = build_review_copilot_payload(sidecar_index, run_id=run_id) if sidecar_index is not None else {}
+        model_governance = build_model_governance_summary(sidecar_index, run_id=run_id) if sidecar_index is not None else {}
+        if not (analytics_sidecar or review_copilot or model_governance or persisted_ai_summary):
             return {}
         summary_line = str(
             analytics_sidecar.get("summary_line")
             or review_copilot.get("summary_line")
+            or review_copilot.get("risk_summary")
             or model_governance.get("summary_line")
+            or persisted_ai_summary.get("summary_line")
+            or dict(persisted_ai_summary.get("digest") or {}).get("summary")
             or ""
         ).strip()
         summary_lines = [
@@ -884,16 +1087,40 @@ class DeviceWorkbenchController:
                 list(analytics_sidecar.get("summary_lines") or [])
                 + list(review_copilot.get("summary_lines") or [])
                 + list(model_governance.get("summary_lines") or [])
+                + list(persisted_ai_summary.get("summary_lines") or [])
+                + list(dict(persisted_ai_summary.get("review_surface") or {}).get("detail_lines") or [])
             )
             if str(item).strip()
         ]
+        boundary_lines = [
+            str(item).strip()
+            for item in (
+                list(persisted_ai_summary.get("boundary_lines") or [])
+                + [
+                    "advisory_only = true",
+                    "reviewer_only = true",
+                    "not_formal_metrology_conclusion = true",
+                    "not_real_acceptance_evidence = true",
+                    "not_ready_for_formal_claim = true",
+                ]
+            )
+            if str(item).strip()
+        ]
+        artifact_paths = {
+            str(label): str(path or "").strip()
+            for label, path in dict(persisted_ai_summary.get("artifact_paths") or {}).items()
+            if str(path or "").strip()
+        }
         return {
             "available": True,
             "summary_line": summary_line,
             "summary_lines": summary_lines,
+            "boundary_lines": boundary_lines,
+            "artifact_paths": artifact_paths,
             "analytics_sidecar_summary": analytics_sidecar,
             "review_copilot_payload": review_copilot,
             "model_governance_summary": model_governance,
+            "ai_run_summary_payload": persisted_ai_summary,
             "reviewer_only": True,
             "advisory_only": True,
             "sidecar_only": True,
@@ -4461,12 +4688,100 @@ class DeviceWorkbenchController:
             or dict(recognition_readiness_evidence.get("step2_closeout_bundle") or {}).get("summary_line")
             or t("common.none")
         )
+        bridge_readiness_panel = dict(
+            recognition_readiness_evidence.get("engineering_isolation_gate_compact_panel") or {}
+        )
+        bridge_readiness_result = dict(
+            recognition_readiness_evidence.get("engineering_isolation_gate_result") or {}
+        )
+        bridge_readiness_surface = dict(bridge_readiness_result.get("review_surface") or {})
+        bridge_readiness_summary = str(
+            bridge_readiness_panel.get("summary_line")
+            or bridge_readiness_surface.get("summary_text")
+            or t("common.none")
+        )
+        bridge_readiness_status = str(
+            bridge_readiness_panel.get("status_line")
+            or bridge_readiness_result.get("gate_level_display")
+            or t("common.none")
+        )
+        bridge_readiness_note = str(
+            bridge_readiness_panel.get("bridge_note_text")
+            or bridge_readiness_result.get("note")
+            or t("common.none")
+        )
+        bridge_readiness_boundary = str(
+            bridge_readiness_panel.get("boundary_summary")
+            or " | ".join(
+                str(item).strip()
+                for item in list(bridge_readiness_result.get("boundary_statements") or [])
+                if str(item).strip()
+            )
+            or t("common.none")
+        )
+        bridge_readiness_lines = [
+            bridge_readiness_status,
+            bridge_readiness_summary,
+            bridge_readiness_note,
+            *[
+                t(
+                    "pages.devices.workbench.bridge_readiness.blocker_line",
+                    value=str(line),
+                    default=f"桥接阻塞：{str(line)}",
+                )
+                for line in list(bridge_readiness_surface.get("blocker_lines") or [])
+                if str(line).strip()
+            ],
+            *[
+                t(
+                    "pages.devices.workbench.bridge_readiness.warning_line",
+                    value=str(line),
+                    default=f"桥接警示：{str(line)}",
+                )
+                for line in list(bridge_readiness_surface.get("warning_lines") or [])
+                if str(line).strip()
+            ],
+            *[
+                t(
+                    "pages.devices.workbench.bridge_readiness.gap_line",
+                    value=str(line),
+                    default=f"桥接缺口：{str(line)}",
+                )
+                for line in list(bridge_readiness_surface.get("unresolved_gap_lines") or [])
+                if str(line).strip()
+            ],
+            *[
+                t(
+                    "pages.devices.workbench.bridge_readiness.next_action_line",
+                    value=str(line),
+                    default=f"桥接下一步：{str(line)}",
+                )
+                for line in list(bridge_readiness_surface.get("suggested_next_action_lines") or [])
+                if str(line).strip()
+            ],
+            bridge_readiness_boundary,
+            *[
+                f"{label}: {path}"
+                for label, path in dict(bridge_readiness_result.get("artifact_paths") or {}).items()
+                if str(path or "").strip()
+            ],
+        ]
         analytics_ai_sidecar_summary = str(analytics_ai_sidecar.get("summary_line") or t("common.none"))
         analytics_ai_sidecar_lines = [
             str(item)
             for item in list(analytics_ai_sidecar.get("summary_lines") or [])
             if str(item).strip()
         ]
+        analytics_ai_sidecar_lines.extend(
+            str(item)
+            for item in list(analytics_ai_sidecar.get("boundary_lines") or [])
+            if str(item).strip()
+        )
+        analytics_ai_sidecar_lines.extend(
+            f"{label}: {path}"
+            for label, path in dict(analytics_ai_sidecar.get("artifact_paths") or {}).items()
+            if str(path or "").strip()
+        )
         cards = [
             {
                 "title": t("pages.devices.workbench.engineer_card.reference"),
@@ -4530,6 +4845,13 @@ class DeviceWorkbenchController:
                     default="认可就绪治理骨架",
                 ),
                 "summary": recognition_readiness_summary,
+            },
+            {
+                "title": t(
+                    "pages.devices.workbench.engineer_card.bridge_readiness",
+                    default="准入桥接总闸",
+                ),
+                "summary": bridge_readiness_summary,
             },
             {
                 "title": t(
@@ -4940,6 +5262,21 @@ class DeviceWorkbenchController:
                 "expanded": bool(recognition_readiness_evidence.get("available", False)),
             },
             {
+                "id": "bridge_readiness",
+                "title": t(
+                    "pages.devices.workbench.engineer_section.bridge_readiness.title",
+                    default="准入桥接总闸",
+                ),
+                "summary": t(
+                    "pages.devices.workbench.engineer_section.bridge_readiness.summary",
+                    status=bridge_readiness_status,
+                    default=f"桥接状态：{bridge_readiness_status}",
+                ),
+                "body_text": "\n".join(line for line in bridge_readiness_lines if str(line).strip())
+                or t("common.none"),
+                "expanded": bool(bridge_readiness_panel or bridge_readiness_result),
+            },
+            {
                 "id": "analytics_ai_sidecar",
                 "title": t(
                     "pages.devices.workbench.engineer_section.analytics_ai_sidecar.title",
@@ -5266,6 +5603,7 @@ class DeviceWorkbenchController:
         recognition_readiness_evidence = dict(
             snapshot.get("evidence", {}).get("recognition_readiness_evidence", {}) or {}
         )
+        analytics_ai_sidecar = dict(snapshot.get("evidence", {}).get("analytics_ai_sidecar", {}) or {})
         config_governance_payload = self._config_governance_payload(
             evidence_config_safety,
             evidence_config_safety_review,
@@ -5309,6 +5647,7 @@ class DeviceWorkbenchController:
             "point_taxonomy_summary": point_taxonomy_summary,
             "measurement_core_evidence": measurement_core_evidence,
             "recognition_readiness_evidence": recognition_readiness_evidence,
+            "analytics_ai_sidecar": analytics_ai_sidecar,
             "operator_summary": operator_summary,
             "history": list(history_payload.get("items", []) or []),
             "history_filters": dict(history_payload.get("filters", {}) or {}),
@@ -5505,6 +5844,28 @@ class DeviceWorkbenchController:
                 *[
                     f"{label}: {path}"
                     for label, path in recognition_readiness_artifact_paths.items()
+                    if str(path or "").strip()
+                ],
+            ]
+            if str(line).strip()
+        ) or f"- {t('common.none')}"
+        analytics_ai_sidecar_payload = dict(report_payload.get("analytics_ai_sidecar", {}) or {})
+        analytics_ai_sidecar_lines = "\n".join(
+            f"- {line}"
+            for line in [
+                *[
+                    str(item)
+                    for item in list(analytics_ai_sidecar_payload.get("summary_lines") or [])
+                    if str(item).strip()
+                ],
+                *[
+                    str(item)
+                    for item in list(analytics_ai_sidecar_payload.get("boundary_lines") or [])
+                    if str(item).strip()
+                ],
+                *[
+                    f"{label}: {path}"
+                    for label, path in dict(analytics_ai_sidecar_payload.get("artifact_paths") or {}).items()
                     if str(path or "").strip()
                 ],
             ]

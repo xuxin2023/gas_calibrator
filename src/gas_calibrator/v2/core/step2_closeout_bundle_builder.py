@@ -9,8 +9,14 @@ STEP2_CLOSEOUT_BUNDLE_SCHEMA_VERSION = "step2-closeout-bundle-v1"
 STEP2_CLOSEOUT_BUNDLE_BUILDER_VERSION = "2.28.0"
 
 STEP2_CLOSEOUT_BUNDLE_FILENAME = "step2_closeout_bundle.json"
+STEP2_CLOSEOUT_DIGEST_FILENAME = "step2_closeout_digest.json"
 STEP2_CLOSEOUT_EVIDENCE_INDEX_FILENAME = "step2_closeout_evidence_index.json"
 STEP2_CLOSEOUT_SUMMARY_FILENAME = "step2_closeout_summary.md"
+EVIDENCE_COVERAGE_MATRIX_FILENAME = "evidence_coverage_matrix.json"
+RESULT_TRACEABILITY_TREE_FILENAME = "result_traceability_tree.json"
+EVIDENCE_LINEAGE_INDEX_FILENAME = "evidence_lineage_index.json"
+REVIEWER_ANCHOR_NAVIGATION_FILENAME = "reviewer_anchor_navigation.json"
+AI_RUN_SUMMARY_FILENAME = "ai_run_summary.md"
 
 STEP2_CLOSEOUT_BUNDLE_ARTIFACT_TYPE = "step2_closeout_bundle"
 STEP2_CLOSEOUT_EVIDENCE_INDEX_ARTIFACT_TYPE = "step2_closeout_evidence_index"
@@ -83,9 +89,14 @@ def build_step2_closeout_bundle(
     comparison_digest: dict[str, Any] | None = None,
     comparison_rollup: dict[str, Any] | None = None,
     step2_closeout_digest: dict[str, Any] | None = None,
+    evidence_coverage_matrix: dict[str, Any] | None = None,
+    result_traceability_tree: dict[str, Any] | None = None,
+    evidence_lineage_index: dict[str, Any] | None = None,
+    reviewer_anchor_navigation: dict[str, Any] | None = None,
     sidecar_index_summary: dict[str, Any] | None = None,
     review_copilot_payload: dict[str, Any] | None = None,
     model_governance_summary: dict[str, Any] | None = None,
+    ai_run_summary_payload: dict[str, Any] | None = None,
     run_metadata_profile: dict[str, Any] | None = None,
     operator_authorization_profile: dict[str, Any] | None = None,
     training_record: dict[str, Any] | None = None,
@@ -101,6 +112,52 @@ def build_step2_closeout_bundle(
         or dict(decision_rule_profile or {}).get("conformity_statement_profile")
         or {}
     )
+    closeout_digest_payload = dict(step2_closeout_digest or {})
+    scope_context = {
+        "scope_id": str(
+            dict(scope_definition_pack or {}).get("scope_id")
+            or dict(dict(scope_definition_pack or {}).get("scope_export_pack") or {}).get("scope_id")
+            or closeout_digest_payload.get("scope_overview_summary")
+            or ""
+        ).strip(),
+        "decision_rule_id": str(
+            dict(decision_rule_profile or {}).get("decision_rule_id")
+            or closeout_digest_payload.get("decision_rule_summary")
+            or ""
+        ).strip(),
+        "limitation_note": str(
+            dict(decision_rule_profile or {}).get("limitation_note")
+            or normalized_conformity.get("limitation_note")
+            or closeout_digest_payload.get("limitation_note")
+            or ""
+        ).strip(),
+        "non_claim_note": str(
+            dict(decision_rule_profile or {}).get("non_claim_note")
+            or normalized_conformity.get("non_claim_note")
+            or closeout_digest_payload.get("non_claim_note")
+            or ""
+        ).strip(),
+    }
+    uncertainty_context = {
+        "uncertainty_case_id": str(
+            dict(uncertainty_report_pack or {}).get("uncertainty_case_id")
+            or dict(uncertainty_rollup or {}).get("uncertainty_case_id")
+            or closeout_digest_payload.get("uncertainty_case_summary")
+            or ""
+        ).strip(),
+        "method_confirmation_protocol_id": str(
+            dict(method_confirmation_protocol or {}).get("protocol_id")
+            or dict(method_confirmation_protocol or {}).get("method_confirmation_protocol_id")
+            or closeout_digest_payload.get("method_confirmation_summary")
+            or ""
+        ).strip(),
+        "verification_rollup_id": str(
+            dict(verification_rollup or {}).get("verification_rollup_id")
+            or dict(verification_rollup or {}).get("artifact_type")
+            or closeout_digest_payload.get("verification_rollup_summary")
+            or ""
+        ).strip(),
+    }
     categories = [
         _build_category(
             "scope_definition",
@@ -227,6 +284,31 @@ def build_step2_closeout_bundle(
         summary_lines.append("reviewer attention: " + "; ".join(reviewer_attention_items[:3]))
     if bridge_to_stage3_candidates:
         summary_lines.append("bridge_to_stage3: " + ", ".join(bridge_to_stage3_candidates))
+    if scope_context["scope_id"] or scope_context["decision_rule_id"]:
+        summary_lines.append(
+            "scope/decision: "
+            + " | ".join(
+                part
+                for part in (
+                    scope_context["scope_id"],
+                    scope_context["decision_rule_id"],
+                )
+                if part
+            )
+        )
+    if uncertainty_context["uncertainty_case_id"] or uncertainty_context["method_confirmation_protocol_id"]:
+        summary_lines.append(
+            "uncertainty/method: "
+            + " | ".join(
+                part
+                for part in (
+                    uncertainty_context["uncertainty_case_id"],
+                    uncertainty_context["method_confirmation_protocol_id"],
+                    uncertainty_context["verification_rollup_id"],
+                )
+                if part
+            )
+        )
 
     compact_section = {
         "summary_key": STEP2_CLOSEOUT_COMPACT_KEY,
@@ -247,6 +329,15 @@ def build_step2_closeout_bundle(
         "reviewer_attention_items": list(reviewer_attention_items),
         "bridge_to_stage3_candidates": list(bridge_to_stage3_candidates),
         "boundary_summary": STEP2_CLOSEOUT_BOUNDARY_SUMMARY,
+        "scope_id": scope_context["scope_id"],
+        "decision_rule_id": scope_context["decision_rule_id"],
+        "limitation_note": scope_context["limitation_note"],
+        "non_claim_note": scope_context["non_claim_note"],
+        "uncertainty_case_id": uncertainty_context["uncertainty_case_id"],
+        "method_confirmation_protocol_id": uncertainty_context["method_confirmation_protocol_id"],
+        "verification_rollup_id": uncertainty_context["verification_rollup_id"],
+        "formal_gap_count": len(list(closeout_digest_payload.get("formal_gap_items") or [])),
+        "formal_gap_summary": str(closeout_digest_payload.get("formal_gap_summary") or ""),
         **_REQUIRED_BOUNDARY_FIELDS,
     }
 
@@ -254,6 +345,10 @@ def build_step2_closeout_bundle(
         "step2_closeout_bundle": _artifact_output_path(
             normalized_run_dir,
             STEP2_CLOSEOUT_BUNDLE_FILENAME,
+        ),
+        "step2_closeout_digest": _artifact_output_path(
+            normalized_run_dir,
+            STEP2_CLOSEOUT_DIGEST_FILENAME,
         ),
         "step2_closeout_evidence_index": _artifact_output_path(
             normalized_run_dir,
@@ -263,11 +358,33 @@ def build_step2_closeout_bundle(
             normalized_run_dir,
             STEP2_CLOSEOUT_SUMMARY_FILENAME,
         ),
+        "evidence_coverage_matrix": _artifact_output_path(
+            normalized_run_dir,
+            EVIDENCE_COVERAGE_MATRIX_FILENAME,
+        ),
+        "result_traceability_tree": _artifact_output_path(
+            normalized_run_dir,
+            RESULT_TRACEABILITY_TREE_FILENAME,
+        ),
+        "evidence_lineage_index": _artifact_output_path(
+            normalized_run_dir,
+            EVIDENCE_LINEAGE_INDEX_FILENAME,
+        ),
+        "reviewer_anchor_navigation": _artifact_output_path(
+            normalized_run_dir,
+            REVIEWER_ANCHOR_NAVIGATION_FILENAME,
+        ),
+        "ai_run_summary": _artifact_output_path(
+            normalized_run_dir,
+            AI_RUN_SUMMARY_FILENAME,
+        ),
     }
     review_surface = {
         "summary_text": summary_line,
         "summary_lines": list(summary_lines),
         "artifact_paths": dict(artifact_paths),
+        "anchor_id": "step2-closeout-bundle",
+        "anchor_label": STEP2_CLOSEOUT_TITLE,
     }
     bundle = {
         "schema_version": STEP2_CLOSEOUT_BUNDLE_SCHEMA_VERSION,
@@ -296,6 +413,36 @@ def build_step2_closeout_bundle(
         "artifact_paths": dict(artifact_paths),
         "source_artifact_refs": _build_source_artifact_refs(all_entries),
         "review_surface": review_surface,
+        "scope_id": scope_context["scope_id"],
+        "decision_rule_id": scope_context["decision_rule_id"],
+        "limitation_note": scope_context["limitation_note"],
+        "non_claim_note": scope_context["non_claim_note"],
+        "uncertainty_case_id": uncertainty_context["uncertainty_case_id"],
+        "method_confirmation_protocol_id": uncertainty_context["method_confirmation_protocol_id"],
+        "verification_rollup_id": uncertainty_context["verification_rollup_id"],
+        "step2_closeout_digest_summary": str(closeout_digest_payload.get("summary_line") or closeout_digest_payload.get("summary") or ""),
+        "evidence_coverage_summary": str(
+            dict(evidence_coverage_matrix or {}).get("digest", {}).get("summary")
+            or ""
+        ),
+        "result_traceability_summary": str(
+            dict(result_traceability_tree or {}).get("digest", {}).get("summary")
+            or ""
+        ),
+        "evidence_lineage_summary": str(
+            dict(evidence_lineage_index or {}).get("digest", {}).get("summary")
+            or ""
+        ),
+        "reviewer_anchor_summary": str(
+            dict(reviewer_anchor_navigation or {}).get("review_surface", {}).get("summary_text")
+            or ""
+        ),
+        "ai_run_summary": str(
+            dict(ai_run_summary_payload or {}).get("summary_line")
+            or ""
+        ),
+        "formal_gap_items": list(closeout_digest_payload.get("formal_gap_items") or []),
+        "formal_gap_summary": str(closeout_digest_payload.get("formal_gap_summary") or ""),
         "sidecar_injected": any(
             bool(category.get("present"))
             for category in categories

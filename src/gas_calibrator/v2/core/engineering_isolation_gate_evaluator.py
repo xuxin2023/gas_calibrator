@@ -219,6 +219,51 @@ def build_engineering_isolation_gate_evaluator(
     qc_catalog = dict(qc_flag_catalog or {})
     recovery_log = dict(recovery_action_log or {})
     dual_check_placeholder = dict(reviewer_dual_check_placeholder or {})
+    scope_context = {
+        "scope_id": str(
+            scope_pack.get("scope_id")
+            or dict(scope_pack.get("scope_export_pack") or {}).get("scope_id")
+            or closeout_bundle.get("scope_id")
+            or ""
+        ).strip(),
+        "decision_rule_id": str(
+            decision_profile.get("decision_rule_id")
+            or closeout_bundle.get("decision_rule_id")
+            or ""
+        ).strip(),
+        "limitation_note": str(
+            decision_profile.get("limitation_note")
+            or conformity_profile.get("limitation_note")
+            or closeout_bundle.get("limitation_note")
+            or ""
+        ).strip(),
+        "non_claim_note": str(
+            decision_profile.get("non_claim_note")
+            or conformity_profile.get("non_claim_note")
+            or closeout_bundle.get("non_claim_note")
+            or ""
+        ).strip(),
+    }
+    uncertainty_context = {
+        "uncertainty_case_id": str(
+            uncertainty_pack.get("uncertainty_case_id")
+            or uncertainty_rollup_payload.get("uncertainty_case_id")
+            or closeout_bundle.get("uncertainty_case_id")
+            or ""
+        ).strip(),
+        "method_confirmation_protocol_id": str(
+            method_protocol.get("protocol_id")
+            or method_protocol.get("method_confirmation_protocol_id")
+            or closeout_bundle.get("method_confirmation_protocol_id")
+            or ""
+        ).strip(),
+        "verification_rollup_id": str(
+            verification_rollup_payload.get("verification_rollup_id")
+            or verification_rollup_payload.get("verification_digest_id")
+            or closeout_bundle.get("verification_rollup_id")
+            or ""
+        ).strip(),
+    }
 
     source_artifact_refs = _build_source_artifact_refs(
         run_dir=normalized_run_dir,
@@ -1049,6 +1094,11 @@ def build_engineering_isolation_gate_evaluator(
             f"warnings: {len(warnings)}",
             f"unresolved gaps: {len(formal_gaps)}",
             f"suggested next actions: {len(next_actions)}",
+            f"scope_id: {scope_context['scope_id'] or '--'}",
+            f"decision_rule_id: {scope_context['decision_rule_id'] or '--'}",
+            f"uncertainty_case_id: {uncertainty_context['uncertainty_case_id'] or '--'}",
+            f"method_confirmation_protocol_id: {uncertainty_context['method_confirmation_protocol_id'] or '--'}",
+            f"verification_rollup_id: {uncertainty_context['verification_rollup_id'] or '--'}",
             "reviewer/admission bridge only",
         ],
     }
@@ -1066,6 +1116,13 @@ def build_engineering_isolation_gate_evaluator(
         "bridge_note_text": _BRIDGE_NOTE,
         "suggested_next_action_lines": list(next_actions[:5]),
         "boundary_summary": " | ".join(_BOUNDARY_STATEMENTS),
+        "scope_id": scope_context["scope_id"],
+        "decision_rule_id": scope_context["decision_rule_id"],
+        "limitation_note": scope_context["limitation_note"],
+        "non_claim_note": scope_context["non_claim_note"],
+        "uncertainty_case_id": uncertainty_context["uncertainty_case_id"],
+        "method_confirmation_protocol_id": uncertainty_context["method_confirmation_protocol_id"],
+        "verification_rollup_id": uncertainty_context["verification_rollup_id"],
     }
 
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -1087,6 +1144,13 @@ def build_engineering_isolation_gate_evaluator(
         "default_execution_chain_unchanged": True,
         "real_device_touched": False,
         "real_acceptance_output": False,
+        "scope_id": scope_context["scope_id"],
+        "decision_rule_id": scope_context["decision_rule_id"],
+        "limitation_note": scope_context["limitation_note"],
+        "non_claim_note": scope_context["non_claim_note"],
+        "uncertainty_case_id": uncertainty_context["uncertainty_case_id"],
+        "method_confirmation_protocol_id": uncertainty_context["method_confirmation_protocol_id"],
+        "verification_rollup_id": uncertainty_context["verification_rollup_id"],
         "boundary_statements": list(_BOUNDARY_STATEMENTS),
         "checks": checks,
         "blocker_count": len(blockers),

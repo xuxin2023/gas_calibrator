@@ -1722,3 +1722,72 @@ def test_set_pressure_to_target_soft_recovers_and_retries_once(tmp_path: Path) -
     assert ("set_in_limits", 0.02, 10.0) in pace.calls
     assert ("setpoint", 550.0, "first") in pace.calls
     assert ("setpoint", 550.0, "second") in pace.calls
+
+
+def test_set_pressure_to_target_same_route_follow_on_timeout_skips_atmosphere_reset_recovery(
+    tmp_path: Path,
+) -> None:
+    cfg = {
+        "workflow": {
+            "pressure": {
+                "vent_time_s": 0,
+                "vent_transition_timeout_s": 12,
+                "stabilize_timeout_s": 0.11,
+                "restabilize_retries": 0,
+                "restabilize_retry_interval_s": 0.01,
+                "soft_recover_on_pressure_timeout": True,
+            }
+        }
+    }
+    previous_point = CalibrationPoint(
+        index=1,
+        temp_chamber_c=20.0,
+        co2_ppm=800.0,
+        hgen_temp_c=None,
+        hgen_rh_pct=None,
+        target_pressure_hpa=1000.0,
+        dewpoint_c=None,
+        h2o_mmol=None,
+        raw_h2o=None,
+    )
+    follow_on_point = CalibrationPoint(
+        index=2,
+        temp_chamber_c=20.0,
+        co2_ppm=800.0,
+        hgen_temp_c=None,
+        hgen_rh_pct=None,
+        target_pressure_hpa=800.0,
+        dewpoint_c=None,
+        h2o_mmol=None,
+        raw_h2o=None,
+    )
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceSoftRecover()
+    runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+    runner._last_sealed_pressure_route_context = {
+        "phase": "co2",
+        "route_signature": runner._route_signature_for_point(previous_point, phase="co2"),
+        "point_row": previous_point.index,
+    }
+
+    recover_called = False
+
+    def forbidden_recover(**kwargs):
+        nonlocal recover_called
+        recover_called = True
+        return False
+
+    runner._soft_recover_pressure_controller = forbidden_recover
+
+    assert runner._set_pressure_to_target(follow_on_point) is False
+    logger.close()
+
+    assert recover_called is False
+    assert ("vent", True) not in pace.calls
+    trace_rows = _load_pressure_trace_rows(logger)
+    assert any(
+        row["trace_stage"] == "control_timeout_recovery_skipped"
+        and row["handoff_mode"] == "same_gas_pressure_step_handoff"
+        and "skip atmosphere-reset soft recovery after timeout" in row["note"]
+        for row in trace_rows
+    )

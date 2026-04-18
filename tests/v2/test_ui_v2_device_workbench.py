@@ -7,6 +7,7 @@ from gas_calibrator.v2.config import summarize_step2_config_safety
 from gas_calibrator.v2.core.measurement_phase_coverage import MEASUREMENT_PHASE_COVERAGE_REPORT_FILENAME
 from gas_calibrator.v2.core.multi_source_stability import MULTI_SOURCE_STABILITY_EVIDENCE_FILENAME
 from gas_calibrator.v2.core.phase_taxonomy_contract import UNCERTAINTY_INPUT_FAMILY
+from gas_calibrator.v2.scripts.build_offline_governance_artifacts import rebuild_run
 from gas_calibrator.v2.ui_v2.i18n import display_taxonomy_value, t
 
 SUPPORT_DIR = Path(__file__).resolve().parent
@@ -242,6 +243,50 @@ def test_workbench_snapshot_is_exposed_from_devices_payload(tmp_path: Path) -> N
         "workbench",
         "history",
     }
+
+
+def test_workbench_engineer_summary_exposes_bridge_readiness_compact_panel(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+
+    workbench = facade.get_devices_snapshot()["workbench"]
+    recognition_readiness = dict(
+        workbench["workbench"]["live_snapshot_evidence"].get("recognition_readiness_evidence", {}) or {}
+    )
+    gate_result = dict(recognition_readiness.get("engineering_isolation_gate_result", {}) or {})
+    gate_panel = dict(recognition_readiness.get("engineering_isolation_gate_compact_panel", {}) or {})
+    expected_summary = (
+        gate_panel.get("summary_line")
+        or dict(gate_result.get("review_surface") or {}).get("summary_text")
+    )
+    bridge_card = next(
+        item
+        for item in list(workbench["engineer_summary"]["cards"] or [])
+        if str(item.get("summary") or "") == str(expected_summary or "")
+    )
+    bridge_section = next(
+        item
+        for item in list(workbench["engineer_summary"]["sections"] or [])
+        if str(item.get("id") or "") == "bridge_readiness"
+    )
+
+    assert gate_result["reviewer_bridge_only"] is True
+    assert gate_result["not_formal_admission_approval"] is True
+    assert gate_result["not_real_acceptance_evidence"] is True
+    assert gate_result["default_execution_chain_unchanged"] is True
+    assert gate_result["real_device_touched"] is False
+    assert bridge_card["summary"] == expected_summary
+    assert bridge_section["summary"] == t(
+        "pages.devices.workbench.engineer_section.bridge_readiness.summary",
+        status=gate_panel.get("status_line") or gate_result.get("gate_level_display") or t("common.none"),
+        default=f"桥接状态：{gate_panel.get('status_line') or gate_result.get('gate_level_display') or t('common.none')}",
+    )
+    assert gate_result["note"] in bridge_section["body_text"]
+    assert "not formal admission approval" in bridge_section["body_text"]
+    assert "not real acceptance" in bridge_section["body_text"]
+    assert "formal admission approved" not in bridge_section["body_text"]
+    assert "real acceptance approved" not in bridge_section["body_text"]
 
 
 def test_workbench_live_snapshot_prefers_runtime_config_governance_override(tmp_path: Path) -> None:

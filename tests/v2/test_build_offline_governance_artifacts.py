@@ -32,6 +32,12 @@ from gas_calibrator.v2.core.stage3_standards_alignment_matrix import (
     STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME,
     STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME,
 )
+from gas_calibrator.v2.core.engineering_isolation_gate_evaluator import (
+    ENGINEERING_ISOLATION_BLOCKERS_FILENAME,
+    ENGINEERING_ISOLATION_GATE_DIGEST_FILENAME,
+    ENGINEERING_ISOLATION_GATE_RESULT_FILENAME,
+    ENGINEERING_ISOLATION_WARNINGS_FILENAME,
+)
 from gas_calibrator.v2.core import recognition_readiness_artifacts as recognition_readiness
 from gas_calibrator.v2.scripts.build_offline_governance_artifacts import main, rebuild_run, rebuild_suite
 
@@ -277,6 +283,7 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
         run_dir / STAGE3_REAL_VALIDATION_PLAN_REVIEWER_FILENAME
     ).read_text(encoding="utf-8")
     evidence_registry = json.loads((run_dir / "evidence_registry.json").read_text(encoding="utf-8"))
+    results_after_rebuild = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
     assert analytics_summary["evidence_source"] == "simulated_protocol"
     assert analytics_summary["not_real_acceptance_evidence"] is True
     assert analytics_summary["config_safety"]["classification"] == "simulation_real_port_inventory_risk"
@@ -312,6 +319,44 @@ def test_rebuild_run_generates_governance_artifacts(tmp_path: Path) -> None:
     )
     assert analytics_summary["qc_evidence_section"]["cards"]
     assert analytics_summary["qc_review_cards"]
+    assert summary_after_rebuild["recognition_binding"]["scope_id"]
+    assert summary_after_rebuild["recognition_binding"]["decision_rule_id"]
+    assert summary_after_rebuild["stats"]["recognition_binding"]["scope_id"] == (
+        summary_after_rebuild["recognition_binding"]["scope_id"]
+    )
+    assert summary_after_rebuild["limitation_note"] == summary_after_rebuild["recognition_binding"]["limitation_note"]
+    assert summary_after_rebuild["non_claim_note"] == summary_after_rebuild["recognition_binding"]["non_claim_note"]
+    assert summary_after_rebuild["uncertainty_binding"]["uncertainty_case_id"]
+    assert summary_after_rebuild["method_confirmation_protocol_id"] == summary_after_rebuild["uncertainty_binding"][
+        "method_confirmation_protocol_id"
+    ]
+    assert summary_after_rebuild["verification_rollup_id"] == summary_after_rebuild["uncertainty_binding"][
+        "verification_rollup_id"
+    ]
+    assert results_after_rebuild["recognition_binding"]["scope_id"] == summary_after_rebuild["recognition_binding"][
+        "scope_id"
+    ]
+    assert results_after_rebuild["decision_rule_id"] == results_after_rebuild["recognition_binding"][
+        "decision_rule_id"
+    ]
+    assert results_after_rebuild["uncertainty_binding"]["uncertainty_case_id"]
+    assert results_after_rebuild["method_confirmation_protocol_id"] == results_after_rebuild["uncertainty_binding"][
+        "method_confirmation_protocol_id"
+    ]
+    assert results_after_rebuild["step2_closeout_digest"]["summary_line"]
+    assert results_after_rebuild["evidence_coverage_matrix"]["rows"]
+    assert results_after_rebuild["result_traceability_tree"]["nodes"]
+    assert results_after_rebuild["reviewer_anchor_navigation"]["anchors"]
+    assert results_after_rebuild["ai_run_summary_payload"]["summary_line"]
+    assert "run_metadata_profile" in summary_after_rebuild["stats"]["artifact_exports"]
+    assert "step2_closeout_bundle" in summary_after_rebuild["stats"]["artifact_exports"]
+    assert "ai_run_summary" in summary_after_rebuild["stats"]["artifact_exports"]
+    assert manifest_after_rebuild["run_metadata_profile"]["summary_text"]
+    assert manifest_after_rebuild["step2_closeout_digest"]["summary_text"]
+    assert manifest_after_rebuild["evidence_coverage_matrix"]["summary_lines"]
+    assert manifest_after_rebuild["result_traceability_tree"]["summary_text"]
+    assert manifest_after_rebuild["reviewer_anchor_navigation"]["summary_text"]
+    assert manifest_after_rebuild["ai_run_summary"]["summary_text"]
     assert analytics_summary["run_kpis"]["point_count"] == 1
     assert analytics_summary["point_kpis"]["point_count"] == 1
     assert analytics_summary["qc_overview"]["run_gate"]["status"] == "pass"
@@ -919,6 +964,73 @@ def test_rebuild_run_generates_stage3_standards_alignment_matrix_artifacts(tmp_p
     assert "real_acceptance_ready" not in matrix_markdown
     assert "compliant" not in matrix_markdown.lower()
     assert "accredited" not in matrix_markdown.lower()
+
+
+def test_rebuild_run_generates_engineering_isolation_gate_artifacts(tmp_path: Path) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+
+    payload = rebuild_run(run_dir)
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+    gate_json = json.loads((run_dir / ENGINEERING_ISOLATION_GATE_RESULT_FILENAME).read_text(encoding="utf-8"))
+    blockers_json = json.loads((run_dir / ENGINEERING_ISOLATION_BLOCKERS_FILENAME).read_text(encoding="utf-8"))
+    warnings_json = json.loads((run_dir / ENGINEERING_ISOLATION_WARNINGS_FILENAME).read_text(encoding="utf-8"))
+    gate_markdown = (run_dir / ENGINEERING_ISOLATION_GATE_DIGEST_FILENAME).read_text(encoding="utf-8")
+
+    assert (run_dir / ENGINEERING_ISOLATION_GATE_RESULT_FILENAME).exists()
+    assert (run_dir / ENGINEERING_ISOLATION_GATE_DIGEST_FILENAME).exists()
+    assert (run_dir / ENGINEERING_ISOLATION_BLOCKERS_FILENAME).exists()
+    assert (run_dir / ENGINEERING_ISOLATION_WARNINGS_FILENAME).exists()
+    assert payload["summary_stats"]["engineering_isolation_gate_result"]["artifact_type"] == (
+        "engineering_isolation_gate_result"
+    )
+    assert payload["summary_stats"]["engineering_isolation_gate_digest"]["artifact_paths"][
+        "engineering_isolation_gate_digest"
+    ] == str(run_dir / ENGINEERING_ISOLATION_GATE_DIGEST_FILENAME)
+    assert payload["artifact_statuses"]["engineering_isolation_gate_result"]["role"] == "execution_summary"
+    assert payload["artifact_statuses"]["engineering_isolation_gate_digest"]["role"] == "formal_analysis"
+    assert payload["artifact_statuses"]["engineering_isolation_blockers"]["role"] == "diagnostic_analysis"
+    assert payload["artifact_statuses"]["engineering_isolation_warnings"]["role"] == "diagnostic_analysis"
+    assert payload["manifest_sections"]["engineering_isolation_gate_result"]["path"] == str(
+        run_dir / ENGINEERING_ISOLATION_GATE_RESULT_FILENAME
+    )
+    assert payload["manifest_sections"]["engineering_isolation_gate_digest"]["path"] == str(
+        run_dir / ENGINEERING_ISOLATION_GATE_DIGEST_FILENAME
+    )
+    assert payload["manifest_sections"]["engineering_isolation_blockers"]["path"] == str(
+        run_dir / ENGINEERING_ISOLATION_BLOCKERS_FILENAME
+    )
+    assert payload["manifest_sections"]["engineering_isolation_warnings"]["path"] == str(
+        run_dir / ENGINEERING_ISOLATION_WARNINGS_FILENAME
+    )
+    assert str(run_dir / ENGINEERING_ISOLATION_GATE_RESULT_FILENAME) in payload["remembered_files"]
+    assert str(run_dir / ENGINEERING_ISOLATION_GATE_DIGEST_FILENAME) in payload["remembered_files"]
+    assert str(run_dir / ENGINEERING_ISOLATION_BLOCKERS_FILENAME) in payload["remembered_files"]
+    assert str(run_dir / ENGINEERING_ISOLATION_WARNINGS_FILENAME) in payload["remembered_files"]
+    assert summary["stats"]["artifact_exports"]["engineering_isolation_gate_result"]["role"] == "execution_summary"
+    assert summary["stats"]["artifact_exports"]["engineering_isolation_gate_digest"]["role"] == "formal_analysis"
+    assert summary["stats"]["artifact_exports"]["engineering_isolation_blockers"]["role"] == "diagnostic_analysis"
+    assert summary["stats"]["artifact_exports"]["engineering_isolation_warnings"]["role"] == "diagnostic_analysis"
+    assert str(run_dir / ENGINEERING_ISOLATION_GATE_RESULT_FILENAME) in summary["stats"]["output_files"]
+    assert str(run_dir / ENGINEERING_ISOLATION_GATE_DIGEST_FILENAME) in summary["stats"]["output_files"]
+    assert str(run_dir / ENGINEERING_ISOLATION_BLOCKERS_FILENAME) in summary["stats"]["output_files"]
+    assert str(run_dir / ENGINEERING_ISOLATION_WARNINGS_FILENAME) in summary["stats"]["output_files"]
+    assert manifest["engineering_isolation_gate_result"]["path"] == str(run_dir / ENGINEERING_ISOLATION_GATE_RESULT_FILENAME)
+    assert manifest["engineering_isolation_gate_digest"]["path"] == str(run_dir / ENGINEERING_ISOLATION_GATE_DIGEST_FILENAME)
+    assert manifest["engineering_isolation_blockers"]["path"] == str(run_dir / ENGINEERING_ISOLATION_BLOCKERS_FILENAME)
+    assert manifest["engineering_isolation_warnings"]["path"] == str(run_dir / ENGINEERING_ISOLATION_WARNINGS_FILENAME)
+    assert gate_json["reviewer_bridge_only"] is True
+    assert gate_json["not_formal_admission_approval"] is True
+    assert gate_json["not_real_acceptance_evidence"] is True
+    assert gate_json["default_execution_chain_unchanged"] is True
+    assert gate_json["real_device_touched"] is False
+    assert blockers_json["not_real_acceptance_evidence"] is True
+    assert warnings_json["not_real_acceptance_evidence"] is True
+    assert "not formal admission approval" in gate_markdown
+    assert "not real acceptance" in gate_markdown
+    assert "formal admission approved" not in gate_markdown
+    assert "real acceptance approved" not in gate_markdown
 
 
 def test_rebuild_run_generates_scope_package_and_decision_rule_contracts(tmp_path: Path) -> None:

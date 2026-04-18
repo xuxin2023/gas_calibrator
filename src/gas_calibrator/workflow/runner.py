@@ -11235,7 +11235,32 @@ class CalibrationRunner:
                 and abs(last_pressure_now - target) >= closest_error_hpa + 10.0
             ):
                 self.log("Pressure timeout pattern: target vicinity reached, then drifted away while sealed")
+        same_route_follow_on_handoff = self._same_route_follow_on_pressure_switch_active(
+            point,
+            phase=phase,
+        )
         if not recovery_attempted and bool(self._wf("workflow.pressure.soft_recover_on_pressure_timeout", True)):
+            if same_route_follow_on_handoff:
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase,
+                    point_phase=phase,
+                    trace_stage="control_timeout_recovery_skipped",
+                    pressure_target_hpa=target,
+                    pace_pressure_hpa=last_pressure_now,
+                    handoff_mode="same_gas_pressure_step_handoff",
+                    read_pressure_gauge=True,
+                    refresh_pace_state=False,
+                    note=(
+                        "same-route sealed pressure-point handoff active; "
+                        "skip atmosphere-reset soft recovery after timeout"
+                    ),
+                )
+                self.log(
+                    f"Pressure target {target} hPa timed out during same-route sealed pressure handoff; "
+                    "skip atmosphere-reset soft recovery to avoid reopening atmosphere before the point is abandoned"
+                )
+                return False
             self.log(
                 f"Pressure target {target} hPa did not stabilize; "
                 "attempt pressure-controller soft recovery and retry once"
@@ -11464,7 +11489,10 @@ class CalibrationRunner:
         return state, ""
 
     def _pressure_controller_ready_snapshot_requires_aux_refresh(self) -> bool:
-        return False
+        strategy = str(self._pressure_atmosphere_hold_strategy or "").strip().lower()
+        return strategy == "vent_valve_open_after_vent" or bool(
+            self._wf("workflow.pressure.vent_after_valve_open", False)
+        )
 
     def _pressure_controller_ready_snapshot(
         self,
@@ -11764,7 +11792,25 @@ class CalibrationRunner:
         set_isolation_open = getattr(pace, "set_isolation_open", None)
         if callable(set_isolation_open):
             set_isolation_open(True)
-        pace.vent(True)
+        enter_atmosphere = getattr(pace, "enter_atmosphere_mode", None)
+        vent_command = getattr(pace, "vent", None)
+        vent_status_getter = getattr(pace, "get_vent_status", None)
+        if not callable(vent_command):
+            if not callable(enter_atmosphere):
+                raise RuntimeError("VENT_COMMAND_UNAVAILABLE")
+            enter_atmosphere(timeout_s=timeout_s)
+            self._pace_vent_after_valve_supported = False
+            self._pace_vent_after_valve_open = False
+            self._append_pressure_trace_row(
+                point=None,
+                route="pressure",
+                trace_stage="atmosphere_vent_started",
+                atmosphere_hold_strategy="single_cycle_query_clear",
+                refresh_pace_state=False,
+                note=(reason or "manual atmosphere helper start") + "; enter_atmosphere_mode helper",
+            )
+            return
+        vent_command(True)
         self._append_pressure_trace_row(
             point=None,
             route="pressure",
@@ -11773,6 +11819,10 @@ class CalibrationRunner:
             refresh_pace_state=True,
             note=reason or "single vent cycle start",
         )
+        if not callable(vent_status_getter):
+            self._pace_vent_after_valve_supported = False
+            self._pace_vent_after_valve_open = False
+            return
 
         deadline = time.time() + max(0.5, float(timeout_s))
         saw_in_progress = False
@@ -13858,6 +13908,28 @@ class CalibrationRunner:
                 ),
             )
         return inherited
+
+    def _same_route_follow_on_pressure_switch_active(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+    ) -> bool:
+        phase_text = str(phase or "").strip().lower()
+        point_row = self._as_int(getattr(point, "index", None))
+        if point_row is None or not phase_text:
+            return False
+        route_signature = self._route_signature_for_point(point, phase=phase_text)
+        last_context = dict(self._last_sealed_pressure_route_context or {})
+        last_phase = str(last_context.get("phase") or "").strip().lower()
+        last_row = self._as_int(last_context.get("point_row"))
+        last_signature = tuple(last_context.get("route_signature") or ())
+        return (
+            last_phase == phase_text
+            and last_row is not None
+            and last_row != point_row
+            and last_signature == route_signature
+        )
 
     def _same_gas_superambient_sequence_match(self, point: CalibrationPoint, *, phase: str) -> bool:
         phase_text = str(phase or "").strip().lower()
@@ -17884,10 +17956,16 @@ class CalibrationRunner:
         attempt: int,
         total: int,
     ) -> bool:
-        self.log(
-            f"CO2 {sample_point.co2_ppm} ppm @ {sample_point.target_pressure_hpa} hPa timeout; "
-            f"retry within sealed route {attempt}/{total}"
-        )
+        if self._same_route_follow_on_pressure_switch_active(sample_point, phase="co2"):
+            self.log(
+                f"CO2 {sample_point.co2_ppm} ppm @ {sample_point.target_pressure_hpa} hPa timeout; "
+                f"retry within sealed route {attempt}/{total} with atmosphere-reset recovery disabled"
+            )
+        else:
+            self.log(
+                f"CO2 {sample_point.co2_ppm} ppm @ {sample_point.target_pressure_hpa} hPa timeout; "
+                f"retry pressure control {attempt}/{total}"
+            )
         return self._set_pressure_to_target(sample_point)
 
     def _run_h2o_group(
@@ -19107,6 +19185,15 @@ class CalibrationRunner:
             )
             self._set_root_cause_reject_reason(point, phase=phase, reason=root_reason)
             self._clear_presample_sampling_lock(point=point, phase=phase, reason="presample_long_guard_failed")
+            return False
+        if not self._wait_pressure_and_primary_sensor_ready(point):
+            root_reason = self._presample_failure_root_cause(
+                point,
+                phase=phase,
+                failure_stage="sampling_window_qc",
+            )
+            self._set_root_cause_reject_reason(point, phase=phase, reason=root_reason)
+            self._clear_presample_sampling_lock(point=point, phase=phase, reason="primary_sensor_ready_failed")
             return False
 
         adaptive_cfg = self._pressure_sampling_gate_cfg(point)
@@ -20993,6 +21080,7 @@ class CalibrationRunner:
         point_tag: str,
         open_valves: List[int],
     ) -> bool:
+        pace = self.devices.get("pace")
         handoff_state = dict(self._pending_route_handoff or {})
         if not handoff_state:
             return False
@@ -21103,10 +21191,18 @@ class CalibrationRunner:
             f"handoff_total_ms={handoff_total_ms:.3f}"
         )
 
-        try:
-            self._set_pressure_controller_vent(True, reason="maintain atmosphere during next route soak")
-        except Exception as exc:
-            self.log(f"Route handoff post-open atmosphere-hold restore failed: {exc}")
+        begin_handoff = getattr(pace, "begin_atmosphere_handoff", None)
+        vent_command = getattr(pace, "vent", None)
+        if callable(begin_handoff) and not callable(vent_command):
+            self.log(
+                "Route handoff post-open atmosphere-hold restore skipped: "
+                "dedicated handoff helper already engaged and low-level vent() is unavailable"
+            )
+        else:
+            try:
+                self._set_pressure_controller_vent(True, reason="maintain atmosphere during next route soak")
+            except Exception as exc:
+                self.log(f"Route handoff post-open atmosphere-hold restore failed: {exc}")
 
         if self._flush_deferred_exports_on_next_route_soak_enabled() and (
             self._deferred_sample_exports or self._deferred_point_exports

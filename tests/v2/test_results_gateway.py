@@ -25,6 +25,10 @@ from gas_calibrator.v2.core.stage3_standards_alignment_matrix import (
     STAGE3_STANDARDS_ALIGNMENT_MATRIX_FILENAME,
     STAGE3_STANDARDS_ALIGNMENT_MATRIX_REVIEWER_FILENAME,
 )
+from gas_calibrator.v2.core.engineering_isolation_gate_evaluator import (
+    ENGINEERING_ISOLATION_GATE_DIGEST_FILENAME,
+    ENGINEERING_ISOLATION_GATE_RESULT_FILENAME,
+)
 from gas_calibrator.v2.core.controlled_state_machine_profile import (
     STATE_TRANSITION_EVIDENCE_FILENAME,
     STATE_TRANSITION_EVIDENCE_MARKDOWN_FILENAME,
@@ -816,7 +820,7 @@ def test_results_gateway_backfills_obvious_known_artifacts_for_sparse_legacy_man
     assert rows_by_name["io_log.csv"]["artifact_role"] == "execution_rows"
     assert rows_by_name["samples.xlsx"]["artifact_role"] == "execution_rows"
     assert rows_by_name["ai_run_summary.md"]["artifact_key"] == "ai_run_summary_markdown"
-    assert rows_by_name["ai_run_summary.md"]["artifact_role"] == "unclassified"
+    assert rows_by_name["ai_run_summary.md"]["artifact_role"] == "diagnostic_analysis"
     assert rows_by_name["run_summary.txt"]["artifact_key"] == "run_summary_text"
     assert rows_by_name["run_summary.txt"]["artifact_role"] == "unclassified"
     assert rows_by_name["run.log"]["artifact_key"] == "run_log"
@@ -1346,6 +1350,47 @@ def test_results_gateway_exposes_stage3_standards_alignment_matrix_as_first_clas
     assert "CNAS-CL01-G003" in matrix_entry["standard_families_text"]
     assert "ready_for_engineering_isolation" not in matrix_entry["entry_text"]
     assert "real_acceptance_ready" not in matrix_entry["entry_text"]
+
+
+def test_results_gateway_exposes_engineering_isolation_gate_as_first_class_artifact_entry(
+    tmp_path: Path,
+) -> None:
+    facade = build_fake_facade(tmp_path)
+    run_dir = Path(facade.result_store.run_dir)
+    rebuild_run(run_dir)
+
+    gateway = ResultsGateway(
+        run_dir,
+        output_files_provider=facade.service.get_output_files,
+    )
+    reports_payload = gateway.read_reports_payload()
+    gate_entry = dict(reports_payload.get("engineering_isolation_gate_artifact_entry", {}) or {})
+    rows_by_path = {
+        str(Path(str(row.get("path") or "")).resolve()): dict(row)
+        for row in reports_payload["files"]
+    }
+    gate_json_path = str((run_dir / ENGINEERING_ISOLATION_GATE_RESULT_FILENAME).resolve())
+    gate_md_path = str((run_dir / ENGINEERING_ISOLATION_GATE_DIGEST_FILENAME).resolve())
+    gate_json_row = rows_by_path[gate_json_path]
+    gate_md_row = rows_by_path[gate_md_path]
+
+    assert gate_entry["path"] == gate_json_path
+    assert gate_entry["reviewer_path"] == gate_md_path
+    assert gate_json_row["artifact_key"] == "engineering_isolation_gate_result"
+    assert gate_json_row["artifact_role"] == "execution_summary"
+    assert gate_md_row["artifact_key"] == "engineering_isolation_gate_digest"
+    assert gate_md_row["artifact_role"] == "formal_analysis"
+    assert gate_json_row["engineering_isolation_gate_artifact_entry"]["path"] == gate_json_path
+    assert gate_md_row["engineering_isolation_gate_artifact_entry"]["reviewer_path"] == gate_md_path
+    assert gate_json_row["name"] == f"{gate_entry['name_text']} (JSON)"
+    assert gate_md_row["name"] == f"{gate_entry['name_text']} (Markdown)"
+    assert gate_entry["summary_text"] == gate_json_row["note"] == gate_md_row["note"]
+    assert "gate_level=" in gate_json_row["role_status_display"]
+    assert "not real acceptance" in gate_json_row["role_status_display"]
+    assert "not formal admission approval" in gate_entry["entry_text"]
+    assert "not real acceptance" in gate_entry["entry_text"]
+    assert "blocker:" in gate_entry["entry_text"] or "warning:" in gate_entry["entry_text"] or "gap:" in gate_entry["entry_text"]
+    assert gate_entry["not_real_acceptance_evidence"] is True
 
 
 def test_results_gateway_exposes_measurement_core_evidence_artifacts(tmp_path: Path) -> None:

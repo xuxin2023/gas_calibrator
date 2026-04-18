@@ -5,6 +5,7 @@ from typing import Any, Protocol
 
 from .step2_closeout_bundle_builder import (
     STEP2_CLOSEOUT_BUNDLE_FILENAME,
+    STEP2_CLOSEOUT_DIGEST_FILENAME,
     STEP2_CLOSEOUT_EVIDENCE_INDEX_FILENAME,
     STEP2_CLOSEOUT_SUMMARY_FILENAME,
     build_step2_closeout_bundle,
@@ -54,9 +55,14 @@ class FileBackedStep2CloseoutRepository:
         comparison_digest: dict[str, Any] | None = None,
         comparison_rollup: dict[str, Any] | None = None,
         step2_closeout_digest: dict[str, Any] | None = None,
+        evidence_coverage_matrix: dict[str, Any] | None = None,
+        result_traceability_tree: dict[str, Any] | None = None,
+        evidence_lineage_index: dict[str, Any] | None = None,
+        reviewer_anchor_navigation: dict[str, Any] | None = None,
         sidecar_index_summary: dict[str, Any] | None = None,
         review_copilot_payload: dict[str, Any] | None = None,
         model_governance_summary: dict[str, Any] | None = None,
+        ai_run_summary_payload: dict[str, Any] | None = None,
         run_metadata_profile: dict[str, Any] | None = None,
         operator_authorization_profile: dict[str, Any] | None = None,
         training_record: dict[str, Any] | None = None,
@@ -96,9 +102,14 @@ class FileBackedStep2CloseoutRepository:
             "comparison_digest": dict(comparison_digest or {}),
             "comparison_rollup": dict(comparison_rollup or {}),
             "step2_closeout_digest": dict(step2_closeout_digest or {}),
+            "evidence_coverage_matrix": dict(evidence_coverage_matrix or {}),
+            "result_traceability_tree": dict(result_traceability_tree or {}),
+            "evidence_lineage_index": dict(evidence_lineage_index or {}),
+            "reviewer_anchor_navigation": dict(reviewer_anchor_navigation or {}),
             "sidecar_index_summary": dict(sidecar_index_summary or {}),
             "review_copilot_payload": dict(review_copilot_payload or {}),
             "model_governance_summary": dict(model_governance_summary or {}),
+            "ai_run_summary_payload": dict(ai_run_summary_payload or {}),
             "run_metadata_profile": dict(run_metadata_profile or {}),
             "operator_authorization_profile": dict(operator_authorization_profile or {}),
             "training_record": dict(training_record or {}),
@@ -117,6 +128,10 @@ class FileBackedStep2CloseoutRepository:
         evidence_index = {
             **dict(built.get("step2_closeout_evidence_index") or {}),
             **self._load_json(STEP2_CLOSEOUT_EVIDENCE_INDEX_FILENAME),
+        }
+        digest = {
+            **dict(self.builder_kwargs.get("step2_closeout_digest") or {}),
+            **self._load_json(STEP2_CLOSEOUT_DIGEST_FILENAME),
         }
         summary_markdown = self._load_markdown(STEP2_CLOSEOUT_SUMMARY_FILENAME) or str(
             built.get("step2_closeout_summary_markdown") or ""
@@ -144,7 +159,7 @@ class FileBackedStep2CloseoutRepository:
         compact_section["main_chain_dependency"] = False
         return {
             "step2_closeout_bundle": bundle,
-            "step2_closeout_digest": dict(self.builder_kwargs.get("step2_closeout_digest") or {}),
+            "step2_closeout_digest": digest,
             "step2_closeout_evidence_index": evidence_index,
             "step2_closeout_summary_markdown": summary_markdown,
             "step2_closeout_compact_section": compact_section,
