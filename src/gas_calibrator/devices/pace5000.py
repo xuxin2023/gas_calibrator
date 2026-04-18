@@ -450,6 +450,26 @@ class Pace5000:
             return False
         return self.get_instrument_version() == "02.00.07"
 
+    def legacy_completed_latch_auto_clear_blocked(self, status: Any) -> bool:
+        value = self._parse_first_int(str(status))
+        return value == self.VENT_STATUS_COMPLETED and self.has_legacy_vent_state_3_compatibility()
+
+    def _legacy_completed_latch_auto_clear_result(self, before_status: Any) -> dict[str, Any]:
+        status_value = self._parse_first_int(str(before_status))
+        return {
+            "before_status": status_value,
+            "clear_attempted": False,
+            "after_status": status_value,
+            "cleared": False,
+            "command": "",
+            "vent3_watchlist_observed": False,
+            "skipped": True,
+            "blocked": True,
+            "reason": "legacy_completed_latch_auto_clear_blocked",
+            "manual_intervention_required": True,
+            "vent_command_sent": False,
+        }
+
     def vent_status_allows_control(self, status: Any) -> bool:
         value = self._parse_first_int(str(status))
         if value is None:
@@ -698,13 +718,22 @@ class Pace5000:
             "cleared": before_status == self.VENT_STATUS_IDLE,
             "command": "",
             "vent3_watchlist_observed": False,
+            "skipped": False,
+            "blocked": False,
+            "reason": "",
+            "manual_intervention_required": False,
+            "vent_command_sent": False,
         }
         if not self.vent_status_is_completed_latched(before_status):
             return result
 
+        if self.legacy_completed_latch_auto_clear_blocked(before_status):
+            return self._legacy_completed_latch_auto_clear_result(before_status)
+
         self.vent(False)
         result["clear_attempted"] = True
         result["command"] = ":SOUR:PRES:LEV:IMM:AMPL:VENT 0"
+        result["vent_command_sent"] = True
         deadline = time.time() + max(0.5, float(timeout_s))
         last_status = before_status
         while time.time() < deadline:
@@ -850,6 +879,8 @@ class Pace5000:
                 time.sleep(max(0.05, poll_s))
                 continue
             if status == self.VENT_STATUS_COMPLETED:
+                if self.legacy_completed_latch_auto_clear_blocked(status):
+                    raise RuntimeError("VENT_COMPLETED_LATCH_AUTO_CLEAR_BLOCKED(last_status=2)")
                 if not clear_sent or clear_retries < max_clear_retries:
                     self.vent(False)
                     clear_sent = True
@@ -988,6 +1019,13 @@ class Pace5000:
     ) -> int:
         self.stop_atmosphere_hold()
         self.set_output(False)
+        current_status = None
+        try:
+            current_status = self.get_vent_status()
+        except Exception:
+            current_status = None
+        if self.legacy_completed_latch_auto_clear_blocked(current_status):
+            raise RuntimeError("VENT_COMPLETED_LATCH_AUTO_CLEAR_BLOCKED(last_status=2)")
         self.vent(False)
         # Keep the output path open so controlled pressure reaches the external line.
         self.set_isolation_open(True)

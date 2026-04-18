@@ -850,6 +850,22 @@ class CalibrationRunner:
         except Exception:
             return False
 
+    @staticmethod
+    def _legacy_completed_latch_auto_clear_reason(
+        before_status: Any,
+        after_status: Any = None,
+    ) -> str:
+        before_text = "unknown" if before_status is None else str(before_status)
+        after_value = before_status if after_status is None else after_status
+        after_text = "unknown" if after_value is None else str(after_value)
+        return f"legacy_completed_latch_auto_clear_blocked(before={before_text},after={after_text})"
+
+    def _pace_legacy_completed_latch_auto_clear_blocked(self, pace: Any, vent_status: Any) -> bool:
+        return (
+            self._as_int(vent_status) == 2
+            and self._pace_legacy_vent_state_3_compatibility_enabled(pace)
+        )
+
     def _pace_legacy_vent_state_3_suspect_from_snapshot(
         self,
         pace: Any,
@@ -3584,6 +3600,7 @@ class CalibrationRunner:
         completed_latched_before = self._pace_vent_completed_latched_from_snapshot(snapshot_before)
         force_clear_latched = bool(completed_latched_before is True and before_vent_status != 2)
         clear_attempted = False
+        clear_blocked = False
         clear_result_text = "not_needed"
         clear_error = ""
         self._set_point_runtime_fields(point, phase=phase_text, **self._pace_snapshot_runtime_fields(snapshot_before))
@@ -3686,7 +3703,22 @@ class CalibrationRunner:
                 try:
                     clear_summary = clear_latch(timeout_s=5.0, poll_s=0.25)
                     clear_attempted = bool(clear_summary.get("clear_attempted"))
-                    if clear_attempted:
+                    clear_blocked = bool(clear_summary.get("blocked"))
+                    if not clear_blocked:
+                        clear_blocked = (
+                            str(clear_summary.get("reason") or "").strip().lower()
+                            == "legacy_completed_latch_auto_clear_blocked"
+                        )
+                    if clear_blocked:
+                        clear_result_text = self._legacy_completed_latch_auto_clear_reason(
+                            clear_summary.get("before_status"),
+                            clear_summary.get("after_status"),
+                        )
+                        self.log(
+                            "Pressure sequence completed vent latch auto-clear blocked on legacy PACE5000 "
+                            "while VENT?=2; manual intervention required before control can continue"
+                        )
+                    elif clear_attempted:
                         if bool(clear_summary.get("cleared")):
                             after_status = self._as_int(clear_summary.get("after_status"))
                             if after_status == 0:
@@ -3792,7 +3824,7 @@ class CalibrationRunner:
         return {
             "before": snapshot_before,
             "after": snapshot_after,
-            "status": "applied" if clear_attempted else "skipped",
+            "status": "blocked" if clear_blocked else ("applied" if clear_attempted else "skipped"),
             "reason": clear_result_text,
         }
 
@@ -10733,11 +10765,17 @@ class CalibrationRunner:
 
         target = float(point.target_pressure_hpa)
         phase = "h2o" if point.is_h2o_point else "co2"
-        self._clear_pressure_sequence_completed_vent_latch_if_present(
+        vent_clear_summary = self._clear_pressure_sequence_completed_vent_latch_if_present(
             point,
             phase=phase,
             reason="before pressure control ready-for-control check",
         )
+        if str(vent_clear_summary.get("status") or "").strip().lower() == "blocked":
+            self.log(
+                "Pressure control aborted before ready-for-control check: "
+                f"{vent_clear_summary.get('reason')}; manual intervention required"
+            )
+            return False
         self._emit_stage_event(
             current=self._stage_label_for_point(point, phase=phase),
             point=point,
@@ -11808,6 +11846,27 @@ class CalibrationRunner:
                     refresh_pace_state=False,
                     note="VENT?=2 vent completed latch observed",
                 )
+                if self._pace_legacy_completed_latch_auto_clear_blocked(pace, vent_status):
+                    block_reason = self._legacy_completed_latch_auto_clear_reason(vent_status)
+                    self._append_pressure_trace_row(
+                        point=None,
+                        route="pressure",
+                        trace_stage="atmosphere_vent_clear_blocked",
+                        atmosphere_hold_strategy="single_cycle_query_clear",
+                        pace_outp_state_query=snapshot.get("pace_outp_state_query"),
+                        pace_isol_state_query=snapshot.get("pace_isol_state_query"),
+                        pace_mode_query=snapshot.get("pace_mode_query"),
+                        pace_vent_status_query=snapshot.get("pace_vent_status_query"),
+                        pace_vent_completed_latched=True,
+                        pace_vent_clear_attempted=False,
+                        pace_vent_clear_result=block_reason,
+                        refresh_pace_state=False,
+                        note=(
+                            "legacy VENT?=2 auto-clear blocked to avoid sending VENT 0; "
+                            "manual intervention required"
+                        ),
+                    )
+                    raise RuntimeError("VENT_COMPLETED_LATCH_AUTO_CLEAR_BLOCKED(last_status=2)")
                 pace.vent(False)
                 clear_sent = True
                 self._append_pressure_trace_row(
@@ -12011,6 +12070,30 @@ class CalibrationRunner:
                 )
             else:
                 self._refresh_pressure_controller_aux_state(pace)
+                current_vent_status = None
+                vent_status_getter = getattr(pace, "get_vent_status", None)
+                if callable(vent_status_getter):
+                    try:
+                        current_vent_status = vent_status_getter()
+                    except Exception:
+                        current_vent_status = None
+                if self._pace_legacy_completed_latch_auto_clear_blocked(pace, current_vent_status):
+                    block_reason = self._legacy_completed_latch_auto_clear_reason(current_vent_status)
+                    self._append_pressure_trace_row(
+                        point=None,
+                        route="pressure",
+                        trace_stage="control_vent_off_blocked",
+                        atmosphere_hold_strategy=self._pressure_atmosphere_hold_strategy,
+                        pace_vent_status_query=current_vent_status,
+                        pace_vent_clear_attempted=False,
+                        pace_vent_clear_result=block_reason,
+                        refresh_pace_state=False,
+                        note=(
+                            f"{reason or 'vent off'}; legacy VENT?=2 auto-clear blocked to avoid sending VENT 0; "
+                            "manual intervention required"
+                        ),
+                    )
+                    raise RuntimeError("VENT_COMPLETED_LATCH_AUTO_CLEAR_BLOCKED(last_status=2)")
                 exit_atmosphere = getattr(pace, "exit_atmosphere_mode", None)
                 if callable(exit_atmosphere) and not fast_preseal_vent_off:
                     exit_atmosphere(timeout_s=vent_transition_timeout_s)

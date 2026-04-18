@@ -1011,17 +1011,10 @@ def test_clear_completed_vent_latch_if_present_sends_vent_zero_and_waits_for_idl
     assert any(":SOUR:PRES:LEV:IMM:AMPL:VENT 0" in write for write in dev.ser.writes)
 
 
-def test_clear_completed_vent_latch_if_present_keeps_legacy_watchlist_status_3_as_not_cleared(monkeypatch) -> None:
+def test_clear_completed_vent_latch_if_present_blocks_legacy_auto_clear_when_completed_latched(monkeypatch) -> None:
     class FakeSerialDevice:
         def __init__(self, *args, **kwargs):
             self.writes = []
-            self.responses = iter(
-                [
-                    ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
-                    ":SOUR:PRES:LEV:IMM:AMPL:VENT 3",
-                    ":SOUR:PRES:LEV:IMM:AMPL:VENT 3",
-                ]
-            )
 
         def open(self):
             return None
@@ -1034,8 +1027,12 @@ def test_clear_completed_vent_latch_if_present_keeps_legacy_watchlist_status_3_a
 
         def query(self, data: str) -> str:
             cmd = data.strip().upper()
+            if cmd == "*IDN?":
+                return "GE Druck,Pace5000 User Interface,3213201,02.00.07"
+            if cmd == ":INST:VERS?":
+                return "02.00.07"
             if cmd == ":SOUR:PRES:LEV:IMM:AMPL:VENT?":
-                return next(self.responses)
+                return ":SOUR:PRES:LEV:IMM:AMPL:VENT 2"
             return ""
 
         def readline(self) -> str:
@@ -1043,20 +1040,94 @@ def test_clear_completed_vent_latch_if_present_keeps_legacy_watchlist_status_3_a
 
     monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
     dev = pace5000.Pace5000("COM1", 9600)
-    dev._device_identity_probed = True
-    dev._legacy_vent_status_model = True
-    dev._instrument_version_probed = True
-    dev._instrument_version = "02.00.07"
 
     result = dev.clear_completed_vent_latch_if_present(timeout_s=0.2, poll_s=0.0)
 
     assert result["before_status"] == 2
-    assert result["clear_attempted"] is True
-    assert result["after_status"] == 3
+    assert result["clear_attempted"] is False
+    assert result["after_status"] == 2
     assert result["cleared"] is False
-    assert result["command"] == ":SOUR:PRES:LEV:IMM:AMPL:VENT 0"
-    assert result["vent3_watchlist_observed"] is True
-    assert any(":SOUR:PRES:LEV:IMM:AMPL:VENT 0" in write for write in dev.ser.writes)
+    assert result["command"] == ""
+    assert result["vent3_watchlist_observed"] is False
+    assert result["skipped"] is True
+    assert result["blocked"] is True
+    assert result["reason"] == "legacy_completed_latch_auto_clear_blocked"
+    assert result["manual_intervention_required"] is True
+    assert result["vent_command_sent"] is False
+    assert not any(":SOUR:PRES:LEV:IMM:AMPL:VENT 0" in write for write in dev.ser.writes)
+
+
+def test_wait_for_vent_idle_blocks_legacy_auto_clear_when_completed_latched(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.writes = []
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.writes.append(data)
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            if cmd == "*IDN?":
+                return "GE Druck,Pace5000 User Interface,3213201,02.00.07"
+            if cmd == ":INST:VERS?":
+                return "02.00.07"
+            if cmd == ":SOUR:PRES:LEV:IMM:AMPL:VENT?":
+                return ":SOUR:PRES:LEV:IMM:AMPL:VENT 2"
+            return ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    with pytest.raises(RuntimeError, match="VENT_COMPLETED_LATCH_AUTO_CLEAR_BLOCKED"):
+        dev.wait_for_vent_idle(timeout_s=0.2, poll_s=0.0)
+
+    assert not any(":SOUR:PRES:LEV:IMM:AMPL:VENT 0" in write for write in dev.ser.writes)
+
+
+def test_exit_atmosphere_mode_blocks_legacy_auto_clear_when_completed_latched(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.writes = []
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.writes.append(data)
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            if cmd == "*IDN?":
+                return "GE Druck,Pace5000 User Interface,3213201,02.00.07"
+            if cmd == ":INST:VERS?":
+                return "02.00.07"
+            if cmd == ":SOUR:PRES:LEV:IMM:AMPL:VENT?":
+                return ":SOUR:PRES:LEV:IMM:AMPL:VENT 2"
+            return ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    with pytest.raises(RuntimeError, match="VENT_COMPLETED_LATCH_AUTO_CLEAR_BLOCKED"):
+        dev.exit_atmosphere_mode(timeout_s=0.2, poll_s=0.0)
+
+    assert any(":OUTP 0" in write for write in dev.ser.writes)
+    assert not any(":SOUR:PRES:LEV:IMM:AMPL:VENT 0" in write for write in dev.ser.writes)
 
 
 def test_diagnostic_status_collects_best_effort_aux_fields(monkeypatch) -> None:
