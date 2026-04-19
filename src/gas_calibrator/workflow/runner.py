@@ -876,6 +876,16 @@ class CalibrationRunner:
             f"before={before_text},cond={cond_text},event={event_text})"
         )
 
+    @staticmethod
+    def _legacy_completed_latch_single_cycle_clear_blocked_reason(
+        before_status: Any,
+    ) -> str:
+        before_text = "unknown" if before_status is None else str(before_status)
+        return (
+            "legacy_completed_latch_single_cycle_clear_blocked("
+            f"before={before_text},strategy=single_cycle_query_clear)"
+        )
+
     def _pace_legacy_completed_latch_auto_clear_blocked(self, pace: Any, vent_status: Any) -> bool:
         return (
             self._as_int(vent_status) == 2
@@ -11889,7 +11899,9 @@ class CalibrationRunner:
                     note="VENT?=2 vent completed latch observed",
                 )
                 if self._pace_legacy_completed_latch_auto_clear_blocked(pace, vent_status):
-                    block_reason = self._legacy_completed_latch_auto_clear_reason(vent_status)
+                    block_reason = self._legacy_completed_latch_single_cycle_clear_blocked_reason(
+                        vent_status
+                    )
                     self._append_pressure_trace_row(
                         point=None,
                         route="pressure",
@@ -11904,11 +11916,19 @@ class CalibrationRunner:
                         pace_vent_clear_result=block_reason,
                         refresh_pace_state=False,
                         note=(
-                            "legacy VENT?=2 auto-clear blocked to avoid sending VENT 0; "
+                            "legacy VENT?=2 single-cycle clear blocked to avoid sending VENT 0; "
                             "manual intervention required"
                         ),
                     )
-                    raise RuntimeError("VENT_COMPLETED_LATCH_AUTO_CLEAR_BLOCKED(last_status=2)")
+                    self.log(
+                        "Pressure controller atmosphere single-cycle clear blocked: "
+                        "legacy VENT?=2 completed latch will not auto-send VENT 0; "
+                        "manual_intervention_required=true"
+                    )
+                    raise RuntimeError(
+                        "VENT_COMPLETED_LATCH_SINGLE_CYCLE_CLEAR_BLOCKED("
+                        "last_status=2,manual_intervention_required=true)"
+                    )
                 pace.vent(False)
                 clear_sent = True
                 self._append_pressure_trace_row(
@@ -12091,7 +12111,7 @@ class CalibrationRunner:
                     trace_stage="atmosphere_hold_strategy_selected",
                     note=(
                         f"requested_strategy={requested_strategy} "
-                        "VENT 1 single-shot -> poll VENT? -> VENT 0 clear completed latch"
+                        "VENT 1 single-shot -> poll VENT? -> clear completed latch only when safe"
                     ),
                     atmosphere_hold_strategy=requested_strategy,
                 )

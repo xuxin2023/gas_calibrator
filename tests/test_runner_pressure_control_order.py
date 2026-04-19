@@ -599,7 +599,9 @@ def test_set_pressure_controller_vent_on_does_not_depend_on_open_valve_extension
     assert any(row["trace_stage"] == "atmosphere_enter_verified" for row in trace_rows)
 
 
-def test_set_pressure_controller_vent_on_blocks_legacy_completed_latch_auto_clear(tmp_path: Path) -> None:
+def test_set_pressure_controller_vent_on_blocks_legacy_single_cycle_completed_latch_clear(
+    tmp_path: Path,
+) -> None:
     cfg = {
         "workflow": {
             "pressure": {
@@ -612,7 +614,10 @@ def test_set_pressure_controller_vent_on_blocks_legacy_completed_latch_auto_clea
     pace = _FakePaceSingleCycleVentBlocked()
     runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
 
-    with pytest.raises(RuntimeError, match="VENT_COMPLETED_LATCH_AUTO_CLEAR_BLOCKED"):
+    with pytest.raises(
+        RuntimeError,
+        match="VENT_COMPLETED_LATCH_SINGLE_CYCLE_CLEAR_BLOCKED",
+    ):
         runner._set_pressure_controller_vent(True, reason="legacy completed latch")
     logger.close()
 
@@ -625,7 +630,8 @@ def test_set_pressure_controller_vent_on_blocks_legacy_completed_latch_auto_clea
     assert any(
         row["trace_stage"] == "atmosphere_vent_clear_blocked"
         and row["pace_vent_status_query"].strip() == "2"
-        and row["pace_vent_clear_result"].strip() == "legacy_completed_latch_auto_clear_blocked(before=2,after=2)"
+        and row["pace_vent_clear_result"].strip()
+        == "legacy_completed_latch_single_cycle_clear_blocked(before=2,strategy=single_cycle_query_clear)"
         for row in trace_rows
     )
     assert not any(row["trace_stage"] == "atmosphere_vent_clear_command" for row in trace_rows)
