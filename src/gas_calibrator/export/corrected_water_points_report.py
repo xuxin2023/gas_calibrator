@@ -12,6 +12,7 @@ import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
 
+from ..coefficients.fit_input_qc import evaluate_ratio_fit_input_quality
 from ..coefficients.fit_ratio_poly import fit_ratio_poly_rt_p
 from ..coefficients.model_feature_policy import resolve_ratio_poly_model_features
 from ..coefficients.model_metrics import compute_metrics
@@ -68,6 +69,48 @@ def _resolve_h2o_selection(selection: Mapping[str, Any] | None) -> Dict[str, Any
     return normalize_h2o_summary_selection(selection)
 
 
+def _resolve_gas_temperature_key(
+    coeff_cfg: Mapping[str, Any] | None,
+    gas: str,
+    *,
+    gas_temperature_keys: Mapping[str, str] | None = None,
+    fallback: str = "Temp",
+) -> str:
+    gas_key = str(gas or "").strip().lower()
+    if isinstance(gas_temperature_keys, Mapping):
+        configured = gas_temperature_keys.get(gas_key) or gas_temperature_keys.get(gas_key.upper())
+        if str(configured or "").strip():
+            return str(configured).strip()
+
+    summary_columns = (coeff_cfg or {}).get("summary_columns")
+    if isinstance(summary_columns, Mapping):
+        gas_columns = (
+            summary_columns.get(gas_key)
+            or summary_columns.get(gas_key.upper())
+            or summary_columns.get(gas_key.lower())
+        )
+        if isinstance(gas_columns, Mapping):
+            configured = gas_columns.get("temperature")
+            if str(configured or "").strip():
+                return str(configured).strip()
+    return str(fallback or "Temp").strip() or "Temp"
+
+
+def _resolve_available_temperature_key(
+    frame: pd.DataFrame,
+    *,
+    preferred_key: str,
+    fallback_key: str = "Temp",
+) -> str:
+    preferred = str(preferred_key or "").strip()
+    fallback = str(fallback_key or "Temp").strip() or "Temp"
+    if preferred and preferred in frame.columns:
+        return preferred
+    if fallback in frame.columns:
+        return fallback
+    return preferred or fallback
+
+
 def _anchor_threshold_for_row(
     row: Mapping[str, Any],
     selection_cfg: Mapping[str, Any],
@@ -98,11 +141,13 @@ def select_corrected_fit_rows_with_diagnostics(
         working["PhaseKey"] = working["PhaseKey"].map(_phase_key)
     else:
         working["PhaseKey"] = working.get("PointPhase", "").map(_phase_key)
-    working["FitTemp"] = pd.to_numeric(working.get(temperature_key), errors="coerce")
+    resolved_temperature_key = temperature_key if temperature_key in working.columns else "Temp"
+    working["FitTemp"] = pd.to_numeric(working.get(resolved_temperature_key), errors="coerce")
     working["EnvTempC"] = pd.to_numeric(working.get("EnvTempC"), errors="coerce")
     working["ppm_CO2_Tank_num"] = pd.to_numeric(working.get("ppm_CO2_Tank"), errors="coerce")
     working["ppm_H2O_Dew_num"] = pd.to_numeric(working.get("ppm_H2O_Dew"), errors="coerce")
     working["SelectionOrigin"] = ""
+    working["TemperatureColumnUsed"] = resolved_temperature_key
 
     gas_key = str(gas or "").strip().lower()
     if gas_key == "co2":
@@ -290,6 +335,12 @@ def _build_bundle(
         coeff_cfg,
         coeff_cfg.get("selected_pressure_points") or coeff_cfg.get("workflow_selected_pressure_points"),
     )
+    input_qc = evaluate_ratio_fit_input_quality(
+        fit_frame,
+        target_key=target_key,
+        ratio_key=ratio_key,
+        qc_cfg=coeff_cfg,
+    )
 
     result = fit_ratio_poly_rt_p(
         fit_frame.to_dict(orient="records"),
@@ -392,8 +443,22 @@ def _build_bundle(
         return top[top_common]
 
     feature_terms = {name: result.feature_terms.get(name, "") for name in result.feature_names}
-    simplified_row: Dict[str, Any] = {"分析仪": analyzer, "气体": gas.upper(), "数据范围": data_scope}
-    original_row: Dict[str, Any] = {"分析仪": analyzer, "气体": gas.upper(), "数据范围": data_scope}
+    simplified_row: Dict[str, Any] = {
+        "Analyzer": analyzer,
+        "Gas": gas.upper(),
+        "DataScope": data_scope,
+        "分析仪": analyzer,
+        "气体": gas.upper(),
+        "数据范围": data_scope,
+    }
+    original_row: Dict[str, Any] = {
+        "Analyzer": analyzer,
+        "Gas": gas.upper(),
+        "DataScope": data_scope,
+        "分析仪": analyzer,
+        "气体": gas.upper(),
+        "数据范围": data_scope,
+    }
     for name in result.feature_names:
         simplified_row[name] = result.simplified_coefficients.get(name)
         simplified_row[f"{name}_term"] = feature_terms.get(name, "")
@@ -401,6 +466,9 @@ def _build_bundle(
         original_row[f"{name}_term"] = feature_terms.get(name, "")
 
     summary_row = {
+        "Analyzer": analyzer,
+        "Gas": gas.upper(),
+        "DataScope": data_scope,
         "分析仪": analyzer,
         "气体": gas.upper(),
         "数据范围": data_scope,
@@ -429,8 +497,28 @@ def _build_bundle(
         "综合建议": suggestion,
         "建议说明": suggestion_note,
         "模型": result.model,
+        "temperature_column_used": temperature_key,
+        "model_feature_policy": model_feature_policy,
+        "model_feature_tokens": ",".join(active_model_features or []),
+        "original_rmse": float(orig_metrics["RMSE"]),
+        "simplified_rmse": float(simple_metrics["RMSE"]),
+        "rmse_delta": rmse_change,
+        "rmse_delta_pct": rmse_pct,
+        "max_prediction_diff_between_original_and_simplified": float(point_table["abs_pred_diff"].max()),
+        "fit_input_quality": input_qc["status"],
+        "fit_input_warning": input_qc["warning_text"],
+        "ratio_span": input_qc["ratio_span"],
+        "ratio_unique_count": input_qc["ratio_unique_count"],
+        "target_group_count": input_qc["target_group_count"],
+        "target_group_mean_ratio_span": input_qc["target_group_mean_span"],
+        "delivery_recommendation": input_qc["delivery_recommendation_code"],
+        "delivery_recommendation_label": input_qc["delivery_recommendation"],
         "模型特征策略": model_feature_policy,
         "模型特征列表": ",".join(active_model_features or []),
+        "温度源列": temperature_key,
+        "拟合输入质量": input_qc["status"],
+        "拟合输入告警": input_qc["warning_text"],
+        "下发建议": input_qc["delivery_recommendation"],
         "系数简化方法": str(coeff_cfg.get("simplification_method", "column_norm")),
         "系数有效数字": int(coeff_cfg.get("target_digits", 6)),
         "R多项式阶数": int(coeff_cfg.get("ratio_degree", 3)),
@@ -458,6 +546,7 @@ def build_corrected_water_points_report(
     output_path: str | Path,
     coeff_cfg: Mapping[str, Any] | None = None,
     temperature_key: str = "Temp",
+    gas_temperature_keys: Mapping[str, str] | None = None,
     data_scope: str = "按水路纠正规则",
 ) -> Dict[str, Any]:
     cfg = dict(coeff_cfg or {})
@@ -474,10 +563,21 @@ def build_corrected_water_points_report(
             ("co2", "ppm_CO2_Tank", "R_CO2"),
             ("h2o", "ppm_H2O_Dew", "R_H2O"),
         ):
+            preferred_temperature_key = _resolve_gas_temperature_key(
+                cfg,
+                gas,
+                gas_temperature_keys=gas_temperature_keys,
+                fallback=temperature_key,
+            )
+            resolved_temperature_key = _resolve_available_temperature_key(
+                analyzer_frame,
+                preferred_key=preferred_temperature_key,
+                fallback_key=temperature_key,
+            )
             selection_result = select_corrected_fit_rows_with_diagnostics(
                 analyzer_frame,
                 gas=gas,
-                temperature_key=temperature_key,
+                temperature_key=resolved_temperature_key,
                 selection=h2o_selection,
             )
             selected = selection_result["selected_frame"]
@@ -496,7 +596,7 @@ def build_corrected_water_points_report(
                     selected,
                     target_key=target_key,
                     ratio_key=ratio_key,
-                    temperature_key=temperature_key,
+                    temperature_key=resolved_temperature_key,
                     pressure_key="P_fit",
                     coeff_cfg={**cfg, "pressure_scale": 1.0},
                 )
@@ -525,6 +625,8 @@ def build_corrected_water_points_report(
                 "PointTitle",
                 "EnvTempC",
                 "Temp",
+                "FitTemp",
+                "TemperatureColumnUsed",
                 "ppm_CO2_Tank",
                 "ppm_H2O_Dew",
                 "R_CO2",
@@ -565,6 +667,28 @@ def build_corrected_water_points_report(
         "说明项": "统计口径",
         "说明内容": f"CO2 仅使用 PointPhase=气路；H2O 使用 {_describe_h2o_selection(h2o_selection)}",
     }
+    note_rows[2] = {
+        "说明项": "温度列",
+        "说明内容": "CO2="
+        + _resolve_gas_temperature_key(cfg, "co2", gas_temperature_keys=gas_temperature_keys, fallback=temperature_key)
+        + "; H2O="
+        + _resolve_gas_temperature_key(cfg, "h2o", gas_temperature_keys=gas_temperature_keys, fallback=temperature_key),
+    }
+    original_pressure_points = cfg.get("original_selected_pressure_points")
+    effective_pressure_points = cfg.get("selected_pressure_points") or cfg.get("workflow_selected_pressure_points")
+    if original_pressure_points not in (None, ""):
+        note_rows.append({"说明项": "原始 pressure points", "说明内容": str(original_pressure_points)})
+    if effective_pressure_points not in (None, ""):
+        note_rows.append({"说明项": "corrected pressure points", "说明内容": str(effective_pressure_points)})
+    model_feature_policies = sorted(
+        {
+            str(bundle.summary_row.get("model_feature_policy") or "").strip()
+            for bundle in bundles
+            if str(bundle.summary_row.get("model_feature_policy") or "").strip()
+        }
+    )
+    if model_feature_policies:
+        note_rows.append({"说明项": "model_feature_policy", "说明内容": ", ".join(model_feature_policies)})
     note_rows.append(
         {
             "说明项": "H2O锚点门禁",

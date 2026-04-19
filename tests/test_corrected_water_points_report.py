@@ -231,3 +231,343 @@ def test_build_bundle_ambient_only_passes_model_features(monkeypatch) -> None:
     assert captured["model_features"] == AMBIENT_ONLY_MODEL_FEATURES
     assert bundle.summary_row["模型特征策略"] == "ambient_only_fallback"
     assert bundle.summary_row["模型特征列表"] == ",".join(AMBIENT_ONLY_MODEL_FEATURES)
+
+
+def test_build_bundle_mixed_pressure_keeps_default_full_model(monkeypatch) -> None:
+    selected = pd.DataFrame(
+        [
+            {
+                "PointRow": 1,
+                "PointPhase": "气路",
+                "PointTag": "co2_mixed_1",
+                "PointTitle": "mixed-1",
+                "FitTemp": 20.0,
+                "ppm_CO2_Tank": 400.0,
+                "R_CO2": 1.0,
+                "P_fit": 101.0,
+            },
+            {
+                "PointRow": 2,
+                "PointPhase": "气路",
+                "PointTag": "co2_mixed_2",
+                "PointTitle": "mixed-2",
+                "FitTemp": 21.0,
+                "ppm_CO2_Tank": 500.0,
+                "R_CO2": 1.1,
+                "P_fit": 50.0,
+            },
+        ]
+    )
+    captured: dict[str, object] = {}
+
+    def fake_fit(rows, **kwargs):
+        captured["model_features"] = kwargs.get("model_features")
+        return SimpleNamespace(
+            residuals=[
+                {
+                    "target": 400.0,
+                    "prediction_original": 400.0,
+                    "error_original": 0.0,
+                    "prediction_simplified": 400.0,
+                    "error_simplified": 0.0,
+                    "R": 1.0,
+                    "T_c": 20.0,
+                    "P": 101.0,
+                    "PointRow": 1,
+                    "PointPhase": "气路",
+                    "PointTag": "co2_mixed_1",
+                    "PointTitle": "mixed-1",
+                },
+                {
+                    "target": 500.0,
+                    "prediction_original": 500.0,
+                    "error_original": 0.0,
+                    "prediction_simplified": 500.0,
+                    "error_simplified": 0.0,
+                    "R": 1.1,
+                    "T_c": 21.0,
+                    "P": 50.0,
+                    "PointRow": 2,
+                    "PointPhase": "气路",
+                    "PointTag": "co2_mixed_2",
+                    "PointTitle": "mixed-2",
+                },
+            ],
+            feature_terms={"intercept": "intercept"},
+            feature_names=["intercept"],
+            simplified_coefficients={"intercept": 1.0},
+            original_coefficients={"intercept": 1.0},
+            stats={"mae_simplified": 0.0},
+            model="ratio_poly_rt_p",
+            n=2,
+        )
+
+    monkeypatch.setattr(report_module, "fit_ratio_poly_rt_p", fake_fit)
+
+    bundle = report_module._build_bundle(
+        "GA01",
+        "co2",
+        "按水路纠正规则",
+        selected,
+        target_key="ppm_CO2_Tank",
+        ratio_key="R_CO2",
+        temperature_key="Temp",
+        pressure_key="P_fit",
+        coeff_cfg={"selected_pressure_points": ["ambient", 500]},
+    )
+
+    assert captured["model_features"] is None
+    assert bundle.summary_row["模型特征策略"] == "default_full_model"
+
+
+def test_build_corrected_water_points_report_uses_summary_column_temperature_by_gas(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "summary_temp_keys.xlsx"
+    frame = pd.DataFrame(
+        [
+            {
+                "PointPhase": "气路",
+                "PointTag": "co2_pt",
+                "PointTitle": "0°C环境，二氧化碳 0 ppm",
+                "Temp": 18.0,
+                "thermometer_temp_c": 11.5,
+                "h2o_temp_c": 9.9,
+                "ppm_CO2_Tank": 0.0,
+                "ppm_H2O_Dew": 0.5,
+                "R_CO2": 1.4,
+                "R_H2O": 0.77,
+                "BAR": 108.0,
+            },
+            {
+                "PointPhase": "水路",
+                "PointTag": "h2o_pt",
+                "PointTitle": "20°C环境，湿度发生器 20°C/50%RH",
+                "Temp": 20.0,
+                "thermometer_temp_c": 21.5,
+                "h2o_temp_c": 22.5,
+                "ppm_CO2_Tank": None,
+                "ppm_H2O_Dew": 7.0,
+                "R_CO2": 1.3,
+                "R_H2O": 0.8,
+                "BAR": 108.0,
+            },
+        ]
+    )
+    with pd.ExcelWriter(source_path, engine="openpyxl") as writer:
+        frame.to_excel(writer, sheet_name="GA01", index=False)
+
+    captured: dict[str, str] = {}
+
+    def fake_build_bundle(analyzer, gas, data_scope, selected_frame, **kwargs):
+        temperature_key = str(kwargs["temperature_key"])
+        captured[gas] = temperature_key
+        gas_upper = gas.upper()
+        return report_module.CorrectedFitBundle(
+            analyzer=analyzer,
+            gas=gas_upper,
+            data_scope=data_scope,
+            selected_frame=selected_frame.drop(columns=["Analyzer", "Gas", "DataScope"], errors="ignore"),
+            summary_row={
+                "Analyzer": analyzer,
+                "Gas": gas_upper,
+                "DataScope": data_scope,
+                "temperature_column_used": temperature_key,
+            },
+            simplified_row={"Analyzer": analyzer, "Gas": gas_upper, "DataScope": data_scope, "a0": 1.0},
+            original_row={"Analyzer": analyzer, "Gas": gas_upper, "DataScope": data_scope, "a0": 1.0},
+            point_table=pd.DataFrame(),
+            range_table=pd.DataFrame(),
+            top_error_orig=pd.DataFrame(),
+            top_error_simple=pd.DataFrame(),
+            top_pred_diff=pd.DataFrame(),
+        )
+
+    monkeypatch.setattr(report_module, "_build_bundle", fake_build_bundle)
+
+    result = report_module.build_corrected_water_points_report(
+        [source_path],
+        output_path=tmp_path / "report_temp_keys.xlsx",
+        coeff_cfg={
+            "summary_columns": {
+                "co2": {"temperature": "thermometer_temp_c"},
+                "h2o": {"temperature": "h2o_temp_c"},
+            }
+        },
+    )
+
+    assert captured == {"co2": "thermometer_temp_c", "h2o": "h2o_temp_c"}
+    assert set(result["summary"]["temperature_column_used"].tolist()) == {"thermometer_temp_c", "h2o_temp_c"}
+    assert set(result["h2o_selected_rows"]["TemperatureColumnUsed"].tolist()) == {"h2o_temp_c"}
+
+
+def test_build_corrected_water_points_report_falls_back_to_temp_when_temperature_not_configured(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    source_path = tmp_path / "summary_temp_fallback.xlsx"
+    frame = pd.DataFrame(
+        [
+            {
+                "PointPhase": "气路",
+                "PointTag": "co2_pt",
+                "PointTitle": "0°C环境，二氧化碳 0 ppm",
+                "Temp": 18.0,
+                "ppm_CO2_Tank": 0.0,
+                "ppm_H2O_Dew": 0.5,
+                "R_CO2": 1.4,
+                "R_H2O": 0.77,
+                "BAR": 108.0,
+            },
+            {
+                "PointPhase": "水路",
+                "PointTag": "h2o_pt",
+                "PointTitle": "20°C环境，湿度发生器 20°C/50%RH",
+                "Temp": 20.0,
+                "ppm_CO2_Tank": None,
+                "ppm_H2O_Dew": 7.0,
+                "R_CO2": 1.3,
+                "R_H2O": 0.8,
+                "BAR": 108.0,
+            },
+        ]
+    )
+    with pd.ExcelWriter(source_path, engine="openpyxl") as writer:
+        frame.to_excel(writer, sheet_name="GA01", index=False)
+
+    captured: dict[str, str] = {}
+
+    def fake_build_bundle(analyzer, gas, data_scope, selected_frame, **kwargs):
+        temperature_key = str(kwargs["temperature_key"])
+        captured[gas] = temperature_key
+        gas_upper = gas.upper()
+        return report_module.CorrectedFitBundle(
+            analyzer=analyzer,
+            gas=gas_upper,
+            data_scope=data_scope,
+            selected_frame=selected_frame.drop(columns=["Analyzer", "Gas", "DataScope"], errors="ignore"),
+            summary_row={
+                "Analyzer": analyzer,
+                "Gas": gas_upper,
+                "DataScope": data_scope,
+                "temperature_column_used": temperature_key,
+            },
+            simplified_row={"Analyzer": analyzer, "Gas": gas_upper, "DataScope": data_scope, "a0": 1.0},
+            original_row={"Analyzer": analyzer, "Gas": gas_upper, "DataScope": data_scope, "a0": 1.0},
+            point_table=pd.DataFrame(),
+            range_table=pd.DataFrame(),
+            top_error_orig=pd.DataFrame(),
+            top_error_simple=pd.DataFrame(),
+            top_pred_diff=pd.DataFrame(),
+        )
+
+    monkeypatch.setattr(report_module, "_build_bundle", fake_build_bundle)
+
+    result = report_module.build_corrected_water_points_report(
+        [source_path],
+        output_path=tmp_path / "report_temp_fallback.xlsx",
+        coeff_cfg={},
+    )
+
+    assert captured == {"co2": "Temp", "h2o": "Temp"}
+    assert set(result["summary"]["temperature_column_used"].tolist()) == {"Temp"}
+    assert set(result["h2o_selected_rows"]["TemperatureColumnUsed"].tolist()) == {"Temp"}
+
+
+def test_build_bundle_marks_bad_ratio_input_in_summary(monkeypatch) -> None:
+    selected = pd.DataFrame(
+        [
+            {
+                "PointRow": 1,
+                "PointPhase": "气路",
+                "PointTag": "co2_bad_1",
+                "PointTitle": "bad-1",
+                "FitTemp": 20.0,
+                "ppm_CO2_Tank": 0.0,
+                "R_CO2": 1.0,
+                "P_fit": 101.0,
+            },
+            {
+                "PointRow": 2,
+                "PointPhase": "气路",
+                "PointTag": "co2_bad_2",
+                "PointTitle": "bad-2",
+                "FitTemp": 20.5,
+                "ppm_CO2_Tank": 200.0,
+                "R_CO2": 1.0,
+                "P_fit": 101.0,
+            },
+            {
+                "PointRow": 3,
+                "PointPhase": "气路",
+                "PointTag": "co2_bad_3",
+                "PointTitle": "bad-3",
+                "FitTemp": 21.0,
+                "ppm_CO2_Tank": 400.0,
+                "R_CO2": 1.0,
+                "P_fit": 101.0,
+            },
+            {
+                "PointRow": 4,
+                "PointPhase": "气路",
+                "PointTag": "co2_bad_4",
+                "PointTitle": "bad-4",
+                "FitTemp": 21.5,
+                "ppm_CO2_Tank": 800.0,
+                "R_CO2": 1.0,
+                "P_fit": 101.0,
+            },
+        ]
+    )
+
+    def fake_fit(rows, **kwargs):
+        residuals = []
+        for index, row in enumerate(rows, start=1):
+            residuals.append(
+                {
+                    "target": row["ppm_CO2_Tank"],
+                    "prediction_original": row["ppm_CO2_Tank"],
+                    "error_original": 0.0,
+                    "prediction_simplified": row["ppm_CO2_Tank"],
+                    "error_simplified": 0.0,
+                    "R": row["R_CO2"],
+                    "T_c": row["FitTemp"],
+                    "P": row["P_fit"],
+                    "PointRow": index,
+                    "PointPhase": row["PointPhase"],
+                    "PointTag": row["PointTag"],
+                    "PointTitle": row["PointTitle"],
+                }
+            )
+        return SimpleNamespace(
+            residuals=residuals,
+            feature_terms={"intercept": "intercept"},
+            feature_names=["intercept"],
+            simplified_coefficients={"intercept": 1.0},
+            original_coefficients={"intercept": 1.0},
+            stats={"mae_simplified": 0.0},
+            model="ratio_poly_rt_p",
+            n=len(rows),
+        )
+
+    monkeypatch.setattr(report_module, "fit_ratio_poly_rt_p", fake_fit)
+
+    bundle = report_module._build_bundle(
+        "GA03",
+        "co2",
+        "按水路纠正规则",
+        selected,
+        target_key="ppm_CO2_Tank",
+        ratio_key="R_CO2",
+        temperature_key="Temp",
+        pressure_key="P_fit",
+        coeff_cfg={},
+    )
+
+    assert bundle.summary_row["fit_input_quality"] == "fail"
+    assert "ratio_unique_count_too_low" in bundle.summary_row["fit_input_warning"]
+    assert "ratio_span_too_small" in bundle.summary_row["fit_input_warning"]
+    assert bundle.summary_row["ratio_unique_count"] == 1
+    assert bundle.summary_row["ratio_span"] == 0.0
+    assert bundle.summary_row["delivery_recommendation"] == "forbid_download"
