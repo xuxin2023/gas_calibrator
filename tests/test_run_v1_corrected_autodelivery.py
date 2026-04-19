@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -46,6 +47,25 @@ def test_build_corrected_download_plan_rows_maps_groups_by_gas() -> None:
     assert co2["SecondaryCommand"].startswith("SENCO3,YGAS,FFF,5.00000e00,6.00000e00,7.00000e00,8.00000e00,9.00000e00")
     assert h2o["PrimarySENCO"] == "2"
     assert h2o["SecondarySENCO"] == "4"
+
+
+def test_build_corrected_download_plan_rows_fills_missing_a7_a8_with_zero() -> None:
+    simplified = pd.DataFrame(
+        [
+            {"分析仪": "GA01", "气体": "CO2", **{f"a{i}": float(i + 1) for i in range(7)}},
+        ]
+    )
+
+    rows = module.build_corrected_download_plan_rows(simplified, actual_device_ids={"GA01": "086"})
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["a7"] == 0.0
+    assert row["a8"] == 0.0
+    assert row["SecondaryC3"] == "0.00000e00"
+    assert row["SecondaryC4"] == "0.00000e00"
+    assert row["PrimaryCommand"].startswith("SENCO1,YGAS,FFF,1.00000e00,2.00000e00,3.00000e00,4.00000e00")
+    assert row["SecondaryCommand"].endswith("5.00000e00,6.00000e00,7.00000e00,0.00000e00,0.00000e00,0.00000e00")
 
 
 def test_compute_pressure_offset_rows_uses_ambient_pressure_gauge_samples(tmp_path: Path) -> None:
@@ -273,6 +293,50 @@ def test_build_corrected_delivery_prefers_startup_pressure_rows(tmp_path: Path, 
     assert result["h2o_anchor_gate_hits"] == [{"Analyzer": "GA01", "PointRow": 12, "PointTag": "co2_0_0", "GateReason": "anchor_h2o_dew_above_limit", "ActualDeviceId": "005"}]
     assert result["temperature_gate_hits"][0]["analyzer_id"] == "GA01"
     assert any(item["CheckCode"] == "pressure_structure" for item in result["run_structure_hints"])
+
+
+def test_build_corrected_delivery_passes_selected_pressure_points_to_report(tmp_path: Path, monkeypatch) -> None:
+    run_dir = tmp_path / "run_ambient_only"
+    out_dir = tmp_path / "out_ambient_only"
+    run_dir.mkdir()
+    out_dir.mkdir()
+    (run_dir / "runtime_config_snapshot.json").write_text(
+        json.dumps({"workflow": {"selected_pressure_points": ["ambient"]}}),
+        encoding="utf-8",
+    )
+    report_kwargs: dict[str, object] = {}
+
+    monkeypatch.setattr(module, "_filter_no_500_summary_paths", lambda *_args, **_kwargs: ([run_dir / "summary.xlsx"], []))
+
+    def _fake_report(*_args, **kwargs):
+        report_kwargs.update(kwargs)
+        return {
+            "summary": pd.DataFrame([{"分析仪": "GA01", "气体": "CO2"}]),
+            "simplified": pd.DataFrame([{"分析仪": "GA01", "气体": "CO2", **{f'a{i}': float(i + 1) for i in range(9)}}]),
+            "original": pd.DataFrame([{"分析仪": "GA01", "气体": "CO2"}]),
+            "points": pd.DataFrame([{"分析仪": "GA01", "气体": "CO2"}]),
+            "ranges": pd.DataFrame([{"分析仪": "GA01", "气体": "CO2"}]),
+            "topn": pd.DataFrame([{"分析仪": "GA01", "气体": "CO2"}]),
+            "h2o_selected_rows": pd.DataFrame(),
+            "h2o_anchor_gate_hits": pd.DataFrame(),
+        }
+
+    monkeypatch.setattr(module, "build_corrected_water_points_report", _fake_report)
+    monkeypatch.setattr(module, "extract_run_device_ids", lambda *_args, **_kwargs: {"GA01": "005"})
+    monkeypatch.setattr(module, "load_temperature_coefficient_rows", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(module, "load_startup_pressure_calibration_rows", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(module, "_append_dataframe_sheet", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(module, "_annotate_workbook_with_actual_device_ids", lambda *_args, **_kwargs: None)
+
+    result = module.build_corrected_delivery(
+        run_dir=run_dir,
+        output_dir=out_dir,
+        coeff_cfg={"target_digits": 6},
+        pressure_row_source="startup_calibration",
+    )
+
+    assert report_kwargs["coeff_cfg"] == {"target_digits": 6, "selected_pressure_points": ["ambient"]}
+    assert result["pressure_rows"] == []
 
 
 def test_write_coefficients_to_live_devices_can_skip_pressure_rows(tmp_path: Path, monkeypatch) -> None:

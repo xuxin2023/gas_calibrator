@@ -12,10 +12,11 @@ import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
 
-from ..h2o_summary_selection import normalize_h2o_summary_selection
 from ..coefficients.fit_ratio_poly import fit_ratio_poly_rt_p
+from ..coefficients.model_feature_policy import resolve_ratio_poly_model_features
 from ..coefficients.model_metrics import compute_metrics
 from ..coefficients.prediction_analysis import analyze_by_range
+from ..h2o_summary_selection import normalize_h2o_summary_selection
 
 _TEMP_RE = re.compile(r"([-+]?\d+(?:\.\d+)?)°C")
 
@@ -285,6 +286,10 @@ def _build_bundle(
     fit_frame = selected_frame.copy()
     if pressure_key not in fit_frame.columns and "BAR" in fit_frame.columns and pressure_key == "P_fit":
         fit_frame["P_fit"] = pd.to_numeric(fit_frame["BAR"], errors="coerce")
+    active_model_features, model_feature_policy = resolve_ratio_poly_model_features(
+        coeff_cfg,
+        coeff_cfg.get("selected_pressure_points") or coeff_cfg.get("workflow_selected_pressure_points"),
+    )
 
     result = fit_ratio_poly_rt_p(
         fit_frame.to_dict(orient="records"),
@@ -297,6 +302,7 @@ def _build_bundle(
         ratio_degree=int(coeff_cfg.get("ratio_degree", 3)),
         temperature_offset_c=float(coeff_cfg.get("temperature_offset_c", 273.15)),
         add_intercept=bool(coeff_cfg.get("add_intercept", True)),
+        model_features=active_model_features,
         simplify_coefficients=bool(coeff_cfg.get("simplify_coefficients", True)),
         simplification_method=str(coeff_cfg.get("simplification_method", "column_norm")),
         target_digits=int(coeff_cfg.get("target_digits", 6)),
@@ -423,6 +429,8 @@ def _build_bundle(
         "综合建议": suggestion,
         "建议说明": suggestion_note,
         "模型": result.model,
+        "模型特征策略": model_feature_policy,
+        "模型特征列表": ",".join(active_model_features or []),
         "系数简化方法": str(coeff_cfg.get("simplification_method", "column_norm")),
         "系数有效数字": int(coeff_cfg.get("target_digits", 6)),
         "R多项式阶数": int(coeff_cfg.get("ratio_degree", 3)),

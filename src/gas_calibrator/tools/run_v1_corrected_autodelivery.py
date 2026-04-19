@@ -1388,11 +1388,20 @@ def build_corrected_delivery(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     filtered_paths, filter_stats = _filter_no_500_summary_paths(run_dir, output_dir)
+    runtime_cfg = _load_runtime_snapshot_cfg(run_dir)
+    report_coeff_cfg = dict(coeff_cfg or {})
+    selected_pressure_points = (
+        runtime_cfg.get("workflow", {}).get("selected_pressure_points")
+        if isinstance(runtime_cfg, Mapping)
+        else None
+    )
+    if selected_pressure_points is not None:
+        report_coeff_cfg["selected_pressure_points"] = selected_pressure_points
     report_path = output_dir / "calibration_coefficients.xlsx"
     report = build_corrected_water_points_report(
         filtered_paths,
         output_path=report_path,
-        coeff_cfg=coeff_cfg,
+        coeff_cfg=report_coeff_cfg,
         temperature_key="Temp",
     )
     simplified = pd.DataFrame(report.get("simplified", pd.DataFrame())).copy()
@@ -1442,7 +1451,6 @@ def build_corrected_delivery(
         if not pressure_rows and fallback_pressure_to_controller:
             pressure_rows = compute_pressure_offset_rows(run_dir, fallback_to_controller=True)
 
-    runtime_cfg = _load_runtime_snapshot_cfg(run_dir)
     run_structure_hint_cfg = (
         dict(runtime_cfg.get("workflow", {}).get("postrun_corrected_delivery", {}).get("run_structure_hints", {}))
         if isinstance(runtime_cfg, Mapping)

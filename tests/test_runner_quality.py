@@ -2,6 +2,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import gas_calibrator.workflow.runner as runner_module
+from gas_calibrator.coefficients.model_feature_policy import AMBIENT_ONLY_MODEL_FEATURES
 from gas_calibrator.data.points import CalibrationPoint
 from gas_calibrator.logging_utils import RunLogger
 from gas_calibrator.workflow.runner import CalibrationRunner
@@ -624,6 +625,101 @@ def test_auto_fit_ratio_poly_reads_nested_pressure_source_preference(monkeypatch
 
     assert captured["pressure_keys"] == ("P", "BAR")
     assert any("pressure_source_preference=reference_first" in message for message in logs)
+
+
+def test_auto_fit_ratio_poly_ambient_only_uses_seven_feature_model(monkeypatch, tmp_path: Path) -> None:
+    runner = _runner_with_quality(
+        tmp_path,
+        {"enabled": False},
+        workflow_extra={"selected_pressure_points": ["ambient"]},
+        coefficients_cfg={},
+    )
+    rows = [
+        {"Analyzer": "GA01", "PointPhase": "气路", "ppm_CO2_Tank": 400.0, "R_CO2": 1.0, "T1": 20.0, "BAR": 101.0},
+        {"Analyzer": "GA01", "PointPhase": "气路", "ppm_CO2_Tank": 500.0, "R_CO2": 1.1, "T1": 21.0, "BAR": 101.1},
+    ]
+    captured: dict[str, object] = {}
+
+    def fake_fit(rows, **kwargs):
+        captured["model_features"] = kwargs.get("model_features")
+        return SimpleNamespace(
+            model="ratio_poly_rt_p",
+            n=len(rows),
+            stats={"rmse_simplified": 0.1, "max_abs_simplified": 0.2},
+        )
+
+    monkeypatch.setattr(runner, "_load_analyzer_summary_rows", lambda: rows)
+    monkeypatch.setattr(runner_module, "fit_ratio_poly_rt_p", fake_fit)
+    monkeypatch.setattr(runner_module, "save_ratio_poly_report", lambda *args, **kwargs: {"json": tmp_path / "dummy.json"})
+
+    runner._auto_fit_ratio_poly_from_summary(runner.cfg["coefficients"], gas="co2", model="ratio_poly_rt_p")
+    runner.logger.close()
+
+    assert captured["model_features"] == AMBIENT_ONLY_MODEL_FEATURES
+
+
+def test_auto_fit_ratio_poly_explicit_model_features_override_ambient_only(monkeypatch, tmp_path: Path) -> None:
+    explicit_features = ["intercept", "R", "T"]
+    runner = _runner_with_quality(
+        tmp_path,
+        {"enabled": False},
+        workflow_extra={"selected_pressure_points": ["ambient"]},
+        coefficients_cfg={"model_features": explicit_features},
+    )
+    rows = [
+        {"Analyzer": "GA01", "PointPhase": "气路", "ppm_CO2_Tank": 400.0, "R_CO2": 1.0, "T1": 20.0, "BAR": 101.0},
+        {"Analyzer": "GA01", "PointPhase": "气路", "ppm_CO2_Tank": 500.0, "R_CO2": 1.1, "T1": 21.0, "BAR": 101.1},
+    ]
+    captured: dict[str, object] = {}
+
+    def fake_fit(rows, **kwargs):
+        captured["model_features"] = kwargs.get("model_features")
+        return SimpleNamespace(
+            model="ratio_poly_rt_p",
+            n=len(rows),
+            stats={"rmse_simplified": 0.1, "max_abs_simplified": 0.2},
+        )
+
+    monkeypatch.setattr(runner, "_load_analyzer_summary_rows", lambda: rows)
+    monkeypatch.setattr(runner_module, "fit_ratio_poly_rt_p", fake_fit)
+    monkeypatch.setattr(runner_module, "save_ratio_poly_report", lambda *args, **kwargs: {"json": tmp_path / "dummy.json"})
+
+    runner._auto_fit_ratio_poly_from_summary(runner.cfg["coefficients"], gas="co2", model="ratio_poly_rt_p")
+    runner.logger.close()
+
+    assert captured["model_features"] == explicit_features
+
+
+def test_auto_fit_ratio_poly_multi_pressure_keeps_full_model_default(monkeypatch, tmp_path: Path) -> None:
+    runner = _runner_with_quality(
+        tmp_path,
+        {"enabled": False},
+        workflow_extra={"selected_pressure_points": ["ambient", 1100, 1000]},
+        coefficients_cfg={},
+    )
+    rows = [
+        {"Analyzer": "GA01", "PointPhase": "气路", "ppm_CO2_Tank": 400.0, "R_CO2": 1.0, "T1": 20.0, "BAR": 101.0, "P": 1000.0},
+        {"Analyzer": "GA01", "PointPhase": "气路", "ppm_CO2_Tank": 500.0, "R_CO2": 1.1, "T1": 21.0, "BAR": 101.1, "P": 1100.0},
+    ]
+    captured: dict[str, object] = {}
+
+    def fake_fit(rows, **kwargs):
+        captured["model_features"] = kwargs.get("model_features")
+        return SimpleNamespace(
+            model="ratio_poly_rt_p",
+            n=len(rows),
+            stats={"rmse_simplified": 0.1, "max_abs_simplified": 0.2},
+        )
+
+    monkeypatch.setattr(runner, "_load_analyzer_summary_rows", lambda: rows)
+    monkeypatch.setattr(runner_module, "fit_ratio_poly_rt_p", fake_fit)
+    monkeypatch.setattr(runner_module, "save_ratio_poly_report", lambda *args, **kwargs: {"json": tmp_path / "dummy.json"})
+
+    runner._auto_fit_ratio_poly_from_summary(runner.cfg["coefficients"], gas="co2", model="ratio_poly_rt_p")
+    runner.logger.close()
+
+    assert "model_features" in captured
+    assert captured["model_features"] is None
 
 
 def test_h2o_ratio_poly_summary_selection_defaults_to_zero_ppm_only_at_minus20_minus10_and_zero(tmp_path: Path) -> None:

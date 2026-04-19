@@ -16,6 +16,7 @@ from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional,
 
 from ..coefficients.fit_ratio_poly import fit_ratio_poly_rt_p
 from ..coefficients.fit_ratio_poly_evolved import fit_ratio_poly_rt_p_evolved
+from ..coefficients.model_feature_policy import resolve_ratio_poly_model_features
 from ..config import get as cfg_get
 from ..data.points import CalibrationPoint
 from ..logging_utils import RunLogger
@@ -376,10 +377,15 @@ def fit_overview_rows(
         pressure_candidates = runner._ratio_poly_pressure_candidates(pressure_key, pressure_preference)
         model = str(fit_cfg.get("model", "ratio_poly_rt_p") or "ratio_poly_rt_p").strip().lower()
         fit_fn = _fit_fn_for_model(model)
+        active_model_features, model_feature_policy = resolve_ratio_poly_model_features(
+            fit_cfg,
+            cfg.get("workflow", {}).get("selected_pressure_points"),
+        )
         common_kwargs = {
             "ratio_degree": int(fit_cfg.get("ratio_degree", 3)),
             "temperature_offset_c": float(fit_cfg.get("temperature_offset_c", 273.15)),
             "add_intercept": bool(fit_cfg.get("add_intercept", True)),
+            "model_features": active_model_features,
             "simplify_coefficients": bool(fit_cfg.get("simplify_coefficients", True)),
             "simplification_method": str(fit_cfg.get("simplification_method", "column_norm") or "column_norm"),
             "target_digits": int(fit_cfg.get("target_digits", 6)),
@@ -440,6 +446,8 @@ def fit_overview_rows(
                         "selected_pressure_key": str(resolved["pressure_column"]),
                         "pressure_source_preference": pressure_preference,
                         "pressure_scale": pressure_scale,
+                        "model_feature_policy": model_feature_policy,
+                        "model_feature_tokens": ",".join(active_model_features or []),
                         "P_coverage": pressure_stats["P_coverage"],
                         "BAR_coverage": pressure_stats["BAR_coverage"],
                         "P_BAR_overlap": pressure_stats["Overlap"],
@@ -465,6 +473,8 @@ def fit_overview_rows(
                         "selected_pressure_key": "",
                         "pressure_source_preference": pressure_preference,
                         "pressure_scale": pressure_scale,
+                        "model_feature_policy": model_feature_policy,
+                        "model_feature_tokens": ",".join(active_model_features or []),
                         "fit_error": str(exc),
                     }
                 )

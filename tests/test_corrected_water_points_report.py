@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 
+from gas_calibrator.coefficients.model_feature_policy import AMBIENT_ONLY_MODEL_FEATURES
 from gas_calibrator.export import corrected_water_points_report as report_module
 
 
@@ -142,3 +143,91 @@ def test_build_corrected_water_points_report_creates_expected_sheets(
 
     workbook = pd.ExcelFile(out_path)
     assert workbook.sheet_names == ["说明", "汇总", "简化系数", "原始系数", "逐点对账", "分区间分析", "误差TopN"]
+
+
+def test_build_bundle_ambient_only_passes_model_features(monkeypatch) -> None:
+    selected = pd.DataFrame(
+        [
+            {
+                "PointRow": 1,
+                "PointPhase": "气路",
+                "PointTag": "co2_ambient_1",
+                "PointTitle": "ambient-1",
+                "FitTemp": 20.0,
+                "ppm_CO2_Tank": 400.0,
+                "R_CO2": 1.0,
+                "P_fit": 101.0,
+            },
+            {
+                "PointRow": 2,
+                "PointPhase": "气路",
+                "PointTag": "co2_ambient_2",
+                "PointTitle": "ambient-2",
+                "FitTemp": 21.0,
+                "ppm_CO2_Tank": 500.0,
+                "R_CO2": 1.1,
+                "P_fit": 101.1,
+            },
+        ]
+    )
+    captured: dict[str, object] = {}
+
+    def fake_fit(rows, **kwargs):
+        captured["model_features"] = kwargs.get("model_features")
+        return SimpleNamespace(
+            residuals=[
+                {
+                    "target": 400.0,
+                    "prediction_original": 400.0,
+                    "error_original": 0.0,
+                    "prediction_simplified": 400.0,
+                    "error_simplified": 0.0,
+                    "R": 1.0,
+                    "T_c": 20.0,
+                    "P": 101.0,
+                    "PointRow": 1,
+                    "PointPhase": "气路",
+                    "PointTag": "co2_ambient_1",
+                    "PointTitle": "ambient-1",
+                },
+                {
+                    "target": 500.0,
+                    "prediction_original": 500.0,
+                    "error_original": 0.0,
+                    "prediction_simplified": 500.0,
+                    "error_simplified": 0.0,
+                    "R": 1.1,
+                    "T_c": 21.0,
+                    "P": 101.1,
+                    "PointRow": 2,
+                    "PointPhase": "气路",
+                    "PointTag": "co2_ambient_2",
+                    "PointTitle": "ambient-2",
+                },
+            ],
+            feature_terms={name: name for name in AMBIENT_ONLY_MODEL_FEATURES},
+            feature_names=list(AMBIENT_ONLY_MODEL_FEATURES),
+            simplified_coefficients={name: float(index) for index, name in enumerate(AMBIENT_ONLY_MODEL_FEATURES)},
+            original_coefficients={name: float(index) for index, name in enumerate(AMBIENT_ONLY_MODEL_FEATURES)},
+            stats={"mae_simplified": 0.0},
+            model="ratio_poly_rt_p",
+            n=2,
+        )
+
+    monkeypatch.setattr(report_module, "fit_ratio_poly_rt_p", fake_fit)
+
+    bundle = report_module._build_bundle(
+        "GA01",
+        "co2",
+        "按水路纠正规则",
+        selected,
+        target_key="ppm_CO2_Tank",
+        ratio_key="R_CO2",
+        temperature_key="Temp",
+        pressure_key="P_fit",
+        coeff_cfg={"selected_pressure_points": [" ambient "]},
+    )
+
+    assert captured["model_features"] == AMBIENT_ONLY_MODEL_FEATURES
+    assert bundle.summary_row["模型特征策略"] == "ambient_only_fallback"
+    assert bundle.summary_row["模型特征列表"] == ",".join(AMBIENT_ONLY_MODEL_FEATURES)

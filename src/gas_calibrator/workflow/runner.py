@@ -26,6 +26,7 @@ from ..coefficients.fit_amt import fit_amt_eq4, save_fit_report
 from ..coefficients.data_loader import records_to_dataframe, resolve_column_name
 from ..coefficients.fit_ratio_poly import fit_ratio_poly_rt_p, save_ratio_poly_report
 from ..coefficients.fit_ratio_poly_evolved import fit_ratio_poly_rt_p_evolved
+from ..coefficients.model_feature_policy import resolve_ratio_poly_model_features
 from ..data.points import CalibrationPoint, load_points_from_excel, reorder_points, validate_points
 from ..export.temperature_compensation_export import export_temperature_compensation_artifacts
 from ..h2o_summary_selection import normalize_h2o_summary_selection
@@ -22825,6 +22826,10 @@ class CalibrationRunner:
         robust_huber_delta = float(cfg.get("robust_huber_delta", 1.5))
         robust_min_weight = float(cfg.get("robust_min_weight", 0.05))
         candidate_methods = cfg.get("candidate_simplification_methods")
+        active_model_features, model_feature_reason = resolve_ratio_poly_model_features(
+            cfg,
+            self.cfg.get("workflow", {}).get("selected_pressure_points"),
+        )
 
         fit_fn = fit_ratio_poly_rt_p
         if model in {"ratio_poly_rt_p_evolved", "poly_rt_p_evolved"}:
@@ -22865,6 +22870,10 @@ class CalibrationRunner:
                     "pressure_selection_mode=batch_unified "
                     f"pressure_scale={pressure_scale:g}"
                 )
+                self.log(
+                    f"Ratio-poly model features [{gas_lower.upper()}][{analyzer_label}]: "
+                    f"reason={model_feature_reason} features={active_model_features}"
+                )
                 if fit_fn is fit_ratio_poly_rt_p_evolved:
                     result = fit_fn(
                         analyzer_rows,
@@ -22877,6 +22886,7 @@ class CalibrationRunner:
                         ratio_degree=ratio_degree,
                         temperature_offset_c=temperature_offset_c,
                         add_intercept=add_intercept,
+                        model_features=active_model_features,
                         simplify_coefficients=simplify_coefficients,
                         simplification_method=simplification_method,
                         target_digits=target_digits,
@@ -22904,6 +22914,7 @@ class CalibrationRunner:
                         ratio_degree=ratio_degree,
                         temperature_offset_c=temperature_offset_c,
                         add_intercept=add_intercept,
+                        model_features=active_model_features,
                         simplify_coefficients=simplify_coefficients,
                         simplification_method=simplification_method,
                         target_digits=target_digits,
