@@ -29,6 +29,141 @@ def _co2_point(*, ppm: float = 600.0, group: str = "A", pressure_hpa: float = 10
     )
 
 
+def _h2o_point(*, pressure_hpa: float = 1000.0) -> CalibrationPoint:
+    return CalibrationPoint(
+        index=2,
+        temp_chamber_c=20.0,
+        co2_ppm=None,
+        hgen_temp_c=20.0,
+        hgen_rh_pct=30.0,
+        target_pressure_hpa=pressure_hpa,
+        dewpoint_c=None,
+        h2o_mmol=None,
+        raw_h2o=None,
+    )
+
+
+def test_h2o_stage_10_is_source_like_final_stage(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {"valves": {"h2o_path": 8, "hold": 9, "flow_switch": 10}},
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+
+    metadata = runner.valve_role_map_for_ids([10])[0]
+    logger.close()
+
+    assert metadata["source_like_stage"] is True
+    assert metadata["final_stage"] is True
+    assert metadata["requires_explicit_allow"] is True
+
+
+def test_h2o_source_stage_safe_default_false(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    point = _h2o_point()
+
+    runner._sync_h2o_source_stage_runtime_fields(point, phase="h2o")
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="h2o") or {}
+    assert runner._source_stage_safety["h2o"] is False
+    assert state["source_stage_key"] == "h2o"
+    assert state["source_stage_safe"] is False
+
+
+def test_h2o_final_stage_false_blocks_dewpoint_gate(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {"workflow": {"stability": {"water_route_dewpoint_gate_enabled": True, "water_route_dewpoint_gate_policy": "reject"}}},
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _h2o_point()
+    runner._sync_h2o_source_stage_runtime_fields(point, phase="h2o")
+
+    assert runner._wait_h2o_route_dewpoint_gate_before_sampling(point, log_context="unit test") is False
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="h2o") or {}
+    assert state["abort_reason"] == "SourceStageNotVerified"
+    trace_rows = _load_pressure_trace_rows(logger)
+    assert any(row["trace_stage"] == "h2o_precondition_dewpoint_gate_blocked" for row in trace_rows)
+    assert not any(row["trace_stage"] == "h2o_precondition_dewpoint_gate_begin" for row in trace_rows)
+
+
+def test_h2o_final_stage_false_blocks_sampling(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {"workflow": {"sampling": {"stable_count": 1, "interval_s": 0.0, "quality": {"enabled": False}}}},
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _h2o_point()
+    runner._sync_h2o_source_stage_runtime_fields(point, phase="h2o")
+    calls = {"collect": 0}
+    runner._collect_samples = lambda *_args, **_kwargs: calls.__setitem__("collect", calls["collect"] + 1) or []  # type: ignore[method-assign]
+
+    runner._sample_open_route_point(point, phase="h2o", point_tag="demo")
+    logger.close()
+
+    assert calls["collect"] == 0
+    trace_rows = _load_pressure_trace_rows(logger)
+    assert any(row["trace_stage"] == "sampling_blocked" for row in trace_rows)
+    assert not any(row["trace_stage"] == "sampling_begin" for row in trace_rows)
+
+
+def test_h2o_final_stage_false_blocks_fast_handoff_full_open(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {"pressure": {"route_open_guard_enabled": True}},
+            "valves": {"h2o_path": 8, "hold": 9, "flow_switch": 10},
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _h2o_point()
+    point_tag = runner._h2o_point_tag(point)
+    runner._sync_h2o_source_stage_runtime_fields(point, phase="h2o")
+    runner._pending_route_handoff = {
+        "next_phase": "h2o",
+        "next_point_tag": point_tag,
+        "next_point": point,
+        "sample_done_ts": 1.0,
+        "vent_command_ts": 1.1,
+    }
+    runner._wait_until_safe_to_open_next_route = lambda *_args, **_kwargs: {  # type: ignore[method-assign]
+        "safe_open_ts": 1.2,
+        "pressure_gauge_hpa": 1013.0,
+        "atmosphere_reference_hpa": 1013.0,
+        "safe_open_delta_hpa": 0.0,
+        "safe_open_baseline_source": "pressure_gauge",
+        "safe_open_baseline_hpa": 1013.0,
+    }
+    runner._stop_pressure_transition_fast_signal_context = lambda *args, **kwargs: None  # type: ignore[method-assign]
+
+    assert runner._complete_pending_route_handoff(
+        point,
+        phase="h2o",
+        point_tag=point_tag,
+        open_valves=[8, 9, 10],
+    ) is False
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="h2o") or {}
+    assert state["handoff_source_stage_block_reason"] == "HandoffSourceStageBlockedUntilVerified"
+
+
 def test_source_stage_safe_false_blocks_dewpoint_gate(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner(
@@ -166,6 +301,146 @@ def test_source_stage_fail_records_route_vent_path_not_effective(tmp_path: Path)
     assert state["source_stage_guard_reason"] == "RouteVentPathNotEffective"
 
 
+def test_h2o_final_stage_failure_records_route_vent_path_not_effective(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {"valves": {"h2o_path": 8, "hold": 9, "flow_switch": 10}},
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _h2o_point()
+    runner._apply_valve_states = lambda open_valves: setattr(runner, "_current_open_valves", tuple(open_valves))  # type: ignore[method-assign]
+
+    def _guard(*args, **kwargs):
+        stage_label = str(kwargs.get("stage_label") or "")
+        if stage_label == "8|9|10":
+            return (
+                False,
+                {
+                    "route_pressure_guard_status": "fail",
+                    "route_pressure_guard_reason": "RouteVentPathNotEffective",
+                    "pressure_delta_from_ambient_hpa": 331.726,
+                    "analyzer_pressure_kpa": None,
+                    "pace_syst_err_query": '0,"No error"',
+                    "abort_reason": "RouteVentPathNotEffective",
+                    "vent_recovery_result": "vent_refresh_failed",
+                    "hidden_syst_err_count": 0,
+                    "unclassified_syst_err_count": 0,
+                },
+            )
+        return (
+            True,
+            {
+                "route_pressure_guard_status": "pass",
+                "route_pressure_guard_reason": "",
+                "pressure_delta_from_ambient_hpa": 0.5,
+                "analyzer_pressure_kpa": None,
+                "pace_syst_err_query": '0,"No error"',
+                "abort_reason": "",
+                "vent_recovery_result": "",
+                "hidden_syst_err_count": 0,
+                "unclassified_syst_err_count": 0,
+            },
+        )
+
+    runner._run_route_open_pressure_guard = _guard  # type: ignore[method-assign]
+
+    assert runner._open_route_with_pressure_guard(
+        point,
+        phase="h2o",
+        point_tag="demo",
+        open_valves=[8, 9, 10],
+        log_context="unit h2o stage10 fail",
+    ) is False
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="h2o") or {}
+    assert runner._source_stage_safety["h2o"] is False
+    assert state["source_stage_key"] == "h2o"
+    assert state["source_stage_guard_reason"] == "RouteVentPathNotEffective"
+
+
+def test_unclassified_syst_err_during_route_stage_aborts(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "valves": {
+                "h2o_path": 8,
+                "gas_main": 11,
+                "co2_path": 7,
+                "co2_map": {"600": 4},
+            }
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _co2_point()
+    state = {"armed": False}
+
+    def _apply(open_valves):
+        setattr(runner, "_current_open_valves", tuple(open_valves))
+        state["armed"] = True
+
+    def _read_syst_err():
+        if state["armed"]:
+            state["armed"] = False
+            return ':SYST:ERR -102,"Syntax error"'
+        return '0,"No error"'
+
+    runner._apply_valve_states = _apply  # type: ignore[method-assign]
+    runner._read_pace_system_error_text = _read_syst_err  # type: ignore[method-assign]
+
+    assert runner._open_route_with_pressure_guard(
+        point,
+        phase="co2",
+        point_tag="demo",
+        open_valves=[8, 11, 7, 4],
+        log_context="unit unclassified syst err",
+    ) is False
+    logger.close()
+
+    state_row = runner._point_runtime_state(point, phase="co2") or {}
+    assert state_row["abort_reason"] == "UnclassifiedPaceSystErrDuringRouteStage"
+    assert state_row["unclassified_syst_err_count"] >= 1
+
+
+class _FakePaceOptionalAttribution:
+    def __init__(self) -> None:
+        self.errors: list[str] = []
+
+    def query(self, cmd: str) -> str:
+        if str(cmd).strip() == ":SOUR:PRES:COMP1?":
+            self.errors.append(':SYST:ERR -102,"Syntax error"')
+        return "OK"
+
+    def get_system_error(self) -> str:
+        return self.errors[0] if self.errors else '0,"No error"'
+
+    def drain_system_errors(self):
+        drained = list(self.errors)
+        self.errors.clear()
+        return drained
+
+
+def test_optional_diagnostic_syst_err_is_attributed_and_drained_before_route(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner({}, {"pace": _FakePaceOptionalAttribution()}, logger, lambda *_: None, lambda *_: None)
+
+    rows = runner._pace_optional_query_error_attribution((":SOUR:PRES:COMP1?",), reason="unit optional attribution")
+    counts = runner._pace_error_attribution_counts()
+    logger.close()
+
+    assert rows[0]["command"] == ":SOUR:PRES:COMP1?"
+    assert rows[0]["syst_err"] == ':SYST:ERR -102,"Syntax error"'
+    assert rows[0]["drained_errors"] == [':SYST:ERR -102,"Syntax error"']
+    assert counts["optional_probe_error_count"] == 1
+    assert counts["unclassified_syst_err_count"] == 0
+
+
 class _FakePaceCapability:
     def __init__(self) -> None:
         self.queries: list[str] = []
@@ -205,6 +480,8 @@ class _FakePaceCapability:
 
     def query(self, cmd: str) -> str:
         self.queries.append(str(cmd))
+        if str(cmd).strip() == ":UNIT:PRES?":
+            return ":UNIT:PRES HPA"
         if str(cmd).strip() == ":SENS:PRES:RANG?":
             return '"1600HPAG"'
         if str(cmd).strip() == ":SENS:PRES:CONT?":
@@ -228,6 +505,40 @@ def test_k0472_capability_snapshot_records_unit_mode_ranges(tmp_path: Path) -> N
     assert snapshot["sensor_pressure_range"] == "1600HPAG"
     assert snapshot["source_pressure_in_limits_pct"] == 0.02
     assert snapshot["source_pressure_in_limits_time_s"] == 10.0
+    assert snapshot["sens_pres_cont_supported"] is False
+
+
+class _FakePaceSensPresContCapabilityOnly:
+    def __init__(self) -> None:
+        self.errors: list[str] = []
+        self.get_control_pressure_calls = 0
+
+    def get_output_state(self) -> int:
+        return 0
+
+    def get_isolation_state(self) -> int:
+        return 1
+
+    def get_vent_status(self) -> int:
+        return 0
+
+    def query(self, cmd: str) -> str:
+        if str(cmd).strip() == ":SENS:PRES:CONT?":
+            self.errors.append(':SYST:ERR -113,"Undefined header"')
+            return ""
+        return ""
+
+    def get_system_error(self) -> str:
+        return self.errors[0] if self.errors else '0,"No error"'
+
+    def drain_system_errors(self):
+        drained = list(self.errors)
+        self.errors.clear()
+        return drained
+
+    def get_control_pressure(self):
+        self.get_control_pressure_calls += 1
+        return 123.4
 
 
 class _FakePaceUnknownUnit:
@@ -251,6 +562,21 @@ def test_pressure_unit_unknown_blocks_formal_setpoint(tmp_path: Path) -> None:
 
     state = runner._point_runtime_state(point, phase="co2") or {}
     assert state["abort_reason"] == "PressureUnitUnknown"
+
+
+def test_sens_pres_cont_probe_is_capability_only_and_not_used_in_route_guard(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceSensPresContCapabilityOnly()
+    runner = CalibrationRunner({}, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+
+    snapshot = runner._capture_pace_capability_snapshot(reason="unit sens pres cont", include_optional_probe=True)
+    diag_snapshot = runner._pace_diagnostic_state_snapshot(refresh=True, refresh_aux=True)
+    logger.close()
+
+    assert snapshot["sens_pres_cont_supported"] is False
+    assert snapshot["sens_pres_cont_error"] == ':SYST:ERR -113,"Undefined header"'
+    assert pace.get_control_pressure_calls == 0
+    assert diag_snapshot["pace_sens_pres_cont_query"] == ""
 
 
 def test_analyzer_pressure_unavailable_is_reported_not_silently_ignored(tmp_path: Path) -> None:

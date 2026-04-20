@@ -529,6 +529,7 @@ class CalibrationRunner:
         self._source_stage_safety: Dict[str, bool] = {
             "co2_a": False,
             "co2_b": False,
+            "h2o": False,
         }
         self._lead_in_transition_stage_ts: Dict[str, float] = {}
         self._last_preseal_pressure_control_ready_invalidation: Optional[Dict[str, Any]] = None
@@ -538,6 +539,9 @@ class CalibrationRunner:
         self._last_atmosphere_gate_summary: Dict[str, Any] = {}
         self._last_route_pressure_guard_summary: Dict[str, Any] = {}
         self._last_pace_capability_snapshot: Dict[str, Any] = {}
+        self._pace_error_attribution_log: List[Dict[str, Any]] = []
+        self._pace_sens_pres_cont_supported: Optional[bool] = None
+        self._pace_sens_pres_cont_error: str = ""
         self._last_abort_reason: str = ""
 
     def _log_run_event(self, command: Any = None, response: Any = None, error: Any = None) -> None:
@@ -853,6 +857,22 @@ class CalibrationRunner:
         snapshot["pace_vent_status_query"] = snapshot.get("pace_vent_status", "")
         snapshot["pace_vent_completed_latched"] = self._pace_vent_completed_latched_from_snapshot(snapshot)
         return snapshot
+
+    def _pace_route_trace_optional_diagnostic_key_enabled(self, pace: Any, key: str) -> bool:
+        key_text = str(key or "").strip()
+        if not key_text:
+            return True
+        if key_text == "pace_sens_pres_cont_query":
+            return self._pace_sens_pres_cont_supported is not False
+        if self._pace_profile_name(pace) == "OLD_PACE5000":
+            return key_text not in {
+                "pace_comp1_query",
+                "pace_comp2_query",
+                "pace_sens_pres_bar_query",
+                "pace_sens_pres_inl_time_query",
+                "pace_sens_slew_query",
+            }
+        return True
 
     def _pace_identity_indicates_old_profile(self, pace: Any) -> bool:
         legacy_model = False
@@ -1298,6 +1318,9 @@ class CalibrationRunner:
                 continue
             if key == "pace_effort_query" and refreshed.get(key) not in ("", None):
                 continue
+            if not self._pace_route_trace_optional_diagnostic_key_enabled(pace, key):
+                refreshed[key] = snapshot.get(key, "")
+                continue
             if key == "pace_sens_pres_cont_query":
                 supports_cont = getattr(pace, "supports_sens_pres_cont", None)
                 if callable(supports_cont):
@@ -1474,6 +1497,18 @@ class CalibrationRunner:
             raise RuntimeError("QUERY_UNAVAILABLE")
         return str(query(str(command or "").strip()) or "").strip()
 
+    @staticmethod
+    def _normalize_pace_pressure_unit_text(value: Any) -> str:
+        text = str(value or "").strip().strip("\"'").upper()
+        if not text:
+            return ""
+        matches = re.findall(r"(HPA|KPA|MPA|PA|BARA|BARG|BAR|TORR|PSI)\b", text)
+        if matches:
+            return str(matches[-1] or "").strip().upper()
+        if ":" in text and " " in text:
+            return str(text.rsplit(" ", 1)[-1] or "").strip().strip("\"'").upper()
+        return text
+
     def _capture_pace_capability_snapshot(
         self,
         *,
@@ -1501,37 +1536,175 @@ class CalibrationRunner:
             "source_pressure_in_limits_time_s": None,
             "optional_sens_pres_cont_probe": "",
             "optional_sens_pres_cont_probe_error": "",
+            "sens_pres_cont_supported": None,
+            "sens_pres_cont_error": "",
             "drained_errors_before": [],
             "drained_errors_after": [],
             "final_syst_err": "",
         }
 
+        query_available = callable(getattr(pace, "query", None))
+
+        def _extend_drained(rows: Any) -> None:
+            for entry in list(rows or []):
+                text = str(entry or "").strip()
+                if text:
+                    snapshot["drained_errors_after"].append(text)
+
         if drain_errors:
             snapshot["drained_errors_before"] = self._drain_pace_system_errors(
-                reason=f"{reason or 'pace capability snapshot'} pre-drain"
+                reason=f"{reason or 'pace capability snapshot'} pre-drain",
+                classification="capability_pre_drain",
+                action="pre_probe_drain",
             )
 
-        identity_getter = getattr(pace, "get_device_identity", None)
-        if callable(identity_getter):
-            try:
-                snapshot["device_identity"] = str(identity_getter() or "").strip()
-            except Exception as exc:
-                snapshot["device_identity"] = f"ERROR:{exc}"
+            for command, key, classification, action in (
+                ("*IDN?", "device_identity", "capability_probe", "record_only"),
+                (":UNIT:PRES?", "pressure_unit", "capability_probe", "record_only"),
+                (":OUTP:MODE?", "output_mode", "capability_probe", "record_only"),
+                (":OUTP:STAT?", "output_state", "capability_probe", "record_only"),
+                (":SOUR:PRES:RANG?", "source_pressure_range", "capability_probe", "record_only"),
+                (":SENS:PRES:RANG?", "sensor_pressure_range", "capability_probe", "record_only"),
+                (":SOUR:PRES:INL?", "source_pressure_in_limits_pct", "capability_probe", "record_only"),
+                (":SOUR:PRES:INL:TIME?", "source_pressure_in_limits_time_s", "capability_probe", "record_only"),
+            ):
+                if not query_available:
+                    continue
+                result = self._pace_query_with_error_attribution(
+                    command,
+                    classification=classification,
+                    action=action,
+                    reason=f"{reason or 'pace capability snapshot'} {command}",
+                )
+                _extend_drained(result.get("drained_errors"))
+                value = str(result.get("response") or "").strip().strip("\"'")
+                if key == "output_state":
+                    snapshot[key] = self._as_int(value)
+                elif key == "pressure_unit":
+                    snapshot[key] = self._normalize_pace_pressure_unit_text(value)
+                elif key in {"source_pressure_in_limits_pct", "source_pressure_in_limits_time_s"}:
+                    snapshot[key] = self._as_float(value)
+                else:
+                    snapshot[key] = value or snapshot.get(key)
 
-        unit_getter = getattr(pace, "get_pressure_unit", None)
-        has_unit_query = callable(unit_getter) or callable(getattr(pace, "query", None))
-        if callable(unit_getter):
-            try:
-                snapshot["pressure_unit"] = str(unit_getter() or "").strip().upper()
-            except Exception:
-                snapshot["pressure_unit"] = ""
-        elif callable(getattr(pace, "query", None)):
-            try:
-                snapshot["pressure_unit"] = self._pace_read_only_query_text(pace, ":UNIT:PRES?").strip().strip("\"'").upper()
-            except Exception:
-                snapshot["pressure_unit"] = ""
+            if include_optional_probe and query_available:
+                result = self._pace_query_with_error_attribution(
+                    ":SENS:PRES:CONT?",
+                    classification="optional_diagnostic_error",
+                    action="disabled_for_formal_flow",
+                    reason=f"{reason or 'pace capability snapshot'} optional :SENS:PRES:CONT? probe",
+                )
+                _extend_drained(result.get("drained_errors"))
+                snapshot["optional_sens_pres_cont_probe"] = str(result.get("response") or "").strip()
+                if str(result.get("query_error") or "").strip():
+                    snapshot["optional_sens_pres_cont_probe_error"] = str(result.get("query_error") or "").strip()
+                if not self._pace_system_error_is_clear(result.get("syst_err")):
+                    snapshot["sens_pres_cont_supported"] = False
+                    snapshot["sens_pres_cont_error"] = str(result.get("syst_err") or "").strip()
+                elif str(result.get("response") or "").strip():
+                    snapshot["sens_pres_cont_supported"] = True
+                    snapshot["sens_pres_cont_error"] = ""
+                else:
+                    snapshot["sens_pres_cont_supported"] = False
+                    snapshot["sens_pres_cont_error"] = str(result.get("query_error") or "").strip()
+            elif include_optional_probe:
+                snapshot["sens_pres_cont_supported"] = self._pace_sens_pres_cont_supported
+                snapshot["sens_pres_cont_error"] = self._pace_sens_pres_cont_error
+
+            for getter_name, key, value_type in (
+                ("get_device_identity", "device_identity", "text"),
+                ("get_pressure_unit", "pressure_unit", "upper_text"),
+                ("get_output_mode", "output_mode", "text"),
+                ("get_output_state", "output_state", "int"),
+                ("get_control_range", "source_pressure_range", "text"),
+                ("get_in_limits_setting", "source_pressure_in_limits_pct", "float"),
+                ("get_in_limits_time_setting_s", "source_pressure_in_limits_time_s", "float"),
+            ):
+                if snapshot.get(key) not in ("", None):
+                    continue
+                getter = getattr(pace, getter_name, None)
+                if not callable(getter):
+                    continue
+                try:
+                    raw_value = getter()
+                except Exception:
+                    continue
+                if value_type == "int":
+                    snapshot[key] = self._as_int(raw_value)
+                elif value_type == "float":
+                    snapshot[key] = self._as_float(raw_value)
+                elif value_type == "upper_text":
+                    snapshot[key] = self._normalize_pace_pressure_unit_text(raw_value)
+                else:
+                    snapshot[key] = str(raw_value or "").strip().strip("\"'")
+
+            if snapshot.get("sensor_pressure_range") in ("", None):
+                snapshot["sensor_pressure_range"] = str(snapshot.get("source_pressure_range") or "").strip()
+        else:
+            identity_getter = getattr(pace, "get_device_identity", None)
+            if callable(identity_getter):
+                try:
+                    snapshot["device_identity"] = str(identity_getter() or "").strip()
+                except Exception as exc:
+                    snapshot["device_identity"] = f"ERROR:{exc}"
+
+            unit_getter = getattr(pace, "get_pressure_unit", None)
+            has_unit_query = callable(unit_getter) or query_available
+            if callable(unit_getter):
+                try:
+                    snapshot["pressure_unit"] = self._normalize_pace_pressure_unit_text(unit_getter())
+                except Exception:
+                    snapshot["pressure_unit"] = ""
+            elif query_available:
+                try:
+                    snapshot["pressure_unit"] = self._normalize_pace_pressure_unit_text(
+                        self._pace_read_only_query_text(pace, ":UNIT:PRES?")
+                    )
+                except Exception:
+                    snapshot["pressure_unit"] = ""
+
+            for getter_name, key in (
+                ("get_output_mode", "output_mode"),
+                ("get_control_range", "source_pressure_range"),
+                ("get_in_limits_setting", "source_pressure_in_limits_pct"),
+                ("get_in_limits_time_setting_s", "source_pressure_in_limits_time_s"),
+            ):
+                getter = getattr(pace, getter_name, None)
+                if not callable(getter):
+                    continue
+                try:
+                    snapshot[key] = getter()
+                except Exception:
+                    pass
+
+            output_state_getter = getattr(pace, "get_output_state", None)
+            if callable(output_state_getter):
+                try:
+                    snapshot["output_state"] = output_state_getter()
+                except Exception:
+                    snapshot["output_state"] = None
+
+            if query_available:
+                for command, key in (
+                    (":SOUR:PRES:RANG?", "source_pressure_range"),
+                    (":SENS:PRES:RANG?", "sensor_pressure_range"),
+                ):
+                    if snapshot.get(key) not in ("", None):
+                        continue
+                    try:
+                        snapshot[key] = self._pace_read_only_query_text(pace, command).strip().strip("\"'")
+                    except Exception:
+                        continue
+                has_unit_query = has_unit_query or query_available
+            else:
+                has_unit_query = callable(unit_getter)
+
+            if include_optional_probe:
+                snapshot["sens_pres_cont_supported"] = self._pace_sens_pres_cont_supported
+                snapshot["sens_pres_cont_error"] = self._pace_sens_pres_cont_error
 
         unit_text = str(snapshot.get("pressure_unit") or "").strip().upper()
+        has_unit_query = query_available or callable(getattr(pace, "get_pressure_unit", None))
         if unit_text == "HPA":
             snapshot["pressure_unit_status"] = "known_hpa"
             snapshot["pressure_unit_reason"] = ""
@@ -1545,57 +1718,47 @@ class CalibrationRunner:
             snapshot["pressure_unit_reason"] = "PressureUnitQueryUnsupportedAssumedHpa"
             snapshot["pressure_unit_allows_formal_setpoint"] = True
 
-        for getter_name, key in (
-            ("get_output_mode", "output_mode"),
-            ("get_control_range", "source_pressure_range"),
-            ("get_in_limits_setting", "source_pressure_in_limits_pct"),
-            ("get_in_limits_time_setting_s", "source_pressure_in_limits_time_s"),
-        ):
-            getter = getattr(pace, getter_name, None)
-            if not callable(getter):
-                continue
-            try:
-                snapshot[key] = getter()
-            except Exception:
-                pass
-
-        output_state_getter = getattr(pace, "get_output_state", None)
-        if callable(output_state_getter):
-            try:
-                snapshot["output_state"] = output_state_getter()
-            except Exception:
-                snapshot["output_state"] = None
-
-        if callable(getattr(pace, "query", None)):
-            for command, key in (
-                (":SOUR:PRES:RANG?", "source_pressure_range"),
-                (":SENS:PRES:RANG?", "sensor_pressure_range"),
-            ):
-                if snapshot.get(key) not in ("", None):
-                    continue
-                try:
-                    snapshot[key] = self._pace_read_only_query_text(pace, command).strip().strip("\"'")
-                except Exception:
-                    continue
-
-            if include_optional_probe:
-                try:
-                    snapshot["optional_sens_pres_cont_probe"] = self._pace_read_only_query_text(pace, ":SENS:PRES:CONT?")
-                except Exception as exc:
-                    snapshot["optional_sens_pres_cont_probe_error"] = str(exc)
-                    if drain_errors:
-                        snapshot["drained_errors_after"] = self._drain_pace_system_errors(
-                            reason=f"{reason or 'pace capability snapshot'} optional :SENS:PRES:CONT? probe"
-                        )
-
+        if snapshot["sens_pres_cont_supported"] is None:
+            snapshot["sens_pres_cont_supported"] = self._pace_sens_pres_cont_supported
+        if not str(snapshot["sens_pres_cont_error"] or "").strip():
+            snapshot["sens_pres_cont_error"] = self._pace_sens_pres_cont_error
+        self._pace_sens_pres_cont_supported = (
+            bool(snapshot["sens_pres_cont_supported"])
+            if snapshot["sens_pres_cont_supported"] is not None
+            else self._pace_sens_pres_cont_supported
+        )
+        self._pace_sens_pres_cont_error = str(snapshot.get("sens_pres_cont_error") or "").strip()
         if drain_errors and not snapshot["drained_errors_after"]:
             snapshot["drained_errors_after"] = self._drain_pace_system_errors(
-                reason=f"{reason or 'pace capability snapshot'} post-drain"
+                reason=f"{reason or 'pace capability snapshot'} post-drain",
+                classification="capability_post_drain",
+                action="post_probe_drain",
             )
         if drain_errors:
             snapshot["final_syst_err"] = self._read_pace_system_error_text()
         self._last_pace_capability_snapshot = dict(snapshot)
         return dict(snapshot)
+
+    def _source_stage_safety_snapshot(self) -> Dict[str, bool]:
+        return {str(key): bool(value) for key, value in dict(self._source_stage_safety or {}).items()}
+
+    def _pace_optional_query_error_attribution(
+        self,
+        commands: Sequence[str],
+        *,
+        reason: str = "",
+    ) -> List[Dict[str, Any]]:
+        rows: List[Dict[str, Any]] = []
+        for command in list(commands or []):
+            row = self._pace_query_with_error_attribution(
+                str(command or "").strip(),
+                classification="optional_diagnostic_error",
+                action="disabled_for_formal_flow",
+                reason=reason or "optional query attribution",
+                pre_drain=True,
+            )
+            rows.append(dict(row))
+        return rows
 
     def _pace_unit_allows_formal_setpoint(self) -> Tuple[bool, str, Dict[str, Any]]:
         snapshot = self._capture_pace_capability_snapshot(
@@ -2974,11 +3137,73 @@ class CalibrationRunner:
             return "co2_b"
         return "co2_a"
 
-    def _co2_source_stage_safe(self, point: Optional[CalibrationPoint]) -> bool:
-        key = self._co2_source_stage_key_for_point(point)
+    def _source_stage_key_for_point(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str = "",
+    ) -> str:
+        phase_text = str(phase or "").strip().lower()
+        if phase_text == "h2o" or bool(getattr(point, "is_h2o_point", False)):
+            return "h2o"
+        return self._co2_source_stage_key_for_point(point)
+
+    def _h2o_final_stage_valve(self) -> Optional[int]:
+        return self._as_int(self.cfg.get("valves", {}).get("flow_switch"))
+
+    def _route_final_stage_valve_for_point(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+    ) -> Optional[int]:
+        phase_text = str(phase or "").strip().lower()
+        if phase_text == "h2o" or bool(getattr(point, "is_h2o_point", False)):
+            return self._h2o_final_stage_valve()
+        return self._source_valve_for_point(point)
+
+    def _source_stage_safe_for_point(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str = "",
+    ) -> bool:
+        key = self._source_stage_key_for_point(point, phase=phase)
         if not key:
             return True
         return bool(self._source_stage_safety.get(key, False))
+
+    def _co2_source_stage_safe(self, point: Optional[CalibrationPoint]) -> bool:
+        return self._source_stage_safe_for_point(point, phase="co2")
+
+    def _h2o_source_stage_safe(self, point: Optional[CalibrationPoint]) -> bool:
+        return self._source_stage_safe_for_point(point, phase="h2o")
+
+    def _sync_source_stage_runtime_fields(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+        reason: str = "",
+    ) -> Dict[str, Any]:
+        phase_text = str(phase or "").strip().lower()
+        key = self._source_stage_key_for_point(point, phase=phase_text)
+        if not key:
+            return {}
+        final_stage_valve = self._route_final_stage_valve_for_point(point, phase=phase_text)
+        payload = {
+            "source_stage_key": key,
+            "source_stage_safe": bool(self._source_stage_safety.get(key, False)),
+            "route_final_stage_key": key,
+            "route_final_stage_safe": bool(self._source_stage_safety.get(key, False)),
+            "source_like_stage": bool(final_stage_valve is not None),
+            "final_stage_valve": final_stage_valve,
+        }
+        if str(reason or "").strip():
+            payload["source_stage_reason"] = str(reason or "").strip()
+            payload["route_final_stage_reason"] = str(reason or "").strip()
+        self._set_point_runtime_fields(point, phase=phase_text, **payload)
+        return payload
 
     def _sync_co2_source_stage_runtime_fields(
         self,
@@ -2987,19 +3212,18 @@ class CalibrationRunner:
         phase: str = "co2",
         reason: str = "",
     ) -> Dict[str, Any]:
-        key = self._co2_source_stage_key_for_point(point)
-        if not key:
-            return {}
-        payload = {
-            "source_stage_key": key,
-            "source_stage_safe": bool(self._source_stage_safety.get(key, False)),
-        }
-        if str(reason or "").strip():
-            payload["source_stage_reason"] = str(reason or "").strip()
-        self._set_point_runtime_fields(point, phase=phase, **payload)
-        return payload
+        return self._sync_source_stage_runtime_fields(point, phase=phase, reason=reason)
 
-    def _mark_co2_source_stage_guard_result(
+    def _sync_h2o_source_stage_runtime_fields(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str = "h2o",
+        reason: str = "",
+    ) -> Dict[str, Any]:
+        return self._sync_source_stage_runtime_fields(point, phase=phase, reason=reason)
+
+    def _mark_source_stage_guard_result(
         self,
         point: Optional[CalibrationPoint],
         *,
@@ -3009,14 +3233,12 @@ class CalibrationRunner:
         guard_summary: Mapping[str, Any],
     ) -> None:
         phase_text = str(phase or "").strip().lower()
-        if phase_text != "co2":
-            return
-        key = self._co2_source_stage_key_for_point(point)
+        key = self._source_stage_key_for_point(point, phase=phase_text)
         if not key:
             return
-        source_valve = self._source_valve_for_point(point) if point is not None else None
-        if source_valve is None or int(source_valve) not in {int(value) for value in list(stage_open_valves or [])}:
-            self._sync_co2_source_stage_runtime_fields(point, phase=phase_text)
+        final_stage_valve = self._route_final_stage_valve_for_point(point, phase=phase_text)
+        if final_stage_valve is None or int(final_stage_valve) not in {int(value) for value in list(stage_open_valves or [])}:
+            self._sync_source_stage_runtime_fields(point, phase=phase_text)
             return
 
         cfg = self._route_open_pressure_guard_cfg()
@@ -3031,28 +3253,59 @@ class CalibrationRunner:
         no_abort = not str(guard_summary.get("abort_reason") or "").strip()
         no_recovery_failure = str(guard_summary.get("vent_recovery_result") or "").strip() != "vent_refresh_failed"
         syst_err_clear = self._pace_system_error_is_clear(pace_syst_err)
-        stage_safe = bool(guard_ok) and no_abort and no_recovery_failure and syst_err_clear and analyzer_ok and pressure_ok
+        hidden_syst_err_count = int(guard_summary.get("hidden_syst_err_count") or 0)
+        unclassified_syst_err_count = int(guard_summary.get("unclassified_syst_err_count") or 0)
+        no_hidden_syst_err = hidden_syst_err_count == 0
+        no_unclassified_syst_err = unclassified_syst_err_count == 0
+        stage_safe = bool(guard_ok) and no_abort and no_recovery_failure and syst_err_clear and analyzer_ok and pressure_ok and no_hidden_syst_err and no_unclassified_syst_err
 
         self._source_stage_safety[key] = bool(stage_safe)
         payload = {
             "source_stage_key": key,
             "source_stage_safe": bool(stage_safe),
+            "route_final_stage_key": key,
+            "route_final_stage_safe": bool(stage_safe),
+            "source_like_stage": True,
+            "final_stage_valve": final_stage_valve,
             "source_stage_guard_status": "pass" if stage_safe else "fail",
             "source_stage_guard_reason": "" if stage_safe else str(guard_summary.get("route_pressure_guard_reason") or guard_summary.get("abort_reason") or "SourceStageGuardFailed"),
+            "route_final_stage_guard_status": "pass" if stage_safe else "fail",
+            "route_final_stage_guard_reason": "" if stage_safe else str(guard_summary.get("route_pressure_guard_reason") or guard_summary.get("abort_reason") or "SourceStageGuardFailed"),
             "source_stage_pressure_delta_from_ambient_hpa": pressure_delta_hpa,
             "source_stage_analyzer_pressure_kpa": analyzer_pressure_kpa,
             "source_stage_pace_syst_err_query": pace_syst_err,
+            "hidden_syst_err_count": hidden_syst_err_count,
+            "unclassified_syst_err_count": unclassified_syst_err_count,
         }
         self._set_point_runtime_fields(point, phase=phase_text, **payload)
         self.log(
-            "CO2 source-stage guard result: "
+            "Route final-stage guard result: "
             f"key={key} safe={stage_safe} "
             f"pressure_delta_hpa={pressure_delta_hpa} "
             f"analyzer_pressure_kpa={analyzer_pressure_kpa} "
-            f"pace_syst_err={pace_syst_err or '0,No error'}"
+            f"pace_syst_err={pace_syst_err or '0,No error'} "
+            f"hidden_syst_err_count={hidden_syst_err_count} "
+            f"unclassified_syst_err_count={unclassified_syst_err_count}"
         )
 
-    def _block_co2_source_stage_operation(
+    def _mark_co2_source_stage_guard_result(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+        stage_open_valves: Sequence[int],
+        guard_ok: bool,
+        guard_summary: Mapping[str, Any],
+    ) -> None:
+        self._mark_source_stage_guard_result(
+            point,
+            phase=phase,
+            stage_open_valves=stage_open_valves,
+            guard_ok=guard_ok,
+            guard_summary=guard_summary,
+        )
+
+    def _block_source_stage_operation(
         self,
         point: Optional[CalibrationPoint],
         *,
@@ -3064,13 +3317,13 @@ class CalibrationRunner:
         phase_text = str(phase or "").strip().lower()
         state = self._point_runtime_state(point, phase=phase_text, create=False) or {}
         key = str(state.get("source_stage_key") or "").strip()
-        if phase_text != "co2" or not key:
+        if not key:
             return False
         if bool(self._source_stage_safety.get(key, False)):
-            self._sync_co2_source_stage_runtime_fields(point, phase=phase_text)
+            self._sync_source_stage_runtime_fields(point, phase=phase_text)
             return False
         reason = "SourceStageNotVerified"
-        payload = self._sync_co2_source_stage_runtime_fields(
+        payload = self._sync_source_stage_runtime_fields(
             point,
             phase=phase_text,
             reason=f"{operation}:{reason}",
@@ -3096,6 +3349,23 @@ class CalibrationRunner:
         )
         self.log(f"{operation} blocked until {key} source stage is verified safe")
         return True
+
+    def _block_co2_source_stage_operation(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+        operation: str,
+        trace_stage: str,
+        note: str = "",
+    ) -> bool:
+        return self._block_source_stage_operation(
+            point,
+            phase=phase,
+            operation=operation,
+            trace_stage=trace_stage,
+            note=note,
+        )
 
     def _presample_lock_matches(
         self,
@@ -3913,6 +4183,93 @@ class CalibrationRunner:
         except Exception:
             return False
 
+    def _record_pace_error_attribution(
+        self,
+        *,
+        classification: str,
+        action: str,
+        syst_err: str,
+        command: str = "",
+        response: str = "",
+        reason: str = "",
+        hidden_syst_err: bool = False,
+        unclassified_syst_err: bool = False,
+    ) -> Dict[str, Any]:
+        entry = {
+            "timestamp": round(time.time(), 6),
+            "classification": str(classification or "").strip(),
+            "action": str(action or "").strip(),
+            "command": str(command or "").strip(),
+            "response": str(response or "").strip(),
+            "syst_err": str(syst_err or "").strip(),
+            "reason": str(reason or "").strip(),
+            "hidden_syst_err": bool(hidden_syst_err),
+            "unclassified_syst_err": bool(unclassified_syst_err),
+        }
+        self._pace_error_attribution_log.append(entry)
+        return dict(entry)
+
+    def _pace_error_attribution_log_snapshot(self) -> List[Dict[str, Any]]:
+        return [dict(entry) for entry in list(self._pace_error_attribution_log or [])]
+
+    def _pace_error_attribution_counts(self) -> Dict[str, int]:
+        entries = list(self._pace_error_attribution_log or [])
+        return {
+            "pace_error_attribution_count": len(entries),
+            "optional_probe_error_count": sum(
+                1 for entry in entries if str(entry.get("classification") or "") == "optional_diagnostic_error"
+            ),
+            "hidden_syst_err_count": sum(1 for entry in entries if bool(entry.get("hidden_syst_err"))),
+            "unclassified_syst_err_count": sum(
+                1 for entry in entries if bool(entry.get("unclassified_syst_err"))
+            ),
+        }
+
+    def _pace_query_with_error_attribution(
+        self,
+        command: str,
+        *,
+        classification: str,
+        action: str,
+        reason: str = "",
+        pre_drain: bool = False,
+    ) -> Dict[str, Any]:
+        pace = self.devices.get("pace")
+        command_text = str(command or "").strip()
+        result: Dict[str, Any] = {
+            "command": command_text,
+            "response": "",
+            "query_error": "",
+            "syst_err": "",
+            "drained_errors": [],
+            "classification": str(classification or "").strip(),
+            "action": str(action or "").strip(),
+        }
+        if not pace or not command_text:
+            return result
+        if pre_drain:
+            result["pre_drain_errors"] = self._drain_pace_system_errors(
+                reason=f"{reason or command_text} pre-query drain",
+                classification="pre_query_drain",
+                action="pre_query_drain",
+                command=command_text,
+            )
+        try:
+            result["response"] = self._pace_read_only_query_text(pace, command_text)
+        except Exception as exc:
+            result["query_error"] = str(exc)
+        syst_err = str(self._read_pace_system_error_text() or "").strip()
+        result["syst_err"] = syst_err
+        if not self._pace_system_error_is_clear(syst_err):
+            result["drained_errors"] = self._drain_pace_system_errors(
+                reason=f"{reason or command_text} attributed drain",
+                classification=classification,
+                action=action,
+                command=command_text,
+                response=result["query_error"] or result["response"],
+            )
+        return result
+
     @classmethod
     def _route_flush_pressure_mode(cls, phase: str) -> str:
         phase_text = str(phase or "").strip().lower()
@@ -3933,6 +4290,12 @@ class CalibrationRunner:
         *,
         reason: str = "",
         max_queries: int = 8,
+        classification: str = "pre_existing_error_drain",
+        action: str = "drained",
+        command: str = "",
+        response: str = "",
+        hidden_syst_err: bool = False,
+        unclassified_syst_err: bool = False,
     ) -> List[str]:
         pace = self.devices.get("pace")
         if not pace:
@@ -3950,6 +4313,17 @@ class CalibrationRunner:
                 self.log(f"PACE system-error drain failed ({reason or 'unspecified'}): {exc}")
                 return [f"drain_failed:{exc}"]
             if drained:
+                for entry in drained:
+                    self._record_pace_error_attribution(
+                        classification=classification,
+                        action=action,
+                        syst_err=entry,
+                        command=command,
+                        response=response,
+                        reason=reason,
+                        hidden_syst_err=hidden_syst_err,
+                        unclassified_syst_err=unclassified_syst_err,
+                    )
                 self.log(
                     "PACE system-error drain"
                     + (f" ({reason})" if reason else "")
@@ -3965,6 +4339,16 @@ class CalibrationRunner:
             if self._pace_system_error_is_clear(value):
                 break
             drained.append(value)
+            self._record_pace_error_attribution(
+                classification=classification,
+                action=action,
+                syst_err=value,
+                command=command,
+                response=response,
+                reason=reason,
+                hidden_syst_err=hidden_syst_err,
+                unclassified_syst_err=unclassified_syst_err,
+            )
         if drained:
             self.log(
                 "PACE system-error drain"
@@ -4632,7 +5016,10 @@ class CalibrationRunner:
         phase_text = str(phase or "").strip().lower()
         pressure_mode = self._route_flush_pressure_mode(phase_text)
         drained_errors = self._drain_pace_system_errors(
-            reason=f"{log_context} stage={stage_label or self._current_valve_route_state_text()} vent refresh pre-drain"
+            reason=f"{log_context} stage={stage_label or self._current_valve_route_state_text()} vent refresh pre-drain",
+            classification="pre_route_drain",
+            action="pre_route_drain",
+            command=f"fresh_vent:{stage_label or self._current_valve_route_state_text()}",
         )
         self._append_pressure_trace_row(
             point=point,
@@ -4766,6 +5153,7 @@ class CalibrationRunner:
                 "vent_recovery_result": "",
                 "fresh_vent_command_sent": bool(last_refresh_summary.get("fresh_vent_command_sent")),
                 "vent_status_sequence": str(last_refresh_summary.get("vent_status_sequence_text") or ""),
+                **self._pace_error_attribution_counts(),
             }
             self._last_route_pressure_guard_summary = dict(summary)
             if point is not None:
@@ -4816,6 +5204,7 @@ class CalibrationRunner:
             "vent_recovery_result": "",
             "fresh_vent_command_sent": bool(last_refresh_summary.get("fresh_vent_command_sent")),
             "vent_status_sequence": str(last_refresh_summary.get("vent_status_sequence_text") or ""),
+            **self._pace_error_attribution_counts(),
         }
         if point is not None:
             self._set_point_runtime_fields(point, phase=phase_text, **summary)
@@ -4936,6 +5325,32 @@ class CalibrationRunner:
                     f"pressure_kpa={analyzer_pressure_kpa:.3f}"
                 )
 
+            pace_syst_err_query = str(self._read_pace_system_error_text() or "").strip()
+            if not self._pace_system_error_is_clear(pace_syst_err_query):
+                drained_unclassified = self._drain_pace_system_errors(
+                    reason=f"{log_context} stage={stage_label or self._current_valve_route_state_text()} route-guard syst err",
+                    classification="unclassified_route_stage_error",
+                    action="abort_route_stage",
+                    command=f"route_guard:{stage_label or self._current_valve_route_state_text()}",
+                    response=pace_syst_err_query,
+                    unclassified_syst_err=True,
+                )
+                if not drained_unclassified:
+                    self._record_pace_error_attribution(
+                        classification="unclassified_route_stage_error",
+                        action="abort_route_stage",
+                        syst_err=pace_syst_err_query,
+                        command=f"route_guard:{stage_label or self._current_valve_route_state_text()}",
+                        response=pace_syst_err_query,
+                        reason=(
+                            f"{log_context} stage={stage_label or self._current_valve_route_state_text()} "
+                            "route-guard query"
+                        ),
+                        unclassified_syst_err=True,
+                    )
+                abort_reason = "UnclassifiedPaceSystErrDuringRouteStage"
+                guard_reason = abort_reason
+
             summary = {
                 "route_pressure_guard_status": "fail" if abort_reason else "pass",
                 "route_pressure_guard_reason": guard_reason,
@@ -4953,7 +5368,7 @@ class CalibrationRunner:
                 "analyzer_pressure_protection_active": analyzer_pressure_available,
                 "analyzer_pressure_status": analyzer_pressure_status,
                 "dewpoint_line_pressure_hpa": dewpoint_line_pressure_hpa,
-                "pace_syst_err_query": self._read_pace_system_error_text(),
+                "pace_syst_err_query": pace_syst_err_query,
                 "abort_reason": abort_reason,
                 "guard_elapsed_s": round(max(0.0, time.time() - guard_started_ts), 3),
                 "pressure_span_hpa": self._as_float(metrics.get("span")),
@@ -4963,6 +5378,7 @@ class CalibrationRunner:
                 "vent_recovery_result": recovery_result,
                 "fresh_vent_command_sent": bool(last_refresh_summary.get("fresh_vent_command_sent")),
                 "vent_status_sequence": str(last_refresh_summary.get("vent_status_sequence_text") or ""),
+                **self._pace_error_attribution_counts(),
             }
             self._last_route_pressure_guard_summary = dict(summary)
             if point is not None:
@@ -12163,12 +12579,20 @@ class CalibrationRunner:
     def _set_h2o_path(self, is_open: bool, point: Optional[CalibrationPoint] = None) -> None:
         self._apply_valve_states(self._h2o_open_valves(point) if is_open else [])
 
-    def _h2o_open_valves(self, point: Optional[CalibrationPoint] = None) -> List[int]:
+    def _h2o_open_valves(
+        self,
+        point: Optional[CalibrationPoint] = None,
+        *,
+        include_final_stage: bool = True,
+    ) -> List[int]:
         valves_cfg = self.cfg.get("valves", {})
         open_list: List[int] = []
         # Legacy config key `h2o_path` is the shared total-route valve in current wiring.
         # H2O route must therefore open the total valve first, then the dedicated H2O hold/flow path.
-        for key in ("h2o_path", "hold", "flow_switch"):
+        keys = ["h2o_path", "hold"]
+        if include_final_stage:
+            keys.append("flow_switch")
+        for key in keys:
             iv = self._as_int(valves_cfg.get(key))
             if iv is not None:
                 open_list.append(iv)
@@ -14703,6 +15127,9 @@ class CalibrationRunner:
             risk_amplifier: bool,
             risk_evidence: str,
             stage_priority: int,
+            source_like_stage: bool = False,
+            final_stage: bool = False,
+            requires_explicit_allow: bool = False,
         ) -> None:
             logical_valve = self._logical_valve_key(valve_id)
             if logical_valve is None:
@@ -14726,6 +15153,9 @@ class CalibrationRunner:
                 "risk_amplifier": bool(risk_amplifier),
                 "risk_evidence": str(risk_evidence or ""),
                 "stage_priority": int(stage_priority),
+                "source_like_stage": bool(source_like_stage),
+                "final_stage": bool(final_stage),
+                "requires_explicit_allow": bool(requires_explicit_allow),
             }
 
         _register(
@@ -14800,9 +15230,12 @@ class CalibrationRunner:
             required_for_co2_route=False,
             required_for_h2o_route=True,
             requires_active_atmosphere_flush=True,
-            risk_amplifier=False,
-            risk_evidence="",
-            stage_priority=10,
+            risk_amplifier=True,
+            risk_evidence="8|9|10 can introduce upstream H2O source pressure at final injection stage",
+            stage_priority=30,
+            source_like_stage=True,
+            final_stage=True,
+            requires_explicit_allow=True,
         )
         _register(
             valves_cfg.get("co2_path"),
@@ -14862,6 +15295,9 @@ class CalibrationRunner:
                 risk_amplifier=False,
                 risk_evidence="source valve can introduce upstream gas pressure after route seal",
                 stage_priority=30,
+                source_like_stage=True,
+                final_stage=True,
+                requires_explicit_allow=True,
             )
         for ppm_key, valve_id in dict(valves_cfg.get("co2_map_group2", {}) or {}).items():
             _register(
@@ -14882,6 +15318,9 @@ class CalibrationRunner:
                 risk_amplifier=False,
                 risk_evidence="source valve can introduce upstream gas pressure after route seal",
                 stage_priority=30,
+                source_like_stage=True,
+                final_stage=True,
+                requires_explicit_allow=True,
             )
 
         for logical_valve in self._managed_valves():
@@ -15051,14 +15490,30 @@ class CalibrationRunner:
         route_soak_s = max(0.0, float(cfg.get("route_soak_s", 3.0)))
         try:
             if route == "h2o":
+                allow_h2o_final_stage_open = bool(cfg.get("allow_h2o_final_stage_open", False))
+                self._sync_h2o_source_stage_runtime_fields(point, phase="h2o")
+                guarded_h2o_open_valves = self._h2o_open_valves(
+                    point,
+                    include_final_stage=allow_h2o_final_stage_open or self._h2o_source_stage_safe(point),
+                )
                 if guard_enabled:
                     self._apply_route_baseline_valves()
                     self._set_pressure_controller_vent(True, reason="startup pressure precheck H2O route open")
+                    if not allow_h2o_final_stage_open and not self._h2o_source_stage_safe(point):
+                        self._append_pressure_trace_row(
+                            point=point,
+                            route="h2o",
+                            point_phase="h2o",
+                            trace_stage="startup_pressure_precheck_h2o_final_stage_blocked",
+                            pressure_target_hpa=point.target_pressure_hpa,
+                            refresh_pace_state=False,
+                            note="H2OFinalStage10RequiresExplicitAllowFlag",
+                        )
                     if not self._open_route_with_pressure_guard(
                         point,
                         phase="h2o",
                         point_tag=self._h2o_point_tag(point),
-                        open_valves=self._h2o_open_valves(point),
+                        open_valves=guarded_h2o_open_valves,
                         log_context="startup pressure precheck H2O route open",
                     ):
                         raise RuntimeError("Startup pressure precheck could not guarded-open H2O route")
@@ -19758,6 +20213,15 @@ class CalibrationRunner:
         if not bool(cfg.get("enabled")):
             return True
 
+        if self._block_source_stage_operation(
+            point,
+            phase="h2o",
+            operation="h2o_precondition_dewpoint_gate_begin",
+            trace_stage="h2o_precondition_dewpoint_gate_blocked",
+            note=f"context={log_context}",
+        ):
+            return False
+
         atmosphere_ok, atmosphere_summary = self._require_atmosphere_gate_before_dewpoint(
             point,
             phase="h2o",
@@ -21758,6 +22222,7 @@ class CalibrationRunner:
     def _open_h2o_route_and_wait_ready(self, point: CalibrationPoint, *, point_tag: str = "") -> bool:
         self._clear_last_sealed_pressure_route_context(reason="opening H2O route for conditioning")
         self._clear_pressure_sequence_context(reason="opening H2O route for conditioning")
+        self._sync_h2o_source_stage_runtime_fields(point, phase="h2o")
         self._set_point_runtime_fields(point, phase="h2o", handoff_route_open_failed=False)
         open_valves = self._h2o_open_valves(point)
         fast_handoff_used = self._complete_pending_route_handoff(
@@ -22026,6 +22491,7 @@ class CalibrationRunner:
         ordered_open_valves = [int(valve) for valve in list(open_valves or [])]
         if not ordered_open_valves:
             return True
+        self._sync_source_stage_runtime_fields(point, phase=phase)
         stage_groups, unknown_valves = self._route_stage_groups_for_open_valves(ordered_open_valves)
         if unknown_valves:
             unknown_text = "|".join(str(int(valve)) for valve in sorted(set(unknown_valves)))
@@ -22075,8 +22541,77 @@ class CalibrationRunner:
         cumulative: List[int] = []
         for stage_index, stage_additions in enumerate(stage_groups, start=1):
             cumulative = [valve for valve in ordered_open_valves if valve in set(cumulative + list(stage_additions))]
-            self._apply_valve_states(cumulative)
             stage_label = "|".join(str(int(valve)) for valve in cumulative)
+            self._drain_pace_system_errors(
+                reason=f"{log_context} stage={stage_label} pre-route drain",
+                classification="pre_route_drain",
+                action="pre_route_drain",
+                command=f"relay_stage:{stage_label}",
+                response=stage_label,
+            )
+            self._apply_valve_states(cumulative)
+            post_stage_syst_err = str(self._read_pace_system_error_text() or "").strip()
+            if not self._pace_system_error_is_clear(post_stage_syst_err):
+                drained_unclassified = self._drain_pace_system_errors(
+                    reason=f"{log_context} stage={stage_label} post-route-stage drain",
+                    classification="unclassified_route_stage_error",
+                    action="abort_route_stage",
+                    command=f"relay_stage:{stage_label}",
+                    response=stage_label,
+                    unclassified_syst_err=True,
+                )
+                if not drained_unclassified:
+                    self._record_pace_error_attribution(
+                        classification="unclassified_route_stage_error",
+                        action="abort_route_stage",
+                        syst_err=post_stage_syst_err,
+                        command=f"relay_stage:{stage_label}",
+                        response=stage_label,
+                        reason=f"{log_context} stage={stage_label} post-route-stage query",
+                        unclassified_syst_err=True,
+                    )
+                abort_reason = "UnclassifiedPaceSystErrDuringRouteStage"
+                diag_counts = self._pace_error_attribution_counts()
+                summary = {
+                    "route_pressure_guard_status": "fail",
+                    "route_pressure_guard_reason": abort_reason,
+                    "offending_route": self._current_valve_route_state_text(),
+                    "offending_valve_or_group": stage_label,
+                    "pace_syst_err_query": post_stage_syst_err,
+                    "abort_reason": abort_reason,
+                    **diag_counts,
+                }
+                self._last_route_pressure_guard_summary = dict(summary)
+                self._set_point_runtime_fields(point, phase=phase, **summary)
+                self._mark_source_stage_guard_result(
+                    point,
+                    phase=phase,
+                    stage_open_valves=cumulative,
+                    guard_ok=False,
+                    guard_summary=summary,
+                )
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase,
+                    point_phase=phase,
+                    point_tag=point_tag,
+                    trace_stage="route_open_pressure_guard_end",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                    route_pressure_guard_status="fail",
+                    route_pressure_guard_reason=abort_reason,
+                    offending_route=self._current_valve_route_state_text(),
+                    offending_valve_or_group=stage_label,
+                    refresh_pace_state=False,
+                    note=f"context={log_context} result=abort abort_reason={abort_reason}",
+                )
+                self._route_open_guard_abort(
+                    point,
+                    phase=phase,
+                    abort_reason=abort_reason,
+                    log_context=log_context,
+                    state_payload=summary,
+                )
+                return False
             self._append_pressure_trace_row(
                 point=point,
                 route=phase,
@@ -22100,7 +22635,7 @@ class CalibrationRunner:
                 point_tag=point_tag,
                 stage_label=stage_label,
             )
-            self._mark_co2_source_stage_guard_result(
+            self._mark_source_stage_guard_result(
                 point,
                 phase=phase,
                 stage_open_valves=cumulative,
@@ -22108,10 +22643,10 @@ class CalibrationRunner:
                 guard_summary=_guard_summary,
             )
             if not guard_ok:
-                if point is not None and str(phase or "").strip().lower() == "co2":
+                if point is not None:
                     self._set_point_runtime_fields(
                         point,
-                        phase="co2",
+                        phase=str(phase or "").strip().lower(),
                         source_stage_guard_status="fail",
                         source_stage_guard_reason=str(
                             _guard_summary.get("route_pressure_guard_reason")
@@ -23733,19 +24268,18 @@ class CalibrationRunner:
             note=f"open_valves={open_valves}",
         )
         guard_enabled = bool(self._route_open_pressure_guard_cfg().get("enabled"))
-        source_valve = self._source_valve_for_point(point)
-        source_stage_verified = self._co2_source_stage_safe(point)
+        final_stage_valve = self._route_final_stage_valve_for_point(point, phase=str(phase or ""))
+        source_stage_verified = self._source_stage_safe_for_point(point, phase=str(phase or ""))
         if (
             guard_enabled
-            and str(phase or "").strip().lower() == "co2"
-            and source_valve is not None
-            and int(source_valve) in {int(value) for value in list(open_valves or [])}
+            and final_stage_valve is not None
+            and int(final_stage_valve) in {int(value) for value in list(open_valves or [])}
             and not source_stage_verified
         ):
             self.log("HandoffSourceStageBlockedUntilVerified")
             self._set_point_runtime_fields(
                 point,
-                phase="co2",
+                phase=str(phase or "").strip().lower(),
                 handoff_source_stage_blocked=True,
                 handoff_source_stage_block_reason="HandoffSourceStageBlockedUntilVerified",
             )
