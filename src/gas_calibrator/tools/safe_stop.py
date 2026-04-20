@@ -211,29 +211,70 @@ def validate_safe_stop_result(result: Dict[str, Any], *, cfg: Optional[Dict[str,
     if pace_isol and pace_isol not in {"1", "ON", "TRUE"}:
         issues.append(f"pace isolation not open: {pace_isol}")
 
+    pace_safe_vent = result.get("pace_diagnostic_safe_vent")
+    if isinstance(pace_safe_vent, dict) and bool(pace_safe_vent.get("legacy_identity")) and not bool(pace_safe_vent.get("ok")):
+        issues.append(str(pace_safe_vent.get("reason") or "legacy_safe_vent_blocked"))
+
     return issues
 
 
-def perform_safe_stop(devices: Dict[str, Any], log_fn=_log, cfg: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def perform_safe_stop(
+    devices: Dict[str, Any],
+    log_fn=_log,
+    cfg: Optional[Dict[str, Any]] = None,
+    *,
+    pace_mode: str = "default",
+) -> Dict[str, Any]:
     result: Dict[str, Any] = {}
     relay_baseline = _baseline_relay_states_from_cfg(cfg)
 
     pace = devices.get("pace")
     if pace:
-        try:
-            enter = getattr(pace, "enter_atmosphere_mode", None)
-            if callable(enter):
-                enter()
-                log_fn("pace enter_atmosphere_mode ok")
-            else:
-                pace.set_output(False)
-                iso = getattr(pace, "set_isolation_open", None)
-                if callable(iso):
-                    iso(True)
-                pace.vent(True)
-                log_fn("pace fallback atmosphere sequence ok")
-        except Exception as exc:
-            log_fn(f"pace atmosphere sequence failed: {exc}")
+        result["pace_safe_stop_mode"] = str(pace_mode or "default")
+        use_diagnostic_safe_vent = False
+        if str(pace_mode or "").strip().lower() == "diagnostic_safe_vent":
+            helper = getattr(pace, "enter_legacy_diagnostic_safe_vent_mode", None)
+            if callable(helper):
+                try:
+                    summary = dict(helper(action="safe_stop"))
+                except Exception as exc:
+                    summary = {
+                        "action": "safe_stop",
+                        "legacy_identity": True,
+                        "ok": False,
+                        "recoverable": True,
+                        "reason": f"legacy_safe_vent_blocked(action=safe_stop,step=helper,last_status=unknown,output_state=unknown,isolation_state=unknown,error={exc},recoverable=true)",
+                    }
+                result["pace_diagnostic_safe_vent"] = summary
+                if bool(summary.get("legacy_identity")):
+                    use_diagnostic_safe_vent = True
+                    if bool(summary.get("ok")):
+                        log_fn(f"pace diagnostic-safe vent ok: {summary.get('reason')}")
+                    else:
+                        log_fn(f"pace diagnostic-safe vent blocked: {summary.get('reason')}")
+        if not use_diagnostic_safe_vent:
+            safe_stop_helper = getattr(pace, "safe_stop", None)
+            if callable(safe_stop_helper):
+                try:
+                    result["pace_adapter_safe_stop"] = dict(safe_stop_helper())
+                    log_fn(f"pace adapter safe_stop ok: {result['pace_adapter_safe_stop']}")
+                except Exception as exc:
+                    log_fn(f"pace adapter safe_stop failed: {exc}")
+            try:
+                if "pace_adapter_safe_stop" not in result:
+                    enter = getattr(pace, "enter_atmosphere_mode", None)
+                    if callable(enter):
+                        enter()
+                        log_fn("pace enter_atmosphere_mode ok")
+                    else:
+                        pace.set_output(False)
+                        iso = getattr(pace, "set_isolation_open", None)
+                        if callable(iso):
+                            iso(True)
+                        pace.vent(True)
+                        log_fn("pace fallback atmosphere sequence ok")
+            except Exception as exc:
+                log_fn(f"pace atmosphere sequence failed: {exc}")
         try:
             result["pace_pressure_hpa"] = pace.read_pressure()
             log_fn(f"pace pressure={result['pace_pressure_hpa']}")
@@ -345,16 +386,26 @@ def perform_safe_stop_with_retries(
     *,
     log_fn=_log,
     cfg: Optional[Dict[str, Any]] = None,
+    pace_mode: str = "default",
     attempts: int = 3,
     retry_delay_s: float = 1.5,
+    global_timeout_s: float = 60.0,
 ) -> Dict[str, Any]:
     max_attempts = max(1, int(attempts))
     delay_s = max(0.0, float(retry_delay_s))
+    deadline = time.time() + max(1.0, float(global_timeout_s))
     last_result: Dict[str, Any] = {}
     for attempt in range(1, max_attempts + 1):
+        if time.time() >= deadline:
+            log_fn(f"safe-stop global timeout ({global_timeout_s}s) exceeded before attempt {attempt}")
+            last_result["safe_stop_timeout"] = True
+            break
         if attempt > 1:
             log_fn(f"safe-stop retry {attempt}/{max_attempts}")
-        result = perform_safe_stop(devices, log_fn=log_fn, cfg=cfg)
+        if str(pace_mode or "").strip().lower() == "default":
+            result = perform_safe_stop(devices, log_fn=log_fn, cfg=cfg)
+        else:
+            result = perform_safe_stop(devices, log_fn=log_fn, cfg=cfg, pace_mode=pace_mode)
         issues = validate_safe_stop_result(result, cfg=cfg)
         result["safe_stop_attempt"] = attempt
         result["safe_stop_verified"] = not issues
@@ -362,9 +413,21 @@ def perform_safe_stop_with_retries(
         last_result = result
         if not issues:
             return result
+        pace_safe_vent = result.get("pace_diagnostic_safe_vent")
+        if (
+            str(pace_mode or "").strip().lower() == "diagnostic_safe_vent"
+            and isinstance(pace_safe_vent, dict)
+            and bool(pace_safe_vent.get("legacy_identity"))
+            and not bool(pace_safe_vent.get("ok"))
+        ):
+            return result
         log_fn(f"safe-stop verification failed: {', '.join(issues)}")
         if attempt < max_attempts and delay_s > 0:
-            time.sleep(delay_s)
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                last_result["safe_stop_timeout"] = True
+                break
+            time.sleep(min(delay_s, remaining))
     return last_result
 
 

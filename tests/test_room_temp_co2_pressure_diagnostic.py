@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 import csv
+import threading
+import time
 from datetime import datetime, timedelta
 
 from pathlib import Path
+import pytest
 import gas_calibrator.tools.run_room_temp_co2_pressure_diagnostic as room_temp_diag_tool
 
 from gas_calibrator.tools.run_room_temp_co2_pressure_diagnostic import (
     _append_live_csv_row,
     _capture_phase_rows,
     _load_cli_config,
+    _run_flush_phase,
     _run_closed_pressure_swing_predry,
     parse_args,
 )
@@ -1044,6 +1048,49 @@ def test_chain_isolation_comparison_flags_analyzer_chain_as_dominant() -> None:
     assert comparison["should_continue_s1"] is False
 
 
+def test_chain_isolation_summary_carries_flush_vent_refresh_metadata() -> None:
+    summary = build_analyzer_chain_isolation_summary(
+        {
+            "process_variant": "B",
+            "flush_gate_status": "pass",
+            "flush_gate_pass": True,
+            "flush_gate_fail_reason": "",
+            "flush_duration_s": 180.0,
+            "flush_last60s_dewpoint_span": 0.12,
+            "flush_last60s_dewpoint_slope": 0.0008,
+            "flush_last60s_gauge_span_hpa": 0.02,
+            "flush_last60s_gauge_slope_hpa_per_s": 0.0002,
+            "dewpoint_rebound_detected": False,
+            "rebound_rise_c": None,
+            "gauge_raw_sample_count": 60,
+            "dewpoint_raw_sample_count": 60,
+            "analyzer_raw_sample_count": 0,
+            "aligned_sample_count": 60,
+        },
+        run_id="refresh_run",
+        smoke_level="analyzer-chain-isolation",
+        chain_mode="analyzer_out_keep_rest",
+        setup_metadata={
+            "analyzer_chain_connected": False,
+            "analyzer_count_in_path": 0,
+            "flush_vent_refresh_interval_s": 2.0,
+            "flush_vent_refresh_interval_s_requested": 2.0,
+            "flush_vent_refresh_interval_s_actual_mean": 2.05,
+            "flush_vent_refresh_interval_s_actual_max": 2.31,
+            "flush_vent_refresh_count": 17,
+            "flush_vent_refresh_thread_used": True,
+            "output_dir": "refresh",
+        },
+    )
+
+    assert summary["flush_vent_refresh_interval_s"] == 2.0
+    assert summary["flush_vent_refresh_interval_s_requested"] == 2.0
+    assert summary["flush_vent_refresh_interval_s_actual_mean"] == 2.05
+    assert summary["flush_vent_refresh_interval_s_actual_max"] == 2.31
+    assert summary["flush_vent_refresh_count"] == 17
+    assert summary["flush_vent_refresh_thread_used"] is True
+
+
 def test_pace_contribution_comparison_marks_a1p0_as_significantly_better() -> None:
     a1p1 = build_analyzer_chain_isolation_summary(
         {
@@ -1622,6 +1669,443 @@ def test_append_live_csv_row_rewrites_with_expanded_header(tmp_path) -> None:
     assert len(rows) == 2
     assert rows[0]["dewpoint_gate_result"] == ""
     assert rows[1]["dewpoint_gate_result"] == "timeout"
+
+
+def test_write_actuation_events_csv_keeps_refresh_extra_fields(tmp_path: Path) -> None:
+    path = tmp_path / "actuation_events.csv"
+    room_temp_diag_tool._write_actuation_events_csv(
+        path,
+        [
+            {
+                "timestamp": "2026-04-20T10:21:21.403",
+                "run_id": "refresh_run",
+                "process_variant": "B",
+                "layer": 0,
+                "repeat_index": 1,
+                "gas_ppm": 0,
+                "chain_mode": "analyzer_in_keep_rest",
+                "pressure_target_hpa": None,
+                "event_type": "vent_refresh",
+                "event_value": "VENT_ON_REFRESH",
+                "note": "isolation_flush refresh @2.0s",
+                "flush_vent_refresh_interval_s_requested": 2.0,
+                "flush_vent_refresh_interval_s_actual": 2.03,
+                "flush_vent_refresh_thread_used": True,
+            }
+        ],
+    )
+
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+
+    assert rows[0]["flush_vent_refresh_interval_s_requested"] == "2.0"
+    assert rows[0]["flush_vent_refresh_interval_s_actual"] == "2.03"
+    assert rows[0]["flush_vent_refresh_thread_used"] == "True"
+
+
+def _install_minimal_flush_phase_fakes(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    capture_sleep_s: float,
+) -> None:
+    monkeypatch.setattr(room_temp_diag_tool, "_log", lambda *args, **kwargs: None)
+    monkeypatch.setattr(room_temp_diag_tool, "_log_flush_gate_snapshot", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        room_temp_diag_tool,
+        "_build_flush_gate_trace_row",
+        lambda rows, **kwargs: {
+            "timestamp": (rows[-1]["timestamp"] if rows else datetime.now().isoformat(timespec="milliseconds")),
+            "elapsed_s_real": kwargs.get("elapsed_real_s"),
+            "elapsed_s_display": rows[-1].get("phase_elapsed_s", 0.0) if rows else 0.0,
+            "phase": kwargs.get("phase"),
+            "note": kwargs.get("note"),
+        },
+    )
+    monkeypatch.setattr(room_temp_diag_tool, "build_phase_gate_row", lambda **kwargs: dict(kwargs))
+
+    def fake_build_flush_summary(rows, **kwargs):
+        duration_s = float(rows[-1].get("phase_elapsed_s", 0.0)) if rows else 0.0
+        sample_count = len(rows)
+        return {
+            "process_variant": kwargs["process_variant"],
+            "flush_gate_status": "pass",
+            "flush_gate_pass": True,
+            "flush_gate_fail_reason": "",
+            "flush_duration_s": duration_s,
+            "flush_last60s_ratio_span": None,
+            "flush_last60s_ratio_slope": None,
+            "flush_last60s_dewpoint_span": 0.1,
+            "flush_last60s_dewpoint_slope": -0.001,
+            "flush_last60s_gauge_span_hpa": 0.2,
+            "flush_last60s_gauge_slope_hpa_per_s": -0.002,
+            "analyzer_raw_sample_count": 0,
+            "gauge_raw_sample_count": sample_count,
+            "dewpoint_raw_sample_count": sample_count,
+            "aligned_sample_count": sample_count,
+            "vent_state_during_flush": "VENT_ON",
+            "dewpoint_rebound_detected": False,
+            "rebound_rise_c": None,
+            "flush_warning_flags": [],
+        }
+
+    monkeypatch.setattr(room_temp_diag_tool, "build_flush_summary", fake_build_flush_summary)
+
+    def fake_capture_phase_rows(*args, **kwargs):
+        time.sleep(capture_sleep_s)
+        phase_elapsed = float(kwargs.get("phase_elapsed_offset_s", 0.0) or 0.0) + capture_sleep_s
+        return [
+            {
+                "timestamp": datetime.now().isoformat(timespec="milliseconds"),
+                "phase_elapsed_s": phase_elapsed,
+                "gauge_pressure_hpa": 1025.0,
+                "controller_pressure_hpa": 1020.0,
+                "dewpoint_c": -40.0,
+                "controller_vent_status_code": 1,
+                "controller_output_state": 0,
+                "controller_isolation_state": 1,
+            }
+        ]
+
+    monkeypatch.setattr(room_temp_diag_tool, "_capture_phase_rows", fake_capture_phase_rows)
+
+
+def test_flush_vent_refresh_heartbeat_runs_on_wall_clock_independent_of_sampling_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_minimal_flush_phase_fakes(monkeypatch, capture_sleep_s=0.20)
+
+    class _FakeRunner:
+        pass
+
+    class _FakePace:
+        def __init__(self) -> None:
+            self._cmd_lock = threading.RLock()
+
+    refresh_call_times: list[float] = []
+
+    def refresh_handler(_reason: str) -> dict[str, object]:
+        refresh_call_times.append(time.monotonic())
+        return {
+            "action": "analyzer_chain_flush_vent_refresh",
+            "ok": True,
+            "reason": "heartbeat_ok",
+            "vent_command_sent": True,
+            "before_status": 1,
+            "after_status": 1,
+        }
+
+    actuation_events: list[dict[str, object]] = []
+    flush_gate_trace_rows: list[dict[str, object]] = []
+    setup_metadata: dict[str, object] = {}
+    rows, summary, gate_row, stop_reason = _run_flush_phase(
+        _FakeRunner(),
+        None,
+        {"pace": _FakePace()},
+        process_variant="B",
+        layer=0,
+        repeat_index=1,
+        gas_ppm=0,
+        route={"group": "A", "source_valve": 1, "path_valve": 7},
+        gas_start_mono=time.monotonic(),
+        min_flush_s=0.0,
+        target_flush_s=0.0,
+        max_flush_s=0.25,
+        gate_window_s=60.0,
+        rebound_window_s=0.0,
+        rebound_min_rise_c=0.0,
+        sample_poll_s=0.0,
+        print_every_s=999.0,
+        actual_deadtime_s=0.0,
+        actuation_events=actuation_events,
+        flush_gate_trace_rows=flush_gate_trace_rows,
+        run_id="run-1",
+        require_ratio=False,
+        require_vent_on=False,
+        controller_vent_state_label="VENT_ON",
+        phase_name_override="isolation_flush_vent_on",
+        gate_name_override="isolation_flush_gate",
+        phase_label_override="isolation_flush",
+        chain_mode="analyzer_in_keep_rest",
+        flush_vent_refresh_interval_s=0.04,
+        vent_refresh_handler=refresh_handler,
+        flush_vent_refresh_wall_clock_heartbeat=True,
+        setup_metadata=setup_metadata,
+    )
+
+    assert stop_reason == ""
+    assert summary["flush_gate_pass"] is True
+    assert gate_row["gate_pass"] is True
+    assert len(rows) == 1
+    assert len(refresh_call_times) >= 3
+
+    intervals = [later - earlier for earlier, later in zip(refresh_call_times, refresh_call_times[1:])]
+    assert intervals
+    assert 0.02 <= (sum(intervals) / len(intervals)) <= 0.08
+    assert max(intervals) < 0.10
+
+    vent_refresh_events = [event for event in actuation_events if event["event_type"] == "vent_refresh"]
+    assert len(vent_refresh_events) == len(refresh_call_times)
+    assert setup_metadata["flush_vent_refresh_thread_used"] is True
+    assert setup_metadata["flush_vent_refresh_count"] == len(vent_refresh_events)
+    assert setup_metadata["flush_vent_refresh_interval_s_actual_mean"] is not None
+    assert setup_metadata["flush_vent_refresh_interval_s_actual_max"] is not None
+    assert any(row.get("flush_vent_refresh_thread_used") for row in flush_gate_trace_rows)
+
+
+def test_flush_vent_refresh_heartbeat_stops_after_flush(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_minimal_flush_phase_fakes(monkeypatch, capture_sleep_s=0.16)
+
+    class _FakeRunner:
+        pass
+
+    class _FakePace:
+        def __init__(self) -> None:
+            self._cmd_lock = threading.RLock()
+
+    refresh_call_times: list[float] = []
+
+    def refresh_handler(_reason: str) -> dict[str, object]:
+        refresh_call_times.append(time.monotonic())
+        return {
+            "action": "analyzer_chain_flush_vent_refresh",
+            "ok": True,
+            "reason": "heartbeat_ok",
+            "vent_command_sent": True,
+            "before_status": 1,
+            "after_status": 1,
+        }
+
+    _run_flush_phase(
+        _FakeRunner(),
+        None,
+        {"pace": _FakePace()},
+        process_variant="B",
+        layer=0,
+        repeat_index=1,
+        gas_ppm=0,
+        route={"group": "A", "source_valve": 1, "path_valve": 7},
+        gas_start_mono=time.monotonic(),
+        min_flush_s=0.0,
+        target_flush_s=0.0,
+        max_flush_s=0.22,
+        gate_window_s=60.0,
+        rebound_window_s=0.0,
+        rebound_min_rise_c=0.0,
+        sample_poll_s=0.0,
+        print_every_s=999.0,
+        actual_deadtime_s=0.0,
+        actuation_events=[],
+        flush_gate_trace_rows=[],
+        run_id="run-2",
+        require_ratio=False,
+        require_vent_on=False,
+        controller_vent_state_label="VENT_ON",
+        phase_name_override="isolation_flush_vent_on",
+        gate_name_override="isolation_flush_gate",
+        phase_label_override="isolation_flush",
+        chain_mode="analyzer_in_keep_rest",
+        flush_vent_refresh_interval_s=0.04,
+        vent_refresh_handler=refresh_handler,
+        flush_vent_refresh_wall_clock_heartbeat=True,
+        setup_metadata={},
+    )
+
+    count_after_return = len(refresh_call_times)
+    time.sleep(0.10)
+    assert len(refresh_call_times) == count_after_return
+
+
+def test_flush_vent_refresh_interval_zero_keeps_original_behavior(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_minimal_flush_phase_fakes(monkeypatch, capture_sleep_s=0.02)
+
+    class _FakeRunner:
+        pass
+
+    refresh_reasons: list[str] = []
+    actuation_events: list[dict[str, object]] = []
+    setup_metadata: dict[str, object] = {}
+    _run_flush_phase(
+        _FakeRunner(),
+        None,
+        {"pace": object()},
+        process_variant="B",
+        layer=0,
+        repeat_index=1,
+        gas_ppm=0,
+        route={"group": "A", "source_valve": 1, "path_valve": 7},
+        gas_start_mono=time.monotonic(),
+        min_flush_s=0.0,
+        target_flush_s=0.0,
+        max_flush_s=0.05,
+        gate_window_s=60.0,
+        rebound_window_s=0.0,
+        rebound_min_rise_c=0.0,
+        sample_poll_s=0.0,
+        print_every_s=999.0,
+        actual_deadtime_s=0.0,
+        actuation_events=actuation_events,
+        flush_gate_trace_rows=[],
+        run_id="run-3",
+        require_ratio=False,
+        require_vent_on=False,
+        controller_vent_state_label="VENT_ON",
+        phase_name_override="isolation_flush_vent_on",
+        gate_name_override="isolation_flush_gate",
+        phase_label_override="isolation_flush",
+        chain_mode="analyzer_in_keep_rest",
+        flush_vent_refresh_interval_s=0.0,
+        vent_refresh_handler=lambda reason: refresh_reasons.append(reason),
+        flush_vent_refresh_wall_clock_heartbeat=True,
+        setup_metadata=setup_metadata,
+    )
+
+    assert refresh_reasons == []
+    assert [event for event in actuation_events if event["event_type"] == "vent_refresh"] == []
+    assert setup_metadata["flush_vent_refresh_count"] == 0
+    assert setup_metadata["flush_vent_refresh_thread_used"] is False
+
+
+def test_flush_vent_refresh_heartbeat_fails_fast_without_pace_command_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_minimal_flush_phase_fakes(monkeypatch, capture_sleep_s=0.02)
+
+    with pytest.raises(RuntimeError, match="flush_vent_refresh_heartbeat_start_failed"):
+        _run_flush_phase(
+            object(),
+            None,
+            {"pace": object()},
+            process_variant="B",
+            layer=0,
+            repeat_index=1,
+            gas_ppm=0,
+            route={"group": "A", "source_valve": 1, "path_valve": 7},
+            gas_start_mono=time.monotonic(),
+            min_flush_s=0.0,
+            target_flush_s=0.0,
+            max_flush_s=0.05,
+            gate_window_s=60.0,
+            rebound_window_s=0.0,
+            rebound_min_rise_c=0.0,
+            sample_poll_s=0.0,
+            print_every_s=999.0,
+            actual_deadtime_s=0.0,
+            actuation_events=[],
+            flush_gate_trace_rows=[],
+            run_id="run-4",
+            require_ratio=False,
+            require_vent_on=False,
+            controller_vent_state_label="VENT_ON",
+            phase_name_override="isolation_flush_vent_on",
+            gate_name_override="isolation_flush_gate",
+            phase_label_override="isolation_flush",
+            chain_mode="analyzer_in_keep_rest",
+            flush_vent_refresh_interval_s=0.04,
+            vent_refresh_handler=lambda _reason: {"ok": True},
+            flush_vent_refresh_wall_clock_heartbeat=True,
+            setup_metadata={},
+        )
+
+
+def test_flush_vent_refresh_heartbeat_warns_after_consecutive_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_minimal_flush_phase_fakes(monkeypatch, capture_sleep_s=0.16)
+
+    class _FakeRunner:
+        pass
+
+    class _FakePace:
+        def __init__(self) -> None:
+            self._cmd_lock = threading.RLock()
+
+    actuation_events: list[dict[str, object]] = []
+    setup_metadata: dict[str, object] = {}
+    _run_flush_phase(
+        _FakeRunner(),
+        None,
+        {"pace": _FakePace()},
+        process_variant="B",
+        layer=0,
+        repeat_index=1,
+        gas_ppm=0,
+        route={"group": "A", "source_valve": 1, "path_valve": 7},
+        gas_start_mono=time.monotonic(),
+        min_flush_s=0.0,
+        target_flush_s=0.0,
+        max_flush_s=0.22,
+        gate_window_s=60.0,
+        rebound_window_s=0.0,
+        rebound_min_rise_c=0.0,
+        sample_poll_s=0.0,
+        print_every_s=999.0,
+        actual_deadtime_s=0.0,
+        actuation_events=actuation_events,
+        flush_gate_trace_rows=[],
+        run_id="run-5",
+        require_ratio=False,
+        require_vent_on=False,
+        controller_vent_state_label="VENT_ON",
+        phase_name_override="isolation_flush_vent_on",
+        gate_name_override="isolation_flush_gate",
+        phase_label_override="isolation_flush",
+        chain_mode="analyzer_in_keep_rest",
+        flush_vent_refresh_interval_s=0.04,
+        vent_refresh_handler=lambda _reason: (_ for _ in ()).throw(RuntimeError("heartbeat_boom")),
+        flush_vent_refresh_wall_clock_heartbeat=True,
+        setup_metadata=setup_metadata,
+    )
+
+    warning_values = [event["event_value"] for event in actuation_events if event["event_type"] == "vent_refresh_warning"]
+    assert "heartbeat_refresh_failed" in warning_values
+    assert "heartbeat_consecutive_failures" in warning_values
+    assert setup_metadata["flush_vent_refresh_count"] == 0
+    assert setup_metadata["flush_vent_refresh_interval_s_actual_mean"] is None
+
+
+def test_legacy_safe_vent_refresh_action_never_sends_raw_vent0_or_pressure_sweep() -> None:
+    calls: list[tuple[str, object]] = []
+
+    class _FakePace:
+        def __init__(self) -> None:
+            self._cmd_lock = threading.RLock()
+
+        def has_legacy_vent_status_model(self) -> bool:
+            return True
+
+        def stop_atmosphere_hold(self) -> None:
+            calls.append(("stop_hold", None))
+
+        def set_output(self, on: bool) -> None:
+            calls.append(("set_output", bool(on)))
+
+        def set_isolation_open(self, is_open: bool) -> None:
+            calls.append(("set_isolation_open", bool(is_open)))
+
+        def get_vent_status(self) -> int:
+            return 0
+
+        def vent(self, on: bool = True) -> None:
+            calls.append(("vent", bool(on)))
+
+        def set_setpoint(self, *_args, **_kwargs) -> None:
+            raise AssertionError("pressure sweep should not be entered")
+
+        def enter_atmosphere_mode(self, *_args, **_kwargs) -> None:
+            raise AssertionError("sealed hold path should not be entered")
+
+    class _FakeRunner:
+        def __init__(self) -> None:
+            self.devices = {"pace": _FakePace()}
+
+    result = room_temp_diag_tool._run_legacy_safe_vent_refresh_action(
+        _FakeRunner(),
+        action="unit_test_refresh",
+    )
+
+    assert result["ok"] is True
+    assert ("vent", True) in calls
+    assert ("vent", False) not in calls
 
 
 def test_capture_phase_rows_records_extended_analyzer_fields(monkeypatch) -> None:

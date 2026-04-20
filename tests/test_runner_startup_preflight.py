@@ -1,4 +1,7 @@
+import csv
 from pathlib import Path
+
+import pytest
 
 from gas_calibrator.data.points import CalibrationPoint
 from gas_calibrator.logging_utils import RunLogger
@@ -23,12 +26,19 @@ class _FakePace:
     def __init__(self):
         self.vent_calls = []
         self.output_calls = []
+        self.current_pressure_hpa = 1012.0
 
     def vent(self, on=True):
         self.vent_calls.append(bool(on))
 
     def set_output(self, on):
         self.output_calls.append(bool(on))
+
+    def read_pressure(self):
+        return float(self.current_pressure_hpa)
+
+    def get_system_error(self):
+        return '0,"No error"'
 
     def close(self):
         return None
@@ -37,12 +47,19 @@ class _FakePace:
 class _FakePaceManual:
     def __init__(self):
         self.calls = []
+        self.current_pressure_hpa = 1012.0
 
     def enter_atmosphere_mode(self, timeout_s=0.0):
         self.calls.append(("vent_on", float(timeout_s)))
 
     def exit_atmosphere_mode(self, timeout_s=0.0):
         self.calls.append(("vent_off", float(timeout_s)))
+
+    def read_pressure(self):
+        return float(self.current_pressure_hpa)
+
+    def get_system_error(self):
+        return '0,"No error"'
 
     def close(self):
         return None
@@ -117,6 +134,86 @@ class _FakePacePrecheck:
         return None
 
 
+class _FakePaceStartupSingleCycleBlocked:
+    def __init__(self):
+        self.calls = []
+        self._output_state = 0
+        self._isolation_state = 1
+        self._vent_status = 0
+        self._single_cycle_active = False
+        self._single_cycle_clear_requested = False
+        self._single_cycle_query_count = 0
+        self.current_pressure_hpa = 1012.0
+
+    def set_output(self, on):
+        self._output_state = 1 if on else 0
+        self.calls.append(("output", bool(on)))
+
+    def set_isolation_open(self, is_open):
+        self._isolation_state = 1 if is_open else 0
+        self.calls.append(("isol", bool(is_open)))
+
+    def vent(self, on=True):
+        self.calls.append(("vent", bool(on)))
+        if on:
+            self._single_cycle_active = True
+            self._single_cycle_clear_requested = False
+            self._single_cycle_query_count = 0
+            self._vent_status = 1
+            return
+        self._single_cycle_clear_requested = True
+        self._vent_status = 0
+
+    def get_output_state(self):
+        return self._output_state
+
+    def get_isolation_state(self):
+        return self._isolation_state
+
+    def get_vent_status(self):
+        if not self._single_cycle_active:
+            return self._vent_status
+        self._single_cycle_query_count += 1
+        if self._single_cycle_clear_requested:
+            self._vent_status = 0
+            self._single_cycle_active = False
+            return 0
+        if self._single_cycle_query_count <= 2:
+            self._vent_status = 1
+            return 1
+        self._vent_status = 2
+        return 2
+
+    def read_pressure(self):
+        return float(self.current_pressure_hpa)
+
+    def get_system_error(self):
+        return '0,"No error"'
+
+    def detect_profile(self):
+        return "OLD_PACE5000"
+
+    def has_legacy_vent_state_3_compatibility(self):
+        return False
+
+    def get_device_identity(self):
+        return '*IDN GE Druck,Pace5000 User Interface,3213201,02.00.07'
+
+    def get_instrument_version(self):
+        return ':INST:VERS "02.00.07"'
+
+    def close(self):
+        return None
+
+
+def _load_pressure_trace_rows(logger: RunLogger):
+    path = logger.run_dir / "pressure_transition_trace.csv"
+    if not path.exists():
+        return []
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        return list(csv.DictReader(handle))
+
+
 def test_startup_preflight_resets_valves_and_pressure(tmp_path: Path) -> None:
     cfg = {
         "valves": {
@@ -175,6 +272,47 @@ def test_startup_preflight_resets_valves_and_pressure(tmp_path: Path) -> None:
     assert pace.vent_calls and pace.vent_calls[-1] is True
     assert pace.output_calls and pace.output_calls[-1] is False
     assert runner._h2o_pressure_prepared_target is None
+
+
+def test_startup_preflight_reset_accepts_legacy_completed_status_without_clear_before_first_point(
+    tmp_path: Path,
+) -> None:
+    cfg = {
+        "workflow": {
+            "pressure": {
+                "vent_time_s": 0,
+                "vent_transition_timeout_s": 12,
+            }
+        }
+    }
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceStartupSingleCycleBlocked()
+    runner = CalibrationRunner(
+        cfg,
+        {"pace": pace},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+
+    runner._startup_preflight_reset()
+    logger.close()
+
+    assert pace.calls == [
+        ("output", False),
+        ("isol", True),
+        ("vent", True),
+    ]
+    assert not any(call == ("vent", False) for call in pace.calls)
+    trace_rows = _load_pressure_trace_rows(logger)
+    assert any(
+        row["trace_stage"] == "atmosphere_vent_completed"
+        and row["pace_vent_status_query"].strip() == "2"
+        and row["pace_vent_clear_result"].strip() == "legacy_completed_latch_observed_ready_without_clear"
+        for row in trace_rows
+    )
+    assert not any(row["trace_stage"] == "atmosphere_vent_clear_command" for row in trace_rows)
+    assert any(row["trace_stage"] == "atmosphere_enter_verified" for row in trace_rows)
 
 
 def test_set_pressure_controller_vent_prefers_manual_driver_helpers(tmp_path: Path) -> None:
