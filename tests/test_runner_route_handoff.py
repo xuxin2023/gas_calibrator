@@ -286,6 +286,7 @@ def test_route_handoff_fast_path_uses_safe_open_threshold_and_flushes_deferred_e
             "workflow": {
                 "pressure": {
                     "handoff_fast_enabled": True,
+                    "route_open_guard_enabled": False,
                     "handoff_safe_open_delta_hpa": 3.0,
                     "handoff_use_pressure_gauge": True,
                     "handoff_require_vent_completed": False,
@@ -524,6 +525,7 @@ def test_route_handoff_fast_path_uses_transition_gauge_cache_without_blocking_re
             "workflow": {
                 "pressure": {
                     "handoff_fast_enabled": True,
+                    "route_open_guard_enabled": False,
                     "handoff_safe_open_delta_hpa": 3.0,
                     "handoff_use_pressure_gauge": True,
                     "handoff_require_vent_completed": False,
@@ -637,6 +639,7 @@ def test_route_handoff_fast_path_uses_pressure_gauge_delta_from_last_sample_not_
             "workflow": {
                 "pressure": {
                     "handoff_fast_enabled": True,
+                    "route_open_guard_enabled": False,
                     "handoff_safe_open_delta_hpa": 3.0,
                     "handoff_use_pressure_gauge": True,
                     "handoff_require_vent_completed": False,
@@ -696,6 +699,139 @@ def test_route_handoff_fast_path_uses_pressure_gauge_delta_from_last_sample_not_
     safe_rows = [row for row in trace_rows if row["trace_stage"] == "handoff_safe_to_open_reached"]
     assert len(safe_rows) == 1
     assert float(safe_rows[0]["pressure_gauge_hpa"]) == 1097.0
+
+
+def test_fast_handoff_does_not_apply_full_source_route_without_guard(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    point_next = _co2_point(2, 600.0, 900.0)
+    runner = CalibrationRunner(
+        {
+            "valves": {
+                "h2o_path": 8,
+                "gas_main": 11,
+                "co2_path": 7,
+                "co2_map": {"600": 4},
+            },
+            "workflow": {"pressure": {"route_open_guard_enabled": True}},
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    runner._source_stage_safety["co2_a"] = True
+    runner._pending_route_handoff = {
+        "next_phase": "co2",
+        "next_point": point_next,
+        "next_point_tag": "to",
+        "sample_done_ts": 1.0,
+        "vent_command_ts": 2.0,
+        "sample_completion": {"pace_output_state": 0, "pace_isolation_state": 1, "pace_vent_status": 1},
+    }
+    runner._wait_until_safe_to_open_next_route = lambda _state: {  # type: ignore[method-assign]
+        "safe_open_ts": 3.0,
+        "pressure_gauge_hpa": 1002.0,
+        "atmosphere_reference_hpa": 1000.0,
+        "safe_open_delta_hpa": 2.0,
+    }
+    direct_apply_calls: list[list[int]] = []
+    guard_calls: list[list[int]] = []
+    runner._apply_valve_states = lambda open_valves: direct_apply_calls.append(list(open_valves))  # type: ignore[method-assign]
+    runner._open_route_with_pressure_guard = lambda *args, **kwargs: guard_calls.append(list(kwargs.get("open_valves") or [])) or True  # type: ignore[method-assign]
+
+    assert runner._complete_pending_route_handoff(point_next, phase="co2", point_tag="to", open_valves=[8, 11, 7, 4]) is True
+    logger.close()
+
+    assert direct_apply_calls == []
+    assert guard_calls == [[8, 11, 7, 4]]
+
+
+def test_fast_handoff_uses_staged_route_guard_when_guard_enabled(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    point_next = _co2_point(2, 600.0, 900.0)
+    runner = CalibrationRunner(
+        {
+            "valves": {
+                "h2o_path": 8,
+                "gas_main": 11,
+                "co2_path": 7,
+                "co2_map": {"600": 4},
+            },
+            "workflow": {"pressure": {"route_open_guard_enabled": True}},
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    runner._source_stage_safety["co2_a"] = True
+    runner._pending_route_handoff = {
+        "next_phase": "co2",
+        "next_point": point_next,
+        "next_point_tag": "to",
+        "sample_done_ts": 1.0,
+        "vent_command_ts": 2.0,
+        "sample_completion": {"pace_output_state": 0, "pace_isolation_state": 1, "pace_vent_status": 1},
+    }
+    runner._wait_until_safe_to_open_next_route = lambda _state: {  # type: ignore[method-assign]
+        "safe_open_ts": 3.0,
+        "pressure_gauge_hpa": 1002.0,
+        "atmosphere_reference_hpa": 1000.0,
+        "safe_open_delta_hpa": 2.0,
+    }
+    staged_calls: list[str] = []
+    runner._open_route_with_pressure_guard = lambda *args, **kwargs: staged_calls.append(str(kwargs.get("log_context") or "")) or True  # type: ignore[method-assign]
+
+    assert runner._complete_pending_route_handoff(point_next, phase="co2", point_tag="to", open_valves=[8, 11, 7, 4]) is True
+    logger.close()
+
+    assert staged_calls == ["handoff staged route open"]
+
+
+def test_fast_handoff_blocks_source_stage_when_source_stage_not_verified(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    point_next = _co2_point(2, 600.0, 900.0)
+    runner = CalibrationRunner(
+        {
+            "valves": {
+                "h2o_path": 8,
+                "gas_main": 11,
+                "co2_path": 7,
+                "co2_map": {"600": 4},
+            },
+            "workflow": {"pressure": {"route_open_guard_enabled": True}},
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    runner._pending_route_handoff = {
+        "next_phase": "co2",
+        "next_point": point_next,
+        "next_point_tag": "to",
+        "sample_done_ts": 1.0,
+        "vent_command_ts": 2.0,
+        "sample_completion": {"pace_output_state": 0, "pace_isolation_state": 1, "pace_vent_status": 1},
+    }
+    runner._wait_until_safe_to_open_next_route = lambda _state: {  # type: ignore[method-assign]
+        "safe_open_ts": 3.0,
+        "pressure_gauge_hpa": 1002.0,
+        "atmosphere_reference_hpa": 1000.0,
+        "safe_open_delta_hpa": 2.0,
+    }
+    direct_apply_calls: list[list[int]] = []
+    guard_calls: list[list[int]] = []
+    runner._apply_valve_states = lambda open_valves: direct_apply_calls.append(list(open_valves))  # type: ignore[method-assign]
+    runner._open_route_with_pressure_guard = lambda *args, **kwargs: guard_calls.append(list(kwargs.get("open_valves") or [])) or True  # type: ignore[method-assign]
+
+    assert runner._complete_pending_route_handoff(point_next, phase="co2", point_tag="to", open_valves=[8, 11, 7, 4]) is False
+    logger.close()
+
+    state = runner._point_runtime_state(point_next, phase="co2") or {}
+    assert direct_apply_calls == []
+    assert guard_calls == []
+    assert state["handoff_source_stage_block_reason"] == "HandoffSourceStageBlockedUntilVerified"
 
 
 def test_write_physical_valve_states_parallelizes_multi_relay_bulk_writes(tmp_path: Path) -> None:

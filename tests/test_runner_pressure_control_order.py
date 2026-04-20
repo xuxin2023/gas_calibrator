@@ -2581,7 +2581,6 @@ def test_set_pressure_to_target_soft_recovers_and_retries_once(tmp_path: Path) -
 
     assert ("close",) in pace.calls
     assert ("open",) in pace.calls
-    assert ("units_hpa",) in pace.calls
     assert ("set_in_limits", 0.02, 10.0) in pace.calls
     assert ("setpoint", 550.0, "first") in pace.calls
     assert ("setpoint", 550.0, "second") in pace.calls

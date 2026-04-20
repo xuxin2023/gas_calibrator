@@ -26,12 +26,39 @@ class _FakePace:
     def __init__(self):
         self.vent_calls = []
         self.output_calls = []
+        self._vent_status = 0
+        self._output_state = 0
+        self._isolation_state = 1
+        self._vent_query_count = 0
 
     def vent(self, on=True):
         self.vent_calls.append(bool(on))
+        self._vent_status = 1 if on else 0
+        self._vent_query_count = 0
 
     def set_output(self, on):
         self.output_calls.append(bool(on))
+        self._output_state = 1 if on else 0
+
+    def set_isolation_open(self, is_open):
+        self._isolation_state = 1 if is_open else 0
+
+    def get_output_state(self):
+        return self._output_state
+
+    def get_isolation_state(self):
+        return self._isolation_state
+
+    def get_vent_status(self):
+        if self._vent_status != 1:
+            return self._vent_status
+        self._vent_query_count += 1
+        if self._vent_query_count >= 2:
+            self._vent_status = 0
+        return self._vent_status
+
+    def read_pressure(self):
+        return 1000.0
 
     def close(self):
         return None
@@ -46,6 +73,9 @@ class _FakePaceManual:
 
     def exit_atmosphere_mode(self, timeout_s=0.0):
         self.calls.append(("vent_off", float(timeout_s)))
+
+    def read_pressure(self):
+        return 1000.0
 
     def close(self):
         return None
@@ -172,11 +202,17 @@ class _FakePaceStartupSingleCycleBlocked:
     def has_legacy_vent_state_3_compatibility(self):
         return False
 
+    def detect_profile(self):
+        return "OLD_PACE5000"
+
     def get_device_identity(self):
         return '*IDN GE Druck,Pace5000 User Interface,3213201,02.00.07'
 
     def get_instrument_version(self):
         return ':INST:VERS "02.00.07"'
+
+    def read_pressure(self):
+        return 1000.0
 
     def close(self):
         return None
@@ -362,6 +398,7 @@ def test_startup_pressure_precheck_passes_and_restores_baseline(tmp_path: Path) 
         lambda *_: None,
         lambda *_: None,
     )
+    runner._source_stage_safety["co2_a"] = True
     events = []
 
     point = CalibrationPoint(
@@ -377,7 +414,11 @@ def test_startup_pressure_precheck_passes_and_restores_baseline(tmp_path: Path) 
     )
 
     runner._set_co2_route_baseline = lambda reason="": events.append(("baseline", reason))  # type: ignore[method-assign]
-    runner._set_valves_for_co2 = lambda one_point: events.append(("valves", one_point.index))  # type: ignore[method-assign]
+    runner._open_route_with_pressure_guard = lambda *args, **kwargs: events.append((  # type: ignore[method-assign]
+        "guarded_route_open",
+        kwargs.get("phase"),
+        kwargs.get("open_valves"),
+    )) or True
     runner._pressurize_and_hold = lambda one_point, route="co2": events.append(("pressurize", route, one_point.target_pressure_hpa)) or True  # type: ignore[method-assign]
     runner._set_pressure_to_target = lambda one_point: events.append(("stabilize", one_point.target_pressure_hpa)) or True  # type: ignore[method-assign]
     runner._observe_startup_pressure_hold = lambda _cfg: (  # type: ignore[method-assign]
@@ -398,7 +439,7 @@ def test_startup_pressure_precheck_passes_and_restores_baseline(tmp_path: Path) 
     logger.close()
 
     assert ("baseline", "before startup pressure precheck") in events
-    assert ("valves", 21) in events
+    assert any(event[0] == "guarded_route_open" and event[1] == "co2" for event in events)
     assert ("pressurize", "co2", 1000.0) in events
     assert ("stabilize", 1000.0) in events
     assert ("cleanup", "after startup pressure precheck") in events
@@ -454,6 +495,7 @@ def test_startup_pressure_precheck_raises_when_hold_drift_exceeds_limit(tmp_path
         lambda *_: None,
         lambda *_: None,
     )
+    runner._source_stage_safety["co2_a"] = True
     events = []
 
     point = CalibrationPoint(
@@ -469,7 +511,11 @@ def test_startup_pressure_precheck_raises_when_hold_drift_exceeds_limit(tmp_path
     )
 
     runner._set_co2_route_baseline = lambda reason="": events.append(("baseline", reason))  # type: ignore[method-assign]
-    runner._set_valves_for_co2 = lambda one_point: events.append(("valves", one_point.index))  # type: ignore[method-assign]
+    runner._open_route_with_pressure_guard = lambda *args, **kwargs: events.append((  # type: ignore[method-assign]
+        "guarded_route_open",
+        kwargs.get("phase"),
+        kwargs.get("open_valves"),
+    )) or True
     runner._pressurize_and_hold = lambda one_point, route="co2": events.append(("pressurize", route, one_point.target_pressure_hpa)) or True  # type: ignore[method-assign]
     runner._set_pressure_to_target = lambda one_point: events.append(("stabilize", one_point.target_pressure_hpa)) or True  # type: ignore[method-assign]
     runner._observe_startup_pressure_hold = lambda _cfg: (  # type: ignore[method-assign]
@@ -528,3 +574,105 @@ def test_startup_pressure_precheck_point_skips_when_only_ambient_selected(tmp_pa
         assert runner._startup_pressure_precheck_point([point], route="co2") is None
     finally:
         logger.close()
+
+
+def test_startup_pressure_precheck_does_not_bypass_route_guard(tmp_path: Path) -> None:
+    cfg = {
+        "valves": {
+            "co2_path": 7,
+            "gas_main": 11,
+            "h2o_path": 8,
+            "relay_map": {},
+            "co2_map": {"0": 4},
+        },
+        "workflow": {
+            "pressure": {
+                "route_open_guard_enabled": True,
+            },
+            "startup_pressure_precheck": {
+                "enabled": True,
+                "route": "co2",
+                "route_soak_s": 0,
+                "hold_s": 0,
+                "strict": True,
+            },
+        },
+    }
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(cfg, {}, logger, lambda *_: None, lambda *_: None)
+    runner._source_stage_safety["co2_a"] = True
+    point = CalibrationPoint(
+        index=21,
+        temp_chamber_c=20.0,
+        co2_ppm=0.0,
+        hgen_temp_c=None,
+        hgen_rh_pct=None,
+        target_pressure_hpa=1000.0,
+        dewpoint_c=None,
+        h2o_mmol=None,
+        raw_h2o=None,
+    )
+    calls: list[tuple[str, object]] = []
+    runner._set_valves_for_co2 = lambda _point: (_ for _ in ()).throw(AssertionError("direct CO2 route open must not be used"))  # type: ignore[method-assign]
+    runner._open_route_with_pressure_guard = lambda *args, **kwargs: calls.append(("guard", kwargs.get("open_valves"))) or True  # type: ignore[method-assign]
+    runner._pressurize_route_for_sealed_points = lambda *_args, **_kwargs: calls.append(("seal", None)) or True  # type: ignore[method-assign]
+    runner._set_pressure_to_target = lambda *_args, **_kwargs: True  # type: ignore[method-assign]
+    runner._observe_startup_pressure_hold = lambda _cfg: (True, {"source": "pressure_gauge", "start_hpa": 1000.0, "end_hpa": 1000.0, "max_abs_drift_hpa": 0.0, "span_hpa": 0.0, "samples": 1, "limit_hpa": 1.0})  # type: ignore[method-assign]
+    runner._cleanup_co2_route = lambda reason="": calls.append(("cleanup", reason))  # type: ignore[method-assign]
+
+    runner._startup_pressure_precheck([point])
+    logger.close()
+
+    assert any(call[0] == "guard" for call in calls)
+
+
+def test_startup_pressure_sensor_calibration_does_not_bypass_route_guard(tmp_path: Path) -> None:
+    cfg = {
+        "valves": {
+            "co2_path": 7,
+            "gas_main": 11,
+            "h2o_path": 8,
+            "relay_map": {},
+            "co2_map": {"0": 4},
+        },
+        "workflow": {
+            "pressure": {
+                "route_open_guard_enabled": True,
+            },
+            "startup_pressure_sensor_calibration": {
+                "enabled": True,
+                "target_hpa": 1000.0,
+                "flush_soak_s": 0.0,
+                "strict": True,
+            },
+        },
+    }
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(cfg, {}, logger, lambda *_: None, lambda *_: None)
+    point = CalibrationPoint(
+        index=21,
+        temp_chamber_c=20.0,
+        co2_ppm=0.0,
+        hgen_temp_c=None,
+        hgen_rh_pct=None,
+        target_pressure_hpa=1000.0,
+        dewpoint_c=None,
+        h2o_mmol=None,
+        raw_h2o=None,
+    )
+    calls: list[list[int]] = []
+    runner._startup_pressure_sensor_calibration_point = lambda _points: point  # type: ignore[method-assign]
+    runner._active_gas_analyzers = lambda: [("GA01", object(), {})]  # type: ignore[method-assign]
+    runner._set_valves_for_co2 = lambda _point: (_ for _ in ()).throw(AssertionError("direct CO2 route open must not be used"))  # type: ignore[method-assign]
+
+    def _guarded_open(*_args, **kwargs):
+        calls.append(list(kwargs.get("open_valves") or []))
+        raise RuntimeError("guarded stop")
+
+    runner._open_route_with_pressure_guard = _guarded_open  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="guarded stop"):
+        runner._startup_pressure_sensor_calibration([point])
+    logger.close()
+
+    assert calls == [[8, 11, 7]]

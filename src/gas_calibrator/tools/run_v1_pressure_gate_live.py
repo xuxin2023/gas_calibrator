@@ -209,6 +209,14 @@ def _status_from_abort(ok: bool, abort_reason: str) -> str:
     return "fail"
 
 
+def _route_guard_summary_payload(runner: CalibrationRunner) -> Dict[str, Any]:
+    summary = dict(runner._last_route_pressure_guard_summary or {})
+    summary.setdefault("analyzer_pressure_available", False)
+    summary.setdefault("analyzer_pressure_protection_active", False)
+    summary.setdefault("analyzer_pressure_status", "unavailable")
+    return summary
+
+
 def _run_atmosphere_gate_only(
     runner: CalibrationRunner,
     trace_path: Path,
@@ -321,51 +329,145 @@ def _run_route_flush_dewpoint_gate(
     }
 
 
-def _run_route_synchronized_atmosphere_flush_co2_a(
+def _run_route_synchronized_atmosphere_flush_co2_a_no_source(
     runner: CalibrationRunner,
     trace_path: Path,
     args: argparse.Namespace,
 ) -> Dict[str, Any]:
     point = _build_co2_point(args, index=9010, co2_ppm=600.0, co2_group="A")
     trace_start = _trace_row_count(trace_path)
-    drain_summary = _drain_pace_errors_for_live_step(runner, reason="route_synchronized_atmosphere_flush_co2_a pre-step")
-    ok = runner._open_co2_route_for_conditioning(point, point_tag="live_route_sync_atmosphere_flush_co2_a")
+    drain_summary = _drain_pace_errors_for_live_step(runner, reason="route_synchronized_atmosphere_flush_co2_a_no_source pre-step")
+    runner._clear_last_sealed_pressure_route_context(reason="live synchronized CO2 A no-source route flush")
+    runner._clear_pressure_sequence_context(reason="live synchronized CO2 A no-source route flush")
+    runner._set_co2_route_baseline(reason="live synchronized CO2 A no-source route flush baseline")
+    open_valves = runner._co2_open_valves(point, include_total_valve=True, include_source_valve=False)
+    ok = runner._open_route_with_pressure_guard(
+        point,
+        phase="co2",
+        point_tag="live_route_sync_atmosphere_flush_co2_a_no_source",
+        open_valves=open_valves,
+        log_context="live synchronized CO2 A no-source route flush",
+    )
     point_state = dict(runner._point_runtime_state(point, phase="co2") or {})
     abort_reason = str(point_state.get("abort_reason") or "").strip()
     return {
-        "scenario": "route_synchronized_atmosphere_flush_co2_a",
+        "scenario": "route_synchronized_atmosphere_flush_co2_a_no_source",
         "status": _status_from_abort(bool(ok), abort_reason),
         "route_open_passed": bool(ok),
         "abort_reason": abort_reason,
         "point_runtime_state": point_state,
-        "open_valves": runner._co2_open_valves(point, include_total_valve=True),
+        "open_valves": open_valves,
         "atmosphere_summary": dict(runner._last_atmosphere_gate_summary or {}),
-        "route_pressure_guard_summary": dict(runner._last_route_pressure_guard_summary or {}),
+        "route_pressure_guard_summary": _route_guard_summary_payload(runner),
         **drain_summary,
         "pressure_trace_rows": _scenario_trace_rows(trace_path, trace_start),
     }
 
 
-def _run_route_synchronized_atmosphere_flush_co2_b(
+def _run_route_synchronized_atmosphere_flush_co2_b_no_source(
     runner: CalibrationRunner,
     trace_path: Path,
     args: argparse.Namespace,
 ) -> Dict[str, Any]:
     point = _build_co2_point(args, index=9011, co2_ppm=500.0, co2_group="B")
     trace_start = _trace_row_count(trace_path)
-    drain_summary = _drain_pace_errors_for_live_step(runner, reason="route_synchronized_atmosphere_flush_co2_b pre-step")
-    ok = runner._open_co2_route_for_conditioning(point, point_tag="live_route_sync_atmosphere_flush_co2_b")
+    drain_summary = _drain_pace_errors_for_live_step(runner, reason="route_synchronized_atmosphere_flush_co2_b_no_source pre-step")
+    runner._clear_last_sealed_pressure_route_context(reason="live synchronized CO2 B no-source route flush")
+    runner._clear_pressure_sequence_context(reason="live synchronized CO2 B no-source route flush")
+    runner._set_co2_route_baseline(reason="live synchronized CO2 B no-source route flush baseline")
+    open_valves = runner._co2_open_valves(point, include_total_valve=True, include_source_valve=False)
+    ok = runner._open_route_with_pressure_guard(
+        point,
+        phase="co2",
+        point_tag="live_route_sync_atmosphere_flush_co2_b_no_source",
+        open_valves=open_valves,
+        log_context="live synchronized CO2 B no-source route flush",
+    )
     point_state = dict(runner._point_runtime_state(point, phase="co2") or {})
     abort_reason = str(point_state.get("abort_reason") or "").strip()
     return {
-        "scenario": "route_synchronized_atmosphere_flush_co2_b",
+        "scenario": "route_synchronized_atmosphere_flush_co2_b_no_source",
         "status": _status_from_abort(bool(ok), abort_reason),
         "route_open_passed": bool(ok),
         "abort_reason": abort_reason,
         "point_runtime_state": point_state,
-        "open_valves": runner._co2_open_valves(point, include_total_valve=True),
+        "open_valves": open_valves,
         "atmosphere_summary": dict(runner._last_atmosphere_gate_summary or {}),
-        "route_pressure_guard_summary": dict(runner._last_route_pressure_guard_summary or {}),
+        "route_pressure_guard_summary": _route_guard_summary_payload(runner),
+        **drain_summary,
+        "pressure_trace_rows": _scenario_trace_rows(trace_path, trace_start),
+    }
+
+
+def _run_route_synchronized_atmosphere_flush_co2_a_source_guarded(
+    runner: CalibrationRunner,
+    trace_path: Path,
+    args: argparse.Namespace,
+) -> Dict[str, Any]:
+    point = _build_co2_point(args, index=9013, co2_ppm=600.0, co2_group="A")
+    trace_start = _trace_row_count(trace_path)
+    open_valves = runner._co2_open_valves(point, include_total_valve=True, include_source_valve=True)
+    if not bool(getattr(args, "allow_source_open", False)):
+        return {
+            "scenario": "route_synchronized_atmosphere_flush_co2_a_source_guarded",
+            "status": "skipped",
+            "skipped_reason": "SourceOpenRequiresExplicitAllowFlag",
+            "operator_must_confirm_upstream_source_pressure_limited": True,
+            "open_valves": open_valves,
+            "pressure_trace_rows": _scenario_trace_rows(trace_path, trace_start),
+        }
+    _log("operator_must_confirm_upstream_source_pressure_limited=true")
+    drain_summary = _drain_pace_errors_for_live_step(runner, reason="route_synchronized_atmosphere_flush_co2_a_source_guarded pre-step")
+    ok = runner._open_co2_route_for_conditioning(point, point_tag="live_route_sync_atmosphere_flush_co2_a_source_guarded")
+    point_state = dict(runner._point_runtime_state(point, phase="co2") or {})
+    abort_reason = str(point_state.get("abort_reason") or "").strip()
+    return {
+        "scenario": "route_synchronized_atmosphere_flush_co2_a_source_guarded",
+        "status": _status_from_abort(bool(ok), abort_reason),
+        "route_open_passed": bool(ok),
+        "abort_reason": abort_reason,
+        "operator_must_confirm_upstream_source_pressure_limited": True,
+        "point_runtime_state": point_state,
+        "open_valves": open_valves,
+        "atmosphere_summary": dict(runner._last_atmosphere_gate_summary or {}),
+        "route_pressure_guard_summary": _route_guard_summary_payload(runner),
+        **drain_summary,
+        "pressure_trace_rows": _scenario_trace_rows(trace_path, trace_start),
+    }
+
+
+def _run_route_synchronized_atmosphere_flush_co2_b_source_guarded(
+    runner: CalibrationRunner,
+    trace_path: Path,
+    args: argparse.Namespace,
+) -> Dict[str, Any]:
+    point = _build_co2_point(args, index=9014, co2_ppm=500.0, co2_group="B")
+    trace_start = _trace_row_count(trace_path)
+    open_valves = runner._co2_open_valves(point, include_total_valve=True, include_source_valve=True)
+    if not bool(getattr(args, "allow_source_open", False)):
+        return {
+            "scenario": "route_synchronized_atmosphere_flush_co2_b_source_guarded",
+            "status": "skipped",
+            "skipped_reason": "SourceOpenRequiresExplicitAllowFlag",
+            "operator_must_confirm_upstream_source_pressure_limited": True,
+            "open_valves": open_valves,
+            "pressure_trace_rows": _scenario_trace_rows(trace_path, trace_start),
+        }
+    _log("operator_must_confirm_upstream_source_pressure_limited=true")
+    drain_summary = _drain_pace_errors_for_live_step(runner, reason="route_synchronized_atmosphere_flush_co2_b_source_guarded pre-step")
+    ok = runner._open_co2_route_for_conditioning(point, point_tag="live_route_sync_atmosphere_flush_co2_b_source_guarded")
+    point_state = dict(runner._point_runtime_state(point, phase="co2") or {})
+    abort_reason = str(point_state.get("abort_reason") or "").strip()
+    return {
+        "scenario": "route_synchronized_atmosphere_flush_co2_b_source_guarded",
+        "status": _status_from_abort(bool(ok), abort_reason),
+        "route_open_passed": bool(ok),
+        "abort_reason": abort_reason,
+        "operator_must_confirm_upstream_source_pressure_limited": True,
+        "point_runtime_state": point_state,
+        "open_valves": open_valves,
+        "atmosphere_summary": dict(runner._last_atmosphere_gate_summary or {}),
+        "route_pressure_guard_summary": _route_guard_summary_payload(runner),
         **drain_summary,
         "pressure_trace_rows": _scenario_trace_rows(trace_path, trace_start),
     }
@@ -400,7 +502,7 @@ def _run_route_synchronized_atmosphere_flush_h2o(
         "point_runtime_state": point_state,
         "open_valves": runner._h2o_open_valves(point),
         "atmosphere_summary": dict(runner._last_atmosphere_gate_summary or {}),
-        "route_pressure_guard_summary": dict(runner._last_route_pressure_guard_summary or {}),
+        "route_pressure_guard_summary": _route_guard_summary_payload(runner),
         **drain_summary,
         "pressure_trace_rows": _scenario_trace_rows(trace_path, trace_start),
     }
@@ -423,7 +525,7 @@ def _run_route_open_pressure_guard(
         "abort_reason": abort_reason,
         "point_runtime_state": point_state,
         "atmosphere_summary": dict(runner._last_atmosphere_gate_summary or {}),
-        "route_pressure_guard_summary": dict(runner._last_route_pressure_guard_summary or {}),
+        "route_pressure_guard_summary": _route_guard_summary_payload(runner),
         "pressure_trace_rows": _scenario_trace_rows(trace_path, trace_start),
     }
 
@@ -632,6 +734,10 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
             "atmosphere_gate_only",
             "baseline_atmosphere_hold_60s",
             "route_open_pressure_guard",
+            "route_synchronized_atmosphere_flush_co2_a_no_source",
+            "route_synchronized_atmosphere_flush_co2_b_no_source",
+            "route_synchronized_atmosphere_flush_co2_a_source_guarded",
+            "route_synchronized_atmosphere_flush_co2_b_source_guarded",
             "route_synchronized_atmosphere_flush_co2_a",
             "route_synchronized_atmosphere_flush_co2_b",
             "route_synchronized_atmosphere_flush_h2o",
@@ -670,6 +776,11 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--route-open-guard-analyzer-warning-kpa", type=float, default=120.0)
     parser.add_argument("--route-open-guard-analyzer-abort-kpa", type=float, default=150.0)
     parser.add_argument("--route-open-guard-dewpoint-line-tolerance-hpa", type=float, default=30.0)
+    parser.add_argument(
+        "--allow-source-open",
+        action="store_true",
+        help="Required to execute guarded CO2 source-open scenarios.",
+    )
     parser.add_argument("--dewpoint-gate-window-s", type=float, default=30.0)
     parser.add_argument("--dewpoint-gate-max-wait-s", type=float, default=120.0)
     parser.add_argument("--dewpoint-gate-poll-s", type=float, default=1.0)
@@ -687,6 +798,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     need_dewpoint = args.scenario == "route_flush_dewpoint_gate"
     need_analyzer_pressure = args.scenario in {
         "route_open_pressure_guard",
+        "route_synchronized_atmosphere_flush_co2_a_no_source",
+        "route_synchronized_atmosphere_flush_co2_b_no_source",
+        "route_synchronized_atmosphere_flush_co2_a_source_guarded",
+        "route_synchronized_atmosphere_flush_co2_b_source_guarded",
         "route_synchronized_atmosphere_flush_co2_a",
         "route_synchronized_atmosphere_flush_co2_b",
         "route_synchronized_atmosphere_flush_h2o",
@@ -726,6 +841,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         devices = _build_devices(runtime_cfg, io_logger=logger)
         runner = CalibrationRunner(runtime_cfg, devices, logger, _log, _log)
         runner._configure_devices(configure_gas_analyzers=False)
+        summary["k0472_capability_snapshot"] = runner._capture_pace_capability_snapshot(
+            reason=f"live scenario {args.scenario}",
+            include_optional_probe=True,
+        )
 
         if args.scenario == "atmosphere_gate_only":
             scenario_result = _run_atmosphere_gate_only(runner, trace_path)
@@ -733,10 +852,18 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             scenario_result = _run_baseline_atmosphere_hold_60s(runner, trace_path, devices, args)
         elif args.scenario == "route_open_pressure_guard":
             scenario_result = _run_route_open_pressure_guard(runner, trace_path, args)
+        elif args.scenario == "route_synchronized_atmosphere_flush_co2_a_no_source":
+            scenario_result = _run_route_synchronized_atmosphere_flush_co2_a_no_source(runner, trace_path, args)
+        elif args.scenario == "route_synchronized_atmosphere_flush_co2_b_no_source":
+            scenario_result = _run_route_synchronized_atmosphere_flush_co2_b_no_source(runner, trace_path, args)
+        elif args.scenario == "route_synchronized_atmosphere_flush_co2_a_source_guarded":
+            scenario_result = _run_route_synchronized_atmosphere_flush_co2_a_source_guarded(runner, trace_path, args)
+        elif args.scenario == "route_synchronized_atmosphere_flush_co2_b_source_guarded":
+            scenario_result = _run_route_synchronized_atmosphere_flush_co2_b_source_guarded(runner, trace_path, args)
         elif args.scenario == "route_synchronized_atmosphere_flush_co2_a":
-            scenario_result = _run_route_synchronized_atmosphere_flush_co2_a(runner, trace_path, args)
+            scenario_result = _run_route_synchronized_atmosphere_flush_co2_a_source_guarded(runner, trace_path, args)
         elif args.scenario == "route_synchronized_atmosphere_flush_co2_b":
-            scenario_result = _run_route_synchronized_atmosphere_flush_co2_b(runner, trace_path, args)
+            scenario_result = _run_route_synchronized_atmosphere_flush_co2_b_source_guarded(runner, trace_path, args)
         elif args.scenario == "route_synchronized_atmosphere_flush_h2o":
             scenario_result = _run_route_synchronized_atmosphere_flush_h2o(runner, trace_path, args)
         elif args.scenario == "route_valve_isolation":
@@ -744,6 +871,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         else:
             scenario_result = _run_route_flush_dewpoint_gate(runner, trace_path, args)
         summary["scenario_result"] = scenario_result
+        summary["final_syst_err"] = runner._read_pace_system_error_text()
         summary["status"] = "completed"
         _log(
             "Scenario result: "
