@@ -170,7 +170,13 @@ class _FakePaceStartupSingleCycleBlocked:
         return 2
 
     def has_legacy_vent_state_3_compatibility(self):
-        return True
+        return False
+
+    def get_device_identity(self):
+        return '*IDN GE Druck,Pace5000 User Interface,3213201,02.00.07'
+
+    def get_instrument_version(self):
+        return ':INST:VERS "02.00.07"'
 
     def close(self):
         return None
@@ -244,7 +250,7 @@ def test_startup_preflight_resets_valves_and_pressure(tmp_path: Path) -> None:
     assert runner._h2o_pressure_prepared_target is None
 
 
-def test_startup_preflight_reset_blocks_legacy_single_cycle_clear_before_first_point(
+def test_startup_preflight_reset_accepts_legacy_completed_status_without_clear_before_first_point(
     tmp_path: Path,
 ) -> None:
     cfg = {
@@ -265,14 +271,9 @@ def test_startup_preflight_reset_blocks_legacy_single_cycle_clear_before_first_p
         lambda *_: None,
     )
 
-    with pytest.raises(
-        RuntimeError,
-        match="VENT_COMPLETED_LATCH_SINGLE_CYCLE_CLEAR_BLOCKED",
-    ) as excinfo:
-        runner._startup_preflight_reset()
+    runner._startup_preflight_reset()
     logger.close()
 
-    assert "manual_intervention_required=true" in str(excinfo.value)
     assert pace.calls == [
         ("output", False),
         ("isol", True),
@@ -281,15 +282,13 @@ def test_startup_preflight_reset_blocks_legacy_single_cycle_clear_before_first_p
     assert not any(call == ("vent", False) for call in pace.calls)
     trace_rows = _load_pressure_trace_rows(logger)
     assert any(
-        row["trace_stage"] == "atmosphere_vent_clear_blocked"
+        row["trace_stage"] == "atmosphere_vent_completed"
         and row["pace_vent_status_query"].strip() == "2"
-        and row["pace_vent_clear_result"].strip()
-        == "legacy_completed_latch_single_cycle_clear_blocked(before=2,strategy=single_cycle_query_clear)"
-        and "manual intervention required" in row["note"]
+        and row["pace_vent_clear_result"].strip() == "legacy_completed_latch_observed_ready_without_clear"
         for row in trace_rows
     )
     assert not any(row["trace_stage"] == "atmosphere_vent_clear_command" for row in trace_rows)
-    assert not any(row["trace_stage"] == "atmosphere_enter_verified" for row in trace_rows)
+    assert any(row["trace_stage"] == "atmosphere_enter_verified" for row in trace_rows)
 
 
 def test_set_pressure_controller_vent_prefers_manual_driver_helpers(tmp_path: Path) -> None:

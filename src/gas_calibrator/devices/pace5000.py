@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import re
 import threading
 import time
-from typing import Any, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .serial_base import SerialDevice
 
@@ -13,10 +14,15 @@ from .serial_base import SerialDevice
 class Pace5000:
     """PACE5000 wrapper."""
 
+    LEGACY_AUTO_ABORT_VENT_OVERRIDE_ENV = "GAS_CALIBRATOR_PACE5000_LEGACY_ALLOW_AUTO_VENT_ABORT"
+    PROFILE_OLD_PACE5000 = "OLD_PACE5000"
+    PROFILE_PACE5000E = "PACE5000E"
+    PROFILE_UNKNOWN = "UNKNOWN"
+
     VENT_STATUS_IDLE = 0
     VENT_STATUS_IN_PROGRESS = 1
     VENT_STATUS_COMPLETED = 2
-    VENT_STATUS_TIMED_OUT = 5
+    VENT_STATUS_TIMED_OUT = 2
     VENT_STATUS_TRAPPED_PRESSURE = 3
     VENT_STATUS_ABORTED = 4
 
@@ -51,6 +57,14 @@ class Pace5000:
         self._vent_elapsed_time_supported: Optional[bool] = None
         self._vent_orpv_supported: Optional[bool] = None
         self._vent_pupv_supported: Optional[bool] = None
+        self._device_model: Optional[str] = None
+        self._device_model_probed = False
+        self._device_profile: Optional[str] = None
+        self._device_profile_probed = False
+        self._supports_sens_pres_cont: Optional[bool] = None
+        self._last_in_limits_pressure_hpa: Optional[float] = None
+        self._last_in_limits_flag: Optional[int] = None
+        self._last_in_limits_monotonic: Optional[float] = None
         self.line_ending = self._normalize_line_ending(line_ending or "LF")
         self.query_line_endings = self._normalize_line_endings(query_line_endings)
         self.pressure_queries = self._normalize_pressure_queries(pressure_queries)
@@ -88,9 +102,9 @@ class Pace5000:
         raw = list(values) if values is not None else []
         preferred = [
             ":SENS:PRES:INL?",
-            ":SENS:PRES:CONT?",
             ":SENS:PRES?",
             ":MEAS:PRES?",
+            ":SENS:PRES:CONT?",
         ]
         for one in preferred + raw + preferred:
             text = str(one or "").strip()
@@ -140,6 +154,70 @@ class Pace5000:
             return None
 
     @staticmethod
+    def _response_payload(text: Any) -> str:
+        raw = str(text or "").strip()
+        if not raw:
+            return ""
+        parts = raw.split(None, 1)
+        return parts[1].strip() if len(parts) > 1 else raw
+
+    @classmethod
+    def _parse_system_error(cls, text: Any) -> Tuple[Optional[int], str]:
+        raw = str(text or "").strip()
+        if not raw:
+            return None, ""
+        payload = cls._response_payload(raw)
+        match = re.match(r"\s*([-+]?\d+)\s*,\s*(.*)\s*$", payload)
+        if match:
+            code = cls._parse_first_int(match.group(1))
+            message = str(match.group(2) or "").strip().strip("\"'")
+            return code, message
+        code = cls._parse_first_int(payload)
+        if code is None:
+            return None, payload
+        return code, payload[len(str(code)) :].strip().strip("\"'")
+
+    @classmethod
+    def _is_zero_system_error(cls, text: Any) -> bool:
+        code, _message = cls._parse_system_error(text)
+        return code == 0
+
+    @staticmethod
+    def _normalize_profile(value: Any) -> str:
+        text = str(value or "").strip().upper()
+        if text == Pace5000.PROFILE_OLD_PACE5000:
+            return Pace5000.PROFILE_OLD_PACE5000
+        if text == Pace5000.PROFILE_PACE5000E:
+            return Pace5000.PROFILE_PACE5000E
+        return Pace5000.PROFILE_UNKNOWN
+
+    @staticmethod
+    def _normalize_exact_range_token(value: Any) -> str:
+        text = str(value or "").strip().strip("\"'")
+        text = re.sub(r"\s+", "", text)
+        return text.upper()
+
+    @classmethod
+    def _parse_range_upper_hpa(cls, text: Any) -> Optional[float]:
+        raw = cls._normalize_exact_range_token(text)
+        if not raw or raw == "BAROMETER":
+            return None
+        match = re.match(r"([-+]?\d+(?:\.\d+)?)(BARA|BARG|MBARA|MBARG|HPAA|HPAG|KPAA|KPAG)$", raw)
+        if not match:
+            return None
+        value = float(match.group(1))
+        suffix = match.group(2)
+        if suffix.startswith("BAR"):
+            scale = 1000.0
+        elif suffix.startswith("MBAR"):
+            scale = 1.0
+        elif suffix.startswith("KPA"):
+            scale = 10.0
+        else:
+            return None
+        return float(value) * scale
+
+    @staticmethod
     def _parse_bool_state(text: str) -> Optional[bool]:
         raw = str(text or "").strip().upper()
         if not raw:
@@ -174,11 +252,77 @@ class Pace5000:
         with self._cmd_lock:
             self.ser.write(cmd + self.line_ending)
 
+    def send_command(self, cmd: str) -> None:
+        self.write(str(cmd or "").strip())
+
+    def sendCommand(self, cmd: str) -> None:  # noqa: N802 - compatibility for existing field naming
+        self.send_command(cmd)
+
     def clear_status(self) -> None:
-        self.write("*CLS")
+        self.send_command("*CLS")
 
     def get_system_error(self) -> str:
         return str(self.query(":SYST:ERR?") or "").strip()
+
+    def send_and_check_error(
+        self,
+        cmd: str,
+        *,
+        tolerated_error_codes: Optional[Iterable[int]] = None,
+    ) -> str:
+        command_text = str(cmd or "").strip()
+        self.send_command(command_text)
+        err = self.get_system_error()
+        code, message = self._parse_system_error(err)
+        allowed_codes = {0}
+        if tolerated_error_codes is not None:
+            for item in tolerated_error_codes:
+                parsed = self._parse_first_int(str(item))
+                if parsed is not None:
+                    allowed_codes.add(parsed)
+        if code in allowed_codes:
+            return err
+        if code is None:
+            raise RuntimeError(f"PACE_COMMAND_ERROR(command={command_text}, error={err})")
+        raise RuntimeError(
+            "PACE_COMMAND_ERROR("
+            f"command={command_text},code={code},message={message or 'unknown'})"
+        )
+
+    def _consume_optional_query_error(
+        self,
+        cmd: str,
+        *,
+        tolerated_error_codes: Optional[Iterable[int]] = None,
+    ) -> str:
+        allowed = {0, None}
+        for default_code in (-102, -113):
+            allowed.add(default_code)
+        if tolerated_error_codes is not None:
+            for item in tolerated_error_codes:
+                parsed = self._parse_first_int(str(item))
+                if parsed is not None:
+                    allowed.add(parsed)
+        last_text = ""
+        for _ in range(8):
+            try:
+                err = self.get_system_error()
+            except Exception:
+                return last_text
+            text = str(err or "").strip()
+            if not text:
+                return last_text
+            last_text = text
+            code, message = self._parse_system_error(text)
+            if code in (None, 0):
+                return text
+            if code in allowed:
+                continue
+            raise RuntimeError(
+                "PACE_QUERY_ERROR("
+                f"command={str(cmd or '').strip()},code={code},message={message or 'unknown'})"
+            )
+        return last_text
 
     def drain_system_errors(self, *, max_reads: int = 8) -> List[str]:
         errors: List[str] = []
@@ -214,20 +358,62 @@ class Pace5000:
                 second = ""
             return self._strip_echo(cmd, second)
 
+    def query_command(self, cmd: str) -> str:
+        return self.query(cmd)
+
+    def parse_response(self, text: Any) -> str:
+        return self._response_payload(text)
+
+    def get_pressure_unit(self) -> str:
+        return self._response_payload(self.query(":UNIT:PRES?")).strip().strip("\"'").upper()
+
+    def set_unit(self, unit: str) -> str:
+        target = str(unit or "HPA").strip().upper()
+        if not target:
+            raise ValueError("unit must not be empty")
+        try:
+            current = self.get_pressure_unit()
+        except Exception:
+            current = ""
+        if current == target:
+            return current
+        self.send_and_check_error(f":UNIT:PRES {target}")
+        readback = self.get_pressure_unit()
+        if readback != target:
+            raise RuntimeError(f"UNIT_READBACK_MISMATCH(expected={target},actual={readback})")
+        return readback
+
     def set_units_hpa(self) -> None:
-        self.write(":UNIT:PRES HPA")
+        self.set_unit("HPA")
 
     def set_output(self, on: bool) -> None:
-        self.write(f":OUTP {1 if on else 0}")
+        target = 1 if on else 0
+        try:
+            current = self.get_output_state()
+        except Exception:
+            current = None
+        if current == target:
+            return
+        self.send_and_check_error(f":OUTP:STAT {target}")
 
     def set_output_enabled(self, enabled: bool) -> None:
         self.set_output(bool(enabled))
 
     def set_output_mode_active(self) -> None:
-        self.write(":OUTP:MODE ACT")
+        try:
+            if self.get_output_mode() == "ACT":
+                return
+        except Exception:
+            pass
+        self.send_and_check_error(":OUTP:MODE ACT")
 
     def set_output_mode_passive(self) -> None:
-        self.write(":OUTP:MODE PASS")
+        try:
+            if self.get_output_mode() == "PASS":
+                return
+        except Exception:
+            pass
+        self.send_and_check_error(":OUTP:MODE PASS")
 
     def get_output_mode(self) -> str:
         resp = self.query(":OUTP:MODE?")
@@ -318,7 +504,14 @@ class Pace5000:
         return value
 
     def set_isolation_open(self, is_open: bool) -> None:
-        self.write(f":OUTP:ISOL:STAT {1 if is_open else 0}")
+        target = 1 if is_open else 0
+        try:
+            current = self.get_isolation_state()
+        except Exception:
+            current = None
+        if current == target:
+            return
+        self.send_and_check_error(f":OUTP:ISOL:STAT {target}")
 
     def set_output_isolated(self, isolated: bool) -> None:
         # SCPI uses 1=open path, 0=closed/isolated.
@@ -350,14 +543,64 @@ class Pace5000:
         return self.verify_output_isolated(isolated, timeout_s=timeout_s, poll_s=poll_s)
 
     def set_setpoint(self, value_hpa: float) -> None:
-        # Per SCPI manual, control setpoint is written via LEV:IMM:AMPL.
-        self.write(f":SOUR:PRES:LEV:IMM:AMPL {value_hpa}")
+        target = float(value_hpa)
+        command = f":SOUR:PRES {target}"
+        self.send_and_check_error(command)
+        readback = self.get_setpoint()
+        if readback is None or abs(float(readback) - target) > max(0.05, abs(target) * 1e-6):
+            raise RuntimeError(
+                "SETPOINT_READBACK_MISMATCH("
+                f"expected={target},actual={readback})"
+            )
 
-    def read_pressure(self) -> float:
+    def get_setpoint(self) -> Optional[float]:
+        for command in (":SOUR:PRES?", ":SOUR:PRES:LEV:IMM:AMPL?"):
+            try:
+                response = self.query(command)
+            except Exception:
+                continue
+            value = self._parse_first_float(response)
+            if value is not None:
+                return float(value)
+            self._consume_optional_query_error(command)
+        return None
+
+    def supports_sens_pres_cont(self) -> bool:
+        if self._supports_sens_pres_cont is not None:
+            return bool(self._supports_sens_pres_cont)
+        if self._device_profile_probed:
+            self._supports_sens_pres_cont = self._normalize_profile(self._device_profile) != self.PROFILE_OLD_PACE5000
+            return bool(self._supports_sens_pres_cont)
+        return False
+
+    def _recent_in_limits_pressure(self, *, max_age_s: float = 30.0) -> Optional[float]:
+        if self._last_in_limits_pressure_hpa is None or self._last_in_limits_monotonic is None:
+            return None
+        age_s = time.monotonic() - self._last_in_limits_monotonic
+        if age_s > max(0.1, float(max_age_s)):
+            return None
+        return float(self._last_in_limits_pressure_hpa)
+
+    def _pressure_read_candidates(self) -> List[str]:
+        preferred = [":SENS:PRES?", ":MEAS:PRES?"]
+        if self.supports_sens_pres_cont():
+            preferred.append(":SENS:PRES:CONT?")
+
+        ordered: List[str] = []
+        for cmd in preferred + list(self.pressure_queries or []):
+            text = str(cmd or "").strip().upper()
+            if not text or text == ":SENS:PRES:INL?":
+                continue
+            if text == ":SENS:PRES:CONT?" and not self.supports_sens_pres_cont():
+                continue
+            if text not in ordered:
+                ordered.append(text)
+        return ordered
+
+    def _read_pressure_from_candidates(self, candidates: Sequence[str]) -> float:
         last_exc: Optional[Exception] = None
-        # Try cached hint first for fast path
         hint = self._last_pressure_query_hint
-        if hint is not None:
+        if hint is not None and hint[0] in candidates:
             try:
                 resp = self.query(hint[0], line_ending=hint[1])
                 value = self._parse_first_float(resp)
@@ -367,13 +610,21 @@ class Pace5000:
                 pass
         for idx in range(2):
             try:
-                for cmd in self.pressure_queries:
+                for cmd in candidates:
+                    normalized_cmd = str(cmd or "").strip().upper()
+                    if normalized_cmd == ":SENS:PRES:CONT?" and not self.supports_sens_pres_cont():
+                        continue
                     for term in self.query_line_endings:
                         resp = self.query(cmd, line_ending=term)
                         value = self._parse_first_float(resp)
                         if value is not None:
+                            if normalized_cmd == ":SENS:PRES:CONT?":
+                                self._supports_sens_pres_cont = True
                             self._last_pressure_query_hint = (cmd, term)
                             return value
+                        self._consume_optional_query_error(cmd)
+                        if normalized_cmd == ":SENS:PRES:CONT?":
+                            self._supports_sens_pres_cont = False
                 last_exc = RuntimeError("NO_RESPONSE_OR_PARSE")
             except Exception as exc:
                 last_exc = exc
@@ -383,9 +634,19 @@ class Pace5000:
             raise last_exc
         raise RuntimeError("NO_RESPONSE")
 
+    def read_pressure(self) -> float:
+        cached = self._recent_in_limits_pressure()
+        if cached is not None:
+            return float(cached)
+        try:
+            return self._read_pressure_from_candidates(self._pressure_read_candidates())
+        except Exception:
+            current_pressure_hpa, _in_limit_flag = self.get_in_limits()
+            return float(current_pressure_hpa)
+
     def vent(self, on: bool = True) -> None:
         # Per SCPI manual, vent command requires explicit 1(start)/0(abort-close).
-        self.write(f":SOUR:PRES:LEV:IMM:AMPL:VENT {1 if on else 0}")
+        self.send_and_check_error(f":SOUR:PRES:LEV:IMM:AMPL:VENT {1 if on else 0}")
 
     def get_vent_status(self) -> int:
         resp = self.query(":SOUR:PRES:LEV:IMM:AMPL:VENT?")
@@ -396,11 +657,6 @@ class Pace5000:
 
     def get_vent_status_query(self) -> int:
         return self.get_vent_status()
-
-    @staticmethod
-    def vent_status_is_completed_latched(status: Any) -> bool:
-        value = Pace5000._parse_first_int(str(status))
-        return value == Pace5000.VENT_STATUS_COMPLETED
 
     @staticmethod
     def _looks_like_legacy_vent_status_identity(identity: str) -> bool:
@@ -425,6 +681,23 @@ class Pace5000:
     def get_device_identity(self) -> str:
         return str(self._probe_device_identity() or "")
 
+    def _probe_device_model(self) -> Optional[str]:
+        if self._device_model_probed:
+            return self._device_model
+        self._device_model_probed = True
+        try:
+            model = str(self.query(":INST:MOD?") or "").strip()
+        except Exception:
+            model = ""
+        if not model:
+            model = str(self._consume_optional_query_error(":INST:MOD?") or "").strip()
+        if model:
+            self._device_model = model
+        return self._device_model
+
+    def get_device_model(self) -> str:
+        return str(self._probe_device_model() or "")
+
     def _probe_instrument_version(self) -> Optional[str]:
         if self._instrument_version_probed:
             return self._instrument_version
@@ -440,19 +713,167 @@ class Pace5000:
     def get_instrument_version(self) -> str:
         return str(self._probe_instrument_version() or "")
 
+    @staticmethod
+    def _normalize_instrument_version_text(version_text: Any) -> str:
+        text = str(version_text or "").strip()
+        if not text:
+            return ""
+        match = re.search(r"(\d+\.\d+\.\d+)", text)
+        return match.group(1) if match else text.strip("\"'")
+
     def has_legacy_vent_status_model(self) -> bool:
-        if self._legacy_vent_status_model is None:
-            self._probe_device_identity()
-        return bool(self._legacy_vent_status_model)
+        return self.detect_profile() == self.PROFILE_OLD_PACE5000
+
+    def vent_status_is_idle(self, status: Any) -> bool:
+        return self._parse_first_int(str(status)) == self.VENT_STATUS_IDLE
+
+    def vent_status_is_in_progress(self, status: Any) -> bool:
+        return self._parse_first_int(str(status)) == self.VENT_STATUS_IN_PROGRESS
+
+    def vent_status_is_completed_latched(self, status: Any) -> bool:
+        value = self._parse_first_int(str(status))
+        return self.detect_profile() == self.PROFILE_OLD_PACE5000 and value == self.VENT_STATUS_COMPLETED
+
+    def vent_status_is_timed_out(self, status: Any) -> bool:
+        value = self._parse_first_int(str(status))
+        return self.detect_profile() == self.PROFILE_PACE5000E and value == self.VENT_STATUS_TIMED_OUT
+
+    def vent_status_is_trapped_pressure(self, status: Any) -> bool:
+        value = self._parse_first_int(str(status))
+        return self.detect_profile() == self.PROFILE_PACE5000E and value == self.VENT_STATUS_TRAPPED_PRESSURE
+
+    def vent_status_is_aborted(self, status: Any) -> bool:
+        value = self._parse_first_int(str(status))
+        return self.detect_profile() == self.PROFILE_PACE5000E and value == self.VENT_STATUS_ABORTED
+
+    def vent_status_is_unexpected_legacy_watchlist(self, status: Any) -> bool:
+        value = self._parse_first_int(str(status))
+        return self.detect_profile() == self.PROFILE_OLD_PACE5000 and value not in {
+            self.VENT_STATUS_IDLE,
+            self.VENT_STATUS_IN_PROGRESS,
+            self.VENT_STATUS_COMPLETED,
+        }
+
+    def detect_profile(self, *, refresh: bool = False) -> str:
+        if self._device_profile_probed and not refresh:
+            return self._normalize_profile(self._device_profile)
+
+        self._device_profile_probed = True
+        self._device_profile = self.PROFILE_UNKNOWN
+        if refresh:
+            self._device_identity_probed = False
+            self._instrument_version_probed = False
+            self._device_model_probed = False
+
+        identity = self.get_device_identity()
+        if identity and self._looks_like_legacy_vent_status_identity(identity):
+            self._device_profile = self.PROFILE_OLD_PACE5000
+            self._legacy_vent_status_model = True
+            self._supports_sens_pres_cont = False
+            return self._normalize_profile(self._device_profile)
+
+        model = self.get_device_model()
+        model_payload = self._response_payload(model).strip().strip("\"'").upper()
+        model_code, _model_message = self._parse_system_error(model)
+        if model_payload == self.PROFILE_PACE5000E:
+            self._device_profile = self.PROFILE_PACE5000E
+        elif model_code == -113 and self._device_profile == self.PROFILE_UNKNOWN:
+            self._device_profile = self.PROFILE_OLD_PACE5000
+
+        if self._device_profile == self.PROFILE_UNKNOWN:
+            try:
+                echo_status = str(self.query(":SYST:ECHO?") or "").strip()
+            except Exception:
+                echo_status = ""
+            if not echo_status:
+                echo_status = str(self._consume_optional_query_error(":SYST:ECHO?") or "").strip()
+            echo_code, _echo_message = self._parse_system_error(echo_status)
+            if echo_code == -113:
+                self._device_profile = self.PROFILE_OLD_PACE5000
+
+        self._legacy_vent_status_model = self._device_profile == self.PROFILE_OLD_PACE5000
+        if self._device_profile == self.PROFILE_OLD_PACE5000:
+            self._supports_sens_pres_cont = False
+        elif self._device_profile == self.PROFILE_PACE5000E and self._supports_sens_pres_cont is None:
+            self._supports_sens_pres_cont = True
+        return self._normalize_profile(self._device_profile)
 
     def has_legacy_vent_state_3_compatibility(self) -> bool:
         if not self.has_legacy_vent_status_model():
             return False
-        return self.get_instrument_version() == "02.00.07"
+        return self._normalize_instrument_version_text(self.get_instrument_version()) == "02.00.07"
+
+    def legacy_auto_abort_vent_override_enabled(self) -> bool:
+        raw = os.getenv(self.LEGACY_AUTO_ABORT_VENT_OVERRIDE_ENV, "")
+        return str(raw or "").strip().lower() in {"1", "true", "yes", "on"}
+
+    def probe_identity(
+        self,
+        commands: Sequence[str],
+    ) -> List[Dict[str, Any]]:
+        rows: List[Dict[str, Any]] = []
+        for command in list(commands or []):
+            cmd = str(command or "").strip()
+            if not cmd:
+                continue
+            started = time.perf_counter()
+            response = ""
+            error = ""
+            try:
+                if cmd.endswith("?"):
+                    response = str(self.query(cmd) or "").strip()
+                else:
+                    self.send_command(cmd)
+            except Exception as exc:
+                error = str(exc)
+            elapsed_ms = (time.perf_counter() - started) * 1000.0
+            rows.append(
+                {
+                    "command": cmd,
+                    "response": response,
+                    "duration_ms": round(elapsed_ms, 3),
+                    "error": error,
+                }
+            )
+        return rows
+
+    def legacy_auto_abort_vent_blocked(self, status: Any = None) -> bool:
+        del status
+        return self.has_legacy_vent_status_model() and not self.legacy_auto_abort_vent_override_enabled()
+
+    def _legacy_auto_abort_vent_block_error(self, *, action: str, last_status: Any) -> str:
+        status_text = "unknown" if last_status is None else str(last_status)
+        return (
+            "LEGACY_AUTO_ABORT_VENT_BLOCKED("
+            f"action={action},last_status={status_text},manual_intervention_required=true,"
+            f"recoverable=true,override_env={self.LEGACY_AUTO_ABORT_VENT_OVERRIDE_ENV})"
+        )
+
+    def _legacy_safe_vent_block_error(
+        self,
+        *,
+        action: str,
+        last_status: Any,
+        output_state: Any,
+        isolation_state: Any,
+        step: str,
+    ) -> str:
+        status_text = "unknown" if last_status is None else str(last_status)
+        output_text = "unknown" if output_state is None else str(output_state)
+        isolation_text = "unknown" if isolation_state is None else str(isolation_state)
+        return (
+            "legacy_safe_vent_blocked("
+            f"action={action},step={step},last_status={status_text},"
+            f"output_state={output_text},isolation_state={isolation_text},recoverable=true)"
+        )
 
     def legacy_completed_latch_auto_clear_blocked(self, status: Any) -> bool:
         value = self._parse_first_int(str(status))
-        return value == self.VENT_STATUS_COMPLETED and self.has_legacy_vent_state_3_compatibility()
+        return (
+            value == self.VENT_STATUS_COMPLETED
+            and self.has_legacy_vent_state_3_compatibility()
+            and not self.legacy_auto_abort_vent_override_enabled()
+        )
 
     def _legacy_completed_latch_auto_clear_result(self, before_status: Any) -> dict[str, Any]:
         status_value = self._parse_first_int(str(before_status))
@@ -474,19 +895,25 @@ class Pace5000:
         value = self._parse_first_int(str(status))
         if value is None:
             return False
+        if self.vent_status_is_trapped_pressure(value):
+            return False
         if self.has_legacy_vent_state_3_compatibility() and value == self.VENT_STATUS_TRAPPED_PRESSURE:
             # Real read-only runs do not provide a reliable closed loop proving
             # that VENT?=3 maps to the front-panel confirmation popup. We have also
             # observed the popup while SCPI still reported VENT?=2. Keep VENT=3
             # as a watchlist-only observation and never treat it as control-ready.
             return False
+        if self.detect_profile() == self.PROFILE_OLD_PACE5000:
+            return value in {self.VENT_STATUS_IDLE, self.VENT_STATUS_COMPLETED}
         return value == self.VENT_STATUS_IDLE
 
     def vent_terminal_statuses(self) -> List[int]:
-        return [
-            self.VENT_STATUS_IDLE,
-            self.VENT_STATUS_ABORTED,
-        ]
+        if self.detect_profile() == self.PROFILE_PACE5000E:
+            return [
+                self.VENT_STATUS_IDLE,
+                self.VENT_STATUS_ABORTED,
+            ]
+        return [self.VENT_STATUS_IDLE]
 
     def _ensure_vent_aux_supported(self, cache_attr: str, unsupported_error: str) -> None:
         supported = getattr(self, cache_attr, None)
@@ -522,7 +949,7 @@ class Pace5000:
         self._ensure_vent_aux_supported("_vent_after_valve_supported", "VENT_AFTER_VALVE_UNSUPPORTED")
         state = "OPEN" if open_after_vent else "CLOSED"
         try:
-            self.write(f":SOUR:PRES:LEV:IMM:AMPL:VENT:AFT:VVAL:STAT {state}")
+            self.send_and_check_error(f":SOUR:PRES:LEV:IMM:AMPL:VENT:AFT:VVAL:STAT {state}")
         except Exception:
             self._vent_after_valve_supported = False
             raise
@@ -550,7 +977,7 @@ class Pace5000:
         self._ensure_vent_aux_supported("_vent_popup_ack_supported", "VENT_POPUP_ACK_UNSUPPORTED")
         state = "ENABled" if enabled else "DISabled"
         try:
-            self.write(f":SOUR:PRES:LEV:IMM:AMPL:VENT:APOP:STAT {state}")
+            self.send_and_check_error(f":SOUR:PRES:LEV:IMM:AMPL:VENT:APOP:STAT {state}")
         except Exception:
             self._vent_popup_ack_supported = False
             raise
@@ -642,11 +1069,80 @@ class Pace5000:
         return self.get_compensation_pressure(2)
 
     def get_control_pressure(self) -> float:
-        resp = self.query(":SENS:PRES:CONT?")
-        value = self._parse_first_float(resp)
-        if value is None:
+        if self.supports_sens_pres_cont():
+            try:
+                return self._read_pressure_from_candidates([":SENS:PRES:CONT?", ":SENS:PRES?", ":MEAS:PRES?"])
+            except Exception:
+                pass
+        return self.read_pressure()
+
+    def get_control_range(self) -> str:
+        text = self.query(":SOUR:PRES:RANG?")
+        payload = self._response_payload(text).strip().strip("\"'")
+        if not payload:
             raise RuntimeError("NO_RESPONSE")
-        return float(value)
+        return payload
+
+    def query_available_ranges(self) -> List[str]:
+        text = self.query(":INST:CAT:ALL?")
+        payload = self._response_payload(text)
+        quoted = [str(item or "").strip() for item in re.findall(r'"([^"]+)"', payload)]
+        if quoted:
+            return [item for item in quoted if item]
+        compact = [part.strip().strip("\"'") for part in payload.split(",")]
+        return [item for item in compact if item]
+
+    def choose_control_range_for_target(self, target_hpa: float) -> Optional[str]:
+        target = float(target_hpa)
+        try:
+            available = self.query_available_ranges()
+        except Exception:
+            return None
+        candidates: List[Tuple[float, str]] = []
+        for entry in available:
+            upper_hpa = self._parse_range_upper_hpa(entry)
+            if upper_hpa is None:
+                continue
+            if upper_hpa + 1e-9 >= target:
+                candidates.append((upper_hpa, entry))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: (item[0], self._normalize_exact_range_token(item[1])))
+        return candidates[0][1]
+
+    def select_control_range(self, range_name: str) -> str:
+        exact_name = str(range_name or "").strip().strip("\"'")
+        if not exact_name:
+            raise ValueError("range_name must not be empty")
+        available = self.query_available_ranges()
+        normalized_exact = self._normalize_exact_range_token(exact_name)
+        match = next(
+            (
+                item
+                for item in available
+                if self._normalize_exact_range_token(item) == normalized_exact
+            ),
+            None,
+        )
+        if not match:
+            raise RuntimeError(
+                "CONTROL_RANGE_NOT_IN_CATALOG("
+                f"requested={exact_name},available={available})"
+            )
+        try:
+            current = self.get_control_range()
+        except Exception:
+            current = ""
+        if self._normalize_exact_range_token(current) == self._normalize_exact_range_token(match):
+            return current
+        self.send_and_check_error(f':SOUR:PRES:RANG "{match}"')
+        readback = self.get_control_range()
+        if self._normalize_exact_range_token(readback) != self._normalize_exact_range_token(match):
+            raise RuntimeError(
+                "CONTROL_RANGE_READBACK_MISMATCH("
+                f"expected={match},actual={readback})"
+            )
+        return readback
 
     def get_barometric_pressure(self) -> float:
         resp = self.query(":SENS:PRES:BAR?")
@@ -657,6 +1153,13 @@ class Pace5000:
 
     def get_in_limits_setting(self) -> float:
         resp = self.query(":SOUR:PRES:INL?")
+        value = self._parse_first_float(resp)
+        if value is None:
+            raise RuntimeError("NO_RESPONSE")
+        return float(value)
+
+    def get_in_limits_time_setting_s(self) -> float:
+        resp = self.query(":SOUR:PRES:INL:TIME?")
         value = self._parse_first_float(resp)
         if value is None:
             raise RuntimeError("NO_RESPONSE")
@@ -724,6 +1227,11 @@ class Pace5000:
             "manual_intervention_required": False,
             "vent_command_sent": False,
         }
+        if self.vent_status_is_timed_out(before_status):
+            result["blocked"] = True
+            result["reason"] = "vent_timed_out"
+            result["manual_intervention_required"] = True
+            return result
         if not self.vent_status_is_completed_latched(before_status):
             return result
 
@@ -875,10 +1383,12 @@ class Pace5000:
         while time.time() < deadline:
             status = self.get_vent_status()
             last_status = status
-            if status == self.VENT_STATUS_IN_PROGRESS:
+            if self.vent_status_is_in_progress(status):
                 time.sleep(max(0.05, poll_s))
                 continue
-            if status == self.VENT_STATUS_COMPLETED:
+            if status in accepted:
+                return status
+            if self.vent_status_is_completed_latched(status):
                 if self.legacy_completed_latch_auto_clear_blocked(status):
                     raise RuntimeError("VENT_COMPLETED_LATCH_AUTO_CLEAR_BLOCKED(last_status=2)")
                 if not clear_sent or clear_retries < max_clear_retries:
@@ -887,8 +1397,12 @@ class Pace5000:
                     clear_retries += 1
                 time.sleep(max(0.05, poll_s))
                 continue
-            if status in accepted:
-                return status
+            if self.vent_status_is_timed_out(status):
+                raise RuntimeError(f"VENT_TIMED_OUT(last_status={status})")
+            if self.vent_status_is_trapped_pressure(status):
+                raise RuntimeError(f"VENT_TRAPPED_PRESSURE(last_status={status})")
+            if self.vent_status_is_unexpected_legacy_watchlist(status):
+                raise RuntimeError(f"VENT_STATUS_{status}_WATCHLIST_OLD")
             raise RuntimeError(f"VENT_STATUS_{status}")
         raise RuntimeError(f"VENT_TIMEOUT(last_status={last_status},clear_sent={clear_sent},clear_retries={clear_retries})")
 
@@ -957,7 +1471,12 @@ class Pace5000:
         if popup_ack_enabled is not None:
             self.set_vent_popup_ack_enabled(bool(popup_ack_enabled))
         self.vent(True)
-        status = self.wait_for_vent_idle(timeout_s=timeout_s, poll_s=poll_s)
+        ok_statuses = (
+            [self.VENT_STATUS_IDLE, self.VENT_STATUS_COMPLETED]
+            if self.detect_profile() == self.PROFILE_OLD_PACE5000
+            else None
+        )
+        status = self.wait_for_vent_idle(timeout_s=timeout_s, poll_s=poll_s, ok_statuses=ok_statuses)
         self._wait_for_int_state(
             self.get_output_state,
             0,
@@ -994,7 +1513,12 @@ class Pace5000:
         self.set_output(False)
         self.set_isolation_open(True)
         self.vent(True)
-        status = self.wait_for_vent_idle(timeout_s=timeout_s, poll_s=poll_s)
+        ok_statuses = (
+            [self.VENT_STATUS_IDLE, self.VENT_STATUS_COMPLETED]
+            if self.detect_profile() == self.PROFILE_OLD_PACE5000
+            else None
+        )
+        status = self.wait_for_vent_idle(timeout_s=timeout_s, poll_s=poll_s, ok_statuses=ok_statuses)
         self._wait_for_int_state(
             self.get_output_state,
             0,
@@ -1011,6 +1535,157 @@ class Pace5000:
         )
         return status
 
+    def enter_legacy_diagnostic_safe_vent_mode(
+        self,
+        *,
+        timeout_s: float = 30.0,
+        poll_s: float = 0.25,
+        action: str = "diagnostic_safe_vent",
+    ) -> dict[str, Any]:
+        legacy_identity = self.has_legacy_vent_status_model()
+        result = {
+            "action": action,
+            "legacy_identity": legacy_identity,
+            "ok": False,
+            "recoverable": True,
+            "reason": "",
+            "vent_command_sent": False,
+            "before_status": None,
+            "after_status": None,
+            "output_state": None,
+            "isolation_state": None,
+        }
+        if not legacy_identity:
+            result["reason"] = "non_legacy_identity"
+            return result
+
+        self.stop_atmosphere_hold()
+        try:
+            self.set_output(False)
+            self.set_isolation_open(True)
+        except Exception as exc:
+            result["reason"] = self._legacy_safe_vent_block_error(
+                action=action,
+                last_status=None,
+                output_state=None,
+                isolation_state=None,
+                step=f"prepare:{exc}",
+            )
+            return result
+
+        try:
+            output_state = self.get_output_state()
+        except Exception:
+            output_state = None
+        try:
+            isolation_state = self.get_isolation_state()
+        except Exception:
+            isolation_state = None
+        result["output_state"] = output_state
+        result["isolation_state"] = isolation_state
+
+        try:
+            before_status = self.get_vent_status()
+        except Exception as exc:
+            result["reason"] = self._legacy_safe_vent_block_error(
+                action=action,
+                last_status=None,
+                output_state=output_state,
+                isolation_state=isolation_state,
+                step=f"read_status:{exc}",
+            )
+            return result
+        result["before_status"] = before_status
+        result["after_status"] = before_status
+
+        if output_state != 0:
+            result["reason"] = self._legacy_safe_vent_block_error(
+                action=action,
+                last_status=before_status,
+                output_state=output_state,
+                isolation_state=isolation_state,
+                step="prepare_verify",
+            )
+            return result
+        if isolation_state != 1:
+            result["reason"] = self._legacy_safe_vent_block_error(
+                action=action,
+                last_status=before_status,
+                output_state=output_state,
+                isolation_state=isolation_state,
+                step="prepare_verify",
+            )
+            return result
+
+        if before_status == self.VENT_STATUS_TRAPPED_PRESSURE:
+            result["reason"] = self._legacy_safe_vent_block_error(
+                action=action,
+                last_status=before_status,
+                output_state=output_state,
+                isolation_state=isolation_state,
+                step="watchlist_status_3",
+            )
+            return result
+
+        if before_status in {self.VENT_STATUS_IDLE, self.VENT_STATUS_COMPLETED}:
+            try:
+                self.vent(True)
+            except Exception as exc:
+                result["reason"] = self._legacy_safe_vent_block_error(
+                    action=action,
+                    last_status=before_status,
+                    output_state=output_state,
+                    isolation_state=isolation_state,
+                    step=f"vent_on:{exc}",
+                )
+                return result
+            result["vent_command_sent"] = True
+        elif before_status != self.VENT_STATUS_IN_PROGRESS:
+            result["reason"] = self._legacy_safe_vent_block_error(
+                action=action,
+                last_status=before_status,
+                output_state=output_state,
+                isolation_state=isolation_state,
+                step="unsupported_status",
+            )
+            return result
+
+        deadline = time.time() + max(0.5, float(timeout_s))
+        last_status = before_status
+        while time.time() < deadline:
+            try:
+                last_status = self.get_vent_status()
+            except Exception as exc:
+                result["reason"] = self._legacy_safe_vent_block_error(
+                    action=action,
+                    last_status=last_status,
+                    output_state=output_state,
+                    isolation_state=isolation_state,
+                    step=f"observe:{exc}",
+                )
+                return result
+            result["after_status"] = last_status
+            if last_status in {self.VENT_STATUS_IN_PROGRESS, self.VENT_STATUS_COMPLETED}:
+                result["ok"] = True
+                result["reason"] = (
+                    "legacy_safe_vent_observed("
+                    f"action={action},last_status={last_status},"
+                    f"vent_command_sent={str(bool(result['vent_command_sent'])).lower()})"
+                )
+                return result
+            if last_status == self.VENT_STATUS_TRAPPED_PRESSURE:
+                break
+            time.sleep(max(0.05, float(poll_s)))
+
+        result["reason"] = self._legacy_safe_vent_block_error(
+            action=action,
+            last_status=last_status,
+            output_state=output_state,
+            isolation_state=isolation_state,
+            step="observe_timeout",
+        )
+        return result
+
     def exit_atmosphere_mode(
         self,
         *,
@@ -1024,6 +1699,35 @@ class Pace5000:
             current_status = self.get_vent_status()
         except Exception:
             current_status = None
+        if self.legacy_auto_abort_vent_blocked(current_status):
+            # Keep the output path open for diagnostics/flush visibility, but do
+            # not auto-send raw VENT 0 on legacy GE Druck units unless the
+            # explicit rollback override is set.
+            self.set_isolation_open(True)
+            if current_status in {self.VENT_STATUS_IDLE, self.VENT_STATUS_COMPLETED}:
+                status = current_status
+            else:
+                raise RuntimeError(
+                    self._legacy_auto_abort_vent_block_error(
+                        action="exit_atmosphere_mode",
+                        last_status=current_status,
+                    )
+                )
+            self._wait_for_int_state(
+                self.get_output_state,
+                0,
+                timeout_s=min(timeout_s, 5.0),
+                poll_s=poll_s,
+                label="OUTPUT",
+            )
+            self._wait_for_int_state(
+                self.get_isolation_state,
+                1,
+                timeout_s=min(timeout_s, 5.0),
+                poll_s=poll_s,
+                label="ISOLATION",
+            )
+            return status
         if self.legacy_completed_latch_auto_clear_blocked(current_status):
             raise RuntimeError("VENT_COMPLETED_LATCH_AUTO_CLEAR_BLOCKED(last_status=2)")
         self.vent(False)
@@ -1053,11 +1757,22 @@ class Pace5000:
         poll_s: float = 0.1,
     ) -> None:
         self.set_isolation_open(True)
-        self.wait_for_vent_idle(
-            timeout_s=max(0.5, timeout_s),
-            poll_s=poll_s,
-            ok_statuses=[self.VENT_STATUS_IDLE],
-        )
+        current_vent_status = self.get_vent_status()
+        if self.vent_status_is_in_progress(current_vent_status):
+            raise RuntimeError(f"VENT_IN_PROGRESS(last_status={current_vent_status})")
+        if self.vent_status_is_timed_out(current_vent_status):
+            raise RuntimeError(f"VENT_TIMED_OUT(last_status={current_vent_status})")
+        if self.vent_status_is_aborted(current_vent_status):
+            raise RuntimeError(f"VENT_ABORTED(last_status={current_vent_status})")
+        if self.vent_status_is_trapped_pressure(current_vent_status):
+            raise RuntimeError(f"VENT_TRAPPED_PRESSURE(last_status={current_vent_status})")
+        if self.vent_status_is_unexpected_legacy_watchlist(current_vent_status):
+            raise RuntimeError(f"VENT_STATUS_{current_vent_status}_WATCHLIST_OLD")
+        if (
+            self.has_legacy_vent_state_3_compatibility()
+            and current_vent_status == self.VENT_STATUS_TRAPPED_PRESSURE
+        ):
+            raise RuntimeError(f"VENT_STATUS_{current_vent_status}")
         self.set_output_mode_active()
         try:
             self._wait_for_text_state(
@@ -1071,19 +1786,244 @@ class Pace5000:
             # Best effort: proceed to output-on and let the caller verify the final state.
             pass
         self.set_output(True)
+        self.verify_output_enabled(True, timeout_s=max(0.5, timeout_s), poll_s=poll_s)
+
+    def enable_controller(
+        self,
+        *,
+        timeout_s: float = 2.0,
+        poll_s: float = 0.1,
+    ) -> int:
+        self.enable_control_output(timeout_s=timeout_s, poll_s=poll_s)
+        return self.get_output_state()
 
     def set_in_limits(self, pct_full_scale: float, time_s: float) -> None:
-        self.write(f":SOUR:PRES:INL {pct_full_scale}")
-        self.write(f":SOUR:PRES:INL:TIME {time_s}")
+        target_pct = float(pct_full_scale)
+        target_time_s = float(time_s)
+        try:
+            current_pct = self.get_in_limits_setting()
+        except Exception:
+            current_pct = None
+        if current_pct is None or abs(float(current_pct) - target_pct) > 1e-9:
+            self.send_and_check_error(f":SOUR:PRES:INL {target_pct}")
+        try:
+            current_time_s = self.get_in_limits_time_setting_s()
+        except Exception:
+            current_time_s = None
+        if current_time_s is None or abs(float(current_time_s) - target_time_s) > 1e-9:
+            self.send_and_check_error(f":SOUR:PRES:INL:TIME {target_time_s}")
 
     def get_in_limits(self) -> Tuple[float, int]:
         resp = self.query(":SENS:PRES:INL?")
         nums = re.findall(r"[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?", resp or "")
         if not nums:
             raise RuntimeError("NO_RESPONSE")
-        if len(nums) >= 2:
-            return float(nums[0]), int(float(nums[1]))
-        return float(nums[0]), 0
+        pressure = float(nums[0])
+        flag = int(float(nums[1])) if len(nums) >= 2 else 0
+        self._last_in_limits_pressure_hpa = pressure
+        self._last_in_limits_flag = flag
+        self._last_in_limits_monotonic = time.monotonic()
+        return pressure, flag
+
+    def set_point_and_wait_stable(
+        self,
+        target_hpa: float,
+        *,
+        tolerance_hpa: float,
+        timeout_s: float = 120.0,
+        poll_s: float = 0.25,
+        stable_count_required: int = 5,
+        stable_hold_s: float = 2.0,
+        select_range: bool = True,
+        control_range: Optional[str] = None,
+        unit: str = "HPA",
+    ) -> Dict[str, Any]:
+        target = float(target_hpa)
+        tolerance = max(0.0, float(tolerance_hpa))
+        stable_need = max(1, int(stable_count_required))
+        hold_needed = max(0.0, float(stable_hold_s))
+        self.detect_profile()
+        self.set_unit(unit)
+
+        chosen_range = None
+        if control_range:
+            chosen_range = self.select_control_range(control_range)
+        elif select_range:
+            candidate = self.choose_control_range_for_target(target)
+            if candidate:
+                chosen_range = self.select_control_range(candidate)
+
+        current_range = None
+        try:
+            current_range = self.get_control_range()
+        except Exception:
+            current_range = chosen_range
+        upper_hpa = self._parse_range_upper_hpa(current_range)
+        if upper_hpa is not None and target > upper_hpa + 1e-9:
+            raise RuntimeError(
+                "TARGET_OUT_OF_CONTROL_RANGE("
+                f"target_hpa={target},range={current_range},range_upper_hpa={upper_hpa})"
+            )
+
+        if self.get_output_state() != 1:
+            self.enable_controller(timeout_s=min(timeout_s, 5.0), poll_s=poll_s)
+
+        self.set_setpoint(target)
+        setpoint_readback = self.get_setpoint()
+        if setpoint_readback is None or abs(float(setpoint_readback) - target) > max(0.05, abs(target) * 1e-6):
+            raise RuntimeError(
+                "SETPOINT_READBACK_MISMATCH("
+                f"expected={target},actual={setpoint_readback})"
+            )
+
+        deadline = time.time() + max(0.5, float(timeout_s))
+        consecutive_ok = 0
+        stable_since_ts: Optional[float] = None
+        last_system_error = ""
+        recent_states: List[Dict[str, Any]] = []
+        control_pressure_hpa: Optional[float] = None
+        while time.time() < deadline:
+            current_pressure_hpa, in_limit_flag = self.get_in_limits()
+            state = {
+                "ts": time.time(),
+                "current_pressure_hpa": current_pressure_hpa,
+                "in_limit_flag": in_limit_flag,
+            }
+            recent_states.append(state)
+            if len(recent_states) > 20:
+                recent_states = recent_states[-20:]
+
+            within_tol = abs(float(current_pressure_hpa) - target) <= tolerance
+            stable_now = int(in_limit_flag) == 1 and within_tol
+            if stable_now:
+                consecutive_ok += 1
+                if stable_since_ts is None:
+                    stable_since_ts = time.time()
+            else:
+                consecutive_ok = 0
+                stable_since_ts = None
+
+            hold_elapsed = 0.0 if stable_since_ts is None else max(0.0, time.time() - stable_since_ts)
+            if consecutive_ok >= stable_need or (stable_since_ts is not None and hold_elapsed >= hold_needed):
+                control_pressure_hpa = float(current_pressure_hpa)
+                return {
+                    "ok": True,
+                    "target_hpa": target,
+                    "control_range": current_range,
+                    "setpoint_readback_hpa": setpoint_readback,
+                    "control_pressure_hpa": control_pressure_hpa,
+                    "in_limit_pressure_hpa": float(current_pressure_hpa),
+                    "stable_count": consecutive_ok,
+                    "stable_hold_s": hold_elapsed,
+                    "recent_states": list(recent_states),
+                }
+
+            time.sleep(max(0.05, float(poll_s)))
+
+        try:
+            last_system_error = self.get_system_error()
+        except Exception:
+            last_system_error = ""
+        timeout_diag: Dict[str, Any] = {}
+        for key, reader in (
+            ("output_state", self.get_output_state),
+            ("vent_status", self.get_vent_status),
+            ("setpoint_hpa", self.get_setpoint),
+        ):
+            try:
+                timeout_diag[key] = reader()
+            except Exception as exc:
+                timeout_diag[key] = f"ERROR:{exc}"
+        safe_stop_result: Dict[str, Any] = {}
+        try:
+            safe_stop_result = self.safe_stop(
+                vent_on=True,
+                timeout_s=min(max(5.0, float(timeout_s)), 30.0),
+                poll_s=poll_s,
+            )
+        except Exception as exc:
+            safe_stop_result = {"error": str(exc)}
+        raise RuntimeError(
+            "SETPOINT_STABILITY_TIMEOUT("
+            f"target_hpa={target},tolerance_hpa={tolerance},last_system_error={last_system_error},"
+            f"recent_states={recent_states},timeout_diag={timeout_diag},safe_stop={safe_stop_result})"
+        )
+
+    def safe_stop(
+        self,
+        *,
+        vent_on: bool = True,
+        timeout_s: float = 30.0,
+        poll_s: float = 0.25,
+    ) -> Dict[str, Any]:
+        self.detect_profile()
+        self.set_output(False)
+        self.set_isolation_open(True)
+        vent_status = None
+        if vent_on:
+            self.vent(True)
+            try:
+                vent_status = self.wait_for_vent_idle(timeout_s=timeout_s, poll_s=poll_s)
+            except Exception:
+                vent_status = self.get_vent_status()
+        else:
+            try:
+                vent_status = self.get_vent_status()
+            except Exception:
+                vent_status = None
+        return {
+            "profile": self.detect_profile(),
+            "output_state": self.get_output_state(),
+            "isolation_state": self.get_isolation_state(),
+            "vent_status": vent_status,
+            "system_error": self.get_system_error(),
+        }
+
+    def detectProfile(self, *, refresh: bool = False) -> str:  # noqa: N802
+        return self.detect_profile(refresh=refresh)
+
+    def sendAndCheckError(self, cmd: str, *, tolerated_error_codes: Optional[Iterable[int]] = None) -> str:  # noqa: N802
+        return self.send_and_check_error(cmd, tolerated_error_codes=tolerated_error_codes)
+
+    def setUnit(self, unit: str) -> str:  # noqa: N802
+        return self.set_unit(unit)
+
+    def selectControlRange(self, range_name: str) -> str:  # noqa: N802
+        return self.select_control_range(range_name)
+
+    def setPointAndWaitStable(  # noqa: N802
+        self,
+        target_hpa: float,
+        *,
+        tolerance_hpa: float,
+        timeout_s: float = 120.0,
+        poll_s: float = 0.25,
+        stable_count_required: int = 5,
+        stable_hold_s: float = 2.0,
+        select_range: bool = True,
+        control_range: Optional[str] = None,
+        unit: str = "HPA",
+    ) -> Dict[str, Any]:
+        return self.set_point_and_wait_stable(
+            target_hpa,
+            tolerance_hpa=tolerance_hpa,
+            timeout_s=timeout_s,
+            poll_s=poll_s,
+            stable_count_required=stable_count_required,
+            stable_hold_s=stable_hold_s,
+            select_range=select_range,
+            control_range=control_range,
+            unit=unit,
+        )
+
+    def safeStop(  # noqa: N802
+        self,
+        *,
+        vent_on: bool = True,
+        timeout_s: float = 30.0,
+        poll_s: float = 0.25,
+    ) -> Dict[str, Any]:
+        return self.safe_stop(vent_on=vent_on, timeout_s=timeout_s, poll_s=poll_s)
 
     def status(self) -> dict[str, Any]:
         status = {

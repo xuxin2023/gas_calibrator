@@ -814,6 +814,40 @@ class CalibrationRunner:
             return refreshed
         return snapshot
 
+    def _pace_basic_trace_snapshot(self, pace: Any = None, *, refresh: bool = True) -> Dict[str, Any]:
+        snapshot = dict(self._pace_state_snapshot(pace, refresh=refresh))
+        snapshot["pace_outp_state_query"] = snapshot.get("pace_output_state", "")
+        snapshot["pace_isol_state_query"] = snapshot.get("pace_isolation_state", "")
+        snapshot["pace_vent_status_query"] = snapshot.get("pace_vent_status", "")
+        snapshot["pace_vent_completed_latched"] = self._pace_vent_completed_latched_from_snapshot(snapshot)
+        return snapshot
+
+    def _legacy_existing_atmosphere_baseline_snapshot(self, pace: Any) -> Optional[Dict[str, Any]]:
+        detect_profile = getattr(pace, "detect_profile", None)
+        if not callable(detect_profile):
+            detect_profile = getattr(pace, "detectProfile", None)
+        if not callable(detect_profile):
+            return None
+        try:
+            profile = str(detect_profile()).strip().upper()
+        except Exception:
+            return None
+        if profile != "OLD_PACE5000":
+            return None
+        snapshot = self._pace_basic_trace_snapshot(pace, refresh=True)
+        output_state = self._as_int(snapshot.get("pace_outp_state_query"))
+        isolation_state = self._as_int(snapshot.get("pace_isol_state_query"))
+        vent_status = self._as_int(snapshot.get("pace_vent_status_query"))
+        if output_state != 0 or isolation_state != 1:
+            return None
+        # OLD PACE5000 reports VENT?=2 as a completed latch. We do not treat
+        # that alone as proof that the controller is still freshly synced to
+        # atmosphere for a new route flush; require an idle/ready 0 baseline
+        # before reusing an existing atmosphere state without a new VENT 1.
+        if vent_status != 0:
+            return None
+        return snapshot
+
     @staticmethod
     def _pace_bool_query_text(value: Any, *, true_text: str, false_text: str) -> str:
         if value in (None, ""):
@@ -844,12 +878,45 @@ class CalibrationRunner:
 
     def _pace_legacy_vent_state_3_compatibility_enabled(self, pace: Any) -> bool:
         checker = getattr(pace, "has_legacy_vent_state_3_compatibility", None)
-        if not callable(checker):
+        if callable(checker):
+            try:
+                if bool(checker()):
+                    return True
+            except Exception:
+                pass
+
+        legacy_model = False
+        identity_getter = getattr(pace, "get_device_identity", None)
+        if callable(identity_getter):
+            try:
+                identity = str(identity_getter() or "").strip().upper()
+            except Exception:
+                identity = ""
+            legacy_model = "GE DRUCK" in identity or "PACE5000 USER INTERFACE" in identity
+
+        if not legacy_model:
+            legacy_model_checker = getattr(pace, "has_legacy_vent_status_model", None)
+            if callable(legacy_model_checker):
+                try:
+                    legacy_model = bool(legacy_model_checker())
+                except Exception:
+                    legacy_model = False
+
+        if not legacy_model:
+            return False
+
+        version_getter = getattr(pace, "get_instrument_version", None)
+        if not callable(version_getter):
             return False
         try:
-            return bool(checker())
+            version_text = str(version_getter() or "").strip()
         except Exception:
             return False
+        if not version_text:
+            return False
+        version_match = re.search(r"(\d+\.\d+\.\d+)", version_text)
+        normalized_version = version_match.group(1) if version_match else version_text.strip("\"'")
+        return normalized_version == "02.00.07"
 
     @staticmethod
     def _legacy_completed_latch_auto_clear_reason(
@@ -1122,6 +1189,16 @@ class CalibrationRunner:
                 continue
             if key == "pace_effort_query" and refreshed.get(key) not in ("", None):
                 continue
+            if key == "pace_sens_pres_cont_query":
+                supports_cont = getattr(pace, "supports_sens_pres_cont", None)
+                if callable(supports_cont):
+                    try:
+                        if not bool(supports_cont()):
+                            refreshed[key] = snapshot.get(key, "")
+                            continue
+                    except Exception:
+                        refreshed[key] = snapshot.get(key, "")
+                        continue
             getter = getattr(pace, attr_name, None)
             if not callable(getter):
                 continue
@@ -8296,7 +8373,7 @@ class CalibrationRunner:
             response=json.dumps(summary, ensure_ascii=False, separators=(",", ":"), default=str),
         )
 
-    def _configure_devices(self) -> None:
+    def _configure_pressure_controller_startup(self) -> None:
         pace = self.devices.get("pace")
         if pace:
             pace.set_units_hpa()
@@ -8322,6 +8399,11 @@ class CalibrationRunner:
                 self.cfg["devices"]["pressure_controller"]["in_limits_pct"],
                 self.cfg["devices"]["pressure_controller"]["in_limits_time_s"],
             )
+
+    def _configure_devices(self, *, configure_gas_analyzers: bool = True) -> None:
+        self._configure_pressure_controller_startup()
+        if not configure_gas_analyzers:
+            return
 
         gas_cfg_default = self.cfg.get("devices", {}).get("gas_analyzer", {})
         analyzers = self._gas_analyzers()
@@ -10323,23 +10405,22 @@ class CalibrationRunner:
         pace = self.devices.get("pace")
         if not pace:
             return {}
-        query = getattr(pace, "query", None)
-        if not callable(query):
-            return {}
-
         snap: Dict[str, Any] = {}
-        commands = {
-            "outp_stat": ":OUTP:STAT?",
-            "outp_mode": ":OUTP:MODE?",
-            "setpoint": ":SOUR:PRES:LEV:IMM:AMPL?",
-            "in_limits": ":SENS:PRES:INL?",
-            "effort": ":SOUR:PRES:EFF?",
-            "comp": ":SOUR:PRES:COMP?",
-            "comp1": ":SOUR:PRES:COMP1?",
+        readers = {
+            "outp_stat": lambda: pace.get_output_state(),
+            "outp_mode": lambda: pace.get_output_mode(),
+            "setpoint": lambda: pace.get_setpoint(),
+            "in_limits": lambda: pace.get_in_limits(),
+            "effort": lambda: pace.get_effort(),
+            "comp1": lambda: pace.get_comp1(),
+            "comp2": lambda: pace.get_comp2(),
         }
-        for key, cmd in commands.items():
+        for key, reader in readers.items():
             try:
-                snap[key] = query(cmd)
+                value = reader()
+                snap[key] = value
+                if key == "comp1" and "comp" not in snap:
+                    snap["comp"] = value
             except Exception as exc:
                 snap[f"{key}_err"] = str(exc)
         return snap
@@ -11542,6 +11623,12 @@ class CalibrationRunner:
         return max(0, int(self._wf("workflow.pressure.output_on_recovery_retries", 1) or 1))
 
     def _pace_vent_status_allows_control(self, pace: Any, vent_status: Any) -> bool:
+        checker = getattr(pace, "vent_status_allows_control", None)
+        if callable(checker):
+            try:
+                return bool(checker(vent_status))
+            except Exception:
+                pass
         status_value = self._as_int(vent_status)
         if status_value is None:
             return False
@@ -11832,7 +11919,7 @@ class CalibrationRunner:
         while time.time() < deadline:
             if self.stop_event.is_set():
                 raise RuntimeError("STOP_REQUESTED_DURING_VENT_POLL")
-            snapshot = self._pace_diagnostic_state_snapshot(pace, refresh=True, refresh_aux=True)
+            snapshot = self._pace_basic_trace_snapshot(pace, refresh=True)
             vent_status = self._as_int(snapshot.get("pace_vent_status_query"))
             if vent_status == 1:
                 if not saw_in_progress:
@@ -11869,6 +11956,10 @@ class CalibrationRunner:
                 time.sleep(max(0.05, float(poll_s)))
                 continue
             if vent_status == 2:
+                legacy_completed_ready = self._pace_legacy_completed_latch_auto_clear_blocked(
+                    pace,
+                    vent_status,
+                )
                 self._append_pressure_trace_row(
                     point=None,
                     route="pressure",
@@ -11895,40 +11986,27 @@ class CalibrationRunner:
                     pace_oper_pres_even_query=snapshot.get("pace_oper_pres_even_query"),
                     pace_oper_pres_vent_complete_bit=snapshot.get("pace_oper_pres_vent_complete_bit"),
                     pace_oper_pres_in_limits_bit=snapshot.get("pace_oper_pres_in_limits_bit"),
+                    pace_vent_clear_attempted=False if legacy_completed_ready else None,
+                    pace_vent_clear_result=(
+                        "legacy_completed_latch_observed_ready_without_clear"
+                        if legacy_completed_ready
+                        else None
+                    ),
                     refresh_pace_state=False,
-                    note="VENT?=2 vent completed latch observed",
+                    note=(
+                        "legacy VENT?=2 completed observed; accepted as atmosphere-ready without VENT 0"
+                        if legacy_completed_ready
+                        else "VENT?=2 vent completed latch observed"
+                    ),
                 )
-                if self._pace_legacy_completed_latch_auto_clear_blocked(pace, vent_status):
-                    block_reason = self._legacy_completed_latch_single_cycle_clear_blocked_reason(
-                        vent_status
-                    )
-                    self._append_pressure_trace_row(
-                        point=None,
-                        route="pressure",
-                        trace_stage="atmosphere_vent_clear_blocked",
-                        atmosphere_hold_strategy="single_cycle_query_clear",
-                        pace_outp_state_query=snapshot.get("pace_outp_state_query"),
-                        pace_isol_state_query=snapshot.get("pace_isol_state_query"),
-                        pace_mode_query=snapshot.get("pace_mode_query"),
-                        pace_vent_status_query=snapshot.get("pace_vent_status_query"),
-                        pace_vent_completed_latched=True,
-                        pace_vent_clear_attempted=False,
-                        pace_vent_clear_result=block_reason,
-                        refresh_pace_state=False,
-                        note=(
-                            "legacy VENT?=2 single-cycle clear blocked to avoid sending VENT 0; "
-                            "manual intervention required"
-                        ),
-                    )
+                if legacy_completed_ready:
                     self.log(
-                        "Pressure controller atmosphere single-cycle clear blocked: "
-                        "legacy VENT?=2 completed latch will not auto-send VENT 0; "
-                        "manual_intervention_required=true"
+                        "Pressure controller atmosphere entry accepted: "
+                        "legacy VENT?=2 observed after VENT 1; keep atmosphere state without VENT 0"
                     )
-                    raise RuntimeError(
-                        "VENT_COMPLETED_LATCH_SINGLE_CYCLE_CLEAR_BLOCKED("
-                        "last_status=2,manual_intervention_required=true)"
-                    )
+                    self._pace_vent_after_valve_supported = False
+                    self._pace_vent_after_valve_open = False
+                    return
                 pace.vent(False)
                 clear_sent = True
                 self._append_pressure_trace_row(
@@ -11956,7 +12034,7 @@ class CalibrationRunner:
         while time.time() < clear_deadline:
             if self.stop_event.is_set():
                 raise RuntimeError("STOP_REQUESTED_DURING_VENT_CLEAR_POLL")
-            snapshot = self._pace_diagnostic_state_snapshot(pace, refresh=True, refresh_aux=True)
+            snapshot = self._pace_basic_trace_snapshot(pace, refresh=True)
             last_status = self._as_int(snapshot.get("pace_vent_status_query"))
             trapped_pressure_status = self._as_int(getattr(pace, "VENT_STATUS_TRAPPED_PRESSURE", 3))
             if last_status == 0:
@@ -12115,21 +12193,37 @@ class CalibrationRunner:
                     ),
                     atmosphere_hold_strategy=requested_strategy,
                 )
-                self._enter_pressure_controller_atmosphere_single_cycle(
-                    pace,
-                    timeout_s=vent_transition_timeout_s,
-                    reason=reason or "enter atmosphere mode",
-                )
+                baseline_snapshot = self._legacy_existing_atmosphere_baseline_snapshot(pace)
+                if baseline_snapshot is None:
+                    self._enter_pressure_controller_atmosphere_single_cycle(
+                        pace,
+                        timeout_s=vent_transition_timeout_s,
+                        reason=reason or "enter atmosphere mode",
+                    )
                 self._pressure_atmosphere_hold_strategy = requested_strategy
                 self._refresh_pressure_controller_aux_state(pace)
-                self._append_pressure_trace_row(
-                    point=None,
-                    route="pressure",
-                    trace_stage="atmosphere_enter_verified",
-                    atmosphere_hold_strategy=self._pressure_atmosphere_hold_strategy,
-                    note="enter atmosphere mode complete",
-                    refresh_pace_state=True,
-                )
+                if baseline_snapshot is None:
+                    self._append_pressure_trace_row(
+                        point=None,
+                        route="pressure",
+                        trace_stage="atmosphere_enter_verified",
+                        atmosphere_hold_strategy=self._pressure_atmosphere_hold_strategy,
+                        note="enter atmosphere mode complete",
+                        refresh_pace_state=True,
+                    )
+                else:
+                    self._append_pressure_trace_row(
+                        point=None,
+                        route="pressure",
+                        trace_stage="atmosphere_enter_verified",
+                        atmosphere_hold_strategy=self._pressure_atmosphere_hold_strategy,
+                        pace_outp_state_query=baseline_snapshot.get("pace_outp_state_query"),
+                        pace_isol_state_query=baseline_snapshot.get("pace_isol_state_query"),
+                        pace_vent_status_query=baseline_snapshot.get("pace_vent_status_query"),
+                        pace_vent_completed_latched=baseline_snapshot.get("pace_vent_completed_latched"),
+                        note="existing legacy baseline reused; no new VENT 1 sent",
+                        refresh_pace_state=False,
+                    )
             else:
                 self._refresh_pressure_controller_aux_state(pace)
                 current_vent_status = None
@@ -12139,7 +12233,11 @@ class CalibrationRunner:
                         current_vent_status = vent_status_getter()
                     except Exception:
                         current_vent_status = None
-                if self._pace_legacy_completed_latch_auto_clear_blocked(pace, current_vent_status):
+                control_ready_under_adapter = self._pace_vent_status_allows_control(pace, current_vent_status)
+                if (
+                    self._pace_legacy_completed_latch_auto_clear_blocked(pace, current_vent_status)
+                    and not control_ready_under_adapter
+                ):
                     block_reason = self._legacy_completed_latch_auto_clear_reason(current_vent_status)
                     self._append_pressure_trace_row(
                         point=None,
@@ -16901,8 +16999,8 @@ class CalibrationRunner:
     def _set_co2_route_baseline(self, *, reason: str = "") -> None:
         self._clear_last_sealed_pressure_route_context(reason="CO2 route baseline")
         self._clear_pressure_sequence_context(reason="CO2 route baseline")
-        self._set_pressure_controller_vent(True, reason=reason)
         self._apply_route_baseline_valves()
+        self._set_pressure_controller_vent(True, reason=reason)
         self.log("CO2 route baseline applied: gas_main=OFF flow_switch=OFF h2o_path=OFF hold=OFF")
 
     def _cleanup_co2_route(self, *, reason: str = "") -> None:
@@ -16918,8 +17016,8 @@ class CalibrationRunner:
 
     def _cleanup_h2o_route(self, point: CalibrationPoint, *, reason: str = "") -> None:
         self._clear_pressure_sequence_context(reason="cleanup H2O route")
-        self._set_pressure_controller_vent(True, reason=reason)
         self._apply_route_baseline_valves()
+        self._set_pressure_controller_vent(True, reason=reason)
 
     def _mark_post_h2o_co2_zero_flush_pending(self) -> None:
         if self._route_mode() == "h2o_then_co2":
@@ -20877,13 +20975,13 @@ class CalibrationRunner:
         self._pending_route_handoff = None
         self._stop_pressure_transition_fast_signal_context(reason="discard pending route handoff")
         try:
-            self._set_pressure_controller_vent(True, reason="discard pending route handoff")
-        except Exception as exc:
-            self.log(f"Pending route handoff vent restore failed: {exc}")
-        try:
             self._apply_route_baseline_valves()
         except Exception as exc:
             self.log(f"Pending route handoff baseline restore failed: {exc}")
+        try:
+            self._set_pressure_controller_vent(True, reason="discard pending route handoff")
+        except Exception as exc:
+            self.log(f"Pending route handoff vent restore failed: {exc}")
 
     def _begin_pending_route_handoff(
         self,

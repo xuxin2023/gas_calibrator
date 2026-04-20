@@ -33,8 +33,17 @@ def test_build_short_verification_config_applies_short_run_overrides() -> None:
     assert workflow_cfg["skip_co2_ppm"] == [100, 200, 300]
     assert workflow_cfg["startup_connect_check"]["enabled"] is False
     assert workflow_cfg["startup_pressure_precheck"]["enabled"] is False
-    assert workflow_cfg["stability"]["temperature"]["analyzer_chamber_temp_timeout_s"] == 300.0
-    assert workflow_cfg["stability"]["temperature"]["analyzer_chamber_temp_first_valid_timeout_s"] == 60.0
+    stability_cfg = workflow_cfg["stability"]
+    assert stability_cfg["temperature"]["analyzer_chamber_temp_timeout_s"] == 300.0
+    assert stability_cfg["temperature"]["analyzer_chamber_temp_first_valid_timeout_s"] == 60.0
+    assert stability_cfg["co2_route"]["preseal_soak_s"] == 0.0
+    assert stability_cfg["co2_route"]["post_h2o_zero_ppm_soak_s"] == 0.0
+    assert stability_cfg["gas_route_dewpoint_gate_enabled"] is False
+    assert stability_cfg["sensor"]["enabled"] is False
+    assert stability_cfg["sensor"]["baseline_sanity_gate"]["enabled"] is False
+    assert stability_cfg["sensor"]["baseline_sanity_gate"]["policy"] == "off"
+    assert stability_cfg["co2_cold_quality_gate"]["enabled"] is False
+    assert stability_cfg["co2_cold_quality_gate"]["policy"] == "off"
 
 
 def test_build_short_verification_config_preserves_explicit_points_matrix_when_override_is_used() -> None:
