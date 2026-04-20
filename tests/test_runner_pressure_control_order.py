@@ -1,5 +1,8 @@
 from pathlib import Path
+
+import pytest
 import csv
+import time
 
 from gas_calibrator.data.points import CalibrationPoint
 from gas_calibrator.logging_utils import RunLogger
@@ -15,6 +18,10 @@ class _FakePace:
         self.vent_status = 0
         self.vent_after_valve_open = False
         self.popup_ack_enabled = True
+        self.current_pressure_hpa = 1012.4
+        self.barometric_pressure_hpa = 1012.0
+        self.system_error_text = '0,"No error"'
+        self._pressure_reads = []
 
     def enter_atmosphere_mode_with_open_vent_valve(self, timeout_s=0.0, popup_ack_enabled=None):
         self.calls.append(("vent_on_open_valve", float(timeout_s), popup_ack_enabled))
@@ -88,6 +95,20 @@ class _FakePace:
     def get_vent_status(self):
         return self.vent_status
 
+    def read_pressure(self):
+        if self._pressure_reads:
+            self.current_pressure_hpa = float(self._pressure_reads.pop(0))
+        return float(self.current_pressure_hpa)
+
+    def get_barometric_pressure(self):
+        return float(self.barometric_pressure_hpa)
+
+    def get_system_error(self):
+        return self.system_error_text
+
+    def has_legacy_vent_state_3_compatibility(self):
+        return False
+
 
 class _FakePaceFallback:
     def __init__(self):
@@ -130,6 +151,9 @@ class _FakePaceSoftRecover(_FakePace):
         self.phase = "first"
         self.first_reads = 0
         self.second_reads = 0
+        self._single_cycle_active = False
+        self._single_cycle_clear_requested = False
+        self._single_cycle_query_count = 0
 
     def set_setpoint(self, value):
         self.calls.append(("setpoint", float(value), self.phase))
@@ -144,6 +168,18 @@ class _FakePaceSoftRecover(_FakePace):
 
     def set_output(self, on):
         self.calls.append(("output", bool(on)))
+        self.output_state = 1 if on else 0
+
+    def vent(self, on=True):
+        self.calls.append(("vent", bool(on)))
+        if on:
+            self._single_cycle_active = True
+            self._single_cycle_clear_requested = False
+            self._single_cycle_query_count = 0
+            self.vent_status = 1
+            return
+        self._single_cycle_clear_requested = True
+        self.vent_status = 0
 
     def close(self):
         self.calls.append(("close",))
@@ -156,6 +192,21 @@ class _FakePaceSoftRecover(_FakePace):
 
     def set_in_limits(self, pct, time_s):
         self.calls.append(("set_in_limits", float(pct), float(time_s)))
+
+    def get_vent_status(self):
+        if not self._single_cycle_active:
+            return self.vent_status
+        self._single_cycle_query_count += 1
+        if self._single_cycle_clear_requested:
+            self.vent_status = 0
+            self._single_cycle_active = False
+            return 0
+        if self._single_cycle_query_count <= 2:
+            self.vent_status = 1
+            return 1
+        self.vent_status = 0
+        self._single_cycle_active = False
+        return 0
 
     def get_in_limits(self):
         if self.phase == "first":
@@ -200,8 +251,11 @@ class _FakePaceLegacyVentTrapped(_FakePace):
     def get_vent_status(self):
         return 3
 
+    def has_legacy_vent_state_3_compatibility(self):
+        return True
+
     def vent_status_allows_control(self, status):
-        return int(status) in {0, 2, 3}
+        return int(status) == 0
 
     def enable_control_output(self):
         self.calls.append(("output_on",))
@@ -237,8 +291,11 @@ class _FakePaceLegacyOutputOnTrappedThenReady(_FakePace):
     def get_vent_status(self):
         return self.vent_status
 
+    def has_legacy_vent_state_3_compatibility(self):
+        return True
+
     def vent_status_allows_control(self, status):
-        return int(status) in {0, 2, 3}
+        return int(status) == 0
 
     def enable_control_output(self):
         self.calls.append(("output_on", self.phase))
@@ -254,6 +311,80 @@ class _FakePaceLegacyOutputOnTrappedThenReady(_FakePace):
 class _FakePaceOpenValveUnsupported(_FakePace):
     def enter_atmosphere_mode_with_open_vent_valve(self, timeout_s=0.0, popup_ack_enabled=None):
         raise RuntimeError("VENT_AFTER_VALVE_UNSUPPORTED")
+
+
+class _FakePaceSingleCycleVent(_FakePace):
+    def __init__(self):
+        super().__init__()
+        self._single_cycle_active = False
+        self._single_cycle_clear_requested = False
+        self._single_cycle_query_count = 0
+        self._terminal_vent_status = 0
+
+    def vent(self, on=True):
+        self.calls.append(("vent", bool(on)))
+        if on:
+            self._single_cycle_active = True
+            self._single_cycle_clear_requested = False
+            self._single_cycle_query_count = 0
+            self.vent_status = 1
+            return
+        self._single_cycle_clear_requested = True
+        self.vent_status = 0
+
+    def get_vent_status(self):
+        if not self._single_cycle_active:
+            return self.vent_status
+        self._single_cycle_query_count += 1
+        if self._single_cycle_clear_requested:
+            self.vent_status = 0
+            self._single_cycle_active = False
+            return 0
+        if self._single_cycle_query_count <= 2:
+            self.vent_status = 1
+            return 1
+        self.vent_status = int(self._terminal_vent_status)
+        self._single_cycle_active = False
+        return self.vent_status
+
+
+class _FakePaceSingleCycleVentBlocked(_FakePaceSingleCycleVent):
+    def __init__(self):
+        super().__init__()
+        self._terminal_vent_status = 2
+
+    def has_legacy_vent_state_3_compatibility(self):
+        return False
+
+    def get_device_identity(self):
+        return '*IDN GE Druck,Pace5000 User Interface,3213201,02.00.07'
+
+    def get_instrument_version(self):
+        return ':INST:VERS "02.00.07"'
+
+
+class _FakePaceSingleCycleVentClearsToTrapped(_FakePaceSingleCycleVent):
+    VENT_STATUS_TRAPPED_PRESSURE = 3
+
+    def get_vent_status(self):
+        if not self._single_cycle_active:
+            return self.vent_status
+        self._single_cycle_query_count += 1
+        if self._single_cycle_clear_requested:
+            self.vent_status = 3
+            self._single_cycle_active = False
+            return 3
+        if self._single_cycle_query_count <= 2:
+            self.vent_status = 1
+            return 1
+        self.vent_status = 2
+        return 2
+
+    def has_legacy_vent_state_3_compatibility(self):
+        return True
+
+    def vent_status_allows_control(self, status):
+        return int(status) in {0, 3}
 
 
 class _FakePaceOutputOnVentWindow(_FakePace):
@@ -283,7 +414,88 @@ class _FakePaceLegacyVentCompleted(_FakePace):
         self.vent_status = 2
 
     def vent_status_allows_control(self, status):
-        return int(status) in {0, 2}
+        return int(status) == 0
+
+
+class _FakePaceCompletedVentLatchClears(_FakePace):
+    def __init__(self):
+        super().__init__()
+        self.vent_status = 2
+
+    def clear_status(self):
+        self.calls.append(("clear_status",))
+
+    def drain_system_errors(self):
+        self.calls.append(("drain_system_errors",))
+        return ['-222,"Data out of range"']
+
+    def clear_completed_vent_latch_if_present(self, timeout_s=5.0, poll_s=0.25):
+        self.calls.append(("clear_completed_vent_latch_if_present", float(timeout_s), float(poll_s)))
+        before = self.vent_status
+        self.vent_status = 0
+        return {
+            "before_status": before,
+            "clear_attempted": True,
+            "after_status": self.vent_status,
+            "cleared": True,
+            "command": ":SOUR:PRES:LEV:IMM:AMPL:VENT 0",
+        }
+
+
+class _FakePaceCompletedVentLatchBlocked(_FakePace):
+    def __init__(self):
+        super().__init__()
+        self.vent_status = 2
+
+    def clear_status(self):
+        self.calls.append(("clear_status",))
+
+    def drain_system_errors(self):
+        self.calls.append(("drain_system_errors",))
+        return []
+
+    def clear_completed_vent_latch_if_present(self, timeout_s=5.0, poll_s=0.25):
+        self.calls.append(("clear_completed_vent_latch_if_present", float(timeout_s), float(poll_s)))
+        return {
+            "before_status": 2,
+            "clear_attempted": False,
+            "after_status": 2,
+            "cleared": False,
+            "command": "",
+            "skipped": True,
+            "blocked": True,
+            "reason": "legacy_completed_latch_auto_clear_blocked",
+            "manual_intervention_required": True,
+            "vent_command_sent": False,
+        }
+
+    def get_vent_status(self):
+        return 2
+
+    def has_legacy_vent_state_3_compatibility(self):
+        return True
+
+    def vent_status_allows_control(self, status):
+        return False
+
+
+class _FakePaceCompletedVentLatchBitOnly(_FakePace):
+    def __init__(self):
+        super().__init__()
+        self.vent_status = 3
+
+    def clear_status(self):
+        self.calls.append(("clear_status",))
+
+    def drain_system_errors(self):
+        self.calls.append(("drain_system_errors",))
+        return []
+
+    def has_legacy_vent_state_3_compatibility(self):
+        return True
+
+    def vent_status_allows_control(self, status):
+        return int(status) in {0, 3}
 
 
 class _FakePaceSlowExitForPreseal:
@@ -304,9 +516,56 @@ class _FakePaceSlowExitForPreseal:
         raise AssertionError("fast preseal vent-off should not use exit_atmosphere_mode")
 
 
+class _FakePaceLegacyBaselineReuse(_FakePace):
+    def __init__(self):
+        super().__init__()
+        self.output_state = 0
+        self.isolation_state = 1
+        self.vent_status = 2
+
+    def detect_profile(self):
+        return "OLD_PACE5000"
+
+    def vent_status_allows_control(self, status):
+        return int(status) in {0, 2}
+
+
+class _FakePaceOldCompletedBaselineRequiresFreshVent(_FakePaceSingleCycleVent):
+    def __init__(self):
+        super().__init__()
+        self.output_state = 0
+        self.isolation_state = 1
+        self.vent_status = 2
+        self._terminal_vent_status = 2
+
+    def detect_profile(self):
+        return "OLD_PACE5000"
+
+    def has_legacy_vent_status_model(self):
+        return True
+
+    def get_device_identity(self):
+        return '*IDN GE Druck,Pace5000 User Interface,3213201,02.00.07'
+
+    def get_instrument_version(self):
+        return ':INST:VERS "02.00.07"'
+
+
 class _FakePaceVentAfterValveGetterFailure(_FakePace):
     def get_vent_after_valve_open(self):
         raise RuntimeError("NO_RESPONSE")
+
+
+class _FakeGaugeSequence:
+    def __init__(self, reads=None):
+        values = list(reads or [1012.0])
+        self._reads = [float(value) for value in values]
+        self._last = float(self._reads[-1]) if self._reads else 1012.0
+
+    def read_pressure(self):
+        if self._reads:
+            self._last = float(self._reads.pop(0))
+        return float(self._last)
 
 
 def _load_pressure_trace_rows(logger: RunLogger):
@@ -317,103 +576,516 @@ def _load_pressure_trace_rows(logger: RunLogger):
         return list(csv.DictReader(handle))
 
 
-def test_set_pressure_controller_vent_on_defaults_to_legacy_hold_strategy(tmp_path: Path) -> None:
-    cfg = {
+def _fresh_vent_cfg() -> dict:
+    return {
         "workflow": {
             "pressure": {
                 "vent_time_s": 0,
                 "vent_transition_timeout_s": 12,
-                "continuous_atmosphere_hold": True,
-                "vent_hold_interval_s": 2.5,
+                "atmosphere_gate_monitor_s": 0.0,
+                "atmosphere_gate_poll_s": 0.0,
+                "atmosphere_gate_min_samples": 1,
             }
         }
     }
+
+
+def _route_open_guard_cfg() -> dict:
+    return {
+        "valves": {
+            "co2_path": 7,
+            "co2_path_group2": 16,
+            "gas_main": 11,
+            "h2o_path": 8,
+            "relay_map": {
+                "4": {"device": "relay", "channel": 10},
+                "7": {"device": "relay", "channel": 15},
+                "8": {"device": "relay_8", "channel": 8},
+                "11": {"device": "relay_8", "channel": 3},
+                "16": {"device": "relay", "channel": 16},
+                "24": {"device": "relay", "channel": 3},
+            },
+            "co2_map": {"600": 4},
+            "co2_map_group2": {"500": 24},
+        },
+        "workflow": {
+            "pressure": {
+                "vent_time_s": 0,
+                "vent_transition_timeout_s": 12,
+                "atmosphere_gate_monitor_s": 0.0,
+                "atmosphere_gate_poll_s": 0.0,
+                "atmosphere_gate_min_samples": 1,
+                "route_open_guard_enabled": True,
+                "route_open_guard_monitor_s": 0.02,
+                "route_open_guard_poll_s": 0.01,
+                "route_open_guard_pressure_tolerance_hpa": 30.0,
+                "route_open_guard_pressure_rising_slope_max_hpa_s": 0.01,
+                "route_open_guard_pressure_rising_min_delta_hpa": 0.5,
+            },
+            "stability": {
+                "gas_route_dewpoint_gate_enabled": False,
+                "co2_route": {
+                    "preseal_soak_s": 0.02,
+                },
+            },
+        }
+    }
+
+
+def test_set_pressure_controller_vent_on_uses_fresh_vent_guarded_gate_by_default(tmp_path: Path) -> None:
+    cfg = _fresh_vent_cfg()
     logger = RunLogger(tmp_path)
-    pace = _FakePace()
+    pace = _FakePaceSingleCycleVent()
     runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
 
     runner._set_pressure_controller_vent(True, reason="test hold")
     logger.close()
 
     assert pace.calls == [
-        ("vent_on", 12.0, True, 2.5),
+        ("output", False),
+        ("isol", True),
+        ("vent", True),
     ]
     trace_rows = _load_pressure_trace_rows(logger)
     assert any(
         row["trace_stage"] == "atmosphere_hold_strategy_selected"
-        and row["atmosphere_hold_strategy"] == "legacy_hold_thread"
+        and row["atmosphere_hold_strategy"] == "single_cycle_query_clear"
         for row in trace_rows
     )
-    assert not any(row["trace_stage"] == "atmosphere_hold_legacy_fallback" for row in trace_rows)
+    assert any(row["trace_stage"] == "atmosphere_vent_in_progress" for row in trace_rows)
+    completed_row = next(row for row in trace_rows if row["trace_stage"] == "atmosphere_vent_completed")
+    assert completed_row["pace_vent_status_query"].strip() == "0"
+    enter_row = next(row for row in trace_rows if row["trace_stage"] == "atmosphere_enter_verified")
+    assert enter_row["fresh_vent_command_sent"].strip().lower() == "true"
+    assert enter_row["vent_status_sequence"].strip() == "1,0"
+    assert enter_row["atmosphere_ready"].strip().lower() == "true"
+    assert enter_row["pace_syst_err_query"].strip().startswith("0")
 
 
-def test_set_pressure_controller_vent_on_can_opt_in_to_open_vent_valve_strategy(tmp_path: Path) -> None:
-    cfg = {
-        "workflow": {
-            "pressure": {
-                "vent_time_s": 0,
-                "vent_transition_timeout_s": 12,
-                "atmosphere_hold_strategy": "vent_valve_open_after_vent",
-                "continuous_atmosphere_hold": False,
-                "vent_after_valve_open": True,
-            }
-        }
-    }
+def test_set_pressure_controller_vent_on_normalizes_legacy_open_valve_strategy_to_fresh_vent_guarded_gate(
+    tmp_path: Path,
+) -> None:
+    cfg = _fresh_vent_cfg()
+    cfg["workflow"]["pressure"]["atmosphere_hold_strategy"] = "vent_valve_open_after_vent"
+    cfg["workflow"]["pressure"]["vent_after_valve_open"] = True
     logger = RunLogger(tmp_path)
-    pace = _FakePace()
+    pace = _FakePaceSingleCycleVent()
     runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
 
     runner._set_pressure_controller_vent(True, reason="test hold")
     logger.close()
 
     assert pace.calls == [
-        ("vent_on_open_valve", 12.0, None),
+        ("output", False),
+        ("isol", True),
+        ("vent", True),
     ]
     trace_rows = _load_pressure_trace_rows(logger)
     assert any(
         row["trace_stage"] == "atmosphere_hold_strategy_selected"
-        and row["atmosphere_hold_strategy"] == "vent_valve_open_after_vent"
+        and row["atmosphere_hold_strategy"] == "single_cycle_query_clear"
         for row in trace_rows
     )
-    assert any(
-        row["trace_stage"] == "atmosphere_enter_verified"
-        and str(row["vent_after_valve_open"]).strip().lower() == "true"
-        for row in trace_rows
-    )
-    assert not any(row["trace_stage"] == "atmosphere_hold_legacy_fallback" for row in trace_rows)
+    assert not any(row["trace_stage"] == "atmosphere_vent_clear_command" for row in trace_rows)
+    assert any(row["trace_stage"] == "atmosphere_enter_verified" for row in trace_rows)
 
 
-def test_set_pressure_controller_vent_on_falls_back_to_legacy_hold_with_warning(tmp_path: Path) -> None:
-    cfg = {
-        "workflow": {
-            "pressure": {
-                "vent_time_s": 0,
-                "vent_transition_timeout_s": 12,
-                "atmosphere_hold_strategy": "vent_valve_open_after_vent",
-                "vent_after_valve_open": True,
-                "vent_hold_interval_s": 2.5,
-            }
-        }
-    }
+def test_set_pressure_controller_vent_on_does_not_depend_on_open_valve_extension_support(tmp_path: Path) -> None:
+    cfg = _fresh_vent_cfg()
+    cfg["workflow"]["pressure"]["atmosphere_hold_strategy"] = "vent_valve_open_after_vent"
+    cfg["workflow"]["pressure"]["vent_after_valve_open"] = True
     messages = []
     logger = RunLogger(tmp_path)
-    pace = _FakePaceOpenValveUnsupported()
+    pace = _FakePaceSingleCycleVent()
     runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda message: messages.append(str(message)), lambda *_: None)
 
     runner._set_pressure_controller_vent(True, reason="test fallback")
     logger.close()
 
     assert pace.calls == [
-        ("vent_on", 12.0, True, 2.5),
+        ("output", False),
+        ("isol", True),
+        ("vent", True),
     ]
-    assert any("fallback -> legacy hold thread" in message for message in messages)
+    assert not any("fallback -> legacy hold thread" in message for message in messages)
     trace_rows = _load_pressure_trace_rows(logger)
-    assert any(row["trace_stage"] == "atmosphere_hold_legacy_fallback" for row in trace_rows)
+    assert not any(row["trace_stage"] == "atmosphere_hold_legacy_fallback" for row in trace_rows)
+    assert any(row["trace_stage"] == "atmosphere_enter_verified" for row in trace_rows)
+
+
+def test_set_pressure_controller_vent_on_rejects_unscoped_completed_latch_status(
+    tmp_path: Path,
+) -> None:
+    cfg = _fresh_vent_cfg()
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceSingleCycleVentBlocked()
+    runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+
+    with pytest.raises(RuntimeError, match="VENT_STATUS_2"):
+        runner._set_pressure_controller_vent(True, reason="legacy completed latch")
+    logger.close()
+
+    assert pace.calls == [
+        ("output", False),
+        ("isol", True),
+        ("vent", True),
+    ]
+    trace_rows = _load_pressure_trace_rows(logger)
+    assert not any(row["trace_stage"] == "atmosphere_enter_verified" for row in trace_rows)
+
+
+def test_set_pressure_controller_vent_on_reissues_fresh_vent_when_old_baseline_only_has_completed_latch(
+    tmp_path: Path,
+) -> None:
+    cfg = _fresh_vent_cfg()
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceOldCompletedBaselineRequiresFreshVent()
+    runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+
+    assert runner._set_pressure_controller_vent(True, reason="startup preflight reset") is True
+    logger.close()
+
+    assert pace.calls == [
+        ("output", False),
+        ("isol", True),
+        ("vent", True),
+    ]
+    trace_rows = _load_pressure_trace_rows(logger)
+    completed_row = next(row for row in trace_rows if row["trace_stage"] == "atmosphere_vent_completed")
+    assert completed_row["pace_vent_status_query"].strip() == "2"
+    assert completed_row["fresh_vent_command_sent"].strip().lower() == "true"
+    enter_row = next(row for row in trace_rows if row["trace_stage"] == "atmosphere_enter_verified")
     assert any(
-        row["trace_stage"] == "atmosphere_enter_verified"
-        and row["atmosphere_hold_strategy"] == "legacy_hold_thread"
-        for row in trace_rows
+        token in str(enter_row["note"])
+        for token in ("pressure-confirmed AtmosphereGate complete", "ambient_hpa=", "pressure_hpa=")
     )
+    assert enter_row["vent_status_sequence"].strip() == "1,2"
+    assert enter_row["atmosphere_ready"].strip().lower() == "true"
+
+
+def test_cleanup_co2_route_rejects_unscoped_completed_latch_status(tmp_path: Path) -> None:
+    cfg = _fresh_vent_cfg()
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceSingleCycleVentBlocked()
+    runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+
+    with pytest.raises(RuntimeError, match="VENT_STATUS_2"):
+        runner._cleanup_co2_route(reason="after startup pressure precheck")
+    logger.close()
+
+    assert pace.calls == [
+        ("output", False),
+        ("isol", True),
+        ("vent", True),
+    ]
+    trace_rows = _load_pressure_trace_rows(logger)
+    assert not any(row["trace_stage"] == "atmosphere_enter_verified" for row in trace_rows)
+
+
+def test_wait_co2_route_dewpoint_gate_fails_fast_when_atmosphere_gate_missing(tmp_path: Path) -> None:
+    cfg = {
+        "workflow": {
+            "stability": {
+                "gas_route_dewpoint_gate_enabled": True,
+                "gas_route_dewpoint_gate_policy": "reject",
+            }
+        }
+    }
+    point = CalibrationPoint(
+        index=1,
+        temp_chamber_c=20.0,
+        co2_ppm=600.0,
+        hgen_temp_c=20.0,
+        hgen_rh_pct=30.0,
+        target_pressure_hpa=1000.0,
+        dewpoint_c=None,
+        h2o_mmol=None,
+        raw_h2o=None,
+    )
+    logger = RunLogger(tmp_path)
+    pace = _FakePace()
+    runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+    safe_stop_calls = []
+    runner._best_effort_fail_fast_safe_stop = lambda **kwargs: safe_stop_calls.append(dict(kwargs)) or {"ok": True}
+
+    assert runner._wait_co2_route_dewpoint_gate_before_seal(
+        point,
+        base_soak_s=0.0,
+        log_context="unit test",
+    ) is False
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["dewpoint_stabilization_started"] is True
+    assert state["abort_reason"] == "FreshVentNotSent"
+    assert safe_stop_calls == [
+        {
+            "abort_reason": "FreshVentNotSent",
+            "note": "unit test atmosphere gate precheck failed",
+        }
+    ]
+    trace_rows = _load_pressure_trace_rows(logger)
+    end_row = next(row for row in trace_rows if row["trace_stage"] == "co2_precondition_dewpoint_gate_end")
+    assert end_row["flush_gate_reason"].strip() == "FreshVentNotSent"
+    assert end_row["dewpoint_stabilization_started"].strip().lower() == "true"
+    assert end_row["abort_reason"].strip() == "FreshVentNotSent"
+
+
+def test_check_flush_pressure_guard_aborts_on_rising_pressure(tmp_path: Path) -> None:
+    cfg = {
+        "workflow": {
+            "pressure": {
+                "flush_guard_pressure_tolerance_hpa": 100.0,
+                "flush_guard_pressure_rising_slope_max_hpa_s": 0.01,
+                "flush_guard_pressure_rising_min_delta_hpa": 0.5,
+            }
+        }
+    }
+    point = CalibrationPoint(
+        index=1,
+        temp_chamber_c=20.0,
+        co2_ppm=600.0,
+        hgen_temp_c=20.0,
+        hgen_rh_pct=30.0,
+        target_pressure_hpa=1000.0,
+        dewpoint_c=None,
+        h2o_mmol=None,
+        raw_h2o=None,
+    )
+    logger = RunLogger(tmp_path)
+    pace = _FakePace()
+    pace._pressure_reads = [1012.0, 1013.4]
+    runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+    runner._last_atmosphere_gate_summary = {
+        "ambient_hpa": 1012.0,
+        "atmosphere_ready": True,
+    }
+    safe_stop_calls = []
+    runner._best_effort_fail_fast_safe_stop = lambda **kwargs: safe_stop_calls.append(dict(kwargs)) or {"ok": True}
+    pressure_rows = []
+
+    ok_first, state_first = runner._check_flush_pressure_guard(
+        point,
+        phase="co2",
+        pressure_rows=pressure_rows,
+        log_context="unit test flush guard",
+    )
+    time.sleep(0.02)
+    ok_second, state_second = runner._check_flush_pressure_guard(
+        point,
+        phase="co2",
+        pressure_rows=pressure_rows,
+        log_context="unit test flush guard",
+    )
+    logger.close()
+
+    assert ok_first is True
+    assert state_first["pressure_hpa"] == pytest.approx(1012.0)
+    assert ok_second is False
+    assert state_second["abort_reason"] == "PressureRisingDuringFlush"
+    assert state_second["pressure_hpa"] == pytest.approx(1013.4)
+    assert state_second["ambient_hpa"] == pytest.approx(1012.0)
+    assert state_second["pressure_slope_hpa_s"] > 0.01
+    assert safe_stop_calls[-1]["abort_reason"] == "PressureRisingDuringFlush"
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["abort_reason"] == "PressureRisingDuringFlush"
+    assert state["pressure_delta_from_ambient_hpa"] == pytest.approx(1.4)
+
+
+def test_old_pace_vent2_requires_fresh_context(tmp_path: Path) -> None:
+    cfg = _fresh_vent_cfg()
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceOldCompletedBaselineRequiresFreshVent()
+    runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+
+    samples = [(0.0, 1012.0), (1.0, 1012.1)]
+    summary = runner._finalize_atmosphere_gate_summary(
+        phase_start_ts=time.time(),
+        reason="unit test missing fresh context",
+        fresh_vent_command_sent=False,
+        vent_status_sequence=[2],
+        vent_completed=True,
+        pace_syst_err_query='0,"No error"',
+        pressure_window={
+            "samples": samples,
+            "metrics": runner._numeric_series_metrics(samples),
+            "last_sample": {
+                "pressure_hpa": 1012.1,
+                "pressure_source": "pressure_gauge",
+                "pressure_gauge_hpa": 1012.1,
+                "pace_pressure_hpa": 0.0,
+            },
+        },
+        phase="co2",
+    )
+    logger.close()
+
+    assert summary["vent_status_sequence_text"] == "2"
+    assert summary["fresh_vent_completed"] is True
+    assert summary["atmosphere_ready"] is False
+    assert summary["abort_reason"] == "FreshVentNotSent"
+
+
+def test_route_open_guard_runs_before_soak(tmp_path: Path) -> None:
+    cfg = _route_open_guard_cfg()
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceOldCompletedBaselineRequiresFreshVent()
+    gauge = _FakeGaugeSequence([1012.0] * 24)
+    runner = CalibrationRunner(cfg, {"pace": pace, "pressure_gauge": gauge}, logger, lambda *_: None, lambda *_: None)
+    point = CalibrationPoint(
+        index=1,
+        temp_chamber_c=20.0,
+        co2_ppm=600.0,
+        hgen_temp_c=20.0,
+        hgen_rh_pct=30.0,
+        target_pressure_hpa=1000.0,
+        dewpoint_c=None,
+        h2o_mmol=None,
+        raw_h2o=None,
+    )
+
+    assert runner._open_co2_route_for_conditioning(point, point_tag="unit_route_guard") is True
+    assert runner._wait_co2_route_soak_before_seal(point) is True
+    logger.close()
+
+    trace_rows = _load_pressure_trace_rows(logger)
+    guard_end_index = next(
+        idx for idx, row in enumerate(trace_rows) if row["trace_stage"] == "route_open_pressure_guard_end"
+    )
+    soak_begin_index = next(
+        idx for idx, row in enumerate(trace_rows) if row["trace_stage"] == "soak_begin"
+    )
+    assert guard_end_index < soak_begin_index
+
+
+def test_route_open_guard_aborts_before_dewpoint(tmp_path: Path) -> None:
+    cfg = _route_open_guard_cfg()
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceOldCompletedBaselineRequiresFreshVent()
+    gauge = _FakeGaugeSequence([1012.0, 1045.0, 1045.0, 1045.0])
+    runner = CalibrationRunner(cfg, {"pace": pace, "pressure_gauge": gauge}, logger, lambda *_: None, lambda *_: None)
+    point = CalibrationPoint(
+        index=1,
+        temp_chamber_c=20.0,
+        co2_ppm=600.0,
+        hgen_temp_c=20.0,
+        hgen_rh_pct=30.0,
+        target_pressure_hpa=1000.0,
+        dewpoint_c=None,
+        h2o_mmol=None,
+        raw_h2o=None,
+    )
+
+    assert runner._open_co2_route_for_conditioning(point, point_tag="unit_route_guard_abort") is False
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["abort_reason"] == "AtmosphereLostAfterRouteOpen"
+    trace_rows = _load_pressure_trace_rows(logger)
+    assert any(row["trace_stage"] == "route_open_pressure_guard_end" for row in trace_rows)
+    assert not any(row["trace_stage"] == "soak_begin" for row in trace_rows)
+    assert not any(row["trace_stage"] == "co2_precondition_dewpoint_gate_begin" for row in trace_rows)
+
+
+def test_route_valve_isolation_detects_offending_group(tmp_path: Path) -> None:
+    cfg = _route_open_guard_cfg()
+    logger = RunLogger(tmp_path)
+    pace = _FakePace()
+    gauge = _FakeGaugeSequence([1012.0, 1420.0, 1420.0])
+    runner = CalibrationRunner(cfg, {"pace": pace, "pressure_gauge": gauge}, logger, lambda *_: None, lambda *_: None)
+    point = CalibrationPoint(
+        index=1,
+        temp_chamber_c=20.0,
+        co2_ppm=600.0,
+        hgen_temp_c=20.0,
+        hgen_rh_pct=30.0,
+        target_pressure_hpa=1000.0,
+        dewpoint_c=None,
+        h2o_mmol=None,
+        raw_h2o=None,
+    )
+    runner._last_atmosphere_gate_summary = {
+        "ambient_hpa": 1012.0,
+        "atmosphere_ready": True,
+    }
+    runner._apply_valve_states([4, 7, 8, 11])
+
+    ok, summary = runner._run_route_open_pressure_guard(
+        point,
+        phase="co2",
+        log_context="unit valve isolation",
+        point_tag="unit_route_valve_isolation",
+        stage_label="4|7|8|11",
+    )
+    logger.close()
+
+    assert ok is False
+    assert summary["abort_reason"] == "AtmosphereLostAfterRouteOpen"
+    assert summary["offending_route"] == "open:4|7|8|11"
+    assert summary["offending_valve_or_group"] == "4|7|8|11"
+
+
+def test_pressure_setpoint_hold_does_not_use_atmosphere_guard(tmp_path: Path) -> None:
+    cfg = {
+        "workflow": {
+            "pressure": {
+                "vent_time_s": 0,
+                "vent_transition_timeout_s": 12,
+                "stabilize_timeout_s": 0.1,
+            }
+        }
+    }
+    point = CalibrationPoint(
+        index=1,
+        temp_chamber_c=20.0,
+        co2_ppm=None,
+        hgen_temp_c=20.0,
+        hgen_rh_pct=30.0,
+        target_pressure_hpa=1100.0,
+        dewpoint_c=None,
+        h2o_mmol=None,
+        raw_h2o=None,
+    )
+    logger = RunLogger(tmp_path)
+    pace = _FakePace()
+    runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+
+    assert runner._set_pressure_to_target(point) is True
+    logger.close()
+
+    trace_rows = _load_pressure_trace_rows(logger)
+    assert not any(row["trace_stage"].startswith("atmosphere_") for row in trace_rows)
+    assert not any(row["trace_stage"].startswith("route_open_pressure_guard") for row in trace_rows)
+    assert pace.calls == [
+        ("vent_off", 12.0),
+        ("setpoint", 1100.0),
+        ("output_on",),
+    ]
+
+
+def test_route_flush_does_not_use_pressure_setpoint_hold(tmp_path: Path) -> None:
+    cfg = _route_open_guard_cfg()
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceOldCompletedBaselineRequiresFreshVent()
+    gauge = _FakeGaugeSequence([1012.0] * 24)
+    runner = CalibrationRunner(cfg, {"pace": pace, "pressure_gauge": gauge}, logger, lambda *_: None, lambda *_: None)
+    point = CalibrationPoint(
+        index=1,
+        temp_chamber_c=20.0,
+        co2_ppm=600.0,
+        hgen_temp_c=20.0,
+        hgen_rh_pct=30.0,
+        target_pressure_hpa=1100.0,
+        dewpoint_c=None,
+        h2o_mmol=None,
+        raw_h2o=None,
+    )
+
+    assert runner._open_co2_route_for_conditioning(point, point_tag="unit_route_flush_only") is True
+    logger.close()
+
+    assert not any(call[0] == "setpoint" for call in pace.calls)
+    assert not any(call[0] == "output_on" for call in pace.calls)
 
 
 def test_set_pressure_to_target_closes_vent_before_setpoint_and_output(tmp_path: Path) -> None:
@@ -539,7 +1211,7 @@ def test_set_pressure_to_target_legacy_strategy_allows_stale_aux_close_readback_
     assert not any(row["trace_stage"] == "control_vent_off_failed" for row in trace_rows)
 
 
-def test_set_pressure_to_target_aborts_when_open_valve_strategy_close_readback_fails(
+def test_set_pressure_to_target_normalizes_open_valve_strategy_and_ignores_stale_close_readback_failure(
     tmp_path: Path,
 ) -> None:
     cfg = {
@@ -570,14 +1242,17 @@ def test_set_pressure_to_target_aborts_when_open_valve_strategy_close_readback_f
     runner._pace_vent_after_valve_open = True
     runner._pressure_atmosphere_hold_strategy = "vent_valve_open_after_vent"
 
-    assert runner._set_pressure_to_target(point) is False
+    assert runner._set_pressure_to_target(point) is True
     logger.close()
 
     assert pace.calls == [
-        ("vent_after_valve", False),
+        ("vent_off", 12.0),
+        ("setpoint", 1000.0),
+        ("output_on",),
     ]
     trace_rows = _load_pressure_trace_rows(logger)
-    assert any(row["trace_stage"] == "control_vent_off_failed" for row in trace_rows)
+    assert not any(row["trace_stage"] == "control_vent_after_valve_closed" for row in trace_rows)
+    assert not any(row["trace_stage"] == "control_vent_off_failed" for row in trace_rows)
 
 
 def test_set_pressure_to_target_aborts_when_exit_atmosphere_fails(tmp_path: Path) -> None:
@@ -726,7 +1401,7 @@ def test_set_pressure_to_target_rejects_trapped_pressure_before_setpoint_control
     assert not any(row["trace_stage"] == "pressure_control_wait" for row in trace_rows)
 
 
-def test_set_pressure_to_target_accepts_legacy_trapped_pressure_before_setpoint_control(tmp_path: Path) -> None:
+def test_set_pressure_to_target_rejects_legacy_watchlist_status_3_before_setpoint_control(tmp_path: Path) -> None:
     cfg = {
         "workflow": {
             "pressure": {
@@ -752,20 +1427,32 @@ def test_set_pressure_to_target_accepts_legacy_trapped_pressure_before_setpoint_
     pace = _FakePaceLegacyVentTrapped()
     runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
 
-    assert runner._set_pressure_to_target(point) is True
+    assert runner._set_pressure_to_target(point) is False
     logger.close()
 
     assert pace.calls == [
         ("vent_off", 12.0),
-        ("setpoint", 500.0),
-        ("output_on",),
+        ("vent_off", 12.0),
     ]
     trace_rows = _load_pressure_trace_rows(logger)
-    assert any(row["trace_stage"] == "control_ready_verified" for row in trace_rows)
-    assert any(row["trace_stage"] == "control_output_on_verified" for row in trace_rows)
+    assert any(
+        row["trace_stage"] == "control_ready_failed"
+        and row["pace_vent_status"].strip() == "3"
+        and row["pace_legacy_vent_state_3_suspect"].strip().lower() == "true"
+        and row["pace_atmosphere_connected_latched_state_suspect"].strip().lower() == "true"
+        and row["legacy_vent3_control_ready_used"].strip().lower() != "true"
+        and row["legacy_vent3_accept_scope"].strip() == "none"
+        and row["vent3_hard_blocked"].strip().lower() == "true"
+        and row["vent3_control_ready_attempted"].strip().lower() == "true"
+        and row["vent3_control_ready_prevented"].strip().lower() == "true"
+        and row["vent3_block_scope"].strip() == "pressure_control_ready"
+        for row in trace_rows
+    )
+    assert not any(row["trace_stage"] == "control_ready_verified" for row in trace_rows)
+    assert not any(row["trace_stage"] == "control_output_on_verified" for row in trace_rows)
 
 
-def test_set_pressure_to_target_rejects_output_recovery_while_still_trapped(tmp_path: Path) -> None:
+def test_set_pressure_to_target_rejects_output_recovery_while_vent_status_3_remains_watchlist_only(tmp_path: Path) -> None:
     cfg = {
         "workflow": {
             "pressure": {
@@ -806,7 +1493,7 @@ def test_set_pressure_to_target_rejects_output_recovery_while_still_trapped(tmp_
     assert not any(row["trace_stage"] == "pressure_control_wait" for row in trace_rows)
 
 
-def test_set_pressure_to_target_allows_output_recovery_when_legacy_trapped_ready(tmp_path: Path) -> None:
+def test_set_pressure_to_target_blocks_output_recovery_when_legacy_watchlist_status_3_persists(tmp_path: Path) -> None:
     cfg = {
         "workflow": {
             "pressure": {
@@ -833,7 +1520,7 @@ def test_set_pressure_to_target_allows_output_recovery_when_legacy_trapped_ready
     pace._in_limits_sequence = [(500.0, 1)]
     runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
 
-    assert runner._set_pressure_to_target(point) is True
+    assert runner._set_pressure_to_target(point) is False
     logger.close()
 
     assert pace.calls == [
@@ -841,14 +1528,18 @@ def test_set_pressure_to_target_allows_output_recovery_when_legacy_trapped_ready
         ("setpoint", 500.0),
         ("output_on", "first"),
         ("output", False),
-        ("isol", True),
-        ("vent", False),
-        ("setpoint", 500.0),
-        ("output_on", "second"),
     ]
     trace_rows = _load_pressure_trace_rows(logger)
-    assert any(row["trace_stage"] == "control_output_on_recovery_begin" for row in trace_rows)
-    assert any(row["trace_stage"] == "control_output_on_verified" for row in trace_rows)
+    assert any(
+        row["trace_stage"] == "control_output_on_failed"
+        and row["pace_vent_status"].strip() == "3"
+        and row["legacy_vent3_control_ready_used"].strip().lower() != "true"
+        and row["legacy_vent3_accept_scope"].strip() == "none"
+        and row["vent3_control_ready_attempted"].strip().lower() == "true"
+        and row["vent3_control_ready_prevented"].strip().lower() == "true"
+        and row["vent3_block_scope"].strip() == "output_on_verify"
+        for row in trace_rows
+    )
 
 
 def test_set_pressure_to_target_aborts_when_output_on_verification_detects_vent_window(tmp_path: Path) -> None:
@@ -931,7 +1622,7 @@ def test_set_pressure_to_target_aborts_when_output_state_stays_off(tmp_path: Pat
     assert not any(row["trace_stage"] == "pressure_control_wait" for row in trace_rows)
 
 
-def test_set_pressure_to_target_accepts_legacy_completed_vent_status_for_control(tmp_path: Path) -> None:
+def test_set_pressure_to_target_rejects_completed_vent_latch_before_control(tmp_path: Path) -> None:
     cfg = {
         "workflow": {
             "pressure": {
@@ -957,14 +1648,325 @@ def test_set_pressure_to_target_accepts_legacy_completed_vent_status_for_control
     pace = _FakePaceLegacyVentCompleted()
     runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
 
-    assert runner._set_pressure_to_target(point) is True
+    assert runner._set_pressure_to_target(point) is False
     logger.close()
 
     assert pace.calls == [
         ("vent_off", 12.0),
+        ("vent_off", 12.0),
+    ]
+    trace_rows = _load_pressure_trace_rows(logger)
+    assert any(row["trace_stage"] == "control_ready_failed" for row in trace_rows)
+
+
+def test_clear_pressure_sequence_completed_vent_latch_returns_blocked_summary_for_legacy_status_2(
+    tmp_path: Path,
+) -> None:
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceCompletedVentLatchBlocked()
+    runner = CalibrationRunner({}, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+    point = CalibrationPoint(
+        index=1,
+        temp_chamber_c=20.0,
+        co2_ppm=600.0,
+        hgen_temp_c=None,
+        hgen_rh_pct=None,
+        target_pressure_hpa=800.0,
+        dewpoint_c=None,
+        h2o_mmol=None,
+        raw_h2o=None,
+    )
+
+    summary = runner._clear_pressure_sequence_completed_vent_latch_if_present(
+        point,
+        phase="co2",
+        reason="unit test legacy guard",
+    )
+    logger.close()
+
+    assert summary["status"] == "blocked"
+    assert summary["reason"] == "legacy_completed_latch_auto_clear_blocked(before=2,after=2)"
+    assert pace.calls == [
+        ("clear_status",),
+        ("drain_system_errors",),
+        ("clear_completed_vent_latch_if_present", 5.0, 0.25),
+    ]
+    trace_rows = _load_pressure_trace_rows(logger)
+    assert any(
+        row["trace_stage"] == "pace_vent_clear_latch_end"
+        and row["pace_vent_clear_attempted"].strip().lower() == "false"
+        and row["pace_vent_clear_result"].strip() == "legacy_completed_latch_auto_clear_blocked(before=2,after=2)"
+        for row in trace_rows
+    )
+
+
+def test_set_pressure_to_target_clears_completed_vent_latch_at_sequence_start(tmp_path: Path) -> None:
+    cfg = {
+        "workflow": {
+            "pressure": {
+                "vent_time_s": 0,
+                "vent_transition_timeout_s": 12,
+                "stabilize_timeout_s": 0.1,
+            }
+        }
+    }
+    point = CalibrationPoint(
+        index=1,
+        temp_chamber_c=20.0,
+        co2_ppm=600.0,
+        hgen_temp_c=20.0,
+        hgen_rh_pct=30.0,
+        target_pressure_hpa=1100.0,
+        dewpoint_c=None,
+        h2o_mmol=None,
+        raw_h2o=None,
+    )
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceCompletedVentLatchClears()
+    runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+
+    assert runner._set_pressure_to_target(point) is True
+    logger.close()
+
+    assert pace.calls == [
+        ("clear_status",),
+        ("drain_system_errors",),
+        ("clear_completed_vent_latch_if_present", 5.0, 0.25),
+        ("vent_off", 12.0),
         ("setpoint", 1100.0),
         ("output_on",),
     ]
+    trace_rows = _load_pressure_trace_rows(logger)
+    assert any(
+        row["trace_stage"] == "pace_vent_clear_latch_end"
+        and row["pace_vent_clear_attempted"].strip().lower() == "true"
+        for row in trace_rows
+    )
+    assert any(
+        row["trace_stage"] == "pace_vent_clear_latch_begin"
+        and "status_clear=*CLS sent" in str(row["note"])
+        and "Data out of range" in str(row["note"])
+        for row in trace_rows
+    )
+
+
+def test_set_pressure_to_target_stops_when_sequence_start_auto_clear_is_blocked(tmp_path: Path) -> None:
+    cfg = {
+        "workflow": {
+            "pressure": {
+                "vent_time_s": 0,
+                "vent_transition_timeout_s": 12,
+                "stabilize_timeout_s": 0.1,
+            }
+        }
+    }
+    point = CalibrationPoint(
+        index=1,
+        temp_chamber_c=20.0,
+        co2_ppm=600.0,
+        hgen_temp_c=20.0,
+        hgen_rh_pct=30.0,
+        target_pressure_hpa=1100.0,
+        dewpoint_c=None,
+        h2o_mmol=None,
+        raw_h2o=None,
+    )
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceCompletedVentLatchBlocked()
+    runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+
+    assert runner._set_pressure_to_target(point) is False
+    logger.close()
+
+    assert pace.calls == [
+        ("clear_status",),
+        ("drain_system_errors",),
+        ("clear_completed_vent_latch_if_present", 5.0, 0.25),
+    ]
+    trace_rows = _load_pressure_trace_rows(logger)
+    assert any(
+        row["trace_stage"] == "pace_vent_clear_latch_end"
+        and row["pace_vent_clear_result"].strip() == "legacy_completed_latch_auto_clear_blocked(before=2,after=2)"
+        for row in trace_rows
+    )
+    assert not any(row["trace_stage"] == "control_vent_off_begin" for row in trace_rows)
+    assert not any(row["trace_stage"] == "pressure_control_wait" for row in trace_rows)
+
+
+def test_set_pressure_controller_vent_off_blocks_legacy_completed_latch_auto_clear(tmp_path: Path) -> None:
+    cfg = {
+        "workflow": {
+            "pressure": {
+                "vent_time_s": 0,
+                "vent_transition_timeout_s": 12,
+            }
+        }
+    }
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceCompletedVentLatchBlocked()
+    runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+
+    with pytest.raises(RuntimeError, match="VENT_COMPLETED_LATCH_AUTO_CLEAR_BLOCKED"):
+        runner._set_pressure_controller_vent(False, reason="before setpoint control")
+    logger.close()
+
+    assert not any(call[0] in {"vent_off", "vent", "output", "isol"} for call in pace.calls)
+    trace_rows = _load_pressure_trace_rows(logger)
+    assert any(
+        row["trace_stage"] == "control_vent_off_blocked"
+        and row["pace_vent_status_query"].strip() == "2"
+        and row["pace_vent_clear_result"].strip() == "legacy_completed_latch_auto_clear_blocked(before=2,after=2)"
+        for row in trace_rows
+    )
+
+
+def test_set_pressure_controller_vent_off_uses_adapter_ready_semantics_for_legacy_completed_status(
+    tmp_path: Path,
+) -> None:
+    cfg = {
+        "workflow": {
+            "pressure": {
+                "vent_time_s": 0,
+                "vent_transition_timeout_s": 12,
+            }
+        }
+    }
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceLegacyBaselineReuse()
+    runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+
+    assert runner._set_pressure_controller_vent(False, reason="before setpoint control") is True
+    logger.close()
+
+    assert pace.calls == [("vent_off", 12.0)]
+    trace_rows = _load_pressure_trace_rows(logger)
+    assert not any(row["trace_stage"] == "control_vent_off_blocked" for row in trace_rows)
+
+
+def test_force_clear_completed_vent_latch_is_blocked_when_status_is_trapped_but_oper_bit_is_still_set(
+    tmp_path: Path,
+) -> None:
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceCompletedVentLatchBitOnly()
+    runner = CalibrationRunner({}, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+    point = CalibrationPoint(
+        index=1,
+        temp_chamber_c=20.0,
+        co2_ppm=600.0,
+        hgen_temp_c=None,
+        hgen_rh_pct=None,
+        target_pressure_hpa=800.0,
+        dewpoint_c=None,
+        h2o_mmol=None,
+        raw_h2o=None,
+    )
+    snapshots = iter(
+        [
+            {
+                "pace_outp_state_query": 0,
+                "pace_isol_state_query": 1,
+                "pace_mode_query": "ACT",
+                "pace_vent_status_query": 3,
+                "pace_oper_pres_cond_query": 1,
+                "pace_oper_pres_even_query": 0,
+                "pace_oper_pres_vent_complete_bit": True,
+                "pace_oper_pres_in_limits_bit": False,
+            },
+            {
+                "pace_outp_state_query": 0,
+                "pace_isol_state_query": 1,
+                "pace_mode_query": "ACT",
+                "pace_vent_status_query": 3,
+                "pace_oper_pres_cond_query": 0,
+                "pace_oper_pres_even_query": 0,
+                "pace_oper_pres_vent_complete_bit": False,
+                "pace_oper_pres_in_limits_bit": False,
+            },
+            {
+                "pace_outp_state_query": 0,
+                "pace_isol_state_query": 1,
+                "pace_mode_query": "ACT",
+                "pace_vent_status_query": 3,
+                "pace_oper_pres_cond_query": 0,
+                "pace_oper_pres_even_query": 0,
+                "pace_oper_pres_vent_complete_bit": False,
+                "pace_oper_pres_in_limits_bit": False,
+            },
+        ]
+    )
+
+    runner._pace_diagnostic_state_snapshot = lambda *args, **kwargs: dict(next(snapshots))
+
+    summary = runner._clear_pressure_sequence_completed_vent_latch_if_present(
+        point,
+        phase="co2",
+        reason="unit test forced clear",
+    )
+    logger.close()
+
+    assert summary["status"] == "blocked"
+    assert summary["manual_intervention_required"] is True
+    assert summary["reason"] == "legacy_completed_latch_bit_only_force_clear_blocked(before=3,cond=1,event=0)"
+    assert summary["after"]["pace_vent_status_query"] == 3
+    assert summary["after"]["pace_vent_completed_latched"] is True
+    assert pace.calls == [
+        ("clear_status",),
+        ("drain_system_errors",),
+    ]
+    assert not any(call == ("vent", False) for call in pace.calls)
+
+
+def test_set_pressure_to_target_stops_when_sequence_start_bit_only_force_clear_is_blocked(
+    tmp_path: Path,
+) -> None:
+    cfg = {
+        "workflow": {
+            "pressure": {
+                "vent_time_s": 0,
+                "vent_transition_timeout_s": 12,
+                "stabilize_timeout_s": 0.1,
+            }
+        }
+    }
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceCompletedVentLatchBitOnly()
+    runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+    point = CalibrationPoint(
+        index=1,
+        temp_chamber_c=20.0,
+        co2_ppm=600.0,
+        hgen_temp_c=20.0,
+        hgen_rh_pct=30.0,
+        target_pressure_hpa=1100.0,
+        dewpoint_c=None,
+        h2o_mmol=None,
+        raw_h2o=None,
+    )
+    snapshots = iter(
+        [
+            {
+                "pace_outp_state_query": 0,
+                "pace_isol_state_query": 1,
+                "pace_mode_query": "ACT",
+                "pace_vent_status_query": 3,
+                "pace_oper_pres_cond_query": 1,
+                "pace_oper_pres_even_query": 0,
+                "pace_oper_pres_vent_complete_bit": True,
+                "pace_oper_pres_in_limits_bit": False,
+            }
+        ]
+    )
+
+    runner._pace_diagnostic_state_snapshot = lambda *args, **kwargs: dict(next(snapshots))
+
+    assert runner._set_pressure_to_target(point) is False
+    logger.close()
+
+    assert pace.calls == [
+        ("clear_status",),
+        ("drain_system_errors",),
+    ]
+    assert not any(call[0] in {"vent_off", "vent", "setpoint", "output", "output_on", "isol"} for call in pace.calls)
 
 
 def test_set_pressure_controller_vent_off_for_preseal_skips_slow_exit_wait(tmp_path: Path) -> None:
@@ -1168,17 +2170,10 @@ def test_set_pressure_to_target_fallback_keeps_output_path_open(tmp_path: Path) 
 
 
 def test_atmosphere_refresh_is_disabled_after_vent_off(tmp_path: Path) -> None:
-    cfg = {
-        "workflow": {
-            "pressure": {
-                "vent_time_s": 0,
-                "vent_transition_timeout_s": 12,
-                "vent_hold_interval_s": 0.0,
-            }
-        }
-    }
+    cfg = _fresh_vent_cfg()
+    cfg["workflow"]["pressure"]["vent_hold_interval_s"] = 0.0
     logger = RunLogger(tmp_path)
-    pace = _FakePaceFallback()
+    pace = _FakePaceSingleCycleVent()
     runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
 
     runner._set_pressure_controller_vent(True, reason="enable hold")
@@ -1197,9 +2192,7 @@ def test_atmosphere_refresh_is_disabled_after_vent_off(tmp_path: Path) -> None:
         ("output", False),
         ("isol", True),
         ("vent", True),
-        ("output", False),
-        ("vent", False),
-        ("isol", True),
+        ("vent_off", 12.0),
     ]
     assert pace.calls == calls_after_off
 
@@ -1257,3 +2250,72 @@ def test_set_pressure_to_target_soft_recovers_and_retries_once(tmp_path: Path) -
     assert ("set_in_limits", 0.02, 10.0) in pace.calls
     assert ("setpoint", 550.0, "first") in pace.calls
     assert ("setpoint", 550.0, "second") in pace.calls
+
+
+def test_set_pressure_to_target_same_route_follow_on_timeout_skips_atmosphere_reset_recovery(
+    tmp_path: Path,
+) -> None:
+    cfg = {
+        "workflow": {
+            "pressure": {
+                "vent_time_s": 0,
+                "vent_transition_timeout_s": 12,
+                "stabilize_timeout_s": 0.11,
+                "restabilize_retries": 0,
+                "restabilize_retry_interval_s": 0.01,
+                "soft_recover_on_pressure_timeout": True,
+            }
+        }
+    }
+    previous_point = CalibrationPoint(
+        index=1,
+        temp_chamber_c=20.0,
+        co2_ppm=800.0,
+        hgen_temp_c=None,
+        hgen_rh_pct=None,
+        target_pressure_hpa=1000.0,
+        dewpoint_c=None,
+        h2o_mmol=None,
+        raw_h2o=None,
+    )
+    follow_on_point = CalibrationPoint(
+        index=2,
+        temp_chamber_c=20.0,
+        co2_ppm=800.0,
+        hgen_temp_c=None,
+        hgen_rh_pct=None,
+        target_pressure_hpa=800.0,
+        dewpoint_c=None,
+        h2o_mmol=None,
+        raw_h2o=None,
+    )
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceSoftRecover()
+    runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+    runner._last_sealed_pressure_route_context = {
+        "phase": "co2",
+        "route_signature": runner._route_signature_for_point(previous_point, phase="co2"),
+        "point_row": previous_point.index,
+    }
+
+    recover_called = False
+
+    def forbidden_recover(**kwargs):
+        nonlocal recover_called
+        recover_called = True
+        return False
+
+    runner._soft_recover_pressure_controller = forbidden_recover
+
+    assert runner._set_pressure_to_target(follow_on_point) is False
+    logger.close()
+
+    assert recover_called is False
+    assert ("vent", True) not in pace.calls
+    trace_rows = _load_pressure_trace_rows(logger)
+    assert any(
+        row["trace_stage"] == "control_timeout_recovery_skipped"
+        and row["handoff_mode"] == "same_gas_pressure_step_handoff"
+        and "skip atmosphere-reset soft recovery after timeout" in row["note"]
+        for row in trace_rows
+    )

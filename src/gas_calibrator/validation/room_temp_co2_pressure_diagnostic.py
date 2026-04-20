@@ -48,6 +48,17 @@ DEFAULT_DEWPOINT_REBOUND_WINDOW_S = SHARED_DEFAULT_DEWPOINT_REBOUND_WINDOW_S
 DEFAULT_DEWPOINT_REBOUND_MIN_RISE_C = SHARED_DEFAULT_DEWPOINT_REBOUND_MIN_RISE_C
 
 
+def _matplotlib_missing(exc: ModuleNotFoundError) -> bool:
+    return str(getattr(exc, "name", "") or "") == "matplotlib"
+
+
+def _write_plot_skip_note(root: Path, stem: str, message: str) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / f"{stem}_plot_skipped.txt"
+    path.write_text(str(message).strip() + "\n", encoding="utf-8")
+    return path
+
+
 @dataclass(frozen=True)
 class MetrologyDiagnosticThresholds:
     flush_gate_window_s: float = DEFAULT_FLUSH_GATE_WINDOW_S
@@ -1978,16 +1989,32 @@ def export_room_temp_diagnostic_results(
 
     plot_outputs: Dict[str, Any] = {}
     if export_png:
-        from .room_temp_co2_pressure_plots import generate_room_temp_diagnostic_plots
+        try:
+            from .room_temp_co2_pressure_plots import generate_room_temp_diagnostic_plots
 
-        plot_outputs = generate_room_temp_diagnostic_plots(
-            root,
-            raw_rows=raw_rows,
-            flush_summaries=flush_summaries,
-            seal_hold_summaries=seal_hold_summaries,
-            pressure_summaries=pressure_summaries,
-            diagnostic_summary=diagnostic_summary,
-        )
+            plot_outputs = generate_room_temp_diagnostic_plots(
+                root,
+                raw_rows=raw_rows,
+                flush_summaries=flush_summaries,
+                seal_hold_summaries=seal_hold_summaries,
+                pressure_summaries=pressure_summaries,
+                diagnostic_summary=diagnostic_summary,
+            )
+        except ModuleNotFoundError as exc:
+            if not _matplotlib_missing(exc):
+                raise
+            plot_outputs = {
+                "plot_export_skipped": _write_plot_skip_note(
+                    root,
+                    "room_temp_diagnostic",
+                    "PNG plot export skipped because matplotlib is not installed.",
+                ),
+                "variant_comparison_summary": _write_plot_skip_note(
+                    root,
+                    "variant_comparison_summary",
+                    "PNG plot export skipped because matplotlib is not installed.",
+                ),
+            }
 
     summary_payload = dict(diagnostic_summary)
     summary_payload["plot_files"] = {
@@ -2073,13 +2100,17 @@ def build_analyzer_chain_isolation_summary(
     thresholds: MetrologyDiagnosticThresholds = DEFAULT_THRESHOLDS,
 ) -> Dict[str, Any]:
     analyzer_connected = bool(setup_metadata.get("analyzer_chain_connected"))
+    gas_analyzer_skipped = bool(setup_metadata.get("gas_analyzer_skipped"))
+    analyzer_sampling_enabled = bool(
+        setup_metadata.get("analyzer_sampling_enabled", analyzer_connected and not gas_analyzer_skipped)
+    )
     analyzer_count_in_path = _safe_int(setup_metadata.get("analyzer_count_in_path")) or (8 if analyzer_connected else 0)
     evidence_reasons: List[str] = []
     if (_safe_int(flush_summary.get("dewpoint_raw_sample_count")) or 0) < int(thresholds.stable_sample_count_min):
         evidence_reasons.append("insufficient_dewpoint_samples")
     if (_safe_int(flush_summary.get("gauge_raw_sample_count")) or 0) < int(thresholds.stable_sample_count_min):
         evidence_reasons.append("insufficient_gauge_samples")
-    if analyzer_connected and (_safe_int(flush_summary.get("analyzer_raw_sample_count")) or 0) < int(thresholds.stable_sample_count_min):
+    if analyzer_sampling_enabled and (_safe_int(flush_summary.get("analyzer_raw_sample_count")) or 0) < int(thresholds.stable_sample_count_min):
         evidence_reasons.append("insufficient_analyzer_samples")
 
     if evidence_reasons:
@@ -2088,8 +2119,8 @@ def build_analyzer_chain_isolation_summary(
         classification = str(flush_summary.get("flush_gate_status") or "insufficient_evidence")
 
     time_to_gate = _safe_float(flush_summary.get("flush_duration_s")) if bool(flush_summary.get("flush_gate_pass")) else None
-    ratio_tail_span = _safe_float(flush_summary.get("flush_last60s_ratio_span")) if analyzer_connected else None
-    ratio_tail_slope = _safe_float(flush_summary.get("flush_last60s_ratio_slope")) if analyzer_connected else None
+    ratio_tail_span = _safe_float(flush_summary.get("flush_last60s_ratio_span")) if analyzer_sampling_enabled else None
+    ratio_tail_slope = _safe_float(flush_summary.get("flush_last60s_ratio_slope")) if analyzer_sampling_enabled else None
 
     return {
         "run_id": run_id,
@@ -2100,12 +2131,21 @@ def build_analyzer_chain_isolation_summary(
         "chain_label": setup_metadata.get("chain_label"),
         "analyzer_count_in_path": analyzer_count_in_path,
         "analyzer_chain_connected": analyzer_connected,
+        "analyzer_sampling_enabled": analyzer_sampling_enabled,
+        "gas_analyzer_skipped": gas_analyzer_skipped,
+        "gas_analyzer_skip_reason": str(setup_metadata.get("gas_analyzer_skip_reason") or ""),
         "analyzers_in_path_text": setup_metadata.get("analyzers_in_path_text"),
         "capture_analyzer_name": setup_metadata.get("capture_analyzer_name"),
         "capture_analyzer_port": setup_metadata.get("capture_analyzer_port"),
         "pace_in_path": bool(setup_metadata.get("pace_in_path")),
         "controller_vent_expected": bool(setup_metadata.get("controller_vent_expected", setup_metadata.get("pace_expected_vent_on"))),
         "controller_vent_state": setup_metadata.get("controller_vent_state"),
+        "flush_vent_refresh_interval_s": _safe_float(setup_metadata.get("flush_vent_refresh_interval_s")),
+        "flush_vent_refresh_interval_s_requested": _safe_float(setup_metadata.get("flush_vent_refresh_interval_s_requested")),
+        "flush_vent_refresh_interval_s_actual_mean": _safe_float(setup_metadata.get("flush_vent_refresh_interval_s_actual_mean")),
+        "flush_vent_refresh_interval_s_actual_max": _safe_float(setup_metadata.get("flush_vent_refresh_interval_s_actual_max")),
+        "flush_vent_refresh_count": _safe_int(setup_metadata.get("flush_vent_refresh_count")),
+        "flush_vent_refresh_thread_used": bool(setup_metadata.get("flush_vent_refresh_thread_used")),
         "classification": classification,
         "flush_gate_status": flush_summary.get("flush_gate_status"),
         "flush_gate_pass": bool(flush_summary.get("flush_gate_pass")),
@@ -2938,21 +2978,63 @@ def export_analyzer_chain_isolation_results(
 
     plot_outputs: Dict[str, Any] = {}
     if export_png:
-        from .room_temp_co2_pressure_plots import generate_analyzer_chain_isolation_plots
+        try:
+            from .room_temp_co2_pressure_plots import generate_analyzer_chain_isolation_plots
 
-        plot_outputs = generate_analyzer_chain_isolation_plots(
-            root,
-            raw_rows=raw_rows,
-            flush_gate_trace_rows=flush_gate_trace_rows,
-            isolation_summaries=isolation_summaries,
-            comparison_summary=comparison_summary,
-        )
-        if compare_vs_8ch_rows:
-            from .room_temp_co2_pressure_plots import generate_compare_vs_8ch_time_to_gate_plot
+            plot_outputs = generate_analyzer_chain_isolation_plots(
+                root,
+                raw_rows=raw_rows,
+                flush_gate_trace_rows=flush_gate_trace_rows,
+                isolation_summaries=isolation_summaries,
+                comparison_summary=comparison_summary,
+            )
+            if compare_vs_8ch_rows:
+                from .room_temp_co2_pressure_plots import generate_compare_vs_8ch_time_to_gate_plot
 
-            compare_plot = generate_compare_vs_8ch_time_to_gate_plot(root, compare_vs_8ch_rows=compare_vs_8ch_rows)
-            if compare_plot is not None:
-                plot_outputs["compare_vs_8ch_time_to_gate"] = compare_plot
+                compare_plot = generate_compare_vs_8ch_time_to_gate_plot(root, compare_vs_8ch_rows=compare_vs_8ch_rows)
+                if compare_plot is not None:
+                    plot_outputs["compare_vs_8ch_time_to_gate"] = compare_plot
+        except ModuleNotFoundError as exc:
+            if not _matplotlib_missing(exc):
+                raise
+            plot_outputs = {
+                "dewpoint_time_series_analyzer_out_keep_rest": _write_plot_skip_note(
+                    root,
+                    "dewpoint_time_series_analyzer_out_keep_rest",
+                    "PNG plot export skipped because matplotlib is not installed.",
+                ),
+                "dewpoint_time_series_analyzer_in_keep_rest": _write_plot_skip_note(
+                    root,
+                    "dewpoint_time_series_analyzer_in_keep_rest",
+                    "PNG plot export skipped because matplotlib is not installed.",
+                ),
+                "flush_gate_trace_overlay": _write_plot_skip_note(
+                    root,
+                    "flush_gate_trace_overlay",
+                    "PNG plot export skipped because matplotlib is not installed.",
+                ),
+                "rebound_overlay": _write_plot_skip_note(
+                    root,
+                    "rebound_overlay",
+                    "PNG plot export skipped because matplotlib is not installed.",
+                ),
+                "gauge_time_series_comparison": _write_plot_skip_note(
+                    root,
+                    "gauge_time_series_comparison",
+                    "PNG plot export skipped because matplotlib is not installed.",
+                ),
+                "chain_mode_comparison_summary": _write_plot_skip_note(
+                    root,
+                    "chain_mode_comparison_summary",
+                    "PNG plot export skipped because matplotlib is not installed.",
+                ),
+            }
+            if compare_vs_8ch_rows:
+                plot_outputs["compare_vs_8ch_time_to_gate"] = _write_plot_skip_note(
+                    root,
+                    "compare_vs_8ch_time_to_gate",
+                    "PNG plot export skipped because matplotlib is not installed.",
+                )
 
     setup_path.write_text(json.dumps(dict(setup_metadata), ensure_ascii=False, indent=2), encoding="utf-8")
     comparison_payload = dict(comparison_summary)

@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 from gas_calibrator.data.points import CalibrationPoint
@@ -71,6 +72,18 @@ def _co2_point() -> CalibrationPoint:
     )
 
 
+def _prime_sealed_runtime(runner: CalibrationRunner, point: CalibrationPoint, *, phase: str = "co2") -> None:
+    now = time.time()
+    runner._set_point_runtime_fields(
+        point,
+        phase=phase,
+        timing_stages={
+            "route_sealed": now - 2.0,
+            "pressure_in_limits": now - 1.0,
+        },
+    )
+
+
 def test_adaptive_pressure_sampling_flag_off_keeps_old_wait_path(tmp_path: Path) -> None:
     logs = []
     logger = RunLogger(tmp_path)
@@ -81,11 +94,15 @@ def test_adaptive_pressure_sampling_flag_off_keeps_old_wait_path(tmp_path: Path)
         logs.append,
         lambda *_: None,
     )
-    runner._wait_pressure_and_primary_sensor_ready = lambda point: (_ for _ in ()).throw(
-        AssertionError("adaptive gate should not run when feature flag is disabled")
-    )
+    point = _co2_point()
+    _prime_sealed_runtime(runner, point)
+    runner._set_pressure_controller_sampling_isolation = lambda _point, **_kwargs: True
+    runner._wait_post_isolation_leak_test = lambda _point, **_kwargs: True
+    runner._wait_sampling_pressure_gate = lambda _point, **_kwargs: True
+    runner._wait_postseal_dewpoint_gate = lambda _point, **_kwargs: True
+    runner._wait_co2_presample_long_guard = lambda _point, **_kwargs: True
 
-    assert runner._wait_after_pressure_stable_before_sampling(_co2_point()) is True
+    assert runner._wait_after_pressure_stable_before_sampling(point) is True
     logger.close()
 
 
@@ -108,12 +125,18 @@ def test_wait_after_pressure_stable_uses_adaptive_gate_when_enabled(tmp_path: Pa
         lambda *_: None,
     )
     calls = {"count": 0}
-    runner._wait_pressure_and_primary_sensor_ready = lambda point: calls.__setitem__("count", calls["count"] + 1) or True
+    point = _co2_point()
+    _prime_sealed_runtime(runner, point)
+    runner._set_pressure_controller_sampling_isolation = lambda _point, **_kwargs: True
+    runner._wait_post_isolation_leak_test = lambda _point, **_kwargs: True
+    runner._wait_sampling_pressure_gate = lambda _point, **_kwargs: calls.__setitem__("count", calls["count"] + 1) or True
+    runner._wait_postseal_dewpoint_gate = lambda _point, **_kwargs: True
+    runner._wait_co2_presample_long_guard = lambda _point, **_kwargs: True
     runner._set_pressure_to_target = lambda point, recovery_attempted=False: (_ for _ in ()).throw(
         AssertionError("adaptive wait path should not re-capture pressure here")
     )
 
-    assert runner._wait_after_pressure_stable_before_sampling(_co2_point()) is True
+    assert runner._wait_after_pressure_stable_before_sampling(point) is True
     logger.close()
 
     assert calls["count"] == 1
@@ -215,15 +238,71 @@ def test_adaptive_mode_does_not_reapply_setpoint_in_wait_path(tmp_path: Path) ->
         lambda *_: None,
     )
     recaptures = {"count": 0}
+    point = _co2_point()
+    _prime_sealed_runtime(runner, point)
     runner._set_pressure_to_target = lambda point, recovery_attempted=False: recaptures.__setitem__(
         "count", recaptures["count"] + 1
     ) or True
-    runner._wait_pressure_and_primary_sensor_ready = lambda point: True
+    runner._set_pressure_controller_sampling_isolation = lambda _point, **_kwargs: True
+    runner._wait_post_isolation_leak_test = lambda _point, **_kwargs: True
+    runner._wait_sampling_pressure_gate = lambda _point, **_kwargs: True
+    runner._wait_postseal_dewpoint_gate = lambda _point, **_kwargs: True
+    runner._wait_co2_presample_long_guard = lambda _point, **_kwargs: True
 
-    assert runner._wait_after_pressure_stable_before_sampling(_co2_point()) is True
+    assert runner._wait_after_pressure_stable_before_sampling(point) is True
     logger.close()
 
     assert recaptures["count"] == 0
+
+
+def test_fast5s_capture_can_sample_immediately_when_override_allows_early_sample(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "pressure": {
+                    "adaptive_pressure_sampling_enabled": True,
+                    "skip_fixed_post_stable_delay_when_adaptive": True,
+                    "capture_then_hold_enabled": True,
+                    "co2_post_isolation_diagnostic_enabled": True,
+                    "post_isolation_fast_capture_enabled": True,
+                    "post_isolation_fast_capture_allow_early_sample": True,
+                }
+            }
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _co2_point()
+    _prime_sealed_runtime(runner, point)
+    runner._set_pressure_controller_sampling_isolation = lambda _point, **_kwargs: True
+
+    def _fast_pass(_point, **_kwargs):
+        runner._set_point_runtime_fields(
+            point,
+            phase="co2",
+            post_isolation_capture_mode="fast5s",
+            post_isolation_fast_capture_status="pass",
+            post_isolation_fast_capture_reason="clean_window",
+            post_isolation_fast_capture_fallback=False,
+        )
+        return True
+
+    runner._wait_post_isolation_leak_test = _fast_pass
+    runner._wait_sampling_pressure_gate = lambda _point, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("fast 5s early sample should skip extended gate chain")
+    )
+    runner._wait_postseal_dewpoint_gate = runner._wait_sampling_pressure_gate
+    runner._wait_co2_presample_long_guard = runner._wait_sampling_pressure_gate
+
+    assert runner._wait_after_pressure_stable_before_sampling(point) is True
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["post_isolation_capture_mode"] == "fast5s"
+    assert state["post_isolation_fast_capture_status"] == "pass"
+    assert state["timing_stages"]["sampling_begin"] is not None
+    logger.close()
 
 
 def test_pressure_point_order_unchanged_with_adaptive_flag(tmp_path: Path) -> None:
@@ -299,3 +378,77 @@ def test_soft_control_unsupported_commands_warn_only(tmp_path: Path) -> None:
     assert any("engineering-only" in msg.lower() and "non-default" in msg.lower() for msg in logs)
     assert any("pressure soft-control config enabled" in msg.lower() for msg in logs)
     assert any("unsupported" in msg.lower() for msg in logs)
+
+
+def test_same_gas_low_pressure_standard_control_uses_linear_slew_and_disables_overshoot(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceForConfigure()
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "pressure": {
+                    "same_gas_low_pressure_standard_control_enabled": True,
+                    "same_gas_low_pressure_standard_control_slew_hpa_per_s": 5.0,
+                    "low_pressure_same_gas_use_linear_slew": True,
+                    "low_pressure_same_gas_overshoot_allowed": False,
+                }
+            }
+        },
+        {"pace": pace},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _co2_point()
+    runner._route_signature_for_point = lambda *_args, **_kwargs: (7, 11)
+    runner._last_sealed_pressure_route_context = {"phase": "co2", "route_signature": (7, 11)}
+
+    runner._configure_same_gas_low_pressure_standard_control(pace, point, phase="co2")
+    logger.close()
+
+    assert ("slew_linear",) in pace.calls
+    assert ("slew_rate", 5.0) in pace.calls
+    assert ("overshoot", False) in pace.calls
+
+
+def test_pressure_control_ready_fails_legacy_watchlist_status_3_with_explicit_reason(tmp_path: Path) -> None:
+    class _FakeLegacyPace:
+        VENT_STATUS_TRAPPED_PRESSURE = 3
+
+        def has_legacy_vent_state_3_compatibility(self):
+            return True
+
+        def read_pressure(self):
+            return 1001.2
+
+    logs = []
+    logger = RunLogger(tmp_path)
+    pace = _FakeLegacyPace()
+    runner = CalibrationRunner(
+        {"workflow": {"pressure": {"control_ready_wait_timeout_s": 0.0}}},
+        {"pace": pace},
+        logger,
+        logs.append,
+        lambda *_: None,
+    )
+    point = _co2_point()
+    runner._pressure_controller_ready_snapshot = lambda _pace, **_kwargs: {
+        "pace_vent_status": 3,
+        "pace_output_state": 0,
+        "pace_isolation_state": 1,
+        "hold_thread_active": False,
+    }
+    snapshot = runner._pressure_controller_ready_snapshot(pace)
+    failures = runner._pressure_controller_ready_failures(snapshot, pace)
+
+    assert runner._ensure_pressure_controller_ready_for_control(
+        point,
+        phase="co2",
+        pressure_target_hpa=800.0,
+        attempt_recovery=False,
+        note="hotfix probe",
+    ) is False
+    logger.close()
+
+    assert failures == ["vent_status=3(watchlist_only)"]
+    assert any("vent_status=3(watchlist_only)" in msg for msg in logs)
