@@ -16732,6 +16732,94 @@ class CalibrationRunner:
             self._set_pressure_controller_vent(True, reason="startup preflight reset")
             self._h2o_pressure_prepared_target = None
 
+    def _mechanical_pressure_protection_confirmed(self) -> bool:
+        workflow_cfg = self.cfg.get("workflow", {})
+        pressure_cfg = workflow_cfg.get("pressure", {}) if isinstance(workflow_cfg, dict) else {}
+        return bool(
+            pressure_cfg.get("mechanical_pressure_protection_confirmed", False)
+            or workflow_cfg.get("mechanical_pressure_protection_confirmed", False)
+            or self.cfg.get("mechanical_pressure_protection_confirmed", False)
+        )
+
+    def _startup_pressure_precheck_source_stage_decision(
+        self,
+        point: CalibrationPoint,
+        *,
+        route: str,
+        cfg: Mapping[str, Any],
+        guard_enabled: bool,
+    ) -> Dict[str, Any]:
+        phase_text = str(route or "co2").strip().lower()
+        is_h2o = phase_text == "h2o"
+        allow_flag_key = "allow_h2o_final_stage_open" if is_h2o else "allow_source_open"
+        skipped_reason = (
+            "H2OFinalStage10RequiresExplicitAllowFlag"
+            if is_h2o
+            else "SourceStageRequiresExplicitAllowFlag"
+        )
+        decision: Dict[str, Any] = {
+            "include_source_stage": False,
+            "startup_precheck_scope": "partial_no_source",
+            "startup_precheck_source_stage_skipped": True,
+            "startup_precheck_source_stage_skipped_reason": skipped_reason,
+            "source_stage_safe_required_for_startup_precheck": False,
+            "source_stage_safe_required_for_final_stage_only": True,
+            "allow_flag": bool(cfg.get(allow_flag_key, False)),
+            "mechanical_pressure_protection_confirmed": False,
+            "analyzer_pressure_required": False,
+            "analyzer_pressure_available": False,
+            "analyzer_pressure_protection_active": False,
+            "analyzer_pressure_kpa": None,
+            "analyzer_pressure_label": "",
+            "failure_reason": "",
+        }
+        if not decision["allow_flag"]:
+            return decision
+
+        if not guard_enabled:
+            decision["startup_precheck_source_stage_skipped_reason"] = (
+                "StartupPressurePrecheckSourceStageGuardRequired"
+            )
+            decision["failure_reason"] = "StartupPressurePrecheckSourceStageGuardRequired"
+            return decision
+
+        mechanical_confirmed = self._mechanical_pressure_protection_confirmed()
+        decision["mechanical_pressure_protection_confirmed"] = bool(mechanical_confirmed)
+        if mechanical_confirmed:
+            decision.update(
+                {
+                    "include_source_stage": True,
+                    "startup_precheck_scope": "full_source_authorized",
+                    "startup_precheck_source_stage_skipped": False,
+                    "startup_precheck_source_stage_skipped_reason": "",
+                }
+            )
+            return decision
+
+        decision["analyzer_pressure_required"] = True
+        analyzer_pressure_kpa, analyzer_label = self._read_route_guard_analyzer_pressure_kpa()
+        analyzer_available = analyzer_pressure_kpa is not None
+        decision["analyzer_pressure_available"] = analyzer_available
+        decision["analyzer_pressure_protection_active"] = analyzer_available
+        decision["analyzer_pressure_kpa"] = analyzer_pressure_kpa
+        decision["analyzer_pressure_label"] = str(analyzer_label or "")
+        if not analyzer_available:
+            decision["startup_precheck_source_stage_skipped_reason"] = (
+                "AnalyzerPressureRequiredButUnavailable"
+            )
+            decision["failure_reason"] = "AnalyzerPressureRequiredButUnavailable"
+            return decision
+
+        decision.update(
+            {
+                "include_source_stage": True,
+                "startup_precheck_scope": "full_source_authorized",
+                "startup_precheck_source_stage_skipped": False,
+                "startup_precheck_source_stage_skipped_reason": "",
+            }
+        )
+        return decision
+
     def _startup_pressure_precheck(self, points: List[CalibrationPoint]) -> None:
         cfg = self.cfg.get("workflow", {}).get("startup_pressure_precheck", {})
         if not isinstance(cfg, dict) or not cfg.get("enabled", False):
@@ -16756,27 +16844,59 @@ class CalibrationRunner:
 
         route_soak_s = max(0.0, float(cfg.get("route_soak_s", 3.0)))
         try:
+            startup_scope = self._startup_pressure_precheck_source_stage_decision(
+                point,
+                route=route,
+                cfg=cfg,
+                guard_enabled=guard_enabled,
+            )
+            self._set_point_runtime_fields(
+                point,
+                phase=route,
+                startup_precheck_scope=startup_scope["startup_precheck_scope"],
+                startup_precheck_source_stage_skipped=startup_scope["startup_precheck_source_stage_skipped"],
+                startup_precheck_source_stage_skipped_reason=startup_scope[
+                    "startup_precheck_source_stage_skipped_reason"
+                ],
+                source_stage_safe_required_for_startup_precheck=startup_scope[
+                    "source_stage_safe_required_for_startup_precheck"
+                ],
+                source_stage_safe_required_for_final_stage_only=startup_scope[
+                    "source_stage_safe_required_for_final_stage_only"
+                ],
+                analyzer_pressure_required=startup_scope["analyzer_pressure_required"],
+                analyzer_pressure_available=startup_scope["analyzer_pressure_available"],
+                analyzer_pressure_protection_active=startup_scope["analyzer_pressure_protection_active"],
+                mechanical_pressure_protection_confirmed=startup_scope[
+                    "mechanical_pressure_protection_confirmed"
+                ],
+            )
+            if startup_scope["startup_precheck_source_stage_skipped"]:
+                self.log(
+                    "Startup pressure precheck source/final stage skipped: "
+                    f"{startup_scope['startup_precheck_source_stage_skipped_reason']}"
+                )
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=route,
+                    point_phase=route,
+                    trace_stage="startup_pressure_precheck_source_stage_skipped",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                    refresh_pace_state=False,
+                    note=str(startup_scope["startup_precheck_source_stage_skipped_reason"] or ""),
+                )
+            if startup_scope["failure_reason"]:
+                raise RuntimeError(str(startup_scope["failure_reason"]))
             if route == "h2o":
-                allow_h2o_final_stage_open = bool(cfg.get("allow_h2o_final_stage_open", False))
                 self._sync_h2o_source_stage_runtime_fields(point, phase="h2o")
                 guarded_h2o_open_valves = self._h2o_open_valves(
                     point,
-                    include_final_stage=allow_h2o_final_stage_open or self._h2o_source_stage_safe(point),
+                    include_final_stage=bool(startup_scope["include_source_stage"]),
                 )
                 if guard_enabled:
                     self._apply_route_baseline_valves()
                     self._clear_sealed_no_vent_guard(point=point, phase="h2o", reason="startup pressure precheck H2O route open")
                     self._set_pressure_controller_vent(True, reason="startup pressure precheck H2O route open")
-                    if not allow_h2o_final_stage_open and not self._h2o_source_stage_safe(point):
-                        self._append_pressure_trace_row(
-                            point=point,
-                            route="h2o",
-                            point_phase="h2o",
-                            trace_stage="startup_pressure_precheck_h2o_final_stage_blocked",
-                            pressure_target_hpa=point.target_pressure_hpa,
-                            refresh_pace_state=False,
-                            note="H2OFinalStage10RequiresExplicitAllowFlag",
-                        )
                     if not self._open_route_with_pressure_guard(
                         point,
                         phase="h2o",
@@ -16788,39 +16908,26 @@ class CalibrationRunner:
                 else:
                     self._clear_sealed_no_vent_guard(point=point, phase="h2o", reason="startup pressure precheck H2O route open")
                     self._set_pressure_controller_vent(True, reason="startup pressure precheck H2O route open")
-                    self._set_h2o_path(True, point)
+                    self._apply_valve_states(guarded_h2o_open_valves)
             else:
                 self._sync_co2_source_stage_runtime_fields(point, phase="co2")
-                if guard_enabled and not self._co2_source_stage_safe(point):
-                    self.log("StartupPressurePrecheckDisabledUntilSourceStageSafe")
-                    self._set_point_runtime_fields(
-                        point,
-                        phase="co2",
-                        startup_pressure_precheck_disabled=True,
-                        startup_pressure_precheck_reason="StartupPressurePrecheckDisabledUntilSourceStageSafe",
-                    )
-                    self._append_pressure_trace_row(
-                        point=point,
-                        route="co2",
-                        point_phase="co2",
-                        trace_stage="startup_pressure_precheck_disabled",
-                        pressure_target_hpa=point.target_pressure_hpa,
-                        refresh_pace_state=False,
-                        note="StartupPressurePrecheckDisabledUntilSourceStageSafe",
-                    )
-                    return
+                guarded_co2_open_valves = self._co2_open_valves(
+                    point,
+                    include_total_valve=True,
+                    include_source_valve=bool(startup_scope["include_source_stage"]),
+                )
                 self._set_co2_route_baseline(reason="before startup pressure precheck")
                 if guard_enabled:
                     if not self._open_route_with_pressure_guard(
                         point,
                         phase="co2",
                         point_tag=self._co2_point_tag(point),
-                        open_valves=self._co2_open_valves(point, include_total_valve=True, include_source_valve=True),
+                        open_valves=guarded_co2_open_valves,
                         log_context="startup pressure precheck CO2 route open",
                     ):
                         raise RuntimeError("Startup pressure precheck could not guarded-open CO2 route")
                 else:
-                    self._set_valves_for_co2(point)
+                    self._apply_valve_states(guarded_co2_open_valves)
 
             if route_soak_s > 0:
                 self.log(

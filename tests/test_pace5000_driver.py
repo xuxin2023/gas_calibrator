@@ -1982,6 +1982,164 @@ def test_read_pressure_old_profile_uses_cached_in_limits_without_cont(monkeypatc
     assert ":SENS:PRES:CONT?" not in dev.ser.queries
 
 
+class _CacheInvalidationSerialDevice:
+    def __init__(self, *args, **kwargs):
+        self.queries = []
+        self.writes = []
+        self.output_state = 0
+        self.isolation_state = 1
+        self.vent_state = 0
+        self.output_mode = "ACT"
+        self.unit = "HPA"
+        self.range_name = "1600HPAG"
+        self.setpoint = 1000.0
+        self.inl_responses = [(1000.5, 1)]
+
+    def open(self):
+        return None
+
+    def close(self):
+        return None
+
+    def write(self, data: str):
+        text = data.strip()
+        upper = text.upper()
+        self.writes.append(text)
+        if upper.startswith(":OUTP:STAT "):
+            self.output_state = int(float(text.split()[-1]))
+        elif upper.startswith(":OUTP:ISOL:STAT "):
+            self.isolation_state = int(float(text.split()[-1]))
+        elif upper.startswith(":SOUR:PRES:LEV:IMM:AMPL:VENT "):
+            self.vent_state = int(float(text.split()[-1]))
+        elif upper.startswith(":OUTP:MODE "):
+            self.output_mode = text.split()[-1].upper()
+        elif upper.startswith(":UNIT:PRES "):
+            self.unit = text.split()[-1].upper()
+        elif upper.startswith(':SOUR:PRES:RANG "'):
+            self.range_name = text.split('"')[1]
+        elif upper.startswith(":SOUR:PRES ") and not upper.endswith("?"):
+            self.setpoint = float(text.split()[-1])
+
+    def query(self, data: str) -> str:
+        cmd = data.strip().upper()
+        self.queries.append(cmd)
+        if cmd == ":SYST:ERR?":
+            return ':SYST:ERR 0,"No error"'
+        if cmd == ":UNIT:PRES?":
+            return f":UNIT:PRES {self.unit}"
+        if cmd == ":OUTP:STAT?":
+            return f":OUTP:STAT {self.output_state}"
+        if cmd == ":OUTP:ISOL:STAT?":
+            return f":OUTP:ISOL:STAT {self.isolation_state}"
+        if cmd == ":OUTP:MODE?":
+            return f":OUTP:MODE {self.output_mode}"
+        if cmd == ":SOUR:PRES?":
+            return f":SOUR:PRES {self.setpoint}"
+        if cmd == ":SOUR:PRES:RANG?":
+            return f':SOUR:PRES:RANG "{self.range_name}"'
+        if cmd == ":INST:CAT:ALL?":
+            return ':INST:CAT:ALL "1600HPAG","BAROMETER"'
+        if cmd == ":SOUR:PRES:LEV:IMM:AMPL:VENT?":
+            return f":SOUR:PRES:LEV:IMM:AMPL:VENT {self.vent_state}"
+        if cmd == ":SENS:PRES?":
+            return ""
+        if cmd == ":MEAS:PRES?":
+            return ""
+        if cmd == ":SENS:PRES:INL?":
+            pressure, flag = self.inl_responses.pop(0) if self.inl_responses else (self.setpoint, 1)
+            return f":SENS:PRES:INL {pressure}, {flag}"
+        return ""
+
+    def readline(self) -> str:
+        return ""
+
+
+def test_set_pressure_invalidates_in_limits_cache(monkeypatch) -> None:
+    monkeypatch.setattr(pace5000, "SerialDevice", _CacheInvalidationSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    dev.ser.inl_responses = [(1000.5, 1), (500.0, 1)]
+    assert dev.get_in_limits() == (1000.5, 1)
+
+    dev.set_setpoint(500.0)
+
+    assert dev._last_in_limits_pressure_hpa is None
+    assert dev._last_in_limits_flag is None
+    assert dev._last_in_limits_invalidation_reason == "set_setpoint:500.0"
+    assert dev.read_pressure() == 500.0
+    assert dev.ser.queries.count(":SENS:PRES:INL?") == 2
+
+
+def test_output_state_change_invalidates_in_limits_cache(monkeypatch) -> None:
+    monkeypatch.setattr(pace5000, "SerialDevice", _CacheInvalidationSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    assert dev.get_in_limits() == (1000.5, 1)
+
+    dev.set_output(True)
+
+    assert dev._last_in_limits_pressure_hpa is None
+    assert dev._last_in_limits_invalidation_reason == "set_output:1"
+    assert dev._in_limits_cache_is_current() is False
+
+
+def test_vent_command_invalidates_in_limits_cache(monkeypatch) -> None:
+    monkeypatch.setattr(pace5000, "SerialDevice", _CacheInvalidationSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    assert dev.get_in_limits() == (1000.5, 1)
+
+    dev.vent(True)
+
+    assert dev._last_in_limits_pressure_hpa is None
+    assert dev._last_in_limits_invalidation_reason == "vent:1"
+    assert dev._in_limits_cache_is_current() is False
+
+
+def test_pressure_read_after_setpoint_does_not_use_stale_in_limits(monkeypatch) -> None:
+    monkeypatch.setattr(pace5000, "SerialDevice", _CacheInvalidationSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    dev.ser.inl_responses = [(1000.5, 1), (499.2, 0)]
+    assert dev.get_in_limits() == (1000.5, 1)
+
+    dev.set_setpoint(500.0)
+
+    assert dev.read_pressure() == 499.2
+    assert dev.ser.queries.count(":SENS:PRES:INL?") == 2
+
+
+def test_in_limits_cache_is_not_reused_across_pressure_targets(monkeypatch) -> None:
+    monkeypatch.setattr(pace5000, "SerialDevice", _CacheInvalidationSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    dev.set_setpoint(1000.0)
+    dev.ser.inl_responses = [(1000.0, 1)]
+    assert dev.get_in_limits() == (1000.0, 1)
+
+    dev.set_setpoint(500.0)
+    dev.ser.inl_responses = [(495.0, 0)]
+
+    assert dev.get_in_limits() == (495.0, 0)
+    assert dev._last_in_limits_flag == 0
+    assert dev._last_in_limits_setpoint_hpa == 500.0
+
+
+def test_in_limits_cache_invalidation_records_reason(monkeypatch) -> None:
+    monkeypatch.setattr(pace5000, "SerialDevice", _CacheInvalidationSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    assert dev.get_in_limits() == (1000.5, 1)
+    dev.vent(False)
+    dev.ser.inl_responses = [(1000.0, 1)]
+
+    status = dev.status()
+
+    assert status["in_limits_cache_invalidation_reason"] == "vent:0"
+    assert status["in_limits_cache_generation"] >= 1
+    assert status["in_limits_cache_invalidation_count"] >= 1
+
+
 def test_read_pressure_old_profile_falls_back_to_sens_pres_without_cont(monkeypatch) -> None:
     class FakeSerialDevice:
         def __init__(self, *args, **kwargs):

@@ -65,6 +65,12 @@ class Pace5000:
         self._last_in_limits_pressure_hpa: Optional[float] = None
         self._last_in_limits_flag: Optional[int] = None
         self._last_in_limits_monotonic: Optional[float] = None
+        self._last_in_limits_generation: Optional[int] = None
+        self._last_in_limits_setpoint_hpa: Optional[float] = None
+        self._last_in_limits_invalidation_reason: str = ""
+        self._last_in_limits_invalidation_count = 0
+        self._pressure_control_generation = 0
+        self._last_commanded_setpoint_hpa: Optional[float] = None
         self.line_ending = self._normalize_line_ending(line_ending or "LF")
         self.query_line_endings = self._normalize_line_endings(query_line_endings)
         self.pressure_queries = self._normalize_pressure_queries(pressure_queries)
@@ -404,6 +410,7 @@ class Pace5000:
         if current == target:
             return current
         self.send_and_check_error(f":UNIT:PRES {target}")
+        self._invalidate_in_limits_cache(f"set_unit:{target}")
         readback = self.get_pressure_unit()
         if readback != target:
             raise RuntimeError(f"UNIT_READBACK_MISMATCH(expected={target},actual={readback})")
@@ -421,6 +428,7 @@ class Pace5000:
         if current == target:
             return
         self.send_and_check_error(f":OUTP:STAT {target}")
+        self._invalidate_in_limits_cache(f"set_output:{target}")
 
     def set_output_enabled(self, enabled: bool) -> None:
         self.set_output(bool(enabled))
@@ -432,6 +440,7 @@ class Pace5000:
         except Exception:
             pass
         self.send_and_check_error(":OUTP:MODE ACT")
+        self._invalidate_in_limits_cache("set_output_mode:ACT")
 
     def set_output_mode_passive(self) -> None:
         try:
@@ -440,6 +449,7 @@ class Pace5000:
         except Exception:
             pass
         self.send_and_check_error(":OUTP:MODE PASS")
+        self._invalidate_in_limits_cache("set_output_mode:PASS")
 
     def get_output_mode(self) -> str:
         resp = self.query(":OUTP:MODE?")
@@ -538,6 +548,7 @@ class Pace5000:
         if current == target:
             return
         self.send_and_check_error(f":OUTP:ISOL:STAT {target}")
+        self._invalidate_in_limits_cache(f"set_isolation_open:{target}")
 
     def set_output_isolated(self, isolated: bool) -> None:
         # SCPI uses 1=open path, 0=closed/isolated.
@@ -572,12 +583,14 @@ class Pace5000:
         target = float(value_hpa)
         command = f":SOUR:PRES {target}"
         self.send_and_check_error(command)
+        self._invalidate_in_limits_cache(f"set_setpoint:{target}")
         readback = self.get_setpoint()
         if readback is None or abs(float(readback) - target) > max(0.05, abs(target) * 1e-6):
             raise RuntimeError(
                 "SETPOINT_READBACK_MISMATCH("
                 f"expected={target},actual={readback})"
             )
+        self._last_commanded_setpoint_hpa = target
 
     def get_setpoint(self) -> Optional[float]:
         for command in (":SOUR:PRES?", ":SOUR:PRES:LEV:IMM:AMPL?"):
@@ -603,12 +616,37 @@ class Pace5000:
         return False
 
     def _recent_in_limits_pressure(self, *, max_age_s: float = 30.0) -> Optional[float]:
-        if self._last_in_limits_pressure_hpa is None or self._last_in_limits_monotonic is None:
-            return None
-        age_s = time.monotonic() - self._last_in_limits_monotonic
-        if age_s > max(0.1, float(max_age_s)):
+        if not self._in_limits_cache_is_current(max_age_s=max_age_s):
             return None
         return float(self._last_in_limits_pressure_hpa)
+
+    def _in_limits_cache_is_current(self, *, max_age_s: float = 30.0) -> bool:
+        if self._last_in_limits_pressure_hpa is None or self._last_in_limits_monotonic is None:
+            return False
+        if self._last_in_limits_generation != self._pressure_control_generation:
+            return False
+        current_setpoint = self._last_commanded_setpoint_hpa
+        cached_setpoint = self._last_in_limits_setpoint_hpa
+        if current_setpoint is None and cached_setpoint is None:
+            pass
+        elif current_setpoint is None or cached_setpoint is None:
+            return False
+        elif abs(float(current_setpoint) - float(cached_setpoint)) > max(0.05, abs(float(current_setpoint)) * 1e-6):
+            return False
+        age_s = time.monotonic() - self._last_in_limits_monotonic
+        if age_s > max(0.1, float(max_age_s)):
+            return False
+        return True
+
+    def _invalidate_in_limits_cache(self, reason: str) -> None:
+        self._pressure_control_generation += 1
+        self._last_in_limits_pressure_hpa = None
+        self._last_in_limits_flag = None
+        self._last_in_limits_monotonic = None
+        self._last_in_limits_generation = None
+        self._last_in_limits_setpoint_hpa = None
+        self._last_in_limits_invalidation_reason = str(reason or "").strip() or "unspecified"
+        self._last_in_limits_invalidation_count += 1
 
     def _pressure_read_candidates(self) -> List[str]:
         preferred = [":SENS:PRES?", ":MEAS:PRES?"]
@@ -676,6 +714,7 @@ class Pace5000:
     def vent(self, on: bool = True) -> None:
         # Per SCPI manual, vent command requires explicit 1(start)/0(abort-close).
         self.send_and_check_error(f":SOUR:PRES:LEV:IMM:AMPL:VENT {1 if on else 0}")
+        self._invalidate_in_limits_cache(f"vent:{1 if on else 0}")
 
     def get_vent_status(self) -> int:
         resp = self.query(":SOUR:PRES:LEV:IMM:AMPL:VENT?")
@@ -1230,6 +1269,7 @@ class Pace5000:
         if self._normalize_exact_range_token(current) == self._normalize_exact_range_token(match):
             return current
         self.send_and_check_error(f':SOUR:PRES:RANG "{match}"')
+        self._invalidate_in_limits_cache(f"select_control_range:{match}")
         readback = self.get_control_range()
         if self._normalize_exact_range_token(readback) != self._normalize_exact_range_token(match):
             raise RuntimeError(
@@ -1900,12 +1940,14 @@ class Pace5000:
             current_pct = None
         if current_pct is None or abs(float(current_pct) - target_pct) > 1e-9:
             self.send_and_check_error(f":SOUR:PRES:INL {target_pct}")
+            self._invalidate_in_limits_cache(f"set_in_limits_pct:{target_pct}")
         try:
             current_time_s = self.get_in_limits_time_setting_s()
         except Exception:
             current_time_s = None
         if current_time_s is None or abs(float(current_time_s) - target_time_s) > 1e-9:
             self.send_and_check_error(f":SOUR:PRES:INL:TIME {target_time_s}")
+            self._invalidate_in_limits_cache(f"set_in_limits_time:{target_time_s}")
 
     def get_in_limits(self) -> Tuple[float, int]:
         resp = self.query(":SENS:PRES:INL?")
@@ -1917,6 +1959,8 @@ class Pace5000:
         self._last_in_limits_pressure_hpa = pressure
         self._last_in_limits_flag = flag
         self._last_in_limits_monotonic = time.monotonic()
+        self._last_in_limits_generation = self._pressure_control_generation
+        self._last_in_limits_setpoint_hpa = self._last_commanded_setpoint_hpa
         return pressure, flag
 
     def set_point_and_wait_stable(
@@ -2126,6 +2170,10 @@ class Pace5000:
             "output_state": self.get_output_state(),
             "isolation_state": self.get_isolation_state(),
             "vent_status": self.get_vent_status(),
+            "in_limits_cache_generation": self._pressure_control_generation,
+            "in_limits_cache_valid": self._in_limits_cache_is_current(),
+            "in_limits_cache_invalidation_reason": self._last_in_limits_invalidation_reason,
+            "in_limits_cache_invalidation_count": self._last_in_limits_invalidation_count,
         }
         try:
             status["output_mode"] = self.get_output_mode()
