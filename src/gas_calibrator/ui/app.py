@@ -5911,6 +5911,22 @@ class App:
         return None
 
     @staticmethod
+    def _pressure_setpoint_command_prefixes(prefix: str) -> Tuple[str, ...]:
+        normalized = str(prefix or "").strip().upper()
+        if normalized in {":SOUR:PRES", ":SOUR:PRES:LEV:IMM:AMPL"}:
+            return (":SOUR:PRES", ":SOUR:PRES:LEV:IMM:AMPL")
+        return (str(prefix or "").strip(),)
+
+    @staticmethod
+    def _parse_pressure_setpoint_command(command: str, prefix: str = ":SOUR:PRES") -> Tuple[float | None, str | None]:
+        text = str(command or "").strip()
+        for candidate in App._pressure_setpoint_command_prefixes(prefix):
+            m = re.match(re.escape(candidate) + r"\s*(-?\d+(?:\.\d+)?)$", text)
+            if m:
+                return float(m.group(1)), candidate
+        return None, None
+
+    @staticmethod
     def _parse_last_numeric_command(rows: List[Dict[str, str]], port: str, prefix: str) -> float | None:
         for row in reversed(rows):
             if str(row.get("port", "")).strip() != port:
@@ -5918,9 +5934,9 @@ class App:
             if str(row.get("direction", "")).strip().upper() != "TX":
                 continue
             command = str(row.get("command", "") or "").strip()
-            m = re.match(re.escape(prefix) + r"\s*(-?\d+(?:\.\d+)?)", command)
-            if m:
-                return float(m.group(1))
+            value, _matched_prefix = App._parse_pressure_setpoint_command(command, prefix)
+            if value is not None:
+                return value
         return None
 
     @staticmethod
@@ -5933,10 +5949,10 @@ class App:
             if str(row.get("direction", "")).strip().upper() != "TX":
                 continue
             command = str(row.get("command", "") or "").strip()
-            m = re.match(r":SOUR:PRES:LEV:IMM:AMPL\s+(-?\d+(?:\.\d+)?)$", command)
-            if not m:
+            value, _matched_prefix = App._parse_pressure_setpoint_command(command)
+            if value is None:
                 continue
-            target = int(round(float(m.group(1))))
+            target = int(round(float(value)))
             if last_target is None:
                 last_target = target
                 total_count = 1
@@ -6693,15 +6709,15 @@ class App:
                 return True
             if port != "COM31" or direction != "TX":
                 return False
+            pressure_value, _matched_prefix = App._parse_pressure_setpoint_command(command)
             return any(
                 token in command
                 for token in (
                     ":OUTP 0",
                     ":SOUR:PRES:LEV:IMM:AMPL:VENT 1",
-                    ":SOUR:PRES:LEV:IMM:AMPL ",
                     ":OUTP:MODE",
                 )
-            )
+            ) or pressure_value is not None
 
         latest_sample_index: Optional[int] = None
         for idx in range(len(rows) - 1, -1, -1):

@@ -15,7 +15,6 @@ from ..logging_utils import RunLogger
 
 
 DEFAULT_COMMANDS: Sequence[str] = (
-    "*CLS",
     "*IDN?",
     ":SYST:VERS?",
     ":INST:MOD?",
@@ -76,6 +75,7 @@ def run_probe(
     config_path: str,
     output_dir: str,
     commands: Sequence[str] = DEFAULT_COMMANDS,
+    clear_before_probe: bool = False,
 ) -> Dict[str, Any]:
     cfg = load_config(config_path)
     pcfg = dict(cfg.get("devices", {}).get("pressure_controller", {}) or {})
@@ -90,9 +90,12 @@ def run_probe(
         io_logger=logger,
     )
     rows: List[Dict[str, Any]] = []
+    probe_commands = list(commands)
+    if clear_before_probe:
+        probe_commands = ["*CLS", *probe_commands]
     try:
         pace.open()
-        rows = pace.probe_identity(commands)
+        rows = pace.probe_identity(probe_commands)
     finally:
         try:
             pace.close()
@@ -120,7 +123,8 @@ def run_probe(
         "csv_path": str(csv_path),
         "json_path": str(json_path),
         "profile": profile,
-        "commands": list(commands),
+        "commands": list(probe_commands),
+        "state_changing_clear_executed": bool(clear_before_probe),
         "rows": rows,
     }
     json_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -131,6 +135,7 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Read-only PACE identity probe")
     parser.add_argument("--config", default="configs/default_config.json")
     parser.add_argument("--output-dir", default="audit/real_pace_controller_acceptance")
+    parser.add_argument("--clear-before-probe", action="store_true")
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -139,6 +144,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     result = run_probe(
         config_path=str(args.config),
         output_dir=str(args.output_dir),
+        clear_before_probe=bool(args.clear_before_probe),
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0

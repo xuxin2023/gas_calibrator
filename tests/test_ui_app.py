@@ -3256,6 +3256,60 @@ def test_parse_pressure_reapply_info_counts_latest_block() -> None:
     assert reapply_count == 2
 
 
+def test_parse_pressure_reapply_info_accepts_short_sour_pres() -> None:
+    rows = [
+        {"port": "COM31", "direction": "TX", "command": ":SOUR:PRES 1100.0"},
+        {"port": "COM31", "direction": "TX", "command": ":SOUR:PRES 1000.0"},
+        {"port": "COM31", "direction": "TX", "command": ":SOUR:PRES 1000.0"},
+    ]
+
+    target, reapply_count = app_module.App._parse_pressure_reapply_info(rows)
+
+    assert target == 1000
+    assert reapply_count == 1
+
+
+def test_parse_pressure_reapply_info_accepts_legacy_lev_imm_ampl() -> None:
+    rows = [
+        {"port": "COM31", "direction": "TX", "command": ":SOUR:PRES:LEV:IMM:AMPL 1100.0"},
+        {"port": "COM31", "direction": "TX", "command": ":SOUR:PRES:LEV:IMM:AMPL 1000.0"},
+        {"port": "COM31", "direction": "TX", "command": ":SOUR:PRES:LEV:IMM:AMPL 1000.0"},
+    ]
+
+    target, reapply_count = app_module.App._parse_pressure_reapply_info(rows)
+
+    assert target == 1000
+    assert reapply_count == 1
+
+
+def test_parse_last_numeric_command_accepts_short_sour_pres() -> None:
+    rows = [
+        {"port": "COM31", "direction": "TX", "command": ":SOUR:PRES 900.0"},
+    ]
+
+    assert app_module.App._parse_last_numeric_command(rows, "COM31", ":SOUR:PRES:LEV:IMM:AMPL") == 900.0
+
+
+def test_parse_last_numeric_command_accepts_legacy_lev_imm_ampl() -> None:
+    rows = [
+        {"port": "COM31", "direction": "TX", "command": ":SOUR:PRES:LEV:IMM:AMPL 900.0"},
+    ]
+
+    assert app_module.App._parse_last_numeric_command(rows, "COM31", ":SOUR:PRES") == 900.0
+
+
+def test_pressure_setpoint_hold_telemetry_preserved_for_both_tokens() -> None:
+    short_events = app_module.App._extract_key_events_from_io(
+        [{"port": "COM31", "direction": "TX", "command": ":SOUR:PRES 900.0"}]
+    )
+    legacy_events = app_module.App._extract_key_events_from_io(
+        [{"port": "COM31", "direction": "TX", "command": ":SOUR:PRES:LEV:IMM:AMPL 900.0"}]
+    )
+
+    assert "压力控制目标：900 hPa" in short_events
+    assert "压力控制目标：900 hPa" in legacy_events
+
+
 def test_find_latest_active_run_dir_supports_rerun_prefix(monkeypatch, tmp_path) -> None:
     old_run = tmp_path / "run_old"
     old_run.mkdir()

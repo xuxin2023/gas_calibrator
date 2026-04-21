@@ -40,17 +40,97 @@ def _parse_pace_status_value(response: Any) -> Optional[int]:
     return _as_int(token)
 
 
-def _pace_vent_status_text(status: Any) -> str:
-    value = _as_int(status)
-    if value == 0:
-        return "idle"
-    if value == 1:
-        return "in_progress"
-    if value == 2:
-        return "completed"
-    if value == 3:
-        return "trapped_pressure"
-    return "unknown"
+PACE_VENT_ON_COMMAND = ":SOUR:PRES:LEV:IMM:AMPL:VENT 1"
+
+
+def _pace_profile(pace: Any) -> str:
+    detector = getattr(pace, "detect_profile", None)
+    if not callable(detector):
+        detector = getattr(pace, "detectProfile", None)
+    if callable(detector):
+        try:
+            return str(detector() or "").strip().upper()
+        except Exception:
+            return ""
+    return ""
+
+
+def _pace_vent_status_snapshot(pace: Any, response: Any) -> Dict[str, Any]:
+    raw = str(response or "").strip()
+    parser = getattr(pace, "parse_vent_status_value", None)
+    if callable(parser):
+        try:
+            value = parser(raw)
+        except Exception:
+            value = _parse_pace_status_value(raw)
+    else:
+        value = _parse_pace_status_value(raw)
+
+    describe = getattr(pace, "describe_vent_status", None)
+    if callable(describe):
+        try:
+            summary = dict(describe(value))
+        except Exception:
+            summary = {}
+    else:
+        summary = {}
+
+    profile = str(summary.get("profile") or _pace_profile(pace) or "").strip().upper()
+    classification = str(summary.get("classification") or "").strip().lower()
+    text = str(summary.get("text") or "").strip().lower()
+
+    if not classification:
+        classifier = getattr(pace, "classify_vent_status", None)
+        if callable(classifier):
+            try:
+                classification = str(classifier(value) or "").strip().lower()
+            except Exception:
+                classification = ""
+
+    if not text:
+        text_getter = getattr(pace, "vent_status_text", None)
+        if callable(text_getter):
+            try:
+                text = str(text_getter(value) or "").strip().lower()
+            except Exception:
+                text = ""
+
+    if not classification:
+        if value == 0:
+            classification = "idle"
+        elif value == 1:
+            classification = "in_progress"
+        elif value == 2 and profile == "OLD_PACE5000":
+            classification = "completed_latched"
+        elif value == 2 and profile == "PACE5000E":
+            classification = "timed_out"
+        elif value == 3 and profile == "PACE5000E":
+            classification = "trapped_pressure"
+        elif value == 4 and profile == "PACE5000E":
+            classification = "aborted"
+        else:
+            classification = "unknown"
+
+    if not text:
+        if classification == "completed_latched":
+            text = "completed"
+        elif classification == "timed_out":
+            text = "timeout"
+        else:
+            text = classification
+
+    return {
+        "value": value,
+        "profile": profile,
+        "classification": classification,
+        "text": text,
+    }
+
+
+def _record_pace_vent_command(result: Dict[str, Any], *, sent: bool, reason: str = "") -> None:
+    result["pace_vent_command_sent"] = PACE_VENT_ON_COMMAND if sent else None
+    result["pace_vent_command_suppressed"] = bool((not sent) and reason)
+    result["pace_vent_command_suppressed_reason"] = str(reason or "")
 
 
 def _safe_stop_cfg(cfg: Dict[str, Any]) -> Dict[str, Any]:
@@ -252,6 +332,8 @@ def perform_safe_stop(
     pace = devices.get("pace")
     if pace:
         result["pace_safe_stop_mode"] = str(pace_mode or "default")
+        result["pace_profile"] = _pace_profile(pace)
+        _record_pace_vent_command(result, sent=False)
         use_diagnostic_safe_vent = False
         if str(pace_mode or "").strip().lower() == "diagnostic_safe_vent":
             helper = getattr(pace, "enter_legacy_diagnostic_safe_vent_mode", None)
@@ -269,6 +351,16 @@ def perform_safe_stop(
                 result["pace_diagnostic_safe_vent"] = summary
                 if bool(summary.get("legacy_identity")):
                     use_diagnostic_safe_vent = True
+                    if summary.get("profile"):
+                        result["pace_profile"] = str(summary.get("profile") or result["pace_profile"] or "").strip().upper()
+                    if bool(summary.get("vent_command_sent")):
+                        _record_pace_vent_command(result, sent=True)
+                    else:
+                        _record_pace_vent_command(
+                            result,
+                            sent=False,
+                            reason=str(summary.get("reason") or "diagnostic_safe_vent_blocked"),
+                        )
                     if bool(summary.get("ok")):
                         log_fn(f"pace diagnostic-safe vent ok: {summary.get('reason')}")
                     else:
@@ -278,6 +370,21 @@ def perform_safe_stop(
             if callable(safe_stop_helper):
                 try:
                     result["pace_adapter_safe_stop"] = dict(safe_stop_helper())
+                    if result["pace_adapter_safe_stop"].get("profile"):
+                        result["pace_profile"] = str(
+                            result["pace_adapter_safe_stop"].get("profile") or result["pace_profile"] or ""
+                        ).strip().upper()
+                    if bool(result["pace_adapter_safe_stop"].get("vent_command_sent")):
+                        _record_pace_vent_command(result, sent=True)
+                    elif "vent_command_sent" in result["pace_adapter_safe_stop"]:
+                        _record_pace_vent_command(
+                            result,
+                            sent=False,
+                            reason=str(
+                                result["pace_adapter_safe_stop"].get("reason")
+                                or "adapter_safe_stop_did_not_send_vent"
+                            ),
+                        )
                     log_fn(f"pace adapter safe_stop ok: {result['pace_adapter_safe_stop']}")
                 except Exception as exc:
                     log_fn(f"pace adapter safe_stop failed: {exc}")
@@ -293,6 +400,7 @@ def perform_safe_stop(
                         if callable(iso):
                             iso(True)
                         pace.vent(True)
+                        _record_pace_vent_command(result, sent=True)
                         log_fn("pace fallback atmosphere sequence ok")
             except Exception as exc:
                 log_fn(f"pace atmosphere sequence failed: {exc}")
@@ -303,15 +411,18 @@ def perform_safe_stop(
             log_fn(f"pace read failed: {exc}")
         try:
             vent_query_raw = pace.query(":SOUR:PRES:LEV:IMM:AMPL:VENT?").strip()
-            vent_status = _parse_pace_status_value(vent_query_raw)
-            result["pace_vent_command_sent"] = ":SOUR:PRES:LEV:IMM:AMPL:VENT 1"
+            vent_summary = _pace_vent_status_snapshot(pace, vent_query_raw)
             result["pace_vent_status_query_raw"] = vent_query_raw
-            result["pace_vent_status_returned"] = vent_status
-            result["pace_vent_status_text"] = _pace_vent_status_text(vent_status)
+            result["pace_vent_status_returned"] = vent_summary.get("value")
+            result["pace_vent_status_text"] = str(vent_summary.get("text") or "unknown")
+            result["pace_vent_status_classification"] = str(vent_summary.get("classification") or "unknown")
+            result["pace_profile"] = str(vent_summary.get("profile") or result.get("pace_profile") or "").strip().upper()
             log_fn(
                 "pace_vent status="
                 f"{result['pace_vent_status_returned']} "
+                f"classification={result['pace_vent_status_classification']} "
                 f"text={result['pace_vent_status_text']} "
+                f"profile={result['pace_profile']} "
                 f"raw={result['pace_vent_status_query_raw']}"
             )
         except Exception as exc:

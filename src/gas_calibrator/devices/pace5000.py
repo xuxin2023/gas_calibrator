@@ -658,6 +658,10 @@ class Pace5000:
     def get_vent_status_query(self) -> int:
         return self.get_vent_status()
 
+    @classmethod
+    def parse_vent_status_value(cls, response: Any) -> Optional[int]:
+        return cls._parse_first_int(str(response))
+
     @staticmethod
     def _looks_like_legacy_vent_status_identity(identity: str) -> bool:
         text = str(identity or "").strip().upper()
@@ -752,6 +756,46 @@ class Pace5000:
             self.VENT_STATUS_IDLE,
             self.VENT_STATUS_IN_PROGRESS,
             self.VENT_STATUS_COMPLETED,
+        }
+
+    def classify_vent_status(self, status: Any) -> str:
+        value = self.parse_vent_status_value(status)
+        if value is None:
+            return "unknown"
+        if self.vent_status_is_idle(value):
+            return "idle"
+        if self.vent_status_is_in_progress(value):
+            return "in_progress"
+        if self.vent_status_is_completed_latched(value):
+            return "completed_latched"
+        if self.vent_status_is_timed_out(value):
+            return "timed_out"
+        if self.vent_status_is_trapped_pressure(value):
+            return "trapped_pressure"
+        if self.vent_status_is_aborted(value):
+            return "aborted"
+        if self.vent_status_is_unexpected_legacy_watchlist(value):
+            return "unexpected_legacy_watchlist"
+        return "unknown"
+
+    def vent_status_text(self, status: Any) -> str:
+        classification = self.classify_vent_status(status)
+        if classification == "completed_latched":
+            return "completed"
+        if classification == "timed_out":
+            return "timeout"
+        if classification == "unexpected_legacy_watchlist":
+            value = self.parse_vent_status_value(status)
+            return f"watchlist_status_{value}" if value is not None else "watchlist"
+        return classification
+
+    def describe_vent_status(self, status: Any) -> dict[str, Any]:
+        value = self.parse_vent_status_value(status)
+        return {
+            "value": value,
+            "classification": self.classify_vent_status(value),
+            "text": self.vent_status_text(value),
+            "profile": self.detect_profile(),
         }
 
     def detect_profile(self, *, refresh: bool = False) -> str:
@@ -1976,6 +2020,7 @@ class Pace5000:
             "output_state": self.get_output_state(),
             "isolation_state": self.get_isolation_state(),
             "vent_status": vent_status,
+            "vent_command_sent": bool(vent_on),
             "system_error": self.get_system_error(),
         }
 
