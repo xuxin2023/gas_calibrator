@@ -1289,7 +1289,7 @@ def test_exit_atmosphere_mode_legacy_override_allows_explicit_auto_abort(monkeyp
 def test_diagnostic_status_collects_best_effort_aux_fields(monkeypatch) -> None:
     class FakeSerialDevice:
         def __init__(self, *args, **kwargs):
-            pass
+            self.queries = []
 
         def open(self):
             return None
@@ -1302,6 +1302,7 @@ def test_diagnostic_status_collects_best_effort_aux_fields(monkeypatch) -> None:
 
         def query(self, data: str) -> str:
             cmd = data.strip().upper()
+            self.queries.append(cmd)
             mapping = {
                 ":SENS:PRES:INL?": ":SENS:PRES:INL 1000.5, 1",
                 ":OUTP:STAT?": ":OUTP:STAT 0",
@@ -1352,7 +1353,8 @@ def test_diagnostic_status_collects_best_effort_aux_fields(monkeypatch) -> None:
     assert status["effort"] == 0.02
     assert status["comp1"] == 0.18
     assert status["comp2"] == -0.01
-    assert status["control_pressure_hpa"] == 1000.7
+    assert status["control_pressure_hpa"] == 1000.5
+    assert ":SENS:PRES:CONT?" not in dev.ser.queries
     assert status["barometric_pressure_hpa"] == 1013.2
     assert status["in_limits_pressure_hpa"] == 1000.5
     assert status["in_limits_state"] == 1
@@ -1610,6 +1612,289 @@ def test_detect_profile_pace5000e_from_model(monkeypatch) -> None:
         pace5000.Pace5000.VENT_STATUS_IDLE,
         pace5000.Pace5000.VENT_STATUS_ABORTED,
     ]
+
+
+def test_detect_profile_retries_after_initial_unknown_then_old_pace5000(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.queries = []
+            self.responses = {
+                "*IDN?": ["", "GE Druck,Pace5000 User Interface,3213201,02.00.07"],
+                ":INST:MOD?": ["", ""],
+                ":SYST:ECHO?": ["", ""],
+            }
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.last_write = data
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            self.queries.append(cmd)
+            values = self.responses.get(cmd, [""])
+            if len(values) > 1:
+                return values.pop(0)
+            return values[0] if values else ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    assert dev.detectProfile() == pace5000.Pace5000.PROFILE_UNKNOWN
+    assert dev.detectProfile() == pace5000.Pace5000.PROFILE_OLD_PACE5000
+
+
+def test_detect_profile_retries_after_initial_unknown_then_pace5000e(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.queries = []
+            self.responses = {
+                "*IDN?": ["", "PACE5000E,Controller,123456,03.01.00"],
+                ":INST:MOD?": ["", "PACE5000E"],
+                ":SYST:ECHO?": ["", ""],
+            }
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.last_write = data
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            self.queries.append(cmd)
+            values = self.responses.get(cmd, [""])
+            if len(values) > 1:
+                return values.pop(0)
+            return values[0] if values else ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    assert dev.detectProfile() == pace5000.Pace5000.PROFILE_UNKNOWN
+    assert dev.detectProfile() == pace5000.Pace5000.PROFILE_PACE5000E
+
+
+def test_detect_profile_unknown_does_not_permanently_cache_unknown(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.queries = []
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.last_write = data
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            self.queries.append(cmd)
+            return ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    assert dev.detectProfile() == pace5000.Pace5000.PROFILE_UNKNOWN
+    assert dev.detectProfile() == pace5000.Pace5000.PROFILE_UNKNOWN
+    assert dev.ser.queries.count("*IDN?") == 2
+    assert dev.ser.queries.count(":INST:MOD?") == 2
+    assert dev.ser.queries.count(":SYST:ECHO?") == 2
+
+
+def test_detect_profile_confirmed_old_pace5000_is_cached(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.queries = []
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.last_write = data
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            self.queries.append(cmd)
+            if cmd == "*IDN?":
+                return "GE Druck,Pace5000 User Interface,3213201,02.00.07"
+            return ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    assert dev.detectProfile() == pace5000.Pace5000.PROFILE_OLD_PACE5000
+    assert dev.detectProfile() == pace5000.Pace5000.PROFILE_OLD_PACE5000
+    assert dev.ser.queries == ["*IDN?"]
+
+
+def test_detect_profile_confirmed_pace5000e_is_cached(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.queries = []
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.last_write = data
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            self.queries.append(cmd)
+            if cmd == "*IDN?":
+                return "PACE5000E,Controller,123456,03.01.00"
+            if cmd == ":INST:MOD?":
+                return "PACE5000E"
+            return ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    assert dev.detectProfile() == pace5000.Pace5000.PROFILE_PACE5000E
+    assert dev.detectProfile() == pace5000.Pace5000.PROFILE_PACE5000E
+    assert dev.ser.queries == ["*IDN?", ":INST:MOD?"]
+
+
+def test_detect_profile_refresh_forces_reprobe(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.queries = []
+            self.responses = {
+                "*IDN?": [
+                    "GE Druck,Pace5000 User Interface,3213201,02.00.07",
+                    "PACE5000E,Controller,123456,03.01.00",
+                ],
+                ":INST:MOD?": ["PACE5000E"],
+                ":SYST:ECHO?": ["", ""],
+            }
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.last_write = data
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            self.queries.append(cmd)
+            values = self.responses.get(cmd, [""])
+            if len(values) > 1:
+                return values.pop(0)
+            return values[0] if values else ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    assert dev.detectProfile() == pace5000.Pace5000.PROFILE_OLD_PACE5000
+    assert dev.detectProfile(refresh=True) == pace5000.Pace5000.PROFILE_PACE5000E
+    assert dev.ser.queries == ["*IDN?", "*IDN?", ":INST:MOD?"]
+
+
+def test_unknown_profile_keeps_sens_pres_cont_conservative(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.queries = []
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.last_write = data
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            self.queries.append(cmd)
+            return ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    assert dev.detectProfile() == pace5000.Pace5000.PROFILE_UNKNOWN
+    assert dev.supports_sens_pres_cont() is False
+    assert dev._supports_sens_pres_cont is None
+
+
+def test_vent_status_description_retries_unknown_profile(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.queries = []
+            self.responses = {
+                "*IDN?": ["", "GE Druck,Pace5000 User Interface,3213201,02.00.07"],
+                ":INST:MOD?": ["", ""],
+                ":SYST:ECHO?": ["", ""],
+            }
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.last_write = data
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            self.queries.append(cmd)
+            values = self.responses.get(cmd, [""])
+            if len(values) > 1:
+                return values.pop(0)
+            return values[0] if values else ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    description = dev.describe_vent_status(2)
+
+    assert description["profile"] == pace5000.Pace5000.PROFILE_OLD_PACE5000
+    assert description["classification"] == "completed_latched"
+    assert description["text"] == "completed"
 
 
 def test_old_profile_optional_probe_errors_are_drained_before_formal_write(monkeypatch) -> None:

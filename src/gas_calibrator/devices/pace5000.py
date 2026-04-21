@@ -594,9 +594,12 @@ class Pace5000:
     def supports_sens_pres_cont(self) -> bool:
         if self._supports_sens_pres_cont is not None:
             return bool(self._supports_sens_pres_cont)
-        if self._device_profile_probed:
-            self._supports_sens_pres_cont = self._normalize_profile(self._device_profile) != self.PROFILE_OLD_PACE5000
-            return bool(self._supports_sens_pres_cont)
+        profile = self._normalize_profile(self._device_profile)
+        if profile == self.PROFILE_PACE5000E:
+            self._supports_sens_pres_cont = True
+            return True
+        if profile == self.PROFILE_OLD_PACE5000:
+            self._supports_sens_pres_cont = False
         return False
 
     def _recent_in_limits_pressure(self, *, max_age_s: float = 30.0) -> Optional[float]:
@@ -743,6 +746,32 @@ class Pace5000:
     def get_instrument_version(self) -> str:
         return str(self._probe_instrument_version() or "")
 
+    def _reset_profile_probe_caches(self, *, clear_version: bool) -> None:
+        self._device_identity = None
+        self._device_identity_probed = False
+        self._device_model = None
+        self._device_model_probed = False
+        self._device_profile = None
+        self._device_profile_probed = False
+        self._legacy_vent_status_model = None
+        self._supports_sens_pres_cont = None
+        if clear_version:
+            self._instrument_version = None
+            self._instrument_version_probed = False
+
+    def _cache_detected_profile(self, profile: Any) -> str:
+        normalized = self._normalize_profile(profile)
+        self._device_profile = normalized
+        self._device_profile_probed = normalized != self.PROFILE_UNKNOWN
+        self._legacy_vent_status_model = normalized == self.PROFILE_OLD_PACE5000
+        if normalized == self.PROFILE_OLD_PACE5000:
+            self._supports_sens_pres_cont = False
+        elif normalized == self.PROFILE_PACE5000E:
+            self._supports_sens_pres_cont = True
+        else:
+            self._supports_sens_pres_cont = None
+        return normalized
+
     @staticmethod
     def _normalize_instrument_version_text(version_text: Any) -> str:
         text = str(version_text or "").strip()
@@ -817,40 +846,40 @@ class Pace5000:
 
     def describe_vent_status(self, status: Any) -> dict[str, Any]:
         value = self.parse_vent_status_value(status)
+        classification = self.classify_vent_status(value)
+        profile = self.detect_profile()
+        if classification == "unknown" and profile != self.PROFILE_UNKNOWN:
+            classification = self.classify_vent_status(value)
         return {
             "value": value,
-            "classification": self.classify_vent_status(value),
+            "classification": classification,
             "text": self.vent_status_text(value),
-            "profile": self.detect_profile(),
+            "profile": profile,
         }
 
     def detect_profile(self, *, refresh: bool = False) -> str:
-        if self._device_profile_probed and not refresh:
-            return self._normalize_profile(self._device_profile)
-
-        self._device_profile_probed = True
-        self._device_profile = self.PROFILE_UNKNOWN
+        cached_profile = self._normalize_profile(self._device_profile)
         if refresh:
-            self._device_identity_probed = False
-            self._instrument_version_probed = False
-            self._device_model_probed = False
+            self._reset_profile_probe_caches(clear_version=True)
+        elif self._device_profile_probed and cached_profile != self.PROFILE_UNKNOWN:
+            return cached_profile
+        elif cached_profile == self.PROFILE_UNKNOWN:
+            self._reset_profile_probe_caches(clear_version=False)
 
+        profile = self.PROFILE_UNKNOWN
         identity = self.get_device_identity()
         if identity and self._looks_like_legacy_vent_status_identity(identity):
-            self._device_profile = self.PROFILE_OLD_PACE5000
-            self._legacy_vent_status_model = True
-            self._supports_sens_pres_cont = False
-            return self._normalize_profile(self._device_profile)
+            return self._cache_detected_profile(self.PROFILE_OLD_PACE5000)
 
         model = self.get_device_model()
         model_payload = self._response_payload(model).strip().strip("\"'").upper()
         model_code, _model_message = self._parse_system_error(model)
         if model_payload == self.PROFILE_PACE5000E:
-            self._device_profile = self.PROFILE_PACE5000E
-        elif model_code == -113 and self._device_profile == self.PROFILE_UNKNOWN:
-            self._device_profile = self.PROFILE_OLD_PACE5000
+            profile = self.PROFILE_PACE5000E
+        elif model_code == -113 and profile == self.PROFILE_UNKNOWN:
+            profile = self.PROFILE_OLD_PACE5000
 
-        if self._device_profile == self.PROFILE_UNKNOWN:
+        if profile == self.PROFILE_UNKNOWN:
             try:
                 echo_status = str(self.query(":SYST:ECHO?") or "").strip()
             except Exception:
@@ -859,14 +888,9 @@ class Pace5000:
                 echo_status = str(self._consume_optional_query_error(":SYST:ECHO?") or "").strip()
             echo_code, _echo_message = self._parse_system_error(echo_status)
             if echo_code == -113:
-                self._device_profile = self.PROFILE_OLD_PACE5000
+                profile = self.PROFILE_OLD_PACE5000
 
-        self._legacy_vent_status_model = self._device_profile == self.PROFILE_OLD_PACE5000
-        if self._device_profile == self.PROFILE_OLD_PACE5000:
-            self._supports_sens_pres_cont = False
-        elif self._device_profile == self.PROFILE_PACE5000E and self._supports_sens_pres_cont is None:
-            self._supports_sens_pres_cont = True
-        return self._normalize_profile(self._device_profile)
+        return self._cache_detected_profile(profile)
 
     def has_legacy_vent_state_3_compatibility(self) -> bool:
         if not self.has_legacy_vent_status_model():
