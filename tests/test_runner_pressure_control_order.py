@@ -2272,22 +2272,29 @@ def test_set_pressure_to_target_stops_when_sequence_start_bit_only_force_clear_i
         h2o_mmol=None,
         raw_h2o=None,
     )
-    snapshots = iter(
-        [
-            {
-                "pace_outp_state_query": 0,
-                "pace_isol_state_query": 1,
-                "pace_mode_query": "ACT",
-                "pace_vent_status_query": 3,
-                "pace_oper_pres_cond_query": 1,
-                "pace_oper_pres_even_query": 0,
-                "pace_oper_pres_vent_complete_bit": True,
-                "pace_oper_pres_in_limits_bit": False,
-            }
-        ]
-    )
+    blocked_snapshot = {
+        # This blocked state is consumed by both the sampling handoff trace snapshot
+        # and the sequence-start vent-latch clear diagnostic query.
+        "pace_outp_state_query": 0,
+        "pace_isol_state_query": 1,
+        "pace_mode_query": "ACT",
+        "pace_vent_status_query": 3,
+        "pace_oper_pres_cond_query": 1,
+        "pace_oper_pres_even_query": 0,
+        "pace_oper_pres_vent_complete_bit": True,
+        "pace_oper_pres_in_limits_bit": False,
+    }
+    snapshot_calls = []
+    stage_events = []
+    logged_messages = []
 
-    runner._pace_diagnostic_state_snapshot = lambda *args, **kwargs: dict(next(snapshots))
+    def fake_snapshot(*args, **kwargs):
+        snapshot_calls.append((args, kwargs))
+        return dict(blocked_snapshot)
+
+    runner._pace_diagnostic_state_snapshot = fake_snapshot
+    runner._emit_stage_event = lambda **kwargs: stage_events.append(dict(kwargs))
+    runner.log = lambda message: logged_messages.append(str(message))
 
     assert runner._set_pressure_to_target(point) is False
     logger.close()
@@ -2296,7 +2303,15 @@ def test_set_pressure_to_target_stops_when_sequence_start_bit_only_force_clear_i
         ("clear_status",),
         ("drain_system_errors",),
     ]
+    assert len(snapshot_calls) >= 2
+    assert any(call_kwargs.get("refresh") is True for _, call_kwargs in snapshot_calls)
     assert not any(call[0] in {"vent_off", "vent", "setpoint", "output", "output_on", "isol"} for call in pace.calls)
+    assert not any(event.get("wait_reason") == "控压中" for event in stage_events)
+    assert any(
+        "legacy_completed_latch_bit_only_force_clear_blocked(before=3,cond=1,event=0)" in message
+        for message in logged_messages
+    )
+    assert any("manual intervention required" in message for message in logged_messages)
 
 
 def test_set_pressure_controller_vent_off_for_preseal_skips_slow_exit_wait(tmp_path: Path) -> None:
