@@ -1450,6 +1450,38 @@ def test_response_payload_still_strips_scpi_header() -> None:
     assert pace5000.Pace5000._response_payload(":SENS:PRES:INL 1013.25,1") == "1013.25,1"
 
 
+def test_parse_range_upper_hpa_accepts_hpa_suffixes() -> None:
+    assert pace5000.Pace5000._parse_range_upper_hpa("1000HPA") == 1000.0
+    assert pace5000.Pace5000._parse_range_upper_hpa("1000HPAA") == 1000.0
+    assert pace5000.Pace5000._parse_range_upper_hpa("1000HPAG") == 1000.0
+
+
+def test_parse_range_upper_hpa_accepts_headered_hpa_suffixes() -> None:
+    assert pace5000.Pace5000._parse_range_upper_hpa(":SOUR:PRES:RANG 1000HPAA") == 1000.0
+    assert pace5000.Pace5000._parse_range_upper_hpa(':SENS:PRES:RANG "1000HPAG"') == 1000.0
+
+
+def test_parse_range_upper_hpa_keeps_existing_units() -> None:
+    assert pace5000.Pace5000._parse_range_upper_hpa("1BARA") == 1000.0
+    assert pace5000.Pace5000._parse_range_upper_hpa("1BARG") == 1000.0
+    assert pace5000.Pace5000._parse_range_upper_hpa("1000MBARA") == 1000.0
+    assert pace5000.Pace5000._parse_range_upper_hpa("1000MBARG") == 1000.0
+    assert pace5000.Pace5000._parse_range_upper_hpa("100KPAA") == 1000.0
+    assert pace5000.Pace5000._parse_range_upper_hpa("100KPAG") == 1000.0
+    assert pace5000.Pace5000._parse_range_upper_hpa("2.00bara") == 2000.0
+    assert pace5000.Pace5000._parse_range_upper_hpa("1.00barg") == 1000.0
+
+
+def test_parse_range_upper_hpa_ignores_reference_suffix_for_scale() -> None:
+    assert pace5000.Pace5000._parse_range_upper_hpa("1000HPAA") == pace5000.Pace5000._parse_range_upper_hpa("1000HPAG")
+    assert pace5000.Pace5000._parse_range_upper_hpa("100KPAA") == pace5000.Pace5000._parse_range_upper_hpa("100KPAG")
+    assert pace5000.Pace5000._parse_range_upper_hpa("1BARA") == pace5000.Pace5000._parse_range_upper_hpa("1BARG")
+
+
+def test_parse_range_upper_hpa_barometer_returns_none() -> None:
+    assert pace5000.Pace5000._parse_range_upper_hpa("BAROMETER") is None
+
+
 def test_drain_system_errors_stops_on_bare_no_error(monkeypatch) -> None:
     class FakeSerialDevice:
         def __init__(self, *args, **kwargs):

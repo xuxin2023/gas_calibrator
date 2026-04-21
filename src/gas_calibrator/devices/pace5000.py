@@ -225,21 +225,21 @@ class Pace5000:
 
     @classmethod
     def _parse_range_upper_hpa(cls, text: Any) -> Optional[float]:
-        raw = cls._normalize_exact_range_token(text)
+        raw = cls._normalize_exact_range_token(cls._response_payload(text))
         if not raw or raw == "BAROMETER":
             return None
-        match = re.match(r"([-+]?\d+(?:\.\d+)?)(BARA|BARG|MBARA|MBARG|HPAA|HPAG|KPAA|KPAG)$", raw)
+        match = re.fullmatch(r"([-+]?\d+(?:\.\d+)?)(MBAR|BAR|HPA|KPA)([AG])?$", raw)
         if not match:
             return None
         value = float(match.group(1))
-        suffix = match.group(2)
-        if suffix.startswith("BAR"):
-            scale = 1000.0
-        elif suffix.startswith("MBAR"):
-            scale = 1.0
-        elif suffix.startswith("KPA"):
-            scale = 10.0
-        else:
+        unit = match.group(2)
+        scale = {
+            "BAR": 1000.0,
+            "MBAR": 1.0,
+            "HPA": 1.0,
+            "KPA": 10.0,
+        }.get(unit)
+        if scale is None:
             return None
         return float(value) * scale
 
