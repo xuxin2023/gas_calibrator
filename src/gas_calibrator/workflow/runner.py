@@ -111,6 +111,7 @@ _PRESSURE_TRACE_FIELDS = [
     "route",
     "trace_stage",
     "trigger_reason",
+    "vent_context_json",
     "valve_route_state",
     "fresh_vent_command_sent",
     "vent_status_sequence",
@@ -769,6 +770,15 @@ class CalibrationRunner:
     @staticmethod
     def _pressure_trace_cell(value: Any) -> Any:
         return "" if value is None else value
+
+    @staticmethod
+    def _pressure_trace_json(value: Any) -> str:
+        if value in (None, "", {}, [], (), set()):
+            return ""
+        try:
+            return json.dumps(value, ensure_ascii=True, sort_keys=True)
+        except Exception:
+            return str(value)
 
     @staticmethod
     def _ts_from_datetime(value: datetime) -> str:
@@ -2046,6 +2056,7 @@ class CalibrationRunner:
         sample_lag_ms: Any = None,
         soft_control_enabled: Any = None,
         soft_control_linear_slew_hpa_per_s: Any = None,
+        vent_context: Any = None,
         event_ts: Optional[float] = None,
         note: str = "",
     ) -> Dict[str, Any]:
@@ -2132,6 +2143,7 @@ class CalibrationRunner:
                 "route": str(route or phase_text or "").strip().lower(),
                 "trace_stage": str(trace_stage or "").strip(),
                 "trigger_reason": str(trigger_reason or "").strip(),
+                "vent_context_json": self._pressure_trace_json(vent_context),
                 "valve_route_state": self._current_valve_route_state_text(),
                 "fresh_vent_command_sent": self._pressure_trace_cell(fresh_vent_command_sent_value),
                 "vent_status_sequence": vent_status_sequence_text,
@@ -2487,6 +2499,7 @@ class CalibrationRunner:
         sample_lag_ms: Any = None,
         soft_control_enabled: Any = None,
         soft_control_linear_slew_hpa_per_s: Any = None,
+        vent_context: Any = None,
         event_ts: Optional[float] = None,
         note: str = "",
     ) -> Dict[str, Any]:
@@ -2814,6 +2827,7 @@ class CalibrationRunner:
             sample_lag_ms=sample_lag_ms,
             soft_control_enabled=soft_control_enabled,
             soft_control_linear_slew_hpa_per_s=soft_control_linear_slew_hpa_per_s,
+            vent_context=vent_context,
             event_ts=event_ts,
             note=note,
         )
@@ -2961,6 +2975,7 @@ class CalibrationRunner:
         sample_lag_ms: Any = None,
         soft_control_enabled: Any = None,
         soft_control_linear_slew_hpa_per_s: Any = None,
+        vent_context: Any = None,
         event_ts: Optional[float] = None,
         note: str = "",
     ) -> None:
@@ -3110,6 +3125,7 @@ class CalibrationRunner:
                 sample_lag_ms=sample_lag_ms,
                 soft_control_enabled=soft_control_enabled,
                 soft_control_linear_slew_hpa_per_s=soft_control_linear_slew_hpa_per_s,
+                vent_context=vent_context,
                 event_ts=event_ts,
                 note=note,
             )
@@ -6697,7 +6713,51 @@ class CalibrationRunner:
             clear_result_text = "skipped_no_pace"
         else:
             clear_latch = getattr(pace, "clear_completed_vent_latch_if_present", None)
-            if force_clear_latched:
+            guard_state = self._sealed_no_vent_guard_snapshot()
+            guard_phase = str(guard_state.get("phase") or "").strip()
+            guarded_phase_blocks_clear = (
+                bool(guard_state.get("active"))
+                and guard_phase in {
+                    "PressureSetpointHold",
+                    "PressurePointSwitch",
+                    "SamplingUnderPressure",
+                    "SealTransition",
+                }
+                and (before_vent_status == 2 or completed_latched_before is True or force_clear_latched)
+            )
+            if guarded_phase_blocks_clear:
+                clear_blocked = True
+                snapshot_after_override = dict(snapshot_before)
+                clear_result_text = self._pressure_vent0_abort_reason_for_guard_phase(guard_phase)
+                self._set_point_runtime_fields(
+                    point,
+                    phase=phase_text,
+                    abort_reason=clear_result_text,
+                    root_cause_reject_reason="ambient_ingress_suspect",
+                )
+                self._append_pressure_vent0_trace(
+                    point=point,
+                    phase=phase_text,
+                    trace_stage="pressure_vent0_blocked",
+                    helper_name="_clear_pressure_sequence_completed_vent_latch_if_present",
+                    reason_code="clear_completed_vent_latch",
+                    phase_label=guard_phase,
+                    output_state_before=snapshot_before.get("pace_output_state"),
+                    isolation_state_before=snapshot_before.get("pace_isolation_state"),
+                    vent_status_before=snapshot_before.get("pace_vent_status_query"),
+                    before_seal_transition_start=False,
+                    before_pressure_hold_start=guard_phase == "PressureSetpointHold",
+                    before_sour_pres_command=False,
+                    before_outp_stat_1_command=False,
+                    command_sent=False,
+                    blocked=True,
+                    abort_reason=clear_result_text,
+                    note=(
+                        f"blocked VENT 0 latch clear during guarded pressure phase {guard_phase}; "
+                        f"before_status={before_vent_status}"
+                    ),
+                )
+            elif force_clear_latched:
                 clear_blocked = True
                 snapshot_after_override = dict(snapshot_before)
                 clear_result_text = self._legacy_completed_latch_bit_only_force_clear_reason(
@@ -6720,6 +6780,28 @@ class CalibrationRunner:
                     clear_summary = clear_latch(timeout_s=5.0, poll_s=0.25)
                     clear_attempted = bool(clear_summary.get("clear_attempted"))
                     clear_blocked = bool(clear_summary.get("blocked"))
+                    if clear_attempted:
+                        self._append_pressure_vent0_trace(
+                            point=point,
+                            phase=phase_text,
+                            trace_stage="pressure_vent0_command",
+                            helper_name="_clear_pressure_sequence_completed_vent_latch_if_present",
+                            reason_code="clear_completed_vent_latch",
+                            phase_label=str(self._sealed_no_vent_guard_snapshot().get("phase") or "PreHoldBoundary"),
+                            output_state_before=snapshot_before.get("pace_output_state"),
+                            isolation_state_before=snapshot_before.get("pace_isolation_state"),
+                            vent_status_before=snapshot_before.get("pace_vent_status_query"),
+                            before_seal_transition_start=False,
+                            before_pressure_hold_start=False,
+                            before_sour_pres_command=False,
+                            before_outp_stat_1_command=False,
+                            command_sent=True,
+                            blocked=False,
+                            note=(
+                                "send VENT 0 via clear_completed_vent_latch_if_present "
+                                f"before_status={clear_summary.get('before_status')}"
+                            ),
+                        )
                     if not clear_blocked:
                         clear_blocked = (
                             str(clear_summary.get("reason") or "").strip().lower()
@@ -13807,12 +13889,7 @@ class CalibrationRunner:
 
         target = float(point.target_pressure_hpa)
         phase = "h2o" if point.is_h2o_point else "co2"
-        self._activate_sealed_no_vent_guard(
-            point=point,
-            phase=phase,
-            guard_phase="PressureSetpointHold",
-            reason="set_pressure_to_target",
-        )
+        handoff_mode = self._prepare_sampling_handoff_mode(point, phase=phase)
         unit_ok, unit_reason, capability_snapshot = self._pace_unit_allows_formal_setpoint()
         if not unit_ok:
             self._set_point_runtime_fields(
@@ -13880,7 +13957,11 @@ class CalibrationRunner:
             trace_stage="control_prepare_begin",
             pressure_target_hpa=target,
             refresh_pace_state=False,
-            note=f"before pressure controller ready-for-control check; pressure_mode={self._pressure_setpoint_hold_mode()}",
+            handoff_mode=handoff_mode,
+            note=(
+                "before pressure controller ready-for-control check; "
+                f"pressure_mode={self._pressure_setpoint_hold_mode()} handoff_mode={handoff_mode}"
+            ),
         )
 
         if prepared:
@@ -13892,6 +13973,12 @@ class CalibrationRunner:
                 note="prepared target path",
             ):
                 return False
+            self._activate_sealed_no_vent_guard(
+                point=point,
+                phase=phase,
+                guard_phase="PressureSetpointHold",
+                reason="prepared_target_path",
+            )
             self._append_pressure_trace_row(
                 point=point,
                 route=phase,
@@ -14006,7 +14093,19 @@ class CalibrationRunner:
                     note="before conservative vent off recovery for control",
                 )
                 try:
-                    vent_off_ok = self._set_pressure_controller_vent(False, reason="before setpoint control")
+                    vent_off_ok = self._set_pressure_controller_vent(
+                        False,
+                        reason="before setpoint control",
+                        point=point,
+                        phase=phase,
+                        helper_name="_set_pressure_to_target",
+                        vent_phase_label="PreHoldBoundary",
+                        before_seal_transition_start=False,
+                        before_pressure_hold_start=True,
+                        before_sour_pres_command=True,
+                        before_outp_stat_1_command=True,
+                        vent_command_reason="exit_atmosphere_abort_vent",
+                    )
                 except Exception as exc:
                     self._append_pressure_trace_row(
                         point=point,
@@ -14051,7 +14150,19 @@ class CalibrationRunner:
                     note="before vent off command for control",
                 )
                 try:
-                    vent_off_ok = self._set_pressure_controller_vent(False, reason="before setpoint control")
+                    vent_off_ok = self._set_pressure_controller_vent(
+                        False,
+                        reason="before setpoint control",
+                        point=point,
+                        phase=phase,
+                        helper_name="_set_pressure_to_target",
+                        vent_phase_label="PreHoldBoundary",
+                        before_seal_transition_start=False,
+                        before_pressure_hold_start=True,
+                        before_sour_pres_command=True,
+                        before_outp_stat_1_command=True,
+                        vent_command_reason="exit_atmosphere_abort_vent",
+                    )
                 except Exception as exc:
                     self._append_pressure_trace_row(
                         point=point,
@@ -14101,6 +14212,12 @@ class CalibrationRunner:
                 pace,
                 point,
                 phase=phase,
+            )
+            self._activate_sealed_no_vent_guard(
+                point=point,
+                phase=phase,
+                guard_phase="PressureSetpointHold",
+                reason="set_pressure_to_target",
             )
             pace.set_setpoint(target)
             self._append_pressure_trace_row(
@@ -15129,11 +15246,157 @@ class CalibrationRunner:
         self._pace_vent_after_valve_open = True
         self._refresh_pressure_controller_aux_state(pace)
 
-    def _set_pressure_controller_vent(self, vent_on: bool, reason: str = "") -> bool:
+    @staticmethod
+    def _pressure_vent0_abort_reason_for_guard_phase(guard_phase: str) -> str:
+        phase_text = str(guard_phase or "").strip()
+        mapping = {
+            "PressureSetpointHold": "PressureHoldVentAbortLeak",
+            "PressurePointSwitch": "PressurePointSwitchVentAbortLeak",
+            "SamplingUnderPressure": "SamplingUnderPressureVentAbortLeak",
+            "SealTransition": "SealTransitionVentAbortLeak",
+        }
+        return mapping.get(phase_text, "SealedPressureVentAbortLeak")
+
+    @staticmethod
+    def _pressure_vent0_reason_code(reason: str, *, fallback: str = "exit_atmosphere_abort_vent") -> str:
+        text = str(reason or "").strip()
+        if not text:
+            return fallback
+        return text
+
+    def _build_pressure_vent0_context(
+        self,
+        *,
+        point: Optional[CalibrationPoint],
+        phase: str,
+        helper_name: str,
+        reason_code: str,
+        phase_label: str,
+        output_state_before: Any,
+        isolation_state_before: Any,
+        vent_status_before: Any,
+        before_seal_transition_start: Optional[bool],
+        before_pressure_hold_start: Optional[bool],
+        before_sour_pres_command: Optional[bool],
+        before_outp_stat_1_command: Optional[bool],
+        command_sent: bool,
+        blocked: bool,
+        abort_reason: str = "",
+    ) -> Dict[str, Any]:
+        continuous_state = self._continuous_atmosphere_state_snapshot()
+        guard_state = self._sealed_no_vent_guard_snapshot()
+        keepalive_generation_valid = not bool(continuous_state.get("active")) and not bool(
+            continuous_state.get("route_flow_active")
+        )
+        phase_text = str(phase or "").strip().lower() or "co2"
+        phase_label_text = str(phase_label or guard_state.get("phase") or "").strip()
+        return {
+            "timestamp": datetime.now().isoformat(timespec="milliseconds"),
+            "command": ":SOUR:PRES:LEV:IMM:AMPL:VENT 0",
+            "command_sent": bool(command_sent),
+            "blocked": bool(blocked),
+            "abort_reason": str(abort_reason or "").strip(),
+            "current_phase_before_command": phase_label_text,
+            "current_phase_after_command": phase_label_text,
+            "reason": str(reason_code or "").strip(),
+            "callsite": str(helper_name or "_set_pressure_controller_vent").strip(),
+            "pressure_point_id": self._as_int(getattr(point, "index", None) if point is not None else None),
+            "point_phase": phase_text,
+            "target_pressure": self._as_float(
+                getattr(point, "target_pressure_hpa", None) if point is not None else None
+            ),
+            "output_state_before_command": self._as_int(output_state_before),
+            "isolation_state_before_command": self._as_int(isolation_state_before),
+            "vent_status_before_command": self._as_int(vent_status_before),
+            "whether_before_seal_transition_start": bool(before_seal_transition_start),
+            "whether_before_pressure_hold_start": bool(before_pressure_hold_start),
+            "whether_before_sour_pres": bool(before_sour_pres_command),
+            "whether_before_outp_stat_1": bool(before_outp_stat_1_command),
+            "route_flow_active": bool(continuous_state.get("route_flow_active")),
+            "continuous_atmosphere_active": bool(continuous_state.get("active")),
+            "atmosphere_keepalive_enabled": bool(continuous_state.get("active")),
+            "continuous_atmosphere_generation": int(continuous_state.get("generation") or 0),
+            "keepalive_generation_valid": bool(keepalive_generation_valid),
+            "sealed_no_vent_guard_active": bool(guard_state.get("active")),
+            "sealed_no_vent_guard_phase": str(guard_state.get("phase") or ""),
+            "is_exit_atmosphere_boundary_abort": str(reason_code or "").strip()
+            in {"exit_atmosphere_abort_vent", "ensure_vent_closed_before_seal"},
+            "is_pressure_hold_phase_leak": bool(str(guard_state.get("phase") or "").strip() == "PressureSetpointHold"),
+        }
+
+    def _append_pressure_vent0_trace(
+        self,
+        *,
+        point: Optional[CalibrationPoint],
+        phase: str,
+        trace_stage: str,
+        helper_name: str,
+        reason_code: str,
+        phase_label: str,
+        output_state_before: Any,
+        isolation_state_before: Any,
+        vent_status_before: Any,
+        before_seal_transition_start: Optional[bool],
+        before_pressure_hold_start: Optional[bool],
+        before_sour_pres_command: Optional[bool],
+        before_outp_stat_1_command: Optional[bool],
+        command_sent: bool,
+        blocked: bool,
+        abort_reason: str = "",
+        note: str = "",
+    ) -> None:
+        phase_text = str(phase or "").strip().lower() or "co2"
+        vent_context = self._build_pressure_vent0_context(
+            point=point,
+            phase=phase_text,
+            helper_name=helper_name,
+            reason_code=reason_code,
+            phase_label=phase_label,
+            output_state_before=output_state_before,
+            isolation_state_before=isolation_state_before,
+            vent_status_before=vent_status_before,
+            before_seal_transition_start=before_seal_transition_start,
+            before_pressure_hold_start=before_pressure_hold_start,
+            before_sour_pres_command=before_sour_pres_command,
+            before_outp_stat_1_command=before_outp_stat_1_command,
+            command_sent=command_sent,
+            blocked=blocked,
+            abort_reason=abort_reason,
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            trace_stage=trace_stage,
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+            pace_output_state=output_state_before,
+            pace_isolation_state=isolation_state_before,
+            pace_vent_status=vent_status_before,
+            refresh_pace_state=False,
+            vent_context=vent_context,
+            note=note,
+        )
+
+    def _set_pressure_controller_vent(
+        self,
+        vent_on: bool,
+        reason: str = "",
+        *,
+        point: Optional[CalibrationPoint] = None,
+        phase: str = "co2",
+        helper_name: str = "",
+        vent_phase_label: str = "",
+        before_seal_transition_start: Optional[bool] = None,
+        before_pressure_hold_start: Optional[bool] = None,
+        before_sour_pres_command: Optional[bool] = None,
+        before_outp_stat_1_command: Optional[bool] = None,
+        vent_command_reason: str = "",
+    ) -> bool:
+        phase_text = str(phase or "").strip().lower() or "co2"
         if vent_on and bool(self._sealed_no_vent_guard_snapshot().get("active")):
             self._raise_sealed_no_vent_guard_violation(
-                point=None,
-                phase="co2",
+                point=point,
+                phase=phase_text,
                 action="vent_on",
                 reason=reason,
             )
@@ -15233,6 +15496,11 @@ class CalibrationRunner:
                         current_vent_status = vent_status_getter()
                     except Exception:
                         current_vent_status = None
+                snapshot_before = self._pace_diagnostic_state_snapshot(pace, refresh=True, refresh_aux=False)
+                output_state_before = self._as_int(snapshot_before.get("pace_output_state"))
+                isolation_state_before = self._as_int(snapshot_before.get("pace_isolation_state"))
+                if current_vent_status is None:
+                    current_vent_status = snapshot_before.get("pace_vent_status_query")
                 control_ready_under_adapter = self._pace_vent_status_allows_control(pace, current_vent_status)
                 if (
                     self._pace_legacy_completed_latch_auto_clear_blocked(pace, current_vent_status)
@@ -15254,13 +15522,137 @@ class CalibrationRunner:
                         ),
                     )
                     raise RuntimeError("VENT_COMPLETED_LATCH_AUTO_CLEAR_BLOCKED(last_status=2)")
+                guard_state = self._sealed_no_vent_guard_snapshot()
+                guard_phase = str(guard_state.get("phase") or "").strip()
+                reason_code = self._pressure_vent0_reason_code(
+                    vent_command_reason,
+                    fallback="exit_atmosphere_abort_vent",
+                )
+                phase_label = str(vent_phase_label or guard_phase or "PreHoldBoundary").strip()
+                actual_vent0_required = True
+                if guard_phase == "PressurePointSwitch" and control_ready_under_adapter:
+                    actual_vent0_required = False
+                if not actual_vent0_required and guard_phase:
+                    phase_label = guard_phase
+                if actual_vent0_required and bool(guard_state.get("active")) and guard_phase in {
+                    "PressureSetpointHold",
+                    "PressurePointSwitch",
+                    "SamplingUnderPressure",
+                    "SealTransition",
+                }:
+                    abort_reason = self._pressure_vent0_abort_reason_for_guard_phase(guard_phase)
+                    self._set_point_runtime_fields(
+                        point,
+                        phase=phase_text,
+                        abort_reason=abort_reason,
+                        root_cause_reject_reason="ambient_ingress_suspect",
+                    )
+                    self._append_pressure_vent0_trace(
+                        point=point,
+                        phase=phase_text,
+                        trace_stage="pressure_vent0_blocked",
+                        helper_name=helper_name or "_set_pressure_controller_vent",
+                        reason_code=reason_code,
+                        phase_label=phase_label,
+                        output_state_before=output_state_before,
+                        isolation_state_before=isolation_state_before,
+                        vent_status_before=current_vent_status,
+                        before_seal_transition_start=before_seal_transition_start,
+                        before_pressure_hold_start=before_pressure_hold_start,
+                        before_sour_pres_command=before_sour_pres_command,
+                        before_outp_stat_1_command=before_outp_stat_1_command,
+                        command_sent=False,
+                        blocked=True,
+                        abort_reason=abort_reason,
+                        note=(
+                            f"blocked VENT 0 during guarded pressure phase {guard_phase}; "
+                            f"helper={helper_name or '_set_pressure_controller_vent'} reason={reason or 'unspecified'}"
+                        ),
+                    )
+                    raise RuntimeError(abort_reason)
+                if not actual_vent0_required:
+                    set_output = getattr(pace, "set_output", None)
+                    if callable(set_output) and output_state_before not in (None, 0):
+                        set_output(False)
+                    set_isolation_open = getattr(pace, "set_isolation_open", None)
+                    if callable(set_isolation_open) and isolation_state_before not in (None, 1):
+                        set_isolation_open(True)
+                    self._append_pressure_vent0_trace(
+                        point=point,
+                        phase=phase_text,
+                        trace_stage="pressure_vent0_not_needed",
+                        helper_name=helper_name or "_set_pressure_controller_vent",
+                        reason_code=reason_code,
+                        phase_label=phase_label,
+                        output_state_before=output_state_before,
+                        isolation_state_before=isolation_state_before,
+                        vent_status_before=current_vent_status,
+                        before_seal_transition_start=before_seal_transition_start,
+                        before_pressure_hold_start=before_pressure_hold_start,
+                        before_sour_pres_command=before_sour_pres_command,
+                        before_outp_stat_1_command=before_outp_stat_1_command,
+                        command_sent=False,
+                        blocked=False,
+                        note=(
+                            "VENT 0 skipped because vent was already closed at pressure-point switch; "
+                            "opened output path only"
+                        ),
+                    )
+                    extra = f" ({reason})" if reason else ""
+                    self.log(f"Pressure controller vent={state}{extra}")
+                    self._pressure_atmosphere_hold_enabled = False
+                    self._pressure_atmosphere_refresh_error_logged = False
+                    self._last_pressure_atmosphere_refresh_ts = 0.0
+                    return True
                 exit_atmosphere = getattr(pace, "exit_atmosphere_mode", None)
                 if callable(exit_atmosphere) and not fast_preseal_vent_off:
+                    self._append_pressure_vent0_trace(
+                        point=point,
+                        phase=phase_text,
+                        trace_stage="pressure_vent0_command",
+                        helper_name=helper_name or "_set_pressure_controller_vent",
+                        reason_code=reason_code,
+                        phase_label=phase_label,
+                        output_state_before=output_state_before,
+                        isolation_state_before=isolation_state_before,
+                        vent_status_before=current_vent_status,
+                        before_seal_transition_start=before_seal_transition_start,
+                        before_pressure_hold_start=before_pressure_hold_start,
+                        before_sour_pres_command=before_sour_pres_command,
+                        before_outp_stat_1_command=before_outp_stat_1_command,
+                        command_sent=True,
+                        blocked=False,
+                        note=(
+                            f"send VENT 0 via exit_atmosphere_mode helper={helper_name or '_set_pressure_controller_vent'} "
+                            f"reason={reason or 'unspecified'}"
+                        ),
+                    )
                     exit_atmosphere(timeout_s=vent_transition_timeout_s)
                 else:
                     set_output = getattr(pace, "set_output", None)
                     if callable(set_output):
                         set_output(False)
+                    self._append_pressure_vent0_trace(
+                        point=point,
+                        phase=phase_text,
+                        trace_stage="pressure_vent0_command",
+                        helper_name=helper_name or "_set_pressure_controller_vent",
+                        reason_code=reason_code,
+                        phase_label=phase_label,
+                        output_state_before=output_state_before,
+                        isolation_state_before=isolation_state_before,
+                        vent_status_before=current_vent_status,
+                        before_seal_transition_start=before_seal_transition_start,
+                        before_pressure_hold_start=before_pressure_hold_start,
+                        before_sour_pres_command=before_sour_pres_command,
+                        before_outp_stat_1_command=before_outp_stat_1_command,
+                        command_sent=True,
+                        blocked=False,
+                        note=(
+                            f"send VENT 0 via direct vent(False) helper={helper_name or '_set_pressure_controller_vent'} "
+                            f"reason={reason or 'unspecified'}"
+                        ),
+                    )
                     pace.vent(False)
                     set_isolation_open = getattr(pace, "set_isolation_open", None)
                     if callable(set_isolation_open):
@@ -15441,7 +15833,60 @@ class CalibrationRunner:
                     set_isolation_open(True)
                 except Exception as exc:
                     self.log(f"Pressure controller output-on recovery isolation-open failed: {exc}")
+            guard_state = self._sealed_no_vent_guard_snapshot()
+            guard_phase = str(guard_state.get("phase") or "").strip()
+            if bool(guard_state.get("active")) and guard_phase in {
+                "PressureSetpointHold",
+                "PressurePointSwitch",
+                "SamplingUnderPressure",
+                "SealTransition",
+            }:
+                abort_reason = self._pressure_vent0_abort_reason_for_guard_phase(guard_phase)
+                self._set_point_runtime_fields(
+                    point,
+                    phase=phase,
+                    abort_reason=abort_reason,
+                    root_cause_reject_reason="ambient_ingress_suspect",
+                )
+                self._append_pressure_vent0_trace(
+                    point=point,
+                    phase=phase,
+                    trace_stage="pressure_vent0_blocked",
+                    helper_name="_attempt_pressure_controller_output_on_recovery",
+                    reason_code="output_on_recovery_vent_off",
+                    phase_label=guard_phase,
+                    output_state_before=output_state,
+                    isolation_state_before=isolation_state,
+                    vent_status_before=vent_status,
+                    before_seal_transition_start=False,
+                    before_pressure_hold_start=False,
+                    before_sour_pres_command=False,
+                    before_outp_stat_1_command=False,
+                    command_sent=False,
+                    blocked=True,
+                    abort_reason=abort_reason,
+                    note="blocked VENT 0 during sealed pressure phase while attempting output-on recovery",
+                )
+                return False
             try:
+                self._append_pressure_vent0_trace(
+                    point=point,
+                    phase=phase,
+                    trace_stage="pressure_vent0_command",
+                    helper_name="_attempt_pressure_controller_output_on_recovery",
+                    reason_code="output_on_recovery_vent_off",
+                    phase_label=guard_phase or "PressureSetpointHold",
+                    output_state_before=output_state,
+                    isolation_state_before=isolation_state,
+                    vent_status_before=vent_status,
+                    before_seal_transition_start=False,
+                    before_pressure_hold_start=False,
+                    before_sour_pres_command=False,
+                    before_outp_stat_1_command=False,
+                    command_sent=True,
+                    blocked=False,
+                    note="send VENT 0 during output-on recovery attempt",
+                )
                 pace.vent(False)
             except Exception as exc:
                 self.log(f"Pressure controller output-on recovery vent-off failed: {exc}")
@@ -23665,12 +24110,6 @@ class CalibrationRunner:
             phase=phase,
             reason=f"before {route.upper()} pressure seal",
         )
-        self._activate_sealed_no_vent_guard(
-            point=point,
-            phase=phase,
-            guard_phase="SealTransition",
-            reason=f"before {route.upper()} pressure seal",
-        )
         self._start_pressure_transition_fast_signal_context(
             point=point,
             phase=phase,
@@ -23712,7 +24151,25 @@ class CalibrationRunner:
                 refresh_pace_state=False,
                 note=f"before vent off command; pressure_mode={self._seal_transition_pressure_mode()}",
             )
-            self._set_pressure_controller_vent(False, reason=f"before {route.upper()} pressure seal")
+            self._set_pressure_controller_vent(
+                False,
+                reason=f"before {route.upper()} pressure seal",
+                point=point,
+                phase=phase,
+                helper_name="_pressurize_and_hold",
+                vent_phase_label="ExitAtmosphereBoundary",
+                before_seal_transition_start=True,
+                before_pressure_hold_start=True,
+                before_sour_pres_command=True,
+                before_outp_stat_1_command=True,
+                vent_command_reason="ensure_vent_closed_before_seal",
+            )
+            self._activate_sealed_no_vent_guard(
+                point=point,
+                phase=phase,
+                guard_phase="SealTransition",
+                reason=f"before {route.upper()} pressure seal",
+            )
             self._append_pressure_trace_row(
                 point=point,
                 route=phase,
