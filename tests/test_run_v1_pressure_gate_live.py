@@ -273,6 +273,20 @@ def test_source_open_live_scenario_requires_allow_source_open_flag(tmp_path: Pat
     assert result["operator_must_confirm_upstream_source_pressure_limited"] is True
 
 
+def test_route_open_pressure_guard_requires_allow_source_open_flag(tmp_path: Path) -> None:
+    runner = _FakeRunner()
+    result = live_tool._run_route_open_pressure_guard(
+        runner,
+        tmp_path / "trace.csv",
+        _args(allow_source_open=False),
+    )
+
+    assert result["status"] == "skipped"
+    assert result["skipped_reason"] == "SourceOpenRequiresExplicitAllowFlag"
+    assert result["operator_must_confirm_upstream_source_pressure_limited"] is True
+    assert all(call[0] != "conditioning" for call in runner.calls)
+
+
 def test_analyzer_pressure_required_preserves_analyzer_list() -> None:
     runtime_cfg = _config(
         gas_analyzers=[

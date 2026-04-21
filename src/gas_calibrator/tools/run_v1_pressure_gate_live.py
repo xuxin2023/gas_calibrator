@@ -997,6 +997,15 @@ def _run_route_open_pressure_guard(
 ) -> Dict[str, Any]:
     point = _build_point(args, index=9002)
     trace_start = _trace_row_count(trace_path)
+    if not bool(getattr(args, "allow_source_open", False)):
+        return _enrich_live_result_with_pace_diagnostics(runner, {
+            "scenario": "route_open_pressure_guard",
+            "status": "skipped",
+            "skipped_reason": "SourceOpenRequiresExplicitAllowFlag",
+            "operator_must_confirm_upstream_source_pressure_limited": True,
+            "pressure_trace_rows": _scenario_trace_rows(trace_path, trace_start),
+        })
+    _log("operator_must_confirm_upstream_source_pressure_limited=true")
     ok = runner._open_co2_route_for_conditioning(point, point_tag="live_route_open_pressure_guard")
     point_state = dict(runner._point_runtime_state(point, phase="co2") or {})
     abort_reason = str(point_state.get("abort_reason") or "").strip()
@@ -1005,6 +1014,7 @@ def _run_route_open_pressure_guard(
         "status": _status_from_abort(bool(ok), abort_reason),
         "route_open_passed": bool(ok),
         "abort_reason": abort_reason,
+        "operator_must_confirm_upstream_source_pressure_limited": True,
         "point_runtime_state": point_state,
         "atmosphere_summary": dict(runner._last_atmosphere_gate_summary or {}),
         "route_pressure_guard_summary": _route_guard_summary_payload(runner),
