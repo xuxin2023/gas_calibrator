@@ -154,12 +154,32 @@ class Pace5000:
             return None
 
     @staticmethod
-    def _response_payload(text: Any) -> str:
+    def _strip_matching_quotes(text: Any) -> str:
+        raw = str(text or "").strip()
+        if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in {'"', "'"}:
+            return raw[1:-1]
+        return raw
+
+    @staticmethod
+    def _looks_like_scpi_header_token(token: Any) -> bool:
+        raw = str(token or "").strip()
+        if not raw or re.match(r"^[+-]?\d", raw):
+            return False
+        if raw[0] in {":", "*"}:
+            return bool(re.fullmatch(r"[:*][A-Za-z0-9:_?*]+", raw))
+        return bool(re.fullmatch(r"[A-Za-z][A-Za-z0-9]*(?::[A-Za-z0-9?]+)+", raw))
+
+    @classmethod
+    def _response_payload(cls, text: Any) -> str:
         raw = str(text or "").strip()
         if not raw:
             return ""
+        if re.match(r"^[+-]?\d", raw):
+            return raw
         parts = raw.split(None, 1)
-        return parts[1].strip() if len(parts) > 1 else raw
+        if len(parts) > 1 and cls._looks_like_scpi_header_token(parts[0]):
+            return parts[1].strip()
+        return raw
 
     @classmethod
     def _parse_system_error(cls, text: Any) -> Tuple[Optional[int], str]:
@@ -167,15 +187,21 @@ class Pace5000:
         if not raw:
             return None, ""
         payload = cls._response_payload(raw)
-        match = re.match(r"\s*([-+]?\d+)\s*,\s*(.*)\s*$", payload)
+        match = re.match(r"\s*([-+]?\d+)\s*(?:,\s*(.*))?\s*$", payload)
         if match:
             code = cls._parse_first_int(match.group(1))
-            message = str(match.group(2) or "").strip().strip("\"'")
+            message = cls._strip_matching_quotes(match.group(2) or "")
             return code, message
-        code = cls._parse_first_int(payload)
+        prefix = re.match(r"\s*([-+]?\d+)\s*(.*)\s*$", payload)
+        if not prefix:
+            return None, cls._strip_matching_quotes(payload)
+        code = cls._parse_first_int(prefix.group(1))
         if code is None:
-            return None, payload
-        return code, payload[len(str(code)) :].strip().strip("\"'")
+            return None, cls._strip_matching_quotes(payload)
+        message = str(prefix.group(2) or "").strip()
+        if message.startswith(","):
+            message = message[1:].strip()
+        return code, cls._strip_matching_quotes(message)
 
     @classmethod
     def _is_zero_system_error(cls, text: Any) -> bool:

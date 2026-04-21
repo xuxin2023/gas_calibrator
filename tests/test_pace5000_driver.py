@@ -1400,6 +1400,87 @@ def test_clear_status_and_drain_system_errors_use_standard_scpi(monkeypatch) -> 
     assert drained == ['-222,"Data out of range"']
 
 
+def test_parse_system_error_accepts_bare_zero_no_error() -> None:
+    code, message = pace5000.Pace5000._parse_system_error('0,"No error"')
+
+    assert code == 0
+    assert message == "No error"
+    assert pace5000.Pace5000._is_zero_system_error('0,"No error"') is True
+
+
+def test_parse_system_error_accepts_bare_zero_no_error_with_space() -> None:
+    code, message = pace5000.Pace5000._parse_system_error('0, "No error"')
+
+    assert code == 0
+    assert message == "No error"
+
+
+def test_parse_system_error_accepts_bare_syntax_error() -> None:
+    code, message = pace5000.Pace5000._parse_system_error('-102,"Syntax error"')
+
+    assert code == -102
+    assert message == "Syntax error"
+
+
+def test_parse_system_error_accepts_bare_undefined_header() -> None:
+    code, message = pace5000.Pace5000._parse_system_error('-113,"Undefined header"')
+
+    assert code == -113
+    assert message == "Undefined header"
+
+
+def test_parse_system_error_accepts_headered_syntax_error() -> None:
+    code, message = pace5000.Pace5000._parse_system_error(':SYST:ERR -102,"Syntax error"')
+
+    assert code == -102
+    assert message == "Syntax error"
+
+
+def test_response_payload_does_not_strip_bare_error_payload() -> None:
+    assert pace5000.Pace5000._response_payload('0,"No error"') == '0,"No error"'
+    assert pace5000.Pace5000._response_payload('-102,"Syntax error"') == '-102,"Syntax error"'
+
+
+def test_response_payload_still_strips_scpi_header() -> None:
+    assert pace5000.Pace5000._response_payload(":SOUR:PRES 1000.0") == "1000.0"
+    assert pace5000.Pace5000._response_payload(':SYST:ERR 0,"No error"') == '0,"No error"'
+    assert pace5000.Pace5000._response_payload(":OUTP:STAT 1") == "1"
+    assert pace5000.Pace5000._response_payload(":UNIT:PRES HPA") == "HPA"
+    assert pace5000.Pace5000._response_payload(":SOUR:PRES:LEV:IMM:AMPL:VENT 2") == "2"
+    assert pace5000.Pace5000._response_payload(":SENS:PRES:INL 1013.25,1") == "1013.25,1"
+
+
+def test_drain_system_errors_stops_on_bare_no_error(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.queries = []
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.last_write = data
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            self.queries.append(cmd)
+            if cmd == ":SYST:ERR?":
+                return '0,"No error"'
+            return ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    assert dev.drain_system_errors() == []
+    assert dev.ser.queries == [":SYST:ERR?"]
+
+
 def test_get_vent_elapsed_time_and_protective_states_parse_queries(monkeypatch) -> None:
     class FakeSerialDevice:
         def __init__(self, *args, **kwargs):
@@ -1652,6 +1733,101 @@ def test_send_and_check_error_raises_on_nonzero_system_error(monkeypatch) -> Non
 
     with pytest.raises(RuntimeError, match="PACE_COMMAND_ERROR\\(command=:OUTP:STAT 1,code=-222"):
         dev.sendAndCheckError(":OUTP:STAT 1")
+
+
+def test_send_and_check_error_accepts_bare_no_error(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.writes = []
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.writes.append(data)
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            if cmd == ":SYST:ERR?":
+                return '0,"No error"'
+            return ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    assert dev.sendAndCheckError(":OUTP:STAT 1") == '0,"No error"'
+    assert any(":OUTP:STAT 1" in write for write in dev.ser.writes)
+
+
+def test_send_and_check_error_raises_on_bare_syntax_error(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.writes = []
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.writes.append(data)
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            if cmd == ":SYST:ERR?":
+                return '-102,"Syntax error"'
+            return ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    with pytest.raises(RuntimeError, match="PACE_COMMAND_ERROR\\(command=:OUTP:STAT 1,code=-102"):
+        dev.sendAndCheckError(":OUTP:STAT 1")
+
+
+def test_consume_optional_query_error_accepts_bare_optional_errors(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.responses = iter(
+                [
+                    '-102,"Syntax error"',
+                    '-113,"Undefined header"',
+                    '0,"No error"',
+                ]
+            )
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.last_write = data
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            if cmd == ":SYST:ERR?":
+                return next(self.responses)
+            return ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    assert dev._consume_optional_query_error(":INST:MOD?") == '0,"No error"'
 
 
 def test_select_control_range_requires_exact_catalog_token(monkeypatch) -> None:
