@@ -17,12 +17,24 @@ class _FakeRunner:
             "analyzer_pressure_status": "unavailable",
         }
         self._source_stage = {"co2_a": False, "co2_b": False, "h2o": False}
+        self._atmosphere_safe = {"co2_a": False, "co2_b": False, "h2o": False}
+        self._seal_safe = {"co2_a": False, "co2_b": False, "h2o": False}
+        self._continuous_state = {
+            "active": False,
+            "route_flow_active": False,
+            "route_key": "",
+            "phase_name": "",
+            "pressure_mode": "",
+            "keepalive_count": 0,
+            "last_keepalive_summary": {},
+        }
         self.final_syst_err = '0,"No error"'
         self.attribution_counts = {
             "pace_error_attribution_count": 0,
             "optional_probe_error_count": 0,
             "hidden_syst_err_count": 0,
             "unclassified_syst_err_count": 0,
+            "pre_route_drain_syst_err_count": 0,
         }
         self.attribution_log: list[dict[str, object]] = []
 
@@ -44,6 +56,15 @@ class _FakeRunner:
 
     def _source_stage_safety_snapshot(self):
         return dict(self._source_stage)
+
+    def _route_final_stage_atmosphere_safety_snapshot(self):
+        return dict(self._atmosphere_safe)
+
+    def _route_final_stage_seal_safety_snapshot(self):
+        return dict(self._seal_safe)
+
+    def _continuous_atmosphere_state_snapshot(self):
+        return dict(self._continuous_state)
 
     def _clear_last_sealed_pressure_route_context(self, reason: str = "") -> None:
         self.calls.append(("clear_last", reason))
@@ -106,7 +127,29 @@ class _FakeRunner:
         return True
 
     def _point_runtime_state(self, point, *, phase: str):
-        return {}
+        return {
+            "pressure_delta_from_ambient_hpa": 0.25,
+            "route_pressure_guard_status": "pass",
+            "route_pressure_guard_reason": "",
+            "continuous_atmosphere_active": self._continuous_state["active"],
+            "vent_keepalive_count": self._continuous_state["keepalive_count"],
+            "atmosphere_flow_safe": self._atmosphere_safe.get("co2_a", False),
+            "seal_pressure_safe": self._seal_safe.get("co2_a", False),
+        }
+
+    def maintain_continuous_atmosphere_flowthrough(self, route_key, **kwargs):
+        self._continuous_state["active"] = True
+        self._continuous_state["route_flow_active"] = True
+        self._continuous_state["route_key"] = str(route_key)
+        self._continuous_state["phase_name"] = str(kwargs.get("phase_name") or "")
+        self._continuous_state["keepalive_count"] = int(self._continuous_state.get("keepalive_count", 0)) + 1
+        self._continuous_state["last_keepalive_summary"] = {
+            "pace_vent_command_sent": ":SOUR:PRES:LEV:IMM:AMPL:VENT 1",
+            "pace_vent_status_returned": 2,
+            "pace_vent_status_text": "completed",
+        }
+        self.calls.append(("keepalive", str(route_key)))
+        return True, dict(self._continuous_state)
 
 
 def _args(**overrides):
@@ -207,6 +250,138 @@ def test_route_pass_requires_zero_hidden_and_unclassified_syst_err(tmp_path: Pat
 
     assert result["status"] == "diagnostic_error"
     assert result["abort_reason"] == "UnclassifiedPaceSystErrDuringRouteStage"
+
+
+def test_clean_route_pass_requires_zero_pre_route_drain_errors(tmp_path: Path) -> None:
+    runner = _FakeRunner()
+    runner.attribution_counts["pre_route_drain_syst_err_count"] = 1
+
+    result = live_tool._enrich_live_result_with_pace_diagnostics(
+        runner,
+        {"scenario": "demo", "status": "pass", "route_open_passed": True},
+    )
+
+    assert result["status"] == "pass_with_diagnostic_error"
+    assert result["not_real_acceptance_evidence"] is True
+
+
+def test_unresolved_pre_route_error_marks_not_real_acceptance_evidence(tmp_path: Path) -> None:
+    runner = _FakeRunner()
+    runner.attribution_counts["pre_route_drain_syst_err_count"] = 3
+    runner.attribution_log = [
+        {
+            "classification": "pre_route_drain",
+            "syst_err": ':SYST:ERR -102,"Syntax error"',
+            "suspected_command": ":SOUR:PRES:LEV:IMM:AMPL:VENT:ETIM?",
+        }
+    ]
+
+    result = live_tool._enrich_live_result_with_pace_diagnostics(
+        runner,
+        {"scenario": "demo", "status": "pass", "route_open_passed": True},
+    )
+
+    assert result["status"] == "pass_with_diagnostic_error"
+    assert result["not_real_acceptance_evidence"] is True
+    assert result["pace_error_attribution_log"][0]["suspected_command"] == ":SOUR:PRES:LEV:IMM:AMPL:VENT:ETIM?"
+
+
+def test_summary_extract_includes_point_runtime_pressure_delta() -> None:
+    extract = live_tool._build_summary_extract(
+        {
+            "scenario_result": {
+                "pressure_delta_from_ambient_hpa": None,
+                "point_runtime_state": {
+                    "pressure_delta_from_ambient_hpa": 0.291,
+                    "route_pressure_guard_status": "pass",
+                    "route_pressure_guard_reason": "",
+                },
+                "route_pressure_guard_summary": {},
+            }
+        }
+    )
+
+    assert extract["pressure_delta_from_ambient_hpa"] == 0.291
+
+
+def test_summary_extract_includes_continuous_atmosphere_fields() -> None:
+    extract = live_tool._build_summary_extract(
+        {
+            "scenario_result": {
+                "source_stage_safety": {"co2_a": False, "co2_b": False, "h2o": False},
+                "point_runtime_state": {
+                    "continuous_atmosphere_active": True,
+                    "vent_keepalive_count": 4,
+                    "atmosphere_flow_safe": False,
+                    "seal_pressure_safe": False,
+                    "analyzer_pressure_available": False,
+                },
+                "continuous_atmosphere_state": {
+                    "active": True,
+                    "keepalive_count": 4,
+                },
+                "pre_route_drain_syst_err_count": 2,
+            }
+        }
+    )
+
+    assert extract["continuous_atmosphere_active"] is True
+    assert extract["vent_keepalive_count"] == 4
+    assert extract["atmosphere_flow_safe"] is False
+    assert extract["seal_pressure_safe"] is False
+    assert extract["analyzer_pressure_available"] is False
+    assert extract["pre_route_drain_syst_err_count"] == 2
+
+
+def test_summary_extract_does_not_drop_route_pressure_guard_status() -> None:
+    extract = live_tool._build_summary_extract(
+        {
+            "scenario_result": {
+                "point_runtime_state": {},
+                "route_pressure_guard_summary": {
+                    "route_pressure_guard_status": "fail",
+                    "route_pressure_guard_reason": "RouteVentPathNotEffective",
+                },
+            }
+        }
+    )
+
+    assert extract["route_pressure_guard_status"] == "fail"
+    assert extract["route_pressure_guard_reason"] == "RouteVentPathNotEffective"
+
+
+def test_route_summary_separates_vent_command_and_vent_status(tmp_path: Path) -> None:
+    runner = _FakeRunner()
+
+    result = live_tool._run_continuous_atmosphere_keepalive_probe_no_source(
+        runner,
+        tmp_path / "trace.csv",
+        _args(continuous_keepalive_probe_s=0.25, continuous_keepalive_probe_poll_s=0.0),
+    )
+
+    state = result["continuous_atmosphere_state"]
+    keepalive_summary = state["last_keepalive_summary"]
+    assert keepalive_summary["pace_vent_command_sent"] == ":SOUR:PRES:LEV:IMM:AMPL:VENT 1"
+    assert keepalive_summary["pace_vent_status_returned"] == 2
+    assert keepalive_summary["pace_vent_status_text"] == "completed"
+    assert ":SOUR:PRES:LEV:IMM:AMPL:VENT 2" not in str(result)
+
+
+def test_continuous_atmosphere_keepalive_probe_no_source(tmp_path: Path) -> None:
+    runner = _FakeRunner()
+
+    result = live_tool._run_continuous_atmosphere_keepalive_probe_no_source(
+        runner,
+        tmp_path / "trace.csv",
+        _args(continuous_keepalive_probe_s=0.25, continuous_keepalive_probe_poll_s=0.0),
+    )
+
+    assert result["status"] == "pass"
+    assert result["open_valves"] == [8, 11, 7]
+    assert result["continuous_atmosphere_state"]["active"] is True
+    assert result["continuous_atmosphere_state"]["keepalive_count"] >= 1
+    assert ("guard", [8, 11, 7]) in runner.calls
+    assert any(call[0] == "keepalive" for call in runner.calls)
 
 
 def test_baseline_final_syst_err_uses_post_cleanup_drain(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

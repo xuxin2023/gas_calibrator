@@ -1,6 +1,8 @@
 import csv
 from pathlib import Path
 
+import pytest
+
 from gas_calibrator.data.points import CalibrationPoint
 from gas_calibrator.logging_utils import RunLogger
 from gas_calibrator.workflow.runner import CalibrationRunner
@@ -71,8 +73,12 @@ def test_h2o_source_stage_safe_default_false(tmp_path: Path) -> None:
 
     state = runner._point_runtime_state(point, phase="h2o") or {}
     assert runner._source_stage_safety["h2o"] is False
+    assert runner._route_final_stage_atmosphere_safety["h2o"] is False
+    assert runner._route_final_stage_seal_safety["h2o"] is False
     assert state["source_stage_key"] == "h2o"
     assert state["source_stage_safe"] is False
+    assert state["route_final_stage_atmosphere_safe"] is False
+    assert state["route_final_stage_seal_safe"] is False
 
 
 def test_h2o_final_stage_false_blocks_dewpoint_gate(tmp_path: Path) -> None:
@@ -253,6 +259,10 @@ def test_source_stage_pass_sets_source_stage_safe(tmp_path: Path) -> None:
     state = runner._point_runtime_state(point, phase="co2") or {}
     assert runner._source_stage_safety["co2_a"] is True
     assert state["source_stage_safe"] is True
+    assert runner._route_final_stage_atmosphere_safety["co2_a"] is True
+    assert runner._route_final_stage_seal_safety["co2_a"] is False
+    assert state["route_final_stage_atmosphere_safe"] is True
+    assert state["route_final_stage_seal_safe"] is False
 
 
 def test_source_stage_fail_records_route_vent_path_not_effective(tmp_path: Path) -> None:
@@ -489,6 +499,30 @@ class _FakePaceCapability:
         return ""
 
 
+class _FakeOldPaceVentAuxProbe:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self.profile = "OLD_PACE5000"
+
+    def get_device_identity(self) -> str:
+        return "*IDN GE Druck,Pace5000 User Interface,3213201,02.00.07"
+
+    def get_instrument_version(self) -> str:
+        return ':INST:VERS "02.00.07"'
+
+    def get_vent_elapsed_time_s(self) -> float:
+        self.calls.append("get_vent_elapsed_time_s")
+        raise RuntimeError("should not query old vent elapsed time")
+
+    def get_vent_over_range_protect_state(self) -> str:
+        self.calls.append("get_vent_over_range_protect_state")
+        raise RuntimeError("should not query old vent ORPV")
+
+    def get_vent_power_up_protect_state(self) -> str:
+        self.calls.append("get_vent_power_up_protect_state")
+        raise RuntimeError("should not query old vent PUPV")
+
+
 def test_k0472_capability_snapshot_records_unit_mode_ranges(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     runner = CalibrationRunner({}, {"pace": _FakePaceCapability()}, logger, lambda *_: None, lambda *_: None)
@@ -631,3 +665,430 @@ def test_analyzer_pressure_unavailable_is_reported_not_silently_ignored(tmp_path
     assert summary["analyzer_pressure_available"] is False
     assert summary["analyzer_pressure_protection_active"] is False
     assert summary["analyzer_pressure_status"] == "unavailable"
+
+
+def test_atmosphere_flow_safe_does_not_imply_seal_pressure_safe(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    point = _co2_point()
+
+    runner._route_final_stage_atmosphere_safety["co2_a"] = True
+    runner._sync_co2_source_stage_runtime_fields(point, phase="co2")
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["route_final_stage_atmosphere_safe"] is True
+    assert state["route_final_stage_seal_safe"] is False
+    assert state["atmosphere_flow_safe"] is True
+    assert state["seal_pressure_safe"] is False
+
+
+def test_dewpoint_gate_requires_continuous_atmosphere_active_when_flowing(tmp_path: Path) -> None:
+    logger = RunLogger(
+        tmp_path,
+    )
+    runner = CalibrationRunner(
+        {"workflow": {"stability": {"gas_route_dewpoint_gate_enabled": True, "gas_route_dewpoint_gate_policy": "reject"}}},
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _co2_point()
+    runner._source_stage_safety["co2_a"] = True
+    runner._route_final_stage_atmosphere_safety["co2_a"] = True
+    runner._sync_co2_source_stage_runtime_fields(point, phase="co2")
+
+    assert runner._wait_co2_route_dewpoint_gate_before_seal(point, base_soak_s=0.0, log_context="unit continuous active") is False
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["abort_reason"] == "ContinuousAtmosphereFlowthroughNotActive"
+
+
+def test_seal_transition_requires_seal_pressure_safe_not_only_atmosphere_safe(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    point = _co2_point()
+    runner._source_stage_safety["co2_a"] = True
+    runner._route_final_stage_atmosphere_safety["co2_a"] = True
+    runner._sync_co2_source_stage_runtime_fields(point, phase="co2")
+    runner._pressurize_and_hold = lambda *_args, **_kwargs: True  # type: ignore[method-assign]
+
+    assert runner._pressurize_route_for_sealed_points(point, route="co2", sealed_control_refs=[point]) is False
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["abort_reason"] == "SealPressureStageNotVerified"
+
+
+def test_sampling_under_pressure_blocks_when_only_atmosphere_flow_safe(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    point = _h2o_point()
+    runner._source_stage_safety["h2o"] = True
+    runner._route_final_stage_atmosphere_safety["h2o"] = True
+    runner._sync_h2o_source_stage_runtime_fields(point, phase="h2o")
+    runner._pressurize_and_hold = lambda *_args, **_kwargs: True  # type: ignore[method-assign]
+
+    assert runner._pressurize_route_for_sealed_points(point, route="h2o", sealed_control_refs=[point]) is False
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="h2o") or {}
+    assert state["abort_reason"] == "SealPressureStageNotVerified"
+
+
+def test_source_stage_open_requires_continuous_atmosphere_window(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {"valves": {"h2o_path": 8, "gas_main": 11, "co2_path": 7, "co2_map": {"600": 4}}},
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _co2_point()
+    runner._apply_valve_states = lambda open_valves: setattr(runner, "_current_open_valves", tuple(open_valves))  # type: ignore[method-assign]
+    seen: list[bool] = []
+
+    def _guard(*args, **kwargs):
+        if str(kwargs.get("stage_label") or "") == "8|11|7|4":
+            state = runner._point_runtime_state(point, phase="co2") or {}
+            seen.append(bool(state.get("continuous_atmosphere_active")))
+        return True, {
+            "route_pressure_guard_status": "pass",
+            "route_pressure_guard_reason": "",
+            "pressure_delta_from_ambient_hpa": 0.5,
+            "analyzer_pressure_kpa": None,
+            "pace_syst_err_query": '0,"No error"',
+            "abort_reason": "",
+            "vent_recovery_result": "",
+            "hidden_syst_err_count": 0,
+            "unclassified_syst_err_count": 0,
+        }
+
+    runner._run_route_open_pressure_guard = _guard  # type: ignore[method-assign]
+
+    assert runner._open_route_with_pressure_guard(
+        point,
+        phase="co2",
+        point_tag="demo",
+        open_valves=[8, 11, 7, 4],
+        log_context="unit continuous source stage window",
+    ) is True
+    logger.close()
+
+    assert seen == [True]
+
+
+def test_h2o_final_stage_open_requires_continuous_atmosphere_window(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {"valves": {"h2o_path": 8, "hold": 9, "flow_switch": 10}},
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _h2o_point()
+    runner._apply_valve_states = lambda open_valves: setattr(runner, "_current_open_valves", tuple(open_valves))  # type: ignore[method-assign]
+    seen: list[bool] = []
+
+    def _guard(*args, **kwargs):
+        if str(kwargs.get("stage_label") or "") == "8|9|10":
+            state = runner._point_runtime_state(point, phase="h2o") or {}
+            seen.append(bool(state.get("continuous_atmosphere_active")))
+        return True, {
+            "route_pressure_guard_status": "pass",
+            "route_pressure_guard_reason": "",
+            "pressure_delta_from_ambient_hpa": 0.5,
+            "analyzer_pressure_kpa": None,
+            "pace_syst_err_query": '0,"No error"',
+            "abort_reason": "",
+            "vent_recovery_result": "",
+            "hidden_syst_err_count": 0,
+            "unclassified_syst_err_count": 0,
+        }
+
+    runner._run_route_open_pressure_guard = _guard  # type: ignore[method-assign]
+
+    assert runner._open_route_with_pressure_guard(
+        point,
+        phase="h2o",
+        point_tag="demo",
+        open_valves=[8, 9, 10],
+        log_context="unit h2o final stage continuous window",
+    ) is True
+    logger.close()
+
+    assert seen == [True]
+
+
+def test_pressure_rise_during_flowthrough_triggers_vent_keepalive(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    point = _co2_point()
+    runner._last_atmosphere_gate_summary = {"ambient_hpa": 1012.0, "atmosphere_ready": True}
+    runner._continuous_atmosphere_state = {
+        "active": True,
+        "route_flow_active": True,
+        "route_key": "co2_a",
+        "phase_name": "ContinuousAtmosphereFlowThrough",
+        "pressure_mode": "AtmosphereFlush",
+        "keepalive_count": 0,
+        "last_keepalive_ts": 0.0,
+        "last_keepalive_reason": "",
+        "last_keepalive_summary": {},
+    }
+    runner._read_current_pressure_hpa_for_atmosphere = lambda: {  # type: ignore[method-assign]
+        "pressure_hpa": 1045.0,
+        "pace_pressure_hpa": 1045.0,
+        "pressure_gauge_hpa": 1045.0,
+    }
+    runner._route_stage_fresh_vent_refresh = lambda *args, **kwargs: {  # type: ignore[method-assign]
+        "fresh_vent_command_sent": True,
+        "vent_status_sequence": [1, 2],
+        "vent_status_sequence_text": "1,2",
+        "pressure_hpa": 1012.5,
+        "pressure_delta_from_ambient_hpa": 0.5,
+        "abort_reason": "",
+    }
+
+    ok, state = runner.maintain_continuous_atmosphere_flowthrough(
+        "co2_a",
+        point=point,
+        phase="co2",
+        phase_name="ContinuousAtmosphereFlowThrough",
+        reason="unit keepalive",
+        force=False,
+    )
+    logger.close()
+
+    assert ok is True
+    assert state["keepalive_count"] == 1
+    assert state["last_keepalive_summary"]["pace_vent_command_sent"] == ":SOUR:PRES:LEV:IMM:AMPL:VENT 1"
+
+
+def test_pressure_rise_after_keepalive_fails_atmosphere_path_insufficient(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    point = _co2_point()
+    runner._last_atmosphere_gate_summary = {"ambient_hpa": 1012.0, "atmosphere_ready": True}
+    runner._continuous_atmosphere_state = {
+        "active": True,
+        "route_flow_active": True,
+        "route_key": "co2_a",
+        "phase_name": "ContinuousAtmosphereFlowThrough",
+        "pressure_mode": "AtmosphereFlush",
+        "keepalive_count": 0,
+        "last_keepalive_ts": 0.0,
+        "last_keepalive_reason": "",
+        "last_keepalive_summary": {},
+    }
+    runner._read_current_pressure_hpa_for_atmosphere = lambda: {  # type: ignore[method-assign]
+        "pressure_hpa": 1065.0,
+        "pace_pressure_hpa": 1065.0,
+        "pressure_gauge_hpa": 1065.0,
+    }
+    runner._route_stage_fresh_vent_refresh = lambda *args, **kwargs: {  # type: ignore[method-assign]
+        "fresh_vent_command_sent": True,
+        "vent_status_sequence": [1, 2],
+        "vent_status_sequence_text": "1,2",
+        "pressure_hpa": 1048.0,
+        "pressure_delta_from_ambient_hpa": 36.0,
+        "abort_reason": "",
+    }
+
+    ok, state = runner.maintain_continuous_atmosphere_flowthrough(
+        "co2_a",
+        point=point,
+        phase="co2",
+        phase_name="ContinuousAtmosphereFlowThrough",
+        reason="unit keepalive fail",
+    )
+    logger.close()
+
+    assert ok is False
+    assert state["abort_reason"] == "AtmospherePathInsufficientUnderFlow"
+
+
+def test_no_global_periodic_vent_restored(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    calls: list[str] = []
+    runner._route_stage_fresh_vent_refresh = lambda *args, **kwargs: calls.append("refresh") or {}  # type: ignore[method-assign]
+
+    runner._refresh_pressure_controller_atmosphere_hold(force=True, reason="unit test")
+    logger.close()
+
+    assert calls == []
+
+
+def test_vent_keepalive_only_active_during_route_flush_or_atmosphere_flowthrough(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    point = _co2_point()
+    calls: list[str] = []
+    runner._route_stage_fresh_vent_refresh = lambda *args, **kwargs: calls.append("refresh") or {}  # type: ignore[method-assign]
+    runner._continuous_atmosphere_state = {
+        "active": True,
+        "route_flow_active": True,
+        "route_key": "co2_a",
+        "phase_name": "ContinuousAtmosphereFlowThrough",
+        "pressure_mode": "AtmosphereFlush",
+        "keepalive_count": 0,
+        "last_keepalive_ts": 0.0,
+        "last_keepalive_reason": "",
+        "last_keepalive_summary": {},
+    }
+
+    ok, _state = runner.maintain_continuous_atmosphere_flowthrough(
+        "co2_a",
+        point=point,
+        phase="co2",
+        phase_name="PressureSetpointHold",
+        reason="unit no keepalive in hold",
+        force=True,
+    )
+    logger.close()
+
+    assert ok is True
+    assert calls == []
+
+
+def test_pressure_setpoint_hold_still_has_no_vent_keepalive(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    point = _co2_point()
+    runner._continuous_atmosphere_state = {
+        "active": True,
+        "route_flow_active": True,
+        "route_key": "co2_a",
+        "phase_name": "ContinuousAtmosphereFlowThrough",
+        "pressure_mode": "AtmosphereFlush",
+        "keepalive_count": 2,
+        "last_keepalive_ts": 0.0,
+        "last_keepalive_reason": "",
+        "last_keepalive_summary": {},
+    }
+    calls: list[str] = []
+    runner._route_stage_fresh_vent_refresh = lambda *args, **kwargs: calls.append("refresh") or {}  # type: ignore[method-assign]
+
+    runner.exit_continuous_atmosphere_flowthrough("co2_a", point=point, phase="co2", reason="before hold")
+    ok, state = runner.maintain_continuous_atmosphere_flowthrough(
+        "co2_a",
+        point=point,
+        phase="co2",
+        phase_name="PressureSetpointHold",
+        reason="unit pressure hold",
+        force=True,
+    )
+    logger.close()
+
+    assert ok is True
+    assert calls == []
+    assert state["active"] is False
+
+
+def test_pre_route_drain_error_requires_io_context(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    io_path = Path(logger.io_path)
+    io_path.write_text(
+        "\n".join(
+            [
+                "timestamp,port,device,direction,duration_ms,command,response,error",
+                "2026-04-21T10:00:00.000,COM31,pace5000,TX,0.1,:SOUR:PRES:LEV:IMM:AMPL:VENT:ETIM?\\n,,",
+                "2026-04-21T10:00:00.010,COM31,pace5000,QUERY,10,:SOUR:PRES:LEV:IMM:AMPL:VENT:ETIM?\\n,,",
+                "2026-04-21T10:00:00.020,COM31,pace5000,TX,0.1,:SYST:ERR?\\n,,",
+                "2026-04-21T10:00:00.030,COM31,pace5000,RX,10,,\":SYST:ERR -102,\\\"Syntax error\\\"\",",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    runner._last_clean_syst_err_ts = "2026-04-21T09:59:59.000"
+    runner._record_pace_error_attribution(
+        classification="pre_route_drain",
+        action="pre_route_drain",
+        syst_err=':SYST:ERR -102,"Syntax error"',
+        command="relay_stage:8",
+        response="8",
+        reason="unit pre-route drain",
+    )
+    logger.close()
+
+    snapshot = runner._pace_error_attribution_log_snapshot()
+    assert snapshot[0]["commands_since_last_clean_syst_err"]
+    assert snapshot[0]["last_20_pace_io_before_error"]
+    assert snapshot[0]["next_20_pace_io_after_error"]
+    assert "VENT:ETIM?" in snapshot[0]["suspected_command"]
+
+
+def test_old_pace_vent_aux_probes_are_not_used_in_route_guard(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceCapability()
+    runner = CalibrationRunner({}, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+    logger.close()
+
+    assert runner._pace_route_trace_optional_diagnostic_key_enabled(pace, "pace_vent_elapsed_time_query") is False
+    assert runner._pace_route_trace_optional_diagnostic_key_enabled(pace, "pace_vent_orpv_state_query") is False
+    assert runner._pace_route_trace_optional_diagnostic_key_enabled(pace, "pace_vent_pupv_state_query") is False
+
+
+def test_refresh_pressure_controller_aux_state_skips_old_pace_vent_aux_probes(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    pace = _FakeOldPaceVentAuxProbe()
+    runner = CalibrationRunner({}, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+
+    runner._refresh_pressure_controller_aux_state(pace)
+    logger.close()
+
+    assert pace.calls == []
+    assert runner._pace_vent_elapsed_time_query is None
+    assert runner._pace_vent_orpv_state_query is None
+    assert runner._pace_vent_pupv_state_query is None
+
+
+def test_sealed_no_vent_guard_blocks_vent_on_during_pressure_hold(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    point = _co2_point()
+    runner._activate_sealed_no_vent_guard(
+        point=point,
+        phase="co2",
+        guard_phase="PressureSetpointHold",
+        reason="unit pressure hold",
+    )
+
+    with pytest.raises(RuntimeError, match="sealed_no_vent_guard_violation:vent_on"):
+        runner._set_pressure_controller_vent(True, reason="forbidden during pressure hold")
+    logger.close()
+
+    trace_rows = _load_pressure_trace_rows(logger)
+    assert any(row["trace_stage"] == "sealed_no_vent_guard_violation" for row in trace_rows)
+
+
+def test_sealed_no_vent_guard_blocks_stale_keepalive_after_seal_transition(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner({}, {}, logger, lambda *_: None, lambda *_: None)
+    point = _co2_point()
+    runner._activate_sealed_no_vent_guard(
+        point=point,
+        phase="co2",
+        guard_phase="SealTransition",
+        reason="unit seal transition",
+    )
+
+    ok, state = runner.maintain_continuous_atmosphere_flowthrough(
+        "co2_a",
+        point=point,
+        phase="co2",
+        phase_name="ContinuousAtmosphereFlowThrough",
+        reason="stale keepalive callback",
+    )
+    logger.close()
+
+    assert ok is False
+    assert state["abort_reason"] == "KeepaliveBlockedBySealedNoVentGuard"
+    assert state["active"] is False

@@ -627,6 +627,41 @@ def test_wait_after_pressure_stable_clears_presample_lock_on_sampling_begin(tmp_
     assert runner._presample_lock_state is None
 
 
+def test_sampling_begin_blocks_vent_during_sampling_under_pressure(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {
+            "workflow": {
+                "pressure": {
+                    "adaptive_pressure_sampling_enabled": True,
+                    "skip_fixed_post_stable_delay_when_adaptive": True,
+                }
+            }
+        },
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    point = _co2_point()
+    _prime_sealed_runtime(runner, point)
+    runner._set_pressure_controller_sampling_isolation = lambda _point, **_kwargs: True
+    runner._wait_post_isolation_leak_test = lambda _point, **_kwargs: True
+    runner._wait_sampling_pressure_gate = lambda _point, **_kwargs: True
+    runner._wait_postseal_dewpoint_gate = lambda _point, **_kwargs: True
+    runner._wait_co2_presample_long_guard = lambda _point, **_kwargs: True
+
+    assert runner._wait_after_pressure_stable_before_sampling(point) is True
+
+    with pytest.raises(RuntimeError, match="sealed_no_vent_guard_violation:vent_on"):
+        runner._set_pressure_controller_vent(True, reason="forbidden during sampling under pressure")
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["sealed_no_vent_guard_active"] is True
+    assert state["sealed_no_vent_guard_phase"] == "SamplingUnderPressure"
+
+
 def test_output_off_hold_falls_back_to_pace_when_gauge_missing(tmp_path: Path) -> None:
     logger = RunLogger(tmp_path)
     pace = _PressureReader([805.5])

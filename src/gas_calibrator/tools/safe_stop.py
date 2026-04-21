@@ -32,6 +32,27 @@ def _as_float(value: Any) -> Optional[float]:
         return None
 
 
+def _parse_pace_status_value(response: Any) -> Optional[int]:
+    text = str(response or "").strip()
+    if not text:
+        return None
+    token = text.split()[-1]
+    return _as_int(token)
+
+
+def _pace_vent_status_text(status: Any) -> str:
+    value = _as_int(status)
+    if value == 0:
+        return "idle"
+    if value == 1:
+        return "in_progress"
+    if value == 2:
+        return "completed"
+    if value == 3:
+        return "trapped_pressure"
+    return "unknown"
+
+
 def _safe_stop_cfg(cfg: Dict[str, Any]) -> Dict[str, Any]:
     reduced = copy.deepcopy(cfg)
     devices = reduced.get("devices", {})
@@ -280,8 +301,22 @@ def perform_safe_stop(
             log_fn(f"pace pressure={result['pace_pressure_hpa']}")
         except Exception as exc:
             log_fn(f"pace read failed: {exc}")
+        try:
+            vent_query_raw = pace.query(":SOUR:PRES:LEV:IMM:AMPL:VENT?").strip()
+            vent_status = _parse_pace_status_value(vent_query_raw)
+            result["pace_vent_command_sent"] = ":SOUR:PRES:LEV:IMM:AMPL:VENT 1"
+            result["pace_vent_status_query_raw"] = vent_query_raw
+            result["pace_vent_status_returned"] = vent_status
+            result["pace_vent_status_text"] = _pace_vent_status_text(vent_status)
+            log_fn(
+                "pace_vent status="
+                f"{result['pace_vent_status_returned']} "
+                f"text={result['pace_vent_status_text']} "
+                f"raw={result['pace_vent_status_query_raw']}"
+            )
+        except Exception as exc:
+            log_fn(f"pace_vent query failed: {exc}")
         for key, cmd in (
-            ("pace_vent", ":SOUR:PRES:LEV:IMM:AMPL:VENT?"),
             ("pace_outp", ":OUTP:STAT?"),
             ("pace_isol", ":OUTP:ISOL:STAT?"),
         ):

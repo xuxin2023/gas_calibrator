@@ -3,6 +3,8 @@ import threading
 import types
 from pathlib import Path
 
+import pytest
+
 from gas_calibrator.data.points import CalibrationPoint
 from gas_calibrator.logging_utils import RunLogger
 from gas_calibrator.workflow import runner as runner_module
@@ -969,6 +971,35 @@ def test_same_gas_pressure_step_handoff_does_not_emit_atmosphere_enter_or_route_
     assert selected_rows[0]["handoff_mode"] == "same_gas_pressure_step_handoff"
     assert not any(row["trace_stage"] == "atmosphere_enter_begin" for row in trace_rows)
     assert not any(row["trace_stage"] == "route_open" for row in trace_rows)
+
+
+def test_same_gas_pressure_step_handoff_blocks_vent_during_pressure_point_switch(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    runner = CalibrationRunner(
+        {},
+        {},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    current_point = _co2_point(1, 400.0, 1000.0)
+    next_point = _co2_point(2, 400.0, 800.0)
+    runner._last_sealed_pressure_route_context = {
+        "phase": "co2",
+        "route_signature": runner._route_signature_for_point(current_point, phase="co2"),
+        "point_row": current_point.index,
+    }
+
+    mode = runner._prepare_sampling_handoff_mode(next_point, phase="co2")
+
+    with pytest.raises(RuntimeError, match="sealed_no_vent_guard_violation:vent_on"):
+        runner._set_pressure_controller_vent(True, reason="forbidden during pressure point switch")
+    logger.close()
+
+    state = runner._point_runtime_state(next_point, phase="co2") or {}
+    assert mode == "same_gas_pressure_step_handoff"
+    assert state["sealed_no_vent_guard_active"] is True
+    assert state["sealed_no_vent_guard_phase"] == "PressurePointSwitch"
 
 
 def test_route_seal_context_is_remembered_before_sampling_for_follow_on_same_gas_point(tmp_path: Path) -> None:

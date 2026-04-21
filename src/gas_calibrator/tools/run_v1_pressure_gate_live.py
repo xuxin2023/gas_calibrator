@@ -232,6 +232,70 @@ def _runner_source_stage_safety(runner: CalibrationRunner) -> Dict[str, Any]:
     return {}
 
 
+def _runner_route_final_stage_atmosphere_safety(runner: CalibrationRunner) -> Dict[str, Any]:
+    if hasattr(runner, "_route_final_stage_atmosphere_safety_snapshot"):
+        return dict(runner._route_final_stage_atmosphere_safety_snapshot() or {})
+    return {}
+
+
+def _runner_route_final_stage_seal_safety(runner: CalibrationRunner) -> Dict[str, Any]:
+    if hasattr(runner, "_route_final_stage_seal_safety_snapshot"):
+        return dict(runner._route_final_stage_seal_safety_snapshot() or {})
+    return {}
+
+
+def _runner_continuous_atmosphere_state(runner: CalibrationRunner) -> Dict[str, Any]:
+    if hasattr(runner, "_continuous_atmosphere_state_snapshot"):
+        return dict(runner._continuous_atmosphere_state_snapshot() or {})
+    return {}
+
+
+def _build_summary_extract(summary: Mapping[str, Any]) -> Dict[str, Any]:
+    scenario_result = dict(summary.get("scenario_result") or {})
+    point_state = dict(scenario_result.get("point_runtime_state") or {})
+    route_guard = dict(scenario_result.get("route_pressure_guard_summary") or {})
+    continuous_state = dict(scenario_result.get("continuous_atmosphere_state") or {})
+    pressure_delta = scenario_result.get("pressure_delta_from_ambient_hpa")
+    if pressure_delta in (None, ""):
+        pressure_delta = point_state.get("pressure_delta_from_ambient_hpa")
+    if pressure_delta in (None, ""):
+        pressure_delta = route_guard.get("pressure_delta_from_ambient_hpa")
+    extract = {
+        "pressure_delta_from_ambient_hpa": pressure_delta,
+        "route_pressure_guard_status": point_state.get(
+            "route_pressure_guard_status",
+            route_guard.get("route_pressure_guard_status"),
+        ),
+        "route_pressure_guard_reason": point_state.get(
+            "route_pressure_guard_reason",
+            route_guard.get("route_pressure_guard_reason"),
+        ),
+        "source_stage_safety": scenario_result.get("source_stage_safety", {}),
+        "atmosphere_flow_safe": point_state.get(
+            "atmosphere_flow_safe",
+            point_state.get("route_final_stage_atmosphere_safe"),
+        ),
+        "seal_pressure_safe": point_state.get(
+            "seal_pressure_safe",
+            point_state.get("route_final_stage_seal_safe"),
+        ),
+        "analyzer_pressure_available": route_guard.get(
+            "analyzer_pressure_available",
+            point_state.get("analyzer_pressure_available"),
+        ),
+        "continuous_atmosphere_active": point_state.get(
+            "continuous_atmosphere_active",
+            continuous_state.get("active"),
+        ),
+        "vent_keepalive_count": point_state.get(
+            "vent_keepalive_count",
+            continuous_state.get("keepalive_count"),
+        ),
+        "pre_route_drain_syst_err_count": scenario_result.get("pre_route_drain_syst_err_count", 0),
+    }
+    return extract
+
+
 def _enrich_live_result_with_pace_diagnostics(
     runner: CalibrationRunner,
     result: Dict[str, Any],
@@ -251,6 +315,11 @@ def _enrich_live_result_with_pace_diagnostics(
     else:
         enriched.setdefault("pace_error_attribution_log", [])
     enriched["source_stage_safety"] = _runner_source_stage_safety(runner)
+    enriched["route_final_stage_atmosphere_safety"] = _runner_route_final_stage_atmosphere_safety(runner)
+    enriched["route_final_stage_seal_safety"] = _runner_route_final_stage_seal_safety(runner)
+    enriched["continuous_atmosphere_state"] = _runner_continuous_atmosphere_state(runner)
+    enriched["atmosphere_flow_safe"] = dict(enriched["route_final_stage_atmosphere_safety"])
+    enriched["seal_pressure_safe"] = dict(enriched["route_final_stage_seal_safety"])
     effective_final_syst_err = str(final_syst_err or runner._read_pace_system_error_text() or "").strip()
     enriched["final_syst_err"] = effective_final_syst_err
     if (
@@ -258,6 +327,7 @@ def _enrich_live_result_with_pace_diagnostics(
         and (
             int(enriched.get("hidden_syst_err_count") or 0) > 0
             or int(enriched.get("unclassified_syst_err_count") or 0) > 0
+            or int(enriched.get("pre_route_drain_syst_err_count") or 0) > 0
             or not _pace_error_is_clear(effective_final_syst_err)
         )
     ):
@@ -268,6 +338,8 @@ def _enrich_live_result_with_pace_diagnostics(
         )
         if int(enriched.get("unclassified_syst_err_count") or 0) > 0 and not str(enriched.get("abort_reason") or "").strip():
             enriched["abort_reason"] = "UnclassifiedPaceSystErrDuringRouteStage"
+    if int(enriched.get("pre_route_drain_syst_err_count") or 0) > 0:
+        enriched["not_real_acceptance_evidence"] = True
     return enriched
 
 
@@ -611,6 +683,65 @@ def _run_route_synchronized_atmosphere_flush_h2o(
     })
 
 
+def _run_continuous_atmosphere_keepalive_probe_no_source(
+    runner: CalibrationRunner,
+    trace_path: Path,
+    args: argparse.Namespace,
+) -> Dict[str, Any]:
+    point = _build_co2_point(args, index=9016, co2_ppm=600.0, co2_group="A")
+    trace_start = _trace_row_count(trace_path)
+    drain_summary = _drain_pace_errors_for_live_step(
+        runner,
+        reason="continuous_atmosphere_keepalive_probe_no_source pre-step",
+    )
+    runner._clear_last_sealed_pressure_route_context(reason="continuous atmosphere keepalive probe no-source")
+    runner._clear_pressure_sequence_context(reason="continuous atmosphere keepalive probe no-source")
+    runner._set_co2_route_baseline(reason="continuous atmosphere keepalive probe no-source baseline")
+    open_valves = runner._co2_open_valves(point, include_total_valve=True, include_source_valve=False)
+    ok = runner._open_route_with_pressure_guard(
+        point,
+        phase="co2",
+        point_tag="continuous_atmosphere_keepalive_probe_no_source",
+        open_valves=open_valves,
+        log_context="continuous atmosphere keepalive probe no-source",
+    )
+    keepalive_samples: List[Dict[str, Any]] = []
+    if ok and hasattr(runner, "maintain_continuous_atmosphere_flowthrough"):
+        deadline = time.monotonic() + float(getattr(args, "continuous_keepalive_probe_s", 6.0))
+        while time.monotonic() < deadline:
+            keepalive_ok, keepalive_state = runner.maintain_continuous_atmosphere_flowthrough(  # type: ignore[attr-defined]
+                "co2_a",
+                point=point,
+                phase="co2",
+                point_tag="continuous_atmosphere_keepalive_probe_no_source",
+                phase_name="ContinuousAtmosphereFlowThrough",
+                reason="continuous atmosphere keepalive probe no-source",
+            )
+            keepalive_samples.append(dict(keepalive_state or {}))
+            if not keepalive_ok:
+                ok = False
+                break
+            time.sleep(min(1.0, max(0.2, float(getattr(args, "continuous_keepalive_probe_poll_s", 1.0)))))
+    point_state = dict(runner._point_runtime_state(point, phase="co2") or {})
+    abort_reason = str(point_state.get("abort_reason") or "").strip()
+    return _enrich_live_result_with_pace_diagnostics(
+        runner,
+        {
+            "scenario": "continuous_atmosphere_keepalive_probe_no_source",
+            "status": _status_from_abort(bool(ok), abort_reason),
+            "route_open_passed": bool(ok),
+            "abort_reason": abort_reason,
+            "point_runtime_state": point_state,
+            "open_valves": open_valves,
+            "keepalive_probe_samples": keepalive_samples,
+            "atmosphere_summary": dict(runner._last_atmosphere_gate_summary or {}),
+            "route_pressure_guard_summary": _route_guard_summary_payload(runner),
+            **drain_summary,
+            "pressure_trace_rows": _scenario_trace_rows(trace_path, trace_start),
+        },
+    )
+
+
 def _run_route_open_pressure_guard(
     runner: CalibrationRunner,
     trace_path: Path,
@@ -870,6 +1001,10 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
             "route_synchronized_atmosphere_flush_co2_b",
             "route_synchronized_atmosphere_flush_h2o_no_final",
             "route_synchronized_atmosphere_flush_h2o",
+            "continuous_atmosphere_keepalive_probe_no_source",
+            "route_synchronized_atmosphere_flowthrough_co2_a_source_guarded",
+            "route_synchronized_atmosphere_flowthrough_co2_b_source_guarded",
+            "route_synchronized_atmosphere_flowthrough_h2o_final_guarded",
             "route_flush_dewpoint_gate",
             "route_valve_isolation",
         ),
@@ -919,6 +1054,8 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--dewpoint-gate-max-wait-s", type=float, default=120.0)
     parser.add_argument("--dewpoint-gate-poll-s", type=float, default=1.0)
     parser.add_argument("--dewpoint-gate-log-interval-s", type=float, default=5.0)
+    parser.add_argument("--continuous-keepalive-probe-s", type=float, default=6.0)
+    parser.add_argument("--continuous-keepalive-probe-poll-s", type=float, default=1.0)
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -940,6 +1077,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         "route_synchronized_atmosphere_flush_co2_b",
         "route_synchronized_atmosphere_flush_h2o_no_final",
         "route_synchronized_atmosphere_flush_h2o",
+        "continuous_atmosphere_keepalive_probe_no_source",
+        "route_synchronized_atmosphere_flowthrough_co2_a_source_guarded",
+        "route_synchronized_atmosphere_flowthrough_co2_b_source_guarded",
+        "route_synchronized_atmosphere_flowthrough_h2o_final_guarded",
         "route_flush_dewpoint_gate",
         "route_valve_isolation",
     }
@@ -998,6 +1139,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             scenario_result = _run_route_synchronized_atmosphere_flush_co2_a_source_guarded(runner, trace_path, args)
         elif args.scenario == "route_synchronized_atmosphere_flush_co2_b_source_guarded":
             scenario_result = _run_route_synchronized_atmosphere_flush_co2_b_source_guarded(runner, trace_path, args)
+        elif args.scenario == "route_synchronized_atmosphere_flowthrough_co2_a_source_guarded":
+            scenario_result = _run_route_synchronized_atmosphere_flush_co2_a_source_guarded(runner, trace_path, args)
+        elif args.scenario == "route_synchronized_atmosphere_flowthrough_co2_b_source_guarded":
+            scenario_result = _run_route_synchronized_atmosphere_flush_co2_b_source_guarded(runner, trace_path, args)
         elif args.scenario == "route_synchronized_atmosphere_flush_co2_a":
             scenario_result = _run_route_synchronized_atmosphere_flush_co2_a_source_guarded(runner, trace_path, args)
         elif args.scenario == "route_synchronized_atmosphere_flush_co2_b":
@@ -1006,6 +1151,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             scenario_result = _run_route_synchronized_atmosphere_flush_h2o_no_final(runner, trace_path, args)
         elif args.scenario == "route_synchronized_atmosphere_flush_h2o":
             scenario_result = _run_route_synchronized_atmosphere_flush_h2o(runner, trace_path, args)
+        elif args.scenario == "route_synchronized_atmosphere_flowthrough_h2o_final_guarded":
+            scenario_result = _run_route_synchronized_atmosphere_flush_h2o(runner, trace_path, args)
+        elif args.scenario == "continuous_atmosphere_keepalive_probe_no_source":
+            scenario_result = _run_continuous_atmosphere_keepalive_probe_no_source(runner, trace_path, args)
         elif args.scenario == "route_valve_isolation":
             scenario_result = _run_route_valve_isolation(runner, trace_path, args)
         else:
@@ -1057,6 +1206,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 summary["scenario_result"]["cleanup_syst_errs"] = cleanup_syst_errs
                 if cleanup_syst_errs and str(summary["scenario_result"].get("status") or "") == "pass":
                     summary["scenario_result"]["status"] = "pass_with_diagnostic_error"
+        summary["summary_extract"] = _build_summary_extract(summary)
         summary_path = logger.run_dir / "pressure_gate_live_summary.json"
         try:
             _write_json(summary_path, summary)

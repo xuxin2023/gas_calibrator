@@ -863,18 +863,13 @@ def test_wait_co2_route_dewpoint_gate_fails_fast_when_atmosphere_gate_missing(tm
 
     state = runner._point_runtime_state(point, phase="co2") or {}
     assert state.get("dewpoint_stabilization_started") is not True
-    assert state["abort_reason"] == "FreshVentNotSent"
-    assert safe_stop_calls == [
-        {
-            "abort_reason": "FreshVentNotSent",
-            "note": "unit test atmosphere gate precheck failed",
-        }
-    ]
+    assert state["abort_reason"] == "ContinuousAtmosphereFlowthroughNotActive"
+    assert safe_stop_calls == []
     trace_rows = _load_pressure_trace_rows(logger)
     end_row = next(row for row in trace_rows if row["trace_stage"] == "co2_precondition_dewpoint_gate_end")
-    assert end_row["flush_gate_reason"].strip() == "FreshVentNotSent"
+    assert end_row["flush_gate_reason"].strip() == "ContinuousAtmosphereFlowthroughNotActive"
     assert end_row["dewpoint_stabilization_started"].strip().lower() != "true"
-    assert end_row["abort_reason"].strip() == "FreshVentNotSent"
+    assert end_row["abort_reason"].strip() == "ContinuousAtmosphereFlowthroughNotActive"
 
 
 def test_check_flush_pressure_guard_aborts_on_rising_pressure(tmp_path: Path) -> None:

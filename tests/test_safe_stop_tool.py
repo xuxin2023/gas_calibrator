@@ -109,10 +109,33 @@ def test_perform_safe_stop_uses_set_valve_and_verifies_states() -> None:
     assert result["relay_states"] == [False] * 16
     assert result["relay8_states"] == [False] * 8
     assert result["pace_pressure_hpa"] == 1010.5
+    assert result["pace_vent_command_sent"] == ":SOUR:PRES:LEV:IMM:AMPL:VENT 1"
+    assert result["pace_vent_status_returned"] == 2
+    assert result["pace_vent_status_text"] == "completed"
+    assert result["pace_vent_status_query_raw"] == ":SOUR:PRES:LEV:IMM:AMPL:VENT 2"
     assert result["gauge_pressure_hpa"] == 1009.9
     assert result["chamber"]["run_state"] == 0
     assert result["hgen_stop_check"] == {"ok": True, "flow_lpm": 0.0, "max_flow_lpm": 0.05}
     assert hgen.wait_calls == [{"max_flow_lpm": 0.05, "timeout_s": 5.0, "poll_s": 0.5}]
+
+
+def test_never_sends_vent_status_2_as_command() -> None:
+    pace = _FakePace()
+
+    result = perform_safe_stop({"pace": pace}, log_fn=lambda *_: None)
+
+    assert ":SOUR:PRES:LEV:IMM:AMPL:VENT 2" not in pace.calls
+    assert result["pace_vent_command_sent"] == ":SOUR:PRES:LEV:IMM:AMPL:VENT 1"
+    assert result["pace_vent_status_returned"] == 2
+
+
+def test_cleanup_summary_separates_vent_command_and_vent_status() -> None:
+    result = perform_safe_stop({"pace": _FakePace()}, log_fn=lambda *_: None)
+
+    assert "pace_vent" not in result
+    assert result["pace_vent_command_sent"] == ":SOUR:PRES:LEV:IMM:AMPL:VENT 1"
+    assert result["pace_vent_status_returned"] == 2
+    assert result["pace_vent_status_text"] == "completed"
 
 
 def test_perform_safe_stop_uses_cfg_baseline_when_available() -> None:

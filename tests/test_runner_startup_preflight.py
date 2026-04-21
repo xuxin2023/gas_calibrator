@@ -419,6 +419,9 @@ def test_startup_pressure_precheck_passes_and_restores_baseline(tmp_path: Path) 
         kwargs.get("phase"),
         kwargs.get("open_valves"),
     )) or True
+    runner._pressurize_route_for_sealed_points = lambda one_point, route="co2", sealed_control_refs=None: events.append(  # type: ignore[method-assign]
+        ("seal", route, one_point.target_pressure_hpa)
+    ) or True
     runner._pressurize_and_hold = lambda one_point, route="co2": events.append(("pressurize", route, one_point.target_pressure_hpa)) or True  # type: ignore[method-assign]
     runner._set_pressure_to_target = lambda one_point: events.append(("stabilize", one_point.target_pressure_hpa)) or True  # type: ignore[method-assign]
     runner._observe_startup_pressure_hold = lambda _cfg: (  # type: ignore[method-assign]
@@ -440,7 +443,7 @@ def test_startup_pressure_precheck_passes_and_restores_baseline(tmp_path: Path) 
 
     assert ("baseline", "before startup pressure precheck") in events
     assert any(event[0] == "guarded_route_open" and event[1] == "co2" for event in events)
-    assert ("pressurize", "co2", 1000.0) in events
+    assert ("seal", "co2", 1000.0) in events
     assert ("stabilize", 1000.0) in events
     assert ("cleanup", "after startup pressure precheck") in events
 
