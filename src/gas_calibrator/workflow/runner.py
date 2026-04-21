@@ -3283,6 +3283,218 @@ class CalibrationRunner:
             return True
         return bool(self._route_final_stage_seal_safety.get(key, False))
 
+    def _seal_pressure_blocked_valves(self) -> List[int]:
+        valves_cfg = self.cfg.get("valves", {})
+        blocked: set[int] = set()
+        if isinstance(valves_cfg, dict):
+            for map_name in ("co2_map", "co2_map_group2"):
+                raw_map = valves_cfg.get(map_name, {})
+                if not isinstance(raw_map, dict):
+                    continue
+                for valve_id in raw_map.values():
+                    parsed = self._as_int(valve_id)
+                    if parsed is not None:
+                        blocked.add(int(parsed))
+            flow_switch = self._as_int(valves_cfg.get("flow_switch"))
+            if flow_switch is not None:
+                blocked.add(int(flow_switch))
+        if not blocked:
+            blocked.update({4, 24, 10})
+        return sorted(blocked)
+
+    def _seal_pressure_target_supported_by_hardware(self, point: Optional[CalibrationPoint]) -> bool:
+        target_pressure_hpa = self._as_float(
+            getattr(point, "target_pressure_hpa", None) if point is not None else None
+        )
+        if target_pressure_hpa is None:
+            return False
+        workflow_cfg = self.cfg.get("workflow", {})
+        pressure_cfg = workflow_cfg.get("pressure", {}) if isinstance(workflow_cfg, dict) else {}
+        supported_targets = pressure_cfg.get("seal_pressure_supported_targets_hpa", [])
+        parsed_targets = [
+            float(value)
+            for value in list(supported_targets or [])
+            if self._as_float(value) is not None
+            for value in [self._as_float(value)]
+        ]
+        if parsed_targets:
+            return any(abs(float(target_pressure_hpa) - float(value)) <= 0.5 for value in parsed_targets)
+        cached_value = self._last_pace_capability_snapshot.get("target_pressure_supported")
+        if isinstance(cached_value, bool):
+            return cached_value
+        return float(target_pressure_hpa) > 0.0 and float(target_pressure_hpa) <= 1000.0
+
+    def _seal_pressure_pressure_gauge_snapshot(self, runtime_state: Mapping[str, Any]) -> Tuple[bool, bool]:
+        state = dict(runtime_state or {})
+        available_value = state.get("pressure_gauge_available")
+        pressure_value = self._as_float(
+            state.get("pressure_gauge_hpa", state.get("pressure_gauge_hpa_snapshot"))
+        )
+        available = bool(available_value) if isinstance(available_value, bool) else pressure_value is not None
+        if not available:
+            return False, False
+        fresh_value = state.get("pressure_read_fresh")
+        if isinstance(fresh_value, bool):
+            return True, fresh_value
+        age_s = self._as_float(state.get("pressure_read_age_s"))
+        if age_s is not None:
+            return True, float(age_s) <= 1.0
+        return True, True
+
+    def _seal_pressure_in_limits_cache_fresh(self, runtime_state: Mapping[str, Any]) -> bool:
+        state = dict(runtime_state or {})
+        direct_value = state.get("in_limits_cache_fresh")
+        if isinstance(direct_value, bool):
+            return direct_value
+        cached_value = self._pace_state_cache.get("in_limits_cache_valid")
+        if isinstance(cached_value, bool):
+            return cached_value
+        return False
+
+    def verify_seal_pressure_stage_preconditions(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str = "",
+        evidence_source: str = "simulated",
+        verification_inputs: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        phase_text = str(phase or ("h2o" if bool(getattr(point, "is_h2o_point", False)) else "co2")).strip().lower()
+        route_key = self._source_stage_key_for_point(point, phase=phase_text)
+        runtime_state = dict(self._point_runtime_state(point, phase=phase_text, create=False) or {})
+        continuous_state = self._continuous_atmosphere_state_snapshot()
+        pace_error_counts = dict(self._pace_error_attribution_counts() or {})
+        blocked_valves = self._seal_pressure_blocked_valves()
+        current_open_valves = {
+            int(valve)
+            for valve in tuple(self._current_open_valves or ())
+            if self._as_int(valve) is not None
+        }
+        mechanical_confirmed = self._mechanical_pressure_protection_confirmed()
+        analyzer_required = not bool(mechanical_confirmed)
+        analyzer_active = bool(
+            runtime_state.get("analyzer_pressure_protection_active")
+            or self._last_route_pressure_guard_summary.get("analyzer_pressure_protection_active")
+        )
+        pressure_gauge_available, pressure_read_fresh = self._seal_pressure_pressure_gauge_snapshot(runtime_state)
+        final_syst_err = str(
+            runtime_state.get(
+                "pace_syst_err_query",
+                self._last_route_pressure_guard_summary.get("pace_syst_err_query", '0,"No error"'),
+            )
+            or '0,"No error"'
+        ).strip()
+        evidence_text = str(evidence_source or "").strip()
+        evidence_text_lower = evidence_text.lower()
+        result: Dict[str, Any] = {
+            "eligible": False,
+            "reason": "",
+            "reasons": [],
+            "source_stage_key": route_key,
+            "source_stage_safe": self._source_stage_safe_for_point(point, phase=phase_text),
+            "route_final_stage_atmosphere_safe": self._route_final_stage_atmosphere_safe_for_point(point, phase=phase_text),
+            "route_final_stage_seal_safe": self._route_final_stage_seal_safe_for_point(point, phase=phase_text),
+            "evidence_source": evidence_text,
+            "not_real_acceptance_evidence": evidence_text_lower != "live_safe_sealed_pressure",
+            "route_flow_active": bool(continuous_state.get("route_flow_active")),
+            "continuous_atmosphere_active": bool(continuous_state.get("active")),
+            "atmosphere_keepalive_enabled": bool(continuous_state.get("active")),
+            "stale_keepalive_generation_invalidated": not bool(continuous_state.get("active"))
+            and not bool(continuous_state.get("route_flow_active")),
+            "post_exit_vent1_count": 0,
+            "vent2_tx_count": 0,
+            "exit_boundary_vent0_count": 0,
+            "final_syst_err": final_syst_err,
+            "hidden_syst_err_count": int(pace_error_counts.get("hidden_syst_err_count") or 0),
+            "unclassified_syst_err_count": int(pace_error_counts.get("unclassified_syst_err_count") or 0),
+            "pre_route_drain_syst_err_count": int(pace_error_counts.get("pre_route_drain_syst_err_count") or 0),
+            "pressure_gauge_available": bool(pressure_gauge_available),
+            "pressure_read_fresh": bool(pressure_read_fresh),
+            "in_limits_cache_fresh": bool(self._seal_pressure_in_limits_cache_fresh(runtime_state)),
+            "analyzer_pressure_required": bool(analyzer_required),
+            "analyzer_pressure_protection_active": bool(analyzer_active),
+            "mechanical_pressure_protection_confirmed": bool(mechanical_confirmed),
+            "target_pressure_supported": bool(self._seal_pressure_target_supported_by_hardware(point)),
+            "source_final_valves_open": [valve for valve in blocked_valves if valve in current_open_valves],
+            "blocked_valves": list(blocked_valves),
+        }
+        if verification_inputs:
+            result.update(dict(verification_inputs))
+
+        result["blocked_valves"] = sorted(
+            {
+                int(parsed)
+                for value in list(result.get("blocked_valves") or [])
+                if (parsed := self._as_int(value)) is not None
+            }
+        )
+        result["source_final_valves_open"] = sorted(
+            {
+                int(parsed)
+                for value in list(result.get("source_final_valves_open") or [])
+                if (parsed := self._as_int(value)) is not None
+            }
+        )
+
+        reasons: List[str] = []
+        if not bool(result.get("source_stage_safe")):
+            reasons.append("SourceStageNotVerified")
+        if not bool(result.get("route_final_stage_atmosphere_safe")):
+            reasons.append("AtmosphereFlowStageNotVerified")
+        if (
+            bool(result.get("route_flow_active"))
+            or bool(result.get("continuous_atmosphere_active"))
+            or bool(result.get("atmosphere_keepalive_enabled"))
+        ):
+            reasons.append("ActiveAtmosphereKeepalive")
+        if not bool(result.get("stale_keepalive_generation_invalidated")):
+            reasons.append("KeepaliveGenerationStillValid")
+        if int(result.get("post_exit_vent1_count") or 0) > 0:
+            reasons.append("PostExitVentLeak")
+        if int(result.get("vent2_tx_count") or 0) > 0:
+            reasons.append("Vent2CommandObserved")
+        if int(result.get("exit_boundary_vent0_count") or 0) > 1:
+            reasons.append("ExitBoundaryVent0CountExceeded")
+        if not self._pace_system_error_is_clear(result.get("final_syst_err")):
+            reasons.append("PaceSystemErrorNotClear")
+        if int(result.get("hidden_syst_err_count") or 0) > 0:
+            reasons.append("HiddenSystErrObserved")
+        if int(result.get("unclassified_syst_err_count") or 0) > 0:
+            reasons.append("UnclassifiedSystErrObserved")
+        if int(result.get("pre_route_drain_syst_err_count") or 0) > 0:
+            reasons.append("PreRouteDrainSystErrObserved")
+        if not bool(result.get("pressure_gauge_available")):
+            reasons.append("PressureGaugeUnavailable")
+        elif not bool(result.get("pressure_read_fresh")):
+            reasons.append("PressureReadNotFresh")
+        if not bool(result.get("in_limits_cache_fresh")):
+            reasons.append("StaleInLimitsCache")
+        if bool(result.get("analyzer_pressure_required")):
+            if not bool(result.get("analyzer_pressure_protection_active")):
+                reasons.append("AnalyzerPressureRequiredButUnavailable")
+        elif not bool(result.get("mechanical_pressure_protection_confirmed")):
+            reasons.append("MechanicalPressureProtectionNotConfirmed")
+        if not bool(result.get("target_pressure_supported")):
+            reasons.append("PressureTargetUnsupportedByHardware")
+        if list(result.get("source_final_valves_open") or []):
+            reasons.append("SourceFinalStageNotAllowed")
+
+        effective_evidence_source = str(result.get("evidence_source") or "").strip().lower()
+        if "simulated" in effective_evidence_source:
+            reasons.append("SimulatedEvidenceNotAcceptance")
+            result["not_real_acceptance_evidence"] = True
+        elif effective_evidence_source == "live_safe":
+            reasons.append("LiveSafeEvidenceNotSealedPressureVerified")
+            result["not_real_acceptance_evidence"] = True
+        elif effective_evidence_source != "live_safe_sealed_pressure":
+            reasons.append("SealPressureEvidenceSourceMissing")
+            result["not_real_acceptance_evidence"] = True
+
+        result["eligible"] = not reasons
+        result["reasons"] = reasons
+        result["reason"] = reasons[0] if reasons else ""
+        return result
+
     def _sync_source_stage_runtime_fields(
         self,
         point: Optional[CalibrationPoint],

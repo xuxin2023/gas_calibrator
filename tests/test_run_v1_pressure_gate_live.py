@@ -426,6 +426,36 @@ def test_h2o_no_final_route_is_8_9(tmp_path: Path) -> None:
     assert ("guard", [8, 9]) in runner.calls
 
 
+def test_seal_pressure_stage_not_verified_does_not_block_route_flush(tmp_path: Path) -> None:
+    runner = _FakeRunner()
+
+    co2_a = live_tool._run_route_synchronized_atmosphere_flush_co2_a_no_source(
+        runner,
+        tmp_path / "co2_a_trace.csv",
+        _args(),
+    )
+    co2_b = live_tool._run_route_synchronized_atmosphere_flush_co2_b_no_source(
+        runner,
+        tmp_path / "co2_b_trace.csv",
+        _args(),
+    )
+    h2o = live_tool._run_route_synchronized_atmosphere_flush_h2o_no_final(
+        runner,
+        tmp_path / "h2o_trace.csv",
+        _args(),
+    )
+
+    assert co2_a["open_valves"] == [8, 11, 7]
+    assert co2_b["open_valves"] == [8, 11, 16]
+    assert h2o["open_valves"] == [8, 9]
+    assert 4 not in co2_a["open_valves"]
+    assert 24 not in co2_b["open_valves"]
+    assert 10 not in h2o["open_valves"]
+    assert ("guard", [8, 11, 7]) in runner.calls
+    assert ("guard", [8, 11, 16]) in runner.calls
+    assert ("guard", [8, 9]) in runner.calls
+
+
 def test_h2o_full_route_requires_allow_h2o_final_stage_open(tmp_path: Path) -> None:
     runner = _FakeRunner()
     result = live_tool._run_route_synchronized_atmosphere_flush_h2o(
