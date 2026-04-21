@@ -1,3 +1,4 @@
+import json
 from argparse import Namespace
 from pathlib import Path
 
@@ -37,11 +38,14 @@ class _FakeRunner:
             "pre_route_drain_syst_err_count": 0,
         }
         self.attribution_log: list[dict[str, object]] = []
+        self.active_analyzers: list[tuple[str, object, dict[str, object]]] = []
+        self.analyzer_pressure_reading: float | None = None
+        self.analyzer_pressure_label = "ga01"
 
     def _configure_devices(self, configure_gas_analyzers: bool = False) -> None:
         self.calls.append(("configure_devices", bool(configure_gas_analyzers)))
 
-    def _drain_pace_system_errors(self, reason: str = ""):
+    def _drain_pace_system_errors(self, reason: str = "", **kwargs):
         self.calls.append(("drain", reason))
         return []
 
@@ -53,6 +57,13 @@ class _FakeRunner:
 
     def _pace_error_attribution_log_snapshot(self):
         return list(self.attribution_log)
+
+    def _capture_pace_capability_snapshot(self, **kwargs):
+        return {
+            "pressure_unit": "HPA",
+            "pressure_unit_status": "known_hpa",
+            "pressure_unit_allows_formal_setpoint": True,
+        }
 
     def _source_stage_safety_snapshot(self):
         return dict(self._source_stage)
@@ -103,6 +114,12 @@ class _FakeRunner:
 
     def _current_valve_route_state_text(self) -> str:
         return "baseline"
+
+    def _active_gas_analyzers(self):
+        return list(self.active_analyzers)
+
+    def _read_route_guard_analyzer_pressure_kpa(self):
+        return self.analyzer_pressure_reading, self.analyzer_pressure_label
 
     def _apply_route_baseline_valves(self) -> None:
         self.calls.append(("apply_route_baseline", None))
@@ -163,6 +180,86 @@ def _args(**overrides):
     return Namespace(**base)
 
 
+def _config(
+    *,
+    gas_analyzers: list[dict[str, object]] | None = None,
+    gas_analyzer_enabled: bool = False,
+    mechanical_pressure_protection_confirmed: bool = False,
+):
+    return {
+        "devices": {
+            "pressure_controller": {"enabled": True},
+            "pressure_gauge": {"enabled": True},
+            "relay": {"enabled": True},
+            "relay_8": {"enabled": True},
+            "dewpoint_meter": {"enabled": False},
+            "gas_analyzer": {
+                "enabled": gas_analyzer_enabled,
+                "port": "COM7",
+                "baud": 115200,
+                "device_id": "001",
+            },
+            "gas_analyzers": list(gas_analyzers or []),
+        },
+        "workflow": {
+            "pressure": {
+                "mechanical_pressure_protection_confirmed": mechanical_pressure_protection_confirmed,
+            }
+        },
+        "paths": {},
+    }
+
+
+def _run_main(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    scenario: str,
+    config: dict,
+    allow_source_open: bool = False,
+    allow_h2o_final_stage_open: bool = False,
+    runner_factory=None,
+):
+    output_dir = tmp_path / "out"
+    config_path = tmp_path / "cfg.yaml"
+    config_path.write_text("devices: {}\nworkflow: {}\n", encoding="utf-8")
+    runner_box: dict[str, _FakeRunner] = {}
+
+    def _make_runner(*args, **kwargs):
+        runner = runner_factory() if callable(runner_factory) else _FakeRunner()
+        runner_box["runner"] = runner
+        return runner
+
+    monkeypatch.setattr(live_tool, "load_config", lambda _path: config)
+    monkeypatch.setattr(live_tool, "_build_devices", lambda runtime_cfg, io_logger=None: {})
+    monkeypatch.setattr(live_tool, "_close_devices", lambda devices: None)
+    monkeypatch.setattr(
+        live_tool,
+        "perform_safe_stop_with_retries",
+        lambda devices, log_fn=None, cfg=None: {"ok": True},
+    )
+    monkeypatch.setattr(live_tool, "CalibrationRunner", _make_runner)
+
+    argv = [
+        "--real-device",
+        "--config",
+        str(config_path),
+        "--output-dir",
+        str(output_dir),
+        "--scenario",
+        scenario,
+    ]
+    if allow_source_open:
+        argv.append("--allow-source-open")
+    if allow_h2o_final_stage_open:
+        argv.append("--allow-h2o-final-stage-open")
+
+    exit_code = live_tool.main(argv)
+    summary_path = next(output_dir.rglob("pressure_gate_live_summary.json"))
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    return exit_code, summary, runner_box["runner"]
+
+
 def test_source_open_live_scenario_requires_allow_source_open_flag(tmp_path: Path) -> None:
     runner = _FakeRunner()
     result = live_tool._run_route_synchronized_atmosphere_flush_co2_a_source_guarded(
@@ -174,6 +271,107 @@ def test_source_open_live_scenario_requires_allow_source_open_flag(tmp_path: Pat
     assert result["status"] == "skipped"
     assert result["skipped_reason"] == "SourceOpenRequiresExplicitAllowFlag"
     assert result["operator_must_confirm_upstream_source_pressure_limited"] is True
+
+
+def test_analyzer_pressure_required_preserves_analyzer_list() -> None:
+    runtime_cfg = _config(
+        gas_analyzers=[
+            {"name": "ga01", "enabled": True, "port": "COM11"},
+            {"name": "ga02", "enabled": True, "port": "COM12"},
+        ]
+    )
+
+    live_tool._disable_unneeded_devices(
+        runtime_cfg,
+        need_dewpoint=False,
+        need_analyzer_pressure=True,
+    )
+
+    assert len(runtime_cfg["devices"]["gas_analyzers"]) == 2
+    assert [item["enabled"] for item in runtime_cfg["devices"]["gas_analyzers"]] == [True, True]
+
+
+def test_analyzer_pressure_required_with_empty_analyzer_list_fails_fast(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    exit_code, summary, runner = _run_main(
+        tmp_path,
+        monkeypatch,
+        scenario="route_synchronized_atmosphere_flush_co2_a_source_guarded",
+        config=_config(),
+        allow_source_open=True,
+    )
+
+    assert exit_code == 0
+    assert summary["scenario_result"]["status"] == "diagnostic_error"
+    assert summary["scenario_result"]["abort_reason"] == "AnalyzerPressureRequiredButUnavailable"
+    assert summary["scenario_result"]["analyzer_pressure_required"] is True
+    assert summary["scenario_result"]["analyzer_pressure_available"] is False
+    assert summary["scenario_result"]["analyzer_pressure_abort_reason"] == "AnalyzerPressureRequiredButUnavailable"
+    assert all(call[0] not in {"conditioning", "guard"} for call in runner.calls)
+
+
+def test_analyzer_pressure_optional_can_disable_analyzer_with_transparent_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    exit_code, summary, runner = _run_main(
+        tmp_path,
+        monkeypatch,
+        scenario="route_synchronized_atmosphere_flush_co2_a_no_source",
+        config=_config(gas_analyzers=[{"name": "ga01", "enabled": True, "port": "COM11"}]),
+    )
+
+    assert exit_code == 0
+    assert summary["scenario_result"]["status"] == "pass"
+    assert summary["scenario_result"]["analyzer_pressure_required"] is False
+    assert summary["scenario_result"]["analyzer_pressure_available"] is False
+    assert summary["scenario_result"]["analyzer_pressure_protection_active"] is False
+    assert summary["scenario_result"]["analyzer_disabled_reason"] == "AnalyzerPressureOptionalForScenario"
+    assert ("guard", [8, 11, 7]) in runner.calls
+
+
+def test_source_or_h2o_final_stage_requires_analyzer_pressure_or_mechanical_protection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    exit_code, summary, runner = _run_main(
+        tmp_path,
+        monkeypatch,
+        scenario="route_synchronized_atmosphere_flush_h2o",
+        config=_config(),
+        allow_h2o_final_stage_open=True,
+    )
+
+    assert exit_code == 0
+    assert summary["scenario_result"]["status"] == "diagnostic_error"
+    assert summary["scenario_result"]["abort_reason"] == "AnalyzerPressureRequiredButUnavailable"
+    assert summary["scenario_result"]["analyzer_pressure_required"] is True
+    assert summary["scenario_result"]["mechanical_pressure_protection_confirmed"] is False
+    assert all(call[0] not in {"conditioning", "guard"} for call in runner.calls)
+
+
+def test_mechanical_pressure_protection_confirmation_allows_analyzer_unavailable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    exit_code, summary, runner = _run_main(
+        tmp_path,
+        monkeypatch,
+        scenario="route_synchronized_atmosphere_flush_h2o",
+        config=_config(mechanical_pressure_protection_confirmed=True),
+        allow_h2o_final_stage_open=True,
+    )
+
+    assert exit_code == 0
+    assert summary["scenario_result"]["status"] == "pass"
+    assert summary["scenario_result"]["mechanical_pressure_protection_confirmed"] is True
+    assert summary["scenario_result"]["analyzer_pressure_required"] is False
+    assert summary["scenario_result"]["analyzer_pressure_available"] is False
+    assert summary["scenario_result"]["analyzer_pressure_protection_active"] is False
+    assert summary["scenario_result"]["analyzer_disabled_reason"] == "MechanicalPressureProtectionConfirmed"
+    assert ("guard", [8, 9, 10]) in runner.calls
 
 
 def test_no_source_co2_a_route_is_8_11_7(tmp_path: Path) -> None:

@@ -29,6 +29,18 @@ from .safe_stop import perform_safe_stop_with_retries
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "results" / "pressure_gate_live"
+_SOURCE_OPEN_SCENARIOS = {
+    "route_synchronized_atmosphere_flush_co2_a_source_guarded",
+    "route_synchronized_atmosphere_flush_co2_b_source_guarded",
+    "route_synchronized_atmosphere_flowthrough_co2_a_source_guarded",
+    "route_synchronized_atmosphere_flowthrough_co2_b_source_guarded",
+    "route_synchronized_atmosphere_flush_co2_a",
+    "route_synchronized_atmosphere_flush_co2_b",
+}
+_H2O_FINAL_STAGE_SCENARIOS = {
+    "route_synchronized_atmosphere_flush_h2o",
+    "route_synchronized_atmosphere_flowthrough_h2o_final_guarded",
+}
 
 
 def _log(message: str) -> None:
@@ -62,11 +74,206 @@ def _disable_unneeded_devices(
         if name == "gas_analyzers" and isinstance(dev_cfg, list):
             for item in dev_cfg:
                 if isinstance(item, dict):
-                    item["enabled"] = False
+                    item["enabled"] = need_analyzer_pressure and bool(item.get("enabled", True))
             continue
         if not isinstance(dev_cfg, dict) or "enabled" not in dev_cfg:
             continue
         dev_cfg["enabled"] = name in keep_enabled and bool(dev_cfg.get("enabled", False))
+
+
+def _enabled_configured_analyzer_count(devices_cfg: Mapping[str, Any]) -> int:
+    gas_list_cfg = devices_cfg.get("gas_analyzers", [])
+    if isinstance(gas_list_cfg, list) and gas_list_cfg:
+        return sum(
+            1
+            for item in gas_list_cfg
+            if isinstance(item, dict) and bool(item.get("enabled", True))
+        )
+    gas_cfg = devices_cfg.get("gas_analyzer", {})
+    if isinstance(gas_cfg, dict) and bool(gas_cfg.get("enabled", False)):
+        return 1
+    return 0
+
+
+def _mechanical_pressure_protection_confirmed(
+    args: argparse.Namespace,
+    runtime_cfg: Mapping[str, Any],
+) -> bool:
+    workflow_cfg = runtime_cfg.get("workflow", {})
+    pressure_cfg = workflow_cfg.get("pressure", {}) if isinstance(workflow_cfg, Mapping) else {}
+    return bool(
+        getattr(args, "mechanical_pressure_protection_confirmed", False)
+        or pressure_cfg.get("mechanical_pressure_protection_confirmed", False)
+        or workflow_cfg.get("mechanical_pressure_protection_confirmed", False)
+        or runtime_cfg.get("mechanical_pressure_protection_confirmed", False)
+    )
+
+
+def _source_or_final_stage_allowed(args: argparse.Namespace) -> bool:
+    scenario = str(getattr(args, "scenario", "") or "")
+    return bool(
+        (scenario in _SOURCE_OPEN_SCENARIOS and getattr(args, "allow_source_open", False))
+        or (
+            scenario in _H2O_FINAL_STAGE_SCENARIOS
+            and getattr(args, "allow_h2o_final_stage_open", False)
+        )
+    )
+
+
+def _analyzer_pressure_required(
+    args: argparse.Namespace,
+    runtime_cfg: Mapping[str, Any],
+) -> bool:
+    if bool(getattr(args, "analyzer_pressure_required", False)):
+        return True
+    if not _source_or_final_stage_allowed(args):
+        return False
+    return not _mechanical_pressure_protection_confirmed(args, runtime_cfg)
+
+
+def _build_analyzer_pressure_summary(
+    cfg: Mapping[str, Any],
+    runtime_cfg: Mapping[str, Any],
+    args: argparse.Namespace,
+) -> Dict[str, Any]:
+    before_count = _enabled_configured_analyzer_count(dict(cfg.get("devices", {})))
+    after_count = _enabled_configured_analyzer_count(dict(runtime_cfg.get("devices", {})))
+    required = _analyzer_pressure_required(args, runtime_cfg)
+    mechanical_confirmed = _mechanical_pressure_protection_confirmed(args, runtime_cfg)
+    source_or_final_allowed = _source_or_final_stage_allowed(args)
+    disabled_reason = ""
+    if not required and after_count <= 0:
+        if mechanical_confirmed and source_or_final_allowed:
+            disabled_reason = "MechanicalPressureProtectionConfirmed"
+        elif before_count > 0:
+            disabled_reason = "AnalyzerPressureOptionalForScenario"
+        else:
+            disabled_reason = "AnalyzerNotConfigured"
+    return {
+        "analyzer_pressure_required": required,
+        "analyzer_pressure_available": False,
+        "analyzer_pressure_protection_active": False,
+        "analyzer_count_before_filter": before_count,
+        "analyzer_count_after_filter": after_count,
+        "analyzer_list_preserved_for_required_pressure": bool(
+            required and before_count > 0 and before_count == after_count
+        ),
+        "analyzer_disabled_reason": disabled_reason,
+        "analyzer_pressure_abort_reason": "",
+        "mechanical_pressure_protection_confirmed": mechanical_confirmed,
+    }
+
+
+def _mark_analyzer_pressure_unavailable(
+    analyzer_summary: Mapping[str, Any],
+    *,
+    disabled_reason: str = "",
+) -> Dict[str, Any]:
+    updated = dict(analyzer_summary or {})
+    updated["analyzer_pressure_available"] = False
+    updated["analyzer_pressure_protection_active"] = False
+    updated["analyzer_pressure_abort_reason"] = "AnalyzerPressureRequiredButUnavailable"
+    if disabled_reason:
+        updated["analyzer_disabled_reason"] = disabled_reason
+    return updated
+
+
+def _verify_required_analyzer_pressure_protection(
+    runner: CalibrationRunner,
+    analyzer_summary: Mapping[str, Any],
+) -> Dict[str, Any]:
+    updated = dict(analyzer_summary or {})
+    if not bool(updated.get("analyzer_pressure_required", False)):
+        return updated
+    if int(updated.get("analyzer_count_after_filter") or 0) <= 0:
+        return _mark_analyzer_pressure_unavailable(
+            updated,
+            disabled_reason="AnalyzerPressureRequiredButUnavailable",
+        )
+    active_analyzers = list(runner._active_gas_analyzers() or [])
+    if not active_analyzers:
+        return _mark_analyzer_pressure_unavailable(
+            updated,
+            disabled_reason="AnalyzerStartupUnavailable",
+        )
+    try:
+        analyzer_pressure_kpa, analyzer_label = runner._read_route_guard_analyzer_pressure_kpa()
+    except Exception:
+        analyzer_pressure_kpa, analyzer_label = None, ""
+    if analyzer_pressure_kpa is None:
+        return _mark_analyzer_pressure_unavailable(
+            updated,
+            disabled_reason="AnalyzerPressureReadUnavailable",
+        )
+    updated["analyzer_pressure_available"] = True
+    updated["analyzer_pressure_protection_active"] = True
+    updated["analyzer_disabled_reason"] = ""
+    updated["analyzer_pressure_abort_reason"] = ""
+    updated["analyzer_pressure_probe_kpa"] = float(analyzer_pressure_kpa)
+    updated["analyzer_pressure_probe_label"] = str(analyzer_label or "")
+    return updated
+
+
+def _build_analyzer_pressure_preflight_failure_result(
+    *,
+    scenario: str,
+    trace_path: Path,
+    analyzer_summary: Mapping[str, Any],
+) -> Dict[str, Any]:
+    result = dict(analyzer_summary or {})
+    result.update(
+        {
+            "scenario": scenario,
+            "status": "diagnostic_error",
+            "route_open_passed": False,
+            "abort_reason": "AnalyzerPressureRequiredButUnavailable",
+            "pressure_trace_rows": _scenario_trace_rows(trace_path, 0),
+        }
+    )
+    return result
+
+
+def _merge_summary_analyzer_pressure_fields(
+    summary: Mapping[str, Any],
+    *,
+    fallback: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    merged = dict(fallback or {})
+    merged.update(
+        {
+            key: summary.get(key, merged.get(key))
+            for key in (
+                "analyzer_pressure_required",
+                "analyzer_pressure_available",
+                "analyzer_pressure_protection_active",
+                "analyzer_count_before_filter",
+                "analyzer_count_after_filter",
+                "analyzer_list_preserved_for_required_pressure",
+                "analyzer_disabled_reason",
+                "analyzer_pressure_abort_reason",
+                "mechanical_pressure_protection_confirmed",
+            )
+        }
+    )
+    scenario_result = dict(summary.get("scenario_result") or {})
+    route_guard = dict(scenario_result.get("route_pressure_guard_summary") or {})
+    point_state = dict(scenario_result.get("point_runtime_state") or {})
+    for key in (
+        "analyzer_pressure_required",
+        "analyzer_pressure_available",
+        "analyzer_pressure_protection_active",
+        "analyzer_count_before_filter",
+        "analyzer_count_after_filter",
+        "analyzer_list_preserved_for_required_pressure",
+        "analyzer_disabled_reason",
+        "analyzer_pressure_abort_reason",
+        "mechanical_pressure_protection_confirmed",
+    ):
+        for source in (scenario_result, route_guard, point_state):
+            if source.get(key) not in (None, ""):
+                merged[key] = source.get(key)
+                break
+    return merged
 
 
 def _prepare_runtime_cfg(
@@ -281,7 +488,48 @@ def _build_summary_extract(summary: Mapping[str, Any]) -> Dict[str, Any]:
         ),
         "analyzer_pressure_available": route_guard.get(
             "analyzer_pressure_available",
-            point_state.get("analyzer_pressure_available"),
+            point_state.get(
+                "analyzer_pressure_available",
+                scenario_result.get(
+                    "analyzer_pressure_available",
+                    summary.get("analyzer_pressure_available"),
+                ),
+            ),
+        ),
+        "analyzer_pressure_required": scenario_result.get(
+            "analyzer_pressure_required",
+            summary.get("analyzer_pressure_required"),
+        ),
+        "analyzer_pressure_protection_active": route_guard.get(
+            "analyzer_pressure_protection_active",
+            scenario_result.get(
+                "analyzer_pressure_protection_active",
+                summary.get("analyzer_pressure_protection_active"),
+            ),
+        ),
+        "analyzer_count_before_filter": scenario_result.get(
+            "analyzer_count_before_filter",
+            summary.get("analyzer_count_before_filter"),
+        ),
+        "analyzer_count_after_filter": scenario_result.get(
+            "analyzer_count_after_filter",
+            summary.get("analyzer_count_after_filter"),
+        ),
+        "analyzer_list_preserved_for_required_pressure": scenario_result.get(
+            "analyzer_list_preserved_for_required_pressure",
+            summary.get("analyzer_list_preserved_for_required_pressure"),
+        ),
+        "analyzer_disabled_reason": scenario_result.get(
+            "analyzer_disabled_reason",
+            summary.get("analyzer_disabled_reason"),
+        ),
+        "analyzer_pressure_abort_reason": scenario_result.get(
+            "analyzer_pressure_abort_reason",
+            summary.get("analyzer_pressure_abort_reason"),
+        ),
+        "mechanical_pressure_protection_confirmed": scenario_result.get(
+            "mechanical_pressure_protection_confirmed",
+            summary.get("mechanical_pressure_protection_confirmed"),
         ),
         "continuous_atmosphere_active": point_state.get(
             "continuous_atmosphere_active",
@@ -1067,29 +1315,14 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
 
     cfg = load_config(args.config)
     need_dewpoint = args.scenario == "route_flush_dewpoint_gate"
-    need_analyzer_pressure = args.scenario in {
-        "route_open_pressure_guard",
-        "route_synchronized_atmosphere_flush_co2_a_no_source",
-        "route_synchronized_atmosphere_flush_co2_b_no_source",
-        "route_synchronized_atmosphere_flush_co2_a_source_guarded",
-        "route_synchronized_atmosphere_flush_co2_b_source_guarded",
-        "route_synchronized_atmosphere_flush_co2_a",
-        "route_synchronized_atmosphere_flush_co2_b",
-        "route_synchronized_atmosphere_flush_h2o_no_final",
-        "route_synchronized_atmosphere_flush_h2o",
-        "continuous_atmosphere_keepalive_probe_no_source",
-        "route_synchronized_atmosphere_flowthrough_co2_a_source_guarded",
-        "route_synchronized_atmosphere_flowthrough_co2_b_source_guarded",
-        "route_synchronized_atmosphere_flowthrough_h2o_final_guarded",
-        "route_flush_dewpoint_gate",
-        "route_valve_isolation",
-    }
+    need_analyzer_pressure = _analyzer_pressure_required(args, cfg)
     runtime_cfg = _prepare_runtime_cfg(
         cfg,
         args,
         need_dewpoint=need_dewpoint,
         need_analyzer_pressure=need_analyzer_pressure,
     )
+    analyzer_pressure_summary = _build_analyzer_pressure_summary(cfg, runtime_cfg, args)
     output_root = Path(runtime_cfg["paths"]["output_dir"]).resolve()
     run_id = args.run_id or f"{args.scenario}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     logger = RunLogger(output_root, run_id=run_id, cfg=runtime_cfg)
@@ -1109,6 +1342,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         "scenario_result": {},
         "cleanup_safe_stop": {},
         "status": "running",
+        **analyzer_pressure_summary,
     }
     exit_code = 0
     trace_path = logger.run_dir / "pressure_transition_trace.csv"
@@ -1117,13 +1351,40 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         _log(f"Pressure gate live run dir: {logger.run_dir}")
         devices = _build_devices(runtime_cfg, io_logger=logger)
         runner = CalibrationRunner(runtime_cfg, devices, logger, _log, _log)
-        runner._configure_devices(configure_gas_analyzers=False)
+        try:
+            runner._configure_devices(
+                configure_gas_analyzers=bool(analyzer_pressure_summary.get("analyzer_pressure_required", False))
+            )
+        except RuntimeError as exc:
+            if (
+                bool(analyzer_pressure_summary.get("analyzer_pressure_required", False))
+                and "No gas analyzers available after startup configuration" in str(exc)
+            ):
+                analyzer_pressure_summary = _mark_analyzer_pressure_unavailable(
+                    analyzer_pressure_summary,
+                    disabled_reason="AnalyzerStartupUnavailable",
+                )
+            else:
+                raise
+        if bool(analyzer_pressure_summary.get("analyzer_pressure_required", False)) and not str(
+            analyzer_pressure_summary.get("analyzer_pressure_abort_reason") or ""
+        ).strip():
+            analyzer_pressure_summary = _verify_required_analyzer_pressure_protection(
+                runner,
+                analyzer_pressure_summary,
+            )
+        summary.update(analyzer_pressure_summary)
         summary["k0472_capability_snapshot"] = runner._capture_pace_capability_snapshot(
             reason=f"live scenario {args.scenario}",
             include_optional_probe=True,
         )
-
-        if args.scenario == "atmosphere_gate_only":
+        if str(analyzer_pressure_summary.get("analyzer_pressure_abort_reason") or "").strip():
+            scenario_result = _build_analyzer_pressure_preflight_failure_result(
+                scenario=args.scenario,
+                trace_path=trace_path,
+                analyzer_summary=analyzer_pressure_summary,
+            )
+        elif args.scenario == "atmosphere_gate_only":
             scenario_result = _run_atmosphere_gate_only(runner, trace_path)
         elif args.scenario == "baseline_atmosphere_hold_60s":
             scenario_result = _run_baseline_atmosphere_hold_60s(runner, trace_path, devices, args)
@@ -1159,6 +1420,23 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             scenario_result = _run_route_valve_isolation(runner, trace_path, args)
         else:
             scenario_result = _run_route_flush_dewpoint_gate(runner, trace_path, args)
+        scenario_result.update(
+            {
+                key: analyzer_pressure_summary.get(key)
+                for key in (
+                    "analyzer_pressure_required",
+                    "analyzer_pressure_available",
+                    "analyzer_pressure_protection_active",
+                    "analyzer_count_before_filter",
+                    "analyzer_count_after_filter",
+                    "analyzer_list_preserved_for_required_pressure",
+                    "analyzer_disabled_reason",
+                    "analyzer_pressure_abort_reason",
+                    "mechanical_pressure_protection_confirmed",
+                )
+                if analyzer_pressure_summary.get(key) not in (None, "")
+            }
+        )
         summary["scenario_result"] = scenario_result
         summary["status"] = "completed"
         _log(
@@ -1206,6 +1484,12 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 summary["scenario_result"]["cleanup_syst_errs"] = cleanup_syst_errs
                 if cleanup_syst_errs and str(summary["scenario_result"].get("status") or "") == "pass":
                     summary["scenario_result"]["status"] = "pass_with_diagnostic_error"
+        summary.update(
+            _merge_summary_analyzer_pressure_fields(
+                summary,
+                fallback=analyzer_pressure_summary,
+            )
+        )
         summary["summary_extract"] = _build_summary_extract(summary)
         summary_path = logger.run_dir / "pressure_gate_live_summary.json"
         try:
