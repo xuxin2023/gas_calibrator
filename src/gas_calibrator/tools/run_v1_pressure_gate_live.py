@@ -490,6 +490,7 @@ def _build_co2_a_staged_source_final_result(
         "retry_allowed_for_scope": False,
         "pressure_protection_resolution": {},
         "k0472_capability_snapshot": {},
+        "pressure_ready_gate": {},
         "precheck": {},
         "verification": {},
         "candidate": {},
@@ -560,6 +561,119 @@ def _build_co2_a_staged_source_final_artifact(summary: Mapping[str, Any]) -> Dic
         and not artifact.get("vent2_tx_observed")
     )
     return artifact
+
+
+def _workflow_pressure_cfg(run_cfg: Mapping[str, Any]) -> Mapping[str, Any]:
+    workflow_cfg = run_cfg.get("workflow", {}) if isinstance(run_cfg, Mapping) else {}
+    workflow_cfg = workflow_cfg if isinstance(workflow_cfg, Mapping) else {}
+    pressure_cfg = workflow_cfg.get("pressure", {}) if isinstance(workflow_cfg, Mapping) else {}
+    return pressure_cfg if isinstance(pressure_cfg, Mapping) else {}
+
+
+def _co2_a_staged_pressure_ready_settings(run_cfg: Mapping[str, Any]) -> Dict[str, Any]:
+    pressure_cfg = _workflow_pressure_cfg(run_cfg)
+    settings = {
+        "timeout_s": 10.0,
+        "poll_s": 0.25,
+        "consecutive_in_limits_required": 1,
+        "ready_dwell_s": 0.0,
+    }
+    for key in ("timeout_s", "poll_s", "ready_dwell_s"):
+        cfg_key = f"co2_a_staged_pressure_ready_{key}"
+        try:
+            if cfg_key in pressure_cfg:
+                settings[key] = max(0.0, float(pressure_cfg.get(cfg_key)))
+        except Exception:
+            pass
+    cfg_key = "co2_a_staged_pressure_ready_consecutive_in_limits"
+    try:
+        if cfg_key in pressure_cfg:
+            settings["consecutive_in_limits_required"] = max(1, int(pressure_cfg.get(cfg_key)))
+    except Exception:
+        pass
+    return settings
+
+
+def _record_co2_a_staged_pressure_ready_trace(
+    runner: CalibrationRunner,
+    point: CalibrationPoint,
+    gate_result: Mapping[str, Any],
+) -> None:
+    append_row = getattr(runner, "_append_pressure_trace_row", None)
+    if not callable(append_row):
+        return
+    note = json.dumps(
+        {
+            "ok": bool(gate_result.get("ok")),
+            "reason": str(gate_result.get("reason") or ""),
+            "setpoint_hpa": gate_result.get("setpoint_hpa"),
+            "last_pressure_hpa": gate_result.get("last_pressure_hpa"),
+            "last_in_limit_flag": gate_result.get("last_in_limit_flag"),
+            "poll_count": gate_result.get("poll_count"),
+            "timeout_s": gate_result.get("timeout_s"),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    try:
+        append_row(
+            point=point,
+            route="CO2_A",
+            point_phase="co2",
+            point_tag="live_route_sync_co2_a_staged_source_final_pressure_ready",
+            trace_stage="staged_pressure_ready_gate",
+            trigger_reason=str(gate_result.get("reason") or ("ready" if gate_result.get("ok") else "not_ready")),
+            pressure_target_hpa=gate_result.get("target_hpa"),
+            pace_pressure_hpa=gate_result.get("last_pressure_hpa"),
+            pace_outp_state_query=gate_result.get("output_state"),
+            pace_sens_pres_inl_state_query=gate_result.get("last_in_limit_flag"),
+            note=note,
+        )
+    except Exception:
+        return
+
+
+def _co2_a_staged_pressure_ready_gate(
+    runner: CalibrationRunner,
+    point: CalibrationPoint,
+    runtime_cfg: Mapping[str, Any],
+) -> Dict[str, Any]:
+    result: Dict[str, Any] = {
+        "ok": False,
+        "reason": "",
+        "target_hpa": float(getattr(point, "target_pressure_hpa", 0.0) or 0.0),
+        "setpoint_hpa": None,
+        "output_state": None,
+        "last_pressure_hpa": None,
+        "last_in_limit_flag": None,
+        "poll_count": 0,
+    }
+    devices = getattr(runner, "devices", {})
+    devices = devices if isinstance(devices, Mapping) else {}
+    pace = devices.get("pace")
+    if pace is None:
+        result["reason"] = "PaceDeviceUnavailable"
+        return result
+    waiter = getattr(pace, "wait_for_pressure_ready", None)
+    if not callable(waiter):
+        result["reason"] = "PressureReadyWaiterUnavailable"
+        return result
+    settings = _co2_a_staged_pressure_ready_settings(runtime_cfg)
+    try:
+        gate_result = waiter(
+            target_hpa=float(getattr(point, "target_pressure_hpa", 0.0) or 0.0),
+            timeout_s=float(settings["timeout_s"]),
+            poll_s=float(settings["poll_s"]),
+            consecutive_in_limits_required=int(settings["consecutive_in_limits_required"]),
+            ready_dwell_s=float(settings["ready_dwell_s"]),
+            require_output_enabled=True,
+        )
+    except Exception as exc:
+        result["reason"] = f"PressureReadyGateError:{exc}"
+        return result
+    result.update(dict(gate_result or {}))
+    _record_co2_a_staged_pressure_ready_trace(runner, point, result)
+    return result
 
 
 def _read_csv_rows(path: Path) -> List[Dict[str, Any]]:
@@ -1445,6 +1559,7 @@ def _run_co2_a_staged_source_final_release_dry_run(
     runner._clear_pressure_sequence_context(reason="co2_a staged source/final dry-run precheck")
     runner._set_co2_route_baseline(reason="co2_a staged source/final dry-run precheck baseline")
     precheck_open_ok = False
+    pressure_ready_gate: Dict[str, Any] = {}
     if not precheck_reasons:
         precheck_open_ok = runner._open_route_with_pressure_guard(
             point,
@@ -1457,6 +1572,17 @@ def _run_co2_a_staged_source_final_release_dry_run(
             precheck_reasons.append(
                 str((runner._point_runtime_state(point, phase="co2") or {}).get("abort_reason") or "RouteOpenPressureGuardFailed")
             )
+        else:
+            pressure_ready_gate = _co2_a_staged_pressure_ready_gate(
+                runner,
+                point,
+                runtime_cfg if isinstance(runtime_cfg, Mapping) else {},
+            )
+            result["pressure_ready_gate"] = dict(pressure_ready_gate)
+            if not bool(pressure_ready_gate.get("ok")):
+                precheck_reasons.append(
+                    str(pressure_ready_gate.get("reason") or "PressureNotReadyBeforeSourceFinalOpen")
+                )
 
     pressure_sample = (
         dict(runner._read_current_pressure_hpa_for_atmosphere() or {})
@@ -1489,9 +1615,15 @@ def _run_co2_a_staged_source_final_release_dry_run(
     pressure_gauge_available = pressure_gauge_hpa is not None or pressure_hpa is not None or bool(
         point_state.get("pressure_gauge_available")
     )
-    pressure_read_fresh = bool(pressure_gauge_available)
+    pressure_read_fresh = bool(
+        pressure_gauge_available
+        or pressure_ready_gate.get("last_pressure_hpa") is not None
+    )
     in_limits_cache_fresh = bool(
-        pace_cache.get("in_limits_cache_valid")
+        pressure_ready_gate.get("last_in_limit_flag") is not None
+        or pressure_ready_gate.get("ok")
+        or pressure_ready_gate.get("poll_count")
+        or pace_cache.get("in_limits_cache_valid")
         or pace_state_snapshot.get("pace_oper_pres_in_limits_bit") not in ("", None)
         or pace_state_snapshot.get("pace_oper_pres_even_query") not in ("", None)
     )
@@ -1561,6 +1693,7 @@ def _run_co2_a_staged_source_final_release_dry_run(
         "pressure_protection_source": str(pressure_protection_resolution.get("pressure_protection_source") or "missing"),
         "pressure_protection_precheck_satisfied": bool(result["pressure_protection_precheck_satisfied"]),
         "pressure_protection_resolution": dict(pressure_protection_resolution),
+        "pressure_ready_gate": dict(pressure_ready_gate),
         "source_stage_safe": bool(source_stage_safe),
         "route_final_stage_atmosphere_safe": bool(route_final_stage_atmosphere_safe),
         "source_final_valves_open": list(source_final_valves_open),

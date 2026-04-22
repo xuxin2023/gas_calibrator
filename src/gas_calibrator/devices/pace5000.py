@@ -1963,6 +1963,106 @@ class Pace5000:
         self._last_in_limits_setpoint_hpa = self._last_commanded_setpoint_hpa
         return pressure, flag
 
+    def wait_for_pressure_ready(
+        self,
+        *,
+        target_hpa: Optional[float] = None,
+        timeout_s: float = 10.0,
+        poll_s: float = 0.25,
+        consecutive_in_limits_required: int = 1,
+        ready_dwell_s: float = 0.0,
+        require_output_enabled: bool = True,
+    ) -> Dict[str, Any]:
+        expected_target_hpa = None if target_hpa is None else float(target_hpa)
+        target_tolerance_hpa = (
+            0.05
+            if expected_target_hpa is None
+            else max(0.05, abs(float(expected_target_hpa)) * 1e-6)
+        )
+        result: Dict[str, Any] = {
+            "ok": False,
+            "reason": "",
+            "target_hpa": expected_target_hpa,
+            "setpoint_hpa": None,
+            "output_state": None,
+            "last_pressure_hpa": None,
+            "last_in_limit_flag": None,
+            "poll_count": 0,
+            "timeout_s": max(0.0, float(timeout_s)),
+            "poll_s": max(0.0, float(poll_s)),
+            "consecutive_in_limits_required": max(1, int(consecutive_in_limits_required)),
+            "ready_dwell_s": max(0.0, float(ready_dwell_s)),
+            "ready_hold_elapsed_s": 0.0,
+            "recent_states": [],
+        }
+        try:
+            setpoint_hpa = self.get_setpoint()
+        except Exception as exc:
+            result["reason"] = f"SetpointQueryFailed:{exc}"
+            return result
+        result["setpoint_hpa"] = setpoint_hpa
+        if setpoint_hpa is None:
+            result["reason"] = "SetpointUnavailable"
+            return result
+        if expected_target_hpa is not None and abs(float(setpoint_hpa) - expected_target_hpa) > target_tolerance_hpa:
+            result["reason"] = "SetpointReadbackMismatch"
+            return result
+
+        try:
+            output_state = self.get_output_state()
+        except Exception as exc:
+            result["reason"] = f"OutputStateQueryFailed:{exc}"
+            return result
+        result["output_state"] = output_state
+        if require_output_enabled and int(output_state) != 1:
+            result["reason"] = "OutputNotEnabled"
+            return result
+
+        deadline = time.monotonic() + max(0.05, float(timeout_s))
+        consecutive_ok = 0
+        ready_since_ts: Optional[float] = None
+        while time.monotonic() < deadline:
+            try:
+                current_pressure_hpa, in_limit_flag = self.get_in_limits()
+            except Exception as exc:
+                result["reason"] = f"InLimitsQueryFailed:{exc}"
+                return result
+            result["poll_count"] = int(result["poll_count"]) + 1
+            result["last_pressure_hpa"] = float(current_pressure_hpa)
+            result["last_in_limit_flag"] = int(in_limit_flag)
+            state = {
+                "pressure_hpa": float(current_pressure_hpa),
+                "in_limit_flag": int(in_limit_flag),
+            }
+            recent_states = list(result.get("recent_states") or [])
+            recent_states.append(state)
+            result["recent_states"] = recent_states[-20:]
+
+            if int(in_limit_flag) == 1:
+                consecutive_ok += 1
+                if ready_since_ts is None:
+                    ready_since_ts = time.monotonic()
+            else:
+                consecutive_ok = 0
+                ready_since_ts = None
+
+            ready_hold_elapsed_s = (
+                0.0
+                if ready_since_ts is None
+                else max(0.0, time.monotonic() - ready_since_ts)
+            )
+            result["ready_hold_elapsed_s"] = ready_hold_elapsed_s
+            if (
+                consecutive_ok >= int(result["consecutive_in_limits_required"])
+                and ready_hold_elapsed_s >= float(result["ready_dwell_s"])
+            ):
+                result["ok"] = True
+                return result
+            time.sleep(max(0.0, float(poll_s)))
+
+        result["reason"] = "PressureInLimitsTimeout"
+        return result
+
     def set_point_and_wait_stable(
         self,
         target_hpa: float,

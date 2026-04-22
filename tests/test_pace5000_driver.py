@@ -453,6 +453,7 @@ def test_enter_atmosphere_mode_old_profile_accepts_completed_status_without_vent
     assert status == pace5000.Pace5000.VENT_STATUS_COMPLETED
     assert any(":SOUR:PRES:LEV:IMM:AMPL:VENT 1" in w for w in dev.ser.writes)
     assert not any(":SOUR:PRES:LEV:IMM:AMPL:VENT 0" in w for w in dev.ser.writes)
+    assert not any((":SOUR:PRES:LEV:IMM:AMPL:VENT " + "2") in w for w in dev.ser.writes)
 
 
 def test_exit_atmosphere_mode_keeps_output_path_open_without_enabling_output(monkeypatch) -> None:
@@ -2138,6 +2139,104 @@ def test_in_limits_cache_invalidation_records_reason(monkeypatch) -> None:
     assert status["in_limits_cache_invalidation_reason"] == "vent:0"
     assert status["in_limits_cache_generation"] >= 1
     assert status["in_limits_cache_invalidation_count"] >= 1
+
+
+def test_wait_for_pressure_ready_waits_for_in_limits_before_success(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.queries = []
+            self.writes = []
+            self.output_state = 1
+            self.setpoint = 1000.0
+            self.inl_responses = iter([
+                ":SENS:PRES:INL 990.0527344, 0",
+                ":SENS:PRES:INL 995.0000000, 0",
+                ":SENS:PRES:INL 1000.0000000, 1",
+            ])
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.writes.append(data.strip())
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            self.queries.append(cmd)
+            if cmd == ":SOUR:PRES?":
+                return f":SOUR:PRES {self.setpoint}"
+            if cmd == ":OUTP:STAT?":
+                return f":OUTP:STAT {self.output_state}"
+            if cmd == ":SENS:PRES:INL?":
+                return next(self.inl_responses)
+            if cmd == ":SYST:ERR?":
+                return ':SYST:ERR 0,"No error"'
+            return ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    result = dev.wait_for_pressure_ready(target_hpa=1000.0, timeout_s=1.0, poll_s=0.0)
+
+    assert result["ok"] is True
+    assert result["setpoint_hpa"] == 1000.0
+    assert result["last_pressure_hpa"] == pytest.approx(1000.0)
+    assert result["last_in_limit_flag"] == 1
+    assert result["poll_count"] == 3
+    assert dev.ser.queries.count(":SENS:PRES:INL?") == 3
+    assert dev.ser.writes == []
+
+
+def test_wait_for_pressure_ready_timeout_blocks_without_output_mutation(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.queries = []
+            self.writes = []
+            self.output_state = 1
+            self.setpoint = 1000.0
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.writes.append(data.strip())
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            self.queries.append(cmd)
+            if cmd == ":SOUR:PRES?":
+                return f":SOUR:PRES {self.setpoint}"
+            if cmd == ":OUTP:STAT?":
+                return f":OUTP:STAT {self.output_state}"
+            if cmd == ":SENS:PRES:INL?":
+                return ":SENS:PRES:INL 996.2500000, 0"
+            if cmd == ":SYST:ERR?":
+                return ':SYST:ERR 0,"No error"'
+            return ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    result = dev.wait_for_pressure_ready(target_hpa=1000.0, timeout_s=0.05, poll_s=0.0)
+
+    assert result["ok"] is False
+    assert result["reason"] == "PressureInLimitsTimeout"
+    assert result["last_in_limit_flag"] == 0
+    assert result["poll_count"] >= 1
+    assert not any(":OUTP:STAT 1" in write for write in dev.ser.writes)
+    assert not any((":SOUR:PRES:LEV:IMM:AMPL:VENT " + "2") in write for write in dev.ser.writes)
 
 
 def test_read_pressure_old_profile_falls_back_to_sens_pres_without_cont(monkeypatch) -> None:
