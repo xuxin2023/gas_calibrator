@@ -3495,6 +3495,216 @@ class CalibrationRunner:
         result["reason"] = reasons[0] if reasons else ""
         return result
 
+    def evaluate_seal_pressure_verified_release_candidate(
+        self,
+        verification: Optional[Mapping[str, Any]],
+        *,
+        explicit_allow: bool,
+        pressure_read_fresh: Optional[bool] = None,
+        in_limits_cache_fresh: Optional[bool] = None,
+        target_pressure_supported: Optional[bool] = None,
+        analyzer_pressure_protection_confirmed: Optional[bool] = None,
+        mechanical_pressure_protection_confirmed: Optional[bool] = None,
+        active_atmosphere_keepalive: Optional[bool] = None,
+        post_exit_vent_leak: Optional[bool] = None,
+        hidden_syst_err_count: Optional[int] = None,
+        unclassified_syst_err_count: Optional[int] = None,
+        pre_route_drain_syst_err_count: Optional[int] = None,
+        vent2_tx_observed: Optional[bool] = None,
+        source_final_stage_explicit_safety: bool,
+    ) -> Dict[str, Any]:
+        verification_state = dict(verification or {})
+        raw_reasons = [
+            str(reason or "").strip()
+            for reason in list(verification_state.get("reasons") or [])
+            if str(reason or "").strip()
+        ]
+        acceptance_only_reasons = {
+            "SimulatedEvidenceNotAcceptance",
+            "LiveSafeEvidenceNotSealedPressureVerified",
+            "SealPressureEvidenceSourceMissing",
+        }
+        blocking_precondition_reasons = [
+            reason for reason in raw_reasons if reason not in acceptance_only_reasons
+        ]
+        evidence_source = str(verification_state.get("evidence_source") or "").strip()
+        evidence_source_lower = evidence_source.lower()
+
+        def _state_bool(name: str, fallback: Optional[bool] = None) -> bool:
+            value = verification_state.get(name, fallback)
+            return bool(value)
+
+        def _state_count(name: str, fallback: Optional[int] = None) -> int:
+            parsed = self._as_int(verification_state.get(name, fallback))
+            return int(parsed) if parsed is not None else 0
+
+        blocked_valves = sorted(
+            {
+                int(parsed)
+                for value in list(
+                    verification_state.get("blocked_valves") or self._seal_pressure_blocked_valves()
+                )
+                if (parsed := self._as_int(value)) is not None
+            }
+        )
+        source_final_valves_open = sorted(
+            {
+                int(parsed)
+                for value in list(verification_state.get("source_final_valves_open") or [])
+                if (parsed := self._as_int(value)) is not None
+            }
+        )
+        blocked_valves_required = self._seal_pressure_blocked_valves()
+        source_final_blocked_valves_confirmed = (
+            set(blocked_valves_required).issubset(set(blocked_valves))
+            and not source_final_valves_open
+        )
+
+        active_keepalive = (
+            bool(active_atmosphere_keepalive)
+            if active_atmosphere_keepalive is not None
+            else any(
+                (
+                    _state_bool("route_flow_active"),
+                    _state_bool("continuous_atmosphere_active"),
+                    _state_bool("atmosphere_keepalive_enabled"),
+                )
+            )
+        )
+        vent_leak_observed = (
+            bool(post_exit_vent_leak)
+            if post_exit_vent_leak is not None
+            else _state_count("post_exit_vent1_count") > 0
+        )
+        vent2_observed = (
+            bool(vent2_tx_observed)
+            if vent2_tx_observed is not None
+            else bool(_state_bool("vent2_tx_observed") or _state_count("vent2_tx_count") > 0)
+        )
+        hidden_count = (
+            int(hidden_syst_err_count)
+            if hidden_syst_err_count is not None
+            else _state_count("hidden_syst_err_count")
+        )
+        unclassified_count = (
+            int(unclassified_syst_err_count)
+            if unclassified_syst_err_count is not None
+            else _state_count("unclassified_syst_err_count")
+        )
+        pre_route_drain_count = (
+            int(pre_route_drain_syst_err_count)
+            if pre_route_drain_syst_err_count is not None
+            else _state_count("pre_route_drain_syst_err_count")
+        )
+
+        required_conditions = {
+            "explicit_allow": bool(explicit_allow),
+            "fresh_pressure_read": bool(
+                _state_bool("pressure_read_fresh")
+                if pressure_read_fresh is None
+                else pressure_read_fresh
+            ),
+            "fresh_in_limits_cache": bool(
+                _state_bool("in_limits_cache_fresh")
+                if in_limits_cache_fresh is None
+                else in_limits_cache_fresh
+            ),
+            "target_pressure_supported": bool(
+                _state_bool("target_pressure_supported")
+                if target_pressure_supported is None
+                else target_pressure_supported
+            ),
+            "analyzer_pressure_protection_confirmed": bool(
+                _state_bool("analyzer_pressure_protection_active")
+                if analyzer_pressure_protection_confirmed is None
+                else analyzer_pressure_protection_confirmed
+            ),
+            "mechanical_pressure_protection_confirmed": bool(
+                _state_bool("mechanical_pressure_protection_confirmed")
+                if mechanical_pressure_protection_confirmed is None
+                else mechanical_pressure_protection_confirmed
+            ),
+            "no_active_atmosphere_keepalive": not active_keepalive,
+            "no_post_exit_vent_leak": not vent_leak_observed,
+            "hidden_syst_err_count_zero": hidden_count == 0,
+            "unclassified_syst_err_count_zero": unclassified_count == 0,
+            "pre_route_drain_syst_err_count_zero": pre_route_drain_count == 0,
+            "no_vent2_tx": not vent2_observed,
+            "source_final_stage_explicit_safety": bool(source_final_stage_explicit_safety),
+        }
+
+        reasons: List[str] = []
+        if not bool(required_conditions["explicit_allow"]):
+            reasons.append("ExplicitAllowMissing")
+        if blocking_precondition_reasons:
+            reasons.append("SealPressureStagePreconditionsNotEligible")
+        if not bool(required_conditions["fresh_pressure_read"]):
+            reasons.append("PressureReadNotFresh")
+        if not bool(required_conditions["fresh_in_limits_cache"]):
+            reasons.append("StaleInLimitsCache")
+        if not bool(required_conditions["target_pressure_supported"]):
+            reasons.append("PressureTargetUnsupportedByHardware")
+        if not bool(required_conditions["analyzer_pressure_protection_confirmed"]):
+            reasons.append("AnalyzerPressureProtectionNotConfirmed")
+        if not bool(required_conditions["mechanical_pressure_protection_confirmed"]):
+            reasons.append("MechanicalPressureProtectionNotConfirmed")
+        if not bool(required_conditions["no_active_atmosphere_keepalive"]):
+            reasons.append("ActiveAtmosphereKeepalive")
+        if not bool(required_conditions["no_post_exit_vent_leak"]):
+            reasons.append("PostExitVentLeak")
+        if not bool(required_conditions["hidden_syst_err_count_zero"]):
+            reasons.append("HiddenSystErrObserved")
+        if not bool(required_conditions["unclassified_syst_err_count_zero"]):
+            reasons.append("UnclassifiedSystErrObserved")
+        if not bool(required_conditions["pre_route_drain_syst_err_count_zero"]):
+            reasons.append("PreRouteDrainSystErrObserved")
+        if not bool(required_conditions["no_vent2_tx"]):
+            reasons.append("Vent2CommandObserved")
+        if not bool(required_conditions["source_final_stage_explicit_safety"]):
+            reasons.append("SourceFinalStageExplicitSafetyMissing")
+        if not source_final_blocked_valves_confirmed:
+            reasons.append("SourceFinalBlockedValvesNotConfirmed")
+
+        deduped_reasons: List[str] = []
+        for reason in reasons:
+            if reason not in deduped_reasons:
+                deduped_reasons.append(reason)
+
+        observations: List[str] = []
+        if evidence_source_lower == "live_safe_preflight":
+            observations.append("LiveSafePreflightIsNotAcceptance")
+
+        co2_4_24_opened = any(int(valve) in {4, 24} for valve in source_final_valves_open)
+        h2o_10_opened = any(int(valve) == 10 for valve in source_final_valves_open)
+        candidate = {
+            "candidate_type": "seal_pressure_verified_release_candidate",
+            "audit_only": True,
+            "compute_only": True,
+            "release_performed": False,
+            "route_final_stage_seal_safety_updated": False,
+            "would_require_explicit_apply_step": True,
+            "eligible_for_explicit_release": not deduped_reasons,
+            "reason": deduped_reasons[0] if deduped_reasons else "",
+            "reasons": deduped_reasons,
+            "required_conditions": required_conditions,
+            "blocked_valves_must_remain_blocked_until_apply": blocked_valves_required,
+            "source_final_valves_open": source_final_valves_open,
+            "source_final_blocked_valves_confirmed": source_final_blocked_valves_confirmed,
+            "source_final_stage_opened": bool(source_final_valves_open),
+            "co2_4_24_opened": bool(co2_4_24_opened),
+            "h2o_10_opened": bool(h2o_10_opened),
+            "real_sealed_pressure_transition_started": False,
+            "real_sealed_pressure_transition_verified": False,
+            "route_final_stage_seal_safe": bool(verification_state.get("route_final_stage_seal_safe")),
+            "seal_pressure_stage_preconditions_eligible": not blocking_precondition_reasons,
+            "seal_pressure_stage_precondition_reasons": raw_reasons,
+            "blocking_precondition_reasons": blocking_precondition_reasons,
+            "evidence_source": evidence_source,
+            "not_real_acceptance_evidence": True,
+            "observations": observations,
+        }
+        return candidate
+
     def _sync_source_stage_runtime_fields(
         self,
         point: Optional[CalibrationPoint],
