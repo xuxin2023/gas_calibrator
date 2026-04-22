@@ -1,2 +1,0 @@
-﻿timestamp,idn,inst_vers,pressure_hpa,outp_state,isol_state,mode,vent_status,vent_completed_latched,effort,comp1,comp2,barometric_pressure_hpa,in_limits_pressure_hpa,in_limits_state,in_limits_time_s,measured_slew_hpa_s,oper_cond,oper_pres_cond,oper_pres_even,oper_pres_vent_complete_bit,oper_pres_in_limits_bit,syst_err
-2026-04-17T18:41:25,"*IDN GE Druck,Pace5000 User Interface,3213201,02.00.07",":INST:VERS ""02.00.07""",,0,1,ACT,2,True,0.0,1687.5179925,79.4463911,1008.614139,1227.7089844,0,11194.0259999,-0.0054388,,1,0,True,False,":SYST:ERR 0, No error"
