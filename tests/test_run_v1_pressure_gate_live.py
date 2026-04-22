@@ -321,8 +321,17 @@ def _config(
     *,
     gas_analyzers: list[dict[str, object]] | None = None,
     gas_analyzer_enabled: bool = False,
-    mechanical_pressure_protection_confirmed: bool = False,
+    mechanical_pressure_protection_confirmed: bool | None = None,
+    staged_pressure_protection: dict[str, object] | None = None,
+    pressure_protection_approval_json: str | None = None,
 ):
+    pressure_cfg: dict[str, object] = {}
+    if mechanical_pressure_protection_confirmed is not None:
+        pressure_cfg["mechanical_pressure_protection_confirmed"] = mechanical_pressure_protection_confirmed
+    if staged_pressure_protection is not None:
+        pressure_cfg["co2_a_staged_pressure_protection"] = dict(staged_pressure_protection)
+    if pressure_protection_approval_json is not None:
+        pressure_cfg["pressure_protection_approval_json"] = pressure_protection_approval_json
     return {
         "devices": {
             "pressure_controller": {"enabled": True},
@@ -339,9 +348,7 @@ def _config(
             "gas_analyzers": list(gas_analyzers or []),
         },
         "workflow": {
-            "pressure": {
-                "mechanical_pressure_protection_confirmed": mechanical_pressure_protection_confirmed,
-            }
+            "pressure": pressure_cfg
         },
         "paths": {},
     }
@@ -357,6 +364,7 @@ def _run_main(
     allow_h2o_final_stage_open: bool = False,
     runner_factory=None,
     safe_stop_impl=None,
+    extra_args: list[str] | None = None,
 ):
     output_dir = tmp_path / "out"
     config_path = tmp_path / "cfg.yaml"
@@ -397,6 +405,8 @@ def _run_main(
         argv.append("--allow-source-open")
     if allow_h2o_final_stage_open:
         argv.append("--allow-h2o-final-stage-open")
+    if extra_args:
+        argv.extend(list(extra_args))
 
     exit_code = live_tool.main(argv)
     summary_path = next(output_dir.rglob("pressure_gate_live_summary.json"))
@@ -411,6 +421,27 @@ def _set_required_staged_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CONFIRM_NOT_FULL_PRODUCTION", "YES")
     monkeypatch.setenv("CONFIRM_NO_ROUTE_FLUSH_DEWPOINT_GATE", "YES")
     monkeypatch.setenv("CONFIRM_SINGLE_ROUTE_CO2_A_ONLY", "YES")
+
+
+def _write_pressure_protection_approval_json(tmp_path: Path, **overrides) -> Path:
+    payload = {
+        "approval_type": "co2_a_staged_dry_run_pressure_protection_approval",
+        "route": "CO2_A",
+        "source_final_valve_under_test": 4,
+        "approval_scope": "CO2_A_VALVE_4_STAGED_DRY_RUN_ONLY",
+        "retry_scope": "staged_source_final_release_dry_run",
+        "retry_allowed_for_scope": True,
+        "analyzer_pressure_protection_active": False,
+        "mechanical_pressure_protection_confirmed": True,
+        "not_full_v1_production_approval": True,
+        "not_full_formal_approval": True,
+        "does_not_open_4_24_10": True,
+        "does_not_run_real_sealed_pressure_transition": True,
+    }
+    payload.update(overrides)
+    path = tmp_path / "pressure_protection_approval.json"
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return path
 
 
 def test_source_open_live_scenario_requires_allow_source_open_flag(tmp_path: Path) -> None:
@@ -809,6 +840,229 @@ def test_co2_a_staged_source_final_dry_run_cleanup_runs_on_failure(
     assert runner.cleanup_calls == 1
     assert ("cleanup", [8, 11, 7]) in runner.calls or ("cleanup", [8, 11, 7, 4]) in runner.calls
     assert runner._current_open_valves == tuple()
+
+
+def test_co2_a_pressure_protection_resolver_missing_blocks() -> None:
+    resolved = live_tool.resolve_co2_a_staged_pressure_protection(
+        _config(),
+        approval_json_path=None,
+        route="CO2_A",
+        source_final_valve=4,
+        release_scope=live_tool.CO2_A_STAGED_RELEASE_SCOPE,
+    )
+
+    assert resolved["pressure_protection_source"] == "missing"
+    assert resolved["pressure_protection_precheck_satisfied"] is False
+    assert "PressureProtectionApprovalMissing" in resolved["reasons"]
+
+
+def test_co2_a_pressure_protection_resolver_rejects_noanalyzers_as_protected() -> None:
+    resolved = live_tool.resolve_co2_a_staged_pressure_protection(
+        _config(
+            gas_analyzer_enabled=False,
+            gas_analyzers=[{"name": "ga01", "enabled": False}, {"name": "ga02", "enabled": False}],
+        ),
+        approval_json_path=None,
+        route="CO2_A",
+        source_final_valve=4,
+        release_scope=live_tool.CO2_A_STAGED_RELEASE_SCOPE,
+    )
+
+    assert resolved["pressure_protection_precheck_satisfied"] is False
+    assert resolved["analyzer_pressure_protection_active"] is False
+    assert resolved["mechanical_pressure_protection_confirmed"] is False
+    assert "PressureProtectionApprovalMissing" in resolved["reasons"]
+
+
+def test_co2_a_pressure_protection_resolver_accepts_valid_mechanical_approval_artifact(tmp_path: Path) -> None:
+    approval_path = _write_pressure_protection_approval_json(tmp_path)
+
+    resolved = live_tool.resolve_co2_a_staged_pressure_protection(
+        _config(),
+        approval_json_path=str(approval_path),
+        route="CO2_A",
+        source_final_valve=4,
+        release_scope=live_tool.CO2_A_STAGED_RELEASE_SCOPE,
+    )
+
+    assert resolved["pressure_protection_source"] == "approval_artifact"
+    assert resolved["pressure_protection_precheck_satisfied"] is True
+    assert resolved["mechanical_pressure_protection_confirmed"] is True
+    assert resolved["analyzer_pressure_protection_active"] is False
+
+
+def test_co2_a_pressure_protection_resolver_accepts_valid_analyzer_approval_artifact(tmp_path: Path) -> None:
+    approval_path = _write_pressure_protection_approval_json(
+        tmp_path,
+        analyzer_pressure_protection_active=True,
+        mechanical_pressure_protection_confirmed=False,
+    )
+
+    resolved = live_tool.resolve_co2_a_staged_pressure_protection(
+        _config(),
+        approval_json_path=str(approval_path),
+        route="CO2_A",
+        source_final_valve=4,
+        release_scope=live_tool.CO2_A_STAGED_RELEASE_SCOPE,
+    )
+
+    assert resolved["pressure_protection_source"] == "approval_artifact"
+    assert resolved["pressure_protection_precheck_satisfied"] is True
+    assert resolved["analyzer_pressure_protection_active"] is True
+    assert resolved["mechanical_pressure_protection_confirmed"] is False
+
+
+@pytest.mark.parametrize(
+    ("route", "valve", "scope"),
+    [
+        ("CO2_B", 4, live_tool.CO2_A_STAGED_RELEASE_SCOPE),
+        ("CO2_A", 24, live_tool.CO2_A_STAGED_RELEASE_SCOPE),
+        ("CO2_A", 4, "full_v1_production"),
+    ],
+)
+def test_co2_a_pressure_protection_resolver_rejects_wrong_scope_or_route(
+    tmp_path: Path,
+    route: str,
+    valve: int,
+    scope: str,
+) -> None:
+    approval_path = _write_pressure_protection_approval_json(tmp_path)
+
+    resolved = live_tool.resolve_co2_a_staged_pressure_protection(
+        _config(),
+        approval_json_path=str(approval_path),
+        route=route,
+        source_final_valve=valve,
+        release_scope=scope,
+    )
+
+    assert resolved["pressure_protection_precheck_satisfied"] is False
+    assert "PressureProtectionScopeInvalid" in resolved["reasons"]
+
+
+def test_co2_a_pressure_protection_resolver_accepts_explicit_config() -> None:
+    resolved = live_tool.resolve_co2_a_staged_pressure_protection(
+        _config(
+            staged_pressure_protection={
+                "route": "CO2_A",
+                "source_final_valve_under_test": 4,
+                "approval_scope": "CO2_A_VALVE_4_STAGED_DRY_RUN_ONLY",
+                "release_scope": live_tool.CO2_A_STAGED_RELEASE_SCOPE,
+                "retry_allowed_for_scope": True,
+                "analyzer_pressure_protection_active": False,
+                "mechanical_pressure_protection_confirmed": True,
+                "not_full_v1_production_approval": True,
+                "not_full_formal_approval": True,
+                "does_not_open_4_24_10": True,
+                "does_not_run_real_sealed_pressure_transition": True,
+            }
+        ),
+        approval_json_path=None,
+        route="CO2_A",
+        source_final_valve=4,
+        release_scope=live_tool.CO2_A_STAGED_RELEASE_SCOPE,
+    )
+
+    assert resolved["pressure_protection_source"] == "config"
+    assert resolved["pressure_protection_precheck_satisfied"] is True
+    assert resolved["mechanical_pressure_protection_confirmed"] is True
+
+
+def test_co2_a_staged_dry_run_uses_resolver_before_candidate_apply(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_required_staged_env(monkeypatch)
+    runner = _FakeRunner()
+    runner.mechanical_pressure_protection_confirmed = False
+
+    result = live_tool._run_co2_a_staged_source_final_release_dry_run(
+        runner,
+        tmp_path / "trace.csv",
+        _args(_runtime_cfg=_config(), pressure_protection_approval_json=None),
+    )
+
+    assert result["status"] == "diagnostic_error"
+    assert result["abort_reason"] == "PressureProtectionApprovalMissing"
+    assert result["pressure_protection_source"] == "missing"
+    assert result["co2_4_opened"] is False
+    assert all(call[0] not in {"verify", "candidate", "apply"} for call in runner.calls)
+
+
+def test_co2_a_staged_dry_run_valid_approval_still_requires_operator_env_and_apply(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    approval_path = _write_pressure_protection_approval_json(tmp_path)
+
+    def _runner_factory() -> _FakeRunner:
+        runner = _FakeRunner()
+        runner.mechanical_pressure_protection_confirmed = False
+        return runner
+
+    for name in (
+        "ALLOW_STAGED_SOURCE_FINAL_DRY_RUN",
+        "OPERATOR_INTENT_CONFIRMED",
+        "RELEASE_REASON",
+        "CONFIRM_NOT_FULL_PRODUCTION",
+        "CONFIRM_NO_ROUTE_FLUSH_DEWPOINT_GATE",
+        "CONFIRM_SINGLE_ROUTE_CO2_A_ONLY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    exit_code, summary, runner = _run_main(
+        tmp_path,
+        monkeypatch,
+        scenario=live_tool.CO2_A_STAGED_SOURCE_FINAL_RELEASE_DRY_RUN,
+        config=_config(),
+        runner_factory=_runner_factory,
+        extra_args=["--pressure-protection-approval-json", str(approval_path)],
+    )
+
+    assert exit_code == 0
+    assert summary["scenario_result"]["status"] == "skipped"
+    assert summary["scenario_result"]["abort_reason"] == "operator_confirmation_missing"
+    assert all(call[0] not in {"verify", "candidate", "apply"} for call in runner.calls)
+
+    _set_required_staged_env(monkeypatch)
+    exit_code, summary, runner = _run_main(
+        tmp_path,
+        monkeypatch,
+        scenario=live_tool.CO2_A_STAGED_SOURCE_FINAL_RELEASE_DRY_RUN,
+        config=_config(),
+        runner_factory=_runner_factory,
+        extra_args=["--pressure-protection-approval-json", str(approval_path)],
+    )
+
+    assert exit_code == 0
+    assert summary["scenario_result"]["pressure_protection_source"] == "approval_artifact"
+    assert summary["scenario_result"]["pressure_protection_precheck_satisfied"] is True
+    assert summary["scenario_result"]["dry_run_passed"] is True
+    assert summary["scenario_result"]["co2_4_opened"] is True
+    assert summary["scenario_result"]["co2_24_opened"] is False
+    assert summary["scenario_result"]["h2o_10_opened"] is False
+    assert summary["scenario_result"]["vent2_tx_observed"] is False
+    assert any(call[0] == "apply" for call in runner.calls)
+
+
+def test_pressure_protection_template_does_not_allow_retry() -> None:
+    template_path = (
+        live_tool.REPO_ROOT
+        / "audit"
+        / "pressure"
+        / "protection_approval_template"
+        / "co2_a_valve4_staged_dry_run_approval.template.json"
+    )
+    resolved = live_tool.resolve_co2_a_staged_pressure_protection(
+        _config(),
+        approval_json_path=str(template_path),
+        route="CO2_A",
+        source_final_valve=4,
+        release_scope=live_tool.CO2_A_STAGED_RELEASE_SCOPE,
+    )
+
+    assert resolved["pressure_protection_precheck_satisfied"] is False
+    assert "PressureProtectionScopeInvalid" in resolved["reasons"] or "PressureProtectionApprovalMissing" in resolved["reasons"]
 
 
 def test_hidden_syst_err_disqualifies_route_pass(tmp_path: Path) -> None:

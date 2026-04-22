@@ -33,6 +33,7 @@ DEFAULT_OUTPUT_DIR = REPO_ROOT / "results" / "pressure_gate_live"
 DEFAULT_STAGED_SOURCE_FINAL_OUTPUT_DIR = Path("D:/gas_calibrator_staged_source_final_dry_run_artifacts")
 CO2_A_STAGED_SOURCE_FINAL_RELEASE_DRY_RUN = "co2_a_staged_source_final_release_dry_run"
 CO2_A_STAGED_RELEASE_SCOPE = "staged_source_final_release_dry_run"
+CO2_A_STAGED_APPROVAL_SCOPE = "CO2_A_VALVE_4_STAGED_DRY_RUN_ONLY"
 CO2_A_FRONT_VALVES = [8, 11, 7]
 CO2_A_SOURCE_FINAL_VALVE = 4
 CO2_A_BLOCKED_VALVES = [24, 10]
@@ -125,6 +126,238 @@ def _co2_a_staged_source_final_env_status() -> Dict[str, Any]:
     }
 
 
+def _co2_a_pressure_protection_sections(run_cfg: Mapping[str, Any]) -> List[Mapping[str, Any]]:
+    root_cfg = run_cfg if isinstance(run_cfg, Mapping) else {}
+    workflow_cfg = root_cfg.get("workflow", {}) if isinstance(root_cfg, Mapping) else {}
+    workflow_cfg = workflow_cfg if isinstance(workflow_cfg, Mapping) else {}
+    pressure_cfg = workflow_cfg.get("pressure", {}) if isinstance(workflow_cfg, Mapping) else {}
+    pressure_cfg = pressure_cfg if isinstance(pressure_cfg, Mapping) else {}
+    return [pressure_cfg, workflow_cfg, root_cfg]
+
+
+def _first_config_value(sections: Iterable[Mapping[str, Any]], key: str) -> Any:
+    for section in sections:
+        if isinstance(section, Mapping) and key in section:
+            return section.get(key)
+    return None
+
+
+def _extract_co2_a_staged_pressure_protection_config(run_cfg: Mapping[str, Any]) -> Optional[Dict[str, Any]]:
+    for section in _co2_a_pressure_protection_sections(run_cfg):
+        candidate = section.get("co2_a_staged_pressure_protection") if isinstance(section, Mapping) else None
+        if isinstance(candidate, Mapping):
+            return dict(candidate)
+    return None
+
+
+def _extract_co2_a_legacy_pressure_protection_config(
+    run_cfg: Mapping[str, Any],
+    *,
+    source_key: str,
+) -> Optional[Dict[str, Any]]:
+    sections = _co2_a_pressure_protection_sections(run_cfg)
+    if not any(isinstance(section, Mapping) and source_key in section for section in sections):
+        return None
+    keys = (
+        "route",
+        "source_final_valve_under_test",
+        "release_scope",
+        "approval_scope",
+        "retry_allowed_for_scope",
+        "not_full_v1_production_approval",
+        "not_full_formal_approval",
+        "does_not_open_4_24_10",
+        "does_not_run_real_sealed_pressure_transition",
+        "analyzer_pressure_protection_active",
+        "mechanical_pressure_protection_confirmed",
+    )
+    return {
+        key: value
+        for key in keys
+        if (value := _first_config_value(sections, key)) is not None
+    }
+
+
+def _resolve_co2_a_pressure_protection_approval_path(
+    run_cfg: Mapping[str, Any],
+    explicit_path: Optional[str],
+) -> str:
+    path_text = str(explicit_path or "").strip()
+    if path_text:
+        return path_text
+    sections = _co2_a_pressure_protection_sections(run_cfg)
+    for key in ("pressure_protection_approval_json", "co2_a_staged_pressure_protection_approval_json"):
+        value = _first_config_value(sections, key)
+        if str(value or "").strip():
+            return str(value).strip()
+    return ""
+
+
+def _load_pressure_protection_approval_artifact(path_text: str) -> Optional[Dict[str, Any]]:
+    if not str(path_text or "").strip():
+        return None
+    try:
+        raw = json.loads(Path(path_text).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return dict(raw) if isinstance(raw, Mapping) else None
+
+
+def _evaluate_co2_a_staged_pressure_protection_source(
+    *,
+    source: str,
+    payload: Optional[Mapping[str, Any]],
+    route: str,
+    source_final_valve: int,
+    release_scope: str,
+) -> Dict[str, Any]:
+    result = {
+        "pressure_protection_source": source,
+        "pressure_protection_precheck_satisfied": False,
+        "analyzer_pressure_protection_active": False,
+        "mechanical_pressure_protection_confirmed": False,
+        "route": str(route or "").strip().upper(),
+        "source_final_valve_under_test": int(source_final_valve),
+        "release_scope": str(release_scope or "").strip(),
+        "approval_scope": "",
+        "retry_allowed_for_scope": False,
+        "not_full_v1_production_approval": False,
+        "not_full_formal_approval": False,
+        "does_not_open_4_24_10": False,
+        "does_not_run_real_sealed_pressure_transition": False,
+        "reasons": [],
+    }
+    if not payload:
+        result["reasons"] = ["PressureProtectionApprovalMissing"]
+        return result
+
+    approval_scope = str(payload.get("approval_scope") or "").strip()
+    result["approval_scope"] = approval_scope
+    result["retry_allowed_for_scope"] = bool(payload.get("retry_allowed_for_scope"))
+    result["not_full_v1_production_approval"] = bool(payload.get("not_full_v1_production_approval"))
+    result["not_full_formal_approval"] = bool(payload.get("not_full_formal_approval"))
+    result["does_not_open_4_24_10"] = bool(payload.get("does_not_open_4_24_10"))
+    result["does_not_run_real_sealed_pressure_transition"] = bool(
+        payload.get("does_not_run_real_sealed_pressure_transition")
+    )
+    result["analyzer_pressure_protection_active"] = bool(payload.get("analyzer_pressure_protection_active"))
+    result["mechanical_pressure_protection_confirmed"] = bool(payload.get("mechanical_pressure_protection_confirmed"))
+
+    try:
+        payload_valve = int(payload.get("source_final_valve_under_test"))
+    except (TypeError, ValueError):
+        payload_valve = None
+    payload_route = str(payload.get("route") or "").strip().upper()
+    payload_release_scope = str(payload.get("retry_scope") or payload.get("release_scope") or "").strip()
+
+    reasons: List[str] = []
+    if (
+        payload_route != "CO2_A"
+        or payload_valve != CO2_A_SOURCE_FINAL_VALVE
+        or payload_release_scope != CO2_A_STAGED_RELEASE_SCOPE
+        or approval_scope != CO2_A_STAGED_APPROVAL_SCOPE
+        or not result["retry_allowed_for_scope"]
+        or not result["not_full_v1_production_approval"]
+        or not result["not_full_formal_approval"]
+        or not result["does_not_open_4_24_10"]
+        or not result["does_not_run_real_sealed_pressure_transition"]
+    ):
+        reasons.append("PressureProtectionScopeInvalid")
+    if not (
+        result["mechanical_pressure_protection_confirmed"]
+        or result["analyzer_pressure_protection_active"]
+    ):
+        reasons.append("PressureProtectionApprovalMissing")
+    result["reasons"] = reasons
+    result["pressure_protection_precheck_satisfied"] = not reasons
+    return result
+
+
+def resolve_co2_a_staged_pressure_protection(
+    run_cfg: Mapping[str, Any],
+    *,
+    approval_json_path: Optional[str],
+    route: str,
+    source_final_valve: int,
+    release_scope: str,
+) -> Dict[str, Any]:
+    route_text = str(route or "").strip().upper()
+    release_scope_text = str(release_scope or "").strip()
+    result = {
+        "pressure_protection_source": "missing",
+        "pressure_protection_precheck_satisfied": False,
+        "analyzer_pressure_protection_active": False,
+        "mechanical_pressure_protection_confirmed": False,
+        "route": route_text,
+        "source_final_valve_under_test": int(source_final_valve),
+        "release_scope": release_scope_text,
+        "approval_scope": "",
+        "retry_allowed_for_scope": False,
+        "not_full_v1_production_approval": False,
+        "not_full_formal_approval": False,
+        "does_not_open_4_24_10": False,
+        "does_not_run_real_sealed_pressure_transition": False,
+        "reasons": [],
+    }
+    if (
+        route_text != "CO2_A"
+        or int(source_final_valve) != CO2_A_SOURCE_FINAL_VALVE
+        or release_scope_text != CO2_A_STAGED_RELEASE_SCOPE
+    ):
+        result["reasons"] = ["PressureProtectionScopeInvalid"]
+        return result
+
+    explicit_config = _extract_co2_a_staged_pressure_protection_config(run_cfg)
+    if explicit_config is not None:
+        return _evaluate_co2_a_staged_pressure_protection_source(
+            source="config",
+            payload=explicit_config,
+            route=route_text,
+            source_final_valve=source_final_valve,
+            release_scope=release_scope_text,
+        )
+
+    resolved_approval_path = _resolve_co2_a_pressure_protection_approval_path(run_cfg, approval_json_path)
+    approval_payload = _load_pressure_protection_approval_artifact(resolved_approval_path)
+    if approval_payload is not None:
+        return _evaluate_co2_a_staged_pressure_protection_source(
+            source="approval_artifact",
+            payload=approval_payload,
+            route=route_text,
+            source_final_valve=source_final_valve,
+            release_scope=release_scope_text,
+        )
+
+    analyzer_config = _extract_co2_a_legacy_pressure_protection_config(
+        run_cfg,
+        source_key="analyzer_pressure_protection_active",
+    )
+    if analyzer_config is not None:
+        return _evaluate_co2_a_staged_pressure_protection_source(
+            source="analyzer_config",
+            payload=analyzer_config,
+            route=route_text,
+            source_final_valve=source_final_valve,
+            release_scope=release_scope_text,
+        )
+
+    mechanical_config = _extract_co2_a_legacy_pressure_protection_config(
+        run_cfg,
+        source_key="mechanical_pressure_protection_confirmed",
+    )
+    if mechanical_config is not None:
+        return _evaluate_co2_a_staged_pressure_protection_source(
+            source="mechanical_config",
+            payload=mechanical_config,
+            route=route_text,
+            source_final_valve=source_final_valve,
+            release_scope=release_scope_text,
+        )
+
+    result["reasons"] = ["PressureProtectionApprovalMissing"]
+    return result
+
+
 def _validate_co2_a_staged_source_final_scope(
     *,
     route: str,
@@ -197,6 +430,13 @@ def _build_co2_a_staged_source_final_result(
         "missing_operator_env": [],
         "operator_confirmation_missing": False,
         "scope_validation_reasons": [],
+        "pressure_protection_source": "missing",
+        "pressure_protection_precheck_satisfied": False,
+        "analyzer_pressure_protection_active": False,
+        "mechanical_pressure_protection_confirmed": False,
+        "approval_scope": "",
+        "retry_allowed_for_scope": False,
+        "pressure_protection_resolution": {},
         "k0472_capability_snapshot": {},
         "precheck": {},
         "verification": {},
@@ -539,6 +779,9 @@ def _prepare_runtime_cfg(
     pressure_cfg["route_open_guard_dewpoint_line_tolerance_hpa"] = float(
         args.route_open_guard_dewpoint_line_tolerance_hpa
     )
+    approval_path = str(getattr(args, "pressure_protection_approval_json", "") or "").strip()
+    if approval_path:
+        pressure_cfg["pressure_protection_approval_json"] = approval_path
 
     stability_cfg = runtime_cfg["workflow"].setdefault("stability", {})
     stability_cfg["gas_route_dewpoint_gate_enabled"] = True
@@ -1068,6 +1311,28 @@ def _run_co2_a_staged_source_final_release_dry_run(
     if result["scope_validation_reasons"]:
         return _finalize("skipped", abort_reason=str(result["scope_validation_reasons"][0] or "InvalidStagedDryRunScope"))
 
+    runtime_cfg = getattr(args, "_runtime_cfg", {})
+    pressure_protection_resolution = resolve_co2_a_staged_pressure_protection(
+        runtime_cfg if isinstance(runtime_cfg, Mapping) else {},
+        approval_json_path=getattr(args, "pressure_protection_approval_json", None),
+        route=result["route"],
+        source_final_valve=int(result["source_final_valve_under_test"]),
+        release_scope=result["release_scope"],
+    )
+    result["pressure_protection_resolution"] = dict(pressure_protection_resolution)
+    result["pressure_protection_source"] = str(pressure_protection_resolution.get("pressure_protection_source") or "missing")
+    result["approval_scope"] = str(pressure_protection_resolution.get("approval_scope") or "")
+    result["retry_allowed_for_scope"] = bool(pressure_protection_resolution.get("retry_allowed_for_scope"))
+    result["analyzer_pressure_protection_active"] = bool(
+        pressure_protection_resolution.get("analyzer_pressure_protection_active")
+    )
+    result["mechanical_pressure_protection_confirmed"] = bool(
+        pressure_protection_resolution.get("mechanical_pressure_protection_confirmed")
+    )
+    result["pressure_protection_precheck_satisfied"] = bool(
+        pressure_protection_resolution.get("pressure_protection_precheck_satisfied")
+    )
+
     operator_env = _co2_a_staged_source_final_env_status()
     result["operator_env"] = operator_env
     result["missing_operator_env"] = list(operator_env.get("missing") or [])
@@ -1175,11 +1440,18 @@ def _run_co2_a_staged_source_final_release_dry_run(
         if hasattr(runner, "_seal_pressure_target_supported_by_hardware")
         else True
     )
-    analyzer_pressure_protection_active = bool(route_guard_summary.get("analyzer_pressure_protection_active"))
+    analyzer_pressure_protection_active = bool(route_guard_summary.get("analyzer_pressure_protection_active")) or bool(
+        pressure_protection_resolution.get("analyzer_pressure_protection_active")
+    )
     mechanical_pressure_protection_confirmed = (
         bool(runner._mechanical_pressure_protection_confirmed())
         if hasattr(runner, "_mechanical_pressure_protection_confirmed")
         else False
+    ) or bool(pressure_protection_resolution.get("mechanical_pressure_protection_confirmed"))
+    result["analyzer_pressure_protection_active"] = bool(analyzer_pressure_protection_active)
+    result["mechanical_pressure_protection_confirmed"] = bool(mechanical_pressure_protection_confirmed)
+    result["pressure_protection_precheck_satisfied"] = bool(
+        analyzer_pressure_protection_active or mechanical_pressure_protection_confirmed
     )
     source_stage_safe = bool((_runner_source_stage_safety(runner) or {}).get(route_key, False))
     route_final_stage_atmosphere_safe = bool((_runner_route_final_stage_atmosphere_safety(runner) or {}).get(route_key, False))
@@ -1199,6 +1471,13 @@ def _run_co2_a_staged_source_final_release_dry_run(
     if not target_pressure_supported:
         precheck_reasons.append("PressureTargetUnsupportedByHardware")
     if not (analyzer_pressure_protection_active or mechanical_pressure_protection_confirmed):
+        precheck_reasons.extend(
+            [
+                str(item)
+                for item in list(pressure_protection_resolution.get("reasons") or [])
+                if str(item or "").strip()
+            ]
+        )
         precheck_reasons.append("PressureProtectionNotConfirmed")
     if not source_stage_safe:
         precheck_reasons.append("SourceStageNotVerified")
@@ -1219,6 +1498,9 @@ def _run_co2_a_staged_source_final_release_dry_run(
         "target_pressure_supported": bool(target_pressure_supported),
         "analyzer_pressure_protection_active": bool(analyzer_pressure_protection_active),
         "mechanical_pressure_protection_confirmed": bool(mechanical_pressure_protection_confirmed),
+        "pressure_protection_source": str(pressure_protection_resolution.get("pressure_protection_source") or "missing"),
+        "pressure_protection_precheck_satisfied": bool(result["pressure_protection_precheck_satisfied"]),
+        "pressure_protection_resolution": dict(pressure_protection_resolution),
         "source_stage_safe": bool(source_stage_safe),
         "route_final_stage_atmosphere_safe": bool(route_final_stage_atmosphere_safe),
         "source_final_valves_open": list(source_final_valves_open),
@@ -1886,6 +2168,11 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--dewpoint-gate-log-interval-s", type=float, default=5.0)
     parser.add_argument("--continuous-keepalive-probe-s", type=float, default=6.0)
     parser.add_argument("--continuous-keepalive-probe-poll-s", type=float, default=1.0)
+    parser.add_argument(
+        "--pressure-protection-approval-json",
+        default=None,
+        help="Machine-readable CO2 A staged dry-run pressure protection approval JSON.",
+    )
     return parser.parse_args(list(argv) if argv is not None else None)
 
 
@@ -1904,6 +2191,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         need_dewpoint=need_dewpoint,
         need_analyzer_pressure=need_analyzer_pressure,
     )
+    setattr(args, "_runtime_cfg", runtime_cfg)
     analyzer_pressure_summary = _build_analyzer_pressure_summary(cfg, runtime_cfg, args)
     output_root = Path(runtime_cfg["paths"]["output_dir"]).resolve()
     run_id = args.run_id or f"{args.scenario}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
