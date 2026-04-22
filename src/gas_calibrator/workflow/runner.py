@@ -3847,6 +3847,8 @@ class CalibrationRunner:
             "release_scope": release_scope_text,
             "release_reason": release_reason_text,
             "dry_run": bool(dry_run),
+            "dry_run_release_suppressed": False,
+            "dry_run_authorized_for_staged_source_final": False,
             "source_stage_key": key,
             "eligible_candidate": candidate_type == "seal_pressure_verified_release_candidate"
             and bool(candidate_state.get("eligible_for_explicit_release")),
@@ -3854,6 +3856,7 @@ class CalibrationRunner:
             "route_final_stage_seal_safety_updated": False,
             "route_final_stage_seal_safety_key": key,
             "route_final_stage_seal_safety_value": current_value,
+            "would_update_route_final_stage_seal_safety": False,
             "opened_valves": [],
             "pace_commands_sent": [],
             "real_sealed_pressure_transition_started": False,
@@ -3874,13 +3877,27 @@ class CalibrationRunner:
             return result
         if current_value:
             result["route_final_stage_seal_safety_value"] = True
+            if bool(dry_run):
+                result["dry_run_release_suppressed"] = True
+                result["dry_run_authorized_for_staged_source_final"] = (
+                    release_scope_text == "staged_source_final_release_dry_run"
+                )
+                result["would_update_route_final_stage_seal_safety"] = False
             result["idempotent"] = True
+            return result
+        if bool(dry_run):
+            result["dry_run_release_suppressed"] = True
+            result["dry_run_authorized_for_staged_source_final"] = (
+                release_scope_text == "staged_source_final_release_dry_run"
+            )
+            result["would_update_route_final_stage_seal_safety"] = True
             return result
 
         self._route_final_stage_seal_safety[key] = True
         result["release_performed"] = True
         result["route_final_stage_seal_safety_updated"] = True
         result["route_final_stage_seal_safety_value"] = True
+        result["would_update_route_final_stage_seal_safety"] = True
         return result
 
     def _sync_source_stage_runtime_fields(

@@ -408,8 +408,11 @@ def _build_co2_a_staged_source_final_result(
         "sampling_under_pressure_executed": False,
         "candidate_eligible": False,
         "explicit_apply_succeeded": False,
+        "release_performed": False,
         "route_final_stage_seal_safety_updated": False,
         "route_final_stage_seal_safety_key": "",
+        "dry_run_release_suppressed": False,
+        "dry_run_authorized_for_staged_source_final": False,
         "co2_4_opened": False,
         "co2_24_opened": False,
         "h2o_10_opened": False,
@@ -467,7 +470,15 @@ def _build_co2_a_staged_source_final_artifact(summary: Mapping[str, Any]) -> Dic
     artifact.update(dict(scenario_result))
     artifact["pressure_trace_rows"] = list(scenario_result.get("pressure_trace_rows") or [])
     artifact["candidate_eligible"] = bool(candidate.get("eligible_for_explicit_release"))
-    artifact["explicit_apply_succeeded"] = bool(apply_result.get("release_performed"))
+    artifact["explicit_apply_succeeded"] = bool(
+        scenario_result.get("explicit_apply_succeeded")
+        or apply_result.get("dry_run_authorized_for_staged_source_final")
+        or apply_result.get("release_performed")
+    )
+    artifact["release_performed"] = bool(
+        apply_result.get("release_performed")
+        or scenario_result.get("release_performed")
+    )
     artifact["route_final_stage_seal_safety_updated"] = bool(
         apply_result.get("route_final_stage_seal_safety_updated")
         or scenario_result.get("route_final_stage_seal_safety_updated")
@@ -1580,9 +1591,30 @@ def _run_co2_a_staged_source_final_release_dry_run(
         dry_run=True,
     )
     result["apply_result"] = dict(apply_result or {})
-    result["explicit_apply_succeeded"] = bool(apply_result.get("release_performed"))
+    result["release_performed"] = bool(apply_result.get("release_performed"))
+    result["dry_run_release_suppressed"] = bool(apply_result.get("dry_run_release_suppressed"))
+    result["dry_run_authorized_for_staged_source_final"] = bool(
+        apply_result.get("dry_run_authorized_for_staged_source_final")
+    )
     result["route_final_stage_seal_safety_updated"] = bool(apply_result.get("route_final_stage_seal_safety_updated"))
     result["route_final_stage_seal_safety_key"] = str(apply_result.get("route_final_stage_seal_safety_key") or route_key)
+    if result["release_performed"] or result["route_final_stage_seal_safety_updated"]:
+        return _finalize("diagnostic_error", abort_reason="DryRunApplyMustNotReleaseSealSafety")
+    result["explicit_apply_succeeded"] = bool(
+        apply_result.get("dry_run")
+        and result["dry_run_release_suppressed"]
+        and result["dry_run_authorized_for_staged_source_final"]
+        and not str(apply_result.get("reason") or "").strip()
+        and not list(apply_result.get("reasons") or [])
+        and not result["release_performed"]
+        and not result["route_final_stage_seal_safety_updated"]
+        and not list(apply_result.get("opened_valves") or [])
+        and not list(apply_result.get("pace_commands_sent") or [])
+        and not bool(apply_result.get("real_sealed_pressure_transition_started"))
+        and not bool(apply_result.get("source_final_stage_opened"))
+        and not bool(apply_result.get("co2_4_24_opened"))
+        and not bool(apply_result.get("h2o_10_opened"))
+    )
     if not result["explicit_apply_succeeded"]:
         return _finalize(
             "diagnostic_error",

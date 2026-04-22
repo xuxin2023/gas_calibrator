@@ -180,7 +180,7 @@ def _apply_candidate(
         "release_reason": "staged dry run",
         "expected_blocked_valves": [4, 24, 10],
         "expected_source_final_valves": [],
-        "dry_run": True,
+        "dry_run": False,
     }
     defaults.update(overrides)
     return runner.apply_seal_pressure_verified_release_candidate(
@@ -709,7 +709,47 @@ def test_seal_pressure_release_apply_requires_blocked_valves_confirmed(tmp_path:
     assert "BlockedValvesNotConfirmed" in result["reasons"]
 
 
-def test_seal_pressure_release_apply_sets_only_route_final_stage_key(tmp_path: Path) -> None:
+def test_seal_pressure_release_apply_dry_run_does_not_update_seal_safety(tmp_path: Path) -> None:
+    point = _co2_point()
+    gauge = _FakePressureGauge()
+    pace = _FakePace()
+    logger, runner = _make_runner(tmp_path, point, gauge=gauge, pace=pace)
+    key = runner._source_stage_key_for_point(point, phase="co2")
+    before_seal_stage = dict(runner._route_final_stage_seal_safety)
+    candidate = _evaluate_candidate(
+        runner,
+        _verify(runner, point, phase="co2", evidence_source="live_safe_preflight"),
+    )
+
+    result = _apply_candidate(
+        runner,
+        key,
+        candidate,
+        expected_source_final_valves=[4],
+        dry_run=True,
+    )
+    logger.close()
+
+    assert result["dry_run"] is True
+    assert result["dry_run_release_suppressed"] is True
+    assert result["dry_run_authorized_for_staged_source_final"] is True
+    assert result["release_performed"] is False
+    assert result["route_final_stage_seal_safety_updated"] is False
+    assert result["route_final_stage_seal_safety_value"] is False
+    assert result["would_update_route_final_stage_seal_safety"] is True
+    assert result["opened_valves"] == []
+    assert result["pace_commands_sent"] == []
+    assert result["real_sealed_pressure_transition_started"] is False
+    assert result["source_final_stage_opened"] is False
+    assert result["co2_4_24_opened"] is False
+    assert result["h2o_10_opened"] is False
+    assert runner._route_final_stage_seal_safety == before_seal_stage
+    assert runner._route_final_stage_seal_safety[key] is False
+    assert gauge.calls == []
+    assert pace.calls == []
+
+
+def test_seal_pressure_release_apply_non_dry_run_still_sets_single_key(tmp_path: Path) -> None:
     point = _co2_point()
     gauge = _FakePressureGauge()
     pace = _FakePace()
@@ -728,6 +768,7 @@ def test_seal_pressure_release_apply_sets_only_route_final_stage_key(tmp_path: P
     result = _apply_candidate(runner, key, candidate)
     logger.close()
 
+    assert result["dry_run"] is False
     assert result["release_performed"] is True
     assert result["route_final_stage_seal_safety_updated"] is True
     assert runner._route_final_stage_seal_safety[key] is True
@@ -739,6 +780,10 @@ def test_seal_pressure_release_apply_sets_only_route_final_stage_key(tmp_path: P
     assert runner._route_final_stage_atmosphere_safety == before_atmosphere_stage
     assert tuple(runner._current_open_valves) == before_open_valves
     assert str(runner._continuous_atmosphere_state.get("phase_name") or "") == before_phase
+    assert result["opened_valves"] == []
+    assert result["pace_commands_sent"] == []
+    assert result["real_sealed_pressure_transition_started"] is False
+    assert result["source_final_stage_opened"] is False
     assert gauge.calls == []
     assert pace.calls == []
 
