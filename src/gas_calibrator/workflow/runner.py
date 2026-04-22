@@ -3686,6 +3686,7 @@ class CalibrationRunner:
             "eligible_for_explicit_release": not deduped_reasons,
             "reason": deduped_reasons[0] if deduped_reasons else "",
             "reasons": deduped_reasons,
+            "source_stage_key": str(verification_state.get("source_stage_key") or "").strip(),
             "required_conditions": required_conditions,
             "blocked_valves_must_remain_blocked_until_apply": blocked_valves_required,
             "source_final_valves_open": source_final_valves_open,
@@ -3704,6 +3705,178 @@ class CalibrationRunner:
             "observations": observations,
         }
         return candidate
+
+    def apply_seal_pressure_verified_release_candidate(
+        self,
+        *,
+        source_stage_key: str,
+        candidate: Optional[Mapping[str, Any]],
+        explicit_apply: bool,
+        operator_intent_confirmed: bool,
+        release_scope: str,
+        release_reason: str,
+        expected_blocked_valves: Sequence[int],
+        expected_source_final_valves: Optional[Sequence[int]] = None,
+        dry_run: bool = False,
+    ) -> Dict[str, Any]:
+        key = str(source_stage_key or "").strip()
+        candidate_state = dict(candidate or {})
+        candidate_type = str(candidate_state.get("candidate_type") or "").strip()
+        candidate_required_conditions = candidate_state.get("required_conditions")
+        candidate_key = str(candidate_state.get("source_stage_key") or "").strip()
+        release_scope_text = str(release_scope or "").strip()
+        release_reason_text = str(release_reason or "").strip()
+        required_condition_names = (
+            "explicit_allow",
+            "fresh_pressure_read",
+            "fresh_in_limits_cache",
+            "target_pressure_supported",
+            "analyzer_pressure_protection_confirmed",
+            "mechanical_pressure_protection_confirmed",
+            "no_active_atmosphere_keepalive",
+            "no_post_exit_vent_leak",
+            "hidden_syst_err_count_zero",
+            "unclassified_syst_err_count_zero",
+            "pre_route_drain_syst_err_count_zero",
+            "no_vent2_tx",
+            "source_final_stage_explicit_safety",
+        )
+        allowed_release_scopes = {
+            "staged_source_final_release_dry_run",
+            "verified_seal_pressure_stage_release",
+        }
+        disallowed_release_scopes = {
+            "full_v1_production",
+            "production_acceptance",
+            "full_formal",
+            "route_flush_dewpoint_gate",
+        }
+
+        def _normalized_int_set(values: Optional[Sequence[int]]) -> List[int]:
+            return sorted(
+                {
+                    int(parsed)
+                    for value in list(values or [])
+                    if (parsed := self._as_int(value)) is not None
+                }
+            )
+
+        normalized_expected_blocked = _normalized_int_set(expected_blocked_valves)
+        normalized_expected_source_final = _normalized_int_set(expected_source_final_valves)
+        required_blocked_valves = self._seal_pressure_blocked_valves()
+        current_value = bool(self._route_final_stage_seal_safety.get(key, False)) if key else False
+        reasons: List[str] = []
+        candidate_missing_required_conditions = False
+        candidate_required_condition_false = False
+
+        if not bool(explicit_apply):
+            reasons.append("ExplicitApplyMissing")
+        if not bool(operator_intent_confirmed):
+            reasons.append("OperatorIntentMissing")
+        if not release_reason_text:
+            reasons.append("ReleaseReasonMissing")
+        if release_scope_text in disallowed_release_scopes:
+            reasons.append("FullProductionReleaseNotAllowed")
+        elif release_scope_text not in allowed_release_scopes:
+            reasons.append("UnsupportedReleaseScope")
+        if not key or key not in self._route_final_stage_seal_safety:
+            reasons.append("SourceStageKeyMissing")
+        if candidate_type != "seal_pressure_verified_release_candidate":
+            reasons.append("CandidateTypeInvalid")
+        if not bool(candidate_state.get("eligible_for_explicit_release")):
+            reasons.append("CandidateNotEligible")
+        if bool(candidate_state.get("release_performed")) or bool(
+            candidate_state.get("route_final_stage_seal_safety_updated")
+        ):
+            reasons.append("CandidateAlreadyReleasePerformed")
+        if candidate_key and key and candidate_key != key:
+            candidate_required_condition_false = True
+
+        for field_name in (
+            "real_sealed_pressure_transition_started",
+            "source_final_stage_opened",
+            "co2_4_24_opened",
+            "h2o_10_opened",
+        ):
+            if field_name not in candidate_state:
+                candidate_missing_required_conditions = True
+                continue
+            if bool(candidate_state.get(field_name)):
+                candidate_required_condition_false = True
+
+        if not isinstance(candidate_required_conditions, Mapping):
+            candidate_missing_required_conditions = True
+        else:
+            for condition_name in required_condition_names:
+                if condition_name not in candidate_required_conditions:
+                    candidate_missing_required_conditions = True
+                    continue
+                if not bool(candidate_required_conditions.get(condition_name)):
+                    candidate_required_condition_false = True
+
+        candidate_blocked_valves = _normalized_int_set(
+            candidate_state.get("blocked_valves_must_remain_blocked_until_apply")
+        )
+        candidate_source_final_valves = _normalized_int_set(candidate_state.get("source_final_valves_open"))
+        if not set(required_blocked_valves).issubset(set(normalized_expected_blocked)):
+            reasons.append("BlockedValvesNotConfirmed")
+        if not set(required_blocked_valves).issubset(set(candidate_blocked_valves)):
+            reasons.append("BlockedValvesNotConfirmed")
+        if normalized_expected_source_final and normalized_expected_source_final != candidate_source_final_valves:
+            reasons.append("BlockedValvesNotConfirmed")
+
+        if candidate_missing_required_conditions:
+            reasons.append("CandidateMissingRequiredConditions")
+        if candidate_required_condition_false:
+            reasons.append("CandidateRequiredConditionFalse")
+
+        deduped_reasons: List[str] = []
+        for reason in reasons:
+            if reason not in deduped_reasons:
+                deduped_reasons.append(reason)
+
+        result = {
+            "apply_type": "seal_pressure_verified_release_apply",
+            "explicit_apply": bool(explicit_apply),
+            "operator_intent_confirmed": bool(operator_intent_confirmed),
+            "release_scope": release_scope_text,
+            "release_reason": release_reason_text,
+            "dry_run": bool(dry_run),
+            "source_stage_key": key,
+            "eligible_candidate": candidate_type == "seal_pressure_verified_release_candidate"
+            and bool(candidate_state.get("eligible_for_explicit_release")),
+            "release_performed": False,
+            "route_final_stage_seal_safety_updated": False,
+            "route_final_stage_seal_safety_key": key,
+            "route_final_stage_seal_safety_value": current_value,
+            "opened_valves": [],
+            "pace_commands_sent": [],
+            "real_sealed_pressure_transition_started": False,
+            "source_final_stage_opened": False,
+            "co2_4_24_opened": False,
+            "h2o_10_opened": False,
+            "not_real_acceptance_evidence": True,
+            "first_use_must_be_staged_dry_run": True,
+            "expected_blocked_valves": normalized_expected_blocked,
+            "expected_source_final_valves": normalized_expected_source_final,
+            "candidate_observations": list(candidate_state.get("observations") or []),
+            "candidate_required_conditions": dict(candidate_required_conditions or {}),
+            "reason": deduped_reasons[0] if deduped_reasons else "",
+            "reasons": deduped_reasons,
+            "idempotent": False,
+        }
+        if deduped_reasons:
+            return result
+        if current_value:
+            result["route_final_stage_seal_safety_value"] = True
+            result["idempotent"] = True
+            return result
+
+        self._route_final_stage_seal_safety[key] = True
+        result["release_performed"] = True
+        result["route_final_stage_seal_safety_updated"] = True
+        result["route_final_stage_seal_safety_value"] = True
+        return result
 
     def _sync_source_stage_runtime_fields(
         self,
