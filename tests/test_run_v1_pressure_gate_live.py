@@ -869,6 +869,42 @@ def test_co2_a_pressure_protection_resolver_missing_blocks() -> None:
     assert "PressureProtectionApprovalMissing" in resolved["reasons"]
 
 
+def test_co2_a_pressure_protection_resolver_accepts_existing_v1_analyzer_config() -> None:
+    resolved = live_tool.resolve_co2_a_staged_pressure_protection(
+        _config(gas_analyzer_enabled=True),
+        approval_json_path=None,
+        route="CO2_A",
+        source_final_valve=4,
+        release_scope=live_tool.CO2_A_STAGED_RELEASE_SCOPE,
+    )
+
+    assert resolved["pressure_protection_source"] == "existing_v1_analyzer_config"
+    assert resolved["pressure_protection_precheck_satisfied"] is True
+    assert resolved["analyzer_pressure_protection_active"] is True
+    assert resolved["mechanical_pressure_protection_confirmed"] is False
+    assert resolved["route"] == "CO2_A"
+    assert resolved["source_final_valve_under_test"] == 4
+    assert resolved["release_scope"] == live_tool.CO2_A_STAGED_RELEASE_SCOPE
+    assert resolved["approval_scope"] == live_tool.CO2_A_STAGED_APPROVAL_SCOPE
+    assert resolved["reasons"] == []
+
+
+def test_co2_a_pressure_protection_resolver_accepts_existing_v1_analyzer_list() -> None:
+    resolved = live_tool.resolve_co2_a_staged_pressure_protection(
+        _config(gas_analyzers=[{"name": "ga01", "enabled": True}, {"name": "ga02", "enabled": False}]),
+        approval_json_path=None,
+        route="CO2_A",
+        source_final_valve=4,
+        release_scope=live_tool.CO2_A_STAGED_RELEASE_SCOPE,
+    )
+
+    assert resolved["pressure_protection_source"] == "existing_v1_analyzer_config"
+    assert resolved["pressure_protection_precheck_satisfied"] is True
+    assert resolved["analyzer_pressure_protection_active"] is True
+    assert resolved["mechanical_pressure_protection_confirmed"] is False
+    assert resolved["reasons"] == []
+
+
 def test_co2_a_pressure_protection_resolver_rejects_noanalyzers_as_protected() -> None:
     resolved = live_tool.resolve_co2_a_staged_pressure_protection(
         _config(
@@ -881,10 +917,69 @@ def test_co2_a_pressure_protection_resolver_rejects_noanalyzers_as_protected() -
         release_scope=live_tool.CO2_A_STAGED_RELEASE_SCOPE,
     )
 
+    assert resolved["pressure_protection_source"] == "missing"
     assert resolved["pressure_protection_precheck_satisfied"] is False
     assert resolved["analyzer_pressure_protection_active"] is False
     assert resolved["mechanical_pressure_protection_confirmed"] is False
     assert "PressureProtectionApprovalMissing" in resolved["reasons"]
+
+
+@pytest.mark.parametrize(
+    ("route", "valve", "scope"),
+    [
+        ("CO2_B", 4, live_tool.CO2_A_STAGED_RELEASE_SCOPE),
+        ("CO2_A", 24, live_tool.CO2_A_STAGED_RELEASE_SCOPE),
+        ("CO2_A", 4, "wrong_scope"),
+    ],
+)
+def test_co2_a_pressure_protection_resolver_existing_config_wrong_route_scope_blocks(
+    route: str,
+    valve: int,
+    scope: str,
+) -> None:
+    resolved = live_tool.resolve_co2_a_staged_pressure_protection(
+        _config(gas_analyzer_enabled=True),
+        approval_json_path=None,
+        route=route,
+        source_final_valve=valve,
+        release_scope=scope,
+    )
+
+    assert resolved["pressure_protection_source"] == "missing"
+    assert resolved["pressure_protection_precheck_satisfied"] is False
+    assert "PressureProtectionScopeInvalid" in resolved["reasons"]
+
+
+@pytest.mark.parametrize("scope", ["full_v1_production", "route_flush_dewpoint_gate", "full_formal"])
+def test_existing_v1_analyzer_mapping_does_not_unlock_full_production(scope: str) -> None:
+    resolved = live_tool.resolve_co2_a_staged_pressure_protection(
+        _config(gas_analyzer_enabled=True),
+        approval_json_path=None,
+        route="CO2_A",
+        source_final_valve=4,
+        release_scope=scope,
+    )
+
+    assert resolved["pressure_protection_source"] == "missing"
+    assert resolved["pressure_protection_precheck_satisfied"] is False
+    assert "PressureProtectionScopeInvalid" in resolved["reasons"]
+
+
+def test_existing_v1_analyzer_mapping_does_not_affect_other_scenarios(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    exit_code, summary, runner = _run_main(
+        tmp_path,
+        monkeypatch,
+        scenario="route_synchronized_atmosphere_flush_co2_a_no_source",
+        config=_config(gas_analyzer_enabled=True, gas_analyzers=[{"name": "ga01", "enabled": True}]),
+    )
+
+    assert exit_code == 0
+    assert summary["scenario_result"]["status"] == "pass"
+    assert summary["scenario_result"].get("pressure_protection_source") is None
+    assert all(call[0] not in {"verify", "candidate", "apply"} for call in runner.calls)
 
 
 def test_co2_a_pressure_protection_resolver_accepts_valid_mechanical_approval_artifact(tmp_path: Path) -> None:
