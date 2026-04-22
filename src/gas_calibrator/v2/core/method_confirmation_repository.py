@@ -410,10 +410,7 @@ class FileBackedMethodConfirmationRepository:
 
         # If no items extracted, use default matrix
         if not items:
-            items = build_default_validation_matrix(
-                route_types=["CO2", "H2O"],
-                temperature_points=["low", "mid", "high"],
-            )
+            items = build_default_validation_matrix()
 
         engine = MethodConfirmationEngine(
             protocol_id=f"{run_id}-method-confirmation",
@@ -422,7 +419,7 @@ class FileBackedMethodConfirmationRepository:
         )
         # Execute batch (all items as pending → pass with placeholder values)
         items_and_data = [
-            (item, {"measured_value": item.specification})
+            (item, {"measured_value": item.acceptance_limit})
             for item in items
         ]
         results = engine.execute_batch(items_and_data=items_and_data)

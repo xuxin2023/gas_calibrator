@@ -26,6 +26,11 @@ src/output/
 src/gas_calibrator/output/
 _debug_test/
 audit/**/raw/
+audit/real_pace_controller_acceptance/
+live_write_scan_*
+live_write_scan_*/
+offline_recompute_*
+offline_recompute_*/
 
 # One-off local probe/output folders
 pace_isol_probe_20260306_131122/

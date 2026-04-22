@@ -7964,11 +7964,17 @@ def _build_conformity_engine_bridge(
     )
     contract = AcceptanceContract(
         contract_id=str(acceptance_contract.get("contract_id") or "bridge-v1"),
-        requires_pre_run_gate=True,
-        requires_method_confirmation=True,
-        requires_uncertainty_budget=True,
-        requires_scope_coverage=True,
-        requires_certificate_valid=False,
+        scope_id="",
+        decision_rule_id="",
+        uncertainty_case_id="",
+        method_confirmation_protocol_id="",
+        conformity_profile_id=profile.profile_id,
+        acceptance_conditions=[
+            "pre_run_gate_passed",
+            "method_confirmation_passed",
+            "uncertainty_budget_complete",
+            "scope_coverage",
+        ],
     )
     return {
         "conformity_profile_id": profile.profile_id,
@@ -7977,11 +7983,11 @@ def _build_conformity_engine_bridge(
         "guard_band_value": profile.guard_band_value,
         "acceptance_contract_id": contract.contract_id,
         "acceptance_requirements": {
-            "pre_run_gate": contract.requires_pre_run_gate,
-            "method_confirmation": contract.requires_method_confirmation,
-            "uncertainty_budget": contract.requires_uncertainty_budget,
-            "scope_coverage": contract.requires_scope_coverage,
-            "certificate_valid": contract.requires_certificate_valid,
+            "pre_run_gate": "pre_run_gate_passed" in contract.acceptance_conditions,
+            "method_confirmation": "method_confirmation_passed" in contract.acceptance_conditions,
+            "uncertainty_budget": "uncertainty_budget_complete" in contract.acceptance_conditions,
+            "scope_coverage": "scope_coverage" in contract.acceptance_conditions,
+            "certificate_valid": "certificate_valid" in contract.acceptance_conditions,
         },
         "placeholder_replaced_by": "conformity_and_governance_objects",
         "not_real_acceptance_evidence": True,

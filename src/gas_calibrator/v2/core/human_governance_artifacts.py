@@ -476,9 +476,9 @@ def _build_approval_chain_bridge(
         "steps": [
             {
                 "step_index": i,
-                "role": step.role,
+                "role": step.required_role,
                 "is_dual_review": step.is_dual_review,
-                "required_count": step.required_count,
+                "required_count": 2 if step.is_dual_review else 1,
                 "signed_count": len(step.signatures),
             }
             for i, step in enumerate(chain.steps)

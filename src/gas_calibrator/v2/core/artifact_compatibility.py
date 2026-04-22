@@ -443,6 +443,312 @@ def build_artifact_compatibility_overview(
     }
 
 
+def _normalize_artifact_compatibility_payloads(
+    payloads: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    normalized = {
+        str(key): dict(value or {})
+        for key, value in dict(payloads or {}).items()
+    }
+    overview = build_artifact_compatibility_overview(
+        run_artifact_index=normalized.get("run_artifact_index"),
+        artifact_contract_catalog=normalized.get("artifact_contract_catalog"),
+        compatibility_scan_summary=normalized.get("compatibility_scan_summary"),
+        reindex_manifest=normalized.get("reindex_manifest"),
+    )
+    for payload in normalized.values():
+        payload["compatibility_overview"] = dict(overview)
+        payload["schema_or_contract_version_summary"] = str(
+            overview.get("observed_contract_version_summary") or "--"
+        )
+        payload["schema_or_contract_version_counts"] = dict(
+            overview.get("schema_or_contract_version_counts") or {}
+        )
+    compatibility_scan_summary = dict(normalized.get("compatibility_scan_summary") or {})
+    if compatibility_scan_summary:
+        digest = dict(compatibility_scan_summary.get("digest") or {})
+        digest.update(
+            {
+                "schema_contract_summary": str(overview.get("schema_contract_summary_display") or ""),
+                "regenerate_summary": str(overview.get("regenerate_recommendation_display") or ""),
+                "rollup_summary": str(overview.get("rollup_summary_display") or ""),
+                "boundary_summary": str(overview.get("boundary_digest") or ""),
+                "non_claim_summary": str(overview.get("non_claim_digest") or ""),
+                "non_primary_chain_summary": str(
+                    overview.get("non_primary_chain_display") or ""
+                ),
+            }
+        )
+        review_surface = dict(compatibility_scan_summary.get("review_surface") or {})
+        review_surface["summary_lines"] = _merge_unique_lines(
+            list(review_surface.get("summary_lines") or []),
+            list(overview.get("summary_lines") or []),
+        )
+        review_surface["detail_lines"] = _merge_unique_lines(
+            list(review_surface.get("detail_lines") or []),
+            list(overview.get("detail_lines") or []),
+        )
+        reviewer_note = str(review_surface.get("reviewer_note") or "").strip()
+        extra_note = str(overview.get("non_primary_boundary_display") or "").strip()
+        if extra_note and extra_note not in reviewer_note:
+            review_surface["reviewer_note"] = " | ".join(
+                part for part in (reviewer_note, extra_note) if str(part).strip()
+            )
+        compatibility_scan_summary["digest"] = digest
+        compatibility_scan_summary["review_surface"] = review_surface
+        compatibility_scan_summary["compatibility_overview"] = dict(overview)
+        compatibility_scan_summary["compatibility_rollup"] = dict(
+            overview.get("compatibility_rollup") or {}
+        )
+        normalized["compatibility_scan_summary"] = compatibility_scan_summary
+    return {
+        artifact_key: dict(bundle_item or {})
+        for artifact_key, bundle_item in normalized.items()
+    }
+
+
+def _ensure_wp6_closeout_contract_entries(
+    entries: list[dict[str, Any]],
+    *,
+    run_dir: Path,
+    run_id: str,
+    role_catalog: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Add explicit contract entries for WP6 closeout artifacts if missing."""
+    existing_keys = {str(entry.get("artifact_key") or "").strip() for entry in entries}
+    filename_map = {
+        key: filenames[0] for key, filenames in _SHARED_WP6_CLOSEOUT_FILENAME_MAP.items()
+    }
+    role_map = dict(_SHARED_WP6_CLOSEOUT_ROLES)
+    for key in _SHARED_WP6_CLOSEOUT_KEYS:
+        if key in existing_keys:
+            continue
+        filename = filename_map.get(key, f"{key}.json")
+        artifact_path = run_dir / filename
+        present = artifact_path.exists()
+        artifact_role = str(role_map.get(key) or "diagnostic_analysis")
+        entries.append(
+            {
+                "artifact_key": key,
+                "artifact_name": filename,
+                "artifact_path": str(artifact_path),
+                "artifact_role": artifact_role,
+                "run_id": run_id,
+                "present_on_disk": present,
+                "compatibility_status": "compatibility_read" if present else "missing_regenerable",
+                "canonical_reader_available": present,
+                "regenerate_recommended": not present,
+                "schema_or_contract_version": (
+                    "step2-closeout-digest-v1" if key == "step2_closeout_digest" else "step2-wp6-v1"
+                ),
+                "schema_version_source": "canonical_filename" if present else "fallback_contract",
+                "linked_surface_visibility": _surface_visibility(
+                    artifact_key=key,
+                    artifact_role=artifact_role,
+                ),
+                "current_reader_mode": "canonical_direct" if present else "scan_only",
+            }
+        )
+    return entries
+
+
+def build_artifact_compatibility_bundle(
+    run_dir: Path,
+    *,
+    summary: dict[str, Any] | None = None,
+    manifest: dict[str, Any] | None = None,
+    results: dict[str, Any] | None = None,
+    output_files: Iterable[Any] | None = None,
+    role_catalog: dict[str, Any] | None = None,
+) -> dict[str, dict[str, Any]]:
+    run_dir = Path(run_dir)
+    merged_role_catalog = merge_role_catalog(role_catalog)
+    run_id = _resolve_run_id(run_dir, summary=summary, manifest=manifest, results=results)
+    candidate_paths = _collect_candidate_paths(
+        run_dir,
+        summary=summary,
+        manifest=manifest,
+        results=results,
+        output_files=output_files,
+    )
+    base_entries = [
+        _build_base_entry(path, run_dir=run_dir, run_id=run_id, role_catalog=merged_role_catalog)
+        for path in candidate_paths
+    ]
+    base_entries_by_key = {
+        str(entry.get("artifact_key") or ""): dict(entry)
+        for entry in base_entries
+        if str(entry.get("artifact_key") or "").strip()
+    }
+    canonical_surface_present = any(
+        bool(entry.get("present_on_disk", False))
+        and str(entry.get("artifact_name") or "") in CANONICAL_SURFACE_FILENAMES
+        for entry in base_entries
+    )
+    primary_reader_present = any(
+        bool(entry.get("present_on_disk", False))
+        and str(entry.get("artifact_name") or "") in PRIMARY_READER_FILENAMES
+        for entry in base_entries
+    )
+    compatibility_sidecars_present = all(
+        any(
+            bool(entry.get("present_on_disk", False))
+            and str(entry.get("artifact_name") or "") == definition["filename"]
+            for entry in base_entries
+        )
+        for definition in COMPATIBILITY_BUNDLE_DEFINITIONS.values()
+    )
+    if canonical_surface_present:
+        current_reader_mode = "canonical_direct"
+    elif primary_reader_present:
+        current_reader_mode = "compatibility_adapter"
+    else:
+        current_reader_mode = "scan_only"
+    entries = [
+        _finalize_entry(
+            entry,
+            run_mode=current_reader_mode,
+            pair_lookup=base_entries_by_key,
+        )
+        for entry in base_entries
+    ]
+    entries = _ensure_wp6_closeout_contract_entries(
+        entries,
+        run_dir=run_dir,
+        run_id=run_id,
+        role_catalog=merged_role_catalog,
+    )
+    status_counts = _count_by_key(entries, "compatibility_status")
+    version_source_counts = _count_by_key(entries, "schema_version_source")
+    canonical_reader_count = sum(
+        1 for entry in entries if bool(entry.get("canonical_reader_available", False))
+    )
+    compatibility_read_count = int(status_counts.get("compatibility_read", 0) or 0)
+    missing_regenerable_count = int(status_counts.get("missing_regenerable", 0) or 0)
+    compatibility_status = (
+        "compatibility_read"
+        if (
+            current_reader_mode != "canonical_direct"
+            or compatibility_read_count > 0
+            or missing_regenerable_count > 0
+        )
+        else "canonical_current"
+    )
+    regenerate_recommended = bool(
+        current_reader_mode != "canonical_direct"
+        or not compatibility_sidecars_present
+        or missing_regenerable_count > 0
+    )
+    linked_surface_visibility = ["results", "review_center", "workbench"]
+    boundary_payload = _compatibility_boundary_payload()
+    non_claim_payload = _compatibility_non_claim_payload()
+    summary_line = _scan_summary_line(
+        current_reader_mode=current_reader_mode,
+        compatibility_status=compatibility_status,
+        regenerate_recommended=regenerate_recommended,
+    )
+    detail_lines = _scan_detail_lines(
+        current_reader_mode=current_reader_mode,
+        compatibility_status=compatibility_status,
+        status_counts=status_counts,
+        version_source_counts=version_source_counts,
+        canonical_reader_count=canonical_reader_count,
+        total_entries=len(entries),
+        regenerate_recommended=regenerate_recommended,
+    )
+    run_artifact_index = _build_run_artifact_index_payload(
+        run_dir=run_dir,
+        run_id=run_id,
+        current_reader_mode=current_reader_mode,
+        compatibility_status=compatibility_status,
+        status_counts=status_counts,
+        version_source_counts=version_source_counts,
+        canonical_reader_count=canonical_reader_count,
+        regenerate_recommended=regenerate_recommended,
+        linked_surface_visibility=linked_surface_visibility,
+        entries=entries,
+        summary_line=summary_line,
+        detail_lines=detail_lines,
+        boundary_payload=boundary_payload,
+        non_claim_payload=non_claim_payload,
+    )
+    contract_catalog = _build_contract_catalog_payload(
+        run_dir=run_dir,
+        run_id=run_id,
+        current_reader_mode=current_reader_mode,
+        compatibility_status=compatibility_status,
+        compatibility_read_count=compatibility_read_count,
+        missing_regenerable_count=missing_regenerable_count,
+        regenerate_recommended=regenerate_recommended,
+        boundary_payload=boundary_payload,
+        non_claim_payload=non_claim_payload,
+        contract_rows=_build_contract_rows(entries),
+    )
+    compatibility_scan_summary = _build_scan_summary_payload(
+        run_dir=run_dir,
+        run_id=run_id,
+        current_reader_mode=current_reader_mode,
+        compatibility_status=compatibility_status,
+        status_counts=status_counts,
+        version_source_counts=version_source_counts,
+        canonical_reader_count=canonical_reader_count,
+        regenerate_recommended=regenerate_recommended,
+        linked_surface_visibility=linked_surface_visibility,
+        summary_line=summary_line,
+        detail_lines=detail_lines,
+        boundary_payload=boundary_payload,
+        non_claim_payload=non_claim_payload,
+    )
+    reindex_manifest = _build_reindex_manifest_payload(
+        run_dir=run_dir,
+        run_id=run_id,
+        current_reader_mode=current_reader_mode,
+        compatibility_status=compatibility_status,
+        regenerate_recommended=regenerate_recommended,
+        linked_surface_visibility=linked_surface_visibility,
+        boundary_payload=boundary_payload,
+        non_claim_payload=non_claim_payload,
+    )
+    normalized_raw_payloads = _normalize_artifact_compatibility_payloads(
+        {
+            "run_artifact_index": run_artifact_index,
+            "artifact_contract_catalog": contract_catalog,
+            "compatibility_scan_summary": compatibility_scan_summary,
+            "reindex_manifest": reindex_manifest,
+        }
+    )
+    return {
+        "run_artifact_index": {
+            "raw": dict(normalized_raw_payloads.get("run_artifact_index") or {}),
+            "markdown": _build_run_artifact_index_markdown(
+                dict(normalized_raw_payloads.get("run_artifact_index") or {})
+            ),
+            **COMPATIBILITY_BUNDLE_DEFINITIONS["run_artifact_index"],
+        },
+        "artifact_contract_catalog": {
+            "raw": dict(normalized_raw_payloads.get("artifact_contract_catalog") or {}),
+            "markdown": _build_contract_catalog_markdown(
+                dict(normalized_raw_payloads.get("artifact_contract_catalog") or {})
+            ),
+            **COMPATIBILITY_BUNDLE_DEFINITIONS["artifact_contract_catalog"],
+        },
+        "compatibility_scan_summary": {
+            "raw": dict(normalized_raw_payloads.get("compatibility_scan_summary") or {}),
+            "markdown": _build_scan_summary_markdown(
+                dict(normalized_raw_payloads.get("compatibility_scan_summary") or {})
+            ),
+            **COMPATIBILITY_BUNDLE_DEFINITIONS["compatibility_scan_summary"],
+        },
+        "reindex_manifest": {
+            "raw": dict(normalized_raw_payloads.get("reindex_manifest") or {}),
+            "markdown": _build_reindex_manifest_markdown(
+                dict(normalized_raw_payloads.get("reindex_manifest") or {})
+            ),
+            **COMPATIBILITY_BUNDLE_DEFINITIONS["reindex_manifest"],
+        },
+    }
+
+
 def write_artifact_compatibility_sidecars(
     run_dir: Path,
     bundle: dict[str, dict[str, Any]],
