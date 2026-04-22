@@ -20,6 +20,8 @@ class _FakeRunner:
         self._source_stage = {"co2_a": False, "co2_b": False, "h2o": False}
         self._atmosphere_safe = {"co2_a": False, "co2_b": False, "h2o": False}
         self._seal_safe = {"co2_a": False, "co2_b": False, "h2o": False}
+        self._current_open_valves: tuple[int, ...] = ()
+        self._pace_state_cache = {"in_limits_cache_valid": True, "sample_ts": "2026-04-22T17:00:00.000"}
         self._continuous_state = {
             "active": False,
             "route_flow_active": False,
@@ -41,6 +43,16 @@ class _FakeRunner:
         self.active_analyzers: list[tuple[str, object, dict[str, object]]] = []
         self.analyzer_pressure_reading: float | None = None
         self.analyzer_pressure_label = "ga01"
+        self.mechanical_pressure_protection_confirmed = True
+        self.verify_result: dict[str, object] | None = None
+        self.candidate_result: dict[str, object] | None = None
+        self.apply_result: dict[str, object] | None = None
+        self.raise_on_source_final_open = False
+        self.route_open_guard_fail_reason = ""
+        self.cleanup_calls = 0
+        self.pace_commands_sent: list[str] = []
+        self.vent_write_commands: list[str] = []
+        self.vent_query_responses: list[object] = []
 
     def _configure_devices(self, configure_gas_analyzers: bool = False) -> None:
         self.calls.append(("configure_devices", bool(configure_gas_analyzers)))
@@ -60,9 +72,11 @@ class _FakeRunner:
 
     def _capture_pace_capability_snapshot(self, **kwargs):
         return {
+            "profile": "OLD_PACE5000",
             "pressure_unit": "HPA",
             "pressure_unit_status": "known_hpa",
             "pressure_unit_allows_formal_setpoint": True,
+            "final_syst_err": self.final_syst_err,
         }
 
     def _source_stage_safety_snapshot(self):
@@ -124,8 +138,13 @@ class _FakeRunner:
     def _apply_route_baseline_valves(self) -> None:
         self.calls.append(("apply_route_baseline", None))
 
+    def _pace_state_snapshot(self, refresh: bool = True):
+        self.calls.append(("pace_state_snapshot", bool(refresh)))
+        return {"pace_oper_pres_in_limits_bit": 1, "pace_oper_pres_even_query": 0}
+
     def _set_pressure_controller_vent(self, is_open: bool, reason: str = "") -> None:
         self.calls.append(("vent", bool(is_open)))
+        self.vent_write_commands.append(":SOUR:PRES:LEV:IMM:AMPL:VENT 1" if is_open else ":SOUR:PRES:LEV:IMM:AMPL:VENT 0")
 
     def _co2_open_valves(self, point, include_total_valve: bool, *, include_source_valve: bool = True):
         if str(getattr(point, "co2_group", "") or "").upper() == "B":
@@ -135,8 +154,38 @@ class _FakeRunner:
     def _h2o_open_valves(self, point, *, include_final_stage: bool = True):
         return [8, 9, 10] if include_final_stage else [8, 9]
 
+    def _source_stage_key_for_point(self, point, *, phase: str = ""):
+        if str(phase or "").strip().lower() == "h2o":
+            return "h2o"
+        return "co2_b" if str(getattr(point, "co2_group", "") or "").upper() == "B" else "co2_a"
+
+    def _seal_pressure_target_supported_by_hardware(self, point) -> bool:
+        return True
+
+    def _mechanical_pressure_protection_confirmed(self) -> bool:
+        return bool(self.mechanical_pressure_protection_confirmed)
+
     def _open_route_with_pressure_guard(self, point, **kwargs):
-        self.calls.append(("guard", list(kwargs.get("open_valves") or [])))
+        open_valves = list(kwargs.get("open_valves") or [])
+        self.calls.append(("guard", open_valves))
+        route_key = self._source_stage_key_for_point(point, phase=str(kwargs.get("phase") or "co2"))
+        if self.raise_on_source_final_open and 4 in open_valves:
+            raise RuntimeError("boom during staged valve 4 open")
+        if self.route_open_guard_fail_reason:
+            return False
+        self._current_open_valves = tuple(open_valves)
+        if 4 not in open_valves and 24 not in open_valves and 10 not in open_valves:
+            self._source_stage[route_key] = True
+            self._atmosphere_safe[route_key] = True
+            self._seal_safe[route_key] = False
+        self._last_route_pressure_guard_summary = {
+            "route_pressure_guard_status": "pass",
+            "route_pressure_guard_reason": "",
+            "analyzer_pressure_available": False,
+            "analyzer_pressure_protection_active": False,
+            "analyzer_pressure_status": "unavailable",
+            "pace_syst_err_query": self.final_syst_err,
+        }
         return True
 
     def _open_co2_route_for_conditioning(self, point, *, point_tag: str = ""):
@@ -167,6 +216,94 @@ class _FakeRunner:
         }
         self.calls.append(("keepalive", str(route_key)))
         return True, dict(self._continuous_state)
+
+    def verify_seal_pressure_stage_preconditions(self, point, *, phase: str = "", evidence_source: str = "", verification_inputs=None):
+        payload = {
+            "eligible": True,
+            "reason": "",
+            "reasons": [],
+            "source_stage_key": self._source_stage_key_for_point(point, phase=phase),
+            "source_stage_safe": True,
+            "route_final_stage_atmosphere_safe": True,
+            "route_final_stage_seal_safe": False,
+            "evidence_source": evidence_source,
+            "not_real_acceptance_evidence": True,
+            "pressure_read_fresh": True,
+            "in_limits_cache_fresh": True,
+            "target_pressure_supported": True,
+            "analyzer_pressure_protection_active": False,
+            "mechanical_pressure_protection_confirmed": True,
+            "blocked_valves": [4, 24, 10],
+            "source_final_valves_open": [],
+        }
+        if verification_inputs:
+            payload.update(dict(verification_inputs))
+        if self.verify_result is not None:
+            payload.update(dict(self.verify_result))
+        self.calls.append(("verify", evidence_source))
+        return payload
+
+    def evaluate_seal_pressure_verified_release_candidate(self, verification, **kwargs):
+        payload = {
+            "candidate_type": "seal_pressure_verified_release_candidate",
+            "eligible_for_explicit_release": True,
+            "release_performed": False,
+            "route_final_stage_seal_safety_updated": False,
+            "source_stage_key": str((verification or {}).get("source_stage_key") or "co2_a"),
+            "required_conditions": {
+                "explicit_allow": True,
+                "fresh_pressure_read": True,
+                "fresh_in_limits_cache": True,
+                "target_pressure_supported": True,
+                "analyzer_pressure_protection_confirmed": False,
+                "mechanical_pressure_protection_confirmed": True,
+                "no_active_atmosphere_keepalive": True,
+                "no_post_exit_vent_leak": True,
+                "hidden_syst_err_count_zero": True,
+                "unclassified_syst_err_count_zero": True,
+                "pre_route_drain_syst_err_count_zero": True,
+                "no_vent2_tx": True,
+                "source_final_stage_explicit_safety": True,
+            },
+            "blocked_valves_must_remain_blocked_until_apply": [4, 24, 10],
+            "source_final_valves_open": [],
+            "source_final_stage_opened": False,
+            "co2_4_24_opened": False,
+            "h2o_10_opened": False,
+            "real_sealed_pressure_transition_started": False,
+            "observations": ["LiveSafePreflightIsNotAcceptance"],
+            "reason": "",
+            "reasons": [],
+        }
+        if self.candidate_result is not None:
+            payload.update(dict(self.candidate_result))
+        self.calls.append(("candidate", bool(kwargs.get("explicit_allow"))))
+        return payload
+
+    def apply_seal_pressure_verified_release_candidate(self, **kwargs):
+        payload = {
+            "apply_type": "seal_pressure_verified_release_apply",
+            "release_performed": True,
+            "route_final_stage_seal_safety_updated": True,
+            "route_final_stage_seal_safety_key": str(kwargs.get("source_stage_key") or "co2_a"),
+            "route_final_stage_seal_safety_value": True,
+            "opened_valves": [],
+            "pace_commands_sent": [],
+            "real_sealed_pressure_transition_started": False,
+            "source_final_stage_opened": False,
+            "co2_4_24_opened": False,
+            "h2o_10_opened": False,
+            "first_use_must_be_staged_dry_run": True,
+            "reason": "",
+            "reasons": [],
+            "expected_source_final_valves": list(kwargs.get("expected_source_final_valves") or []),
+        }
+        if self.apply_result is not None:
+            payload.update(dict(self.apply_result))
+        if payload.get("release_performed"):
+            self._seal_safe[str(kwargs.get("source_stage_key") or "co2_a")] = True
+        self.calls.append(("apply", list(kwargs.get("expected_source_final_valves") or [])))
+        return payload
 
 
 def _args(**overrides):
@@ -219,6 +356,7 @@ def _run_main(
     allow_source_open: bool = False,
     allow_h2o_final_stage_open: bool = False,
     runner_factory=None,
+    safe_stop_impl=None,
 ):
     output_dir = tmp_path / "out"
     config_path = tmp_path / "cfg.yaml"
@@ -231,13 +369,19 @@ def _run_main(
         return runner
 
     monkeypatch.setattr(live_tool, "load_config", lambda _path: config)
-    monkeypatch.setattr(live_tool, "_build_devices", lambda runtime_cfg, io_logger=None: {})
+    monkeypatch.setattr(live_tool, "_build_devices", lambda runtime_cfg, io_logger=None: {"pace": object()})
     monkeypatch.setattr(live_tool, "_close_devices", lambda devices: None)
-    monkeypatch.setattr(
-        live_tool,
-        "perform_safe_stop_with_retries",
-        lambda devices, log_fn=None, cfg=None: {"ok": True},
-    )
+    def _fake_safe_stop(devices, log_fn=None, cfg=None):
+        runner = runner_box.get("runner")
+        if callable(safe_stop_impl):
+            return safe_stop_impl(devices, runner=runner, log_fn=log_fn, cfg=cfg)
+        if runner is not None:
+            runner.calls.append(("cleanup", list(runner._current_open_valves)))
+            runner.cleanup_calls += 1
+            runner._current_open_valves = tuple()
+        return {"ok": True, "safe_stop_verified": True}
+
+    monkeypatch.setattr(live_tool, "perform_safe_stop_with_retries", _fake_safe_stop)
     monkeypatch.setattr(live_tool, "CalibrationRunner", _make_runner)
 
     argv = [
@@ -258,6 +402,15 @@ def _run_main(
     summary_path = next(output_dir.rglob("pressure_gate_live_summary.json"))
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     return exit_code, summary, runner_box["runner"]
+
+
+def _set_required_staged_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ALLOW_STAGED_SOURCE_FINAL_DRY_RUN", "CO2_A_VALVE_4_ONLY")
+    monkeypatch.setenv("OPERATOR_INTENT_CONFIRMED", "YES")
+    monkeypatch.setenv("RELEASE_REASON", "first staged dry run")
+    monkeypatch.setenv("CONFIRM_NOT_FULL_PRODUCTION", "YES")
+    monkeypatch.setenv("CONFIRM_NO_ROUTE_FLUSH_DEWPOINT_GATE", "YES")
+    monkeypatch.setenv("CONFIRM_SINGLE_ROUTE_CO2_A_ONLY", "YES")
 
 
 def test_source_open_live_scenario_requires_allow_source_open_flag(tmp_path: Path) -> None:
@@ -467,6 +620,195 @@ def test_h2o_full_route_requires_allow_h2o_final_stage_open(tmp_path: Path) -> N
     assert result["status"] == "skipped"
     assert result["skipped_reason"] == "H2OFinalStage10RequiresExplicitAllowFlag"
     assert result["operator_must_confirm_h2o_upstream_pressure_limited"] is True
+
+
+def test_co2_a_staged_source_final_dry_run_requires_operator_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in (
+        "ALLOW_STAGED_SOURCE_FINAL_DRY_RUN",
+        "OPERATOR_INTENT_CONFIRMED",
+        "RELEASE_REASON",
+        "CONFIRM_NOT_FULL_PRODUCTION",
+        "CONFIRM_NO_ROUTE_FLUSH_DEWPOINT_GATE",
+        "CONFIRM_SINGLE_ROUTE_CO2_A_ONLY",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    runner = _FakeRunner()
+    result = live_tool._run_co2_a_staged_source_final_release_dry_run(
+        runner,
+        tmp_path / "trace.csv",
+        _args(),
+    )
+
+    assert result["status"] == "skipped"
+    assert result["abort_reason"] == "operator_confirmation_missing"
+    assert "ALLOW_STAGED_SOURCE_FINAL_DRY_RUN" in result["missing_operator_env"]
+    assert "RELEASE_REASON" in result["missing_operator_env"]
+    assert all(call[0] not in {"verify", "candidate", "apply", "guard"} for call in runner.calls)
+    assert result["pace_commands_sent"] == []
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected_reason"),
+    [
+        ({"route": "CO2_B"}, "OnlyCO2ARouteSupported"),
+        ({"route": "H2O"}, "OnlyCO2ARouteSupported"),
+        ({"source_final_valve_under_test": 24}, "OnlyValve4SourceFinalStageSupported"),
+        ({"source_final_valve_under_test": 10}, "OnlyValve4SourceFinalStageSupported"),
+        ({"release_scope": "full_v1_production"}, "OnlyStagedSourceFinalReleaseDryRunSupported"),
+    ],
+)
+def test_co2_a_staged_source_final_dry_run_rejects_non_co2_a_scope(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    kwargs: dict[str, object],
+    expected_reason: str,
+) -> None:
+    _set_required_staged_env(monkeypatch)
+    runner = _FakeRunner()
+
+    result = live_tool._run_co2_a_staged_source_final_release_dry_run(
+        runner,
+        tmp_path / "trace.csv",
+        _args(),
+        **kwargs,
+    )
+
+    assert result["status"] == "skipped"
+    assert result["abort_reason"] == expected_reason
+    assert all(call[0] not in {"verify", "candidate", "apply", "guard"} for call in runner.calls)
+    assert result["co2_4_opened"] is False
+
+
+@pytest.mark.parametrize(
+    ("verify_result", "candidate_result", "apply_result", "expected_reason"),
+    [
+        ({"eligible": False, "reason": "SourceStageNotVerified", "reasons": ["SourceStageNotVerified"]}, None, None, "SourceStageNotVerified"),
+        (None, {"eligible_for_explicit_release": False, "reason": "CandidateNotEligible", "reasons": ["CandidateNotEligible"]}, None, "CandidateNotEligible"),
+        (None, None, {"release_performed": False, "route_final_stage_seal_safety_updated": False, "reason": "ExplicitApplyFailed", "reasons": ["ExplicitApplyFailed"]}, "ExplicitApplyFailed"),
+    ],
+)
+def test_co2_a_staged_source_final_dry_run_requires_candidate_and_apply(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    verify_result: dict[str, object] | None,
+    candidate_result: dict[str, object] | None,
+    apply_result: dict[str, object] | None,
+    expected_reason: str,
+) -> None:
+    _set_required_staged_env(monkeypatch)
+    runner = _FakeRunner()
+    runner.verify_result = verify_result
+    runner.candidate_result = candidate_result
+    runner.apply_result = apply_result
+
+    result = live_tool._run_co2_a_staged_source_final_release_dry_run(
+        runner,
+        tmp_path / "trace.csv",
+        _args(),
+    )
+
+    assert result["dry_run_passed"] is False
+    assert result["abort_reason"] == expected_reason
+    assert result["co2_4_opened"] is False
+    assert [8, 11, 7, 4] not in [call[1] for call in runner.calls if call[0] == "guard"]
+
+
+def test_co2_a_staged_source_final_dry_run_opens_only_valve_4_after_apply(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_required_staged_env(monkeypatch)
+
+    exit_code, summary, runner = _run_main(
+        tmp_path,
+        monkeypatch,
+        scenario=live_tool.CO2_A_STAGED_SOURCE_FINAL_RELEASE_DRY_RUN,
+        config=_config(),
+    )
+
+    assert exit_code == 0
+    assert summary["scenario_result"]["dry_run_passed"] is True
+    guard_calls = [call[1] for call in runner.calls if call[0] == "guard"]
+    assert [8, 11, 7] in guard_calls
+    assert [8, 11, 7, 4] in guard_calls
+    assert summary["scenario_result"]["co2_4_opened"] is True
+    assert summary["scenario_result"]["co2_24_opened"] is False
+    assert summary["scenario_result"]["h2o_10_opened"] is False
+    assert summary["scenario_result"]["pace_commands_sent"] == []
+    assert summary["scenario_result"]["vent2_tx_observed"] is False
+    assert runner.cleanup_calls == 1
+    assert ("cleanup", [8, 11, 7, 4]) in runner.calls
+    assert runner._current_open_valves == tuple()
+
+
+def test_co2_a_staged_source_final_dry_run_writes_not_acceptance_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_required_staged_env(monkeypatch)
+
+    exit_code, summary, _runner = _run_main(
+        tmp_path,
+        monkeypatch,
+        scenario=live_tool.CO2_A_STAGED_SOURCE_FINAL_RELEASE_DRY_RUN,
+        config=_config(),
+    )
+
+    assert exit_code == 0
+    artifact_path = Path(summary["dry_run_summary_path"])
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+
+    assert artifact["route"] == "CO2_A"
+    assert artifact["real_sealed_pressure_transition_verified"] is False
+    assert artifact["not_full_v1_production_acceptance"] is True
+    assert artifact["not_full_formal_acceptance"] is True
+    assert artifact["co2_4_opened"] is True
+    assert artifact["co2_24_opened"] is False
+    assert artifact["h2o_10_opened"] is False
+    assert artifact["vent2_tx_observed"] is False
+    assert artifact["dry_run_passed"] is True
+
+
+def test_co2_a_staged_source_final_dry_run_cleanup_runs_on_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_required_staged_env(monkeypatch)
+
+    def _runner_factory() -> _FakeRunner:
+        runner = _FakeRunner()
+        runner.raise_on_source_final_open = True
+        return runner
+
+    def _safe_stop(devices, *, runner=None, log_fn=None, cfg=None):
+        if runner is not None:
+            runner.calls.append(("cleanup", list(runner._current_open_valves)))
+            runner.cleanup_calls += 1
+            runner._current_open_valves = tuple()
+        return {"ok": True, "safe_stop_verified": True}
+
+    exit_code, summary, runner = _run_main(
+        tmp_path,
+        monkeypatch,
+        scenario=live_tool.CO2_A_STAGED_SOURCE_FINAL_RELEASE_DRY_RUN,
+        config=_config(),
+        runner_factory=_runner_factory,
+        safe_stop_impl=_safe_stop,
+    )
+
+    assert exit_code == 0
+    artifact = json.loads(Path(summary["dry_run_summary_path"]).read_text(encoding="utf-8"))
+    assert summary["scenario_result"]["status"] == "fail"
+    assert artifact["cleanup_completed"] is True
+    assert artifact["closed_valves_final"] == [4, 24, 10]
+    assert artifact["dry_run_passed"] is False
+    assert runner.cleanup_calls == 1
+    assert ("cleanup", [8, 11, 7]) in runner.calls or ("cleanup", [8, 11, 7, 4]) in runner.calls
+    assert runner._current_open_valves == tuple()
 
 
 def test_hidden_syst_err_disqualifies_route_pass(tmp_path: Path) -> None:

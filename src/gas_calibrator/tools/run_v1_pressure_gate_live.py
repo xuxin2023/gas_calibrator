@@ -13,6 +13,7 @@ import argparse
 import copy
 import csv
 import json
+import os
 import sys
 import time
 from datetime import datetime
@@ -29,7 +30,22 @@ from .safe_stop import perform_safe_stop_with_retries
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "results" / "pressure_gate_live"
+DEFAULT_STAGED_SOURCE_FINAL_OUTPUT_DIR = Path("D:/gas_calibrator_staged_source_final_dry_run_artifacts")
+CO2_A_STAGED_SOURCE_FINAL_RELEASE_DRY_RUN = "co2_a_staged_source_final_release_dry_run"
+CO2_A_STAGED_RELEASE_SCOPE = "staged_source_final_release_dry_run"
+CO2_A_FRONT_VALVES = [8, 11, 7]
+CO2_A_SOURCE_FINAL_VALVE = 4
+CO2_A_BLOCKED_VALVES = [24, 10]
+CO2_A_APPLY_EXPECTED_BLOCKED_VALVES = [4, 24, 10]
+CO2_A_STAGED_REQUIRED_ENV = {
+    "ALLOW_STAGED_SOURCE_FINAL_DRY_RUN": "CO2_A_VALVE_4_ONLY",
+    "OPERATOR_INTENT_CONFIRMED": "YES",
+    "CONFIRM_NOT_FULL_PRODUCTION": "YES",
+    "CONFIRM_NO_ROUTE_FLUSH_DEWPOINT_GATE": "YES",
+    "CONFIRM_SINGLE_ROUTE_CO2_A_ONLY": "YES",
+}
 _SOURCE_OPEN_SCENARIOS = {
+    CO2_A_STAGED_SOURCE_FINAL_RELEASE_DRY_RUN,
     "route_synchronized_atmosphere_flush_co2_a_source_guarded",
     "route_synchronized_atmosphere_flush_co2_b_source_guarded",
     "route_synchronized_atmosphere_flowthrough_co2_a_source_guarded",
@@ -45,6 +61,205 @@ _H2O_FINAL_STAGE_SCENARIOS = {
 
 def _log(message: str) -> None:
     print(message, flush=True)
+
+
+def _normalized_valves(values: Optional[Iterable[Any]]) -> List[int]:
+    normalized = []
+    seen = set()
+    for value in list(values or []):
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            continue
+        if parsed in seen:
+            continue
+        seen.add(parsed)
+        normalized.append(parsed)
+    return normalized
+
+
+def _path_within_repo(path: Path) -> bool:
+    try:
+        path.resolve().relative_to(REPO_ROOT.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _resolve_output_dir(args: argparse.Namespace) -> Path:
+    requested = Path(args.output_dir).resolve() if getattr(args, "output_dir", None) else DEFAULT_OUTPUT_DIR.resolve()
+    if str(getattr(args, "scenario", "") or "") != CO2_A_STAGED_SOURCE_FINAL_RELEASE_DRY_RUN:
+        return requested
+    if requested == DEFAULT_OUTPUT_DIR.resolve():
+        requested = DEFAULT_STAGED_SOURCE_FINAL_OUTPUT_DIR.resolve()
+    if _path_within_repo(requested):
+        raise RuntimeError("staged_source_final_artifacts_must_be_outside_repo")
+    return requested
+
+
+def _runner_current_open_valves(runner: CalibrationRunner) -> List[int]:
+    return _normalized_valves(getattr(runner, "_current_open_valves", ()))
+
+
+def _runner_command_list(runner: CalibrationRunner, attr_name: str) -> List[Any]:
+    values = getattr(runner, attr_name, [])
+    if isinstance(values, list):
+        return list(values)
+    if isinstance(values, tuple):
+        return list(values)
+    return []
+
+
+def _co2_a_staged_source_final_env_status() -> Dict[str, Any]:
+    missing: List[str] = []
+    for name, expected in CO2_A_STAGED_REQUIRED_ENV.items():
+        if str(os.environ.get(name) or "").strip() != expected:
+            missing.append(name)
+    release_reason = str(os.environ.get("RELEASE_REASON") or "").strip()
+    if not release_reason:
+        missing.append("RELEASE_REASON")
+    return {
+        "missing": missing,
+        "release_reason": release_reason,
+        "operator_confirmation_missing": bool(missing),
+    }
+
+
+def _validate_co2_a_staged_source_final_scope(
+    *,
+    route: str,
+    release_scope: str,
+    front_valves: Iterable[Any],
+    source_final_valve_under_test: int,
+    blocked_valves_required_closed: Iterable[Any],
+) -> List[str]:
+    reasons: List[str] = []
+    if str(route or "").strip().upper() != "CO2_A":
+        reasons.append("OnlyCO2ARouteSupported")
+    if str(release_scope or "").strip() != CO2_A_STAGED_RELEASE_SCOPE:
+        reasons.append("OnlyStagedSourceFinalReleaseDryRunSupported")
+    if _normalized_valves(front_valves) != CO2_A_FRONT_VALVES:
+        reasons.append("CO2AFrontPathMustRemain8_11_7")
+    if int(source_final_valve_under_test) != CO2_A_SOURCE_FINAL_VALVE:
+        reasons.append("OnlyValve4SourceFinalStageSupported")
+    if _normalized_valves(blocked_valves_required_closed) != CO2_A_BLOCKED_VALVES:
+        reasons.append("Valve24And10MustRemainBlocked")
+    return reasons
+
+
+def _build_co2_a_staged_source_final_result(
+    *,
+    trace_path: Path,
+    trace_start: int,
+    route: str,
+    release_scope: str,
+    front_valves: Iterable[Any],
+    source_final_valve_under_test: int,
+    blocked_valves_required_closed: Iterable[Any],
+) -> Dict[str, Any]:
+    return {
+        "scenario": CO2_A_STAGED_SOURCE_FINAL_RELEASE_DRY_RUN,
+        "status": "pending",
+        "abort_reason": "",
+        "evidence_source": CO2_A_STAGED_RELEASE_SCOPE,
+        "route": str(route or "").strip().upper(),
+        "front_valves": _normalized_valves(front_valves),
+        "source_final_valve_under_test": int(source_final_valve_under_test),
+        "blocked_valves_required_closed": _normalized_valves(blocked_valves_required_closed),
+        "release_scope": str(release_scope or "").strip(),
+        "source_stage_key": "",
+        "not_full_v1_production_acceptance": True,
+        "not_full_formal_acceptance": True,
+        "real_sealed_pressure_transition_verified": False,
+        "pressure_point_switch_executed": False,
+        "sampling_under_pressure_executed": False,
+        "candidate_eligible": False,
+        "explicit_apply_succeeded": False,
+        "route_final_stage_seal_safety_updated": False,
+        "route_final_stage_seal_safety_key": "",
+        "co2_4_opened": False,
+        "co2_24_opened": False,
+        "h2o_10_opened": False,
+        "source_final_stage_opened": False,
+        "opened_valves": [],
+        "closed_valves_final": [],
+        "pace_commands_sent": [],
+        "vent_write_commands": [],
+        "vent_query_responses": [],
+        "vent2_tx_observed": False,
+        "final_syst_err": "",
+        "hidden_syst_err_count": 0,
+        "unclassified_syst_err_count": 0,
+        "pre_route_drain_syst_err_count": 0,
+        "cleanup_completed": False,
+        "dry_run_passed": False,
+        "operator_env": {},
+        "missing_operator_env": [],
+        "operator_confirmation_missing": False,
+        "scope_validation_reasons": [],
+        "k0472_capability_snapshot": {},
+        "precheck": {},
+        "verification": {},
+        "candidate": {},
+        "apply_result": {},
+        "point_runtime_state": {},
+        "route_pressure_guard_summary": {},
+        "pressure_trace_rows": _scenario_trace_rows(trace_path, trace_start),
+    }
+
+
+def _build_co2_a_staged_source_final_artifact(summary: Mapping[str, Any]) -> Dict[str, Any]:
+    scenario_result = dict(summary.get("scenario_result") or {})
+    cleanup_result = dict(summary.get("cleanup_safe_stop") or {})
+    candidate = dict(scenario_result.get("candidate") or {})
+    apply_result = dict(scenario_result.get("apply_result") or {})
+    artifact = _build_co2_a_staged_source_final_result(
+        trace_path=Path(summary.get("pressure_transition_trace_csv") or summary.get("io_csv") or DEFAULT_OUTPUT_DIR / "trace.csv"),
+        trace_start=0,
+        route=scenario_result.get("route") or "CO2_A",
+        release_scope=scenario_result.get("release_scope") or CO2_A_STAGED_RELEASE_SCOPE,
+        front_valves=scenario_result.get("front_valves") or CO2_A_FRONT_VALVES,
+        source_final_valve_under_test=int(
+            scenario_result.get("source_final_valve_under_test") or CO2_A_SOURCE_FINAL_VALVE
+        ),
+        blocked_valves_required_closed=scenario_result.get("blocked_valves_required_closed") or CO2_A_BLOCKED_VALVES,
+    )
+    artifact.update(dict(scenario_result))
+    artifact["pressure_trace_rows"] = list(scenario_result.get("pressure_trace_rows") or [])
+    artifact["candidate_eligible"] = bool(candidate.get("eligible_for_explicit_release"))
+    artifact["explicit_apply_succeeded"] = bool(apply_result.get("release_performed"))
+    artifact["route_final_stage_seal_safety_updated"] = bool(
+        apply_result.get("route_final_stage_seal_safety_updated")
+        or scenario_result.get("route_final_stage_seal_safety_updated")
+    )
+    artifact["route_final_stage_seal_safety_key"] = str(
+        apply_result.get("route_final_stage_seal_safety_key")
+        or scenario_result.get("route_final_stage_seal_safety_key")
+        or ""
+    )
+    artifact["final_syst_err"] = str(summary.get("final_syst_err") or scenario_result.get("final_syst_err") or "").strip()
+    artifact["hidden_syst_err_count"] = int(
+        scenario_result.get("hidden_syst_err_count", summary.get("hidden_syst_err_count", 0)) or 0
+    )
+    artifact["unclassified_syst_err_count"] = int(
+        scenario_result.get("unclassified_syst_err_count", summary.get("unclassified_syst_err_count", 0)) or 0
+    )
+    artifact["pre_route_drain_syst_err_count"] = int(
+        scenario_result.get("pre_route_drain_syst_err_count", summary.get("pre_route_drain_syst_err_count", 0)) or 0
+    )
+    artifact["cleanup_completed"] = bool(
+        cleanup_result.get("safe_stop_verified", cleanup_result.get("ok"))
+    ) and "error" not in cleanup_result
+    if artifact["cleanup_completed"]:
+        artifact["closed_valves_final"] = list(CO2_A_APPLY_EXPECTED_BLOCKED_VALVES)
+    artifact["dry_run_passed"] = bool(
+        scenario_result.get("dry_run_passed")
+        and artifact["cleanup_completed"]
+        and not artifact.get("co2_24_opened")
+        and not artifact.get("h2o_10_opened")
+        and not artifact.get("vent2_tx_observed")
+    )
+    return artifact
 
 
 def _read_csv_rows(path: Path) -> List[Dict[str, Any]]:
@@ -284,9 +499,7 @@ def _prepare_runtime_cfg(
     need_analyzer_pressure: bool,
 ) -> Dict[str, Any]:
     runtime_cfg = copy.deepcopy(dict(cfg))
-    runtime_cfg.setdefault("paths", {})["output_dir"] = str(
-        Path(args.output_dir).resolve() if args.output_dir else DEFAULT_OUTPUT_DIR.resolve()
-    )
+    runtime_cfg.setdefault("paths", {})["output_dir"] = str(_resolve_output_dir(args))
     runtime_cfg.setdefault("workflow", {})["collect_only"] = True
     runtime_cfg["workflow"]["skip_h2o"] = True
     _disable_unneeded_devices(
@@ -773,6 +986,364 @@ def _run_route_synchronized_atmosphere_flush_co2_b_no_source(
     })
 
 
+def _run_co2_a_staged_source_final_release_dry_run(
+    runner: CalibrationRunner,
+    trace_path: Path,
+    args: argparse.Namespace,
+    *,
+    route: str = "CO2_A",
+    release_scope: str = CO2_A_STAGED_RELEASE_SCOPE,
+    front_valves: Optional[Iterable[Any]] = None,
+    source_final_valve_under_test: int = CO2_A_SOURCE_FINAL_VALVE,
+    blocked_valves_required_closed: Optional[Iterable[Any]] = None,
+) -> Dict[str, Any]:
+    point = _build_co2_point(args, index=9017, co2_ppm=600.0, co2_group="A")
+    trace_start = _trace_row_count(trace_path)
+    front_valves_list = _normalized_valves(front_valves or CO2_A_FRONT_VALVES)
+    blocked_valves_list = _normalized_valves(blocked_valves_required_closed or CO2_A_BLOCKED_VALVES)
+    result = _build_co2_a_staged_source_final_result(
+        trace_path=trace_path,
+        trace_start=trace_start,
+        route=route,
+        release_scope=release_scope,
+        front_valves=front_valves_list,
+        source_final_valve_under_test=source_final_valve_under_test,
+        blocked_valves_required_closed=blocked_valves_list,
+    )
+
+    def _refresh_result_snapshot() -> None:
+        point_state = dict(runner._point_runtime_state(point, phase="co2") or {})
+        route_guard_summary = _route_guard_summary_payload(runner)
+        counts = dict(runner._pace_error_attribution_counts() or {}) if hasattr(runner, "_pace_error_attribution_counts") else {}
+        open_valves = _runner_current_open_valves(runner)
+        pace_commands = _runner_command_list(runner, "pace_commands_sent")
+        vent_write_commands = _runner_command_list(runner, "vent_write_commands")
+        vent_query_responses = _runner_command_list(runner, "vent_query_responses")
+        result["point_runtime_state"] = point_state
+        result["route_pressure_guard_summary"] = route_guard_summary
+        result["opened_valves"] = open_valves
+        result["source_stage_key"] = str(
+            result.get("source_stage_key")
+            or point_state.get("source_stage_key")
+            or (
+                runner._source_stage_key_for_point(point, phase="co2")
+                if hasattr(runner, "_source_stage_key_for_point")
+                else "co2_a"
+            )
+            or "co2_a"
+        ).strip()
+        result["co2_4_opened"] = CO2_A_SOURCE_FINAL_VALVE in open_valves
+        result["co2_24_opened"] = 24 in open_valves
+        result["h2o_10_opened"] = 10 in open_valves
+        result["source_final_stage_opened"] = any(valve in {4, 24, 10} for valve in open_valves)
+        result["pace_commands_sent"] = pace_commands
+        result["vent_write_commands"] = vent_write_commands
+        result["vent_query_responses"] = vent_query_responses
+        result["vent2_tx_observed"] = any("VENT 2" in str(item or "") for item in [*pace_commands, *vent_write_commands])
+        result["final_syst_err"] = str(runner._read_pace_system_error_text() or "").strip()
+        result["hidden_syst_err_count"] = int(counts.get("hidden_syst_err_count") or 0)
+        result["unclassified_syst_err_count"] = int(counts.get("unclassified_syst_err_count") or 0)
+        result["pre_route_drain_syst_err_count"] = int(counts.get("pre_route_drain_syst_err_count") or 0)
+        result["pressure_trace_rows"] = _scenario_trace_rows(trace_path, trace_start)
+
+    def _finalize(status: str, *, abort_reason: str = "", dry_run_passed: bool = False) -> Dict[str, Any]:
+        if abort_reason:
+            result["abort_reason"] = str(abort_reason)
+        result["status"] = status
+        result["dry_run_passed"] = bool(dry_run_passed)
+        _refresh_result_snapshot()
+        return _enrich_live_result_with_pace_diagnostics(
+            runner,
+            result,
+            final_syst_err=str(result.get("final_syst_err") or ""),
+        )
+
+    result["scope_validation_reasons"] = _validate_co2_a_staged_source_final_scope(
+        route=route,
+        release_scope=release_scope,
+        front_valves=front_valves_list,
+        source_final_valve_under_test=source_final_valve_under_test,
+        blocked_valves_required_closed=blocked_valves_list,
+    )
+    if result["scope_validation_reasons"]:
+        return _finalize("skipped", abort_reason=str(result["scope_validation_reasons"][0] or "InvalidStagedDryRunScope"))
+
+    operator_env = _co2_a_staged_source_final_env_status()
+    result["operator_env"] = operator_env
+    result["missing_operator_env"] = list(operator_env.get("missing") or [])
+    result["operator_confirmation_missing"] = bool(operator_env.get("operator_confirmation_missing"))
+    if result["operator_confirmation_missing"]:
+        return _finalize("skipped", abort_reason="operator_confirmation_missing")
+
+    capability_snapshot = (
+        dict(
+            runner._capture_pace_capability_snapshot(
+                reason="co2_a_staged_source_final_release_dry_run precheck",
+                include_optional_probe=True,
+            )
+            or {}
+        )
+        if hasattr(runner, "_capture_pace_capability_snapshot")
+        else {}
+    )
+    result["k0472_capability_snapshot"] = capability_snapshot
+    drain_summary = _drain_pace_errors_for_live_step(
+        runner,
+        reason="co2_a_staged_source_final_release_dry_run pre-step",
+    )
+
+    expected_no_source_front_valves = (
+        _normalized_valves(runner._co2_open_valves(point, include_total_valve=True, include_source_valve=False))
+        if hasattr(runner, "_co2_open_valves")
+        else []
+    )
+    current_open_before = _runner_current_open_valves(runner)
+    precheck_reasons: List[str] = []
+    if not capability_snapshot:
+        precheck_reasons.append("PaceCommunicationUnavailable")
+    if str(capability_snapshot.get("profile") or "").strip().upper() != "OLD_PACE5000":
+        precheck_reasons.append("OnlyOldPace5000ProfileSupported")
+    precheck_syst_err = str(
+        drain_summary.get("post_drain_error")
+        or capability_snapshot.get("final_syst_err")
+        or runner._read_pace_system_error_text()
+        or ""
+    ).strip()
+    if not _pace_error_is_clear(precheck_syst_err):
+        precheck_reasons.append("PaceSystemErrorNotClear")
+    if expected_no_source_front_valves != front_valves_list:
+        precheck_reasons.append("CO2AFrontPathMustRemain8_11_7")
+    if any(valve in current_open_before for valve in blocked_valves_list):
+        precheck_reasons.append("BlockedValvesAlreadyOpen")
+
+    runner._clear_last_sealed_pressure_route_context(reason="co2_a staged source/final dry-run precheck")
+    runner._clear_pressure_sequence_context(reason="co2_a staged source/final dry-run precheck")
+    runner._set_co2_route_baseline(reason="co2_a staged source/final dry-run precheck baseline")
+    precheck_open_ok = False
+    if not precheck_reasons:
+        precheck_open_ok = runner._open_route_with_pressure_guard(
+            point,
+            phase="co2",
+            point_tag="live_route_sync_co2_a_staged_source_final_precheck",
+            open_valves=front_valves_list,
+            log_context="CO2 A staged source/final dry-run precheck",
+        )
+        if not precheck_open_ok:
+            precheck_reasons.append(
+                str((runner._point_runtime_state(point, phase="co2") or {}).get("abort_reason") or "RouteOpenPressureGuardFailed")
+            )
+
+    pressure_sample = (
+        dict(runner._read_current_pressure_hpa_for_atmosphere() or {})
+        if hasattr(runner, "_read_current_pressure_hpa_for_atmosphere")
+        else {}
+    )
+    point_state = dict(runner._point_runtime_state(point, phase="co2") or {})
+    route_guard_summary = _route_guard_summary_payload(runner)
+    continuous_state = _runner_continuous_atmosphere_state(runner)
+    pace_state_snapshot = (
+        dict(runner._pace_state_snapshot(refresh=True) or {})
+        if hasattr(runner, "_pace_state_snapshot")
+        else {}
+    )
+    pace_cache = dict(getattr(runner, "_pace_state_cache", {}) or {})
+    open_after_precheck = _runner_current_open_valves(runner)
+    route_key = str(
+        (runner._source_stage_key_for_point(point, phase="co2") if hasattr(runner, "_source_stage_key_for_point") else "")
+        or point_state.get("source_stage_key")
+        or "co2_a"
+    ).strip()
+    result["source_stage_key"] = route_key
+
+    pressure_hpa = None
+    if hasattr(runner, "_as_float"):
+        pressure_hpa = runner._as_float(pressure_sample.get("pressure_hpa"))
+    pressure_gauge_hpa = None
+    if hasattr(runner, "_as_float"):
+        pressure_gauge_hpa = runner._as_float(pressure_sample.get("pressure_gauge_hpa"))
+    pressure_gauge_available = pressure_gauge_hpa is not None or pressure_hpa is not None or bool(
+        point_state.get("pressure_gauge_available")
+    )
+    pressure_read_fresh = bool(pressure_gauge_available)
+    in_limits_cache_fresh = bool(
+        pace_cache.get("in_limits_cache_valid")
+        or pace_state_snapshot.get("pace_oper_pres_in_limits_bit") not in ("", None)
+        or pace_state_snapshot.get("pace_oper_pres_even_query") not in ("", None)
+    )
+    target_pressure_supported = (
+        bool(runner._seal_pressure_target_supported_by_hardware(point))
+        if hasattr(runner, "_seal_pressure_target_supported_by_hardware")
+        else True
+    )
+    analyzer_pressure_protection_active = bool(route_guard_summary.get("analyzer_pressure_protection_active"))
+    mechanical_pressure_protection_confirmed = (
+        bool(runner._mechanical_pressure_protection_confirmed())
+        if hasattr(runner, "_mechanical_pressure_protection_confirmed")
+        else False
+    )
+    source_stage_safe = bool((_runner_source_stage_safety(runner) or {}).get(route_key, False))
+    route_final_stage_atmosphere_safe = bool((_runner_route_final_stage_atmosphere_safety(runner) or {}).get(route_key, False))
+    source_final_valves_open = [valve for valve in open_after_precheck if valve in CO2_A_APPLY_EXPECTED_BLOCKED_VALVES]
+    if open_after_precheck != front_valves_list:
+        precheck_reasons.append("NoSourceFrontPathNotConfirmed")
+    if CO2_A_SOURCE_FINAL_VALVE in open_after_precheck:
+        precheck_reasons.append("Valve4OpenedBeforeExplicitApply")
+    if any(valve in open_after_precheck for valve in blocked_valves_list):
+        precheck_reasons.append("NonTargetBlockedValveOpenedDuringPrecheck")
+    if bool(continuous_state.get("active")) or bool(continuous_state.get("route_flow_active")):
+        precheck_reasons.append("ActiveAtmosphereKeepalive")
+    if not pressure_read_fresh:
+        precheck_reasons.append("PressureReadNotFresh")
+    if not in_limits_cache_fresh:
+        precheck_reasons.append("StaleInLimitsCache")
+    if not target_pressure_supported:
+        precheck_reasons.append("PressureTargetUnsupportedByHardware")
+    if not (analyzer_pressure_protection_active or mechanical_pressure_protection_confirmed):
+        precheck_reasons.append("PressureProtectionNotConfirmed")
+    if not source_stage_safe:
+        precheck_reasons.append("SourceStageNotVerified")
+    if not route_final_stage_atmosphere_safe:
+        precheck_reasons.append("AtmosphereFlowStageNotVerified")
+
+    result["precheck"] = {
+        "pace_communication_ok": bool(capability_snapshot),
+        "profile": str(capability_snapshot.get("profile") or ""),
+        "front_valves_confirmed": front_valves_list,
+        "expected_front_valves": expected_no_source_front_valves,
+        "current_open_valves_before": current_open_before,
+        "current_open_valves_after_precheck": open_after_precheck,
+        "precheck_open_ok": bool(precheck_open_ok),
+        "pressure_read_fresh": bool(pressure_read_fresh),
+        "pressure_gauge_available": bool(pressure_gauge_available),
+        "in_limits_cache_fresh": bool(in_limits_cache_fresh),
+        "target_pressure_supported": bool(target_pressure_supported),
+        "analyzer_pressure_protection_active": bool(analyzer_pressure_protection_active),
+        "mechanical_pressure_protection_confirmed": bool(mechanical_pressure_protection_confirmed),
+        "source_stage_safe": bool(source_stage_safe),
+        "route_final_stage_atmosphere_safe": bool(route_final_stage_atmosphere_safe),
+        "source_final_valves_open": list(source_final_valves_open),
+        "post_drain_error": precheck_syst_err,
+        "blocked_reasons": list(precheck_reasons),
+        **drain_summary,
+    }
+    if precheck_reasons:
+        return _finalize("diagnostic_error", abort_reason=str(precheck_reasons[0] or "StagedSourceFinalPrecheckFailed"))
+
+    verification = runner.verify_seal_pressure_stage_preconditions(
+        point,
+        phase="co2",
+        evidence_source="live_safe_preflight",
+        verification_inputs={
+            "source_stage_key": route_key,
+            "source_stage_safe": source_stage_safe,
+            "route_final_stage_atmosphere_safe": route_final_stage_atmosphere_safe,
+            "route_final_stage_seal_safe": False,
+            "pressure_gauge_available": pressure_gauge_available,
+            "pressure_read_fresh": pressure_read_fresh,
+            "in_limits_cache_fresh": in_limits_cache_fresh,
+            "target_pressure_supported": target_pressure_supported,
+            "analyzer_pressure_protection_active": analyzer_pressure_protection_active,
+            "mechanical_pressure_protection_confirmed": mechanical_pressure_protection_confirmed,
+            "post_exit_vent1_count": 0,
+            "vent2_tx_count": 0,
+            "exit_boundary_vent0_count": 0,
+            "blocked_valves": CO2_A_APPLY_EXPECTED_BLOCKED_VALVES,
+            "source_final_valves_open": [],
+            "final_syst_err": precheck_syst_err,
+            "hidden_syst_err_count": int(result.get("hidden_syst_err_count") or 0),
+            "unclassified_syst_err_count": int(result.get("unclassified_syst_err_count") or 0),
+            "pre_route_drain_syst_err_count": int(result.get("pre_route_drain_syst_err_count") or 0),
+        },
+    )
+    result["verification"] = dict(verification or {})
+    if not bool(verification.get("eligible")):
+        return _finalize(
+            "diagnostic_error",
+            abort_reason=str(verification.get("reason") or "SealPressureStagePreconditionsNotEligible"),
+        )
+
+    candidate = runner.evaluate_seal_pressure_verified_release_candidate(
+        verification,
+        explicit_allow=True,
+        pressure_read_fresh=pressure_read_fresh,
+        in_limits_cache_fresh=in_limits_cache_fresh,
+        target_pressure_supported=target_pressure_supported,
+        analyzer_pressure_protection_confirmed=analyzer_pressure_protection_active,
+        mechanical_pressure_protection_confirmed=mechanical_pressure_protection_confirmed,
+        active_atmosphere_keepalive=False,
+        post_exit_vent_leak=False,
+        hidden_syst_err_count=int(result.get("hidden_syst_err_count") or 0),
+        unclassified_syst_err_count=int(result.get("unclassified_syst_err_count") or 0),
+        pre_route_drain_syst_err_count=int(result.get("pre_route_drain_syst_err_count") or 0),
+        vent2_tx_observed=False,
+        source_final_stage_explicit_safety=True,
+    )
+    result["candidate"] = dict(candidate or {})
+    result["candidate_eligible"] = bool(candidate.get("eligible_for_explicit_release"))
+    if not result["candidate_eligible"]:
+        return _finalize(
+            "diagnostic_error",
+            abort_reason=str(candidate.get("reason") or "CandidateNotEligible"),
+        )
+
+    apply_result = runner.apply_seal_pressure_verified_release_candidate(
+        source_stage_key=route_key,
+        candidate=candidate,
+        explicit_apply=True,
+        operator_intent_confirmed=True,
+        release_reason=str(operator_env.get("release_reason") or ""),
+        release_scope=release_scope,
+        expected_blocked_valves=CO2_A_APPLY_EXPECTED_BLOCKED_VALVES,
+        expected_source_final_valves=[CO2_A_SOURCE_FINAL_VALVE],
+        dry_run=True,
+    )
+    result["apply_result"] = dict(apply_result or {})
+    result["explicit_apply_succeeded"] = bool(apply_result.get("release_performed"))
+    result["route_final_stage_seal_safety_updated"] = bool(apply_result.get("route_final_stage_seal_safety_updated"))
+    result["route_final_stage_seal_safety_key"] = str(apply_result.get("route_final_stage_seal_safety_key") or route_key)
+    if not result["explicit_apply_succeeded"]:
+        return _finalize(
+            "diagnostic_error",
+            abort_reason=str(apply_result.get("reason") or "ExplicitApplyFailed"),
+        )
+
+    if not hasattr(runner, "_open_route_with_pressure_guard"):
+        return _finalize("diagnostic_error", abort_reason="valve_open_only_dry_run_not_supported")
+
+    staged_open_valves = (
+        _normalized_valves(runner._co2_open_valves(point, include_total_valve=True, include_source_valve=True))
+        if hasattr(runner, "_co2_open_valves")
+        else []
+    )
+    if staged_open_valves != CO2_A_FRONT_VALVES + [CO2_A_SOURCE_FINAL_VALVE]:
+        return _finalize("diagnostic_error", abort_reason="valve_open_only_dry_run_not_supported")
+
+    try:
+        staged_open_ok = runner._open_route_with_pressure_guard(
+            point,
+            phase="co2",
+            point_tag="live_route_sync_co2_a_staged_source_final_release_dry_run",
+            open_valves=staged_open_valves,
+            log_context="CO2 A staged source/final dry-run",
+        )
+    except Exception as exc:
+        return _finalize("fail", abort_reason=str(exc) or "StagedSourceFinalDryRunFailed")
+
+    _refresh_result_snapshot()
+    if not staged_open_ok:
+        return _finalize(
+            "fail",
+            abort_reason=str(result["point_runtime_state"].get("abort_reason") or "StagedSourceFinalDryRunFailed"),
+        )
+    if result["co2_24_opened"] or result["h2o_10_opened"]:
+        return _finalize("fail", abort_reason="NonTargetSourceFinalValveOpened")
+    if result["vent2_tx_observed"]:
+        return _finalize("fail", abort_reason="Vent2CommandObserved")
+    if not result["co2_4_opened"]:
+        return _finalize("fail", abort_reason="Valve4DidNotOpen")
+    return _finalize("pass", dry_run_passed=True)
+
+
 def _run_route_synchronized_atmosphere_flush_co2_a_source_guarded(
     runner: CalibrationRunner,
     trace_path: Path,
@@ -1251,6 +1822,7 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
             "baseline_atmosphere_hold_60s",
             "pace_optional_query_error_attribution",
             "route_open_pressure_guard",
+            CO2_A_STAGED_SOURCE_FINAL_RELEASE_DRY_RUN,
             "route_synchronized_atmosphere_flush_co2_a_no_source",
             "route_synchronized_atmosphere_flush_co2_b_no_source",
             "route_synchronized_atmosphere_flush_co2_a_source_guarded",
@@ -1402,6 +1974,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             scenario_result = _run_pace_optional_query_error_attribution(runner, trace_path)
         elif args.scenario == "route_open_pressure_guard":
             scenario_result = _run_route_open_pressure_guard(runner, trace_path, args)
+        elif args.scenario == CO2_A_STAGED_SOURCE_FINAL_RELEASE_DRY_RUN:
+            scenario_result = _run_co2_a_staged_source_final_release_dry_run(runner, trace_path, args)
         elif args.scenario == "route_synchronized_atmosphere_flush_co2_a_no_source":
             scenario_result = _run_route_synchronized_atmosphere_flush_co2_a_no_source(runner, trace_path, args)
         elif args.scenario == "route_synchronized_atmosphere_flush_co2_b_no_source":
@@ -1502,8 +2076,14 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         )
         summary["summary_extract"] = _build_summary_extract(summary)
         summary_path = logger.run_dir / "pressure_gate_live_summary.json"
+        dry_run_summary_path = None
+        if args.scenario == CO2_A_STAGED_SOURCE_FINAL_RELEASE_DRY_RUN:
+            dry_run_summary_path = logger.run_dir / "dry_run_summary.json"
+            summary["dry_run_summary_path"] = str(dry_run_summary_path)
         try:
             _write_json(summary_path, summary)
+            if dry_run_summary_path is not None:
+                _write_json(dry_run_summary_path, _build_co2_a_staged_source_final_artifact(summary))
         finally:
             _close_devices(devices)
             try:
@@ -1511,6 +2091,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             except Exception:
                 pass
         _log(f"Summary JSON: {summary_path}")
+        if dry_run_summary_path is not None:
+            _log(f"Dry-run summary JSON: {dry_run_summary_path}")
         _log(f"IO CSV: {logger.io_path}")
         if trace_path.exists():
             _log(f"Pressure trace CSV: {trace_path}")

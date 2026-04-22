@@ -574,6 +574,18 @@ def test_live_safe_preflight_evidence_is_not_sealed_pressure_acceptance(tmp_path
     assert "LiveSafePreflightIsNotAcceptance" in candidate["observations"]
 
 
+def test_live_safe_preflight_verifier_can_feed_staged_dry_run_without_acceptance(tmp_path: Path) -> None:
+    point = _co2_point()
+    logger, runner = _make_runner(tmp_path, point)
+
+    verification = _verify(runner, point, phase="co2", evidence_source="live_safe_preflight")
+    logger.close()
+
+    assert verification["eligible"] is True
+    assert verification["evidence_source"] == "live_safe_preflight"
+    assert verification["not_real_acceptance_evidence"] is True
+
+
 def test_seal_pressure_release_apply_requires_explicit_apply(tmp_path: Path) -> None:
     point = _co2_point()
     logger, runner = _make_runner(tmp_path, point)
@@ -729,6 +741,29 @@ def test_seal_pressure_release_apply_sets_only_route_final_stage_key(tmp_path: P
     assert str(runner._continuous_atmosphere_state.get("phase_name") or "") == before_phase
     assert gauge.calls == []
     assert pace.calls == []
+
+
+def test_seal_pressure_release_apply_accepts_planned_source_final_valve_4_scope(tmp_path: Path) -> None:
+    point = _co2_point()
+    logger, runner = _make_runner(tmp_path, point)
+    key = runner._source_stage_key_for_point(point, phase="co2")
+    candidate = _evaluate_candidate(
+        runner,
+        _verify(runner, point, phase="co2", evidence_source="live_safe_preflight"),
+    )
+
+    result = _apply_candidate(
+        runner,
+        key,
+        candidate,
+        expected_source_final_valves=[4],
+    )
+    logger.close()
+
+    assert result["release_performed"] is True
+    assert result["route_final_stage_seal_safety_updated"] is True
+    assert result["expected_source_final_valves"] == [4]
+    assert runner._route_final_stage_seal_safety[key] is True
 
 
 def test_seal_pressure_release_apply_is_idempotent_for_existing_true_key(tmp_path: Path) -> None:

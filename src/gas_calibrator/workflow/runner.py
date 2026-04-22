@@ -3483,6 +3483,8 @@ class CalibrationRunner:
         if "simulated" in effective_evidence_source:
             reasons.append("SimulatedEvidenceNotAcceptance")
             result["not_real_acceptance_evidence"] = True
+        elif effective_evidence_source == "live_safe_preflight":
+            result["not_real_acceptance_evidence"] = True
         elif effective_evidence_source == "live_safe":
             reasons.append("LiveSafeEvidenceNotSealedPressureVerified")
             result["not_real_acceptance_evidence"] = True
@@ -3822,8 +3824,11 @@ class CalibrationRunner:
             reasons.append("BlockedValvesNotConfirmed")
         if not set(required_blocked_valves).issubset(set(candidate_blocked_valves)):
             reasons.append("BlockedValvesNotConfirmed")
-        if normalized_expected_source_final and normalized_expected_source_final != candidate_source_final_valves:
-            reasons.append("BlockedValvesNotConfirmed")
+        if normalized_expected_source_final:
+            if not set(normalized_expected_source_final).issubset(set(required_blocked_valves)):
+                reasons.append("BlockedValvesNotConfirmed")
+            elif candidate_source_final_valves and normalized_expected_source_final != candidate_source_final_valves:
+                reasons.append("BlockedValvesNotConfirmed")
 
         if candidate_missing_required_conditions:
             reasons.append("CandidateMissingRequiredConditions")
