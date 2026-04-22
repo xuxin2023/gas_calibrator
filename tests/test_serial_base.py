@@ -39,6 +39,9 @@ class FakeSerial:
         return b""
 
     def read(self, n: int) -> bytes:
+        if self._line_queue:
+            self._read_buf = self._line_queue.pop(0) + self._read_buf
+            self.in_waiting = len(self._read_buf)
         chunk = self._read_buf[:n]
         self._read_buf = self._read_buf[n:]
         self.in_waiting = len(self._read_buf)
@@ -83,6 +86,9 @@ class ReadPermissionDeniedSerial(FakeSerial):
         super().__init__(*args, **kwargs)
         self.close_calls = 0
 
+    def read(self, n: int) -> bytes:
+        raise PermissionError(13, "拒绝访问。")
+
     def readline(self) -> bytes:
         raise PermissionError(13, "拒绝访问。")
 
@@ -102,6 +108,14 @@ class RecoveringReadFactory:
             self.first = ReadPermissionDeniedSerial(**kwargs)
             return self.first
         return FakeSerial(**kwargs)
+
+
+class CrOnlySerial(FakeSerial):
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._line_queue = [b"PACE 1\r"]
+        self._read_buf = b""
+        self.in_waiting = 0
 
 
 def test_serial_device_logs_tx_rx(monkeypatch, tmp_path: Path) -> None:
@@ -133,6 +147,33 @@ def test_serial_device_logs_tx_rx(monkeypatch, tmp_path: Path) -> None:
 
     tx_rows = [r for r in rows if r["direction"] == "TX"]
     assert any("PING" in r["command"] for r in tx_rows)
+    rx_rows = [r for r in rows if r["direction"] == "RX"]
+    assert any(r["duration_ms"] for r in rx_rows)
+
+
+def test_serial_device_readline_handles_cr_only_response(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(serial_base.serial, "Serial", CrOnlySerial)
+
+    logger = RunLogger(tmp_path)
+    dev = serial_base.SerialDevice(
+        "COM8",
+        9600,
+        device_name="pace_like",
+        io_logger=logger,
+    )
+
+    dev.open()
+    response = dev.query(":OUTP:STAT?\\n", delay_s=0.0)
+    dev.close()
+    logger.close()
+
+    assert response == "PACE 1"
+    with logger.io_path.open("r", encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+    query_rows = [r for r in rows if r["direction"] == "QUERY"]
+    assert query_rows
+    assert query_rows[-1]["response"] == "PACE 1"
+    assert float(query_rows[-1]["duration_ms"]) >= 0.0
 
 
 def test_serial_device_ignores_logger_failures(monkeypatch) -> None:

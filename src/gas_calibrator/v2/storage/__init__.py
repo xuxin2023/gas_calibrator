@@ -19,6 +19,13 @@ __all__ = [
     "resolve_run_uuid",
     "SIDECAR_COLLECTIONS",
     "stable_uuid",
+    # V1.3 governance: tamper-proof, retention, archival
+    "TamperProofStore",
+    "IntegritySeal",
+    "RetentionPolicy",
+    "ArchivalStrategy",
+    "ArchiveFormat",
+    "DEFAULT_RETENTION_POLICIES",
 ]
 
 _EXPORT_MAP = {
@@ -36,6 +43,13 @@ _EXPORT_MAP = {
     "resolve_run_uuid": (".database", "resolve_run_uuid"),
     "SIDECAR_COLLECTIONS": (".sidecar_index", "SIDECAR_COLLECTIONS"),
     "stable_uuid": (".database", "stable_uuid"),
+    # V1.3 governance: tamper-proof, retention, archival (re-exported from core)
+    "TamperProofStore": ("..core.conformity_and_governance_objects", "TamperProofStore"),
+    "IntegritySeal": ("..core.conformity_and_governance_objects", "IntegritySeal"),
+    "RetentionPolicy": ("..core.conformity_and_governance_objects", "RetentionPolicy"),
+    "ArchivalStrategy": ("..core.conformity_and_governance_objects", "ArchivalStrategy"),
+    "ArchiveFormat": ("..core.conformity_and_governance_objects", "ArchiveFormat"),
+    "DEFAULT_RETENTION_POLICIES": ("..core.conformity_and_governance_objects", "DEFAULT_RETENTION_POLICIES"),
 }
 
 

@@ -6,6 +6,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from .electronic_signature import (
+    ApprovalChain,
+    ApprovalChainStatus,
+    create_report_signoff_chain,
+)
+
 
 RUN_METADATA_PROFILE_FILENAME = "run_metadata_profile.json"
 OPERATOR_AUTHORIZATION_PROFILE_FILENAME = "operator_authorization_profile.json"
@@ -430,6 +436,11 @@ def build_human_governance_artifacts(
             "required_action_rows": [dict(row) for row in dual_check_rows],
         },
     )
+    # Bridge to real ApprovalChain from electronic_signature module
+    approval_chain_bridge = _build_approval_chain_bridge(
+        run_id=normalized_run_id,
+        dual_check_rows=dual_check_rows,
+    )
     return {
         "fixtures": fixtures,
         "run_metadata_profile": run_metadata_profile,
@@ -439,6 +450,44 @@ def build_human_governance_artifacts(
         "qc_flag_catalog": qc_flag_catalog,
         "recovery_action_log": recovery_action_log,
         "reviewer_dual_check_placeholder": reviewer_dual_check_placeholder,
+        "approval_chain_bridge": approval_chain_bridge,
+    }
+
+
+def _build_approval_chain_bridge(
+    *,
+    run_id: str,
+    dual_check_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Bridge placeholder dual-check to real ApprovalChain from electronic_signature.
+
+    Creates a report signoff approval chain template that can be used
+    to replace the placeholder with real identity-bound signatures.
+    """
+    chain = create_report_signoff_chain(
+        chain_id=f"{run_id}-report-signoff",
+        report_type="calibration_report",
+    )
+    return {
+        "chain_id": chain.chain_id,
+        "chain_type": "report_signoff",
+        "status": chain.status.value,
+        "step_count": len(chain.steps),
+        "steps": [
+            {
+                "step_index": i,
+                "role": step.role,
+                "is_dual_review": step.is_dual_review,
+                "required_count": step.required_count,
+                "signed_count": len(step.signatures),
+            }
+            for i, step in enumerate(chain.steps)
+        ],
+        "dual_check_actions_count": len(dual_check_rows),
+        "placeholder_replaced_by": "electronic_signature.ApprovalChain",
+        "not_real_acceptance_evidence": True,
+        "not_ready_for_formal_claim": True,
+        "evidence_source": "approval_chain_bridge",
     }
 
 

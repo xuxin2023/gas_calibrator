@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from . import recognition_readiness_artifacts as recognition_readiness
+from .scope_comparison_view import ScopeComparisonView
 
 
 # ---------------------------------------------------------------------------

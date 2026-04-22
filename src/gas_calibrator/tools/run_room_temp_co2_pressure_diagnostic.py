@@ -6,12 +6,14 @@ import argparse
 import copy
 import csv
 import json
+import math
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from ..config import load_config
 from ..data.points import CalibrationPoint
@@ -181,6 +183,15 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--screening-flush-s-default", type=float, default=DEFAULT_SCREENING_FLUSH_S)
     parser.add_argument("--max-flush-s", type=float, default=DEFAULT_MAX_FLUSH_S)
     parser.add_argument("--flush-gate-window-s", type=float, default=DEFAULT_THRESHOLDS.flush_gate_window_s)
+    parser.add_argument(
+        "--flush-vent-refresh-interval-s",
+        type=float,
+        default=0.0,
+        help=(
+            "Diagnostic-only: for analyzer-chain-isolation + --skip-gas-analyzer, "
+            "re-run the legacy safe vent action during flush every N seconds; 0 disables refresh."
+        ),
+    )
     parser.add_argument("--enable-precondition", type=_parse_bool_text, default=True)
     parser.add_argument("--precondition-only", type=_parse_bool_text, default=False)
     parser.add_argument("--precondition-gas-ppm", type=int, default=DEFAULT_PRECONDITION_GAS_PPM)
@@ -196,6 +207,11 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--restore-vent-observe-s", type=float, default=DEFAULT_RESTORE_VENT_OBSERVE_S)
     parser.add_argument("--print-every-s", type=float, default=10.0)
     parser.add_argument("--configure-analyzer-stream", action="store_true")
+    parser.add_argument(
+        "--skip-gas-analyzer",
+        action="store_true",
+        help="Diagnostic-only: do not build/open/start/configure any gas analyzer; keep focus on PACE/gauge/dewpoint/relay/route switching.",
+    )
     parser.add_argument("--early-stop", type=_parse_bool_text, default=True, help="Stop deeper layers for a variant after fail; default true.")
     parser.add_argument("--treat-insufficient-as-stop", type=_parse_bool_text, default=True, help="Treat insufficient_evidence as a stage stop; default true.")
     parser.add_argument("--variant-b-seal-trigger-hpa", type=float, default=1110.0)
@@ -283,6 +299,15 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
         args.enable_precondition = False
     if args.precondition_only:
         args.enable_precondition = True
+    if float(args.flush_vent_refresh_interval_s) < 0.0:
+        parser.error("--flush-vent-refresh-interval-s must be >= 0")
+    if float(args.flush_vent_refresh_interval_s) > 0.0 and not (
+        args.smoke_level == "analyzer-chain-isolation" and bool(args.skip_gas_analyzer)
+    ):
+        parser.error(
+            "--flush-vent-refresh-interval-s only applies to "
+            "--smoke-level analyzer-chain-isolation with --skip-gas-analyzer"
+        )
     if args.chain_mode in {"analyzer_out_keep_rest", "analyzer_out_pace_out_keep_rest"} and args.analyzer_count_in_path is None:
         args.analyzer_count_in_path = 0
     elif args.chain_mode in {"analyzer_in_keep_rest", "analyzer_in_pace_out_keep_rest"} and args.analyzer_count_in_path is None:
@@ -310,11 +335,13 @@ def _prepare_runtime_cfg(
     analyzer_cfg: Mapping[str, Any],
     args: argparse.Namespace,
     variant: VariantSpec,
+    *,
+    skip_gas_analyzer: bool = False,
 ) -> Dict[str, Any]:
     runtime_cfg = copy.deepcopy(dict(cfg))
     runtime_devices = runtime_cfg.setdefault("devices", {})
-    runtime_devices["gas_analyzer"] = dict(analyzer_cfg)
-    runtime_devices["gas_analyzer"]["enabled"] = True
+    runtime_devices["gas_analyzer"] = dict(analyzer_cfg) if isinstance(analyzer_cfg, Mapping) else {}
+    runtime_devices["gas_analyzer"]["enabled"] = not bool(skip_gas_analyzer)
     runtime_devices["gas_analyzers"] = []
     pressure_cfg = runtime_cfg.setdefault("workflow", {}).setdefault("pressure", {})
     pressure_cfg["stabilize_timeout_s"] = float(args.pressure_settle_timeout_s)
@@ -326,17 +353,24 @@ def _prepare_runtime_cfg(
     return runtime_cfg
 
 
-def _build_devices(runtime_cfg: Mapping[str, Any], analyzer_cfg: Mapping[str, Any], io_logger: RunLogger) -> Dict[str, Any]:
+def _build_devices(
+    runtime_cfg: Mapping[str, Any],
+    analyzer_cfg: Mapping[str, Any],
+    io_logger: RunLogger,
+    *,
+    skip_gas_analyzer: bool = False,
+) -> Dict[str, Any]:
     dcfg = runtime_cfg.get("devices", {}) if isinstance(runtime_cfg, Mapping) else {}
     built: Dict[str, Any] = {}
     try:
-        built["gas_analyzer"] = GasAnalyzer(
-            str(analyzer_cfg["port"]),
-            int(analyzer_cfg.get("baud", 115200)),
-            device_id=str(analyzer_cfg.get("device_id") or "000"),
-            io_logger=io_logger,
-        )
-        built["gas_analyzer"].open()
+        if not skip_gas_analyzer:
+            built["gas_analyzer"] = GasAnalyzer(
+                str(analyzer_cfg["port"]),
+                int(analyzer_cfg.get("baud", 115200)),
+                device_id=str(analyzer_cfg.get("device_id") or "000"),
+                io_logger=io_logger,
+            )
+            built["gas_analyzer"].open()
 
         pcfg = dcfg.get("pressure_controller", {})
         if not isinstance(pcfg, dict) or not pcfg.get("enabled"):
@@ -399,6 +433,19 @@ def _build_devices(runtime_cfg: Mapping[str, Any], analyzer_cfg: Mapping[str, An
         _close_devices(built)
         raise
     return built
+
+
+def _resolve_selected_analyzer_cfg(
+    cfg: Mapping[str, Any],
+    args: argparse.Namespace,
+) -> Tuple[str, Dict[str, Any]]:
+    try:
+        return _select_analyzer_cfg(cfg, args.analyzer)
+    except Exception:
+        if bool(getattr(args, "skip_gas_analyzer", False)) and str(getattr(args, "smoke_level", "") or "").strip() == "analyzer-chain-isolation":
+            requested = str(getattr(args, "analyzer", "") or "").strip() or DEFAULT_ANALYZER_ID
+            return requested, {}
+        raise
 
 
 def _build_source_point(gas_ppm: int, *, index: int, co2_group: str) -> CalibrationPoint:
@@ -868,22 +915,24 @@ def _record_event(
     note: str = "",
     timestamp: Optional[str] = None,
     chain_mode: Optional[str] = None,
+    extra_fields: Optional[Mapping[str, Any]] = None,
 ) -> None:
-    events.append(
-        {
-            "timestamp": timestamp or datetime.now().isoformat(timespec="milliseconds"),
-            "run_id": run_id,
-            "process_variant": process_variant,
-            "layer": layer,
-            "repeat_index": repeat_index,
-            "gas_ppm": gas_ppm,
-            "chain_mode": chain_mode,
-            "pressure_target_hpa": pressure_target_hpa,
-            "event_type": event_type,
-            "event_value": event_value,
-            "note": note,
-        }
-    )
+    row = {
+        "timestamp": timestamp or datetime.now().isoformat(timespec="milliseconds"),
+        "run_id": run_id,
+        "process_variant": process_variant,
+        "layer": layer,
+        "repeat_index": repeat_index,
+        "gas_ppm": gas_ppm,
+        "chain_mode": chain_mode,
+        "pressure_target_hpa": pressure_target_hpa,
+        "event_type": event_type,
+        "event_value": event_value,
+        "note": note,
+    }
+    if extra_fields:
+        row.update(dict(extra_fields))
+    events.append(row)
 
 
 def _record_trace_events(
@@ -934,6 +983,10 @@ def _write_actuation_events_csv(path: Path, rows: Sequence[Mapping[str, Any]]) -
         "event_value",
         "note",
     ]
+    for row in rows:
+        for key in row.keys():
+            if key not in fieldnames:
+                fieldnames.append(str(key))
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
@@ -1125,6 +1178,745 @@ def _log_flush_gate_snapshot(snapshot: Mapping[str, Any]) -> None:
     )
 
 
+def _pace_has_legacy_ge_druck_identity(pace: Any) -> bool:
+    checker = getattr(pace, "has_legacy_vent_status_model", None)
+    if callable(checker):
+        try:
+            return bool(checker())
+        except Exception:
+            pass
+    identity_getter = getattr(pace, "get_device_identity", None)
+    if not callable(identity_getter):
+        return False
+    try:
+        identity = str(identity_getter() or "").strip().upper()
+    except Exception:
+        return False
+    return "GE DRUCK" in identity or "PACE5000 USER INTERFACE" in identity
+
+
+def _analyzer_chain_legacy_safe_vent_policy(
+    cfg: Mapping[str, Any],
+    *,
+    pace: Any,
+    pace_in_path: bool,
+) -> Dict[str, Any]:
+    legacy_identity = bool(pace_in_path and pace is not None and _pace_has_legacy_ge_druck_identity(pace))
+    closed_pressure_swing_enabled = bool(_closed_pressure_swing_defaults(cfg).get("closed_pressure_swing_enabled"))
+    required = bool(pace_in_path and legacy_identity)
+    active = bool(required and not closed_pressure_swing_enabled)
+    fail_reason = "closed_pressure_swing_enabled" if required and closed_pressure_swing_enabled else ""
+    return {
+        "legacy_identity_detected": legacy_identity,
+        "legacy_safe_vent_required": required,
+        "legacy_safe_vent_active": active,
+        "legacy_safe_vent_fail_reason": fail_reason,
+        "legacy_safe_vent_mode": "diagnostic_only_no_abort" if active else "",
+    }
+
+
+def _legacy_safe_vent_timeout_s(cfg: Mapping[str, Any]) -> float:
+    pressure_cfg = cfg.get("workflow", {}).get("pressure", {}) if isinstance(cfg, Mapping) else {}
+    if not isinstance(pressure_cfg, Mapping):
+        return 30.0
+    return max(0.5, float(pressure_cfg.get("vent_transition_timeout_s", 30.0) or 30.0))
+
+
+def _run_legacy_safe_vent_action(
+    runner: CalibrationRunner,
+    *,
+    cfg: Mapping[str, Any],
+    action: str,
+    reason: str,
+    run_id: str,
+    actuation_events: List[Dict[str, Any]],
+    process_variant: str,
+    layer: int,
+    repeat_index: int,
+    gas_ppm: Optional[int],
+    chain_mode: Optional[str],
+) -> Dict[str, Any]:
+    pace = runner.devices.get("pace")
+    helper = getattr(pace, "enter_legacy_diagnostic_safe_vent_mode", None) if pace is not None else None
+    if not callable(helper):
+        raise RuntimeError(
+            "legacy_safe_vent_blocked("
+            f"action={action},step=helper_unavailable,last_status=unknown,output_state=unknown,"
+            "isolation_state=unknown,recoverable=true)"
+        )
+
+    _record_event(
+        actuation_events,
+        run_id=run_id,
+        process_variant=process_variant,
+        layer=layer,
+        repeat_index=repeat_index,
+        gas_ppm=gas_ppm,
+        chain_mode=chain_mode,
+        pressure_target_hpa=None,
+        event_type="legacy_safe_vent_begin",
+        event_value=action,
+        note=reason,
+    )
+    try:
+        result = dict(
+            helper(
+                timeout_s=_legacy_safe_vent_timeout_s(cfg),
+                poll_s=0.25,
+                action=action,
+            )
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "legacy_safe_vent_blocked("
+            f"action={action},step=helper_exception,last_status=unknown,output_state=unknown,"
+            f"isolation_state=unknown,recoverable=true,error={exc})"
+        ) from exc
+
+    event_type = "legacy_safe_vent_observed" if bool(result.get("ok")) else "legacy_safe_vent_blocked"
+    _record_event(
+        actuation_events,
+        run_id=run_id,
+        process_variant=process_variant,
+        layer=layer,
+        repeat_index=repeat_index,
+        gas_ppm=gas_ppm,
+        chain_mode=chain_mode,
+        pressure_target_hpa=None,
+        event_type=event_type,
+        event_value=result.get("after_status"),
+        note=str(result.get("reason") or reason),
+    )
+    if not bool(result.get("ok")):
+        raise RuntimeError(str(result.get("reason") or "legacy_safe_vent_blocked"))
+
+    _log(f"[CHAIN] legacy safe vent ok | action={action} reason={result.get('reason')}")
+    return result
+
+
+def _legacy_safe_vent_refresh_block_reason(
+    pace: Any,
+    *,
+    action: str,
+    last_status: Optional[int],
+    output_state: Optional[int],
+    isolation_state: Optional[int],
+    step: str,
+) -> str:
+    builder = getattr(pace, "_legacy_safe_vent_block_error", None)
+    if callable(builder):
+        try:
+            return str(
+                builder(
+                    action=action,
+                    last_status=last_status,
+                    output_state=output_state,
+                    isolation_state=isolation_state,
+                    step=step,
+                )
+            )
+        except Exception:
+            pass
+    return (
+        "legacy_safe_vent_blocked("
+        f"action={action},step={step},"
+        f"last_status={last_status if last_status is not None else 'unknown'},"
+        f"output_state={output_state if output_state is not None else 'unknown'},"
+        f"isolation_state={isolation_state if isolation_state is not None else 'unknown'},"
+        "recoverable=true)"
+    )
+
+
+def _run_legacy_safe_vent_refresh_action(
+    runner: CalibrationRunner,
+    *,
+    action: str,
+) -> Dict[str, Any]:
+    pace = runner.devices.get("pace")
+    if pace is None:
+        raise RuntimeError(
+            "legacy_safe_vent_blocked("
+            f"action={action},step=pace_missing,last_status=unknown,output_state=unknown,"
+            "isolation_state=unknown,recoverable=true)"
+        )
+    lock = getattr(pace, "_cmd_lock", None)
+    if lock is None or not hasattr(lock, "__enter__"):
+        raise RuntimeError(
+            "legacy_safe_vent_blocked("
+            f"action={action},step=pace_command_lock_missing,last_status=unknown,output_state=unknown,"
+            "isolation_state=unknown,recoverable=true)"
+        )
+
+    legacy_identity_checker = getattr(pace, "has_legacy_vent_status_model", None)
+    legacy_identity = bool(legacy_identity_checker()) if callable(legacy_identity_checker) else False
+    result = {
+        "action": action,
+        "legacy_identity": legacy_identity,
+        "ok": False,
+        "recoverable": True,
+        "reason": "",
+        "vent_command_sent": False,
+        "before_status": None,
+        "after_status": None,
+        "output_state": 0,
+        "isolation_state": 1,
+    }
+    if not legacy_identity:
+        result["reason"] = "non_legacy_identity"
+        return result
+
+    with lock:
+        stop_hold = getattr(pace, "stop_atmosphere_hold", None)
+        if callable(stop_hold):
+            stop_hold()
+        try:
+            pace.set_output(False)
+            pace.set_isolation_open(True)
+            before_status = pace.get_vent_status()
+        except Exception as exc:
+            result["reason"] = _legacy_safe_vent_refresh_block_reason(
+                pace,
+                action=action,
+                last_status=result.get("before_status"),
+                output_state=0,
+                isolation_state=1,
+                step=f"prepare:{exc}",
+            )
+            return result
+
+        result["before_status"] = before_status
+        result["after_status"] = before_status
+        if before_status == Pace5000.VENT_STATUS_TRAPPED_PRESSURE:
+            result["reason"] = _legacy_safe_vent_refresh_block_reason(
+                pace,
+                action=action,
+                last_status=before_status,
+                output_state=0,
+                isolation_state=1,
+                step="watchlist_status_3",
+            )
+            return result
+        if before_status in {Pace5000.VENT_STATUS_IDLE, Pace5000.VENT_STATUS_COMPLETED}:
+            try:
+                pace.vent(True)
+            except Exception as exc:
+                result["reason"] = _legacy_safe_vent_refresh_block_reason(
+                    pace,
+                    action=action,
+                    last_status=before_status,
+                    output_state=0,
+                    isolation_state=1,
+                    step=f"vent_on:{exc}",
+                )
+                return result
+            result["vent_command_sent"] = True
+            result["after_status"] = Pace5000.VENT_STATUS_IN_PROGRESS
+        elif before_status != Pace5000.VENT_STATUS_IN_PROGRESS:
+            result["reason"] = _legacy_safe_vent_refresh_block_reason(
+                pace,
+                action=action,
+                last_status=before_status,
+                output_state=0,
+                isolation_state=1,
+                step="unsupported_status",
+            )
+            return result
+
+    result["ok"] = True
+    result["reason"] = (
+        "legacy_safe_vent_refresh_scheduled("
+        f"action={action},last_status={result.get('after_status')},"
+        f"vent_command_sent={str(bool(result.get('vent_command_sent'))).lower()})"
+    )
+    return result
+
+
+def _update_flush_vent_refresh_metadata(
+    setup_metadata: Optional[Dict[str, Any]],
+    *,
+    requested_interval_s: float,
+    actual_intervals_s: Sequence[float],
+    refresh_count: int,
+    thread_used: bool,
+) -> None:
+    if setup_metadata is None:
+        return
+    actual_mean = (
+        round(sum(float(item) for item in actual_intervals_s) / len(actual_intervals_s), 6)
+        if actual_intervals_s
+        else None
+    )
+    actual_max = round(max(float(item) for item in actual_intervals_s), 6) if actual_intervals_s else None
+    setup_metadata.update(
+        {
+            "flush_vent_refresh_interval_s": requested_interval_s,
+            "flush_vent_refresh_interval_s_requested": requested_interval_s,
+            "flush_vent_refresh_interval_s_actual_mean": actual_mean,
+            "flush_vent_refresh_interval_s_actual_max": actual_max,
+            "flush_vent_refresh_count": int(refresh_count),
+            "flush_vent_refresh_thread_used": bool(thread_used),
+        }
+    )
+
+
+def _flush_vent_refresh_extra_fields(payload: Mapping[str, Any]) -> Dict[str, Any]:
+    return {
+        "flush_vent_refresh_sequence": int(payload.get("sequence") or 0),
+        "flush_vent_refresh_interval_s_requested": _safe_float(payload.get("requested_interval_s")),
+        "flush_vent_refresh_interval_s_actual": _safe_float(payload.get("actual_interval_s")),
+        "flush_vent_refresh_duration_s": _safe_float(payload.get("duration_s")),
+        "flush_vent_refresh_thread_used": bool(payload.get("thread_used")),
+        "flush_vent_refresh_before_status": _safe_int(payload.get("before_status")),
+        "flush_vent_refresh_after_status": _safe_int(payload.get("after_status")),
+        "flush_vent_refresh_vent_command_sent": payload.get("vent_command_sent"),
+        "flush_vent_refresh_completed_timestamp": payload.get("completed_timestamp"),
+    }
+
+
+class _FlushVentRefreshHeartbeat:
+    def __init__(
+        self,
+        *,
+        interval_s: float,
+        pace: Any,
+        phase_label: str,
+        phase_start_mono: float,
+        action: str,
+        handler: Callable[[str], Mapping[str, Any] | None],
+        warning_failure_threshold: int = 3,
+    ) -> None:
+        self._interval_s = max(0.0, float(interval_s))
+        self._pace = pace
+        self._phase_label = str(phase_label or "flush")
+        self._phase_start_mono = float(phase_start_mono)
+        self._action = str(action)
+        self._handler = handler
+        self._warning_failure_threshold = max(1, int(warning_failure_threshold))
+        self._pace_lock = getattr(pace, "_cmd_lock", None)
+        self._pending_lock = threading.Lock()
+        self._pending_events: List[Dict[str, Any]] = []
+        self._stop_event = threading.Event()
+        self._started_event = threading.Event()
+        self._fatal_error: Optional[str] = None
+        self._thread: Optional[threading.Thread] = None
+        self._sequence = 0
+        self._last_begin_mono: Optional[float] = None
+
+    def start(self) -> None:
+        if self._interval_s <= 0.0:
+            return
+        if not callable(self._handler):
+            raise RuntimeError("flush_vent_refresh_heartbeat_start_failed(handler_unavailable)")
+        if self._pace is None:
+            raise RuntimeError("flush_vent_refresh_heartbeat_start_failed(pace_unavailable)")
+        if self._pace_lock is None or not hasattr(self._pace_lock, "__enter__"):
+            raise RuntimeError("flush_vent_refresh_heartbeat_start_failed(pace_command_lock_unavailable)")
+        self._thread = threading.Thread(
+            target=self._run,
+            name=f"flush-vent-refresh-{self._action}",
+            daemon=False,
+        )
+        self._thread.start()
+        if not self._started_event.wait(timeout=max(1.0, self._interval_s * 2.0 + 0.5)):
+            raise RuntimeError("flush_vent_refresh_heartbeat_start_failed(thread_not_started)")
+        if self._fatal_error:
+            raise RuntimeError(self._fatal_error)
+
+    def drain_events(self) -> List[Dict[str, Any]]:
+        with self._pending_lock:
+            out = list(self._pending_events)
+            self._pending_events.clear()
+        return out
+
+    def stop(self) -> List[Dict[str, Any]]:
+        self._stop_event.set()
+        if self._thread is not None:
+            self._thread.join(timeout=max(2.0, self._interval_s * 2.0 + 1.0))
+            if self._thread.is_alive():
+                raise RuntimeError("flush_vent_refresh_heartbeat_stop_timeout")
+        pending = self.drain_events()
+        if self._fatal_error:
+            raise RuntimeError(self._fatal_error)
+        return pending
+
+    def _append_pending(self, payload: Mapping[str, Any]) -> None:
+        with self._pending_lock:
+            self._pending_events.append(dict(payload))
+
+    def _run(self) -> None:
+        try:
+            next_due_mono = self._phase_start_mono + self._interval_s
+            consecutive_failures = 0
+            self._started_event.set()
+            while not self._stop_event.is_set():
+                wait_s = max(0.0, next_due_mono - time.monotonic())
+                if self._stop_event.wait(wait_s):
+                    break
+
+                begin_mono = time.monotonic()
+                begin_ts = datetime.now().isoformat(timespec="milliseconds")
+                elapsed_real_s = max(0.0, begin_mono - self._phase_start_mono)
+                self._sequence += 1
+                actual_interval_s = None if self._last_begin_mono is None else begin_mono - self._last_begin_mono
+                self._last_begin_mono = begin_mono
+                refresh_label = f"{elapsed_real_s:.1f}s"
+                refresh_reason = f"metrology {self._phase_label} refresh @{refresh_label}"
+
+                result: Dict[str, Any]
+                ok = False
+                try:
+                    with self._pace_lock:
+                        raw_result = self._handler(refresh_reason)
+                    result = dict(raw_result) if isinstance(raw_result, Mapping) else {}
+                    ok = bool(result.get("ok", True))
+                except Exception as exc:
+                    result = {
+                        "action": self._action,
+                        "ok": False,
+                        "reason": str(exc),
+                        "vent_command_sent": False,
+                        "before_status": None,
+                        "after_status": None,
+                    }
+
+                end_mono = time.monotonic()
+                end_ts = datetime.now().isoformat(timespec="milliseconds")
+                payload = {
+                    "type": "refresh",
+                    "action": str(result.get("action") or self._action),
+                    "sequence": self._sequence,
+                    "timestamp": begin_ts,
+                    "completed_timestamp": end_ts,
+                    "elapsed_real_s": elapsed_real_s,
+                    "requested_interval_s": self._interval_s,
+                    "actual_interval_s": actual_interval_s,
+                    "duration_s": max(0.0, end_mono - begin_mono),
+                    "refresh_label": refresh_label,
+                    "refresh_reason": refresh_reason,
+                    "thread_used": True,
+                    "ok": ok,
+                    "reason": str(result.get("reason") or refresh_reason),
+                    "vent_command_sent": result.get("vent_command_sent"),
+                    "before_status": result.get("before_status"),
+                    "after_status": result.get("after_status"),
+                }
+                self._append_pending(payload)
+
+                if ok:
+                    consecutive_failures = 0
+                else:
+                    consecutive_failures += 1
+                    if consecutive_failures >= self._warning_failure_threshold:
+                        self._append_pending(
+                            {
+                                "type": "warning",
+                                "timestamp": end_ts,
+                                "elapsed_real_s": max(0.0, end_mono - self._phase_start_mono),
+                                "requested_interval_s": self._interval_s,
+                                "thread_used": True,
+                                "consecutive_failures": consecutive_failures,
+                                "reason": str(result.get("reason") or "flush_vent_refresh_failed"),
+                            }
+                        )
+
+                next_due_mono += self._interval_s
+                while next_due_mono <= time.monotonic():
+                    next_due_mono += self._interval_s
+        except Exception as exc:
+            self._fatal_error = f"flush_vent_refresh_heartbeat_failed({exc})"
+            self._append_pending(
+                {
+                    "type": "fatal",
+                    "timestamp": datetime.now().isoformat(timespec="milliseconds"),
+                    "reason": self._fatal_error,
+                    "thread_used": True,
+                }
+            )
+        finally:
+            self._started_event.set()
+
+
+def _drain_flush_vent_refresh_heartbeat_events(
+    payloads: Sequence[Mapping[str, Any]],
+    *,
+    rows: Sequence[Mapping[str, Any]],
+    actuation_events: List[Dict[str, Any]],
+    flush_gate_trace_rows: List[Dict[str, Any]],
+    run_id: str,
+    process_variant: str,
+    layer: int,
+    repeat_index: int,
+    gas_ppm: int,
+    phase_name: str,
+    phase_label: str,
+    gate_window_s: float,
+    min_flush_s: float,
+    target_flush_s: float,
+    require_ratio: bool,
+    chain_mode: Optional[str],
+    refresh_stats: Dict[str, Any],
+    requested_interval_s: float,
+    setup_metadata: Optional[Dict[str, Any]],
+) -> None:
+    for payload in payloads:
+        payload_type = str(payload.get("type") or "")
+        if payload_type == "fatal":
+            raise RuntimeError(str(payload.get("reason") or "flush_vent_refresh_heartbeat_failed"))
+
+        extra_fields = _flush_vent_refresh_extra_fields(payload)
+        if payload_type == "refresh":
+            action = str(payload.get("action") or "analyzer_chain_flush_vent_refresh")
+            refresh_reason = str(payload.get("refresh_reason") or payload.get("reason") or "")
+            begin_ts = str(payload.get("timestamp") or datetime.now().isoformat(timespec="milliseconds"))
+            end_ts = str(payload.get("completed_timestamp") or begin_ts)
+            elapsed_real_s = max(0.0, float(payload.get("elapsed_real_s") or 0.0))
+            refresh_label = str(payload.get("refresh_label") or f"{elapsed_real_s:.1f}s")
+
+            _record_event(
+                actuation_events,
+                run_id=run_id,
+                process_variant=process_variant,
+                layer=layer,
+                repeat_index=repeat_index,
+                gas_ppm=gas_ppm,
+                chain_mode=chain_mode,
+                pressure_target_hpa=None,
+                event_type="legacy_safe_vent_begin",
+                event_value=action,
+                note=refresh_reason,
+                timestamp=begin_ts,
+                extra_fields=extra_fields,
+            )
+            if bool(payload.get("ok")):
+                _record_event(
+                    actuation_events,
+                    run_id=run_id,
+                    process_variant=process_variant,
+                    layer=layer,
+                    repeat_index=repeat_index,
+                    gas_ppm=gas_ppm,
+                    chain_mode=chain_mode,
+                    pressure_target_hpa=None,
+                    event_type="legacy_safe_vent_observed",
+                    event_value=payload.get("after_status"),
+                    note=str(payload.get("reason") or refresh_reason),
+                    timestamp=end_ts,
+                    extra_fields=extra_fields,
+                )
+                _record_event(
+                    actuation_events,
+                    run_id=run_id,
+                    process_variant=process_variant,
+                    layer=layer,
+                    repeat_index=repeat_index,
+                    gas_ppm=gas_ppm,
+                    chain_mode=chain_mode,
+                    pressure_target_hpa=None,
+                    event_type="vent_refresh",
+                    event_value="VENT_ON_REFRESH",
+                    note=f"{phase_label} refresh @{refresh_label}",
+                    timestamp=end_ts,
+                    extra_fields=extra_fields,
+                )
+                trace_row = _build_flush_gate_trace_row(
+                    rows,
+                    process_variant=process_variant,
+                    layer=layer,
+                    repeat_index=repeat_index,
+                    gas_ppm=gas_ppm,
+                    phase=phase_name,
+                    elapsed_real_s=elapsed_real_s,
+                    gate_window_s=gate_window_s,
+                    min_flush_s=min_flush_s,
+                    target_flush_s=target_flush_s,
+                    note=f"{phase_label}_vent_refresh_{refresh_label}",
+                    require_ratio=require_ratio,
+                    chain_mode=chain_mode,
+                )
+                trace_row["timestamp"] = begin_ts
+                trace_row.update(extra_fields)
+                flush_gate_trace_rows.append(trace_row)
+                _log_flush_gate_snapshot(trace_row)
+
+                refresh_stats["count"] = int(refresh_stats.get("count", 0)) + 1
+                actual_interval_s = _safe_float(payload.get("actual_interval_s"))
+                if actual_interval_s is not None:
+                    refresh_stats.setdefault("actual_intervals_s", []).append(actual_interval_s)
+            else:
+                block_reason = str(payload.get("reason") or refresh_reason or "flush_vent_refresh_failed")
+                _log(f"[WARN] {block_reason}")
+                _record_event(
+                    actuation_events,
+                    run_id=run_id,
+                    process_variant=process_variant,
+                    layer=layer,
+                    repeat_index=repeat_index,
+                    gas_ppm=gas_ppm,
+                    chain_mode=chain_mode,
+                    pressure_target_hpa=None,
+                    event_type="legacy_safe_vent_blocked",
+                    event_value=payload.get("after_status"),
+                    note=block_reason,
+                    timestamp=end_ts,
+                    extra_fields=extra_fields,
+                )
+                _record_event(
+                    actuation_events,
+                    run_id=run_id,
+                    process_variant=process_variant,
+                    layer=layer,
+                    repeat_index=repeat_index,
+                    gas_ppm=gas_ppm,
+                    chain_mode=chain_mode,
+                    pressure_target_hpa=None,
+                    event_type="vent_refresh_warning",
+                    event_value="heartbeat_refresh_failed",
+                    note=block_reason,
+                    timestamp=end_ts,
+                    extra_fields=extra_fields,
+                )
+        elif payload_type == "warning":
+            warning_note = (
+                f"{phase_label}_refresh_consecutive_failures="
+                f"{int(payload.get('consecutive_failures') or 0)} reason={payload.get('reason')}"
+            )
+            _log(f"[WARN] {warning_note}")
+            _record_event(
+                actuation_events,
+                run_id=run_id,
+                process_variant=process_variant,
+                layer=layer,
+                repeat_index=repeat_index,
+                gas_ppm=gas_ppm,
+                chain_mode=chain_mode,
+                pressure_target_hpa=None,
+                event_type="vent_refresh_warning",
+                event_value="heartbeat_consecutive_failures",
+                note=warning_note,
+                timestamp=str(payload.get("timestamp") or datetime.now().isoformat(timespec="milliseconds")),
+                extra_fields={
+                    "flush_vent_refresh_interval_s_requested": _safe_float(payload.get("requested_interval_s")),
+                    "flush_vent_refresh_thread_used": bool(payload.get("thread_used")),
+                    "flush_vent_refresh_consecutive_failures": int(payload.get("consecutive_failures") or 0),
+                },
+            )
+
+    _update_flush_vent_refresh_metadata(
+        setup_metadata,
+        requested_interval_s=requested_interval_s,
+        actual_intervals_s=list(refresh_stats.get("actual_intervals_s") or []),
+        refresh_count=int(refresh_stats.get("count", 0)),
+        thread_used=bool(refresh_stats.get("thread_used")),
+    )
+
+
+def _apply_analyzer_chain_pressure_baseline(
+    runner: CalibrationRunner,
+    *,
+    cfg: Mapping[str, Any],
+    reason: str,
+    legacy_safe_vent_active: bool,
+    run_id: str,
+    actuation_events: List[Dict[str, Any]],
+    process_variant: str,
+    layer: int,
+    repeat_index: int,
+    gas_ppm: Optional[int],
+    chain_mode: Optional[str],
+    action: str,
+) -> Dict[str, Any]:
+    if not legacy_safe_vent_active:
+        runner._set_co2_route_baseline(reason=reason)
+        return {"ok": True, "mode": "default", "reason": reason}
+
+    result = _run_legacy_safe_vent_action(
+        runner,
+        cfg=cfg,
+        action=action,
+        reason=reason,
+        run_id=run_id,
+        actuation_events=actuation_events,
+        process_variant=process_variant,
+        layer=layer,
+        repeat_index=repeat_index,
+        gas_ppm=gas_ppm,
+        chain_mode=chain_mode,
+    )
+    runner._apply_route_baseline_valves()
+    _log("Managed relay/pressure baseline restored with legacy diagnostic-safe vent.")
+    return result
+
+
+def _configure_analyzer_chain_capture_startup(
+    runner: CalibrationRunner,
+    *,
+    analyzer: Optional[GasAnalyzer],
+    analyzer_name: str,
+    analyzer_cfg: Mapping[str, Any],
+    setup_metadata: Dict[str, Any],
+) -> Dict[str, Any]:
+    analyzers_in_path = list(setup_metadata.get("analyzers_in_path") or [])
+    non_capture_names = [
+        str(item.get("name") or "").strip()
+        for item in analyzers_in_path
+        if isinstance(item, Mapping) and str(item.get("name") or "").strip() and str(item.get("name") or "").strip() != str(analyzer_name)
+    ]
+    startup_summary = {
+        "analyzer_startup_gate_policy": "capture_analyzer_only",
+        "capture_analyzer_startup_label": str(analyzer_name or ""),
+        "capture_analyzer_startup_status": "pending",
+        "capture_analyzer_startup_fail_reason": "",
+        "non_capture_analyzers_skipped": list(non_capture_names),
+        "non_capture_analyzer_startup_policy": "not_required_for_diagnostic_only",
+    }
+    setup_metadata.update(startup_summary)
+
+    if non_capture_names:
+        _log(
+            "[CHAIN] diagnostic-only startup gate uses capture analyzer only; "
+            f"non-capture analyzers not startup-gated: {', '.join(non_capture_names)}"
+        )
+
+    if analyzer is None:
+        reason = (
+            "all_analyzers_unavailable("
+            f"capture_analyzer={analyzer_name},reason=capture_analyzer_missing)"
+        )
+        startup_summary["capture_analyzer_startup_status"] = "fail"
+        startup_summary["capture_analyzer_startup_fail_reason"] = reason
+        setup_metadata.update(startup_summary)
+        raise RuntimeError(reason)
+
+    settings = runner._gas_analyzer_runtime_settings(dict(analyzer_cfg) if isinstance(analyzer_cfg, Mapping) else {})
+    try:
+        runner._configure_gas_analyzer(
+            analyzer,
+            label=str(analyzer_name or "gas_analyzer"),
+            mode=int(settings["mode"]),
+            active_send=bool(settings["active_send"]),
+            ftd_hz=int(settings["ftd_hz"]),
+            avg_co2=int(settings["avg_co2"]),
+            avg_h2o=int(settings["avg_h2o"]),
+            avg_filter=int(settings["avg_filter"]),
+            warning_phase="startup",
+        )
+        runner._disabled_analyzers.discard(str(analyzer_name or ""))
+        runner._disabled_analyzer_reasons.pop(str(analyzer_name or ""), None)
+        runner._disabled_analyzer_last_reprobe_ts.pop(str(analyzer_name or ""), None)
+    except Exception as exc:
+        runner._disable_analyzers([str(analyzer_name or "gas_analyzer")], reason="capture_analyzer_startup_failed")
+        runner._disabled_analyzer_last_reprobe_ts[str(analyzer_name or "gas_analyzer")] = time.time()
+        reason = f"capture_analyzer_startup_failed(name={analyzer_name},reason={exc})"
+        startup_summary["capture_analyzer_startup_status"] = "fail"
+        startup_summary["capture_analyzer_startup_fail_reason"] = reason
+        setup_metadata.update(startup_summary)
+        raise RuntimeError(reason) from exc
+
+    startup_summary["capture_analyzer_startup_status"] = "pass"
+    setup_metadata.update(startup_summary)
+    return startup_summary
+
+
 def _perform_runtime_safe_stop(
     devices: Mapping[str, Any],
     *,
@@ -1139,7 +1931,8 @@ def _perform_runtime_safe_stop(
     note: str,
     chain_mode: Optional[str] = None,
     pace_in_path: bool = True,
-) -> None:
+    pace_mode: str = "default",
+) -> Dict[str, Any]:
     _record_event(
         actuation_events,
         run_id=run_id,
@@ -1153,8 +1946,16 @@ def _perform_runtime_safe_stop(
         event_value="safe_stop_begin",
         note=note,
     )
+    result: Dict[str, Any] = {}
     if pace_in_path:
-        perform_safe_stop_with_retries(dict(devices), cfg=dict(cfg), attempts=2, retry_delay_s=1.0, log_fn=_log)
+        result = perform_safe_stop_with_retries(
+            dict(devices),
+            cfg=dict(cfg),
+            pace_mode=pace_mode,
+            attempts=2,
+            retry_delay_s=1.0,
+            log_fn=_log,
+        )
     elif runner is not None:
         runner._apply_route_baseline_valves()
         _log("PACE 不在气路中：safe stop 仅恢复气路阀位基线。")
@@ -1171,6 +1972,7 @@ def _perform_runtime_safe_stop(
         event_value="safe_stop_end",
         note=note,
     )
+    return result
 
 
 def _switch_gas_route(
@@ -1193,10 +1995,14 @@ def _switch_gas_route(
     chain_mode: Optional[str] = None,
     controller_vent_state_label: str = "VENT_ON",
     pace_in_path: bool = True,
+    initial_baseline_handler: Optional[Callable[[], None]] = None,
 ) -> Tuple[List[Dict[str, Any]], float]:
     if previous_route is None:
         if pace_in_path:
-            runner._set_co2_route_baseline(reason=f"{process_variant} layer{layer} repeat{repeat_index} first gas")
+            if callable(initial_baseline_handler):
+                initial_baseline_handler()
+            else:
+                runner._set_co2_route_baseline(reason=f"{process_variant} layer{layer} repeat{repeat_index} first gas")
         else:
             runner._apply_route_baseline_valves()
         runner._apply_valve_states(next_route["open_logical_valves"])
@@ -1328,6 +2134,11 @@ def _run_flush_phase(
     gate_name_override: Optional[str] = None,
     phase_label_override: Optional[str] = None,
     chain_mode: Optional[str] = None,
+    vent_on_handler: Optional[Callable[[str], None]] = None,
+    flush_vent_refresh_interval_s: float = 0.0,
+    vent_refresh_handler: Optional[Callable[[str], Mapping[str, Any] | None]] = None,
+    flush_vent_refresh_wall_clock_heartbeat: bool = False,
+    setup_metadata: Optional[Dict[str, Any]] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any], Dict[str, Any], str]:
     precondition_mode = layer == 0
     phase_name = phase_name_override or ("precondition_vent_on" if precondition_mode else "gas_flush_vent_on")
@@ -1347,7 +2158,11 @@ def _run_flush_phase(
             note="0 ppm precondition begin",
         )
     if require_vent_on:
-        runner._set_pressure_controller_vent(True, reason=f"metrology {phase_label} gate")
+        vent_reason = f"metrology {phase_label} gate"
+        if callable(vent_on_handler):
+            vent_on_handler(vent_reason)
+        else:
+            runner._set_pressure_controller_vent(True, reason=vent_reason)
         _record_event(
             actuation_events,
             run_id=run_id,
@@ -1363,7 +2178,38 @@ def _run_flush_phase(
     rows: List[Dict[str, Any]] = []
     phase_start_mono = time.monotonic()
     chunk_s = min(15.0, max(5.0, gate_window_s / 3.0))
+    refresh_interval_s = max(0.0, float(flush_vent_refresh_interval_s or 0.0))
+    use_threaded_refresh = bool(
+        flush_vent_refresh_wall_clock_heartbeat
+        and refresh_interval_s > 0.0
+        and callable(vent_refresh_handler)
+    )
+    if refresh_interval_s > 0.0 and not use_threaded_refresh:
+        chunk_s = min(chunk_s, max(0.5, refresh_interval_s))
+    flush_vent_refresh_count = 0
+    refresh_limit_warning_emitted = False
+    stalled_sampling_warning_emitted = False
+    identical_sample_streak = 0
+    last_sample_signature: Optional[Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]] = None
+    max_refresh_count = (
+        max(1, int(math.ceil(float(max_flush_s) / refresh_interval_s)) + 2)
+        if refresh_interval_s > 0.0
+        else 0
+    )
+    refresh_stats: Dict[str, Any] = {
+        "count": 0,
+        "actual_intervals_s": [],
+        "thread_used": use_threaded_refresh,
+    }
+    _update_flush_vent_refresh_metadata(
+        setup_metadata,
+        requested_interval_s=refresh_interval_s,
+        actual_intervals_s=[],
+        refresh_count=flush_vent_refresh_count,
+        thread_used=use_threaded_refresh,
+    )
     next_trace_elapsed_s = 30.0
+    next_refresh_elapsed_s = refresh_interval_s if refresh_interval_s > 0.0 and not use_threaded_refresh else None
     first_gate_eval_logged = False
     flush_gate_trace_rows.append(
         _build_flush_gate_trace_row(
@@ -1383,94 +2229,380 @@ def _run_flush_phase(
         )
     )
     _log_flush_gate_snapshot(flush_gate_trace_rows[-1])
-    while True:
-        elapsed_real_s = max(0.0, time.monotonic() - phase_start_mono)
-        remaining_s = float(max_flush_s) - elapsed_real_s
-        if remaining_s <= 0.0:
-            break
-        duration_s = min(chunk_s, remaining_s)
-        context = _phase_context(
-            process_variant=process_variant,
-            layer=layer,
-            repeat_index=repeat_index,
-            phase=phase_name,
-            gas_ppm=gas_ppm,
-            route=route,
-            actual_deadtime_s=actual_deadtime_s,
-            chain_mode=chain_mode,
+    heartbeat: Optional[_FlushVentRefreshHeartbeat] = None
+    if use_threaded_refresh:
+        heartbeat = _FlushVentRefreshHeartbeat(
+            interval_s=refresh_interval_s,
+            pace=devices.get("pace"),
+            phase_label=phase_label,
+            phase_start_mono=phase_start_mono,
+            action="analyzer_chain_flush_vent_refresh",
+            handler=vent_refresh_handler,
         )
-        chunk_rows = _capture_phase_rows(
-            analyzer,
-            devices,
-            context=context,
-            gas_start_mono=gas_start_mono,
-            duration_s=duration_s,
-            sample_poll_s=sample_poll_s,
-            print_every_s=print_every_s,
-            controller_vent_state=controller_vent_state_label,
-            phase_elapsed_offset_s=elapsed_real_s,
-        )
-        rows.extend(chunk_rows)
-        elapsed_real_s = max(0.0, time.monotonic() - phase_start_mono)
-        while elapsed_real_s >= next_trace_elapsed_s:
-            flush_gate_trace_rows.append(
-                _build_flush_gate_trace_row(
-                    rows,
+        heartbeat.start()
+
+    summary: Dict[str, Any] = {}
+    gate_row: Dict[str, Any] = {}
+    flush_status = ""
+
+    def _drain_pending_refresh_events() -> None:
+        if heartbeat is None:
+            return
+        payloads = heartbeat.drain_events()
+        if payloads:
+            _drain_flush_vent_refresh_heartbeat_events(
+                payloads,
+                rows=rows,
+                actuation_events=actuation_events,
+                flush_gate_trace_rows=flush_gate_trace_rows,
+                run_id=run_id,
+                process_variant=process_variant,
+                layer=layer,
+                repeat_index=repeat_index,
+                gas_ppm=gas_ppm,
+                phase_name=phase_name,
+                phase_label=phase_label,
+                gate_window_s=gate_window_s,
+                min_flush_s=min_flush_s,
+                target_flush_s=target_flush_s,
+                require_ratio=require_ratio,
+                chain_mode=chain_mode,
+                refresh_stats=refresh_stats,
+                requested_interval_s=refresh_interval_s,
+                setup_metadata=setup_metadata,
+            )
+
+    try:
+        while True:
+            elapsed_real_s = max(0.0, time.monotonic() - phase_start_mono)
+            remaining_s = float(max_flush_s) - elapsed_real_s
+            if remaining_s <= 0.0:
+                break
+            duration_s = min(chunk_s, remaining_s)
+            context = _phase_context(
+                process_variant=process_variant,
+                layer=layer,
+                repeat_index=repeat_index,
+                phase=phase_name,
+                gas_ppm=gas_ppm,
+                route=route,
+                actual_deadtime_s=actual_deadtime_s,
+                chain_mode=chain_mode,
+            )
+            chunk_rows = _capture_phase_rows(
+                analyzer,
+                devices,
+                context=context,
+                gas_start_mono=gas_start_mono,
+                duration_s=duration_s,
+                sample_poll_s=sample_poll_s,
+                print_every_s=print_every_s,
+                controller_vent_state=controller_vent_state_label,
+                phase_elapsed_offset_s=elapsed_real_s,
+            )
+            rows.extend(chunk_rows)
+            elapsed_real_s = max(0.0, time.monotonic() - phase_start_mono)
+            _drain_pending_refresh_events()
+            if chunk_rows:
+                latest_chunk_row = chunk_rows[-1]
+                sample_signature = (
+                    _safe_float(latest_chunk_row.get("phase_elapsed_s")),
+                    _safe_float(latest_chunk_row.get("gauge_pressure_hpa")),
+                    _safe_float(latest_chunk_row.get("controller_pressure_hpa")),
+                    _safe_float(latest_chunk_row.get("dewpoint_c")),
+                )
+                if sample_signature == last_sample_signature:
+                    identical_sample_streak += 1
+                else:
+                    identical_sample_streak = 1
+                    last_sample_signature = sample_signature
+                if (
+                    refresh_interval_s > 0.0
+                    and identical_sample_streak >= 3
+                    and not stalled_sampling_warning_emitted
+                ):
+                    warning_note = (
+                        f"{phase_label}_refresh_sampling_stalled "
+                        f"elapsed_real={elapsed_real_s:.3f}s elapsed_display={sample_signature[0]}"
+                    )
+                    _log(f"[WARN] {warning_note}")
+                    _record_event(
+                        actuation_events,
+                        run_id=run_id,
+                        process_variant=process_variant,
+                        layer=layer,
+                        repeat_index=repeat_index,
+                        gas_ppm=gas_ppm,
+                        pressure_target_hpa=None,
+                        event_type="vent_refresh_warning",
+                        event_value="sampling_stalled",
+                        note=warning_note,
+                        chain_mode=chain_mode,
+                    )
+                    flush_gate_trace_rows.append(
+                        _build_flush_gate_trace_row(
+                            rows,
+                            process_variant=process_variant,
+                            layer=layer,
+                            repeat_index=repeat_index,
+                            gas_ppm=gas_ppm,
+                            phase=phase_name,
+                            elapsed_real_s=elapsed_real_s,
+                            gate_window_s=gate_window_s,
+                            min_flush_s=min_flush_s,
+                            target_flush_s=target_flush_s,
+                            note=warning_note,
+                            require_ratio=require_ratio,
+                            chain_mode=chain_mode,
+                        )
+                    )
+                    _log_flush_gate_snapshot(flush_gate_trace_rows[-1])
+                    stalled_sampling_warning_emitted = True
+            if next_refresh_elapsed_s is not None and elapsed_real_s >= next_refresh_elapsed_s:
+                if callable(vent_refresh_handler):
+                    if flush_vent_refresh_count >= max_refresh_count:
+                        if not refresh_limit_warning_emitted:
+                            warning_note = (
+                                f"{phase_label}_refresh_limit_reached "
+                                f"count={flush_vent_refresh_count} max={max_refresh_count}"
+                            )
+                            _log(f"[WARN] {warning_note}")
+                            _record_event(
+                                actuation_events,
+                                run_id=run_id,
+                                process_variant=process_variant,
+                                layer=layer,
+                                repeat_index=repeat_index,
+                                gas_ppm=gas_ppm,
+                                pressure_target_hpa=None,
+                                event_type="vent_refresh_warning",
+                                event_value="refresh_limit_reached",
+                                note=warning_note,
+                                chain_mode=chain_mode,
+                            )
+                            flush_gate_trace_rows.append(
+                                _build_flush_gate_trace_row(
+                                    rows,
+                                    process_variant=process_variant,
+                                    layer=layer,
+                                    repeat_index=repeat_index,
+                                    gas_ppm=gas_ppm,
+                                    phase=phase_name,
+                                    elapsed_real_s=elapsed_real_s,
+                                    gate_window_s=gate_window_s,
+                                    min_flush_s=min_flush_s,
+                                    target_flush_s=target_flush_s,
+                                    note=warning_note,
+                                    require_ratio=require_ratio,
+                                    chain_mode=chain_mode,
+                                )
+                            )
+                            _log_flush_gate_snapshot(flush_gate_trace_rows[-1])
+                            refresh_limit_warning_emitted = True
+                        next_refresh_elapsed_s = None
+                    else:
+                        refresh_label = f"{elapsed_real_s:.1f}s"
+                        refresh_reason = f"metrology {phase_label} refresh @{refresh_label}"
+                        vent_refresh_handler(refresh_reason)
+                        flush_vent_refresh_count += 1
+                        refresh_stats["count"] = flush_vent_refresh_count
+                        _update_flush_vent_refresh_metadata(
+                            setup_metadata,
+                            requested_interval_s=refresh_interval_s,
+                            actual_intervals_s=list(refresh_stats.get("actual_intervals_s") or []),
+                            refresh_count=flush_vent_refresh_count,
+                            thread_used=False,
+                        )
+                        _record_event(
+                            actuation_events,
+                            run_id=run_id,
+                            process_variant=process_variant,
+                            layer=layer,
+                            repeat_index=repeat_index,
+                            gas_ppm=gas_ppm,
+                            pressure_target_hpa=None,
+                            event_type="vent_refresh",
+                            event_value="VENT_ON_REFRESH",
+                            note=f"{phase_label} refresh @{refresh_label}",
+                            chain_mode=chain_mode,
+                            extra_fields={
+                                "flush_vent_refresh_interval_s_requested": refresh_interval_s,
+                                "flush_vent_refresh_thread_used": False,
+                            },
+                        )
+                        flush_gate_trace_rows.append(
+                            _build_flush_gate_trace_row(
+                                rows,
+                                process_variant=process_variant,
+                                layer=layer,
+                                repeat_index=repeat_index,
+                                gas_ppm=gas_ppm,
+                                phase=phase_name,
+                                elapsed_real_s=elapsed_real_s,
+                                gate_window_s=gate_window_s,
+                                min_flush_s=min_flush_s,
+                                target_flush_s=target_flush_s,
+                                note=f"{phase_label}_vent_refresh_{refresh_label}",
+                                require_ratio=require_ratio,
+                                chain_mode=chain_mode,
+                            )
+                        )
+                        flush_gate_trace_rows[-1].update(
+                            {
+                                "flush_vent_refresh_interval_s_requested": refresh_interval_s,
+                                "flush_vent_refresh_thread_used": False,
+                            }
+                        )
+                        _log_flush_gate_snapshot(flush_gate_trace_rows[-1])
+                        next_refresh_elapsed_s = elapsed_real_s + refresh_interval_s
+            while elapsed_real_s >= next_trace_elapsed_s:
+                flush_gate_trace_rows.append(
+                    _build_flush_gate_trace_row(
+                        rows,
+                        process_variant=process_variant,
+                        layer=layer,
+                        repeat_index=repeat_index,
+                        gas_ppm=gas_ppm,
+                        phase=phase_name,
+                        elapsed_real_s=elapsed_real_s,
+                        gate_window_s=gate_window_s,
+                        min_flush_s=min_flush_s,
+                        target_flush_s=target_flush_s,
+                        note=f"{phase_label}_heartbeat_{int(next_trace_elapsed_s)}s",
+                        require_ratio=require_ratio,
+                        chain_mode=chain_mode,
+                    )
+                )
+                _log_flush_gate_snapshot(flush_gate_trace_rows[-1])
+                next_trace_elapsed_s += 30.0
+            if elapsed_real_s < float(target_flush_s):
+                continue
+            summary = build_flush_summary(
+                rows,
+                process_variant=process_variant,
+                layer=layer,
+                repeat_index=repeat_index,
+                gas_ppm=gas_ppm,
+                actual_deadtime_s=actual_deadtime_s,
+                actuation_events=actuation_events,
+                min_flush_s=min_flush_s,
+                target_flush_s=target_flush_s,
+                gate_window_s=gate_window_s,
+                require_ratio=require_ratio,
+                require_vent_on=require_vent_on,
+                rebound_window_s=rebound_window_s,
+                rebound_min_rise_c=rebound_min_rise_c,
+            )
+            if not first_gate_eval_logged:
+                flush_gate_trace_rows.append(
+                    _build_flush_gate_trace_row(
+                        rows,
+                        process_variant=process_variant,
+                        layer=layer,
+                        repeat_index=repeat_index,
+                        gas_ppm=gas_ppm,
+                        phase=phase_name,
+                        elapsed_real_s=elapsed_real_s,
+                        gate_window_s=gate_window_s,
+                        min_flush_s=min_flush_s,
+                        target_flush_s=target_flush_s,
+                        note=f"{phase_label}_first_gate_evaluation",
+                        require_ratio=require_ratio,
+                        chain_mode=chain_mode,
+                    )
+                )
+                _log_flush_gate_snapshot(flush_gate_trace_rows[-1])
+                first_gate_eval_logged = True
+            if summary.get("flush_gate_pass"):
+                gate_row = build_phase_gate_row(
                     process_variant=process_variant,
                     layer=layer,
                     repeat_index=repeat_index,
                     gas_ppm=gas_ppm,
+                    pressure_target_hpa=None,
                     phase=phase_name,
-                    elapsed_real_s=elapsed_real_s,
+                    gate_name=gate_name,
+                    gate_status=str(summary.get("flush_gate_status")),
+                    gate_pass=True,
                     gate_window_s=gate_window_s,
-                    min_flush_s=min_flush_s,
-                    target_flush_s=target_flush_s,
-                    note=f"{phase_label}_heartbeat_{int(next_trace_elapsed_s)}s",
-                    require_ratio=require_ratio,
-                    chain_mode=chain_mode,
+                    gate_value={
+                        "flush_duration_s": summary.get("flush_duration_s"),
+                        "flush_last60s_ratio_span": summary.get("flush_last60s_ratio_span"),
+                        "flush_last60s_ratio_slope": summary.get("flush_last60s_ratio_slope"),
+                        "flush_last60s_dewpoint_span": summary.get("flush_last60s_dewpoint_span"),
+                        "flush_last60s_dewpoint_slope": summary.get("flush_last60s_dewpoint_slope"),
+                        "flush_last60s_gauge_span_hpa": summary.get("flush_last60s_gauge_span_hpa"),
+                        "flush_last60s_gauge_slope_hpa_per_s": summary.get("flush_last60s_gauge_slope_hpa_per_s"),
+                        "analyzer_raw_sample_count": summary.get("analyzer_raw_sample_count"),
+                        "gauge_raw_sample_count": summary.get("gauge_raw_sample_count"),
+                        "dewpoint_raw_sample_count": summary.get("dewpoint_raw_sample_count"),
+                        "aligned_sample_count": summary.get("aligned_sample_count"),
+                    },
+                    gate_threshold={
+                        "target_flush_s": target_flush_s,
+                        "min_flush_s": min_flush_s,
+                    },
                 )
-            )
-            _log_flush_gate_snapshot(flush_gate_trace_rows[-1])
-            next_trace_elapsed_s += 30.0
-        if elapsed_real_s < float(target_flush_s):
-            continue
-        summary = build_flush_summary(
-            rows,
-            process_variant=process_variant,
-            layer=layer,
-            repeat_index=repeat_index,
-            gas_ppm=gas_ppm,
-            actual_deadtime_s=actual_deadtime_s,
-            actuation_events=actuation_events,
-            min_flush_s=min_flush_s,
-            target_flush_s=target_flush_s,
-            gate_window_s=gate_window_s,
-            require_ratio=require_ratio,
-            require_vent_on=require_vent_on,
-            rebound_window_s=rebound_window_s,
-            rebound_min_rise_c=rebound_min_rise_c,
-        )
-        if not first_gate_eval_logged:
-            flush_gate_trace_rows.append(
-                _build_flush_gate_trace_row(
-                    rows,
-                    process_variant=process_variant,
-                    layer=layer,
-                    repeat_index=repeat_index,
-                    gas_ppm=gas_ppm,
-                    phase=phase_name,
-                    elapsed_real_s=elapsed_real_s,
-                    gate_window_s=gate_window_s,
-                    min_flush_s=min_flush_s,
-                    target_flush_s=target_flush_s,
-                    note=f"{phase_label}_first_gate_evaluation",
-                    require_ratio=require_ratio,
-                    chain_mode=chain_mode,
+                flush_gate_trace_rows.append(
+                    _build_flush_gate_trace_row(
+                        rows,
+                        process_variant=process_variant,
+                        layer=layer,
+                        repeat_index=repeat_index,
+                        gas_ppm=gas_ppm,
+                        phase=phase_name,
+                        elapsed_real_s=elapsed_real_s,
+                        gate_window_s=gate_window_s,
+                        min_flush_s=min_flush_s,
+                        target_flush_s=target_flush_s,
+                        note=f"{phase_label}_gate_pass",
+                        require_ratio=require_ratio,
+                        chain_mode=chain_mode,
+                    )
                 )
+                _log_flush_gate_snapshot(flush_gate_trace_rows[-1])
+                _apply_gate_to_rows(rows, gate_pass=True, gate_fail_reason="")
+                if precondition_mode:
+                    _record_event(
+                        actuation_events,
+                        run_id=run_id,
+                        process_variant=process_variant,
+                        layer=layer,
+                        repeat_index=repeat_index,
+                        gas_ppm=gas_ppm,
+                        pressure_target_hpa=None,
+                        event_type="precondition_pass",
+                        event_value="precondition_pass",
+                        note="precondition gate passed",
+                    )
+                flush_status = ""
+                break
+
+        if not summary:
+            summary = build_flush_summary(
+                rows,
+                process_variant=process_variant,
+                layer=layer,
+                repeat_index=repeat_index,
+                gas_ppm=gas_ppm,
+                actual_deadtime_s=actual_deadtime_s,
+                actuation_events=actuation_events,
+                min_flush_s=min_flush_s,
+                target_flush_s=target_flush_s,
+                gate_window_s=gate_window_s,
+                require_ratio=require_ratio,
+                require_vent_on=require_vent_on,
+                rebound_window_s=rebound_window_s,
+                rebound_min_rise_c=rebound_min_rise_c,
             )
-            _log_flush_gate_snapshot(flush_gate_trace_rows[-1])
-            first_gate_eval_logged = True
-        if summary.get("flush_gate_pass"):
+            fail_reason = str(summary.get("flush_gate_fail_reason") or "").strip()
+            fail_reason = ";".join([item for item in ["max_flush_timeout", fail_reason] if item])
+            summary["flush_gate_status"] = "fail"
+            summary["flush_gate_pass"] = False
+            summary["flush_gate_fail_reason"] = fail_reason
+            summary["flush_gate_failing_subgates"] = [
+                item for item in str(fail_reason).split(";") if item and item != "max_flush_timeout"
+            ]
             gate_row = build_phase_gate_row(
                 process_variant=process_variant,
                 layer=layer,
@@ -1479,8 +2611,8 @@ def _run_flush_phase(
                 pressure_target_hpa=None,
                 phase=phase_name,
                 gate_name=gate_name,
-                gate_status=str(summary.get("flush_gate_status")),
-                gate_pass=True,
+                gate_status="fail",
+                gate_pass=False,
                 gate_window_s=gate_window_s,
                 gate_value={
                     "flush_duration_s": summary.get("flush_duration_s"),
@@ -1495,10 +2627,8 @@ def _run_flush_phase(
                     "dewpoint_raw_sample_count": summary.get("dewpoint_raw_sample_count"),
                     "aligned_sample_count": summary.get("aligned_sample_count"),
                 },
-                gate_threshold={
-                    "target_flush_s": target_flush_s,
-                    "min_flush_s": min_flush_s,
-                },
+                gate_threshold={"target_flush_s": target_flush_s, "max_flush_s": max_flush_s},
+                gate_fail_reason=fail_reason,
             )
             flush_gate_trace_rows.append(
                 _build_flush_gate_trace_row(
@@ -1508,115 +2638,65 @@ def _run_flush_phase(
                     repeat_index=repeat_index,
                     gas_ppm=gas_ppm,
                     phase=phase_name,
-                    elapsed_real_s=elapsed_real_s,
+                    elapsed_real_s=max(0.0, time.monotonic() - phase_start_mono),
                     gate_window_s=gate_window_s,
                     min_flush_s=min_flush_s,
                     target_flush_s=target_flush_s,
-                    note=f"{phase_label}_gate_pass",
+                    note=f"{phase_label}_max_flush_timeout",
                     require_ratio=require_ratio,
                     chain_mode=chain_mode,
                 )
             )
             _log_flush_gate_snapshot(flush_gate_trace_rows[-1])
-            _apply_gate_to_rows(rows, gate_pass=True, gate_fail_reason="")
-            if precondition_mode:
-                _record_event(
-                    actuation_events,
+            _record_event(
+                actuation_events,
+                run_id=run_id,
+                process_variant=process_variant,
+                layer=layer,
+                repeat_index=repeat_index,
+                gas_ppm=gas_ppm,
+                pressure_target_hpa=None,
+                event_type="precondition_fail_max_timeout" if precondition_mode else "flush_gate_fail_max_timeout",
+                event_value=max_flush_s,
+                note=fail_reason,
+            )
+            _apply_gate_to_rows(rows, gate_pass=False, gate_fail_reason=fail_reason)
+            flush_status = "precondition_max_flush_timeout" if precondition_mode else "max_flush_timeout"
+    finally:
+        if heartbeat is not None:
+            pending = heartbeat.stop()
+            if pending:
+                _drain_flush_vent_refresh_heartbeat_events(
+                    pending,
+                    rows=rows,
+                    actuation_events=actuation_events,
+                    flush_gate_trace_rows=flush_gate_trace_rows,
                     run_id=run_id,
                     process_variant=process_variant,
                     layer=layer,
                     repeat_index=repeat_index,
                     gas_ppm=gas_ppm,
-                    pressure_target_hpa=None,
-                    event_type="precondition_pass",
-                    event_value="precondition_pass",
-                    note="precondition gate passed",
+                    phase_name=phase_name,
+                    phase_label=phase_label,
+                    gate_window_s=gate_window_s,
+                    min_flush_s=min_flush_s,
+                    target_flush_s=target_flush_s,
+                    require_ratio=require_ratio,
+                    chain_mode=chain_mode,
+                    refresh_stats=refresh_stats,
+                    requested_interval_s=refresh_interval_s,
+                    setup_metadata=setup_metadata,
                 )
-            return rows, summary, gate_row, ""
+        else:
+            _update_flush_vent_refresh_metadata(
+                setup_metadata,
+                requested_interval_s=refresh_interval_s,
+                actual_intervals_s=list(refresh_stats.get("actual_intervals_s") or []),
+                refresh_count=int(refresh_stats.get("count", 0)),
+                thread_used=False,
+            )
 
-    summary = build_flush_summary(
-        rows,
-        process_variant=process_variant,
-        layer=layer,
-        repeat_index=repeat_index,
-        gas_ppm=gas_ppm,
-        actual_deadtime_s=actual_deadtime_s,
-        actuation_events=actuation_events,
-        min_flush_s=min_flush_s,
-        target_flush_s=target_flush_s,
-        gate_window_s=gate_window_s,
-        require_ratio=require_ratio,
-        require_vent_on=require_vent_on,
-        rebound_window_s=rebound_window_s,
-        rebound_min_rise_c=rebound_min_rise_c,
-    )
-    fail_reason = str(summary.get("flush_gate_fail_reason") or "").strip()
-    fail_reason = ";".join([item for item in ["max_flush_timeout", fail_reason] if item])
-    summary["flush_gate_status"] = "fail"
-    summary["flush_gate_pass"] = False
-    summary["flush_gate_fail_reason"] = fail_reason
-    summary["flush_gate_failing_subgates"] = [
-        item for item in str(fail_reason).split(";") if item and item != "max_flush_timeout"
-    ]
-    gate_row = build_phase_gate_row(
-        process_variant=process_variant,
-        layer=layer,
-        repeat_index=repeat_index,
-        gas_ppm=gas_ppm,
-        pressure_target_hpa=None,
-        phase=phase_name,
-        gate_name=gate_name,
-        gate_status="fail",
-        gate_pass=False,
-        gate_window_s=gate_window_s,
-        gate_value={
-            "flush_duration_s": summary.get("flush_duration_s"),
-            "flush_last60s_ratio_span": summary.get("flush_last60s_ratio_span"),
-            "flush_last60s_ratio_slope": summary.get("flush_last60s_ratio_slope"),
-            "flush_last60s_dewpoint_span": summary.get("flush_last60s_dewpoint_span"),
-            "flush_last60s_dewpoint_slope": summary.get("flush_last60s_dewpoint_slope"),
-            "flush_last60s_gauge_span_hpa": summary.get("flush_last60s_gauge_span_hpa"),
-            "flush_last60s_gauge_slope_hpa_per_s": summary.get("flush_last60s_gauge_slope_hpa_per_s"),
-            "analyzer_raw_sample_count": summary.get("analyzer_raw_sample_count"),
-            "gauge_raw_sample_count": summary.get("gauge_raw_sample_count"),
-            "dewpoint_raw_sample_count": summary.get("dewpoint_raw_sample_count"),
-            "aligned_sample_count": summary.get("aligned_sample_count"),
-        },
-        gate_threshold={"target_flush_s": target_flush_s, "max_flush_s": max_flush_s},
-        gate_fail_reason=fail_reason,
-    )
-    flush_gate_trace_rows.append(
-        _build_flush_gate_trace_row(
-            rows,
-            process_variant=process_variant,
-            layer=layer,
-            repeat_index=repeat_index,
-            gas_ppm=gas_ppm,
-            phase=phase_name,
-            elapsed_real_s=max(0.0, time.monotonic() - phase_start_mono),
-            gate_window_s=gate_window_s,
-            min_flush_s=min_flush_s,
-            target_flush_s=target_flush_s,
-            note=f"{phase_label}_max_flush_timeout",
-            require_ratio=require_ratio,
-            chain_mode=chain_mode,
-        )
-    )
-    _log_flush_gate_snapshot(flush_gate_trace_rows[-1])
-    _record_event(
-        actuation_events,
-        run_id=run_id,
-        process_variant=process_variant,
-        layer=layer,
-        repeat_index=repeat_index,
-        gas_ppm=gas_ppm,
-        pressure_target_hpa=None,
-        event_type="precondition_fail_max_timeout" if precondition_mode else "flush_gate_fail_max_timeout",
-        event_value=max_flush_s,
-        note=fail_reason,
-    )
-    _apply_gate_to_rows(rows, gate_pass=False, gate_fail_reason=fail_reason)
-    return rows, summary, gate_row, "precondition_max_flush_timeout" if precondition_mode else "max_flush_timeout"
+    return rows, summary, gate_row, flush_status
 
 
 def _as_precondition_summary(summary: Mapping[str, Any]) -> Dict[str, Any]:
@@ -3378,8 +4458,29 @@ def _build_chain_setup_metadata(
         "setup_note": setup_note,
         "operator_note": operator_note,
         "output_dir": str(output_dir),
+        "flush_vent_refresh_interval_s": 0.0,
+        "flush_vent_refresh_interval_s_requested": 0.0,
+        "flush_vent_refresh_interval_s_actual_mean": None,
+        "flush_vent_refresh_interval_s_actual_max": None,
+        "flush_vent_refresh_count": 0,
+        "flush_vent_refresh_thread_used": False,
         **_closed_pressure_swing_defaults(cfg),
     }
+
+
+def _export_analyzer_chain_isolation_results_with_fallback(
+    output_dir: str | Path,
+    **kwargs: Any,
+) -> Dict[str, Path]:
+    try:
+        return export_analyzer_chain_isolation_results(output_dir, **kwargs)
+    except ModuleNotFoundError as exc:
+        if getattr(exc, "name", "") != "matplotlib" or not bool(kwargs.get("export_png", True)):
+            raise
+        _log("[CHAIN] matplotlib missing; retrying analyzer-chain export without PNG plots.")
+        retry_kwargs = dict(kwargs)
+        retry_kwargs["export_png"] = False
+        return export_analyzer_chain_isolation_results(output_dir, **retry_kwargs)
 
 
 def _run_analyzer_chain_isolation_capture(
@@ -3392,8 +4493,21 @@ def _run_analyzer_chain_isolation_capture(
     variant: VariantSpec,
     chain_mode: str,
 ) -> int:
-    runtime_cfg = _prepare_runtime_cfg(cfg, analyzer_cfg, args, variant)
-    devices = _build_devices(runtime_cfg, analyzer_cfg, logger)
+    skip_gas_analyzer = bool(getattr(args, "skip_gas_analyzer", False))
+    flush_vent_refresh_interval_s = max(0.0, float(getattr(args, "flush_vent_refresh_interval_s", 0.0) or 0.0))
+    runtime_cfg = _prepare_runtime_cfg(
+        cfg,
+        analyzer_cfg,
+        args,
+        variant,
+        skip_gas_analyzer=skip_gas_analyzer,
+    )
+    devices = _build_devices(
+        runtime_cfg,
+        analyzer_cfg,
+        logger,
+        skip_gas_analyzer=skip_gas_analyzer,
+    )
     runner: Optional[CalibrationRunner] = None
     raw_rows: List[Dict[str, Any]] = []
     actuation_events: List[Dict[str, Any]] = []
@@ -3413,6 +4527,36 @@ def _run_analyzer_chain_isolation_capture(
         operator_note=str(args.operator_note or ""),
         output_dir=logger.run_dir,
     )
+    analyzer_sampling_enabled = bool(setup_metadata.get("analyzer_chain_connected")) and not skip_gas_analyzer
+    skipped_analyzers = [
+        str(item.get("name") or "").strip()
+        for item in list(setup_metadata.get("analyzers_in_path") or [])
+        if isinstance(item, Mapping) and str(item.get("name") or "").strip()
+    ]
+    setup_metadata.update(
+        {
+            "gas_analyzer_skipped": skip_gas_analyzer,
+            "gas_analyzer_skip_reason": "diagnostic_only_focus_non_analyzer" if skip_gas_analyzer else "",
+            "analyzer_sampling_enabled": analyzer_sampling_enabled,
+            "flush_vent_refresh_interval_s": flush_vent_refresh_interval_s,
+            "flush_vent_refresh_interval_s_requested": flush_vent_refresh_interval_s,
+            "flush_vent_refresh_interval_s_actual_mean": None,
+            "flush_vent_refresh_interval_s_actual_max": None,
+            "flush_vent_refresh_count": 0,
+            "flush_vent_refresh_thread_used": False,
+        }
+    )
+    if skip_gas_analyzer:
+        setup_metadata.update(
+            {
+                "analyzer_startup_gate_policy": "skipped_diagnostic_only_non_analyzer_focus",
+                "capture_analyzer_startup_label": str(analyzer_name or ""),
+                "capture_analyzer_startup_status": "skipped",
+                "capture_analyzer_startup_fail_reason": "",
+                "non_capture_analyzers_skipped": list(skipped_analyzers),
+                "non_capture_analyzer_startup_policy": "skipped_with_gas_analyzer_skip",
+            }
+        )
     operator_checklist = _chain_mode_checklist_text(chain_mode)
     _log_operator_checklist(operator_checklist)
     _log(
@@ -3423,26 +4567,54 @@ def _run_analyzer_chain_isolation_capture(
         f"[CHAIN] capture analyzer: {setup_metadata.get('capture_analyzer_name')} "
         f"[{setup_metadata.get('capture_analyzer_device_id')}]@{setup_metadata.get('capture_analyzer_port')}"
     )
-    analyzer_for_capture = devices.get("gas_analyzer") if bool(setup_metadata.get("analyzer_chain_connected")) else None
+    if skip_gas_analyzer:
+        _log(
+            "[CHAIN] gas analyzer startup/sampling skipped | "
+            "reason=diagnostic_only_focus_non_analyzer | physical chain may remain in path."
+        )
+    analyzer_for_capture = devices.get("gas_analyzer") if analyzer_sampling_enabled else None
     pace_in_path = bool(setup_metadata.get("pace_in_path"))
     controller_vent_expected = bool(setup_metadata.get("controller_vent_expected"))
     controller_vent_state_label = str(setup_metadata.get("controller_vent_state") or ("VENT_ON" if pace_in_path else "NOT_APPLICABLE"))
+    legacy_safe_vent_active = False
+    safe_stop_result: Dict[str, Any] = {}
+    abort_reason = ""
+    runtime_safe_stop_attempted = False
     try:
-        if analyzer_for_capture is not None and args.configure_analyzer_stream:
-            _configure_analyzer_stream(analyzer_for_capture, analyzer_cfg)
-        elif analyzer_for_capture is not None:
-            analyzer_for_capture.active_send = bool(analyzer_cfg.get("active_send", False))
+        legacy_safe_vent_policy = _analyzer_chain_legacy_safe_vent_policy(
+            runtime_cfg or cfg,
+            pace=devices.get("pace"),
+            pace_in_path=pace_in_path,
+        )
+        setup_metadata.update(legacy_safe_vent_policy)
+        legacy_safe_vent_active = bool(legacy_safe_vent_policy.get("legacy_safe_vent_active"))
+        if bool(legacy_safe_vent_policy.get("legacy_safe_vent_required")) and not legacy_safe_vent_active:
+            fail_reason = str(legacy_safe_vent_policy.get("legacy_safe_vent_fail_reason") or "policy_blocked")
+            raise RuntimeError(
+                "legacy_safe_vent_blocked("
+                f"action=analyzer_chain_isolation,step=policy,last_status=unknown,output_state=unknown,"
+                f"isolation_state=unknown,recoverable=true,reason={fail_reason})"
+            )
 
         runner = CalibrationRunner(runtime_cfg, devices, logger, _log, lambda *_: None)
         if pace_in_path:
-            runner._configure_devices()
+            runner._configure_devices(configure_gas_analyzers=False)
         else:
             detached_pace = runner.devices.pop("pace", None)
             try:
-                runner._configure_devices()
+                runner._configure_devices(configure_gas_analyzers=False)
             finally:
                 if detached_pace is not None:
                     runner.devices["pace"] = detached_pace
+
+        if analyzer_sampling_enabled:
+            _configure_analyzer_chain_capture_startup(
+                runner,
+                analyzer=analyzer_for_capture,
+                analyzer_name=analyzer_name,
+                analyzer_cfg=analyzer_cfg,
+                setup_metadata=setup_metadata,
+            )
         group_pref = _normalize_group(args.co2_group)
         gas_ppm = 0
         source_point = _build_source_point(gas_ppm, index=0, co2_group=group_pref)
@@ -3472,6 +4644,24 @@ def _run_analyzer_chain_isolation_capture(
             chain_mode=chain_mode,
             controller_vent_state_label=controller_vent_state_label,
             pace_in_path=pace_in_path,
+            initial_baseline_handler=(
+                lambda: _apply_analyzer_chain_pressure_baseline(
+                    runner,
+                    cfg=runtime_cfg or cfg,
+                    reason=f"{variant.name} layer0 repeat1 first gas",
+                    legacy_safe_vent_active=legacy_safe_vent_active,
+                    run_id=run_id,
+                    actuation_events=actuation_events,
+                    process_variant=variant.name,
+                    layer=0,
+                    repeat_index=1,
+                    gas_ppm=gas_ppm,
+                    chain_mode=chain_mode,
+                    action="analyzer_chain_initial_baseline",
+                )
+            )
+            if pace_in_path
+            else None,
         )
         raw_rows.extend(_annotate_chain_mode_rows(deadtime_rows, chain_mode=chain_mode))
         predry_rows, closed_pressure_swing_trace_rows, closed_pressure_swing_state = _run_closed_pressure_swing_predry(
@@ -3506,7 +4696,7 @@ def _run_analyzer_chain_isolation_capture(
                 min_flush_s=float(args.precondition_min_flush_s),
                 target_flush_s=float(args.precondition_min_flush_s),
                 gate_window_s=float(args.precondition_window_s),
-                require_ratio=bool(setup_metadata.get("analyzer_chain_connected")),
+                require_ratio=analyzer_sampling_enabled,
                 require_vent_on=False,
                 rebound_window_s=float(args.rebound_window_s),
                 rebound_min_rise_c=float(args.rebound_min_rise_c),
@@ -3541,15 +4731,43 @@ def _run_analyzer_chain_isolation_capture(
                 actuation_events=actuation_events,
                 flush_gate_trace_rows=flush_gate_trace_rows,
                 run_id=run_id,
-                require_ratio=bool(setup_metadata.get("analyzer_chain_connected")),
+                require_ratio=analyzer_sampling_enabled,
                 require_vent_on=controller_vent_expected,
                 controller_vent_state_label=controller_vent_state_label,
                 phase_name_override="isolation_flush_vent_on",
                 gate_name_override="isolation_flush_gate",
                 phase_label_override="isolation_flush",
                 chain_mode=chain_mode,
+                vent_on_handler=(
+                    lambda vent_reason: _run_legacy_safe_vent_action(
+                        runner,
+                        cfg=runtime_cfg or cfg,
+                        action="analyzer_chain_flush_vent",
+                        reason=vent_reason,
+                        run_id=run_id,
+                        actuation_events=actuation_events,
+                        process_variant=variant.name,
+                        layer=0,
+                        repeat_index=1,
+                        gas_ppm=gas_ppm,
+                        chain_mode=chain_mode,
+                    )
+                )
+                if legacy_safe_vent_active
+                else None,
+                flush_vent_refresh_interval_s=flush_vent_refresh_interval_s,
+                vent_refresh_handler=(
+                    lambda vent_reason: _run_legacy_safe_vent_refresh_action(
+                        runner,
+                        action="analyzer_chain_flush_vent_refresh",
+                    )
+                )
+                if legacy_safe_vent_active and flush_vent_refresh_interval_s > 0.0
+                else None,
+                flush_vent_refresh_wall_clock_heartbeat=bool(skip_gas_analyzer),
+                setup_metadata=setup_metadata,
             )
-        _perform_runtime_safe_stop(
+        safe_stop_result = _perform_runtime_safe_stop(
             devices,
             runner=runner,
             cfg=runtime_cfg or cfg,
@@ -3562,7 +4780,12 @@ def _run_analyzer_chain_isolation_capture(
             note=flush_stop_reason or str(flush_summary.get("flush_gate_status") or "isolation_complete"),
             chain_mode=chain_mode,
             pace_in_path=pace_in_path,
+            pace_mode="diagnostic_safe_vent" if legacy_safe_vent_active else "default",
         )
+        runtime_safe_stop_attempted = True
+        if safe_stop_result and not bool(safe_stop_result.get("safe_stop_verified", True)):
+            safe_stop_issues = [str(item) for item in list(safe_stop_result.get("safe_stop_issues") or []) if str(item)]
+            raise RuntimeError(safe_stop_issues[0] if safe_stop_issues else "safe_stop_not_verified")
         raw_rows.extend(_annotate_chain_mode_rows(flush_rows, chain_mode=chain_mode, isolation_phase_name="isolation_flush_vent_on"))
         flush_gate_trace_rows = _annotate_chain_mode_rows(flush_gate_trace_rows, chain_mode=chain_mode, isolation_phase_name="isolation_flush_vent_on")
         actuation_events = _annotate_chain_mode_events(actuation_events, chain_mode=chain_mode)
@@ -3610,7 +4833,7 @@ def _run_analyzer_chain_isolation_capture(
                     [isolation_summary],
                     [dict(baseline_artifacts.get("summary") or {})],
                 )
-        outputs = export_analyzer_chain_isolation_results(
+        outputs = _export_analyzer_chain_isolation_results_with_fallback(
             logger.run_dir,
             raw_rows=combined_raw_rows,
             flush_gate_trace_rows=combined_trace_rows,
@@ -3650,17 +4873,57 @@ def _run_analyzer_chain_isolation_capture(
         ):
             _log(f"{key} -> {outputs.get(key)}")
         return 0
+    except Exception as exc:
+        abort_reason = abort_reason or str(exc)
+        raise
     finally:
         if devices and not args.no_restore_baseline:
+            if not runtime_safe_stop_attempted:
+                try:
+                    early_abort_safe_stop = _perform_runtime_safe_stop(
+                        devices,
+                        runner=runner,
+                        cfg=runtime_cfg or cfg,
+                        run_id=run_id,
+                        actuation_events=actuation_events,
+                        process_variant=variant.name,
+                        layer=0,
+                        repeat_index=1,
+                        gas_ppm=gas_ppm if "gas_ppm" in locals() else None,
+                        note=abort_reason or "analyzer_chain_startup_abort",
+                        chain_mode=chain_mode,
+                        pace_in_path=pace_in_path,
+                        pace_mode="diagnostic_safe_vent" if legacy_safe_vent_active else "default",
+                    )
+                    if early_abort_safe_stop and not bool(early_abort_safe_stop.get("safe_stop_verified", True)):
+                        issues = [str(item) for item in list(early_abort_safe_stop.get("safe_stop_issues") or []) if str(item)]
+                        _log(f"Early-abort safe stop incomplete: {', '.join(issues) if issues else 'safe_stop_not_verified'}")
+                except Exception as exc:
+                    _log(f"Early-abort safe stop failed: {exc}")
             try:
                 restore_runner = runner or CalibrationRunner(runtime_cfg or cfg, devices, logger, _log, lambda *_: None)
                 if pace_in_path:
-                    restore_runner._set_pressure_controller_vent(True, reason="after analyzer chain isolation diagnostic finish")
-                    restore_runner._set_co2_route_baseline(reason="after analyzer chain isolation diagnostic finish")
-                    _log("Managed relay/pressure baseline restored.")
+                    _apply_analyzer_chain_pressure_baseline(
+                        restore_runner,
+                        cfg=runtime_cfg or cfg,
+                        reason="after analyzer chain isolation diagnostic finish",
+                        legacy_safe_vent_active=legacy_safe_vent_active,
+                        run_id=run_id,
+                        actuation_events=actuation_events,
+                        process_variant=variant.name,
+                        layer=0,
+                        repeat_index=1,
+                        gas_ppm=gas_ppm if "gas_ppm" in locals() else None,
+                        chain_mode=chain_mode,
+                        action="analyzer_chain_final_restore",
+                    )
+                    if legacy_safe_vent_active:
+                        _log("Managed relay/pressure baseline restored with legacy diagnostic-safe vent.")
+                    else:
+                        _log("Managed relay/pressure baseline restored.")
                 else:
                     restore_runner._apply_route_baseline_valves()
-                    _log("PACE 不在气路中：仅恢复气路阀位基线。")
+                    _log("PACE not in path: restored valve baseline only.")
             except Exception as exc:
                 _log(f"Baseline restore failed: {exc}")
         _close_devices(devices)
@@ -3703,7 +4966,7 @@ def _run_analyzer_chain_isolation_compare_pair(
         flush_gate_trace_rows.extend(artifacts.get("flush_gate_trace_rows") or [])
         actuation_events.extend(artifacts.get("actuation_events") or [])
     comparison_summary = build_analyzer_chain_isolation_comparison(isolation_summaries)
-    outputs = export_analyzer_chain_isolation_results(
+    outputs = _export_analyzer_chain_isolation_results_with_fallback(
         logger.run_dir,
         raw_rows=raw_rows,
         flush_gate_trace_rows=flush_gate_trace_rows,
@@ -3739,6 +5002,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     if not args.allow_live_hardware:
         _log("Safety gate: pass --allow-live-hardware to run this independent metrology diagnostic.")
         return 2
+    if bool(args.skip_gas_analyzer) and args.smoke_level != "analyzer-chain-isolation":
+        _log("--skip-gas-analyzer is limited to --smoke-level analyzer-chain-isolation.")
+        return 2
     if float(args.min_flush_s) < 120.0:
         _log("min_flush_s must stay >= 120s.")
         return 2
@@ -3756,11 +5022,16 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         return 2
 
     cfg = _load_cli_config(args.config)
-    analyzer_name, analyzer_cfg = _select_analyzer_cfg(cfg, args.analyzer)
+    analyzer_name, analyzer_cfg = _resolve_selected_analyzer_cfg(cfg, args)
     logger = _make_logger(cfg, args.output_dir, args.run_id, smoke_level=args.smoke_level)
     if args.smoke_level == "analyzer-chain-isolation":
         try:
             _log(f"Analyzer-chain isolation output dir: {logger.run_dir}")
+            if bool(args.skip_gas_analyzer) and not analyzer_cfg:
+                _log(
+                    "[CHAIN] selected analyzer config unavailable; continuing in skip mode with "
+                    f"metadata-only capture label={analyzer_name}"
+                )
             if args.chain_mode == "compare_pair":
                 return _run_analyzer_chain_isolation_compare_pair(
                     args=args,

@@ -20,6 +20,7 @@ def test_run_logger_creates_run_dir_and_io_csv(tmp_path: Path) -> None:
         port="COM1",
         device="test_dev",
         direction="TX",
+        duration_ms=12.5,
         command="CMD,1",
         response="",
         error="",
@@ -44,6 +45,7 @@ def test_run_logger_creates_run_dir_and_io_csv(tmp_path: Path) -> None:
     assert row["port"] == "COM1"
     assert row["device"] == "test_dev"
     assert row["direction"] == "TX"
+    assert row["duration_ms"] == "12.5"
     assert row["command"] == "CMD,1"
 
     with point_csv.open("r", encoding="utf-8", newline="") as f:

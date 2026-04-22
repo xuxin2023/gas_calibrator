@@ -1,3 +1,5 @@
+import pytest
+
 from gas_calibrator.devices.gas_analyzer import GasAnalyzer
 
 
@@ -321,6 +323,41 @@ def test_parse_coefficient_group_line() -> None:
     }
 
 
+def test_inspect_coefficient_group_line_marks_explicit_c0_source() -> None:
+    inspected = GasAnalyzer.inspect_coefficient_group_line("<C0:1.1,C1:2.2,C2:3.3,C3:4.4>")
+
+    assert inspected["source"] == GasAnalyzer.READBACK_SOURCE_EXPLICIT_C0
+    assert inspected["source_line_has_explicit_c0"] is True
+
+
+def test_parse_coefficient_group_line_accepts_mixed_stream_and_coefficients() -> None:
+    parsed = GasAnalyzer.parse_coefficient_group_line(
+        "YGAS,079,0782.713,00.000,0.99,0.99,031.94,104.24,0001,2769 <C0:1.1,C1:2.2,C2:3.3,C3:4.4>"
+    )
+
+    assert parsed == {
+        "C0": 1.1,
+        "C1": 2.2,
+        "C2": 3.3,
+        "C3": 4.4,
+    }
+
+
+def test_inspect_coefficient_group_line_marks_mixed_line_ambiguous() -> None:
+    inspected = GasAnalyzer.inspect_coefficient_group_line(
+        "YGAS,079,0782.713,00.000,0.99,0.99,031.94,104.24,0001,2769 <C0:1.1,C1:2.2,C2:3.3,C3:4.4>"
+    )
+
+    assert inspected["source"] == GasAnalyzer.READBACK_SOURCE_AMBIGUOUS
+    assert inspected["source_line_has_explicit_c0"] is False
+
+
+def test_parse_coefficient_group_line_does_not_misread_plain_legacy_stream() -> None:
+    parsed = GasAnalyzer.parse_coefficient_group_line("YGAS,079,0782.713,00.000,0.99,0.99,031.94,104.24,0001,2769")
+
+    assert parsed is None
+
+
 def test_read_coefficient_group_uses_getco_query() -> None:
     ga = GasAnalyzer("COM1")
     fake = _FakeSerialForCoefficientRead(["<C0:1,C1:2,C2:3,C3:4>"])
@@ -332,7 +369,7 @@ def test_read_coefficient_group_uses_getco_query() -> None:
     assert fake.flushes == 3
     assert fake.writes == [
         "SETCOMWAY,YGAS,FFF,0\r\n",
-        "GETCO,YGAS,FFF,1\r\n",
+        "GETCO,YGAS,000,1\r\n",
     ]
 
 
@@ -360,6 +397,70 @@ def test_read_coefficient_group_accepts_noise_then_coefficient_line() -> None:
     parsed = ga.read_coefficient_group(2, delay_s=0.0, retries=0, timeout_s=0.05)
 
     assert parsed == {"C0": 1.0, "C1": 2.0, "C2": 3.0, "C3": 4.0}
+
+
+def test_read_coefficient_group_capture_marks_ambiguous_source() -> None:
+    ga = GasAnalyzer("COM1")
+    fake = _FakeSerialForCoefficientRead(
+        ["YGAS,079,0782.713,00.000,0.99,0.99,031.94,104.24,0001,2769 <C0:1,C1:2,C2:3,C3:4>"]
+    )
+    ga.ser = fake
+
+    capture = ga.read_coefficient_group_capture(1, delay_s=0.0, retries=0, timeout_s=0.05)
+
+    assert capture["source"] == GasAnalyzer.READBACK_SOURCE_AMBIGUOUS
+    assert capture["source_line_has_explicit_c0"] is False
+    assert capture["coefficients"] == {"C0": 1.0, "C1": 2.0, "C2": 3.0, "C3": 4.0}
+
+
+def test_read_coefficient_group_requires_explicit_c0_when_requested() -> None:
+    ga = GasAnalyzer("COM1")
+    fake = _FakeSerialForCoefficientRead(
+        ["YGAS,079,0782.713,00.000,0.99,0.99,031.94,104.24,0001,2769 <C0:1,C1:2,C2:3,C3:4>"]
+    )
+    ga.ser = fake
+
+    with pytest.raises(RuntimeError, match="AMBIGUOUS_COEFFICIENT_LINE"):
+        ga.read_coefficient_group(1, delay_s=0.0, retries=0, timeout_s=0.05, require_explicit_c0=True)
+
+
+def test_read_coefficient_group_capture_rejects_write_echo_without_c0() -> None:
+    ga = GasAnalyzer("COM1")
+    fake = _FakeSerialForCoefficientRead(["SENCO1,YGAS,FFF,1,2,3,4,0,0"])
+    ga.ser = fake
+
+    capture = ga.read_coefficient_group_capture(1, delay_s=0.0, retries=0, timeout_s=0.05)
+
+    assert capture["source"] == GasAnalyzer.READBACK_SOURCE_NONE
+    assert capture["error"] == "NO_VALID_COEFFICIENT_LINE"
+    assert capture["coefficients"] == {}
+
+
+def test_build_getco_command_supports_compact_style() -> None:
+    ga = GasAnalyzer("COM1", device_id="079")
+
+    command = ga.build_getco_command(7, target_id="079", command_style="compact")
+
+    assert command == "GETCO7,YGAS,079\r\n"
+
+
+def test_read_coefficient_group_capture_can_skip_builtin_prepare_and_use_compact_style() -> None:
+    ga = GasAnalyzer("COM1", device_id="079")
+    fake = _FakeSerialForCoefficientRead(["C0:-1.50402,C1:0.975407,C2:0.00190803,C3:-4.78878e-05"])
+    ga.ser = fake
+
+    capture = ga.read_coefficient_group_capture(
+        7,
+        delay_s=0.0,
+        retries=0,
+        timeout_s=0.05,
+        target_id="079",
+        command_style="compact",
+        prepare_io=False,
+    )
+
+    assert capture["source"] == GasAnalyzer.READBACK_SOURCE_EXPLICIT_C0
+    assert fake.writes == ["GETCO7,YGAS,079\r\n"]
 
 
 def test_read_coefficient_group_reports_ack_only_failure() -> None:

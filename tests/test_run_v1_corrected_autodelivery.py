@@ -556,6 +556,242 @@ def test_write_coefficients_to_live_devices_retries_transient_readback_failure(t
     assert result["detail_rows"][0]["ReadbackOk"] is True
 
 
+def test_write_coefficients_to_live_devices_requires_explicit_c0_readback_source(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        module,
+        "scan_live_targets",
+        lambda *_args, **_kwargs: [
+            {
+                "Analyzer": "GA01",
+                "Port": "COM35",
+                "Baudrate": 115200,
+                "Timeout": 0.6,
+                "ConfiguredDeviceId": "005",
+                "LiveDeviceId": "005",
+                "ActiveSend": True,
+                "FtdHz": 10,
+                "AverageFilter": 49,
+            }
+        ],
+    )
+
+    class _FakeGasAnalyzer:
+        def __init__(self, *args, **kwargs) -> None:
+            self.before_values = {1: [10.0, 20.0, 30.0, 40.0, 0.0, 0.0]}
+            self.values = {1: [10.0, 20.0, 30.0, 40.0, 0.0, 0.0]}
+
+        def open(self) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+        def set_comm_way_with_ack(self, *args, **kwargs) -> bool:
+            return True
+
+        def set_mode_with_ack(self, *args, **kwargs) -> bool:
+            return True
+
+        def set_active_freq_with_ack(self, *args, **kwargs) -> bool:
+            return True
+
+        def set_average_filter_with_ack(self, *args, **kwargs) -> bool:
+            return True
+
+        def set_senco(self, group: int, coeffs) -> bool:
+            self.values[int(group)] = [float(value) for value in coeffs]
+            return True
+
+        def read_coefficient_group_capture(self, group: int):
+            group = int(group)
+            values = self.values[group]
+            coefficients = {f"C{idx}": float(value) for idx, value in enumerate(values)}
+            if values != self.before_values[group]:
+                return {
+                    "source": "parsed_from_ambiguous_line",
+                    "coefficients": coefficients,
+                    "source_line": "YGAS,005,0782.713,00.000,0.99,0.99,031.94,104.24,0001,2769 <C0:1,C1:2,C2:3,C3:4,C4:0,C5:0>",
+                    "source_line_has_explicit_c0": False,
+                    "raw_transcript_lines": [
+                        "YGAS,005,0782.713,00.000,0.99,0.99,031.94,104.24,0001,2769 <C0:1,C1:2,C2:3,C3:4,C4:0,C5:0>"
+                    ],
+                    "attempt_transcripts": [
+                        {
+                            "attempt": 1,
+                            "lines": [
+                                "YGAS,005,0782.713,00.000,0.99,0.99,031.94,104.24,0001,2769 <C0:1,C1:2,C2:3,C3:4,C4:0,C5:0>"
+                            ],
+                        }
+                    ],
+                    "command": "GETCO,YGAS,005,1\r\n",
+                    "target_id": "005",
+                    "error": "AMBIGUOUS_COEFFICIENT_LINE",
+                }
+            return {
+                "source": "parsed_from_explicit_c0_line",
+                "coefficients": coefficients,
+                "source_line": "<C0:10,C1:20,C2:30,C3:40,C4:0,C5:0>",
+                "source_line_has_explicit_c0": True,
+                "raw_transcript_lines": ["<C0:10,C1:20,C2:30,C3:40,C4:0,C5:0>"],
+                "attempt_transcripts": [{"attempt": 1, "lines": ["<C0:10,C1:20,C2:30,C3:40,C4:0,C5:0>"]}],
+                "command": "GETCO,YGAS,005,1\r\n",
+                "target_id": "005",
+                "error": "",
+            }
+
+    monkeypatch.setattr(module, "GasAnalyzer", _FakeGasAnalyzer)
+
+    result = module.write_coefficients_to_live_devices(
+        cfg={},
+        output_dir=tmp_path / "write_out_explicit",
+        download_plan_rows=[{"Analyzer": "GA01", "PrimaryCommand": "SENCO1,YGAS,FFF,1,2,3,4,0,0", "SecondaryCommand": ""}],
+        temperature_rows=[],
+        pressure_rows=[],
+        actual_device_ids={"GA01": "005"},
+        write_pressure_rows=False,
+    )
+
+    row = result["detail_rows"][0]
+    assert row["ReadbackOk"] is False
+    assert row["ReadbackVerified"] is False
+    assert row["ReadbackTruthSource"] == "ambiguous"
+    assert row["ReadbackSource"] == "parsed_from_ambiguous_line"
+    assert row["ReadbackSourceHasExplicitC0"] is False
+    assert "READBACK_SOURCE_UNTRUSTED:parsed_from_ambiguous_line" in row["Error"]
+    truth_groups_csv = Path(result["writeback_truth_groups_path"]).read_text(encoding="utf-8-sig")
+    truth_summary = json.loads(Path(result["writeback_truth_summary_path"]).read_text(encoding="utf-8"))
+    assert ",1,ambiguous,False," in truth_groups_csv
+    assert truth_summary["verified_group_count"] == 0
+    assert truth_summary["truth_source_counts"]["ambiguous"] == 1
+
+
+def test_write_coefficients_to_live_devices_writes_transcript_and_truth_artifacts(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        module,
+        "scan_live_targets",
+        lambda *_args, **_kwargs: [
+            {
+                "Analyzer": "GA01",
+                "Port": "COM35",
+                "Baudrate": 115200,
+                "Timeout": 0.6,
+                "ConfiguredDeviceId": "005",
+                "LiveDeviceId": "005",
+                "ActiveSend": True,
+                "FtdHz": 10,
+                "AverageFilter": 49,
+            }
+        ],
+    )
+
+    class _FakeGasAnalyzer:
+        def __init__(self, *args, **kwargs) -> None:
+            self.port = str(args[0] if args else "COM35")
+            self.device_id = "005"
+            self.io_logger = kwargs.get("io_logger")
+            self.values = {
+                1: [10.0, 20.0, 30.0, 40.0, 0.0, 0.0],
+                7: [7.0, 8.0, 9.0, 10.0],
+            }
+
+        def _log(self, *, direction: str, command: str = "", response: str = "", error: str = "") -> None:
+            if self.io_logger is None:
+                return
+            self.io_logger.log_io(
+                port=self.port,
+                device=self.device_id,
+                direction=direction,
+                command=command or None,
+                response=response or None,
+                error=error or None,
+            )
+
+        def open(self) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+        def set_comm_way_with_ack(self, active: bool, **_kwargs) -> bool:
+            command = f"SETCOMWAY,YGAS,FFF,{1 if active else 0}\r\n"
+            self._log(direction="tx", command=command)
+            self._log(direction="rx", response="YGAS,005,T")
+            return True
+
+        def set_mode_with_ack(self, mode: int, **_kwargs) -> bool:
+            command = f"MODE,YGAS,FFF,{int(mode)}\r\n"
+            self._log(direction="tx", command=command)
+            self._log(direction="rx", response="YGAS,005,T")
+            return True
+
+        def set_active_freq_with_ack(self, hz: int, **_kwargs) -> bool:
+            command = f"FTD,YGAS,FFF,{int(hz)}\r\n"
+            self._log(direction="tx", command=command)
+            self._log(direction="rx", response="YGAS,005,T")
+            return True
+
+        def set_average_filter_with_ack(self, value: int, **_kwargs) -> bool:
+            command = f"AVERAGE_FILTER,YGAS,FFF,{int(value)}\r\n"
+            self._log(direction="tx", command=command)
+            self._log(direction="rx", response="YGAS,005,T")
+            return True
+
+        def set_senco(self, group: int, coeffs) -> bool:
+            values = [float(value) for value in coeffs]
+            self.values[int(group)] = values
+            payload = ",".join(str(value) for value in values)
+            self._log(direction="tx", command=f"SENCO{int(group)},YGAS,FFF,{payload}\r\n")
+            self._log(direction="rx", response="YGAS,005,T")
+            return True
+
+        def read_coefficient_group_capture(self, group: int):
+            values = [float(value) for value in self.values[int(group)]]
+            coeff_tokens = ",".join(f"C{idx}:{value:g}" for idx, value in enumerate(values))
+            source_line = f"<{coeff_tokens}>"
+            command = f"GETCO,YGAS,005,{int(group)}\r\n"
+            self._log(direction="tx", command=command)
+            self._log(direction="rx", response=source_line)
+            return {
+                "source": "parsed_from_explicit_c0_line",
+                "coefficients": {f"C{idx}": float(value) for idx, value in enumerate(values)},
+                "source_line": source_line,
+                "source_line_has_explicit_c0": True,
+                "raw_transcript_lines": [source_line],
+                "attempt_transcripts": [{"attempt": 1, "lines": [source_line]}],
+                "command": command,
+                "target_id": "005",
+                "error": "",
+            }
+
+    monkeypatch.setattr(module, "GasAnalyzer", _FakeGasAnalyzer)
+
+    result = module.write_coefficients_to_live_devices(
+        cfg={},
+        output_dir=tmp_path / "write_out_truth",
+        download_plan_rows=[{"Analyzer": "GA01", "PrimaryCommand": "SENCO1,YGAS,FFF,1,2,3,4,0,0", "SecondaryCommand": ""}],
+        temperature_rows=[{"analyzer_id": "GA01", "senco_channel": "SENCO7", "A": 1, "B": 2, "C": 3, "D": 4}],
+        pressure_rows=[],
+        actual_device_ids={"GA01": "005"},
+        write_pressure_rows=False,
+    )
+
+    row = result["detail_rows"][0]
+    transcript_log = Path(result["writeback_raw_transcript_path"]).read_text(encoding="utf-8")
+    truth_summary = json.loads(Path(result["writeback_truth_summary_path"]).read_text(encoding="utf-8"))
+    truth_groups = Path(result["writeback_truth_groups_path"]).read_text(encoding="utf-8-sig")
+
+    assert row["ReadbackOk"] is True
+    assert row["ReadbackVerified"] is True
+    assert row["ReadbackTruthSource"] == "explicit_c0"
+    assert "SENCO1,YGAS,FFF" in transcript_log
+    assert "GETCO,YGAS,005,1" in transcript_log
+    assert "restore_comm_way" in transcript_log
+    assert truth_summary["all_groups_verified"] is True
+    assert truth_summary["truth_source_counts"]["explicit_c0"] == 2
+    assert ",1,explicit_c0,True," in truth_groups
+    assert ",7,explicit_c0,True," in truth_groups
+
+
 def test_annotate_workbook_with_actual_device_ids_inserts_column(tmp_path: Path) -> None:
     workbook_path = tmp_path / "report.xlsx"
     wb = Workbook()
@@ -908,6 +1144,7 @@ def test_run_from_cli_writes_separated_fit_and_writeback_summaries(tmp_path: Pat
                     "ModelFeaturePolicy": "ambient_only_fallback",
                     "FitInputQuality": "fail",
                     "FitInputWarning": "ratio_span_too_small",
+                    "DeliveryRecommendationCode": "forbid_download",
                     "OverallSuggestion": "暂不建议",
                 }
             ],
@@ -948,7 +1185,196 @@ def test_run_from_cli_writes_separated_fit_and_writeback_summaries(tmp_path: Pat
     assert summary_json["fit_quality_summary"][0]["FitInputQuality"] == "fail"
     assert summary_json["coefficient_source_summary"][0]["CoefficientSource"] == "original_fallback"
     assert summary_json["device_write_verify_summary"][0]["Status"] == "partial"
+    assert summary_json["corrected_fit_quality"] == "fail"
+    assert summary_json["device_write_verify_quality"] == "partial"
+    assert summary_json["runtime_parity_quality"] == "not_audited"
+    assert summary_json["final_write_ready"] is False
     assert "## fit_quality_summary" in summary_md
     assert "## coefficient_source_summary" in summary_md
+    assert "## runtime_parity_summary" in summary_md
     assert "## device_write_verify_summary" in summary_md
+    assert "## write_readiness_summary" in summary_md
     assert result["device_write_verify_summary"][0]["FailureReasons"] == "READBACK_MISMATCH"
+
+
+def test_run_from_cli_uses_runtime_parity_pass_for_final_write_ready(tmp_path: Path, monkeypatch) -> None:
+    run_dir = tmp_path / "run_parity_pass"
+    run_dir.mkdir()
+    cfg_path = run_dir / "runtime_config_snapshot.json"
+    cfg_path.write_text("{}", encoding="utf-8")
+    out_dir = tmp_path / "out_parity_pass"
+    parity_path = tmp_path / "runtime_parity_summary.json"
+    parity_path.write_text(
+        json.dumps(
+            {
+                "parity_verdict": "parity_pass",
+                "runtime_parity_quality": "pass",
+                "legacy_stream_only": False,
+                "candidate_rows": [
+                    {"candidate_name": "ratio_f_plus_temperature", "candidate_status": "tested", "rmse": 0.1}
+                ],
+                "best_candidate": {"candidate_name": "ratio_f_plus_temperature"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    appended_sheets: list[str] = []
+
+    monkeypatch.setattr(
+        module,
+        "build_corrected_delivery",
+        lambda **_kwargs: {
+            "report_path": str(run_dir / "calibration_coefficients.xlsx"),
+            "output_dir": str(out_dir),
+            "filtered_summary_paths": [],
+            "filter_stats": [],
+            "actual_device_ids": {"GA01": "086"},
+            "download_plan_rows": [{"Analyzer": "GA01", "Gas": "CO2", "CoefficientSource": "simplified", "FallbackReason": ""}],
+            "temperature_rows": [],
+            "pressure_rows": [],
+            "pressure_row_source": "startup_calibration",
+            "pressure_points_summary": {"original": ["ambient"], "effective": ["ambient"], "source": "runtime_snapshot"},
+            "fit_quality_summary": [
+                {
+                    "Analyzer": "GA01",
+                    "Gas": "CO2",
+                    "TemperatureColumnUsed": "thermometer_temp_c",
+                    "ModelFeaturePolicy": "ambient_only_fallback",
+                    "FitInputQuality": "ok",
+                    "FitInputWarning": "",
+                    "DeliveryRecommendationCode": "ok",
+                    "OverallSuggestion": "建议下发",
+                }
+            ],
+            "coefficient_source_summary": [
+                {
+                    "Analyzer": "GA01",
+                    "ActualDeviceId": "086",
+                    "Gas": "CO2",
+                    "CoefficientSource": "simplified",
+                    "FallbackReason": "",
+                }
+            ],
+            "run_structure_hints": [],
+        },
+    )
+    monkeypatch.setattr(module, "load_config", lambda _path: {"_base_dir": str(tmp_path)})
+    monkeypatch.setattr(
+        module,
+        "write_coefficients_to_live_devices",
+        lambda **_kwargs: {
+            "scan_rows": [],
+            "summary_rows": [{"Analyzer": "GA01", "TargetDeviceId": "086", "LiveDeviceId": "086", "Status": "ok", "MatchedGroups": 2, "ExpectedGroups": 2}],
+            "detail_rows": [],
+        },
+    )
+    monkeypatch.setattr(module, "_append_dataframe_sheet", lambda _path, sheet_name, _frame: appended_sheets.append(str(sheet_name)))
+
+    result = module.run_from_cli(
+        run_dir=str(run_dir),
+        config_path=str(cfg_path),
+        output_dir=str(out_dir),
+        write_devices=True,
+        runtime_parity_summary_path=str(parity_path),
+    )
+
+    summary_json = json.loads((out_dir / "autodelivery_summary.json").read_text(encoding="utf-8"))
+    summary_md = (out_dir / "summary.md").read_text(encoding="utf-8")
+
+    assert summary_json["runtime_parity_quality"] == "pass"
+    assert summary_json["device_write_verify_quality"] == "pass"
+    assert summary_json["corrected_fit_quality"] == "pass"
+    assert summary_json["final_write_ready"] is True
+    assert result["readiness_code"] == "all_gates_passed"
+    assert "runtime_parity_summary" in appended_sheets
+    assert "write_readiness_summary" in appended_sheets
+    assert "- final_write_ready: True" in summary_md
+
+
+def test_run_from_cli_uses_runtime_probe_summary_for_legacy_stream_gate(tmp_path: Path, monkeypatch) -> None:
+    run_dir = tmp_path / "run_probe_legacy"
+    run_dir.mkdir()
+    cfg_path = run_dir / "runtime_config_snapshot.json"
+    cfg_path.write_text("{}", encoding="utf-8")
+    out_dir = tmp_path / "out_probe_legacy"
+    probe_path = tmp_path / "baseline_stream_summary.json"
+    probe_path.write_text(
+        json.dumps(
+            {
+                "probe_type": "baseline_ygas_stream",
+                "stream_formats_seen": ["legacy"],
+                "visible_runtime_inputs_available": [
+                    "target_available",
+                    "legacy_signal_available",
+                    "temperature_available",
+                ],
+                "visible_runtime_inputs_missing": [
+                    "ratio_f_available",
+                    "ratio_raw_available",
+                    "signal_available",
+                    "ref_signal_available",
+                ],
+                "conclusion_hint": "legacy runtime stream does not expose ratio or chamber/case inputs needed for parity",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        module,
+        "build_corrected_delivery",
+        lambda **_kwargs: {
+            "report_path": str(run_dir / "calibration_coefficients.xlsx"),
+            "output_dir": str(out_dir),
+            "filtered_summary_paths": [],
+            "filter_stats": [],
+            "actual_device_ids": {"GA03": "079"},
+            "download_plan_rows": [{"Analyzer": "GA03", "Gas": "CO2", "CoefficientSource": "simplified", "FallbackReason": ""}],
+            "temperature_rows": [],
+            "pressure_rows": [],
+            "pressure_row_source": "startup_calibration",
+            "pressure_points_summary": {"original": ["ambient"], "effective": ["ambient"], "source": "runtime_snapshot"},
+            "fit_quality_summary": [
+                {
+                    "Analyzer": "GA03",
+                    "Gas": "CO2",
+                    "TemperatureColumnUsed": "Temp",
+                    "ModelFeaturePolicy": "explicit_config",
+                    "FitInputQuality": "ok",
+                    "FitInputWarning": "",
+                    "DeliveryRecommendationCode": "ok",
+                    "OverallSuggestion": "candidate_only",
+                }
+            ],
+            "coefficient_source_summary": [
+                {
+                    "Analyzer": "GA03",
+                    "ActualDeviceId": "079",
+                    "Gas": "CO2",
+                    "CoefficientSource": "simplified",
+                    "FallbackReason": "",
+                }
+            ],
+            "run_structure_hints": [],
+        },
+    )
+    monkeypatch.setattr(module, "load_config", lambda _path: {"_base_dir": str(tmp_path)})
+    monkeypatch.setattr(module, "_append_dataframe_sheet", lambda *_args, **_kwargs: None)
+
+    result = module.run_from_cli(
+        run_dir=str(run_dir),
+        config_path=str(cfg_path),
+        output_dir=str(out_dir),
+        write_devices=False,
+        runtime_parity_summary_path=str(probe_path),
+    )
+
+    summary_json = json.loads((out_dir / "autodelivery_summary.json").read_text(encoding="utf-8"))
+
+    assert summary_json["corrected_fit_quality"] == "pass"
+    assert summary_json["device_write_verify_quality"] == "not_requested"
+    assert summary_json["runtime_parity_quality"] == "parity_inconclusive_missing_runtime_inputs"
+    assert summary_json["final_write_ready"] is False
+    assert summary_json["readiness_reason"] == "legacy_stream_insufficient_for_runtime_parity"
+    assert result["runtime_parity_summary"][0]["LegacyStreamOnly"] is True
+    assert result["runtime_parity_summary"][0]["ParityVerdict"] == "parity_inconclusive_missing_runtime_inputs"

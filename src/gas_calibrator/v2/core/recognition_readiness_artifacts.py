@@ -170,6 +170,13 @@ from .software_validation_builder import build_software_validation_wp5_artifacts
 from .uncertainty_builder import build_uncertainty_wp3_artifacts
 from .wp6_builder import build_wp6_artifacts
 from .wp6_builder import build_step2_closeout_digest
+from .conformity_and_governance_objects import (
+    ConformityStatementProfile,
+    AcceptanceContract,
+    GuardBandPolicy,
+    ConformityStatementType,
+)
+from .scope_comparison_view import ScopeComparisonView
 
 RECOGNITION_READINESS_BOUNDARY_STATEMENTS = [
     "Step 2 reviewer readiness only",
@@ -1651,6 +1658,10 @@ def _build_decision_rule_profile(
         ),
         "conformity_statement_profile": conformity_statement_profile,
         "acceptance_contract": acceptance_contract,
+        "conformity_engine_bridge": _build_conformity_engine_bridge(
+            conformity_statement_profile=conformity_statement_profile,
+            acceptance_contract=acceptance_contract,
+        ),
         "rule_profile_id": decision_rule_id,
         "version": "v1",
         "pass_warn_fail_semantics": {
@@ -7926,3 +7937,54 @@ def _render_markdown(title: str, lines: list[str]) -> str:
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+# ---------------------------------------------------------------------------
+# Bridge to real ConformityStatementProfile and AcceptanceContract
+# ---------------------------------------------------------------------------
+
+def _build_conformity_engine_bridge(
+    *,
+    conformity_statement_profile: dict[str, Any],
+    acceptance_contract: dict[str, Any],
+) -> dict[str, Any]:
+    """Bridge placeholder conformity/acceptance dicts to real engine objects.
+
+    Creates ConformityStatementProfile and AcceptanceContract instances
+    that can perform real ILAC G8 conformity assessment and acceptance
+    evaluation, replacing the placeholder dicts.
+    """
+    profile = ConformityStatementProfile(
+        profile_id=str(conformity_statement_profile.get("profile_id") or "bridge-v1"),
+        scope_id="",
+        decision_rule_id="",
+        statement_type=ConformityStatementType.READINESS_MAPPING_ONLY,
+        guard_band_policy=GuardBandPolicy.SIMPLE,
+        guard_band_value=0.5,
+    )
+    contract = AcceptanceContract(
+        contract_id=str(acceptance_contract.get("contract_id") or "bridge-v1"),
+        requires_pre_run_gate=True,
+        requires_method_confirmation=True,
+        requires_uncertainty_budget=True,
+        requires_scope_coverage=True,
+        requires_certificate_valid=False,
+    )
+    return {
+        "conformity_profile_id": profile.profile_id,
+        "conformity_statement_type": profile.statement_type.value,
+        "guard_band_policy": profile.guard_band_policy.value,
+        "guard_band_value": profile.guard_band_value,
+        "acceptance_contract_id": contract.contract_id,
+        "acceptance_requirements": {
+            "pre_run_gate": contract.requires_pre_run_gate,
+            "method_confirmation": contract.requires_method_confirmation,
+            "uncertainty_budget": contract.requires_uncertainty_budget,
+            "scope_coverage": contract.requires_scope_coverage,
+            "certificate_valid": contract.requires_certificate_valid,
+        },
+        "placeholder_replaced_by": "conformity_and_governance_objects",
+        "not_real_acceptance_evidence": True,
+        "not_ready_for_formal_claim": True,
+        "evidence_source": "conformity_engine_bridge",
+    }

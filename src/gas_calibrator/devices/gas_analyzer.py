@@ -14,6 +14,9 @@ class GasAnalyzer:
     """Gas analyzer protocol wrapper."""
 
     COMMAND_TARGET_ID = "FFF"
+    READBACK_SOURCE_EXPLICIT_C0 = "parsed_from_explicit_c0_line"
+    READBACK_SOURCE_AMBIGUOUS = "parsed_from_ambiguous_line"
+    READBACK_SOURCE_NONE = "no_valid_coefficient_line"
     SOFTWARE_VERSION_PRE_V5 = "pre_v5"
     SOFTWARE_VERSION_V5_PLUS = "v5_plus"
     PASSIVE_READ_RETRY_COUNT = 1
@@ -28,8 +31,13 @@ class GasAnalyzer:
     COEFFICIENT_READ_RETRY_COUNT = 2
     COEFFICIENT_READ_DELAY_S = 0.1
     COEFFICIENT_READ_TIMEOUT_S = 0.3
+    _COEFFICIENT_VALUE_RE = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
     _COEFFICIENT_TOKEN_RE = re.compile(
-        r"C(?P<index>\d+)\s*:\s*(?P<value>[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)"
+        rf"C(?P<index>\d+)\s*:\s*(?P<value>{_COEFFICIENT_VALUE_RE})"
+    )
+    _EXPLICIT_COEFFICIENT_LINE_RE = re.compile(
+        rf"^C0\s*:\s*{_COEFFICIENT_VALUE_RE}(?:\s*,\s*C\d+\s*:\s*{_COEFFICIENT_VALUE_RE})*$",
+        re.IGNORECASE,
     )
     _MODE2_KEYS = [
         "co2_ppm",
@@ -176,6 +184,26 @@ class GasAnalyzer:
     def _cmd_with_args(self, cmd: str, *args: Any) -> str:
         suffix = ",".join(str(arg) for arg in args)
         return f"{cmd},YGAS,{self.COMMAND_TARGET_ID},{suffix}\r\n"
+
+    def _cmd_for_target(self, target_id: Any, cmd: str, *args: Any) -> str:
+        normalized_target = self.normalize_device_id(target_id or self.COMMAND_TARGET_ID)
+        suffix = ",".join(str(arg) for arg in args)
+        if suffix:
+            return f"{cmd},YGAS,{normalized_target},{suffix}\r\n"
+        return f"{cmd},YGAS,{normalized_target}\r\n"
+
+    def build_getco_command(
+        self,
+        index: int,
+        *,
+        target_id: Any = None,
+        command_style: str = "parameterized",
+    ) -> str:
+        normalized_target = self.normalize_device_id(target_id or self.device_id or self.COMMAND_TARGET_ID)
+        style = str(command_style or "parameterized").strip().lower()
+        if style == "compact":
+            return f"GETCO{int(index)},YGAS,{normalized_target}\r\n"
+        return self._cmd_for_target(normalized_target, "GETCO", int(index))
 
     @staticmethod
     def _format_senco_value(value: Any) -> str:
@@ -372,46 +400,89 @@ class GasAnalyzer:
             self._log_no_ack(payload)
         return acked
 
+    @staticmethod
+    def _strip_enclosing_wrappers(text: str) -> str:
+        stripped = str(text or "").strip()
+        wrapper_pairs = {"<": ">", "[": "]", "(": ")", "{": "}"}
+        while len(stripped) >= 2 and stripped[0] in wrapper_pairs and stripped[-1] == wrapper_pairs[stripped[0]]:
+            stripped = stripped[1:-1].strip()
+        return stripped
+
     @classmethod
-    def parse_coefficient_group_line(cls, line: str) -> Optional[Dict[str, float]]:
-        text = str(line or "").strip().strip("<>")
-        if not text:
-            return None
-        if re.search(r"YGAS,[0-9A-F]{3},F", text, re.IGNORECASE):
-            return None
-        matches = list(cls._COEFFICIENT_TOKEN_RE.finditer(text))
+    def inspect_coefficient_group_line(cls, line: str) -> Dict[str, Any]:
+        raw_line = str(line or "").strip()
+        if not raw_line:
+            return {
+                "source": cls.READBACK_SOURCE_NONE,
+                "coefficients": {},
+                "source_line": "",
+                "source_line_has_explicit_c0": False,
+            }
+
+        matches = list(cls._COEFFICIENT_TOKEN_RE.finditer(raw_line))
         if not matches:
-            return None
+            return {
+                "source": cls.READBACK_SOURCE_NONE,
+                "coefficients": {},
+                "source_line": raw_line,
+                "source_line_has_explicit_c0": False,
+            }
+
         parsed: Dict[str, float] = {}
         for match in matches:
             parsed[f"C{int(match.group('index'))}"] = float(match.group("value"))
+
+        normalized = cls._strip_enclosing_wrappers(raw_line)
+        explicit_c0 = bool("C0" in parsed and cls._EXPLICIT_COEFFICIENT_LINE_RE.fullmatch(normalized))
+        return {
+            "source": cls.READBACK_SOURCE_EXPLICIT_C0 if explicit_c0 else cls.READBACK_SOURCE_AMBIGUOUS,
+            "coefficients": parsed,
+            "source_line": raw_line,
+            "source_line_has_explicit_c0": explicit_c0,
+        }
+
+    @classmethod
+    def parse_coefficient_group_line(cls, line: str) -> Optional[Dict[str, float]]:
+        inspected = cls.inspect_coefficient_group_line(line)
+        parsed = dict(inspected.get("coefficients") or {})
         return parsed or None
 
-    def read_coefficient_group(
+    def capture_getco_command(
         self,
         index: int,
         *,
         delay_s: Optional[float] = None,
         timeout_s: Optional[float] = None,
         retries: Optional[int] = None,
-    ) -> Dict[str, float]:
-        self._prepare_coefficient_io()
-        payload = self._cmd_with_args("GETCO", int(index)).strip()
+        target_id: Any = None,
+        command_style: str = "parameterized",
+        prepare_io: bool = True,
+    ) -> Dict[str, Any]:
+        if prepare_io:
+            self._prepare_coefficient_io()
+        normalized_target = self.normalize_device_id(target_id or self.device_id or self.COMMAND_TARGET_ID)
+        payload = self.build_getco_command(
+            int(index),
+            target_id=normalized_target,
+            command_style=command_style,
+        ).strip()
         attempts = 1 + max(0, int(retries if retries is not None else self.COEFFICIENT_READ_RETRY_COUNT))
         read_delay_s = float(delay_s if delay_s is not None else self.COEFFICIENT_READ_DELAY_S)
         read_timeout_s = float(timeout_s if timeout_s is not None else self.COEFFICIENT_READ_TIMEOUT_S)
-        last_line = ""
+        transcript_lines: list[str] = []
+        attempt_transcripts: list[Dict[str, Any]] = []
+        first_ambiguous: Optional[Dict[str, Any]] = None
+        last_error = "NO_RESPONSE"
         try:
             self.ser.flush_input()
         except Exception:
             pass
 
         for attempt in range(attempts):
+            attempt_lines: list[str] = []
             self.ser.write(payload + "\r\n")
             if read_delay_s > 0:
                 time.sleep(read_delay_s)
-            # Some firmware revisions emit ACK/noise before the actual coefficient line,
-            # so keep scanning the short response window until a parseable <C0:...> line appears.
             deadline = time.time() + max(0.05, read_timeout_s)
             saw_any = False
             saw_ack = False
@@ -438,25 +509,127 @@ class GasAnalyzer:
                     if not text:
                         continue
                     saw_any = True
-                    last_line = text
+                    attempt_lines.append(text)
+                    transcript_lines.append(text)
                     if self._is_success_ack(text):
                         saw_ack = True
                         continue
-                    parsed = self.parse_coefficient_group_line(text)
-                    if parsed:
-                        return parsed
+                    inspected = self.inspect_coefficient_group_line(text)
+                    source = str(inspected.get("source") or self.READBACK_SOURCE_NONE)
+                    if source == self.READBACK_SOURCE_EXPLICIT_C0:
+                        attempt_transcripts.append({"attempt": int(attempt + 1), "lines": list(attempt_lines)})
+                        return {
+                            "command": payload + "\r\n",
+                            "group": int(index),
+                            "target_id": normalized_target,
+                            "attempts": attempts,
+                            "attempt_index": int(attempt + 1),
+                            "source": source,
+                            "coefficients": dict(inspected.get("coefficients") or {}),
+                            "source_line": str(inspected.get("source_line") or ""),
+                            "source_line_has_explicit_c0": bool(inspected.get("source_line_has_explicit_c0", False)),
+                            "raw_transcript_lines": list(transcript_lines),
+                            "attempt_transcripts": list(attempt_transcripts) + [{"attempt": int(attempt + 1), "lines": list(attempt_lines)}],
+                            "error": "",
+                        }
+                    if source == self.READBACK_SOURCE_AMBIGUOUS:
+                        saw_non_ack = True
+                        if first_ambiguous is None:
+                            first_ambiguous = {
+                                "command": payload + "\r\n",
+                                "group": int(index),
+                                "target_id": normalized_target,
+                                "attempts": attempts,
+                                "attempt_index": int(attempt + 1),
+                                "source": source,
+                                "coefficients": dict(inspected.get("coefficients") or {}),
+                                "source_line": str(inspected.get("source_line") or ""),
+                                "source_line_has_explicit_c0": bool(inspected.get("source_line_has_explicit_c0", False)),
+                                "raw_transcript_lines": [],
+                                "attempt_transcripts": [],
+                                "error": "AMBIGUOUS_COEFFICIENT_LINE",
+                            }
+                        continue
                     saw_non_ack = True
 
+            attempt_transcripts.append({"attempt": int(attempt + 1), "lines": list(attempt_lines)})
             if not saw_any:
-                last_line = "NO_RESPONSE"
+                last_error = "NO_RESPONSE"
             elif saw_ack and not saw_non_ack:
-                last_line = "ACK_ONLY"
+                last_error = "ACK_ONLY"
             else:
-                last_line = "NO_VALID_COEFFICIENT_LINE"
+                last_error = "NO_VALID_COEFFICIENT_LINE"
             if attempt + 1 < attempts:
                 time.sleep(max(0.01, read_delay_s))
 
-        raise RuntimeError(f"GETCO{int(index)} read failed: {last_line or 'NO_RESPONSE'}")
+        if first_ambiguous is not None:
+            first_ambiguous["raw_transcript_lines"] = list(transcript_lines)
+            first_ambiguous["attempt_transcripts"] = list(attempt_transcripts)
+            return first_ambiguous
+
+        return {
+            "command": payload + "\r\n",
+            "group": int(index),
+            "target_id": normalized_target,
+            "attempts": attempts,
+            "attempt_index": int(attempts),
+            "source": self.READBACK_SOURCE_NONE,
+            "coefficients": {},
+            "source_line": "",
+            "source_line_has_explicit_c0": False,
+            "raw_transcript_lines": list(transcript_lines),
+            "attempt_transcripts": list(attempt_transcripts),
+            "error": last_error,
+        }
+
+    def read_coefficient_group_capture(
+        self,
+        index: int,
+        *,
+        delay_s: Optional[float] = None,
+        timeout_s: Optional[float] = None,
+        retries: Optional[int] = None,
+        target_id: Any = None,
+        command_style: str = "parameterized",
+        prepare_io: bool = True,
+    ) -> Dict[str, Any]:
+        return self.capture_getco_command(
+            int(index),
+            delay_s=delay_s,
+            timeout_s=timeout_s,
+            retries=retries,
+            target_id=target_id,
+            command_style=command_style,
+            prepare_io=prepare_io,
+        )
+
+    def read_coefficient_group(
+        self,
+        index: int,
+        *,
+        delay_s: Optional[float] = None,
+        timeout_s: Optional[float] = None,
+        retries: Optional[int] = None,
+        target_id: Any = None,
+        command_style: str = "parameterized",
+        prepare_io: bool = True,
+        require_explicit_c0: bool = False,
+    ) -> Dict[str, float]:
+        capture = self.read_coefficient_group_capture(
+            int(index),
+            delay_s=delay_s,
+            timeout_s=timeout_s,
+            retries=retries,
+            target_id=target_id,
+            command_style=command_style,
+            prepare_io=prepare_io,
+        )
+        source = str(capture.get("source") or self.READBACK_SOURCE_NONE)
+        parsed = dict(capture.get("coefficients") or {})
+        if parsed and (source == self.READBACK_SOURCE_EXPLICIT_C0 or not require_explicit_c0):
+            return parsed
+        error = str(capture.get("error") or "NO_VALID_COEFFICIENT_LINE")
+        raise RuntimeError(f"GETCO{int(index)} read failed: {error}")
 
     def read_data_passive(self) -> str:
         payload = self._cmd("READDATA")

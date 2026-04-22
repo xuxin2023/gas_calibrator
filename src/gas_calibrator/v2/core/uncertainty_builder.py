@@ -5,6 +5,13 @@ from datetime import datetime, timezone
 from math import isclose, sqrt
 from typing import Any
 
+from .uncertainty_engine import (
+    GUMUncertaintyEngine,
+    UncertaintyInput,
+    BudgetResult,
+    standard_uncertainty_from_half_width,
+)
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -1928,3 +1935,96 @@ def build_uncertainty_wp3_artifacts(
         "uncertainty_rollup": rollup,
         "uncertainty_budget_stub": _budget_stub_artifact(run_id=run_id, common=common, case_payloads=case_payloads, path_map=path_map, filenames=filenames, boundary_statements=boundary_statements),
     }
+
+
+# ---------------------------------------------------------------------------
+# GUM engine integration: compute real budgets from fixture inputs
+# ---------------------------------------------------------------------------
+
+def compute_budget_from_fixture(
+    *,
+    run_id: str,
+    uncertainty_fixture: dict[str, Any],
+    scope_id: str = "",
+    decision_rule_id: str = "",
+) -> list[BudgetResult]:
+    """Compute real uncertainty budgets using the GUM engine from fixture data.
+
+    This function bridges the existing fixture-based uncertainty_builder
+    with the new GUMUncertaintyEngine, enabling actual GUM law of
+    propagation computation instead of placeholder values.
+
+    Parameters
+    ----------
+    run_id : str
+        Run identifier.
+    uncertainty_fixture : dict
+        The uncertainty budget inputs fixture (from uncertainty_budget_inputs.json).
+    scope_id : str
+        Scope ID to bind.
+    decision_rule_id : str
+        Decision rule ID to bind.
+
+    Returns
+    -------
+    list[BudgetResult]
+        Computed budget results for each case in the fixture.
+    """
+    engine = GUMUncertaintyEngine()
+    case_specs = _fixture_case_specs(uncertainty_fixture)
+    results: list[BudgetResult] = []
+
+    for spec in case_specs:
+        spec_payload = dict(spec)
+        case_key = str(spec_payload.get("case_key", "unknown"))
+        case_id = str(spec_payload.get("uncertainty_case_id") or f"{run_id}-{case_key}")
+        budget_level = _normalize_budget_level(spec_payload.get("budget_level"))
+
+        # Build UncertaintyInput objects from fixture
+        inputs: list[UncertaintyInput] = []
+        for raw_input in list(spec_payload.get("inputs") or []):
+            if not isinstance(raw_input, dict):
+                continue
+            inp_spec = dict(raw_input)
+            quantity_value = _safe_float(inp_spec.get("quantity_value"))
+            std_u = _safe_float(inp_spec.get("standard_uncertainty"))
+            distribution = str(inp_spec.get("distribution_type") or "normal")
+            half_width = _safe_float(inp_spec.get("quantity_value"))
+
+            # If standard_uncertainty is not provided, compute from half-width and distribution
+            if std_u <= 0.0 and half_width > 0.0:
+                std_u = standard_uncertainty_from_half_width(half_width, distribution)
+
+            inputs.append(UncertaintyInput(
+                quantity_key=str(inp_spec.get("quantity_key") or ""),
+                quantity_label=str(inp_spec.get("quantity_label") or ""),
+                quantity_value=quantity_value,
+                standard_uncertainty=std_u,
+                distribution_type=distribution,
+                sensitivity_coefficient=_safe_float(
+                    next(
+                        (c.get("coefficient_value") or c.get("placeholder_value")
+                         for c in list(spec_payload.get("coefficients") or [])
+                         if isinstance(c, dict) and c.get("quantity_key") == inp_spec.get("quantity_key")),
+                        1.0,
+                    )
+                ),
+                unit=str(inp_spec.get("unit") or ""),
+                component_key=str(inp_spec.get("component_key") or ""),
+                degrees_of_freedom=float("inf"),
+                source_type=str(inp_spec.get("asset_type") or inp_spec.get("source_type") or ""),
+            ))
+
+        result = engine.compute_budget(
+            uncertainty_case_id=case_id,
+            measurand=str(spec_payload.get("measurand") or ""),
+            route_type=str(spec_payload.get("route_type") or ""),
+            budget_level=budget_level,
+            inputs=inputs,
+            coverage_factor=_safe_float(spec_payload.get("coverage_factor"), 2.0),
+            expected_combined_uncertainty=_safe_float(spec_payload.get("expected_combined_standard_uncertainty")),
+            expected_expanded_uncertainty=_safe_float(spec_payload.get("expected_expanded_uncertainty")),
+        )
+        results.append(result)
+
+    return results
