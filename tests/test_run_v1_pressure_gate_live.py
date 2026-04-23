@@ -7,9 +7,38 @@ import pytest
 from gas_calibrator.tools import run_v1_pressure_gate_live as live_tool
 
 
+class _FakePacePressureReady:
+    def __init__(self, *, results: list[dict[str, object]] | None = None) -> None:
+        self.calls: list[dict[str, object]] = []
+        self._results = [dict(item) for item in list(results or [])]
+
+    def wait_for_pressure_ready(self, **kwargs):
+        self.calls.append(dict(kwargs))
+        if self._results:
+            return dict(self._results.pop(0))
+        target_hpa = float(kwargs.get("target_hpa", 0.0) or 0.0)
+        return {
+            "ok": True,
+            "reason": "",
+            "target_hpa": target_hpa,
+            "setpoint_hpa": target_hpa,
+            "output_state": 1,
+            "last_pressure_hpa": target_hpa,
+            "last_in_limit_flag": 1,
+            "poll_count": 1,
+            "timeout_s": float(kwargs.get("timeout_s", 0.0) or 0.0),
+            "poll_s": float(kwargs.get("poll_s", 0.0) or 0.0),
+            "consecutive_in_limits_required": int(kwargs.get("consecutive_in_limits_required", 1) or 1),
+            "ready_dwell_s": float(kwargs.get("ready_dwell_s", 0.0) or 0.0),
+            "ready_hold_elapsed_s": float(kwargs.get("ready_dwell_s", 0.0) or 0.0),
+            "recent_states": [{"pressure_hpa": target_hpa, "in_limit_flag": 1}],
+        }
+
+
 class _FakeRunner:
     def __init__(self) -> None:
         self.calls: list[tuple[str, object]] = []
+        self.trace_rows: list[dict[str, object]] = []
         self._last_atmosphere_gate_summary = {"ambient_hpa": 1012.0, "atmosphere_ready": True}
         self._last_route_pressure_guard_summary = {
             "route_pressure_guard_status": "pass",
@@ -53,6 +82,7 @@ class _FakeRunner:
         self.pace_commands_sent: list[str] = []
         self.vent_write_commands: list[str] = []
         self.vent_query_responses: list[object] = []
+        self.devices = {"pace": _FakePacePressureReady()}
 
     def _configure_devices(self, configure_gas_analyzers: bool = False) -> None:
         self.calls.append(("configure_devices", bool(configure_gas_analyzers)))
@@ -108,6 +138,7 @@ class _FakeRunner:
         }
 
     def _append_pressure_trace_row(self, *args, **kwargs) -> None:
+        self.trace_rows.append(dict(kwargs))
         self.calls.append(("trace", str(kwargs.get("trace_stage") or "")))
 
     def _numeric_series_metrics(self, rows):
@@ -1026,6 +1057,115 @@ def test_existing_v1_analyzer_mapping_does_not_affect_other_scenarios(
     assert summary["scenario_result"]["status"] == "pass"
     assert summary["scenario_result"].get("pressure_protection_source") is None
     assert all(call[0] not in {"verify", "candidate", "apply"} for call in runner.calls)
+
+
+def test_co2_a_staged_dry_run_uses_pressure_ready_gate_before_source_final_open(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_required_staged_env(monkeypatch)
+    runner = _FakeRunner()
+    runner.mechanical_pressure_protection_confirmed = False
+    fake_pace = _FakePacePressureReady(
+        results=[
+            {
+                "ok": True,
+                "reason": "",
+                "target_hpa": 1000.0,
+                "setpoint_hpa": 1000.0,
+                "output_state": 0,
+                "last_pressure_hpa": 1000.0,
+                "last_in_limit_flag": 1,
+                "poll_count": 3,
+                "timeout_s": 10.0,
+                "poll_s": 0.25,
+                "consecutive_in_limits_required": 1,
+                "ready_dwell_s": 0.0,
+                "ready_hold_elapsed_s": 0.0,
+                "recent_states": [
+                    {"pressure_hpa": 990.0527344, "in_limit_flag": 0},
+                    {"pressure_hpa": 995.0, "in_limit_flag": 0},
+                    {"pressure_hpa": 1000.0, "in_limit_flag": 1},
+                ],
+            }
+        ]
+    )
+    runner.devices = {"pace": fake_pace}
+
+    result = live_tool._run_co2_a_staged_source_final_release_dry_run(
+        runner,
+        tmp_path / "trace.csv",
+        _args(_runtime_cfg=_config(gas_analyzer_enabled=True)),
+    )
+
+    assert result["status"] == "pass"
+    assert result["pressure_ready_gate"]["ok"] is True
+    assert result["pressure_ready_gate"]["poll_count"] == 3
+    assert result["pressure_ready_gate"]["output_state"] == 0
+    assert result["pressure_ready_gate"]["output_state_observed"] == 0
+    assert fake_pace.calls and fake_pace.calls[0]["target_hpa"] == 1000.0
+    assert fake_pace.calls[0]["require_output_enabled"] is False
+    assert ("trace", "staged_pressure_ready_gate") in runner.calls
+    trace_row = next(row for row in runner.trace_rows if row.get("trace_stage") == "staged_pressure_ready_gate")
+    assert trace_row["pace_outp_state_query"] == 0
+    assert json.loads(str(trace_row["note"]))["output_state_observed"] == 0
+    assert runner.calls.index(("apply", [4])) < runner.calls.index(("guard", [8, 11, 7, 4]))
+
+
+def test_co2_a_staged_dry_run_blocks_when_pressure_ready_gate_times_out(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_required_staged_env(monkeypatch)
+    runner = _FakeRunner()
+    runner.mechanical_pressure_protection_confirmed = False
+    runner.devices = {
+        "pace": _FakePacePressureReady(
+            results=[
+                {
+                    "ok": False,
+                    "reason": "PressureInLimitsTimeout",
+                    "target_hpa": 1000.0,
+                    "setpoint_hpa": 1000.0,
+                    "output_state": 0,
+                    "last_pressure_hpa": 996.25,
+                    "last_in_limit_flag": 0,
+                    "poll_count": 4,
+                    "timeout_s": 10.0,
+                    "poll_s": 0.25,
+                    "consecutive_in_limits_required": 1,
+                    "ready_dwell_s": 0.0,
+                    "ready_hold_elapsed_s": 0.0,
+                    "recent_states": [
+                        {"pressure_hpa": 990.0527344, "in_limit_flag": 0},
+                        {"pressure_hpa": 996.25, "in_limit_flag": 0},
+                    ],
+                }
+            ]
+        )
+    }
+
+    result = live_tool._run_co2_a_staged_source_final_release_dry_run(
+        runner,
+        tmp_path / "trace.csv",
+        _args(_runtime_cfg=_config(gas_analyzer_enabled=True)),
+    )
+
+    assert result["status"] == "diagnostic_error"
+    assert result["abort_reason"] == "PressureInLimitsTimeout"
+    assert result["pressure_ready_gate"]["ok"] is False
+    assert result["pressure_ready_gate"]["output_state"] == 0
+    assert result["pressure_ready_gate"]["output_state_observed"] == 0
+    assert result["pressure_ready_gate"]["last_in_limit_flag"] == 0
+    fake_pace = runner.devices["pace"]
+    assert fake_pace.calls and fake_pace.calls[0]["require_output_enabled"] is False
+    trace_row = next(row for row in runner.trace_rows if row.get("trace_stage") == "staged_pressure_ready_gate")
+    assert trace_row["pace_outp_state_query"] == 0
+    assert json.loads(str(trace_row["note"]))["output_state_observed"] == 0
+    assert result["co2_4_opened"] is False
+    assert ("verify", "live_safe_preflight") not in runner.calls
+    assert ("apply", [4]) not in runner.calls
+    assert ("guard", [8, 11, 7, 4]) not in runner.calls
 
 
 def test_co2_a_pressure_protection_resolver_accepts_valid_mechanical_approval_artifact(tmp_path: Path) -> None:
