@@ -520,6 +520,20 @@ def test_source_open_live_scenario_requires_allow_source_open_flag(tmp_path: Pat
     assert result["operator_must_confirm_upstream_source_pressure_limited"] is True
 
 
+def test_co2_a_pressure_switch_smoke_requires_allow_source_open_flag(tmp_path: Path) -> None:
+    runner = _FakeRunner()
+    result = live_tool._run_co2_a_pressure_switch_smoke_no_temp_wait(
+        runner,
+        tmp_path / "trace.csv",
+        _args(allow_source_open=False, pressure_points_hpa="1100,1000,900"),
+    )
+
+    assert result["status"] == "skipped"
+    assert result["skipped_reason"] == "SourceOpenRequiresExplicitAllowFlag"
+    assert result["temperature_wait_skipped"] is True
+    assert result["pressure_points_requested"] == [1100.0, 1000.0, 900.0]
+
+
 def test_route_open_pressure_guard_requires_allow_source_open_flag(tmp_path: Path) -> None:
     runner = _FakeRunner()
     result = live_tool._run_route_open_pressure_guard(
@@ -591,6 +605,92 @@ def test_analyzer_pressure_optional_can_disable_analyzer_with_transparent_summar
     assert summary["scenario_result"]["analyzer_pressure_protection_active"] is False
     assert summary["scenario_result"]["analyzer_disabled_reason"] == "AnalyzerPressureOptionalForScenario"
     assert ("guard", [8, 11, 7]) in runner.calls
+
+
+def test_co2_a_pressure_switch_smoke_runs_multi_point_ready_sequence(tmp_path: Path) -> None:
+    runner = _FakeRunner()
+    fake_pace = _FakePacePressureReady(
+        results=[
+            {"ok": True, "reason": "", "target_hpa": 1100.0, "setpoint_hpa": 1100.0, "output_state": 1, "last_pressure_hpa": 1100.0, "last_in_limit_flag": 1, "poll_count": 2},
+            {"ok": True, "reason": "", "target_hpa": 1000.0, "setpoint_hpa": 1000.0, "output_state": 1, "last_pressure_hpa": 1000.0, "last_in_limit_flag": 1, "poll_count": 2},
+            {"ok": True, "reason": "", "target_hpa": 900.0, "setpoint_hpa": 900.0, "output_state": 1, "last_pressure_hpa": 900.0, "last_in_limit_flag": 1, "poll_count": 2},
+        ]
+    )
+    runner.devices = {"pace": fake_pace}
+
+    result = live_tool._run_co2_a_pressure_switch_smoke_no_temp_wait(
+        runner,
+        tmp_path / "trace.csv",
+        _args(
+            allow_source_open=True,
+            pressure_points_hpa="1100,1000,900",
+            _runtime_cfg=_config(mechanical_pressure_protection_confirmed=True),
+        ),
+    )
+
+    assert result["status"] == "pass"
+    assert result["route_open_passed"] is True
+    assert result["temperature_wait_skipped"] is True
+    assert result["temperature_chamber_enabled_in_runtime"] is False
+    assert result["pressure_points_requested"] == [1100.0, 1000.0, 900.0]
+    assert result["pressure_points_completed"] == [1100.0, 1000.0, 900.0]
+    assert result["pressure_point_switch_requested"] is True
+    assert result["pressure_point_switch_executed"] is True
+    assert [call["target_hpa"] for call in fake_pace.calls] == [1100.0, 1000.0, 900.0]
+    first_step = result["pressure_point_results"][0]
+    assert first_step["requested_target_hpa"] == 1100.0
+    assert first_step["pace_events"] == ["set_setpoint", "wait_for_pressure_ready"]
+    assert first_step["runner_calls"].index("control_ready") < first_step["runner_calls"].index("output_on")
+
+
+def test_co2_a_pressure_switch_smoke_stops_on_first_pressure_ready_failure(tmp_path: Path) -> None:
+    runner = _FakeRunner()
+    fake_pace = _FakePacePressureReady(
+        results=[
+            {"ok": True, "reason": "", "target_hpa": 1100.0, "setpoint_hpa": 1100.0, "output_state": 1, "last_pressure_hpa": 1100.0, "last_in_limit_flag": 1, "poll_count": 2},
+            {"ok": False, "reason": "PressureInLimitsTimeout", "target_hpa": 1000.0, "setpoint_hpa": 1000.0, "output_state": 1, "last_pressure_hpa": 996.0, "last_in_limit_flag": 0, "poll_count": 5},
+            {"ok": True, "reason": "", "target_hpa": 900.0, "setpoint_hpa": 900.0, "output_state": 1, "last_pressure_hpa": 900.0, "last_in_limit_flag": 1, "poll_count": 2},
+        ]
+    )
+    runner.devices = {"pace": fake_pace}
+
+    result = live_tool._run_co2_a_pressure_switch_smoke_no_temp_wait(
+        runner,
+        tmp_path / "trace.csv",
+        _args(
+            allow_source_open=True,
+            pressure_points_hpa="1100,1000,900",
+            _runtime_cfg=_config(mechanical_pressure_protection_confirmed=True),
+        ),
+    )
+
+    assert result["status"] == "diagnostic_error"
+    assert result["abort_reason"] == "PressureInLimitsTimeout"
+    assert result["pressure_points_completed"] == [1100.0]
+    assert [call["target_hpa"] for call in fake_pace.calls] == [1100.0, 1000.0]
+    assert len(result["pressure_point_results"]) == 2
+    assert result["pressure_point_results"][-1]["requested_target_hpa"] == 1000.0
+    assert result["pressure_point_results"][-1]["ok"] is False
+
+
+def test_main_co2_a_pressure_switch_smoke_writes_not_acceptance_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    exit_code, summary, _runner = _run_main(
+        tmp_path,
+        monkeypatch,
+        scenario=live_tool.CO2_A_PRESSURE_SWITCH_SMOKE_NO_TEMP_WAIT,
+        config=_config(mechanical_pressure_protection_confirmed=True),
+        allow_source_open=True,
+        extra_args=["--pressure-points-hpa", "1100,1000"],
+    )
+
+    assert exit_code == 0
+    assert summary["not_real_acceptance_evidence"] is True
+    assert summary["scenario_result"]["status"] == "pass"
+    assert summary["scenario_result"]["temperature_wait_skipped"] is True
+    assert summary["scenario_result"]["pressure_points_completed"] == [1100.0, 1000.0]
 
 
 def test_source_or_h2o_final_stage_requires_analyzer_pressure_or_mechanical_protection(

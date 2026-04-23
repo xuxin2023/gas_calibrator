@@ -32,6 +32,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "results" / "pressure_gate_live"
 DEFAULT_STAGED_SOURCE_FINAL_OUTPUT_DIR = Path("D:/gas_calibrator_staged_source_final_dry_run_artifacts")
 CO2_A_STAGED_SOURCE_FINAL_RELEASE_DRY_RUN = "co2_a_staged_source_final_release_dry_run"
+CO2_A_PRESSURE_SWITCH_SMOKE_NO_TEMP_WAIT = "co2_a_pressure_switch_smoke_no_temp_wait"
 CO2_A_STAGED_RELEASE_SCOPE = "staged_source_final_release_dry_run"
 CO2_A_STAGED_APPROVAL_SCOPE = "CO2_A_VALVE_4_STAGED_DRY_RUN_ONLY"
 CO2_A_FRONT_VALVES = [8, 11, 7]
@@ -1083,6 +1084,26 @@ def _build_point(args: argparse.Namespace, *, index: int) -> CalibrationPoint:
     return _build_co2_point(args, index=index)
 
 
+def _parse_pressure_targets_hpa(raw: Optional[str], *, fallback_hpa: float) -> List[float]:
+    values: List[float] = []
+    for part in str(raw or "").split(","):
+        text = part.strip()
+        if not text:
+            continue
+        values.append(float(text))
+    if not values:
+        values = [float(fallback_hpa)]
+    deduped: List[float] = []
+    seen: set[float] = set()
+    for value in values:
+        normalized = float(value)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(normalized)
+    return deduped
+
+
 def _scenario_trace_rows(trace_path: Path, start_row_count: int) -> List[Dict[str, Any]]:
     rows = _read_csv_rows(trace_path)
     return rows[start_row_count:]
@@ -2000,6 +2021,153 @@ def _run_route_synchronized_atmosphere_flush_co2_b_source_guarded(
     })
 
 
+def _run_co2_a_pressure_switch_smoke_no_temp_wait(
+    runner: CalibrationRunner,
+    trace_path: Path,
+    args: argparse.Namespace,
+) -> Dict[str, Any]:
+    point = _build_co2_point(args, index=9018, co2_ppm=600.0, co2_group="A")
+    trace_start = _trace_row_count(trace_path)
+    runtime_cfg = getattr(args, "_runtime_cfg", {})
+    runtime_cfg = runtime_cfg if isinstance(runtime_cfg, Mapping) else {}
+    devices_cfg = runtime_cfg.get("devices", {}) if isinstance(runtime_cfg.get("devices", {}), Mapping) else {}
+    temp_chamber_cfg = devices_cfg.get("temperature_chamber", {})
+    temperature_chamber_enabled = bool(
+        isinstance(temp_chamber_cfg, Mapping) and temp_chamber_cfg.get("enabled", False)
+    )
+    pressure_targets_hpa = _parse_pressure_targets_hpa(
+        getattr(args, "pressure_points_hpa", None),
+        fallback_hpa=float(args.target_pressure_hpa),
+    )
+    open_valves = runner._co2_open_valves(point, include_total_valve=True, include_source_valve=True)
+    if not bool(getattr(args, "allow_source_open", False)):
+        return _enrich_live_result_with_pace_diagnostics(
+            runner,
+            {
+                "scenario": CO2_A_PRESSURE_SWITCH_SMOKE_NO_TEMP_WAIT,
+                "status": "skipped",
+                "skipped_reason": "SourceOpenRequiresExplicitAllowFlag",
+                "operator_must_confirm_upstream_source_pressure_limited": True,
+                "open_valves": open_valves,
+                "pressure_points_requested": pressure_targets_hpa,
+                "pressure_points_completed": [],
+                "pressure_point_results": [],
+                "pressure_point_switch_requested": len(pressure_targets_hpa) > 1,
+                "pressure_point_switch_executed": False,
+                "temperature_wait_skipped": True,
+                "temperature_wait_mode": "no_temp_chamber_wait_or_command",
+                "temperature_chamber_enabled_in_runtime": temperature_chamber_enabled,
+                "pressure_trace_rows": _scenario_trace_rows(trace_path, trace_start),
+            },
+        )
+
+    _log("operator_must_confirm_upstream_source_pressure_limited=true")
+    _log(
+        "CO2 A pressure-switch smoke targets: "
+        + ", ".join(f"{float(target):g} hPa" for target in pressure_targets_hpa)
+    )
+    drain_summary = _drain_pace_errors_for_live_step(
+        runner,
+        reason="co2_a_pressure_switch_smoke_no_temp_wait pre-step",
+    )
+    runner._clear_pressure_sequence_context(reason="co2_a pressure-switch smoke pre-step")
+    route_open_ok = runner._open_co2_route_for_conditioning(
+        point,
+        point_tag="live_co2_a_pressure_switch_smoke_no_temp_wait",
+    )
+    route_open_state = dict(runner._point_runtime_state(point, phase="co2") or {})
+    route_guard_summary = _route_guard_summary_payload(runner)
+    abort_reason = str(
+        route_open_state.get("abort_reason")
+        or route_guard_summary.get("abort_reason")
+        or route_guard_summary.get("route_pressure_guard_reason")
+        or ""
+    ).strip()
+
+    pressure_point_results: List[Dict[str, Any]] = []
+    pressure_points_completed: List[float] = []
+    pace_obj = runner.devices.get("pace") if isinstance(getattr(runner, "devices", {}), Mapping) else None
+    if route_open_ok:
+        for offset, target_hpa in enumerate(pressure_targets_hpa, start=1):
+            point_for_target = _build_co2_point(args, index=9018 + offset, co2_ppm=600.0, co2_group="A")
+            point_for_target.target_pressure_hpa = float(target_hpa)
+
+            runner_calls_before = getattr(runner, "calls", None)
+            runner_calls_index = len(runner_calls_before) if isinstance(runner_calls_before, list) else None
+            pace_events_before = getattr(pace_obj, "events", None)
+            pace_events_index = len(pace_events_before) if isinstance(pace_events_before, list) else None
+
+            gate_result = _co2_a_staged_pressure_ready_gate(
+                runner,
+                point_for_target,
+                runtime_cfg,
+            )
+            gate_payload = dict(gate_result or {})
+            gate_payload["requested_target_hpa"] = float(target_hpa)
+
+            if runner_calls_index is not None:
+                runner_calls_after = getattr(runner, "calls", None)
+                if isinstance(runner_calls_after, list):
+                    gate_payload["runner_calls"] = [
+                        str(item[0])
+                        for item in runner_calls_after[runner_calls_index:]
+                        if isinstance(item, tuple) and item
+                    ]
+            if pace_events_index is not None:
+                pace_events_after = getattr(pace_obj, "events", None)
+                if isinstance(pace_events_after, list):
+                    gate_payload["pace_events"] = [
+                        str(item[0])
+                        for item in pace_events_after[pace_events_index:]
+                        if isinstance(item, tuple) and item
+                    ]
+
+            pressure_point_results.append(gate_payload)
+            if bool(gate_payload.get("ok")):
+                pressure_points_completed.append(float(target_hpa))
+                continue
+
+            abort_reason = str(gate_payload.get("reason") or "PressureReadyGateFailed")
+            break
+
+    point_state = dict(runner._point_runtime_state(point, phase="co2") or {})
+    route_guard_summary = _route_guard_summary_payload(runner)
+    failed_gate = next((item for item in pressure_point_results if not bool(item.get("ok"))), None)
+    if not route_open_ok:
+        status = _status_from_abort(False, abort_reason)
+    elif failed_gate is not None:
+        status = "diagnostic_error"
+    else:
+        status = "pass"
+
+    return _enrich_live_result_with_pace_diagnostics(
+        runner,
+        {
+            "scenario": CO2_A_PRESSURE_SWITCH_SMOKE_NO_TEMP_WAIT,
+            "status": status,
+            "route_open_passed": bool(route_open_ok),
+            "abort_reason": abort_reason,
+            "operator_must_confirm_upstream_source_pressure_limited": True,
+            "open_valves": open_valves,
+            "temperature_wait_skipped": True,
+            "temperature_wait_mode": "no_temp_chamber_wait_or_command",
+            "temperature_chamber_enabled_in_runtime": temperature_chamber_enabled,
+            "temperature_context": "current_environment_uncontrolled",
+            "pressure_points_requested": pressure_targets_hpa,
+            "pressure_points_completed": pressure_points_completed,
+            "pressure_point_results": pressure_point_results,
+            "pressure_point_switch_requested": len(pressure_targets_hpa) > 1,
+            "pressure_point_switch_executed": len(pressure_point_results) > 1,
+            "route_open_point_state": route_open_state,
+            "point_runtime_state": point_state,
+            "atmosphere_summary": dict(runner._last_atmosphere_gate_summary or {}),
+            "route_pressure_guard_summary": route_guard_summary,
+            **drain_summary,
+            "pressure_trace_rows": _scenario_trace_rows(trace_path, trace_start),
+        },
+    )
+
+
 def _run_route_synchronized_atmosphere_flush_h2o_no_final(
     runner: CalibrationRunner,
     trace_path: Path,
@@ -2419,6 +2587,7 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
             "route_synchronized_atmosphere_flowthrough_h2o_final_guarded",
             "route_flush_dewpoint_gate",
             "route_valve_isolation",
+            CO2_A_PRESSURE_SWITCH_SMOKE_NO_TEMP_WAIT,
         ),
         required=True,
         help="Minimal live validation scenario to execute.",
@@ -2430,6 +2599,11 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument("--co2-ppm", type=float, default=600.0)
     parser.add_argument("--target-pressure-hpa", type=float, default=1000.0)
+    parser.add_argument(
+        "--pressure-points-hpa",
+        default="1100,1000,900",
+        help="Comma-separated pressure targets for the CO2 A pressure-switch smoke scenario.",
+    )
     parser.add_argument("--relay-port", default=None)
     parser.add_argument("--relay-8-port", default=None)
     parser.add_argument("--route-flush-soak-s", type=float, default=0.0)
@@ -2590,6 +2764,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             scenario_result = _run_continuous_atmosphere_keepalive_probe_no_source(runner, trace_path, args)
         elif args.scenario == "route_valve_isolation":
             scenario_result = _run_route_valve_isolation(runner, trace_path, args)
+        elif args.scenario == CO2_A_PRESSURE_SWITCH_SMOKE_NO_TEMP_WAIT:
+            scenario_result = _run_co2_a_pressure_switch_smoke_no_temp_wait(runner, trace_path, args)
         else:
             scenario_result = _run_route_flush_dewpoint_gate(runner, trace_path, args)
         scenario_result.update(
