@@ -905,6 +905,52 @@ def test_co2_a_pressure_protection_resolver_accepts_existing_v1_analyzer_list() 
     assert resolved["reasons"] == []
 
 
+@pytest.mark.parametrize("drop_devices", [False, True])
+def test_co2_a_pressure_protection_resolver_rejects_root_level_single_analyzer_without_devices_proof(
+    drop_devices: bool,
+) -> None:
+    config = _config(gas_analyzer_enabled=False)
+    config["gas_analyzer"] = {"enabled": True, "port": "COM99"}
+    if drop_devices:
+        config["devices"].pop("gas_analyzer", None)
+
+    resolved = live_tool.resolve_co2_a_staged_pressure_protection(
+        config,
+        approval_json_path=None,
+        route="CO2_A",
+        source_final_valve=4,
+        release_scope=live_tool.CO2_A_STAGED_RELEASE_SCOPE,
+    )
+
+    assert resolved["pressure_protection_source"] == "missing"
+    assert resolved["pressure_protection_precheck_satisfied"] is False
+    assert resolved["analyzer_pressure_protection_active"] is False
+    assert "PressureProtectionApprovalMissing" in resolved["reasons"]
+
+
+@pytest.mark.parametrize("drop_devices", [False, True])
+def test_co2_a_pressure_protection_resolver_rejects_root_level_analyzer_list_without_devices_proof(
+    drop_devices: bool,
+) -> None:
+    config = _config(gas_analyzers=[{"name": "ga01", "enabled": False}, {"name": "ga02", "enabled": False}])
+    config["gas_analyzers"] = [{"name": "ga01", "enabled": True}, {"name": "ga02", "enabled": False}]
+    if drop_devices:
+        config["devices"].pop("gas_analyzers", None)
+
+    resolved = live_tool.resolve_co2_a_staged_pressure_protection(
+        config,
+        approval_json_path=None,
+        route="CO2_A",
+        source_final_valve=4,
+        release_scope=live_tool.CO2_A_STAGED_RELEASE_SCOPE,
+    )
+
+    assert resolved["pressure_protection_source"] == "missing"
+    assert resolved["pressure_protection_precheck_satisfied"] is False
+    assert resolved["analyzer_pressure_protection_active"] is False
+    assert "PressureProtectionApprovalMissing" in resolved["reasons"]
+
+
 def test_co2_a_pressure_protection_resolver_rejects_noanalyzers_as_protected() -> None:
     resolved = live_tool.resolve_co2_a_staged_pressure_protection(
         _config(

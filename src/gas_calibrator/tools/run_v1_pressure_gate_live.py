@@ -178,13 +178,11 @@ def _analyzer_list_has_enabled_entry(candidate: Any) -> bool:
 def _extract_existing_v1_analyzer_pressure_protection_config(
     run_cfg: Mapping[str, Any],
 ) -> Optional[Dict[str, Any]]:
-    root_cfg = run_cfg if isinstance(run_cfg, Mapping) else {}
-    devices_cfg = root_cfg.get("devices", {}) if isinstance(root_cfg, Mapping) else {}
+    devices_cfg = run_cfg.get("devices", {}) if isinstance(run_cfg, Mapping) else {}
     devices_cfg = devices_cfg if isinstance(devices_cfg, Mapping) else {}
+    # Runtime analyzer filtering mutates devices.*; root-level analyzer keys are not authoritative proof.
     analyzer_enabled = any(
         (
-            _analyzer_config_enabled(root_cfg.get("gas_analyzer")),
-            _analyzer_list_has_enabled_entry(root_cfg.get("gas_analyzers")),
             _analyzer_config_enabled(devices_cfg.get("gas_analyzer")),
             _analyzer_list_has_enabled_entry(devices_cfg.get("gas_analyzers")),
         )
