@@ -38,6 +38,7 @@ class _FakePacePressureReady:
 class _FakeRunner:
     def __init__(self) -> None:
         self.calls: list[tuple[str, object]] = []
+        self.trace_rows: list[dict[str, object]] = []
         self._last_atmosphere_gate_summary = {"ambient_hpa": 1012.0, "atmosphere_ready": True}
         self._last_route_pressure_guard_summary = {
             "route_pressure_guard_status": "pass",
@@ -137,6 +138,7 @@ class _FakeRunner:
         }
 
     def _append_pressure_trace_row(self, *args, **kwargs) -> None:
+        self.trace_rows.append(dict(kwargs))
         self.calls.append(("trace", str(kwargs.get("trace_stage") or "")))
 
     def _numeric_series_metrics(self, rows):
@@ -1071,7 +1073,7 @@ def test_co2_a_staged_dry_run_uses_pressure_ready_gate_before_source_final_open(
                 "reason": "",
                 "target_hpa": 1000.0,
                 "setpoint_hpa": 1000.0,
-                "output_state": 1,
+                "output_state": 0,
                 "last_pressure_hpa": 1000.0,
                 "last_in_limit_flag": 1,
                 "poll_count": 3,
@@ -1099,8 +1101,14 @@ def test_co2_a_staged_dry_run_uses_pressure_ready_gate_before_source_final_open(
     assert result["status"] == "pass"
     assert result["pressure_ready_gate"]["ok"] is True
     assert result["pressure_ready_gate"]["poll_count"] == 3
+    assert result["pressure_ready_gate"]["output_state"] == 0
+    assert result["pressure_ready_gate"]["output_state_observed"] == 0
     assert fake_pace.calls and fake_pace.calls[0]["target_hpa"] == 1000.0
+    assert fake_pace.calls[0]["require_output_enabled"] is False
     assert ("trace", "staged_pressure_ready_gate") in runner.calls
+    trace_row = next(row for row in runner.trace_rows if row.get("trace_stage") == "staged_pressure_ready_gate")
+    assert trace_row["pace_outp_state_query"] == 0
+    assert json.loads(str(trace_row["note"]))["output_state_observed"] == 0
     assert runner.calls.index(("apply", [4])) < runner.calls.index(("guard", [8, 11, 7, 4]))
 
 
@@ -1119,7 +1127,7 @@ def test_co2_a_staged_dry_run_blocks_when_pressure_ready_gate_times_out(
                     "reason": "PressureInLimitsTimeout",
                     "target_hpa": 1000.0,
                     "setpoint_hpa": 1000.0,
-                    "output_state": 1,
+                    "output_state": 0,
                     "last_pressure_hpa": 996.25,
                     "last_in_limit_flag": 0,
                     "poll_count": 4,
@@ -1146,7 +1154,14 @@ def test_co2_a_staged_dry_run_blocks_when_pressure_ready_gate_times_out(
     assert result["status"] == "diagnostic_error"
     assert result["abort_reason"] == "PressureInLimitsTimeout"
     assert result["pressure_ready_gate"]["ok"] is False
+    assert result["pressure_ready_gate"]["output_state"] == 0
+    assert result["pressure_ready_gate"]["output_state_observed"] == 0
     assert result["pressure_ready_gate"]["last_in_limit_flag"] == 0
+    fake_pace = runner.devices["pace"]
+    assert fake_pace.calls and fake_pace.calls[0]["require_output_enabled"] is False
+    trace_row = next(row for row in runner.trace_rows if row.get("trace_stage") == "staged_pressure_ready_gate")
+    assert trace_row["pace_outp_state_query"] == 0
+    assert json.loads(str(trace_row["note"]))["output_state_observed"] == 0
     assert result["co2_4_opened"] is False
     assert ("verify", "live_safe_preflight") not in runner.calls
     assert ("apply", [4]) not in runner.calls

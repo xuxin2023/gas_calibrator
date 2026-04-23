@@ -594,6 +594,7 @@ def _record_co2_a_staged_pressure_ready_trace(
             "ok": bool(gate_result.get("ok")),
             "reason": str(gate_result.get("reason") or ""),
             "setpoint_hpa": gate_result.get("setpoint_hpa"),
+            "output_state_observed": gate_result.get("output_state_observed", gate_result.get("output_state")),
             "last_pressure_hpa": gate_result.get("last_pressure_hpa"),
             "last_in_limit_flag": gate_result.get("last_in_limit_flag"),
             "poll_count": gate_result.get("poll_count"),
@@ -612,7 +613,7 @@ def _record_co2_a_staged_pressure_ready_trace(
             trigger_reason=str(gate_result.get("reason") or ("ready" if gate_result.get("ok") else "not_ready")),
             pressure_target_hpa=gate_result.get("target_hpa"),
             pace_pressure_hpa=gate_result.get("last_pressure_hpa"),
-            pace_outp_state_query=gate_result.get("output_state"),
+            pace_outp_state_query=gate_result.get("output_state_observed", gate_result.get("output_state")),
             pace_sens_pres_inl_state_query=gate_result.get("last_in_limit_flag"),
             note=note,
         )
@@ -631,6 +632,7 @@ def _co2_a_staged_pressure_ready_gate(
         "target_hpa": float(getattr(point, "target_pressure_hpa", 0.0) or 0.0),
         "setpoint_hpa": None,
         "output_state": None,
+        "output_state_observed": None,
         "last_pressure_hpa": None,
         "last_in_limit_flag": None,
         "poll_count": 0,
@@ -653,12 +655,14 @@ def _co2_a_staged_pressure_ready_gate(
             poll_s=float(settings["poll_s"]),
             consecutive_in_limits_required=int(settings["consecutive_in_limits_required"]),
             ready_dwell_s=float(settings["ready_dwell_s"]),
-            require_output_enabled=True,
+            require_output_enabled=False,
         )
     except Exception as exc:
         result["reason"] = f"PressureReadyGateError:{exc}"
         return result
     result.update(dict(gate_result or {}))
+    if result.get("output_state_observed") is None:
+        result["output_state_observed"] = result.get("output_state")
     _record_co2_a_staged_pressure_ready_trace(runner, point, result)
     return result
 

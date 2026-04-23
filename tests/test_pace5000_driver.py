@@ -2239,6 +2239,51 @@ def test_wait_for_pressure_ready_timeout_blocks_without_output_mutation(monkeypa
     assert not any((":SOUR:PRES:LEV:IMM:AMPL:VENT " + "2") in write for write in dev.ser.writes)
 
 
+def test_wait_for_pressure_ready_default_still_blocks_when_output_is_off(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.queries = []
+            self.writes = []
+            self.output_state = 0
+            self.setpoint = 1000.0
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.writes.append(data.strip())
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            self.queries.append(cmd)
+            if cmd == ":SOUR:PRES?":
+                return f":SOUR:PRES {self.setpoint}"
+            if cmd == ":OUTP:STAT?":
+                return f":OUTP:STAT {self.output_state}"
+            if cmd == ":SENS:PRES:INL?":
+                return ":SENS:PRES:INL 1000.0000000, 1"
+            if cmd == ":SYST:ERR?":
+                return ':SYST:ERR 0,"No error"'
+            return ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    result = dev.wait_for_pressure_ready(target_hpa=1000.0, timeout_s=0.1, poll_s=0.0)
+
+    assert result["ok"] is False
+    assert result["reason"] == "OutputNotEnabled"
+    assert result["output_state"] == 0
+    assert dev.ser.queries.count(":SENS:PRES:INL?") == 0
+    assert dev.ser.writes == []
+
+
 def test_read_pressure_old_profile_falls_back_to_sens_pres_without_cont(monkeypatch) -> None:
     class FakeSerialDevice:
         def __init__(self, *args, **kwargs):
