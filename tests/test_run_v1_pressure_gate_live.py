@@ -587,6 +587,27 @@ def test_analyzer_pressure_required_with_empty_analyzer_list_fails_fast(
     assert all(call[0] not in {"conditioning", "guard"} for call in runner.calls)
 
 
+def test_pressure_switch_smoke_requires_analyzer_pressure_or_mechanical_protection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    exit_code, summary, runner = _run_main(
+        tmp_path,
+        monkeypatch,
+        scenario=live_tool.CO2_A_PRESSURE_SWITCH_SMOKE_NO_TEMP_WAIT,
+        config=_config(),
+        allow_source_open=True,
+        extra_args=["--pressure-points-hpa", "1100,1000"],
+    )
+
+    assert exit_code == 0
+    assert summary["scenario_result"]["status"] == "diagnostic_error"
+    assert summary["scenario_result"]["abort_reason"] == "AnalyzerPressureRequiredButUnavailable"
+    assert summary["scenario_result"]["analyzer_pressure_required"] is True
+    assert summary["scenario_result"]["mechanical_pressure_protection_confirmed"] is False
+    assert all(call[0] not in {"conditioning", "guard"} for call in runner.calls)
+
+
 def test_analyzer_pressure_optional_can_disable_analyzer_with_transparent_summary(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

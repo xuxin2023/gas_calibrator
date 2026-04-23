@@ -48,6 +48,7 @@ CO2_A_STAGED_REQUIRED_ENV = {
 }
 _SOURCE_OPEN_SCENARIOS = {
     CO2_A_STAGED_SOURCE_FINAL_RELEASE_DRY_RUN,
+    CO2_A_PRESSURE_SWITCH_SMOKE_NO_TEMP_WAIT,
     "route_synchronized_atmosphere_flush_co2_a_source_guarded",
     "route_synchronized_atmosphere_flush_co2_b_source_guarded",
     "route_synchronized_atmosphere_flowthrough_co2_a_source_guarded",
