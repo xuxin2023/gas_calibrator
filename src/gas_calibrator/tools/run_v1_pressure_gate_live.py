@@ -165,6 +165,45 @@ def _extract_co2_a_legacy_pressure_protection_config(
     }
 
 
+def _analyzer_config_enabled(candidate: Any) -> bool:
+    return isinstance(candidate, Mapping) and candidate.get("enabled") is True
+
+
+def _analyzer_list_has_enabled_entry(candidate: Any) -> bool:
+    return isinstance(candidate, list) and any(
+        _analyzer_config_enabled(item) for item in candidate
+    )
+
+
+def _extract_existing_v1_analyzer_pressure_protection_config(
+    run_cfg: Mapping[str, Any],
+) -> Optional[Dict[str, Any]]:
+    devices_cfg = run_cfg.get("devices", {}) if isinstance(run_cfg, Mapping) else {}
+    devices_cfg = devices_cfg if isinstance(devices_cfg, Mapping) else {}
+    # Runtime analyzer filtering mutates devices.*; root-level analyzer keys are not authoritative proof.
+    analyzer_enabled = any(
+        (
+            _analyzer_config_enabled(devices_cfg.get("gas_analyzer")),
+            _analyzer_list_has_enabled_entry(devices_cfg.get("gas_analyzers")),
+        )
+    )
+    if not analyzer_enabled:
+        return None
+    return {
+        "route": "CO2_A",
+        "source_final_valve_under_test": CO2_A_SOURCE_FINAL_VALVE,
+        "release_scope": CO2_A_STAGED_RELEASE_SCOPE,
+        "approval_scope": CO2_A_STAGED_APPROVAL_SCOPE,
+        "retry_allowed_for_scope": True,
+        "not_full_v1_production_approval": True,
+        "not_full_formal_approval": True,
+        "does_not_open_4_24_10": True,
+        "does_not_run_real_sealed_pressure_transition": True,
+        "analyzer_pressure_protection_active": True,
+        "mechanical_pressure_protection_confirmed": False,
+    }
+
+
 def _resolve_co2_a_pressure_protection_approval_path(
     run_cfg: Mapping[str, Any],
     explicit_path: Optional[str],
@@ -336,6 +375,16 @@ def resolve_co2_a_staged_pressure_protection(
         return _evaluate_co2_a_staged_pressure_protection_source(
             source="mechanical_config",
             payload=mechanical_config,
+            route=route_text,
+            source_final_valve=source_final_valve,
+            release_scope=release_scope_text,
+        )
+
+    existing_v1_analyzer_config = _extract_existing_v1_analyzer_pressure_protection_config(run_cfg)
+    if existing_v1_analyzer_config is not None:
+        return _evaluate_co2_a_staged_pressure_protection_source(
+            source="existing_v1_analyzer_config",
+            payload=existing_v1_analyzer_config,
             route=route_text,
             source_final_valve=source_final_valve,
             release_scope=release_scope_text,
