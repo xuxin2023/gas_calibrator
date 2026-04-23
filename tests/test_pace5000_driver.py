@@ -2193,6 +2193,51 @@ def test_wait_for_pressure_ready_waits_for_in_limits_before_success(monkeypatch)
     assert dev.ser.writes == []
 
 
+def test_wait_for_pressure_ready_blocks_before_poll_on_setpoint_readback_mismatch(monkeypatch) -> None:
+    class FakeSerialDevice:
+        def __init__(self, *args, **kwargs):
+            self.queries = []
+            self.writes = []
+            self.output_state = 0
+
+        def open(self):
+            return None
+
+        def close(self):
+            return None
+
+        def write(self, data: str):
+            self.writes.append(data.strip())
+
+        def query(self, data: str) -> str:
+            cmd = data.strip().upper()
+            self.queries.append(cmd)
+            if cmd == ":SOUR:PRES?":
+                return ":SOUR:PRES:LEV:IMM:AMPL 1008.4202281"
+            if cmd == ":OUTP:STAT?":
+                return f":OUTP:STAT {self.output_state}"
+            if cmd == ":SENS:PRES:INL?":
+                raise AssertionError("wait_for_pressure_ready must fail before polling in-limits")
+            if cmd == ":SYST:ERR?":
+                return ':SYST:ERR 0,"No error"'
+            return ""
+
+        def readline(self) -> str:
+            return ""
+
+    monkeypatch.setattr(pace5000, "SerialDevice", FakeSerialDevice)
+    dev = pace5000.Pace5000("COM1", 9600)
+
+    result = dev.wait_for_pressure_ready(target_hpa=1000.0, timeout_s=1.0, poll_s=0.0)
+
+    assert result["ok"] is False
+    assert result["reason"] == "SetpointReadbackMismatch"
+    assert result["setpoint_hpa"] == pytest.approx(1008.4202281)
+    assert result["poll_count"] == 0
+    assert result["output_state"] is None
+    assert ":SENS:PRES:INL?" not in dev.ser.queries
+
+
 def test_wait_for_pressure_ready_timeout_blocks_without_output_mutation(monkeypatch) -> None:
     class FakeSerialDevice:
         def __init__(self, *args, **kwargs):

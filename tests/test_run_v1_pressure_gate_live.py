@@ -10,9 +10,14 @@ from gas_calibrator.tools import run_v1_pressure_gate_live as live_tool
 class _FakePacePressureReady:
     def __init__(self, *, results: list[dict[str, object]] | None = None) -> None:
         self.calls: list[dict[str, object]] = []
+        self.events: list[tuple[str, object]] = []
         self._results = [dict(item) for item in list(results or [])]
 
+    def set_setpoint(self, value_hpa: float) -> None:
+        self.events.append(("set_setpoint", float(value_hpa)))
+
     def wait_for_pressure_ready(self, **kwargs):
+        self.events.append(("wait_for_pressure_ready", dict(kwargs)))
         self.calls.append(dict(kwargs))
         if self._results:
             return dict(self._results.pop(0))
@@ -174,6 +179,23 @@ class _FakeRunner:
     def _set_pressure_controller_vent(self, is_open: bool, reason: str = "") -> None:
         self.calls.append(("vent", bool(is_open)))
         self.vent_write_commands.append(":SOUR:PRES:LEV:IMM:AMPL:VENT 1" if is_open else ":SOUR:PRES:LEV:IMM:AMPL:VENT 0")
+
+    def exit_continuous_atmosphere_flowthrough(self, route_key: str = "", **kwargs):
+        self._continuous_state["active"] = False
+        self._continuous_state["route_flow_active"] = False
+        self._continuous_state["route_key"] = str(route_key or self._continuous_state.get("route_key") or "")
+        self.calls.append(("exit_flowthrough", str(route_key)))
+        return dict(self._continuous_state)
+
+    def _ensure_pressure_controller_ready_for_control(self, point, **kwargs) -> bool:
+        self._continuous_state["active"] = False
+        self._continuous_state["route_flow_active"] = False
+        self.calls.append(("control_ready", float(kwargs.get("pressure_target_hpa", 0.0) or 0.0)))
+        return True
+
+    def _enable_pressure_controller_output(self, reason: str = "") -> bool:
+        self.calls.append(("output_on", reason))
+        return True
 
     def _co2_open_valves(self, point, include_total_valve: bool, *, include_source_valve: bool = True):
         if str(getattr(point, "co2_group", "") or "").upper() == "B":
@@ -446,7 +468,11 @@ def _run_main(
         argv.extend(list(extra_args))
 
     exit_code = live_tool.main(argv)
-    summary_path = next(output_dir.rglob("pressure_gate_live_summary.json"))
+    summary_path = sorted(
+        output_dir.rglob("pressure_gate_live_summary.json"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )[0]
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     return exit_code, summary, runner_box["runner"]
 
@@ -1157,6 +1183,60 @@ def test_co2_a_staged_dry_run_blocks_when_pressure_ready_gate_times_out(
     assert ("verify", "live_safe_preflight") not in runner.calls
     assert ("apply", [4]) not in runner.calls
     assert ("guard", [8, 11, 7, 4]) not in runner.calls
+
+
+def test_co2_a_staged_dry_run_arms_pressure_before_wait_gate_with_real_runner_stage_semantics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_required_staged_env(monkeypatch)
+
+    class _RealLikeStageSafetyRunner(_FakeRunner):
+        def _open_route_with_pressure_guard(self, point, **kwargs):
+            open_valves = list(kwargs.get("open_valves") or [])
+            self.calls.append(("guard", open_valves))
+            route_key = self._source_stage_key_for_point(point, phase=str(kwargs.get("phase") or "co2"))
+            if self.route_open_guard_fail_reason:
+                return False
+            self._current_open_valves = tuple(open_valves)
+            if 4 not in open_valves and 24 not in open_valves and 10 not in open_valves:
+                self._continuous_state["active"] = True
+                self._continuous_state["route_flow_active"] = True
+                self._continuous_state["route_key"] = route_key
+            else:
+                self._source_stage[route_key] = True
+                self._atmosphere_safe[route_key] = True
+                self._seal_safe[route_key] = False
+            self._last_route_pressure_guard_summary = {
+                "route_pressure_guard_status": "pass",
+                "route_pressure_guard_reason": "",
+                "analyzer_pressure_available": False,
+                "analyzer_pressure_protection_active": False,
+                "analyzer_pressure_status": "unavailable",
+                "pace_syst_err_query": self.final_syst_err,
+            }
+            return True
+
+    fake_pace = _FakePacePressureReady()
+    runner = _RealLikeStageSafetyRunner()
+    runner.mechanical_pressure_protection_confirmed = False
+    runner.devices = {"pace": fake_pace}
+
+    result = live_tool._run_co2_a_staged_source_final_release_dry_run(
+        runner,
+        tmp_path / "trace.csv",
+        _args(_runtime_cfg=_config(gas_analyzer_enabled=True)),
+    )
+
+    assert result["status"] == "pass"
+    assert result["precheck"]["source_stage_safe"] is True
+    assert result["precheck"]["route_final_stage_atmosphere_safe"] is True
+    assert "ActiveAtmosphereKeepalive" not in result["precheck"]["blocked_reasons"]
+    assert ("exit_flowthrough", "co2_a") in runner.calls
+    assert ("control_ready", 1000.0) in runner.calls
+    assert ("output_on", "before staged pressure-ready gate") in runner.calls
+    assert fake_pace.events[0] == ("set_setpoint", 1000.0)
+    assert fake_pace.events[1][0] == "wait_for_pressure_ready"
 
 
 def test_co2_a_pressure_protection_resolver_accepts_valid_mechanical_approval_artifact(tmp_path: Path) -> None:

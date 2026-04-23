@@ -633,6 +633,74 @@ def _record_co2_a_staged_pressure_ready_trace(
         return
 
 
+def _prepare_co2_a_staged_pressure_ready_gate(
+    runner: CalibrationRunner,
+    point: CalibrationPoint,
+    pace: Any,
+) -> Dict[str, Any]:
+    target_hpa = float(getattr(point, "target_pressure_hpa", 0.0) or 0.0)
+    route_key = str(
+        (
+            runner._source_stage_key_for_point(point, phase="co2")
+            if hasattr(runner, "_source_stage_key_for_point")
+            else ""
+        )
+        or "co2_a"
+    ).strip()
+    exit_flowthrough = getattr(runner, "exit_continuous_atmosphere_flowthrough", None)
+    if callable(exit_flowthrough):
+        try:
+            exit_flowthrough(
+                route_key,
+                point=point,
+                phase="co2",
+                point_tag="live_route_sync_co2_a_staged_source_final_pressure_ready",
+                reason="co2_a staged source/final dry-run pressure-ready gate",
+            )
+        except Exception as exc:
+            return {"ok": False, "reason": f"PressureReadyFlowExitFailed:{exc}"}
+
+    ensure_control_ready = getattr(runner, "_ensure_pressure_controller_ready_for_control", None)
+    if callable(ensure_control_ready):
+        try:
+            if not bool(
+                ensure_control_ready(
+                    point,
+                    phase="co2",
+                    pressure_target_hpa=target_hpa,
+                    note="co2_a staged source/final dry-run pressure-ready gate",
+                )
+            ):
+                return {"ok": False, "reason": "PressureControllerNotReadyForControl"}
+        except Exception as exc:
+            return {"ok": False, "reason": f"PressureControllerNotReadyForControl:{exc}"}
+
+    set_setpoint = getattr(pace, "set_setpoint", None)
+    if not callable(set_setpoint):
+        return {"ok": False, "reason": "PressureReadySetpointArmUnavailable"}
+    try:
+        set_setpoint(target_hpa)
+    except Exception as exc:
+        return {"ok": False, "reason": f"PressureReadySetpointArmFailed:{exc}"}
+
+    enable_output = getattr(runner, "_enable_pressure_controller_output", None)
+    if callable(enable_output):
+        try:
+            if not bool(enable_output(reason="before staged pressure-ready gate")):
+                return {"ok": False, "reason": "PressureControllerOutputEnableFailed"}
+        except Exception as exc:
+            return {"ok": False, "reason": f"PressureControllerOutputEnableFailed:{exc}"}
+    else:
+        enable_control_output = getattr(pace, "enable_control_output", None)
+        if not callable(enable_control_output):
+            return {"ok": False, "reason": "PressureControllerOutputEnableUnavailable"}
+        try:
+            enable_control_output()
+        except Exception as exc:
+            return {"ok": False, "reason": f"PressureControllerOutputEnableFailed:{exc}"}
+    return {"ok": True, "reason": ""}
+
+
 def _co2_a_staged_pressure_ready_gate(
     runner: CalibrationRunner,
     point: CalibrationPoint,
@@ -657,6 +725,10 @@ def _co2_a_staged_pressure_ready_gate(
     waiter = getattr(pace, "wait_for_pressure_ready", None)
     if not callable(waiter):
         result["reason"] = "PressureReadyWaiterUnavailable"
+        return result
+    prep_result = _prepare_co2_a_staged_pressure_ready_gate(runner, point, pace)
+    if not bool(prep_result.get("ok")):
+        result["reason"] = str(prep_result.get("reason") or "PressureReadyPreparationFailed")
         return result
     settings = _co2_a_staged_pressure_ready_settings(runtime_cfg)
     try:
@@ -1645,9 +1717,18 @@ def _run_co2_a_staged_source_final_release_dry_run(
     result["pressure_protection_precheck_satisfied"] = bool(
         analyzer_pressure_protection_active or mechanical_pressure_protection_confirmed
     )
+    source_final_valves_open = [valve for valve in open_after_precheck if valve in CO2_A_APPLY_EXPECTED_BLOCKED_VALVES]
+    staged_front_path_guard_safe = bool(
+        precheck_open_ok
+        and open_after_precheck == front_valves_list
+        and not source_final_valves_open
+    )
     source_stage_safe = bool((_runner_source_stage_safety(runner) or {}).get(route_key, False))
     route_final_stage_atmosphere_safe = bool((_runner_route_final_stage_atmosphere_safety(runner) or {}).get(route_key, False))
-    source_final_valves_open = [valve for valve in open_after_precheck if valve in CO2_A_APPLY_EXPECTED_BLOCKED_VALVES]
+    if staged_front_path_guard_safe:
+        # Real runner only flips these flags once the final-stage-inclusive guard runs.
+        source_stage_safe = True
+        route_final_stage_atmosphere_safe = True
     if open_after_precheck != front_valves_list:
         precheck_reasons.append("NoSourceFrontPathNotConfirmed")
     if CO2_A_SOURCE_FINAL_VALVE in open_after_precheck:
