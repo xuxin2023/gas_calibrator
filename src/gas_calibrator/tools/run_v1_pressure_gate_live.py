@@ -45,19 +45,6 @@ CO2_A_STAGED_REQUIRED_ENV = {
     "CONFIRM_NO_ROUTE_FLUSH_DEWPOINT_GATE": "YES",
     "CONFIRM_SINGLE_ROUTE_CO2_A_ONLY": "YES",
 }
-_SOURCE_OPEN_SCENARIOS = {
-    CO2_A_STAGED_SOURCE_FINAL_RELEASE_DRY_RUN,
-    "route_synchronized_atmosphere_flush_co2_a_source_guarded",
-    "route_synchronized_atmosphere_flush_co2_b_source_guarded",
-    "route_synchronized_atmosphere_flowthrough_co2_a_source_guarded",
-    "route_synchronized_atmosphere_flowthrough_co2_b_source_guarded",
-    "route_synchronized_atmosphere_flush_co2_a",
-    "route_synchronized_atmosphere_flush_co2_b",
-}
-_H2O_FINAL_STAGE_SCENARIOS = {
-    "route_synchronized_atmosphere_flush_h2o",
-    "route_synchronized_atmosphere_flowthrough_h2o_final_guarded",
-}
 
 
 def _log(message: str) -> None:
@@ -575,26 +562,11 @@ def _mechanical_pressure_protection_confirmed(
     )
 
 
-def _source_or_final_stage_allowed(args: argparse.Namespace) -> bool:
-    scenario = str(getattr(args, "scenario", "") or "")
-    return bool(
-        (scenario in _SOURCE_OPEN_SCENARIOS and getattr(args, "allow_source_open", False))
-        or (
-            scenario in _H2O_FINAL_STAGE_SCENARIOS
-            and getattr(args, "allow_h2o_final_stage_open", False)
-        )
-    )
-
-
 def _analyzer_pressure_required(
     args: argparse.Namespace,
     runtime_cfg: Mapping[str, Any],
 ) -> bool:
-    if bool(getattr(args, "analyzer_pressure_required", False)):
-        return True
-    if not _source_or_final_stage_allowed(args):
-        return False
-    return not _mechanical_pressure_protection_confirmed(args, runtime_cfg)
+    return bool(getattr(args, "analyzer_pressure_required", False))
 
 
 def _build_analyzer_pressure_summary(
@@ -606,12 +578,9 @@ def _build_analyzer_pressure_summary(
     after_count = _enabled_configured_analyzer_count(dict(runtime_cfg.get("devices", {})))
     required = _analyzer_pressure_required(args, runtime_cfg)
     mechanical_confirmed = _mechanical_pressure_protection_confirmed(args, runtime_cfg)
-    source_or_final_allowed = _source_or_final_stage_allowed(args)
     disabled_reason = ""
     if not required and after_count <= 0:
-        if mechanical_confirmed and source_or_final_allowed:
-            disabled_reason = "MechanicalPressureProtectionConfirmed"
-        elif before_count > 0:
+        if before_count > 0:
             disabled_reason = "AnalyzerPressureOptionalForScenario"
         else:
             disabled_reason = "AnalyzerNotConfigured"
@@ -1666,16 +1635,6 @@ def _run_route_synchronized_atmosphere_flush_co2_a_source_guarded(
     point = _build_co2_point(args, index=9013, co2_ppm=600.0, co2_group="A")
     trace_start = _trace_row_count(trace_path)
     open_valves = runner._co2_open_valves(point, include_total_valve=True, include_source_valve=True)
-    if not bool(getattr(args, "allow_source_open", False)):
-        return _enrich_live_result_with_pace_diagnostics(runner, {
-            "scenario": "route_synchronized_atmosphere_flush_co2_a_source_guarded",
-            "status": "skipped",
-            "skipped_reason": "SourceOpenRequiresExplicitAllowFlag",
-            "operator_must_confirm_upstream_source_pressure_limited": True,
-            "open_valves": open_valves,
-            "pressure_trace_rows": _scenario_trace_rows(trace_path, trace_start),
-        })
-    _log("operator_must_confirm_upstream_source_pressure_limited=true")
     drain_summary = _drain_pace_errors_for_live_step(runner, reason="route_synchronized_atmosphere_flush_co2_a_source_guarded pre-step")
     ok = runner._open_co2_route_for_conditioning(point, point_tag="live_route_sync_atmosphere_flush_co2_a_source_guarded")
     point_state = dict(runner._point_runtime_state(point, phase="co2") or {})
@@ -1685,7 +1644,6 @@ def _run_route_synchronized_atmosphere_flush_co2_a_source_guarded(
         "status": _status_from_abort(bool(ok), abort_reason),
         "route_open_passed": bool(ok),
         "abort_reason": abort_reason,
-        "operator_must_confirm_upstream_source_pressure_limited": True,
         "point_runtime_state": point_state,
         "open_valves": open_valves,
         "atmosphere_summary": dict(runner._last_atmosphere_gate_summary or {}),
@@ -1703,16 +1661,6 @@ def _run_route_synchronized_atmosphere_flush_co2_b_source_guarded(
     point = _build_co2_point(args, index=9014, co2_ppm=500.0, co2_group="B")
     trace_start = _trace_row_count(trace_path)
     open_valves = runner._co2_open_valves(point, include_total_valve=True, include_source_valve=True)
-    if not bool(getattr(args, "allow_source_open", False)):
-        return _enrich_live_result_with_pace_diagnostics(runner, {
-            "scenario": "route_synchronized_atmosphere_flush_co2_b_source_guarded",
-            "status": "skipped",
-            "skipped_reason": "SourceOpenRequiresExplicitAllowFlag",
-            "operator_must_confirm_upstream_source_pressure_limited": True,
-            "open_valves": open_valves,
-            "pressure_trace_rows": _scenario_trace_rows(trace_path, trace_start),
-        })
-    _log("operator_must_confirm_upstream_source_pressure_limited=true")
     drain_summary = _drain_pace_errors_for_live_step(runner, reason="route_synchronized_atmosphere_flush_co2_b_source_guarded pre-step")
     ok = runner._open_co2_route_for_conditioning(point, point_tag="live_route_sync_atmosphere_flush_co2_b_source_guarded")
     point_state = dict(runner._point_runtime_state(point, phase="co2") or {})
@@ -1722,7 +1670,6 @@ def _run_route_synchronized_atmosphere_flush_co2_b_source_guarded(
         "status": _status_from_abort(bool(ok), abort_reason),
         "route_open_passed": bool(ok),
         "abort_reason": abort_reason,
-        "operator_must_confirm_upstream_source_pressure_limited": True,
         "point_runtime_state": point_state,
         "open_valves": open_valves,
         "atmosphere_summary": dict(runner._last_atmosphere_gate_summary or {}),
@@ -1762,7 +1709,7 @@ def _run_route_synchronized_atmosphere_flush_h2o_no_final(
         "point_runtime_state": point_state,
         "open_valves": open_valves,
         "skipped_final_stage": 10,
-        "skipped_reason": "H2OFinalStage10RequiresExplicitAllowFlag",
+        "skipped_reason": "H2OFinalStageExcludedForThisScenario",
         "atmosphere_summary": dict(runner._last_atmosphere_gate_summary or {}),
         "route_pressure_guard_summary": _route_guard_summary_payload(runner),
         **drain_summary,
@@ -1778,15 +1725,6 @@ def _run_route_synchronized_atmosphere_flush_h2o(
     point = _build_h2o_point(args, index=9012)
     trace_start = _trace_row_count(trace_path)
     open_valves = runner._h2o_open_valves(point)
-    if not bool(getattr(args, "allow_h2o_final_stage_open", False)):
-        return _enrich_live_result_with_pace_diagnostics(runner, {
-            "scenario": "route_synchronized_atmosphere_flush_h2o",
-            "status": "skipped",
-            "skipped_reason": "H2OFinalStage10RequiresExplicitAllowFlag",
-            "operator_must_confirm_h2o_upstream_pressure_limited": True,
-            "open_valves": open_valves,
-            "pressure_trace_rows": _scenario_trace_rows(trace_path, trace_start),
-        })
     drain_summary = _drain_pace_errors_for_live_step(runner, reason="route_synchronized_atmosphere_flush_h2o pre-step")
     runner._clear_last_sealed_pressure_route_context(reason="live synchronized H2O route flush")
     runner._clear_pressure_sequence_context(reason="live synchronized H2O route flush")
@@ -1806,7 +1744,6 @@ def _run_route_synchronized_atmosphere_flush_h2o(
         "status": _status_from_abort(bool(ok), abort_reason),
         "route_open_passed": bool(ok),
         "abort_reason": abort_reason,
-        "operator_must_confirm_h2o_upstream_pressure_limited": True,
         "point_runtime_state": point_state,
         "open_valves": open_valves,
         "atmosphere_summary": dict(runner._last_atmosphere_gate_summary or {}),
@@ -1882,15 +1819,6 @@ def _run_route_open_pressure_guard(
 ) -> Dict[str, Any]:
     point = _build_point(args, index=9002)
     trace_start = _trace_row_count(trace_path)
-    if not bool(getattr(args, "allow_source_open", False)):
-        return _enrich_live_result_with_pace_diagnostics(runner, {
-            "scenario": "route_open_pressure_guard",
-            "status": "skipped",
-            "skipped_reason": "SourceOpenRequiresExplicitAllowFlag",
-            "operator_must_confirm_upstream_source_pressure_limited": True,
-            "pressure_trace_rows": _scenario_trace_rows(trace_path, trace_start),
-        })
-    _log("operator_must_confirm_upstream_source_pressure_limited=true")
     ok = runner._open_co2_route_for_conditioning(point, point_tag="live_route_open_pressure_guard")
     point_state = dict(runner._point_runtime_state(point, phase="co2") or {})
     abort_reason = str(point_state.get("abort_reason") or "").strip()
@@ -1899,7 +1827,6 @@ def _run_route_open_pressure_guard(
         "status": _status_from_abort(bool(ok), abort_reason),
         "route_open_passed": bool(ok),
         "abort_reason": abort_reason,
-        "operator_must_confirm_upstream_source_pressure_limited": True,
         "point_runtime_state": point_state,
         "atmosphere_summary": dict(runner._last_atmosphere_gate_summary or {}),
         "route_pressure_guard_summary": _route_guard_summary_payload(runner),
@@ -2187,12 +2114,12 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--allow-source-open",
         action="store_true",
-        help="Required to execute guarded CO2 source-open scenarios.",
+        help="Legacy compatibility flag; existing V1 CO2 source-open scenarios do not require it.",
     )
     parser.add_argument(
         "--allow-h2o-final-stage-open",
         action="store_true",
-        help="Required to execute H2O full-route final stage valve 10 live scenarios.",
+        help="Legacy compatibility flag; existing V1 H2O full-route scenarios do not require it.",
     )
     parser.add_argument("--dewpoint-gate-window-s", type=float, default=30.0)
     parser.add_argument("--dewpoint-gate-max-wait-s", type=float, default=120.0)

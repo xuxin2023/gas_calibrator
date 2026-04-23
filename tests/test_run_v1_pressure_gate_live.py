@@ -452,7 +452,7 @@ def _write_pressure_protection_approval_json(tmp_path: Path, **overrides) -> Pat
     return path
 
 
-def test_source_open_live_scenario_requires_allow_source_open_flag(tmp_path: Path) -> None:
+def test_source_open_live_scenario_keeps_existing_v1_route_open_without_allow_flag(tmp_path: Path) -> None:
     runner = _FakeRunner()
     result = live_tool._run_route_synchronized_atmosphere_flush_co2_a_source_guarded(
         runner,
@@ -460,12 +460,12 @@ def test_source_open_live_scenario_requires_allow_source_open_flag(tmp_path: Pat
         _args(allow_source_open=False),
     )
 
-    assert result["status"] == "skipped"
-    assert result["skipped_reason"] == "SourceOpenRequiresExplicitAllowFlag"
-    assert result["operator_must_confirm_upstream_source_pressure_limited"] is True
+    assert result["status"] == "pass"
+    assert result["open_valves"] == [8, 11, 7, 4]
+    assert ("conditioning", "live_route_sync_atmosphere_flush_co2_a_source_guarded") in runner.calls
 
 
-def test_route_open_pressure_guard_requires_allow_source_open_flag(tmp_path: Path) -> None:
+def test_route_open_pressure_guard_keeps_existing_v1_conditioning_without_allow_flag(tmp_path: Path) -> None:
     runner = _FakeRunner()
     result = live_tool._run_route_open_pressure_guard(
         runner,
@@ -473,10 +473,8 @@ def test_route_open_pressure_guard_requires_allow_source_open_flag(tmp_path: Pat
         _args(allow_source_open=False),
     )
 
-    assert result["status"] == "skipped"
-    assert result["skipped_reason"] == "SourceOpenRequiresExplicitAllowFlag"
-    assert result["operator_must_confirm_upstream_source_pressure_limited"] is True
-    assert all(call[0] != "conditioning" for call in runner.calls)
+    assert result["status"] == "pass"
+    assert ("conditioning", "live_route_open_pressure_guard") in runner.calls
 
 
 def test_analyzer_pressure_required_preserves_analyzer_list() -> None:
@@ -497,7 +495,7 @@ def test_analyzer_pressure_required_preserves_analyzer_list() -> None:
     assert [item["enabled"] for item in runtime_cfg["devices"]["gas_analyzers"]] == [True, True]
 
 
-def test_analyzer_pressure_required_with_empty_analyzer_list_fails_fast(
+def test_source_open_live_scenario_does_not_fail_fast_on_generic_analyzer_preflight(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -506,16 +504,14 @@ def test_analyzer_pressure_required_with_empty_analyzer_list_fails_fast(
         monkeypatch,
         scenario="route_synchronized_atmosphere_flush_co2_a_source_guarded",
         config=_config(),
-        allow_source_open=True,
     )
 
     assert exit_code == 0
-    assert summary["scenario_result"]["status"] == "diagnostic_error"
-    assert summary["scenario_result"]["abort_reason"] == "AnalyzerPressureRequiredButUnavailable"
-    assert summary["scenario_result"]["analyzer_pressure_required"] is True
+    assert summary["scenario_result"]["status"] == "pass"
+    assert summary["scenario_result"]["analyzer_pressure_required"] is False
     assert summary["scenario_result"]["analyzer_pressure_available"] is False
-    assert summary["scenario_result"]["analyzer_pressure_abort_reason"] == "AnalyzerPressureRequiredButUnavailable"
-    assert all(call[0] not in {"conditioning", "guard"} for call in runner.calls)
+    assert summary["scenario_result"].get("analyzer_pressure_abort_reason", "") == ""
+    assert ("conditioning", "live_route_sync_atmosphere_flush_co2_a_source_guarded") in runner.calls
 
 
 def test_analyzer_pressure_optional_can_disable_analyzer_with_transparent_summary(
@@ -538,7 +534,7 @@ def test_analyzer_pressure_optional_can_disable_analyzer_with_transparent_summar
     assert ("guard", [8, 11, 7]) in runner.calls
 
 
-def test_source_or_h2o_final_stage_requires_analyzer_pressure_or_mechanical_protection(
+def test_h2o_full_route_keeps_existing_v1_open_without_allow_or_generic_analyzer_preflight(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -547,18 +543,17 @@ def test_source_or_h2o_final_stage_requires_analyzer_pressure_or_mechanical_prot
         monkeypatch,
         scenario="route_synchronized_atmosphere_flush_h2o",
         config=_config(),
-        allow_h2o_final_stage_open=True,
     )
 
     assert exit_code == 0
-    assert summary["scenario_result"]["status"] == "diagnostic_error"
-    assert summary["scenario_result"]["abort_reason"] == "AnalyzerPressureRequiredButUnavailable"
-    assert summary["scenario_result"]["analyzer_pressure_required"] is True
+    assert summary["scenario_result"]["status"] == "pass"
+    assert summary["scenario_result"]["abort_reason"] == ""
+    assert summary["scenario_result"]["analyzer_pressure_required"] is False
     assert summary["scenario_result"]["mechanical_pressure_protection_confirmed"] is False
-    assert all(call[0] not in {"conditioning", "guard"} for call in runner.calls)
+    assert ("guard", [8, 9, 10]) in runner.calls
 
 
-def test_mechanical_pressure_protection_confirmation_allows_analyzer_unavailable(
+def test_mechanical_pressure_protection_confirmation_is_reported_without_becoming_a_route_gate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -567,7 +562,6 @@ def test_mechanical_pressure_protection_confirmation_allows_analyzer_unavailable
         monkeypatch,
         scenario="route_synchronized_atmosphere_flush_h2o",
         config=_config(mechanical_pressure_protection_confirmed=True),
-        allow_h2o_final_stage_open=True,
     )
 
     assert exit_code == 0
@@ -576,7 +570,7 @@ def test_mechanical_pressure_protection_confirmation_allows_analyzer_unavailable
     assert summary["scenario_result"]["analyzer_pressure_required"] is False
     assert summary["scenario_result"]["analyzer_pressure_available"] is False
     assert summary["scenario_result"]["analyzer_pressure_protection_active"] is False
-    assert summary["scenario_result"]["analyzer_disabled_reason"] == "MechanicalPressureProtectionConfirmed"
+    assert summary["scenario_result"]["analyzer_disabled_reason"] == "AnalyzerNotConfigured"
     assert ("guard", [8, 9, 10]) in runner.calls
 
 
@@ -614,7 +608,7 @@ def test_h2o_no_final_route_is_8_9(tmp_path: Path) -> None:
 
     assert result["open_valves"] == [8, 9]
     assert result["skipped_final_stage"] == 10
-    assert result["skipped_reason"] == "H2OFinalStage10RequiresExplicitAllowFlag"
+    assert result["skipped_reason"] == "H2OFinalStageExcludedForThisScenario"
     assert ("guard", [8, 9]) in runner.calls
 
 
@@ -648,7 +642,7 @@ def test_seal_pressure_stage_not_verified_does_not_block_route_flush(tmp_path: P
     assert ("guard", [8, 9]) in runner.calls
 
 
-def test_h2o_full_route_requires_allow_h2o_final_stage_open(tmp_path: Path) -> None:
+def test_h2o_full_route_keeps_existing_v1_route_open_without_allow_flag(tmp_path: Path) -> None:
     runner = _FakeRunner()
     result = live_tool._run_route_synchronized_atmosphere_flush_h2o(
         runner,
@@ -656,9 +650,9 @@ def test_h2o_full_route_requires_allow_h2o_final_stage_open(tmp_path: Path) -> N
         _args(allow_h2o_final_stage_open=False),
     )
 
-    assert result["status"] == "skipped"
-    assert result["skipped_reason"] == "H2OFinalStage10RequiresExplicitAllowFlag"
-    assert result["operator_must_confirm_h2o_upstream_pressure_limited"] is True
+    assert result["status"] == "pass"
+    assert result["open_valves"] == [8, 9, 10]
+    assert ("guard", [8, 9, 10]) in runner.calls
 
 
 def test_co2_a_staged_source_final_dry_run_requires_operator_env(
