@@ -79,6 +79,10 @@ def _normalized_valves(values: Optional[Iterable[Any]]) -> List[int]:
     return normalized
 
 
+def _same_normalized_valves(left: Optional[Iterable[Any]], right: Optional[Iterable[Any]]) -> bool:
+    return sorted(_normalized_valves(left)) == sorted(_normalized_valves(right))
+
+
 def _path_within_repo(path: Path) -> bool:
     try:
         path.resolve().relative_to(REPO_ROOT.resolve())
@@ -1622,7 +1626,7 @@ def _run_co2_a_staged_source_final_release_dry_run(
     ).strip()
     if not _pace_error_is_clear(precheck_syst_err):
         precheck_reasons.append("PaceSystemErrorNotClear")
-    if expected_no_source_front_valves != front_valves_list:
+    if not _same_normalized_valves(expected_no_source_front_valves, front_valves_list):
         precheck_reasons.append("CO2AFrontPathMustRemain8_11_7")
     if any(valve in current_open_before for valve in blocked_valves_list):
         precheck_reasons.append("BlockedValvesAlreadyOpen")
@@ -1718,9 +1722,10 @@ def _run_co2_a_staged_source_final_release_dry_run(
         analyzer_pressure_protection_active or mechanical_pressure_protection_confirmed
     )
     source_final_valves_open = [valve for valve in open_after_precheck if valve in CO2_A_APPLY_EXPECTED_BLOCKED_VALVES]
+    front_path_confirmed = _same_normalized_valves(open_after_precheck, front_valves_list)
     staged_front_path_guard_safe = bool(
         precheck_open_ok
-        and open_after_precheck == front_valves_list
+        and front_path_confirmed
         and not source_final_valves_open
     )
     source_stage_safe = bool((_runner_source_stage_safety(runner) or {}).get(route_key, False))
@@ -1729,7 +1734,7 @@ def _run_co2_a_staged_source_final_release_dry_run(
         # Real runner only flips these flags once the final-stage-inclusive guard runs.
         source_stage_safe = True
         route_final_stage_atmosphere_safe = True
-    if open_after_precheck != front_valves_list:
+    if not front_path_confirmed:
         precheck_reasons.append("NoSourceFrontPathNotConfirmed")
     if CO2_A_SOURCE_FINAL_VALVE in open_after_precheck:
         precheck_reasons.append("Valve4OpenedBeforeExplicitApply")

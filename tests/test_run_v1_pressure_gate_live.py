@@ -1239,6 +1239,55 @@ def test_co2_a_staged_dry_run_arms_pressure_before_wait_gate_with_real_runner_st
     assert fake_pace.events[1][0] == "wait_for_pressure_ready"
 
 
+def test_co2_a_staged_dry_run_accepts_front_path_with_same_valves_in_different_order(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _set_required_staged_env(monkeypatch)
+
+    class _SortedValveRuntimeRunner(_FakeRunner):
+        def _open_route_with_pressure_guard(self, point, **kwargs):
+            open_valves = list(kwargs.get("open_valves") or [])
+            self.calls.append(("guard", open_valves))
+            route_key = self._source_stage_key_for_point(point, phase=str(kwargs.get("phase") or "co2"))
+            if self.route_open_guard_fail_reason:
+                return False
+            self._current_open_valves = tuple(sorted(open_valves))
+            if 4 not in open_valves and 24 not in open_valves and 10 not in open_valves:
+                self._continuous_state["active"] = True
+                self._continuous_state["route_flow_active"] = True
+                self._continuous_state["route_key"] = route_key
+            else:
+                self._source_stage[route_key] = True
+                self._atmosphere_safe[route_key] = True
+                self._seal_safe[route_key] = False
+            self._last_route_pressure_guard_summary = {
+                "route_pressure_guard_status": "pass",
+                "route_pressure_guard_reason": "",
+                "analyzer_pressure_available": False,
+                "analyzer_pressure_protection_active": False,
+                "analyzer_pressure_status": "unavailable",
+                "pace_syst_err_query": self.final_syst_err,
+            }
+            return True
+
+    runner = _SortedValveRuntimeRunner()
+    runner.mechanical_pressure_protection_confirmed = False
+    runner.devices = {"pace": _FakePacePressureReady()}
+
+    result = live_tool._run_co2_a_staged_source_final_release_dry_run(
+        runner,
+        tmp_path / "trace.csv",
+        _args(_runtime_cfg=_config(gas_analyzer_enabled=True)),
+    )
+
+    assert result["status"] == "pass"
+    assert result["precheck"]["current_open_valves_after_precheck"] == [7, 8, 11]
+    assert "NoSourceFrontPathNotConfirmed" not in result["precheck"]["blocked_reasons"]
+    assert result["precheck"]["source_stage_safe"] is True
+    assert result["precheck"]["route_final_stage_atmosphere_safe"] is True
+
+
 def test_co2_a_pressure_protection_resolver_accepts_valid_mechanical_approval_artifact(tmp_path: Path) -> None:
     approval_path = _write_pressure_protection_approval_json(tmp_path)
 
