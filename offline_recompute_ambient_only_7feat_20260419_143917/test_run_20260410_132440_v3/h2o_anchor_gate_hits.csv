@@ -1,0 +1,5 @@
+﻿Gas,DataScope,Analyzer,PointRow,PointPhase,PointTag,PointTitle,EnvTempC,Temp,ppm_CO2_Tank,ppm_H2O_Dew,SelectionOrigin,GateReason,GateThresholdPpmH2ODew,GateMatchedTempC,SourceFile,SourceStamp,ActualDeviceId
+H2O,按水路纠正规则,GA01,14,气路,co2_groupa_0ppm_ambient,10°C环境，二氧化碳0ppm，当前大气压,10.0,10.86,0.0,1.129675,co2_zero_ppm_anchor,anchor_h2o_dew_above_limit,0.5,10.0,分析仪汇总_气路_run_20260410_132440_no_500hpa.xlsx,20260410_132440,092
+H2O,按水路纠正规则,GA02,14,气路,co2_groupa_0ppm_ambient,10°C环境，二氧化碳0ppm，当前大气压,10.0,10.86,0.0,1.129675,co2_zero_ppm_anchor,anchor_h2o_dew_above_limit,0.5,10.0,分析仪汇总_气路_run_20260410_132440_no_500hpa.xlsx,20260410_132440,008
+H2O,按水路纠正规则,GA03,14,气路,co2_groupa_0ppm_ambient,10°C环境，二氧化碳0ppm，当前大气压,10.0,10.86,0.0,1.129675,co2_zero_ppm_anchor,anchor_h2o_dew_above_limit,0.5,10.0,分析仪汇总_气路_run_20260410_132440_no_500hpa.xlsx,20260410_132440,079
+H2O,按水路纠正规则,GA04,14,气路,co2_groupa_0ppm_ambient,10°C环境，二氧化碳0ppm，当前大气压,10.0,10.86,0.0,1.129675,co2_zero_ppm_anchor,anchor_h2o_dew_above_limit,0.5,10.0,分析仪汇总_气路_run_20260410_132440_no_500hpa.xlsx,20260410_132440,086

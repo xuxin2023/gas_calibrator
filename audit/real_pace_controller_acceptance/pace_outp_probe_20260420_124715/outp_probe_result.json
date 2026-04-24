@@ -1,0 +1,19 @@
+{
+  "profile": "OLD_PACE5000",
+  "before_outp_stat": ":OUTP:STAT 0",
+  "before_vent": ":SOUR:PRES:LEV:IMM:AMPL:VENT 2",
+  "before_err": ":SYST:ERR -102,\"Syntax error\"",
+  "after_outp_stat_cmd_err": ":SYST:ERR 0, No error",
+  "after_outp_stat_cmd_state": ":OUTP:STAT 1",
+  "after_outp_short_err": ":SYST:ERR 0, No error",
+  "after_outp_short_state": ":OUTP:STAT 1",
+  "safe_stop": {
+    "profile": "OLD_PACE5000",
+    "output_state": 0,
+    "isolation_state": 1,
+    "vent_status": 2,
+    "system_error": ":SYST:ERR 0, No error"
+  },
+  "run_dir": "audit\\real_pace_controller_acceptance\\pace_outp_probe_20260420_124715",
+  "io_path": "audit\\real_pace_controller_acceptance\\pace_outp_probe_20260420_124715\\io_20260420_124715.csv"
+}

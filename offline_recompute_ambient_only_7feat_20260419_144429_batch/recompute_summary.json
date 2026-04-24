@@ -1,0 +1,1981 @@
+{
+  "summary_root": "D:\\gas_calibrator\\offline_recompute_ambient_only_7feat_20260419_144429_batch",
+  "generated_at": "2026-04-19T14:46:30",
+  "git": {
+    "branch": "codex/v1-v2-offline-alignment-review-surface",
+    "head": "e829f3d9c51e6ee537029547c1d9f86d609a3d1e"
+  },
+  "scanned_run_count": 136,
+  "processed_count": 2,
+  "skipped_count": 127,
+  "failed_count": 7,
+  "forced_model_features": [
+    "intercept",
+    "R",
+    "R2",
+    "R3",
+    "T",
+    "T2",
+    "RT"
+  ],
+  "processed_runs": [
+    {
+      "status": "processed",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260410_132440",
+      "ambient_only": true,
+      "ambient_reason": "workflow.selected_pressure_points=['ambient']",
+      "selected_pressure_points": [
+        "ambient"
+      ],
+      "forced_model_features": [
+        "intercept",
+        "R",
+        "R2",
+        "R3",
+        "T",
+        "T2",
+        "RT"
+      ],
+      "pressure_row_source": "current_ambient",
+      "model_features_by_analyzer_gas": {
+        "GA01:CO2": "intercept,R,R2,R3,T,T2,RT",
+        "GA01:H2O": "intercept,R,R2,R3,T,T2,RT",
+        "GA02:CO2": "intercept,R,R2,R3,T,T2,RT",
+        "GA02:H2O": "intercept,R,R2,R3,T,T2,RT",
+        "GA03:CO2": "intercept,R,R2,R3,T,T2,RT",
+        "GA03:H2O": "intercept,R,R2,R3,T,T2,RT",
+        "GA04:CO2": "intercept,R,R2,R3,T,T2,RT",
+        "GA04:H2O": "intercept,R,R2,R3,T,T2,RT"
+      },
+      "output_dir": "D:\\gas_calibrator\\logs\\run_20260410_132440\\recomputed_ambient_only_7feat_20260419_144556",
+      "temp_config": "D:\\gas_calibrator\\logs\\run_20260410_132440\\recomputed_ambient_only_7feat_20260419_144556\\runtime_config_snapshot_recompute.json",
+      "report_path": "D:\\gas_calibrator\\logs\\run_20260410_132440\\recomputed_ambient_only_7feat_20260419_144556\\calibration_coefficients.xlsx",
+      "simplified_coefficients": "D:\\gas_calibrator\\logs\\run_20260410_132440\\recomputed_ambient_only_7feat_20260419_144556\\simplified_coefficients_no_500.csv",
+      "download_plan": "D:\\gas_calibrator\\logs\\run_20260410_132440\\recomputed_ambient_only_7feat_20260419_144556\\download_plan_no_500.csv",
+      "pressure_rows": "D:\\gas_calibrator\\logs\\run_20260410_132440\\recomputed_ambient_only_7feat_20260419_144556\\pressure_offset_current_ambient_summary.csv",
+      "comparison": {
+        "row_count": 8,
+        "comparison_csv": "D:\\gas_calibrator\\logs\\run_20260410_132440\\recomputed_ambient_only_7feat_20260419_144556\\comparison.csv",
+        "comparison_md": "D:\\gas_calibrator\\logs\\run_20260410_132440\\recomputed_ambient_only_7feat_20260419_144556\\comparison.md",
+        "delta_summary": [
+          "- GA01 CO2: a0=-22373.3, a1=11526.4, a2=-8670.75, a3=2249.55, a4=5.4516, a5=-0.0063472, a6=40.8006, a7=16.4238",
+          "- GA01 H2O: a0=-987.79, a1=741.68, a2=-1336.41, a3=665.12, a4=-0.51609, a5=0.000274138, a6=4.83627, a7=0.914133",
+          "- GA02 CO2: a0=-36150.5, a1=46605.4, a2=-33226, a3=7908.63, a4=4.7044, a5=-0.0069138, a6=28.8299, a7=13.6255",
+          "- GA02 H2O: a0=-2948.18, a1=4621.9, a2=-8092.7, a3=4326.4, a4=-1.32919, a5=0.000744454, a6=13.0884, a7=2.22067",
+          "- GA03 CO2: a0=-43909, a1=62725.8, a2=-49092.3, a3=12817.1, a4=3.9538, a5=-0.00573552, a6=40.515, a7=16.5263",
+          "- GA03 H2O: a0=-525.417, a1=4368.17, a2=-8842.51, a3=5468.02, a4=-1.19217, a5=0.000794855, a6=1.26386, a7=-0.0344669",
+          "- GA04 CO2: a0=-36973.7, a1=46459.4, a2=-34813.6, a3=8696.7, a4=4.247, a5=-0.0065914, a6=36.0209, a7=15.5919",
+          "- GA04 H2O: a0=-918.948, a1=3299.79, a2=-5403.55, a3=2749.53, a4=-0.845711, a5=0.000543058, a6=2.6948, a7=0.353923"
+        ]
+      },
+      "autodelivery_summary": "D:\\gas_calibrator\\logs\\run_20260410_132440\\recomputed_ambient_only_7feat_20260419_144556\\autodelivery_summary.json"
+    },
+    {
+      "status": "processed",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260411_204123",
+      "ambient_only": true,
+      "ambient_reason": "workflow.selected_pressure_points=['ambient']",
+      "selected_pressure_points": [
+        "ambient"
+      ],
+      "forced_model_features": [
+        "intercept",
+        "R",
+        "R2",
+        "R3",
+        "T",
+        "T2",
+        "RT"
+      ],
+      "pressure_row_source": "current_ambient",
+      "model_features_by_analyzer_gas": {
+        "GA01:CO2": "intercept,R,R2,R3,T,T2,RT",
+        "GA01:H2O": "intercept,R,R2,R3,T,T2,RT",
+        "GA02:CO2": "intercept,R,R2,R3,T,T2,RT",
+        "GA02:H2O": "intercept,R,R2,R3,T,T2,RT",
+        "GA03:CO2": "intercept,R,R2,R3,T,T2,RT",
+        "GA03:H2O": "intercept,R,R2,R3,T,T2,RT",
+        "GA04:CO2": "intercept,R,R2,R3,T,T2,RT",
+        "GA04:H2O": "intercept,R,R2,R3,T,T2,RT"
+      },
+      "output_dir": "D:\\gas_calibrator\\logs\\run_20260411_204123\\recomputed_ambient_only_7feat_20260419_144556",
+      "temp_config": "D:\\gas_calibrator\\logs\\run_20260411_204123\\recomputed_ambient_only_7feat_20260419_144556\\runtime_config_snapshot_recompute.json",
+      "report_path": "D:\\gas_calibrator\\logs\\run_20260411_204123\\recomputed_ambient_only_7feat_20260419_144556\\calibration_coefficients.xlsx",
+      "simplified_coefficients": "D:\\gas_calibrator\\logs\\run_20260411_204123\\recomputed_ambient_only_7feat_20260419_144556\\simplified_coefficients_no_500.csv",
+      "download_plan": "D:\\gas_calibrator\\logs\\run_20260411_204123\\recomputed_ambient_only_7feat_20260419_144556\\download_plan_no_500.csv",
+      "pressure_rows": "D:\\gas_calibrator\\logs\\run_20260411_204123\\recomputed_ambient_only_7feat_20260419_144556\\pressure_offset_current_ambient_summary.csv",
+      "comparison": {
+        "row_count": 8,
+        "comparison_csv": "D:\\gas_calibrator\\logs\\run_20260411_204123\\recomputed_ambient_only_7feat_20260419_144556\\comparison.csv",
+        "comparison_md": "D:\\gas_calibrator\\logs\\run_20260411_204123\\recomputed_ambient_only_7feat_20260419_144556\\comparison.md",
+        "delta_summary": [
+          "- GA01 CO2: a0=-21345.7, a1=5157.9, a2=-4062.9, a3=1093.11, a4=7.7506, a5=-0.0115447, a6=41.4669, a7=17.7825",
+          "- GA01 H2O: a0=-1193.32, a1=387.134, a2=-449.46, a3=204.13, a4=0.29955, a5=-0.000275947, a6=5.02316, a7=1.03653",
+          "- GA02 CO2: a0=-27485.8, a1=7994, a2=-5959.4, a3=1505.79, a4=7.8839, a5=-0.0115797, a6=51.1748, a7=22.4436",
+          "- GA02 H2O: a0=-6405.62, a1=2683.3, a2=-3851.3, a3=1980.78, a4=1.23994, a5=-0.00138745, a6=28.6977, a7=5.55437",
+          "- GA03 CO2: a0=-17099.8, a1=3908.3, a2=-3235.8, a3=928.12, a4=7.1113, a5=-0.0103611, a6=34.1746, a7=14.2976",
+          "- GA03 H2O: a0=-421.732, a1=446.043, a2=-713.86, a3=410.8, a4=0.12308, a5=-0.00010237, a6=1.85083, a7=0.310694",
+          "- GA04 CO2: a0=-24407.6, a1=6751.3, a2=-5985.5, a3=1757.6, a4=7.18998, a5=-0.0118041, a6=53.8436, a7=20.5044",
+          "- GA04 H2O: a0=-1620.89, a1=720.63, a2=-867.2, a3=389.586, a4=0.533273, a5=-0.00057597, a6=6.06441, a7=1.33856"
+        ]
+      },
+      "autodelivery_summary": "D:\\gas_calibrator\\logs\\run_20260411_204123\\recomputed_ambient_only_7feat_20260419_144556\\autodelivery_summary.json"
+    }
+  ],
+  "skipped_runs": [
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\codex_quick_smoke_co2_recheck_20260331_1015\\分析仪汇总_20260331_101458.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\codex_quick_smoke_co2_recheck_20260331_1015\\samples_20260331_101458.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\codex_quick_smoke_co2_recheck_20260331_1015"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_ambient_only:workflow.selected_pressure_points=['ambient', '500']",
+      "ambient_only": false,
+      "selected_pressure_points": [
+        "ambient",
+        "500"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\codex_v1_real_smoke_tiny_20c_even500_20260404_budgetwarn"
+    },
+    {
+      "status": "skipped",
+      "reason": "missing_required_files:gas_or_combined_summary,water_or_combined_summary,samples_csv",
+      "ambient_only": true,
+      "ambient_reason": "workflow.selected_pressure_points=['ambient']",
+      "selected_pressure_points": [
+        "ambient"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\pressure_recalc_20260412_110637"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_ambient_only:workflow.selected_pressure_points=['1100']",
+      "ambient_only": false,
+      "selected_pressure_points": [
+        "1100"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\real_connect_check_co2"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260311_165216\\samples_20260311_165216.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260311_165216"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260311_170210\\samples_20260311_170210.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260311_170210"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260311_170848\\samples_20260311_170848.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260311_170848"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260311_172753\\samples_20260311_172753.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260311_172753"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260311_180005\\samples_20260311_180005.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260311_180005"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260312_084507\\samples_20260312_084507.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260312_084507"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260312_091751\\samples_20260312_091751.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260312_091751"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260312_133501\\samples_20260312_133501.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260312_133501"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260312_144036\\samples_20260312_144036.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260312_144036"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260312_144640\\samples_20260312_144640.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260312_144640"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260312_152308\\samples_20260312_152308.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260312_152308"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260312_154559\\samples_20260312_154559.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260312_154559"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260312_160017\\samples_20260312_160017.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260312_160017"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260312_195056\\samples_20260312_195056.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260312_195056"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260312_195436\\samples_20260312_195436.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260312_195436"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260312_200824\\samples_20260312_200824.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260312_200824"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260312_202722\\samples_20260312_202722.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260312_202722"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260312_211957\\samples_20260312_211957.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260312_211957"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260313_131046\\samples_20260313_131046.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260313_131046"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260313_140309\\samples_20260313_140309.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260313_140309"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260313_145309\\samples_20260313_145309.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260313_145309"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260313_183939\\分析仪汇总_20260313_183939.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260313_183939\\samples_20260313_183939.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260313_183939"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260313_203923\\分析仪汇总_20260313_203923.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260313_203923\\samples_20260313_203923.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260313_203923"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260313_205555\\分析仪汇总_20260313_205555.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260313_205555\\samples_20260313_205555.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260313_205555"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260313_210030\\分析仪汇总_20260313_210030.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260313_210030\\samples_20260313_210030.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260313_210030"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260313_210813\\分析仪汇总_20260313_210813.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260313_210813\\samples_20260313_210813.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260313_210813"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260313_211226\\分析仪汇总_20260313_211226.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260313_211226\\samples_20260313_211226.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260313_211226"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260313_212022\\分析仪汇总_20260313_212022.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260313_212022\\samples_20260313_212022.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260313_212022"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260313_213219\\分析仪汇总_20260313_213219.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260313_213219\\samples_20260313_213219.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260313_213219"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260313_224747\\分析仪汇总_20260313_224747.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260313_224747\\samples_20260313_224747.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260313_224747"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260313_230358\\分析仪汇总_20260313_230358.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260313_230358\\samples_20260313_230358.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260313_230358"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260314_090940\\分析仪汇总_20260314_090940.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260314_090940\\samples_20260314_090940.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260314_090940"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260314_091036\\分析仪汇总_20260314_091036.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260314_091036\\samples_20260314_091036.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260314_091036"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260314_105011\\分析仪汇总_20260314_105011.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260314_105011\\samples_20260314_105011.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260314_105011"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260314_123632\\分析仪汇总_20260314_123632.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260314_123632\\samples_20260314_123632.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260314_123632"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260314_130327\\分析仪汇总_20260314_130327.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260314_130327\\samples_20260314_130327.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260314_130327"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260314_204200\\分析仪汇总_20260314_204200.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260314_204200\\samples_20260314_204200.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260314_204200"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260314_205437\\分析仪汇总_20260314_205437.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260314_205437\\samples_20260314_205437.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260314_205437"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260314_210146\\分析仪汇总_20260314_210146.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260314_210146\\samples_20260314_210146.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260314_210146"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260314_211243\\分析仪汇总_20260314_211243.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260314_211243\\samples_20260314_211243.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260314_211243"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260315_203844\\分析仪汇总_20260315_203844.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260315_203844\\samples_20260315_203844.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260315_203844"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260316_070711\\分析仪汇总_20260316_070711.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260316_070711\\samples_20260316_070711.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260316_070711"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260316_094111\\分析仪汇总_20260316_094111.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260316_094111\\samples_20260316_094111.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260316_094111"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260317_091609\\分析仪汇总_20260317_091609.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260317_091609\\samples_20260317_091609.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260317_091609"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260317_092228\\分析仪汇总_20260317_092228.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260317_092228\\samples_20260317_092228.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260317_092228"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260317_101622\\分析仪汇总_20260317_101622.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260317_101622\\samples_20260317_101622.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260317_101622"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260317_101710\\分析仪汇总_20260317_101710.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260317_101710\\samples_20260317_101710.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260317_101710"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260317_102055\\分析仪汇总_20260317_102055.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260317_102055\\samples_20260317_102055.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260317_102055"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260317_102550\\分析仪汇总_20260317_102550.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260317_102550\\samples_20260317_102550.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260317_102550"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260317_102803\\分析仪汇总_20260317_102803.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260317_102803\\samples_20260317_102803.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260317_102803"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "D:\\gas_calibrator\\logs\\run_20260317_105943\\分析仪汇总_气路_20260317_105943.xlsx",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260317_105943\\分析仪汇总_气路_20260317_105943.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260317_105943\\samples_20260317_105943.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260317_105943"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "D:\\gas_calibrator\\logs\\run_20260317_133934\\分析仪汇总_气路_20260317_133934.xlsx",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260317_133934\\分析仪汇总_气路_20260317_133934.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260317_133934\\samples_20260317_133934.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260317_133934"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "D:\\gas_calibrator\\logs\\run_20260317_161837\\分析仪汇总_气路_20260317_161837.xlsx",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260317_161837\\分析仪汇总_气路_20260317_161837.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260317_161837\\samples_20260317_161837.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260317_161837"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260317_175654\\分析仪汇总_20260317_175654.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260317_175654\\samples_20260317_175654.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260317_175654"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "D:\\gas_calibrator\\logs\\run_20260317_175941\\分析仪汇总_气路_20260317_175941.xlsx",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260317_175941\\分析仪汇总_气路_20260317_175941.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260317_175941\\samples_20260317_175941.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260317_175941"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "D:\\gas_calibrator\\logs\\run_20260318_102900\\分析仪汇总_气路_20260318_102900.xlsx",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260318_102900\\分析仪汇总_气路_20260318_102900.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260318_102900\\samples_20260318_102900.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260318_102900"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "D:\\gas_calibrator\\logs\\run_20260318_170225\\分析仪汇总_气路_20260318_170225_fixed.xlsx",
+        "water": "D:\\gas_calibrator\\logs\\run_20260318_170225\\分析仪汇总_水路_20260318_170225_fixed.xlsx",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260318_170225\\分析仪汇总_水路_20260318_170225_fixed.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260318_170225\\samples_20260318_170225.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260318_170225"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "D:\\gas_calibrator\\logs\\run_20260319_203930\\分析仪汇总_气路_20260319_203930.xlsx",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260319_203930\\分析仪汇总_气路_20260319_203930.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260319_203930\\samples_20260319_203930.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260319_203930"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "D:\\gas_calibrator\\logs\\run_20260320_093112\\分析仪汇总_气路_20260320_093112.xlsx",
+        "water": "D:\\gas_calibrator\\logs\\run_20260320_093112\\分析仪汇总_水路_20260320_093112.xlsx",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260320_093112\\分析仪汇总_气路_20260320_093112.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260320_093112\\samples_20260320_093112.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260320_093112"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "D:\\gas_calibrator\\logs\\run_20260320_181819\\分析仪汇总_气路_20260320_181819.xlsx",
+        "water": "D:\\gas_calibrator\\logs\\run_20260320_181819\\分析仪汇总_水路_20260320_181819.xlsx",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260320_181819\\分析仪汇总_气路_20260320_181819.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260320_181819\\samples_20260320_181819.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260320_181819"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260320_225337\\分析仪汇总_20260320_225337.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260320_225337\\samples_20260320_225337.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260320_225337"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "D:\\gas_calibrator\\logs\\run_20260320_230716\\分析仪汇总_水路_20260320_230716.xlsx",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260320_230716\\分析仪汇总_水路_20260320_230716.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260320_230716\\samples_20260320_230716.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260320_230716"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "D:\\gas_calibrator\\logs\\run_20260321_003000\\分析仪汇总_气路_20260321_003000.xlsx",
+        "water": "D:\\gas_calibrator\\logs\\run_20260321_003000\\分析仪汇总_水路_20260321_003000.xlsx",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260321_003000\\分析仪汇总_气路_20260321_003000.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260321_003000\\samples_20260321_003000.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260321_003000"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260325_191512\\分析仪汇总_20260325_191512.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260325_191512\\samples_20260325_191512.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260325_191512"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260326_124218\\分析仪汇总_20260326_124218.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260326_124218\\samples_20260326_124218.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260326_124218"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260326_124250\\分析仪汇总_20260326_124250.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260326_124250\\samples_20260326_124250.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260326_124250"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260326_124353\\分析仪汇总_20260326_124353.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260326_124353\\samples_20260326_124353.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260326_124353"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260326_154915\\分析仪汇总_20260326_154915.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260326_154915\\samples_20260326_154915.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260326_154915"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260326_155155\\分析仪汇总_20260326_155155.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260326_155155\\samples_20260326_155155.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260326_155155"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260326_163451\\分析仪汇总_20260326_163451.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260326_163451\\samples_20260326_163451.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260326_163451"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "D:\\gas_calibrator\\logs\\run_20260326_165119\\分析仪汇总_气路_20260326_165119.xlsx",
+        "water": "D:\\gas_calibrator\\logs\\run_20260326_165119\\分析仪汇总_水路_20260326_165119.xlsx",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260326_165119\\分析仪汇总_水路_20260326_165119.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260326_165119\\samples_20260326_165119.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260326_165119"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "D:\\gas_calibrator\\logs\\run_20260327_015125\\分析仪汇总_气路_20260327_015125.xlsx",
+        "water": "D:\\gas_calibrator\\logs\\run_20260327_015125\\分析仪汇总_水路_20260327_015125.xlsx",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260327_015125\\分析仪汇总_气路_20260327_015125.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260327_015125\\samples_20260327_015125.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260327_015125"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "D:\\gas_calibrator\\logs\\run_20260327_130918\\分析仪汇总_气路_20260327_130918.xlsx",
+        "water": "D:\\gas_calibrator\\logs\\run_20260327_130918\\分析仪汇总_水路_20260327_130918.xlsx",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260327_130918\\分析仪汇总_气路_20260327_130918.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260327_130918\\samples_20260327_130918.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260327_130918"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "D:\\gas_calibrator\\logs\\run_20260328_092654\\分析仪汇总_气路_20260328_092654.xlsx",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260328_092654\\分析仪汇总_气路_20260328_092654.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260328_092654\\samples_20260328_092654.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260328_092654"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260328_201036\\分析仪汇总_20260328_201036.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260328_201036\\samples_20260328_201036.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260328_201036"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260328_210143\\分析仪汇总_20260328_210143.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260328_210143\\samples_20260328_210143.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260328_210143"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260328_214158\\分析仪汇总_20260328_214158.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260328_214158\\samples_20260328_214158.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260328_214158"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260328_235028\\分析仪汇总_20260328_235028.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260328_235028\\samples_20260328_235028.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260328_235028"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "D:\\gas_calibrator\\logs\\run_20260329_005019\\分析仪汇总_气路_20260329_005019.xlsx",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260329_005019\\分析仪汇总_气路_20260329_005019.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260329_005019\\samples_20260329_005019.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260329_005019"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260331_003030\\分析仪汇总_20260331_003030.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260331_003030\\samples_20260331_003030.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260331_003030"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260401_010836\\分析仪汇总_20260401_010836.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260401_010836\\samples_20260401_010836.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260401_010836"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "D:\\gas_calibrator\\logs\\run_20260401_013351\\分析仪汇总_气路_20260401_013351.xlsx",
+        "water": "D:\\gas_calibrator\\logs\\run_20260401_013351\\分析仪汇总_水路_20260401_013351.xlsx",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260401_013351\\分析仪汇总_水路_20260401_013351.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260401_013351\\samples_20260401_013351.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260401_013351"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_ambient_only:workflow.selected_pressure_points=['ambient', '500']",
+      "ambient_only": false,
+      "selected_pressure_points": [
+        "ambient",
+        "500"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260403_011754"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_ambient_only:workflow.selected_pressure_points=['ambient', '500']",
+      "ambient_only": false,
+      "selected_pressure_points": [
+        "ambient",
+        "500"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260403_012217"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_ambient_only:workflow.selected_pressure_points=['ambient', '500']",
+      "ambient_only": false,
+      "selected_pressure_points": [
+        "ambient",
+        "500"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260403_013130"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_ambient_only:workflow.selected_pressure_points=['ambient', '500']",
+      "ambient_only": false,
+      "selected_pressure_points": [
+        "ambient",
+        "500"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260403_014609"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_ambient_only:workflow.selected_pressure_points=['ambient', '500']",
+      "ambient_only": false,
+      "selected_pressure_points": [
+        "ambient",
+        "500"
+      ],
+      "summary_sources": {
+        "gas": "D:\\gas_calibrator\\logs\\run_20260403_014845\\分析仪汇总_气路_20260403_014845.xlsx",
+        "water": "D:\\gas_calibrator\\logs\\run_20260403_014845\\分析仪汇总_水路_20260403_014845.xlsx",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260403_014845\\分析仪汇总_气路_20260403_014845.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260403_014845\\samples_20260403_014845.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260403_014845"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_ambient_only:workflow.selected_pressure_points=['ambient', '500']",
+      "ambient_only": false,
+      "selected_pressure_points": [
+        "ambient",
+        "500"
+      ],
+      "summary_sources": {
+        "gas": "D:\\gas_calibrator\\logs\\run_20260404_205450\\分析仪汇总_气路_20260404_205450.xlsx",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260404_205450\\分析仪汇总_气路_20260404_205450.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260404_205450\\samples_20260404_205450.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260404_205450"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_ambient_only:workflow.selected_pressure_points=['ambient', '500']",
+      "ambient_only": false,
+      "selected_pressure_points": [
+        "ambient",
+        "500"
+      ],
+      "summary_sources": {
+        "gas": "D:\\gas_calibrator\\logs\\run_20260404_234809\\分析仪汇总_气路_20260404_234809.xlsx",
+        "water": "D:\\gas_calibrator\\logs\\run_20260404_234809\\分析仪汇总_水路_20260404_234809.xlsx",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260404_234809\\分析仪汇总_气路_20260404_234809.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260404_234809\\samples_20260404_234809.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260404_234809"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_ambient_only:workflow.selected_pressure_points=['ambient', '500']",
+      "ambient_only": false,
+      "selected_pressure_points": [
+        "ambient",
+        "500"
+      ],
+      "summary_sources": {
+        "gas": "D:\\gas_calibrator\\logs\\run_20260405_182942\\分析仪汇总_气路_20260405_182942.xlsx",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260405_182942\\分析仪汇总_气路_20260405_182942.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260405_182942\\samples_20260405_182942.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260405_182942"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_ambient_only:workflow.selected_pressure_points=['ambient', '500']",
+      "ambient_only": false,
+      "selected_pressure_points": [
+        "ambient",
+        "500"
+      ],
+      "summary_sources": {
+        "gas": "D:\\gas_calibrator\\logs\\run_20260405_230229\\分析仪汇总_气路_20260405_230229.xlsx",
+        "water": "D:\\gas_calibrator\\logs\\run_20260405_230229\\分析仪汇总_水路_20260405_230229.xlsx",
+        "combined": "D:\\gas_calibrator\\logs\\run_20260405_230229\\分析仪汇总_气路_20260405_230229.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\run_20260405_230229\\samples_20260405_230229.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260405_230229"
+    },
+    {
+      "status": "skipped",
+      "reason": "missing_required_files:gas_or_combined_summary,water_or_combined_summary,samples_csv",
+      "ambient_only": true,
+      "ambient_reason": "workflow.selected_pressure_points=['ambient']",
+      "selected_pressure_points": [
+        "ambient"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260407_183756"
+    },
+    {
+      "status": "skipped",
+      "reason": "missing_required_files:gas_or_combined_summary,water_or_combined_summary,samples_csv",
+      "ambient_only": true,
+      "ambient_reason": "workflow.selected_pressure_points=['ambient']",
+      "selected_pressure_points": [
+        "ambient"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260408_142218"
+    },
+    {
+      "status": "skipped",
+      "reason": "missing_required_files:gas_or_combined_summary,water_or_combined_summary,samples_csv",
+      "ambient_only": true,
+      "ambient_reason": "workflow.selected_pressure_points=['ambient']",
+      "selected_pressure_points": [
+        "ambient"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260408_145017"
+    },
+    {
+      "status": "skipped",
+      "reason": "missing_required_files:gas_or_combined_summary,water_or_combined_summary,samples_csv",
+      "ambient_only": true,
+      "ambient_reason": "workflow.selected_pressure_points=['ambient']",
+      "selected_pressure_points": [
+        "ambient"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260408_145823"
+    },
+    {
+      "status": "skipped",
+      "reason": "missing_required_files:gas_or_combined_summary,water_or_combined_summary,samples_csv",
+      "ambient_only": true,
+      "ambient_reason": "workflow.selected_pressure_points=['ambient']",
+      "selected_pressure_points": [
+        "ambient"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260408_150443"
+    },
+    {
+      "status": "skipped",
+      "reason": "missing_required_files:gas_or_combined_summary,water_or_combined_summary,samples_csv",
+      "ambient_only": true,
+      "ambient_reason": "workflow.selected_pressure_points=['ambient']",
+      "selected_pressure_points": [
+        "ambient"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260408_151559"
+    },
+    {
+      "status": "skipped",
+      "reason": "missing_required_files:gas_or_combined_summary,water_or_combined_summary,samples_csv",
+      "ambient_only": true,
+      "ambient_reason": "workflow.selected_pressure_points=['ambient']",
+      "selected_pressure_points": [
+        "ambient"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260408_151803"
+    },
+    {
+      "status": "skipped",
+      "reason": "missing_required_files:gas_or_combined_summary,water_or_combined_summary,samples_csv",
+      "ambient_only": true,
+      "ambient_reason": "workflow.selected_pressure_points=['ambient']",
+      "selected_pressure_points": [
+        "ambient"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260408_170747"
+    },
+    {
+      "status": "skipped",
+      "reason": "missing_required_files:gas_or_combined_summary,water_or_combined_summary,samples_csv",
+      "ambient_only": true,
+      "ambient_reason": "workflow.selected_pressure_points=['ambient']",
+      "selected_pressure_points": [
+        "ambient"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260408_172551"
+    },
+    {
+      "status": "skipped",
+      "reason": "missing_required_files:gas_or_combined_summary,water_or_combined_summary,samples_csv",
+      "ambient_only": true,
+      "ambient_reason": "workflow.selected_pressure_points=['ambient']",
+      "selected_pressure_points": [
+        "ambient"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260408_173224"
+    },
+    {
+      "status": "skipped",
+      "reason": "missing_required_files:gas_or_combined_summary,water_or_combined_summary,samples_csv",
+      "ambient_only": true,
+      "ambient_reason": "workflow.selected_pressure_points=['ambient']",
+      "selected_pressure_points": [
+        "ambient"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260408_173723"
+    },
+    {
+      "status": "skipped",
+      "reason": "missing_required_files:gas_or_combined_summary,water_or_combined_summary,samples_csv",
+      "ambient_only": true,
+      "ambient_reason": "workflow.selected_pressure_points=['ambient']",
+      "selected_pressure_points": [
+        "ambient"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260408_175737"
+    },
+    {
+      "status": "skipped",
+      "reason": "missing_required_files:gas_or_combined_summary,water_or_combined_summary,samples_csv",
+      "ambient_only": true,
+      "ambient_reason": "workflow.selected_pressure_points=['ambient']",
+      "selected_pressure_points": [
+        "ambient"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260411_145324"
+    },
+    {
+      "status": "skipped",
+      "reason": "missing_required_files:gas_or_combined_summary,water_or_combined_summary",
+      "ambient_only": true,
+      "ambient_reason": "workflow.selected_pressure_points=['ambient']",
+      "selected_pressure_points": [
+        "ambient"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\runtime_temp_fix\\runtime-temp-fix-v1\\run_20260410_132440\\samples_20260410_132440.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\runtime_temp_fix\\runtime-temp-fix-v1\\run_20260410_132440"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_ambient_only:workflow.selected_pressure_points=['1100']",
+      "ambient_only": false,
+      "selected_pressure_points": [
+        "1100"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\v1_same_gas_800ppm_two_rounds_20260415_083734"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_ambient_only:workflow.selected_pressure_points=['1100']",
+      "ambient_only": false,
+      "selected_pressure_points": [
+        "1100"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\v1_same_gas_800ppm_two_rounds_20260415_084139"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_ambient_only:workflow.selected_pressure_points=['1100']",
+      "ambient_only": false,
+      "selected_pressure_points": [
+        "1100"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\v1_same_gas_800ppm_two_rounds_20260415_091435"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:point_sample_filenames_include_non_ambient",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "D:\\gas_calibrator\\logs\\verify20_postwrite_20260328\\分析仪汇总_气路_20260328_130438.xlsx",
+        "water": "D:\\gas_calibrator\\logs\\verify20_postwrite_20260328\\分析仪汇总_水路_20260328_130438.xlsx",
+        "combined": "D:\\gas_calibrator\\logs\\verify20_postwrite_20260328\\分析仪汇总_气路_20260328_130438.xlsx"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\verify20_postwrite_20260328\\samples_20260328_130438.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\verify20_postwrite_20260328"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_ambient_only:workflow.selected_pressure_points=['ambient', '1100', '1000', '900', '800', '700', '600']",
+      "ambient_only": false,
+      "selected_pressure_points": [
+        "ambient",
+        "1100",
+        "1000",
+        "900",
+        "800",
+        "700",
+        "600"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\verify_corrected_autodelivery_real_20260407_1"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_ambient_only:workflow.selected_pressure_points=['ambient', '1100', '1000', '900', '800', '700', '600']",
+      "ambient_only": false,
+      "selected_pressure_points": [
+        "ambient",
+        "1100",
+        "1000",
+        "900",
+        "800",
+        "700",
+        "600"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\verify_corrected_autodelivery_real_20260407_2"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_ambient_only:workflow.selected_pressure_points=['ambient', '1100', '1000', '900', '800', '700', '600']",
+      "ambient_only": false,
+      "selected_pressure_points": [
+        "ambient",
+        "1100",
+        "1000",
+        "900",
+        "800",
+        "700",
+        "600"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\verify_corrected_autodelivery_real_20260407_3"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_ambient_only:workflow.selected_pressure_points=['ambient', '1100', '1000', '900', '800', '700', '600']",
+      "ambient_only": false,
+      "selected_pressure_points": [
+        "ambient",
+        "1100",
+        "1000",
+        "900",
+        "800",
+        "700",
+        "600"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\verify_corrected_autodelivery_real_20260407_4"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_ambient_only:workflow.selected_pressure_points=['ambient', '1100', '1000', '900', '800', '700', '600']",
+      "ambient_only": false,
+      "selected_pressure_points": [
+        "ambient",
+        "1100",
+        "1000",
+        "900",
+        "800",
+        "700",
+        "600"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\verify_corrected_autodelivery_real_20260407_5\\分析仪汇总_20260407_181728.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\verify_corrected_autodelivery_real_20260407_5\\samples_20260407_181728.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\verify_corrected_autodelivery_real_20260407_5"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\verify_short_0c_h2o_1100_20260402\\分析仪汇总_20260402_015513.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\verify_short_0c_h2o_1100_20260402\\samples_20260402_015513.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\verify_short_0c_h2o_1100_20260402"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\verify_short_20260314_181418\\分析仪汇总_20260314_181418.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\verify_short_20260314_181418\\samples_20260314_181418.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\verify_short_20260314_181418"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_ambient_only:workflow.selected_pressure_points=['500']",
+      "ambient_only": false,
+      "selected_pressure_points": [
+        "500"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\logs\\verify_short_connect_probe_20260405_1"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\verify_short_manual_20260314_185022\\分析仪汇总_20260314_185025.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\verify_short_manual_20260314_185022\\samples_20260314_185025.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\verify_short_manual_20260314_185022"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\verify_short_neg10_co2_1100_20260401\\分析仪汇总_20260401_230931.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\verify_short_neg10_co2_1100_20260401\\samples_20260401_230931.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\verify_short_neg10_co2_1100_20260401"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_confirmed_ambient_only:no_confirming_ambient_evidence",
+      "ambient_only": false,
+      "selected_pressure_points": [],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": "D:\\gas_calibrator\\logs\\verify_short_neg10_co2_1100_20260402\\分析仪汇总_20260402_004441.csv"
+      },
+      "samples_path": "D:\\gas_calibrator\\logs\\verify_short_neg10_co2_1100_20260402\\samples_20260402_004441.csv",
+      "run_dir": "D:\\gas_calibrator\\logs\\verify_short_neg10_co2_1100_20260402"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_ambient_only:workflow.selected_pressure_points=['1100']",
+      "ambient_only": false,
+      "selected_pressure_points": [
+        "1100"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\results\\v1_real_smoke\\real_connect_check_co2_single_ga"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_ambient_only:workflow.selected_pressure_points=['1100']",
+      "ambient_only": false,
+      "selected_pressure_points": [
+        "1100"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\results\\v1_real_smoke\\real_connect_check_co2_single_ga_passive"
+    },
+    {
+      "status": "skipped",
+      "reason": "not_ambient_only:workflow.selected_pressure_points=['1100']",
+      "ambient_only": false,
+      "selected_pressure_points": [
+        "1100"
+      ],
+      "summary_sources": {
+        "gas": "",
+        "water": "",
+        "combined": ""
+      },
+      "samples_path": "",
+      "run_dir": "D:\\gas_calibrator\\results\\v1_real_smoke\\smoke_co2_sealed_1100_20260402"
+    }
+  ],
+  "failed_runs": [
+    {
+      "status": "failed",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260406_180137",
+      "ambient_only": true,
+      "ambient_reason": "workflow.selected_pressure_points=['ambient']",
+      "selected_pressure_points": [
+        "ambient"
+      ],
+      "reason": "recompute_failed:Not enough rows for fit: 0 < 7"
+    },
+    {
+      "status": "failed",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260407_185002",
+      "ambient_only": true,
+      "ambient_reason": "workflow.selected_pressure_points=['ambient']",
+      "selected_pressure_points": [
+        "ambient"
+      ],
+      "reason": "recompute_failed:Not enough rows for fit: 0 < 7"
+    },
+    {
+      "status": "failed",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260408_192209",
+      "ambient_only": true,
+      "ambient_reason": "workflow.selected_pressure_points=['ambient']",
+      "selected_pressure_points": [
+        "ambient"
+      ],
+      "reason": "recompute_failed:staging_water_summary_empty"
+    },
+    {
+      "status": "failed",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260409_113143",
+      "ambient_only": true,
+      "ambient_reason": "workflow.selected_pressure_points=['ambient']",
+      "selected_pressure_points": [
+        "ambient"
+      ],
+      "reason": "recompute_failed:staging_water_summary_empty"
+    },
+    {
+      "status": "failed",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260409_133512",
+      "ambient_only": true,
+      "ambient_reason": "workflow.selected_pressure_points=['ambient']",
+      "selected_pressure_points": [
+        "ambient"
+      ],
+      "reason": "recompute_failed:staging_water_summary_empty"
+    },
+    {
+      "status": "failed",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260410_084934",
+      "ambient_only": true,
+      "ambient_reason": "workflow.selected_pressure_points=['ambient']",
+      "selected_pressure_points": [
+        "ambient"
+      ],
+      "reason": "recompute_failed:staging_water_summary_empty"
+    },
+    {
+      "status": "failed",
+      "run_dir": "D:\\gas_calibrator\\logs\\run_20260411_165756",
+      "ambient_only": true,
+      "ambient_reason": "workflow.selected_pressure_points=['ambient']",
+      "selected_pressure_points": [
+        "ambient"
+      ],
+      "reason": "recompute_failed:staging_water_summary_empty"
+    }
+  ]
+}

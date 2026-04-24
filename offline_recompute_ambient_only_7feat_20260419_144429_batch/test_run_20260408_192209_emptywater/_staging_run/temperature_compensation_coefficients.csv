@@ -1,0 +1,9 @@
+analyzer_id,fit_type,senco_channel,ref_temp_source,n_points,fit_ok,availability,polynomial_degree_used,rmse,max_abs_error,A,B,C,D,command_string
+GA01,cell,SENCO7,env,1,False,available,0,,,0.0,1.0,0.0,0.0,"SENCO7,YGAS,FFF,0.00000e00,1.00000e00,0.00000e00,0.00000e00"
+GA01,shell,SENCO8,env,1,False,available,0,,,0.0,1.0,0.0,0.0,"SENCO8,YGAS,FFF,0.00000e00,1.00000e00,0.00000e00,0.00000e00"
+GA02,cell,SENCO7,env,1,False,available,0,,,0.0,1.0,0.0,0.0,"SENCO7,YGAS,FFF,0.00000e00,1.00000e00,0.00000e00,0.00000e00"
+GA02,shell,SENCO8,env,1,False,available,0,,,0.0,1.0,0.0,0.0,"SENCO8,YGAS,FFF,0.00000e00,1.00000e00,0.00000e00,0.00000e00"
+GA03,cell,SENCO7,none,0,False,unavailable,0,,,0.0,1.0,0.0,0.0,
+GA03,shell,SENCO8,none,0,False,unavailable,0,,,0.0,1.0,0.0,0.0,
+GA04,cell,SENCO7,env,1,False,available,0,,,0.0,1.0,0.0,0.0,"SENCO7,YGAS,FFF,0.00000e00,1.00000e00,0.00000e00,0.00000e00"
+GA04,shell,SENCO8,env,1,False,available,0,,,0.0,1.0,0.0,0.0,"SENCO8,YGAS,FFF,0.00000e00,1.00000e00,0.00000e00,0.00000e00"

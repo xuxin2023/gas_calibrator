@@ -1,0 +1,152 @@
+# ambient-only offline recompute summary
+
+- git branch: codex/v1-v2-offline-alignment-review-surface
+- git head: e829f3d9c51e6ee537029547c1d9f86d609a3d1e
+- scanned runs: 136
+- processed: 0
+- skipped: 127
+- failed: 9
+- forced model_features: intercept,R,R2,R3,T,T2,RT
+
+## processed runs
+- none
+
+## skipped runs
+- D:\gas_calibrator\logs\codex_quick_smoke_co2_recheck_20260331_1015: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\codex_v1_real_smoke_tiny_20c_even500_20260404_budgetwarn: not_ambient_only:workflow.selected_pressure_points=['ambient', '500']
+- D:\gas_calibrator\logs\pressure_recalc_20260412_110637: missing_required_files:gas_summary,water_summary,samples_csv
+- D:\gas_calibrator\logs\real_connect_check_co2: not_ambient_only:workflow.selected_pressure_points=['1100']
+- D:\gas_calibrator\logs\run_20260311_165216: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260311_170210: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260311_170848: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260311_172753: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260311_180005: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260312_084507: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260312_091751: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260312_133501: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260312_144036: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260312_144640: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260312_152308: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260312_154559: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260312_160017: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260312_195056: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260312_195436: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260312_200824: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260312_202722: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260312_211957: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260313_131046: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260313_140309: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260313_145309: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260313_183939: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260313_203923: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260313_205555: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260313_210030: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260313_210813: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260313_211226: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260313_212022: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260313_213219: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260313_224747: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260313_230358: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260314_090940: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260314_091036: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260314_105011: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260314_123632: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260314_130327: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260314_204200: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260314_205437: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260314_210146: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260314_211243: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260315_203844: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260316_070711: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260316_094111: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260317_091609: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260317_092228: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260317_101622: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260317_101710: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260317_102055: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260317_102550: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260317_102803: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260317_105943: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260317_133934: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260317_161837: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260317_175654: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260317_175941: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260318_102900: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260318_170225: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260319_203930: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260320_093112: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260320_181819: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260320_225337: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260320_230716: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260321_003000: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260325_191512: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260326_124218: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260326_124250: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260326_124353: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260326_154915: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260326_155155: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260326_163451: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260326_165119: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260327_015125: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260327_130918: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260328_092654: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260328_201036: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260328_210143: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260328_214158: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260328_235028: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260329_005019: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260331_003030: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260401_010836: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\run_20260401_013351: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\run_20260403_011754: not_ambient_only:workflow.selected_pressure_points=['ambient', '500']
+- D:\gas_calibrator\logs\run_20260403_012217: not_ambient_only:workflow.selected_pressure_points=['ambient', '500']
+- D:\gas_calibrator\logs\run_20260403_013130: not_ambient_only:workflow.selected_pressure_points=['ambient', '500']
+- D:\gas_calibrator\logs\run_20260403_014609: not_ambient_only:workflow.selected_pressure_points=['ambient', '500']
+- D:\gas_calibrator\logs\run_20260403_014845: not_ambient_only:workflow.selected_pressure_points=['ambient', '500']
+- D:\gas_calibrator\logs\run_20260404_205450: not_ambient_only:workflow.selected_pressure_points=['ambient', '500']
+- D:\gas_calibrator\logs\run_20260404_234809: not_ambient_only:workflow.selected_pressure_points=['ambient', '500']
+- D:\gas_calibrator\logs\run_20260405_182942: not_ambient_only:workflow.selected_pressure_points=['ambient', '500']
+- D:\gas_calibrator\logs\run_20260405_230229: not_ambient_only:workflow.selected_pressure_points=['ambient', '500']
+- D:\gas_calibrator\logs\run_20260407_183756: missing_required_files:gas_summary,water_summary,samples_csv
+- D:\gas_calibrator\logs\run_20260408_142218: missing_required_files:gas_summary,water_summary,samples_csv
+- D:\gas_calibrator\logs\run_20260408_145017: missing_required_files:gas_summary,water_summary,samples_csv
+- D:\gas_calibrator\logs\run_20260408_145823: missing_required_files:gas_summary,water_summary,samples_csv
+- D:\gas_calibrator\logs\run_20260408_150443: missing_required_files:gas_summary,water_summary,samples_csv
+- D:\gas_calibrator\logs\run_20260408_151559: missing_required_files:gas_summary,water_summary,samples_csv
+- D:\gas_calibrator\logs\run_20260408_151803: missing_required_files:gas_summary,water_summary,samples_csv
+- D:\gas_calibrator\logs\run_20260408_170747: missing_required_files:gas_summary,water_summary,samples_csv
+- D:\gas_calibrator\logs\run_20260408_172551: missing_required_files:gas_summary,water_summary,samples_csv
+- D:\gas_calibrator\logs\run_20260408_173224: missing_required_files:gas_summary,water_summary,samples_csv
+- D:\gas_calibrator\logs\run_20260408_173723: missing_required_files:gas_summary,water_summary,samples_csv
+- D:\gas_calibrator\logs\run_20260408_175737: missing_required_files:gas_summary,water_summary,samples_csv
+- D:\gas_calibrator\logs\run_20260411_145324: missing_required_files:gas_summary,water_summary,samples_csv
+- D:\gas_calibrator\logs\runtime_temp_fix\runtime-temp-fix-v1\run_20260410_132440: missing_required_files:gas_summary,water_summary
+- D:\gas_calibrator\logs\v1_same_gas_800ppm_two_rounds_20260415_083734: not_ambient_only:workflow.selected_pressure_points=['1100']
+- D:\gas_calibrator\logs\v1_same_gas_800ppm_two_rounds_20260415_084139: not_ambient_only:workflow.selected_pressure_points=['1100']
+- D:\gas_calibrator\logs\v1_same_gas_800ppm_two_rounds_20260415_091435: not_ambient_only:workflow.selected_pressure_points=['1100']
+- D:\gas_calibrator\logs\verify20_postwrite_20260328: not_confirmed_ambient_only:point_sample_filenames_include_non_ambient
+- D:\gas_calibrator\logs\verify_corrected_autodelivery_real_20260407_1: not_ambient_only:workflow.selected_pressure_points=['ambient', '1100', '1000', '900', '800', '700', '600']
+- D:\gas_calibrator\logs\verify_corrected_autodelivery_real_20260407_2: not_ambient_only:workflow.selected_pressure_points=['ambient', '1100', '1000', '900', '800', '700', '600']
+- D:\gas_calibrator\logs\verify_corrected_autodelivery_real_20260407_3: not_ambient_only:workflow.selected_pressure_points=['ambient', '1100', '1000', '900', '800', '700', '600']
+- D:\gas_calibrator\logs\verify_corrected_autodelivery_real_20260407_4: not_ambient_only:workflow.selected_pressure_points=['ambient', '1100', '1000', '900', '800', '700', '600']
+- D:\gas_calibrator\logs\verify_corrected_autodelivery_real_20260407_5: not_ambient_only:workflow.selected_pressure_points=['ambient', '1100', '1000', '900', '800', '700', '600']
+- D:\gas_calibrator\logs\verify_short_0c_h2o_1100_20260402: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\verify_short_20260314_181418: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\verify_short_connect_probe_20260405_1: not_ambient_only:workflow.selected_pressure_points=['500']
+- D:\gas_calibrator\logs\verify_short_manual_20260314_185022: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\verify_short_neg10_co2_1100_20260401: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\logs\verify_short_neg10_co2_1100_20260402: not_confirmed_ambient_only:no_confirming_ambient_evidence
+- D:\gas_calibrator\results\v1_real_smoke\real_connect_check_co2_single_ga: not_ambient_only:workflow.selected_pressure_points=['1100']
+- D:\gas_calibrator\results\v1_real_smoke\real_connect_check_co2_single_ga_passive: not_ambient_only:workflow.selected_pressure_points=['1100']
+- D:\gas_calibrator\results\v1_real_smoke\smoke_co2_sealed_1100_20260402: not_ambient_only:workflow.selected_pressure_points=['1100']
+
+## failed runs
+- D:\gas_calibrator\logs\run_20260406_180137: recompute_failed:Not enough rows for fit: 0 < 7
+- D:\gas_calibrator\logs\run_20260407_185002: recompute_failed:Not enough rows for fit: 0 < 7
+- D:\gas_calibrator\logs\run_20260408_192209: recompute_failed:未找到气路/水路汇总文件: D:\gas_calibrator\logs\run_20260408_192209
+- D:\gas_calibrator\logs\run_20260409_113143: recompute_failed:未找到气路/水路汇总文件: D:\gas_calibrator\logs\run_20260409_113143
+- D:\gas_calibrator\logs\run_20260409_133512: recompute_failed:未找到气路/水路汇总文件: D:\gas_calibrator\logs\run_20260409_133512
+- D:\gas_calibrator\logs\run_20260410_084934: recompute_failed:未找到气路/水路汇总文件: D:\gas_calibrator\logs\run_20260410_084934
+- D:\gas_calibrator\logs\run_20260410_132440: recompute_failed:cannot insert Analyzer, already exists
+- D:\gas_calibrator\logs\run_20260411_165756: recompute_failed:未找到气路/水路汇总文件: D:\gas_calibrator\logs\run_20260411_165756
+- D:\gas_calibrator\logs\run_20260411_204123: recompute_failed:cannot insert Analyzer, already exists

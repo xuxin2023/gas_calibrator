@@ -1,0 +1,8 @@
+﻿Analyzer,Port,Baudrate,Timeout,ConfiguredDeviceId,ActiveSend,FtdHz,AverageFilter,LiveDeviceId,Raw,Error
+GA01,COM1,115200,0.6,000,False,1,49,,,
+GA02,COM2,115200,0.6,000,False,1,49,,,
+GA03,COM3,115200,0.6,000,False,1,49,,,
+GA04,COM4,115200,0.6,000,False,1,49,,,
+GA05,COM5,115200,0.6,000,False,1,49,,,
+GA06,COM6,115200,0.6,000,False,1,49,,,
+GA07,COM7,115200,0.6,000,False,1,49,,,
