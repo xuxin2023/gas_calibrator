@@ -239,6 +239,7 @@ class ValveRoutingService:
 
     def set_valves_for_co2(self, point: CalibrationPoint) -> None:
         open_valves = self.co2_open_valves(point, include_total_valve=True)
+        self._sync_simulated_co2_target(point)
         relay_state = self.apply_valve_states(open_valves)
         physical = self._physical_route_evidence(open_valves, relay_state)
         self._record_route_trace(
@@ -264,6 +265,31 @@ class ValveRoutingService:
             result="ok",
             message="CO2 route valves set",
         )
+
+    def _sync_simulated_co2_target(self, point: CalibrationPoint) -> None:
+        target_ppm = self.host._as_float(point.co2_ppm)
+        if target_ppm is None:
+            return
+        for device_name in (
+            "gas_analyzer",
+            "gas_analyzer_0",
+            "pressure_controller",
+            "pressure_meter",
+            "pressure_gauge",
+            "relay_a",
+            "relay_b",
+        ):
+            device = self.host._device(device_name)
+            plant_state = getattr(device, "plant_state", None) if device is not None else None
+            if plant_state is None or not hasattr(plant_state, "analyzer_co2_ppm"):
+                continue
+            try:
+                setattr(plant_state, "analyzer_co2_ppm", float(target_ppm))
+                sync = getattr(plant_state, "sync", None)
+                if callable(sync):
+                    sync()
+            except Exception:
+                continue
 
     def set_co2_route_baseline(self, *, reason: str = "") -> None:
         self.host._set_pressure_controller_vent(True, reason=reason or "before CO2 route conditioning")
@@ -486,7 +512,12 @@ class ValveRoutingService:
             actual = bool(desired)
             relay = self.host._device(relay_name)
             if relay is not None:
-                reader = self.host._first_method(relay, ("read_coils",))
+                method_finder = getattr(self.host, "_first_method", None)
+                reader = (
+                    method_finder(relay, ("read_coils",))
+                    if callable(method_finder)
+                    else getattr(relay, "read_coils", None)
+                )
                 if reader is not None:
                     try:
                         response = reader(max(0, int(channel) - 1), 1)

@@ -65,9 +65,18 @@ def test_coefficient_service_exports_ratio_poly_report(tmp_path: Path, monkeypat
 
     output_path = result_store.run_dir / "calibration_coefficients.xlsx"
 
-    def fake_export(samples, *, out_dir, coeff_cfg):
+    def fake_export(
+        samples,
+        *,
+        out_dir,
+        coeff_cfg,
+        expected_analyzers=None,
+        reference_on_aligned_rows=True,
+    ):
         assert samples == results
         assert out_dir == result_store.run_dir
+        assert expected_analyzers == []
+        assert reference_on_aligned_rows is True
         output_path.write_text("ok", encoding="utf-8")
         return output_path
 

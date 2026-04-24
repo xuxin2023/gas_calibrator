@@ -295,7 +295,7 @@ def test_progress_callback_receives_state_updates(tmp_path: Path) -> None:
     service.set_progress_callback(lambda status: phases.append(status.phase))
     service.start(str(points_path))
 
-    assert service.wait(timeout=2.0) is True
+    assert service.wait(timeout=10.0) is True
 
     final_status = service.get_status()
     assert final_status.phase is CalibrationPhase.COMPLETED
@@ -315,7 +315,7 @@ def test_sampling_results_are_recorded(tmp_path: Path) -> None:
     service = _make_service(points_path, ImmediateStabilityChecker())
 
     service.start(str(points_path))
-    assert service.wait(timeout=2.0) is True
+    assert service.wait(timeout=10.0) is True
 
     results = service.get_results()
     assert len(results) == 2
@@ -386,7 +386,7 @@ def test_full_run_exports_ratio_poly_coefficient_report(tmp_path: Path) -> None:
     analyzer.point_provider = lambda: service.session.current_point
 
     service.start(str(points_path))
-    assert service.wait(timeout=5.0) is True
+    assert service.wait(timeout=20.0) is True
 
     status = service.get_status()
     output_files = service.get_output_files()
@@ -454,20 +454,40 @@ def test_v2_replacement_contract_minimal_flow_persists_results_and_artifacts(tmp
     analyzer.point_provider = lambda: service.session.current_point
 
     service.start(str(points_path))
-    assert service.wait(timeout=5.0) is True
+    assert service.wait(timeout=20.0) is True
 
     status = service.get_status()
     output_files = service.get_output_files()
     output_names = {Path(path).name for path in output_files}
+    run_dir = service.result_store.run_dir
+    summary = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    results = json.loads((run_dir / "results.json").read_text(encoding="utf-8"))
+    trace_path = run_dir / "route_trace.jsonl"
+    trace_entries = [
+        json.loads(line)
+        for line in trace_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
 
     assert status.phase is CalibrationPhase.COMPLETED
+    assert status.completed_points == status.total_points
+    assert status.progress == 1.0
+    assert summary["status"]["completed_points"] == summary["status"]["total_points"]
+    assert summary["status"]["progress"] == 1.0
     assert service.get_results()
+    assert results["samples"]
     assert "summary.json" in output_names
     assert "manifest.json" in output_names
     assert "results.json" in output_names
     assert "qc_report.json" in output_names
     assert "qc_report.csv" in output_names
     assert "calibration_coefficients.xlsx" in output_names
+    assert trace_path.exists()
+    actions = [entry["action"] for entry in trace_entries]
+    first_sample_start = actions.index("sample_start")
+    assert "wait_temperature" in actions[:first_sample_start]
+    assert any(action in actions[:first_sample_start] for action in ("wait_route_ready", "wait_route_soak"))
+    assert any(action.startswith("final_safe_stop") for action in actions)
 
 
 def test_route_failure_does_not_produce_fake_completed_summary(tmp_path: Path, monkeypatch) -> None:

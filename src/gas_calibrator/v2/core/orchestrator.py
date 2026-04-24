@@ -479,8 +479,8 @@ class WorkflowOrchestrator:
     ) -> None:
         self.qc_service.run_point_qc(point, phase=phase, point_tag=point_tag)
 
-    def _export_qc_report(self) -> None:
-        self.qc_service.export_qc_report()
+    def _export_qc_report(self) -> dict[str, str]:
+        return self.qc_service.export_qc_report()
 
     def generate_ai_anomaly_report(self, advisor: Any) -> str:
         return self.ai_explanation_service.generate_ai_anomaly_report(advisor)
@@ -543,8 +543,8 @@ class WorkflowOrchestrator:
     def _sync_results_to_storage(self) -> None:
         self.artifact_service.sync_results_to_storage()
 
-    def _export_coefficient_report(self) -> None:
-        self.coefficient_service.export_coefficient_report()
+    def _export_coefficient_report(self) -> dict[str, str]:
+        return self.coefficient_service.export_coefficient_report()
 
     def _anomaly_alarm_payload(self) -> list[dict[str, Any]]:
         alarms: list[dict[str, Any]] = []
@@ -751,8 +751,8 @@ class WorkflowOrchestrator:
     def _capture_temperature_calibration_snapshot(self, point: CalibrationPoint, *, route_type: str) -> bool:
         return self.temperature_control_service.capture_temperature_calibration_snapshot(point, route_type=route_type)
 
-    def _export_temperature_snapshots(self) -> None:
-        self.temperature_control_service.export_temperature_snapshots()
+    def _export_temperature_snapshots(self) -> dict[str, str]:
+        return self.temperature_control_service.export_temperature_snapshots()
 
     def _prepare_humidity_generator(self, point: CalibrationPoint) -> None:
         self.humidity_generator_service.prepare_humidity_generator(point)

@@ -32,11 +32,14 @@ class CoefficientService:
         if not isinstance(summary_alignment_cfg, dict):
             summary_alignment_cfg = {}
         reference_on_aligned_rows = bool(summary_alignment_cfg.get("reference_on_aligned_rows", True))
-        expected_analyzers = [
-            str(label or "").strip().upper()
-            for label, _, _ in self.host._all_gas_analyzers()
-            if str(label or "").strip()
-        ]
+        expected_analyzers: list[str] = []
+        analyzer_reader = getattr(self.host, "_all_gas_analyzers", None)
+        if callable(analyzer_reader):
+            expected_analyzers = [
+                str(label or "").strip().upper()
+                for label, _, _ in analyzer_reader()
+                if str(label or "").strip()
+            ]
         try:
             output_path = export_ratio_poly_report(
                 self.host.get_results(),
