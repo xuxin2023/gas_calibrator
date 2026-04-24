@@ -1257,26 +1257,14 @@ def _prepare_co2_a_staged_pressure_ready_gate(
     pace: Any,
 ) -> Dict[str, Any]:
     target_hpa = float(getattr(point, "target_pressure_hpa", 0.0) or 0.0)
-    route_key = str(
-        (
-            runner._source_stage_key_for_point(point, phase="co2")
-            if hasattr(runner, "_source_stage_key_for_point")
-            else ""
-        )
-        or "co2_a"
-    ).strip()
-    exit_flowthrough = getattr(runner, "exit_continuous_atmosphere_flowthrough", None)
-    if callable(exit_flowthrough):
-        try:
-            exit_flowthrough(
-                route_key,
-                point=point,
-                phase="co2",
-                point_tag="live_route_sync_co2_a_staged_source_final_pressure_ready",
-                reason="co2_a staged source/final dry-run pressure-ready gate",
-            )
-        except Exception as exc:
-            return {"ok": False, "reason": f"PressureReadyFlowExitFailed:{exc}"}
+    exit_result = _exit_co2_a_flowthrough_before_pressure_phase(
+        runner,
+        point,
+        reason="co2_a staged source/final dry-run pressure-ready gate",
+        only_if_active=True,
+    )
+    if not bool(exit_result.get("ok")):
+        return exit_result
 
     ensure_control_ready = getattr(runner, "_ensure_pressure_controller_ready_for_control", None)
     if callable(ensure_control_ready):
@@ -1316,6 +1304,41 @@ def _prepare_co2_a_staged_pressure_ready_gate(
             enable_control_output()
         except Exception as exc:
             return {"ok": False, "reason": f"PressureControllerOutputEnableFailed:{exc}"}
+    return {"ok": True, "reason": ""}
+
+
+def _exit_co2_a_flowthrough_before_pressure_phase(
+    runner: CalibrationRunner,
+    point: CalibrationPoint,
+    *,
+    reason: str,
+    only_if_active: bool = False,
+) -> Dict[str, Any]:
+    route_key = str(
+        (
+            runner._source_stage_key_for_point(point, phase="co2")
+            if hasattr(runner, "_source_stage_key_for_point")
+            else ""
+        )
+        or "co2_a"
+    ).strip()
+    if only_if_active:
+        snapshot_getter = getattr(runner, "_continuous_atmosphere_state_snapshot", None)
+        state = snapshot_getter() if callable(snapshot_getter) else {}
+        if not bool((state or {}).get("active")) and not bool((state or {}).get("route_flow_active")):
+            return {"ok": True, "reason": ""}
+    exit_flowthrough = getattr(runner, "exit_continuous_atmosphere_flowthrough", None)
+    if callable(exit_flowthrough):
+        try:
+            exit_flowthrough(
+                route_key,
+                point=point,
+                phase="co2",
+                point_tag="live_route_sync_co2_a_staged_source_final_pressure_ready",
+                reason=reason,
+            )
+        except Exception as exc:
+            return {"ok": False, "reason": f"PressureReadyFlowExitFailed:{exc}"}
     return {"ok": True, "reason": ""}
 
 
@@ -2850,6 +2873,14 @@ def _run_co2_a_pressure_switch_smoke_no_temp_wait(
         or route_guard_summary.get("route_pressure_guard_reason")
         or ""
     ).strip()
+    if route_open_ok and not bool(execution_profile.get("ambient_flowthrough_only")) and not abort_reason:
+        exit_result = _exit_co2_a_flowthrough_before_pressure_phase(
+            runner,
+            point,
+            reason="co2_a pressure-switch smoke flush complete before pressure phase",
+        )
+        if not bool(exit_result.get("ok")):
+            abort_reason = str(exit_result.get("reason") or "PressureReadyFlowExitFailed")
 
     pressure_point_results: List[Dict[str, Any]] = []
     pressure_points_completed: List[float] = []
@@ -2871,7 +2902,7 @@ def _run_co2_a_pressure_switch_smoke_no_temp_wait(
             except Exception as exc:
                 abort_reason = f"AmbientFlowthroughMaintainFailed:{exc}"
     sealed_control_trace_started = False
-    if route_open_ok and not bool(execution_profile.get("ambient_flowthrough_only")):
+    if route_open_ok and not bool(execution_profile.get("ambient_flowthrough_only")) and not abort_reason:
         for offset, target_hpa in enumerate(pressure_targets_hpa, start=1):
             point_for_target = _build_co2_point(args, index=9018 + offset, co2_ppm=600.0, co2_group="A")
             point_for_target.target_pressure_hpa = float(target_hpa)

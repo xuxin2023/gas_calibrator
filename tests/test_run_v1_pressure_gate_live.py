@@ -970,6 +970,17 @@ def test_1100_preseal_buildup_after_flush_exit_is_not_flush_pressure_failure(tmp
     assert result["preseal_pressure_buildup_threshold_reached"] is True
     assert result["preseal_pressure_buildup_reason"] == "prepare_for_1100_seal_control"
     assert result["sealed_control_started"] is True
+    exit_index = next(i for i, call in enumerate(runner.calls) if call[0] == "exit_flowthrough")
+    preseal_index = next(
+        i for i, call in enumerate(runner.calls) if call[0] == "trace" and call[1] == "preseal_buildup_started"
+    )
+    sealed_index = next(
+        i for i, call in enumerate(runner.calls) if call[0] == "trace" and call[1] == "sealed_control_started"
+    )
+    control_ready_index = next(i for i, call in enumerate(runner.calls) if call[0] == "control_ready")
+    assert exit_index < preseal_index < sealed_index < control_ready_index
+    assert runner._continuous_state["active"] is False
+    assert runner._continuous_state["route_flow_active"] is False
     stages = [str(row.get("trace_stage") or "") for row in runner.trace_rows]
     assert "preseal_buildup_started" in stages
     assert "preseal_pressure_buildup_for_1100_begin" in stages
@@ -1010,6 +1021,11 @@ def test_sealed_multi_point_switching_marks_vent_forbidden_boundary(tmp_path: Pa
     assert result["sealed_switch_vent_forbidden"] is True
     assert result["vent_command_seen_after_seal"] is False
     assert result["vent_command_seen_during_sealed_switch"] is False
+    sealed_index = next(
+        i for i, call in enumerate(runner.calls) if call[0] == "trace" and call[1] == "sealed_control_started"
+    )
+    assert all(call[0] != "keepalive" for call in runner.calls[sealed_index + 1 :])
+    assert all(call[0] != "vent" for call in runner.calls[sealed_index + 1 :])
     stages = [str(row.get("trace_stage") or "") for row in runner.trace_rows]
     assert stages.count("sealed_pressure_switch_started") == 3
     assert stages.count("sealed_pressure_switch_completed") == 3

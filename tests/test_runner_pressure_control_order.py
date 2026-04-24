@@ -1177,9 +1177,134 @@ def test_synchronized_atmosphere_flush_sends_fresh_vent_after_route_stage(tmp_pa
     logger.close()
 
     fresh_vent_calls = [call for call in pace.calls if call == ("vent", True)]
-    assert len(fresh_vent_calls) == 5
+    assert len(fresh_vent_calls) >= 5
     trace_rows = _load_pressure_trace_rows(logger)
-    assert sum(1 for row in trace_rows if row["trace_stage"] == "route_open_fresh_vent_begin") == 4
+    assert sum(1 for row in trace_rows if row["trace_stage"] == "route_open_fresh_vent_begin") >= 4
+
+
+def test_route_open_guard_repeats_old_pace_vent_keepalive_during_flowthrough(tmp_path: Path) -> None:
+    cfg = _route_open_guard_cfg()
+    cfg["workflow"]["pressure"]["route_open_guard_monitor_s"] = 0.28
+    cfg["workflow"]["pressure"]["route_open_guard_poll_s"] = 0.02
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceOldCompletedBaselineRequiresFreshVent()
+    gauge = _FakeGaugeSequence([1012.0] * 256)
+    runner = CalibrationRunner(cfg, {"pace": pace, "pressure_gauge": gauge}, logger, lambda *_: None, lambda *_: None)
+    runner._continuous_atmosphere_keepalive_interval_s = lambda: 0.03
+    point = _co2_test_point(ppm=600.0)
+
+    runner.enter_continuous_atmosphere_flowthrough(
+        "co2_a",
+        point=point,
+        phase="co2",
+        point_tag="unit_repeated_keepalive",
+        phase_name="SynchronizedAtmosphereFlush",
+        reason="unit repeated keepalive begin",
+    )
+    runner._apply_valve_states([8, 11, 7, 4])
+    ok, summary = runner._run_route_open_pressure_guard(
+        point,
+        phase="co2",
+        log_context="unit repeated keepalive",
+        point_tag="unit_repeated_keepalive",
+        stage_label="8|11|7|4",
+    )
+    logger.close()
+
+    assert ok is True
+    assert summary["abort_reason"] == ""
+    assert summary["continuous_keepalive_refresh_count"] >= 1
+    assert sum(1 for call in pace.calls if call == ("vent", True)) >= 2
+    assert ("vent", False) not in pace.calls
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["continuous_atmosphere_active"] is True
+    assert state["route_flow_active"] is True
+    assert state["vent_keepalive_count"] >= 2
+    assert state["pace_vent_command_sent"] == ":SOUR:PRES:LEV:IMM:AMPL:VENT 1"
+    assert state["pace_vent_status_returned"] == 2
+    trace_rows = _load_pressure_trace_rows(logger)
+    assert sum(1 for row in trace_rows if row["trace_stage"] == "route_open_fresh_vent_begin") >= 2
+
+
+def test_continuous_atmosphere_keepalive_stops_when_sealed_guard_active(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceOldCompletedBaselineRequiresFreshVent()
+    runner = CalibrationRunner(_fresh_vent_cfg(), {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+    point = _co2_test_point(ppm=600.0)
+    runner._continuous_atmosphere_state = {
+        "active": True,
+        "route_flow_active": True,
+        "route_key": "co2_a",
+        "phase_name": "ContinuousAtmosphereFlowThrough",
+        "pressure_mode": CalibrationRunner._PRESSURE_MODE_ATMOSPHERE_FLUSH,
+        "generation": 1,
+        "keepalive_count": 1,
+        "last_keepalive_ts": time.time() - 10.0,
+        "last_keepalive_reason": "unit stale flowthrough",
+        "last_keepalive_summary": {},
+    }
+    runner._activate_sealed_no_vent_guard(
+        point=point,
+        phase="co2",
+        guard_phase="PressureSetpointHold",
+        reason="unit sealed control",
+    )
+
+    ok, state = runner.maintain_continuous_atmosphere_flowthrough(
+        "co2_a",
+        point=point,
+        phase="co2",
+        point_tag="unit_sealed_guard",
+        reason="unit sealed guard",
+        force=True,
+    )
+    logger.close()
+
+    assert ok is False
+    assert state["abort_reason"] == "KeepaliveBlockedBySealedNoVentGuard"
+    assert runner._continuous_atmosphere_state_snapshot()["active"] is False
+    assert runner._continuous_atmosphere_state_snapshot()["route_flow_active"] is False
+    assert ("vent", True) not in pace.calls
+
+
+def test_continuous_atmosphere_keepalive_requires_open_route_pace_state(tmp_path: Path) -> None:
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceOldCompletedBaselineRequiresFreshVent()
+    pace.output_state = 1
+    pace.isolation_state = 1
+    runner = CalibrationRunner(_fresh_vent_cfg(), {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+    point = _co2_test_point(ppm=600.0)
+    runner._last_atmosphere_gate_summary = {"ambient_hpa": 1012.0, "atmosphere_ready": True}
+    runner._continuous_atmosphere_state = {
+        "active": True,
+        "route_flow_active": True,
+        "route_key": "co2_a",
+        "phase_name": "ContinuousAtmosphereFlowThrough",
+        "pressure_mode": CalibrationRunner._PRESSURE_MODE_ATMOSPHERE_FLUSH,
+        "generation": 1,
+        "keepalive_count": 1,
+        "last_keepalive_ts": time.time() - 10.0,
+        "last_keepalive_reason": "unit unsafe route",
+        "last_keepalive_summary": {},
+    }
+
+    ok, state = runner.maintain_continuous_atmosphere_flowthrough(
+        "co2_a",
+        point=point,
+        phase="co2",
+        point_tag="unit_open_route_required",
+        reason="unit open route required",
+        force=True,
+    )
+    logger.close()
+
+    assert ok is False
+    assert state["abort_reason"] == "ContinuousAtmosphereKeepaliveNotOpenRoute"
+    assert state["pace_output_state"] == 1
+    assert state["pace_isolation_state"] == 1
+    assert ("vent", True) not in pace.calls
+    trace_rows = _load_pressure_trace_rows(logger)
+    assert any(row["trace_stage"] == "continuous_atmosphere_keepalive_blocked" for row in trace_rows)
 
 
 def test_route_open_pressure_high_attempts_vent_recovery_before_abort(tmp_path: Path) -> None:
