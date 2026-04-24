@@ -46,6 +46,9 @@ LEGACY_V1_PRESEAL_WATCHLIST_EVIDENCE_SOURCE = (
 LEGACY_V1_AFTER_FULL_SEAL_WATCHLIST_EVIDENCE_SOURCE = (
     "local_trace_scan:62_old_v1_after_full_seal_control_ready_vent_status_3_to_in_limits_chains"
 )
+LEGACY_V1_AFTER_FULL_SEAL_OUTPUT_ENABLE_WATCHLIST_EVIDENCE_SOURCE = (
+    "local_trace_scan:42_old_v1_after_full_seal_output_enable_vent_status_3_to_in_limits_chains"
+)
 POST_SEAL_AIR_INGRESS_VALIDATION_DEFERRED = "deferred"
 SOURCE_FINAL_PRESSURE_JUMP_THRESHOLD_HPA = 10.0
 PRESEAL_1100_PRESSURE_BUILDUP_REASON = "prepare_for_1100_seal_control"
@@ -1160,6 +1163,22 @@ def _co2_a_sustained_atmosphere_diagnostics(
         rows,
         {"control_ready_check_watchlist_status_accepted"},
     )
+    output_enable_watchlist_seen_index = _trace_stage_index(
+        rows,
+        {"output_enable_watchlist_status_seen"},
+    )
+    output_enable_watchlist_accepted_index = _trace_stage_index(
+        rows,
+        {"output_enable_watchlist_status_accepted"},
+    )
+    output_enable_failed_watchlist_index = _trace_stage_index(
+        rows,
+        {"output_enable_failed_watchlist_status_3"},
+    )
+    output_enable_verified_index = _trace_stage_index(
+        rows,
+        {"output_enable_verified", "control_output_on_verified"},
+    )
     preseal_final_exit_required = bool(
         _first_bool("preseal_final_atmosphere_exit_required")
         or requested_1100
@@ -1348,6 +1367,75 @@ def _co2_a_sustained_atmosphere_diagnostics(
             else ""
         )
     )
+    output_enable_watchlist_status_phase = str(
+        _first_value("output_enable_watchlist_status_phase", "")
+        or _first_trace_value("output_enable_watchlist_status_phase", "")
+        or (
+            "after_full_seal"
+            if seal_transition_completed
+            and (
+                output_enable_watchlist_seen_index is not None
+                or output_enable_watchlist_accepted_index is not None
+                or output_enable_failed_watchlist_index is not None
+            )
+            else ""
+        )
+    )
+    output_enable_failed_with_watchlist_status_3 = bool(
+        _first_bool("output_enable_failed_with_watchlist_status_3")
+        or _first_trace_bool("output_enable_failed_with_watchlist_status_3")
+        or output_enable_failed_watchlist_index is not None
+    )
+    output_enable_watchlist_status_accepted = bool(
+        _first_bool("output_enable_watchlist_status_accepted")
+        or _first_trace_bool("output_enable_watchlist_status_accepted")
+        or output_enable_watchlist_accepted_index is not None
+    )
+    after_full_seal_output_enable_watchlist_status_seen = bool(
+        _first_bool("after_full_seal_output_enable_watchlist_status_seen")
+        or _first_trace_bool("after_full_seal_output_enable_watchlist_status_seen")
+        or (
+            output_enable_watchlist_status_phase == "after_full_seal"
+            and (
+                output_enable_watchlist_seen_index is not None
+                or output_enable_watchlist_accepted_index is not None
+                or output_enable_failed_watchlist_index is not None
+            )
+        )
+    )
+    after_full_seal_output_enable_watchlist_status_accepted = bool(
+        _first_bool("after_full_seal_output_enable_watchlist_status_accepted")
+        or _first_trace_bool("after_full_seal_output_enable_watchlist_status_accepted")
+        or (
+            after_full_seal_output_enable_watchlist_status_seen
+            and output_enable_watchlist_status_accepted
+        )
+    )
+    after_full_seal_output_enable_watchlist_status_reason = str(
+        _first_value("after_full_seal_output_enable_watchlist_status_reason", "")
+        or _first_trace_value("after_full_seal_output_enable_watchlist_status_reason", "")
+        or (
+            "after_full_seal_output_enable_watchlist_only_but_accepted"
+            if after_full_seal_output_enable_watchlist_status_accepted
+            else "after_full_seal_output_enable_watchlist_only_failure"
+            if after_full_seal_output_enable_watchlist_status_seen
+            else ""
+        )
+    )
+    legacy_v1_after_full_seal_output_enable_watchlist_evidence_found = bool(
+        _first_bool("legacy_v1_after_full_seal_output_enable_watchlist_evidence_found")
+        or _first_trace_bool("legacy_v1_after_full_seal_output_enable_watchlist_evidence_found")
+        or after_full_seal_output_enable_watchlist_status_accepted
+    )
+    legacy_v1_after_full_seal_output_enable_watchlist_evidence_source = str(
+        _first_value("legacy_v1_after_full_seal_output_enable_watchlist_evidence_source", "")
+        or _first_trace_value("legacy_v1_after_full_seal_output_enable_watchlist_evidence_source", "")
+        or (
+            LEGACY_V1_AFTER_FULL_SEAL_OUTPUT_ENABLE_WATCHLIST_EVIDENCE_SOURCE
+            if legacy_v1_after_full_seal_output_enable_watchlist_evidence_found
+            else ""
+        )
+    )
     preseal_stage_index = _trace_stage_index(
         rows,
         {
@@ -1442,6 +1530,24 @@ def _co2_a_sustained_atmosphere_diagnostics(
         "legacy_v1_after_full_seal_watchlist_evidence_source": (
             legacy_v1_after_full_seal_watchlist_evidence_source
         ),
+        "after_full_seal_output_enable_watchlist_status_seen": (
+            after_full_seal_output_enable_watchlist_status_seen
+        ),
+        "after_full_seal_output_enable_watchlist_status_accepted": (
+            after_full_seal_output_enable_watchlist_status_accepted
+        ),
+        "after_full_seal_output_enable_watchlist_status_reason": (
+            after_full_seal_output_enable_watchlist_status_reason
+        ),
+        "legacy_v1_after_full_seal_output_enable_watchlist_evidence_found": (
+            legacy_v1_after_full_seal_output_enable_watchlist_evidence_found
+        ),
+        "legacy_v1_after_full_seal_output_enable_watchlist_evidence_source": (
+            legacy_v1_after_full_seal_output_enable_watchlist_evidence_source
+        ),
+        "output_enable_watchlist_status_accepted": output_enable_watchlist_status_accepted,
+        "output_enable_watchlist_status_phase": output_enable_watchlist_status_phase,
+        "output_enable_failed_with_watchlist_status_3": output_enable_failed_with_watchlist_status_3,
         "pressure_in_limits_timeout_phase": pressure_in_limits_timeout_phase,
         "pressure_in_limits_timeout_reason_detail": pressure_in_limits_timeout_reason_detail,
         "sealed_control_started": sealed_control_started,
@@ -1834,6 +1940,30 @@ def _co2_a_sealed_pressure_control_gate(
                 "legacy_v1_after_full_seal_watchlist_evidence_source": str(
                     point_state.get("legacy_v1_after_full_seal_watchlist_evidence_source") or ""
                 ),
+                "after_full_seal_output_enable_watchlist_status_seen": bool(
+                    point_state.get("after_full_seal_output_enable_watchlist_status_seen")
+                ),
+                "after_full_seal_output_enable_watchlist_status_accepted": bool(
+                    point_state.get("after_full_seal_output_enable_watchlist_status_accepted")
+                ),
+                "after_full_seal_output_enable_watchlist_status_reason": str(
+                    point_state.get("after_full_seal_output_enable_watchlist_status_reason") or ""
+                ),
+                "legacy_v1_after_full_seal_output_enable_watchlist_evidence_found": bool(
+                    point_state.get("legacy_v1_after_full_seal_output_enable_watchlist_evidence_found")
+                ),
+                "legacy_v1_after_full_seal_output_enable_watchlist_evidence_source": str(
+                    point_state.get("legacy_v1_after_full_seal_output_enable_watchlist_evidence_source") or ""
+                ),
+                "output_enable_watchlist_status_accepted": bool(
+                    point_state.get("output_enable_watchlist_status_accepted")
+                ),
+                "output_enable_watchlist_status_phase": str(
+                    point_state.get("output_enable_watchlist_status_phase") or ""
+                ),
+                "output_enable_failed_with_watchlist_status_3": bool(
+                    point_state.get("output_enable_failed_with_watchlist_status_3")
+                ),
                 "control_ready_watchlist_status_accepted": bool(
                     point_state.get("control_ready_watchlist_status_accepted")
                 ),
@@ -1946,6 +2076,30 @@ def _co2_a_sealed_pressure_control_gate(
             ),
             "legacy_v1_after_full_seal_watchlist_evidence_source": str(
                 point_state.get("legacy_v1_after_full_seal_watchlist_evidence_source") or ""
+            ),
+            "after_full_seal_output_enable_watchlist_status_seen": bool(
+                point_state.get("after_full_seal_output_enable_watchlist_status_seen")
+            ),
+            "after_full_seal_output_enable_watchlist_status_accepted": bool(
+                point_state.get("after_full_seal_output_enable_watchlist_status_accepted")
+            ),
+            "after_full_seal_output_enable_watchlist_status_reason": str(
+                point_state.get("after_full_seal_output_enable_watchlist_status_reason") or ""
+            ),
+            "legacy_v1_after_full_seal_output_enable_watchlist_evidence_found": bool(
+                point_state.get("legacy_v1_after_full_seal_output_enable_watchlist_evidence_found")
+            ),
+            "legacy_v1_after_full_seal_output_enable_watchlist_evidence_source": str(
+                point_state.get("legacy_v1_after_full_seal_output_enable_watchlist_evidence_source") or ""
+            ),
+            "output_enable_watchlist_status_accepted": bool(
+                point_state.get("output_enable_watchlist_status_accepted")
+            ),
+            "output_enable_watchlist_status_phase": str(
+                point_state.get("output_enable_watchlist_status_phase") or ""
+            ),
+            "output_enable_failed_with_watchlist_status_3": bool(
+                point_state.get("output_enable_failed_with_watchlist_status_3")
             ),
             "control_ready_check_vent_status": point_state.get("control_ready_check_vent_status"),
             "control_ready_check_phase": str(point_state.get("control_ready_check_phase") or ""),
@@ -2675,6 +2829,30 @@ def _build_summary_extract(summary: Mapping[str, Any]) -> Dict[str, Any]:
         ),
         "legacy_v1_after_full_seal_watchlist_evidence_source": scenario_result.get(
             "legacy_v1_after_full_seal_watchlist_evidence_source"
+        ),
+        "after_full_seal_output_enable_watchlist_status_seen": scenario_result.get(
+            "after_full_seal_output_enable_watchlist_status_seen"
+        ),
+        "after_full_seal_output_enable_watchlist_status_accepted": scenario_result.get(
+            "after_full_seal_output_enable_watchlist_status_accepted"
+        ),
+        "after_full_seal_output_enable_watchlist_status_reason": scenario_result.get(
+            "after_full_seal_output_enable_watchlist_status_reason"
+        ),
+        "legacy_v1_after_full_seal_output_enable_watchlist_evidence_found": scenario_result.get(
+            "legacy_v1_after_full_seal_output_enable_watchlist_evidence_found"
+        ),
+        "legacy_v1_after_full_seal_output_enable_watchlist_evidence_source": scenario_result.get(
+            "legacy_v1_after_full_seal_output_enable_watchlist_evidence_source"
+        ),
+        "output_enable_watchlist_status_accepted": scenario_result.get(
+            "output_enable_watchlist_status_accepted"
+        ),
+        "output_enable_watchlist_status_phase": scenario_result.get(
+            "output_enable_watchlist_status_phase"
+        ),
+        "output_enable_failed_with_watchlist_status_3": scenario_result.get(
+            "output_enable_failed_with_watchlist_status_3"
         ),
         "control_ready_check_vent_status": scenario_result.get("control_ready_check_vent_status"),
         "control_ready_check_phase": scenario_result.get("control_ready_check_phase"),

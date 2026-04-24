@@ -318,6 +318,15 @@ class _FakePaceOldK0472PresealWatchlist(_FakePace):
         self.vent_status = 1 if on else 3
 
 
+class _FakePaceOldK0472OutputEnableWatchlist(_FakePaceOldK0472PresealWatchlist):
+    def set_output_mode_active(self):
+        self.calls.append(("mode_active",))
+
+    def enable_control_output(self):
+        self.calls.append(("enable_control_output_unexpected",))
+        raise AssertionError("narrow old K0472 output path should use set_output")
+
+
 class _FakePaceOutputOnTrappedThenReady(_FakePace):
     def __init__(self):
         super().__init__()
@@ -1657,7 +1666,7 @@ def test_old_k0472_accepts_after_full_seal_watchlist_3_only_for_control_ready_en
     pressure_cfg["co2_no_topoff_vent_off_open_wait_s"] = 0.0
     pressure_cfg["pressurize_wait_after_vent_off_s"] = 0.0
     logger = RunLogger(tmp_path)
-    pace = _FakePaceOldK0472PresealWatchlist()
+    pace = _FakePaceOldK0472OutputEnableWatchlist()
     runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
     runner._active_route_requires_preseal_topoff = False
     runner._current_open_valves = (4, 7, 8, 11)
@@ -1682,7 +1691,9 @@ def test_old_k0472_accepts_after_full_seal_watchlist_3_only_for_control_ready_en
     new_calls = pace.calls[len(calls_after_seal):]
     assert not any(call[0] == "vent_off" for call in new_calls)
     assert ("vent", False) not in new_calls
-    assert ("output_on",) in new_calls
+    assert ("mode_active",) in new_calls
+    assert ("output", True) in new_calls
+    assert ("enable_control_output_unexpected",) not in new_calls
     state = runner._point_runtime_state(point, phase="co2") or {}
     assert state["control_ready_check_phase"] == "after_full_seal"
     assert state["control_ready_failed_with_watchlist_status_3"] is False
@@ -1697,6 +1708,16 @@ def test_old_k0472_accepts_after_full_seal_watchlist_3_only_for_control_ready_en
     ]
     assert state["legacy_v1_after_full_seal_watchlist_evidence_found"] is True
     assert state["legacy_v1_after_full_seal_watchlist_evidence_source"]
+    assert state["after_full_seal_output_enable_watchlist_status_seen"] is True
+    assert state["after_full_seal_output_enable_watchlist_status_accepted"] is True
+    assert "after_full_seal_output_enable_watchlist_only_but_accepted" in state[
+        "after_full_seal_output_enable_watchlist_status_reason"
+    ]
+    assert state["legacy_v1_after_full_seal_output_enable_watchlist_evidence_found"] is True
+    assert state["legacy_v1_after_full_seal_output_enable_watchlist_evidence_source"]
+    assert state["output_enable_watchlist_status_accepted"] is True
+    assert state["output_enable_watchlist_status_phase"] == "after_full_seal"
+    assert state["output_enable_failed_with_watchlist_status_3"] is False
     assert state["pace_control_started_after_full_seal"] is True
     trace_rows = _load_pressure_trace_rows(logger)
     accepted_rows = [
@@ -1714,6 +1735,12 @@ def test_old_k0472_accepts_after_full_seal_watchlist_3_only_for_control_ready_en
     assert "control_ready_check_watchlist_status_accepted" in stages
     assert "control_ready_verified" in stages
     assert "control_ready_check_failed_watchlist_status_3" not in stages
+    assert "output_enable_started" in stages
+    assert "output_enable_watchlist_status_seen" in stages
+    assert "output_enable_watchlist_status_accepted" in stages
+    assert "output_enable_failed_watchlist_status_3" not in stages
+    assert "output_enable_verified" in stages
+    assert "control_output_on_verified" in stages
     ready_rows = [row for row in trace_rows if row["trace_stage"] == "control_ready_verified"]
     assert ready_rows
     assert ready_rows[-1]["control_ready_watchlist_status_accepted"].strip() == "True"
@@ -1723,6 +1750,15 @@ def test_old_k0472_accepts_after_full_seal_watchlist_3_only_for_control_ready_en
     assert (
         ready_rows[-1]["legacy_vent3_accept_scope"].strip()
         == "old_k0472_after_full_seal_control_ready_watchlist"
+    )
+    output_rows = [row for row in trace_rows if row["trace_stage"] == "output_enable_verified"]
+    assert output_rows
+    assert output_rows[-1]["output_enable_watchlist_status_accepted"].strip() == "True"
+    assert output_rows[-1]["output_enable_watchlist_status_phase"].strip() == "after_full_seal"
+    assert output_rows[-1]["after_full_seal_output_enable_watchlist_status_accepted"].strip() == "True"
+    assert (
+        output_rows[-1]["legacy_vent3_accept_scope"].strip()
+        == "old_k0472_after_full_seal_output_enable_watchlist"
     )
     assert stages.index("preseal_final_atmosphere_exit_verified") < stages.index("seal_transition_started")
 

@@ -106,6 +106,9 @@ _LEGACY_V1_PRESEAL_WATCHLIST_EVIDENCE_SOURCE = (
 _LEGACY_V1_AFTER_FULL_SEAL_WATCHLIST_EVIDENCE_SOURCE = (
     "local_trace_scan:62_old_v1_after_full_seal_control_ready_vent_status_3_to_in_limits_chains"
 )
+_LEGACY_V1_AFTER_FULL_SEAL_OUTPUT_ENABLE_WATCHLIST_EVIDENCE_SOURCE = (
+    "local_trace_scan:42_old_v1_after_full_seal_output_enable_vent_status_3_to_in_limits_chains"
+)
 
 
 _PRESSURE_TRACE_FIELDS = [
@@ -177,6 +180,14 @@ _PRESSURE_TRACE_FIELDS = [
     "control_ready_watchlist_status_phase",
     "control_ready_check_watchlist_status_seen",
     "control_ready_check_watchlist_status_accepted",
+    "after_full_seal_output_enable_watchlist_status_seen",
+    "after_full_seal_output_enable_watchlist_status_accepted",
+    "after_full_seal_output_enable_watchlist_status_reason",
+    "legacy_v1_after_full_seal_output_enable_watchlist_evidence_found",
+    "legacy_v1_after_full_seal_output_enable_watchlist_evidence_source",
+    "output_enable_watchlist_status_accepted",
+    "output_enable_watchlist_status_phase",
+    "output_enable_failed_with_watchlist_status_3",
     "pace_vent_completed_latched",
     "pace_vent_clear_attempted",
     "pace_vent_clear_result",
@@ -2156,6 +2167,14 @@ class CalibrationRunner:
         control_ready_watchlist_status_phase: Any = None,
         control_ready_check_watchlist_status_seen: Any = None,
         control_ready_check_watchlist_status_accepted: Any = None,
+        after_full_seal_output_enable_watchlist_status_seen: Any = None,
+        after_full_seal_output_enable_watchlist_status_accepted: Any = None,
+        after_full_seal_output_enable_watchlist_status_reason: Any = None,
+        legacy_v1_after_full_seal_output_enable_watchlist_evidence_found: Any = None,
+        legacy_v1_after_full_seal_output_enable_watchlist_evidence_source: Any = None,
+        output_enable_watchlist_status_accepted: Any = None,
+        output_enable_watchlist_status_phase: Any = None,
+        output_enable_failed_with_watchlist_status_3: Any = None,
         pace_vent_completed_latched: Any = None,
         pace_vent_clear_attempted: Any = None,
         pace_vent_clear_result: Any = None,
@@ -2454,6 +2473,30 @@ class CalibrationRunner:
             "control_ready_check_watchlist_status_accepted": self._pressure_trace_cell(
                 control_ready_check_watchlist_status_accepted
             ),
+            "after_full_seal_output_enable_watchlist_status_seen": self._pressure_trace_cell(
+                after_full_seal_output_enable_watchlist_status_seen
+            ),
+            "after_full_seal_output_enable_watchlist_status_accepted": self._pressure_trace_cell(
+                after_full_seal_output_enable_watchlist_status_accepted
+            ),
+            "after_full_seal_output_enable_watchlist_status_reason": self._pressure_trace_cell(
+                after_full_seal_output_enable_watchlist_status_reason
+            ),
+            "legacy_v1_after_full_seal_output_enable_watchlist_evidence_found": self._pressure_trace_cell(
+                legacy_v1_after_full_seal_output_enable_watchlist_evidence_found
+            ),
+            "legacy_v1_after_full_seal_output_enable_watchlist_evidence_source": self._pressure_trace_cell(
+                legacy_v1_after_full_seal_output_enable_watchlist_evidence_source
+            ),
+            "output_enable_watchlist_status_accepted": self._pressure_trace_cell(
+                output_enable_watchlist_status_accepted
+            ),
+            "output_enable_watchlist_status_phase": self._pressure_trace_cell(
+                output_enable_watchlist_status_phase
+            ),
+            "output_enable_failed_with_watchlist_status_3": self._pressure_trace_cell(
+                output_enable_failed_with_watchlist_status_3
+            ),
             "pace_vent_completed_latched": self._pressure_trace_cell(pace_vent_completed_latched),
             "pace_vent_clear_attempted": self._pressure_trace_cell(pace_vent_clear_attempted),
             "pace_vent_clear_result": self._pressure_trace_cell(pace_vent_clear_result),
@@ -2651,6 +2694,14 @@ class CalibrationRunner:
         control_ready_watchlist_status_phase: Any = None,
         control_ready_check_watchlist_status_seen: Any = None,
         control_ready_check_watchlist_status_accepted: Any = None,
+        after_full_seal_output_enable_watchlist_status_seen: Any = None,
+        after_full_seal_output_enable_watchlist_status_accepted: Any = None,
+        after_full_seal_output_enable_watchlist_status_reason: Any = None,
+        legacy_v1_after_full_seal_output_enable_watchlist_evidence_found: Any = None,
+        legacy_v1_after_full_seal_output_enable_watchlist_evidence_source: Any = None,
+        output_enable_watchlist_status_accepted: Any = None,
+        output_enable_watchlist_status_phase: Any = None,
+        output_enable_failed_with_watchlist_status_3: Any = None,
         pace_vent_completed_latched: Any = None,
         pace_vent_clear_attempted: Any = None,
         pace_vent_clear_result: Any = None,
@@ -2990,6 +3041,38 @@ class CalibrationRunner:
             control_ready_check_watchlist_status_accepted = runtime_state.get(
                 "control_ready_check_watchlist_status_accepted"
             )
+        if after_full_seal_output_enable_watchlist_status_seen is None:
+            after_full_seal_output_enable_watchlist_status_seen = runtime_state.get(
+                "after_full_seal_output_enable_watchlist_status_seen"
+            )
+        if after_full_seal_output_enable_watchlist_status_accepted is None:
+            after_full_seal_output_enable_watchlist_status_accepted = runtime_state.get(
+                "after_full_seal_output_enable_watchlist_status_accepted"
+            )
+        if after_full_seal_output_enable_watchlist_status_reason is None:
+            after_full_seal_output_enable_watchlist_status_reason = runtime_state.get(
+                "after_full_seal_output_enable_watchlist_status_reason"
+            )
+        if legacy_v1_after_full_seal_output_enable_watchlist_evidence_found is None:
+            legacy_v1_after_full_seal_output_enable_watchlist_evidence_found = runtime_state.get(
+                "legacy_v1_after_full_seal_output_enable_watchlist_evidence_found"
+            )
+        if legacy_v1_after_full_seal_output_enable_watchlist_evidence_source is None:
+            legacy_v1_after_full_seal_output_enable_watchlist_evidence_source = runtime_state.get(
+                "legacy_v1_after_full_seal_output_enable_watchlist_evidence_source"
+            )
+        if output_enable_watchlist_status_accepted is None:
+            output_enable_watchlist_status_accepted = runtime_state.get(
+                "output_enable_watchlist_status_accepted"
+            )
+        if output_enable_watchlist_status_phase is None:
+            output_enable_watchlist_status_phase = runtime_state.get(
+                "output_enable_watchlist_status_phase"
+            )
+        if output_enable_failed_with_watchlist_status_3 is None:
+            output_enable_failed_with_watchlist_status_3 = runtime_state.get(
+                "output_enable_failed_with_watchlist_status_3"
+            )
         if post_isolation_capture_mode is None:
             post_isolation_capture_mode = runtime_state.get("post_isolation_capture_mode")
         if post_isolation_fast_capture_status is None:
@@ -3053,6 +3136,14 @@ class CalibrationRunner:
             control_ready_watchlist_status_phase=control_ready_watchlist_status_phase,
             control_ready_check_watchlist_status_seen=control_ready_check_watchlist_status_seen,
             control_ready_check_watchlist_status_accepted=control_ready_check_watchlist_status_accepted,
+            after_full_seal_output_enable_watchlist_status_seen=after_full_seal_output_enable_watchlist_status_seen,
+            after_full_seal_output_enable_watchlist_status_accepted=after_full_seal_output_enable_watchlist_status_accepted,
+            after_full_seal_output_enable_watchlist_status_reason=after_full_seal_output_enable_watchlist_status_reason,
+            legacy_v1_after_full_seal_output_enable_watchlist_evidence_found=legacy_v1_after_full_seal_output_enable_watchlist_evidence_found,
+            legacy_v1_after_full_seal_output_enable_watchlist_evidence_source=legacy_v1_after_full_seal_output_enable_watchlist_evidence_source,
+            output_enable_watchlist_status_accepted=output_enable_watchlist_status_accepted,
+            output_enable_watchlist_status_phase=output_enable_watchlist_status_phase,
+            output_enable_failed_with_watchlist_status_3=output_enable_failed_with_watchlist_status_3,
             pace_vent_completed_latched=pace_vent_completed_latched,
             pace_vent_clear_attempted=pace_vent_clear_attempted,
             pace_vent_clear_result=pace_vent_clear_result,
@@ -3211,6 +3302,14 @@ class CalibrationRunner:
         control_ready_watchlist_status_phase: Any = None,
         control_ready_check_watchlist_status_seen: Any = None,
         control_ready_check_watchlist_status_accepted: Any = None,
+        after_full_seal_output_enable_watchlist_status_seen: Any = None,
+        after_full_seal_output_enable_watchlist_status_accepted: Any = None,
+        after_full_seal_output_enable_watchlist_status_reason: Any = None,
+        legacy_v1_after_full_seal_output_enable_watchlist_evidence_found: Any = None,
+        legacy_v1_after_full_seal_output_enable_watchlist_evidence_source: Any = None,
+        output_enable_watchlist_status_accepted: Any = None,
+        output_enable_watchlist_status_phase: Any = None,
+        output_enable_failed_with_watchlist_status_3: Any = None,
         pace_vent_completed_latched: Any = None,
         pace_vent_clear_attempted: Any = None,
         pace_vent_clear_result: Any = None,
@@ -3375,6 +3474,14 @@ class CalibrationRunner:
                 control_ready_watchlist_status_phase=control_ready_watchlist_status_phase,
                 control_ready_check_watchlist_status_seen=control_ready_check_watchlist_status_seen,
                 control_ready_check_watchlist_status_accepted=control_ready_check_watchlist_status_accepted,
+                after_full_seal_output_enable_watchlist_status_seen=after_full_seal_output_enable_watchlist_status_seen,
+                after_full_seal_output_enable_watchlist_status_accepted=after_full_seal_output_enable_watchlist_status_accepted,
+                after_full_seal_output_enable_watchlist_status_reason=after_full_seal_output_enable_watchlist_status_reason,
+                legacy_v1_after_full_seal_output_enable_watchlist_evidence_found=legacy_v1_after_full_seal_output_enable_watchlist_evidence_found,
+                legacy_v1_after_full_seal_output_enable_watchlist_evidence_source=legacy_v1_after_full_seal_output_enable_watchlist_evidence_source,
+                output_enable_watchlist_status_accepted=output_enable_watchlist_status_accepted,
+                output_enable_watchlist_status_phase=output_enable_watchlist_status_phase,
+                output_enable_failed_with_watchlist_status_3=output_enable_failed_with_watchlist_status_3,
                 pace_vent_completed_latched=pace_vent_completed_latched,
                 pace_vent_clear_attempted=pace_vent_clear_attempted,
                 pace_vent_clear_result=pace_vent_clear_result,
@@ -15933,7 +16040,12 @@ class CalibrationRunner:
                 read_pressure_gauge=True,
                 note="before output on using prepared setpoint",
             )
-            if not self._enable_pressure_controller_output(reason="using prepared setpoint"):
+            if not self._enable_pressure_controller_output(
+                reason="using prepared setpoint",
+                point=point,
+                phase=phase,
+                pressure_target_hpa=target,
+            ):
                 self._append_pressure_trace_row(
                     point=point,
                     route=phase,
@@ -16264,7 +16376,12 @@ class CalibrationRunner:
                 refresh_pace_state=False,
                 note="before output on after setpoint update",
             )
-            if not self._enable_pressure_controller_output(reason="after setpoint update"):
+            if not self._enable_pressure_controller_output(
+                reason="after setpoint update",
+                point=point,
+                phase=phase,
+                pressure_target_hpa=target,
+            ):
                 self._append_pressure_trace_row(
                     point=point,
                     route=phase,
@@ -16435,7 +16552,13 @@ class CalibrationRunner:
                     read_pressure_gauge=True,
                     note="before output on after setpoint re-apply",
                 )
-                if not self._enable_pressure_controller_output(reason="after setpoint re-apply"):
+                if not self._enable_pressure_controller_output(
+                    reason="after setpoint re-apply",
+                    point=point,
+                    phase=phase,
+                    pressure_target_hpa=target,
+                    allow_watchlist_acceptance=False,
+                ):
                     self._append_pressure_trace_row(
                         point=point,
                         route=phase,
@@ -16833,6 +16956,77 @@ class CalibrationRunner:
             "after_full_seal_watchlist_only_but_accepted:"
             "scope=old_k0472_after_full_seal_control_ready_no_post_seal_vent;"
             "control_ready_entry_only=true",
+        )
+
+    def _after_full_seal_output_enable_watchlist_acceptance(
+        self,
+        pace: Any,
+        snapshot: Mapping[str, Any],
+        failures: Iterable[str],
+        *,
+        seal_state: Mapping[str, Any],
+        guard_state: Mapping[str, Any],
+        output_enable_phase: str,
+        required_output_state: int,
+        control_ready_watchlist_status_accepted: bool,
+    ) -> Tuple[bool, str]:
+        failure_items = [str(item) for item in list(failures or [])]
+        vent_status = self._as_int(snapshot.get("pace_vent_status"))
+        watchlist_failure = f"vent_status={vent_status}(watchlist_only)"
+        if vent_status != 3 or watchlist_failure not in failure_items:
+            return False, ""
+        if str(output_enable_phase or "") != "after_full_seal":
+            return False, f"after_full_seal_output_enable_watchlist_only_failure:phase={output_enable_phase or 'unknown'}"
+        if not bool(seal_state.get("seal_transition_completed")):
+            return False, "after_full_seal_output_enable_watchlist_only_failure:seal_transition_not_completed"
+        if not bool(seal_state.get("seal_all_solenoids_closed")):
+            return False, "after_full_seal_output_enable_watchlist_only_failure:solenoids_not_closed"
+        if not bool(seal_state.get("seal_total_route_valve_closed")):
+            return False, "after_full_seal_output_enable_watchlist_only_failure:total_route_valve_not_closed"
+        if not bool(seal_state.get("keepalive_stopped_before_seal")):
+            return False, "after_full_seal_output_enable_watchlist_only_failure:keepalive_not_stopped_before_seal"
+        if list(seal_state.get("seal_missing_closed_valves") or []):
+            return False, "after_full_seal_output_enable_watchlist_only_failure:missing_closed_valves"
+        guard_phase = str(guard_state.get("phase") or "").strip()
+        if not bool(guard_state.get("active")) or guard_phase not in {
+            "SealTransition",
+            "PressureSetpointHold",
+            "PressurePointSwitch",
+        }:
+            return False, (
+                "after_full_seal_output_enable_watchlist_only_failure:"
+                f"no_vent_guard_inactive:{guard_phase or 'none'}"
+            )
+        output_state = self._as_int(snapshot.get("pace_output_state"))
+        isolation_state = self._as_int(snapshot.get("pace_isolation_state"))
+        if output_state != int(required_output_state) or isolation_state != 1:
+            return (
+                False,
+                "after_full_seal_output_enable_watchlist_only_failure:"
+                f"output_state={output_state};isolation_state={isolation_state}",
+            )
+        extra_failures = [item for item in failure_items if item != watchlist_failure]
+        if extra_failures:
+            return (
+                False,
+                "after_full_seal_output_enable_watchlist_only_failure:additional_failures="
+                + ",".join(extra_failures),
+            )
+        if not bool(control_ready_watchlist_status_accepted):
+            return (
+                False,
+                "after_full_seal_output_enable_watchlist_only_failure:"
+                "control_ready_watchlist_status_not_accepted",
+            )
+        if self._pace_profile_name(pace) != "OLD_PACE5000":
+            return False, "after_full_seal_output_enable_watchlist_only_failure:not_old_pace5000"
+        if not self._pace_legacy_vent_state_3_suspect_from_snapshot(pace, snapshot):
+            return False, "after_full_seal_output_enable_watchlist_only_failure:not_legacy_watchlist_status"
+        return (
+            True,
+            "after_full_seal_output_enable_watchlist_only_but_accepted:"
+            "scope=old_k0472_after_full_seal_output_enable_no_post_seal_vent;"
+            "output_enable_entry_only=true",
         )
 
     def _verify_preseal_final_atmosphere_exit(
@@ -18474,7 +18668,43 @@ class CalibrationRunner:
             return
         return
 
-    def _enable_pressure_controller_output(self, reason: str = "") -> bool:
+    def _pressure_controller_output_enable_entry_failures(
+        self,
+        snapshot: Dict[str, Any],
+        pace: Any = None,
+    ) -> List[str]:
+        failures: List[str] = []
+        vent_status = self._as_int(snapshot.get("pace_vent_status"))
+        output_state = self._as_int(snapshot.get("pace_output_state"))
+        isolation_state = self._as_int(snapshot.get("pace_isolation_state"))
+        trapped_pressure_status = self._as_int(getattr(pace, "VENT_STATUS_TRAPPED_PRESSURE", 3))
+        if vent_status is None:
+            failures.append("vent_status_unavailable")
+        elif trapped_pressure_status is not None and vent_status == trapped_pressure_status:
+            failures.append(f"vent_status={vent_status}(watchlist_only)")
+        elif not self._pace_vent_status_allows_control(pace, vent_status):
+            failures.append(f"vent_status={vent_status}")
+        if output_state is None:
+            failures.append("output_state_unavailable")
+        elif output_state != 0:
+            failures.append(f"output_state={output_state}")
+        if isolation_state is None:
+            failures.append("isolation_state_unavailable")
+        elif isolation_state != 1:
+            failures.append(f"isolation_state={isolation_state}")
+        if snapshot.get("hold_thread_active"):
+            failures.append("atmosphere_hold_active")
+        return failures
+
+    def _enable_pressure_controller_output(
+        self,
+        reason: str = "",
+        *,
+        point: Optional[CalibrationPoint] = None,
+        phase: str = "",
+        pressure_target_hpa: Optional[float] = None,
+        allow_watchlist_acceptance: bool = True,
+    ) -> bool:
         if self._presample_lock_matches():
             self._raise_presample_sampling_lock_violation(
                 action="output_enable",
@@ -18487,19 +18717,180 @@ class CalibrationRunner:
         pace = self.devices.get("pace")
         if not pace:
             return True
+        phase_text = str(phase or "").strip().lower()
+        snapshot = self._pressure_controller_ready_snapshot(pace)
+        seal_state = self._seal_transition_state(point, phase=phase_text) if point is not None else {}
+        output_enable_phase = "after_full_seal" if bool(seal_state.get("seal_transition_completed")) else "preseal_or_unsealed"
+        guard_state = self._sealed_no_vent_guard_snapshot()
+        entry_failures = self._pressure_controller_output_enable_entry_failures(snapshot, pace)
+        watchlist_status_seen = any(str(item) == "vent_status=3(watchlist_only)" for item in entry_failures)
+        watchlist_status_accepted = False
+        watchlist_status_reason = ""
+        if point is not None:
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase_text,
+                point_phase=phase_text,
+                trace_stage="output_enable_started",
+                pressure_target_hpa=pressure_target_hpa,
+                pace_output_state=snapshot.get("pace_output_state"),
+                pace_isolation_state=snapshot.get("pace_isolation_state"),
+                pace_vent_status=snapshot.get("pace_vent_status"),
+                output_enable_watchlist_status_phase=output_enable_phase,
+                refresh_pace_state=False,
+                note=reason or "output enable started",
+            )
+        if watchlist_status_seen:
+            watchlist_status_accepted, watchlist_status_reason = self._after_full_seal_output_enable_watchlist_acceptance(
+                pace,
+                snapshot,
+                entry_failures,
+                seal_state=seal_state,
+                guard_state=guard_state,
+                output_enable_phase=output_enable_phase,
+                required_output_state=0,
+                control_ready_watchlist_status_accepted=bool(
+                    (self._point_runtime_state(point, phase=phase_text) or {}).get(
+                        "control_ready_watchlist_status_accepted",
+                        False,
+                    )
+                ),
+            )
+            if not bool(allow_watchlist_acceptance):
+                watchlist_status_accepted = False
+                watchlist_status_reason = (
+                    "after_full_seal_output_enable_watchlist_only_failure:"
+                    "watchlist_acceptance_disabled"
+                )
+            if not watchlist_status_reason:
+                watchlist_status_reason = "after_full_seal_output_enable_watchlist_only_failure"
+            self._set_point_runtime_fields(
+                point,
+                phase=phase_text,
+                after_full_seal_output_enable_watchlist_status_seen=(
+                    output_enable_phase == "after_full_seal"
+                ),
+                after_full_seal_output_enable_watchlist_status_accepted=watchlist_status_accepted,
+                after_full_seal_output_enable_watchlist_status_reason=watchlist_status_reason,
+                legacy_v1_after_full_seal_output_enable_watchlist_evidence_found=watchlist_status_accepted,
+                legacy_v1_after_full_seal_output_enable_watchlist_evidence_source=(
+                    _LEGACY_V1_AFTER_FULL_SEAL_OUTPUT_ENABLE_WATCHLIST_EVIDENCE_SOURCE
+                    if watchlist_status_accepted
+                    else ""
+                ),
+                output_enable_watchlist_status_accepted=watchlist_status_accepted,
+                output_enable_watchlist_status_phase=output_enable_phase,
+                output_enable_failed_with_watchlist_status_3=False,
+            )
+            if point is not None:
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase_text,
+                    point_phase=phase_text,
+                    trace_stage="output_enable_watchlist_status_seen",
+                    pressure_target_hpa=pressure_target_hpa,
+                    pace_output_state=snapshot.get("pace_output_state"),
+                    pace_isolation_state=snapshot.get("pace_isolation_state"),
+                    pace_vent_status=snapshot.get("pace_vent_status"),
+                    after_full_seal_output_enable_watchlist_status_seen=(
+                        output_enable_phase == "after_full_seal"
+                    ),
+                    after_full_seal_output_enable_watchlist_status_accepted=watchlist_status_accepted,
+                    after_full_seal_output_enable_watchlist_status_reason=watchlist_status_reason,
+                    legacy_v1_after_full_seal_output_enable_watchlist_evidence_found=watchlist_status_accepted,
+                    legacy_v1_after_full_seal_output_enable_watchlist_evidence_source=(
+                        _LEGACY_V1_AFTER_FULL_SEAL_OUTPUT_ENABLE_WATCHLIST_EVIDENCE_SOURCE
+                        if watchlist_status_accepted
+                        else ""
+                    ),
+                    output_enable_watchlist_status_accepted=watchlist_status_accepted,
+                    output_enable_watchlist_status_phase=output_enable_phase,
+                    output_enable_failed_with_watchlist_status_3=False,
+                    refresh_pace_state=False,
+                    note=watchlist_status_reason,
+                )
         try:
-            enable_output = getattr(pace, "enable_control_output", None)
-            if callable(enable_output):
-                enable_output()
-            else:
+            if watchlist_status_accepted:
                 set_mode_active = getattr(pace, "set_output_mode_active", None)
                 if callable(set_mode_active):
                     set_mode_active()
                 pace.set_output(True)
+                if point is not None:
+                    self._append_pressure_trace_row(
+                        point=point,
+                        route=phase_text,
+                        point_phase=phase_text,
+                        trace_stage="output_enable_watchlist_status_accepted",
+                        pressure_target_hpa=pressure_target_hpa,
+                        pace_output_state=1,
+                        pace_isolation_state=snapshot.get("pace_isolation_state"),
+                        pace_vent_status=snapshot.get("pace_vent_status"),
+                        after_full_seal_output_enable_watchlist_status_seen=True,
+                        after_full_seal_output_enable_watchlist_status_accepted=True,
+                        after_full_seal_output_enable_watchlist_status_reason=watchlist_status_reason,
+                        legacy_v1_after_full_seal_output_enable_watchlist_evidence_found=True,
+                        legacy_v1_after_full_seal_output_enable_watchlist_evidence_source=(
+                            _LEGACY_V1_AFTER_FULL_SEAL_OUTPUT_ENABLE_WATCHLIST_EVIDENCE_SOURCE
+                        ),
+                        output_enable_watchlist_status_accepted=True,
+                        output_enable_watchlist_status_phase=output_enable_phase,
+                        output_enable_failed_with_watchlist_status_3=False,
+                        refresh_pace_state=False,
+                        note=watchlist_status_reason,
+                    )
+            else:
+                enable_output = getattr(pace, "enable_control_output", None)
+                if callable(enable_output):
+                    enable_output()
+                else:
+                    set_mode_active = getattr(pace, "set_output_mode_active", None)
+                    if callable(set_mode_active):
+                        set_mode_active()
+                    pace.set_output(True)
             extra = f" ({reason})" if reason else ""
             self.log(f"Pressure controller output=ON{extra}")
             return True
         except Exception as exc:
+            if watchlist_status_seen or "VENT_STATUS_3_WATCHLIST" in str(exc):
+                self._set_point_runtime_fields(
+                    point,
+                    phase=phase_text,
+                    after_full_seal_output_enable_watchlist_status_seen=(
+                        output_enable_phase == "after_full_seal"
+                    ),
+                    after_full_seal_output_enable_watchlist_status_accepted=False,
+                    after_full_seal_output_enable_watchlist_status_reason=watchlist_status_reason
+                    or f"after_full_seal_output_enable_watchlist_only_failure:{exc}",
+                    legacy_v1_after_full_seal_output_enable_watchlist_evidence_found=False,
+                    legacy_v1_after_full_seal_output_enable_watchlist_evidence_source="",
+                    output_enable_watchlist_status_accepted=False,
+                    output_enable_watchlist_status_phase=output_enable_phase,
+                    output_enable_failed_with_watchlist_status_3=True,
+                )
+                if point is not None:
+                    self._append_pressure_trace_row(
+                        point=point,
+                        route=phase_text,
+                        point_phase=phase_text,
+                        trace_stage="output_enable_failed_watchlist_status_3",
+                        pressure_target_hpa=pressure_target_hpa,
+                        pace_output_state=snapshot.get("pace_output_state"),
+                        pace_isolation_state=snapshot.get("pace_isolation_state"),
+                        pace_vent_status=snapshot.get("pace_vent_status"),
+                        after_full_seal_output_enable_watchlist_status_seen=(
+                            output_enable_phase == "after_full_seal"
+                        ),
+                        after_full_seal_output_enable_watchlist_status_accepted=False,
+                        after_full_seal_output_enable_watchlist_status_reason=watchlist_status_reason
+                        or f"after_full_seal_output_enable_watchlist_only_failure:{exc}",
+                        legacy_v1_after_full_seal_output_enable_watchlist_evidence_found=False,
+                        legacy_v1_after_full_seal_output_enable_watchlist_evidence_source="",
+                        output_enable_watchlist_status_accepted=False,
+                        output_enable_watchlist_status_phase=output_enable_phase,
+                        output_enable_failed_with_watchlist_status_3=True,
+                        refresh_pace_state=False,
+                        note=str(exc),
+                    )
             self.log(f"Pressure controller output enable failed: {exc}")
             return False
 
@@ -18680,7 +19071,11 @@ class CalibrationRunner:
                 note=note or f"output-on recovery attempt {attempt_idx + 1}",
             )
             if not self._enable_pressure_controller_output(
-                reason=f"output-on recovery attempt {attempt_idx + 1}"
+                reason=f"output-on recovery attempt {attempt_idx + 1}",
+                point=point,
+                phase=phase,
+                pressure_target_hpa=pressure_target_hpa,
+                allow_watchlist_acceptance=False,
             ):
                 continue
             if self._verify_pressure_controller_output_on(
@@ -18781,6 +19176,114 @@ class CalibrationRunner:
                     else f"iterations={wait_iterations} remaining_failures={','.join(failures)}"
                 ),
             )
+        watchlist_status_seen = any(str(item) == "vent_status=3(watchlist_only)" for item in failures)
+        watchlist_status_accepted = False
+        watchlist_status_reason = ""
+        if watchlist_status_seen:
+            runtime_state = self._point_runtime_state(point, phase=phase) or {}
+            seal_state = self._seal_transition_state(point, phase=phase)
+            output_enable_phase = (
+                "after_full_seal"
+                if bool(seal_state.get("seal_transition_completed"))
+                else "preseal_or_unsealed"
+            )
+            watchlist_status_accepted, watchlist_status_reason = (
+                self._after_full_seal_output_enable_watchlist_acceptance(
+                    pace,
+                    snapshot,
+                    failures,
+                    seal_state=seal_state,
+                    guard_state=self._sealed_no_vent_guard_snapshot(),
+                    output_enable_phase=output_enable_phase,
+                    required_output_state=1,
+                    control_ready_watchlist_status_accepted=bool(
+                        runtime_state.get("control_ready_watchlist_status_accepted")
+                    )
+                    and bool(runtime_state.get("output_enable_watchlist_status_accepted")),
+                )
+            )
+            if not watchlist_status_reason:
+                watchlist_status_reason = "after_full_seal_output_enable_watchlist_only_failure"
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                after_full_seal_output_enable_watchlist_status_seen=(
+                    output_enable_phase == "after_full_seal"
+                ),
+                after_full_seal_output_enable_watchlist_status_accepted=watchlist_status_accepted,
+                after_full_seal_output_enable_watchlist_status_reason=watchlist_status_reason,
+                legacy_v1_after_full_seal_output_enable_watchlist_evidence_found=watchlist_status_accepted,
+                legacy_v1_after_full_seal_output_enable_watchlist_evidence_source=(
+                    _LEGACY_V1_AFTER_FULL_SEAL_OUTPUT_ENABLE_WATCHLIST_EVIDENCE_SOURCE
+                    if watchlist_status_accepted
+                    else ""
+                ),
+                output_enable_watchlist_status_accepted=watchlist_status_accepted,
+                output_enable_watchlist_status_phase=output_enable_phase,
+                output_enable_failed_with_watchlist_status_3=not watchlist_status_accepted,
+            )
+            if watchlist_status_accepted:
+                failures = []
+                legacy_vent3_trace = self._record_legacy_vent3_runtime_fields(
+                    point,
+                    phase=phase,
+                    pace=pace,
+                    vent_status=snapshot.get("pace_vent_status"),
+                    accept_scope="old_k0472_after_full_seal_output_enable_watchlist",
+                    control_ready_used=True,
+                    block_scope="none",
+                    hard_blocked=False,
+                    watchlist_only=True,
+                    control_ready_attempted=True,
+                    control_ready_prevented=False,
+                )
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase,
+                    point_phase=phase,
+                    trace_stage="output_enable_verified",
+                    pressure_target_hpa=pressure_target_hpa,
+                    pace_output_state=snapshot.get("pace_output_state"),
+                    pace_isolation_state=snapshot.get("pace_isolation_state"),
+                    pace_vent_status=snapshot.get("pace_vent_status"),
+                    **legacy_vent3_trace,
+                    after_full_seal_output_enable_watchlist_status_seen=True,
+                    after_full_seal_output_enable_watchlist_status_accepted=True,
+                    after_full_seal_output_enable_watchlist_status_reason=watchlist_status_reason,
+                    legacy_v1_after_full_seal_output_enable_watchlist_evidence_found=True,
+                    legacy_v1_after_full_seal_output_enable_watchlist_evidence_source=(
+                        _LEGACY_V1_AFTER_FULL_SEAL_OUTPUT_ENABLE_WATCHLIST_EVIDENCE_SOURCE
+                    ),
+                    output_enable_watchlist_status_accepted=True,
+                    output_enable_watchlist_status_phase=output_enable_phase,
+                    output_enable_failed_with_watchlist_status_3=False,
+                    refresh_pace_state=False,
+                    note=watchlist_status_reason,
+                )
+            else:
+                self._append_pressure_trace_row(
+                    point=point,
+                    route=phase,
+                    point_phase=phase,
+                    trace_stage="output_enable_failed_watchlist_status_3",
+                    pressure_target_hpa=pressure_target_hpa,
+                    pace_output_state=snapshot.get("pace_output_state"),
+                    pace_isolation_state=snapshot.get("pace_isolation_state"),
+                    pace_vent_status=snapshot.get("pace_vent_status"),
+                    **legacy_vent3_trace,
+                    after_full_seal_output_enable_watchlist_status_seen=(
+                        output_enable_phase == "after_full_seal"
+                    ),
+                    after_full_seal_output_enable_watchlist_status_accepted=False,
+                    after_full_seal_output_enable_watchlist_status_reason=watchlist_status_reason,
+                    legacy_v1_after_full_seal_output_enable_watchlist_evidence_found=False,
+                    legacy_v1_after_full_seal_output_enable_watchlist_evidence_source="",
+                    output_enable_watchlist_status_accepted=False,
+                    output_enable_watchlist_status_phase=output_enable_phase,
+                    output_enable_failed_with_watchlist_status_3=True,
+                    refresh_pace_state=False,
+                    note=watchlist_status_reason,
+                )
         trace_stage = "control_output_on_verified"
         if failures:
             trace_stage = "control_output_on_failed"
@@ -27933,6 +28436,21 @@ class CalibrationRunner:
             "legacy_v1_after_full_seal_watchlist_evidence_source": runtime_state.get(
                 "legacy_v1_after_full_seal_watchlist_evidence_source"
             ),
+            "after_full_seal_output_enable_watchlist_status_seen": runtime_state.get(
+                "after_full_seal_output_enable_watchlist_status_seen"
+            ),
+            "after_full_seal_output_enable_watchlist_status_accepted": runtime_state.get(
+                "after_full_seal_output_enable_watchlist_status_accepted"
+            ),
+            "after_full_seal_output_enable_watchlist_status_reason": runtime_state.get(
+                "after_full_seal_output_enable_watchlist_status_reason"
+            ),
+            "legacy_v1_after_full_seal_output_enable_watchlist_evidence_found": runtime_state.get(
+                "legacy_v1_after_full_seal_output_enable_watchlist_evidence_found"
+            ),
+            "legacy_v1_after_full_seal_output_enable_watchlist_evidence_source": runtime_state.get(
+                "legacy_v1_after_full_seal_output_enable_watchlist_evidence_source"
+            ),
             "control_ready_check_vent_status": runtime_state.get("control_ready_check_vent_status"),
             "control_ready_check_phase": runtime_state.get("control_ready_check_phase"),
             "control_ready_failure_reason_detail": runtime_state.get(
@@ -27955,6 +28473,15 @@ class CalibrationRunner:
             ),
             "control_ready_check_watchlist_status_accepted": runtime_state.get(
                 "control_ready_check_watchlist_status_accepted"
+            ),
+            "output_enable_watchlist_status_accepted": runtime_state.get(
+                "output_enable_watchlist_status_accepted"
+            ),
+            "output_enable_watchlist_status_phase": runtime_state.get(
+                "output_enable_watchlist_status_phase"
+            ),
+            "output_enable_failed_with_watchlist_status_3": runtime_state.get(
+                "output_enable_failed_with_watchlist_status_3"
             ),
             "postseal_expected_dewpoint_c": runtime_state.get("postseal_expected_dewpoint_c"),
             "postseal_actual_dewpoint_c": runtime_state.get("postseal_actual_dewpoint_c"),
