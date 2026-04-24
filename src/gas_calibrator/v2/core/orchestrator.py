@@ -1124,8 +1124,8 @@ class WorkflowOrchestrator:
     def _desired_valve_state(self, valve: int, open_set: set[int]) -> bool:
         return self.valve_routing_service.desired_valve_state(valve, open_set)
 
-    def _apply_valve_states(self, open_valves: Iterable[int]) -> None:
-        self.valve_routing_service.apply_valve_states(open_valves)
+    def _apply_valve_states(self, open_valves: Iterable[int]) -> dict[str, dict[str, bool]]:
+        return self.valve_routing_service.apply_valve_states(open_valves)
 
     def _apply_route_baseline_valves(self) -> None:
         self.valve_routing_service.apply_route_baseline_valves()

@@ -24,6 +24,7 @@ import gas_calibrator.v2.core.services.pressure_control_service as pressure_cont
 
 class FakePressureController:
     VENT_STATUS_IDLE = 0
+    VENT_STATUS_IN_PROGRESS = 1
     VENT_STATUS_TRAPPED_PRESSURE = 3
 
     def __init__(self) -> None:
@@ -102,6 +103,7 @@ def _build_service(
     *,
     gauge_values: list[float] | None = None,
     startup_precheck_cfg: dict[str, object] | None = None,
+    seal_relay_state: dict[str, dict[str, bool]] | None = None,
 ) -> tuple[PressureControlService, OrchestrationContext, RunState, SimpleNamespace, FakePressureController]:
     config = _config(tmp_path)
     session = RunSession(config)
@@ -208,6 +210,7 @@ def _build_service(
 
         def _apply_valve_states(self, open_valves):
             valve_actions.append(("apply", list(open_valves)))
+            return {} if seal_relay_state is None else dict(seal_relay_state)
 
         def _collect_only_fast_path_enabled(self):
             return False
@@ -361,6 +364,52 @@ def test_pressure_control_service_blocks_watchlist_status_after_seal_without_rev
     assert failed_gate["result"] == "fail"
     assert failed_gate["actual"]["preseal_watchlist_status_accepted"] is True
     assert failed_gate["actual"]["control_ready_watchlist_status_accepted"] is False
+
+    context.run_logger.finalize()
+
+
+def test_pressure_control_service_blocks_seal_when_preseal_exit_still_in_progress(tmp_path: Path) -> None:
+    service, context, run_state, host, controller = _build_service(tmp_path)
+    controller.exit_vent_status = controller.VENT_STATUS_IN_PROGRESS
+    point = CalibrationPoint(index=36, temperature_c=0.0, co2_ppm=400.0, pressure_hpa=900.0, route="co2")
+
+    hold = service.pressurize_and_hold(point, route="co2")
+
+    assert hold.ok is False
+    assert hold.diagnostics["preseal_final_atmosphere_exit_verified"] is False
+    assert hold.diagnostics["preseal_final_atmosphere_exit_reason"] == "vent_status=1(in_progress_before_full_seal)"
+    assert run_state.pressure.preseal_final_atmosphere_exit_verified is False
+    assert host.valve_actions == []
+    assert run_state.pressure.seal_transition_completed is False
+    failed_gate = [trace for trace in host.route_traces if trace.get("action") == "preseal_final_atmosphere_exit"][-1]
+    assert failed_gate["result"] == "fail"
+    assert not any(trace.get("action") == "seal_transition" for trace in host.route_traces)
+
+    context.run_logger.finalize()
+
+
+def test_pressure_control_service_blocks_seal_when_relay_reports_open_channel(tmp_path: Path) -> None:
+    service, context, run_state, host, controller = _build_service(
+        tmp_path,
+        seal_relay_state={"relay_a": {"8": True, "11": False}},
+    )
+    point = CalibrationPoint(index=37, temperature_c=0.0, co2_ppm=400.0, pressure_hpa=900.0, route="co2")
+
+    hold = service.pressurize_and_hold(point, route="co2")
+
+    assert hold.ok is False
+    assert hold.diagnostics["preseal_final_atmosphere_exit_verified"] is True
+    assert hold.diagnostics["seal_transition_completed"] is False
+    assert hold.diagnostics["seal_open_channels"] == [
+        {"relay": "relay_a", "channel": "8", "actual": True, "target": False}
+    ]
+    assert run_state.pressure.seal_transition_completed is False
+    assert run_state.pressure.seal_transition_status == "blocked_open_channels"
+    assert ("apply", []) in host.valve_actions
+    assert not any(call[0] == "set_setpoint" for call in controller.calls)
+    assert not any(call[0] == "enable_control_output" for call in controller.calls)
+    failed_gate = [trace for trace in host.route_traces if trace.get("action") == "seal_transition"][-1]
+    assert failed_gate["result"] == "fail"
 
     context.run_logger.finalize()
 

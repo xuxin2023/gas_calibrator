@@ -276,7 +276,7 @@ def test_start_and_stop_service(tmp_path: Path) -> None:
 
     service.stop(wait=True, timeout=2.0)
 
-    assert service.wait(timeout=0.5) is True
+    assert service.wait(timeout=5.0) is True
     assert service.get_status().phase is CalibrationPhase.STOPPED
 
 

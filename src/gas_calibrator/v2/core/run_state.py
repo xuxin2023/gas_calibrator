@@ -46,9 +46,17 @@ class PressureRuntimeState:
     sealed_route: str = ""
     sealed_source_point_index: Optional[int] = None
     final_vent_off_command_sent: bool = False
+    preseal_final_atmosphere_exit_required: bool = False
+    preseal_final_atmosphere_exit_started: bool = False
+    preseal_final_atmosphere_exit_verified: bool = False
+    preseal_final_atmosphere_exit_phase: str = ""
+    preseal_final_atmosphere_exit_reason: str = ""
     preseal_watchlist_status_seen: bool = False
     preseal_watchlist_status_accepted: bool = False
     preseal_watchlist_status_reason: str = ""
+    seal_transition_completed: bool = False
+    seal_transition_status: str = ""
+    seal_transition_reason: str = ""
     control_ready_watchlist_status_accepted: bool = False
 
 
@@ -104,9 +112,17 @@ class RunState:
         self.pressure.sealed_route = ""
         self.pressure.sealed_source_point_index = None
         self.pressure.final_vent_off_command_sent = False
+        self.pressure.preseal_final_atmosphere_exit_required = False
+        self.pressure.preseal_final_atmosphere_exit_started = False
+        self.pressure.preseal_final_atmosphere_exit_verified = False
+        self.pressure.preseal_final_atmosphere_exit_phase = ""
+        self.pressure.preseal_final_atmosphere_exit_reason = ""
         self.pressure.preseal_watchlist_status_seen = False
         self.pressure.preseal_watchlist_status_accepted = False
         self.pressure.preseal_watchlist_status_reason = ""
+        self.pressure.seal_transition_completed = False
+        self.pressure.seal_transition_status = ""
+        self.pressure.seal_transition_reason = ""
         self.pressure.control_ready_watchlist_status_accepted = False
 
         self.temperature.snapshot_keys.clear()

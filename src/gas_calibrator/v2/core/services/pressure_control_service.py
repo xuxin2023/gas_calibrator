@@ -602,10 +602,26 @@ class PressureControlService:
                     )
                 else:
                     self.host._log("CO2 route vent OFF settle complete; seal route directly before pressure control")
+            preseal_exit = self._preseal_final_atmosphere_exit_gate(
+                controller,
+                point,
+                route=route_text,
+                final_vent_off_command_sent=final_vent_off_command_sent,
+            )
+            if not preseal_exit.ok:
+                return preseal_exit
             if route_text == "h2o":
                 self.host._set_h2o_path(False, point)
+                relay_state = {}
             else:
-                self.host._apply_valve_states([])
+                relay_state = self.host._apply_valve_states([])
+            seal_transition = self._seal_transition_gate(point, route=route_text, relay_state=relay_state)
+            if not seal_transition.ok:
+                return PressureWaitResult(
+                    ok=False,
+                    diagnostics={**preseal_exit.diagnostics, **seal_transition.diagnostics},
+                    error=seal_transition.error,
+                )
             reader = self.host._make_pressure_reader()
             final_pressure = None if reader is None else reader()
             watchlist = self._preseal_watchlist_snapshot(
@@ -633,6 +649,8 @@ class PressureControlService:
                 final_pressure_hpa=final_pressure,
                 diagnostics={
                     "route": route_text,
+                    **preseal_exit.diagnostics,
+                    **seal_transition.diagnostics,
                     "preseal_trigger": preseal_trigger_source,
                     "preseal_trigger_pressure_hpa": preseal_trigger_pressure_hpa,
                     "preseal_trigger_threshold_hpa": preseal_trigger_threshold_hpa,
@@ -647,6 +665,8 @@ class PressureControlService:
                     "pressure_hpa": final_pressure,
                     "preseal_pressure_peak_hpa": preseal_pressure_peak,
                     "preseal_pressure_last_hpa": preseal_pressure_last,
+                    **preseal_exit.diagnostics,
+                    **seal_transition.diagnostics,
                     "preseal_trigger": preseal_trigger_source,
                     "preseal_trigger_pressure_hpa": preseal_trigger_pressure_hpa,
                     "preseal_trigger_threshold_hpa": preseal_trigger_threshold_hpa,
@@ -885,9 +905,17 @@ class PressureControlService:
             "route": route,
             "sealed_source_point_index": state.sealed_source_point_index,
             "final_vent_off_command_sent": state.final_vent_off_command_sent,
+            "preseal_final_atmosphere_exit_required": state.preseal_final_atmosphere_exit_required,
+            "preseal_final_atmosphere_exit_started": state.preseal_final_atmosphere_exit_started,
+            "preseal_final_atmosphere_exit_verified": state.preseal_final_atmosphere_exit_verified,
+            "preseal_final_atmosphere_exit_phase": state.preseal_final_atmosphere_exit_phase,
+            "preseal_final_atmosphere_exit_reason": state.preseal_final_atmosphere_exit_reason,
             "preseal_watchlist_status_seen": state.preseal_watchlist_status_seen,
             "preseal_watchlist_status_accepted": state.preseal_watchlist_status_accepted,
             "preseal_watchlist_status_reason": state.preseal_watchlist_status_reason,
+            "seal_transition_completed": state.seal_transition_completed,
+            "seal_transition_status": state.seal_transition_status,
+            "seal_transition_reason": state.seal_transition_reason,
             "control_ready_watchlist_status_accepted": state.control_ready_watchlist_status_accepted,
         }
 
@@ -913,10 +941,168 @@ class PressureControlService:
         state.sealed_route = ""
         state.sealed_source_point_index = None
         state.final_vent_off_command_sent = False
+        state.preseal_final_atmosphere_exit_required = False
+        state.preseal_final_atmosphere_exit_started = False
+        state.preseal_final_atmosphere_exit_verified = False
+        state.preseal_final_atmosphere_exit_phase = ""
+        state.preseal_final_atmosphere_exit_reason = ""
         state.preseal_watchlist_status_seen = False
         state.preseal_watchlist_status_accepted = False
         state.preseal_watchlist_status_reason = ""
+        state.seal_transition_completed = False
+        state.seal_transition_status = ""
+        state.seal_transition_reason = ""
         state.control_ready_watchlist_status_accepted = False
+
+    def _mark_preseal_final_atmosphere_exit(self, diagnostics: dict[str, Any]) -> None:
+        state = self.run_state.pressure
+        state.preseal_final_atmosphere_exit_required = bool(
+            diagnostics.get("preseal_final_atmosphere_exit_required")
+        )
+        state.preseal_final_atmosphere_exit_started = bool(
+            diagnostics.get("preseal_final_atmosphere_exit_started")
+        )
+        state.preseal_final_atmosphere_exit_verified = bool(
+            diagnostics.get("preseal_final_atmosphere_exit_verified")
+        )
+        state.preseal_final_atmosphere_exit_phase = str(
+            diagnostics.get("preseal_final_atmosphere_exit_phase") or ""
+        )
+        state.preseal_final_atmosphere_exit_reason = str(
+            diagnostics.get("preseal_final_atmosphere_exit_reason") or ""
+        )
+
+    def _mark_seal_transition(self, diagnostics: dict[str, Any]) -> None:
+        state = self.run_state.pressure
+        state.seal_transition_completed = bool(diagnostics.get("seal_transition_completed"))
+        state.seal_transition_status = str(diagnostics.get("seal_transition_status") or "")
+        state.seal_transition_reason = str(diagnostics.get("seal_transition_reason") or "")
+
+    def _preseal_final_atmosphere_exit_gate(
+        self,
+        controller: Any,
+        point: CalibrationPoint,
+        *,
+        route: str,
+        final_vent_off_command_sent: bool,
+    ) -> PressureWaitResult:
+        vent_status = self._pressure_controller_vent_status(controller)
+        watchlist = self._preseal_watchlist_snapshot(
+            controller,
+            route=route,
+            final_vent_off_command_sent=final_vent_off_command_sent,
+        )
+        blocked = vent_status == 1
+        reason = (
+            "vent_status=1(in_progress_before_full_seal)"
+            if blocked
+            else str(watchlist.get("preseal_watchlist_status_reason") or "vent_exit_verified_before_full_seal")
+        )
+        diagnostics = {
+            "route": "h2o" if str(route or "").strip().lower() == "h2o" else "co2",
+            "preseal_final_atmosphere_exit_required": True,
+            "preseal_final_atmosphere_exit_started": True,
+            "preseal_final_atmosphere_exit_verified": not blocked,
+            "preseal_final_atmosphere_exit_phase": "preseal_before_full_seal",
+            "preseal_final_atmosphere_exit_reason": reason,
+            "final_vent_off_command_sent": bool(final_vent_off_command_sent),
+            "pressure_controller_vent_status": vent_status,
+            **watchlist,
+        }
+        self._mark_preseal_final_atmosphere_exit(diagnostics)
+        if blocked:
+            result = PressureWaitResult(
+                ok=False,
+                diagnostics=diagnostics,
+                error="Preseal final atmosphere exit not verified before full seal",
+            )
+            self._record_route_trace(
+                action="preseal_final_atmosphere_exit",
+                route=diagnostics["route"],
+                point=point,
+                actual=diagnostics,
+                result="fail",
+                message=reason,
+            )
+            return result
+        result = PressureWaitResult(ok=True, diagnostics=diagnostics)
+        self._record_route_trace(
+            action="preseal_final_atmosphere_exit",
+            route=diagnostics["route"],
+            point=point,
+            actual=diagnostics,
+            result="ok",
+            message=reason,
+        )
+        return result
+
+    def _seal_transition_gate(
+        self,
+        point: CalibrationPoint,
+        *,
+        route: str,
+        relay_state: Any,
+    ) -> PressureWaitResult:
+        diagnostics = self._seal_transition_evidence(route=route, relay_state=relay_state)
+        self._mark_seal_transition(diagnostics)
+        if not diagnostics["seal_transition_completed"]:
+            result = PressureWaitResult(
+                ok=False,
+                diagnostics=diagnostics,
+                error="Seal transition incomplete before pressure control",
+            )
+            self._record_route_trace(
+                action="seal_transition",
+                route=diagnostics["route"],
+                point=point,
+                actual=diagnostics,
+                result="fail",
+                message=diagnostics["seal_transition_reason"],
+            )
+            return result
+        result = PressureWaitResult(ok=True, diagnostics=diagnostics)
+        self._record_route_trace(
+            action="seal_transition",
+            route=diagnostics["route"],
+            point=point,
+            actual=diagnostics,
+            result="ok",
+            message=diagnostics["seal_transition_reason"],
+        )
+        return result
+
+    def _seal_transition_evidence(self, *, route: str, relay_state: Any) -> dict[str, Any]:
+        route_text = "h2o" if str(route or "").strip().lower() == "h2o" else "co2"
+        relay_payload = dict(relay_state) if isinstance(relay_state, dict) else {}
+        open_channels: list[dict[str, Any]] = []
+        for relay_name, channels in sorted(relay_payload.items()):
+            if not isinstance(channels, dict):
+                continue
+            for channel, state in sorted(channels.items(), key=lambda item: str(item[0])):
+                if bool(state):
+                    open_channels.append(
+                        {
+                            "relay": str(relay_name),
+                            "channel": str(channel),
+                            "actual": True,
+                            "target": False,
+                        }
+                    )
+        completed = not open_channels
+        status = "verified_closed" if completed else "blocked_open_channels"
+        reason = (
+            "all reported route valves closed before pressure control"
+            if completed
+            else "reported route valve still open before pressure control"
+        )
+        return {
+            "route": route_text,
+            "seal_transition_completed": completed,
+            "seal_transition_status": status,
+            "seal_transition_reason": reason,
+            "seal_open_channels": open_channels,
+            "seal_relay_state": relay_payload,
+        }
 
     def _preseal_watchlist_snapshot(
         self,
