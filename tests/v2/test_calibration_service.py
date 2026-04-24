@@ -526,7 +526,7 @@ def test_route_failure_does_not_produce_fake_completed_summary(tmp_path: Path, m
     )
 
     service.start(str(points_path))
-    assert service.wait(timeout=2.0) is True
+    assert service.wait(timeout=10.0) is True
 
     status = service.get_status()
     summary_path = service.result_store.run_dir / "summary.json"

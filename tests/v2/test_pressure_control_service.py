@@ -23,6 +23,9 @@ import gas_calibrator.v2.core.services.pressure_control_service as pressure_cont
 
 
 class FakePressureController:
+    VENT_STATUS_IDLE = 0
+    VENT_STATUS_TRAPPED_PRESSURE = 3
+
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple, dict]] = []
         self.current_pressure_hpa = 1013.25
@@ -30,14 +33,18 @@ class FakePressureController:
         self.in_limits = True
         self.output_enabled = False
         self.vent_open = False
+        self.vent_status = self.VENT_STATUS_IDLE
+        self.exit_vent_status = self.VENT_STATUS_IDLE
 
     def enter_atmosphere_mode(self, **kwargs) -> None:
         self.vent_open = True
         self.output_enabled = False
+        self.vent_status = self.VENT_STATUS_IDLE
         self.calls.append(("enter_atmosphere_mode", tuple(), dict(kwargs)))
 
     def exit_atmosphere_mode(self, **kwargs) -> None:
         self.vent_open = False
+        self.vent_status = self.exit_vent_status
         self.calls.append(("exit_atmosphere_mode", tuple(), dict(kwargs)))
 
     def enable_control_output(self) -> None:
@@ -53,6 +60,9 @@ class FakePressureController:
 
     def is_in_atmosphere_mode(self) -> bool:
         return self.vent_open
+
+    def get_vent_status(self) -> int:
+        return int(self.vent_status)
 
     def set_setpoint(self, value: float) -> None:
         self.target_pressure_hpa = float(value)
@@ -304,6 +314,53 @@ def test_pressure_control_service_co2_seal_does_not_require_recovery_to_pressuri
     assert any("vent OFF settle complete" in message for message in host.logs)
     assert any("seal route directly before pressure control" in message for message in host.logs)
     assert any("CO2 route sealed for pressure control" in message for message in host.logs)
+
+    context.run_logger.finalize()
+
+
+def test_pressure_control_service_sealed_route_skips_redundant_control_vent_off(tmp_path: Path) -> None:
+    service, context, _, host, controller = _build_service(tmp_path)
+    source = CalibrationPoint(index=32, temperature_c=0.0, co2_ppm=400.0, pressure_hpa=900.0, route="co2")
+    sample = CalibrationPoint(index=33, temperature_c=0.0, co2_ppm=400.0, pressure_hpa=1000.0, route="co2")
+
+    hold = service.pressurize_and_hold(source, route="co2")
+    target = service.set_pressure_to_target(sample)
+
+    assert hold.ok is True
+    assert target.ok is True
+    assert [call[0] for call in controller.calls].count("exit_atmosphere_mode") == 1
+    assert ("set_setpoint", (1000.0,), {}) in controller.calls
+    ready_traces = [trace for trace in host.route_traces if trace.get("action") == "pressure_control_ready_gate"]
+    assert ready_traces
+    assert ready_traces[-1]["result"] == "ok"
+    assert ready_traces[-1]["actual"]["redundant_vent_command_skipped"] is True
+
+    context.run_logger.finalize()
+
+
+def test_pressure_control_service_blocks_watchlist_status_after_seal_without_reventing(tmp_path: Path) -> None:
+    service, context, run_state, host, controller = _build_service(tmp_path)
+    controller.exit_vent_status = controller.VENT_STATUS_TRAPPED_PRESSURE
+    source = CalibrationPoint(index=34, temperature_c=0.0, co2_ppm=400.0, pressure_hpa=900.0, route="co2")
+    sample = CalibrationPoint(index=35, temperature_c=0.0, co2_ppm=400.0, pressure_hpa=1000.0, route="co2")
+
+    hold = service.pressurize_and_hold(source, route="co2")
+    target = service.set_pressure_to_target(sample)
+
+    assert hold.ok is True
+    assert hold.diagnostics["preseal_watchlist_status_seen"] is True
+    assert hold.diagnostics["preseal_watchlist_status_accepted"] is True
+    assert run_state.pressure.preseal_watchlist_status_accepted is True
+    assert target.ok is False
+    assert target.diagnostics["control_ready_watchlist_status_accepted"] is False
+    assert target.diagnostics["control_ready_failure_reason"] == "vent_status=3(watchlist_only_after_seal)"
+    assert [call[0] for call in controller.calls].count("exit_atmosphere_mode") == 1
+    assert not any(call[0] == "set_setpoint" for call in controller.calls)
+    assert not any(call[0] == "enable_control_output" for call in controller.calls)
+    failed_gate = [trace for trace in host.route_traces if trace.get("action") == "pressure_control_ready_gate"][-1]
+    assert failed_gate["result"] == "fail"
+    assert failed_gate["actual"]["preseal_watchlist_status_accepted"] is True
+    assert failed_gate["actual"]["control_ready_watchlist_status_accepted"] is False
 
     context.run_logger.finalize()
 

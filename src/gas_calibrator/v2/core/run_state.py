@@ -42,6 +42,17 @@ class HumidityRuntimeState:
 
 
 @dataclass
+class PressureRuntimeState:
+    sealed_route: str = ""
+    sealed_source_point_index: Optional[int] = None
+    final_vent_off_command_sent: bool = False
+    preseal_watchlist_status_seen: bool = False
+    preseal_watchlist_status_accepted: bool = False
+    preseal_watchlist_status_reason: str = ""
+    control_ready_watchlist_status_accepted: bool = False
+
+
+@dataclass
 class TemperatureRuntimeState:
     snapshot_keys: set[tuple[float, str]] = field(default_factory=set)
     snapshots: list[dict[str, Any]] = field(default_factory=list)
@@ -62,6 +73,7 @@ class RunState:
     qc: QCRuntimeState = field(default_factory=QCRuntimeState)
     analyzers: AnalyzerRuntimeState = field(default_factory=AnalyzerRuntimeState)
     humidity: HumidityRuntimeState = field(default_factory=HumidityRuntimeState)
+    pressure: PressureRuntimeState = field(default_factory=PressureRuntimeState)
     temperature: TemperatureRuntimeState = field(default_factory=TemperatureRuntimeState)
     timing: TimingRuntimeState = field(default_factory=TimingRuntimeState)
 
@@ -88,6 +100,14 @@ class RunState:
         self.humidity.active_post_h2o_co2_zero_flush = False
         self.humidity.last_hgen_target = (None, None)
         self.humidity.last_hgen_setpoint_ready = False
+
+        self.pressure.sealed_route = ""
+        self.pressure.sealed_source_point_index = None
+        self.pressure.final_vent_off_command_sent = False
+        self.pressure.preseal_watchlist_status_seen = False
+        self.pressure.preseal_watchlist_status_accepted = False
+        self.pressure.preseal_watchlist_status_reason = ""
+        self.pressure.control_ready_watchlist_status_accepted = False
 
         self.temperature.snapshot_keys.clear()
         self.temperature.snapshots.clear()
