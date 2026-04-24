@@ -1732,6 +1732,30 @@ def _prepare_runtime_cfg(
     pressure_cfg["route_open_guard_dewpoint_line_tolerance_hpa"] = float(
         args.route_open_guard_dewpoint_line_tolerance_hpa
     )
+    keepalive_overrides = {
+        "continuous_atmosphere_background_keepalive_enabled": not bool(
+            getattr(args, "disable_continuous_atmosphere_background_keepalive", False)
+        ),
+        "continuous_atmosphere_keepalive_interval_s": getattr(
+            args, "continuous_atmosphere_keepalive_interval_s", None
+        ),
+        "continuous_atmosphere_rise_trigger_delta_hpa": getattr(
+            args, "continuous_atmosphere_rise_trigger_delta_hpa", None
+        ),
+        "pre_source_final_vent_burst_count": getattr(args, "pre_source_final_vent_burst_count", None),
+        "pre_source_final_vent_burst_interval_s": getattr(args, "pre_source_final_vent_burst_interval_s", None),
+        "post_source_final_vent_burst_window_s": getattr(args, "post_source_final_vent_burst_window_s", None),
+        "post_source_final_vent_burst_interval_s": getattr(args, "post_source_final_vent_burst_interval_s", None),
+    }
+    for key, value in keepalive_overrides.items():
+        if value is None:
+            continue
+        if key == "continuous_atmosphere_background_keepalive_enabled":
+            pressure_cfg[key] = bool(value)
+        elif key == "pre_source_final_vent_burst_count":
+            pressure_cfg[key] = int(value)
+        else:
+            pressure_cfg[key] = float(value)
     approval_path = str(getattr(args, "pressure_protection_approval_json", "") or "").strip()
     if approval_path:
         pressure_cfg["pressure_protection_approval_json"] = approval_path
@@ -3547,6 +3571,17 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--route-open-guard-analyzer-warning-kpa", type=float, default=120.0)
     parser.add_argument("--route-open-guard-analyzer-abort-kpa", type=float, default=150.0)
     parser.add_argument("--route-open-guard-dewpoint-line-tolerance-hpa", type=float, default=30.0)
+    parser.add_argument("--continuous-atmosphere-keepalive-interval-s", type=float, default=0.5)
+    parser.add_argument("--continuous-atmosphere-rise-trigger-delta-hpa", type=float, default=2.0)
+    parser.add_argument("--pre-source-final-vent-burst-count", type=int, default=2)
+    parser.add_argument("--pre-source-final-vent-burst-interval-s", type=float, default=0.2)
+    parser.add_argument("--post-source-final-vent-burst-window-s", type=float, default=1.5)
+    parser.add_argument("--post-source-final-vent-burst-interval-s", type=float, default=0.3)
+    parser.add_argument(
+        "--disable-continuous-atmosphere-background-keepalive",
+        action="store_true",
+        help="Disable the runner-managed flush/open-route background VENT 1 keepalive for comparison runs.",
+    )
     parser.add_argument(
         "--allow-source-open",
         action="store_true",

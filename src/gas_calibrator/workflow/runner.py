@@ -559,7 +559,14 @@ class CalibrationRunner:
             "last_keepalive_ts": None,
             "last_keepalive_reason": "",
             "last_keepalive_summary": {},
+            "background_keepalive_active": False,
+            "background_keepalive_count": 0,
+            "background_keepalive_last_ts": None,
+            "background_keepalive_last_error": "",
         }
+        self._continuous_atmosphere_lock = threading.RLock()
+        self._continuous_atmosphere_background_stop = threading.Event()
+        self._continuous_atmosphere_background_thread: Optional[threading.Thread] = None
         self._sealed_no_vent_guard: Dict[str, Any] = {
             "active": False,
             "phase": "",
@@ -1810,12 +1817,19 @@ class CalibrationRunner:
         }
 
     def _continuous_atmosphere_state_snapshot(self) -> Dict[str, Any]:
-        state = dict(self._continuous_atmosphere_state or {})
+        lock = getattr(self, "_continuous_atmosphere_lock", None)
+        if lock is not None:
+            with lock:
+                state = dict(self._continuous_atmosphere_state or {})
+        else:
+            state = dict(self._continuous_atmosphere_state or {})
         state["active"] = bool(state.get("active"))
         state["route_flow_active"] = bool(state.get("route_flow_active"))
         state["generation"] = int(state.get("generation") or 0)
         state["keepalive_count"] = int(state.get("keepalive_count") or 0)
         state["last_keepalive_summary"] = dict(state.get("last_keepalive_summary") or {})
+        state["background_keepalive_active"] = bool(state.get("background_keepalive_active"))
+        state["background_keepalive_count"] = int(state.get("background_keepalive_count") or 0)
         return state
 
     def _pace_optional_query_error_attribution(
@@ -4230,6 +4244,11 @@ class CalibrationRunner:
     ) -> Dict[str, Any]:
         phase_text = str(phase or "").strip().lower()
         guard_phase_text = str(guard_phase or "").strip() or "PressureSetpointHold"
+        self._stop_continuous_atmosphere_background_keepalive(
+            point=point,
+            phase=phase_text,
+            reason=f"before sealed no-vent guard: {reason or guard_phase_text}",
+        )
         generation = int(self._sealed_no_vent_guard.get("generation") or 0) + 1
         self._sealed_no_vent_guard = {
             "active": True,
@@ -5345,21 +5364,74 @@ class CalibrationRunner:
             float(
                 self._wf(
                     "workflow.pressure.continuous_atmosphere_keepalive_interval_s",
-                    self._wf("workflow.pressure.route_open_guard_poll_s", 1.0),
+                    0.5,
                 )
-                or 1.0
+                or 0.5
+            ),
+        )
+
+    def _continuous_atmosphere_rise_trigger_delta_hpa(self) -> float:
+        return max(
+            0.5,
+            float(
+                self._wf(
+                    "workflow.pressure.continuous_atmosphere_rise_trigger_delta_hpa",
+                    self._wf("workflow.pressure.continuous_atmosphere_keepalive_trigger_delta_hpa", 2.0),
+                )
+                or 2.0
             ),
         )
 
     def _continuous_atmosphere_keepalive_trigger_delta_hpa(self) -> float:
+        return self._continuous_atmosphere_rise_trigger_delta_hpa()
+
+    def _pre_source_final_vent_burst_count(self) -> int:
         return max(
-            1.0,
+            0,
+            int(
+                float(
+                    self._wf(
+                        "workflow.pressure.pre_source_final_vent_burst_count",
+                        2,
+                    )
+                    or 0
+                )
+            ),
+        )
+
+    def _pre_source_final_vent_burst_interval_s(self) -> float:
+        return max(
+            0.1,
             float(
                 self._wf(
-                    "workflow.pressure.continuous_atmosphere_keepalive_trigger_delta_hpa",
-                    self._wf("workflow.pressure.route_open_guard_recovery_tolerance_hpa", 30.0),
+                    "workflow.pressure.pre_source_final_vent_burst_interval_s",
+                    0.2,
                 )
-                or 30.0
+                or 0.2
+            ),
+        )
+
+    def _post_source_final_vent_burst_window_s(self) -> float:
+        return max(
+            0.0,
+            float(
+                self._wf(
+                    "workflow.pressure.post_source_final_vent_burst_window_s",
+                    1.5,
+                )
+                or 0.0
+            ),
+        )
+
+    def _post_source_final_vent_burst_interval_s(self) -> float:
+        return max(
+            0.1,
+            float(
+                self._wf(
+                    "workflow.pressure.post_source_final_vent_burst_interval_s",
+                    0.3,
+                )
+                or 0.3
             ),
         )
 
@@ -5402,6 +5474,255 @@ class CalibrationRunner:
             return False, state
         return True, state
 
+    def _continuous_atmosphere_background_keepalive_enabled(self) -> bool:
+        value = self._wf("workflow.pressure.continuous_atmosphere_background_keepalive_enabled", True)
+        if isinstance(value, str):
+            text = value.strip().lower()
+            if text in {"0", "false", "no", "n", "off"}:
+                return False
+            if text in {"1", "true", "yes", "y", "on"}:
+                return True
+        return bool(value)
+
+    def _continuous_atmosphere_background_keepalive_allow_fake(self) -> bool:
+        value = self._wf("workflow.pressure.continuous_atmosphere_background_keepalive_allow_fake", False)
+        if isinstance(value, str):
+            text = value.strip().lower()
+            if text in {"1", "true", "yes", "y", "on"}:
+                return True
+            if text in {"0", "false", "no", "n", "off"}:
+                return False
+        return bool(value)
+
+    def _continuous_atmosphere_background_keepalive_allowed_for_pace(self, pace: Any) -> bool:
+        if pace is None:
+            return False
+        if not callable(getattr(pace, "vent", None)):
+            return False
+        if self._continuous_atmosphere_background_keepalive_allow_fake():
+            return True
+        return hasattr(pace, "ser")
+
+    def _start_continuous_atmosphere_background_keepalive(
+        self,
+        *,
+        route_key: str,
+        point: Optional[CalibrationPoint],
+        phase: str,
+        point_tag: str = "",
+        phase_name: str,
+        reason: str = "",
+        stage_label: str = "",
+    ) -> Dict[str, Any]:
+        if not self._continuous_atmosphere_background_keepalive_enabled():
+            return self._continuous_atmosphere_state_snapshot()
+        if bool(self._sealed_no_vent_guard_snapshot().get("active")):
+            return self._continuous_atmosphere_state_snapshot()
+        pace = self.devices.get("pace")
+        if not self._continuous_atmosphere_background_keepalive_allowed_for_pace(pace):
+            return self._continuous_atmosphere_state_snapshot()
+        state = self._continuous_atmosphere_state_snapshot()
+        if not bool(state.get("active")) or not bool(state.get("route_flow_active")):
+            return state
+        if str(state.get("pressure_mode") or "").strip() != self._PRESSURE_MODE_ATMOSPHERE_FLUSH:
+            return state
+        open_route_ready, open_route_state = self._continuous_atmosphere_open_route_pace_state(pace)
+        if not open_route_ready:
+            return {
+                **state,
+                "background_keepalive_started": False,
+                "background_keepalive_blocked_reason": "not_open_route",
+                **open_route_state,
+            }
+
+        self._stop_continuous_atmosphere_background_keepalive(
+            point=point,
+            phase=phase,
+            point_tag=point_tag,
+            reason=f"restart {reason or phase_name}",
+            trace=False,
+        )
+        stop_event = threading.Event()
+        expected_generation = int(state.get("generation") or 0)
+        interval_s = self._continuous_atmosphere_keepalive_interval_s()
+        with self._continuous_atmosphere_lock:
+            self._continuous_atmosphere_background_stop = stop_event
+            self._continuous_atmosphere_state.update(
+                {
+                    "background_keepalive_active": True,
+                    "background_keepalive_last_error": "",
+                }
+            )
+        thread = threading.Thread(
+            target=self._continuous_atmosphere_background_keepalive_loop,
+            args=(pace, stop_event, expected_generation, route_key, phase, phase_name, interval_s),
+            name=f"continuous-atmosphere-vent1-{expected_generation}",
+            daemon=True,
+        )
+        with self._continuous_atmosphere_lock:
+            self._continuous_atmosphere_background_thread = thread
+        thread.start()
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            point_tag=point_tag,
+            trace_stage="continuous_atmosphere_background_keepalive_start",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+            offending_route=self._current_valve_route_state_text(),
+            offending_valve_or_group=str(stage_label or self._current_valve_route_state_text()),
+            refresh_pace_state=False,
+            note=(
+                f"route_key={route_key or ''} phase_name={phase_name} interval_s={interval_s:.3f} "
+                f"generation={expected_generation} reason={reason or ''}"
+            ),
+        )
+        self._sync_continuous_atmosphere_runtime_fields(point, phase=phase)
+        return self._continuous_atmosphere_state_snapshot()
+
+    def _stop_continuous_atmosphere_background_keepalive(
+        self,
+        *,
+        point: Optional[CalibrationPoint] = None,
+        phase: str = "",
+        point_tag: str = "",
+        reason: str = "",
+        trace: bool = True,
+    ) -> Dict[str, Any]:
+        thread = getattr(self, "_continuous_atmosphere_background_thread", None)
+        stop_event = getattr(self, "_continuous_atmosphere_background_stop", None)
+        if stop_event is not None:
+            stop_event.set()
+        if thread is not None and thread.is_alive() and thread is not threading.current_thread():
+            try:
+                thread.join(timeout=min(1.0, max(0.2, self._continuous_atmosphere_keepalive_interval_s() * 2.0)))
+            except Exception:
+                pass
+        with self._continuous_atmosphere_lock:
+            previous = dict(self._continuous_atmosphere_state or {})
+            was_active = bool(previous.get("background_keepalive_active")) or bool(thread is not None)
+            self._continuous_atmosphere_state.update(
+                {
+                    "background_keepalive_active": False,
+                }
+            )
+            if thread is self._continuous_atmosphere_background_thread:
+                self._continuous_atmosphere_background_thread = None
+        phase_text = str(phase or "").strip().lower()
+        if trace and was_active:
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase_text,
+                point_phase=phase_text,
+                point_tag=point_tag,
+                trace_stage="continuous_atmosphere_background_keepalive_stop",
+                pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+                offending_route=self._current_valve_route_state_text(),
+                refresh_pace_state=False,
+                note=(
+                    f"reason={reason or ''} "
+                    f"background_count={int(previous.get('background_keepalive_count') or 0)}"
+                ),
+            )
+        if phase_text:
+            self._sync_continuous_atmosphere_runtime_fields(point, phase=phase_text)
+        return self._continuous_atmosphere_state_snapshot()
+
+    def _continuous_atmosphere_background_keepalive_loop(
+        self,
+        pace: Any,
+        stop_event: threading.Event,
+        expected_generation: int,
+        route_key: str,
+        phase: str,
+        phase_name: str,
+        interval_s: float,
+    ) -> None:
+        logged_error = False
+        while not stop_event.is_set():
+            state = self._continuous_atmosphere_state_snapshot()
+            if int(state.get("generation") or 0) != int(expected_generation):
+                break
+            if not bool(state.get("active")) or not bool(state.get("route_flow_active")):
+                break
+            if str(state.get("pressure_mode") or "").strip() != self._PRESSURE_MODE_ATMOSPHERE_FLUSH:
+                break
+            if bool(self._sealed_no_vent_guard_snapshot().get("active")):
+                break
+            try:
+                vent_command = getattr(pace, "vent", None)
+                if not callable(vent_command):
+                    raise RuntimeError("VENT_COMMAND_UNAVAILABLE")
+                vent_command(True)
+                now = time.time()
+                keepalive_summary = {
+                    "fresh_vent_command_sent": True,
+                    "continuous_atmosphere_background_keepalive": True,
+                    "fresh_vent_completed": False,
+                    "atmosphere_ready": False,
+                    "pace_vent_command_sent": ":SOUR:PRES:LEV:IMM:AMPL:VENT 1",
+                    "pace_vent_status_returned": None,
+                    "pace_vent_status_text": "",
+                    "vent_status_sequence": "",
+                    "vent_status_sequence_text": "",
+                    "pressure_mode": self._PRESSURE_MODE_ATMOSPHERE_FLUSH,
+                    "route_key": str(route_key or "").strip(),
+                    "phase_name": str(phase_name or "").strip(),
+                }
+                with self._continuous_atmosphere_lock:
+                    current = dict(self._continuous_atmosphere_state or {})
+                    if int(current.get("generation") or 0) != int(expected_generation):
+                        break
+                    if bool(self._sealed_no_vent_guard_snapshot().get("active")):
+                        break
+                    self._continuous_atmosphere_state.update(
+                        {
+                            "keepalive_count": int(current.get("keepalive_count") or 0) + 1,
+                            "last_keepalive_ts": now,
+                            "last_keepalive_reason": "background_continuous_atmosphere_keepalive",
+                            "last_keepalive_summary": keepalive_summary,
+                            "background_keepalive_active": True,
+                            "background_keepalive_count": int(
+                                current.get("background_keepalive_count") or 0
+                            )
+                            + 1,
+                            "background_keepalive_last_ts": now,
+                            "background_keepalive_last_error": "",
+                        }
+                    )
+            except Exception as exc:
+                with self._continuous_atmosphere_lock:
+                    self._continuous_atmosphere_state.update(
+                        {
+                            "background_keepalive_last_error": str(exc),
+                        }
+                    )
+                if not logged_error:
+                    logged_error = True
+                    self.log(f"Continuous atmosphere background VENT 1 keepalive failed: {exc}")
+            if stop_event.wait(max(0.05, float(interval_s or 0.5))):
+                break
+        with self._continuous_atmosphere_lock:
+            current = dict(self._continuous_atmosphere_state or {})
+            if int(current.get("generation") or 0) == int(expected_generation):
+                self._continuous_atmosphere_state.update({"background_keepalive_active": False})
+
+    def _continuous_atmosphere_keepalive_event_reason(
+        self,
+        *,
+        pressure_delta_hpa: Optional[float],
+        pressure_rise_hpa: Optional[float],
+        analyzer_pressure_status: str,
+    ) -> str:
+        trigger_delta = self._continuous_atmosphere_rise_trigger_delta_hpa()
+        if pressure_delta_hpa is not None and float(pressure_delta_hpa) >= trigger_delta:
+            return "pressure_delta_from_ambient_hpa"
+        if pressure_rise_hpa is not None and float(pressure_rise_hpa) >= trigger_delta:
+            return "pressure_rise_hpa"
+        if str(analyzer_pressure_status or "").strip().lower() == "warning":
+            return "analyzer_pressure_warning"
+        return ""
+
     def _continuous_atmosphere_failure_delta_hpa(self) -> float:
         return max(
             self._continuous_atmosphere_keepalive_trigger_delta_hpa(),
@@ -5430,6 +5751,12 @@ class CalibrationRunner:
             "continuous_atmosphere_route_key": str(state.get("route_key") or ""),
             "continuous_atmosphere_pressure_mode": str(state.get("pressure_mode") or ""),
             "vent_keepalive_count": int(state.get("keepalive_count") or 0),
+            "continuous_atmosphere_background_keepalive_active": bool(
+                state.get("background_keepalive_active")
+            ),
+            "continuous_atmosphere_background_keepalive_count": int(
+                state.get("background_keepalive_count") or 0
+            ),
             "pace_vent_command_sent": str(keepalive.get("pace_vent_command_sent") or ""),
             "pace_vent_status_returned": self._as_int(keepalive.get("pace_vent_status_returned")),
             "pace_vent_status_text": str(keepalive.get("pace_vent_status_text") or ""),
@@ -5477,6 +5804,7 @@ class CalibrationRunner:
         generation = int(self._continuous_atmosphere_state.get("generation") or 0)
         if generation <= 0:
             generation = 1
+        previous_background = dict(self._continuous_atmosphere_state or {})
         self._continuous_atmosphere_state = {
             "active": True,
             "route_flow_active": True,
@@ -5488,6 +5816,10 @@ class CalibrationRunner:
             "last_keepalive_ts": time.time(),
             "last_keepalive_reason": str(reason or phase_name_text),
             "last_keepalive_summary": keepalive_summary,
+            "background_keepalive_active": bool(previous_background.get("background_keepalive_active")),
+            "background_keepalive_count": int(previous_background.get("background_keepalive_count") or 0),
+            "background_keepalive_last_ts": previous_background.get("background_keepalive_last_ts"),
+            "background_keepalive_last_error": str(previous_background.get("background_keepalive_last_error") or ""),
         }
         self._sync_continuous_atmosphere_runtime_fields(point, phase=phase_text)
         self._sync_source_stage_runtime_fields(point, phase=phase_text)
@@ -5527,6 +5859,12 @@ class CalibrationRunner:
             "last_keepalive_ts": self._continuous_atmosphere_state.get("last_keepalive_ts"),
             "last_keepalive_reason": str(reason or phase_name_text),
             "last_keepalive_summary": dict(self._continuous_atmosphere_state.get("last_keepalive_summary") or {}),
+            "background_keepalive_active": False,
+            "background_keepalive_count": int(
+                self._continuous_atmosphere_state.get("background_keepalive_count") or 0
+            ),
+            "background_keepalive_last_ts": self._continuous_atmosphere_state.get("background_keepalive_last_ts"),
+            "background_keepalive_last_error": "",
         }
         self._sync_continuous_atmosphere_runtime_fields(point, phase=phase_text)
         self._sync_source_stage_runtime_fields(point, phase=phase_text)
@@ -5543,6 +5881,15 @@ class CalibrationRunner:
                 f"keepalive_count={keepalive_count} reason={reason or ''}"
             ),
         )
+        self._start_continuous_atmosphere_background_keepalive(
+            route_key=route_key_text,
+            point=point,
+            phase=phase_text,
+            point_tag=point_tag,
+            phase_name=phase_name_text,
+            reason=reason,
+            stage_label=stage_label,
+        )
         return self._continuous_atmosphere_state_snapshot()
 
     def maintain_continuous_atmosphere_flowthrough(
@@ -5556,6 +5903,12 @@ class CalibrationRunner:
         reason: str = "",
         stage_label: str = "",
         force: bool = False,
+        quick: bool = False,
+        abort_on_pressure_delta: bool = True,
+        read_pressure_before: bool = True,
+        quick_sample_after: bool = True,
+        quick_query_vent_status: bool = True,
+        quick_read_system_error: bool = True,
     ) -> Tuple[bool, Dict[str, Any]]:
         phase_name_text = str(phase_name or "").strip() or "ContinuousAtmosphereFlowThrough"
         phase_text = str(phase or "").strip().lower()
@@ -5592,7 +5945,7 @@ class CalibrationRunner:
                 reason=reason or "maintain_without_active_window",
                 stage_label=stage_label,
             )
-        sample_before = self._read_current_pressure_hpa_for_atmosphere()
+        sample_before = self._read_current_pressure_hpa_for_atmosphere() if read_pressure_before else {}
         ambient_hpa = self._as_float((self._last_atmosphere_gate_summary or {}).get("ambient_hpa"))
         pressure_before_hpa = self._as_float(sample_before.get("pressure_hpa"))
         pressure_delta_before = (
@@ -5609,7 +5962,7 @@ class CalibrationRunner:
         if (
             not need_keepalive
             and pressure_delta_before is not None
-            and pressure_delta_before >= self._continuous_atmosphere_keepalive_trigger_delta_hpa()
+            and pressure_delta_before >= self._continuous_atmosphere_rise_trigger_delta_hpa()
         ):
             need_keepalive = True
         if not need_keepalive:
@@ -5643,14 +5996,28 @@ class CalibrationRunner:
                 "abort_reason": failure_reason,
                 **open_route_state,
             }
-        summary = self._route_stage_fresh_vent_refresh(
-            point,
-            phase=phase_text,
-            point_tag=point_tag,
-            stage_label=stage_label,
-            log_context=reason or f"{phase_name_text} keepalive",
-            recovery_attempt=int(state.get("keepalive_count") or 0),
-        )
+        if quick:
+            summary = self._continuous_atmosphere_quick_vent1_refresh(
+                point,
+                phase=phase_text,
+                point_tag=point_tag,
+                stage_label=stage_label,
+                log_context=reason or f"{phase_name_text} keepalive",
+                recovery_attempt=int(state.get("keepalive_count") or 0),
+                pressure_before=sample_before,
+                sample_pressure_after=quick_sample_after,
+                query_vent_status=quick_query_vent_status,
+                read_system_error=quick_read_system_error,
+            )
+        else:
+            summary = self._route_stage_fresh_vent_refresh(
+                point,
+                phase=phase_text,
+                point_tag=point_tag,
+                stage_label=stage_label,
+                log_context=reason or f"{phase_name_text} keepalive",
+                recovery_attempt=int(state.get("keepalive_count") or 0),
+            )
         vent_sequence = list(summary.get("vent_status_sequence") or [])
         vent_status = self._as_int(vent_sequence[-1] if vent_sequence else None)
         pressure_after_hpa = self._as_float(summary.get("pressure_hpa"))
@@ -5690,8 +6057,9 @@ class CalibrationRunner:
         if str(summary.get("abort_reason") or "").strip():
             failure_reason = str(summary.get("abort_reason") or "").strip()
         elif (
-            pressure_delta_after is not None
-            and pressure_delta_after > self._continuous_atmosphere_keepalive_trigger_delta_hpa()
+            bool(abort_on_pressure_delta)
+            and pressure_delta_after is not None
+            and pressure_delta_after > self._continuous_atmosphere_failure_delta_hpa()
         ):
             failure_reason = "AtmospherePathInsufficientUnderFlow"
         if failure_reason:
@@ -5717,6 +6085,12 @@ class CalibrationRunner:
     ) -> Dict[str, Any]:
         phase_text = str(phase or "").strip().lower()
         route_key_text = str(route_key or self._continuous_atmosphere_state.get("route_key") or "").strip()
+        self._stop_continuous_atmosphere_background_keepalive(
+            point=point,
+            phase=phase_text,
+            point_tag=point_tag,
+            reason=reason or "continuous atmosphere flowthrough exit",
+        )
         generation = int(self._continuous_atmosphere_state.get("generation") or 0) + 1
         self._continuous_atmosphere_state = {
             **dict(self._continuous_atmosphere_state or {}),
@@ -6456,6 +6830,11 @@ class CalibrationRunner:
     ) -> None:
         phase_text = str(phase or "").strip().lower()
         self._last_abort_reason = str(abort_reason or "").strip()
+        self._stop_continuous_atmosphere_background_keepalive(
+            point=point,
+            phase=phase_text,
+            reason=f"route-open abort: {abort_reason}",
+        )
         if point is not None:
             runtime_payload = dict(state_payload or {})
             runtime_payload.setdefault("route_pressure_guard_status", "fail")
@@ -6582,6 +6961,317 @@ class CalibrationRunner:
         result["drained_errors"] = drained_errors
         return result
 
+    def _continuous_atmosphere_quick_vent1_refresh(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+        point_tag: str,
+        stage_label: str,
+        log_context: str,
+        recovery_attempt: int,
+        pressure_before: Optional[Mapping[str, Any]] = None,
+        sample_pressure_after: bool = True,
+        query_vent_status: bool = True,
+        read_system_error: bool = True,
+    ) -> Dict[str, Any]:
+        pace = self.devices.get("pace")
+        if not pace:
+            return {}
+        phase_text = str(phase or "").strip().lower()
+        pressure_mode = self._route_flush_pressure_mode(phase_text)
+        open_route_ready, open_route_state = self._continuous_atmosphere_open_route_pace_state(pace)
+        if not open_route_ready:
+            abort_reason = "ContinuousAtmosphereKeepaliveNotOpenRoute"
+            summary = {
+                "fresh_vent_command_sent": False,
+                "continuous_atmosphere_quick_refresh": True,
+                "vent_status_sequence": [],
+                "vent_status_sequence_text": "",
+                "fresh_vent_completed": False,
+                "atmosphere_ready": False,
+                "abort_reason": abort_reason,
+                "pressure_mode": pressure_mode,
+                **open_route_state,
+            }
+            if point is not None:
+                self._set_point_runtime_fields(point, phase=phase_text, abort_reason=abort_reason, **open_route_state)
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase_text,
+                point_phase=phase_text,
+                point_tag=point_tag,
+                trace_stage="continuous_atmosphere_vent1_refresh_blocked",
+                pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+                offending_route=self._current_valve_route_state_text(),
+                offending_valve_or_group=str(stage_label or self._current_valve_route_state_text()),
+                pace_output_state=open_route_state.get("pace_output_state"),
+                pace_isolation_state=open_route_state.get("pace_isolation_state"),
+                refresh_pace_state=False,
+                note=(
+                    f"context={log_context} pressure_mode={pressure_mode} "
+                    "blocked because PACE is not OUTP=0 / ISOL=1"
+                ),
+            )
+            return summary
+
+        vent_status_sequence: List[int] = []
+        pace_syst_err_query = ""
+        abort_reason = ""
+        command_sent = False
+        try:
+            vent_command = getattr(pace, "vent", None)
+            if not callable(vent_command):
+                raise RuntimeError("VENT_COMMAND_UNAVAILABLE")
+            vent_command(True)
+            command_sent = True
+            if read_system_error:
+                pace_syst_err_query = str(self._read_pace_system_error_text() or "").strip()
+            if pace_syst_err_query and not self._pace_system_error_is_clear(pace_syst_err_query):
+                abort_reason = "PaceSystemError"
+            vent_status_getter = getattr(pace, "get_vent_status", None)
+            if query_vent_status and callable(vent_status_getter):
+                try:
+                    vent_status = self._as_int(vent_status_getter())
+                    if vent_status is not None:
+                        vent_status_sequence.append(int(vent_status))
+                except Exception:
+                    pass
+        except Exception as exc:
+            abort_reason = "FreshVentNotSent"
+            pace_syst_err_query = str(pace_syst_err_query or exc)
+            self.log(f"Continuous atmosphere quick VENT 1 refresh failed ({log_context}): {exc}")
+
+        sample_after_values: Dict[str, Any] = {}
+        if sample_pressure_after:
+            try:
+                sample_after_values = dict(self._read_current_pressure_hpa_for_atmosphere() or {})
+            except Exception:
+                sample_after_values = {}
+        pressure_before_hpa = self._as_float(
+            (pressure_before or {}).get("pressure_hpa") if isinstance(pressure_before, Mapping) else None
+        )
+        pressure_after_hpa = self._as_float(sample_after_values.get("pressure_hpa"))
+        if pressure_after_hpa is None:
+            pressure_after_hpa = pressure_before_hpa
+        ambient_hpa = self._as_float((self._last_atmosphere_gate_summary or {}).get("ambient_hpa"))
+        if ambient_hpa is None:
+            ambient_hpa = self._as_float(sample_after_values.get("ambient_hpa"))
+        pressure_delta = (
+            None
+            if pressure_after_hpa is None or ambient_hpa is None
+            else float(pressure_after_hpa) - float(ambient_hpa)
+        )
+        vent_status_text = ",".join(str(value) for value in vent_status_sequence)
+        summary = {
+            "fresh_vent_command_sent": bool(command_sent),
+            "continuous_atmosphere_quick_refresh": True,
+            "vent_status_sequence": list(vent_status_sequence),
+            "vent_status_sequence_text": vent_status_text,
+            "fresh_vent_completed": False,
+            "atmosphere_ready": False,
+            "pace_syst_err_query": pace_syst_err_query,
+            "abort_reason": abort_reason,
+            "pressure_hpa": pressure_after_hpa,
+            "pressure_gauge_hpa": self._as_float(sample_after_values.get("pressure_gauge_hpa")),
+            "pace_pressure_hpa": self._as_float(sample_after_values.get("pace_pressure_hpa")),
+            "ambient_hpa": ambient_hpa,
+            "pressure_delta_from_ambient_hpa": pressure_delta,
+            "pressure_before_vent_hpa": pressure_before_hpa,
+            "pressure_mode": pressure_mode,
+            **open_route_state,
+        }
+        if point is not None:
+            self._set_point_runtime_fields(
+                point,
+                phase=phase_text,
+                fresh_vent_command_sent=bool(command_sent),
+                vent_status_sequence=vent_status_text,
+                pressure_hpa=pressure_after_hpa,
+                ambient_hpa=ambient_hpa,
+                pressure_delta_from_ambient_hpa=pressure_delta,
+                atmosphere_ready=False,
+                abort_reason=abort_reason,
+                pace_syst_err_query=pace_syst_err_query,
+            )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            point_tag=point_tag,
+            trace_stage="continuous_atmosphere_vent1_refresh",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+            offending_route=self._current_valve_route_state_text(),
+            offending_valve_or_group=str(stage_label or self._current_valve_route_state_text()),
+            pressure_gauge_hpa=summary.get("pressure_gauge_hpa"),
+            pace_pressure_hpa=summary.get("pace_pressure_hpa"),
+            pace_output_state=open_route_state.get("pace_output_state"),
+            pace_isolation_state=open_route_state.get("pace_isolation_state"),
+            pace_vent_status=vent_status_sequence[-1] if vent_status_sequence else None,
+            refresh_pace_state=False,
+            note=(
+                f"context={log_context} pressure_mode={pressure_mode} "
+                f"recovery_attempt={int(recovery_attempt)} "
+                f"delta_hpa={pressure_delta} abort_reason={abort_reason}"
+            ),
+        )
+        return summary
+
+    def _route_stage_flowthrough_vent_refresh(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+        point_tag: str,
+        stage_label: str,
+        log_context: str,
+        recovery_attempt: int,
+        pressure_before: Optional[Mapping[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        phase_text = str(phase or "").strip().lower()
+        state = self._continuous_atmosphere_state_snapshot()
+        if (
+            self._route_flush_pressure_mode(phase_text) == self._PRESSURE_MODE_ATMOSPHERE_FLUSH
+            and bool(state.get("background_keepalive_active"))
+        ):
+            return self._continuous_atmosphere_quick_vent1_refresh(
+                point,
+                phase=phase_text,
+                point_tag=point_tag,
+                stage_label=stage_label,
+                log_context=log_context,
+                recovery_attempt=recovery_attempt,
+                pressure_before=pressure_before,
+                sample_pressure_after=True,
+                query_vent_status=False,
+                read_system_error=True,
+            )
+        return self._route_stage_fresh_vent_refresh(
+            point,
+            phase=phase_text,
+            point_tag=point_tag,
+            stage_label=stage_label,
+            log_context=log_context,
+            recovery_attempt=recovery_attempt,
+        )
+
+    def _run_continuous_atmosphere_vent_burst(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+        point_tag: str,
+        route_key: str,
+        phase_name: str,
+        stage_label: str,
+        log_context: str,
+        trace_prefix: str,
+        count: int = 0,
+        window_s: float = 0.0,
+        interval_s: float = 0.2,
+    ) -> Tuple[bool, Dict[str, Any]]:
+        phase_text = str(phase or "").strip().lower()
+        pressure_mode = self._route_flush_pressure_mode(phase_text)
+        attempts_limit = max(0, int(count or 0))
+        window = max(0.0, float(window_s or 0.0))
+        interval = max(0.1, float(interval_s or 0.0))
+        if attempts_limit <= 0 and window <= 0.0:
+            return True, {
+                "burst_status": "skipped",
+                "burst_reason": "disabled",
+                "burst_attempt_count": 0,
+            }
+        if pressure_mode != self._PRESSURE_MODE_ATMOSPHERE_FLUSH:
+            return True, {
+                "burst_status": "skipped",
+                "burst_reason": "not_atmosphere_flush",
+                "burst_attempt_count": 0,
+                "pressure_mode": pressure_mode,
+            }
+
+        if attempts_limit <= 0:
+            attempts_limit = max(1, int(math.floor(window / interval)) + 1)
+        attempts_limit = max(1, attempts_limit)
+        trace_name = str(trace_prefix or "continuous_atmosphere_vent_burst").strip()
+        started = time.monotonic()
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            point_tag=point_tag,
+            trace_stage=f"{trace_name}_begin",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+            offending_route=self._current_valve_route_state_text(),
+            offending_valve_or_group=str(stage_label or self._current_valve_route_state_text()),
+            refresh_pace_state=False,
+            note=(
+                f"context={log_context} pressure_mode={pressure_mode} "
+                f"count={int(count or 0)} window_s={window:.3f} interval_s={interval:.3f}"
+            ),
+        )
+        ok = True
+        state: Dict[str, Any] = {}
+        attempts = 0
+        abort_reason = ""
+        for attempt_index in range(attempts_limit):
+            if attempt_index > 0 and window > 0.0 and (time.monotonic() - started) > window:
+                break
+            if self.stop_event.is_set():
+                break
+            attempts += 1
+            ok, state = self.maintain_continuous_atmosphere_flowthrough(
+                route_key,
+                point=point,
+                phase=phase_text,
+                point_tag=point_tag,
+                phase_name=phase_name,
+                reason=f"{log_context} {trace_name} attempt {attempts}",
+                stage_label=stage_label,
+                force=True,
+                quick=True,
+                abort_on_pressure_delta=False,
+                read_pressure_before=False,
+                quick_sample_after=False,
+                quick_query_vent_status=False,
+                quick_read_system_error=False,
+            )
+            if not ok:
+                abort_reason = str(state.get("abort_reason") or "AtmospherePathInsufficientUnderFlow")
+                break
+            if attempt_index < attempts_limit - 1:
+                if window > 0.0:
+                    remaining = window - (time.monotonic() - started)
+                    if remaining <= 0.0:
+                        break
+                    time.sleep(min(interval, max(0.0, remaining)))
+                else:
+                    time.sleep(interval)
+        elapsed_s = round(max(0.0, time.monotonic() - started), 3)
+        summary = {
+            "burst_status": "fail" if abort_reason else "pass",
+            "burst_reason": abort_reason,
+            "burst_attempt_count": attempts,
+            "burst_elapsed_s": elapsed_s,
+            "pressure_mode": pressure_mode,
+            "continuous_atmosphere_state": dict(state or self._continuous_atmosphere_state_snapshot()),
+        }
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            point_tag=point_tag,
+            trace_stage=f"{trace_name}_end",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None) if point is not None else None,
+            offending_route=self._current_valve_route_state_text(),
+            offending_valve_or_group=str(stage_label or self._current_valve_route_state_text()),
+            refresh_pace_state=False,
+            note=(
+                f"context={log_context} status={summary['burst_status']} "
+                f"attempts={attempts} elapsed_s={elapsed_s:.3f} abort_reason={abort_reason}"
+            ),
+        )
+        return ok, summary
+
     def _run_route_open_pressure_guard(
         self,
         point: Optional[CalibrationPoint],
@@ -6625,8 +7315,10 @@ class CalibrationRunner:
         recovery_attempts = 0
         recovery_result = ""
         continuous_keepalive_refreshes = 0
+        continuous_event_keepalive_refreshes = 0
+        continuous_keepalive_trigger_reason = ""
         pressure_before_refresh = None
-        last_refresh_summary = self._route_stage_fresh_vent_refresh(
+        last_refresh_summary = self._route_stage_flowthrough_vent_refresh(
             point,
             phase=phase_text,
             point_tag=point_tag,
@@ -6683,6 +7375,8 @@ class CalibrationRunner:
                 "vent_recovery_count": 0,
                 "vent_recovery_result": "",
                 "continuous_keepalive_refresh_count": continuous_keepalive_refreshes,
+                "continuous_event_keepalive_refresh_count": continuous_event_keepalive_refreshes,
+                "continuous_keepalive_trigger_reason": continuous_keepalive_trigger_reason,
                 "fresh_vent_command_sent": bool(last_refresh_summary.get("fresh_vent_command_sent")),
                 "vent_status_sequence": str(last_refresh_summary.get("vent_status_sequence_text") or ""),
                 **self._pace_error_attribution_counts(),
@@ -6735,6 +7429,8 @@ class CalibrationRunner:
             "vent_recovery_count": 0,
             "vent_recovery_result": "",
             "continuous_keepalive_refresh_count": continuous_keepalive_refreshes,
+            "continuous_event_keepalive_refresh_count": continuous_event_keepalive_refreshes,
+            "continuous_keepalive_trigger_reason": continuous_keepalive_trigger_reason,
             "fresh_vent_command_sent": bool(last_refresh_summary.get("fresh_vent_command_sent")),
             "vent_status_sequence": str(last_refresh_summary.get("vent_status_sequence_text") or ""),
             **self._pace_error_attribution_counts(),
@@ -6911,6 +7607,8 @@ class CalibrationRunner:
                 "vent_recovery_count": recovery_attempts,
                 "vent_recovery_result": recovery_result,
                 "continuous_keepalive_refresh_count": continuous_keepalive_refreshes,
+                "continuous_event_keepalive_refresh_count": continuous_event_keepalive_refreshes,
+                "continuous_keepalive_trigger_reason": continuous_keepalive_trigger_reason,
                 "fresh_vent_command_sent": bool(last_refresh_summary.get("fresh_vent_command_sent")),
                 "vent_status_sequence": str(last_refresh_summary.get("vent_status_sequence_text") or ""),
                 **self._pace_error_attribution_counts(),
@@ -6941,27 +7639,48 @@ class CalibrationRunner:
                 ),
             )
             guard_window_complete = time.monotonic() >= deadline and len(pressure_rows) >= min_guard_samples
+            event_keepalive_reason = ""
+            if allow_vent_recovery:
+                event_keepalive_reason = self._continuous_atmosphere_keepalive_event_reason(
+                    pressure_delta_hpa=pressure_delta,
+                    pressure_rise_hpa=pressure_rise,
+                    analyzer_pressure_status=analyzer_pressure_status,
+                )
+            keepalive_due = self._continuous_atmosphere_keepalive_due()
             if (
                 not abort_reason
                 and not needs_vent_recovery
                 and not guard_window_complete
-                and self._continuous_atmosphere_keepalive_due()
+                and (keepalive_due or bool(event_keepalive_reason))
             ):
+                continuous_keepalive_trigger_reason = (
+                    event_keepalive_reason if event_keepalive_reason else "heartbeat_interval"
+                )
                 keepalive_ok, keepalive_state = self.maintain_continuous_atmosphere_flowthrough(
                     route_key,
                     point=point,
                     phase=phase_text,
                     point_tag=point_tag,
                     phase_name=flow_phase_name,
-                    reason=f"{log_context} route-open monitor keepalive",
+                    reason=f"{log_context} route-open {continuous_keepalive_trigger_reason} keepalive",
                     stage_label=stage_label,
                     force=True,
+                    quick=True,
+                    abort_on_pressure_delta=False,
+                    read_pressure_before=False,
+                    quick_sample_after=False,
+                    quick_query_vent_status=False,
+                    quick_read_system_error=False,
                 )
                 last_keepalive_summary = dict(keepalive_state.get("last_keepalive_summary") or {})
                 if bool(last_keepalive_summary.get("fresh_vent_command_sent")):
                     continuous_keepalive_refreshes += 1
+                    if event_keepalive_reason:
+                        continuous_event_keepalive_refreshes += 1
                     last_refresh_summary = dict(last_keepalive_summary)
                 summary["continuous_keepalive_refresh_count"] = continuous_keepalive_refreshes
+                summary["continuous_event_keepalive_refresh_count"] = continuous_event_keepalive_refreshes
+                summary["continuous_keepalive_trigger_reason"] = continuous_keepalive_trigger_reason
                 summary["fresh_vent_command_sent"] = bool(last_refresh_summary.get("fresh_vent_command_sent"))
                 summary["vent_status_sequence"] = str(last_refresh_summary.get("vent_status_sequence_text") or "")
                 if not keepalive_ok:
@@ -6990,13 +7709,14 @@ class CalibrationRunner:
             if needs_vent_recovery:
                 recovery_attempts += 1
                 pressure_before_refresh = dict(sample or {})
-                last_refresh_summary = self._route_stage_fresh_vent_refresh(
+                last_refresh_summary = self._route_stage_flowthrough_vent_refresh(
                     point,
                     phase=phase_text,
                     point_tag=point_tag,
                     stage_label=stage_label,
                     log_context=log_context,
                     recovery_attempt=recovery_attempts,
+                    pressure_before=pressure_before_refresh,
                 )
                 self._record_continuous_atmosphere_keepalive_summary(
                     route_key=route_key,
@@ -24788,6 +25508,7 @@ class CalibrationRunner:
             return False
 
         route_key = self._source_stage_key_for_point(point, phase=phase) or str(phase or "").strip().lower()
+        final_stage_valve = self._route_final_stage_valve_for_point(point, phase=phase)
         self.enter_continuous_atmosphere_flowthrough(
             route_key,
             point=point,
@@ -24801,6 +25522,10 @@ class CalibrationRunner:
         for stage_index, stage_additions in enumerate(stage_groups, start=1):
             cumulative = [valve for valve in ordered_open_valves if valve in set(cumulative + list(stage_additions))]
             stage_label = "|".join(str(int(valve)) for valve in cumulative)
+            source_final_opening = bool(
+                final_stage_valve is not None
+                and int(final_stage_valve) in {int(value) for value in list(stage_additions or [])}
+            )
             self._drain_pace_system_errors(
                 reason=f"{log_context} stage={stage_label} pre-route drain",
                 classification="pre_route_drain",
@@ -24808,6 +25533,30 @@ class CalibrationRunner:
                 command=f"relay_stage:{stage_label}",
                 response=stage_label,
             )
+            if source_final_opening:
+                pre_burst_ok, pre_burst_summary = self._run_continuous_atmosphere_vent_burst(
+                    point,
+                    phase=phase,
+                    point_tag=point_tag,
+                    route_key=route_key,
+                    phase_name="FinalStageAtmosphereSafetyGate",
+                    stage_label=stage_label,
+                    log_context=log_context,
+                    trace_prefix="pre_source_final_vent_burst",
+                    count=self._pre_source_final_vent_burst_count(),
+                    window_s=0.0,
+                    interval_s=self._pre_source_final_vent_burst_interval_s(),
+                )
+                if not pre_burst_ok:
+                    abort_reason = str(pre_burst_summary.get("burst_reason") or "PreSourceFinalVentBurstFailed")
+                    self._set_point_runtime_fields(
+                        point,
+                        phase=phase,
+                        route_pressure_guard_status="fail",
+                        route_pressure_guard_reason=abort_reason,
+                        abort_reason=abort_reason,
+                    )
+                    return False
             self._apply_valve_states(cumulative)
             post_stage_syst_err = str(self._read_pace_system_error_text() or "").strip()
             if not self._pace_system_error_is_clear(post_stage_syst_err):
@@ -24887,6 +25636,30 @@ class CalibrationRunner:
                     f"pressure_mode={self._route_flush_pressure_mode(phase)}"
                 ),
             )
+            if source_final_opening:
+                post_burst_ok, post_burst_summary = self._run_continuous_atmosphere_vent_burst(
+                    point,
+                    phase=phase,
+                    point_tag=point_tag,
+                    route_key=route_key,
+                    phase_name="FinalStageAtmosphereSafetyGate",
+                    stage_label=stage_label,
+                    log_context=log_context,
+                    trace_prefix="post_source_final_vent_burst",
+                    count=0,
+                    window_s=self._post_source_final_vent_burst_window_s(),
+                    interval_s=self._post_source_final_vent_burst_interval_s(),
+                )
+                if not post_burst_ok:
+                    abort_reason = str(post_burst_summary.get("burst_reason") or "PostSourceFinalVentBurstFailed")
+                    self._set_point_runtime_fields(
+                        point,
+                        phase=phase,
+                        route_pressure_guard_status="fail",
+                        route_pressure_guard_reason=abort_reason,
+                        abort_reason=abort_reason,
+                    )
+                    return False
             guard_ok, _guard_summary = self._run_route_open_pressure_guard(
                 point,
                 phase=phase,

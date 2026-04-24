@@ -415,6 +415,68 @@ def _config(
     }
 
 
+def test_prepare_runtime_cfg_injects_continuous_atmosphere_keepalive_overrides(tmp_path: Path) -> None:
+    args = live_tool._parse_args(
+        [
+            "--scenario",
+            "co2_a_pressure_switch_smoke_no_temp_wait",
+            "--real-device",
+            "--output-dir",
+            str(tmp_path),
+            "--continuous-atmosphere-keepalive-interval-s",
+            "0.25",
+            "--continuous-atmosphere-rise-trigger-delta-hpa",
+            "1.5",
+            "--pre-source-final-vent-burst-count",
+            "3",
+            "--pre-source-final-vent-burst-interval-s",
+            "0.15",
+            "--post-source-final-vent-burst-window-s",
+            "1.2",
+            "--post-source-final-vent-burst-interval-s",
+            "0.25",
+        ]
+    )
+
+    runtime_cfg = live_tool._prepare_runtime_cfg(
+        _config(),
+        args,
+        need_dewpoint=False,
+        need_analyzer_pressure=True,
+    )
+    pressure_cfg = runtime_cfg["workflow"]["pressure"]
+
+    assert pressure_cfg["continuous_atmosphere_keepalive_interval_s"] == 0.25
+    assert pressure_cfg["continuous_atmosphere_background_keepalive_enabled"] is True
+    assert pressure_cfg["continuous_atmosphere_rise_trigger_delta_hpa"] == 1.5
+    assert pressure_cfg["pre_source_final_vent_burst_count"] == 3
+    assert pressure_cfg["pre_source_final_vent_burst_interval_s"] == 0.15
+    assert pressure_cfg["post_source_final_vent_burst_window_s"] == 1.2
+    assert pressure_cfg["post_source_final_vent_burst_interval_s"] == 0.25
+
+
+def test_prepare_runtime_cfg_can_disable_background_keepalive_for_comparison(tmp_path: Path) -> None:
+    args = live_tool._parse_args(
+        [
+            "--scenario",
+            "co2_a_pressure_switch_smoke_no_temp_wait",
+            "--real-device",
+            "--output-dir",
+            str(tmp_path),
+            "--disable-continuous-atmosphere-background-keepalive",
+        ]
+    )
+
+    runtime_cfg = live_tool._prepare_runtime_cfg(
+        _config(),
+        args,
+        need_dewpoint=False,
+        need_analyzer_pressure=True,
+    )
+
+    assert runtime_cfg["workflow"]["pressure"]["continuous_atmosphere_background_keepalive_enabled"] is False
+
+
 def _run_main(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
