@@ -1156,6 +1156,53 @@ def _co2_a_sustained_atmosphere_diagnostics(
         preseal_final_exit_reason = str(rows[int(preseal_final_exit_failed_index)].get("note") or "")
     if not preseal_final_exit_reason and preseal_final_exit_verified_index is not None:
         preseal_final_exit_reason = str(rows[int(preseal_final_exit_verified_index)].get("note") or "")
+    preseal_final_exit_watchlist_status_seen = bool(
+        _first_bool("preseal_final_exit_watchlist_status_seen")
+        or "vent_status=3(watchlist_only)" in preseal_final_exit_reason
+        or any(
+            _optional_int(
+                rows[int(stage_index)].get(
+                    "pace_vent_status_query",
+                    rows[int(stage_index)].get("pace_vent_status"),
+                )
+            )
+            == 3
+            for stage_index in (
+                preseal_final_exit_verified_index,
+                preseal_final_exit_failed_index,
+            )
+            if stage_index is not None
+        )
+    )
+    preseal_final_exit_watchlist_status_accepted = bool(
+        _first_bool("preseal_final_exit_watchlist_status_accepted")
+        or "preseal_exit_watchlist_only_but_accepted" in preseal_final_exit_reason
+    )
+    preseal_final_exit_watchlist_status_reason = str(
+        _first_value("preseal_final_exit_watchlist_status_reason", "")
+        or (
+            "preseal_exit_watchlist_only_but_accepted"
+            if preseal_final_exit_watchlist_status_accepted
+            else "preseal_exit_watchlist_only_failure"
+            if preseal_final_exit_watchlist_status_seen
+            else ""
+        )
+    )
+    legacy_v1_preseal_watchlist_evidence_found = bool(
+        _first_bool("legacy_v1_preseal_watchlist_evidence_found")
+        or preseal_final_exit_watchlist_status_accepted
+    )
+    legacy_v1_preseal_watchlist_evidence_source = str(
+        _first_value("legacy_v1_preseal_watchlist_evidence_source", "")
+        or (
+            "local_trace_scan:101_old_v1_route_sealed_to_control_ready_vent_status_3_success_like_chains"
+            if legacy_v1_preseal_watchlist_evidence_found
+            else ""
+        )
+    )
+    control_ready_watchlist_status_accepted = bool(
+        _first_bool("control_ready_watchlist_status_accepted")
+    )
     control_ready_check_vent_status = _optional_int(_first_value("control_ready_check_vent_status", ""))
     if control_ready_check_vent_status is None:
         for stage_name in (
@@ -1277,11 +1324,17 @@ def _co2_a_sustained_atmosphere_diagnostics(
         "preseal_final_atmosphere_exit_verified": preseal_final_exit_verified,
         "preseal_final_atmosphere_exit_phase": preseal_final_exit_phase,
         "preseal_final_atmosphere_exit_reason": preseal_final_exit_reason,
+        "preseal_final_exit_watchlist_status_seen": preseal_final_exit_watchlist_status_seen,
+        "preseal_final_exit_watchlist_status_accepted": preseal_final_exit_watchlist_status_accepted,
+        "preseal_final_exit_watchlist_status_reason": preseal_final_exit_watchlist_status_reason,
+        "legacy_v1_preseal_watchlist_evidence_found": legacy_v1_preseal_watchlist_evidence_found,
+        "legacy_v1_preseal_watchlist_evidence_source": legacy_v1_preseal_watchlist_evidence_source,
         "control_ready_check_vent_status": control_ready_check_vent_status,
         "control_ready_check_phase": control_ready_check_phase,
         "control_ready_failure_reason_detail": control_ready_failure_reason_detail,
         "control_ready_failed_after_full_seal": control_ready_failed_after_full_seal,
         "control_ready_failed_with_watchlist_status_3": control_ready_failed_with_watchlist_status_3,
+        "control_ready_watchlist_status_accepted": control_ready_watchlist_status_accepted,
         "pressure_in_limits_timeout_phase": pressure_in_limits_timeout_phase,
         "pressure_in_limits_timeout_reason_detail": pressure_in_limits_timeout_reason_detail,
         "sealed_control_started": sealed_control_started,
@@ -1644,6 +1697,24 @@ def _co2_a_sealed_pressure_control_gate(
                 "preseal_final_atmosphere_exit_reason": str(
                     point_state.get("preseal_final_atmosphere_exit_reason") or ""
                 ),
+                "preseal_final_exit_watchlist_status_seen": bool(
+                    point_state.get("preseal_final_exit_watchlist_status_seen")
+                ),
+                "preseal_final_exit_watchlist_status_accepted": bool(
+                    point_state.get("preseal_final_exit_watchlist_status_accepted")
+                ),
+                "preseal_final_exit_watchlist_status_reason": str(
+                    point_state.get("preseal_final_exit_watchlist_status_reason") or ""
+                ),
+                "legacy_v1_preseal_watchlist_evidence_found": bool(
+                    point_state.get("legacy_v1_preseal_watchlist_evidence_found")
+                ),
+                "legacy_v1_preseal_watchlist_evidence_source": str(
+                    point_state.get("legacy_v1_preseal_watchlist_evidence_source") or ""
+                ),
+                "control_ready_watchlist_status_accepted": bool(
+                    point_state.get("control_ready_watchlist_status_accepted")
+                ),
             }
         )
         return result
@@ -1715,6 +1786,21 @@ def _co2_a_sealed_pressure_control_gate(
             "preseal_final_atmosphere_exit_reason": str(
                 point_state.get("preseal_final_atmosphere_exit_reason") or ""
             ),
+            "preseal_final_exit_watchlist_status_seen": bool(
+                point_state.get("preseal_final_exit_watchlist_status_seen")
+            ),
+            "preseal_final_exit_watchlist_status_accepted": bool(
+                point_state.get("preseal_final_exit_watchlist_status_accepted")
+            ),
+            "preseal_final_exit_watchlist_status_reason": str(
+                point_state.get("preseal_final_exit_watchlist_status_reason") or ""
+            ),
+            "legacy_v1_preseal_watchlist_evidence_found": bool(
+                point_state.get("legacy_v1_preseal_watchlist_evidence_found")
+            ),
+            "legacy_v1_preseal_watchlist_evidence_source": str(
+                point_state.get("legacy_v1_preseal_watchlist_evidence_source") or ""
+            ),
             "control_ready_check_vent_status": point_state.get("control_ready_check_vent_status"),
             "control_ready_check_phase": str(point_state.get("control_ready_check_phase") or ""),
             "control_ready_failure_reason_detail": str(
@@ -1725,6 +1811,9 @@ def _co2_a_sealed_pressure_control_gate(
             ),
             "control_ready_failed_with_watchlist_status_3": bool(
                 point_state.get("control_ready_failed_with_watchlist_status_3")
+            ),
+            "control_ready_watchlist_status_accepted": bool(
+                point_state.get("control_ready_watchlist_status_accepted")
             ),
             "pressure_in_limits_timeout_phase": str(point_state.get("pressure_in_limits_timeout_phase") or ""),
             "pressure_in_limits_timeout_reason_detail": str(
@@ -2402,6 +2491,21 @@ def _build_summary_extract(summary: Mapping[str, Any]) -> Dict[str, Any]:
         "preseal_final_atmosphere_exit_reason": scenario_result.get(
             "preseal_final_atmosphere_exit_reason"
         ),
+        "preseal_final_exit_watchlist_status_seen": scenario_result.get(
+            "preseal_final_exit_watchlist_status_seen"
+        ),
+        "preseal_final_exit_watchlist_status_accepted": scenario_result.get(
+            "preseal_final_exit_watchlist_status_accepted"
+        ),
+        "preseal_final_exit_watchlist_status_reason": scenario_result.get(
+            "preseal_final_exit_watchlist_status_reason"
+        ),
+        "legacy_v1_preseal_watchlist_evidence_found": scenario_result.get(
+            "legacy_v1_preseal_watchlist_evidence_found"
+        ),
+        "legacy_v1_preseal_watchlist_evidence_source": scenario_result.get(
+            "legacy_v1_preseal_watchlist_evidence_source"
+        ),
         "control_ready_check_vent_status": scenario_result.get("control_ready_check_vent_status"),
         "control_ready_check_phase": scenario_result.get("control_ready_check_phase"),
         "control_ready_failure_reason_detail": scenario_result.get(
@@ -2412,6 +2516,9 @@ def _build_summary_extract(summary: Mapping[str, Any]) -> Dict[str, Any]:
         ),
         "control_ready_failed_with_watchlist_status_3": scenario_result.get(
             "control_ready_failed_with_watchlist_status_3"
+        ),
+        "control_ready_watchlist_status_accepted": scenario_result.get(
+            "control_ready_watchlist_status_accepted"
         ),
         "sealed_multi_point_switching": scenario_result.get("sealed_multi_point_switching"),
         "sealed_switch_point_count": scenario_result.get("sealed_switch_point_count"),

@@ -280,6 +280,44 @@ class _FakePaceLegacyVentTrapped(_FakePace):
         self.vent_status = 3
 
 
+class _FakePaceOldK0472PresealWatchlist(_FakePace):
+    VENT_STATUS_TRAPPED_PRESSURE = 3
+
+    def __init__(self):
+        super().__init__()
+        self.vent_status = 1
+
+    def detect_profile(self):
+        return "OLD_PACE5000"
+
+    def get_device_identity(self):
+        return "GE DRUCK PACE5000 USER INTERFACE"
+
+    def get_instrument_version(self):
+        return "02.00.07"
+
+    def has_legacy_vent_status_model(self):
+        return True
+
+    def has_legacy_vent_state_3_compatibility(self):
+        return True
+
+    def vent_status_allows_control(self, status):
+        return int(status) == 0
+
+    def exit_atmosphere_mode(self, timeout_s=0.0):
+        self.calls.append(("vent_off", float(timeout_s)))
+        self.output_state = 0
+        self.isolation_state = 1
+        self.vent_status = 3
+
+    def vent(self, on=True):
+        self.calls.append(("vent", bool(on)))
+        self.output_state = 0
+        self.isolation_state = 1
+        self.vent_status = 1 if on else 3
+
+
 class _FakePaceOutputOnTrappedThenReady(_FakePace):
     def __init__(self):
         super().__init__()
@@ -1610,6 +1648,60 @@ def test_pressurize_and_hold_blocks_when_preseal_final_exit_is_not_verified(tmp_
     assert "preseal_final_atmosphere_exit_started" in stages
     assert "preseal_final_atmosphere_exit_failed" in stages
     assert "seal_transition_started" not in stages
+
+
+def test_old_k0472_preseal_final_exit_accepts_watchlist_3_without_control_ready(tmp_path: Path) -> None:
+    cfg = _route_open_guard_cfg()
+    pressure_cfg = cfg["workflow"]["pressure"]
+    pressure_cfg["control_ready_wait_timeout_s"] = 0.0
+    pressure_cfg["co2_no_topoff_vent_off_open_wait_s"] = 0.0
+    pressure_cfg["pressurize_wait_after_vent_off_s"] = 0.0
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceOldK0472PresealWatchlist()
+    runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+    runner._active_route_requires_preseal_topoff = False
+    runner._current_open_valves = (4, 7, 8, 11)
+    point = _co2_test_point(ppm=600.0)
+    point.target_pressure_hpa = 1000.0
+
+    assert runner._pressurize_and_hold(point, route="co2") is True
+    calls_after_seal = list(pace.calls)
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["seal_transition_completed"] is True
+    assert state["preseal_final_atmosphere_exit_verified"] is True
+    assert state["preseal_final_atmosphere_exit_phase"] == "preseal_before_full_seal"
+    assert state["preseal_final_exit_watchlist_status_seen"] is True
+    assert state["preseal_final_exit_watchlist_status_accepted"] is True
+    assert "preseal_exit_watchlist_only_but_accepted" in state["preseal_final_exit_watchlist_status_reason"]
+    assert state["legacy_v1_preseal_watchlist_evidence_found"] is True
+    assert state["control_ready_watchlist_status_accepted"] is False
+
+    assert runner._set_pressure_to_target(point) is False
+    logger.close()
+
+    new_calls = pace.calls[len(calls_after_seal):]
+    assert not any(call[0] == "vent_off" for call in new_calls)
+    assert ("vent", False) not in new_calls
+    assert ("output_on",) not in new_calls
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["abort_reason"] == "PressureControllerNotReadyForControl"
+    assert state["control_ready_check_phase"] == "after_full_seal"
+    assert state["control_ready_failed_with_watchlist_status_3"] is True
+    assert state["control_ready_watchlist_status_accepted"] is False
+    trace_rows = _load_pressure_trace_rows(logger)
+    accepted_rows = [
+        row
+        for row in trace_rows
+        if row["trace_stage"] == "preseal_final_atmosphere_exit_verified"
+    ]
+    assert accepted_rows
+    assert accepted_rows[-1]["preseal_final_exit_watchlist_status_seen"].strip() == "True"
+    assert accepted_rows[-1]["preseal_final_exit_watchlist_status_accepted"].strip() == "True"
+    assert accepted_rows[-1]["control_ready_watchlist_status_accepted"].strip() == "False"
+    stages = [row["trace_stage"] for row in trace_rows]
+    assert "control_vent_off_skipped_after_full_seal" in stages
+    assert "control_ready_check_failed_watchlist_status_3" in stages
+    assert stages.index("preseal_final_atmosphere_exit_verified") < stages.index("seal_transition_started")
 
 
 def test_set_pressure_skips_vent_latch_clear_after_full_seal(tmp_path: Path) -> None:

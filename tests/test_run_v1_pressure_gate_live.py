@@ -1319,6 +1319,7 @@ def test_control_ready_watchlist_status_3_diagnostics_include_phase() -> None:
                 ),
                 "control_ready_failed_after_full_seal": True,
                 "control_ready_failed_with_watchlist_status_3": True,
+                "control_ready_watchlist_status_accepted": False,
             }
         ],
     )
@@ -1329,7 +1330,74 @@ def test_control_ready_watchlist_status_3_diagnostics_include_phase() -> None:
     assert diagnostics["control_ready_check_phase"] == "after_full_seal"
     assert diagnostics["control_ready_failed_after_full_seal"] is True
     assert diagnostics["control_ready_failed_with_watchlist_status_3"] is True
+    assert diagnostics["control_ready_watchlist_status_accepted"] is False
     assert "vent_status=3(watchlist_only)" in diagnostics["control_ready_failure_reason_detail"]
+
+
+def test_preseal_watchlist_status_3_diagnostics_mark_narrow_acceptance() -> None:
+    diagnostics = live_tool._co2_a_sustained_atmosphere_diagnostics(
+        route_open_state={},
+        point_state={},
+        route_guard_summary={},
+        trace_rows=[
+            {"trace_stage": "preseal_final_atmosphere_exit_started"},
+            {
+                "trace_stage": "preseal_final_atmosphere_exit_verified",
+                "pace_vent_status_query": "3",
+                "preseal_final_exit_watchlist_status_seen": "True",
+                "preseal_final_exit_watchlist_status_accepted": "True",
+                "preseal_final_exit_watchlist_status_reason": (
+                    "preseal_exit_watchlist_only_but_accepted:"
+                    "scope=old_k0472_preseal_before_full_seal_after_final_vent0"
+                ),
+                "legacy_v1_preseal_watchlist_evidence_found": "True",
+                "legacy_v1_preseal_watchlist_evidence_source": (
+                    "local_trace_scan:62_old_v1_route_sealed_to_control_ready_vent_status_3_success_like_chains"
+                ),
+                "control_ready_watchlist_status_accepted": "False",
+                "note": (
+                    "phase=preseal_before_full_seal; failures=vent_status=3(watchlist_only); "
+                    "watchlist_status_reason=preseal_exit_watchlist_only_but_accepted"
+                ),
+            },
+            {"trace_stage": "seal_transition_started"},
+            {"trace_stage": "seal_transition_completed"},
+            {"trace_stage": "route_sealed"},
+        ],
+        pressure_targets_hpa=[1100.0],
+        pressure_point_results=[
+            {
+                "requested_target_hpa": 1100.0,
+                "ok": True,
+                "seal_transition_completed": True,
+                "preseal_final_atmosphere_exit_required": True,
+                "preseal_final_atmosphere_exit_started": True,
+                "preseal_final_atmosphere_exit_verified": True,
+                "preseal_final_atmosphere_exit_phase": "preseal_before_full_seal",
+                "preseal_final_atmosphere_exit_reason": (
+                    "phase=preseal_before_full_seal; failures=vent_status=3(watchlist_only); "
+                    "watchlist_status_reason=preseal_exit_watchlist_only_but_accepted"
+                ),
+                "preseal_final_exit_watchlist_status_seen": True,
+                "preseal_final_exit_watchlist_status_accepted": True,
+                "preseal_final_exit_watchlist_status_reason": "preseal_exit_watchlist_only_but_accepted",
+                "legacy_v1_preseal_watchlist_evidence_found": True,
+                "legacy_v1_preseal_watchlist_evidence_source": (
+                    "local_trace_scan:62_old_v1_route_sealed_to_control_ready_vent_status_3_success_like_chains"
+                ),
+                "control_ready_watchlist_status_accepted": False,
+            }
+        ],
+    )
+
+    assert diagnostics["preseal_final_exit_watchlist_status_seen"] is True
+    assert diagnostics["preseal_final_exit_watchlist_status_accepted"] is True
+    assert "preseal_exit_watchlist_only_but_accepted" in diagnostics[
+        "preseal_final_exit_watchlist_status_reason"
+    ]
+    assert diagnostics["legacy_v1_preseal_watchlist_evidence_found"] is True
+    assert diagnostics["legacy_v1_preseal_watchlist_evidence_source"]
+    assert diagnostics["control_ready_watchlist_status_accepted"] is False
 
 
 def test_source_or_h2o_final_stage_requires_analyzer_pressure_or_mechanical_protection(

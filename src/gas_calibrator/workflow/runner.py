@@ -100,6 +100,11 @@ def _optional_env_bool(name: str) -> Optional[bool]:
     return None
 
 
+_LEGACY_V1_PRESEAL_WATCHLIST_EVIDENCE_SOURCE = (
+    "local_trace_scan:62_old_v1_route_sealed_to_control_ready_vent_status_3_success_like_chains"
+)
+
+
 _PRESSURE_TRACE_FIELDS = [
     "ts",
     "phase",
@@ -155,6 +160,12 @@ _PRESSURE_TRACE_FIELDS = [
     "vent3_block_scope",
     "ack_callback_invoked",
     "vent3_post_window_status",
+    "preseal_final_exit_watchlist_status_seen",
+    "preseal_final_exit_watchlist_status_accepted",
+    "preseal_final_exit_watchlist_status_reason",
+    "legacy_v1_preseal_watchlist_evidence_found",
+    "legacy_v1_preseal_watchlist_evidence_source",
+    "control_ready_watchlist_status_accepted",
     "pace_vent_completed_latched",
     "pace_vent_clear_attempted",
     "pace_vent_clear_result",
@@ -2120,6 +2131,12 @@ class CalibrationRunner:
         vent3_block_scope: Any = None,
         ack_callback_invoked: Any = None,
         vent3_post_window_status: Any = None,
+        preseal_final_exit_watchlist_status_seen: Any = None,
+        preseal_final_exit_watchlist_status_accepted: Any = None,
+        preseal_final_exit_watchlist_status_reason: Any = None,
+        legacy_v1_preseal_watchlist_evidence_found: Any = None,
+        legacy_v1_preseal_watchlist_evidence_source: Any = None,
+        control_ready_watchlist_status_accepted: Any = None,
         pace_vent_completed_latched: Any = None,
         pace_vent_clear_attempted: Any = None,
         pace_vent_clear_result: Any = None,
@@ -2376,6 +2393,24 @@ class CalibrationRunner:
             "vent3_block_scope": self._pressure_trace_cell(vent3_block_scope),
             "ack_callback_invoked": self._pressure_trace_cell(ack_callback_invoked),
             "vent3_post_window_status": self._pressure_trace_cell(vent3_post_window_status),
+            "preseal_final_exit_watchlist_status_seen": self._pressure_trace_cell(
+                preseal_final_exit_watchlist_status_seen
+            ),
+            "preseal_final_exit_watchlist_status_accepted": self._pressure_trace_cell(
+                preseal_final_exit_watchlist_status_accepted
+            ),
+            "preseal_final_exit_watchlist_status_reason": self._pressure_trace_cell(
+                preseal_final_exit_watchlist_status_reason
+            ),
+            "legacy_v1_preseal_watchlist_evidence_found": self._pressure_trace_cell(
+                legacy_v1_preseal_watchlist_evidence_found
+            ),
+            "legacy_v1_preseal_watchlist_evidence_source": self._pressure_trace_cell(
+                legacy_v1_preseal_watchlist_evidence_source
+            ),
+            "control_ready_watchlist_status_accepted": self._pressure_trace_cell(
+                control_ready_watchlist_status_accepted
+            ),
             "pace_vent_completed_latched": self._pressure_trace_cell(pace_vent_completed_latched),
             "pace_vent_clear_attempted": self._pressure_trace_cell(pace_vent_clear_attempted),
             "pace_vent_clear_result": self._pressure_trace_cell(pace_vent_clear_result),
@@ -2559,6 +2594,12 @@ class CalibrationRunner:
         vent3_block_scope: Any = None,
         ack_callback_invoked: Any = None,
         vent3_post_window_status: Any = None,
+        preseal_final_exit_watchlist_status_seen: Any = None,
+        preseal_final_exit_watchlist_status_accepted: Any = None,
+        preseal_final_exit_watchlist_status_reason: Any = None,
+        legacy_v1_preseal_watchlist_evidence_found: Any = None,
+        legacy_v1_preseal_watchlist_evidence_source: Any = None,
+        control_ready_watchlist_status_accepted: Any = None,
         pace_vent_completed_latched: Any = None,
         pace_vent_clear_attempted: Any = None,
         pace_vent_clear_result: Any = None,
@@ -2842,6 +2883,30 @@ class CalibrationRunner:
             ack_callback_invoked = runtime_state.get("ack_callback_invoked")
         if vent3_post_window_status is None:
             vent3_post_window_status = runtime_state.get("vent3_post_window_status")
+        if preseal_final_exit_watchlist_status_seen is None:
+            preseal_final_exit_watchlist_status_seen = runtime_state.get(
+                "preseal_final_exit_watchlist_status_seen"
+            )
+        if preseal_final_exit_watchlist_status_accepted is None:
+            preseal_final_exit_watchlist_status_accepted = runtime_state.get(
+                "preseal_final_exit_watchlist_status_accepted"
+            )
+        if preseal_final_exit_watchlist_status_reason is None:
+            preseal_final_exit_watchlist_status_reason = runtime_state.get(
+                "preseal_final_exit_watchlist_status_reason"
+            )
+        if legacy_v1_preseal_watchlist_evidence_found is None:
+            legacy_v1_preseal_watchlist_evidence_found = runtime_state.get(
+                "legacy_v1_preseal_watchlist_evidence_found"
+            )
+        if legacy_v1_preseal_watchlist_evidence_source is None:
+            legacy_v1_preseal_watchlist_evidence_source = runtime_state.get(
+                "legacy_v1_preseal_watchlist_evidence_source"
+            )
+        if control_ready_watchlist_status_accepted is None:
+            control_ready_watchlist_status_accepted = runtime_state.get(
+                "control_ready_watchlist_status_accepted"
+            )
         if post_isolation_capture_mode is None:
             post_isolation_capture_mode = runtime_state.get("post_isolation_capture_mode")
         if post_isolation_fast_capture_status is None:
@@ -2891,6 +2956,12 @@ class CalibrationRunner:
             vent3_block_scope=vent3_block_scope,
             ack_callback_invoked=ack_callback_invoked,
             vent3_post_window_status=vent3_post_window_status,
+            preseal_final_exit_watchlist_status_seen=preseal_final_exit_watchlist_status_seen,
+            preseal_final_exit_watchlist_status_accepted=preseal_final_exit_watchlist_status_accepted,
+            preseal_final_exit_watchlist_status_reason=preseal_final_exit_watchlist_status_reason,
+            legacy_v1_preseal_watchlist_evidence_found=legacy_v1_preseal_watchlist_evidence_found,
+            legacy_v1_preseal_watchlist_evidence_source=legacy_v1_preseal_watchlist_evidence_source,
+            control_ready_watchlist_status_accepted=control_ready_watchlist_status_accepted,
             pace_vent_completed_latched=pace_vent_completed_latched,
             pace_vent_clear_attempted=pace_vent_clear_attempted,
             pace_vent_clear_result=pace_vent_clear_result,
@@ -3035,6 +3106,12 @@ class CalibrationRunner:
         vent3_block_scope: Any = None,
         ack_callback_invoked: Any = None,
         vent3_post_window_status: Any = None,
+        preseal_final_exit_watchlist_status_seen: Any = None,
+        preseal_final_exit_watchlist_status_accepted: Any = None,
+        preseal_final_exit_watchlist_status_reason: Any = None,
+        legacy_v1_preseal_watchlist_evidence_found: Any = None,
+        legacy_v1_preseal_watchlist_evidence_source: Any = None,
+        control_ready_watchlist_status_accepted: Any = None,
         pace_vent_completed_latched: Any = None,
         pace_vent_clear_attempted: Any = None,
         pace_vent_clear_result: Any = None,
@@ -3185,6 +3262,12 @@ class CalibrationRunner:
                 vent3_block_scope=vent3_block_scope,
                 ack_callback_invoked=ack_callback_invoked,
                 vent3_post_window_status=vent3_post_window_status,
+                preseal_final_exit_watchlist_status_seen=preseal_final_exit_watchlist_status_seen,
+                preseal_final_exit_watchlist_status_accepted=preseal_final_exit_watchlist_status_accepted,
+                preseal_final_exit_watchlist_status_reason=preseal_final_exit_watchlist_status_reason,
+                legacy_v1_preseal_watchlist_evidence_found=legacy_v1_preseal_watchlist_evidence_found,
+                legacy_v1_preseal_watchlist_evidence_source=legacy_v1_preseal_watchlist_evidence_source,
+                control_ready_watchlist_status_accepted=control_ready_watchlist_status_accepted,
                 pace_vent_completed_latched=pace_vent_completed_latched,
                 pace_vent_clear_attempted=pace_vent_clear_attempted,
                 pace_vent_clear_result=pace_vent_clear_result,
@@ -15844,6 +15927,7 @@ class CalibrationRunner:
                         control_ready_failure_reason_detail="",
                         control_ready_failed_after_full_seal=False,
                         control_ready_failed_with_watchlist_status_3=False,
+                        control_ready_watchlist_status_accepted=False,
                     )
                     self._append_pressure_trace_row(
                         point=point,
@@ -16537,6 +16621,50 @@ class CalibrationRunner:
             f"wait_iterations={int(wait_iterations)}"
         )
 
+    def _preseal_final_exit_watchlist_acceptance(
+        self,
+        pace: Any,
+        snapshot: Mapping[str, Any],
+        failures: Iterable[str],
+        *,
+        phase_label: str,
+        final_vent0_command_sent: bool,
+    ) -> Tuple[bool, str]:
+        failure_items = [str(item) for item in list(failures or [])]
+        vent_status = self._as_int(snapshot.get("pace_vent_status"))
+        watchlist_failure = f"vent_status={vent_status}(watchlist_only)"
+        if vent_status != 3 or watchlist_failure not in failure_items:
+            return False, ""
+        if str(phase_label or "") != "preseal_before_full_seal":
+            return False, f"preseal_exit_watchlist_only_failure:phase={phase_label or 'unknown'}"
+        if not final_vent0_command_sent:
+            return False, "preseal_exit_watchlist_only_failure:final_vent0_command_not_confirmed"
+        output_state = self._as_int(snapshot.get("pace_output_state"))
+        isolation_state = self._as_int(snapshot.get("pace_isolation_state"))
+        if output_state != 0 or isolation_state != 1:
+            return (
+                False,
+                "preseal_exit_watchlist_only_failure:"
+                f"output_state={output_state};isolation_state={isolation_state}",
+            )
+        extra_failures = [item for item in failure_items if item != watchlist_failure]
+        if extra_failures:
+            return (
+                False,
+                "preseal_exit_watchlist_only_failure:additional_failures="
+                + ",".join(extra_failures),
+            )
+        if self._pace_profile_name(pace) != "OLD_PACE5000":
+            return False, "preseal_exit_watchlist_only_failure:not_old_pace5000"
+        if not self._pace_legacy_vent_state_3_suspect_from_snapshot(pace, snapshot):
+            return False, "preseal_exit_watchlist_only_failure:not_legacy_watchlist_status"
+        return (
+            True,
+            "preseal_exit_watchlist_only_but_accepted:"
+            "scope=old_k0472_preseal_before_full_seal_after_final_vent0;"
+            "control_ready_watchlist_status_accepted=false",
+        )
+
     def _verify_preseal_final_atmosphere_exit(
         self,
         point: CalibrationPoint,
@@ -16544,6 +16672,7 @@ class CalibrationRunner:
         phase: str,
         reason: str,
         pressure_target_hpa: Optional[float],
+        final_vent0_command_sent: bool = False,
     ) -> bool:
         pace = self.devices.get("pace")
         phase_text = str(phase or "").strip().lower() or "co2"
@@ -16557,6 +16686,12 @@ class CalibrationRunner:
                 preseal_final_atmosphere_exit_verified=True,
                 preseal_final_atmosphere_exit_phase=phase_label,
                 preseal_final_atmosphere_exit_reason="pressure_controller_unavailable",
+                preseal_final_exit_watchlist_status_seen=False,
+                preseal_final_exit_watchlist_status_accepted=False,
+                preseal_final_exit_watchlist_status_reason="",
+                legacy_v1_preseal_watchlist_evidence_found=False,
+                legacy_v1_preseal_watchlist_evidence_source="",
+                control_ready_watchlist_status_accepted=False,
             )
             return True
 
@@ -16572,6 +16707,17 @@ class CalibrationRunner:
             snapshot = self._pressure_controller_ready_snapshot(pace)
             failures = self._pressure_controller_ready_failures(snapshot, pace)
 
+        watchlist_status_seen = any(str(item) == "vent_status=3(watchlist_only)" for item in failures)
+        watchlist_status_accepted, watchlist_status_reason = self._preseal_final_exit_watchlist_acceptance(
+            pace,
+            snapshot,
+            failures,
+            phase_label=phase_label,
+            final_vent0_command_sent=final_vent0_command_sent,
+        )
+        if watchlist_status_seen and not watchlist_status_reason:
+            watchlist_status_reason = "preseal_exit_watchlist_only_failure"
+        effective_failures = [] if watchlist_status_accepted else list(failures)
         legacy_vent3_trace = self._record_legacy_vent3_runtime_fields(
             point,
             phase=phase_text,
@@ -16580,10 +16726,10 @@ class CalibrationRunner:
             accept_scope="none",
             control_ready_used=False,
             block_scope="preseal_final_atmosphere_exit",
-            hard_blocked=bool(failures),
+            hard_blocked=bool(effective_failures),
             watchlist_only=True,
             control_ready_attempted=False,
-            control_ready_prevented=bool(failures),
+            control_ready_prevented=bool(effective_failures),
         )
         detail = self._preseal_final_atmosphere_exit_detail(
             failures=failures,
@@ -16591,7 +16737,9 @@ class CalibrationRunner:
             phase_label=phase_label,
             wait_iterations=wait_iterations,
         )
-        verified = not bool(failures)
+        if watchlist_status_seen:
+            detail = f"{detail}; watchlist_status_reason={watchlist_status_reason}"
+        verified = not bool(effective_failures)
         self._set_point_runtime_fields(
             point,
             phase=phase_text,
@@ -16599,7 +16747,19 @@ class CalibrationRunner:
             preseal_final_atmosphere_exit_started=True,
             preseal_final_atmosphere_exit_verified=verified,
             preseal_final_atmosphere_exit_phase=phase_label,
-            preseal_final_atmosphere_exit_reason=detail if not verified else str(reason or "ensure_vent_closed_before_seal"),
+            preseal_final_atmosphere_exit_reason=(
+                detail
+                if (not verified or watchlist_status_seen)
+                else str(reason or "ensure_vent_closed_before_seal")
+            ),
+            preseal_final_exit_watchlist_status_seen=watchlist_status_seen,
+            preseal_final_exit_watchlist_status_accepted=watchlist_status_accepted,
+            preseal_final_exit_watchlist_status_reason=watchlist_status_reason,
+            legacy_v1_preseal_watchlist_evidence_found=watchlist_status_accepted,
+            legacy_v1_preseal_watchlist_evidence_source=(
+                _LEGACY_V1_PRESEAL_WATCHLIST_EVIDENCE_SOURCE if watchlist_status_accepted else ""
+            ),
+            control_ready_watchlist_status_accepted=False,
         )
         if verified:
             cached_snapshot = dict(snapshot)
@@ -16609,12 +16769,22 @@ class CalibrationRunner:
                     "point_row": int(point.index),
                     "target_pressure_hpa": self._as_float(pressure_target_hpa),
                     "recorded_wall_ts": time.time(),
-                    "failures": [],
+                    "failures": list(failures) if watchlist_status_accepted else [],
                     "preseal_final_atmosphere_exit_required": True,
                     "preseal_final_atmosphere_exit_started": True,
                     "preseal_final_atmosphere_exit_verified": True,
                     "preseal_final_atmosphere_exit_phase": phase_label,
-                    "preseal_final_atmosphere_exit_reason": str(reason or "ensure_vent_closed_before_seal"),
+                    "preseal_final_atmosphere_exit_reason": (
+                        detail if watchlist_status_seen else str(reason or "ensure_vent_closed_before_seal")
+                    ),
+                    "preseal_final_exit_watchlist_status_seen": watchlist_status_seen,
+                    "preseal_final_exit_watchlist_status_accepted": watchlist_status_accepted,
+                    "preseal_final_exit_watchlist_status_reason": watchlist_status_reason,
+                    "legacy_v1_preseal_watchlist_evidence_found": watchlist_status_accepted,
+                    "legacy_v1_preseal_watchlist_evidence_source": (
+                        _LEGACY_V1_PRESEAL_WATCHLIST_EVIDENCE_SOURCE if watchlist_status_accepted else ""
+                    ),
+                    "control_ready_watchlist_status_accepted": False,
                 }
             )
             self._preseal_final_atmosphere_exit_snapshot = cached_snapshot
@@ -16628,6 +16798,14 @@ class CalibrationRunner:
                 pace_isolation_state=snapshot.get("pace_isolation_state"),
                 pace_vent_status=snapshot.get("pace_vent_status"),
                 **legacy_vent3_trace,
+                preseal_final_exit_watchlist_status_seen=watchlist_status_seen,
+                preseal_final_exit_watchlist_status_accepted=watchlist_status_accepted,
+                preseal_final_exit_watchlist_status_reason=watchlist_status_reason,
+                legacy_v1_preseal_watchlist_evidence_found=watchlist_status_accepted,
+                legacy_v1_preseal_watchlist_evidence_source=(
+                    _LEGACY_V1_PRESEAL_WATCHLIST_EVIDENCE_SOURCE if watchlist_status_accepted else ""
+                ),
+                control_ready_watchlist_status_accepted=False,
                 refresh_pace_state=False,
                 note=detail,
             )
@@ -16640,7 +16818,13 @@ class CalibrationRunner:
             abort_reason="PresealFinalAtmosphereExitNotVerified",
             control_ready_failure_reason_detail=detail,
             control_ready_failed_after_full_seal=False,
-            control_ready_failed_with_watchlist_status_3="vent_status=3(watchlist_only)" in failures,
+            control_ready_failed_with_watchlist_status_3=watchlist_status_seen,
+            preseal_final_exit_watchlist_status_seen=watchlist_status_seen,
+            preseal_final_exit_watchlist_status_accepted=False,
+            preseal_final_exit_watchlist_status_reason=watchlist_status_reason,
+            legacy_v1_preseal_watchlist_evidence_found=False,
+            legacy_v1_preseal_watchlist_evidence_source="",
+            control_ready_watchlist_status_accepted=False,
         )
         self._append_pressure_trace_row(
             point=point,
@@ -16652,6 +16836,12 @@ class CalibrationRunner:
             pace_isolation_state=snapshot.get("pace_isolation_state"),
             pace_vent_status=snapshot.get("pace_vent_status"),
             **legacy_vent3_trace,
+            preseal_final_exit_watchlist_status_seen=watchlist_status_seen,
+            preseal_final_exit_watchlist_status_accepted=False,
+            preseal_final_exit_watchlist_status_reason=watchlist_status_reason,
+            legacy_v1_preseal_watchlist_evidence_found=False,
+            legacy_v1_preseal_watchlist_evidence_source="",
+            control_ready_watchlist_status_accepted=False,
             refresh_pace_state=False,
             note=detail,
         )
@@ -16713,6 +16903,24 @@ class CalibrationRunner:
                 ),
                 "preseal_final_atmosphere_exit_reason": str(
                     snapshot.get("preseal_final_atmosphere_exit_reason") or ""
+                ),
+                "preseal_final_exit_watchlist_status_seen": bool(
+                    snapshot.get("preseal_final_exit_watchlist_status_seen", False)
+                ),
+                "preseal_final_exit_watchlist_status_accepted": bool(
+                    snapshot.get("preseal_final_exit_watchlist_status_accepted", False)
+                ),
+                "preseal_final_exit_watchlist_status_reason": str(
+                    snapshot.get("preseal_final_exit_watchlist_status_reason") or ""
+                ),
+                "legacy_v1_preseal_watchlist_evidence_found": bool(
+                    snapshot.get("legacy_v1_preseal_watchlist_evidence_found", False)
+                ),
+                "legacy_v1_preseal_watchlist_evidence_source": str(
+                    snapshot.get("legacy_v1_preseal_watchlist_evidence_source") or ""
+                ),
+                "control_ready_watchlist_status_accepted": bool(
+                    snapshot.get("control_ready_watchlist_status_accepted", False)
                 ),
                 **self._seal_transition_state(point, phase=phase),
             }
@@ -16906,6 +17114,7 @@ class CalibrationRunner:
             control_ready_failure_reason_detail="",
             control_ready_failed_after_full_seal=False,
             control_ready_failed_with_watchlist_status_3=False,
+            control_ready_watchlist_status_accepted=False,
         )
         self._append_pressure_trace_row(
             point=point,
@@ -17029,6 +17238,7 @@ class CalibrationRunner:
                 control_ready_failure_reason_detail="",
                 control_ready_failed_after_full_seal=False,
                 control_ready_failed_with_watchlist_status_3=False,
+                control_ready_watchlist_status_accepted=False,
             )
             return True
         if not failures:
@@ -17038,6 +17248,7 @@ class CalibrationRunner:
                 control_ready_failure_reason_detail="",
                 control_ready_failed_after_full_seal=False,
                 control_ready_failed_with_watchlist_status_3=False,
+                control_ready_watchlist_status_accepted=False,
             )
             self._append_pressure_trace_row(
                 point=point,
@@ -17097,6 +17308,7 @@ class CalibrationRunner:
                     control_ready_failure_reason_detail="",
                     control_ready_failed_after_full_seal=False,
                     control_ready_failed_with_watchlist_status_3=False,
+                    control_ready_watchlist_status_accepted=False,
                 )
                 self._append_pressure_trace_row(
                     point=point,
@@ -17150,6 +17362,7 @@ class CalibrationRunner:
             control_ready_failure_reason_detail=failure_detail,
             control_ready_failed_after_full_seal=failed_after_full_seal,
             control_ready_failed_with_watchlist_status_3=failed_with_watchlist_status_3,
+            control_ready_watchlist_status_accepted=False,
             pace_control_started_after_full_seal=False,
             **seal_state,
         )
@@ -26487,11 +26700,17 @@ class CalibrationRunner:
             preseal_final_atmosphere_exit_verified=False,
             preseal_final_atmosphere_exit_phase="preseal_before_full_seal",
             preseal_final_atmosphere_exit_reason="pending_before_full_seal",
+            preseal_final_exit_watchlist_status_seen=False,
+            preseal_final_exit_watchlist_status_accepted=False,
+            preseal_final_exit_watchlist_status_reason="",
+            legacy_v1_preseal_watchlist_evidence_found=False,
+            legacy_v1_preseal_watchlist_evidence_source="",
             control_ready_check_vent_status=None,
             control_ready_check_phase="",
             control_ready_failure_reason_detail="",
             control_ready_failed_after_full_seal=False,
             control_ready_failed_with_watchlist_status_3=False,
+            control_ready_watchlist_status_accepted=False,
         )
         self.exit_continuous_atmosphere_flowthrough(
             self._source_stage_key_for_point(point, phase=phase) or phase,
@@ -26595,7 +26814,7 @@ class CalibrationRunner:
                 refresh_pace_state=False,
                 note=f"before vent off command; pressure_mode={self._seal_transition_pressure_mode()}",
             )
-            self._set_pressure_controller_vent(
+            final_vent0_command_sent = bool(self._set_pressure_controller_vent(
                 False,
                 reason=f"before {route.upper()} pressure seal",
                 point=point,
@@ -26607,7 +26826,7 @@ class CalibrationRunner:
                 before_sour_pres_command=True,
                 before_outp_stat_1_command=True,
                 vent_command_reason="ensure_vent_closed_before_seal",
-            )
+            ))
             self._append_pressure_trace_row(
                 point=point,
                 route=phase,
@@ -27086,6 +27305,7 @@ class CalibrationRunner:
                 phase=phase,
                 reason="ensure_vent_closed_before_seal",
                 pressure_target_hpa=point.target_pressure_hpa,
+                final_vent0_command_sent=final_vent0_command_sent,
             ):
                 return False
             self._activate_sealed_no_vent_guard(
@@ -27341,6 +27561,21 @@ class CalibrationRunner:
             "preseal_final_atmosphere_exit_reason": runtime_state.get(
                 "preseal_final_atmosphere_exit_reason"
             ),
+            "preseal_final_exit_watchlist_status_seen": runtime_state.get(
+                "preseal_final_exit_watchlist_status_seen"
+            ),
+            "preseal_final_exit_watchlist_status_accepted": runtime_state.get(
+                "preseal_final_exit_watchlist_status_accepted"
+            ),
+            "preseal_final_exit_watchlist_status_reason": runtime_state.get(
+                "preseal_final_exit_watchlist_status_reason"
+            ),
+            "legacy_v1_preseal_watchlist_evidence_found": runtime_state.get(
+                "legacy_v1_preseal_watchlist_evidence_found"
+            ),
+            "legacy_v1_preseal_watchlist_evidence_source": runtime_state.get(
+                "legacy_v1_preseal_watchlist_evidence_source"
+            ),
             "control_ready_check_vent_status": runtime_state.get("control_ready_check_vent_status"),
             "control_ready_check_phase": runtime_state.get("control_ready_check_phase"),
             "control_ready_failure_reason_detail": runtime_state.get(
@@ -27351,6 +27586,9 @@ class CalibrationRunner:
             ),
             "control_ready_failed_with_watchlist_status_3": runtime_state.get(
                 "control_ready_failed_with_watchlist_status_3"
+            ),
+            "control_ready_watchlist_status_accepted": runtime_state.get(
+                "control_ready_watchlist_status_accepted"
             ),
             "postseal_expected_dewpoint_c": runtime_state.get("postseal_expected_dewpoint_c"),
             "postseal_actual_dewpoint_c": runtime_state.get("postseal_actual_dewpoint_c"),
