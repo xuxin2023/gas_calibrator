@@ -1650,7 +1650,7 @@ def test_pressurize_and_hold_blocks_when_preseal_final_exit_is_not_verified(tmp_
     assert "seal_transition_started" not in stages
 
 
-def test_old_k0472_preseal_final_exit_accepts_watchlist_3_without_control_ready(tmp_path: Path) -> None:
+def test_old_k0472_accepts_after_full_seal_watchlist_3_only_for_control_ready_entry(tmp_path: Path) -> None:
     cfg = _route_open_guard_cfg()
     pressure_cfg = cfg["workflow"]["pressure"]
     pressure_cfg["control_ready_wait_timeout_s"] = 0.0
@@ -1676,18 +1676,28 @@ def test_old_k0472_preseal_final_exit_accepts_watchlist_3_without_control_ready(
     assert state["legacy_v1_preseal_watchlist_evidence_found"] is True
     assert state["control_ready_watchlist_status_accepted"] is False
 
-    assert runner._set_pressure_to_target(point) is False
+    assert runner._set_pressure_to_target(point) is True
     logger.close()
 
     new_calls = pace.calls[len(calls_after_seal):]
     assert not any(call[0] == "vent_off" for call in new_calls)
     assert ("vent", False) not in new_calls
-    assert ("output_on",) not in new_calls
+    assert ("output_on",) in new_calls
     state = runner._point_runtime_state(point, phase="co2") or {}
-    assert state["abort_reason"] == "PressureControllerNotReadyForControl"
     assert state["control_ready_check_phase"] == "after_full_seal"
-    assert state["control_ready_failed_with_watchlist_status_3"] is True
-    assert state["control_ready_watchlist_status_accepted"] is False
+    assert state["control_ready_failed_with_watchlist_status_3"] is False
+    assert state["control_ready_watchlist_status_accepted"] is True
+    assert state["control_ready_watchlist_status_phase"] == "after_full_seal"
+    assert state["control_ready_check_watchlist_status_seen"] is True
+    assert state["control_ready_check_watchlist_status_accepted"] is True
+    assert state["after_full_seal_watchlist_status_seen"] is True
+    assert state["after_full_seal_watchlist_status_accepted"] is True
+    assert "after_full_seal_watchlist_only_but_accepted" in state[
+        "after_full_seal_watchlist_status_reason"
+    ]
+    assert state["legacy_v1_after_full_seal_watchlist_evidence_found"] is True
+    assert state["legacy_v1_after_full_seal_watchlist_evidence_source"]
+    assert state["pace_control_started_after_full_seal"] is True
     trace_rows = _load_pressure_trace_rows(logger)
     accepted_rows = [
         row
@@ -1700,7 +1710,20 @@ def test_old_k0472_preseal_final_exit_accepts_watchlist_3_without_control_ready(
     assert accepted_rows[-1]["control_ready_watchlist_status_accepted"].strip() == "False"
     stages = [row["trace_stage"] for row in trace_rows]
     assert "control_vent_off_skipped_after_full_seal" in stages
-    assert "control_ready_check_failed_watchlist_status_3" in stages
+    assert "control_ready_check_watchlist_status_seen" in stages
+    assert "control_ready_check_watchlist_status_accepted" in stages
+    assert "control_ready_verified" in stages
+    assert "control_ready_check_failed_watchlist_status_3" not in stages
+    ready_rows = [row for row in trace_rows if row["trace_stage"] == "control_ready_verified"]
+    assert ready_rows
+    assert ready_rows[-1]["control_ready_watchlist_status_accepted"].strip() == "True"
+    assert ready_rows[-1]["control_ready_check_watchlist_status_accepted"].strip() == "True"
+    assert ready_rows[-1]["after_full_seal_watchlist_status_accepted"].strip() == "True"
+    assert ready_rows[-1]["legacy_vent3_control_ready_used"].strip() == "True"
+    assert (
+        ready_rows[-1]["legacy_vent3_accept_scope"].strip()
+        == "old_k0472_after_full_seal_control_ready_watchlist"
+    )
     assert stages.index("preseal_final_atmosphere_exit_verified") < stages.index("seal_transition_started")
 
 
@@ -1777,12 +1800,21 @@ def test_control_ready_failure_records_watchlist_status_3_phase_after_full_seal(
     assert state["control_ready_check_phase"] == "after_full_seal"
     assert state["control_ready_failed_after_full_seal"] is True
     assert state["control_ready_failed_with_watchlist_status_3"] is True
+    assert state["control_ready_watchlist_status_accepted"] is False
+    assert state["control_ready_watchlist_status_phase"] == "after_full_seal"
+    assert state["control_ready_check_watchlist_status_seen"] is True
+    assert state["control_ready_check_watchlist_status_accepted"] is False
+    assert state["after_full_seal_watchlist_status_seen"] is True
+    assert state["after_full_seal_watchlist_status_accepted"] is False
+    assert "after_full_seal_watchlist_only_failure" in state["after_full_seal_watchlist_status_reason"]
     assert "phase=after_full_seal" in state["control_ready_failure_reason_detail"]
     assert "vent_status=3(watchlist_only)" in state["control_ready_failure_reason_detail"]
     trace_rows = _load_pressure_trace_rows(logger)
     stages = [row["trace_stage"] for row in trace_rows]
     assert "control_ready_check_started" in stages
+    assert "control_ready_check_watchlist_status_seen" in stages
     assert "control_ready_check_failed_watchlist_status_3" in stages
+    assert "control_ready_check_watchlist_status_accepted" not in stages
     assert "control_ready_failed" in stages
     assert "preseal_final_atmosphere_exit_started" not in stages
     assert "pressure_vent0_command" not in stages
@@ -2525,6 +2557,14 @@ def test_set_pressure_to_target_rejects_legacy_watchlist_status_3_before_setpoin
         ("vent_off", 12.0),
         ("vent_off", 12.0),
     ]
+    state = runner._point_runtime_state(point, phase="h2o") or {}
+    assert state["control_ready_check_phase"] == "after_full_seal"
+    assert state["control_ready_check_watchlist_status_seen"] is True
+    assert state["control_ready_check_watchlist_status_accepted"] is False
+    assert state["control_ready_watchlist_status_accepted"] is False
+    assert state["after_full_seal_watchlist_status_seen"] is True
+    assert state["after_full_seal_watchlist_status_accepted"] is False
+    assert "post_seal_recovery_enabled" in state["after_full_seal_watchlist_status_reason"]
     trace_rows = _load_pressure_trace_rows(logger)
     assert any(
         row["trace_stage"] == "control_ready_failed"

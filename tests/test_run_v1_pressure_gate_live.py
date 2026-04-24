@@ -1331,7 +1331,89 @@ def test_control_ready_watchlist_status_3_diagnostics_include_phase() -> None:
     assert diagnostics["control_ready_failed_after_full_seal"] is True
     assert diagnostics["control_ready_failed_with_watchlist_status_3"] is True
     assert diagnostics["control_ready_watchlist_status_accepted"] is False
+    assert diagnostics["control_ready_watchlist_status_phase"] == "after_full_seal"
+    assert diagnostics["control_ready_check_watchlist_status_seen"] is True
+    assert diagnostics["control_ready_check_watchlist_status_accepted"] is False
+    assert diagnostics["after_full_seal_watchlist_status_seen"] is True
+    assert diagnostics["after_full_seal_watchlist_status_accepted"] is False
+    assert diagnostics["after_full_seal_watchlist_status_reason"] == "after_full_seal_watchlist_only_failure"
     assert "vent_status=3(watchlist_only)" in diagnostics["control_ready_failure_reason_detail"]
+
+
+def test_after_full_seal_watchlist_status_3_diagnostics_mark_narrow_acceptance() -> None:
+    diagnostics = live_tool._co2_a_sustained_atmosphere_diagnostics(
+        route_open_state={},
+        point_state={},
+        route_guard_summary={},
+        trace_rows=[
+            {"trace_stage": "preseal_final_atmosphere_exit_verified", "pace_vent_status_query": "3"},
+            {"trace_stage": "seal_transition_started"},
+            {"trace_stage": "seal_transition_completed"},
+            {"trace_stage": "route_sealed"},
+            {"trace_stage": "control_ready_check_started"},
+            {
+                "trace_stage": "control_ready_check_watchlist_status_accepted",
+                "pace_vent_status_query": "3",
+                "control_ready_check_watchlist_status_seen": "True",
+                "control_ready_check_watchlist_status_accepted": "True",
+                "control_ready_watchlist_status_accepted": "True",
+                "control_ready_watchlist_status_phase": "after_full_seal",
+                "after_full_seal_watchlist_status_seen": "True",
+                "after_full_seal_watchlist_status_accepted": "True",
+                "after_full_seal_watchlist_status_reason": (
+                    "after_full_seal_watchlist_only_but_accepted:"
+                    "scope=old_k0472_after_full_seal_control_ready_no_post_seal_vent"
+                ),
+                "legacy_v1_after_full_seal_watchlist_evidence_found": "True",
+                "legacy_v1_after_full_seal_watchlist_evidence_source": (
+                    "local_trace_scan:62_old_v1_after_full_seal_control_ready_vent_status_3_to_in_limits_chains"
+                ),
+            },
+            {
+                "trace_stage": "control_ready_verified",
+                "pace_vent_status_query": "3",
+                "control_ready_watchlist_status_accepted": "True",
+            },
+        ],
+        pressure_targets_hpa=[1100.0],
+        pressure_point_results=[
+            {
+                "requested_target_hpa": 1100.0,
+                "ok": True,
+                "seal_transition_completed": True,
+                "seal_all_solenoids_closed": True,
+                "seal_total_route_valve_closed": True,
+                "control_ready_check_vent_status": 3,
+                "control_ready_check_phase": "after_full_seal",
+                "control_ready_watchlist_status_accepted": True,
+                "control_ready_watchlist_status_phase": "after_full_seal",
+                "control_ready_check_watchlist_status_seen": True,
+                "control_ready_check_watchlist_status_accepted": True,
+                "after_full_seal_watchlist_status_seen": True,
+                "after_full_seal_watchlist_status_accepted": True,
+                "after_full_seal_watchlist_status_reason": (
+                    "after_full_seal_watchlist_only_but_accepted:"
+                    "scope=old_k0472_after_full_seal_control_ready_no_post_seal_vent"
+                ),
+                "legacy_v1_after_full_seal_watchlist_evidence_found": True,
+                "legacy_v1_after_full_seal_watchlist_evidence_source": (
+                    "local_trace_scan:62_old_v1_after_full_seal_control_ready_vent_status_3_to_in_limits_chains"
+                ),
+            }
+        ],
+    )
+
+    assert diagnostics["control_ready_watchlist_status_accepted"] is True
+    assert diagnostics["control_ready_watchlist_status_phase"] == "after_full_seal"
+    assert diagnostics["control_ready_check_watchlist_status_seen"] is True
+    assert diagnostics["control_ready_check_watchlist_status_accepted"] is True
+    assert diagnostics["after_full_seal_watchlist_status_seen"] is True
+    assert diagnostics["after_full_seal_watchlist_status_accepted"] is True
+    assert "after_full_seal_watchlist_only_but_accepted" in diagnostics[
+        "after_full_seal_watchlist_status_reason"
+    ]
+    assert diagnostics["legacy_v1_after_full_seal_watchlist_evidence_found"] is True
+    assert diagnostics["legacy_v1_after_full_seal_watchlist_evidence_source"]
 
 
 def test_preseal_watchlist_status_3_diagnostics_mark_narrow_acceptance() -> None:
@@ -2488,6 +2570,34 @@ def test_summary_extract_does_not_drop_route_pressure_guard_status() -> None:
 
     assert extract["route_pressure_guard_status"] == "fail"
     assert extract["route_pressure_guard_reason"] == "RouteVentPathNotEffective"
+
+
+def test_summary_extract_includes_after_full_seal_watchlist_fields() -> None:
+    extract = live_tool._build_summary_extract(
+        {
+            "scenario_result": {
+                "after_full_seal_watchlist_status_seen": True,
+                "after_full_seal_watchlist_status_accepted": True,
+                "after_full_seal_watchlist_status_reason": "after_full_seal_watchlist_only_but_accepted",
+                "legacy_v1_after_full_seal_watchlist_evidence_found": True,
+                "legacy_v1_after_full_seal_watchlist_evidence_source": (
+                    "local_trace_scan:62_old_v1_after_full_seal_control_ready_vent_status_3_to_in_limits_chains"
+                ),
+                "control_ready_watchlist_status_accepted": True,
+                "control_ready_watchlist_status_phase": "after_full_seal",
+                "control_ready_check_watchlist_status_seen": True,
+                "control_ready_check_watchlist_status_accepted": True,
+                "point_runtime_state": {},
+                "route_pressure_guard_summary": {},
+            }
+        }
+    )
+
+    assert extract["after_full_seal_watchlist_status_seen"] is True
+    assert extract["after_full_seal_watchlist_status_accepted"] is True
+    assert extract["legacy_v1_after_full_seal_watchlist_evidence_found"] is True
+    assert extract["control_ready_watchlist_status_phase"] == "after_full_seal"
+    assert extract["control_ready_check_watchlist_status_accepted"] is True
 
 
 def test_route_summary_separates_vent_command_and_vent_status(tmp_path: Path) -> None:
