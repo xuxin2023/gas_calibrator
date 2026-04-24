@@ -1085,6 +1085,23 @@ def _co2_a_sustained_atmosphere_diagnostics(
                 return list(value)
         return []
 
+    def _first_value(name: str, default: Any = "") -> Any:
+        for source in list(point_results) + [point_state, route_open_state]:
+            source_dict = dict(source or {})
+            value = source_dict.get(name)
+            if value not in (None, ""):
+                return value
+        return default
+
+    def _first_bool(name: str) -> bool:
+        for source in list(point_results) + [point_state, route_open_state]:
+            source_dict = dict(source or {})
+            if name in source_dict:
+                value = _optional_bool(source_dict.get(name))
+                if value is not None:
+                    return bool(value)
+        return False
+
     failed_timeout = next(
         (
             item
@@ -1105,6 +1122,89 @@ def _co2_a_sustained_atmosphere_diagnostics(
         or point_state.get("pressure_in_limits_timeout_reason_detail")
         or route_open_state.get("pressure_in_limits_timeout_reason_detail")
         or ""
+    )
+    preseal_final_exit_started_index = _trace_stage_index(rows, {"preseal_final_atmosphere_exit_started"})
+    preseal_final_exit_verified_index = _trace_stage_index(rows, {"preseal_final_atmosphere_exit_verified"})
+    preseal_final_exit_failed_index = _trace_stage_index(rows, {"preseal_final_atmosphere_exit_failed"})
+    seal_started_index = _trace_stage_index(rows, {"seal_transition_started", "route_sealed"})
+    control_ready_started_index = _trace_stage_index(rows, {"control_ready_check_started"})
+    control_ready_failed_watchlist_index = _trace_stage_index(
+        rows,
+        {"control_ready_check_failed_watchlist_status_3"},
+    )
+    preseal_final_exit_required = bool(
+        _first_bool("preseal_final_atmosphere_exit_required")
+        or requested_1100
+        or seal_transition_completed
+        or preseal_final_exit_started_index is not None
+    )
+    preseal_final_exit_started = bool(
+        _first_bool("preseal_final_atmosphere_exit_started") or preseal_final_exit_started_index is not None
+    )
+    preseal_final_exit_verified = bool(
+        _first_bool("preseal_final_atmosphere_exit_verified") or preseal_final_exit_verified_index is not None
+    )
+    preseal_final_exit_phase = str(_first_value("preseal_final_atmosphere_exit_phase", "") or "")
+    if not preseal_final_exit_phase and preseal_final_exit_started_index is not None:
+        preseal_final_exit_phase = (
+            "preseal_before_full_seal"
+            if seal_started_index is None or int(preseal_final_exit_started_index) < int(seal_started_index)
+            else "postseal_after_full_seal"
+        )
+    preseal_final_exit_reason = str(_first_value("preseal_final_atmosphere_exit_reason", "") or "")
+    if not preseal_final_exit_reason and preseal_final_exit_failed_index is not None:
+        preseal_final_exit_reason = str(rows[int(preseal_final_exit_failed_index)].get("note") or "")
+    if not preseal_final_exit_reason and preseal_final_exit_verified_index is not None:
+        preseal_final_exit_reason = str(rows[int(preseal_final_exit_verified_index)].get("note") or "")
+    control_ready_check_vent_status = _optional_int(_first_value("control_ready_check_vent_status", ""))
+    if control_ready_check_vent_status is None:
+        for stage_name in (
+            "control_ready_check_failed_watchlist_status_3",
+            "control_ready_failed",
+            "control_ready_wait_end",
+            "control_ready_snapshot_acquired",
+        ):
+            stage_index = _trace_stage_index(rows, {stage_name})
+            if stage_index is None:
+                continue
+            row = rows[int(stage_index)]
+            control_ready_check_vent_status = _optional_int(
+                row.get("pace_vent_status_query", row.get("pace_vent_status"))
+            )
+            if control_ready_check_vent_status is not None:
+                break
+    control_ready_check_phase = str(_first_value("control_ready_check_phase", "") or "")
+    if not control_ready_check_phase and control_ready_started_index is not None:
+        control_ready_check_phase = (
+            "after_full_seal"
+            if seal_started_index is not None and int(control_ready_started_index) > int(seal_started_index)
+            else "preseal_or_unsealed"
+        )
+    control_ready_failure_reason_detail = str(
+        _first_value("control_ready_failure_reason_detail", "")
+        or (
+            pressure_in_limits_timeout_reason_detail
+            if "control_ready_failed" in pressure_in_limits_timeout_reason_detail
+            else ""
+        )
+    )
+    control_ready_failed_after_full_seal = bool(
+        _first_bool("control_ready_failed_after_full_seal")
+        or (
+            bool(control_ready_failure_reason_detail)
+            and seal_transition_completed
+            and (
+                control_ready_started_index is None
+                or seal_started_index is None
+                or int(control_ready_started_index) > int(seal_started_index)
+            )
+        )
+    )
+    control_ready_failed_with_watchlist_status_3 = bool(
+        _first_bool("control_ready_failed_with_watchlist_status_3")
+        or control_ready_failed_watchlist_index is not None
+        or control_ready_check_vent_status == 3
+        or "vent_status=3(watchlist_only)" in control_ready_failure_reason_detail
     )
     preseal_stage_index = _trace_stage_index(
         rows,
@@ -1172,6 +1272,16 @@ def _co2_a_sustained_atmosphere_diagnostics(
         "seal_transition_completed": seal_transition_completed,
         "keepalive_stopped_before_seal": keepalive_stopped_before_seal,
         "pace_control_started_after_full_seal": pace_control_started_after_full_seal,
+        "preseal_final_atmosphere_exit_required": preseal_final_exit_required,
+        "preseal_final_atmosphere_exit_started": preseal_final_exit_started,
+        "preseal_final_atmosphere_exit_verified": preseal_final_exit_verified,
+        "preseal_final_atmosphere_exit_phase": preseal_final_exit_phase,
+        "preseal_final_atmosphere_exit_reason": preseal_final_exit_reason,
+        "control_ready_check_vent_status": control_ready_check_vent_status,
+        "control_ready_check_phase": control_ready_check_phase,
+        "control_ready_failure_reason_detail": control_ready_failure_reason_detail,
+        "control_ready_failed_after_full_seal": control_ready_failed_after_full_seal,
+        "control_ready_failed_with_watchlist_status_3": control_ready_failed_with_watchlist_status_3,
         "pressure_in_limits_timeout_phase": pressure_in_limits_timeout_phase,
         "pressure_in_limits_timeout_reason_detail": pressure_in_limits_timeout_reason_detail,
         "sealed_control_started": sealed_control_started,
@@ -1519,6 +1629,21 @@ def _co2_a_sealed_pressure_control_gate(
                 "seal_all_solenoids_closed": bool(point_state.get("seal_all_solenoids_closed")),
                 "seal_total_route_valve_closed": bool(point_state.get("seal_total_route_valve_closed")),
                 "seal_missing_closed_valves": list(point_state.get("seal_missing_closed_valves") or []),
+                "preseal_final_atmosphere_exit_required": bool(
+                    point_state.get("preseal_final_atmosphere_exit_required")
+                ),
+                "preseal_final_atmosphere_exit_started": bool(
+                    point_state.get("preseal_final_atmosphere_exit_started")
+                ),
+                "preseal_final_atmosphere_exit_verified": bool(
+                    point_state.get("preseal_final_atmosphere_exit_verified")
+                ),
+                "preseal_final_atmosphere_exit_phase": str(
+                    point_state.get("preseal_final_atmosphere_exit_phase") or ""
+                ),
+                "preseal_final_atmosphere_exit_reason": str(
+                    point_state.get("preseal_final_atmosphere_exit_reason") or ""
+                ),
             }
         )
         return result
@@ -1575,6 +1700,32 @@ def _co2_a_sealed_pressure_control_gate(
             "seal_missing_closed_valves": list(point_state.get("seal_missing_closed_valves") or []),
             "keepalive_stopped_before_seal": bool(point_state.get("keepalive_stopped_before_seal")),
             "pace_control_started_after_full_seal": bool(point_state.get("pace_control_started_after_full_seal")),
+            "preseal_final_atmosphere_exit_required": bool(
+                point_state.get("preseal_final_atmosphere_exit_required")
+            ),
+            "preseal_final_atmosphere_exit_started": bool(
+                point_state.get("preseal_final_atmosphere_exit_started")
+            ),
+            "preseal_final_atmosphere_exit_verified": bool(
+                point_state.get("preseal_final_atmosphere_exit_verified")
+            ),
+            "preseal_final_atmosphere_exit_phase": str(
+                point_state.get("preseal_final_atmosphere_exit_phase") or ""
+            ),
+            "preseal_final_atmosphere_exit_reason": str(
+                point_state.get("preseal_final_atmosphere_exit_reason") or ""
+            ),
+            "control_ready_check_vent_status": point_state.get("control_ready_check_vent_status"),
+            "control_ready_check_phase": str(point_state.get("control_ready_check_phase") or ""),
+            "control_ready_failure_reason_detail": str(
+                point_state.get("control_ready_failure_reason_detail") or ""
+            ),
+            "control_ready_failed_after_full_seal": bool(
+                point_state.get("control_ready_failed_after_full_seal")
+            ),
+            "control_ready_failed_with_watchlist_status_3": bool(
+                point_state.get("control_ready_failed_with_watchlist_status_3")
+            ),
             "pressure_in_limits_timeout_phase": str(point_state.get("pressure_in_limits_timeout_phase") or ""),
             "pressure_in_limits_timeout_reason_detail": str(
                 point_state.get("pressure_in_limits_timeout_reason_detail") or ""
@@ -2236,6 +2387,32 @@ def _build_summary_extract(summary: Mapping[str, Any]) -> Dict[str, Any]:
             "flush_phase_completed_before_preseal_buildup"
         ),
         "sealed_control_started": scenario_result.get("sealed_control_started"),
+        "preseal_final_atmosphere_exit_required": scenario_result.get(
+            "preseal_final_atmosphere_exit_required"
+        ),
+        "preseal_final_atmosphere_exit_started": scenario_result.get(
+            "preseal_final_atmosphere_exit_started"
+        ),
+        "preseal_final_atmosphere_exit_verified": scenario_result.get(
+            "preseal_final_atmosphere_exit_verified"
+        ),
+        "preseal_final_atmosphere_exit_phase": scenario_result.get(
+            "preseal_final_atmosphere_exit_phase"
+        ),
+        "preseal_final_atmosphere_exit_reason": scenario_result.get(
+            "preseal_final_atmosphere_exit_reason"
+        ),
+        "control_ready_check_vent_status": scenario_result.get("control_ready_check_vent_status"),
+        "control_ready_check_phase": scenario_result.get("control_ready_check_phase"),
+        "control_ready_failure_reason_detail": scenario_result.get(
+            "control_ready_failure_reason_detail"
+        ),
+        "control_ready_failed_after_full_seal": scenario_result.get(
+            "control_ready_failed_after_full_seal"
+        ),
+        "control_ready_failed_with_watchlist_status_3": scenario_result.get(
+            "control_ready_failed_with_watchlist_status_3"
+        ),
         "sealed_multi_point_switching": scenario_result.get("sealed_multi_point_switching"),
         "sealed_switch_point_count": scenario_result.get("sealed_switch_point_count"),
         "sealed_switching_started": scenario_result.get("sealed_switching_started"),

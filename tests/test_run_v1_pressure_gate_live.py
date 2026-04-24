@@ -378,6 +378,16 @@ class _FakeSealedRunner(_FakeRunner):
             "seal_transition_completed": False,
             "keepalive_stopped_before_seal": False,
             "pace_control_started_after_full_seal": False,
+            "preseal_final_atmosphere_exit_required": True,
+            "preseal_final_atmosphere_exit_started": False,
+            "preseal_final_atmosphere_exit_verified": False,
+            "preseal_final_atmosphere_exit_phase": "preseal_before_full_seal",
+            "preseal_final_atmosphere_exit_reason": "",
+            "control_ready_check_vent_status": None,
+            "control_ready_check_phase": "",
+            "control_ready_failure_reason_detail": "",
+            "control_ready_failed_after_full_seal": False,
+            "control_ready_failed_with_watchlist_status_3": False,
             "pressure_in_limits_timeout_phase": "",
             "pressure_in_limits_timeout_reason_detail": "",
         }
@@ -393,9 +403,15 @@ class _FakeSealedRunner(_FakeRunner):
                 "seal_missing_closed_valves": [],
                 "seal_transition_completed": True,
                 "keepalive_stopped_before_seal": True,
+                "preseal_final_atmosphere_exit_started": True,
+                "preseal_final_atmosphere_exit_verified": True,
+                "preseal_final_atmosphere_exit_phase": "preseal_before_full_seal",
+                "preseal_final_atmosphere_exit_reason": "ensure_vent_closed_before_seal",
             }
         )
         for stage in (
+            "preseal_final_atmosphere_exit_started",
+            "preseal_final_atmosphere_exit_verified",
             "seal_transition_started",
             "seal_total_route_valve_closed",
             "seal_all_required_solenoids_closed",
@@ -416,6 +432,8 @@ class _FakeSealedRunner(_FakeRunner):
         target = float(getattr(point, "target_pressure_hpa", 0.0) or 0.0)
         self.calls.append(("control_ready", target))
         self._seal_state["pace_control_started_after_full_seal"] = True
+        self._seal_state["control_ready_check_vent_status"] = 0
+        self._seal_state["control_ready_check_phase"] = "preseal_final_exit_reused_after_full_seal"
         self._append_pressure_trace_row(
             point=point,
             route="co2",
@@ -1124,21 +1142,42 @@ def test_1100_preseal_buildup_after_flush_exit_is_not_flush_pressure_failure(tmp
     assert result["preseal_pressure_buildup_started"] is True
     assert result["preseal_pressure_buildup_threshold_reached"] is True
     assert result["preseal_pressure_buildup_reason"] == "prepare_for_1100_seal_control"
+    assert result["preseal_final_atmosphere_exit_required"] is True
+    assert result["preseal_final_atmosphere_exit_started"] is True
+    assert result["preseal_final_atmosphere_exit_verified"] is True
+    assert result["preseal_final_atmosphere_exit_phase"] == "preseal_before_full_seal"
+    assert result["control_ready_check_vent_status"] == 0
+    assert result["control_ready_check_phase"] == "preseal_final_exit_reused_after_full_seal"
     assert result["sealed_control_started"] is True
     exit_index = next(i for i, call in enumerate(runner.calls) if call[0] == "exit_flowthrough")
+    final_exit_index = next(
+        i
+        for i, call in enumerate(runner.calls)
+        if call[0] == "trace" and call[1] == "preseal_final_atmosphere_exit_started"
+    )
+    final_exit_verified_index = next(
+        i
+        for i, call in enumerate(runner.calls)
+        if call[0] == "trace" and call[1] == "preseal_final_atmosphere_exit_verified"
+    )
     preseal_index = next(
         i for i, call in enumerate(runner.calls) if call[0] == "trace" and call[1] == "preseal_buildup_started"
+    )
+    seal_index = next(
+        i for i, call in enumerate(runner.calls) if call[0] == "trace" and call[1] == "seal_transition_started"
     )
     sealed_index = next(
         i for i, call in enumerate(runner.calls) if call[0] == "trace" and call[1] == "sealed_control_started"
     )
     control_ready_index = next(i for i, call in enumerate(runner.calls) if call[0] == "control_ready")
-    assert exit_index < preseal_index < sealed_index < control_ready_index
+    assert exit_index < preseal_index < final_exit_index < final_exit_verified_index < seal_index < sealed_index < control_ready_index
     assert runner._continuous_state["active"] is False
     assert runner._continuous_state["route_flow_active"] is False
     stages = [str(row.get("trace_stage") or "") for row in runner.trace_rows]
     assert "preseal_buildup_started" in stages
     assert "preseal_pressure_buildup_for_1100_begin" in stages
+    assert "preseal_final_atmosphere_exit_started" in stages
+    assert "preseal_final_atmosphere_exit_verified" in stages
     assert "preseal_buildup_threshold_reached" in stages
     assert "preseal_pressure_buildup_threshold_reached" in stages
     assert "sealed_control_started" in stages
@@ -1239,6 +1278,58 @@ def test_sealed_control_boundary_keeps_post_seal_vent_forbidden() -> None:
     assert diagnostics["preseal_pressure_buildup_threshold_reached"] is True
     assert diagnostics["sealed_control_started"] is True
     assert diagnostics["post_seal_vent_command_allowed"] is False
+
+
+def test_control_ready_watchlist_status_3_diagnostics_include_phase() -> None:
+    diagnostics = live_tool._co2_a_sustained_atmosphere_diagnostics(
+        route_open_state={},
+        point_state={},
+        route_guard_summary={},
+        trace_rows=[
+            {"trace_stage": "preseal_final_atmosphere_exit_started"},
+            {"trace_stage": "preseal_final_atmosphere_exit_verified", "pace_vent_status_query": "0"},
+            {"trace_stage": "seal_transition_started"},
+            {"trace_stage": "seal_transition_completed"},
+            {"trace_stage": "route_sealed"},
+            {"trace_stage": "control_ready_check_started"},
+            {
+                "trace_stage": "control_ready_check_failed_watchlist_status_3",
+                "pace_vent_status_query": "3",
+                "note": "control_ready_failed; phase=after_full_seal; vent_status=3; failures=vent_status=3(watchlist_only)",
+            },
+        ],
+        pressure_targets_hpa=[1100.0],
+        pressure_point_results=[
+            {
+                "requested_target_hpa": 1100.0,
+                "ok": False,
+                "reason": "PressureControllerNotReadyForControl",
+                "seal_transition_completed": True,
+                "seal_all_solenoids_closed": True,
+                "seal_total_route_valve_closed": True,
+                "preseal_final_atmosphere_exit_required": True,
+                "preseal_final_atmosphere_exit_started": True,
+                "preseal_final_atmosphere_exit_verified": True,
+                "preseal_final_atmosphere_exit_phase": "preseal_before_full_seal",
+                "control_ready_check_vent_status": 3,
+                "control_ready_check_phase": "after_full_seal",
+                "control_ready_failure_reason_detail": (
+                    "control_ready_failed; phase=after_full_seal; "
+                    "vent_status=3; failures=vent_status=3(watchlist_only)"
+                ),
+                "control_ready_failed_after_full_seal": True,
+                "control_ready_failed_with_watchlist_status_3": True,
+            }
+        ],
+    )
+
+    assert diagnostics["preseal_final_atmosphere_exit_verified"] is True
+    assert diagnostics["preseal_final_atmosphere_exit_phase"] == "preseal_before_full_seal"
+    assert diagnostics["control_ready_check_vent_status"] == 3
+    assert diagnostics["control_ready_check_phase"] == "after_full_seal"
+    assert diagnostics["control_ready_failed_after_full_seal"] is True
+    assert diagnostics["control_ready_failed_with_watchlist_status_3"] is True
+    assert "vent_status=3(watchlist_only)" in diagnostics["control_ready_failure_reason_detail"]
 
 
 def test_source_or_h2o_final_stage_requires_analyzer_pressure_or_mechanical_protection(

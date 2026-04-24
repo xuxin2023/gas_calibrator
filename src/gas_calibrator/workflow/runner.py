@@ -499,6 +499,7 @@ class CalibrationRunner:
         self._sensor_read_reject_states: Dict[Tuple[str, str, str, str, str], Dict[str, Any]] = {}
         self._preseal_dewpoint_snapshot: Optional[Dict[str, Any]] = None
         self._preseal_pressure_control_ready_state: Optional[Dict[str, Any]] = None
+        self._preseal_final_atmosphere_exit_snapshot: Optional[Dict[str, Any]] = None
         self._temperature_wait_context: Optional[Dict[str, Any]] = None
         self._post_h2o_co2_zero_flush_pending = False
         self._initial_co2_zero_flush_pending = self._route_mode() == "co2_only"
@@ -15830,6 +15831,35 @@ class CalibrationRunner:
                 elif not preseal_failures:
                     reused_preseal_ready = True
                     ready_for_control = True
+                    reuse_phase = (
+                        "preseal_final_exit_reused_after_full_seal"
+                        if bool(preseal_ready_state.get("preseal_final_atmosphere_exit_verified"))
+                        else "preseal_ready_reused_after_full_seal"
+                    )
+                    self._set_point_runtime_fields(
+                        point,
+                        phase=phase,
+                        control_ready_check_vent_status=self._as_int(preseal_ready_state.get("pace_vent_status")),
+                        control_ready_check_phase=reuse_phase,
+                        control_ready_failure_reason_detail="",
+                        control_ready_failed_after_full_seal=False,
+                        control_ready_failed_with_watchlist_status_3=False,
+                    )
+                    self._append_pressure_trace_row(
+                        point=point,
+                        route=phase,
+                        point_phase=phase,
+                        trace_stage="control_ready_check_started",
+                        pressure_target_hpa=target,
+                        pace_output_state=preseal_ready_state.get("pace_output_state"),
+                        pace_isolation_state=preseal_ready_state.get("pace_isolation_state"),
+                        pace_vent_status=preseal_ready_state.get("pace_vent_status"),
+                        refresh_pace_state=False,
+                        note=(
+                            f"phase={reuse_phase}; "
+                            "reuse verified pre-seal state without post-seal vent command"
+                        ),
+                    )
                     self._append_pressure_trace_row(
                         point=point,
                         route=phase,
@@ -16455,6 +16485,7 @@ class CalibrationRunner:
     ) -> None:
         prior_state = dict(self._preseal_pressure_control_ready_state or {})
         self._preseal_pressure_control_ready_state = None
+        self._preseal_final_atmosphere_exit_snapshot = None
         if reason or prior_state:
             invalidation_phase = str(phase or prior_state.get("phase") or "").strip().lower()
             invalidation_point_row = self._as_int(
@@ -16469,6 +16500,163 @@ class CalibrationRunner:
                 ),
                 "ts": time.time(),
             }
+
+    def _preseal_final_atmosphere_exit_matches_point(
+        self,
+        state: Mapping[str, Any],
+        point: CalibrationPoint,
+        *,
+        phase: str,
+    ) -> bool:
+        if not bool(state.get("preseal_final_atmosphere_exit_verified")):
+            return False
+        if str(state.get("phase") or "") != str(phase or "").strip().lower():
+            return False
+        if self._as_int(state.get("point_row")) != int(point.index):
+            return False
+        target_pressure_hpa = self._as_float(getattr(point, "target_pressure_hpa", None))
+        snapshot_target_hpa = self._as_float(state.get("target_pressure_hpa"))
+        if target_pressure_hpa is None or snapshot_target_hpa is None:
+            return True
+        return abs(target_pressure_hpa - snapshot_target_hpa) <= self._preseal_ready_target_tolerance_hpa()
+
+    def _preseal_final_atmosphere_exit_detail(
+        self,
+        *,
+        failures: Iterable[str],
+        snapshot: Mapping[str, Any],
+        phase_label: str,
+        wait_iterations: int = 0,
+    ) -> str:
+        failure_text = ",".join(str(item) for item in list(failures or [])) or "none"
+        return (
+            f"phase={phase_label}; failures={failure_text}; "
+            f"vent_status={self._as_int(snapshot.get('pace_vent_status'))}; "
+            f"output_state={self._as_int(snapshot.get('pace_output_state'))}; "
+            f"isolation_state={self._as_int(snapshot.get('pace_isolation_state'))}; "
+            f"wait_iterations={int(wait_iterations)}"
+        )
+
+    def _verify_preseal_final_atmosphere_exit(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        reason: str,
+        pressure_target_hpa: Optional[float],
+    ) -> bool:
+        pace = self.devices.get("pace")
+        phase_text = str(phase or "").strip().lower() or "co2"
+        phase_label = "preseal_before_full_seal"
+        if not pace:
+            self._set_point_runtime_fields(
+                point,
+                phase=phase_text,
+                preseal_final_atmosphere_exit_required=True,
+                preseal_final_atmosphere_exit_started=True,
+                preseal_final_atmosphere_exit_verified=True,
+                preseal_final_atmosphere_exit_phase=phase_label,
+                preseal_final_atmosphere_exit_reason="pressure_controller_unavailable",
+            )
+            return True
+
+        wait_timeout_s = self._pressure_control_ready_wait_timeout_s()
+        wait_poll_s = self._pressure_control_ready_wait_poll_s()
+        wait_iterations = 0
+        deadline = time.time() + wait_timeout_s
+        snapshot = self._pressure_controller_ready_snapshot(pace)
+        failures = self._pressure_controller_ready_failures(snapshot, pace)
+        while failures and wait_timeout_s > 0 and time.time() < deadline:
+            time.sleep(wait_poll_s)
+            wait_iterations += 1
+            snapshot = self._pressure_controller_ready_snapshot(pace)
+            failures = self._pressure_controller_ready_failures(snapshot, pace)
+
+        legacy_vent3_trace = self._record_legacy_vent3_runtime_fields(
+            point,
+            phase=phase_text,
+            pace=pace,
+            vent_status=snapshot.get("pace_vent_status"),
+            accept_scope="none",
+            control_ready_used=False,
+            block_scope="preseal_final_atmosphere_exit",
+            hard_blocked=bool(failures),
+            watchlist_only=True,
+            control_ready_attempted=False,
+            control_ready_prevented=bool(failures),
+        )
+        detail = self._preseal_final_atmosphere_exit_detail(
+            failures=failures,
+            snapshot=snapshot,
+            phase_label=phase_label,
+            wait_iterations=wait_iterations,
+        )
+        verified = not bool(failures)
+        self._set_point_runtime_fields(
+            point,
+            phase=phase_text,
+            preseal_final_atmosphere_exit_required=True,
+            preseal_final_atmosphere_exit_started=True,
+            preseal_final_atmosphere_exit_verified=verified,
+            preseal_final_atmosphere_exit_phase=phase_label,
+            preseal_final_atmosphere_exit_reason=detail if not verified else str(reason or "ensure_vent_closed_before_seal"),
+        )
+        if verified:
+            cached_snapshot = dict(snapshot)
+            cached_snapshot.update(
+                {
+                    "phase": phase_text,
+                    "point_row": int(point.index),
+                    "target_pressure_hpa": self._as_float(pressure_target_hpa),
+                    "recorded_wall_ts": time.time(),
+                    "failures": [],
+                    "preseal_final_atmosphere_exit_required": True,
+                    "preseal_final_atmosphere_exit_started": True,
+                    "preseal_final_atmosphere_exit_verified": True,
+                    "preseal_final_atmosphere_exit_phase": phase_label,
+                    "preseal_final_atmosphere_exit_reason": str(reason or "ensure_vent_closed_before_seal"),
+                }
+            )
+            self._preseal_final_atmosphere_exit_snapshot = cached_snapshot
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase_text,
+                point_phase=phase_text,
+                trace_stage="preseal_final_atmosphere_exit_verified",
+                pressure_target_hpa=pressure_target_hpa,
+                pace_output_state=snapshot.get("pace_output_state"),
+                pace_isolation_state=snapshot.get("pace_isolation_state"),
+                pace_vent_status=snapshot.get("pace_vent_status"),
+                **legacy_vent3_trace,
+                refresh_pace_state=False,
+                note=detail,
+            )
+            return True
+
+        self._preseal_final_atmosphere_exit_snapshot = None
+        self._set_point_runtime_fields(
+            point,
+            phase=phase_text,
+            abort_reason="PresealFinalAtmosphereExitNotVerified",
+            control_ready_failure_reason_detail=detail,
+            control_ready_failed_after_full_seal=False,
+            control_ready_failed_with_watchlist_status_3="vent_status=3(watchlist_only)" in failures,
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            trace_stage="preseal_final_atmosphere_exit_failed",
+            pressure_target_hpa=pressure_target_hpa,
+            pace_output_state=snapshot.get("pace_output_state"),
+            pace_isolation_state=snapshot.get("pace_isolation_state"),
+            pace_vent_status=snapshot.get("pace_vent_status"),
+            **legacy_vent3_trace,
+            refresh_pace_state=False,
+            note=detail,
+        )
+        self.log(f"Pre-seal final atmosphere exit not verified before full seal: {detail}")
+        return False
 
     def _record_preseal_pressure_control_ready_state(
         self,
@@ -16485,7 +16673,16 @@ class CalibrationRunner:
                 phase=phase,
             )
             return
-        if defer_live_check:
+        preseal_exit_state = dict(self._preseal_final_atmosphere_exit_snapshot or {})
+        reuse_preseal_exit = self._preseal_final_atmosphere_exit_matches_point(
+            preseal_exit_state,
+            point,
+            phase=phase,
+        )
+        if reuse_preseal_exit:
+            snapshot = dict(preseal_exit_state)
+            defer_live_check = False
+        elif defer_live_check:
             snapshot = self._pressure_controller_ready_snapshot(
                 pace,
                 refresh_state=False,
@@ -16502,10 +16699,28 @@ class CalibrationRunner:
                 "route_sealed": True,
                 "atmosphere_hold_stopped": not bool(snapshot.get("hold_thread_active")),
                 "ready_verification_pending": bool(defer_live_check),
+                "preseal_final_atmosphere_exit_required": bool(
+                    snapshot.get("preseal_final_atmosphere_exit_required", False)
+                ),
+                "preseal_final_atmosphere_exit_started": bool(
+                    snapshot.get("preseal_final_atmosphere_exit_started", False)
+                ),
+                "preseal_final_atmosphere_exit_verified": bool(
+                    snapshot.get("preseal_final_atmosphere_exit_verified", False)
+                ),
+                "preseal_final_atmosphere_exit_phase": str(
+                    snapshot.get("preseal_final_atmosphere_exit_phase") or ""
+                ),
+                "preseal_final_atmosphere_exit_reason": str(
+                    snapshot.get("preseal_final_atmosphere_exit_reason") or ""
+                ),
                 **self._seal_transition_state(point, phase=phase),
             }
         )
-        snapshot["failures"] = [] if defer_live_check else self._pressure_controller_ready_failures(snapshot, pace)
+        if reuse_preseal_exit:
+            snapshot["failures"] = list(preseal_exit_state.get("failures") or [])
+        else:
+            snapshot["failures"] = [] if defer_live_check else self._pressure_controller_ready_failures(snapshot, pace)
         self._preseal_pressure_control_ready_state = snapshot
         self._last_preseal_pressure_control_ready_invalidation = None
 
@@ -16546,7 +16761,12 @@ class CalibrationRunner:
             return None, f"target_pressure_mismatch:{target_delta_hpa:.3f}hPa"
         recorded_wall_ts = self._as_float(state.get("recorded_wall_ts"))
         age_s = None if recorded_wall_ts is None else max(0.0, time.time() - recorded_wall_ts)
-        if age_s is not None and age_s > self._preseal_ready_snapshot_max_age_s():
+        preseal_final_exit_verified = bool(state.get("preseal_final_atmosphere_exit_verified"))
+        if (
+            age_s is not None
+            and age_s > self._preseal_ready_snapshot_max_age_s()
+            and not preseal_final_exit_verified
+        ):
             return None, f"snapshot_age_exceeded:{age_s:.3f}s"
         if state.get("route_sealed") is not True:
             return None, "snapshot_not_route_sealed"
@@ -16675,6 +16895,30 @@ class CalibrationRunner:
 
         guard_state = self._sealed_no_vent_guard_snapshot()
         guard_phase = str(guard_state.get("phase") or "").strip()
+        seal_state_at_check = self._seal_transition_state(point, phase=phase)
+        check_after_full_seal = bool(seal_state_at_check.get("seal_transition_completed"))
+        control_ready_check_phase = "after_full_seal" if check_after_full_seal else "preseal_or_unsealed"
+        self._set_point_runtime_fields(
+            point,
+            phase=phase,
+            control_ready_check_vent_status=None,
+            control_ready_check_phase=control_ready_check_phase,
+            control_ready_failure_reason_detail="",
+            control_ready_failed_after_full_seal=False,
+            control_ready_failed_with_watchlist_status_3=False,
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            trace_stage="control_ready_check_started",
+            pressure_target_hpa=pressure_target_hpa,
+            refresh_pace_state=False,
+            note=(
+                f"phase={control_ready_check_phase}; "
+                f"attempt_recovery={bool(attempt_recovery)}; {note or 'pressure controller ready check'}"
+            ),
+        )
         if bool(guard_state.get("active")) and guard_phase in {
             "PressureSetpointHold",
             "PressurePointSwitch",
@@ -16685,6 +16929,12 @@ class CalibrationRunner:
 
         snapshot = self._pressure_controller_ready_snapshot(pace)
         failures = self._pressure_controller_ready_failures(snapshot, pace)
+        self._set_point_runtime_fields(
+            point,
+            phase=phase,
+            control_ready_check_vent_status=self._as_int(snapshot.get("pace_vent_status")),
+            control_ready_check_phase=control_ready_check_phase,
+        )
         legacy_vent3_trace = self._record_legacy_vent3_runtime_fields(
             point,
             phase=phase,
@@ -16736,6 +16986,12 @@ class CalibrationRunner:
                 wait_iterations += 1
                 snapshot = self._pressure_controller_ready_snapshot(pace)
                 failures = self._pressure_controller_ready_failures(snapshot, pace)
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                control_ready_check_vent_status=self._as_int(snapshot.get("pace_vent_status")),
+                control_ready_check_phase=control_ready_check_phase,
+            )
             legacy_vent3_trace = self._record_legacy_vent3_runtime_fields(
                 point,
                 phase=phase,
@@ -16767,8 +17023,22 @@ class CalibrationRunner:
                 ),
             )
         if not failures and not self._strict_control_ready_check_enabled():
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                control_ready_failure_reason_detail="",
+                control_ready_failed_after_full_seal=False,
+                control_ready_failed_with_watchlist_status_3=False,
+            )
             return True
         if not failures:
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                control_ready_failure_reason_detail="",
+                control_ready_failed_after_full_seal=False,
+                control_ready_failed_with_watchlist_status_3=False,
+            )
             self._append_pressure_trace_row(
                 point=point,
                 route=phase,
@@ -16819,6 +17089,15 @@ class CalibrationRunner:
                 control_ready_prevented=bool(failures),
             )
             if not failures:
+                self._set_point_runtime_fields(
+                    point,
+                    phase=phase,
+                    control_ready_check_vent_status=self._as_int(snapshot.get("pace_vent_status")),
+                    control_ready_check_phase=control_ready_check_phase,
+                    control_ready_failure_reason_detail="",
+                    control_ready_failed_after_full_seal=False,
+                    control_ready_failed_with_watchlist_status_3=False,
+                )
                 self._append_pressure_trace_row(
                     point=point,
                     route=phase,
@@ -16836,6 +17115,18 @@ class CalibrationRunner:
 
         failure_text = ", ".join(failures) if failures else "unknown"
         seal_state = self._seal_transition_state(point, phase=phase)
+        failed_after_full_seal = bool(seal_state.get("seal_transition_completed"))
+        control_ready_check_phase = "after_full_seal" if failed_after_full_seal else "preseal_or_unsealed"
+        failed_with_watchlist_status_3 = any(str(item) == "vent_status=3(watchlist_only)" for item in failures)
+        failure_detail = (
+            f"control_ready_failed; phase={control_ready_check_phase}; "
+            f"vent_status={self._as_int(snapshot.get('pace_vent_status'))}; "
+            f"failures={failure_text}; "
+            f"seal_transition_completed={bool(seal_state.get('seal_transition_completed'))}; "
+            f"missing_closed_valves={seal_state.get('seal_missing_closed_valves') or []}; "
+            f"total_route_valve_closed={bool(seal_state.get('seal_total_route_valve_closed'))}; "
+            f"post_seal_recovery_attempted={bool(attempt_recovery)}"
+        )
         pace_pressure_now: Optional[float] = None
         pressure_gauge_now: Optional[float] = None
         try:
@@ -16853,16 +17144,29 @@ class CalibrationRunner:
             phase=phase,
             abort_reason="PressureControllerNotReadyForControl",
             pressure_in_limits_timeout_phase="",
-            pressure_in_limits_timeout_reason_detail=(
-                f"control_ready_failed; failures={failure_text}; "
-                f"seal_transition_completed={bool(seal_state.get('seal_transition_completed'))}; "
-                f"missing_closed_valves={seal_state.get('seal_missing_closed_valves') or []}; "
-                f"total_route_valve_closed={bool(seal_state.get('seal_total_route_valve_closed'))}; "
-                f"post_seal_recovery_attempted={bool(attempt_recovery)}"
-            ),
+            pressure_in_limits_timeout_reason_detail=failure_detail,
+            control_ready_check_vent_status=self._as_int(snapshot.get("pace_vent_status")),
+            control_ready_check_phase=control_ready_check_phase,
+            control_ready_failure_reason_detail=failure_detail,
+            control_ready_failed_after_full_seal=failed_after_full_seal,
+            control_ready_failed_with_watchlist_status_3=failed_with_watchlist_status_3,
             pace_control_started_after_full_seal=False,
             **seal_state,
         )
+        if failed_with_watchlist_status_3:
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase,
+                point_phase=phase,
+                trace_stage="control_ready_check_failed_watchlist_status_3",
+                pressure_target_hpa=pressure_target_hpa,
+                pace_output_state=snapshot.get("pace_output_state"),
+                pace_isolation_state=snapshot.get("pace_isolation_state"),
+                pace_vent_status=snapshot.get("pace_vent_status"),
+                **legacy_vent3_trace,
+                refresh_pace_state=False,
+                note=failure_detail,
+            )
         self._append_pressure_trace_row(
             point=point,
             route=phase,
@@ -16875,7 +17179,7 @@ class CalibrationRunner:
             **legacy_vent3_trace,
             read_pace_pressure=True,
             read_pressure_gauge=True,
-            note=f"ready failures: {failure_text}",
+            note=failure_detail,
         )
         self.log(
             "Pressure controller not ready for control: "
@@ -26175,6 +26479,20 @@ class CalibrationRunner:
         self._preseal_dewpoint_snapshot = None
         route_name = str(route or "co2").strip().lower()
         phase = "h2o" if route_name == "h2o" or point.is_h2o_point else "co2"
+        self._set_point_runtime_fields(
+            point,
+            phase=phase,
+            preseal_final_atmosphere_exit_required=True,
+            preseal_final_atmosphere_exit_started=False,
+            preseal_final_atmosphere_exit_verified=False,
+            preseal_final_atmosphere_exit_phase="preseal_before_full_seal",
+            preseal_final_atmosphere_exit_reason="pending_before_full_seal",
+            control_ready_check_vent_status=None,
+            control_ready_check_phase="",
+            control_ready_failure_reason_detail="",
+            control_ready_failed_after_full_seal=False,
+            control_ready_failed_with_watchlist_status_3=False,
+        )
         self.exit_continuous_atmosphere_flowthrough(
             self._source_stage_key_for_point(point, phase=phase) or phase,
             point=point,
@@ -26250,6 +26568,24 @@ class CalibrationRunner:
                 self._capture_preseal_dewpoint_snapshot(prefer_cached_pressure=True)
             else:
                 self._capture_preseal_dewpoint_snapshot()
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                preseal_final_atmosphere_exit_started=True,
+                preseal_final_atmosphere_exit_reason="ensure_vent_closed_before_seal",
+            )
+            self._append_pressure_trace_row(
+                point=point,
+                route=phase,
+                point_phase=phase,
+                trace_stage="preseal_final_atmosphere_exit_started",
+                pressure_target_hpa=point.target_pressure_hpa,
+                refresh_pace_state=False,
+                note=(
+                    "final atmosphere exit before full seal; "
+                    f"pressure_mode={self._seal_transition_pressure_mode()}"
+                ),
+            )
             self._append_pressure_trace_row(
                 point=point,
                 route=phase,
@@ -26271,12 +26607,6 @@ class CalibrationRunner:
                 before_sour_pres_command=True,
                 before_outp_stat_1_command=True,
                 vent_command_reason="ensure_vent_closed_before_seal",
-            )
-            self._activate_sealed_no_vent_guard(
-                point=point,
-                phase=phase,
-                guard_phase="SealTransition",
-                reason=f"before {route.upper()} pressure seal",
             )
             self._append_pressure_trace_row(
                 point=point,
@@ -26410,7 +26740,6 @@ class CalibrationRunner:
                             f"fixed open-route wait after vent off completed after {wait_after_vent_off_s:.3f}s"
                         )
                         self.log(f"{route.upper()} preseal {timeout_note}")
-                        _seal_route_now()
                         trace_values = self._cached_ready_check_trace_values(point=point)
                         pace_pressure_now = self._as_float(trace_values.get("pace_pressure_hpa"))
                         if pace_pressure_now is None:
@@ -26519,7 +26848,6 @@ class CalibrationRunner:
                             f"{route.upper()} preseal pressure_gauge_threshold reached: "
                             f"{pressure_now:.3f} hPa >= {float(preseal_trigger_threshold_hpa or 0.0):.3f} hPa"
                         )
-                        _seal_route_now()
                         trace_values = self._cached_ready_check_trace_values(point=point)
                         pace_pressure_now = self._as_float(trace_values.get("pace_pressure_hpa"))
                         if pace_pressure_now is None:
@@ -26620,7 +26948,6 @@ class CalibrationRunner:
                             self.log(
                                 f"{route.upper()} preseal {timeout_note}"
                             )
-                            _seal_route_now()
                             trace_values = self._cached_ready_check_trace_values(point=point)
                             pace_pressure_now = self._as_float(trace_values.get("pace_pressure_hpa"))
                             if pace_pressure_now is None:
@@ -26670,7 +26997,6 @@ class CalibrationRunner:
                     time.sleep(max(0.02, sleep_s))
             else:
                 preseal_trigger_source = "no_wait"
-                _seal_route_now()
                 trace_values = self._cached_ready_check_trace_values(point=point)
                 dewpoint_kwargs: Dict[str, Any] = {}
                 if any(
@@ -26755,6 +27081,19 @@ class CalibrationRunner:
                     else:
                         self.log(f"{route_title} route vent OFF settle complete; seal route directly before pressure control")
 
+            if not self._verify_preseal_final_atmosphere_exit(
+                point,
+                phase=phase,
+                reason="ensure_vent_closed_before_seal",
+                pressure_target_hpa=point.target_pressure_hpa,
+            ):
+                return False
+            self._activate_sealed_no_vent_guard(
+                point=point,
+                phase=phase,
+                guard_phase="SealTransition",
+                reason=f"before {route.upper()} pressure seal",
+            )
             _seal_route_now()
 
             trace_values = self._cached_ready_check_trace_values(point=point)
@@ -26987,6 +27326,32 @@ class CalibrationRunner:
             "preseal_rh_pct": runtime_state.get("preseal_rh_pct"),
             "preseal_pressure_hpa": runtime_state.get("preseal_pressure_hpa"),
             "preseal_trigger_overshoot_hpa": runtime_state.get("preseal_trigger_overshoot_hpa"),
+            "preseal_final_atmosphere_exit_required": runtime_state.get(
+                "preseal_final_atmosphere_exit_required"
+            ),
+            "preseal_final_atmosphere_exit_started": runtime_state.get(
+                "preseal_final_atmosphere_exit_started"
+            ),
+            "preseal_final_atmosphere_exit_verified": runtime_state.get(
+                "preseal_final_atmosphere_exit_verified"
+            ),
+            "preseal_final_atmosphere_exit_phase": runtime_state.get(
+                "preseal_final_atmosphere_exit_phase"
+            ),
+            "preseal_final_atmosphere_exit_reason": runtime_state.get(
+                "preseal_final_atmosphere_exit_reason"
+            ),
+            "control_ready_check_vent_status": runtime_state.get("control_ready_check_vent_status"),
+            "control_ready_check_phase": runtime_state.get("control_ready_check_phase"),
+            "control_ready_failure_reason_detail": runtime_state.get(
+                "control_ready_failure_reason_detail"
+            ),
+            "control_ready_failed_after_full_seal": runtime_state.get(
+                "control_ready_failed_after_full_seal"
+            ),
+            "control_ready_failed_with_watchlist_status_3": runtime_state.get(
+                "control_ready_failed_with_watchlist_status_3"
+            ),
             "postseal_expected_dewpoint_c": runtime_state.get("postseal_expected_dewpoint_c"),
             "postseal_actual_dewpoint_c": runtime_state.get("postseal_actual_dewpoint_c"),
             "postseal_physical_delta_c": runtime_state.get("postseal_physical_delta_c"),

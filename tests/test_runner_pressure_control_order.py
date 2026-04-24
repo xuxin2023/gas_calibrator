@@ -1558,14 +1558,58 @@ def test_pressurize_and_hold_records_total_route_valve_and_full_solenoid_seal(tm
     assert state["seal_total_route_valve_closed"] is True
     assert state["seal_transition_completed"] is True
     assert state["keepalive_stopped_before_seal"] is True
+    assert state["preseal_final_atmosphere_exit_required"] is True
+    assert state["preseal_final_atmosphere_exit_started"] is True
+    assert state["preseal_final_atmosphere_exit_verified"] is True
+    assert state["preseal_final_atmosphere_exit_phase"] == "preseal_before_full_seal"
     assert set(state["seal_required_valves_closed_list"]) >= {4, 7, 8, 11}
     trace_rows = _load_pressure_trace_rows(logger)
     stages = [row["trace_stage"] for row in trace_rows]
+    assert "preseal_final_atmosphere_exit_started" in stages
+    assert "pressure_vent0_command" in stages
+    assert "preseal_final_atmosphere_exit_verified" in stages
     assert "seal_transition_started" in stages
     assert "seal_total_route_valve_closed" in stages
     assert "seal_all_required_solenoids_closed" in stages
     assert "seal_transition_completed" in stages
-    assert stages.index("seal_transition_started") < stages.index("seal_transition_completed")
+    assert (
+        stages.index("preseal_final_atmosphere_exit_started")
+        < stages.index("pressure_vent0_command")
+        < stages.index("preseal_final_atmosphere_exit_verified")
+        < stages.index("seal_transition_started")
+        < stages.index("seal_transition_completed")
+    )
+
+
+def test_pressurize_and_hold_blocks_when_preseal_final_exit_is_not_verified(tmp_path: Path) -> None:
+    cfg = _route_open_guard_cfg()
+    pressure_cfg = cfg["workflow"]["pressure"]
+    pressure_cfg["control_ready_wait_timeout_s"] = 0.0
+    pressure_cfg["co2_no_topoff_vent_off_open_wait_s"] = 0.0
+    pressure_cfg["pressurize_wait_after_vent_off_s"] = 0.0
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceNotReady()
+    runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+    runner._active_route_requires_preseal_topoff = False
+    runner._current_open_valves = (4, 7, 8, 11)
+    point = _co2_test_point(ppm=600.0)
+    point.target_pressure_hpa = 1000.0
+
+    assert runner._pressurize_and_hold(point, route="co2") is False
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["abort_reason"] == "PresealFinalAtmosphereExitNotVerified"
+    assert state["preseal_final_atmosphere_exit_started"] is True
+    assert state["preseal_final_atmosphere_exit_verified"] is False
+    assert state["preseal_final_atmosphere_exit_phase"] == "preseal_before_full_seal"
+    assert state["control_ready_failed_after_full_seal"] is False
+    assert "vent_status=1" in state["preseal_final_atmosphere_exit_reason"]
+    trace_rows = _load_pressure_trace_rows(logger)
+    stages = [row["trace_stage"] for row in trace_rows]
+    assert "preseal_final_atmosphere_exit_started" in stages
+    assert "preseal_final_atmosphere_exit_failed" in stages
+    assert "seal_transition_started" not in stages
 
 
 def test_set_pressure_skips_vent_latch_clear_after_full_seal(tmp_path: Path) -> None:
@@ -1607,6 +1651,49 @@ def test_set_pressure_skips_vent_latch_clear_after_full_seal(tmp_path: Path) -> 
     assert "pace_vent_clear_latch_skipped_after_full_seal" in stages
     assert "pressure_vent0_command" not in stages
     assert "pressure_vent0_blocked" not in stages
+
+
+def test_control_ready_failure_records_watchlist_status_3_phase_after_full_seal(tmp_path: Path) -> None:
+    cfg = _route_open_guard_cfg()
+    cfg["workflow"]["pressure"]["control_ready_wait_timeout_s"] = 0.0
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceLegacyVentTrapped()
+    runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+    runner._current_open_valves = ()
+    point = _co2_test_point(ppm=600.0)
+    point.target_pressure_hpa = 1100.0
+    runner._set_point_runtime_fields(
+        point,
+        phase="co2",
+        **runner._seal_transition_state(point, phase="co2"),
+    )
+    runner._record_preseal_pressure_control_ready_state(point, phase="co2", defer_live_check=True)
+    runner._preseal_pressure_control_ready_state["recorded_wall_ts"] = time.time() - 999.0
+    runner._activate_sealed_no_vent_guard(
+        point=point,
+        phase="co2",
+        guard_phase="SealTransition",
+        reason="unit full seal",
+    )
+
+    assert runner._set_pressure_to_target(point) is False
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["abort_reason"] == "PressureControllerNotReadyForControl"
+    assert state["control_ready_check_vent_status"] == 3
+    assert state["control_ready_check_phase"] == "after_full_seal"
+    assert state["control_ready_failed_after_full_seal"] is True
+    assert state["control_ready_failed_with_watchlist_status_3"] is True
+    assert "phase=after_full_seal" in state["control_ready_failure_reason_detail"]
+    assert "vent_status=3(watchlist_only)" in state["control_ready_failure_reason_detail"]
+    trace_rows = _load_pressure_trace_rows(logger)
+    stages = [row["trace_stage"] for row in trace_rows]
+    assert "control_ready_check_started" in stages
+    assert "control_ready_check_failed_watchlist_status_3" in stages
+    assert "control_ready_failed" in stages
+    assert "preseal_final_atmosphere_exit_started" not in stages
+    assert "pressure_vent0_command" not in stages
 
 
 def test_pressure_in_limits_timeout_reports_seal_verified_control_failure(tmp_path: Path) -> None:
