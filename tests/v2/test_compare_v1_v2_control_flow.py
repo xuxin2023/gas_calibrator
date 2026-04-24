@@ -58,13 +58,21 @@ def test_build_control_flow_report_summarizes_presence_counts_and_key_actions(tm
     assert report["key_actions"]["pressure"]["matches"] is True
     assert report["replacement_validation"]["only_in_v1"] == []
     assert report["replacement_validation"]["only_in_v2"] == []
+    assert report["replacement_validation"]["scope"] == "narrowed_skip0_co2_only"
+    assert report["replacement_validation"]["conclusion"] == "replacement-validation path not usable"
+    assert report["replacement_validation"]["cutover_ready"] is False
+    assert report["replacement_validation"]["full_equivalence_established"] is False
     assert report["replacement_validation"]["sample_count_matches"] is False
+    assert report["replacement_validation"]["sample_count_mismatch"] is True
     assert report["replacement_validation"]["route_action_order_matches"] is False
     assert report["replacement_validation"]["route_action_order_differences"]
+    assert report["replacement_validation"]["route_action_order_differences"][0]["difference_types"]
     assert (
         report["replacement_validation"]["key_action_group_registry"]
         == "gas_calibrator.v2.scripts.route_trace_diff.KEY_ACTION_GROUPS"
     )
+    assert "baseline_restore" in report["route_review_stages"]
+    assert "sample" in report["route_review_stages"]
     assert "current main replacement-validation route" in report["validation_scope"]["summary"]
     assert "True 0 ppm behavior equivalence." in report["validation_scope"]["does_not_prove"]
     assert report["compare_status"] == compare_v1_v2_control_flow.COMPARE_STATUS_MISMATCH
@@ -596,13 +604,27 @@ def test_compare_v1_v2_control_flow_main_skip0_co2_only_preset_sets_co2_only_rou
     assert payload["bench_context"]["humidity_generator_humidity_feedback_valid"] is False
     assert payload["route_execution_summary"]["target_route"] == "co2"
     assert payload["compare_status"] == compare_v1_v2_control_flow.COMPARE_STATUS_MATCH
+    assert payload["replacement_validation"]["scope"] == "narrowed_skip0_co2_only"
+    assert payload["replacement_validation"]["scope_statement"] == "co2_only + skip_co2_ppm=[0] narrowed replacement-validation path"
+    assert payload["replacement_validation"]["conclusion"] == "replacement-validation path usable"
+    assert payload["replacement_validation"]["path_usable"] is True
+    assert payload["replacement_validation"]["cutover_ready"] is False
+    assert payload["replacement_validation"]["default_replacement_ready"] is False
+    assert payload["replacement_validation"]["full_equivalence_established"] is False
+    assert payload["replacement_validation"]["numeric_equivalence_established"] is False
+    assert payload["replacement_validation"]["missing_points"] == {"missing_in_v1": [], "missing_in_v2": []}
+    assert payload["replacement_validation"]["sample_count_mismatch"] is False
     assert payload["effective_validation_mode"]["target_route"] == "co2"
     assert payload["effective_validation_mode"]["sensor_precheck_validation_mode"] == "v1_frame_like"
     assert payload["effective_validation_mode"]["sensor_precheck_active_send"] is True
     assert payload["effective_validation_mode"]["sensor_precheck_strict"] is True
     assert bundle_payload["checklist_gate"] == "12A"
     assert bundle_payload["validation_profile"] == "skip0_co2_only_replacement"
-    assert bundle_payload["evidence_state"] == "current_primary_validation"
+    assert bundle_payload["evidence_state"] == "narrowed_replacement_validation"
+    assert bundle_payload["acceptance_evidence"] is False
+    assert bundle_payload["replacement_validation"]["conclusion"] == "replacement-validation path usable"
+    assert bundle_payload["replacement_validation"]["cutover_ready"] is False
+    assert bundle_payload["latest_governance"]["root_latest_update_allowed"] is True
     assert bundle_payload["bench_context"]["h2o_route_available"] is False
     assert latest_payload["validation_profile"] == "skip0_co2_only_replacement"
     assert latest_payload["compare_status"] == compare_v1_v2_control_flow.COMPARE_STATUS_MATCH
@@ -826,6 +848,91 @@ def test_build_control_flow_report_marks_target_route_not_executed(tmp_path: Pat
     assert report["replacement_validation"]["route_action_order_matches"] is None
     assert "Compare status: NOT_EXECUTED" in route_text
     assert "Valid for route diff: False" in route_text
+
+
+def test_build_control_flow_report_exposes_route_failure_without_false_usable_path(tmp_path: Path) -> None:
+    v1_trace = tmp_path / "v1_failure.jsonl"
+    v2_trace = tmp_path / "v2_failure.jsonl"
+    _write_trace(
+        v1_trace,
+        [
+            '{"route":"co2","action":"route_baseline","point_tag":"co2_groupa_400ppm_1000hpa","result":"ok"}',
+            '{"route":"co2","action":"set_pressure","point_tag":"co2_groupa_400ppm_1000hpa","result":"ok"}',
+            '{"route":"co2","action":"sample_end","point_tag":"co2_groupa_400ppm_1000hpa","result":"ok","actual":{"sample_count":2}}',
+        ],
+    )
+    _write_trace(
+        v2_trace,
+        [
+            '{"route":"co2","action":"route_baseline","point_tag":"co2_groupa_400ppm_1000hpa","result":"ok"}',
+            '{"route":"co2","action":"set_pressure","point_tag":"co2_groupa_400ppm_1000hpa","result":"fail","message":"pressure not ready"}',
+            '{"route":"co2","action":"sample_end","point_tag":"co2_groupa_400ppm_1000hpa","result":"ok","actual":{"sample_count":2}}',
+        ],
+    )
+
+    report = compare_v1_v2_control_flow.build_control_flow_report(
+        v1_trace_path=v1_trace,
+        v2_trace_path=v2_trace,
+        metadata={
+            "validation_profile": "skip0_co2_only_replacement",
+            "route_mode": "co2_only",
+            "skip_co2_ppm": [0],
+            "v1": {"ok": True, "status_phase": "completed"},
+            "v2": {"ok": False, "status_phase": "pressure_control", "status_error": "pressure not ready"},
+        },
+    )
+
+    assert report["compare_status"] == compare_v1_v2_control_flow.COMPARE_STATUS_MISMATCH
+    assert report["valid_for_route_diff"] is False
+    assert report["first_failure_phase"] == "v2:pressure_control"
+    assert report["route_execution_summary"]["has_route_failures"] is True
+    assert report["replacement_validation"]["scope"] == "narrowed_skip0_co2_only"
+    assert report["replacement_validation"]["path_usable"] is False
+    assert report["replacement_validation"]["conclusion"] == "replacement-validation path not usable"
+    assert report["replacement_validation"]["sample_count_evaluable"] is False
+    assert report["replacement_validation"]["sample_count_matches"] is None
+    assert report["replacement_validation"]["sample_count_mismatch"] is None
+    assert report["replacement_validation"]["first_failure_phase"] == "v2:pressure_control"
+
+
+def test_replacement_validation_indexes_isolate_simulated_real_profile_latest(tmp_path: Path) -> None:
+    report_root = tmp_path / "reports"
+    report_dir = report_root / "simulated_skip0"
+    report_dir.mkdir(parents=True)
+    report = {
+        "generated_at": "2026-04-24T00:00:00+00:00",
+        "metadata": {
+            "validation_profile": "skip0_co2_only_replacement",
+            "run_name": "simulated_skip0",
+        },
+        "evidence_source": "simulated",
+        "evidence_state": "simulated_validation",
+        "diagnostic_only": True,
+        "acceptance_evidence": False,
+        "not_real_acceptance_evidence": True,
+        "compare_status": compare_v1_v2_control_flow.COMPARE_STATUS_MATCH,
+        "overall_match": True,
+        "validation_scope": {"summary": "narrowed simulated check"},
+        "replacement_validation": {"scope": "narrowed_skip0_co2_only"},
+        "artifacts": {},
+        "artifact_inventory": {"complete": True},
+    }
+
+    artifacts = compare_v1_v2_control_flow._write_replacement_validation_indexes(
+        report_root=report_root,
+        report_dir=report_dir,
+        report=report,
+        update_latest=False,
+    )
+
+    assert (report_dir / "skip0_co2_only_replacement_bundle.json").exists()
+    assert (report_dir / "skip0_co2_only_replacement_latest.json").exists()
+    assert not (report_root / "skip0_co2_only_replacement_latest.json").exists()
+    assert artifacts["skip0_co2_only_replacement_latest"] == str(report_dir / "skip0_co2_only_replacement_latest.json")
+    latest_payload = json.loads((report_dir / "skip0_co2_only_replacement_latest.json").read_text(encoding="utf-8"))
+    assert latest_payload["evidence_source"] == "simulated"
+    assert latest_payload["latest_governance"]["root_latest_update_blocked"] is True
+    assert "must not overwrite root latest" in latest_payload["latest_governance"]["reason"]
 
 
 def test_compare_v1_v2_control_flow_main_marks_invalid_profile_input_before_run(
@@ -1196,7 +1303,10 @@ def test_compare_v1_v2_control_flow_main_writes_strict_latest_even_when_v1_trace
     assert (report_dir / "artifact_inventory.json").exists()
     assert bundle_payload["validation_profile"] == "skip0_co2_only_replacement"
     assert bundle_payload["diagnostic_only"] is False
-    assert bundle_payload["acceptance_evidence"] is True
+    assert bundle_payload["acceptance_evidence"] is False
+    assert bundle_payload["evidence_state"] == "narrowed_replacement_validation"
+    assert bundle_payload["replacement_validation"]["conclusion"] == "replacement-validation path not usable"
+    assert bundle_payload["replacement_validation"]["cutover_ready"] is False
     assert latest_payload["validation_profile"] == "skip0_co2_only_replacement"
     assert latest_payload["route_execution_summary"]["sides"]["v1"]["derived_failure_phase"] == (
         "startup.sensor_precheck.mode2_verify"

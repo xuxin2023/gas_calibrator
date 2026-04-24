@@ -75,6 +75,9 @@ def test_route_trace_diff_main_prints_readable_report(capsys, tmp_path: Path) ->
     assert "Route Trace Diff" in captured
     assert "Overall status: MISMATCH" in captured
     assert "[CO2]" in captured
+    assert "Review stages:" in captured
+    assert "baseline_restore" in captured
+    assert "source_valve_selection" in captured
     assert "Missing in V2" in captured
 
 
