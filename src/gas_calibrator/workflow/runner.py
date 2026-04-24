@@ -1816,6 +1816,154 @@ class CalibrationRunner:
             for key, value in dict(self._route_final_stage_seal_safety or {}).items()
         }
 
+    def _recorded_full_seal_transition_completed(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+        current_state: Optional[Mapping[str, Any]] = None,
+    ) -> bool:
+        if point is None:
+            return False
+        phase_text = str(phase or "").strip().lower()
+        runtime_state = dict(self._point_runtime_state(point, phase=phase_text) or {})
+        if not bool(runtime_state.get("seal_transition_completed")):
+            return False
+        state = dict(current_state or self._seal_transition_state(point, phase=phase_text))
+        return bool(
+            state.get("seal_transition_completed")
+            and state.get("seal_all_solenoids_closed")
+            and state.get("seal_total_route_valve_closed")
+            and state.get("keepalive_stopped_before_seal")
+        )
+
+    def _seal_total_route_valves_for_point(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+    ) -> List[int]:
+        valves_cfg = self.cfg.get("valves", {})
+        phase_text = str(phase or "").strip().lower()
+        keys = ("h2o_path", "hold", "flow_switch") if phase_text == "h2o" else ("h2o_path", "gas_main")
+        valves: List[int] = []
+        for key in keys:
+            value = self._as_int(valves_cfg.get(key))
+            if value is not None and int(value) not in valves:
+                valves.append(int(value))
+        return valves
+
+    def _seal_transition_state(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+    ) -> Dict[str, Any]:
+        required = sorted({int(value) for value in self._managed_valves()})
+        open_set = {int(value) for value in tuple(self._current_open_valves or ())}
+        missing_closed = [value for value in required if value in open_set]
+        total_valves = self._seal_total_route_valves_for_point(point, phase=phase)
+        total_missing = [value for value in total_valves if value in open_set]
+        continuous_state = self._continuous_atmosphere_state_snapshot()
+        keepalive_stopped = not (
+            bool(continuous_state.get("active"))
+            or bool(continuous_state.get("route_flow_active"))
+            or bool(continuous_state.get("background_keepalive_active"))
+        )
+        all_closed = not missing_closed
+        total_closed = not total_missing
+        return {
+            "seal_all_solenoids_closed": bool(all_closed),
+            "seal_total_route_valve_closed": bool(total_closed),
+            "seal_total_route_valves_closed_list": list(total_valves),
+            "seal_required_valves_closed_list": list(required),
+            "seal_missing_closed_valves": list(missing_closed),
+            "seal_transition_completed": bool(all_closed and total_closed and keepalive_stopped),
+            "keepalive_stopped_before_seal": bool(keepalive_stopped),
+            "seal_open_valves_at_check": sorted(open_set),
+        }
+
+    def _record_seal_transition_state(
+        self,
+        point: Optional[CalibrationPoint],
+        *,
+        phase: str,
+        trace_stage: str,
+        reason: str,
+        pressure_target_hpa: Any = None,
+    ) -> Dict[str, Any]:
+        phase_text = str(phase or "").strip().lower()
+        state = self._seal_transition_state(point, phase=phase_text)
+        self._set_point_runtime_fields(point, phase=phase_text, **state)
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            trace_stage=trace_stage,
+            trigger_reason=reason,
+            pressure_target_hpa=pressure_target_hpa,
+            offending_valve_or_group="|".join(str(value) for value in state.get("seal_missing_closed_valves") or []),
+            refresh_pace_state=False,
+            note=json.dumps(
+                {
+                    "reason": reason,
+                    **state,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+            ),
+        )
+        return state
+
+    def _verify_full_seal_before_pressure_control(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        pressure_target_hpa: Any,
+        reason: str,
+    ) -> bool:
+        state = self._record_seal_transition_state(
+            point,
+            phase=phase,
+            trace_stage="sealed_control_entry_verified",
+            reason=reason,
+            pressure_target_hpa=pressure_target_hpa,
+        )
+        if bool(state.get("seal_transition_completed")):
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                pressure_in_limits_timeout_phase="",
+                pressure_in_limits_timeout_reason_detail="",
+            )
+            return True
+        detail = (
+            f"missing_closed_valves={state.get('seal_missing_closed_valves') or []}; "
+            f"total_route_valve_closed={bool(state.get('seal_total_route_valve_closed'))}; "
+            f"keepalive_stopped_before_seal={bool(state.get('keepalive_stopped_before_seal'))}"
+        )
+        self._set_point_runtime_fields(
+            point,
+            phase=phase,
+            abort_reason="SealTransitionIncomplete",
+            pace_control_started_after_full_seal=False,
+            pressure_in_limits_timeout_phase="seal_not_complete",
+            pressure_in_limits_timeout_reason_detail=detail,
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            trace_stage="sealed_control_entry_blocked",
+            trigger_reason="SealTransitionIncomplete",
+            pressure_target_hpa=pressure_target_hpa,
+            offending_valve_or_group="|".join(str(value) for value in state.get("seal_missing_closed_valves") or []),
+            refresh_pace_state=False,
+            note=detail,
+        )
+        return False
+
     def _continuous_atmosphere_state_snapshot(self) -> Dict[str, Any]:
         lock = getattr(self, "_continuous_atmosphere_lock", None)
         if lock is not None:
@@ -8423,6 +8571,85 @@ class CalibrationRunner:
             "status": "blocked" if clear_blocked else ("applied" if clear_attempted else "skipped"),
             "reason": clear_result_text,
             "manual_intervention_required": bool(clear_blocked),
+        }
+
+    def _skip_pressure_sequence_completed_vent_latch_clear_after_full_seal(
+        self,
+        point: CalibrationPoint,
+        *,
+        phase: str,
+        reason: str = "",
+    ) -> Dict[str, Any]:
+        phase_text = str(phase or "").strip().lower()
+        pace = self.devices.get("pace")
+        snapshot = self._pace_diagnostic_state_snapshot(pace, refresh=True, refresh_aux=False)
+        completed_latched = self._pace_vent_completed_latched_from_snapshot(snapshot)
+        snapshot["pace_vent_clear_attempted"] = False
+        snapshot["pace_vent_clear_result"] = "skipped_after_full_seal"
+        snapshot["pace_vent_completed_latched"] = completed_latched
+        self._update_pace_state_cache(snapshot)
+        self._set_point_runtime_fields(
+            point,
+            phase=phase_text,
+            **self._pace_snapshot_runtime_fields(snapshot),
+        )
+        legacy_vent3_trace = self._record_legacy_vent3_runtime_fields(
+            point,
+            phase=phase_text,
+            pace=pace,
+            vent_status=snapshot.get("pace_vent_status_query"),
+            accept_scope="none",
+            control_ready_used=False,
+            block_scope="vent_clear_skipped_after_full_seal",
+            hard_blocked=False,
+            watchlist_only=True,
+            control_ready_attempted=False,
+            control_ready_prevented=False,
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase_text,
+            point_phase=phase_text,
+            trace_stage="pace_vent_clear_latch_skipped_after_full_seal",
+            pressure_target_hpa=getattr(point, "target_pressure_hpa", None),
+            pace_outp_state_query=snapshot.get("pace_outp_state_query"),
+            pace_isol_state_query=snapshot.get("pace_isol_state_query"),
+            pace_mode_query=snapshot.get("pace_mode_query"),
+            pace_vent_status_query=snapshot.get("pace_vent_status_query"),
+            pace_vent_completed_latched=completed_latched,
+            pace_vent_clear_attempted=False,
+            pace_vent_clear_result="skipped_after_full_seal",
+            **legacy_vent3_trace,
+            pace_vent_after_valve_state_query=snapshot.get("pace_vent_after_valve_state_query"),
+            pace_vent_popup_state_query=snapshot.get("pace_vent_popup_state_query"),
+            pace_vent_elapsed_time_query=snapshot.get("pace_vent_elapsed_time_query"),
+            pace_vent_orpv_state_query=snapshot.get("pace_vent_orpv_state_query"),
+            pace_vent_pupv_state_query=snapshot.get("pace_vent_pupv_state_query"),
+            pace_effort_query=snapshot.get("pace_effort_query"),
+            pace_comp1_query=snapshot.get("pace_comp1_query"),
+            pace_comp2_query=snapshot.get("pace_comp2_query"),
+            pace_sens_pres_cont_query=snapshot.get("pace_sens_pres_cont_query"),
+            pace_sens_pres_bar_query=snapshot.get("pace_sens_pres_bar_query"),
+            pace_sens_pres_inl_query=snapshot.get("pace_sens_pres_inl_query"),
+            pace_sens_pres_inl_state_query=snapshot.get("pace_sens_pres_inl_state_query"),
+            pace_sens_pres_inl_time_query=snapshot.get("pace_sens_pres_inl_time_query"),
+            pace_oper_cond_query=snapshot.get("pace_oper_cond_query"),
+            pace_oper_pres_cond_query=snapshot.get("pace_oper_pres_cond_query"),
+            pace_oper_pres_even_query=snapshot.get("pace_oper_pres_even_query"),
+            pace_oper_pres_vent_complete_bit=snapshot.get("pace_oper_pres_vent_complete_bit"),
+            pace_oper_pres_in_limits_bit=snapshot.get("pace_oper_pres_in_limits_bit"),
+            refresh_pace_state=False,
+            note=(
+                "full seal already verified; no post-seal VENT 0 latch clear attempted; "
+                f"reason={reason}"
+            ),
+        )
+        return {
+            "before": snapshot,
+            "after": snapshot,
+            "status": "skipped",
+            "reason": "skipped_after_full_seal",
+            "manual_intervention_required": False,
         }
 
     def _sampling_fixed_rate_enabled(self) -> bool:
@@ -15409,11 +15636,31 @@ class CalibrationRunner:
             )
             self.log(f"Pressure control aborted before setpoint: {unit_reason}")
             return False
-        vent_clear_summary = self._clear_pressure_sequence_completed_vent_latch_if_present(
+        seal_state_at_entry = self._seal_transition_state(point, phase=phase)
+        full_seal_at_entry = self._recorded_full_seal_transition_completed(
             point,
             phase=phase,
-            reason="before pressure control ready-for-control check",
+            current_state=seal_state_at_entry,
         )
+        if full_seal_at_entry:
+            vent_clear_summary = self._skip_pressure_sequence_completed_vent_latch_clear_after_full_seal(
+                point,
+                phase=phase,
+                reason="before pressure control ready-for-control check",
+            )
+            if not self._verify_full_seal_before_pressure_control(
+                point,
+                phase=phase,
+                pressure_target_hpa=target,
+                reason="before_pressure_control_ready_check",
+            ):
+                return False
+        else:
+            vent_clear_summary = self._clear_pressure_sequence_completed_vent_latch_if_present(
+                point,
+                phase=phase,
+                reason="before pressure control ready-for-control check",
+            )
         if str(vent_clear_summary.get("status") or "").strip().lower() == "blocked":
             self.log(
                 "Pressure control aborted before ready-for-control check: "
@@ -15468,7 +15715,15 @@ class CalibrationRunner:
                 point,
                 phase=phase,
                 pressure_target_hpa=target,
+                attempt_recovery=not bool(self._seal_transition_state(point, phase=phase).get("seal_transition_completed")),
                 note="prepared target path",
+            ):
+                return False
+            if not self._verify_full_seal_before_pressure_control(
+                point,
+                phase=phase,
+                pressure_target_hpa=target,
+                reason="prepared_target_path",
             ):
                 return False
             self._activate_sealed_no_vent_guard(
@@ -15518,6 +15773,11 @@ class CalibrationRunner:
         else:
             ready_for_control = False
             reused_preseal_ready = False
+            vent_off_skipped_after_full_seal = False
+            full_seal_recorded_for_control = self._recorded_full_seal_transition_completed(
+                point,
+                phase=phase,
+            )
             if not preseal_ready_state and preseal_reuse_reject_reason:
                 self._append_pressure_trace_row(
                     point=point,
@@ -15559,6 +15819,9 @@ class CalibrationRunner:
                         point,
                         phase=phase,
                         pressure_target_hpa=target,
+                        attempt_recovery=not bool(
+                            self._seal_transition_state(point, phase=phase).get("seal_transition_completed")
+                        ),
                         note="reused preseal vent-off state; deferred live ready check before setpoint",
                     )
                     if not ready_for_control:
@@ -15581,117 +15844,161 @@ class CalibrationRunner:
                     )
 
             if preseal_ready_state and not ready_for_control:
-                self._append_pressure_trace_row(
-                    point=point,
-                    route=phase,
-                    point_phase=phase,
-                    trace_stage="control_vent_off_begin",
-                    pressure_target_hpa=target,
-                    refresh_pace_state=False,
-                    note="before conservative vent off recovery for control",
-                )
-                try:
-                    vent_off_ok = self._set_pressure_controller_vent(
-                        False,
-                        reason="before setpoint control",
+                if full_seal_recorded_for_control:
+                    vent_off_skipped_after_full_seal = True
+                    self._append_pressure_trace_row(
                         point=point,
+                        route=phase,
+                        point_phase=phase,
+                        trace_stage="control_vent_off_skipped_after_full_seal",
+                        pressure_target_hpa=target,
+                        refresh_pace_state=False,
+                        note="full seal already verified; no conservative VENT 0 recovery before setpoint",
+                    )
+                    ready_for_control = self._ensure_pressure_controller_ready_for_control(
+                        point,
                         phase=phase,
-                        helper_name="_set_pressure_to_target",
-                        vent_phase_label="PreHoldBoundary",
-                        before_seal_transition_start=False,
-                        before_pressure_hold_start=True,
-                        before_sour_pres_command=True,
-                        before_outp_stat_1_command=True,
-                        vent_command_reason="exit_atmosphere_abort_vent",
+                        pressure_target_hpa=target,
+                        attempt_recovery=False,
+                        note="full seal already verified; ready check without vent recovery",
                     )
-                except Exception as exc:
+                    if not ready_for_control:
+                        return False
+                else:
                     self._append_pressure_trace_row(
                         point=point,
                         route=phase,
                         point_phase=phase,
-                        trace_stage="control_vent_off_failed",
+                        trace_stage="control_vent_off_begin",
                         pressure_target_hpa=target,
-                        read_pace_pressure=True,
-                        read_pressure_gauge=True,
-                        note=str(exc),
+                        refresh_pace_state=False,
+                        note="before conservative vent off recovery for control",
                     )
-                    return False
-                if vent_off_ok is False:
-                    self._append_pressure_trace_row(
-                        point=point,
-                        route=phase,
-                        point_phase=phase,
-                        trace_stage="control_vent_off_failed",
+                    try:
+                        vent_off_ok = self._set_pressure_controller_vent(
+                            False,
+                            reason="before setpoint control",
+                            point=point,
+                            phase=phase,
+                            helper_name="_set_pressure_to_target",
+                            vent_phase_label="PreHoldBoundary",
+                            before_seal_transition_start=False,
+                            before_pressure_hold_start=True,
+                            before_sour_pres_command=True,
+                            before_outp_stat_1_command=True,
+                            vent_command_reason="exit_atmosphere_abort_vent",
+                        )
+                    except Exception as exc:
+                        self._append_pressure_trace_row(
+                            point=point,
+                            route=phase,
+                            point_phase=phase,
+                            trace_stage="control_vent_off_failed",
+                            pressure_target_hpa=target,
+                            read_pace_pressure=True,
+                            read_pressure_gauge=True,
+                            note=str(exc),
+                        )
+                        return False
+                    if vent_off_ok is False:
+                        self._append_pressure_trace_row(
+                            point=point,
+                            route=phase,
+                            point_phase=phase,
+                            trace_stage="control_vent_off_failed",
+                            pressure_target_hpa=target,
+                            read_pace_pressure=True,
+                            read_pressure_gauge=True,
+                            note="vent off command returned False before setpoint control",
+                        )
+                        return False
+                    ready_for_control = self._ensure_pressure_controller_ready_for_control(
+                        point,
+                        phase=phase,
                         pressure_target_hpa=target,
-                        read_pace_pressure=True,
-                        read_pressure_gauge=True,
-                        note="vent off command returned False before setpoint control",
+                        attempt_recovery=False,
+                        note="after vent off before setpoint",
                     )
-                    return False
-                ready_for_control = self._ensure_pressure_controller_ready_for_control(
-                    point,
-                    phase=phase,
-                    pressure_target_hpa=target,
-                    attempt_recovery=False,
-                    note="after vent off before setpoint",
-                )
-                if not ready_for_control:
-                    return False
+                    if not ready_for_control:
+                        return False
             elif not preseal_ready_state:
-                self._append_pressure_trace_row(
-                    point=point,
-                    route=phase,
-                    point_phase=phase,
-                    trace_stage="control_vent_off_begin",
-                    pressure_target_hpa=target,
-                    refresh_pace_state=False,
-                    note="before vent off command for control",
-                )
-                try:
-                    vent_off_ok = self._set_pressure_controller_vent(
-                        False,
-                        reason="before setpoint control",
+                if full_seal_recorded_for_control:
+                    vent_off_skipped_after_full_seal = True
+                    self._append_pressure_trace_row(
                         point=point,
+                        route=phase,
+                        point_phase=phase,
+                        trace_stage="control_vent_off_skipped_after_full_seal",
+                        pressure_target_hpa=target,
+                        refresh_pace_state=False,
+                        note=(
+                            "preseal ready snapshot unavailable/rejected after full seal; "
+                            "ready check proceeds without VENT 0 recovery"
+                        ),
+                    )
+                    if not self._ensure_pressure_controller_ready_for_control(
+                        point,
                         phase=phase,
-                        helper_name="_set_pressure_to_target",
-                        vent_phase_label="PreHoldBoundary",
-                        before_seal_transition_start=False,
-                        before_pressure_hold_start=True,
-                        before_sour_pres_command=True,
-                        before_outp_stat_1_command=True,
-                        vent_command_reason="exit_atmosphere_abort_vent",
-                    )
-                except Exception as exc:
+                        pressure_target_hpa=target,
+                        attempt_recovery=False,
+                        note="full seal already verified; ready check without vent recovery",
+                    ):
+                        return False
+                else:
                     self._append_pressure_trace_row(
                         point=point,
                         route=phase,
                         point_phase=phase,
-                        trace_stage="control_vent_off_failed",
+                        trace_stage="control_vent_off_begin",
                         pressure_target_hpa=target,
-                        read_pace_pressure=True,
-                        read_pressure_gauge=True,
-                        note=str(exc),
+                        refresh_pace_state=False,
+                        note="before vent off command for control",
                     )
-                    return False
-                if vent_off_ok is False:
-                    self._append_pressure_trace_row(
-                        point=point,
-                        route=phase,
-                        point_phase=phase,
-                        trace_stage="control_vent_off_failed",
+                    try:
+                        vent_off_ok = self._set_pressure_controller_vent(
+                            False,
+                            reason="before setpoint control",
+                            point=point,
+                            phase=phase,
+                            helper_name="_set_pressure_to_target",
+                            vent_phase_label="PreHoldBoundary",
+                            before_seal_transition_start=False,
+                            before_pressure_hold_start=True,
+                            before_sour_pres_command=True,
+                            before_outp_stat_1_command=True,
+                            vent_command_reason="exit_atmosphere_abort_vent",
+                        )
+                    except Exception as exc:
+                        self._append_pressure_trace_row(
+                            point=point,
+                            route=phase,
+                            point_phase=phase,
+                            trace_stage="control_vent_off_failed",
+                            pressure_target_hpa=target,
+                            read_pace_pressure=True,
+                            read_pressure_gauge=True,
+                            note=str(exc),
+                        )
+                        return False
+                    if vent_off_ok is False:
+                        self._append_pressure_trace_row(
+                            point=point,
+                            route=phase,
+                            point_phase=phase,
+                            trace_stage="control_vent_off_failed",
+                            pressure_target_hpa=target,
+                            read_pace_pressure=True,
+                            read_pressure_gauge=True,
+                            note="vent off command returned False before setpoint control",
+                        )
+                        return False
+                    if not self._ensure_pressure_controller_ready_for_control(
+                        point,
+                        phase=phase,
                         pressure_target_hpa=target,
-                        read_pace_pressure=True,
-                        read_pressure_gauge=True,
-                        note="vent off command returned False before setpoint control",
-                    )
-                    return False
-                if not self._ensure_pressure_controller_ready_for_control(
-                    point,
-                    phase=phase,
-                    pressure_target_hpa=target,
-                    note="after vent off before setpoint",
-                ):
-                    return False
+                        note="after vent off before setpoint",
+                    ):
+                        return False
 
             self._append_pressure_trace_row(
                 point=point,
@@ -15703,6 +16010,8 @@ class CalibrationRunner:
                 note=(
                     "reused preseal vent-off state; controller ready before setpoint"
                     if reused_preseal_ready
+                    else "full seal already verified; controller ready without post-seal vent command"
+                    if vent_off_skipped_after_full_seal
                     else "vent off command completed; controller ready before setpoint"
                 ),
             )
@@ -15711,6 +16020,13 @@ class CalibrationRunner:
                 point,
                 phase=phase,
             )
+            if not self._verify_full_seal_before_pressure_control(
+                point,
+                phase=phase,
+                pressure_target_hpa=target,
+                reason="set_pressure_to_target",
+            ):
+                return False
             self._activate_sealed_no_vent_guard(
                 point=point,
                 phase=phase,
@@ -15756,6 +16072,15 @@ class CalibrationRunner:
             ):
                 return False
 
+        final_seal_state = self._seal_transition_state(point, phase=phase)
+        if bool(final_seal_state.get("seal_transition_completed")):
+            self._set_point_runtime_fields(
+                point,
+                phase=phase,
+                pace_control_started_after_full_seal=True,
+                **final_seal_state,
+            )
+
         self._clear_preseal_pressure_control_ready_state(
             reason="control_sequence_completed",
             point=point,
@@ -15774,6 +16099,20 @@ class CalibrationRunner:
         last_pressure_now: Optional[float] = None
         closest_pressure_now: Optional[float] = None
         closest_error_hpa: Optional[float] = None
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            trace_stage="pressure_in_limits_wait_started",
+            pressure_target_hpa=target,
+            read_pace_pressure=True,
+            read_pressure_gauge=True,
+            refresh_pace_state=False,
+            note=(
+                "pressure in-limits wait started after sealed_control_entry_verified; "
+                f"timeout_s={timeout_s:g}"
+            ),
+        )
         while time.time() - start < timeout_s:
             if self.stop_event.is_set():
                 return False
@@ -15807,6 +16146,12 @@ class CalibrationRunner:
                 note=f"pace_in_limits={inl}",
             )
             if inl == 1:
+                self._set_point_runtime_fields(
+                    point,
+                    phase=phase,
+                    pressure_in_limits_timeout_phase="",
+                    pressure_in_limits_timeout_reason_detail="",
+                )
                 runtime_state = dict(self._point_runtime_state(point, phase=phase) or {})
                 if str(runtime_state.get("handoff_mode") or "").strip() == "same_gas_superambient_precharge_handoff":
                     fine_trim_end_ts = time.time()
@@ -15891,6 +16236,39 @@ class CalibrationRunner:
                 next_retry_at = now + retry_interval_s
             time.sleep(trace_poll_s)
         self.log(f"Pressure stabilize timeout at target {target} hPa")
+        seal_state = self._seal_transition_state(point, phase=phase)
+        timeout_phase = "sealed_control" if bool(seal_state.get("seal_transition_completed")) else "seal_not_complete"
+        timeout_detail = (
+            "seal_verified_but_pace_not_in_limits; "
+            f"last_pressure_hpa={last_pressure_now if last_pressure_now is not None else 'unavailable'}; "
+            f"closest_pressure_hpa={closest_pressure_now if closest_pressure_now is not None else 'unavailable'}; "
+            f"closest_error_hpa={closest_error_hpa if closest_error_hpa is not None else 'unavailable'}; "
+            f"seal_transition_completed={bool(seal_state.get('seal_transition_completed'))}; "
+            f"missing_closed_valves={seal_state.get('seal_missing_closed_valves') or []}; "
+            f"total_route_valve_closed={bool(seal_state.get('seal_total_route_valve_closed'))}"
+        )
+        self._set_point_runtime_fields(
+            point,
+            phase=phase,
+            abort_reason="PressureInLimitsTimeout",
+            pressure_in_limits_timeout_phase=timeout_phase,
+            pressure_in_limits_timeout_reason_detail=timeout_detail,
+            pace_control_started_after_full_seal=bool(seal_state.get("seal_transition_completed")),
+            **seal_state,
+        )
+        self._append_pressure_trace_row(
+            point=point,
+            route=phase,
+            point_phase=phase,
+            trace_stage="pressure_in_limits_wait_timeout",
+            trigger_reason="PressureInLimitsTimeout",
+            pressure_target_hpa=target,
+            pace_pressure_hpa=last_pressure_now,
+            read_pressure_gauge=True,
+            read_dewpoint=True,
+            refresh_pace_state=False,
+            note=timeout_detail,
+        )
         snap = self._pressure_snapshot()
         if snap:
             self.log(
@@ -16124,6 +16502,7 @@ class CalibrationRunner:
                 "route_sealed": True,
                 "atmosphere_hold_stopped": not bool(snapshot.get("hold_thread_active")),
                 "ready_verification_pending": bool(defer_live_check),
+                **self._seal_transition_state(point, phase=phase),
             }
         )
         snapshot["failures"] = [] if defer_live_check else self._pressure_controller_ready_failures(snapshot, pace)
@@ -16173,6 +16552,14 @@ class CalibrationRunner:
             return None, "snapshot_not_route_sealed"
         if state.get("atmosphere_hold_stopped") is not True:
             return None, "atmosphere_hold_not_stopped"
+        if state.get("seal_all_solenoids_closed") is not True:
+            return None, "seal_all_solenoids_not_closed"
+        if state.get("seal_total_route_valve_closed") is not True:
+            return None, "seal_total_route_valve_not_closed"
+        if state.get("seal_transition_completed") is not True:
+            return None, "seal_transition_not_completed"
+        if state.get("keepalive_stopped_before_seal") is not True:
+            return None, "keepalive_not_stopped_before_seal"
         return state, ""
 
     def _pressure_controller_ready_snapshot_requires_aux_refresh(self) -> bool:
@@ -16285,6 +16672,16 @@ class CalibrationRunner:
         pace = self.devices.get("pace")
         if not pace:
             return True
+
+        guard_state = self._sealed_no_vent_guard_snapshot()
+        guard_phase = str(guard_state.get("phase") or "").strip()
+        if bool(guard_state.get("active")) and guard_phase in {
+            "PressureSetpointHold",
+            "PressurePointSwitch",
+            "SamplingUnderPressure",
+            "SealTransition",
+        }:
+            attempt_recovery = False
 
         snapshot = self._pressure_controller_ready_snapshot(pace)
         failures = self._pressure_controller_ready_failures(snapshot, pace)
@@ -16438,6 +16835,7 @@ class CalibrationRunner:
                 return True
 
         failure_text = ", ".join(failures) if failures else "unknown"
+        seal_state = self._seal_transition_state(point, phase=phase)
         pace_pressure_now: Optional[float] = None
         pressure_gauge_now: Optional[float] = None
         try:
@@ -16450,6 +16848,21 @@ class CalibrationRunner:
                 pressure_gauge_now = self._as_float(gauge.read_pressure())
             except Exception:
                 pressure_gauge_now = None
+        self._set_point_runtime_fields(
+            point,
+            phase=phase,
+            abort_reason="PressureControllerNotReadyForControl",
+            pressure_in_limits_timeout_phase="",
+            pressure_in_limits_timeout_reason_detail=(
+                f"control_ready_failed; failures={failure_text}; "
+                f"seal_transition_completed={bool(seal_state.get('seal_transition_completed'))}; "
+                f"missing_closed_valves={seal_state.get('seal_missing_closed_valves') or []}; "
+                f"total_route_valve_closed={bool(seal_state.get('seal_total_route_valve_closed'))}; "
+                f"post_seal_recovery_attempted={bool(attempt_recovery)}"
+            ),
+            pace_control_started_after_full_seal=False,
+            **seal_state,
+        )
         self._append_pressure_trace_row(
             point=point,
             route=phase,
@@ -25781,6 +26194,13 @@ class CalibrationRunner:
                 nonlocal route_sealed
                 if route_sealed:
                     return
+                self._record_seal_transition_state(
+                    point,
+                    phase=phase,
+                    trace_stage="seal_transition_started",
+                    reason=f"before {route.upper()} valve seal",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                )
                 if route_name == "h2o":
                     self._set_h2o_path(False, point)
                 else:
@@ -25788,6 +26208,36 @@ class CalibrationRunner:
                     # and current source valve so the downstream volume is actually sealed
                     # before pressure control starts.
                     self._apply_valve_states([])
+                seal_state = self._record_seal_transition_state(
+                    point,
+                    phase=phase,
+                    trace_stage="seal_total_route_valve_closed",
+                    reason=f"after {route.upper()} total route valve close",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                )
+                seal_state = self._record_seal_transition_state(
+                    point,
+                    phase=phase,
+                    trace_stage="seal_all_required_solenoids_closed",
+                    reason=f"after {route.upper()} all required solenoid close",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                )
+                if not bool(seal_state.get("seal_transition_completed")):
+                    self._record_seal_transition_state(
+                        point,
+                        phase=phase,
+                        trace_stage="seal_transition_blocked",
+                        reason="SealTransitionIncomplete",
+                        pressure_target_hpa=point.target_pressure_hpa,
+                    )
+                    raise RuntimeError("SealTransitionIncomplete")
+                self._record_seal_transition_state(
+                    point,
+                    phase=phase,
+                    trace_stage="seal_transition_completed",
+                    reason=f"{route.upper()} full seal verified",
+                    pressure_target_hpa=point.target_pressure_hpa,
+                )
                 route_sealed = True
 
             self._emit_stage_event(
@@ -26351,6 +26801,13 @@ class CalibrationRunner:
                         else f"preseal_ready_failures={','.join(ready_failures)}"
                     )
                 ),
+            )
+            self._record_seal_transition_state(
+                point,
+                phase=phase,
+                trace_stage="sealed_control_entry_verified",
+                reason="route sealed before pressure control",
+                pressure_target_hpa=point.target_pressure_hpa,
             )
             self._remember_last_sealed_pressure_route_context(
                 point,

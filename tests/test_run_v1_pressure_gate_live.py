@@ -367,6 +367,96 @@ class _FakeRunner:
         return payload
 
 
+class _FakeSealedRunner(_FakeRunner):
+    def __init__(self) -> None:
+        super().__init__()
+        self._seal_state: dict[str, object] = {
+            "seal_all_solenoids_closed": False,
+            "seal_total_route_valve_closed": False,
+            "seal_required_valves_closed_list": [4, 7, 8, 11],
+            "seal_missing_closed_valves": [4, 7, 8, 11],
+            "seal_transition_completed": False,
+            "keepalive_stopped_before_seal": False,
+            "pace_control_started_after_full_seal": False,
+            "pressure_in_limits_timeout_phase": "",
+            "pressure_in_limits_timeout_reason_detail": "",
+        }
+
+    def _pressurize_route_for_sealed_points(self, point, *, route: str, sealed_control_refs=None):
+        self.calls.append(("pressurize_route", float(getattr(point, "target_pressure_hpa", 0.0) or 0.0)))
+        self._current_open_valves = ()
+        self._seal_state.update(
+            {
+                "seal_all_solenoids_closed": True,
+                "seal_total_route_valve_closed": True,
+                "seal_required_valves_closed_list": [4, 7, 8, 11],
+                "seal_missing_closed_valves": [],
+                "seal_transition_completed": True,
+                "keepalive_stopped_before_seal": True,
+            }
+        )
+        for stage in (
+            "seal_transition_started",
+            "seal_total_route_valve_closed",
+            "seal_all_required_solenoids_closed",
+            "seal_transition_completed",
+            "route_sealed",
+        ):
+            self._append_pressure_trace_row(
+                point=point,
+                route=route,
+                point_phase=route,
+                trace_stage=stage,
+                pressure_target_hpa=getattr(point, "target_pressure_hpa", None),
+                note=json.dumps(dict(self._seal_state), ensure_ascii=False, sort_keys=True),
+            )
+        return True
+
+    def _set_pressure_to_target(self, point):
+        target = float(getattr(point, "target_pressure_hpa", 0.0) or 0.0)
+        self.calls.append(("control_ready", target))
+        self._seal_state["pace_control_started_after_full_seal"] = True
+        self._append_pressure_trace_row(
+            point=point,
+            route="co2",
+            point_phase="co2",
+            trace_stage="sealed_control_entry_verified",
+            pressure_target_hpa=target,
+            note=json.dumps(dict(self._seal_state), ensure_ascii=False, sort_keys=True),
+        )
+        pace = self.devices.get("pace")
+        pace.set_setpoint(target)
+        self.calls.append(("output_on", "sealed path"))
+        result = pace.wait_for_pressure_ready(
+            target_hpa=target,
+            timeout_s=10.0,
+            poll_s=0.25,
+            consecutive_in_limits_required=1,
+            ready_dwell_s=0.0,
+            require_output_enabled=True,
+        )
+        if not bool(result.get("ok")):
+            self._seal_state["pressure_in_limits_timeout_phase"] = "sealed_control"
+            self._seal_state["pressure_in_limits_timeout_reason_detail"] = "seal_verified_but_pace_not_in_limits"
+        self._last_pressure_result = dict(result)
+        return bool(result.get("ok"))
+
+    def _point_runtime_state(self, point, *, phase: str):
+        state = dict(super()._point_runtime_state(point, phase=phase))
+        state.update(dict(self._seal_state))
+        result = dict(getattr(self, "_last_pressure_result", {}) or {})
+        if result:
+            state.update(
+                {
+                    "abort_reason": "" if result.get("ok") else result.get("reason", ""),
+                    "last_pressure_hpa": result.get("last_pressure_hpa"),
+                    "last_in_limit_flag": result.get("last_in_limit_flag"),
+                    "pace_output_state": result.get("output_state"),
+                }
+            )
+        return state
+
+
 def _args(**overrides):
     base = {
         "target_pressure_hpa": 1000.0,
@@ -435,6 +525,8 @@ def test_prepare_runtime_cfg_injects_continuous_atmosphere_keepalive_overrides(t
             "1.2",
             "--post-source-final-vent-burst-interval-s",
             "0.25",
+            "--pressure-in-limits-timeout-s",
+            "8.5",
         ]
     )
 
@@ -453,6 +545,7 @@ def test_prepare_runtime_cfg_injects_continuous_atmosphere_keepalive_overrides(t
     assert pressure_cfg["pre_source_final_vent_burst_interval_s"] == 0.15
     assert pressure_cfg["post_source_final_vent_burst_window_s"] == 1.2
     assert pressure_cfg["post_source_final_vent_burst_interval_s"] == 0.25
+    assert pressure_cfg["stabilize_timeout_s"] == 8.5
 
 
 def test_prepare_runtime_cfg_can_disable_background_keepalive_for_comparison(tmp_path: Path) -> None:
@@ -988,7 +1081,7 @@ def test_pressure_switch_summary_and_trace_mark_sustained_atmosphere_not_proven(
 
 
 def test_1100_preseal_buildup_after_flush_exit_is_not_flush_pressure_failure(tmp_path: Path) -> None:
-    runner = _FakeRunner()
+    runner = _FakeSealedRunner()
     fake_pace = _FakePacePressureReady(
         results=[
             {
@@ -1052,7 +1145,7 @@ def test_1100_preseal_buildup_after_flush_exit_is_not_flush_pressure_failure(tmp
 
 
 def test_sealed_multi_point_switching_marks_vent_forbidden_boundary(tmp_path: Path) -> None:
-    runner = _FakeRunner()
+    runner = _FakeSealedRunner()
     fake_pace = _FakePacePressureReady(
         results=[
             {"ok": True, "reason": "", "target_hpa": 1000.0, "setpoint_hpa": 1000.0, "output_state": 1, "last_pressure_hpa": 1000.0, "last_in_limit_flag": 1, "poll_count": 1},

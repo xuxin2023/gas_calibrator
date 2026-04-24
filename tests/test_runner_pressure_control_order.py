@@ -110,6 +110,23 @@ class _FakePace:
         return False
 
 
+class _FakePaceCompletedVentLatch(_FakePace):
+    def __init__(self):
+        super().__init__()
+        self.vent_status = 2
+
+    def clear_completed_vent_latch_if_present(self, **kwargs):
+        self.calls.append(("clear_latch", dict(kwargs)))
+        self.vent_status = 0
+        return {
+            "clear_attempted": True,
+            "blocked": False,
+            "cleared": True,
+            "before_status": 2,
+            "after_status": 0,
+        }
+
+
 class _FakePaceFallback:
     def __init__(self):
         self.calls = []
@@ -571,6 +588,22 @@ class _FakeGaugeSequence:
         if self._reads:
             self._last = float(self._reads.pop(0))
         return float(self._last)
+
+
+class _FakeRelay:
+    def __init__(self):
+        self.calls = []
+        self.states = {}
+
+    def set_valve(self, channel, state):
+        self.calls.append(("set_valve", int(channel), bool(state)))
+        self.states[int(channel)] = bool(state)
+
+    def set_valves_bulk(self, updates):
+        values = [(int(channel), bool(state)) for channel, state in list(updates or [])]
+        self.calls.append(("set_valves_bulk", tuple(values)))
+        for channel, state in values:
+            self.states[int(channel)] = bool(state)
 
 
 def _load_pressure_trace_rows(logger: RunLogger):
@@ -1448,6 +1481,161 @@ def test_route_open_guard_uses_quick_refresh_while_background_keepalive_active(t
     assert any(row["trace_stage"] == "continuous_atmosphere_vent1_refresh" for row in trace_rows)
     assert not any(row["trace_stage"] == "route_open_fresh_vent_begin" for row in trace_rows)
     assert ("vent", False) not in pace.calls
+
+
+def test_sealed_control_blocks_when_any_required_solenoid_remains_open(tmp_path: Path) -> None:
+    cfg = _route_open_guard_cfg()
+    cfg["workflow"]["pressure"]["soft_recover_on_pressure_timeout"] = False
+    logger = RunLogger(tmp_path)
+    pace = _FakePace()
+    runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+    runner._current_open_valves = (4, 7, 8, 11)
+    point = _co2_test_point(ppm=600.0)
+    point.target_pressure_hpa = 1100.0
+
+    assert runner._set_pressure_to_target(point) is False
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["abort_reason"] == "SealTransitionIncomplete"
+    assert state["seal_all_solenoids_closed"] is False
+    assert state["seal_total_route_valve_closed"] is False
+    assert state["seal_transition_completed"] is False
+    assert set(state["seal_missing_closed_valves"]) >= {4, 7, 8, 11}
+    assert ("setpoint", 1100.0) not in pace.calls
+    assert ("output_on",) not in pace.calls
+    trace_rows = _load_pressure_trace_rows(logger)
+    assert any(row["trace_stage"] == "sealed_control_entry_blocked" for row in trace_rows)
+
+
+def test_sealed_control_blocks_when_total_route_valve_remains_open(tmp_path: Path) -> None:
+    cfg = _route_open_guard_cfg()
+    logger = RunLogger(tmp_path)
+    pace = _FakePace()
+    runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+    runner._current_open_valves = (8,)
+    point = _co2_test_point(ppm=600.0)
+    point.target_pressure_hpa = 1100.0
+
+    assert runner._set_pressure_to_target(point) is False
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["seal_all_solenoids_closed"] is False
+    assert state["seal_total_route_valve_closed"] is False
+    assert state["seal_transition_completed"] is False
+    assert state["seal_missing_closed_valves"] == [8]
+    assert ("setpoint", 1100.0) not in pace.calls
+
+
+def test_pressurize_and_hold_records_total_route_valve_and_full_solenoid_seal(tmp_path: Path) -> None:
+    cfg = _route_open_guard_cfg()
+    pressure_cfg = cfg["workflow"]["pressure"]
+    pressure_cfg["co2_no_topoff_vent_off_open_wait_s"] = 0.0
+    pressure_cfg["pressurize_wait_after_vent_off_s"] = 0.0
+    logger = RunLogger(tmp_path)
+    pace = _FakePace()
+    relay = _FakeRelay()
+    relay8 = _FakeRelay()
+    runner = CalibrationRunner(
+        cfg,
+        {"pace": pace, "relay": relay, "relay_8": relay8},
+        logger,
+        lambda *_: None,
+        lambda *_: None,
+    )
+    runner._active_route_requires_preseal_topoff = False
+    runner._current_open_valves = (4, 7, 8, 11)
+    point = _co2_test_point(ppm=600.0)
+    point.target_pressure_hpa = 1000.0
+
+    assert runner._pressurize_and_hold(point, route="co2") is True
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert runner._current_open_valves == ()
+    assert state["seal_all_solenoids_closed"] is True
+    assert state["seal_total_route_valve_closed"] is True
+    assert state["seal_transition_completed"] is True
+    assert state["keepalive_stopped_before_seal"] is True
+    assert set(state["seal_required_valves_closed_list"]) >= {4, 7, 8, 11}
+    trace_rows = _load_pressure_trace_rows(logger)
+    stages = [row["trace_stage"] for row in trace_rows]
+    assert "seal_transition_started" in stages
+    assert "seal_total_route_valve_closed" in stages
+    assert "seal_all_required_solenoids_closed" in stages
+    assert "seal_transition_completed" in stages
+    assert stages.index("seal_transition_started") < stages.index("seal_transition_completed")
+
+
+def test_set_pressure_skips_vent_latch_clear_after_full_seal(tmp_path: Path) -> None:
+    cfg = _route_open_guard_cfg()
+    cfg["workflow"]["pressure"]["control_ready_wait_timeout_s"] = 0.0
+    logger = RunLogger(tmp_path)
+    pace = _FakePaceCompletedVentLatch()
+    runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+    runner._current_open_valves = ()
+    point = _co2_test_point(ppm=600.0)
+    point.target_pressure_hpa = 1100.0
+    runner._set_point_runtime_fields(
+        point,
+        phase="co2",
+        **runner._seal_transition_state(point, phase="co2"),
+    )
+    runner._record_preseal_pressure_control_ready_state(point, phase="co2", defer_live_check=True)
+    runner._preseal_pressure_control_ready_state["recorded_wall_ts"] = time.time() - 999.0
+    runner._activate_sealed_no_vent_guard(
+        point=point,
+        phase="co2",
+        guard_phase="SealTransition",
+        reason="unit full seal",
+    )
+
+    assert runner._set_pressure_to_target(point) is False
+    logger.close()
+
+    assert not any(call[0] == "clear_latch" for call in pace.calls)
+    assert ("vent", False) not in pace.calls
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["abort_reason"] == "PressureControllerNotReadyForControl"
+    assert state["seal_transition_completed"] is True
+    assert state["pace_control_started_after_full_seal"] is False
+    assert state["pace_vent_clear_result"] == "skipped_after_full_seal"
+    assert "control_ready_failed" in state["pressure_in_limits_timeout_reason_detail"]
+    trace_rows = _load_pressure_trace_rows(logger)
+    stages = [row["trace_stage"] for row in trace_rows]
+    assert "pace_vent_clear_latch_skipped_after_full_seal" in stages
+    assert "pressure_vent0_command" not in stages
+    assert "pressure_vent0_blocked" not in stages
+
+
+def test_pressure_in_limits_timeout_reports_seal_verified_control_failure(tmp_path: Path) -> None:
+    cfg = _route_open_guard_cfg()
+    pressure_cfg = cfg["workflow"]["pressure"]
+    pressure_cfg["stabilize_timeout_s"] = 0.05
+    pressure_cfg["transition_trace_poll_s"] = 0.01
+    pressure_cfg["restabilize_retries"] = 0
+    pressure_cfg["soft_recover_on_pressure_timeout"] = False
+    logger = RunLogger(tmp_path)
+    pace = _FakePace()
+    pace._in_limits_sequence = [(1200.0, 0)] * 20
+    runner = CalibrationRunner(cfg, {"pace": pace}, logger, lambda *_: None, lambda *_: None)
+    runner._current_open_valves = ()
+    point = _co2_test_point(ppm=600.0)
+    point.target_pressure_hpa = 1100.0
+
+    assert runner._set_pressure_to_target(point) is False
+    logger.close()
+
+    state = runner._point_runtime_state(point, phase="co2") or {}
+    assert state["seal_transition_completed"] is True
+    assert state["pace_control_started_after_full_seal"] is True
+    assert state["pressure_in_limits_timeout_phase"] == "sealed_control"
+    assert "seal_verified_but_pace_not_in_limits" in state["pressure_in_limits_timeout_reason_detail"]
+    trace_rows = _load_pressure_trace_rows(logger)
+    stages = [row["trace_stage"] for row in trace_rows]
+    assert "pressure_in_limits_wait_started" in stages
+    assert "pressure_in_limits_wait_timeout" in stages
 
 
 def test_continuous_atmosphere_keepalive_stops_when_sealed_guard_active(tmp_path: Path) -> None:

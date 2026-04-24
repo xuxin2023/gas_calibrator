@@ -1023,12 +1023,89 @@ def _co2_a_sustained_atmosphere_diagnostics(
         rows,
         {
             "sealed_control_started",
+            "sealed_control_entry_verified",
             "route_sealed",
             "control_output_on_begin",
             "control_output_on_command_sent",
             "control_output_on_verified",
         },
-    ) or bool(point_results)
+    )
+    seal_transition_completed = bool(
+        any(bool(item.get("seal_transition_completed")) for item in point_results)
+        or point_state.get("seal_transition_completed")
+        or route_open_state.get("seal_transition_completed")
+        or _trace_has_stage(rows, {"seal_transition_completed", "route_sealed"})
+    )
+    seal_all_solenoids_closed = bool(
+        any(bool(item.get("seal_all_solenoids_closed")) for item in point_results)
+        or point_state.get("seal_all_solenoids_closed")
+        or route_open_state.get("seal_all_solenoids_closed")
+    )
+    seal_total_route_valve_closed = bool(
+        any(bool(item.get("seal_total_route_valve_closed")) for item in point_results)
+        or point_state.get("seal_total_route_valve_closed")
+        or route_open_state.get("seal_total_route_valve_closed")
+    )
+    keepalive_stopped_before_seal = bool(
+        any(bool(item.get("keepalive_stopped_before_seal")) for item in point_results)
+        or point_state.get("keepalive_stopped_before_seal")
+        or route_open_state.get("keepalive_stopped_before_seal")
+        or (
+            _trace_stage_index(rows, {"continuous_atmosphere_background_keepalive_stop", "continuous_atmosphere_exit"})
+            is not None
+            and _trace_stage_index(rows, {"seal_transition_started", "route_sealed"}) is not None
+            and int(_trace_stage_index(rows, {"continuous_atmosphere_background_keepalive_stop", "continuous_atmosphere_exit"}) or 0)
+            < int(_trace_stage_index(rows, {"seal_transition_started", "route_sealed"}) or 0)
+        )
+    )
+    pace_control_started_after_full_seal = bool(
+        any(bool(item.get("pace_control_started_after_full_seal")) for item in point_results)
+        or point_state.get("pace_control_started_after_full_seal")
+        or route_open_state.get("pace_control_started_after_full_seal")
+        or (
+            seal_transition_completed
+            and _trace_has_stage(
+                rows,
+                {
+                    "control_output_on_begin",
+                    "control_output_on_command_sent",
+                    "control_output_on_verified",
+                    "pressure_in_limits_wait_started",
+                },
+            )
+        )
+    )
+
+    def _first_list_value(name: str) -> List[Any]:
+        for source in list(point_results) + [point_state, route_open_state]:
+            value = dict(source or {}).get(name)
+            if isinstance(value, list):
+                return list(value)
+            if isinstance(value, tuple):
+                return list(value)
+        return []
+
+    failed_timeout = next(
+        (
+            item
+            for item in point_results
+            if str(item.get("reason") or "") == "PressureInLimitsTimeout"
+            or str(item.get("pressure_in_limits_timeout_phase") or "")
+        ),
+        {},
+    )
+    pressure_in_limits_timeout_phase = str(
+        dict(failed_timeout or {}).get("pressure_in_limits_timeout_phase")
+        or point_state.get("pressure_in_limits_timeout_phase")
+        or route_open_state.get("pressure_in_limits_timeout_phase")
+        or ("sealed_control" if str(dict(failed_timeout or {}).get("reason") or "") == "PressureInLimitsTimeout" else "")
+    )
+    pressure_in_limits_timeout_reason_detail = str(
+        dict(failed_timeout or {}).get("pressure_in_limits_timeout_reason_detail")
+        or point_state.get("pressure_in_limits_timeout_reason_detail")
+        or route_open_state.get("pressure_in_limits_timeout_reason_detail")
+        or ""
+    )
     preseal_stage_index = _trace_stage_index(
         rows,
         {
@@ -1088,6 +1165,15 @@ def _co2_a_sustained_atmosphere_diagnostics(
         "preseal_buildup_threshold_reached": preseal_threshold_reached,
         "preseal_buildup_reason": PRESEAL_BUILDUP_REASON if requested_1100 else "",
         "flush_phase_completed_before_preseal_buildup": bool(preseal_started and flush_phase_completed),
+        "seal_all_solenoids_closed": seal_all_solenoids_closed,
+        "seal_total_route_valve_closed": seal_total_route_valve_closed,
+        "seal_required_valves_closed_list": _first_list_value("seal_required_valves_closed_list"),
+        "seal_missing_closed_valves": _first_list_value("seal_missing_closed_valves"),
+        "seal_transition_completed": seal_transition_completed,
+        "keepalive_stopped_before_seal": keepalive_stopped_before_seal,
+        "pace_control_started_after_full_seal": pace_control_started_after_full_seal,
+        "pressure_in_limits_timeout_phase": pressure_in_limits_timeout_phase,
+        "pressure_in_limits_timeout_reason_detail": pressure_in_limits_timeout_reason_detail,
         "sealed_control_started": sealed_control_started,
         "sealed_switching_started": sealed_switching_started,
         **vent_diagnostics,
@@ -1386,6 +1472,115 @@ def _co2_a_staged_pressure_ready_gate(
         return result
     result.update(dict(gate_result or {}))
     _record_co2_a_staged_pressure_ready_trace(runner, point, result)
+    return result
+
+
+def _co2_a_sealed_pressure_control_gate(
+    runner: CalibrationRunner,
+    point: CalibrationPoint,
+    runtime_cfg: Mapping[str, Any],
+    *,
+    sealed_control_refs: Iterable[CalibrationPoint],
+) -> Dict[str, Any]:
+    pressurize_route = getattr(runner, "_pressurize_route_for_sealed_points", None)
+    set_pressure = getattr(runner, "_set_pressure_to_target", None)
+    if not callable(pressurize_route) or not callable(set_pressure):
+        return _co2_a_staged_pressure_ready_gate(runner, point, runtime_cfg)
+
+    target_hpa = float(getattr(point, "target_pressure_hpa", 0.0) or 0.0)
+    result: Dict[str, Any] = {
+        "ok": False,
+        "reason": "",
+        "target_hpa": target_hpa,
+        "setpoint_hpa": target_hpa,
+        "output_state": None,
+        "last_pressure_hpa": None,
+        "last_in_limit_flag": None,
+        "poll_count": 0,
+    }
+    try:
+        seal_ok = bool(
+            pressurize_route(
+                point,
+                route="co2",
+                sealed_control_refs=list(sealed_control_refs or [point]),
+            )
+        )
+    except Exception as exc:
+        result["reason"] = f"SealTransitionFailed:{exc}"
+        return result
+    state_getter = getattr(runner, "_point_runtime_state", None)
+    point_state = dict(state_getter(point, phase="co2") or {}) if callable(state_getter) else {}
+    if not seal_ok:
+        result.update(
+            {
+                "reason": str(point_state.get("abort_reason") or "SealTransitionFailed"),
+                "seal_transition_completed": bool(point_state.get("seal_transition_completed")),
+                "seal_all_solenoids_closed": bool(point_state.get("seal_all_solenoids_closed")),
+                "seal_total_route_valve_closed": bool(point_state.get("seal_total_route_valve_closed")),
+                "seal_missing_closed_valves": list(point_state.get("seal_missing_closed_valves") or []),
+            }
+        )
+        return result
+
+    append_row = getattr(runner, "_append_pressure_trace_row", None)
+    if callable(append_row):
+        try:
+            append_row(
+                point=point,
+                route="co2",
+                point_phase="co2",
+                point_tag="live_co2_a_pressure_switch_smoke_no_temp_wait",
+                trace_stage="sealed_control_started",
+                trigger_reason="sealed_control_entry_verified",
+                pressure_target_hpa=target_hpa,
+                refresh_pace_state=False,
+                note=json.dumps(
+                    {
+                        "reason": "sealed_control_entry_verified",
+                        "post_seal_vent_command_allowed": False,
+                        "seal_transition_completed": True,
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                ),
+            )
+        except Exception:
+            pass
+
+    try:
+        control_ok = bool(set_pressure(point))
+    except Exception as exc:
+        result["reason"] = f"PressureControlFailed:{exc}"
+        return result
+    point_state = dict(state_getter(point, phase="co2") or {}) if callable(state_getter) else {}
+    reason = str(
+        point_state.get("abort_reason")
+        or point_state.get("pressure_in_limits_timeout_phase")
+        or ("PressureInLimitsTimeout" if not control_ok else "")
+    ).strip()
+    result.update(
+        {
+            "ok": bool(control_ok),
+            "reason": "" if control_ok else reason or "PressureControlFailed",
+            "output_state": point_state.get("pace_output_state"),
+            "last_pressure_hpa": point_state.get("last_pressure_hpa")
+            or point_state.get("pace_pressure_hpa")
+            or point_state.get("pressure_hpa"),
+            "last_in_limit_flag": point_state.get("last_in_limit_flag"),
+            "seal_transition_completed": bool(point_state.get("seal_transition_completed")),
+            "seal_all_solenoids_closed": bool(point_state.get("seal_all_solenoids_closed")),
+            "seal_total_route_valve_closed": bool(point_state.get("seal_total_route_valve_closed")),
+            "seal_required_valves_closed_list": list(point_state.get("seal_required_valves_closed_list") or []),
+            "seal_missing_closed_valves": list(point_state.get("seal_missing_closed_valves") or []),
+            "keepalive_stopped_before_seal": bool(point_state.get("keepalive_stopped_before_seal")),
+            "pace_control_started_after_full_seal": bool(point_state.get("pace_control_started_after_full_seal")),
+            "pressure_in_limits_timeout_phase": str(point_state.get("pressure_in_limits_timeout_phase") or ""),
+            "pressure_in_limits_timeout_reason_detail": str(
+                point_state.get("pressure_in_limits_timeout_reason_detail") or ""
+            ),
+        }
+    )
     return result
 
 
@@ -1732,6 +1927,7 @@ def _prepare_runtime_cfg(
     pressure_cfg["route_open_guard_dewpoint_line_tolerance_hpa"] = float(
         args.route_open_guard_dewpoint_line_tolerance_hpa
     )
+    pressure_cfg["stabilize_timeout_s"] = float(args.pressure_in_limits_timeout_s)
     keepalive_overrides = {
         "continuous_atmosphere_background_keepalive_enabled": not bool(
             getattr(args, "disable_continuous_atmosphere_background_keepalive", False)
@@ -2871,6 +3067,8 @@ def _run_co2_a_pressure_switch_smoke_no_temp_wait(
     route_open_state = dict(runner._point_runtime_state(point, phase="co2") or {})
     route_guard_summary = _route_guard_summary_payload(runner)
     route_trace_rows_before_diagnostics = _scenario_trace_rows(trace_path, trace_start)
+    if not route_trace_rows_before_diagnostics and isinstance(getattr(runner, "trace_rows", None), list):
+        route_trace_rows_before_diagnostics = [dict(row or {}) for row in getattr(runner, "trace_rows")]
     sustained_atmosphere_diagnostics = _co2_a_sustained_atmosphere_diagnostics(
         route_open_state=route_open_state,
         point_state=route_open_state,
@@ -2926,11 +3124,14 @@ def _run_co2_a_pressure_switch_smoke_no_temp_wait(
             except Exception as exc:
                 abort_reason = f"AmbientFlowthroughMaintainFailed:{exc}"
     sealed_control_trace_started = False
+    pressure_control_points = [
+        _build_co2_point(args, index=9018 + offset, co2_ppm=600.0, co2_group="A")
+        for offset, _target in enumerate(pressure_targets_hpa, start=1)
+    ]
+    for point_for_target, target_hpa in zip(pressure_control_points, pressure_targets_hpa):
+        point_for_target.target_pressure_hpa = float(target_hpa)
     if route_open_ok and not bool(execution_profile.get("ambient_flowthrough_only")) and not abort_reason:
-        for offset, target_hpa in enumerate(pressure_targets_hpa, start=1):
-            point_for_target = _build_co2_point(args, index=9018 + offset, co2_ppm=600.0, co2_group="A")
-            point_for_target.target_pressure_hpa = float(target_hpa)
-
+        for point_for_target, target_hpa in zip(pressure_control_points, pressure_targets_hpa):
             runner_calls_before = getattr(runner, "calls", None)
             runner_calls_index = len(runner_calls_before) if isinstance(runner_calls_before, list) else None
             pace_events_before = getattr(pace_obj, "events", None)
@@ -2961,20 +3162,6 @@ def _run_co2_a_pressure_switch_smoke_no_temp_wait(
                         "preseal_pressure_buildup_for_1100_allowed": True,
                     },
                 )
-            if not sealed_control_trace_started:
-                sealed_control_trace_started = True
-                _append_co2_a_pressure_phase_trace(
-                    runner,
-                    trace_path,
-                    point_for_target,
-                    stage="sealed_control_started",
-                    pressure_target_hpa=float(target_hpa),
-                    note_payload={
-                        "reason": "v1_existing_pressure_setpoint_hold_phase",
-                        "v1_existing_phase": "PressureSetpointHold",
-                        "post_seal_vent_command_allowed": False,
-                    },
-                )
             if bool(execution_profile.get("sealed_multi_point_switching")) and not _is_1100_pressure_target(target_hpa):
                 _append_co2_a_pressure_phase_trace(
                     runner,
@@ -2988,11 +3175,14 @@ def _run_co2_a_pressure_switch_smoke_no_temp_wait(
                         "sealed_switch_vent_forbidden": True,
                     },
                 )
-            gate_result = _co2_a_staged_pressure_ready_gate(
+            gate_result = _co2_a_sealed_pressure_control_gate(
                 runner,
                 point_for_target,
                 runtime_cfg,
+                sealed_control_refs=pressure_control_points,
             )
+            if bool(gate_result.get("seal_transition_completed")) and not sealed_control_trace_started:
+                sealed_control_trace_started = True
             gate_payload = dict(gate_result or {})
             gate_payload["requested_target_hpa"] = float(target_hpa)
 
@@ -3074,7 +3264,14 @@ def _run_co2_a_pressure_switch_smoke_no_temp_wait(
         route_open_state=route_open_state,
         point_state=point_state,
         route_guard_summary=route_guard_summary,
-        trace_rows=_scenario_trace_rows(trace_path, trace_start),
+        trace_rows=(
+            _scenario_trace_rows(trace_path, trace_start)
+            or (
+                [dict(row or {}) for row in getattr(runner, "trace_rows")]
+                if isinstance(getattr(runner, "trace_rows", None), list)
+                else []
+            )
+        ),
         pressure_targets_hpa=pressure_targets_hpa,
         pressure_point_results=pressure_point_results,
         ambient_pressure_point_selected=ambient_pressure_point_selected,
@@ -3108,7 +3305,14 @@ def _run_co2_a_pressure_switch_smoke_no_temp_wait(
             "route_pressure_guard_summary": route_guard_summary,
             **sustained_atmosphere_summary,
             **drain_summary,
-            "pressure_trace_rows": _scenario_trace_rows(trace_path, trace_start),
+            "pressure_trace_rows": (
+                _scenario_trace_rows(trace_path, trace_start)
+                or (
+                    [dict(row or {}) for row in getattr(runner, "trace_rows")]
+                    if isinstance(getattr(runner, "trace_rows", None), list)
+                    else []
+                )
+            ),
         },
     )
 
@@ -3571,6 +3775,7 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser.add_argument("--route-open-guard-analyzer-warning-kpa", type=float, default=120.0)
     parser.add_argument("--route-open-guard-analyzer-abort-kpa", type=float, default=150.0)
     parser.add_argument("--route-open-guard-dewpoint-line-tolerance-hpa", type=float, default=30.0)
+    parser.add_argument("--pressure-in-limits-timeout-s", type=float, default=10.0)
     parser.add_argument("--continuous-atmosphere-keepalive-interval-s", type=float, default=0.5)
     parser.add_argument("--continuous-atmosphere-rise-trigger-delta-hpa", type=float, default=2.0)
     parser.add_argument("--pre-source-final-vent-burst-count", type=int, default=2)
