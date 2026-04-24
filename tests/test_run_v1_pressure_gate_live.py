@@ -536,6 +536,34 @@ def test_co2_a_pressure_switch_smoke_requires_allow_source_open_flag(tmp_path: P
     assert result["pressure_points_requested"] == [1100.0, 1000.0, 900.0]
 
 
+def test_current_atmosphere_pressure_point_stays_flowthrough_only(tmp_path: Path) -> None:
+    runner = _FakeRunner()
+    fake_pace = _FakePacePressureReady()
+    runner.devices = {"pace": fake_pace}
+
+    result = live_tool._run_co2_a_pressure_switch_smoke_no_temp_wait(
+        runner,
+        tmp_path / "trace.csv",
+        _args(
+            allow_source_open=True,
+            pressure_points_hpa="ambient",
+            _runtime_cfg=_config(mechanical_pressure_protection_confirmed=True),
+        ),
+    )
+
+    assert result["status"] == "pass"
+    assert result["pressure_execution_mode"] == "ambient_flowthrough_only"
+    assert result["selected_pressure_points_hpa"] == []
+    assert result["ambient_flowthrough_only"] is True
+    assert result["flush_phase_requires_continuous_atmosphere"] is True
+    assert result["seal_allowed"] is False
+    assert result["sealed_control_started"] is False
+    assert result["pressure_points_completed"] == []
+    assert fake_pace.calls == []
+    assert all(call[0] not in {"control_ready", "output_on"} for call in runner.calls)
+    assert any(call[0] == "keepalive" for call in runner.calls)
+
+
 def test_route_open_pressure_guard_requires_allow_source_open_flag(tmp_path: Path) -> None:
     runner = _FakeRunner()
     result = live_tool._run_route_open_pressure_guard(
@@ -804,6 +832,42 @@ def test_old_k0472_vent2_and_keepalive_do_not_prove_sustained_atmosphere() -> No
     assert diagnostics["post_seal_vent_command_allowed"] is False
 
 
+def test_old_k0472_vent2_alone_does_not_prove_remote_sustained_atmosphere() -> None:
+    diagnostics = live_tool._co2_a_sustained_atmosphere_diagnostics(
+        route_open_state={
+            "pace_vent_status_query": 2,
+            "pace_outp_state_query": 0,
+            "pace_isol_state_query": 1,
+        },
+        point_state={},
+        route_guard_summary={},
+        trace_rows=[],
+    )
+
+    assert diagnostics["old_k0472_remote_sustained_atmosphere_proven"] is False
+    assert diagnostics["old_k0472_remote_sustained_atmosphere_not_proven"] is True
+    assert diagnostics["pre_flush_sustained_atmosphere_evidence_basis"] == "vent_cycle_completed_and_pressure_window_only"
+
+
+def test_old_k0472_software_keepalive_does_not_prove_remote_sustained_atmosphere() -> None:
+    diagnostics = live_tool._co2_a_sustained_atmosphere_diagnostics(
+        route_open_state={
+            "continuous_atmosphere_active": True,
+            "vent_keepalive_count": 5,
+        },
+        point_state={
+            "continuous_atmosphere_active": True,
+            "vent_keepalive_count": 5,
+        },
+        route_guard_summary={},
+        trace_rows=[],
+    )
+
+    assert diagnostics["old_k0472_remote_sustained_atmosphere_proven"] is False
+    assert diagnostics["old_k0472_remote_sustained_atmosphere_not_proven"] is True
+    assert diagnostics["flush_phase_remote_sustained_atmosphere_proven"] is False
+
+
 def test_pressure_switch_summary_and_trace_mark_sustained_atmosphere_not_proven(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -891,14 +955,92 @@ def test_1100_preseal_buildup_after_flush_exit_is_not_flush_pressure_failure(tmp
 
     assert result["status"] == "pass"
     assert result["flush_phase_pressure_rise_unexpected"] is False
+    assert result["pressure_execution_mode"] == "preseal_buildup_then_sealed_control"
+    assert result["selected_pressure_points_hpa"] == [1100.0]
+    assert result["max_selected_pressure_hpa"] == 1100.0
+    assert result["seal_required_for_selected_profile"] is True
+    assert result["preseal_buildup_required"] is True
+    assert result["preseal_buildup_target_hpa"] == 1100.0
+    assert result["preseal_buildup_started"] is True
+    assert result["preseal_buildup_threshold_reached"] is True
+    assert result["preseal_buildup_reason"] == "prepare_for_high_pressure_preseal"
+    assert result["flush_phase_completed_before_preseal_buildup"] is True
     assert result["preseal_pressure_buildup_for_1100_allowed"] is True
     assert result["preseal_pressure_buildup_started"] is True
     assert result["preseal_pressure_buildup_threshold_reached"] is True
     assert result["preseal_pressure_buildup_reason"] == "prepare_for_1100_seal_control"
-    assert result["sealed_control_started"] is False
+    assert result["sealed_control_started"] is True
     stages = [str(row.get("trace_stage") or "") for row in runner.trace_rows]
+    assert "preseal_buildup_started" in stages
     assert "preseal_pressure_buildup_for_1100_begin" in stages
+    assert "preseal_buildup_threshold_reached" in stages
     assert "preseal_pressure_buildup_threshold_reached" in stages
+    assert "sealed_control_started" in stages
+
+
+def test_sealed_multi_point_switching_marks_vent_forbidden_boundary(tmp_path: Path) -> None:
+    runner = _FakeRunner()
+    fake_pace = _FakePacePressureReady(
+        results=[
+            {"ok": True, "reason": "", "target_hpa": 1000.0, "setpoint_hpa": 1000.0, "output_state": 1, "last_pressure_hpa": 1000.0, "last_in_limit_flag": 1, "poll_count": 1},
+            {"ok": True, "reason": "", "target_hpa": 900.0, "setpoint_hpa": 900.0, "output_state": 1, "last_pressure_hpa": 900.0, "last_in_limit_flag": 1, "poll_count": 1},
+            {"ok": True, "reason": "", "target_hpa": 500.0, "setpoint_hpa": 500.0, "output_state": 1, "last_pressure_hpa": 500.0, "last_in_limit_flag": 1, "poll_count": 1},
+        ]
+    )
+    runner.devices = {"pace": fake_pace}
+
+    result = live_tool._run_co2_a_pressure_switch_smoke_no_temp_wait(
+        runner,
+        tmp_path / "trace.csv",
+        _args(
+            allow_source_open=True,
+            pressure_points_hpa="1000,900,500",
+            _runtime_cfg=_config(mechanical_pressure_protection_confirmed=True),
+        ),
+    )
+
+    assert result["status"] == "pass"
+    assert result["pressure_execution_mode"] == "sealed_multi_point_switching"
+    assert result["selected_pressure_points_hpa"] == [1000.0, 900.0, 500.0]
+    assert result["sealed_multi_point_switching"] is True
+    assert result["sealed_switch_point_count"] == 3
+    assert result["sealed_control_started"] is True
+    assert result["sealed_switching_started"] is True
+    assert result["post_seal_vent_command_allowed"] is False
+    assert result["sealed_switch_vent_forbidden"] is True
+    assert result["vent_command_seen_after_seal"] is False
+    assert result["vent_command_seen_during_sealed_switch"] is False
+    stages = [str(row.get("trace_stage") or "") for row in runner.trace_rows]
+    assert stages.count("sealed_pressure_switch_started") == 3
+    assert stages.count("sealed_pressure_switch_completed") == 3
+
+
+def test_sealed_switch_diagnostics_flags_any_vent_command_during_switch() -> None:
+    diagnostics = live_tool._co2_a_sustained_atmosphere_diagnostics(
+        route_open_state={},
+        point_state={},
+        route_guard_summary={},
+        trace_rows=[
+            {"trace_stage": "route_sealed"},
+            {"trace_stage": "sealed_control_started"},
+            {"trace_stage": "sealed_pressure_switch_started", "pressure_target_hpa": 900.0},
+            {"trace_stage": "route_open_fresh_vent_begin", "note": "VENT 1 attempted"},
+            {"trace_stage": "sealed_pressure_switch_completed", "pressure_target_hpa": 900.0},
+        ],
+        pressure_targets_hpa=[1000.0, 900.0],
+        pressure_point_results=[
+            {"requested_target_hpa": 1000.0, "ok": True},
+            {"requested_target_hpa": 900.0, "ok": True},
+        ],
+        flush_phase_completed=True,
+    )
+
+    assert diagnostics["pressure_execution_mode"] == "sealed_multi_point_switching"
+    assert diagnostics["sealed_control_started"] is True
+    assert diagnostics["post_seal_vent_command_allowed"] is False
+    assert diagnostics["vent_command_seen_after_seal"] is True
+    assert diagnostics["vent_command_seen_during_sealed_switch"] is True
+    assert diagnostics["sealed_switch_vent_forbidden"] is True
 
 
 def test_sealed_control_boundary_keeps_post_seal_vent_forbidden() -> None:
