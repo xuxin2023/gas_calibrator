@@ -86,6 +86,7 @@ class _FakeRunner:
         self.pace_commands_sent: list[str] = []
         self.vent_write_commands: list[str] = []
         self.vent_query_responses: list[object] = []
+        self.trace_rows: list[dict[str, object]] = []
         self.devices = {"pace": _FakePacePressureReady()}
 
     def _configure_devices(self, configure_gas_analyzers: bool = False) -> None:
@@ -143,6 +144,7 @@ class _FakeRunner:
 
     def _append_pressure_trace_row(self, *args, **kwargs) -> None:
         self.calls.append(("trace", str(kwargs.get("trace_stage") or "")))
+        self.trace_rows.append(dict(kwargs))
 
     def _numeric_series_metrics(self, rows):
         values = [float(value) for _ts, value in list(rows or [])]
@@ -712,6 +714,218 @@ def test_main_co2_a_pressure_switch_smoke_writes_not_acceptance_summary(
     assert summary["scenario_result"]["status"] == "pass"
     assert summary["scenario_result"]["temperature_wait_skipped"] is True
     assert summary["scenario_result"]["pressure_points_completed"] == [1100.0, 1000.0]
+
+
+def _old_k0472_source_final_jump_trace_rows() -> list[dict[str, object]]:
+    return [
+        {
+            "trace_stage": "route_open_pressure_guard_sample",
+            "valve_route_state": "open:7|8|11",
+            "pace_vent_status_query": "2",
+            "pace_outp_state_query": "0",
+            "pace_isol_state_query": "1",
+            "pressure_gauge_hpa": "1011.8",
+            "ambient_hpa": "1009.4",
+            "pressure_delta_from_ambient_hpa": "2.4",
+            "pace_vent_completed_latched": "True",
+        },
+        {
+            "trace_stage": "route_open_stage",
+            "valve_route_state": "open:4|7|8|11",
+            "pace_vent_status_query": "2",
+            "pace_outp_state_query": "0",
+            "pace_isol_state_query": "1",
+            "pressure_delta_from_ambient_hpa": "2.4",
+            "pace_vent_completed_latched": "True",
+            "offending_valve_or_group": "8|11|7|4",
+        },
+        {
+            "trace_stage": "route_open_fresh_vent_end",
+            "valve_route_state": "open:4|7|8|11",
+            "pace_vent_status_query": "2",
+            "pace_outp_state_query": "0",
+            "pace_isol_state_query": "1",
+            "ambient_hpa": "1009.5",
+            "pressure_delta_from_ambient_hpa": "433.4",
+            "pace_vent_completed_latched": "True",
+            "offending_valve_or_group": "8|11|7|4",
+        },
+        {
+            "trace_stage": "route_open_pressure_guard_sample",
+            "valve_route_state": "open:4|7|8|11",
+            "pace_vent_status_query": "2",
+            "pace_outp_state_query": "0",
+            "pace_isol_state_query": "1",
+            "pressure_gauge_hpa": "1442.9",
+            "ambient_hpa": "1009.5",
+            "pressure_delta_from_ambient_hpa": "433.5",
+            "pace_vent_completed_latched": "True",
+            "route_pressure_guard_status": "fail",
+            "route_pressure_guard_reason": "AnalyzerPressureTooHigh",
+            "offending_valve_or_group": "8|11|7|4",
+        },
+    ]
+
+
+def test_old_k0472_vent2_and_keepalive_do_not_prove_sustained_atmosphere() -> None:
+    diagnostics = live_tool._co2_a_sustained_atmosphere_diagnostics(
+        route_open_state={
+            "pace_vent_status_query": 2,
+            "pace_outp_state_query": 0,
+            "pace_isol_state_query": 1,
+            "pace_vent_completed_latched": True,
+            "continuous_atmosphere_active": True,
+            "vent_keepalive_count": 4,
+        },
+        point_state={
+            "continuous_atmosphere_active": True,
+            "vent_keepalive_count": 4,
+        },
+        route_guard_summary={},
+        trace_rows=_old_k0472_source_final_jump_trace_rows(),
+    )
+
+    assert diagnostics["old_k0472_remote_sustained_atmosphere_proven"] is False
+    assert diagnostics["old_k0472_remote_sustained_atmosphere_not_proven"] is True
+    assert (
+        diagnostics["pre_flush_sustained_atmosphere_evidence_basis"]
+        == "vent_cycle_completed_and_pressure_window_only"
+    )
+    assert diagnostics["flush_phase_requires_continuous_atmosphere"] is True
+    assert diagnostics["flush_phase_remote_sustained_atmosphere_proven"] is False
+    assert diagnostics["flush_phase_pressure_rise_unexpected"] is True
+    assert diagnostics["flush_phase_evidence_basis"] == "vent_cycle_completed_and_pressure_window_only"
+    assert diagnostics["pre_source_final_vent_status"] == 2
+    assert diagnostics["pre_source_final_outp_state"] == 0
+    assert diagnostics["pre_source_final_isol_state"] == 1
+    assert diagnostics["source_final_open_pressure_jump_hpa"] == pytest.approx(431.0)
+    assert diagnostics["post_source_final_fresh_vent_recovery_effective"] is False
+    assert diagnostics["post_seal_air_ingress_validation_status"] == "deferred"
+    assert diagnostics["post_seal_vent_command_allowed"] is False
+
+
+def test_pressure_switch_summary_and_trace_mark_sustained_atmosphere_not_proven(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _FakeRunner()
+    runner._continuous_state["active"] = True
+    runner._continuous_state["route_flow_active"] = True
+    runner._continuous_state["keepalive_count"] = 4
+    runner.devices = {
+        "pace": _FakePacePressureReady(
+            results=[
+                {
+                    "ok": True,
+                    "reason": "",
+                    "target_hpa": 1100.0,
+                    "setpoint_hpa": 1100.0,
+                    "output_state": 1,
+                    "last_pressure_hpa": 1100.0,
+                    "last_in_limit_flag": 1,
+                    "poll_count": 1,
+                }
+            ]
+        )
+    }
+    monkeypatch.setattr(
+        live_tool,
+        "_scenario_trace_rows",
+        lambda trace_path, trace_start: list(_old_k0472_source_final_jump_trace_rows()),
+    )
+
+    result = live_tool._run_co2_a_pressure_switch_smoke_no_temp_wait(
+        runner,
+        tmp_path / "trace.csv",
+        _args(
+            allow_source_open=True,
+            pressure_points_hpa="1100",
+            _runtime_cfg=_config(mechanical_pressure_protection_confirmed=True),
+        ),
+    )
+
+    assert result["old_k0472_remote_sustained_atmosphere_proven"] is False
+    assert result["old_k0472_remote_sustained_atmosphere_not_proven"] is True
+    assert (
+        result["pre_flush_sustained_atmosphere_evidence_basis"]
+        == "vent_cycle_completed_and_pressure_window_only"
+    )
+    assert result["flush_phase_requires_continuous_atmosphere"] is True
+    assert result["flush_phase_remote_sustained_atmosphere_proven"] is False
+    assert result["flush_phase_pressure_rise_unexpected"] is True
+    assert result["post_seal_air_ingress_validation_status"] == "deferred"
+    assert result["post_seal_vent_command_allowed"] is False
+    stages = [str(row.get("trace_stage") or "") for row in runner.trace_rows]
+    assert "pre_source_final_atmosphere_evidence" in stages
+    assert "source_final_open_pressure_jump_detected" in stages
+    assert "post_source_final_fresh_vent_recovery_effective" in stages
+
+
+def test_1100_preseal_buildup_after_flush_exit_is_not_flush_pressure_failure(tmp_path: Path) -> None:
+    runner = _FakeRunner()
+    fake_pace = _FakePacePressureReady(
+        results=[
+            {
+                "ok": True,
+                "reason": "",
+                "target_hpa": 1100.0,
+                "setpoint_hpa": 1100.0,
+                "output_state": 1,
+                "last_pressure_hpa": 1105.0,
+                "last_in_limit_flag": 1,
+                "poll_count": 2,
+            }
+        ]
+    )
+    runner.devices = {"pace": fake_pace}
+
+    result = live_tool._run_co2_a_pressure_switch_smoke_no_temp_wait(
+        runner,
+        tmp_path / "trace.csv",
+        _args(
+            allow_source_open=True,
+            pressure_points_hpa="1100",
+            _runtime_cfg=_config(mechanical_pressure_protection_confirmed=True),
+        ),
+    )
+
+    assert result["status"] == "pass"
+    assert result["flush_phase_pressure_rise_unexpected"] is False
+    assert result["preseal_pressure_buildup_for_1100_allowed"] is True
+    assert result["preseal_pressure_buildup_started"] is True
+    assert result["preseal_pressure_buildup_threshold_reached"] is True
+    assert result["preseal_pressure_buildup_reason"] == "prepare_for_1100_seal_control"
+    assert result["sealed_control_started"] is False
+    stages = [str(row.get("trace_stage") or "") for row in runner.trace_rows]
+    assert "preseal_pressure_buildup_for_1100_begin" in stages
+    assert "preseal_pressure_buildup_threshold_reached" in stages
+
+
+def test_sealed_control_boundary_keeps_post_seal_vent_forbidden() -> None:
+    diagnostics = live_tool._co2_a_sustained_atmosphere_diagnostics(
+        route_open_state={},
+        point_state={},
+        route_guard_summary={},
+        trace_rows=[
+            {"trace_stage": "preseal_pressure_buildup_for_1100_begin"},
+            {"trace_stage": "route_sealed"},
+            {"trace_stage": "control_output_on_begin"},
+        ],
+        pressure_targets_hpa=[1100.0],
+        pressure_point_results=[
+            {
+                "requested_target_hpa": 1100.0,
+                "ok": True,
+                "last_pressure_hpa": 1102.0,
+            }
+        ],
+    )
+
+    assert diagnostics["preseal_pressure_buildup_for_1100_allowed"] is True
+    assert diagnostics["preseal_pressure_buildup_started"] is True
+    assert diagnostics["preseal_pressure_buildup_threshold_reached"] is True
+    assert diagnostics["sealed_control_started"] is True
+    assert diagnostics["post_seal_vent_command_allowed"] is False
 
 
 def test_source_or_h2o_final_stage_requires_analyzer_pressure_or_mechanical_protection(

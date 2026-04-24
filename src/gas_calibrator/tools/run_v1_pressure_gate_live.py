@@ -39,6 +39,11 @@ CO2_A_FRONT_VALVES = [8, 11, 7]
 CO2_A_SOURCE_FINAL_VALVE = 4
 CO2_A_BLOCKED_VALVES = [24, 10]
 CO2_A_APPLY_EXPECTED_BLOCKED_VALVES = [4, 24, 10]
+OLD_K0472_SUSTAINED_ATMOSPHERE_NOT_PROVEN_BASIS = "vent_cycle_completed_and_pressure_window_only"
+POST_SEAL_AIR_INGRESS_VALIDATION_DEFERRED = "deferred"
+SOURCE_FINAL_PRESSURE_JUMP_THRESHOLD_HPA = 10.0
+PRESEAL_1100_PRESSURE_BUILDUP_REASON = "prepare_for_1100_seal_control"
+PRESSURE_1100_HPA = 1100.0
 CO2_A_STAGED_REQUIRED_ENV = {
     "ALLOW_STAGED_SOURCE_FINAL_DRY_RUN": "CO2_A_VALVE_4_ONLY",
     "OPERATOR_INTENT_CONFIRMED": "YES",
@@ -639,6 +644,398 @@ def _record_co2_a_staged_pressure_ready_trace(
         return
 
 
+def _optional_float(value: Any) -> Optional[float]:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_int(value: Any) -> Optional[int]:
+    if value in (None, ""):
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _optional_bool(value: Any) -> Optional[bool]:
+    if value in (None, ""):
+        return None
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"true", "1", "yes", "y"}:
+        return True
+    if text in {"false", "0", "no", "n"}:
+        return False
+    return None
+
+
+def _route_text_has_valve(value: Any, valve: int) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    for separator in ("open:", "[", "]", "(", ")", ","):
+        text = text.replace(separator, "|")
+    for chunk in text.split("|"):
+        try:
+            if int(chunk.strip()) == int(valve):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def _trace_row_has_valve(row: Mapping[str, Any], valve: int) -> bool:
+    return any(
+        _route_text_has_valve(row.get(key), valve)
+        for key in ("valve_route_state", "offending_valve_or_group", "offending_route")
+    )
+
+
+def _row_pressure_delta_hpa(row: Mapping[str, Any]) -> Optional[float]:
+    return _optional_float(row.get("pressure_delta_from_ambient_hpa"))
+
+
+def _last_pressure_delta_from_state(*states: Mapping[str, Any]) -> Optional[float]:
+    for state in states:
+        if not isinstance(state, Mapping):
+            continue
+        value = _optional_float(state.get("pressure_delta_from_ambient_hpa"))
+        if value is not None:
+            return value
+    return None
+
+
+def _is_1100_pressure_target(value: Any) -> bool:
+    parsed = _optional_float(value)
+    return bool(parsed is not None and abs(float(parsed) - PRESSURE_1100_HPA) <= 1e-6)
+
+
+def _has_1100_pressure_target(values: Iterable[Any]) -> bool:
+    return any(_is_1100_pressure_target(value) for value in list(values or []))
+
+
+def _trace_has_stage(trace_rows: Iterable[Mapping[str, Any]], stages: Iterable[str]) -> bool:
+    wanted = {str(stage or "").strip() for stage in list(stages or []) if str(stage or "").strip()}
+    return any(str(row.get("trace_stage") or "").strip() in wanted for row in list(trace_rows or []))
+
+
+def _co2_a_source_final_trace_evidence(trace_rows: Iterable[Mapping[str, Any]]) -> Dict[str, Any]:
+    rows = [dict(row or {}) for row in list(trace_rows or [])]
+    source_index: Optional[int] = None
+    for index, row in enumerate(rows):
+        if _trace_row_has_valve(row, CO2_A_SOURCE_FINAL_VALVE):
+            source_index = index
+            break
+    if source_index is None:
+        return {
+            "pre_row": {},
+            "source_row": {},
+            "post_source_row": {},
+            "post_source_fresh_vent_row": {},
+            "pre_delta_hpa": None,
+            "post_delta_hpa": None,
+            "jump_hpa": None,
+            "jump_detected": False,
+            "fresh_vent_recovery_effective": False,
+        }
+
+    pre_row: Dict[str, Any] = {}
+    for row in rows[:source_index]:
+        if _row_pressure_delta_hpa(row) is not None:
+            pre_row = row
+
+    source_rows = rows[source_index + 1 :]
+    post_source_row: Dict[str, Any] = {}
+    for row in source_rows:
+        if str(row.get("trace_stage") or "") in {"route_open_fresh_vent_end", "route_open_pressure_guard_sample"} and _row_pressure_delta_hpa(row) is not None:
+            post_source_row = row
+            break
+
+    post_source_fresh_vent_row: Dict[str, Any] = {}
+    for row in source_rows:
+        if str(row.get("trace_stage") or "") == "route_open_fresh_vent_end" and _row_pressure_delta_hpa(row) is not None:
+            post_source_fresh_vent_row = row
+
+    pre_delta = _row_pressure_delta_hpa(pre_row)
+    post_delta = _row_pressure_delta_hpa(post_source_row)
+    jump_hpa = None
+    if pre_delta is not None and post_delta is not None:
+        jump_hpa = float(post_delta) - float(pre_delta)
+    recovery_delta = _row_pressure_delta_hpa(post_source_fresh_vent_row)
+    return {
+        "pre_row": pre_row,
+        "source_row": rows[source_index],
+        "post_source_row": post_source_row,
+        "post_source_fresh_vent_row": post_source_fresh_vent_row,
+        "pre_delta_hpa": pre_delta,
+        "post_delta_hpa": post_delta,
+        "jump_hpa": jump_hpa,
+        "jump_detected": bool(jump_hpa is not None and jump_hpa >= SOURCE_FINAL_PRESSURE_JUMP_THRESHOLD_HPA),
+        "fresh_vent_recovery_effective": bool(
+            recovery_delta is not None and abs(float(recovery_delta)) <= SOURCE_FINAL_PRESSURE_JUMP_THRESHOLD_HPA
+        ),
+    }
+
+
+def _co2_a_sustained_atmosphere_diagnostics(
+    *,
+    route_open_state: Mapping[str, Any],
+    point_state: Mapping[str, Any],
+    route_guard_summary: Mapping[str, Any],
+    trace_rows: Iterable[Mapping[str, Any]],
+    pressure_targets_hpa: Optional[Iterable[Any]] = None,
+    pressure_point_results: Optional[Iterable[Mapping[str, Any]]] = None,
+) -> Dict[str, Any]:
+    point_state = dict(point_state or {})
+    route_open_state = dict(route_open_state or {})
+    route_guard_summary = dict(route_guard_summary or {})
+    rows = [dict(row or {}) for row in list(trace_rows or [])]
+    evidence = _co2_a_source_final_trace_evidence(trace_rows)
+    pre_row = dict(evidence.get("pre_row") or {})
+    source_row = dict(evidence.get("source_row") or {})
+    post_source_row = dict(evidence.get("post_source_row") or {})
+
+    pre_delta = evidence.get("pre_delta_hpa")
+    if pre_delta is None:
+        pre_delta = _last_pressure_delta_from_state(route_open_state, point_state, route_guard_summary)
+    jump_hpa = evidence.get("jump_hpa")
+    if jump_hpa is None:
+        final_delta = _last_pressure_delta_from_state(point_state, route_open_state, route_guard_summary)
+        if pre_delta is not None and final_delta is not None:
+            jump_hpa = float(final_delta) - float(pre_delta)
+
+    pre_source_vent_status = _optional_int(
+        pre_row.get("pace_vent_status_query")
+        if pre_row
+        else route_open_state.get("pace_vent_status_query", point_state.get("pace_vent_status_query"))
+    )
+    pre_source_outp_state = _optional_int(
+        pre_row.get("pace_outp_state_query")
+        if pre_row
+        else route_open_state.get("pace_outp_state_query", point_state.get("pace_outp_state_query"))
+    )
+    pre_source_isol_state = _optional_int(
+        pre_row.get("pace_isol_state_query")
+        if pre_row
+        else route_open_state.get("pace_isol_state_query", point_state.get("pace_isol_state_query"))
+    )
+    vent_completed_latched = bool(
+        _optional_bool(pre_row.get("pace_vent_completed_latched"))
+        if pre_row.get("pace_vent_completed_latched") not in (None, "")
+        else _optional_bool(
+            route_open_state.get(
+                "pace_vent_completed_latched",
+                point_state.get("pace_vent_completed_latched", False),
+            )
+        )
+    )
+    pressure_targets = list(pressure_targets_hpa or [])
+    requested_1100 = _has_1100_pressure_target(pressure_targets)
+    point_results = [dict(item or {}) for item in list(pressure_point_results or [])]
+    preseal_started = bool(
+        any(_is_1100_pressure_target(item.get("requested_target_hpa")) for item in point_results)
+        or _trace_has_stage(
+            rows,
+            {
+                "preseal_pressure_buildup_for_1100_begin",
+                "preseal_vent_off_begin",
+                "control_vent_off_begin",
+            },
+        )
+    )
+    preseal_threshold_reached = bool(
+        any(
+            _is_1100_pressure_target(item.get("requested_target_hpa"))
+            and bool(item.get("ok"))
+            and (
+                _optional_float(item.get("last_pressure_hpa")) is None
+                or float(_optional_float(item.get("last_pressure_hpa")) or 0.0) >= PRESSURE_1100_HPA
+            )
+            for item in point_results
+        )
+        or _trace_has_stage(rows, {"preseal_pressure_buildup_threshold_reached", "preseal_trigger_reached"})
+    )
+    sealed_control_started = _trace_has_stage(
+        rows,
+        {
+            "sealed_control_started",
+            "route_sealed",
+            "control_output_on_begin",
+            "control_output_on_command_sent",
+            "control_output_on_verified",
+        },
+    )
+    flush_pressure_rise_unexpected = bool(evidence.get("jump_detected"))
+    return {
+        "flush_phase_requires_continuous_atmosphere": True,
+        "flush_phase_remote_sustained_atmosphere_proven": False,
+        "flush_phase_pressure_rise_unexpected": flush_pressure_rise_unexpected,
+        "flush_phase_evidence_basis": OLD_K0472_SUSTAINED_ATMOSPHERE_NOT_PROVEN_BASIS,
+        "old_k0472_remote_sustained_atmosphere_proven": False,
+        "pre_flush_sustained_atmosphere_evidence_basis": OLD_K0472_SUSTAINED_ATMOSPHERE_NOT_PROVEN_BASIS,
+        "old_k0472_remote_sustained_atmosphere_not_proven": True,
+        "pre_source_final_vent_status": pre_source_vent_status,
+        "pre_source_final_outp_state": pre_source_outp_state,
+        "pre_source_final_isol_state": pre_source_isol_state,
+        "pre_source_final_pressure_delta_hpa": pre_delta,
+        "source_final_open_pressure_jump_hpa": jump_hpa,
+        "source_final_open_pressure_jump_detected": bool(
+            evidence.get("jump_detected")
+            or (jump_hpa is not None and float(jump_hpa) >= SOURCE_FINAL_PRESSURE_JUMP_THRESHOLD_HPA)
+        ),
+        "post_source_final_fresh_vent_recovery_effective": bool(evidence.get("fresh_vent_recovery_effective")),
+        "preseal_pressure_buildup_for_1100_allowed": requested_1100,
+        "preseal_pressure_buildup_started": preseal_started,
+        "preseal_pressure_buildup_threshold_reached": preseal_threshold_reached,
+        "preseal_pressure_buildup_reason": PRESEAL_1100_PRESSURE_BUILDUP_REASON if requested_1100 else "",
+        "sealed_control_started": sealed_control_started,
+        "post_seal_air_ingress_validation_status": POST_SEAL_AIR_INGRESS_VALIDATION_DEFERRED,
+        "post_seal_vent_command_allowed": False,
+        "_trace_evidence": {
+            "pre_row": pre_row,
+            "source_row": source_row,
+            "post_source_row": post_source_row,
+            "post_source_fresh_vent_row": dict(evidence.get("post_source_fresh_vent_row") or {}),
+            "pace_vent_completed_latched": vent_completed_latched,
+        },
+    }
+
+
+def _append_co2_a_sustained_atmosphere_diagnostic_trace(
+    runner: CalibrationRunner,
+    point: CalibrationPoint,
+    diagnostics: Mapping[str, Any],
+    *,
+    trace_path: Optional[Path] = None,
+) -> None:
+    append_row = getattr(runner, "_append_pressure_trace_row", None)
+    if not callable(append_row) and trace_path is None:
+        return
+    trace_evidence = dict(diagnostics.get("_trace_evidence") or {})
+    pre_row = dict(trace_evidence.get("pre_row") or {})
+    post_row = dict(trace_evidence.get("post_source_row") or {})
+    recovery_row = dict(trace_evidence.get("post_source_fresh_vent_row") or {})
+
+    def _append(stage: str, row: Mapping[str, Any], note_payload: Mapping[str, Any]) -> None:
+        values = {
+            "ts": datetime.now().isoformat(timespec="milliseconds"),
+            "phase": "co2",
+            "route": "CO2_A",
+            "point_phase": "co2",
+            "point_tag": "live_co2_a_pressure_switch_smoke_no_temp_wait",
+            "trace_stage": stage,
+            "trigger_reason": str(note_payload.get("reason") or stage),
+            "valve_route_state": row.get("valve_route_state"),
+            "pressure_gauge_hpa": _optional_float(row.get("pressure_gauge_hpa")),
+            "analyzer_pressure_kpa": _optional_float(row.get("analyzer_pressure_kpa")),
+            "ambient_hpa": _optional_float(row.get("ambient_hpa")),
+            "pressure_delta_from_ambient_hpa": _optional_float(
+                row.get("pressure_delta_from_ambient_hpa")
+                if row
+                else diagnostics.get("pre_source_final_pressure_delta_hpa")
+            ),
+            "route_pressure_guard_status": row.get("route_pressure_guard_status"),
+            "route_pressure_guard_reason": row.get("route_pressure_guard_reason"),
+            "offending_valve_or_group": row.get("offending_valve_or_group"),
+            "pace_vent_status_query": _optional_int(
+                row.get("pace_vent_status_query")
+                if row
+                else diagnostics.get("pre_source_final_vent_status")
+            ),
+            "pace_outp_state_query": _optional_int(
+                row.get("pace_outp_state_query")
+                if row
+                else diagnostics.get("pre_source_final_outp_state")
+            ),
+            "pace_isol_state_query": _optional_int(
+                row.get("pace_isol_state_query")
+                if row
+                else diagnostics.get("pre_source_final_isol_state")
+            ),
+            "pace_vent_completed_latched": bool(trace_evidence.get("pace_vent_completed_latched")),
+            "note": json.dumps(dict(note_payload), ensure_ascii=False, sort_keys=True),
+        }
+        if trace_path is not None and _append_csv_row(trace_path, values):
+            return
+        if not callable(append_row):
+            return
+        try:
+            append_row(
+                point=point,
+                route="CO2_A",
+                point_phase="co2",
+                point_tag="live_co2_a_pressure_switch_smoke_no_temp_wait",
+                trace_stage=stage,
+                trigger_reason=str(values["trigger_reason"]),
+                pressure_gauge_hpa=values["pressure_gauge_hpa"],
+                analyzer_pressure_kpa=values["analyzer_pressure_kpa"],
+                route_pressure_guard_status=row.get("route_pressure_guard_status"),
+                route_pressure_guard_reason=row.get("route_pressure_guard_reason"),
+                offending_valve_or_group=row.get("offending_valve_or_group"),
+                pace_vent_status_query=values["pace_vent_status_query"],
+                pace_outp_state_query=values["pace_outp_state_query"],
+                pace_isol_state_query=values["pace_isol_state_query"],
+                pace_vent_completed_latched=values["pace_vent_completed_latched"],
+                note=str(values["note"]),
+            )
+        except Exception:
+            return
+
+    _append(
+        "pre_source_final_atmosphere_evidence",
+        pre_row,
+        {
+            "reason": "old_k0472_remote_sustained_atmosphere_not_proven",
+            "flush_phase_requires_continuous_atmosphere": True,
+            "flush_phase_remote_sustained_atmosphere_proven": False,
+            "flush_phase_evidence_basis": OLD_K0472_SUSTAINED_ATMOSPHERE_NOT_PROVEN_BASIS,
+            "old_k0472_remote_sustained_atmosphere_proven": False,
+            "pre_flush_sustained_atmosphere_evidence_basis": OLD_K0472_SUSTAINED_ATMOSPHERE_NOT_PROVEN_BASIS,
+            "vent_cycle_completed_status": diagnostics.get("pre_source_final_vent_status"),
+            "continuous_software_state_is_not_remote_hold_open_proof": True,
+        },
+    )
+    if bool(diagnostics.get("source_final_open_pressure_jump_detected")):
+        _append(
+            "source_final_open_pressure_jump_detected",
+            post_row,
+            {
+                "reason": "source_final_pressure_jump",
+                "flush_phase_pressure_rise_unexpected": True,
+                "source_final_open_pressure_jump_hpa": diagnostics.get("source_final_open_pressure_jump_hpa"),
+                "pre_source_final_pressure_delta_hpa": diagnostics.get("pre_source_final_pressure_delta_hpa"),
+            },
+        )
+        _append(
+            "flush_phase_pressure_rise_unexpected",
+            post_row,
+            {
+                "reason": "flush_phase_pressure_rise_unexpected",
+                "flush_phase_requires_continuous_atmosphere": True,
+                "flush_phase_remote_sustained_atmosphere_proven": False,
+                "source_final_open_pressure_jump_hpa": diagnostics.get("source_final_open_pressure_jump_hpa"),
+            },
+        )
+    _append(
+        "post_source_final_fresh_vent_recovery_effective",
+        recovery_row,
+        {
+            "reason": "post_source_final_fresh_vent_recovery_effective",
+            "post_source_final_fresh_vent_recovery_effective": bool(
+                diagnostics.get("post_source_final_fresh_vent_recovery_effective")
+            ),
+            "post_seal_air_ingress_validation_status": POST_SEAL_AIR_INGRESS_VALIDATION_DEFERRED,
+            "post_seal_vent_command_allowed": False,
+        },
+    )
+
+
 def _prepare_co2_a_staged_pressure_ready_gate(
     runner: CalibrationRunner,
     point: CalibrationPoint,
@@ -759,6 +1156,72 @@ def _read_csv_rows(path: Path) -> List[Dict[str, Any]]:
         return []
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         return list(csv.DictReader(handle))
+
+
+def _append_csv_row(path: Path, values: Mapping[str, Any]) -> bool:
+    if not path.exists():
+        return False
+    try:
+        with path.open("r", encoding="utf-8-sig", newline="") as handle:
+            reader = csv.reader(handle)
+            fieldnames = next(reader, [])
+    except (OSError, StopIteration):
+        return False
+    if not fieldnames:
+        return False
+    row = {field: "" for field in fieldnames}
+    for key, value in dict(values or {}).items():
+        if key in row and value is not None:
+            row[key] = value
+    try:
+        with path.open("a", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
+            writer.writerow(row)
+    except OSError:
+        return False
+    return True
+
+
+def _append_co2_a_pressure_phase_trace(
+    runner: CalibrationRunner,
+    trace_path: Path,
+    point: CalibrationPoint,
+    *,
+    stage: str,
+    pressure_target_hpa: Any = None,
+    note_payload: Optional[Mapping[str, Any]] = None,
+) -> None:
+    payload = dict(note_payload or {})
+    values = {
+        "ts": datetime.now().isoformat(timespec="milliseconds"),
+        "phase": "co2",
+        "route": "CO2_A",
+        "point_phase": "co2",
+        "point_tag": "live_co2_a_pressure_switch_smoke_no_temp_wait",
+        "trace_stage": stage,
+        "trigger_reason": str(payload.get("reason") or stage),
+        "pressure_target_hpa": pressure_target_hpa,
+        "note": json.dumps(payload, ensure_ascii=False, sort_keys=True),
+    }
+    if _append_csv_row(trace_path, values):
+        return
+    append_row = getattr(runner, "_append_pressure_trace_row", None)
+    if not callable(append_row):
+        return
+    try:
+        append_row(
+            point=point,
+            route="CO2_A",
+            point_phase="co2",
+            point_tag="live_co2_a_pressure_switch_smoke_no_temp_wait",
+            trace_stage=stage,
+            trigger_reason=str(payload.get("reason") or stage),
+            pressure_target_hpa=pressure_target_hpa,
+            refresh_pace_state=False,
+            note=str(values["note"]),
+        )
+    except Exception:
+        return
 
 
 def _trace_row_count(path: Path) -> int:
@@ -1267,6 +1730,44 @@ def _build_summary_extract(summary: Mapping[str, Any]) -> Dict[str, Any]:
             "vent_keepalive_count",
             continuous_state.get("keepalive_count"),
         ),
+        "flush_phase_requires_continuous_atmosphere": scenario_result.get(
+            "flush_phase_requires_continuous_atmosphere"
+        ),
+        "flush_phase_remote_sustained_atmosphere_proven": scenario_result.get(
+            "flush_phase_remote_sustained_atmosphere_proven"
+        ),
+        "flush_phase_pressure_rise_unexpected": scenario_result.get("flush_phase_pressure_rise_unexpected"),
+        "flush_phase_evidence_basis": scenario_result.get("flush_phase_evidence_basis"),
+        "old_k0472_remote_sustained_atmosphere_proven": scenario_result.get(
+            "old_k0472_remote_sustained_atmosphere_proven"
+        ),
+        "pre_flush_sustained_atmosphere_evidence_basis": scenario_result.get(
+            "pre_flush_sustained_atmosphere_evidence_basis"
+        ),
+        "old_k0472_remote_sustained_atmosphere_not_proven": scenario_result.get(
+            "old_k0472_remote_sustained_atmosphere_not_proven"
+        ),
+        "pre_source_final_vent_status": scenario_result.get("pre_source_final_vent_status"),
+        "pre_source_final_outp_state": scenario_result.get("pre_source_final_outp_state"),
+        "pre_source_final_isol_state": scenario_result.get("pre_source_final_isol_state"),
+        "pre_source_final_pressure_delta_hpa": scenario_result.get("pre_source_final_pressure_delta_hpa"),
+        "source_final_open_pressure_jump_hpa": scenario_result.get("source_final_open_pressure_jump_hpa"),
+        "post_source_final_fresh_vent_recovery_effective": scenario_result.get(
+            "post_source_final_fresh_vent_recovery_effective"
+        ),
+        "preseal_pressure_buildup_for_1100_allowed": scenario_result.get(
+            "preseal_pressure_buildup_for_1100_allowed"
+        ),
+        "preseal_pressure_buildup_started": scenario_result.get("preseal_pressure_buildup_started"),
+        "preseal_pressure_buildup_threshold_reached": scenario_result.get(
+            "preseal_pressure_buildup_threshold_reached"
+        ),
+        "preseal_pressure_buildup_reason": scenario_result.get("preseal_pressure_buildup_reason"),
+        "sealed_control_started": scenario_result.get("sealed_control_started"),
+        "post_seal_air_ingress_validation_status": scenario_result.get(
+            "post_seal_air_ingress_validation_status"
+        ),
+        "post_seal_vent_command_allowed": scenario_result.get("post_seal_vent_command_allowed"),
         "pre_route_drain_syst_err_count": scenario_result.get("pre_route_drain_syst_err_count", 0),
     }
     return extract
@@ -2078,6 +2579,25 @@ def _run_co2_a_pressure_switch_smoke_no_temp_wait(
     )
     route_open_state = dict(runner._point_runtime_state(point, phase="co2") or {})
     route_guard_summary = _route_guard_summary_payload(runner)
+    route_trace_rows_before_diagnostics = _scenario_trace_rows(trace_path, trace_start)
+    sustained_atmosphere_diagnostics = _co2_a_sustained_atmosphere_diagnostics(
+        route_open_state=route_open_state,
+        point_state=route_open_state,
+        route_guard_summary=route_guard_summary,
+        trace_rows=route_trace_rows_before_diagnostics,
+        pressure_targets_hpa=pressure_targets_hpa,
+    )
+    _append_co2_a_sustained_atmosphere_diagnostic_trace(
+        runner,
+        point,
+        sustained_atmosphere_diagnostics,
+        trace_path=trace_path,
+    )
+    sustained_atmosphere_summary = {
+        key: value
+        for key, value in sustained_atmosphere_diagnostics.items()
+        if key != "_trace_evidence"
+    }
     abort_reason = str(
         route_open_state.get("abort_reason")
         or route_guard_summary.get("abort_reason")
@@ -2098,6 +2618,19 @@ def _run_co2_a_pressure_switch_smoke_no_temp_wait(
             pace_events_before = getattr(pace_obj, "events", None)
             pace_events_index = len(pace_events_before) if isinstance(pace_events_before, list) else None
 
+            if _is_1100_pressure_target(target_hpa):
+                _append_co2_a_pressure_phase_trace(
+                    runner,
+                    trace_path,
+                    point_for_target,
+                    stage="preseal_pressure_buildup_for_1100_begin",
+                    pressure_target_hpa=float(target_hpa),
+                    note_payload={
+                        "reason": PRESEAL_1100_PRESSURE_BUILDUP_REASON,
+                        "flush_phase_exited": True,
+                        "preseal_pressure_buildup_for_1100_allowed": True,
+                    },
+                )
             gate_result = _co2_a_staged_pressure_ready_gate(
                 runner,
                 point_for_target,
@@ -2126,6 +2659,19 @@ def _run_co2_a_pressure_switch_smoke_no_temp_wait(
             pressure_point_results.append(gate_payload)
             if bool(gate_payload.get("ok")):
                 pressure_points_completed.append(float(target_hpa))
+                if _is_1100_pressure_target(target_hpa):
+                    _append_co2_a_pressure_phase_trace(
+                        runner,
+                        trace_path,
+                        point_for_target,
+                        stage="preseal_pressure_buildup_threshold_reached",
+                        pressure_target_hpa=float(target_hpa),
+                        note_payload={
+                            "reason": PRESEAL_1100_PRESSURE_BUILDUP_REASON,
+                            "preseal_pressure_buildup_threshold_reached": True,
+                            "last_pressure_hpa": gate_payload.get("last_pressure_hpa"),
+                        },
+                    )
                 continue
 
             abort_reason = str(gate_payload.get("reason") or "PressureReadyGateFailed")
@@ -2140,6 +2686,17 @@ def _run_co2_a_pressure_switch_smoke_no_temp_wait(
         status = "diagnostic_error"
     else:
         status = "pass"
+    final_phase_diagnostics = _co2_a_sustained_atmosphere_diagnostics(
+        route_open_state=route_open_state,
+        point_state=point_state,
+        route_guard_summary=route_guard_summary,
+        trace_rows=_scenario_trace_rows(trace_path, trace_start),
+        pressure_targets_hpa=pressure_targets_hpa,
+        pressure_point_results=pressure_point_results,
+    )
+    sustained_atmosphere_summary.update(
+        {key: value for key, value in final_phase_diagnostics.items() if key != "_trace_evidence"}
+    )
 
     return _enrich_live_result_with_pace_diagnostics(
         runner,
@@ -2163,6 +2720,7 @@ def _run_co2_a_pressure_switch_smoke_no_temp_wait(
             "point_runtime_state": point_state,
             "atmosphere_summary": dict(runner._last_atmosphere_gate_summary or {}),
             "route_pressure_guard_summary": route_guard_summary,
+            **sustained_atmosphere_summary,
             **drain_summary,
             "pressure_trace_rows": _scenario_trace_rows(trace_path, trace_start),
         },
