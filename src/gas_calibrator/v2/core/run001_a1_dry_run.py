@@ -17,6 +17,7 @@ RUN001_ARTIFACT_NAMES = {
     "no_write_guard": "no_write_guard.json",
     "readiness": "readiness.json",
     "trace": "route_pressure_sample_trace.json",
+    "effective_analyzer_fleet": "effective_analyzer_fleet.json",
     "manifest": "run_manifest.json",
     "report": "human_readable_report.md",
 }
@@ -411,6 +412,142 @@ def _nested(mapping: Mapping[str, Any], *keys: str) -> Any:
     return current
 
 
+def _port_text(value: Any) -> str:
+    return str(value or "").strip().upper()
+
+
+def _load_mode2_truth_audit(
+    raw_cfg: Mapping[str, Any],
+    *,
+    config_path: str | Path | None = None,
+) -> tuple[Optional[Path], dict[str, Any]]:
+    policy = _policy(raw_cfg)
+    audit_path = resolve_config_relative_path(config_path, policy.get("mode2_truth_audit_path"))
+    if audit_path is None:
+        return None, {}
+    return audit_path, _load_json_dict(audit_path)
+
+
+def _truth_analyzers_by_port(audit_payload: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    rows = audit_payload.get("analyzers")
+    if not isinstance(rows, list):
+        return {}
+    by_port: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        port = _port_text(row.get("configured_port") or row.get("port"))
+        if port:
+            by_port[port] = dict(row)
+    return by_port
+
+
+def _truth_mode2_ready_ports(audit_payload: Mapping[str, Any]) -> list[str]:
+    ports: list[str] = []
+    for port, row in _truth_analyzers_by_port(audit_payload).items():
+        if (
+            _as_bool(row.get("active_send_detected"))
+            and _as_nonnegative_int(row.get("mode2_frame_count")) > 0
+            and str(row.get("stable_device_id") or "").strip()
+        ):
+            ports.append(port)
+    return sorted(ports)
+
+
+def build_effective_analyzer_fleet_payload(
+    raw_cfg: Mapping[str, Any],
+    *,
+    config_path: str | Path | None = None,
+    guard_payload: Optional[Mapping[str, Any]] = None,
+) -> dict[str, Any]:
+    policy = _policy(raw_cfg)
+    enabled = summarize_enabled_analyzers(raw_cfg)
+    audit_path, audit_payload = _load_mode2_truth_audit(raw_cfg, config_path=config_path)
+    truth_by_port = _truth_analyzers_by_port(audit_payload)
+    truth_ready_ports = _truth_mode2_ready_ports(audit_payload)
+    configured_ports = sorted(_port_text(item.get("port")) for item in enabled if _port_text(item.get("port")))
+    mapping_source = str(policy.get("enabled_analyzer_list_source") or "config.devices.gas_analyzers")
+    checked = bool(audit_payload)
+    intended_effective_match = True if not checked else configured_ports == truth_ready_ports
+
+    guard = dict(guard_payload or {})
+    no_write_guard_active = _as_bool(policy.get("no_write", raw_cfg.get("no_write"))) or _as_bool(guard.get("no_write"))
+    persistent_write_command_sent = bool(guard.get("persistent_write_command_sent", False))
+    identity_write_command_sent = bool(guard.get("identity_write_command_sent", False))
+
+    fleet: list[dict[str, Any]] = []
+    for item in enabled:
+        port = _port_text(item.get("port"))
+        truth = truth_by_port.get(port, {})
+        bytes_received = _as_nonnegative_int(truth.get("bytes_received"))
+        mode2_frames = _as_nonnegative_int(truth.get("mode2_frame_count"))
+        mode1_frames = _as_nonnegative_int(truth.get("mode1_frame_count"))
+        stable_device_id = str(truth.get("stable_device_id") or "").strip()
+        expected_device_id = str(item.get("device_id") or "").strip()
+        identity_matches = bool(stable_device_id and expected_device_id and stable_device_id == expected_device_id)
+        active_send_detected = _as_bool(truth.get("active_send_detected")) or bytes_received > 0
+        mode2_ready = bool(active_send_detected and mode2_frames > 0 and identity_matches)
+        if mode2_ready:
+            readdata_response_status = "not_required_passive_mode2_active_send"
+        elif truth:
+            if active_send_detected and mode1_frames > 0:
+                readdata_response_status = "not_required_passive_active_send_not_mode2"
+            elif active_send_detected:
+                readdata_response_status = "not_required_passive_active_send_identity_not_ready"
+            else:
+                readdata_response_status = "not_required_passive_timeout_no_active_send"
+        else:
+            readdata_response_status = "not_checked"
+        fleet.append(
+            {
+                "logical_name": str(item.get("name") or ""),
+                "expected_device_id": expected_device_id,
+                "configured_port": port,
+                "resolved_port": port,
+                "enabled": True,
+                "mapping_source": mapping_source,
+                "whether_from_detected_truth_list": bool(truth),
+                "active_send_bytes_received": bytes_received,
+                "mode2_ready": mode2_ready,
+                "stable_device_id": stable_device_id,
+                "readdata_response_status": readdata_response_status,
+                "persistent_write_command_sent": persistent_write_command_sent,
+                "identity_write_command_sent": identity_write_command_sent,
+                "no_write_guard_active": no_write_guard_active,
+                "active_send_detected": active_send_detected,
+                "mode1_frame_count": mode1_frames,
+                "mode2_frame_count": mode2_frames,
+                "identity_matches_expected": identity_matches,
+            }
+        )
+
+    all_enabled_mode2_ready = all(item["mode2_ready"] for item in fleet) if fleet else False
+    if not checked:
+        mapping_status = "not_checked"
+    elif intended_effective_match and all_enabled_mode2_ready:
+        mapping_status = "match"
+    else:
+        mapping_status = "mismatch"
+    return {
+        "schema_version": "run001_a1.effective_analyzer_fleet.1",
+        "artifact_type": "run001_a1_effective_analyzer_fleet",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "mapping_source": mapping_source,
+        "mode2_truth_audit_path": "" if audit_path is None else str(audit_path),
+        "truth_audit_checked": checked,
+        "configured_ports": configured_ports,
+        "detected_truth_mode2_ports": truth_ready_ports,
+        "intended_effective_match": intended_effective_match,
+        "all_enabled_mode2_ready": all_enabled_mode2_ready,
+        "mapping_status": mapping_status,
+        "analyzers": fleet,
+        "identity_write_command_sent": identity_write_command_sent,
+        "persistent_write_command_sent": persistent_write_command_sent,
+        "no_write_guard_active": no_write_guard_active,
+        "not_real_acceptance_evidence": True,
+    }
+
+
 def _extract_failed_devices(*texts: Any) -> list[str]:
     for value in texts:
         text = str(value or "")
@@ -688,6 +825,13 @@ def evaluate_run001_a1_readiness(
     if duplicate_ids["duplicate_device_id_blocks_a1"]:
         hard_stop_reasons.append("duplicate_device_id_detected")
 
+    effective_fleet = build_effective_analyzer_fleet_payload(raw_cfg, config_path=config_path)
+    if effective_fleet.get("truth_audit_checked"):
+        if not bool(effective_fleet.get("intended_effective_match")):
+            hard_stop_reasons.append("effective_analyzer_list_mismatch")
+        if not bool(effective_fleet.get("all_enabled_mode2_ready")):
+            hard_stop_reasons.append("enabled_analyzer_not_mode2_ready")
+
     artifact_status: dict[str, Any] = {}
     if require_runtime_artifacts:
         required = ("summary", "manifest", "trace")
@@ -707,6 +851,14 @@ def evaluate_run001_a1_readiness(
         "blocked_write_events": blocked_events,
         "v1_fallback_status": v1_fallback_status,
         "artifact_status": artifact_status,
+        "effective_analyzer_fleet_summary": {
+            "mapping_status": effective_fleet.get("mapping_status"),
+            "truth_audit_checked": effective_fleet.get("truth_audit_checked"),
+            "configured_ports": effective_fleet.get("configured_ports"),
+            "detected_truth_mode2_ports": effective_fleet.get("detected_truth_mode2_ports"),
+            "intended_effective_match": effective_fleet.get("intended_effective_match"),
+            "all_enabled_mode2_ready": effective_fleet.get("all_enabled_mode2_ready"),
+        },
         **duplicate_ids,
         "skip_co2_ppm": skip_co2_ppm,
         "selected_temps_c": selected_temps,
@@ -737,6 +889,11 @@ def build_run001_a1_evidence_payload(
     blocked_write_events = list(guard_payload.get("blocked_write_events", []) or [])
     identity_write_command_sent = bool(guard_payload.get("identity_write_command_sent", False))
     persistent_write_command_sent = bool(guard_payload.get("persistent_write_command_sent", False))
+    effective_fleet = build_effective_analyzer_fleet_payload(
+        raw_cfg,
+        config_path=config_path,
+        guard_payload=guard_payload,
+    )
     readiness = evaluate_run001_a1_readiness(
         raw_cfg,
         config_path=config_path,
@@ -823,6 +980,11 @@ def build_run001_a1_evidence_payload(
         "enabled_analyzers": enabled_analyzers,
         "analyzer_ports": [item["port"] for item in enabled_analyzers],
         "analyzer_device_ids": [item["device_id"] for item in enabled_analyzers],
+        "effective_analyzer_fleet": effective_fleet,
+        "effective_analyzer_fleet_summary": readiness["effective_analyzer_fleet_summary"],
+        "effective_analyzer_mapping_status": effective_fleet.get("mapping_status"),
+        "intended_effective_analyzer_list_match": effective_fleet.get("intended_effective_match"),
+        "all_enabled_analyzers_mode2_ready": effective_fleet.get("all_enabled_mode2_ready"),
         **duplicate_ids,
         "actual_route_steps": trace["actual_route_steps"],
         "actual_pressure_steps": trace["actual_pressure_steps"],
@@ -881,6 +1043,9 @@ def render_human_report(payload: Mapping[str, Any]) -> str:
             f"- failed_devices: {failed_device_line}",
             f"- duplicate_device_id_status: {payload.get('duplicate_device_id_status')}",
             f"- duplicate_device_id_policy: {payload.get('duplicate_device_id_policy')}",
+            f"- effective_analyzer_mapping_status: {payload.get('effective_analyzer_mapping_status')}",
+            f"- intended_effective_analyzer_list_match: {payload.get('intended_effective_analyzer_list_match')}",
+            f"- all_enabled_analyzers_mode2_ready: {payload.get('all_enabled_analyzers_mode2_ready')}",
             f"- attempted_write_count: {payload.get('attempted_write_count')}",
             f"- identity_write_command_sent: {payload.get('identity_write_command_sent')}",
             f"- temperature_chamber_wait_policy: {payload.get('temperature_chamber_wait_policy')}",
@@ -918,8 +1083,13 @@ def write_run001_a1_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
     guard_path = Path(artifact_paths["no_write_guard"])
     readiness_path = Path(artifact_paths["readiness"])
     trace_path = Path(artifact_paths["trace"])
+    effective_analyzer_fleet_path = Path(artifact_paths["effective_analyzer_fleet"])
     manifest_path = Path(artifact_paths["manifest"])
     report_path = Path(artifact_paths["report"])
+    effective_fleet = dict(enriched.get("effective_analyzer_fleet") or {})
+    effective_fleet["run_id"] = enriched.get("run_id")
+    effective_fleet["artifact_path"] = artifact_paths["effective_analyzer_fleet"]
+    enriched["effective_analyzer_fleet"] = effective_fleet
 
     summary_path.write_text(json.dumps(enriched, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     guard_path.write_text(
@@ -967,6 +1137,12 @@ def write_run001_a1_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
                 "service_status_message": enriched.get("service_status_message"),
                 "service_status_error": enriched.get("service_status_error"),
                 "hard_stop_reasons": enriched.get("hard_stop_reasons"),
+                "effective_analyzer_fleet_summary": enriched.get("effective_analyzer_fleet_summary"),
+                "effective_analyzer_mapping_status": enriched.get("effective_analyzer_mapping_status"),
+                "intended_effective_analyzer_list_match": enriched.get(
+                    "intended_effective_analyzer_list_match"
+                ),
+                "all_enabled_analyzers_mode2_ready": enriched.get("all_enabled_analyzers_mode2_ready"),
                 "identity_write_command_sent": enriched.get("identity_write_command_sent"),
                 "persistent_write_command_sent": enriched.get("persistent_write_command_sent"),
                 "duplicate_device_id_detected": enriched.get("duplicate_device_id_detected"),
@@ -1003,6 +1179,10 @@ def write_run001_a1_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
         + "\n",
         encoding="utf-8",
     )
+    effective_analyzer_fleet_path.write_text(
+        json.dumps(effective_fleet, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     manifest_path.write_text(
         json.dumps(
             {
@@ -1015,6 +1195,12 @@ def write_run001_a1_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
                 "enabled_analyzers": enriched.get("enabled_analyzers"),
                 "analyzer_ports": enriched.get("analyzer_ports"),
                 "analyzer_device_ids": enriched.get("analyzer_device_ids"),
+                "effective_analyzer_fleet_artifact": artifact_paths["effective_analyzer_fleet"],
+                "effective_analyzer_mapping_status": enriched.get("effective_analyzer_mapping_status"),
+                "intended_effective_analyzer_list_match": enriched.get(
+                    "intended_effective_analyzer_list_match"
+                ),
+                "all_enabled_analyzers_mode2_ready": enriched.get("all_enabled_analyzers_mode2_ready"),
                 "duplicate_device_id_detected": enriched.get("duplicate_device_id_detected"),
                 "duplicate_device_id_value": enriched.get("duplicate_device_id_value"),
                 "duplicate_device_id_ports": enriched.get("duplicate_device_id_ports"),

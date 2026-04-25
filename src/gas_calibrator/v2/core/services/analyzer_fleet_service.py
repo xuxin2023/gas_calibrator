@@ -218,6 +218,11 @@ class AnalyzerFleetService:
             getattr(self.context.config.workflow, "analyzer_setup", {}) or {}
         )
 
+    def _no_write_guard_active(self) -> bool:
+        service = getattr(self.host, "service", None)
+        guard = getattr(service, "no_write_guard", None)
+        return bool(getattr(guard, "enabled", False))
+
     @staticmethod
     def _device_id_to_int(device_id: Any) -> Optional[int]:
         text = str(device_id or "").strip()
@@ -323,12 +328,17 @@ class AnalyzerFleetService:
             if isinstance(raw_apply_device_id, bool)
             else str(raw_apply_device_id).strip().lower() not in {"0", "false", "no", "off"}
         )
+        configured_apply_device_id = bool(apply_device_id)
+        no_write_guard_active = self._no_write_guard_active()
+        if no_write_guard_active:
+            apply_device_id = False
         self.host._log(
             "Analyzer setup "
             f"software_version={setup.get('software_version')} "
             f"device_id_assignment_mode={setup.get('device_id_assignment_mode')} "
             f"start_device_id={setup.get('start_device_id')} "
-            f"apply_device_id={apply_device_id} analyzers={len(analyzers)}"
+            f"apply_device_id={apply_device_id} "
+            f"no_write_guard_active={no_write_guard_active} analyzers={len(analyzers)}"
         )
         self._record_route_trace(
             action="analyzer_setup_profile",
@@ -336,6 +346,9 @@ class AnalyzerFleetService:
             actual={
                 "analyzers": [label for label, _, _ in analyzers],
                 "planned_device_ids": planned_ids,
+                "configured_apply_device_id": configured_apply_device_id,
+                "effective_apply_device_id": bool(apply_device_id),
+                "no_write_guard_active": no_write_guard_active,
             },
             result="ok",
             message="Analyzer setup resolved",
@@ -344,7 +357,11 @@ class AnalyzerFleetService:
         for index, (label, analyzer, _cfg) in enumerate(analyzers):
             desired_id = planned_ids[index]
             if not apply_device_id:
-                detail = "device-id apply skipped by configuration; existing id retained"
+                detail = (
+                    "device-id apply skipped by no-write guard; existing id retained"
+                    if no_write_guard_active
+                    else "device-id apply skipped by configuration; existing id retained"
+                )
                 self.host._log(f"Analyzer setup device-id keep ({label}): id={desired_id} result=ok detail={detail}")
                 self._record_route_trace(
                     action="analyzer_device_id_keep",

@@ -22,7 +22,13 @@
     "full_h2o_co2_group": false,
     "h2o_single_route_readiness": "yellow",
     "full_single_temperature_h2o_co2_group_readiness": "yellow",
-    "not_real_acceptance_evidence": true
+    "not_real_acceptance_evidence": true,
+    "enabled_analyzer_list_source": "analyzer_id_truth_audit_20260425_122251_after_mode2_preparation",
+    "mode2_truth_audit_path": "../../output/run001_a1/co2_only_skip0_no_write/analyzer_id_truth_audit_20260425_122251/analyzer_id_truth_audit.json",
+    "duplicate_device_id_detected": false,
+    "duplicate_device_id_value": "",
+    "duplicate_device_id_ports": [],
+    "duplicate_device_id_policy": "not_applicable"
   },
   "features": {
     "use_v2": true,
@@ -80,9 +86,9 @@
       {
         "name": "ga02",
         "enabled": true,
-        "port": "COM36",
+        "port": "COM37",
         "baud": 115200,
-        "device_id": "002",
+        "device_id": "029",
         "mode": 2,
         "active_send": true,
         "ftd_hz": 10,
@@ -92,7 +98,7 @@
       {
         "name": "ga03",
         "enabled": true,
-        "port": "COM37",
+        "port": "COM41",
         "baud": 115200,
         "device_id": "003",
         "mode": 2,
@@ -104,7 +110,7 @@
       {
         "name": "ga04",
         "enabled": true,
-        "port": "COM38",
+        "port": "COM42",
         "baud": 115200,
         "device_id": "004",
         "mode": 2,
@@ -199,10 +205,17 @@
     "humidity_generator": {
       "ensure_run": false
     },
+    "analyzer_setup": {
+      "software_version": "v5_plus",
+      "device_id_assignment_mode": "manual",
+      "start_device_id": "001",
+      "manual_device_ids": ["001", "029", "003", "004"],
+      "apply_device_id": false
+    },
     "sensor_precheck": {
       "enabled": true,
       "profile": "raw_frame_first",
-      "scope": "first_analyzer_only",
+      "scope": "all_analyzers",
       "validation_mode": "v1_frame_like",
       "mode": 2,
       "active_send": true,
