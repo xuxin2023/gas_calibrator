@@ -459,8 +459,12 @@ def build_analyzer_precheck_diagnostics(
     detected = [
         item
         for item in analyzers
-        if item.get("mode2_detected") and item.get("active_send_detected") and str(item.get("observed_device_id") or "")
+        if item.get("active_send_detected")
+        and item.get("frame_parse_success")
+        and str(item.get("observed_device_id") or "")
+        and str(item.get("observed_mode") or "") in {"1", "2"}
     ]
+    ready_detected = [item for item in detected if item.get("mode2_detected")]
     return {
         "schema_version": "run001_a1.analyzer_precheck_diagnostics.1",
         "artifact_type": "run001_a1_analyzer_precheck_diagnostics",
@@ -486,6 +490,8 @@ def build_analyzer_precheck_diagnostics(
             "failed_logical_ids": [str(item.get("logical_id") or "") for item in failed],
             "detected_analyzer_count": len(detected),
             "detected_ports": [str(item.get("configured_port") or "") for item in detected],
+            "ready_mode2_detected_count": len(ready_detected),
+            "ready_mode2_detected_ports": [str(item.get("configured_port") or "") for item in ready_detected],
             "port_discovery_does_not_require_all_ports_ready": port_discovery,
             "a1_no_write_rerun_allowed": (not port_discovery) and len(analyzers) == 4 and not failed,
             "persistent_write_command_sent": any(
