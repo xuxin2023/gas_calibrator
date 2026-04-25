@@ -221,6 +221,30 @@ def summarize_plan(raw_cfg: Mapping[str, Any], point_rows: Optional[list[dict[st
     }
 
 
+def summarize_enabled_analyzers(raw_cfg: Mapping[str, Any]) -> list[dict[str, Any]]:
+    devices = _section(raw_cfg, "devices")
+    analyzers = devices.get("gas_analyzers")
+    if not isinstance(analyzers, list):
+        return []
+    enabled: list[dict[str, Any]] = []
+    for index, item in enumerate(analyzers):
+        if not isinstance(item, Mapping) or not _as_bool(item.get("enabled", True)):
+            continue
+        enabled.append(
+            {
+                "index": len(enabled),
+                "config_index": index,
+                "name": str(item.get("name") or f"analyzer_{len(enabled)}"),
+                "port": str(item.get("port") or "").strip().upper(),
+                "device_id": str(item.get("device_id") or "").strip(),
+                "mode": item.get("mode"),
+                "active_send": _as_bool(item.get("active_send")),
+                "baud": item.get("baud"),
+            }
+        )
+    return enabled
+
+
 def collect_trace_summary(run_dir: str | Path | None) -> dict[str, Any]:
     if run_dir is None:
         return {
@@ -665,6 +689,7 @@ def build_run001_a1_evidence_payload(
     config_path_text = "" if config_path is None else str(Path(config_path).expanduser().resolve())
     config_hash = sha256_file(config_path_text) if config_path_text and Path(config_path_text).exists() else ""
     resolved_run_id = run_id or f"run001_a1_preflight_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+    enabled_analyzers = summarize_enabled_analyzers(raw_cfg)
     return {
         "schema_version": "run001_a1.no_write.1",
         "artifact_type": "run001_a1_no_write_dry_run_evidence",
@@ -699,6 +724,9 @@ def build_run001_a1_evidence_payload(
         "temperature_group": plan["temperature_group"],
         "pressure_points": plan["pressure_points"],
         "sample_plan": plan["sample_plan"],
+        "enabled_analyzers": enabled_analyzers,
+        "analyzer_ports": [item["port"] for item in enabled_analyzers],
+        "analyzer_device_ids": [item["device_id"] for item in enabled_analyzers],
         "actual_route_steps": trace["actual_route_steps"],
         "actual_pressure_steps": trace["actual_pressure_steps"],
         "wait_gate_summary": trace["wait_gate_summary"],
@@ -866,6 +894,9 @@ def write_run001_a1_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
                 "config_path": enriched.get("config_path"),
                 "config_hash": enriched.get("config_hash"),
                 "mode": enriched.get("mode"),
+                "enabled_analyzers": enriched.get("enabled_analyzers"),
+                "analyzer_ports": enriched.get("analyzer_ports"),
+                "analyzer_device_ids": enriched.get("analyzer_device_ids"),
                 "readiness_result": enriched.get("readiness_result"),
                 "a1_final_decision": enriched.get("a1_final_decision"),
                 "a1_execution_result": enriched.get("a1_execution_result"),
