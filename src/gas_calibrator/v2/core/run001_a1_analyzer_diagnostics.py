@@ -34,6 +34,14 @@ def contains_persistent_write_token(command: Any) -> bool:
     return any(token in text for token in FORBIDDEN_PERSISTENT_COMMAND_TOKENS)
 
 
+def _as_bool(value: Any, *, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def run001_a1_analyzer_configs(raw_cfg: Mapping[str, Any]) -> list[dict[str, Any]]:
     devices = raw_cfg.get("devices") if isinstance(raw_cfg, Mapping) else {}
     analyzers = devices.get("gas_analyzers") if isinstance(devices, Mapping) else []
@@ -41,7 +49,12 @@ def run001_a1_analyzer_configs(raw_cfg: Mapping[str, Any]) -> list[dict[str, Any
     for index, item in enumerate(list(analyzers or [])):
         if not isinstance(item, Mapping):
             continue
+        enabled = _as_bool(item.get("enabled"), default=True)
+        connected = _as_bool(item.get("connected"), default=True)
+        if not enabled or not connected:
+            continue
         name = str(item.get("name") or f"ga{index + 1:02d}").strip()
+        expected_device_id = str(item.get("device_id") or "").strip()
         configs.append(
             {
                 "logical_id": f"gas_analyzer_{index}",
@@ -49,21 +62,28 @@ def run001_a1_analyzer_configs(raw_cfg: Mapping[str, Any]) -> list[dict[str, Any
                 "one_based_position": index + 1,
                 "physical_label": name.upper() if name else f"GA{index + 1:02d}",
                 "configured_name": name,
+                "port": str(item.get("port") or "").strip(),
                 "configured_port": str(item.get("port") or "").strip(),
                 "baudrate": int(item.get("baud", item.get("baudrate", 115200)) or 115200),
-                "configured_device_id": str(item.get("device_id") or "").strip(),
+                "expected_device_id": expected_device_id,
+                "configured_device_id": expected_device_id,
                 "protocol": "YGAS",
                 "expected_mode": int(item.get("mode", 2) or 2),
                 "active_send_expected": bool(item.get("active_send", False)),
-                "enabled": bool(item.get("enabled", True)),
+                "enabled": enabled,
+                "connected": connected,
             }
         )
     return configs
 
 
-def _selected_analyzer_configs(raw_cfg: Mapping[str, Any], only_failed: Optional[list[str]]) -> list[dict[str, Any]]:
+def _selected_analyzer_configs(
+    raw_cfg: Mapping[str, Any],
+    only_failed: Optional[list[str]],
+    analyzers: Optional[list[str]] = None,
+) -> list[dict[str, Any]]:
     configs = run001_a1_analyzer_configs(raw_cfg)
-    selected = {str(item).strip() for item in list(only_failed or []) if str(item).strip()}
+    selected = {str(item).strip() for item in list(analyzers or only_failed or []) if str(item).strip()}
     if not selected:
         return configs
     return [cfg for cfg in configs if cfg["logical_id"] in selected or cfg["physical_label"] in selected]
@@ -170,6 +190,8 @@ def _error_suggestion(error_type: str, cfg: Mapping[str, Any]) -> str:
         return f"Check {label} protocol output format, baudrate, and whether frames are YGAS-compatible."
     if error_type == "mode_mismatch":
         return f"Check {label} is already in MODE2 active-send; do not switch modes from this diagnostic."
+    if error_type == "device_id_mismatch":
+        return f"Check {label} device-id mapping; expected {cfg.get('configured_device_id')} on {port}."
     return "No onsite communication issue detected by this read-only diagnostic."
 
 
@@ -184,11 +206,16 @@ def diagnose_analyzer_config(
         **dict(cfg),
         "port_exists": bool(str(cfg.get("configured_port") or "").strip()),
         "port_open_success": False,
+        "port_open": False,
         "bytes_received": 0,
         "frame_parse_success": False,
+        "frame_parse": False,
         "mode2_frame_detected": False,
+        "mode2_detected": False,
         "latest_data_age_s": None,
         "observed_device_id": "",
+        "after_device_id": "",
+        "device_id_correct": False,
         "observed_serial": "",
         "active_send_detected": False,
         "read_query_command_used": False,
@@ -208,6 +235,7 @@ def diagnose_analyzer_config(
             pass
         _open_analyzer(analyzer)
         result["port_open_success"] = True
+        result["port_open"] = True
         line = _read_active_line(analyzer, timeout_s)
         if not line and allow_read_query:
             result["read_query_command_used"] = True
@@ -218,11 +246,19 @@ def diagnose_analyzer_config(
         result["active_send_detected"] = bool(line) and not bool(result["read_query_command_used"])
         mode2, parsed = _parse_line(analyzer, line)
         result["mode2_frame_detected"] = bool(mode2)
+        result["mode2_detected"] = bool(mode2)
         result["frame_parse_success"] = bool(parsed)
+        result["frame_parse"] = bool(parsed)
         if parsed:
             result["latest_data_age_s"] = 0.0
             result["observed_device_id"] = str(parsed.get("id") or "")
+            result["after_device_id"] = result["observed_device_id"]
             result["observed_serial"] = str(parsed.get("serial") or parsed.get("sn") or "")
+        expected_device_id = str(cfg.get("configured_device_id") or "").strip()
+        observed_device_id = str(result.get("observed_device_id") or "").strip()
+        result["device_id_correct"] = bool(
+            expected_device_id and observed_device_id and expected_device_id == observed_device_id
+        )
         expected_mode = int(cfg.get("expected_mode") or 0)
         observed_mode = int(parsed.get("mode") or 0) if parsed else 0
         result["observed_mode"] = observed_mode if observed_mode else None
@@ -234,6 +270,8 @@ def diagnose_analyzer_config(
             result["error_type"] = "mode_mismatch"
         elif expected_mode == 2 and not mode2:
             result["error_type"] = "mode_mismatch"
+        elif expected_device_id and observed_device_id != expected_device_id:
+            result["error_type"] = "device_id_mismatch"
         else:
             result["error_type"] = "ok"
     except Exception as exc:
@@ -243,6 +281,7 @@ def diagnose_analyzer_config(
         if analyzer is not None:
             _close_analyzer(analyzer)
     result["suggested_onsite_check"] = _error_suggestion(str(result["error_type"]), cfg)
+    result["final_status"] = "ready" if result["error_type"] == "ok" else "not_ready"
     return result
 
 
@@ -250,6 +289,7 @@ def build_analyzer_precheck_diagnostics(
     raw_cfg: Mapping[str, Any],
     *,
     only_failed: Optional[list[str]] = None,
+    analyzers: Optional[list[str]] = None,
     read_only: bool = True,
     allow_read_query: bool = False,
     timeout_s: float = 20.0,
@@ -257,7 +297,8 @@ def build_analyzer_precheck_diagnostics(
 ) -> dict[str, Any]:
     if not read_only:
         raise ValueError("Run-001/A1 analyzer diagnostics is read-only only")
-    selected = _selected_analyzer_configs(raw_cfg, only_failed)
+    requested = list(analyzers or only_failed or [])
+    selected = _selected_analyzer_configs(raw_cfg, only_failed, analyzers)
     analyzers = [
         diagnose_analyzer_config(
             cfg,
@@ -279,8 +320,9 @@ def build_analyzer_precheck_diagnostics(
         "read_only_query_commands": list(READ_ONLY_QUERY_COMMANDS),
         "forbidden_persistent_command_tokens": list(FORBIDDEN_PERSISTENT_COMMAND_TOKENS),
         "only_failed": list(only_failed or []),
+        "requested_analyzers": requested,
         "zero_based_one_based_note": (
-            "gas_analyzer_1/2/3 are zero-based logical ids and map to physical GA02/GA03/GA04."
+            "gas_analyzer_0/1/2/3 are zero-based logical ids and map to physical GA01/GA02/GA03/GA04."
         ),
         "analyzers": analyzers,
         "summary": {
@@ -288,6 +330,7 @@ def build_analyzer_precheck_diagnostics(
             "ok": len(analyzers) - len(failed),
             "failed": len(failed),
             "failed_logical_ids": [str(item.get("logical_id") or "") for item in failed],
+            "a1_no_write_rerun_allowed": len(analyzers) == 4 and not failed,
             "persistent_write_command_sent": any(
                 contains_persistent_write_token(command)
                 for item in analyzers
