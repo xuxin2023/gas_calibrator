@@ -114,7 +114,7 @@ def _port_discovery_configs(raw_cfg: Mapping[str, Any], ports: list[str]) -> lis
         if not port:
             continue
         planned = dict(by_port.get(port) or {})
-        expected_device_id = str(planned.get("configured_device_id") or "").strip()
+        formal_configured_device_id = str(planned.get("configured_device_id") or "").strip()
         configured_label = str(planned.get("physical_label") or "").strip()
         configs.append(
             {
@@ -126,8 +126,9 @@ def _port_discovery_configs(raw_cfg: Mapping[str, Any], ports: list[str]) -> lis
                 "port": port,
                 "configured_port": port,
                 "baudrate": int(planned.get("baudrate") or 115200),
-                "expected_device_id": expected_device_id,
-                "configured_device_id": expected_device_id,
+                "expected_device_id": "",
+                "configured_device_id": "",
+                "formal_configured_device_id_for_port": formal_configured_device_id,
                 "protocol": "YGAS",
                 "expected_mode": int(planned.get("expected_mode") or 2),
                 "active_send_expected": True,

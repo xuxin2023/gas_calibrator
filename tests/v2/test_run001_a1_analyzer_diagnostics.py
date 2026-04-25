@@ -235,8 +235,10 @@ def test_port_discovery_scans_explicit_com_ports_without_logical_id_mapping() ->
     assert payload["requested_ports"] == ["COM35", "COM36", "COM37", "COM38", "COM39", "COM40", "COM41", "COM42"]
     assert all(str(item["logical_id"]).startswith("port_discovery_COM") for item in payload["analyzers"])
     assert rows["COM35"]["observed_device_id"] == "091"
-    assert rows["COM35"]["error_type"] == "device_id_mismatch"
-    assert "do_not_map" in rows["COM35"]["mapping_suggestion"]
+    assert rows["COM35"]["formal_configured_device_id_for_port"] == "001"
+    assert rows["COM35"]["configured_device_id"] == ""
+    assert rows["COM35"]["error_type"] == "ok"
+    assert rows["COM35"]["mapping_suggestion"] == "detected_unmapped_device_id_091_requires_site_confirmation"
     assert rows["COM39"]["observed_device_id"] == "001"
     assert rows["COM39"]["possible_physical_label"] == "GA01"
     assert rows["COM39"]["mapping_suggestion"] == "suggest_map_to_GA01_after_site_confirmation"
