@@ -13,6 +13,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 from .config import AIConfig, AppConfig, StorageConfig, summarize_step2_config_safety
 from .core.calibration_service import CalibrationService, SamplingResult
 from .core.device_factory import DeviceFactory
+from .core.no_write_guard import NoWriteDeviceFactory, build_no_write_guard_from_raw_config
 from .core.point_parser import PointFilter, PointParser
 
 
@@ -147,6 +148,7 @@ def load_config_bundle(
     )
     raw_cfg["_config_safety"] = copy.deepcopy(config_safety)
     raw_cfg["_step2_execution_gate"] = copy.deepcopy(dict(config_safety.get("execution_gate") or {}))
+    raw_cfg["_resolved_config_path"] = resolved_config_path
     setattr(config, "_config_safety", copy.deepcopy(config_safety))
     setattr(config, "_step2_execution_gate", copy.deepcopy(dict(config_safety.get("execution_gate") or {})))
     if enforce_step2_execution_gate and not bool(config_safety.get("step2_default_workflow_allowed", True)):
@@ -247,6 +249,9 @@ def create_calibration_service_from_config(
         simulation_mode=bool(config.features.simulation_mode),
         simulation_context=simulation_context,
     )
+    no_write_guard = build_no_write_guard_from_raw_config(raw_cfg)
+    if no_write_guard is not None:
+        device_factory = NoWriteDeviceFactory(device_factory, no_write_guard)
     point_parser = PointParser()
     service = service_cls(
         config=config,
@@ -255,6 +260,10 @@ def create_calibration_service_from_config(
         **(service_init_kwargs or {}),
     )
     service._raw_cfg = copy.deepcopy(raw_cfg) if raw_cfg is not None else None
+    service._config_path = None
+    if isinstance(raw_cfg, dict):
+        service._config_path = raw_cfg.get("_resolved_config_path")
+    service.no_write_guard = no_write_guard
     resolved_runtime_hooks = runtime_hooks
     if runtime_hooks_factory is not None:
         resolved_runtime_hooks = runtime_hooks_factory(service, service._raw_cfg)

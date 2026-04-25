@@ -229,6 +229,7 @@ class ArtifactService:
                     startup_pressure_precheck=startup_pressure_precheck,
                     extra_stats=dict(offline_payload.get("summary_stats") or {}),
                 )
+            self._export_run001_a1_artifacts()
             self.host._remember_output_file(str(self.context.data_writer.log_path))
             self.host._remember_output_file(str(self.context.run_logger.points_path))
             self.host._remember_output_file(str(self.context.run_logger.io_log_path))
@@ -337,6 +338,31 @@ class ArtifactService:
             "path": str(path or ""),
             "error": str(error or ""),
         }
+
+    def _export_run001_a1_artifacts(self) -> None:
+        try:
+            from ..run001_a1_dry_run import export_runtime_run001_a1_artifacts
+
+            written = export_runtime_run001_a1_artifacts(self.host, self.context.result_store.run_dir)
+        except Exception as exc:
+            self._set_export_status(
+                "run001_a1_evidence",
+                role="diagnostic_analysis",
+                status=self.STATUS_ERROR,
+                error=str(exc),
+            )
+            self.host._log(f"Run-001/A1 evidence export failed: {exc}")
+            return
+        if not written:
+            return
+        for key, path in written.items():
+            self.host._remember_output_file(str(path))
+            self._set_export_status(
+                f"run001_a1_{key}",
+                role="diagnostic_analysis",
+                status=self.STATUS_OK if Path(path).exists() else self.STATUS_MISSING,
+                path=str(path),
+            )
 
     def sync_results_to_storage(self) -> None:
         storage = getattr(self.context.config, "storage", None)
