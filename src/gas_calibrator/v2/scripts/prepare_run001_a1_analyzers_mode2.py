@@ -39,6 +39,12 @@ def create_argument_parser() -> argparse.ArgumentParser:
         default=[],
         help="Logical analyzer ids or labels, for example gas_analyzer_0 gas_analyzer_1 GA03",
     )
+    parser.add_argument(
+        "--ports",
+        nargs="*",
+        default=[],
+        help="Explicit COM ports for setup target selection, for example COM35 COM41 COM42",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print/write the command plan without opening ports")
     parser.add_argument(
         "--set-mode2-active-send",
@@ -82,10 +88,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     output_dir = Path(args.output_dir).expanduser().resolve() if args.output_dir else _default_output_dir(raw_cfg, resolved_config_path)
     dry_run = bool(args.dry_run or not (args.set_mode2_active_send and args.confirm_mode2_communication_setup))
+    if args.ports and args.analyzers:
+        print("[Run-001/A1] refused: use either --ports or --analyzers, not both.", flush=True)
+        return 2
     payload, written = run_analyzer_mode2_setup(
         raw_cfg,
         output_dir=output_dir,
         analyzers=list(args.analyzers or []),
+        ports=list(args.ports or []),
         dry_run=dry_run,
         set_mode2_active_send=bool(args.set_mode2_active_send),
         confirm_mode2_communication_setup=bool(args.confirm_mode2_communication_setup),

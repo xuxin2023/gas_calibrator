@@ -14,6 +14,7 @@ from .run001_a1_analyzer_diagnostics import (
     _close_analyzer,
     _make_default_analyzer,
     _open_analyzer,
+    _port_discovery_configs,
     _selected_analyzer_configs,
     diagnose_analyzer_config,
 )
@@ -524,6 +525,7 @@ def build_analyzer_mode2_setup_payload(
     raw_cfg: Mapping[str, Any],
     *,
     analyzers: Optional[list[str]] = None,
+    ports: Optional[list[str]] = None,
     dry_run: bool = True,
     set_mode2_active_send: bool = False,
     confirm_mode2_communication_setup: bool = False,
@@ -538,7 +540,13 @@ def build_analyzer_mode2_setup_payload(
     artifact_update: Optional[Callable[[Mapping[str, Any]], None]] = None,
 ) -> dict[str, Any]:
     requested_analyzers = list(analyzers or [])
-    selected = _selected_analyzer_configs(raw_cfg, None, requested_analyzers)
+    requested_ports = list(ports or [])
+    port_target_setup = bool(requested_ports)
+    selected = (
+        _port_discovery_configs(raw_cfg, requested_ports)
+        if port_target_setup
+        else _selected_analyzer_configs(raw_cfg, None, requested_analyzers)
+    )
     send_allowed, setup_reason = _setup_allowed(
         set_mode2_active_send=set_mode2_active_send,
         confirm_mode2_communication_setup=confirm_mode2_communication_setup,
@@ -569,6 +577,8 @@ def build_analyzer_mode2_setup_payload(
         "setup_request_status": setup_reason,
         "target_analyzers": [str(item.get("logical_id") or "") for item in selected],
         "target_ports": [str(item.get("configured_port") or "") for item in selected],
+        "requested_ports": requested_ports,
+        "target_selection_mode": "ports" if port_target_setup else "analyzers",
         "command_whitelist": list(MODE2_SETUP_ALLOWED_COMMANDS),
         "command_source_audit": list(MODE2_SETUP_COMMAND_SOURCE_AUDIT),
         "allowed_communication_commands": list(MODE2_SETUP_ALLOWED_COMMANDS),
@@ -694,6 +704,11 @@ def build_analyzer_mode2_setup_payload(
                 timeout_s=diagnostic_timeout,
             )
             row.update(_diagnostic_snapshot(before_result, "before"))
+            if port_target_setup and before_result:
+                observed_before_id = str(before_result.get("observed_device_id") or "").strip()
+                if observed_before_id:
+                    row["expected_device_id"] = observed_before_id
+                    row["expected_current_device_id"] = observed_before_id
             if before_timeout:
                 row.update(
                     {
@@ -808,8 +823,11 @@ def build_analyzer_mode2_setup_payload(
 
             if row.get("status") not in {"timeout", "failed"}:
                 remaining = max(0.01, row_deadline - time.monotonic())
+                after_cfg = dict(cfg)
+                if port_target_setup and str(row.get("expected_device_id") or "").strip():
+                    after_cfg["configured_device_id"] = str(row.get("expected_device_id") or "").strip()
                 after_result, after_timeout, after_error = _bounded_diagnostic(
-                    cfg,
+                    after_cfg,
                     analyzer_factory=analyzer_factory,
                     timeout_s=min(float(payload["timeouts"]["diagnostic_timeout_s"]), remaining),
                 )
@@ -974,6 +992,7 @@ def run_analyzer_mode2_setup(
     *,
     output_dir: str | Path,
     analyzers: Optional[list[str]] = None,
+    ports: Optional[list[str]] = None,
     dry_run: bool = True,
     set_mode2_active_send: bool = False,
     confirm_mode2_communication_setup: bool = False,
@@ -993,6 +1012,7 @@ def run_analyzer_mode2_setup(
     payload = build_analyzer_mode2_setup_payload(
         raw_cfg,
         analyzers=analyzers,
+        ports=ports,
         dry_run=dry_run,
         set_mode2_active_send=set_mode2_active_send,
         confirm_mode2_communication_setup=confirm_mode2_communication_setup,
