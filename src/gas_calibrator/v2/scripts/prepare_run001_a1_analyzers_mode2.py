@@ -17,8 +17,7 @@ def _bootstrap_src_path_for_direct_script() -> None:
 _bootstrap_src_path_for_direct_script()
 
 from gas_calibrator.v2.core.run001_a1_analyzer_mode2_setup import (  # noqa: E402
-    build_analyzer_mode2_setup_payload,
-    write_analyzer_mode2_setup_artifacts,
+    run_analyzer_mode2_setup,
 )
 from gas_calibrator.v2.entry import load_config_bundle  # noqa: E402
 
@@ -52,6 +51,9 @@ def create_argument_parser() -> argparse.ArgumentParser:
         help="Required together with --set-mode2-active-send before any MODE2 setup command is sent",
     )
     parser.add_argument("--timeout-s", type=float, default=20.0, help="Read-only diagnostics timeout in seconds")
+    parser.add_argument("--command-timeout-s", type=float, default=5.0, help="Per-command setup timeout in seconds")
+    parser.add_argument("--device-timeout-s", type=float, default=30.0, help="Per-device setup timeout in seconds")
+    parser.add_argument("--total-timeout-s", type=float, default=0.0, help="Overall setup timeout in seconds")
     parser.add_argument("--output-dir", type=str, default="", help="Output directory for setup artifacts")
     return parser
 
@@ -80,15 +82,19 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     output_dir = Path(args.output_dir).expanduser().resolve() if args.output_dir else _default_output_dir(raw_cfg, resolved_config_path)
     dry_run = bool(args.dry_run or not (args.set_mode2_active_send and args.confirm_mode2_communication_setup))
-    payload = build_analyzer_mode2_setup_payload(
+    payload, written = run_analyzer_mode2_setup(
         raw_cfg,
+        output_dir=output_dir,
         analyzers=list(args.analyzers or []),
         dry_run=dry_run,
         set_mode2_active_send=bool(args.set_mode2_active_send),
         confirm_mode2_communication_setup=bool(args.confirm_mode2_communication_setup),
         timeout_s=float(args.timeout_s),
+        command_timeout_s=float(args.command_timeout_s),
+        device_timeout_s=float(args.device_timeout_s),
+        total_timeout_s=float(args.total_timeout_s) if float(args.total_timeout_s or 0.0) > 0 else None,
+        config_path=str(resolved_config_path),
     )
-    written = write_analyzer_mode2_setup_artifacts(output_dir, payload)
     print(f"[Run-001/A1] analyzer MODE2 setup output={output_dir}", flush=True)
     print(f"[Run-001/A1] analyzer MODE2 setup json={written['analyzer_mode2_setup_json']}", flush=True)
     print(f"[Run-001/A1] analyzer MODE2 setup report={written['analyzer_mode2_setup_report']}", flush=True)

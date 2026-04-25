@@ -46,6 +46,12 @@ def create_argument_parser() -> argparse.ArgumentParser:
         default=[],
         help="Logical analyzer ids or labels to diagnose, for example gas_analyzer_0 gas_analyzer_1 GA03",
     )
+    parser.add_argument(
+        "--ports",
+        nargs="*",
+        default=[],
+        help="Explicit COM ports for read-only discovery, for example COM35 COM36 COM37",
+    )
     parser.add_argument("--read-only", action="store_true", help="Required marker; diagnostics are read-only only")
     parser.add_argument(
         "--allow-read-query",
@@ -87,6 +93,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         raw_cfg,
         only_failed=list(args.only_failed or []),
         analyzers=list(args.analyzers or []) or None,
+        ports=list(args.ports or []) or None,
         read_only=True,
         allow_read_query=bool(args.allow_read_query),
         timeout_s=float(args.timeout_s),

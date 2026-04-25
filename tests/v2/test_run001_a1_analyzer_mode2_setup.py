@@ -16,6 +16,7 @@ from gas_calibrator.v2.core.run001_a1_analyzer_mode2_setup import (
     Mode2SetupSafetyError,
     build_analyzer_mode2_setup_payload,
     command_contains_forbidden_mode2_setup_token,
+    run_analyzer_mode2_setup,
     validate_mode2_setup_command_plan,
     write_analyzer_mode2_setup_artifacts,
 )
@@ -248,3 +249,78 @@ def test_mode2_setup_artifacts_record_boundaries_without_touching_v1(tmp_path: P
     assert payload["a2_invoked"] is False
     assert payload["h2o_invoked"] is False
     assert payload["full_group_invoked"] is False
+
+
+def test_actual_mode2_setup_creates_artifact_before_first_command(tmp_path: Path) -> None:
+    observed = {"initial_artifact_seen": False}
+
+    class InspectingAnalyzer(FakeMode2Analyzer):
+        def set_mode_with_ack(self, value: int, *, require_ack: bool = True) -> bool:
+            artifact = tmp_path / "analyzer_mode2_setup.json"
+            assert artifact.exists()
+            snapshot = json.loads(artifact.read_text(encoding="utf-8"))
+            assert snapshot["status"] == "running"
+            assert snapshot["started_at"]
+            assert snapshot["dry_run"] is False
+            observed["initial_artifact_seen"] = True
+            return super().set_mode_with_ack(value, require_ack=require_ack)
+
+    def _make(cfg: Mapping[str, Any]) -> InspectingAnalyzer:
+        return InspectingAnalyzer(cfg)
+
+    payload, written = run_analyzer_mode2_setup(
+        _raw_config(),
+        output_dir=tmp_path,
+        analyzers=["gas_analyzer_0"],
+        dry_run=False,
+        set_mode2_active_send=True,
+        confirm_mode2_communication_setup=True,
+        command_timeout_s=1.0,
+        device_timeout_s=5.0,
+        analyzer_factory=_make,
+        config_path=str(CONFIG_PATH),
+    )
+
+    assert observed["initial_artifact_seen"] is True
+    assert Path(written["analyzer_mode2_setup_json"]).exists()
+    assert payload["commands_sent"] == list(MODE2_SETUP_ALLOWED_COMMANDS)
+    assert payload["persistent_write_command_sent"] is False
+    assert payload["calibration_write_command_sent"] is False
+
+
+def test_mode2_setup_command_timeout_preserves_partial_artifact_and_send_attempt(tmp_path: Path) -> None:
+    import time
+
+    class SlowAnalyzer(FakeMode2Analyzer):
+        def set_mode_with_ack(self, value: int, *, require_ack: bool = True) -> bool:
+            time.sleep(0.2)
+            return super().set_mode_with_ack(value, require_ack=require_ack)
+
+    def _make(cfg: Mapping[str, Any]) -> SlowAnalyzer:
+        return SlowAnalyzer(cfg)
+
+    payload, written = run_analyzer_mode2_setup(
+        _raw_config(),
+        output_dir=tmp_path,
+        analyzers=["gas_analyzer_0"],
+        dry_run=False,
+        set_mode2_active_send=True,
+        confirm_mode2_communication_setup=True,
+        command_timeout_s=0.01,
+        device_timeout_s=1.0,
+        total_timeout_s=2.0,
+        analyzer_factory=_make,
+        config_path=str(CONFIG_PATH),
+    )
+    saved = json.loads(Path(written["analyzer_mode2_setup_json"]).read_text(encoding="utf-8"))
+    row = saved["analyzers"][0]
+    first_command = row["command_result"][0]
+
+    assert payload["status"] == "timeout"
+    assert saved["status"] == "timeout"
+    assert row["status"] == "timeout"
+    assert row["error_type"] == "command_timeout"
+    assert first_command["send_attempted_at"]
+    assert first_command["timeout"] is True
+    assert saved["partial_results"][0]["logical_id"] == "gas_analyzer_0"
+    assert saved["commands_sent"] == []
