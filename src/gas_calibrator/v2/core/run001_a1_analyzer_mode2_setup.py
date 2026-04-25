@@ -209,14 +209,22 @@ def _send_command_with_audit(analyzer: Any, command: str, *, timeout_s: float) -
     validate_mode2_setup_command_plan([command])
     event["send_attempted_at"] = _utc_now()
     event["status"] = "send_attempted"
+    transport = getattr(analyzer, "ser", None)
+    raw_serial_send_possible = callable(getattr(transport, "write", None))
+    command_timeout_s = max(0.01, float(timeout_s or 0.01))
+    wall_timeout_s = (
+        max(command_timeout_s + 1.0, command_timeout_s * 1.2)
+        if raw_serial_send_possible
+        else command_timeout_s
+    )
 
     def _send() -> tuple[bool, str, str, list[str]]:
         try:
-            return _raw_serial_send_with_ack(analyzer, command, timeout_s)
+            return _raw_serial_send_with_ack(analyzer, command, command_timeout_s)
         except AttributeError:
             return _fallback_driver_send_with_ack(analyzer, command)
 
-    timed_out, result, error = _run_with_timeout(timeout_s, _send)
+    timed_out, result, error = _run_with_timeout(wall_timeout_s, _send)
     if timed_out:
         event.update(
             {
@@ -268,7 +276,7 @@ def send_mode2_setup_commands(
             results.append(event)
             if callable(on_event):
                 on_event(dict(event))
-            if event.get("timeout") or event.get("error") or not event.get("ack_received"):
+            if event.get("timeout") or event.get("error"):
                 break
         except Exception as exc:
             event.update({"error": str(exc), "status": "error"})
@@ -796,10 +804,14 @@ def build_analyzer_mode2_setup_payload(
                     row["final_status"] = "failed"
                     row["onsite_suggestion"] = command_error
                 elif no_ack:
+                    row["ack_missing_before_verify"] = True
                     row["error_type"] = "mode_setup_no_ack"
-                    row["status"] = "failed"
-                    row["final_status"] = "failed"
-                    row["onsite_suggestion"] = "MODE2 setup command sent but ACK was not received within the command timeout."
+                    row["status"] = "verify_after_no_ack"
+                    row["final_status"] = "verifying_after_no_ack"
+                    row["onsite_suggestion"] = (
+                        "MODE2 setup command sent but ACK was not received within the command timeout; "
+                        "continue with read-only verification because ACK may be buried in active-send frames."
+                    )
             except TimeoutError as exc:
                 row.update(
                     {

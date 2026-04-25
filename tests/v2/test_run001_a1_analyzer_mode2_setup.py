@@ -471,3 +471,81 @@ def test_bounded_diagnostic_allows_mode1_active_stream_to_use_full_read_window()
     assert result is not None
     assert result["observed_device_id"] == "091"
     assert result["error_type"] == "mode_mismatch"
+
+
+def test_mode2_setup_no_ack_still_continues_to_readonly_verify_ready() -> None:
+    state = {"mode": 1, "active_send": True}
+
+    class NoAckRawAnalyzer:
+        def __init__(self, cfg: Mapping[str, Any]) -> None:
+            self.cfg = dict(cfg)
+            self.ser = self
+            self.writes: list[str] = []
+            self.active_send = bool(state["active_send"])
+
+        def open(self) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+        def flush_input(self) -> None:
+            return None
+
+        def write(self, payload: str) -> None:
+            self.writes.append(payload)
+            text = str(payload or "").strip().upper()
+            if text == "MODE,YGAS,FFF,2":
+                state["mode"] = 2
+            if text == "SETCOMWAY,YGAS,FFF,1":
+                state["active_send"] = True
+                self.active_send = True
+
+        def drain_input_nonblock(self, **_kwargs: Any) -> list[str]:
+            device_id = "091"
+            if int(state["mode"]) == 1:
+                return [f"YGAS,{device_id},100.0,0.0,1.0,2.0"]
+            return [_mode2_line(device_id)]
+
+        def read_latest_data(self, **_kwargs: Any) -> str:
+            device_id = "091"
+            if int(state["mode"]) == 1:
+                return f"YGAS,{device_id},100.0,0.0,1.0,2.0"
+            return _mode2_line(device_id)
+
+        def parse_line_mode2(self, line: str) -> dict[str, Any] | None:
+            parts = [part.strip() for part in str(line or "").split(",")]
+            if len(parts) >= 16 and parts[0] == "YGAS":
+                return {"raw": line, "id": parts[1], "mode": 2, "co2_ppm": 100.0, "h2o_mmol": 0.0}
+            return None
+
+        def parse_line(self, line: str) -> dict[str, Any] | None:
+            mode2 = self.parse_line_mode2(line)
+            if mode2:
+                return mode2
+            parts = [part.strip() for part in str(line or "").split(",")]
+            if len(parts) >= 6 and parts[0] == "YGAS":
+                return {"raw": line, "id": parts[1], "mode": 1, "co2_ppm": 100.0, "h2o_mmol": 0.0}
+            return None
+
+    payload = build_analyzer_mode2_setup_payload(
+        _raw_config(),
+        ports=["COM35"],
+        dry_run=False,
+        set_mode2_active_send=True,
+        confirm_mode2_communication_setup=True,
+        timeout_s=0.2,
+        command_timeout_s=0.05,
+        device_timeout_s=5.0,
+        analyzer_factory=lambda cfg: NoAckRawAnalyzer(cfg),
+    )
+    row = payload["analyzers"][0]
+
+    assert row["commands_sent"] == ["MODE,YGAS,FFF,2", "SETCOMWAY,YGAS,FFF,1"]
+    assert [event["ack_received"] for event in row["command_result"]] == [False, False]
+    assert row["ack_missing_before_verify"] is True
+    assert row["after_mode2_detected"] is True
+    assert row["after_active_send_detected"] is True
+    assert row["after_device_id"] == "091"
+    assert row["final_status"] == "ready"
+    assert row["error_type"] == "ok"
