@@ -14,6 +14,7 @@ from gas_calibrator.v2.core.run001_a1_analyzer_diagnostics import (
 from gas_calibrator.v2.core.run001_a1_analyzer_mode2_setup import (
     MODE2_SETUP_ALLOWED_COMMANDS,
     Mode2SetupSafetyError,
+    _bounded_diagnostic,
     build_analyzer_mode2_setup_payload,
     command_contains_forbidden_mode2_setup_token,
     run_analyzer_mode2_setup,
@@ -441,3 +442,32 @@ def test_mode2_setup_ports_mode_uses_observed_device_ids_without_formal_config_u
     assert rows["COM42"]["expected_device_id"] == "012"
     assert all(row["after_mode2_detected"] is True for row in rows.values())
     assert all(row["after_active_send_detected"] is True for row in rows.values())
+
+
+def test_bounded_diagnostic_allows_mode1_active_stream_to_use_full_read_window() -> None:
+    import time
+
+    class SlowMode1Analyzer(FakeMode2Analyzer):
+        def read_latest_data(self, **_kwargs: Any) -> str:
+            time.sleep(0.08)
+            return "YGAS,091,100.0,0.0,1.0,2.0"
+
+    cfg = {
+        "logical_id": "port_discovery_COM35",
+        "configured_port": "COM35",
+        "baudrate": 115200,
+        "configured_device_id": "",
+        "expected_mode": 2,
+        "active_send_expected": True,
+    }
+    result, timed_out, error = _bounded_diagnostic(
+        cfg,
+        analyzer_factory=lambda item: SlowMode1Analyzer(item, mode1=True),
+        timeout_s=0.08,
+    )
+
+    assert timed_out is False
+    assert error == ""
+    assert result is not None
+    assert result["observed_device_id"] == "091"
+    assert result["error_type"] == "mode_mismatch"

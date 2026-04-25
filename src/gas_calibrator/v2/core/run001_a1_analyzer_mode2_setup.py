@@ -374,13 +374,15 @@ def _bounded_diagnostic(
     analyzer_factory: Optional[Callable[[Mapping[str, Any]], Any]],
     timeout_s: float,
 ) -> tuple[Optional[dict[str, Any]], bool, str]:
+    diagnostic_timeout_s = max(0.05, float(timeout_s or 0.05))
+    wall_timeout_s = max(diagnostic_timeout_s + 1.0, diagnostic_timeout_s * 1.2)
     timed_out, result, error = _run_with_timeout(
-        timeout_s,
+        wall_timeout_s,
         lambda: diagnose_analyzer_config(
             cfg,
             analyzer_factory=analyzer_factory,
             allow_read_query=False,
-            timeout_s=timeout_s,
+            timeout_s=diagnostic_timeout_s,
         ),
     )
     if timed_out:
