@@ -672,6 +672,9 @@ class PressureControlService:
             self.host._check_stop()
             final_pressure, in_limits = self.pressure_reading_and_in_limits(target)
             if in_limits:
+                if seal_context is not None:
+                    self.run_state.pressure.sealed_route_pressure_control_started = True
+                    self.run_state.pressure.sealed_route_last_controlled_pressure_hpa = target
                 self.host._log(f"Pressure in-limits at target {target} hPa")
                 result = PressureWaitResult(
                     ok=True,
@@ -1160,6 +1163,8 @@ class PressureControlService:
             "seal_transition_status": state.seal_transition_status,
             "seal_transition_reason": state.seal_transition_reason,
             "control_ready_watchlist_status_accepted": state.control_ready_watchlist_status_accepted,
+            "sealed_route_pressure_control_started": state.sealed_route_pressure_control_started,
+            "sealed_route_last_controlled_pressure_hpa": state.sealed_route_last_controlled_pressure_hpa,
         }
 
     def _mark_pressure_route_sealed(
@@ -1190,6 +1195,8 @@ class PressureControlService:
         state.preseal_watchlist_status_accepted = bool(watchlist.get("preseal_watchlist_status_accepted"))
         state.preseal_watchlist_status_reason = str(watchlist.get("preseal_watchlist_status_reason") or "")
         state.control_ready_watchlist_status_accepted = False
+        state.sealed_route_pressure_control_started = False
+        state.sealed_route_last_controlled_pressure_hpa = None
 
     def _clear_pressure_route_seal_state(self) -> None:
         state = self.run_state.pressure
@@ -1214,6 +1221,8 @@ class PressureControlService:
         state.seal_transition_status = ""
         state.seal_transition_reason = ""
         state.control_ready_watchlist_status_accepted = False
+        state.sealed_route_pressure_control_started = False
+        state.sealed_route_last_controlled_pressure_hpa = None
 
     def _mark_preseal_final_atmosphere_exit(self, diagnostics: dict[str, Any]) -> None:
         state = self.run_state.pressure
@@ -1417,12 +1426,13 @@ class PressureControlService:
             ],
             "warnings": [
                 "vent_status_2_observed_accepted_under_v1_compatible_pressure_evidence",
+                "output_state_active_accepted_for_continued_sealed_route_control",
             ],
             "evidence_required_before_setpoint": [
                 "final_vent_off_command_sent",
                 "preseal_final_atmosphere_exit_verified",
                 "seal_transition_completed",
-                "output_state_idle",
+                "output_state_idle_or_active_continued_sealed_route_control",
                 "isolation_state_open",
                 "pressure_observed_before_control",
             ],
@@ -1559,10 +1569,14 @@ class PressureControlService:
             hard_blockers.append("seal_open_channels_present")
         elif str(seal_context.get("seal_transition_status") or "") == "verified_closed":
             decision_basis.append("seal_transition_verified_closed")
+        continuing_sealed_control = bool(seal_context.get("sealed_route_pressure_control_started"))
         if output_state is None:
             hard_blockers.append("output_state_unavailable")
-        elif int(output_state) != 0:
+        elif int(output_state) != 0 and not (continuing_sealed_control and int(output_state) == 1):
             hard_blockers.append(f"output_state={int(output_state)}(not_idle_before_control)")
+        elif int(output_state) == 1:
+            decision_basis.append("output_state_active_for_continued_sealed_route_control")
+            warnings.append("output_state=1 accepted for continued sealed-route setpoint update")
         else:
             decision_basis.append("output_state_idle_before_control")
         if isolation_state is None:

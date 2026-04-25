@@ -6,7 +6,7 @@ import json
 import math
 from pathlib import Path
 import time
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Mapping, Optional
 
 from ...exceptions import StabilityTimeoutError
 from ..models import CalibrationPhase, CalibrationPoint
@@ -272,6 +272,11 @@ class TemperatureControlService:
             if not self._wait_analyzer_chamber_temp_stable(target_c):
                 self._set_ready_target(None)
                 self.run_state.temperature.last_soak_done = False
+                analyzer_evidence = dict(self.run_state.temperature.analyzer_chamber_temp_stability_evidence or {})
+                failure_reason = str(
+                    analyzer_evidence.get("failure_reason")
+                    or "Analyzer chamber temperature did not stabilize"
+                )
                 self.host._log("Analyzer chamber temperature did not stabilize after chamber wait")
                 return self._store_result(
                     WaitResult(
@@ -279,8 +284,17 @@ class TemperatureControlService:
                         target_c=target_c,
                         final_temp_c=self._safe_read(reader),
                         attempt_count=max(1, start_result.attempt_count),
-                        diagnostics={"stage": "analyzer_chamber_temp", "soak_after_reach_s": soak_s},
-                        error="Analyzer chamber temperature did not stabilize",
+                        diagnostics={
+                            "stage": "analyzer_chamber_temperature_stability",
+                            "failure_stage": analyzer_evidence.get(
+                                "failure_stage",
+                                "analyzer_chamber_temperature_stability",
+                            ),
+                            "failure_reason": failure_reason,
+                            "soak_after_reach_s": soak_s,
+                            "analyzer_chamber_temperature_stability": analyzer_evidence,
+                        },
+                        error=failure_reason,
                     )
                 )
             self._set_ready_target(target_c)
@@ -338,6 +352,35 @@ class TemperatureControlService:
                             diagnostics={"timeout_recovered_in_band": True, "tolerance_c": tol_c},
                         )
                     )
+                analyzer_evidence = dict(self.run_state.temperature.analyzer_chamber_temp_stability_evidence or {})
+                failure_reason = str(
+                    analyzer_evidence.get("failure_reason")
+                    or "Analyzer chamber temperature did not stabilize after chamber timeout recovery"
+                )
+                self._set_ready_target(None)
+                self.run_state.temperature.last_soak_done = False
+                self.host._log(f"Analyzer chamber temperature did not stabilize after in-band timeout: {failure_reason}")
+                return self._store_result(
+                    WaitResult(
+                        ok=False,
+                        timed_out=True,
+                        target_c=target_c,
+                        final_temp_c=final_temp,
+                        attempt_count=max(1, start_result.attempt_count),
+                        diagnostics={
+                            "stage": "analyzer_chamber_temperature_stability",
+                            "failure_stage": analyzer_evidence.get(
+                                "failure_stage",
+                                "analyzer_chamber_temperature_stability",
+                            ),
+                            "failure_reason": failure_reason,
+                            "timeout_recovered_in_band": False,
+                            "tolerance_c": tol_c,
+                            "analyzer_chamber_temperature_stability": analyzer_evidence,
+                        },
+                        error=failure_reason,
+                    )
+                )
             self._set_ready_target(None)
             self.run_state.temperature.last_soak_done = False
             self.host._log(f"Temperature chamber stability timeout: {exc}")
@@ -699,8 +742,72 @@ class TemperatureControlService:
 
         return monitored_reader
 
+    def _no_write_guard_active(self) -> bool:
+        service = getattr(self.host, "service", None)
+        guard = getattr(service, "no_write_guard", None)
+        return bool(getattr(guard, "enabled", False))
+
+    @staticmethod
+    def _config_value(config: Any, *names: str) -> str:
+        for name in names:
+            value: Any = None
+            if isinstance(config, Mapping):
+                value = config.get(name)
+            else:
+                value = getattr(config, name, None)
+            if value is not None and str(value).strip():
+                return str(value)
+        return ""
+
+    def _analyzer_identity(self, label: str, config: Any) -> dict[str, str]:
+        return {
+            "logical_analyzer_name": str(label),
+            "port": self._config_value(config, "port", "configured_port", "resolved_port"),
+            "device_id": self._config_value(config, "device_id", "expected_device_id", "stable_device_id"),
+        }
+
+    @staticmethod
+    def _snapshot_stale_status(snapshot: Any) -> str:
+        if not isinstance(snapshot, Mapping):
+            return "not_checked_non_mapping_snapshot"
+        for key in ("stale", "is_stale", "frame_stale"):
+            if key in snapshot:
+                return "stale" if bool(snapshot.get(key)) else "fresh"
+        for key in ("frame_age_s", "age_s", "last_frame_age_s"):
+            if key not in snapshot:
+                continue
+            try:
+                return "fresh" if float(snapshot.get(key)) <= 2.0 else "stale"
+            except Exception:
+                return "not_checked_invalid_frame_age"
+        for key in ("timestamp", "frame_timestamp", "last_frame_time"):
+            if snapshot.get(key) is not None:
+                return "timestamp_present_age_not_available"
+        return "not_checked_no_frame_timestamp"
+
+    def _publish_analyzer_chamber_temp_evidence(self, evidence: Mapping[str, Any]) -> None:
+        payload = dict(evidence)
+        self.run_state.temperature.analyzer_chamber_temp_stability_evidence = payload
+        setattr(self.host, "_last_analyzer_chamber_temp_stability_evidence", payload)
+
     def _wait_analyzer_chamber_temp_stable(self, target_c: float) -> bool:
-        if not bool(self.host._cfg_get("workflow.stability.temperature.analyzer_chamber_temp_enabled", True)):
+        enabled = bool(self.host._cfg_get("workflow.stability.temperature.analyzer_chamber_temp_enabled", True))
+        if not enabled:
+            self._publish_analyzer_chamber_temp_evidence(
+                {
+                    "schema_version": "run001_a1.temperature_stability.1",
+                    "artifact_type": "temperature_stability_evidence",
+                    "stage": "analyzer_chamber_temperature_stability",
+                    "target_c": float(target_c),
+                    "enabled": False,
+                    "decision": "SKIPPED",
+                    "failure_stage": "",
+                    "failure_reason": "",
+                    "samples": [],
+                    "route_opened": False,
+                    "no_write_guard_active": self._no_write_guard_active(),
+                }
+            )
             return True
 
         window_s = max(0.0, float(self.host._cfg_get("workflow.stability.temperature.analyzer_chamber_temp_window_s", 60.0)))
@@ -719,15 +826,67 @@ class TemperatureControlService:
 
         active_getter = getattr(self.host, "_active_gas_analyzers", None)
         active_analyzers = list(active_getter()) if callable(active_getter) else list(self.host._all_gas_analyzers())
+        no_write_active = self._no_write_guard_active()
+        evidence: dict[str, Any] = {
+            "schema_version": "run001_a1.temperature_stability.1",
+            "artifact_type": "temperature_stability_evidence",
+            "stage": "analyzer_chamber_temperature_stability",
+            "target_c": float(target_c),
+            "enabled": True,
+            "temperature_source": "active_send_snapshot",
+            "source_selection_policy": "first_active_analyzer_with_chamber_temp_c",
+            "rolling_window_s": window_s,
+            "tolerance_c": span_tol_c,
+            "timeout_s": timeout_s,
+            "first_valid_timeout_s": first_valid_timeout_s,
+            "sampling_interval_s": poll_s,
+            "active_analyzers": [
+                self._analyzer_identity(str(label), cfg)
+                for label, _analyzer, cfg in active_analyzers
+            ],
+            "samples": [],
+            "sample_count": 0,
+            "decision": "RUNNING",
+            "failure_stage": "",
+            "failure_reason": "",
+            "observed_min_c": None,
+            "observed_max_c": None,
+            "observed_span_c": None,
+            "stale_frame_status": "not_checked",
+            "data_gap_status": "not_checked",
+            "route_opened": False,
+            "no_write_guard_active": no_write_active,
+        }
+
+        def finish(decision: str, failure_reason: str = "") -> bool:
+            values = [
+                float(sample["chamber_temperature_c"])
+                for sample in evidence["samples"]
+                if sample.get("chamber_temperature_c") is not None
+            ]
+            if values:
+                evidence["observed_min_c"] = min(values)
+                evidence["observed_max_c"] = max(values)
+                evidence["observed_span_c"] = self._span(values)
+            evidence["sample_count"] = len(evidence["samples"])
+            evidence["decision"] = decision
+            evidence["failure_reason"] = failure_reason
+            evidence["failure_stage"] = "" if decision == "PASS" else "analyzer_chamber_temperature_stability"
+            evidence["completed_at"] = datetime.now(timezone.utc).isoformat()
+            self._publish_analyzer_chamber_temp_evidence(evidence)
+            return decision == "PASS"
+
         if not active_analyzers:
             all_analyzers = list(self.host._all_gas_analyzers())
             if callable(active_getter) and all_analyzers:
-                self.host._log("Analyzer chamber-temp wait failed: no active analyzers remain")
-                return False
-            return True
+                reason = "no active analyzers remain before analyzer chamber temperature stability"
+                self.host._log(f"Analyzer chamber-temp wait failed: {reason}")
+                return finish("FAIL", reason)
+            return finish("PASS")
 
         start = time.time()
         current_label: Optional[str] = None
+        current_identity: dict[str, str] = {}
         window_start: Optional[float] = None
         window_values: list[float] = []
 
@@ -735,16 +894,23 @@ class TemperatureControlService:
             self.host._check_stop()
             self._refresh_live_snapshots(reason="temperature_analyzer_chamber_wait")
             active_analyzers = list(active_getter()) if callable(active_getter) else list(self.host._all_gas_analyzers())
+            evidence["active_analyzers"] = [
+                self._analyzer_identity(str(label), cfg)
+                for label, _analyzer, cfg in active_analyzers
+            ]
             if not active_analyzers:
                 all_analyzers = list(self.host._all_gas_analyzers())
                 if callable(active_getter) and all_analyzers:
-                    self.host._log("Analyzer chamber-temp wait failed: no active analyzers remain")
-                    return False
-                return True
+                    reason = "no active analyzers remain during analyzer chamber temperature stability"
+                    self.host._log(f"Analyzer chamber-temp wait failed: {reason}")
+                    return finish("FAIL", reason)
+                return finish("PASS")
 
             selected_label: Optional[str] = None
             selected_value: Optional[float] = None
-            for label, analyzer, _cfg in active_analyzers:
+            selected_identity: dict[str, str] = {}
+            selected_snapshot: Any = None
+            for label, analyzer, cfg in active_analyzers:
                 try:
                     snapshot = self.host._normalize_snapshot(
                         read_device_snapshot_with_retry(
@@ -762,23 +928,54 @@ class TemperatureControlService:
                 value = self.host._pick_numeric(snapshot, "chamber_temp_c", "temp_c")
                 if value is None:
                     continue
-                selected_label = label
+                selected_label = str(label)
                 selected_value = float(value)
+                selected_identity = self._analyzer_identity(str(label), cfg)
+                selected_snapshot = snapshot
                 break
 
             now = time.time()
+            elapsed_s = max(0.0, now - start)
             if selected_label is None or selected_value is None:
-                if first_valid_timeout_s is not None and (now - start) >= first_valid_timeout_s:
-                    self.host._log(
-                        "Analyzer chamber temp first valid timeout: "
-                        f"target={target_c:g}C timeout={first_valid_timeout_raw:g}s"
+                sample = {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "elapsed_s": elapsed_s,
+                    "logical_analyzer_name": "",
+                    "port": "",
+                    "device_id": "",
+                    "temperature_source": "active_send_snapshot",
+                    "chamber_temperature_c": None,
+                    "rolling_window_s": window_s,
+                    "rolling_min_c": min(window_values) if window_values else None,
+                    "rolling_max_c": max(window_values) if window_values else None,
+                    "rolling_span_c": self._span(window_values) if window_values else None,
+                    "tolerance_c": span_tol_c,
+                    "timeout_s": timeout_s,
+                    "decision": "WAITING_FOR_FIRST_VALID_SAMPLE",
+                    "failure_reason": "",
+                    "stale_frame_status": "not_checked_no_valid_frame",
+                    "data_gap_status": "no_valid_chamber_temperature",
+                    "route_opened": False,
+                    "no_write_guard_active": no_write_active,
+                }
+                evidence["samples"].append(sample)
+                evidence["stale_frame_status"] = sample["stale_frame_status"]
+                evidence["data_gap_status"] = sample["data_gap_status"]
+                self._publish_analyzer_chamber_temp_evidence(evidence)
+                if first_valid_timeout_s is not None and elapsed_s >= first_valid_timeout_s:
+                    reason = (
+                        "first valid analyzer chamber temperature timeout: "
+                        f"target={target_c:g}C timeout={first_valid_timeout_raw:g}s "
+                        f"window={window_s:g}s tolerance={span_tol_c:.4f}C"
                     )
-                    return False
+                    self.host._log(reason)
+                    return finish("FAIL", reason)
                 time.sleep(poll_s)
                 continue
 
             if current_label != selected_label:
                 current_label = selected_label
+                current_identity = dict(selected_identity)
                 window_start = now
                 window_values = []
                 self.host._log(
@@ -789,28 +986,66 @@ class TemperatureControlService:
             if window_start is None:
                 window_start = now
             window_values.append(selected_value)
+            rolling_span = self._span(window_values)
+            sample = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "elapsed_s": elapsed_s,
+                "logical_analyzer_name": current_identity.get("logical_analyzer_name", selected_label),
+                "port": current_identity.get("port", selected_identity.get("port", "")),
+                "device_id": current_identity.get("device_id", selected_identity.get("device_id", "")),
+                "temperature_source": "active_send_snapshot",
+                "chamber_temperature_c": selected_value,
+                "rolling_window_s": window_s,
+                "rolling_min_c": min(window_values),
+                "rolling_max_c": max(window_values),
+                "rolling_span_c": rolling_span,
+                "tolerance_c": span_tol_c,
+                "timeout_s": timeout_s,
+                "decision": "RUNNING",
+                "failure_reason": "",
+                "stale_frame_status": self._snapshot_stale_status(selected_snapshot),
+                "data_gap_status": "ok",
+                "route_opened": False,
+                "no_write_guard_active": no_write_active,
+            }
+            evidence["samples"].append(sample)
+            evidence["stale_frame_status"] = sample["stale_frame_status"]
+            evidence["data_gap_status"] = sample["data_gap_status"]
 
             if (now - window_start) >= window_s:
-                span = self._span(window_values)
-                if span <= span_tol_c:
+                if rolling_span <= span_tol_c:
+                    sample["decision"] = "PASS"
                     self.host._log(
                         "Analyzer chamber temp stable: "
-                        f"{current_label} value={selected_value:.3f}C span={span:.4f}C "
-                        f"window={window_s:g}s tol=±{span_tol_c:.4f}C"
+                        f"{current_label} value={selected_value:.3f}C span={rolling_span:.4f}C "
+                        f"window={window_s:g}s tol=+/-{span_tol_c:.4f}C"
                     )
-                    return True
+                    return finish("PASS")
+                sample["decision"] = "RESTART_WINDOW_SPAN_GT_TOLERANCE"
+                sample["failure_reason"] = (
+                    f"span={rolling_span:.4f}C > tolerance={span_tol_c:.4f}C "
+                    f"window={window_s:g}s timeout={timeout_raw:g}s"
+                )
                 self.host._log(
                     "Analyzer chamber temp not stable; restart window: "
-                    f"{current_label} last={selected_value:.3f}C span={span:.4f}C "
-                    f"window={window_s:g}s tol=±{span_tol_c:.4f}C"
+                    f"{current_label} last={selected_value:.3f}C span={rolling_span:.4f}C "
+                    f"window={window_s:g}s tol=+/-{span_tol_c:.4f}C"
                 )
                 window_start = now
                 window_values = [selected_value]
 
+            self._publish_analyzer_chamber_temp_evidence(evidence)
             time.sleep(poll_s)
 
-        self.host._log(f"Analyzer chamber temp stability timeout: target={target_c:g}C label={current_label}")
-        return False
+        observed_span = self._span(window_values) if window_values else None
+        reason = (
+            "analyzer chamber temperature stability timeout: "
+            f"target={target_c:g}C label={current_label or ''} "
+            f"window={window_s:g}s tolerance={span_tol_c:.4f}C timeout={timeout_raw:g}s "
+            f"observed_span={observed_span if observed_span is not None else 'none'}"
+        )
+        self.host._log(reason)
+        return finish("FAIL", reason)
 
     @staticmethod
     def _span(values: list[float]) -> float:

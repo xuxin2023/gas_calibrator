@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import csv
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -18,6 +19,8 @@ RUN001_ARTIFACT_NAMES = {
     "readiness": "readiness.json",
     "trace": "route_pressure_sample_trace.json",
     "effective_analyzer_fleet": "effective_analyzer_fleet.json",
+    "temperature_stability_evidence": "temperature_stability_evidence.json",
+    "temperature_stability_samples": "temperature_stability_samples.csv",
     "manifest": "run_manifest.json",
     "report": "human_readable_report.md",
 }
@@ -115,6 +118,37 @@ def _section(raw_cfg: Optional[Mapping[str, Any]], name: str) -> dict[str, Any]:
 
 def _workflow(raw_cfg: Optional[Mapping[str, Any]]) -> dict[str, Any]:
     return _section(raw_cfg, "workflow")
+
+
+def build_temperature_stability_policy(raw_cfg: Optional[Mapping[str, Any]]) -> dict[str, Any]:
+    workflow = _workflow(raw_cfg)
+    stability = workflow.get("stability") if isinstance(workflow, Mapping) else {}
+    stability = dict(stability) if isinstance(stability, Mapping) else {}
+    temperature = stability.get("temperature")
+    temperature = dict(temperature) if isinstance(temperature, Mapping) else {}
+
+    def number(key: str, default: Any = None) -> Optional[float]:
+        value = _as_float(temperature.get(key, default))
+        return value
+
+    enabled = temperature.get("analyzer_chamber_temp_enabled", True)
+    return {
+        "stage": "analyzer_chamber_temperature_stability",
+        "analyzer_chamber_temp_enabled": _as_bool(enabled),
+        "analyzer_chamber_temp_span_c": number("analyzer_chamber_temp_span_c", 0.03),
+        "analyzer_chamber_temp_window_s": number("analyzer_chamber_temp_window_s", 60.0),
+        "analyzer_chamber_temp_timeout_s": number("analyzer_chamber_temp_timeout_s", 3600.0),
+        "analyzer_chamber_temp_first_valid_timeout_s": number(
+            "analyzer_chamber_temp_first_valid_timeout_s",
+            None,
+        ),
+        "analyzer_chamber_temp_poll_s": number("analyzer_chamber_temp_poll_s", 1.0),
+        "temperature_chamber_tol_c": number("tol", 0.2),
+        "temperature_chamber_window_s": number("window_s", None),
+        "temperature_chamber_timeout_s": number("timeout_s", None),
+        "temperature_chamber_soak_after_reach_s": number("soak_after_reach_s", None),
+        "wait_for_target_before_continue": _as_bool(temperature.get("wait_for_target_before_continue", True)),
+    }
 
 
 def _paths(raw_cfg: Optional[Mapping[str, Any]]) -> dict[str, Any]:
@@ -627,6 +661,7 @@ def build_run001_a1_execution_decision(
     trace: Mapping[str, Any],
     service_summary: Optional[Mapping[str, Any]] = None,
     service_status: Optional[Mapping[str, Any]] = None,
+    temperature_stability_evidence: Optional[Mapping[str, Any]] = None,
     runtime_expected: bool = False,
 ) -> dict[str, Any]:
     summary = dict(service_summary or {})
@@ -665,10 +700,16 @@ def build_run001_a1_execution_decision(
     failed_devices = _extract_failed_devices(error, message)
     device_precheck_failed = _is_device_precheck_failure(error, message)
     device_id_mismatch_failed = _is_device_id_mismatch_failure(error, message)
+    temperature_evidence = dict(temperature_stability_evidence or {})
+    temperature_decision = str(temperature_evidence.get("decision") or "").upper()
+    temperature_failed = temperature_decision == RUN001_FAIL
+    temperature_failure_reason = str(temperature_evidence.get("failure_reason") or "")
     reasons: list[str] = []
 
     if phase not in RUN001_SUCCESS_PHASES:
         reasons.append("service_status_not_success")
+    if temperature_failed:
+        reasons.append("analyzer_chamber_temperature_stability_failed")
     if device_precheck_failed:
         reasons.append("device_precheck_failed")
     if device_id_mismatch_failed:
@@ -695,7 +736,11 @@ def build_run001_a1_execution_decision(
 
     deduped_reasons = list(dict.fromkeys(reasons))
     fail_reason = "; ".join(deduped_reasons)
-    if device_id_mismatch_failed:
+    if temperature_failed and temperature_failure_reason:
+        fail_reason = temperature_failure_reason
+    elif temperature_failed:
+        fail_reason = "analyzer_chamber_temperature_stability_failed"
+    elif device_id_mismatch_failed:
         fail_reason = "device_id_mismatch"
     elif device_precheck_failed and failed_devices:
         fail_reason = f"Device precheck failed [failed_devices={failed_devices}]"
@@ -723,6 +768,12 @@ def build_run001_a1_execution_decision(
         "service_status_phase": phase,
         "service_status_message": message,
         "service_status_error": error,
+        "failure_stage": (
+            temperature_evidence.get("failure_stage")
+            if temperature_failed
+            else ("device_precheck" if device_precheck_failed else "")
+        ),
+        "failure_reason": temperature_failure_reason if temperature_failed else fail_reason,
         "real_machine_acceptance_evidence": False,
     }
 
@@ -881,6 +932,7 @@ def build_run001_a1_evidence_payload(
     require_runtime_artifacts: bool = False,
     service_summary: Optional[Mapping[str, Any]] = None,
     service_status: Optional[Mapping[str, Any]] = None,
+    temperature_stability_evidence: Optional[Mapping[str, Any]] = None,
     changed_paths: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     points = list(point_rows if point_rows is not None else load_point_rows(config_path, raw_cfg))
@@ -914,12 +966,35 @@ def build_run001_a1_evidence_payload(
     )
     plan = summarize_plan(raw_cfg, points)
     trace = collect_trace_summary(run_dir)
+    temperature_policy = build_temperature_stability_policy(raw_cfg)
+    temp_evidence = dict(temperature_stability_evidence or {})
+    if not temp_evidence:
+        temp_evidence = {
+            "schema_version": "run001_a1.temperature_stability.1",
+            "artifact_type": "temperature_stability_evidence",
+            "stage": "analyzer_chamber_temperature_stability",
+            "enabled": temperature_policy.get("analyzer_chamber_temp_enabled"),
+            "decision": RUN001_NOT_EXECUTED,
+            "failure_stage": "",
+            "failure_reason": "",
+            "rolling_window_s": temperature_policy.get("analyzer_chamber_temp_window_s"),
+            "tolerance_c": temperature_policy.get("analyzer_chamber_temp_span_c"),
+            "timeout_s": temperature_policy.get("analyzer_chamber_temp_timeout_s"),
+            "sampling_interval_s": temperature_policy.get("analyzer_chamber_temp_poll_s"),
+            "observed_min_c": None,
+            "observed_max_c": None,
+            "observed_span_c": None,
+            "samples": [],
+            "route_opened": False,
+            "no_write_guard_active": _as_bool(policy.get("no_write", raw_cfg.get("no_write"))),
+        }
     runtime_expected = bool(require_runtime_artifacts or service_summary or service_status)
     execution_decision = build_run001_a1_execution_decision(
         readiness=readiness,
         trace=trace,
         service_summary=service_summary,
         service_status=service_status,
+        temperature_stability_evidence=temp_evidence,
         runtime_expected=runtime_expected,
     )
     git = git_snapshot()
@@ -962,6 +1037,24 @@ def build_run001_a1_evidence_payload(
         "temperature_wait_for_target_before_continue": _as_bool(
             _nested(workflow, "stability", "temperature", "wait_for_target_before_continue")
         ),
+        "temperature_stability_policy": temperature_policy,
+        "temperature_stability_evidence": temp_evidence,
+        "temperature_stability_decision": temp_evidence.get("decision"),
+        "temperature_stability_tolerance_c": temp_evidence.get(
+            "tolerance_c",
+            temperature_policy.get("analyzer_chamber_temp_span_c"),
+        ),
+        "temperature_stability_window_s": temp_evidence.get(
+            "rolling_window_s",
+            temperature_policy.get("analyzer_chamber_temp_window_s"),
+        ),
+        "temperature_stability_timeout_s": temp_evidence.get(
+            "timeout_s",
+            temperature_policy.get("analyzer_chamber_temp_timeout_s"),
+        ),
+        "temperature_stability_observed_min_c": temp_evidence.get("observed_min_c"),
+        "temperature_stability_observed_max_c": temp_evidence.get("observed_max_c"),
+        "temperature_stability_observed_span_c": temp_evidence.get("observed_span_c"),
         "allow_write_coefficients": _as_bool(policy.get("allow_write_coefficients")),
         "allow_write_zero": _as_bool(policy.get("allow_write_zero")),
         "allow_write_span": _as_bool(policy.get("allow_write_span")),
@@ -1029,6 +1122,7 @@ def render_human_report(payload: Mapping[str, Any]) -> str:
     a1_reason_lines = "\n".join(f"- {item}" for item in a1_reasons) if a1_reasons else "- none"
     failed_devices = list(payload.get("failed_devices") or [])
     failed_device_line = ", ".join(str(item) for item in failed_devices) if failed_devices else "none"
+    artifact_paths = dict(payload.get("artifact_paths") or {})
     return "\n".join(
         [
             "# Run-001 / A1 no-write dry-run evidence",
@@ -1053,6 +1147,13 @@ def render_human_report(payload: Mapping[str, Any]) -> str:
             f"- temperature_chamber_not_closed_is_expected_for_this_run: {payload.get('temperature_chamber_not_closed_is_expected_for_this_run')}",
             f"- temperature_chamber_not_a_failure_reason: {payload.get('temperature_chamber_not_a_failure_reason')}",
             f"- temperature_wait_for_target_before_continue: {payload.get('temperature_wait_for_target_before_continue')}",
+            f"- analyzer_chamber_temperature_tolerance_c: {payload.get('temperature_stability_tolerance_c')}",
+            f"- analyzer_chamber_temperature_window_s: {payload.get('temperature_stability_window_s')}",
+            f"- analyzer_chamber_temperature_timeout_s: {payload.get('temperature_stability_timeout_s')}",
+            f"- analyzer_chamber_temperature_decision: {payload.get('temperature_stability_decision')}",
+            f"- analyzer_chamber_temperature_observed_span_c: {payload.get('temperature_stability_observed_span_c')}",
+            f"- temperature_stability_evidence: {artifact_paths.get('temperature_stability_evidence', '')}",
+            f"- temperature_stability_samples: {artifact_paths.get('temperature_stability_samples', '')}",
             f"- pressure_gate_policy: {payload.get('pressure_gate_policy', {}).get('policy_id')}",
             f"- unsafe_step2_bypass_used: {payload.get('unsafe_step2_bypass_used')}",
             f"- V1 fallback: {payload.get('v1_fallback_status', {}).get('status')}",
@@ -1084,12 +1185,23 @@ def write_run001_a1_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
     readiness_path = Path(artifact_paths["readiness"])
     trace_path = Path(artifact_paths["trace"])
     effective_analyzer_fleet_path = Path(artifact_paths["effective_analyzer_fleet"])
+    temperature_evidence_path = Path(artifact_paths["temperature_stability_evidence"])
+    temperature_samples_path = Path(artifact_paths["temperature_stability_samples"])
     manifest_path = Path(artifact_paths["manifest"])
     report_path = Path(artifact_paths["report"])
     effective_fleet = dict(enriched.get("effective_analyzer_fleet") or {})
     effective_fleet["run_id"] = enriched.get("run_id")
     effective_fleet["artifact_path"] = artifact_paths["effective_analyzer_fleet"]
     enriched["effective_analyzer_fleet"] = effective_fleet
+    temperature_evidence = dict(enriched.get("temperature_stability_evidence") or {})
+    temperature_evidence["run_id"] = enriched.get("run_id")
+    temperature_evidence["artifact_path"] = artifact_paths["temperature_stability_evidence"]
+    temperature_evidence["samples_artifact_path"] = artifact_paths["temperature_stability_samples"]
+    enriched["temperature_stability_evidence"] = temperature_evidence
+    enriched["temperature_stability_artifact_paths"] = {
+        "temperature_stability_evidence": artifact_paths["temperature_stability_evidence"],
+        "temperature_stability_samples": artifact_paths["temperature_stability_samples"],
+    }
 
     summary_path.write_text(json.dumps(enriched, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     guard_path.write_text(
@@ -1136,6 +1248,22 @@ def write_run001_a1_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
                 "service_status_phase": enriched.get("service_status_phase"),
                 "service_status_message": enriched.get("service_status_message"),
                 "service_status_error": enriched.get("service_status_error"),
+                "failure_stage": enriched.get("failure_stage"),
+                "failure_reason": enriched.get("failure_reason"),
+                "temperature_stability_decision": enriched.get("temperature_stability_decision"),
+                "temperature_stability_tolerance_c": enriched.get("temperature_stability_tolerance_c"),
+                "temperature_stability_window_s": enriched.get("temperature_stability_window_s"),
+                "temperature_stability_timeout_s": enriched.get("temperature_stability_timeout_s"),
+                "temperature_stability_observed_min_c": enriched.get(
+                    "temperature_stability_observed_min_c"
+                ),
+                "temperature_stability_observed_max_c": enriched.get(
+                    "temperature_stability_observed_max_c"
+                ),
+                "temperature_stability_observed_span_c": enriched.get(
+                    "temperature_stability_observed_span_c"
+                ),
+                "temperature_stability_artifact_paths": enriched.get("temperature_stability_artifact_paths"),
                 "hard_stop_reasons": enriched.get("hard_stop_reasons"),
                 "effective_analyzer_fleet_summary": enriched.get("effective_analyzer_fleet_summary"),
                 "effective_analyzer_mapping_status": enriched.get("effective_analyzer_mapping_status"),
@@ -1183,6 +1311,37 @@ def write_run001_a1_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
         json.dumps(effective_fleet, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+    temperature_evidence_path.write_text(
+        json.dumps(temperature_evidence, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    sample_fieldnames = [
+        "logical_analyzer_name",
+        "port",
+        "device_id",
+        "temperature_source",
+        "timestamp",
+        "elapsed_s",
+        "chamber_temperature_c",
+        "rolling_window_s",
+        "rolling_min_c",
+        "rolling_max_c",
+        "rolling_span_c",
+        "tolerance_c",
+        "timeout_s",
+        "decision",
+        "failure_reason",
+        "stale_frame_status",
+        "data_gap_status",
+        "route_opened",
+        "no_write_guard_active",
+    ]
+    with temperature_samples_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=sample_fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        for sample in list(temperature_evidence.get("samples") or []):
+            row = dict(sample) if isinstance(sample, Mapping) else {}
+            writer.writerow(row)
     manifest_path.write_text(
         json.dumps(
             {
@@ -1220,6 +1379,21 @@ def write_run001_a1_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
                 "temperature_wait_for_target_before_continue": enriched.get(
                     "temperature_wait_for_target_before_continue"
                 ),
+                "temperature_stability_policy": enriched.get("temperature_stability_policy"),
+                "temperature_stability_decision": enriched.get("temperature_stability_decision"),
+                "temperature_stability_tolerance_c": enriched.get("temperature_stability_tolerance_c"),
+                "temperature_stability_window_s": enriched.get("temperature_stability_window_s"),
+                "temperature_stability_timeout_s": enriched.get("temperature_stability_timeout_s"),
+                "temperature_stability_observed_min_c": enriched.get(
+                    "temperature_stability_observed_min_c"
+                ),
+                "temperature_stability_observed_max_c": enriched.get(
+                    "temperature_stability_observed_max_c"
+                ),
+                "temperature_stability_observed_span_c": enriched.get(
+                    "temperature_stability_observed_span_c"
+                ),
+                "temperature_stability_artifacts": enriched.get("temperature_stability_artifact_paths"),
                 "pressure_gate_policy": enriched.get("pressure_gate_policy"),
                 "readiness_result": enriched.get("readiness_result"),
                 "a1_final_decision": enriched.get("a1_final_decision"),
@@ -1253,6 +1427,11 @@ def export_runtime_run001_a1_artifacts(host: Any, run_dir: str | Path) -> dict[s
     }
     service_summary = _load_json_dict(Path(run_dir) / "summary.json")
     service_status = _service_status_snapshot(service)
+    temperature_evidence = getattr(host, "_last_analyzer_chamber_temp_stability_evidence", None)
+    if not isinstance(temperature_evidence, Mapping):
+        run_state = getattr(host, "run_state", None)
+        temperature_state = getattr(run_state, "temperature", None)
+        temperature_evidence = getattr(temperature_state, "analyzer_chamber_temp_stability_evidence", None)
     payload = build_run001_a1_evidence_payload(
         raw_cfg,
         config_path=config_path,
@@ -1264,5 +1443,6 @@ def export_runtime_run001_a1_artifacts(host: Any, run_dir: str | Path) -> dict[s
         require_runtime_artifacts=True,
         service_summary=service_summary,
         service_status=service_status,
+        temperature_stability_evidence=temperature_evidence if isinstance(temperature_evidence, Mapping) else None,
     )
     return write_run001_a1_artifacts(run_dir, payload)

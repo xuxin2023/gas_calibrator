@@ -64,12 +64,15 @@ class PressureRuntimeState:
     seal_transition_status: str = ""
     seal_transition_reason: str = ""
     control_ready_watchlist_status_accepted: bool = False
+    sealed_route_pressure_control_started: bool = False
+    sealed_route_last_controlled_pressure_hpa: Optional[float] = None
 
 
 @dataclass
 class TemperatureRuntimeState:
     snapshot_keys: set[tuple[float, str]] = field(default_factory=set)
     snapshots: list[dict[str, Any]] = field(default_factory=list)
+    analyzer_chamber_temp_stability_evidence: dict[str, Any] = field(default_factory=dict)
     ready_target_c: Optional[float] = None
     last_target_c: Optional[float] = None
     last_soak_done: bool = False
@@ -136,9 +139,12 @@ class RunState:
         self.pressure.seal_transition_status = ""
         self.pressure.seal_transition_reason = ""
         self.pressure.control_ready_watchlist_status_accepted = False
+        self.pressure.sealed_route_pressure_control_started = False
+        self.pressure.sealed_route_last_controlled_pressure_hpa = None
 
         self.temperature.snapshot_keys.clear()
         self.temperature.snapshots.clear()
+        self.temperature.analyzer_chamber_temp_stability_evidence.clear()
         self.temperature.ready_target_c = None
         self.temperature.last_target_c = None
         self.temperature.last_soak_done = False
