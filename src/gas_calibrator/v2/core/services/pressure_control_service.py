@@ -433,6 +433,79 @@ class PressureControlService:
             error=error,
         )
 
+    def _apply_pressure_setpoint(self, controller: Any, target_hpa: float) -> dict[str, Any]:
+        method_used = ""
+        error = ""
+        for method_name in ("set_setpoint", "set_pressure_hpa", "set_pressure"):
+            method = getattr(controller, method_name, None)
+            if not callable(method):
+                continue
+            method_used = method_name
+            try:
+                method(float(target_hpa))
+            except Exception as exc:
+                error = str(exc)
+                return {
+                    "command_sent": True,
+                    "method": method_used,
+                    "accepted": False,
+                    "readback_hpa": None,
+                    "error": error,
+                    "reason": "setpoint_command_failed",
+                }
+            break
+        if not method_used:
+            return {
+                "command_sent": False,
+                "method": "",
+                "accepted": False,
+                "readback_hpa": None,
+                "error": "setpoint_method_unavailable",
+                "reason": "setpoint_method_unavailable",
+            }
+        getter = None
+        for getter_name in ("get_setpoint", "get_pressure_setpoint", "read_setpoint"):
+            candidate = getattr(controller, getter_name, None)
+            if callable(candidate):
+                getter = candidate
+                break
+        if getter is None:
+            return {
+                "command_sent": True,
+                "method": method_used,
+                "accepted": True,
+                "readback_hpa": None,
+                "error": "",
+                "reason": "setpoint_command_completed_without_readback",
+            }
+        try:
+            readback = self._coerce_float(getter())
+        except Exception as exc:
+            return {
+                "command_sent": True,
+                "method": method_used,
+                "accepted": False,
+                "readback_hpa": None,
+                "error": str(exc),
+                "reason": "setpoint_readback_failed",
+            }
+        tolerance = float(self.host._cfg_get("workflow.pressure_control.setpoint_tolerance_hpa", 0.5))
+        accepted = readback is not None and abs(float(readback) - float(target_hpa)) <= max(0.05, tolerance)
+        return {
+            "command_sent": True,
+            "method": method_used,
+            "accepted": bool(accepted),
+            "readback_hpa": readback,
+            "error": "" if accepted else "setpoint_readback_mismatch",
+            "reason": "setpoint_readback_accepted" if accepted else "setpoint_readback_mismatch",
+        }
+
+    def _pressure_output_enabled_for_control(self, controller: Any) -> Optional[bool]:
+        state = self._pressure_controller_output_state(controller)
+        if state is None:
+            return None
+        return int(state) == 1
+
     def set_pressure_to_target(
         self,
         point: CalibrationPoint,
@@ -453,8 +526,45 @@ class PressureControlService:
             control_ready = self._pressure_control_ready_gate(controller, point, seal_context=seal_context)
             if not control_ready.ok:
                 return control_ready
-        self.host._call_first(controller, ("set_setpoint", "set_pressure_hpa", "set_pressure"), target)
+        setpoint_result = self._apply_pressure_setpoint(controller, target)
+        if not bool(setpoint_result.get("accepted")):
+            result = PressureWaitResult(
+                ok=False,
+                target_hpa=target,
+                diagnostics={"setpoint": setpoint_result, "hard_blockers": ["setpoint_not_accepted"]},
+                error="Pressure setpoint not accepted",
+            )
+            self._record_route_trace(
+                action="set_pressure",
+                point=point,
+                target={"pressure_hpa": target},
+                actual=result.diagnostics,
+                result="fail",
+                message="Pressure setpoint not accepted",
+            )
+            return result
         self.host._enable_pressure_controller_output(reason="after setpoint update")
+        output_enabled = self._pressure_output_enabled_for_control(controller)
+        if output_enabled is not True:
+            result = PressureWaitResult(
+                ok=False,
+                target_hpa=target,
+                diagnostics={
+                    "setpoint": setpoint_result,
+                    "output_enabled": output_enabled,
+                    "hard_blockers": ["output_not_enabled"],
+                },
+                error="Pressure controller output not enabled",
+            )
+            self._record_route_trace(
+                action="set_pressure",
+                point=point,
+                target={"pressure_hpa": target},
+                actual=result.diagnostics,
+                result="fail",
+                message="Pressure controller output not enabled",
+            )
+            return result
         timeout_s = float(self.host._cfg_get("workflow.pressure.stabilize_timeout_s", 120.0))
         retry_count = int(self.host._cfg_get("workflow.pressure.restabilize_retries", 2))
         retry_interval_s = float(self.host._cfg_get("workflow.pressure.restabilize_retry_interval_s", 10.0))
@@ -643,6 +753,12 @@ class PressureControlService:
                 route=route_text,
                 final_vent_off_command_sent=final_vent_off_command_sent,
                 watchlist=watchlist,
+                sealed_pressure_hpa=final_pressure,
+                preseal_pressure_peak_hpa=preseal_pressure_peak,
+                preseal_pressure_last_hpa=preseal_pressure_last,
+                preseal_trigger=preseal_trigger_source,
+                preseal_trigger_pressure_hpa=preseal_trigger_pressure_hpa,
+                preseal_trigger_threshold_hpa=preseal_trigger_threshold_hpa,
             )
             result = PressureWaitResult(
                 ok=True,
@@ -890,6 +1006,30 @@ class PressureControlService:
             "vent",
         )
 
+    def _pressure_controller_output_state(self, controller: Any) -> Optional[int]:
+        return self._read_int_state(
+            controller,
+            "is_output_enabled",
+            "get_output_enabled",
+            "get_output_state",
+            "get_output",
+            "output_enabled",
+            "output_state",
+            "output",
+        )
+
+    def _pressure_controller_isolation_state(self, controller: Any) -> Optional[int]:
+        return self._read_int_state(
+            controller,
+            "is_isolation_open",
+            "get_isolation_open",
+            "get_isolation_state",
+            "get_isolation",
+            "isolation_open",
+            "isolation_state",
+            "isolation",
+        )
+
     def _pressure_route_for_point(self, point: CalibrationPoint) -> str:
         route_text = str(getattr(point, "route", "") or "").strip().lower()
         if route_text:
@@ -905,6 +1045,13 @@ class PressureControlService:
             "route": route,
             "sealed_source_point_index": state.sealed_source_point_index,
             "final_vent_off_command_sent": state.final_vent_off_command_sent,
+            "pressure_hpa": state.sealed_pressure_hpa,
+            "sealed_pressure_hpa": state.sealed_pressure_hpa,
+            "preseal_pressure_peak_hpa": state.preseal_pressure_peak_hpa,
+            "preseal_pressure_last_hpa": state.preseal_pressure_last_hpa,
+            "preseal_trigger": state.preseal_trigger,
+            "preseal_trigger_pressure_hpa": state.preseal_trigger_pressure_hpa,
+            "preseal_trigger_threshold_hpa": state.preseal_trigger_threshold_hpa,
             "preseal_final_atmosphere_exit_required": state.preseal_final_atmosphere_exit_required,
             "preseal_final_atmosphere_exit_started": state.preseal_final_atmosphere_exit_started,
             "preseal_final_atmosphere_exit_verified": state.preseal_final_atmosphere_exit_verified,
@@ -926,11 +1073,23 @@ class PressureControlService:
         route: str,
         final_vent_off_command_sent: bool,
         watchlist: dict[str, Any],
+        sealed_pressure_hpa: Optional[float] = None,
+        preseal_pressure_peak_hpa: Optional[float] = None,
+        preseal_pressure_last_hpa: Optional[float] = None,
+        preseal_trigger: str = "",
+        preseal_trigger_pressure_hpa: Optional[float] = None,
+        preseal_trigger_threshold_hpa: Optional[float] = None,
     ) -> None:
         state = self.run_state.pressure
         state.sealed_route = "h2o" if str(route or "").strip().lower() == "h2o" else "co2"
         state.sealed_source_point_index = int(point.index)
         state.final_vent_off_command_sent = bool(final_vent_off_command_sent)
+        state.sealed_pressure_hpa = self._coerce_float(sealed_pressure_hpa)
+        state.preseal_pressure_peak_hpa = self._coerce_float(preseal_pressure_peak_hpa)
+        state.preseal_pressure_last_hpa = self._coerce_float(preseal_pressure_last_hpa)
+        state.preseal_trigger = str(preseal_trigger or "")
+        state.preseal_trigger_pressure_hpa = self._coerce_float(preseal_trigger_pressure_hpa)
+        state.preseal_trigger_threshold_hpa = self._coerce_float(preseal_trigger_threshold_hpa)
         state.preseal_watchlist_status_seen = bool(watchlist.get("preseal_watchlist_status_seen"))
         state.preseal_watchlist_status_accepted = bool(watchlist.get("preseal_watchlist_status_accepted"))
         state.preseal_watchlist_status_reason = str(watchlist.get("preseal_watchlist_status_reason") or "")
@@ -941,6 +1100,12 @@ class PressureControlService:
         state.sealed_route = ""
         state.sealed_source_point_index = None
         state.final_vent_off_command_sent = False
+        state.sealed_pressure_hpa = None
+        state.preseal_pressure_peak_hpa = None
+        state.preseal_pressure_last_hpa = None
+        state.preseal_trigger = ""
+        state.preseal_trigger_pressure_hpa = None
+        state.preseal_trigger_threshold_hpa = None
         state.preseal_final_atmosphere_exit_required = False
         state.preseal_final_atmosphere_exit_started = False
         state.preseal_final_atmosphere_exit_verified = False
@@ -1133,6 +1298,126 @@ class PressureControlService:
             "control_ready_watchlist_status_accepted": False,
         }
 
+    @staticmethod
+    def pressure_control_ready_gate_policy() -> dict[str, Any]:
+        return {
+            "policy_id": "run001_a1_v1_compatible_pressure_ready_gate",
+            "version": 1,
+            "v1_semantic_compatibility": True,
+            "vent_status_2_strategy": (
+                "warning_only_when_controller_allows_control_and_seal_output_isolation_pressure_evidence_is_valid"
+            ),
+            "hard_blockers": [
+                "vent_status_unavailable",
+                "vent_status_in_progress_or_dangerous",
+                "vent_status_not_allowed_by_controller",
+                "final_vent_off_not_confirmed",
+                "preseal_exit_not_verified",
+                "seal_transition_not_completed",
+                "seal_open_channels_present",
+                "output_state_not_idle",
+                "isolation_state_not_open",
+                "pressure_evidence_missing",
+            ],
+            "warnings": [
+                "vent_status_2_observed_accepted_under_v1_compatible_pressure_evidence",
+            ],
+            "evidence_required_before_setpoint": [
+                "final_vent_off_command_sent",
+                "preseal_final_atmosphere_exit_verified",
+                "seal_transition_completed",
+                "output_state_idle",
+                "isolation_state_open",
+                "pressure_observed_before_control",
+            ],
+            "post_gate_evidence_required": [
+                "setpoint_accepted",
+                "output_enabled",
+                "pressure_in_limits",
+            ],
+        }
+
+    def _pressure_vent_status_interpretation(self, controller: Any, vent_status: Optional[int]) -> dict[str, Any]:
+        if vent_status is None:
+            return {
+                "raw": None,
+                "value": None,
+                "classification": "unavailable",
+                "text": "unavailable",
+                "source": "v2_fallback",
+            }
+        describer = getattr(controller, "describe_vent_status", None)
+        if callable(describer):
+            try:
+                described = describer(vent_status)
+            except Exception:
+                described = None
+            if isinstance(described, dict):
+                payload = dict(described)
+                payload.setdefault("raw", vent_status)
+                payload.setdefault("value", vent_status)
+                payload.setdefault("source", "controller.describe_vent_status")
+                return payload
+        mapping = {
+            0: "idle",
+            1: "in_progress",
+            2: "completed_latched_or_timed_out_ambiguous",
+            3: "trapped_pressure_or_watchlist",
+            4: "aborted",
+        }
+        classification = mapping.get(int(vent_status), f"unknown_status_{int(vent_status)}")
+        return {
+            "raw": vent_status,
+            "value": vent_status,
+            "classification": classification,
+            "text": classification,
+            "source": "v2_fallback",
+        }
+
+    def _pressure_vent_status_allows_control(self, controller: Any, vent_status: Optional[int]) -> bool:
+        if vent_status is None:
+            return False
+        checker = getattr(controller, "vent_status_allows_control", None)
+        if callable(checker):
+            try:
+                return bool(checker(vent_status))
+            except Exception:
+                return False
+        return int(vent_status) == 0
+
+    def _sealed_pressure_evidence(self, seal_context: dict[str, Any]) -> dict[str, Any]:
+        keys = (
+            "pressure_hpa",
+            "sealed_pressure_hpa",
+            "preseal_pressure_peak_hpa",
+            "preseal_pressure_last_hpa",
+            "preseal_trigger_pressure_hpa",
+        )
+        values = {
+            key: self._coerce_float(seal_context.get(key))
+            for key in keys
+        }
+        observed_values = {
+            key: value
+            for key, value in values.items()
+            if value is not None
+        }
+        trigger = str(seal_context.get("preseal_trigger") or "").strip()
+        return {
+            **values,
+            "preseal_trigger": trigger,
+            "pressure_observed": bool(observed_values),
+            "observed_keys": sorted(observed_values),
+        }
+
+    @staticmethod
+    def _pressure_gate_message(hard_blockers: list[str], warnings: list[str]) -> str:
+        if hard_blockers:
+            return hard_blockers[0]
+        if warnings:
+            return warnings[0]
+        return "Pressure controller ready after sealed-route gate"
+
     def _pressure_control_ready_gate(
         self,
         controller: Any,
@@ -1141,19 +1426,87 @@ class PressureControlService:
         seal_context: dict[str, Any],
     ) -> PressureWaitResult:
         vent_status = self._pressure_controller_vent_status(controller)
+        vent_interpreted = self._pressure_vent_status_interpretation(controller, vent_status)
+        output_state = self._pressure_controller_output_state(controller)
+        isolation_state = self._pressure_controller_isolation_state(controller)
+        pressure_evidence = self._sealed_pressure_evidence(dict(seal_context))
+        hard_blockers: list[str] = []
+        warnings: list[str] = []
+        decision_basis: list[str] = []
+        if vent_status is None:
+            hard_blockers.append("vent_status_unavailable")
+        elif int(vent_status) == 1:
+            hard_blockers.append("vent_status=1(in_progress_after_seal)")
+        elif int(vent_status) == 3:
+            hard_blockers.append("vent_status=3(watchlist_only_after_seal)")
+        elif int(vent_status) != 0 and not self._pressure_vent_status_allows_control(controller, vent_status):
+            hard_blockers.append(f"vent_status={int(vent_status)}(not_allowed_by_controller)")
+        elif int(vent_status) == 2:
+            warnings.append("vent_status=2 observed; accepted under V1-compatible pressure evidence")
+            decision_basis.append("vent_status=2_allowed_by_controller_legacy_semantics")
+        else:
+            decision_basis.append("vent_status_idle_or_controller_allowed")
+
+        if not bool(seal_context.get("final_vent_off_command_sent")):
+            hard_blockers.append("final_vent_off_not_confirmed")
+        else:
+            decision_basis.append("final_vent_off_confirmed")
+        if not bool(seal_context.get("preseal_final_atmosphere_exit_verified")):
+            hard_blockers.append("preseal_exit_not_verified")
+        else:
+            decision_basis.append("preseal_exit_verified")
+        if not bool(seal_context.get("seal_transition_completed")):
+            hard_blockers.append("seal_transition_not_completed")
+        else:
+            decision_basis.append("seal_transition_completed")
+        if list(seal_context.get("seal_open_channels") or []):
+            hard_blockers.append("seal_open_channels_present")
+        elif str(seal_context.get("seal_transition_status") or "") == "verified_closed":
+            decision_basis.append("seal_transition_verified_closed")
+        if output_state is None:
+            hard_blockers.append("output_state_unavailable")
+        elif int(output_state) != 0:
+            hard_blockers.append(f"output_state={int(output_state)}(not_idle_before_control)")
+        else:
+            decision_basis.append("output_state_idle_before_control")
+        if isolation_state is None:
+            hard_blockers.append("isolation_state_unavailable")
+        elif int(isolation_state) != 1:
+            hard_blockers.append(f"isolation_state={int(isolation_state)}(not_open_before_control)")
+        else:
+            decision_basis.append("isolation_state_open_before_control")
+        if not bool(pressure_evidence.get("pressure_observed")):
+            hard_blockers.append("pressure_evidence_missing")
+        else:
+            decision_basis.append("pressure_observed_before_control")
+
+        decision = "blocked" if hard_blockers else "ready"
         diagnostics = {
             **dict(seal_context),
             "pressure_controller_vent_status": vent_status,
+            "vent_status_raw": vent_status,
+            "vent_status_interpreted": vent_interpreted,
+            "pressure_controller_output_state": output_state,
+            "pressure_controller_isolation_state": isolation_state,
+            "pressure_evidence": pressure_evidence,
             "redundant_vent_command_skipped": True,
             "control_ready_watchlist_status_accepted": False,
+            "pressure_gate_policy": self.pressure_control_ready_gate_policy(),
+            "gate_decision": decision,
+            "decision_basis": decision_basis,
+            "v1_semantic_compatibility": {
+                "compatible": True,
+                "basis": "V1 Pace5000.vent_status_allows_control plus output/isolation/seal/pressure evidence",
+                "vent_status_2_allowed_by_controller": (
+                    vent_status == 2 and self._pressure_vent_status_allows_control(controller, vent_status)
+                ),
+            },
+            "warnings": warnings,
+            "hard_blockers": hard_blockers,
         }
-        if vent_status is not None and int(vent_status) != 0:
+        if hard_blockers:
             diagnostics["control_ready_status"] = "blocked"
-            diagnostics["control_ready_failure_reason"] = (
-                "vent_status=3(watchlist_only_after_seal)"
-                if int(vent_status) == 3
-                else f"vent_status={int(vent_status)}(not_ready_after_seal)"
-            )
+            diagnostics["control_ready_failure_reason"] = self._pressure_gate_message(hard_blockers, warnings)
             result = PressureWaitResult(
                 ok=False,
                 diagnostics=diagnostics,
@@ -1169,6 +1522,7 @@ class PressureControlService:
             )
             return result
         diagnostics["control_ready_status"] = "ready"
+        diagnostics["control_ready_decision_basis"] = decision_basis
         result = PressureWaitResult(ok=True, diagnostics=diagnostics)
         self._record_route_trace(
             action="pressure_control_ready_gate",
@@ -1176,7 +1530,7 @@ class PressureControlService:
             point=point,
             actual=diagnostics,
             result="ok",
-            message="Pressure controller ready after sealed-route gate",
+            message=self._pressure_gate_message([], warnings),
         )
         return result
 
@@ -1252,6 +1606,23 @@ class PressureControlService:
             normalized = self._coerce_bool(value)
             if normalized is not None:
                 return normalized
+        return None
+
+    def _read_int_state(self, device: Any, *names: str) -> Optional[int]:
+        for name in names:
+            if not name:
+                continue
+            member = getattr(device, name, None)
+            try:
+                value = member() if callable(member) else member
+            except Exception:
+                continue
+            parsed = self._coerce_float(value)
+            if parsed is not None:
+                return int(parsed)
+            normalized = self._coerce_bool(value)
+            if normalized is not None:
+                return 1 if bool(normalized) else 0
         return None
 
     def _sleep_with_stop(self, duration_s: float) -> None:

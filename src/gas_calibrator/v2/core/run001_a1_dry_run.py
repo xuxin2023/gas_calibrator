@@ -26,6 +26,33 @@ RUN001_FAIL = "FAIL"
 RUN001_NOT_EXECUTED = "NOT_EXECUTED"
 RUN001_SUCCESS_PHASES = {"completed", "complete", "success", "succeeded", "pass", "passed", "ok"}
 RUN001_DUPLICATE_DEVICE_ID_BLOCK_POLICY = "block_a1_current_storage_uses_frame_id_unique_key"
+RUN001_PRESSURE_GATE_POLICY = {
+    "policy_id": "run001_a1_v1_compatible_pressure_ready_gate",
+    "version": 1,
+    "v1_semantic_compatibility": True,
+    "vent_status_2_strategy": (
+        "warning_only_when_controller_allows_control_and_seal_output_isolation_pressure_evidence_is_valid"
+    ),
+    "hard_blockers": [
+        "vent_status_unavailable",
+        "vent_status_in_progress_or_dangerous",
+        "vent_status_not_allowed_by_controller",
+        "final_vent_off_not_confirmed",
+        "preseal_exit_not_verified",
+        "seal_transition_not_completed",
+        "seal_open_channels_present",
+        "output_state_not_idle",
+        "isolation_state_not_open",
+        "pressure_evidence_missing",
+    ],
+    "warnings": [
+        "vent_status_2_observed_accepted_under_v1_compatible_pressure_evidence",
+    ],
+}
+
+
+def run001_a1_pressure_gate_policy() -> dict[str, Any]:
+    return json.loads(json.dumps(RUN001_PRESSURE_GATE_POLICY))
 
 
 def _as_bool(value: Any) -> bool:
@@ -772,6 +799,9 @@ def build_run001_a1_evidence_payload(
         "allow_artifact": _as_bool(policy.get("allow_artifact")),
         "temperature_chamber_settle_required": _as_bool(policy.get("temperature_chamber_settle_required")),
         "temperature_chamber_wait_policy": str(policy.get("temperature_chamber_wait_policy") or ""),
+        "temperature_chamber_keep_running_intentional": True,
+        "temperature_chamber_not_closed_is_expected_for_this_run": True,
+        "temperature_chamber_not_a_failure_reason": True,
         "temperature_wait_for_target_before_continue": _as_bool(
             _nested(workflow, "stability", "temperature", "wait_for_target_before_continue")
         ),
@@ -788,6 +818,7 @@ def build_run001_a1_evidence_payload(
         "route_name": plan["route_name"],
         "temperature_group": plan["temperature_group"],
         "pressure_points": plan["pressure_points"],
+        "pressure_gate_policy": run001_a1_pressure_gate_policy(),
         "sample_plan": plan["sample_plan"],
         "enabled_analyzers": enabled_analyzers,
         "analyzer_ports": [item["port"] for item in enabled_analyzers],
@@ -853,7 +884,11 @@ def render_human_report(payload: Mapping[str, Any]) -> str:
             f"- attempted_write_count: {payload.get('attempted_write_count')}",
             f"- identity_write_command_sent: {payload.get('identity_write_command_sent')}",
             f"- temperature_chamber_wait_policy: {payload.get('temperature_chamber_wait_policy')}",
+            f"- temperature_chamber_keep_running_intentional: {payload.get('temperature_chamber_keep_running_intentional')}",
+            f"- temperature_chamber_not_closed_is_expected_for_this_run: {payload.get('temperature_chamber_not_closed_is_expected_for_this_run')}",
+            f"- temperature_chamber_not_a_failure_reason: {payload.get('temperature_chamber_not_a_failure_reason')}",
             f"- temperature_wait_for_target_before_continue: {payload.get('temperature_wait_for_target_before_continue')}",
+            f"- pressure_gate_policy: {payload.get('pressure_gate_policy', {}).get('policy_id')}",
             f"- unsafe_step2_bypass_used: {payload.get('unsafe_step2_bypass_used')}",
             f"- V1 fallback: {payload.get('v1_fallback_status', {}).get('status')}",
             f"- H2O single-route readiness: {payload.get('h2o_single_route_readiness')}",
@@ -989,9 +1024,17 @@ def write_run001_a1_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
                 "persistent_write_command_sent": enriched.get("persistent_write_command_sent"),
                 "temperature_chamber_settle_required": enriched.get("temperature_chamber_settle_required"),
                 "temperature_chamber_wait_policy": enriched.get("temperature_chamber_wait_policy"),
+                "temperature_chamber_keep_running_intentional": enriched.get(
+                    "temperature_chamber_keep_running_intentional"
+                ),
+                "temperature_chamber_not_closed_is_expected_for_this_run": enriched.get(
+                    "temperature_chamber_not_closed_is_expected_for_this_run"
+                ),
+                "temperature_chamber_not_a_failure_reason": enriched.get("temperature_chamber_not_a_failure_reason"),
                 "temperature_wait_for_target_before_continue": enriched.get(
                     "temperature_wait_for_target_before_continue"
                 ),
+                "pressure_gate_policy": enriched.get("pressure_gate_policy"),
                 "readiness_result": enriched.get("readiness_result"),
                 "a1_final_decision": enriched.get("a1_final_decision"),
                 "a1_execution_result": enriched.get("a1_execution_result"),

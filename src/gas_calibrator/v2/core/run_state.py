@@ -46,6 +46,12 @@ class PressureRuntimeState:
     sealed_route: str = ""
     sealed_source_point_index: Optional[int] = None
     final_vent_off_command_sent: bool = False
+    sealed_pressure_hpa: Optional[float] = None
+    preseal_pressure_peak_hpa: Optional[float] = None
+    preseal_pressure_last_hpa: Optional[float] = None
+    preseal_trigger: str = ""
+    preseal_trigger_pressure_hpa: Optional[float] = None
+    preseal_trigger_threshold_hpa: Optional[float] = None
     preseal_final_atmosphere_exit_required: bool = False
     preseal_final_atmosphere_exit_started: bool = False
     preseal_final_atmosphere_exit_verified: bool = False
@@ -112,6 +118,12 @@ class RunState:
         self.pressure.sealed_route = ""
         self.pressure.sealed_source_point_index = None
         self.pressure.final_vent_off_command_sent = False
+        self.pressure.sealed_pressure_hpa = None
+        self.pressure.preseal_pressure_peak_hpa = None
+        self.pressure.preseal_pressure_last_hpa = None
+        self.pressure.preseal_trigger = ""
+        self.pressure.preseal_trigger_pressure_hpa = None
+        self.pressure.preseal_trigger_threshold_hpa = None
         self.pressure.preseal_final_atmosphere_exit_required = False
         self.pressure.preseal_final_atmosphere_exit_started = False
         self.pressure.preseal_final_atmosphere_exit_verified = False

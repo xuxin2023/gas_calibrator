@@ -33,6 +33,7 @@ class FakePressureController:
         self.target_pressure_hpa = 1013.25
         self.in_limits = True
         self.output_enabled = False
+        self.isolation_open = True
         self.vent_open = False
         self.vent_status = self.VENT_STATUS_IDLE
         self.exit_vent_status = self.VENT_STATUS_IDLE
@@ -59,6 +60,9 @@ class FakePressureController:
     def get_output(self) -> int:
         return 1 if self.output_enabled else 0
 
+    def get_isolation_state(self) -> int:
+        return 1 if self.isolation_open else 0
+
     def is_in_atmosphere_mode(self) -> bool:
         return self.vent_open
 
@@ -70,6 +74,9 @@ class FakePressureController:
         self.current_pressure_hpa = float(value)
         self.in_limits = True
         self.calls.append(("set_setpoint", (float(value),), {}))
+
+    def get_setpoint(self) -> float:
+        return float(self.target_pressure_hpa)
 
     def get_in_limits(self) -> tuple[float, int]:
         return self.current_pressure_hpa, 1 if self.in_limits else 0
