@@ -50,6 +50,8 @@ MODE2_SETUP_FORBIDDEN_COMMAND_TOKENS = (
     "NVM",
     "PARAM",
 )
+MODE2_SETUP_COMMAND_TARGET_ID = "FFF"
+_SUCCESS_ACK_RE = re.compile(r"YGAS,[0-9A-F]{3},T", re.IGNORECASE)
 
 
 class Mode2SetupSafetyError(RuntimeError):
@@ -112,7 +114,17 @@ def _run_with_timeout(timeout_s: float, fn: Callable[[], Any]) -> tuple[bool, An
 
 def _is_success_ack(line: Any) -> bool:
     text = str(line or "").strip().strip("<>").upper()
-    return bool(re.search(r"YGAS,[0-9A-F]{3},T", text))
+    return bool(_SUCCESS_ACK_RE.search(text))
+
+
+def _extract_success_ack(line: Any) -> str:
+    text = str(line or "").strip().strip("<>")
+    match = _SUCCESS_ACK_RE.search(text)
+    return match.group(0).upper() if match else ""
+
+
+def _active_upload_noise_count(lines: list[str]) -> int:
+    return sum(1 for line in lines if "YGAS" in str(line or "").upper() and not _is_success_ack(line))
 
 
 def _command_name(command: str) -> str:
@@ -129,12 +141,17 @@ def _new_command_event(command: str) -> dict[str, Any]:
     return {
         "command_name": _command_name(normalized),
         "command_payload": normalized,
+        "command_target_id": MODE2_SETUP_COMMAND_TARGET_ID,
+        "ack_search_policy": "scan_any_device_ack_among_active_send_frames",
         "whitelist_check": normalized in {_normalize_command(item) for item in MODE2_SETUP_ALLOWED_COMMANDS},
         "forbidden_token_check": not command_contains_forbidden_mode2_setup_token(normalized),
         "send_attempted_at": "",
         "sent": False,
         "ack_received": False,
         "ack_payload": "",
+        "observed_response_count": 0,
+        "ignored_active_frame_count": 0,
+        "observed_response_sample": [],
         "timeout": False,
         "error": "",
         "method": "",
@@ -142,23 +159,29 @@ def _new_command_event(command: str) -> dict[str, Any]:
     }
 
 
-def _raw_serial_send_with_ack(analyzer: Any, command: str, timeout_s: float) -> tuple[bool, str, str]:
+def _raw_serial_send_with_ack(analyzer: Any, command: str, timeout_s: float) -> tuple[bool, str, str, list[str]]:
     transport = getattr(analyzer, "ser", None)
     write = getattr(transport, "write", None)
     if not callable(write):
         raise AttributeError("serial transport write is unavailable")
+    flush_input = getattr(transport, "flush_input", None)
+    if callable(flush_input):
+        try:
+            flush_input()
+        except Exception:
+            pass
     write(str(command).strip() + "\r\n")
     drain = getattr(transport, "drain_input_nonblock", None)
     if not callable(drain):
-        return False, "", "raw_serial_write"
-    lines = drain(drain_s=max(0.05, float(timeout_s or 0.05)), read_timeout_s=0.05)
-    for line in list(lines or []):
+        return False, "", "raw_serial_write", []
+    lines = [str(line or "") for line in list(drain(drain_s=max(0.05, float(timeout_s or 0.05)), read_timeout_s=0.05) or [])]
+    for line in lines:
         if _is_success_ack(line):
-            return True, str(line or ""), "raw_serial_write"
-    return False, "\n".join(str(line or "") for line in list(lines or []) if str(line or "")), "raw_serial_write"
+            return True, _extract_success_ack(line) or str(line or ""), "raw_serial_write", lines
+    return False, "\n".join(str(line or "") for line in lines if str(line or "")), "raw_serial_write", lines
 
 
-def _fallback_driver_send_with_ack(analyzer: Any, command: str) -> tuple[bool, str, str]:
+def _fallback_driver_send_with_ack(analyzer: Any, command: str) -> tuple[bool, str, str, list[str]]:
     normalized = _normalize_command(command)
     if normalized == "MODE,YGAS,FFF,2":
         method_names = ("set_mode_with_ack", "set_mode")
@@ -176,7 +199,7 @@ def _fallback_driver_send_with_ack(analyzer: Any, command: str) -> tuple[bool, s
             result = method(*args, require_ack=True)
         else:
             result = method(*args)
-        return result is not False, "", method_name
+        return result is not False, "", method_name, []
     raise Mode2SetupSafetyError(f"Analyzer driver lacks required method: {method_names[0]}")
 
 
@@ -186,7 +209,7 @@ def _send_command_with_audit(analyzer: Any, command: str, *, timeout_s: float) -
     event["send_attempted_at"] = _utc_now()
     event["status"] = "send_attempted"
 
-    def _send() -> tuple[bool, str, str]:
+    def _send() -> tuple[bool, str, str, list[str]]:
         try:
             return _raw_serial_send_with_ack(analyzer, command, timeout_s)
         except AttributeError:
@@ -205,12 +228,15 @@ def _send_command_with_audit(analyzer: Any, command: str, *, timeout_s: float) -
     if error:
         event.update({"error": error, "status": "error"})
         return event
-    acked, ack_payload, method_name = result
+    acked, ack_payload, method_name, observed_lines = result
     event.update(
         {
             "sent": True,
             "ack_received": bool(acked),
             "ack_payload": str(ack_payload or ""),
+            "observed_response_count": len(observed_lines),
+            "ignored_active_frame_count": _active_upload_noise_count(observed_lines),
+            "observed_response_sample": observed_lines[:5],
             "method": str(method_name or ""),
             "status": "ok" if acked else "no_ack",
         }

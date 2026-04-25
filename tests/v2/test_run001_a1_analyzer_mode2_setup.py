@@ -17,6 +17,7 @@ from gas_calibrator.v2.core.run001_a1_analyzer_mode2_setup import (
     build_analyzer_mode2_setup_payload,
     command_contains_forbidden_mode2_setup_token,
     run_analyzer_mode2_setup,
+    send_mode2_setup_commands,
     validate_mode2_setup_command_plan,
     write_analyzer_mode2_setup_artifacts,
 )
@@ -324,3 +325,46 @@ def test_mode2_setup_command_timeout_preserves_partial_artifact_and_send_attempt
     assert first_command["timeout"] is True
     assert saved["partial_results"][0]["logical_id"] == "gas_analyzer_0"
     assert saved["commands_sent"] == []
+
+
+def test_mode2_setup_ack_scan_tolerates_10hz_active_send_noise() -> None:
+    class NoisySerial:
+        def __init__(self) -> None:
+            self.writes: list[str] = []
+            self.flushed = False
+
+        def flush_input(self) -> None:
+            self.flushed = True
+
+        def write(self, payload: str) -> None:
+            self.writes.append(payload)
+
+        def drain_input_nonblock(self, **_kwargs: Any) -> list[str]:
+            return [
+                _mode2_line("091"),
+                _mode2_line("091"),
+                "noise-prefix<YGAS,091,T>noise-suffix",
+                _mode2_line("091"),
+            ]
+
+    class NoisyAnalyzer:
+        def __init__(self) -> None:
+            self.ser = NoisySerial()
+
+    analyzer = NoisyAnalyzer()
+    sent, results = send_mode2_setup_commands(
+        analyzer,
+        ["MODE,YGAS,FFF,2"],
+        command_timeout_s=1.0,
+    )
+    result = results[0]
+
+    assert sent == ["MODE,YGAS,FFF,2"]
+    assert analyzer.ser.flushed is True
+    assert analyzer.ser.writes == ["MODE,YGAS,FFF,2\r\n"]
+    assert result["command_target_id"] == "FFF"
+    assert result["ack_search_policy"] == "scan_any_device_ack_among_active_send_frames"
+    assert result["ack_received"] is True
+    assert result["ack_payload"] == "YGAS,091,T"
+    assert result["observed_response_count"] == 4
+    assert result["ignored_active_frame_count"] == 3
