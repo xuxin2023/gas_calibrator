@@ -274,6 +274,10 @@ def test_app_config_normalizes_analyzer_setup_profile_fields() -> None:
     assert config.workflow.analyzer_setup["device_id_assignment_mode"] == "manual"
     assert config.workflow.analyzer_setup["start_device_id"] == "007"
     assert config.workflow.analyzer_setup["manual_device_ids"] == ["008", "009"]
+    assert config.workflow.analyzer_setup["apply_device_id"] is True
+
+    disabled = AppConfig.from_dict({"workflow": {"analyzer_setup": {"apply_device_id": "false"}}})
+    assert disabled.workflow.analyzer_setup["apply_device_id"] is False
 
 
 def test_smoke_v2_minimal_contains_temperature_sync_fields() -> None:

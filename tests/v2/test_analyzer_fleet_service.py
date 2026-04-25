@@ -510,6 +510,36 @@ def test_analyzer_fleet_service_apply_analyzer_setup_assigns_device_ids_and_reco
     context.run_logger.finalize()
 
 
+def test_analyzer_fleet_service_can_keep_detected_device_ids_without_applying(tmp_path: Path) -> None:
+    service, context, _run_state, host = _build_service(tmp_path)
+    context.config.workflow.analyzer_setup = {
+        "software_version": "v5_plus",
+        "device_id_assignment_mode": "manual",
+        "start_device_id": "091",
+        "manual_device_ids": ["091", "003"],
+        "apply_device_id": False,
+    }
+
+    service.apply_analyzer_setup()
+
+    first = context.device_manager.get_device("gas_analyzer_0")
+    second = context.device_manager.get_device("gas_analyzer_1")
+    assert first.device_id == ""
+    assert second.device_id == ""
+    assert not any(name == "set_device_id_with_ack" for name, _args, _kwargs in first.calls)
+    assert not any(name == "set_device_id_with_ack" for name, _args, _kwargs in second.calls)
+    assert any("apply_device_id=False" in message for message in host.logs)
+
+    trace_path = context.result_store.run_dir / "route_trace.jsonl"
+    entries = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    keep_entries = [entry for entry in entries if entry["action"] == "analyzer_device_id_keep"]
+    assert [entry["target"].get("device_id") for entry in keep_entries] == ["091", "003"]
+    assert all(entry["result"] == "ok" for entry in keep_entries)
+    assert not any(entry["action"] == "analyzer_device_id_assignment" for entry in entries)
+
+    context.run_logger.finalize()
+
+
 def test_analyzer_fleet_service_sensor_precheck_raises_when_strict(tmp_path: Path) -> None:
     service, context, run_state, host = _build_service(tmp_path)
     context.config.workflow.sensor_precheck = {

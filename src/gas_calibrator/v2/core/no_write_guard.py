@@ -67,6 +67,12 @@ RAW_CALIBRATION_COMMAND_TOKENS = (
     "PARAMETER_STORE",
     "PARAMETERSTORE",
     "PARAM",
+    "SETID",
+    "SET_ID",
+    "WRITEID",
+    "WRITE_ID",
+    "DEVICEID",
+    "DEVICE_ID",
 )
 EXACT_BLOCKED_METHODS = {
     "set_senco",
@@ -95,6 +101,11 @@ EXACT_BLOCKED_METHODS = {
     "commit_to_nvm",
     "store_parameters",
     "parameter_store_write",
+    "set_device_id_with_ack",
+    "set_device_id",
+    "write_device_id",
+    "assign_device_id",
+    "set_id",
 }
 
 

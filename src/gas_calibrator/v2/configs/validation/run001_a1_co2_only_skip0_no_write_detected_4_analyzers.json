@@ -200,6 +200,13 @@
     "humidity_generator": {
       "ensure_run": false
     },
+    "analyzer_setup": {
+      "software_version": "v5_plus",
+      "device_id_assignment_mode": "manual",
+      "start_device_id": "091",
+      "manual_device_ids": ["091", "003", "023", "012"],
+      "apply_device_id": false
+    },
     "sensor_precheck": {
       "enabled": true,
       "profile": "raw_frame_first",

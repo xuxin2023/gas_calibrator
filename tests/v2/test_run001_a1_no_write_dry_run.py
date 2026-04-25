@@ -223,6 +223,21 @@ class FakeAnalyzer:
     def calibration_commit(self):
         return True
 
+    def set_device_id_with_ack(self, *_args, **_kwargs):
+        return True
+
+    def set_device_id(self, *_args, **_kwargs):
+        return True
+
+    def write_device_id(self, *_args, **_kwargs):
+        return True
+
+    def assign_device_id(self, *_args, **_kwargs):
+        return True
+
+    def set_id(self, *_args, **_kwargs):
+        return True
+
 
 class FakeAnalyzerSerial:
     def write(self, data: str) -> str:
@@ -333,6 +348,11 @@ def test_no_write_allows_analyzer_read_query_and_active_upload_sampling() -> Non
         "flash_write",
         "nvm_write",
         "calibration_commit",
+        "set_device_id_with_ack",
+        "set_device_id",
+        "write_device_id",
+        "assign_device_id",
+        "set_id",
     ],
 )
 def test_no_write_blocks_calibration_parameter_write_methods(method_name: str) -> None:
@@ -346,7 +366,10 @@ def test_no_write_blocks_calibration_parameter_write_methods(method_name: str) -
     assert guard.blocked_events[0]["method_name"] == method_name
 
 
-@pytest.mark.parametrize("payload", ["SENCO9,YGAS,FFF,0,1,0,0\r\n", "SAVE_PARAMETERS", "WRITEBACK EEPROM"])
+@pytest.mark.parametrize(
+    "payload",
+    ["SENCO9,YGAS,FFF,0,1,0,0\r\n", "SAVE_PARAMETERS", "WRITEBACK EEPROM", "SET_ID,YGAS,FFF,091"],
+)
 def test_no_write_blocks_raw_analyzer_calibration_write_payloads(payload: str) -> None:
     guard = NoWriteGuard()
     analyzer = guard.guard_device(FakeAnalyzer(), device_name="ga01", device_type="gas_analyzer")

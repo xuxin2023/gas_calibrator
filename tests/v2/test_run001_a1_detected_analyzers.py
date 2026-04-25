@@ -40,6 +40,10 @@ def test_detected_analyzer_config_uses_only_measured_four_enabled_analyzers() ->
     assert all(item["active_send"] is True for item in analyzers)
     assert {"COM36", "COM38", "COM39", "COM40"}.isdisjoint({item["port"] for item in analyzers})
     assert {"001", "002", "004"}.isdisjoint({item["device_id"] for item in analyzers})
+    setup = raw["workflow"]["analyzer_setup"]
+    assert setup["device_id_assignment_mode"] == "manual"
+    assert setup["manual_device_ids"] == ["091", "003", "023", "012"]
+    assert setup["apply_device_id"] is False
 
 
 def test_detected_analyzer_config_preflight_payload_records_enabled_list(tmp_path: Path) -> None:
@@ -83,5 +87,8 @@ def test_detected_analyzer_config_loads_without_unsafe_step2_bypass() -> None:
     assert raw["run001_a1"]["full_h2o_co2_group"] is False
     assert app_config.workflow.route_mode == "co2_only"
     assert app_config.workflow.skip_co2_ppm == [0]
+    assert app_config.workflow.analyzer_setup["device_id_assignment_mode"] == "manual"
+    assert app_config.workflow.analyzer_setup["manual_device_ids"] == ["091", "003", "023", "012"]
+    assert app_config.workflow.analyzer_setup["apply_device_id"] is False
     assert [item.port for item in app_config.devices.gas_analyzers] == ["COM35", "COM37", "COM41", "COM42"]
     assert [item.device_id for item in app_config.devices.gas_analyzers] == ["091", "003", "023", "012"]

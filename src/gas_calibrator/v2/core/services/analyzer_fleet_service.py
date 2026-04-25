@@ -9,6 +9,7 @@ from ...config.models import (
     _normalize_sensor_precheck_config,
 )
 from ...exceptions import WorkflowValidationError
+from ..no_write_guard import NoWriteViolation
 from ..orchestration_context import OrchestrationContext
 from ..run_state import RunState
 from ..device_factory import DeviceType
@@ -268,6 +269,8 @@ class AnalyzerFleetService:
             return "skipped", "no supported device-id method"
         try:
             self._call_with_optional_ack(method, device_id)
+        except NoWriteViolation:
+            raise
         except Exception as exc:
             return "warn", f"device-id apply failed: {exc}"
 
@@ -297,11 +300,18 @@ class AnalyzerFleetService:
 
         setup = self.analyzer_setup_config()
         planned_ids = self._planned_device_ids(len(analyzers))
+        raw_apply_device_id = setup.get("apply_device_id", True)
+        apply_device_id = (
+            bool(raw_apply_device_id)
+            if isinstance(raw_apply_device_id, bool)
+            else str(raw_apply_device_id).strip().lower() not in {"0", "false", "no", "off"}
+        )
         self.host._log(
             "Analyzer setup "
             f"software_version={setup.get('software_version')} "
             f"device_id_assignment_mode={setup.get('device_id_assignment_mode')} "
-            f"start_device_id={setup.get('start_device_id')} analyzers={len(analyzers)}"
+            f"start_device_id={setup.get('start_device_id')} "
+            f"apply_device_id={apply_device_id} analyzers={len(analyzers)}"
         )
         self._record_route_trace(
             action="analyzer_setup_profile",
@@ -316,6 +326,21 @@ class AnalyzerFleetService:
 
         for index, (label, analyzer, _cfg) in enumerate(analyzers):
             desired_id = planned_ids[index]
+            if not apply_device_id:
+                detail = "device-id apply skipped by configuration; existing id retained"
+                self.host._log(f"Analyzer setup device-id keep ({label}): id={desired_id} result=ok detail={detail}")
+                self._record_route_trace(
+                    action="analyzer_device_id_keep",
+                    target={
+                        "analyzer": label,
+                        "device_id": desired_id,
+                        "software_version": setup.get("software_version"),
+                    },
+                    actual={"detail": detail},
+                    result="ok",
+                    message="Analyzer device-id apply skipped",
+                )
+                continue
             result, detail = self._apply_device_id_to_analyzer(
                 analyzer,
                 label=label,
