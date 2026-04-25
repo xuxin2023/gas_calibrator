@@ -73,6 +73,50 @@ def _co2_points() -> list[dict]:
     ]
 
 
+def _service_summary(
+    *,
+    phase: str = "completed",
+    error: str = "",
+    message: str = "Calibration completed",
+    points_completed: int = 1,
+    sample_count: int = 1,
+) -> dict:
+    return {
+        "points_completed": points_completed,
+        "completed_points": points_completed,
+        "status": {
+            "phase": phase,
+            "completed_points": points_completed,
+            "message": message,
+            "error": error,
+        },
+        "stats": {"sample_count": sample_count},
+    }
+
+
+def _write_runtime_artifacts(tmp_path: Path, *, omit_trace_kind: str = "") -> dict:
+    (tmp_path / "summary.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "manifest.json").write_text("{}", encoding="utf-8")
+    entries = []
+    if omit_trace_kind != "route":
+        entries.append({"action": "set_route", "route": "co2", "point_index": 1, "result": "ok", "target": {"route": "co2"}})
+    if omit_trace_kind != "pressure":
+        entries.append({"action": "set_pressure", "route": "co2", "point_index": 1, "result": "ok", "target": {"pressure": 1000}})
+    if omit_trace_kind != "wait":
+        entries.append({"action": "wait_stable", "route": "co2", "point_index": 1, "result": "ok", "target": {"stable": True}})
+    if omit_trace_kind != "sample":
+        entries.append({"action": "sample_collect", "route": "co2", "point_index": 1, "result": "ok", "target": {"sample": 1}})
+    (tmp_path / "route_trace.jsonl").write_text(
+        "\n".join(json.dumps(item) for item in entries) + ("\n" if entries else ""),
+        encoding="utf-8",
+    )
+    return {
+        "summary": tmp_path / "summary.json",
+        "manifest": tmp_path / "manifest.json",
+        "trace": tmp_path / "route_trace.jsonl",
+    }
+
+
 def _cli_args(**overrides) -> dict:
     payload = {
         "execute": True,
@@ -448,6 +492,143 @@ def test_artifact_missing_makes_runtime_readiness_fail(tmp_path: Path) -> None:
     assert "required_artifact_missing_summary" in result["hard_stop_reasons"]
     assert "required_artifact_missing_manifest" in result["hard_stop_reasons"]
     assert "required_artifact_missing_trace" in result["hard_stop_reasons"]
+
+
+def test_a1_execution_error_overrides_readiness_pass_and_writes_fail_fields(tmp_path: Path) -> None:
+    artifact_paths = _write_runtime_artifacts(tmp_path)
+    error = "Device precheck failed [failed_devices=['gas_analyzer_1', 'gas_analyzer_2', 'gas_analyzer_3']]"
+    payload = build_run001_a1_evidence_payload(
+        _base_raw_config(),
+        point_rows=_co2_points(),
+        run_dir=tmp_path,
+        artifact_paths=artifact_paths,
+        require_runtime_artifacts=True,
+        service_summary=_service_summary(phase="error", error=error, message=f"Calibration failed: {error}"),
+    )
+    written = write_run001_a1_artifacts(tmp_path / "run001", payload)
+
+    assert payload["readiness_result"] == RUN001_PASS
+    assert payload["a1_final_decision"] == RUN001_FAIL
+    assert payload["a1_execution_result"] == "failed"
+    assert payload["device_precheck_result"] == RUN001_FAIL
+    assert payload["failed_devices"] == ["gas_analyzer_1", "gas_analyzer_2", "gas_analyzer_3"]
+    readiness = json.loads(Path(written["readiness"]).read_text(encoding="utf-8"))
+    report = Path(written["report"]).read_text(encoding="utf-8")
+    assert readiness["a1_final_decision"] == RUN001_FAIL
+    assert readiness["readiness_result"] == RUN001_PASS
+    assert "Readiness PASS only means" in report
+    assert "Execution FAIL" in report
+    assert "does not authorize A2" in report
+
+
+def test_a1_device_precheck_failed_records_failed_devices(tmp_path: Path) -> None:
+    artifact_paths = _write_runtime_artifacts(tmp_path)
+    payload = build_run001_a1_evidence_payload(
+        _base_raw_config(),
+        point_rows=_co2_points(),
+        run_dir=tmp_path,
+        artifact_paths=artifact_paths,
+        require_runtime_artifacts=True,
+        service_summary=_service_summary(
+            phase="error",
+            error="Device precheck failed [failed_devices=['gas_analyzer_1']]",
+            points_completed=0,
+            sample_count=0,
+        ),
+    )
+
+    assert payload["a1_final_decision"] == RUN001_FAIL
+    assert "device_precheck_failed" in payload["a1_decision_reasons"]
+    assert payload["failed_devices"] == ["gas_analyzer_1"]
+
+
+@pytest.mark.parametrize(
+    ("points_completed", "sample_count", "expected_reason"),
+    [
+        (0, 1, "points_completed_zero"),
+        (1, 0, "sample_count_zero"),
+    ],
+)
+def test_a1_zero_points_or_samples_cannot_pass(
+    tmp_path: Path,
+    points_completed: int,
+    sample_count: int,
+    expected_reason: str,
+) -> None:
+    artifact_paths = _write_runtime_artifacts(tmp_path)
+    payload = build_run001_a1_evidence_payload(
+        _base_raw_config(),
+        point_rows=_co2_points(),
+        run_dir=tmp_path,
+        artifact_paths=artifact_paths,
+        require_runtime_artifacts=True,
+        service_summary=_service_summary(points_completed=points_completed, sample_count=sample_count),
+    )
+
+    assert payload["a1_final_decision"] == RUN001_FAIL
+    assert expected_reason in payload["a1_decision_reasons"]
+
+
+@pytest.mark.parametrize(
+    ("omit_trace_kind", "expected_reason"),
+    [
+        ("route", "route_not_completed"),
+        ("pressure", "pressure_not_completed"),
+        ("wait", "wait_gate_not_completed"),
+        ("sample", "sample_not_completed"),
+    ],
+)
+def test_a1_requires_route_pressure_wait_and_sample_completion(
+    tmp_path: Path,
+    omit_trace_kind: str,
+    expected_reason: str,
+) -> None:
+    artifact_paths = _write_runtime_artifacts(tmp_path, omit_trace_kind=omit_trace_kind)
+    payload = build_run001_a1_evidence_payload(
+        _base_raw_config(),
+        point_rows=_co2_points(),
+        run_dir=tmp_path,
+        artifact_paths=artifact_paths,
+        require_runtime_artifacts=True,
+        service_summary=_service_summary(points_completed=1, sample_count=1),
+    )
+
+    assert payload["a1_final_decision"] == RUN001_FAIL
+    assert expected_reason in payload["a1_decision_reasons"]
+
+
+def test_a1_attempted_write_count_fails_even_if_execution_completed(tmp_path: Path) -> None:
+    artifact_paths = _write_runtime_artifacts(tmp_path)
+    guard = NoWriteGuard()
+    guard.blocked_events.append({"method_name": "write_zero"})
+    payload = build_run001_a1_evidence_payload(
+        _base_raw_config(),
+        point_rows=_co2_points(),
+        run_dir=tmp_path,
+        guard=guard,
+        artifact_paths=artifact_paths,
+        require_runtime_artifacts=True,
+        service_summary=_service_summary(points_completed=1, sample_count=1),
+    )
+
+    assert payload["a1_final_decision"] == RUN001_FAIL
+    assert "attempted_write_count_gt_0" in payload["a1_decision_reasons"]
+    assert payload["attempted_write_count"] == 1
+
+
+def test_a1_missing_runtime_artifact_fails_execution_decision(tmp_path: Path) -> None:
+    missing = tmp_path / "missing.json"
+    payload = build_run001_a1_evidence_payload(
+        _base_raw_config(),
+        point_rows=_co2_points(),
+        run_dir=tmp_path,
+        artifact_paths={"summary": missing, "manifest": missing, "trace": missing},
+        require_runtime_artifacts=True,
+        service_summary=_service_summary(points_completed=1, sample_count=1),
+    )
+
+    assert payload["a1_final_decision"] == RUN001_FAIL
+    assert "required_artifact_missing_summary" in payload["a1_decision_reasons"]
 
 
 def test_normal_co2_only_skip0_no_write_preflight_passes_and_writes_artifacts(tmp_path: Path) -> None:

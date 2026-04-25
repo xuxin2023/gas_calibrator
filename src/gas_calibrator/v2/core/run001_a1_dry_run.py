@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import ast
 from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+import re
 import subprocess
 from typing import Any, Mapping, Optional
 
@@ -21,6 +23,8 @@ RUN001_ARTIFACT_NAMES = {
 RUN001_MODE = "real_machine_dry_run"
 RUN001_PASS = "PASS"
 RUN001_FAIL = "FAIL"
+RUN001_NOT_EXECUTED = "NOT_EXECUTED"
+RUN001_SUCCESS_PHASES = {"completed", "complete", "success", "succeeded", "pass", "passed", "ok"}
 
 
 def _as_bool(value: Any) -> bool:
@@ -262,6 +266,232 @@ def collect_trace_summary(run_dir: str | Path | None) -> dict[str, Any]:
     }
 
 
+def _load_json_dict(path: str | Path | None) -> dict[str, Any]:
+    if path is None:
+        return {}
+    target = Path(path)
+    if not target.exists():
+        return {}
+    try:
+        payload = json.loads(target.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return dict(payload) if isinstance(payload, Mapping) else {}
+
+
+def _phase_text(value: Any) -> str:
+    raw = getattr(value, "value", value)
+    return str(raw or "").strip().lower()
+
+
+def _status_to_mapping(status: Any) -> dict[str, Any]:
+    if status is None:
+        return {}
+    if isinstance(status, Mapping):
+        return dict(status)
+    return {
+        "phase": _phase_text(getattr(status, "phase", "")),
+        "total_points": getattr(status, "total_points", None),
+        "completed_points": getattr(status, "completed_points", None),
+        "progress": getattr(status, "progress", None),
+        "message": getattr(status, "message", ""),
+        "elapsed_s": getattr(status, "elapsed_s", None),
+        "error": getattr(status, "error", None),
+    }
+
+
+def _service_status_snapshot(service: Any) -> dict[str, Any]:
+    getter = getattr(service, "get_status", None)
+    if callable(getter):
+        try:
+            return _status_to_mapping(getter())
+        except Exception:
+            return {}
+    return _status_to_mapping(getattr(service, "status", None))
+
+
+def _as_nonnegative_int(value: Any, default: int = 0) -> int:
+    try:
+        return max(0, int(value))
+    except Exception:
+        return default
+
+
+def _nested(mapping: Mapping[str, Any], *keys: str) -> Any:
+    current: Any = mapping
+    for key in keys:
+        if not isinstance(current, Mapping):
+            return None
+        current = current.get(key)
+    return current
+
+
+def _extract_failed_devices(*texts: Any) -> list[str]:
+    for value in texts:
+        text = str(value or "")
+        if not text:
+            continue
+        match = re.search(r"failed_devices\s*=\s*(\[[^\]]*\])", text)
+        if match:
+            try:
+                parsed = ast.literal_eval(match.group(1))
+            except Exception:
+                parsed = []
+            if isinstance(parsed, (list, tuple)):
+                return [str(item) for item in parsed if str(item or "").strip()]
+        if "Device precheck failed" in text:
+            return []
+    return []
+
+
+def _is_device_precheck_failure(*texts: Any) -> bool:
+    return any("device precheck failed" in str(text or "").lower() for text in texts)
+
+
+def _step_has_planned_execution_evidence(step: Any) -> bool:
+    if not isinstance(step, Mapping):
+        return False
+    action = str(step.get("action", "") or "").strip().lower()
+    message = str(step.get("message", "") or "").strip().lower()
+    result = str(step.get("result", "") or "").strip().lower()
+    if any(marker in action for marker in ("final_safe_stop", "safe_stop", "restore_baseline")):
+        return False
+    if any(marker in message for marker in ("final safe stop", "restore baseline")):
+        return False
+    if result in {"error", "failed", "fail"}:
+        return False
+    if step.get("point_index") is not None or str(step.get("point_tag", "") or "").strip():
+        return True
+    if str(step.get("route", "") or "").strip():
+        return True
+    target = step.get("target")
+    return isinstance(target, Mapping) and bool(target)
+
+
+def _has_completed_execution_step(steps: Any) -> bool:
+    return any(_step_has_planned_execution_evidence(step) for step in list(steps or []))
+
+
+def _service_summary_numbers(
+    service_summary: Mapping[str, Any],
+    service_status: Mapping[str, Any],
+) -> tuple[int, int]:
+    points_completed = _nested(service_summary, "points_completed")
+    if points_completed is None:
+        points_completed = _nested(service_summary, "completed_points")
+    if points_completed is None:
+        points_completed = _nested(service_summary, "status", "completed_points")
+    if points_completed is None:
+        points_completed = service_status.get("completed_points")
+
+    sample_count = _nested(service_summary, "stats", "sample_count")
+    if sample_count is None:
+        sample_count = _nested(service_summary, "sample_count")
+
+    return _as_nonnegative_int(points_completed), _as_nonnegative_int(sample_count)
+
+
+def build_run001_a1_execution_decision(
+    *,
+    readiness: Mapping[str, Any],
+    trace: Mapping[str, Any],
+    service_summary: Optional[Mapping[str, Any]] = None,
+    service_status: Optional[Mapping[str, Any]] = None,
+    runtime_expected: bool = False,
+) -> dict[str, Any]:
+    summary = dict(service_summary or {})
+    status = _status_to_mapping(service_status or summary.get("status"))
+    if not runtime_expected and not summary and not status:
+        return {
+            "a1_final_decision": RUN001_NOT_EXECUTED,
+            "a1_execution_result": "preflight_only",
+            "a1_fail_reason": "",
+            "a1_decision_reasons": [],
+            "device_precheck_result": "NOT_EVALUATED",
+            "failed_devices": [],
+            "points_completed": 0,
+            "sample_count": 0,
+            "route_completed": False,
+            "pressure_completed": False,
+            "wait_gate_completed": False,
+            "sample_completed": False,
+            "service_status_phase": "",
+            "service_status_message": "",
+            "service_status_error": "",
+            "real_machine_acceptance_evidence": False,
+        }
+
+    phase = _phase_text(status.get("phase") or _nested(summary, "status", "phase"))
+    message = str(status.get("message") or _nested(summary, "status", "message") or "")
+    error = str(status.get("error") or _nested(summary, "status", "error") or "")
+    points_completed, sample_count = _service_summary_numbers(summary, status)
+    route_completed = _has_completed_execution_step(trace.get("actual_route_steps"))
+    pressure_completed = _has_completed_execution_step(trace.get("actual_pressure_steps"))
+    wait_gate_completed = bool(list(trace.get("wait_gate_summary") or []))
+    sample_completed = bool(list(trace.get("sample_summary") or [])) and sample_count > 0
+    attempted_write_count = _as_nonnegative_int(readiness.get("attempted_write_count"))
+    blocked_write_events = list(readiness.get("blocked_write_events") or [])
+    artifact_status = dict(readiness.get("artifact_status") or {})
+    failed_devices = _extract_failed_devices(error, message)
+    device_precheck_failed = _is_device_precheck_failure(error, message)
+    reasons: list[str] = []
+
+    if phase not in RUN001_SUCCESS_PHASES:
+        reasons.append("service_status_not_success")
+    if device_precheck_failed:
+        reasons.append("device_precheck_failed")
+    if points_completed <= 0:
+        reasons.append("points_completed_zero")
+    if sample_count <= 0:
+        reasons.append("sample_count_zero")
+    if not route_completed:
+        reasons.append("route_not_completed")
+    if not pressure_completed:
+        reasons.append("pressure_not_completed")
+    if not wait_gate_completed:
+        reasons.append("wait_gate_not_completed")
+    if not sample_completed:
+        reasons.append("sample_not_completed")
+    if attempted_write_count > 0 or blocked_write_events:
+        reasons.append("attempted_write_count_gt_0")
+    for name, status_payload in artifact_status.items():
+        if isinstance(status_payload, Mapping) and not bool(status_payload.get("exists")):
+            reasons.append(f"required_artifact_missing_{name}")
+    if readiness.get("readiness_result") == RUN001_FAIL:
+        reasons.append("readiness_failed")
+
+    deduped_reasons = list(dict.fromkeys(reasons))
+    fail_reason = "; ".join(deduped_reasons)
+    if device_precheck_failed and failed_devices:
+        fail_reason = f"Device precheck failed [failed_devices={failed_devices}]"
+    elif device_precheck_failed:
+        fail_reason = "Device precheck failed"
+    elif error:
+        fail_reason = error
+    elif message and deduped_reasons:
+        fail_reason = message
+
+    passed = not deduped_reasons
+    return {
+        "a1_final_decision": RUN001_PASS if passed else RUN001_FAIL,
+        "a1_execution_result": "completed" if passed else "failed",
+        "a1_fail_reason": "" if passed else fail_reason,
+        "a1_decision_reasons": deduped_reasons,
+        "device_precheck_result": RUN001_FAIL if device_precheck_failed else "NOT_TRIGGERED",
+        "failed_devices": failed_devices,
+        "points_completed": points_completed,
+        "sample_count": sample_count,
+        "route_completed": route_completed,
+        "pressure_completed": pressure_completed,
+        "wait_gate_completed": wait_gate_completed,
+        "sample_completed": sample_completed,
+        "service_status_phase": phase,
+        "service_status_message": message,
+        "service_status_error": error,
+        "real_machine_acceptance_evidence": False,
+    }
+
+
 def evaluate_run001_a1_readiness(
     raw_cfg: Mapping[str, Any],
     *,
@@ -395,6 +625,8 @@ def build_run001_a1_evidence_payload(
     guard: Optional[NoWriteGuard] = None,
     artifact_paths: Optional[Mapping[str, Any]] = None,
     require_runtime_artifacts: bool = False,
+    service_summary: Optional[Mapping[str, Any]] = None,
+    service_status: Optional[Mapping[str, Any]] = None,
     changed_paths: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     points = list(point_rows if point_rows is not None else load_point_rows(config_path, raw_cfg))
@@ -421,6 +653,14 @@ def build_run001_a1_evidence_payload(
     )
     plan = summarize_plan(raw_cfg, points)
     trace = collect_trace_summary(run_dir)
+    runtime_expected = bool(require_runtime_artifacts or service_summary or service_status)
+    execution_decision = build_run001_a1_execution_decision(
+        readiness=readiness,
+        trace=trace,
+        service_summary=service_summary,
+        service_status=service_status,
+        runtime_expected=runtime_expected,
+    )
     git = git_snapshot()
     config_path_text = "" if config_path is None else str(Path(config_path).expanduser().resolve())
     config_hash = sha256_file(config_path_text) if config_path_text and Path(config_path_text).exists() else ""
@@ -468,9 +708,11 @@ def build_run001_a1_evidence_payload(
         "blocked_write_events": readiness["blocked_write_events"],
         "v1_fallback_status": readiness["v1_fallback_status"],
         "readiness_result": readiness["readiness_result"],
+        "readiness_final_decision": readiness["final_decision"],
         "final_decision": readiness["final_decision"],
         "hard_stop_reasons": readiness["hard_stop_reasons"],
         "artifact_status": readiness["artifact_status"],
+        **execution_decision,
         "h2o_single_route_readiness": readiness["h2o_single_route_readiness"],
         "full_single_temperature_h2o_co2_group_readiness": readiness[
             "full_single_temperature_h2o_co2_group_readiness"
@@ -487,9 +729,16 @@ def build_run001_a1_evidence_payload(
 
 
 def render_human_report(payload: Mapping[str, Any]) -> str:
-    decision = str(payload.get("final_decision", RUN001_FAIL))
+    readiness_decision = str(payload.get("readiness_result", payload.get("final_decision", RUN001_FAIL)))
+    a1_decision = str(payload.get("a1_final_decision", RUN001_NOT_EXECUTED))
+    execution_result = str(payload.get("a1_execution_result", "preflight_only"))
+    fail_reason = str(payload.get("a1_fail_reason") or "")
     reasons = list(payload.get("hard_stop_reasons") or [])
     reason_lines = "\n".join(f"- {item}" for item in reasons) if reasons else "- none"
+    a1_reasons = list(payload.get("a1_decision_reasons") or [])
+    a1_reason_lines = "\n".join(f"- {item}" for item in a1_reasons) if a1_reasons else "- none"
+    failed_devices = list(payload.get("failed_devices") or [])
+    failed_device_line = ", ".join(str(item) for item in failed_devices) if failed_devices else "none"
     return "\n".join(
         [
             "# Run-001 / A1 no-write dry-run evidence",
@@ -497,7 +746,11 @@ def render_human_report(payload: Mapping[str, Any]) -> str:
             f"- run_id: {payload.get('run_id')}",
             f"- mode: {payload.get('mode')}",
             f"- no_write: {payload.get('no_write')}",
-            f"- final_decision: {decision}",
+            f"- no_write_readiness_result: {readiness_decision}",
+            f"- execution_result: {execution_result}",
+            f"- a1_final_decision: {a1_decision}",
+            f"- a1_fail_reason: {fail_reason or 'none'}",
+            f"- failed_devices: {failed_device_line}",
             f"- attempted_write_count: {payload.get('attempted_write_count')}",
             f"- unsafe_step2_bypass_used: {payload.get('unsafe_step2_bypass_used')}",
             f"- V1 fallback: {payload.get('v1_fallback_status', {}).get('status')}",
@@ -507,6 +760,11 @@ def render_human_report(payload: Mapping[str, Any]) -> str:
             "## Hard stops",
             reason_lines,
             "",
+            "## A1 execution decision",
+            a1_reason_lines,
+            "",
+            "Readiness PASS only means the no-write/readiness gate passed; it is not A1 execution PASS.",
+            "Execution FAIL means Run-001/A1 FAIL and does not authorize A2.",
             "This artifact is not real acceptance evidence and does not authorize V2 cutover or real writes.",
             "",
         ]
@@ -535,6 +793,11 @@ def write_run001_a1_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
                 "attempted_write_count": enriched.get("attempted_write_count"),
                 "blocked_write_events": enriched.get("blocked_write_events"),
                 "final_decision": enriched.get("final_decision"),
+                "readiness_result": enriched.get("readiness_result"),
+                "a1_final_decision": enriched.get("a1_final_decision"),
+                "a1_execution_result": enriched.get("a1_execution_result"),
+                "a1_fail_reason": enriched.get("a1_fail_reason"),
+                "real_machine_acceptance_evidence": False,
             },
             ensure_ascii=False,
             indent=2,
@@ -548,9 +811,26 @@ def write_run001_a1_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
                 "run_id": enriched.get("run_id"),
                 "readiness_result": enriched.get("readiness_result"),
                 "final_decision": enriched.get("final_decision"),
+                "readiness_final_decision": enriched.get("readiness_final_decision"),
+                "a1_final_decision": enriched.get("a1_final_decision"),
+                "a1_execution_result": enriched.get("a1_execution_result"),
+                "a1_fail_reason": enriched.get("a1_fail_reason"),
+                "a1_decision_reasons": enriched.get("a1_decision_reasons"),
+                "device_precheck_result": enriched.get("device_precheck_result"),
+                "failed_devices": enriched.get("failed_devices"),
+                "points_completed": enriched.get("points_completed"),
+                "sample_count": enriched.get("sample_count"),
+                "route_completed": enriched.get("route_completed"),
+                "pressure_completed": enriched.get("pressure_completed"),
+                "wait_gate_completed": enriched.get("wait_gate_completed"),
+                "sample_completed": enriched.get("sample_completed"),
+                "service_status_phase": enriched.get("service_status_phase"),
+                "service_status_message": enriched.get("service_status_message"),
+                "service_status_error": enriched.get("service_status_error"),
                 "hard_stop_reasons": enriched.get("hard_stop_reasons"),
                 "v1_fallback_status": enriched.get("v1_fallback_status"),
                 "artifact_status": enriched.get("artifact_status"),
+                "real_machine_acceptance_evidence": False,
             },
             ensure_ascii=False,
             indent=2,
@@ -586,8 +866,13 @@ def write_run001_a1_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
                 "config_path": enriched.get("config_path"),
                 "config_hash": enriched.get("config_hash"),
                 "mode": enriched.get("mode"),
+                "readiness_result": enriched.get("readiness_result"),
+                "a1_final_decision": enriched.get("a1_final_decision"),
+                "a1_execution_result": enriched.get("a1_execution_result"),
+                "a1_fail_reason": enriched.get("a1_fail_reason"),
                 "artifact_paths": enriched.get("artifact_paths"),
                 "not_real_acceptance_evidence": True,
+                "real_machine_acceptance_evidence": False,
             },
             ensure_ascii=False,
             indent=2,
@@ -611,6 +896,8 @@ def export_runtime_run001_a1_artifacts(host: Any, run_dir: str | Path) -> dict[s
         "manifest": str(Path(run_dir) / "manifest.json"),
         "trace": str(Path(run_dir) / "route_trace.jsonl"),
     }
+    service_summary = _load_json_dict(Path(run_dir) / "summary.json")
+    service_status = _service_status_snapshot(service)
     payload = build_run001_a1_evidence_payload(
         raw_cfg,
         config_path=config_path,
@@ -620,5 +907,7 @@ def export_runtime_run001_a1_artifacts(host: Any, run_dir: str | Path) -> dict[s
         guard=guard if isinstance(guard, NoWriteGuard) else None,
         artifact_paths=artifact_paths,
         require_runtime_artifacts=True,
+        service_summary=service_summary,
+        service_status=service_status,
     )
     return write_run001_a1_artifacts(run_dir, payload)

@@ -46,6 +46,7 @@ class FinalizationRunner:
                 self.service.session,
                 source_points_file=getattr(self.service, "_points_path", None),
             )
+            self._refresh_run001_a1_artifacts_after_terminal_summary()
             self.service._generate_ai_outputs()
             self.service._sync_results_to_storage()
         except Exception as exc:
@@ -142,6 +143,20 @@ class FinalizationRunner:
         self.service.session.add_error(updated_error)
         self.service.orchestrator._log(updated_message)
         return updated_phase, message if phase is CalibrationPhase.STOPPED else updated_message, updated_error
+
+    def _refresh_run001_a1_artifacts_after_terminal_summary(self) -> None:
+        orchestrator = getattr(self.service, "orchestrator", None)
+        artifact_service = getattr(orchestrator, "artifact_service", None)
+        exporter = getattr(artifact_service, "_export_run001_a1_artifacts", None)
+        if not callable(exporter):
+            return
+        try:
+            exporter()
+        except Exception as exc:
+            try:
+                self.service.orchestrator._log(f"Run-001/A1 terminal evidence refresh failed: {exc}")
+            except Exception:
+                pass
 
     def _cfg_bool(self, path: str, default: bool) -> bool:
         orchestrator = getattr(self.service, "orchestrator", None)
