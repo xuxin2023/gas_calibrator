@@ -229,6 +229,23 @@ class AnalyzerFleetService:
     def _format_device_id(value: int) -> str:
         return f"{int(value):03d}"
 
+    @staticmethod
+    def _normalize_device_id_text(value: Any) -> str:
+        text = str(value or "").strip()
+        if text.isdigit():
+            return text.zfill(3)
+        return text
+
+    def _expected_device_id_for_cfg(self, cfg: Any) -> str:
+        return self._normalize_device_id_text(getattr(cfg, "device_id", ""))
+
+    def _observed_device_id_from_snapshot(self, snapshot: dict[str, Any]) -> str:
+        for key in ("id", "device_id", "analyzer_id"):
+            text = self._normalize_device_id_text(snapshot.get(key))
+            if text:
+                return text
+        return ""
+
     def _planned_device_ids(self, analyzer_count: int) -> list[str]:
         setup = self.analyzer_setup_config()
         assignment_mode = str(setup.get("device_id_assignment_mode", "automatic") or "automatic").strip().lower()
@@ -675,6 +692,7 @@ class AnalyzerFleetService:
 
         for label, analyzer, cfg in analyzers:
             settings = self.sensor_precheck_settings(cfg)
+            expected_device_id = self._expected_device_id_for_cfg(cfg)
             self.host._log(
                 f"Sensor precheck start ({label}): profile={profile['profile']} mode={settings['mode']} "
                 f"active_send={settings['active_send']} ftd={settings['ftd_hz']}Hz "
@@ -707,6 +725,47 @@ class AnalyzerFleetService:
                     last_error = str(exc)
                     snapshot = {}
                 if self._has_valid_sensor_frame(snapshot, validation_mode=validation_mode):
+                    observed_device_id = self._observed_device_id_from_snapshot(snapshot)
+                    if expected_device_id and observed_device_id and observed_device_id != expected_device_id:
+                        last_valid = str(snapshot.get("raw") or self._snapshot_summary(snapshot))
+                        message = (
+                            f"Sensor precheck device_id_mismatch ({label}): "
+                            f"expected={expected_device_id} observed={observed_device_id}"
+                        )
+                        self._record_route_trace(
+                            action="sensor_precheck_analyzer",
+                            target={
+                                "analyzer": label,
+                                "profile": profile["profile"],
+                                "scope": scope,
+                                "validation_mode": validation_mode,
+                                "expected_device_id": expected_device_id,
+                                "min_valid_frames": int(settings["min_valid_frames"]),
+                                "strict": bool(settings["strict"]),
+                            },
+                            actual={
+                                "valid_frames": valid_frames + 1,
+                                "observed_device_id": observed_device_id,
+                                "expected_device_id": expected_device_id,
+                                "last_valid": last_valid,
+                                "source": source,
+                            },
+                            result="fail" if bool(settings["strict"]) else "warn",
+                            message=message,
+                        )
+                        if bool(settings["strict"]):
+                            raise WorkflowValidationError(
+                                "Sensor precheck device_id_mismatch",
+                                details={
+                                    "analyzer": label,
+                                    "expected_device_id": expected_device_id,
+                                    "observed_device_id": observed_device_id,
+                                    "last_valid": last_valid,
+                                    "source": source,
+                                },
+                            )
+                        self.host._log(message)
+                        continue
                     valid_frames += 1
                     last_valid = str(snapshot.get("raw") or self._snapshot_summary(snapshot))
                     fallback_reason = ""

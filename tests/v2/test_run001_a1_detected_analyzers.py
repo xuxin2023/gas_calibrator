@@ -35,14 +35,25 @@ def test_detected_analyzer_config_uses_only_measured_four_enabled_analyzers() ->
 
     assert [item["name"] for item in analyzers] == ["analyzer_0", "analyzer_1", "analyzer_2", "analyzer_3"]
     assert [item["port"] for item in analyzers] == ["COM35", "COM37", "COM41", "COM42"]
-    assert [item["device_id"] for item in analyzers] == ["091", "003", "023", "012"]
+    assert [item["device_id"] for item in analyzers] == ["001", "029", "003", "004"]
     assert all(item["mode"] == 2 for item in analyzers)
     assert all(item["active_send"] is True for item in analyzers)
     assert {"COM36", "COM38", "COM39", "COM40"}.isdisjoint({item["port"] for item in analyzers})
-    assert {"001", "002", "004"}.isdisjoint({item["device_id"] for item in analyzers})
+    assert "002" not in {item["device_id"] for item in analyzers}
+    assert raw["run001_a1"]["duplicate_device_id_detected"] is False
+    assert raw["run001_a1"]["duplicate_device_id_value"] == ""
+    assert raw["run001_a1"]["duplicate_device_id_ports"] == []
+    assert raw["run001_a1"]["duplicate_device_id_policy"] == "not_applicable"
+    assert raw["run001_a1"]["temperature_chamber_settle_required"] is False
+    assert (
+        raw["run001_a1"]["temperature_chamber_wait_policy"]
+        == "command_and_record_only_no_settle_block_for_a1_no_write"
+    )
+    assert raw["workflow"]["stability"]["temperature"]["wait_for_target_before_continue"] is False
+    assert raw["workflow"]["stability"]["temperature"]["soak_after_reach_s"] == 0
     setup = raw["workflow"]["analyzer_setup"]
     assert setup["device_id_assignment_mode"] == "manual"
-    assert setup["manual_device_ids"] == ["091", "003", "023", "012"]
+    assert setup["manual_device_ids"] == ["001", "029", "003", "004"]
     assert setup["apply_device_id"] is False
 
 
@@ -62,16 +73,25 @@ def test_detected_analyzer_config_preflight_payload_records_enabled_list(tmp_pat
     assert payload["skip_co2_ppm"] == [0]
     assert payload["single_route"] is True
     assert payload["single_temperature_group"] is True
+    assert payload["temperature_chamber_settle_required"] is False
+    assert payload["temperature_wait_for_target_before_continue"] is False
+    assert payload["temperature_chamber_wait_policy"] == "command_and_record_only_no_settle_block_for_a1_no_write"
     assert payload["h2o_single_route_readiness"] == "yellow"
     assert payload["full_single_temperature_h2o_co2_group_readiness"] == "yellow"
     assert payload["default_cutover_to_v2"] is False
     assert payload["disable_v1"] is False
     assert payload["analyzer_ports"] == ["COM35", "COM37", "COM41", "COM42"]
-    assert payload["analyzer_device_ids"] == ["091", "003", "023", "012"]
+    assert payload["analyzer_device_ids"] == ["001", "029", "003", "004"]
+    assert payload["duplicate_device_id_detected"] is False
+    assert payload["duplicate_device_id_value"] == ""
+    assert payload["duplicate_device_id_ports"] == []
+    assert payload["duplicate_device_id_status"] == "not_detected"
+    assert "duplicate_device_id_detected" not in payload["hard_stop_reasons"]
     assert summary["enabled_analyzers"] == payload["enabled_analyzers"]
     assert manifest["enabled_analyzers"] == payload["enabled_analyzers"]
     assert manifest["analyzer_ports"] == ["COM35", "COM37", "COM41", "COM42"]
-    assert manifest["analyzer_device_ids"] == ["091", "003", "023", "012"]
+    assert manifest["analyzer_device_ids"] == ["001", "029", "003", "004"]
+    assert manifest["duplicate_device_id_status"] == "not_detected"
 
 
 def test_detected_analyzer_config_loads_without_unsafe_step2_bypass() -> None:
@@ -88,7 +108,9 @@ def test_detected_analyzer_config_loads_without_unsafe_step2_bypass() -> None:
     assert app_config.workflow.route_mode == "co2_only"
     assert app_config.workflow.skip_co2_ppm == [0]
     assert app_config.workflow.analyzer_setup["device_id_assignment_mode"] == "manual"
-    assert app_config.workflow.analyzer_setup["manual_device_ids"] == ["091", "003", "023", "012"]
+    assert app_config.workflow.analyzer_setup["manual_device_ids"] == ["001", "029", "003", "004"]
     assert app_config.workflow.analyzer_setup["apply_device_id"] is False
+    assert app_config.workflow.stability.temperature.wait_for_target_before_continue is False
+    assert app_config.workflow.stability.temperature.soak_after_reach_s == 0
     assert [item.port for item in app_config.devices.gas_analyzers] == ["COM35", "COM37", "COM41", "COM42"]
-    assert [item.device_id for item in app_config.devices.gas_analyzers] == ["091", "003", "023", "012"]
+    assert [item.device_id for item in app_config.devices.gas_analyzers] == ["001", "029", "003", "004"]

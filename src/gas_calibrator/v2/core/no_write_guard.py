@@ -74,6 +74,9 @@ RAW_CALIBRATION_COMMAND_TOKENS = (
     "DEVICEID",
     "DEVICE_ID",
 )
+RAW_IDENTITY_COMMAND_PREFIXES = (
+    "ID,YGAS,",
+)
 EXACT_BLOCKED_METHODS = {
     "set_senco",
     "set_coefficients",
@@ -101,6 +104,13 @@ EXACT_BLOCKED_METHODS = {
     "commit_to_nvm",
     "store_parameters",
     "parameter_store_write",
+    "set_device_id_with_ack",
+    "set_device_id",
+    "write_device_id",
+    "assign_device_id",
+    "set_id",
+}
+IDENTITY_WRITE_METHODS = {
     "set_device_id_with_ack",
     "set_device_id",
     "write_device_id",
@@ -163,10 +173,24 @@ def _raw_payload_preview(args: tuple[Any, ...], kwargs: Mapping[str, Any]) -> st
     return "\n".join(parts)
 
 
-def is_blocked_raw_write_payload(args: tuple[Any, ...], kwargs: Mapping[str, Any]) -> bool:
+def _normalized_raw_payload_text(args: tuple[Any, ...], kwargs: Mapping[str, Any]) -> str:
     text = _raw_payload_preview(args, kwargs).upper().replace("-", "_").replace(" ", "")
+    return text
+
+
+def is_blocked_raw_identity_write_payload(args: tuple[Any, ...], kwargs: Mapping[str, Any]) -> bool:
+    text = _normalized_raw_payload_text(args, kwargs)
     if not text:
         return False
+    return any(text.startswith(prefix) or f"\n{prefix}" in text for prefix in RAW_IDENTITY_COMMAND_PREFIXES)
+
+
+def is_blocked_raw_write_payload(args: tuple[Any, ...], kwargs: Mapping[str, Any]) -> bool:
+    text = _normalized_raw_payload_text(args, kwargs)
+    if not text:
+        return False
+    if is_blocked_raw_identity_write_payload(args, kwargs):
+        return True
     return any(token in text for token in RAW_CALIBRATION_COMMAND_TOKENS)
 
 
@@ -200,7 +224,16 @@ class NoWriteGuard:
         method_name: str,
         args: tuple[Any, ...],
         kwargs: Mapping[str, Any],
+        write_category: str = "",
     ) -> NoWriteViolation:
+        category = str(write_category or "").strip().lower()
+        if not category:
+            method_text = str(method_name or "").strip().lower()
+            category = (
+                "persistent_identity_write"
+                if method_text in IDENTITY_WRITE_METHODS or is_blocked_raw_identity_write_payload(args, kwargs)
+                else "calibration_or_parameter_write"
+            )
         event = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "scope": self.scope,
@@ -209,27 +242,36 @@ class NoWriteGuard:
             "method_name": str(method_name or ""),
             "args_preview": [self._preview(value) for value in args[:4]],
             "kwargs_keys": sorted(str(key) for key in dict(kwargs).keys()),
+            "write_category": category,
+            "identity_write_command_sent": category == "persistent_identity_write",
+            "persistent_write_command_sent": category == "persistent_identity_write",
             "reason": "blocked_by_run001_a1_no_write_guard",
         }
         self.blocked_events.append(event)
         return NoWriteViolation(
-            "Run-001/A1 no-write guard blocked calibration write "
+            "Run-001/A1 no-write guard blocked write "
             f"{event['device_name'] or event['device_type']}.{event['method_name']}"
         )
 
     def to_artifact(self) -> dict[str, Any]:
+        identity_write = any(bool(event.get("identity_write_command_sent")) for event in self.blocked_events)
+        persistent_write = any(bool(event.get("persistent_write_command_sent")) for event in self.blocked_events)
         return {
             "guard_enabled": bool(self.enabled),
             "scope": self.scope,
             "attempted_write_count": self.attempted_write_count,
             "blocked_write_events": list(self.blocked_events),
+            "identity_write_command_sent": identity_write,
+            "persistent_write_command_sent": persistent_write,
             "blocked_method_policy": {
                 "exact": sorted(EXACT_BLOCKED_METHODS),
+                "identity_methods": sorted(IDENTITY_WRITE_METHODS),
                 "terms": list(CALIBRATION_TERMS),
                 "verbs": list(WRITE_VERBS),
                 "raw_write_methods": list(RAW_WRITE_METHODS),
                 "raw_calibration_command_tokens": list(RAW_CALIBRATION_COMMAND_TOKENS),
-                "gas_analyzer_raw_write_blocked": "calibration_payloads_only",
+                "raw_identity_command_prefixes": list(RAW_IDENTITY_COMMAND_PREFIXES),
+                "gas_analyzer_raw_write_blocked": "calibration_and_identity_payloads",
             },
             "final_decision": "FAIL" if self.attempted_write_count > 0 else "PASS",
         }
@@ -268,12 +310,18 @@ class NoWriteDeviceProxy:
         if callable(value) and _raw_write_method_needs_payload_check(name, device_type=device_type):
             def _checked_raw_write(*args: Any, **kwargs: Any) -> Any:
                 if is_blocked_raw_write_payload(args, kwargs):
+                    category = (
+                        "persistent_identity_write"
+                        if is_blocked_raw_identity_write_payload(args, kwargs)
+                        else "calibration_or_parameter_write"
+                    )
                     raise guard.record_blocked_write(
                         device_name=device_name,
                         device_type=device_type,
                         method_name=name,
                         args=args,
                         kwargs=kwargs,
+                        write_category=category,
                     )
                 return value(*args, **kwargs)
 

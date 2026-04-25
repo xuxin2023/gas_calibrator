@@ -368,7 +368,14 @@ def test_no_write_blocks_calibration_parameter_write_methods(method_name: str) -
 
 @pytest.mark.parametrize(
     "payload",
-    ["SENCO9,YGAS,FFF,0,1,0,0\r\n", "SAVE_PARAMETERS", "WRITEBACK EEPROM", "SET_ID,YGAS,FFF,091"],
+    [
+        "SENCO9,YGAS,FFF,0,1,0,0\r\n",
+        "SAVE_PARAMETERS",
+        "WRITEBACK EEPROM",
+        "SET_ID,YGAS,FFF,091",
+        "ID,YGAS,003,029\r\n",
+        "ID,YGAS,FFF,029\r\n",
+    ],
 )
 def test_no_write_blocks_raw_analyzer_calibration_write_payloads(payload: str) -> None:
     guard = NoWriteGuard()
@@ -379,6 +386,40 @@ def test_no_write_blocks_raw_analyzer_calibration_write_payloads(payload: str) -
 
     assert guard.attempted_write_count == 1
     assert guard.blocked_events[0]["method_name"] == "write"
+    if payload.startswith("ID,YGAS"):
+        assert guard.blocked_events[0]["write_category"] == "persistent_identity_write"
+        assert guard.blocked_events[0]["identity_write_command_sent"] is True
+        assert guard.to_artifact()["identity_write_command_sent"] is True
+
+
+def test_no_write_allows_mode2_communication_setup_but_blocks_identity_write() -> None:
+    guard = NoWriteGuard()
+    analyzer = guard.guard_device(FakeAnalyzer(), device_name="ga01", device_type="gas_analyzer")
+
+    assert analyzer.write("MODE,YGAS,FFF,2\r\n") == "wrote:MODE,YGAS,FFF,2\r\n"
+    assert analyzer.write("SETCOMWAY,YGAS,FFF,1\r\n") == "wrote:SETCOMWAY,YGAS,FFF,1\r\n"
+
+    with pytest.raises(NoWriteViolation):
+        analyzer.write("ID,YGAS,003,029\r\n")
+
+    assert guard.attempted_write_count == 1
+    assert guard.blocked_events[0]["method_name"] == "write"
+    assert "ID,YGAS,003,029" in guard.blocked_events[0]["args_preview"][0]
+    assert guard.blocked_events[0]["write_category"] == "persistent_identity_write"
+    assert guard.to_artifact()["identity_write_command_sent"] is True
+
+
+def test_no_write_blocks_device_id_methods_as_persistent_identity_writes() -> None:
+    guard = NoWriteGuard()
+    analyzer = guard.guard_device(FakeAnalyzer(), device_name="ga01", device_type="gas_analyzer")
+
+    with pytest.raises(NoWriteViolation):
+        analyzer.set_device_id_with_ack("029")
+
+    assert guard.attempted_write_count == 1
+    assert guard.blocked_events[0]["method_name"] == "set_device_id_with_ack"
+    assert guard.blocked_events[0]["write_category"] == "persistent_identity_write"
+    assert guard.to_artifact()["identity_write_command_sent"] is True
 
 
 def test_no_write_blocks_raw_analyzer_serial_calibration_write_payloads() -> None:
@@ -387,9 +428,12 @@ def test_no_write_blocks_raw_analyzer_serial_calibration_write_payloads() -> Non
 
     with pytest.raises(NoWriteViolation):
         analyzer.ser.write("SENCO9,YGAS,FFF,0,1,0,0\r\n")
+    with pytest.raises(NoWriteViolation):
+        analyzer.ser.write("ID,YGAS,003,029\r\n")
 
-    assert guard.attempted_write_count == 1
+    assert guard.attempted_write_count == 2
     assert guard.blocked_events[0]["device_type"] == "gas_analyzer_serial"
+    assert guard.blocked_events[1]["device_type"] == "gas_analyzer_serial"
 
 
 def test_no_write_true_blocks_coefficient_write() -> None:
@@ -425,6 +469,47 @@ def test_attempted_write_count_makes_readiness_fail() -> None:
 
     assert result["readiness_result"] == RUN001_FAIL
     assert "attempted_write_count_gt_0" in result["hard_stop_reasons"]
+
+
+def test_duplicate_device_id_blocks_when_current_storage_uses_frame_id_identity() -> None:
+    raw = _base_raw_config()
+    raw["run001_a1"]["duplicate_device_id_policy"] = "block_a1_current_storage_uses_frame_id_unique_key"
+    raw["devices"] = {
+        "gas_analyzers": [
+            {"name": "analyzer_0", "enabled": True, "port": "COM35", "device_id": "001"},
+            {"name": "analyzer_1", "enabled": True, "port": "COM37", "device_id": "003"},
+            {"name": "analyzer_2", "enabled": True, "port": "COM41", "device_id": "003"},
+            {"name": "analyzer_3", "enabled": True, "port": "COM42", "device_id": "004"},
+            {"name": "unused", "enabled": False, "port": "COM36", "device_id": "002"},
+        ]
+    }
+
+    result = evaluate_run001_a1_readiness(raw, point_rows=_co2_points())
+
+    assert result["readiness_result"] == RUN001_FAIL
+    assert "duplicate_device_id_detected" in result["hard_stop_reasons"]
+    assert result["duplicate_device_id_detected"] is True
+    assert result["duplicate_device_id_value"] == "003"
+    assert result["duplicate_device_id_ports"] == ["COM37", "COM41"]
+    assert result["duplicate_device_id_status"] == "blocked"
+
+
+def test_duplicate_device_id_can_warn_when_port_unique_chain_is_explicit() -> None:
+    raw = _base_raw_config()
+    raw["run001_a1"]["duplicate_device_id_policy"] = "warn_port_unique_sample_chain"
+    raw["devices"] = {
+        "gas_analyzers": [
+            {"name": "analyzer_0", "enabled": True, "port": "COM37", "device_id": "003"},
+            {"name": "analyzer_1", "enabled": True, "port": "COM41", "device_id": "003"},
+        ]
+    }
+
+    result = evaluate_run001_a1_readiness(raw, point_rows=_co2_points())
+
+    assert result["readiness_result"] == RUN001_PASS
+    assert "duplicate_device_id_detected" not in result["hard_stop_reasons"]
+    assert result["duplicate_device_id_detected"] is True
+    assert result["duplicate_device_id_status"] == "warning"
 
 
 def test_h2o_config_is_rejected_for_run001() -> None:

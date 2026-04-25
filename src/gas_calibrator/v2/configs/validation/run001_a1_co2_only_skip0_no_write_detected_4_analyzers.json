@@ -13,6 +13,8 @@
     "allow_real_wait": true,
     "allow_real_sample": true,
     "allow_artifact": true,
+    "temperature_chamber_settle_required": false,
+    "temperature_chamber_wait_policy": "command_and_record_only_no_settle_block_for_a1_no_write",
     "allow_write_coefficients": false,
     "allow_write_zero": false,
     "allow_write_span": false,
@@ -23,7 +25,12 @@
     "h2o_single_route_readiness": "yellow",
     "full_single_temperature_h2o_co2_group_readiness": "yellow",
     "not_real_acceptance_evidence": true,
-    "enabled_analyzer_list_source": "analyzer_diagnostics_20260425_081517"
+    "enabled_analyzer_list_source": "analyzer_id_truth_audit_20260425_095505",
+    "mode2_truth_audit_path": "../../output/run001_a1/co2_only_skip0_no_write/analyzer_id_truth_audit_20260425_095505/analyzer_id_truth_audit.json",
+    "duplicate_device_id_detected": false,
+    "duplicate_device_id_value": "",
+    "duplicate_device_id_ports": [],
+    "duplicate_device_id_policy": "not_applicable"
   },
   "features": {
     "use_v2": true,
@@ -71,7 +78,7 @@
         "enabled": true,
         "port": "COM35",
         "baud": 115200,
-        "device_id": "091",
+        "device_id": "001",
         "mode": 2,
         "active_send": true,
         "ftd_hz": 10,
@@ -83,7 +90,7 @@
         "enabled": true,
         "port": "COM37",
         "baud": 115200,
-        "device_id": "003",
+        "device_id": "029",
         "mode": 2,
         "active_send": true,
         "ftd_hz": 10,
@@ -95,7 +102,7 @@
         "enabled": true,
         "port": "COM41",
         "baud": 115200,
-        "device_id": "023",
+        "device_id": "003",
         "mode": 2,
         "active_send": true,
         "ftd_hz": 10,
@@ -107,7 +114,7 @@
         "enabled": true,
         "port": "COM42",
         "baud": 115200,
-        "device_id": "012",
+        "device_id": "004",
         "mode": 2,
         "active_send": true,
         "ftd_hz": 10,
@@ -203,8 +210,8 @@
     "analyzer_setup": {
       "software_version": "v5_plus",
       "device_id_assignment_mode": "manual",
-      "start_device_id": "091",
-      "manual_device_ids": ["091", "003", "023", "012"],
+      "start_device_id": "001",
+      "manual_device_ids": ["001", "029", "003", "004"],
       "apply_device_id": false
     },
     "sensor_precheck": {
@@ -262,9 +269,9 @@
       "temperature": {
         "tol": 0.2,
         "window_s": 40,
-        "soak_after_reach_s": 1800,
+        "soak_after_reach_s": 0,
         "timeout_s": 1800,
-        "wait_for_target_before_continue": true
+        "wait_for_target_before_continue": false
       },
       "humidity_generator": {
         "enabled": false

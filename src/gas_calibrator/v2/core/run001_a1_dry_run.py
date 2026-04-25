@@ -25,6 +25,7 @@ RUN001_PASS = "PASS"
 RUN001_FAIL = "FAIL"
 RUN001_NOT_EXECUTED = "NOT_EXECUTED"
 RUN001_SUCCESS_PHASES = {"completed", "complete", "success", "succeeded", "pass", "passed", "ok"}
+RUN001_DUPLICATE_DEVICE_ID_BLOCK_POLICY = "block_a1_current_storage_uses_frame_id_unique_key"
 
 
 def _as_bool(value: Any) -> bool:
@@ -245,6 +246,39 @@ def summarize_enabled_analyzers(raw_cfg: Mapping[str, Any]) -> list[dict[str, An
     return enabled
 
 
+def summarize_duplicate_device_ids(raw_cfg: Mapping[str, Any]) -> dict[str, Any]:
+    enabled = summarize_enabled_analyzers(raw_cfg)
+    ports_by_id: dict[str, list[str]] = {}
+    for item in enabled:
+        device_id = str(item.get("device_id") or "").strip()
+        port = str(item.get("port") or "").strip().upper()
+        if not device_id or not port:
+            continue
+        ports_by_id.setdefault(device_id, []).append(port)
+    duplicate_map = {
+        device_id: ports for device_id, ports in ports_by_id.items()
+        if len(ports) > 1
+    }
+    duplicate_values = sorted(duplicate_map)
+    duplicate_value = duplicate_values[0] if duplicate_values else ""
+    configured_policy = str(_policy(raw_cfg).get("duplicate_device_id_policy") or "").strip()
+    policy = configured_policy or (RUN001_DUPLICATE_DEVICE_ID_BLOCK_POLICY if duplicate_map else "not_applicable")
+    policy_lower = policy.lower()
+    blocking = bool(duplicate_map) and (
+        policy_lower.startswith("block")
+        or policy_lower in {"fail", "fail_a1", "block_a1"}
+    )
+    return {
+        "duplicate_device_id_detected": bool(duplicate_map),
+        "duplicate_device_id_value": duplicate_value,
+        "duplicate_device_id_ports": duplicate_map.get(duplicate_value, []),
+        "duplicate_device_id_map": duplicate_map,
+        "duplicate_device_id_policy": policy,
+        "duplicate_device_id_status": "blocked" if blocking else ("warning" if duplicate_map else "not_detected"),
+        "duplicate_device_id_blocks_a1": blocking,
+    }
+
+
 def collect_trace_summary(run_dir: str | Path | None) -> dict[str, Any]:
     if run_dir is None:
         return {
@@ -372,6 +406,14 @@ def _is_device_precheck_failure(*texts: Any) -> bool:
     return any("device precheck failed" in str(text or "").lower() for text in texts)
 
 
+def _is_device_id_mismatch_failure(*texts: Any) -> bool:
+    return any(
+        marker in str(text or "").lower()
+        for text in texts
+        for marker in ("device_id_mismatch", "device-id mismatch", "device_id mismatch", "device id mismatch")
+    )
+
+
 def _step_has_planned_execution_evidence(step: Any) -> bool:
     if not isinstance(step, Mapping):
         return False
@@ -458,12 +500,15 @@ def build_run001_a1_execution_decision(
     artifact_status = dict(readiness.get("artifact_status") or {})
     failed_devices = _extract_failed_devices(error, message)
     device_precheck_failed = _is_device_precheck_failure(error, message)
+    device_id_mismatch_failed = _is_device_id_mismatch_failure(error, message)
     reasons: list[str] = []
 
     if phase not in RUN001_SUCCESS_PHASES:
         reasons.append("service_status_not_success")
     if device_precheck_failed:
         reasons.append("device_precheck_failed")
+    if device_id_mismatch_failed:
+        reasons.append("device_id_mismatch")
     if points_completed <= 0:
         reasons.append("points_completed_zero")
     if sample_count <= 0:
@@ -486,7 +531,9 @@ def build_run001_a1_execution_decision(
 
     deduped_reasons = list(dict.fromkeys(reasons))
     fail_reason = "; ".join(deduped_reasons)
-    if device_precheck_failed and failed_devices:
+    if device_id_mismatch_failed:
+        fail_reason = "device_id_mismatch"
+    elif device_precheck_failed and failed_devices:
         fail_reason = f"Device precheck failed [failed_devices={failed_devices}]"
     elif device_precheck_failed:
         fail_reason = "Device precheck failed"
@@ -501,7 +548,7 @@ def build_run001_a1_execution_decision(
         "a1_execution_result": "completed" if passed else "failed",
         "a1_fail_reason": "" if passed else fail_reason,
         "a1_decision_reasons": deduped_reasons,
-        "device_precheck_result": RUN001_FAIL if device_precheck_failed else "NOT_TRIGGERED",
+        "device_precheck_result": RUN001_FAIL if (device_precheck_failed or device_id_mismatch_failed) else "NOT_TRIGGERED",
         "failed_devices": failed_devices,
         "points_completed": points_completed,
         "sample_count": sample_count,
@@ -529,6 +576,7 @@ def evaluate_run001_a1_readiness(
 ) -> dict[str, Any]:
     policy = _policy(raw_cfg)
     workflow = _workflow(raw_cfg)
+    duplicate_ids = summarize_duplicate_device_ids(raw_cfg)
     hard_stop_reasons: list[str] = []
 
     mode = str(policy.get("mode", raw_cfg.get("mode", "")) or "").strip().lower()
@@ -610,6 +658,8 @@ def evaluate_run001_a1_readiness(
     blocked_events = list(blocked_write_events or [])
     if int(attempted_write_count) > 0 or blocked_events:
         hard_stop_reasons.append("attempted_write_count_gt_0")
+    if duplicate_ids["duplicate_device_id_blocks_a1"]:
+        hard_stop_reasons.append("duplicate_device_id_detected")
 
     artifact_status: dict[str, Any] = {}
     if require_runtime_artifacts:
@@ -630,6 +680,7 @@ def evaluate_run001_a1_readiness(
         "blocked_write_events": blocked_events,
         "v1_fallback_status": v1_fallback_status,
         "artifact_status": artifact_status,
+        **duplicate_ids,
         "skip_co2_ppm": skip_co2_ppm,
         "selected_temps_c": selected_temps,
         "route_mode": route_mode,
@@ -657,6 +708,8 @@ def build_run001_a1_evidence_payload(
     guard_payload = guard.to_artifact() if guard is not None else {}
     attempted_write_count = int(guard_payload.get("attempted_write_count", 0) or 0)
     blocked_write_events = list(guard_payload.get("blocked_write_events", []) or [])
+    identity_write_command_sent = bool(guard_payload.get("identity_write_command_sent", False))
+    persistent_write_command_sent = bool(guard_payload.get("persistent_write_command_sent", False))
     readiness = evaluate_run001_a1_readiness(
         raw_cfg,
         config_path=config_path,
@@ -690,6 +743,13 @@ def build_run001_a1_evidence_payload(
     config_hash = sha256_file(config_path_text) if config_path_text and Path(config_path_text).exists() else ""
     resolved_run_id = run_id or f"run001_a1_preflight_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     enabled_analyzers = summarize_enabled_analyzers(raw_cfg)
+    duplicate_ids = summarize_duplicate_device_ids(raw_cfg)
+    fail_reason = str(execution_decision.get("a1_fail_reason") or "")
+    if not fail_reason and readiness["hard_stop_reasons"]:
+        fail_reason = "; ".join(str(item) for item in readiness["hard_stop_reasons"])
+    overall_final_decision = str(readiness["final_decision"])
+    if runtime_expected and execution_decision.get("a1_final_decision") != RUN001_PASS:
+        overall_final_decision = RUN001_FAIL
     return {
         "schema_version": "run001_a1.no_write.1",
         "artifact_type": "run001_a1_no_write_dry_run_evidence",
@@ -710,6 +770,11 @@ def build_run001_a1_evidence_payload(
         "allow_real_wait": _as_bool(policy.get("allow_real_wait")),
         "allow_real_sample": _as_bool(policy.get("allow_real_sample")),
         "allow_artifact": _as_bool(policy.get("allow_artifact")),
+        "temperature_chamber_settle_required": _as_bool(policy.get("temperature_chamber_settle_required")),
+        "temperature_chamber_wait_policy": str(policy.get("temperature_chamber_wait_policy") or ""),
+        "temperature_wait_for_target_before_continue": _as_bool(
+            _nested(workflow, "stability", "temperature", "wait_for_target_before_continue")
+        ),
         "allow_write_coefficients": _as_bool(policy.get("allow_write_coefficients")),
         "allow_write_zero": _as_bool(policy.get("allow_write_zero")),
         "allow_write_span": _as_bool(policy.get("allow_write_span")),
@@ -727,6 +792,7 @@ def build_run001_a1_evidence_payload(
         "enabled_analyzers": enabled_analyzers,
         "analyzer_ports": [item["port"] for item in enabled_analyzers],
         "analyzer_device_ids": [item["device_id"] for item in enabled_analyzers],
+        **duplicate_ids,
         "actual_route_steps": trace["actual_route_steps"],
         "actual_pressure_steps": trace["actual_pressure_steps"],
         "wait_gate_summary": trace["wait_gate_summary"],
@@ -734,13 +800,16 @@ def build_run001_a1_evidence_payload(
         "artifact_paths": {str(k): str(v) for k, v in dict(artifact_paths or {}).items()},
         "attempted_write_count": readiness["attempted_write_count"],
         "blocked_write_events": readiness["blocked_write_events"],
+        "identity_write_command_sent": identity_write_command_sent,
+        "persistent_write_command_sent": persistent_write_command_sent,
         "v1_fallback_status": readiness["v1_fallback_status"],
         "readiness_result": readiness["readiness_result"],
         "readiness_final_decision": readiness["final_decision"],
-        "final_decision": readiness["final_decision"],
+        "final_decision": overall_final_decision,
         "hard_stop_reasons": readiness["hard_stop_reasons"],
         "artifact_status": readiness["artifact_status"],
         **execution_decision,
+        "fail_reason": fail_reason,
         "h2o_single_route_readiness": readiness["h2o_single_route_readiness"],
         "full_single_temperature_h2o_co2_group_readiness": readiness[
             "full_single_temperature_h2o_co2_group_readiness"
@@ -779,7 +848,12 @@ def render_human_report(payload: Mapping[str, Any]) -> str:
             f"- a1_final_decision: {a1_decision}",
             f"- a1_fail_reason: {fail_reason or 'none'}",
             f"- failed_devices: {failed_device_line}",
+            f"- duplicate_device_id_status: {payload.get('duplicate_device_id_status')}",
+            f"- duplicate_device_id_policy: {payload.get('duplicate_device_id_policy')}",
             f"- attempted_write_count: {payload.get('attempted_write_count')}",
+            f"- identity_write_command_sent: {payload.get('identity_write_command_sent')}",
+            f"- temperature_chamber_wait_policy: {payload.get('temperature_chamber_wait_policy')}",
+            f"- temperature_wait_for_target_before_continue: {payload.get('temperature_wait_for_target_before_continue')}",
             f"- unsafe_step2_bypass_used: {payload.get('unsafe_step2_bypass_used')}",
             f"- V1 fallback: {payload.get('v1_fallback_status', {}).get('status')}",
             f"- H2O single-route readiness: {payload.get('h2o_single_route_readiness')}",
@@ -820,6 +894,8 @@ def write_run001_a1_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
                 "no_write": enriched.get("no_write"),
                 "attempted_write_count": enriched.get("attempted_write_count"),
                 "blocked_write_events": enriched.get("blocked_write_events"),
+                "identity_write_command_sent": enriched.get("identity_write_command_sent"),
+                "persistent_write_command_sent": enriched.get("persistent_write_command_sent"),
                 "final_decision": enriched.get("final_decision"),
                 "readiness_result": enriched.get("readiness_result"),
                 "a1_final_decision": enriched.get("a1_final_decision"),
@@ -856,6 +932,13 @@ def write_run001_a1_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
                 "service_status_message": enriched.get("service_status_message"),
                 "service_status_error": enriched.get("service_status_error"),
                 "hard_stop_reasons": enriched.get("hard_stop_reasons"),
+                "identity_write_command_sent": enriched.get("identity_write_command_sent"),
+                "persistent_write_command_sent": enriched.get("persistent_write_command_sent"),
+                "duplicate_device_id_detected": enriched.get("duplicate_device_id_detected"),
+                "duplicate_device_id_value": enriched.get("duplicate_device_id_value"),
+                "duplicate_device_id_ports": enriched.get("duplicate_device_id_ports"),
+                "duplicate_device_id_policy": enriched.get("duplicate_device_id_policy"),
+                "duplicate_device_id_status": enriched.get("duplicate_device_id_status"),
                 "v1_fallback_status": enriched.get("v1_fallback_status"),
                 "artifact_status": enriched.get("artifact_status"),
                 "real_machine_acceptance_evidence": False,
@@ -897,6 +980,18 @@ def write_run001_a1_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
                 "enabled_analyzers": enriched.get("enabled_analyzers"),
                 "analyzer_ports": enriched.get("analyzer_ports"),
                 "analyzer_device_ids": enriched.get("analyzer_device_ids"),
+                "duplicate_device_id_detected": enriched.get("duplicate_device_id_detected"),
+                "duplicate_device_id_value": enriched.get("duplicate_device_id_value"),
+                "duplicate_device_id_ports": enriched.get("duplicate_device_id_ports"),
+                "duplicate_device_id_policy": enriched.get("duplicate_device_id_policy"),
+                "duplicate_device_id_status": enriched.get("duplicate_device_id_status"),
+                "identity_write_command_sent": enriched.get("identity_write_command_sent"),
+                "persistent_write_command_sent": enriched.get("persistent_write_command_sent"),
+                "temperature_chamber_settle_required": enriched.get("temperature_chamber_settle_required"),
+                "temperature_chamber_wait_policy": enriched.get("temperature_chamber_wait_policy"),
+                "temperature_wait_for_target_before_continue": enriched.get(
+                    "temperature_wait_for_target_before_continue"
+                ),
                 "readiness_result": enriched.get("readiness_result"),
                 "a1_final_decision": enriched.get("a1_final_decision"),
                 "a1_execution_result": enriched.get("a1_execution_result"),
