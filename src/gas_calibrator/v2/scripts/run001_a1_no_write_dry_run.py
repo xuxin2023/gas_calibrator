@@ -54,7 +54,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--allow-unsafe-step2-config",
         action="store_true",
-        help="Forward the existing Step 2 dual-unlock flag to V2 service creation.",
+        help="Rejected for Run-001/A1; this path uses the dedicated no-write safety gate instead.",
     )
     return parser
 
@@ -74,7 +74,7 @@ def _write_preflight(config_path: str, output_dir: Optional[str]) -> tuple[dict,
     resolved_config_path, raw_cfg, _config = load_config_bundle(
         config_path,
         simulation_mode=False,
-        allow_unsafe_step2_config=True,
+        allow_unsafe_step2_config=False,
         enforce_step2_execution_gate=False,
     )
     target_dir = Path(output_dir).expanduser().resolve() if output_dir else _default_output_dir(raw_cfg, resolved_config_path)
@@ -106,7 +106,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     service = create_calibration_service(
         config_path=args.config,
         simulation_mode=False,
-        allow_unsafe_step2_config=bool(args.allow_unsafe_step2_config),
+        allow_unsafe_step2_config=False,
+        run001_a1_no_write_dry_run_cli_args=args,
     )
     service.run()
     status = service.get_status()

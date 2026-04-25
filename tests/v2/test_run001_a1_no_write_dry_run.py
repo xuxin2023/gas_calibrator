@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from gas_calibrator.v2.core.no_write_guard import (
+    NoWriteDeviceFactory,
     NoWriteGuard,
     NoWriteViolation,
     build_no_write_guard_from_raw_config,
@@ -19,15 +20,26 @@ from gas_calibrator.v2.core.run001_a1_dry_run import (
     load_point_rows,
     write_run001_a1_artifacts,
 )
-from gas_calibrator.v2.entry import create_calibration_service_from_config, load_config_bundle
+from gas_calibrator.v2.config import AppConfig
+from gas_calibrator.v2.entry import (
+    Run001A1SafetyGateError,
+    authorize_run001_a1_no_write_real_machine_dry_run,
+    create_calibration_service,
+    create_calibration_service_from_config,
+    is_run001_a1_authorized_no_write_real_machine_dry_run,
+    load_config_bundle,
+)
 
 
 def _base_raw_config() -> dict:
     return {
         "run001_a1": {
+            "run_id": "Run-001/A1",
+            "scenario": "Run-001/A1 CO2-only skip0 no-write real-machine dry-run",
             "mode": "real_machine_dry_run",
             "no_write": True,
             "co2_only": True,
+            "skip_co2_ppm": [0],
             "single_route": True,
             "single_temperature_group": True,
             "allow_real_route": True,
@@ -59,6 +71,48 @@ def _co2_points() -> list[dict]:
         {"index": 1, "temperature_c": 20.0, "pressure_hpa": 1100.0, "route": "co2", "co2_ppm": 0.0},
         {"index": 2, "temperature_c": 20.0, "pressure_hpa": 1000.0, "route": "co2", "co2_ppm": 100.0},
     ]
+
+
+def _cli_args(**overrides) -> dict:
+    payload = {
+        "execute": True,
+        "confirm_real_machine_no_write": True,
+        "allow_unsafe_step2_config": False,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _write_config(tmp_path: Path, raw: dict) -> Path:
+    config_dir = tmp_path / "configs"
+    config_dir.mkdir()
+    payload = copy.deepcopy(raw)
+    payload.setdefault("paths", {})
+    payload["paths"]["points_excel"] = "points.json"
+    payload["paths"]["output_dir"] = "output"
+    payload["paths"]["logs_dir"] = "logs"
+    (config_dir / "points.json").write_text(json.dumps({"points": _co2_points()}), encoding="utf-8")
+    config_path = config_dir / "run001_a1.json"
+    config_path.write_text(json.dumps(payload), encoding="utf-8")
+    return config_path
+
+
+def _authorize_or_raise(raw: dict, *, cli_args: dict | None = None, config_path: str = "") -> dict:
+    app_config = AppConfig.from_dict(raw)
+    return authorize_run001_a1_no_write_real_machine_dry_run(
+        app_config,
+        raw,
+        cli_args or _cli_args(),
+        config_path=config_path or str(Path(__file__).resolve()),
+        config_safety={"execution_gate": {"status": "blocked"}},
+        allow_unsafe_step2_config=False,
+    )
+
+
+def _assert_gate_rejects(raw: dict, expected_reason: str, *, cli_args: dict | None = None) -> None:
+    with pytest.raises(Run001A1SafetyGateError) as exc_info:
+        _authorize_or_raise(raw, cli_args=cli_args)
+    assert expected_reason in exc_info.value.reasons
 
 
 class FakeAnalyzer:
@@ -428,6 +482,147 @@ def test_config_template_passes_preflight() -> None:
     assert payload["temperature_group"] == [20.0]
     assert payload["h2o_single_route_readiness"] == "yellow"
     assert payload["full_single_temperature_h2o_co2_group_readiness"] == "yellow"
+    assert payload["unsafe_step2_bypass_used"] is False
+
+
+def test_run001_a1_safe_gate_allows_no_write_without_unsafe_bypass(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("GAS_CALIBRATOR_V2_ALLOW_UNSAFE_CONFIG", raising=False)
+    config_path = _write_config(tmp_path, _base_raw_config())
+
+    service = create_calibration_service(
+        str(config_path),
+        simulation_mode=False,
+        allow_unsafe_step2_config=False,
+        run001_a1_no_write_dry_run_cli_args=_cli_args(),
+    )
+
+    assert isinstance(service.no_write_guard, NoWriteGuard)
+    gate = dict(getattr(service.config, "_run001_a1_safety_gate", {}) or {})
+    assert gate["status"] == "authorized"
+    assert gate["unsafe_step2_bypass_used"] is False
+    assert service.config.workflow.skip_co2_ppm == [0]
+
+
+def test_run001_a1_gate_requires_confirm_without_creating_service(tmp_path: Path, monkeypatch) -> None:
+    import gas_calibrator.v2.entry as entry_module
+
+    config_path = _write_config(tmp_path, _base_raw_config())
+    created = {"service": False}
+
+    def _unexpected_service(*_args, **_kwargs):
+        created["service"] = True
+        raise AssertionError("service creation should not be reached")
+
+    monkeypatch.setattr(entry_module, "create_calibration_service_from_config", _unexpected_service)
+
+    with pytest.raises(Run001A1SafetyGateError) as exc_info:
+        entry_module.create_calibration_service(
+            str(config_path),
+            simulation_mode=False,
+            allow_unsafe_step2_config=False,
+            run001_a1_no_write_dry_run_cli_args=_cli_args(confirm_real_machine_no_write=False),
+        )
+
+    assert "confirm_real_machine_no_write_missing" in exc_info.value.reasons
+    assert created["service"] is False
+
+
+def test_run001_a1_gate_rejects_no_write_false_without_creating_service(tmp_path: Path, monkeypatch) -> None:
+    import gas_calibrator.v2.entry as entry_module
+
+    raw = _base_raw_config()
+    raw["run001_a1"]["no_write"] = False
+    config_path = _write_config(tmp_path, raw)
+    created = {"service": False}
+
+    def _unexpected_service(*_args, **_kwargs):
+        created["service"] = True
+        raise AssertionError("service creation should not be reached")
+
+    monkeypatch.setattr(entry_module, "create_calibration_service_from_config", _unexpected_service)
+
+    with pytest.raises(Run001A1SafetyGateError) as exc_info:
+        entry_module.create_calibration_service(
+            str(config_path),
+            simulation_mode=False,
+            allow_unsafe_step2_config=False,
+            run001_a1_no_write_dry_run_cli_args=_cli_args(),
+        )
+
+    assert "no_write_not_true" in exc_info.value.reasons
+    assert created["service"] is False
+
+
+def test_run001_a1_gate_rejects_h2o_single_route_and_full_group() -> None:
+    h2o = _base_raw_config()
+    h2o["workflow"]["route_mode"] = "h2o_only"
+    _assert_gate_rejects(h2o, "h2o_scope_requested")
+
+    full_group = _base_raw_config()
+    full_group["run001_a1"]["full_h2o_co2_group"] = True
+    _assert_gate_rejects(full_group, "full_h2o_co2_group_requested")
+
+
+@pytest.mark.parametrize("skip_value", [[], None, [200], [0, 200]])
+def test_run001_a1_gate_requires_skip_co2_ppm_locked_to_zero(skip_value) -> None:
+    raw = _base_raw_config()
+    if skip_value is None:
+        raw["run001_a1"].pop("skip_co2_ppm", None)
+        raw["workflow"].pop("skip_co2_ppm", None)
+        expected_reason = "policy_skip_co2_ppm_not_locked_to_0"
+    else:
+        raw["run001_a1"]["skip_co2_ppm"] = skip_value
+        raw["workflow"]["skip_co2_ppm"] = skip_value
+        expected_reason = "policy_skip_co2_ppm_not_locked_to_0"
+
+    _assert_gate_rejects(raw, expected_reason)
+
+
+def test_run001_a1_gate_rejects_non_single_route_and_non_single_temperature() -> None:
+    raw = _base_raw_config()
+    raw["run001_a1"]["single_route"] = False
+    _assert_gate_rejects(raw, "single_route_not_true")
+
+    raw = _base_raw_config()
+    raw["run001_a1"]["single_temperature_group"] = False
+    raw["workflow"]["selected_temps_c"] = [20.0, 30.0]
+    _assert_gate_rejects(raw, "single_temperature_group_not_true")
+
+
+@pytest.mark.parametrize(
+    "flag",
+    [
+        "allow_write_coefficients",
+        "allow_write_zero",
+        "allow_write_span",
+        "allow_write_calibration_parameters",
+        "default_cutover_to_v2",
+        "disable_v1",
+    ],
+)
+def test_run001_a1_gate_rejects_any_write_or_cutover_flag(flag: str) -> None:
+    raw = _base_raw_config()
+    raw["run001_a1"][flag] = True
+
+    expected_reason = f"{flag}_true" if flag != "disable_v1" else "disable_v1_true"
+    _assert_gate_rejects(raw, expected_reason)
+
+
+def test_run001_a1_gate_does_not_accept_unsafe_bypass_as_required_evidence() -> None:
+    raw = _base_raw_config()
+
+    assert is_run001_a1_authorized_no_write_real_machine_dry_run(
+        AppConfig.from_dict(raw),
+        raw,
+        _cli_args(),
+        config_path=str(Path(__file__).resolve()),
+        allow_unsafe_step2_config=False,
+    )
+    _assert_gate_rejects(
+        raw,
+        "unsafe_step2_bypass_not_allowed_for_run001_a1",
+        cli_args=_cli_args(allow_unsafe_step2_config=True),
+    )
 
 
 def test_run001_guard_is_installed_when_service_is_created_from_config() -> None:
@@ -443,7 +638,7 @@ def test_run001_guard_is_installed_when_service_is_created_from_config() -> None
     _, raw_cfg, app_config = load_config_bundle(
         str(config_path),
         simulation_mode=False,
-        allow_unsafe_step2_config=True,
+        allow_unsafe_step2_config=False,
         enforce_step2_execution_gate=False,
     )
     service = create_calibration_service_from_config(app_config, raw_cfg=raw_cfg, preload_points=False)
@@ -451,6 +646,35 @@ def test_run001_guard_is_installed_when_service_is_created_from_config() -> None
     assert isinstance(service.no_write_guard, NoWriteGuard)
     assert service.config.workflow.route_mode == "co2_only"
     assert service.config.workflow.skip_co2_ppm == [0]
+
+
+def test_no_write_guard_is_wrapped_before_service_initialization(tmp_path: Path) -> None:
+    config_path = _write_config(tmp_path, _base_raw_config())
+    _, raw_cfg, app_config = load_config_bundle(
+        str(config_path),
+        simulation_mode=False,
+        allow_unsafe_step2_config=False,
+        enforce_step2_execution_gate=False,
+    )
+    captured: dict[str, object] = {}
+
+    class CapturingService:
+        def __init__(self, *, config, device_factory, point_parser, **_kwargs) -> None:
+            captured["device_factory"] = device_factory
+            captured["guard"] = getattr(device_factory, "guard", None)
+            self.config = config
+
+    service = create_calibration_service_from_config(
+        app_config,
+        raw_cfg=raw_cfg,
+        preload_points=False,
+        service_cls=CapturingService,
+        require_no_write_guard=True,
+    )
+
+    assert service.config is app_config
+    assert isinstance(captured["device_factory"], NoWriteDeviceFactory)
+    assert isinstance(captured["guard"], NoWriteGuard)
 
 
 def test_no_write_guard_requires_true_for_real_machine_dry_run() -> None:

@@ -1,5 +1,7 @@
 {
   "run001_a1": {
+    "run_id": "Run-001/A1",
+    "scenario": "Run-001/A1 CO2-only skip0 no-write real-machine dry-run",
     "mode": "real_machine_dry_run",
     "no_write": true,
     "co2_only": true,

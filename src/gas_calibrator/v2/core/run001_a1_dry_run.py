@@ -413,6 +413,12 @@ def build_run001_a1_evidence_payload(
     )
     policy = _policy(raw_cfg)
     workflow = _workflow(raw_cfg)
+    config_safety = dict(raw_cfg.get("_config_safety") or {}) if isinstance(raw_cfg, Mapping) else {}
+    execution_gate = dict(config_safety.get("execution_gate") or {})
+    unsafe_step2_bypass_used = bool(
+        execution_gate.get("allow_unsafe_step2_config_flag")
+        and execution_gate.get("allow_unsafe_step2_config_env")
+    )
     plan = summarize_plan(raw_cfg, points)
     trace = collect_trace_summary(run_dir)
     git = git_snapshot()
@@ -443,6 +449,9 @@ def build_run001_a1_evidence_payload(
         "allow_write_zero": _as_bool(policy.get("allow_write_zero")),
         "allow_write_span": _as_bool(policy.get("allow_write_span")),
         "allow_write_calibration_parameters": _as_bool(policy.get("allow_write_calibration_parameters")),
+        "unsafe_step2_bypass_used": unsafe_step2_bypass_used,
+        "unsafe_step2_cli_flag_used": bool(execution_gate.get("allow_unsafe_step2_config_flag", False)),
+        "unsafe_step2_env_enabled": bool(execution_gate.get("allow_unsafe_step2_config_env", False)),
         "default_cutover_to_v2": _as_bool(policy.get("default_cutover_to_v2")),
         "disable_v1": _as_bool(policy.get("disable_v1", raw_cfg.get("disable_v1"))),
         "route_id": plan["route_id"],
@@ -490,6 +499,7 @@ def render_human_report(payload: Mapping[str, Any]) -> str:
             f"- no_write: {payload.get('no_write')}",
             f"- final_decision: {decision}",
             f"- attempted_write_count: {payload.get('attempted_write_count')}",
+            f"- unsafe_step2_bypass_used: {payload.get('unsafe_step2_bypass_used')}",
             f"- V1 fallback: {payload.get('v1_fallback_status', {}).get('status')}",
             f"- H2O single-route readiness: {payload.get('h2o_single_route_readiness')}",
             f"- Full H2O+CO2 group readiness: {payload.get('full_single_temperature_h2o_co2_group_readiness')}",
