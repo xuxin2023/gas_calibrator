@@ -363,7 +363,7 @@ def test_mode2_setup_ack_scan_tolerates_10hz_active_send_noise() -> None:
     assert analyzer.ser.flushed is True
     assert analyzer.ser.writes == ["MODE,YGAS,FFF,2\r\n"]
     assert result["command_target_id"] == "FFF"
-    assert result["ack_search_policy"] == "scan_any_device_ack_among_active_send_frames"
+    assert result["ack_search_policy"] == "scan_active_stream_for_YGAS_id_T"
     assert result["ack_received"] is True
     assert result["ack_payload"] == "YGAS,091,T"
     assert result["observed_response_count"] == 4

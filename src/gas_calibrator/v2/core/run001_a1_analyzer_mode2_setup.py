@@ -143,7 +143,7 @@ def _new_command_event(command: str) -> dict[str, Any]:
         "command_name": _command_name(normalized),
         "command_payload": normalized,
         "command_target_id": MODE2_SETUP_COMMAND_TARGET_ID,
-        "ack_search_policy": "scan_any_device_ack_among_active_send_frames",
+        "ack_search_policy": "scan_active_stream_for_YGAS_id_T",
         "whitelist_check": normalized in {_normalize_command(item) for item in MODE2_SETUP_ALLOWED_COMMANDS},
         "forbidden_token_check": not command_contains_forbidden_mode2_setup_token(normalized),
         "send_attempted_at": "",
