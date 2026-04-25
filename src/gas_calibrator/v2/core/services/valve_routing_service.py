@@ -292,7 +292,6 @@ class ValveRoutingService:
                 continue
 
     def set_co2_route_baseline(self, *, reason: str = "") -> None:
-        self.host._set_pressure_controller_vent(True, reason=reason or "before CO2 route conditioning")
         relay_state = self.apply_valve_states([])
         physical = self._physical_route_evidence([], relay_state)
         self._record_route_trace(
@@ -316,6 +315,7 @@ class ValveRoutingService:
             message=reason or "CO2 route baseline applied",
         )
         self.host._log("CO2 route baseline applied: gas_main=OFF flow_switch=ON h2o_path=OFF hold=OFF")
+        self.host._set_pressure_controller_vent(True, reason=reason or "before CO2 route conditioning")
 
     def restore_baseline_after_run(self, *, reason: str = "") -> dict[str, Any]:
         relay_state = self.apply_valve_states([])

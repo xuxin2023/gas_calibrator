@@ -43,6 +43,63 @@ class PressureControlService:
         self.run_state = run_state
         self.host = host
 
+    def _log_pressure_controller_io(self, direction: str, data: str) -> None:
+        logger = getattr(self.host, "run_logger", None)
+        log_io = getattr(logger, "log_io", None)
+        if callable(log_io):
+            try:
+                log_io("pressure_controller", direction, data)
+            except Exception:
+                pass
+
+    def _pressure_controller_atmosphere_evidence(
+        self,
+        controller: Any,
+        *,
+        command_method: str,
+        command_error: str = "",
+    ) -> dict[str, Any]:
+        vent_status = self._pressure_controller_vent_status(controller)
+        vent_on = self._pressure_controller_vent_on()
+        output_state = self._pressure_controller_output_state(controller)
+        isolation_state = self._pressure_controller_isolation_state(controller)
+        vent_status_ok = vent_status in {0, 1, 2}
+        atmosphere_ready = bool(
+            command_method
+            and not command_error
+            and output_state == 0
+            and isolation_state == 1
+            and (vent_on is True or vent_status_ok)
+        )
+        hard_blockers: list[str] = []
+        if not command_method:
+            hard_blockers.append("vent_command_method_unavailable")
+        if command_error:
+            hard_blockers.append("vent_command_failed")
+        if output_state != 0:
+            hard_blockers.append(
+                "output_state_unavailable" if output_state is None else f"output_state={int(output_state)}"
+            )
+        if isolation_state != 1:
+            hard_blockers.append(
+                "isolation_state_unavailable" if isolation_state is None else f"isolation_state={int(isolation_state)}"
+            )
+        if vent_on is not True and not vent_status_ok:
+            hard_blockers.append(
+                "vent_status_unavailable" if vent_status is None else f"vent_status={int(vent_status)}"
+            )
+        return {
+            "command_method": command_method,
+            "command_error": command_error,
+            "vent_on": vent_on,
+            "vent_status_raw": vent_status,
+            "vent_status_interpreted": self._pressure_vent_status_interpretation(controller, vent_status),
+            "output_state": output_state,
+            "isolation_state": isolation_state,
+            "atmosphere_ready": atmosphere_ready,
+            "hard_blockers": hard_blockers,
+        }
+
     def _remember_startup_pressure_precheck_result(self, result: StartupPressurePrecheckResult) -> None:
         setattr(self.host, "_startup_pressure_precheck_result", result)
 
@@ -53,39 +110,78 @@ class PressureControlService:
         extra = f" ({reason})" if reason else ""
         trace_result = "ok"
         trace_message = reason or ("vent on" if vent_on else "vent off")
+        command_method = ""
+        command_error = ""
+        diagnostics: dict[str, Any] = {}
         try:
             if vent_on:
-                enter = getattr(controller, "enter_atmosphere_mode", None)
-                if callable(enter):
-                    enter(
-                        timeout_s=float(self.host._cfg_get("workflow.pressure.vent_transition_timeout_s", 30.0)),
-                        hold_open=bool(self.host._cfg_get("workflow.pressure.continuous_atmosphere_hold", True)),
-                        hold_interval_s=float(self.host._cfg_get("workflow.pressure.vent_hold_interval_s", 2.0)),
-                    )
+                self.host._call_first(controller, ("set_output",), False)
+                self.host._call_first(controller, ("set_isolation_open",), True)
+                if self.host._call_first(controller, ("vent",), True):
+                    command_method = "set_output_false_set_isolation_open_vent_true"
                 else:
-                    self.host._call_first(controller, ("set_output",), False)
-                    self.host._call_first(controller, ("set_isolation_open",), True)
-                    self.host._call_first(controller, ("vent",), True)
+                    enter = getattr(controller, "enter_atmosphere_mode", None)
+                    if callable(enter):
+                        command_method = "enter_atmosphere_mode"
+                        self._log_pressure_controller_io(
+                            "TX",
+                            "enter_atmosphere_mode(vent_on=True)",
+                        )
+                        enter(
+                            timeout_s=float(self.host._cfg_get("workflow.pressure.vent_transition_timeout_s", 30.0)),
+                            hold_open=bool(self.host._cfg_get("workflow.pressure.continuous_atmosphere_hold", True)),
+                            hold_interval_s=float(self.host._cfg_get("workflow.pressure.vent_hold_interval_s", 2.0)),
+                        )
+                        self._log_pressure_controller_io("RX", "ok")
             else:
                 exit_mode = getattr(controller, "exit_atmosphere_mode", None)
                 if callable(exit_mode):
+                    command_method = "exit_atmosphere_mode"
+                    self._log_pressure_controller_io("TX", "exit_atmosphere_mode(vent_on=False)")
                     exit_mode(timeout_s=float(self.host._cfg_get("workflow.pressure.vent_transition_timeout_s", 30.0)))
+                    self._log_pressure_controller_io("RX", "ok")
                 else:
                     self.host._call_first(controller, ("set_output",), False)
-                    self.host._call_first(controller, ("vent",), False)
+                    if self.host._call_first(controller, ("vent",), False):
+                        command_method = "set_output_false_vent_false"
                     self.host._call_first(controller, ("set_isolation_open",), True)
             self.host._log(f"Pressure controller vent={'ON' if vent_on else 'OFF'}{extra}")
         except Exception as exc:
             self.host._log(f"Pressure controller vent command failed: {exc}")
             trace_result = "fail"
             trace_message = str(exc)
+            command_error = str(exc)
+        if vent_on and controller is not None:
+            diagnostics = self._pressure_controller_atmosphere_evidence(
+                controller,
+                command_method=command_method,
+                command_error=command_error,
+            )
+            if not bool(diagnostics.get("atmosphere_ready")) and trace_result == "ok":
+                trace_result = "fail"
+                trace_message = "pressure_controller_atmosphere_not_verified"
         self._record_route_trace(
             action="set_vent",
             target={"vent_on": bool(vent_on)},
-            actual={"pressure_hpa": self._current_pressure()},
+            actual={
+                "pressure_hpa": self._current_pressure(),
+                **diagnostics,
+            },
             result=trace_result,
             message=trace_message,
         )
+        if trace_result != "ok":
+            raise WorkflowValidationError(
+                "Pressure controller vent command failed"
+                if command_error
+                else "Pressure controller atmosphere mode not verified",
+                details={
+                    "vent_on": bool(vent_on),
+                    "reason": reason,
+                    "message": trace_message,
+                    **diagnostics,
+                },
+            )
         if vent_on and trace_result == "ok":
             self._clear_pressure_route_seal_state()
         if vent_on:

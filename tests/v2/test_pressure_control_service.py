@@ -261,17 +261,56 @@ def test_pressure_control_service_controls_vent_output_and_prepare(tmp_path: Pat
     service.enable_pressure_controller_output(reason="apply")
     service.prepare_pressure_for_h2o(point)
 
-    assert [call[0] for call in controller.calls[:4]] == [
-        "enter_atmosphere_mode",
-        "exit_atmosphere_mode",
-        "enable_control_output",
-        "enter_atmosphere_mode",
-    ]
+    call_names = [call[0] for call in controller.calls]
+    assert call_names[:4] == ["set_output", "enter_atmosphere_mode", "exit_atmosphere_mode", "enable_control_output"]
+    assert call_names[-2:] == ["set_output", "enter_atmosphere_mode"]
     assert run_state.humidity.h2o_pressure_prepared_target is None
     assert host._h2o_pressure_prepared_target is None
     assert any("vent=ON (baseline)" in message for message in host.logs)
     assert any("output=ON (apply)" in message for message in host.logs)
     assert any("H2O route conditioning" in message for message in host.logs)
+
+    context.run_logger.finalize()
+
+
+def test_pressure_controller_vent_on_records_atmosphere_evidence(tmp_path: Path) -> None:
+    service, context, run_state, host, controller = _build_service(tmp_path)
+
+    def _vent(on: bool = True) -> None:
+        controller.vent_open = bool(on)
+        controller.vent_status = controller.VENT_STATUS_IN_PROGRESS if on else controller.VENT_STATUS_IDLE
+        controller.calls.append(("vent", (bool(on),), {}))
+
+    controller.vent = _vent
+
+    service.set_pressure_controller_vent(True, reason="before CO2 route conditioning")
+
+    assert [call[0] for call in controller.calls[:2]] == ["set_output", "vent"]
+    trace = host.route_traces[-1]
+    assert trace["action"] == "set_vent"
+    assert trace["result"] == "ok"
+    assert trace["actual"]["command_method"] == "set_output_false_set_isolation_open_vent_true"
+    assert trace["actual"]["atmosphere_ready"] is True
+    assert trace["actual"]["output_state"] == 0
+    assert trace["actual"]["isolation_state"] == 1
+    assert trace["actual"]["vent_status_raw"] == controller.VENT_STATUS_IN_PROGRESS
+
+    context.run_logger.finalize()
+
+
+def test_pressure_controller_vent_on_fails_without_atmosphere_evidence(tmp_path: Path) -> None:
+    service, context, run_state, host, controller = _build_service(tmp_path)
+    controller.isolation_open = False
+
+    with pytest.raises(WorkflowValidationError):
+        service.set_pressure_controller_vent(True, reason="before CO2 route conditioning")
+
+    trace = host.route_traces[-1]
+    assert trace["action"] == "set_vent"
+    assert trace["result"] == "fail"
+    assert trace["message"] == "pressure_controller_atmosphere_not_verified"
+    assert trace["actual"]["atmosphere_ready"] is False
+    assert "isolation_state=0" in trace["actual"]["hard_blockers"]
 
     context.run_logger.finalize()
 
