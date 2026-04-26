@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
+import json
 import time
 from typing import Any, Callable, Mapping, Optional
 
@@ -34,6 +35,71 @@ class StartupPressurePrecheckResult:
     error_count: int = 0
     details: dict[str, Any] = field(default_factory=dict)
     error: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class PressureSample:
+    """Read-only pressure sample with timing and source provenance."""
+
+    source: str
+    pressure_hpa: Optional[float] = None
+    request_sent_at: str = ""
+    response_received_at: str = ""
+    request_sent_monotonic_s: Optional[float] = None
+    response_received_monotonic_s: Optional[float] = None
+    read_latency_s: Optional[float] = None
+    sample_recorded_at: str = ""
+    sample_recorded_monotonic_s: Optional[float] = None
+    sample_age_s: Optional[float] = None
+    is_cached: bool = False
+    is_stale: bool = False
+    stale_threshold_s: float = 2.0
+    serial_port: str = ""
+    command: str = ""
+    raw_response: str = ""
+    parse_ok: bool = False
+    error: str = ""
+    sequence_id: Optional[int] = None
+    usable_for_abort: bool = False
+    usable_for_ready: bool = False
+    usable_for_seal: bool = False
+
+    def as_payload(self) -> dict[str, Any]:
+        payload = {
+            "source": self.source,
+            "pressure_hpa": self.pressure_hpa,
+            "request_sent_at": self.request_sent_at,
+            "response_received_at": self.response_received_at,
+            "request_sent_monotonic_s": self.request_sent_monotonic_s,
+            "response_received_monotonic_s": self.response_received_monotonic_s,
+            "read_latency_s": self.read_latency_s,
+            "sample_recorded_at": self.sample_recorded_at,
+            "sample_recorded_monotonic_s": self.sample_recorded_monotonic_s,
+            "sample_age_s": self.sample_age_s,
+            "is_cached": self.is_cached,
+            "is_stale": self.is_stale,
+            "stale_threshold_s": self.stale_threshold_s,
+            "serial_port": self.serial_port,
+            "command": self.command,
+            "raw_response": self.raw_response,
+            "parse_ok": self.parse_ok,
+            "error": self.error,
+            "sequence_id": self.sequence_id,
+            "usable_for_abort": self.usable_for_abort,
+            "usable_for_ready": self.usable_for_ready,
+            "usable_for_seal": self.usable_for_seal,
+        }
+        payload.update(
+            {
+                "pressure_sample_source": self.source,
+                "pressure_sample_timestamp": self.sample_recorded_at,
+                "pressure_sample_monotonic_s": self.sample_recorded_monotonic_s,
+                "pressure_sample_age_s": self.sample_age_s,
+                "pressure_sample_is_stale": self.is_stale,
+                "pressure_sample_sequence_id": self.sequence_id,
+            }
+        )
+        return payload
 
 
 class PressureControlService:
@@ -121,21 +187,69 @@ class PressureControlService:
     def _pressure_sample_stale_max_s(self) -> float:
         return max(
             0.0,
-            float(self.host._cfg_get("workflow.pressure.pressure_sample_stale_max_s", 2.0)),
+            float(
+                self.host._cfg_get(
+                    "workflow.pressure.pressure_sample_stale_threshold_s",
+                    self.host._cfg_get("workflow.pressure.pressure_sample_stale_max_s", 2.0),
+                )
+            ),
         )
 
-    def _pressure_sample_payload(self, raw: Any, *, source: str) -> dict[str, Any]:
+    def _safe_pressure_raw_response(self, raw: Any) -> str:
+        try:
+            text = json.dumps(raw, ensure_ascii=False, default=str) if isinstance(raw, Mapping) else repr(raw)
+        except Exception:
+            text = repr(raw)
+        return text[:500]
+
+    def _coerce_pressure_bool(self, value: Any, default: bool = False) -> bool:
+        parsed = self._coerce_bool(value)
+        return bool(default if parsed is None else parsed)
+
+    def _pressure_value_from_payload(self, data: Mapping[str, Any], raw: Any) -> Optional[float]:
+        for key in (
+            "pressure_hpa",
+            "current_line_pressure_hpa",
+            "positive_preseal_pressure_hpa",
+            "pressure",
+            "pressure_gauge_hpa",
+        ):
+            if key in data:
+                value = self._coerce_float(data.get(key))
+                if value is not None:
+                    return value
+        return None if data else self._coerce_float(raw)
+
+    def _remember_pressure_sample_payload(self, payload: Mapping[str, Any]) -> None:
+        samples = getattr(self, "_pressure_read_latency_samples", None)
+        if not isinstance(samples, list):
+            samples = []
+        samples.append(dict(payload))
+        setattr(self, "_pressure_read_latency_samples", samples)
+        try:
+            setattr(self.host, "_pressure_read_latency_samples", list(samples))
+        except Exception:
+            pass
+
+    def _pressure_sample_payload(
+        self,
+        raw: Any,
+        *,
+        source: str,
+        request_sent_monotonic_s: Optional[float] = None,
+        response_received_monotonic_s: Optional[float] = None,
+        request_sent_at: Optional[str] = None,
+        response_received_at: Optional[str] = None,
+        serial_port: Optional[str] = None,
+        command: Optional[str] = None,
+        raw_response: Any = None,
+        error: Optional[str] = None,
+        is_cached: Optional[bool] = None,
+    ) -> dict[str, Any]:
         now = datetime.now(timezone.utc)
         now_monotonic = time.monotonic()
         data = dict(raw) if isinstance(raw, Mapping) else {}
-        pressure_hpa = (
-            self._coerce_float(data.get("pressure_hpa"))
-            or self._coerce_float(data.get("current_line_pressure_hpa"))
-            or self._coerce_float(data.get("positive_preseal_pressure_hpa"))
-            or self._coerce_float(data.get("pressure"))
-            if data
-            else self._coerce_float(raw)
-        )
+        pressure_hpa = self._pressure_value_from_payload(data, raw)
         sample_source = str(
             data.get("pressure_sample_source")
             or data.get("source")
@@ -143,42 +257,87 @@ class PressureControlService:
             or source
             or "pressure_gauge"
         )
-        timestamp = str(
+        sample_recorded_at = str(
             data.get("pressure_sample_timestamp")
             or data.get("timestamp")
             or data.get("recorded_at")
             or now.isoformat()
         )
-        monotonic_s = self._coerce_float(
-            data.get("pressure_sample_monotonic_s")
-            if data.get("pressure_sample_monotonic_s") is not None
-            else data.get("monotonic_s")
+        sample_recorded_monotonic_s = self._coerce_float(
+            data.get("sample_recorded_monotonic_s")
+            if data.get("sample_recorded_monotonic_s") is not None
+            else (
+                data.get("pressure_sample_monotonic_s")
+                if data.get("pressure_sample_monotonic_s") is not None
+                else data.get("monotonic_s")
+            )
         )
-        age_s = self._coerce_float(data.get("pressure_sample_age_s"))
-        if age_s is None and monotonic_s is not None:
-            age_s = max(0.0, now_monotonic - float(monotonic_s))
+        if sample_recorded_monotonic_s is None and not self._coerce_pressure_bool(
+            data.get("is_cached", is_cached), default=False
+        ):
+            sample_recorded_monotonic_s = response_received_monotonic_s or now_monotonic
+        request_monotonic = self._coerce_float(
+            data.get("request_sent_monotonic_s")
+            if data.get("request_sent_monotonic_s") is not None
+            else request_sent_monotonic_s
+        )
+        response_monotonic = self._coerce_float(
+            data.get("response_received_monotonic_s")
+            if data.get("response_received_monotonic_s") is not None
+            else response_received_monotonic_s
+        )
+        read_latency_s = self._coerce_float(data.get("read_latency_s"))
+        if read_latency_s is None and request_monotonic is not None and response_monotonic is not None:
+            read_latency_s = max(0.0, float(response_monotonic) - float(request_monotonic))
+        age_s = self._coerce_float(data.get("pressure_sample_age_s", data.get("sample_age_s")))
+        if age_s is None and sample_recorded_monotonic_s is not None:
+            age_s = max(0.0, now_monotonic - float(sample_recorded_monotonic_s))
         if age_s is None:
             try:
-                parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                parsed = datetime.fromisoformat(sample_recorded_at.replace("Z", "+00:00"))
                 if parsed.tzinfo is None:
                     parsed = parsed.replace(tzinfo=timezone.utc)
                 age_s = max(0.0, (now - parsed.astimezone(timezone.utc)).total_seconds())
             except Exception:
                 age_s = 0.0
-        explicit_stale = self._coerce_bool(data.get("pressure_sample_is_stale"))
-        stale = bool(explicit_stale) if explicit_stale is not None else bool(age_s > self._pressure_sample_stale_max_s())
-        sequence_id = self._coerce_float(data.get("pressure_sample_sequence_id"))
-        payload = {
-            "pressure_hpa": pressure_hpa,
-            "pressure_sample_source": sample_source,
-            "pressure_sample_timestamp": timestamp,
-            "pressure_sample_age_s": None if age_s is None else round(float(age_s), 3),
-            "pressure_sample_is_stale": stale,
-            "pressure_sample_sequence_id": (
-                int(sequence_id) if sequence_id is not None else self._next_pressure_sample_sequence_id()
+        stale_threshold = self._pressure_sample_stale_max_s()
+        explicit_stale = self._coerce_bool(data.get("pressure_sample_is_stale", data.get("is_stale")))
+        stale = bool(explicit_stale) if explicit_stale is not None else bool(age_s > stale_threshold)
+        sequence_id = self._coerce_float(data.get("pressure_sample_sequence_id", data.get("sequence_id")))
+        sequence = int(sequence_id) if sequence_id is not None else self._next_pressure_sample_sequence_id()
+        cached = self._coerce_pressure_bool(data.get("is_cached", is_cached), default=False)
+        parse_ok = self._coerce_bool(data.get("parse_ok"))
+        parse_ok_bool = bool(pressure_hpa is not None and not error) if parse_ok is None else bool(parse_ok)
+        usable_default = bool(pressure_hpa is not None and not stale)
+        sample = PressureSample(
+            source=sample_source,
+            pressure_hpa=pressure_hpa,
+            request_sent_at=str(data.get("request_sent_at") or request_sent_at or now.isoformat()),
+            response_received_at=str(data.get("response_received_at") or response_received_at or now.isoformat()),
+            request_sent_monotonic_s=None if request_monotonic is None else round(float(request_monotonic), 6),
+            response_received_monotonic_s=None if response_monotonic is None else round(float(response_monotonic), 6),
+            read_latency_s=None if read_latency_s is None else round(float(read_latency_s), 3),
+            sample_recorded_at=sample_recorded_at,
+            sample_recorded_monotonic_s=(
+                None if sample_recorded_monotonic_s is None else round(float(sample_recorded_monotonic_s), 6)
             ),
-        }
+            sample_age_s=None if age_s is None else round(float(age_s), 3),
+            is_cached=cached,
+            is_stale=stale,
+            stale_threshold_s=round(float(stale_threshold), 3),
+            serial_port=str(data.get("serial_port") or serial_port or ""),
+            command=str(data.get("command") or command or ""),
+            raw_response=str(data.get("raw_response") or self._safe_pressure_raw_response(raw_response if raw_response is not None else raw)),
+            parse_ok=parse_ok_bool,
+            error=str(data.get("error") or error or ""),
+            sequence_id=sequence,
+            usable_for_abort=self._coerce_pressure_bool(data.get("usable_for_abort"), default=usable_default),
+            usable_for_ready=self._coerce_pressure_bool(data.get("usable_for_ready"), default=usable_default),
+            usable_for_seal=self._coerce_pressure_bool(data.get("usable_for_seal"), default=usable_default),
+        )
+        payload = sample.as_payload()
         setattr(self, "_last_pressure_sample_metadata", payload)
+        self._remember_pressure_sample_payload(payload)
         return payload
 
     def _read_pressure_sample(
@@ -187,23 +346,262 @@ class PressureControlService:
         *,
         source: str = "pressure_gauge",
     ) -> dict[str, Any]:
+        request_at = datetime.now(timezone.utc)
+        request_monotonic = time.monotonic()
         if pressure_reader is None:
-            return self._pressure_sample_payload(None, source=source)
+            response_at = datetime.now(timezone.utc)
+            response_monotonic = time.monotonic()
+            return self._pressure_sample_payload(
+                None,
+                source=source,
+                request_sent_at=request_at.isoformat(),
+                response_received_at=response_at.isoformat(),
+                request_sent_monotonic_s=request_monotonic,
+                response_received_monotonic_s=response_monotonic,
+                error="pressure_reader_unavailable",
+            )
         previous_sequence = None
         previous = getattr(self, "_last_pressure_sample_metadata", None)
         if isinstance(previous, Mapping):
             previous_sequence = previous.get("pressure_sample_sequence_id")
         try:
             raw = pressure_reader()
-        except Exception:
-            return self._pressure_sample_payload(None, source=source)
+            response_at = datetime.now(timezone.utc)
+            response_monotonic = time.monotonic()
+        except Exception as exc:
+            response_at = datetime.now(timezone.utc)
+            response_monotonic = time.monotonic()
+            return self._pressure_sample_payload(
+                None,
+                source=source,
+                request_sent_at=request_at.isoformat(),
+                response_received_at=response_at.isoformat(),
+                request_sent_monotonic_s=request_monotonic,
+                response_received_monotonic_s=response_monotonic,
+                error=str(exc),
+            )
         latest = getattr(self, "_last_pressure_sample_metadata", None)
         if isinstance(latest, Mapping) and latest.get("pressure_sample_sequence_id") != previous_sequence:
             return dict(latest)
-        return self._pressure_sample_payload(raw, source=source)
+        return self._pressure_sample_payload(
+            raw,
+            source=source,
+            request_sent_at=request_at.isoformat(),
+            response_received_at=response_at.isoformat(),
+            request_sent_monotonic_s=request_monotonic,
+            response_received_monotonic_s=response_monotonic,
+            raw_response=raw,
+        )
 
     def _current_pressure_sample(self, *, source: str = "pressure_gauge") -> dict[str, Any]:
         return self._read_pressure_sample(self.host._make_pressure_reader(), source=source)
+
+    def _pressure_device_for_source(self, source: str) -> Any:
+        normalized = str(source or "").strip().lower()
+        getter = getattr(self.host, "_device", None)
+        if not callable(getter):
+            return None
+        if normalized in {"digital_pressure_gauge", "pressure_gauge", "gauge"}:
+            return getter("pressure_meter", "pressure_gauge")
+        if normalized in {"pace_controller", "pressure_controller", "pace"}:
+            return getter("pressure_controller", "pace")
+        return None
+
+    def _pressure_device_port(self, device: Any) -> str:
+        for name in ("port", "serial_port", "_port", "com_port"):
+            value = getattr(device, name, None)
+            if value not in (None, ""):
+                return str(value)
+        config = getattr(device, "config", None)
+        if isinstance(config, Mapping):
+            value = config.get("port") or config.get("serial_port")
+            if value not in (None, ""):
+                return str(value)
+        return ""
+
+    def _pressure_sample_from_device(self, source: str) -> dict[str, Any]:
+        device = self._pressure_device_for_source(source)
+        if device is None:
+            return self._pressure_sample_payload(None, source=source, error="pressure_device_unavailable")
+        serial_port = self._pressure_device_port(device)
+        for method_name in ("read_pressure", "read_pressure_hpa", "get_pressure", "get_pressure_hpa"):
+            method = getattr(device, method_name, None)
+            if not callable(method):
+                continue
+            request_at = datetime.now(timezone.utc)
+            request_monotonic = time.monotonic()
+            try:
+                raw = method()
+                response_at = datetime.now(timezone.utc)
+                response_monotonic = time.monotonic()
+                return self._pressure_sample_payload(
+                    raw,
+                    source=source,
+                    request_sent_at=request_at.isoformat(),
+                    response_received_at=response_at.isoformat(),
+                    request_sent_monotonic_s=request_monotonic,
+                    response_received_monotonic_s=response_monotonic,
+                    serial_port=serial_port,
+                    command=method_name,
+                    raw_response=raw,
+                )
+            except Exception as exc:
+                response_at = datetime.now(timezone.utc)
+                response_monotonic = time.monotonic()
+                return self._pressure_sample_payload(
+                    None,
+                    source=source,
+                    request_sent_at=request_at.isoformat(),
+                    response_received_at=response_at.isoformat(),
+                    request_sent_monotonic_s=request_monotonic,
+                    response_received_monotonic_s=response_monotonic,
+                    serial_port=serial_port,
+                    command=method_name,
+                    error=str(exc),
+                )
+        for method_name in ("status", "read_current", "read", "fetch_all"):
+            method = getattr(device, method_name, None)
+            if not callable(method):
+                continue
+            request_at = datetime.now(timezone.utc)
+            request_monotonic = time.monotonic()
+            try:
+                raw = method()
+                response_at = datetime.now(timezone.utc)
+                response_monotonic = time.monotonic()
+                snapshot = self._normalize_snapshot(raw)
+                return self._pressure_sample_payload(
+                    snapshot,
+                    source=source,
+                    request_sent_at=request_at.isoformat(),
+                    response_received_at=response_at.isoformat(),
+                    request_sent_monotonic_s=request_monotonic,
+                    response_received_monotonic_s=response_monotonic,
+                    serial_port=serial_port,
+                    command=method_name,
+                    raw_response=raw,
+                )
+            except Exception as exc:
+                response_at = datetime.now(timezone.utc)
+                response_monotonic = time.monotonic()
+                return self._pressure_sample_payload(
+                    None,
+                    source=source,
+                    request_sent_at=request_at.isoformat(),
+                    response_received_at=response_at.isoformat(),
+                    request_sent_monotonic_s=request_monotonic,
+                    response_received_monotonic_s=response_monotonic,
+                    serial_port=serial_port,
+                    command=method_name,
+                    error=str(exc),
+                )
+        return self._pressure_sample_payload(
+            None,
+            source=source,
+            serial_port=serial_port,
+            error="pressure_read_method_unavailable",
+        )
+
+    def _primary_pressure_source(self) -> str:
+        value = str(
+            self.host._cfg_get("workflow.pressure.primary_pressure_source", "digital_pressure_gauge") or ""
+        ).strip().lower()
+        aliases = {
+            "pressure_gauge": "digital_pressure_gauge",
+            "gauge": "digital_pressure_gauge",
+            "pressure_meter": "digital_pressure_gauge",
+            "pace": "pace_controller",
+            "pressure_controller": "pace_controller",
+        }
+        return aliases.get(value, value or "digital_pressure_gauge")
+
+    def _pressure_source_cross_check_enabled(self) -> bool:
+        value = self._coerce_bool(
+            self.host._cfg_get("workflow.pressure.pressure_source_cross_check_enabled", True)
+        )
+        return True if value is None else bool(value)
+
+    def _pressure_sample_usable(self, sample: Mapping[str, Any], purpose: str) -> bool:
+        key = f"usable_for_{purpose}"
+        if key in sample:
+            return bool(sample.get(key))
+        return sample.get("pressure_hpa") is not None and not bool(sample.get("is_stale"))
+
+    def _source_sample(self, samples_by_source: Mapping[str, Mapping[str, Any]], source: str) -> Mapping[str, Any]:
+        return samples_by_source.get(source) or {}
+
+    def _current_dual_pressure_sample(self, *, stage: str = "", point_index: Any = None) -> dict[str, Any]:
+        primary_source = self._primary_pressure_source()
+        cross_check_enabled = self._pressure_source_cross_check_enabled()
+        digital_sample = self._pressure_sample_from_device("digital_pressure_gauge")
+        pace_sample = (
+            self._pressure_sample_from_device("pace_controller")
+            if cross_check_enabled or primary_source == "pace_controller"
+            else self._pressure_sample_payload(None, source="pace_controller", error="cross_check_disabled")
+        )
+        samples_by_source: dict[str, Mapping[str, Any]] = {
+            "digital_pressure_gauge": digital_sample,
+            "pace_controller": pace_sample,
+        }
+        primary_sample = self._source_sample(samples_by_source, primary_source)
+        alternate_source = "pace_controller" if primary_source == "digital_pressure_gauge" else "digital_pressure_gauge"
+        alternate_sample = self._source_sample(samples_by_source, alternate_source)
+        selected_sample = primary_sample
+        selection_reason = "primary_pressure_source"
+        if not self._pressure_sample_usable(primary_sample, "abort") and self._pressure_sample_usable(
+            alternate_sample, "abort"
+        ):
+            selected_sample = alternate_sample
+            selection_reason = "primary_unusable_alternate_usable"
+        elif not self._pressure_sample_usable(primary_sample, "abort"):
+            selection_reason = "no_usable_pressure_sample"
+        selected_source = str(selected_sample.get("source") or selected_sample.get("pressure_sample_source") or primary_source)
+        gauge_pressure = self._coerce_float(digital_sample.get("pressure_hpa"))
+        pace_pressure = self._coerce_float(pace_sample.get("pressure_hpa"))
+        disagreement = (
+            abs(float(gauge_pressure) - float(pace_pressure))
+            if gauge_pressure is not None and pace_pressure is not None
+            else None
+        )
+        disagreement_warn_hpa = self._coerce_float(
+            self.host._cfg_get("workflow.pressure.pressure_source_disagreement_warn_hpa", 10.0)
+        )
+        disagreement_warning = (
+            disagreement is not None
+            and disagreement_warn_hpa is not None
+            and float(disagreement) > float(disagreement_warn_hpa)
+        )
+        selected_pressure = self._coerce_float(selected_sample.get("pressure_hpa"))
+        selected_is_stale = bool(selected_sample.get("is_stale", selected_sample.get("pressure_sample_is_stale")))
+        selected_usable = bool(selected_pressure is not None and not selected_is_stale)
+        result: dict[str, Any] = {
+            **dict(selected_sample),
+            "stage": stage,
+            "point_index": point_index,
+            "primary_pressure_source": primary_source,
+            "pressure_source_cross_check_enabled": cross_check_enabled,
+            "pressure_source_used_for_decision": selected_source if selected_usable else "",
+            "source_selection_reason": selection_reason,
+            "pressure_source_used_for_abort": selected_source if self._pressure_sample_usable(selected_sample, "abort") else "",
+            "pressure_source_used_for_ready": selected_source if self._pressure_sample_usable(selected_sample, "ready") else "",
+            "pressure_source_used_for_seal": selected_source if self._pressure_sample_usable(selected_sample, "seal") else "",
+            "pressure_source_disagreement_hpa": None if disagreement is None else round(float(disagreement), 3),
+            "pressure_source_disagreement_warning": bool(disagreement_warning),
+            "pressure_source_disagreement_warn_hpa": disagreement_warn_hpa,
+            "pace_pressure_sample": dict(pace_sample),
+            "digital_gauge_pressure_sample": dict(digital_sample),
+            "pace_pressure_hpa": pace_pressure,
+            "pace_pressure_latency_s": pace_sample.get("read_latency_s"),
+            "pace_pressure_age_s": pace_sample.get("sample_age_s"),
+            "pace_pressure_stale": bool(pace_sample.get("is_stale", pace_sample.get("pressure_sample_is_stale"))),
+            "digital_gauge_pressure_hpa": gauge_pressure,
+            "digital_gauge_latency_s": digital_sample.get("read_latency_s"),
+            "digital_gauge_age_s": digital_sample.get("sample_age_s"),
+            "digital_gauge_stale": bool(
+                digital_sample.get("is_stale", digital_sample.get("pressure_sample_is_stale"))
+            ),
+        }
+        return result
 
     def _remember_ambient_reference_pressure(
         self,

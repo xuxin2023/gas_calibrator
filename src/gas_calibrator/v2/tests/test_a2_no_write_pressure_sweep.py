@@ -103,6 +103,8 @@ class _FakePressureController:
         self.vent_status = 1
         self.output_state = 0
         self.isolation_state = 1
+        self.pressure_hpa = 1009.5
+        self.port = "COM31"
         self.setpoints: list[float] = []
 
     def set_output(self, enabled: bool) -> bool:
@@ -145,11 +147,15 @@ class _FakePressureController:
     def set_pressure_hpa(self, pressure_hpa: float) -> bool:
         return self.set_setpoint(pressure_hpa)
 
+    def read_pressure_hpa(self) -> float:
+        return float(self.pressure_hpa)
+
 
 class _QueuedPressureGauge:
     def __init__(self, values: list[float]) -> None:
         self.values = list(values)
         self.last = self.values[-1] if self.values else 1010.0
+        self.port = "COM30"
 
     def read_pressure_hpa(self) -> float:
         if self.values:
@@ -229,6 +235,50 @@ def _positive_preseal_service(
     return service, host, controller, status
 
 
+def test_dual_pressure_sample_records_source_latency_and_age() -> None:
+    service, _host, controller, _status = _positive_preseal_service(
+        [1010.0],
+        cfg_overrides={
+            "workflow.pressure.primary_pressure_source": "digital_pressure_gauge",
+            "workflow.pressure.pressure_source_cross_check_enabled": True,
+            "workflow.pressure.pressure_source_disagreement_warn_hpa": 1.0,
+            "workflow.pressure.pressure_sample_stale_threshold_s": 2.0,
+        },
+    )
+    controller.pressure_hpa = 1005.0
+
+    sample = service._current_dual_pressure_sample(stage="preseal_atmosphere_flush_hold", point_index=1)
+
+    assert sample["pressure_sample_source"] == "digital_pressure_gauge"
+    assert sample["pressure_source_used_for_abort"] == "digital_pressure_gauge"
+    assert sample["digital_gauge_pressure_hpa"] == 1010.0
+    assert sample["pace_pressure_hpa"] == 1005.0
+    assert sample["digital_gauge_latency_s"] is not None
+    assert sample["digital_gauge_age_s"] is not None
+    assert sample["pressure_source_disagreement_warning"] is True
+    assert sample["usable_for_abort"] is True
+    assert sample["usable_for_ready"] is True
+    assert sample["usable_for_seal"] is True
+
+
+def test_stale_pressure_sample_is_not_usable_for_abort_ready_or_seal() -> None:
+    service, _host, _controller, _status = _positive_preseal_service([1010.0])
+
+    sample = service._pressure_sample_payload(
+        {
+            "pressure_hpa": 1200.0,
+            "pressure_sample_source": "digital_pressure_gauge",
+            "pressure_sample_age_s": 5.0,
+        },
+        source="digital_pressure_gauge",
+    )
+
+    assert sample["pressure_sample_is_stale"] is True
+    assert sample["usable_for_abort"] is False
+    assert sample["usable_for_ready"] is False
+    assert sample["usable_for_seal"] is False
+
+
 def test_a2_readiness_locks_no_write_fleet_and_pressure_points(tmp_path) -> None:
     truth = {
         "read_only": True,
@@ -302,6 +352,9 @@ def test_a2_artifacts_keep_preflight_distinct_from_execute_pass(tmp_path) -> Non
     assert written["positive_preseal_timing_diagnostics"].endswith(
         "positive_preseal_timing_diagnostics.json"
     )
+    assert written["route_open_pressure_surge_evidence"].endswith("route_open_pressure_surge_evidence.json")
+    assert written["pressure_read_latency_diagnostics"].endswith("pressure_read_latency_diagnostics.json")
+    assert written["pressure_read_latency_samples"].endswith("pressure_read_latency_samples.csv")
     assert written["workflow_timing_trace"].endswith("workflow_timing_trace.jsonl")
     assert written["workflow_timing_summary"].endswith("workflow_timing_summary.json")
     assert summary["a2_final_decision"] == RUN001_NOT_EXECUTED
@@ -317,6 +370,8 @@ def test_a2_artifacts_keep_preflight_distinct_from_execute_pass(tmp_path) -> Non
     assert "workflow_timing_artifacts" in manifest
     assert "Positive preseal pressurization summary" in report
     assert "流程时序摘要" in report
+    assert "开阀瞬间升压诊断" in report
+    assert "压力读取延迟与双压力源诊断" in report
 
 
 def test_a2_config_splits_temperature_chamber_and_analyzer_timeouts() -> None:
@@ -342,6 +397,14 @@ def test_a2_config_splits_temperature_chamber_and_analyzer_timeouts() -> None:
     assert pressure["preseal_vent_close_command_timeout_s"] == 1.0
     assert pressure["preseal_vent_close_verify_timeout_s"] == 1.0
     assert pressure["preseal_vent_close_verify_capture_pressure"] is False
+    assert pressure["primary_pressure_source"] == "digital_pressure_gauge"
+    assert pressure["pressure_source_cross_check_enabled"] is True
+    assert pressure["pressure_source_disagreement_warn_hpa"] == 10.0
+    assert pressure["pressure_sample_stale_threshold_s"] == 2.0
+    assert pressure["pressure_read_latency_warn_s"] == 0.5
+    assert pressure["route_open_first_pressure_request_expected_max_s"] == 0.5
+    assert pressure["route_open_first_pressure_response_expected_max_s"] == 1.0
+    assert pressure["pressure_latency_warning_only"] is True
     assert pressure["expected_route_open_to_ready_max_s"] == 40.0
     assert pressure["expected_positive_preseal_to_ready_max_s"] == 30.0
     assert pressure["expected_ready_to_seal_command_max_s"] == 0.5
@@ -412,6 +475,27 @@ def test_a2_fail_artifacts_include_preseal_atmosphere_hold_evidence(tmp_path) ->
                 "pressure_hpa": 1985.0,
                 "limit_hpa": 1110.0,
                 "reason": "co2_preseal_atmosphere_hold_pressure_exceeded",
+                "pressure_sample_source": "digital_pressure_gauge",
+                "request_sent_at": "2026-04-26T04:11:59.800000+00:00",
+                "response_received_at": "2026-04-26T04:12:00+00:00",
+                "read_latency_s": 0.2,
+                "pressure_sample_age_s": 0.0,
+                "pressure_sample_is_stale": False,
+                "is_cached": False,
+                "usable_for_abort": True,
+                "usable_for_ready": True,
+                "usable_for_seal": True,
+                "primary_pressure_source": "digital_pressure_gauge",
+                "pressure_source_used_for_decision": "digital_pressure_gauge",
+                "pressure_source_used_for_abort": "digital_pressure_gauge",
+                "pace_pressure_hpa": 1970.0,
+                "pace_pressure_latency_s": 0.05,
+                "pace_pressure_age_s": 0.0,
+                "digital_gauge_pressure_hpa": 1985.0,
+                "digital_gauge_latency_s": 0.2,
+                "digital_gauge_age_s": 0.0,
+                "pressure_source_disagreement_hpa": 15.0,
+                "pressure_source_disagreement_warning": True,
             },
             "result": "fail",
             "message": "CO2 pre-seal atmosphere hold pressure exceeded limit",
@@ -444,6 +528,8 @@ def test_a2_fail_artifacts_include_preseal_atmosphere_hold_evidence(tmp_path) ->
     summary = json.loads((artifact_dir / "summary.json").read_text(encoding="utf-8"))
     guard = json.loads((artifact_dir / "no_write_guard.json").read_text(encoding="utf-8"))
     evidence = json.loads((artifact_dir / "preseal_atmosphere_hold_evidence.json").read_text(encoding="utf-8"))
+    route_surge = json.loads((artifact_dir / "route_open_pressure_surge_evidence.json").read_text(encoding="utf-8"))
+    latency = json.loads((artifact_dir / "pressure_read_latency_diagnostics.json").read_text(encoding="utf-8"))
     timing_summary = json.loads((artifact_dir / "workflow_timing_summary.json").read_text(encoding="utf-8"))
     timing_events = [
         json.loads(line)
@@ -453,6 +539,7 @@ def test_a2_fail_artifacts_include_preseal_atmosphere_hold_evidence(tmp_path) ->
     manifest = json.loads((artifact_dir / "run_manifest.json").read_text(encoding="utf-8"))
     report = (artifact_dir / "human_readable_report.md").read_text(encoding="utf-8")
     samples = (artifact_dir / "preseal_atmosphere_hold_samples.csv").read_text(encoding="utf-8")
+    latency_samples = (artifact_dir / "pressure_read_latency_samples.csv").read_text(encoding="utf-8")
 
     assert summary["a2_final_decision"] == "FAIL"
     assert summary["preseal_atmosphere_hold_decision"] == "FAIL"
@@ -460,19 +547,34 @@ def test_a2_fail_artifacts_include_preseal_atmosphere_hold_evidence(tmp_path) ->
     assert summary["preseal_atmosphere_hold_max_measured_pressure_hpa"] == 1985.0
     assert summary["preseal_atmosphere_hold_pressure_limit_exceeded"] is True
     assert evidence["vent_status_2_is_not_continuous_atmosphere_evidence"] is True
+    assert evidence["pressure_at_abort_hpa"] == 1985.0
+    assert evidence["pressure_max_before_abort_hpa"] == 1985.0
+    assert evidence["pressure_max_before_seal_hpa"] == 1985.0
     assert evidence["pressure_control_started"] is False
     assert evidence["sample_started"] is False
     assert guard["attempted_write_count"] == 0
     assert guard["identity_write_command_sent"] is False
     assert "pressure_limit_exceeded" in samples
+    assert "digital_pressure_gauge" in latency_samples
+    assert route_surge["pressure_first_sample_after_route_open_hpa"] == 1985.0
+    assert route_surge["abort_decision_pressure_source"] == "digital_pressure_gauge"
+    assert route_surge["gauge_read_latency_s"] == 0.2
+    assert latency["first_pressure_source"] == "digital_pressure_gauge"
+    assert latency["pressure_source_used_for_abort"] == "digital_pressure_gauge"
     assert timing_summary["a2_final_decision"] == "FAIL"
     assert timing_summary["final_decision"] == "FAIL"
     assert timing_summary["preseal_pressure_max_hpa"] == 1985.0
+    assert timing_summary["route_open_first_sample_exceeded_abort"] is True
+    assert timing_summary["abort_decision_pressure_source"] == "digital_pressure_gauge"
     assert any(event["event_name"] == "preseal_pressure_check" for event in timing_events)
     assert any(event["event_name"] == "run_fail" for event in timing_events)
     assert all(event["no_write_guard_active"] is True for event in timing_events)
     assert manifest["workflow_timing_artifacts"]["trace"].endswith("workflow_timing_trace.jsonl")
+    assert manifest["pressure_read_latency_diagnostics_artifact"].endswith("pressure_read_latency_diagnostics.json")
+    assert manifest["route_open_pressure_surge_evidence_artifact"].endswith("route_open_pressure_surge_evidence.json")
     assert "流程时序摘要" in report
+    assert "开阀瞬间升压诊断" in report
+    assert "压力读取延迟与双压力源诊断" in report
 
 
 def test_a2_artifacts_include_positive_preseal_pressurization_evidence(tmp_path) -> None:

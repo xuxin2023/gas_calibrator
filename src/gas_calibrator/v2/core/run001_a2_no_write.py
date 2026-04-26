@@ -42,6 +42,9 @@ A2_REQUIRED_ARTIFACTS = {
     "positive_preseal_pressurization_evidence": "positive_preseal_pressurization_evidence.json",
     "positive_preseal_pressurization_samples": "positive_preseal_pressurization_samples.csv",
     "positive_preseal_timing_diagnostics": "positive_preseal_timing_diagnostics.json",
+    "route_open_pressure_surge_evidence": "route_open_pressure_surge_evidence.json",
+    "pressure_read_latency_diagnostics": "pressure_read_latency_diagnostics.json",
+    "pressure_read_latency_samples": "pressure_read_latency_samples.csv",
     "route_trace": "route_trace.jsonl",
     "points": "points.csv",
     "io_log": "io_log.csv",
@@ -58,6 +61,28 @@ PRESEAL_ATMOSPHERE_HOLD_SAMPLE_FIELDS = [
     "output_state",
     "isolation_state",
     "measured_pressure_hpa",
+    "pressure_sample_source",
+    "pressure_sample_timestamp",
+    "pressure_sample_age_s",
+    "pressure_sample_is_stale",
+    "pressure_sample_sequence_id",
+    "read_latency_s",
+    "is_cached",
+    "usable_for_abort",
+    "usable_for_ready",
+    "usable_for_seal",
+    "pace_pressure_hpa",
+    "pace_pressure_latency_s",
+    "pace_pressure_age_s",
+    "pace_pressure_stale",
+    "digital_gauge_pressure_hpa",
+    "digital_gauge_latency_s",
+    "digital_gauge_age_s",
+    "digital_gauge_stale",
+    "pressure_source_used_for_decision",
+    "source_selection_reason",
+    "pressure_source_disagreement_hpa",
+    "pressure_source_disagreement_warning",
     "pressure_limit_hpa",
     "pressure_limit_exceeded",
     "route_opened",
@@ -65,6 +90,40 @@ PRESEAL_ATMOSPHERE_HOLD_SAMPLE_FIELDS = [
     "pressure_control_started",
     "decision",
     "failure_reason",
+]
+
+PRESSURE_READ_LATENCY_SAMPLE_FIELDS = [
+    "run_id",
+    "timestamp",
+    "stage",
+    "point_index",
+    "source",
+    "pressure_hpa",
+    "request_sent_at",
+    "response_received_at",
+    "request_sent_monotonic_s",
+    "response_received_monotonic_s",
+    "read_latency_s",
+    "sample_recorded_at",
+    "sample_recorded_monotonic_s",
+    "sample_age_s",
+    "is_cached",
+    "is_stale",
+    "stale_threshold_s",
+    "serial_port",
+    "command",
+    "raw_response",
+    "parse_ok",
+    "error",
+    "sequence_id",
+    "usable_for_abort",
+    "usable_for_ready",
+    "usable_for_seal",
+    "primary_pressure_source",
+    "pressure_source_used_for_decision",
+    "source_selection_reason",
+    "source_disagreement_hpa",
+    "source_disagreement_warning",
 ]
 
 POSITIVE_PRESEAL_PRESSURIZATION_SAMPLE_FIELDS = [
@@ -242,6 +301,28 @@ def _preseal_timing_thresholds(pressure_cfg: Mapping[str, Any]) -> dict[str, Any
         "expected_abort_margin_min_hpa": (
             _as_float(pressure_cfg.get("expected_abort_margin_min_hpa")) or 10.0
         ),
+        "primary_pressure_source": str(pressure_cfg.get("primary_pressure_source") or "digital_pressure_gauge"),
+        "pressure_source_cross_check_enabled": _as_bool(
+            pressure_cfg.get("pressure_source_cross_check_enabled", True)
+        ),
+        "pressure_source_disagreement_warn_hpa": (
+            _as_float(pressure_cfg.get("pressure_source_disagreement_warn_hpa")) or 10.0
+        ),
+        "pressure_sample_stale_threshold_s": (
+            _as_float(pressure_cfg.get("pressure_sample_stale_threshold_s"))
+            or _as_float(pressure_cfg.get("pressure_sample_stale_max_s"))
+            or 2.0
+        ),
+        "pressure_read_latency_warn_s": (
+            _as_float(pressure_cfg.get("pressure_read_latency_warn_s")) or 0.5
+        ),
+        "route_open_first_pressure_request_expected_max_s": (
+            _as_float(pressure_cfg.get("route_open_first_pressure_request_expected_max_s")) or 0.5
+        ),
+        "route_open_first_pressure_response_expected_max_s": (
+            _as_float(pressure_cfg.get("route_open_first_pressure_response_expected_max_s")) or 1.0
+        ),
+        "pressure_latency_warning_only": _as_bool(pressure_cfg.get("pressure_latency_warning_only", True)),
         "preseal_vent_close_arm_pressure_hpa": _as_float(
             pressure_cfg.get("preseal_vent_close_arm_pressure_hpa")
         ),
@@ -554,6 +635,192 @@ def _trace_pressure_hpa(actual: Mapping[str, Any]) -> Optional[float]:
     return None
 
 
+def _pressure_sample_source(actual: Mapping[str, Any], *, fallback: str = "unknown") -> str:
+    source = (
+        actual.get("pressure_sample_source")
+        or actual.get("source")
+        or actual.get("pressure_source_used_for_decision")
+        or actual.get("pressure_source_used")
+        or actual.get("abort_decision_pressure_source")
+        or fallback
+    )
+    text = str(source or "").strip()
+    aliases = {
+        "pressure_gauge": "digital_pressure_gauge",
+        "pressure_meter": "digital_pressure_gauge",
+        "gauge": "digital_pressure_gauge",
+        "pressure_controller": "pace_controller",
+        "pace": "pace_controller",
+    }
+    return aliases.get(text, text or fallback)
+
+
+def _pressure_sample_timestamp(actual: Mapping[str, Any], fallback_ts: Any = "") -> str:
+    return str(
+        actual.get("pressure_sample_timestamp")
+        or actual.get("sample_recorded_at")
+        or actual.get("response_received_at")
+        or actual.get("timestamp")
+        or fallback_ts
+        or ""
+    )
+
+
+def _pressure_sample_meta(actual: Mapping[str, Any], *, fallback_source: str = "unknown") -> dict[str, Any]:
+    source = _pressure_sample_source(actual, fallback=fallback_source)
+    age_s = _as_float(actual.get("pressure_sample_age_s", actual.get("sample_age_s")))
+    latency_s = _as_float(actual.get("read_latency_s"))
+    is_stale = actual.get("pressure_sample_is_stale", actual.get("is_stale"))
+    if isinstance(is_stale, str):
+        is_stale = is_stale.strip().lower() in {"1", "true", "yes", "on"}
+    return {
+        "pressure_sample_source": source,
+        "pressure_sample_timestamp": _pressure_sample_timestamp(actual),
+        "pressure_sample_age_s": age_s,
+        "pressure_sample_is_stale": bool(is_stale) if is_stale is not None else None,
+        "pressure_sample_sequence_id": actual.get("pressure_sample_sequence_id", actual.get("sequence_id")),
+        "read_latency_s": latency_s,
+        "is_cached": bool(actual.get("is_cached", False)),
+        "usable_for_abort": actual.get("usable_for_abort"),
+        "usable_for_ready": actual.get("usable_for_ready"),
+        "usable_for_seal": actual.get("usable_for_seal"),
+        "pace_pressure_hpa": _as_float(actual.get("pace_pressure_hpa")),
+        "pace_pressure_latency_s": _as_float(actual.get("pace_pressure_latency_s")),
+        "pace_pressure_age_s": _as_float(actual.get("pace_pressure_age_s")),
+        "pace_pressure_stale": actual.get("pace_pressure_stale"),
+        "digital_gauge_pressure_hpa": _as_float(actual.get("digital_gauge_pressure_hpa")),
+        "digital_gauge_latency_s": _as_float(actual.get("digital_gauge_latency_s")),
+        "digital_gauge_age_s": _as_float(actual.get("digital_gauge_age_s")),
+        "digital_gauge_stale": actual.get("digital_gauge_stale"),
+        "pressure_source_used_for_decision": actual.get("pressure_source_used_for_decision"),
+        "source_selection_reason": actual.get("source_selection_reason"),
+        "pressure_source_disagreement_hpa": _as_float(actual.get("pressure_source_disagreement_hpa")),
+        "pressure_source_disagreement_warning": bool(actual.get("pressure_source_disagreement_warning", False)),
+    }
+
+
+def _latency_sample_from_payload(
+    payload: Mapping[str, Any],
+    *,
+    run_id: Any,
+    timestamp: Any = "",
+    stage: Any = "",
+    point_index: Any = None,
+    selection: Optional[Mapping[str, Any]] = None,
+) -> dict[str, Any]:
+    selection = dict(selection or {})
+    source = _pressure_sample_source(payload, fallback=str(payload.get("source") or "unknown"))
+    return {
+        "run_id": run_id,
+        "timestamp": timestamp or payload.get("sample_recorded_at") or payload.get("pressure_sample_timestamp") or "",
+        "stage": stage or payload.get("stage") or "",
+        "point_index": point_index if point_index is not None else payload.get("point_index"),
+        "source": source,
+        "pressure_hpa": _as_float(payload.get("pressure_hpa")),
+        "request_sent_at": payload.get("request_sent_at"),
+        "response_received_at": payload.get("response_received_at"),
+        "request_sent_monotonic_s": _as_float(payload.get("request_sent_monotonic_s")),
+        "response_received_monotonic_s": _as_float(payload.get("response_received_monotonic_s")),
+        "read_latency_s": _as_float(payload.get("read_latency_s")),
+        "sample_recorded_at": payload.get("sample_recorded_at") or payload.get("pressure_sample_timestamp"),
+        "sample_recorded_monotonic_s": _as_float(
+            payload.get("sample_recorded_monotonic_s", payload.get("pressure_sample_monotonic_s"))
+        ),
+        "sample_age_s": _as_float(payload.get("sample_age_s", payload.get("pressure_sample_age_s"))),
+        "is_cached": bool(payload.get("is_cached", False)),
+        "is_stale": bool(payload.get("is_stale", payload.get("pressure_sample_is_stale", False))),
+        "stale_threshold_s": _as_float(payload.get("stale_threshold_s")),
+        "serial_port": payload.get("serial_port"),
+        "command": payload.get("command"),
+        "raw_response": payload.get("raw_response"),
+        "parse_ok": payload.get("parse_ok"),
+        "error": payload.get("error"),
+        "sequence_id": payload.get("sequence_id", payload.get("pressure_sample_sequence_id")),
+        "usable_for_abort": payload.get("usable_for_abort"),
+        "usable_for_ready": payload.get("usable_for_ready"),
+        "usable_for_seal": payload.get("usable_for_seal"),
+        "primary_pressure_source": selection.get("primary_pressure_source"),
+        "pressure_source_used_for_decision": selection.get("pressure_source_used_for_decision"),
+        "source_selection_reason": selection.get("source_selection_reason"),
+        "source_disagreement_hpa": selection.get("pressure_source_disagreement_hpa"),
+        "source_disagreement_warning": selection.get("pressure_source_disagreement_warning"),
+    }
+
+
+def _collect_pressure_read_latency_samples(run_dir: str | Path, payload: Mapping[str, Any]) -> list[dict[str, Any]]:
+    run_id = payload.get("run_id")
+    samples: list[dict[str, Any]] = []
+    for item in list(payload.get("pressure_read_latency_samples") or []):
+        if isinstance(item, Mapping):
+            samples.append(_latency_sample_from_payload(item, run_id=run_id))
+    events = load_workflow_timing_events(Path(run_dir) / WORKFLOW_TIMING_TRACE_FILENAME)
+    for event in events:
+        name = str(event.get("event_name") or "")
+        if name not in {"pace_pressure_read_end", "gauge_pressure_read_end", "pressure_source_selected"}:
+            continue
+        state = event.get("route_state")
+        state = state if isinstance(state, Mapping) else {}
+        if name == "pressure_source_selected":
+            for key in ("pace_pressure_sample", "digital_gauge_pressure_sample"):
+                sample = state.get(key)
+                if isinstance(sample, Mapping):
+                    samples.append(
+                        _latency_sample_from_payload(
+                            sample,
+                            run_id=run_id,
+                            timestamp=event.get("timestamp_local") or event.get("timestamp"),
+                            stage=event.get("stage"),
+                            point_index=event.get("point_index"),
+                            selection=state,
+                        )
+                    )
+            continue
+        samples.append(
+            _latency_sample_from_payload(
+                state,
+                run_id=run_id,
+                timestamp=event.get("timestamp_local") or event.get("timestamp"),
+                stage=event.get("stage"),
+                point_index=event.get("point_index"),
+            )
+        )
+    if samples:
+        return samples
+    for row in _load_route_trace_rows(run_dir):
+        actual = row.get("actual")
+        actual = actual if isinstance(actual, Mapping) else {}
+        pressure = _trace_pressure_hpa(actual)
+        if pressure is None:
+            continue
+        source = _pressure_sample_source(actual, fallback="legacy_route_trace_pressure")
+        sample = _latency_sample_from_payload(
+            {
+                **actual,
+                "pressure_hpa": pressure,
+                "pressure_sample_source": source,
+                "parse_ok": True,
+            },
+            run_id=run_id,
+            timestamp=row.get("ts") or row.get("timestamp") or "",
+            stage=row.get("action") or "",
+            point_index=row.get("point_index"),
+        )
+        if source == "legacy_route_trace_pressure":
+            sample["error"] = "legacy_sample_missing_source_latency_metadata"
+        samples.append(sample)
+    return samples
+
+
+def _first_after(rows: list[Mapping[str, Any]], timestamp: Optional[datetime]) -> Optional[Mapping[str, Any]]:
+    if timestamp is None:
+        return rows[0] if rows else None
+    for row in rows:
+        ts = _parse_trace_ts(row.get("ts") or row.get("timestamp"))
+        if ts is not None and ts >= timestamp:
+            return row
+    return None
+
+
 def _positive_preseal_ambient_reference_from_trace(
     trace_rows: list[Mapping[str, Any]],
     payload: Mapping[str, Any],
@@ -633,6 +900,11 @@ def _build_preseal_atmosphere_hold_evidence(run_dir: str | Path, payload: Mappin
     sample_started = False
     samples: list[dict[str, Any]] = []
     max_pressure: Optional[float] = None
+    pressure_at_abort: Optional[float] = None
+    pressure_max_before_abort: Optional[float] = None
+    pressure_max_after_abort: Optional[float] = None
+    pressure_max_during_safe_stop: Optional[float] = None
+    abort_seen = False
     limit_exceeded = False
     failure_reasons: list[str] = []
     periodic_vent_count = 0
@@ -664,10 +936,31 @@ def _build_preseal_atmosphere_hold_evidence(run_dir: str | Path, payload: Mappin
             measured_pressure = _trace_pressure_hpa(actual)
             if measured_pressure is not None:
                 max_pressure = measured_pressure if max_pressure is None else max(max_pressure, measured_pressure)
+                if abort_seen:
+                    pressure_max_after_abort = (
+                        measured_pressure
+                        if pressure_max_after_abort is None
+                        else max(pressure_max_after_abort, measured_pressure)
+                    )
+                else:
+                    pressure_max_before_abort = (
+                        measured_pressure
+                        if pressure_max_before_abort is None
+                        else max(pressure_max_before_abort, measured_pressure)
+                    )
             row_exceeded = bool(measured_pressure is not None and measured_pressure > pressure_limit)
             limit_exceeded = limit_exceeded or row_exceeded
             if row_exceeded:
                 failure_reasons.append("preseal_atmosphere_hold_pressure_limit_exceeded")
+                if pressure_at_abort is None:
+                    pressure_at_abort = measured_pressure
+                    abort_seen = True
+            if action_lc in {"set_output", "set_vent", "final_safe_stop_pressure"} and abort_seen and measured_pressure is not None:
+                pressure_max_during_safe_stop = (
+                    measured_pressure
+                    if pressure_max_during_safe_stop is None
+                    else max(pressure_max_during_safe_stop, measured_pressure)
+                )
 
             vent_command_sent = bool(action_lc == "set_vent" and target.get("vent_on") is True)
             if vent_command_sent and route_opened:
@@ -696,6 +989,7 @@ def _build_preseal_atmosphere_hold_evidence(run_dir: str | Path, payload: Mappin
                 failure_reason = "preseal_atmosphere_hold_pressure_limit_exceeded"
             elif str(item.get("result") or "").lower() == "fail":
                 failure_reason = str(item.get("message") or "")
+            sample_meta = _pressure_sample_meta(actual, fallback_source="legacy_route_trace_pressure")
             samples.append(
                 {
                     "timestamp": item.get("ts") or item.get("timestamp") or "",
@@ -705,6 +999,7 @@ def _build_preseal_atmosphere_hold_evidence(run_dir: str | Path, payload: Mappin
                     "output_state": output_state,
                     "isolation_state": isolation_state,
                     "measured_pressure_hpa": measured_pressure,
+                    **sample_meta,
                     "pressure_limit_hpa": pressure_limit,
                     "pressure_limit_exceeded": row_exceeded,
                     "route_opened": route_opened,
@@ -736,12 +1031,337 @@ def _build_preseal_atmosphere_hold_evidence(run_dir: str | Path, payload: Mappin
         "pressure_control_started": pressure_control_started,
         "sample_started": sample_started,
         "max_measured_pressure_hpa": max_pressure,
+        "pressure_at_abort_hpa": pressure_at_abort,
+        "pressure_max_before_abort_hpa": pressure_max_before_abort,
+        "pressure_max_after_abort_hpa": pressure_max_after_abort,
+        "pressure_max_before_seal_hpa": pressure_max_before_abort,
+        "pressure_max_during_safe_stop_hpa": pressure_max_during_safe_stop,
+        "preseal_pressure_max_hpa_total": max_pressure,
         "pressure_limit_exceeded": limit_exceeded,
         "decision": decision,
         "failure_reason": "; ".join(str(item) for item in deduped_reasons if str(item)),
         "vent_status_2_is_not_continuous_atmosphere_evidence": True,
         "sample_count": len(samples),
         "samples": samples,
+        "not_real_acceptance_evidence": True,
+        "v2_replaces_v1_claim": False,
+    }
+
+
+def _build_pressure_read_latency_diagnostics(
+    run_dir: str | Path,
+    payload: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    events = load_workflow_timing_events(Path(run_dir) / WORKFLOW_TIMING_TRACE_FILENAME)
+    route_open_start = _first_timing_event(events, "co2_route_open_start")
+    route_open_end = _first_timing_event(events, "co2_route_open_end")
+    route_open_start_ts = route_open_start.get("timestamp_local") if isinstance(route_open_start, Mapping) else ""
+    route_open_end_ts = route_open_end.get("timestamp_local") if isinstance(route_open_end, Mapping) else ""
+    route_open_end_mono = _as_float(route_open_end.get("timestamp_monotonic_s")) if isinstance(route_open_end, Mapping) else None
+    route_open_end_dt = _parse_trace_ts(route_open_end_ts)
+    samples = _collect_pressure_read_latency_samples(run_dir, payload)
+
+    def _is_decision_pressure_sample(sample: Mapping[str, Any]) -> bool:
+        stage = str(sample.get("stage") or "").lower()
+        if stage in {
+            "co2_preseal_atmosphere_hold_pressure_guard",
+            "preseal_atmosphere_flush_pressure_check",
+            "preseal_atmosphere_flush_ready_handoff",
+            "positive_preseal_pressure_check",
+            "positive_preseal_ready",
+            "positive_preseal_abort",
+            "pressure_rise_detected",
+            "route_open_pressure_first_sample",
+            "route_open_pressure_surge_detected",
+            "route_open_pressure_abort",
+        }:
+            return True
+        return str(sample.get("result") or "").lower() == "fail"
+
+    first_after_route: Optional[dict[str, Any]] = None
+    for sample in samples:
+        if not _is_decision_pressure_sample(sample):
+            continue
+        request_mono = _as_float(sample.get("request_sent_monotonic_s"))
+        response_mono = _as_float(sample.get("response_received_monotonic_s"))
+        sample_dt = _parse_trace_ts(
+            sample.get("request_sent_at")
+            or sample.get("response_received_at")
+            or sample.get("timestamp")
+            or sample.get("sample_recorded_at")
+        )
+        if route_open_end_mono is None or (request_mono is not None and request_mono >= route_open_end_mono) or (
+            request_mono is None and response_mono is not None and response_mono >= route_open_end_mono
+        ) or (
+            request_mono is None
+            and response_mono is None
+            and route_open_end_dt is not None
+            and sample_dt is not None
+            and sample_dt >= route_open_end_dt
+        ):
+            first_after_route = sample
+            break
+    if first_after_route is None and samples:
+        first_after_route = next((sample for sample in samples if _is_decision_pressure_sample(sample)), samples[0])
+    count_by_source: dict[str, int] = {}
+    max_latency_by_source: dict[str, Optional[float]] = {}
+    stale_count_by_source: dict[str, int] = {}
+    warnings: list[dict[str, Any]] = []
+    disagreement_max: Optional[float] = None
+    for sample in samples:
+        source = str(sample.get("source") or "unknown")
+        count_by_source[source] = count_by_source.get(source, 0) + 1
+        latency = _as_float(sample.get("read_latency_s"))
+        if latency is not None:
+            current = max_latency_by_source.get(source)
+            max_latency_by_source[source] = latency if current is None else max(float(current), float(latency))
+        else:
+            max_latency_by_source.setdefault(source, None)
+        if bool(sample.get("is_stale")):
+            stale_count_by_source[source] = stale_count_by_source.get(source, 0) + 1
+        disagreement = _as_float(sample.get("source_disagreement_hpa"))
+        if disagreement is not None:
+            disagreement_max = disagreement if disagreement_max is None else max(float(disagreement_max), disagreement)
+    first_request_mono = _as_float((first_after_route or {}).get("request_sent_monotonic_s"))
+    first_response_mono = _as_float((first_after_route or {}).get("response_received_monotonic_s"))
+    route_open_to_first_request_s = (
+        round(first_request_mono - route_open_end_mono, 3)
+        if first_request_mono is not None and route_open_end_mono is not None
+        else None
+    )
+    route_open_to_first_response_s = (
+        round(first_response_mono - route_open_end_mono, 3)
+        if first_response_mono is not None and route_open_end_mono is not None
+        else None
+    )
+    if first_after_route and first_after_route.get("error") == "legacy_sample_missing_source_latency_metadata":
+        warnings.append(
+            {
+                "warning_code": "legacy_pressure_sample_missing_source_latency_metadata",
+                "warning_only": True,
+            }
+        )
+    if first_after_route and bool(first_after_route.get("is_stale")):
+        warnings.append({"warning_code": "first_pressure_sample_stale", "warning_only": True})
+    latency_warn = _as_float(payload.get("pressure_read_latency_warn_s"))
+    for source, latency in max_latency_by_source.items():
+        if latency_warn is not None and latency is not None and float(latency) > float(latency_warn):
+            warnings.append(
+                {
+                    "warning_code": "pressure_read_latency_s_long",
+                    "source": source,
+                    "actual": round(float(latency), 3),
+                    "expected": latency_warn,
+                    "warning_only": True,
+                }
+            )
+    primary = str(payload.get("primary_pressure_source") or "digital_pressure_gauge")
+    first = first_after_route or {}
+    diagnostics = {
+        "schema_version": "run001_a2.pressure_read_latency_diagnostics.1",
+        "artifact_type": "run001_a2_pressure_read_latency_diagnostics",
+        "run_id": payload.get("run_id"),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "route_open_started_at": route_open_start_ts,
+        "route_open_completed_at": route_open_end_ts,
+        "first_pressure_poll_requested_at": first.get("request_sent_at"),
+        "first_pressure_response_received_at": first.get("response_received_at") or first.get("timestamp"),
+        "route_open_to_first_pressure_request_s": route_open_to_first_request_s,
+        "route_open_to_first_pressure_response_s": route_open_to_first_response_s,
+        "first_pressure_read_latency_s": first.get("read_latency_s"),
+        "first_pressure_source": first.get("source"),
+        "first_pressure_hpa": first.get("pressure_hpa"),
+        "first_pressure_age_s": first.get("sample_age_s"),
+        "first_pressure_is_stale": first.get("is_stale"),
+        "pace_pressure_hpa": next((sample.get("pressure_hpa") for sample in samples if sample.get("source") == "pace_controller"), None),
+        "pace_pressure_latency_s": next((sample.get("read_latency_s") for sample in samples if sample.get("source") == "pace_controller"), None),
+        "pace_pressure_age_s": next((sample.get("sample_age_s") for sample in samples if sample.get("source") == "pace_controller"), None),
+        "digital_gauge_pressure_hpa": next((sample.get("pressure_hpa") for sample in samples if sample.get("source") == "digital_pressure_gauge"), None),
+        "digital_gauge_latency_s": next((sample.get("read_latency_s") for sample in samples if sample.get("source") == "digital_pressure_gauge"), None),
+        "digital_gauge_age_s": next((sample.get("sample_age_s") for sample in samples if sample.get("source") == "digital_pressure_gauge"), None),
+        "source_disagreement_hpa": disagreement_max,
+        "primary_pressure_source": primary,
+        "pressure_source_used_for_abort": first.get("pressure_source_used_for_decision") or first.get("source"),
+        "pressure_source_used_for_ready": first.get("pressure_source_used_for_decision") or first.get("source"),
+        "pressure_source_used_for_seal": first.get("pressure_source_used_for_decision") or first.get("source"),
+        "pressure_sample_count_by_source": count_by_source,
+        "max_read_latency_by_source": max_latency_by_source,
+        "stale_sample_count_by_source": stale_count_by_source,
+        "decision": payload.get("a2_final_decision"),
+        "warnings": warnings,
+        "warning_count": len(warnings),
+        "suspected_cause": [
+            "pressure_read_latency_or_source_metadata_insufficient" if warnings else "no_pressure_latency_warning",
+            "cross_check_pace_controller_and_digital_pressure_gauge_on_next_authorized_run",
+        ],
+        "not_real_acceptance_evidence": True,
+        "v2_replaces_v1_claim": False,
+    }
+    return diagnostics, samples
+
+
+def _build_route_open_pressure_surge_evidence(
+    run_dir: str | Path,
+    payload: Mapping[str, Any],
+    *,
+    preseal_payload: Optional[Mapping[str, Any]] = None,
+    latency_payload: Optional[Mapping[str, Any]] = None,
+) -> dict[str, Any]:
+    rows = _load_route_trace_rows(run_dir)
+    events = load_workflow_timing_events(Path(run_dir) / WORKFLOW_TIMING_TRACE_FILENAME)
+    route_open_start = _first_timing_event(events, "co2_route_open_start")
+    route_open_end = _first_timing_event(events, "co2_route_open_end")
+    route_row = next((row for row in rows if str(row.get("action") or "").lower() == "set_co2_valves"), None)
+    route_ts = _parse_trace_ts((route_row or {}).get("ts") or (route_row or {}).get("timestamp"))
+
+    def _is_route_open_pressure_sample(row: Mapping[str, Any]) -> bool:
+        action = str(row.get("action") or "").lower()
+        if action in {
+            "co2_preseal_atmosphere_hold_pressure_guard",
+            "preseal_atmosphere_flush_pressure_check",
+            "preseal_atmosphere_flush_ready_handoff",
+            "positive_preseal_pressure_check",
+            "positive_preseal_ready",
+            "positive_preseal_abort",
+            "pressure_rise_detected",
+            "route_open_pressure_first_sample",
+            "route_open_pressure_surge_detected",
+            "route_open_pressure_abort",
+        }:
+            return True
+        return str(row.get("result") or "").lower() == "fail"
+
+    before_rows: list[Mapping[str, Any]] = []
+    after_rows: list[Mapping[str, Any]] = []
+    after_pressure_rows: list[Mapping[str, Any]] = []
+    abort_row: Optional[Mapping[str, Any]] = None
+    for row in rows:
+        actual = row.get("actual")
+        actual = actual if isinstance(actual, Mapping) else {}
+        pressure = _trace_pressure_hpa(actual)
+        if pressure is None:
+            continue
+        ts = _parse_trace_ts(row.get("ts") or row.get("timestamp"))
+        if route_ts is not None and ts is not None and ts < route_ts:
+            before_rows.append(row)
+        else:
+            after_rows.append(row)
+            if _is_route_open_pressure_sample(row):
+                after_pressure_rows.append(row)
+        if str(row.get("result") or "").lower() == "fail" and abort_row is None:
+            abort_row = row
+    before_row = before_rows[-1] if before_rows else None
+    first_after = after_pressure_rows[0] if after_pressure_rows else (after_rows[0] if after_rows else None)
+    before_actual = before_row.get("actual") if isinstance(before_row, Mapping) else {}
+    before_actual = before_actual if isinstance(before_actual, Mapping) else {}
+    first_actual = first_after.get("actual") if isinstance(first_after, Mapping) else {}
+    first_actual = first_actual if isinstance(first_actual, Mapping) else {}
+    abort_actual = abort_row.get("actual") if isinstance(abort_row, Mapping) else {}
+    abort_actual = abort_actual if isinstance(abort_actual, Mapping) else {}
+    before_pressure = _trace_pressure_hpa(before_actual)
+    first_pressure = _trace_pressure_hpa(first_actual)
+    pressure_at_route_open = _event_pressure(route_open_end)
+    if first_pressure is None:
+        first_pressure = pressure_at_route_open
+    route_open_ts = _parse_trace_ts((route_row or {}).get("ts") or (route_row or {}).get("timestamp"))
+    first_ts = _parse_trace_ts((first_after or {}).get("ts") or (first_after or {}).get("timestamp"))
+    route_open_to_first_sample_s = _trace_elapsed_s(first_ts, route_open_ts)
+    pressure_delta = (
+        round(float(first_pressure) - float(before_pressure), 3)
+        if first_pressure is not None and before_pressure is not None
+        else None
+    )
+    pressure_rise_rate = (
+        round(float(pressure_delta) / float(route_open_to_first_sample_s), 3)
+        if pressure_delta is not None and route_open_to_first_sample_s not in (None, 0)
+        else None
+    )
+    abort_threshold = _as_float(payload.get("positive_preseal_abort_pressure_hpa")) or _as_float(
+        payload.get("preseal_atmosphere_hold_pressure_limit_hpa")
+    )
+    abort_pressure = _trace_pressure_hpa(abort_actual)
+    preseal = dict(preseal_payload or {})
+    latency = dict(latency_payload or {})
+    warning_codes: list[str] = []
+    if first_pressure is not None and abort_threshold is not None and float(first_pressure) > float(abort_threshold):
+        warning_codes.append("first_sample_after_route_open_exceeded_abort_threshold")
+    if pressure_delta is not None and abs(float(pressure_delta)) > 50.0:
+        warning_codes.append("pressure_delta_after_route_open_high")
+    if pressure_rise_rate is not None and abs(float(pressure_rise_rate)) > 25.0:
+        warning_codes.append("pressure_rise_rate_after_route_open_high")
+    if latency.get("first_pressure_is_stale"):
+        warning_codes.append("first_pressure_sample_stale")
+    before_meta = _pressure_sample_meta(before_actual, fallback_source="legacy_route_trace_pressure")
+    first_meta = _pressure_sample_meta(first_actual, fallback_source=latency.get("first_pressure_source") or "legacy_route_trace_pressure")
+    return {
+        "schema_version": "run001_a2.route_open_pressure_surge.1",
+        "artifact_type": "run001_a2_route_open_pressure_surge_evidence",
+        "run_id": payload.get("run_id"),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "route_open_started_at": (route_open_start or {}).get("timestamp_local") or "",
+        "route_open_completed_at": (route_open_end or {}).get("timestamp_local") or (route_row or {}).get("ts") or "",
+        "route_open_command_duration_s": (route_open_end or {}).get("duration_s"),
+        "pressure_before_route_open_hpa": before_pressure,
+        "pressure_before_route_open_source": before_meta.get("pressure_sample_source"),
+        "pressure_before_route_open_timestamp": before_meta.get("pressure_sample_timestamp") or (before_row or {}).get("ts"),
+        "pressure_before_route_open_age_s": before_meta.get("pressure_sample_age_s"),
+        "pressure_first_sample_after_route_open_hpa": first_pressure,
+        "pressure_first_sample_after_route_open_source": first_meta.get("pressure_sample_source"),
+        "pressure_first_sample_after_route_open_timestamp": first_meta.get("pressure_sample_timestamp") or (first_after or {}).get("ts"),
+        "pressure_first_sample_after_route_open_age_s": first_meta.get("pressure_sample_age_s"),
+        "route_open_to_first_pressure_sample_s": route_open_to_first_sample_s,
+        "pressure_delta_after_route_open_hpa": pressure_delta,
+        "pressure_rise_rate_after_route_open_hpa_per_s": pressure_rise_rate,
+        "vent_status_at_route_open": before_actual.get("vent_status_raw", before_actual.get("pressure_controller_vent_status")),
+        "output_state_at_route_open": before_actual.get("output_state", before_actual.get("pressure_controller_output_state")),
+        "isolation_state_at_route_open": before_actual.get("isolation_state", before_actual.get("pressure_controller_isolation_state")),
+        "vent_status_at_first_sample": first_actual.get("vent_status_raw", first_actual.get("pressure_controller_vent_status")),
+        "output_state_at_first_sample": first_actual.get("output_state", first_actual.get("pressure_controller_output_state")),
+        "isolation_state_at_first_sample": first_actual.get("isolation_state", first_actual.get("pressure_controller_isolation_state")),
+        "abort_threshold_hpa": abort_threshold,
+        "abort_triggered": abort_pressure is not None and abort_threshold is not None and abort_pressure > abort_threshold,
+        "abort_trigger_pressure_hpa": abort_pressure,
+        "abort_trigger_elapsed_s": _trace_elapsed_s(
+            _parse_trace_ts((abort_row or {}).get("ts") or (abort_row or {}).get("timestamp")),
+            route_open_ts,
+        ),
+        "post_abort_pressure_max_hpa": preseal.get("pressure_max_after_abort_hpa"),
+        "pre_abort_pressure_max_hpa": preseal.get("pressure_max_before_abort_hpa"),
+        "pressure_source_used": latency.get("first_pressure_source") or first_meta.get("pressure_sample_source"),
+        "pace_pressure_before_route_open_hpa": before_actual.get("pace_pressure_hpa"),
+        "gauge_pressure_before_route_open_hpa": before_actual.get("digital_gauge_pressure_hpa", before_pressure),
+        "pace_pressure_first_after_route_open_hpa": first_actual.get("pace_pressure_hpa"),
+        "gauge_pressure_first_after_route_open_hpa": first_actual.get("digital_gauge_pressure_hpa", first_pressure),
+        "pace_read_latency_s": first_actual.get("pace_pressure_latency_s", latency.get("pace_pressure_latency_s")),
+        "gauge_read_latency_s": first_actual.get("digital_gauge_latency_s", latency.get("digital_gauge_latency_s")),
+        "pace_sample_age_s": first_actual.get("pace_pressure_age_s", latency.get("pace_pressure_age_s")),
+        "gauge_sample_age_s": first_actual.get("digital_gauge_age_s", latency.get("digital_gauge_age_s")),
+        "pressure_source_disagreement_hpa": first_actual.get(
+            "pressure_source_disagreement_hpa",
+            latency.get("source_disagreement_hpa"),
+        ),
+        "pressure_source_disagreement_warning": bool(
+            first_actual.get("pressure_source_disagreement_warning", False)
+            or latency.get("source_disagreement_hpa") not in (None, "")
+        ),
+        "abort_decision_pressure_source": first_actual.get("pressure_source_used_for_abort")
+        or latency.get("pressure_source_used_for_abort")
+        or latency.get("first_pressure_source"),
+        "abort_decision_pressure_age_s": first_meta.get("pressure_sample_age_s"),
+        "abort_decision_pressure_latency_s": first_meta.get("read_latency_s") or latency.get("first_pressure_read_latency_s"),
+        "decision": payload.get("a2_final_decision"),
+        "warning_codes": warning_codes,
+        "warning_count": len(warning_codes),
+        "suspected_cause": [
+            "high_co2_inlet_flow_or_upstream_pressure",
+            "vent_exhaust_capacity_may_be_insufficient",
+            "pressure_read_latency_or_source_metadata_requires_next_run_confirmation",
+        ],
+        "recommendations": [
+            "reduce_co2_inlet_flow_or_upstream_pressure_before_next_authorized_run",
+            "confirm_exhaust_and_bypass_capacity",
+            "keep_1150_hpa_abort_threshold_as_hard_fail",
+        ],
         "not_real_acceptance_evidence": True,
         "v2_replaces_v1_claim": False,
     }
@@ -1130,6 +1750,7 @@ def _build_positive_preseal_timing_diagnostics(
     vent_close_row: Optional[Mapping[str, Any]] = None
     seal_row: Optional[Mapping[str, Any]] = None
     positive_abort_row: Optional[Mapping[str, Any]] = None
+    preseal_abort_row: Optional[Mapping[str, Any]] = None
     pressure_samples: list[dict[str, Any]] = []
     vent_hold_samples: list[dict[str, Any]] = []
     positive_samples: list[dict[str, Any]] = []
@@ -1161,6 +1782,12 @@ def _build_positive_preseal_timing_diagnostics(
             seal_row = row
         if action == "positive_preseal_abort" and positive_abort_row is None:
             positive_abort_row = row
+        if (
+            action == "co2_preseal_atmosphere_hold_pressure_guard"
+            and str(row.get("result") or "").lower() == "fail"
+            and preseal_abort_row is None
+        ):
+            preseal_abort_row = row
         if pressure is not None:
             sample = {
                 "timestamp": ts_text,
@@ -1260,6 +1887,13 @@ def _build_positive_preseal_timing_diagnostics(
     )
     positive_ready_pressure = _trace_pressure_hpa(positive_ready_actual) or seal_trigger_pressure
 
+    preseal_abort_ts = _parse_trace_ts((preseal_abort_row or {}).get("ts") or (preseal_abort_row or {}).get("timestamp"))
+    if preseal_abort_ts is not None:
+        vent_hold_samples = [
+            sample
+            for sample in vent_hold_samples
+            if sample.get("parsed_ts") is None or sample.get("parsed_ts") <= preseal_abort_ts
+        ]
     vent_hold_start_ts = vent_hold_samples[0]["parsed_ts"] if vent_hold_samples else None
     vent_hold_end_ts = vent_hold_samples[-1]["parsed_ts"] if vent_hold_samples else None
     pressure_at_vent_hold_start_hpa = vent_hold_samples[0]["pressure_hpa"] if vent_hold_samples else None
@@ -1284,6 +1918,10 @@ def _build_positive_preseal_timing_diagnostics(
             and dict(row.get("target") or {}).get("vent_on") is True
             and route_open_ts is not None
             and (_parse_trace_ts(row.get("ts") or row.get("timestamp")) or route_open_ts) >= route_open_ts
+            and (
+                preseal_abort_ts is None
+                or (_parse_trace_ts(row.get("ts") or row.get("timestamp")) or route_open_ts) <= preseal_abort_ts
+            )
         ]
     )
 
@@ -1322,6 +1960,8 @@ def _build_positive_preseal_timing_diagnostics(
     for sample in pressure_samples:
         sample_ts = sample.get("parsed_ts")
         if seal_confirm_ts is not None and sample_ts is not None and sample_ts > seal_confirm_ts:
+            continue
+        if preseal_abort_ts is not None and sample_ts is not None and sample_ts > preseal_abort_ts:
             continue
         pressure_max_before_seal_hpa = (
             sample["pressure_hpa"]
@@ -1638,6 +2278,59 @@ def _merge_preseal_diagnostic_warnings(
     return summary
 
 
+def _merge_pressure_latency_and_route_surge_summary(
+    timing_summary: Mapping[str, Any],
+    latency: Mapping[str, Any],
+    surge: Mapping[str, Any],
+) -> dict[str, Any]:
+    summary = dict(timing_summary)
+    stale_counts = dict(latency.get("stale_sample_count_by_source") or {})
+    warning_items = list(latency.get("warnings") or [])
+    route_warnings = [
+        {"warning_code": str(code), "warning_only": True}
+        for code in list(surge.get("warning_codes") or [])
+        if str(code or "")
+    ]
+    summary.update(
+        {
+            "pace_pressure_read_latency_max_s": dict(latency.get("max_read_latency_by_source") or {}).get(
+                "pace_controller"
+            ),
+            "pace_pressure_read_latency_avg_s": dict(latency.get("max_read_latency_by_source") or {}).get(
+                "pace_controller"
+            ),
+            "gauge_pressure_read_latency_max_s": dict(latency.get("max_read_latency_by_source") or {}).get(
+                "digital_pressure_gauge"
+            ),
+            "gauge_pressure_read_latency_avg_s": dict(latency.get("max_read_latency_by_source") or {}).get(
+                "digital_pressure_gauge"
+            ),
+            "pressure_read_latency_warning_count": len(warning_items),
+            "pressure_read_latency_warnings": warning_items,
+            "stale_pressure_sample_count": sum(int(value or 0) for value in stale_counts.values()),
+            "pressure_source_disagreement_max_hpa": latency.get("source_disagreement_hpa"),
+            "primary_pressure_source": latency.get("primary_pressure_source"),
+            "abort_decision_pressure_source": latency.get("pressure_source_used_for_abort"),
+            "route_open_to_first_pressure_request_s": latency.get("route_open_to_first_pressure_request_s"),
+            "route_open_to_first_pressure_response_s": latency.get("route_open_to_first_pressure_response_s"),
+            "route_open_to_first_pressure_sample_s": surge.get("route_open_to_first_pressure_sample_s"),
+            "route_open_pressure_delta_hpa": surge.get("pressure_delta_after_route_open_hpa"),
+            "route_open_pressure_rise_rate_hpa_per_s": surge.get(
+                "pressure_rise_rate_after_route_open_hpa_per_s"
+            ),
+            "route_open_first_sample_hpa": surge.get("pressure_first_sample_after_route_open_hpa"),
+            "route_open_first_sample_exceeded_abort": bool(surge.get("abort_triggered")),
+            "pressure_max_before_abort_hpa": surge.get("pre_abort_pressure_max_hpa"),
+            "pressure_at_abort_hpa": surge.get("abort_trigger_pressure_hpa"),
+            "pressure_max_after_abort_hpa": surge.get("post_abort_pressure_max_hpa"),
+            "pressure_max_during_safe_stop_hpa": surge.get("post_abort_pressure_max_hpa"),
+            "route_open_surge_warnings": route_warnings,
+            "route_open_surge_warning_count": len(route_warnings),
+        }
+    )
+    return summary
+
+
 def build_run001_a2_evidence_payload(
     raw_cfg: Mapping[str, Any],
     *,
@@ -1756,6 +2449,10 @@ def render_run001_a2_human_report(payload: Mapping[str, Any]) -> str:
     temperature_policy = dict(temperature_policy) if isinstance(temperature_policy, Mapping) else {}
     preseal_timing = payload.get("positive_preseal_timing_diagnostics")
     preseal_timing = dict(preseal_timing) if isinstance(preseal_timing, Mapping) else {}
+    route_surge = payload.get("route_open_pressure_surge_evidence")
+    route_surge = dict(route_surge) if isinstance(route_surge, Mapping) else {}
+    pressure_latency = payload.get("pressure_read_latency_diagnostics")
+    pressure_latency = dict(pressure_latency) if isinstance(pressure_latency, Mapping) else {}
     summary_warning_items = list(
         timing_summary.get("preseal_timing_warnings_all")
         or timing_summary.get("preseal_timing_warnings")
@@ -1850,6 +2547,42 @@ def render_run001_a2_human_report(payload: Mapping[str, Any]) -> str:
             f"- preseal_timing_warning_count_severe: {preseal_warning_count_severe}",
             f"- warning_codes: {preseal_warning_text}",
             "",
+            "## 开阀瞬间升压诊断",
+            f"- route_open_pressure_surge_evidence: {payload.get('route_open_pressure_surge_evidence_artifact')}",
+            f"- pressure_before_route_open_hpa: {route_surge.get('pressure_before_route_open_hpa')}",
+            f"- pressure_first_sample_after_route_open_hpa: {route_surge.get('pressure_first_sample_after_route_open_hpa')}",
+            f"- route_open_to_first_pressure_sample_s: {route_surge.get('route_open_to_first_pressure_sample_s')}",
+            f"- pressure_delta_after_route_open_hpa: {route_surge.get('pressure_delta_after_route_open_hpa')}",
+            f"- pressure_rise_rate_after_route_open_hpa_per_s: {route_surge.get('pressure_rise_rate_after_route_open_hpa_per_s')}",
+            f"- vent_status_at_route_open: {route_surge.get('vent_status_at_route_open')}",
+            f"- output_state_at_route_open: {route_surge.get('output_state_at_route_open')}",
+            f"- isolation_state_at_route_open: {route_surge.get('isolation_state_at_route_open')}",
+            f"- vent_status_at_first_sample: {route_surge.get('vent_status_at_first_sample')}",
+            f"- output_state_at_first_sample: {route_surge.get('output_state_at_first_sample')}",
+            f"- isolation_state_at_first_sample: {route_surge.get('isolation_state_at_first_sample')}",
+            f"- abort_trigger_pressure_hpa: {route_surge.get('abort_trigger_pressure_hpa')}",
+            f"- post_abort_pressure_max_hpa: {route_surge.get('post_abort_pressure_max_hpa')}",
+            f"- warning_codes: {', '.join(str(code) for code in list(route_surge.get('warning_codes') or [])) or 'none'}",
+            "- next_run_recommendation: lower CO2 inlet flow/upstream pressure, confirm exhaust capacity, keep 1150 hPa hard abort.",
+            "",
+            "## 压力读取延迟与双压力源诊断",
+            f"- pressure_read_latency_diagnostics: {payload.get('pressure_read_latency_diagnostics_artifact')}",
+            f"- pressure_read_latency_samples: {payload.get('pressure_read_latency_samples_artifact')}",
+            f"- primary_pressure_source: {pressure_latency.get('primary_pressure_source')}",
+            f"- abort_decision_pressure_source: {pressure_latency.get('pressure_source_used_for_abort')}",
+            f"- pace_pressure_hpa: {pressure_latency.get('pace_pressure_hpa')}",
+            f"- pace_pressure_latency_s: {pressure_latency.get('pace_pressure_latency_s')}",
+            f"- pace_pressure_age_s: {pressure_latency.get('pace_pressure_age_s')}",
+            f"- digital_gauge_pressure_hpa: {pressure_latency.get('digital_gauge_pressure_hpa')}",
+            f"- digital_gauge_latency_s: {pressure_latency.get('digital_gauge_latency_s')}",
+            f"- digital_gauge_age_s: {pressure_latency.get('digital_gauge_age_s')}",
+            f"- route_open_to_first_pressure_request_s: {pressure_latency.get('route_open_to_first_pressure_request_s')}",
+            f"- route_open_to_first_pressure_response_s: {pressure_latency.get('route_open_to_first_pressure_response_s')}",
+            f"- first_pressure_is_stale: {pressure_latency.get('first_pressure_is_stale')}",
+            f"- source_disagreement_hpa: {pressure_latency.get('source_disagreement_hpa')}",
+            f"- warning_count: {pressure_latency.get('warning_count')}",
+            "- stale_policy: stale pressure samples are not usable for ready/seal/abort decisions.",
+            "",
             "<!-- legacy_heading_marker: 娴佺▼鏃跺簭鎽樿 -->",
             "## 流程时序摘要",
             f"- workflow_timing_trace: {payload.get('workflow_timing_trace_artifact')}",
@@ -1921,12 +2654,18 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
     positive_preseal_evidence_path = directory / "positive_preseal_pressurization_evidence.json"
     positive_preseal_samples_path = directory / "positive_preseal_pressurization_samples.csv"
     positive_preseal_timing_path = directory / "positive_preseal_timing_diagnostics.json"
+    route_open_surge_path = directory / "route_open_pressure_surge_evidence.json"
+    pressure_latency_path = directory / "pressure_read_latency_diagnostics.json"
+    pressure_latency_samples_path = directory / "pressure_read_latency_samples.csv"
     common_paths["pressure_gate_evidence"] = str(pressure_path)
     common_paths["preseal_atmosphere_hold_evidence"] = str(preseal_evidence_path)
     common_paths["preseal_atmosphere_hold_samples"] = str(preseal_samples_path)
     common_paths["positive_preseal_pressurization_evidence"] = str(positive_preseal_evidence_path)
     common_paths["positive_preseal_pressurization_samples"] = str(positive_preseal_samples_path)
     common_paths["positive_preseal_timing_diagnostics"] = str(positive_preseal_timing_path)
+    common_paths["route_open_pressure_surge_evidence"] = str(route_open_surge_path)
+    common_paths["pressure_read_latency_diagnostics"] = str(pressure_latency_path)
+    common_paths["pressure_read_latency_samples"] = str(pressure_latency_samples_path)
     timing_trace_path = directory / WORKFLOW_TIMING_TRACE_FILENAME
     timing_summary_path = directory / WORKFLOW_TIMING_SUMMARY_FILENAME
     common_paths["workflow_timing_trace"] = str(timing_trace_path)
@@ -1967,6 +2706,12 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "preseal_atmosphere_hold_decision": preseal_payload.get("decision"),
             "preseal_atmosphere_hold_pressure_limit_hpa": preseal_payload.get("pressure_limit_hpa"),
             "preseal_atmosphere_hold_max_measured_pressure_hpa": preseal_payload.get("max_measured_pressure_hpa"),
+            "pressure_at_abort_hpa": preseal_payload.get("pressure_at_abort_hpa"),
+            "pressure_max_before_abort_hpa": preseal_payload.get("pressure_max_before_abort_hpa"),
+            "pressure_max_after_abort_hpa": preseal_payload.get("pressure_max_after_abort_hpa"),
+            "pressure_max_before_seal_hpa": preseal_payload.get("pressure_max_before_seal_hpa"),
+            "pressure_max_during_safe_stop_hpa": preseal_payload.get("pressure_max_during_safe_stop_hpa"),
+            "preseal_pressure_max_hpa_total": preseal_payload.get("preseal_pressure_max_hpa_total"),
             "preseal_atmosphere_hold_pressure_limit_exceeded": preseal_payload.get("pressure_limit_exceeded"),
             "preseal_atmosphere_hold_periodic_vent_reassertion_count": preseal_payload.get(
                 "periodic_vent_reassertion_count"
@@ -1996,12 +2741,37 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
     )
     timing_artifacts = ensure_workflow_timing_artifacts(directory, enriched)
     timing_summary = dict(timing_artifacts.get("summary_payload") or {})
+    pressure_latency_payload, pressure_latency_samples = _build_pressure_read_latency_diagnostics(directory, enriched)
+    pressure_latency_path.write_text(
+        json.dumps(pressure_latency_payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    with pressure_latency_samples_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=PRESSURE_READ_LATENCY_SAMPLE_FIELDS, extrasaction="ignore")
+        writer.writeheader()
+        for sample in pressure_latency_samples:
+            writer.writerow(dict(sample) if isinstance(sample, Mapping) else {})
+    route_open_surge_payload = _build_route_open_pressure_surge_evidence(
+        directory,
+        enriched,
+        preseal_payload=preseal_payload,
+        latency_payload=pressure_latency_payload,
+    )
+    route_open_surge_path.write_text(
+        json.dumps(route_open_surge_payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     positive_preseal_timing_payload = _build_positive_preseal_timing_diagnostics(
         directory,
         enriched,
         timing_summary=timing_summary,
     )
     timing_summary = _merge_preseal_diagnostic_warnings(timing_summary, positive_preseal_timing_payload)
+    timing_summary = _merge_pressure_latency_and_route_surge_summary(
+        timing_summary,
+        pressure_latency_payload,
+        route_open_surge_payload,
+    )
     timing_summary_path.write_text(json.dumps(timing_summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     positive_preseal_timing_path.write_text(
         json.dumps(positive_preseal_timing_payload, ensure_ascii=False, indent=2) + "\n",
@@ -2016,6 +2786,30 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "workflow_timing_artifacts_retrospective": bool(timing_summary.get("retrospective", False)),
             "positive_preseal_timing_diagnostics_artifact": str(positive_preseal_timing_path),
             "positive_preseal_timing_diagnostics": positive_preseal_timing_payload,
+            "route_open_pressure_surge_evidence_artifact": str(route_open_surge_path),
+            "route_open_pressure_surge_evidence": route_open_surge_payload,
+            "pressure_read_latency_diagnostics_artifact": str(pressure_latency_path),
+            "pressure_read_latency_samples_artifact": str(pressure_latency_samples_path),
+            "pressure_read_latency_diagnostics": pressure_latency_payload,
+            "primary_pressure_source": pressure_latency_payload.get("primary_pressure_source"),
+            "abort_decision_pressure_source": pressure_latency_payload.get("pressure_source_used_for_abort"),
+            "pressure_read_latency_warning_count": pressure_latency_payload.get("warning_count"),
+            "stale_pressure_sample_count": sum(
+                int(value or 0) for value in dict(pressure_latency_payload.get("stale_sample_count_by_source") or {}).values()
+            ),
+            "route_open_to_first_pressure_request_s": pressure_latency_payload.get(
+                "route_open_to_first_pressure_request_s"
+            ),
+            "route_open_to_first_pressure_response_s": pressure_latency_payload.get(
+                "route_open_to_first_pressure_response_s"
+            ),
+            "route_open_to_first_pressure_sample_s": route_open_surge_payload.get(
+                "route_open_to_first_pressure_sample_s"
+            ),
+            "route_open_pressure_delta_hpa": route_open_surge_payload.get("pressure_delta_after_route_open_hpa"),
+            "route_open_pressure_rise_rate_hpa_per_s": route_open_surge_payload.get(
+                "pressure_rise_rate_after_route_open_hpa_per_s"
+            ),
             "positive_preseal_timing_warning_codes": [
                 str(item.get("warning_code") or "")
                 for item in list(timing_summary.get("preseal_timing_warnings_all") or [])
@@ -2099,6 +2893,11 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
                 "preseal_atmosphere_hold_max_measured_pressure_hpa": enriched.get(
                     "preseal_atmosphere_hold_max_measured_pressure_hpa"
                 ),
+                "pressure_at_abort_hpa": enriched.get("pressure_at_abort_hpa"),
+                "pressure_max_before_abort_hpa": enriched.get("pressure_max_before_abort_hpa"),
+                "pressure_max_after_abort_hpa": enriched.get("pressure_max_after_abort_hpa"),
+                "pressure_max_before_seal_hpa": enriched.get("pressure_max_before_seal_hpa"),
+                "pressure_max_during_safe_stop_hpa": enriched.get("pressure_max_during_safe_stop_hpa"),
                 "preseal_atmosphere_hold_pressure_limit_exceeded": enriched.get(
                     "preseal_atmosphere_hold_pressure_limit_exceeded"
                 ),
@@ -2126,6 +2925,15 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "positive_preseal_timing_warning_count_severe": enriched.get(
                 "positive_preseal_timing_warning_count_severe"
             ),
+            "route_open_pressure_surge_evidence_artifact": enriched.get(
+                "route_open_pressure_surge_evidence_artifact"
+            ),
+            "pressure_read_latency_diagnostics_artifact": enriched.get(
+                "pressure_read_latency_diagnostics_artifact"
+            ),
+            "pressure_read_latency_samples_artifact": enriched.get("pressure_read_latency_samples_artifact"),
+            "primary_pressure_source": enriched.get("primary_pressure_source"),
+            "abort_decision_pressure_source": enriched.get("abort_decision_pressure_source"),
             "a2_required_artifact_status": enriched.get("a2_required_artifact_status"),
             "real_machine_acceptance_evidence": False,
         },
@@ -2158,6 +2966,11 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "preseal_atmosphere_hold_max_measured_pressure_hpa": enriched.get(
                 "preseal_atmosphere_hold_max_measured_pressure_hpa"
             ),
+            "pressure_at_abort_hpa": enriched.get("pressure_at_abort_hpa"),
+            "pressure_max_before_abort_hpa": enriched.get("pressure_max_before_abort_hpa"),
+            "pressure_max_after_abort_hpa": enriched.get("pressure_max_after_abort_hpa"),
+            "pressure_max_before_seal_hpa": enriched.get("pressure_max_before_seal_hpa"),
+            "pressure_max_during_safe_stop_hpa": enriched.get("pressure_max_during_safe_stop_hpa"),
             "preseal_atmosphere_hold_pressure_limit_exceeded": enriched.get(
                 "preseal_atmosphere_hold_pressure_limit_exceeded"
             ),
@@ -2180,6 +2993,11 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "positive_preseal_timing_warning_count_severe": enriched.get(
                 "positive_preseal_timing_warning_count_severe"
             ),
+            "route_open_pressure_surge_evidence_artifact": str(route_open_surge_path),
+            "pressure_read_latency_diagnostics_artifact": str(pressure_latency_path),
+            "pressure_read_latency_samples_artifact": str(pressure_latency_samples_path),
+            "primary_pressure_source": enriched.get("primary_pressure_source"),
+            "abort_decision_pressure_source": enriched.get("abort_decision_pressure_source"),
             "not_real_acceptance_evidence": True,
             "v2_replaces_v1_claim": False,
         }
@@ -2192,6 +3010,9 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
         str(positive_preseal_evidence_path),
         str(positive_preseal_samples_path),
         str(positive_preseal_timing_path),
+        str(route_open_surge_path),
+        str(pressure_latency_path),
+        str(pressure_latency_samples_path),
         str(timing_trace_path),
         str(timing_summary_path),
     ):
@@ -2242,4 +3063,9 @@ def export_runtime_run001_a2_artifacts(host: Any, run_dir: str | Path) -> dict[s
         service_status=service_status,
         temperature_stability_evidence=temperature_evidence if isinstance(temperature_evidence, Mapping) else None,
     )
+    pressure_read_samples = getattr(host, "_pressure_read_latency_samples", None)
+    if isinstance(pressure_read_samples, list):
+        payload["pressure_read_latency_samples"] = [
+            dict(item) for item in pressure_read_samples if isinstance(item, Mapping)
+        ]
     return write_run001_a2_artifacts(run_dir, payload)

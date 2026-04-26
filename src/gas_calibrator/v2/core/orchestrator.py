@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean, stdev
 import time
-from typing import Any, Callable, Dict, Iterable, Optional
+from typing import Any, Callable, Dict, Iterable, Mapping, Optional
 
 from ..config import AppConfig
 from ..export import export_ratio_poly_report
@@ -1210,8 +1210,26 @@ class WorkflowOrchestrator:
         setattr(self, "_a2_preseal_pressure_rise_detected", False)
         setattr(self, "_a2_preseal_vent_close_arm_context", {})
         setattr(self, "_a2_co2_route_open_pressure_hpa", None)
+        setattr(self, "_a2_route_open_pressure_first_sample_recorded", False)
         start = time.time()
         setattr(self, "_a2_co2_route_open_monotonic_s", time.monotonic())
+        self._record_workflow_timing(
+            "route_open_pressure_baseline",
+            "info",
+            stage="preseal_atmosphere_flush_hold",
+            point=point,
+            decision="awaiting_first_dual_pressure_sample",
+            route_state={
+                "primary_pressure_source": self._cfg_get(
+                    "workflow.pressure.primary_pressure_source",
+                    "digital_pressure_gauge",
+                ),
+                "pressure_source_cross_check_enabled": self._cfg_get(
+                    "workflow.pressure.pressure_source_cross_check_enabled",
+                    True,
+                ),
+            },
+        )
         continuous_atmosphere_hold = bool(self._cfg_get("workflow.pressure.continuous_atmosphere_hold", False))
         positive_preseal_enabled = bool(
             self._cfg_get("workflow.pressure.positive_preseal_pressurization_enabled", False)
@@ -1322,10 +1340,99 @@ class WorkflowOrchestrator:
             log_context=log_context,
         )
 
+    def _record_pressure_source_latency_events(
+        self,
+        sample: Mapping[str, Any],
+        *,
+        point: CalibrationPoint,
+        stage: str,
+    ) -> None:
+        source_items = (
+            ("pace_pressure_sample", "pace"),
+            ("digital_gauge_pressure_sample", "gauge"),
+        )
+        latency_warn_s = self._as_float(self._cfg_get("workflow.pressure.pressure_read_latency_warn_s", 0.5))
+        for key, prefix in source_items:
+            item = sample.get(key)
+            if not isinstance(item, Mapping):
+                continue
+            pressure_hpa = self._as_float(item.get("pressure_hpa"))
+            latency_s = self._as_float(item.get("read_latency_s"))
+            self._record_workflow_timing(
+                f"{prefix}_pressure_read_start",
+                "start",
+                stage=stage,
+                point=point,
+                pressure_hpa=pressure_hpa,
+                decision=str(item.get("source") or item.get("pressure_sample_source") or ""),
+                route_state=item,
+            )
+            self._record_workflow_timing(
+                f"{prefix}_pressure_read_end",
+                "end",
+                stage=stage,
+                point=point,
+                pressure_hpa=pressure_hpa,
+                duration_s=latency_s,
+                decision="ok" if item.get("parse_ok") else "unavailable",
+                route_state=item,
+            )
+            if bool(item.get("is_stale", item.get("pressure_sample_is_stale"))):
+                self._record_workflow_timing(
+                    "pressure_sample_stale",
+                    "warning",
+                    stage=stage,
+                    point=point,
+                    pressure_hpa=pressure_hpa,
+                    warning_code="pressure_sample_stale",
+                    route_state=item,
+                )
+            if latency_warn_s is not None and latency_s is not None and float(latency_s) > float(latency_warn_s):
+                self._record_workflow_timing(
+                    "pressure_read_latency_warning",
+                    "warning",
+                    stage=stage,
+                    point=point,
+                    pressure_hpa=pressure_hpa,
+                    duration_s=latency_s,
+                    expected_max_s=latency_warn_s,
+                    warning_code="pressure_read_latency_s_long",
+                    route_state=item,
+                )
+        self._record_workflow_timing(
+            "pressure_source_selected",
+            "info",
+            stage=stage,
+            point=point,
+            pressure_hpa=self._as_float(sample.get("pressure_hpa")),
+            decision=str(sample.get("pressure_source_used_for_decision") or ""),
+            route_state=sample,
+        )
+        if bool(sample.get("pressure_source_disagreement_warning")):
+            self._record_workflow_timing(
+                "pressure_source_disagreement",
+                "warning",
+                stage=stage,
+                point=point,
+                pressure_hpa=self._as_float(sample.get("pressure_hpa")),
+                warning_code="pressure_source_disagreement_hpa_high",
+                route_state=sample,
+            )
+
     def _verify_co2_preseal_atmosphere_hold_pressure(self, point: CalibrationPoint) -> str:
+        dual_sample_reader = getattr(self.pressure_control_service, "_current_dual_pressure_sample", None)
         sample_reader = getattr(self.pressure_control_service, "_current_pressure_sample", None)
         sample: dict[str, Any] = {}
-        if callable(sample_reader):
+        if callable(dual_sample_reader):
+            sample = dual_sample_reader(stage="preseal_atmosphere_flush_hold", point_index=point.index)
+            pressure_hpa = self._as_float(sample.get("pressure_hpa") if isinstance(sample, dict) else None)
+            if isinstance(sample, Mapping):
+                self._record_pressure_source_latency_events(
+                    sample,
+                    point=point,
+                    stage="preseal_atmosphere_flush_hold",
+                )
+        elif callable(sample_reader):
             sample = sample_reader(source="pressure_gauge")
             pressure_hpa = self._as_float(sample.get("pressure_hpa") if isinstance(sample, dict) else None)
         else:
@@ -1352,10 +1459,50 @@ class WorkflowOrchestrator:
                 "pressure_sample_age_s",
                 "pressure_sample_is_stale",
                 "pressure_sample_sequence_id",
+                "request_sent_at",
+                "response_received_at",
+                "request_sent_monotonic_s",
+                "response_received_monotonic_s",
+                "read_latency_s",
+                "sample_recorded_at",
+                "sample_recorded_monotonic_s",
+                "sample_age_s",
+                "is_cached",
+                "is_stale",
+                "stale_threshold_s",
+                "serial_port",
+                "command",
+                "raw_response",
+                "parse_ok",
+                "error",
+                "sequence_id",
+                "usable_for_abort",
+                "usable_for_ready",
+                "usable_for_seal",
+                "primary_pressure_source",
+                "pressure_source_cross_check_enabled",
+                "pressure_source_used_for_decision",
+                "source_selection_reason",
+                "pressure_source_used_for_abort",
+                "pressure_source_used_for_ready",
+                "pressure_source_used_for_seal",
+                "pressure_source_disagreement_hpa",
+                "pressure_source_disagreement_warning",
+                "pressure_source_disagreement_warn_hpa",
+                "pace_pressure_hpa",
+                "pace_pressure_latency_s",
+                "pace_pressure_age_s",
+                "pace_pressure_stale",
+                "digital_gauge_pressure_hpa",
+                "digital_gauge_latency_s",
+                "digital_gauge_age_s",
+                "digital_gauge_stale",
+                "pace_pressure_sample",
+                "digital_gauge_pressure_sample",
             )
             if isinstance(sample, dict) and key in sample
         }
-        if bool(sample_meta.get("pressure_sample_is_stale")):
+        if bool(sample_meta.get("pressure_sample_is_stale")) or bool(sample_meta.get("is_stale")):
             self._record_workflow_timing(
                 "preseal_atmosphere_flush_pressure_check",
                 "warning",
@@ -1384,6 +1531,21 @@ class WorkflowOrchestrator:
             if route_open_pressure is None:
                 route_open_pressure = pressure_hpa
                 setattr(self, "_a2_co2_route_open_pressure_hpa", route_open_pressure)
+            if not bool(getattr(self, "_a2_route_open_pressure_first_sample_recorded", False)):
+                setattr(self, "_a2_route_open_pressure_first_sample_recorded", True)
+                self._record_workflow_timing(
+                    "route_open_pressure_first_sample",
+                    "info",
+                    stage="preseal_atmosphere_flush_hold",
+                    point=point,
+                    pressure_hpa=pressure_hpa,
+                    target_pressure_hpa=target_hpa,
+                    decision=str(sample_meta.get("pressure_source_used_for_decision") or sample_meta.get("pressure_sample_source") or ""),
+                    route_state={
+                        "pressure_at_route_open_hpa": route_open_pressure,
+                        **sample_meta,
+                    },
+                )
             rise_threshold = self._as_float(
                 self._cfg_get("workflow.pressure.pressure_rise_detection_threshold_hpa", 2.0)
             )
@@ -1391,6 +1553,12 @@ class WorkflowOrchestrator:
             pressure_delta = float(pressure_hpa) - float(route_open_pressure)
             if not bool(getattr(self, "_a2_preseal_pressure_rise_detected", False)) and pressure_delta >= rise_threshold:
                 setattr(self, "_a2_preseal_pressure_rise_detected", True)
+                surge_state = {
+                    "pressure_at_route_open_hpa": route_open_pressure,
+                    "pressure_delta_hpa": round(pressure_delta, 3),
+                    "pressure_rise_detection_threshold_hpa": rise_threshold,
+                    **sample_meta,
+                }
                 self._record_workflow_timing(
                     "pressure_rise_detected",
                     "info",
@@ -1399,12 +1567,17 @@ class WorkflowOrchestrator:
                     pressure_hpa=pressure_hpa,
                     target_pressure_hpa=target_hpa,
                     decision="rise_detected",
-                    route_state={
-                        "pressure_at_route_open_hpa": route_open_pressure,
-                        "pressure_delta_hpa": round(pressure_delta, 3),
-                        "pressure_rise_detection_threshold_hpa": rise_threshold,
-                        **sample_meta,
-                    },
+                    route_state=surge_state,
+                )
+                self._record_workflow_timing(
+                    "route_open_pressure_surge_detected",
+                    "warning",
+                    stage="preseal_atmosphere_flush_hold",
+                    point=point,
+                    pressure_hpa=pressure_hpa,
+                    target_pressure_hpa=target_hpa,
+                    warning_code="route_open_pressure_surge_detected",
+                    route_state=surge_state,
                 )
         if limit_hpa is None:
             default_limit_hpa = self._as_float(
@@ -1602,6 +1775,7 @@ class WorkflowOrchestrator:
             "point_index": point.index,
             "point_tag": point_tag,
             "reason": reason,
+            **sample_meta,
         }
         recorder = getattr(getattr(self, "status_service", None), "record_route_trace", None)
         if callable(recorder):
@@ -1622,6 +1796,18 @@ class WorkflowOrchestrator:
             target_pressure_hpa=target_hpa,
             decision="limit_exceeded",
             error_code=reason,
+            route_state=sample_meta,
+        )
+        self._record_workflow_timing(
+            "route_open_pressure_abort",
+            "fail",
+            stage="preseal_atmosphere_flush_hold" if positive_preseal_enabled else "preseal_soak",
+            point=point,
+            pressure_hpa=pressure_hpa,
+            target_pressure_hpa=target_hpa,
+            decision="limit_exceeded",
+            error_code=reason,
+            route_state=details,
         )
         self._record_workflow_timing(
             "preseal_pressure_check",

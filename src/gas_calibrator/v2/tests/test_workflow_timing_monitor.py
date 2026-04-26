@@ -59,6 +59,71 @@ def test_timing_summary_warns_on_missing_end_and_long_wait(monkeypatch, tmp_path
     assert summary["wait_gate_durations_by_point"]["1"] == 9.0
 
 
+def test_timing_summary_records_pressure_read_latency_and_source_selection(monkeypatch, tmp_path) -> None:
+    clock = {"now": 10.0}
+    monkeypatch.setattr(timing_module.time, "monotonic", lambda: clock["now"])
+    monitor = TimingMonitorService(tmp_path, run_id="run-pressure-latency", no_write_guard_active=True)
+
+    monitor.record_event("co2_route_open_end", "end", stage="co2_route_open", point_index=1, pressure_hpa=1010.0)
+    clock["now"] += 0.2
+    monitor.record_event(
+        "gauge_pressure_read_start",
+        "start",
+        stage="preseal_atmosphere_flush_hold",
+        point_index=1,
+        route_state={"source": "digital_pressure_gauge"},
+    )
+    clock["now"] += 0.7
+    monitor.record_event(
+        "gauge_pressure_read_end",
+        "end",
+        stage="preseal_atmosphere_flush_hold",
+        point_index=1,
+        duration_s=0.7,
+        pressure_hpa=1500.0,
+        route_state={"source": "digital_pressure_gauge", "read_latency_s": 0.7, "is_stale": False},
+    )
+    monitor.record_event(
+        "pressure_read_latency_warning",
+        "warning",
+        stage="preseal_atmosphere_flush_hold",
+        point_index=1,
+        duration_s=0.7,
+        expected_max_s=0.5,
+        warning_code="pressure_read_latency_s_long",
+    )
+    monitor.record_event(
+        "pressure_source_selected",
+        "info",
+        stage="preseal_atmosphere_flush_hold",
+        point_index=1,
+        pressure_hpa=1500.0,
+        route_state={
+            "primary_pressure_source": "digital_pressure_gauge",
+            "pressure_source_used_for_abort": "digital_pressure_gauge",
+            "pressure_source_used_for_decision": "digital_pressure_gauge",
+        },
+    )
+    monitor.record_event(
+        "pressure_sample_stale",
+        "warning",
+        stage="preseal_atmosphere_flush_hold",
+        point_index=1,
+        warning_code="pressure_sample_stale",
+    )
+
+    summary = monitor.finalize_summary(final_decision="FAIL", a2_final_decision="FAIL")
+
+    assert summary["route_open_to_first_pressure_request_s"] == 0.2
+    assert summary["route_open_to_first_pressure_response_s"] == 0.9
+    assert summary["gauge_pressure_read_latency_max_s"] == 0.7
+    assert summary["gauge_pressure_read_latency_avg_s"] == 0.7
+    assert summary["pressure_read_latency_warning_count"] == 1
+    assert summary["stale_pressure_sample_count"] == 1
+    assert summary["primary_pressure_source"] == "digital_pressure_gauge"
+    assert summary["abort_decision_pressure_source"] == "digital_pressure_gauge"
+
+
 def test_timing_summary_warns_on_preseal_vent_tick_gap(monkeypatch, tmp_path) -> None:
     clock = {"now": 0.0}
     monkeypatch.setattr(timing_module.time, "monotonic", lambda: clock["now"])

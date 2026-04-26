@@ -996,6 +996,84 @@ def build_workflow_timing_summary(
 
     route_open_end = first_event("co2_route_open_end")
     pressure_rise_event = first_event("pressure_rise_detected")
+    pressure_read_start_events = [
+        event
+        for event in events
+        if str(event.get("event_name") or "") in {"pace_pressure_read_start", "gauge_pressure_read_start"}
+    ]
+    pressure_read_end_events = [
+        event
+        for event in events
+        if str(event.get("event_name") or "") in {"pace_pressure_read_end", "gauge_pressure_read_end"}
+    ]
+    route_open_end_time = event_time(route_open_end)
+    first_pressure_request_event = next(
+        (
+            event
+            for event in pressure_read_start_events
+            if route_open_end_time is None
+            or event_time(event) is None
+            or float(event_time(event) or 0.0) >= float(route_open_end_time)
+        ),
+        pressure_read_start_events[0] if pressure_read_start_events else None,
+    )
+    first_pressure_response_event = next(
+        (
+            event
+            for event in pressure_read_end_events
+            if route_open_end_time is None
+            or event_time(event) is None
+            or float(event_time(event) or 0.0) >= float(route_open_end_time)
+        ),
+        pressure_read_end_events[0] if pressure_read_end_events else None,
+    )
+    route_open_to_first_pressure_request_s = elapsed_between(route_open_end, first_pressure_request_event)
+    route_open_to_first_pressure_response_s = elapsed_between(route_open_end, first_pressure_response_event)
+    latency_values_by_source: dict[str, list[float]] = {"pace_controller": [], "digital_pressure_gauge": []}
+    stale_pressure_sample_count = 0
+    pressure_read_latency_warning_count = 0
+    pressure_source_disagreement_max_hpa: Optional[float] = None
+    primary_pressure_source = str(context.get("primary_pressure_source") or "")
+    abort_decision_pressure_source = str(context.get("abort_decision_pressure_source") or "")
+    for event in events:
+        name = str(event.get("event_name") or "")
+        route_state = event.get("route_state")
+        route_state = route_state if isinstance(route_state, Mapping) else {}
+        nested = route_state.get("route_state")
+        if isinstance(nested, Mapping):
+            route_state = nested
+        if name in {"pace_pressure_read_end", "gauge_pressure_read_end"}:
+            source = str(
+                route_state.get("source")
+                or route_state.get("pressure_sample_source")
+                or ("pace_controller" if name.startswith("pace_") else "digital_pressure_gauge")
+            )
+            latency = _as_float(event.get("duration_s"))
+            if latency is None:
+                latency = _as_float(route_state.get("read_latency_s"))
+            if latency is not None:
+                latency_values_by_source.setdefault(source, []).append(float(latency))
+            if bool(route_state.get("is_stale", route_state.get("pressure_sample_is_stale", False))):
+                stale_pressure_sample_count += 1
+        elif name == "pressure_sample_stale":
+            stale_pressure_sample_count += 1
+        elif name == "pressure_read_latency_warning":
+            pressure_read_latency_warning_count += 1
+        elif name == "pressure_source_disagreement":
+            disagreement = _as_float(route_state.get("pressure_source_disagreement_hpa"))
+            if disagreement is not None:
+                pressure_source_disagreement_max_hpa = (
+                    disagreement
+                    if pressure_source_disagreement_max_hpa is None
+                    else max(pressure_source_disagreement_max_hpa, disagreement)
+                )
+        elif name == "pressure_source_selected":
+            primary_pressure_source = primary_pressure_source or str(route_state.get("primary_pressure_source") or "")
+            abort_decision_pressure_source = abort_decision_pressure_source or str(
+                route_state.get("pressure_source_used_for_abort")
+                or route_state.get("pressure_source_used_for_decision")
+                or ""
+            )
     preseal_arm_event = first_event("preseal_vent_close_arm_triggered") or first_event("preseal_vent_close_arm")
     positive_preseal_start = first_event("positive_preseal_pressurization_start")
     positive_preseal_ready = first_event("positive_preseal_ready")
@@ -1183,6 +1261,14 @@ def build_workflow_timing_summary(
         wait_candidates[f"wait_gate:{point}"] = duration
     longest_wait = _longest_from_mapping({key: value for key, value in wait_candidates.items() if value is not None})
 
+    def latency_max(source: str) -> Optional[float]:
+        values = latency_values_by_source.get(source) or []
+        return _round_s(max(values)) if values else None
+
+    def latency_avg(source: str) -> Optional[float]:
+        values = latency_values_by_source.get(source) or []
+        return _round_s(sum(values) / len(values)) if values else None
+
     return {
         "schema_version": WORKFLOW_TIMING_SCHEMA_VERSION,
         "artifact_type": "workflow_timing_summary",
@@ -1209,6 +1295,17 @@ def build_workflow_timing_summary(
         "positive_preseal_seal_trigger_pressure_hpa": positive_preseal_seal_trigger_pressure_hpa,
         "positive_preseal_abort_pressure_hpa": positive_preseal_abort_pressure_hpa,
         "route_open_to_first_pressure_rise_s": route_open_to_first_pressure_rise_s,
+        "route_open_to_first_pressure_request_s": route_open_to_first_pressure_request_s,
+        "route_open_to_first_pressure_response_s": route_open_to_first_pressure_response_s,
+        "pace_pressure_read_latency_max_s": latency_max("pace_controller"),
+        "pace_pressure_read_latency_avg_s": latency_avg("pace_controller"),
+        "gauge_pressure_read_latency_max_s": latency_max("digital_pressure_gauge"),
+        "gauge_pressure_read_latency_avg_s": latency_avg("digital_pressure_gauge"),
+        "pressure_read_latency_warning_count": pressure_read_latency_warning_count,
+        "stale_pressure_sample_count": stale_pressure_sample_count,
+        "pressure_source_disagreement_max_hpa": pressure_source_disagreement_max_hpa,
+        "primary_pressure_source": primary_pressure_source,
+        "abort_decision_pressure_source": abort_decision_pressure_source,
         "preseal_vent_close_arm_elapsed_s": preseal_vent_close_arm_elapsed_s,
         "preseal_vent_close_arm_pressure_hpa": pressure_at_arm,
         "estimated_time_to_ready_s": estimated_time_to_ready_s,
