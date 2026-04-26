@@ -137,7 +137,7 @@ def build_temperature_stability_policy(raw_cfg: Optional[Mapping[str, Any]]) -> 
         "analyzer_chamber_temp_enabled": _as_bool(enabled),
         "analyzer_chamber_temp_span_c": number("analyzer_chamber_temp_span_c", 0.03),
         "analyzer_chamber_temp_window_s": number("analyzer_chamber_temp_window_s", 60.0),
-        "analyzer_chamber_temp_timeout_s": number("analyzer_chamber_temp_timeout_s", 3600.0),
+        "analyzer_chamber_temp_timeout_s": number("analyzer_chamber_temp_timeout_s", 1800.0),
         "analyzer_chamber_temp_first_valid_timeout_s": number(
             "analyzer_chamber_temp_first_valid_timeout_s",
             None,
@@ -145,8 +145,11 @@ def build_temperature_stability_policy(raw_cfg: Optional[Mapping[str, Any]]) -> 
         "analyzer_chamber_temp_poll_s": number("analyzer_chamber_temp_poll_s", 1.0),
         "temperature_chamber_tol_c": number("tol", 0.2),
         "temperature_chamber_window_s": number("window_s", None),
-        "temperature_chamber_timeout_s": number("timeout_s", None),
+        "temperature_chamber_timeout_s": number("timeout_s", 3600.0),
         "temperature_chamber_soak_after_reach_s": number("soak_after_reach_s", None),
+        "temperature_chamber_require_settle_before_analyzer": _as_bool(
+            temperature.get("require_chamber_settle_before_analyzer", False)
+        ),
         "wait_for_target_before_continue": _as_bool(temperature.get("wait_for_target_before_continue", True)),
     }
 

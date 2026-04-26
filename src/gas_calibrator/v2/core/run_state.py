@@ -60,12 +60,18 @@ class PressureRuntimeState:
     preseal_watchlist_status_seen: bool = False
     preseal_watchlist_status_accepted: bool = False
     preseal_watchlist_status_reason: str = ""
+    preseal_status_lag_accepted: bool = False
+    preseal_status_lag_reason: str = ""
     seal_transition_completed: bool = False
     seal_transition_status: str = ""
     seal_transition_reason: str = ""
     control_ready_watchlist_status_accepted: bool = False
     sealed_route_pressure_control_started: bool = False
     sealed_route_last_controlled_pressure_hpa: Optional[float] = None
+    ambient_reference_pressure_hpa: Optional[float] = None
+    ambient_reference_source: str = ""
+    ambient_reference_timestamp: str = ""
+    ambient_reference_monotonic_s: Optional[float] = None
 
 
 @dataclass
@@ -77,6 +83,9 @@ class TemperatureRuntimeState:
     last_target_c: Optional[float] = None
     last_soak_done: bool = False
     last_wait_result: Any = None
+    chamber_settle_status: str = ""
+    chamber_settle_passed_at: str = ""
+    analyzer_chamber_stability_started_at: str = ""
 
 
 @dataclass
@@ -135,12 +144,18 @@ class RunState:
         self.pressure.preseal_watchlist_status_seen = False
         self.pressure.preseal_watchlist_status_accepted = False
         self.pressure.preseal_watchlist_status_reason = ""
+        self.pressure.preseal_status_lag_accepted = False
+        self.pressure.preseal_status_lag_reason = ""
         self.pressure.seal_transition_completed = False
         self.pressure.seal_transition_status = ""
         self.pressure.seal_transition_reason = ""
         self.pressure.control_ready_watchlist_status_accepted = False
         self.pressure.sealed_route_pressure_control_started = False
         self.pressure.sealed_route_last_controlled_pressure_hpa = None
+        self.pressure.ambient_reference_pressure_hpa = None
+        self.pressure.ambient_reference_source = ""
+        self.pressure.ambient_reference_timestamp = ""
+        self.pressure.ambient_reference_monotonic_s = None
 
         self.temperature.snapshot_keys.clear()
         self.temperature.snapshots.clear()
@@ -149,5 +164,8 @@ class RunState:
         self.temperature.last_target_c = None
         self.temperature.last_soak_done = False
         self.temperature.last_wait_result = None
+        self.temperature.chamber_settle_status = ""
+        self.temperature.chamber_settle_passed_at = ""
+        self.temperature.analyzer_chamber_stability_started_at = ""
 
         self.timing.point_contexts.clear()

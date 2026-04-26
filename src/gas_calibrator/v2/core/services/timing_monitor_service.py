@@ -478,10 +478,31 @@ def synthesize_timing_events_from_route_trace(
             add("route_baseline_start", "start", row=row, stage="route_baseline")
             add("route_baseline_end", "end", row=row, stage="route_baseline")
         elif action == "set_vent":
-            add("pressure_atmosphere_vent_start", "start", row=row, stage="pressure_atmosphere_vent")
-            add("pressure_atmosphere_vent_end", "end", row=row, stage="pressure_atmosphere_vent")
             if target.get("vent_on") is True:
+                add("pressure_atmosphere_vent_start", "start", row=row, stage="pressure_atmosphere_vent")
+                add("pressure_atmosphere_vent_end", "end", row=row, stage="pressure_atmosphere_vent")
                 add("preseal_vent_hold_tick", "tick", row=row, stage="preseal_soak")
+            elif target.get("vent_on") is False:
+                message = str(row.get("message") or actual.get("reason") or "")
+                if "positive" in message.lower() and "preseal" in message.lower():
+                    add(
+                        "positive_preseal_vent_close_start",
+                        "start",
+                        row=row,
+                        stage="positive_preseal_vent_close",
+                        target_pressure_hpa=actual.get("target_pressure_hpa"),
+                        wait_reason="close_pressure_controller_atmosphere_vent",
+                    )
+                    add(
+                        "positive_preseal_vent_close_end" if result == "ok" else "positive_preseal_vent_close_fail",
+                        "end" if result == "ok" else "fail",
+                        row=row,
+                        stage="positive_preseal_vent_close",
+                        target_pressure_hpa=actual.get("target_pressure_hpa"),
+                        decision=result or "unknown",
+                        pressure_hpa=actual.get("pressure_hpa"),
+                        error_code=None if result == "ok" else "preseal_vent_close_failed",
+                    )
         elif action == "set_co2_valves":
             add("co2_route_open_start", "start", row=row, stage="co2_route_open")
             add("co2_route_open_end", "end", row=row, stage="co2_route_open")
@@ -542,6 +563,17 @@ def synthesize_timing_events_from_route_trace(
                 wait_reason="close_co2_route_valves",
             )
         elif action == "positive_preseal_abort":
+            if str(actual.get("abort_reason") or actual.get("reason") or "") == "preseal_vent_close_failed":
+                add(
+                    "positive_preseal_vent_close_fail",
+                    "fail",
+                    row=row,
+                    stage="positive_preseal_vent_close",
+                    target_pressure_hpa=actual.get("target_pressure_hpa"),
+                    pressure_hpa=actual.get("pressure_hpa"),
+                    decision="fail",
+                    error_code="preseal_vent_close_failed",
+                )
             add(
                 "positive_preseal_abort",
                 "fail",
@@ -635,6 +667,9 @@ def build_workflow_timing_summary(
     positive_preseal_seal_trigger_pressure_hpa: Optional[float] = _as_float(
         context.get("positive_preseal_seal_trigger_pressure_hpa")
     )
+    ambient_reference_pressure_hpa = _as_float(context.get("ambient_reference_pressure_hpa"))
+    positive_preseal_pressure_max_hpa = _as_float(context.get("positive_preseal_pressure_max_hpa"))
+    positive_preseal_vent_close_status: Optional[str] = None
 
     run_start = next((event for event in events if event.get("event_name") == "run_start"), events[0] if events else {})
     run_end = next((event for event in reversed(events) if event.get("event_name") == "run_end"), events[-1] if events else {})
@@ -657,6 +692,10 @@ def build_workflow_timing_summary(
             preseal_pressures.append(float(pressure))
         if name == "preseal_vent_hold_tick":
             preseal_vent_ticks.append(event)
+        if name == "positive_preseal_vent_close_end":
+            positive_preseal_vent_close_status = "PASS"
+        if name == "positive_preseal_vent_close_fail":
+            positive_preseal_vent_close_status = "FAIL"
         if name == "pressure_setpoint_start":
             pressure_setpoint_started_by_point.add(point)
         if name == "pressure_ready":
@@ -685,7 +724,7 @@ def build_workflow_timing_summary(
             positive_preseal_seal_trigger_pressure_hpa = positive_preseal_seal_trigger_pressure_hpa or _as_float(
                 event.get("pressure_hpa")
             )
-        terminal_for_stage = event_type in {"end", "fail", "abort"} or name.endswith(_END_SUFFIX) or name in {"pressure_ready", "pressure_timeout"}
+        terminal_for_stage = event_type in {"end", "fail", "abort", "timeout"} or name.endswith(_END_SUFFIX) or name in {"pressure_ready", "pressure_timeout"}
         if not terminal_for_stage:
             continue
         start_event = open_events.pop(key, None)
@@ -787,9 +826,19 @@ def build_workflow_timing_summary(
         "state_mismatch_warnings": state_mismatch_warnings,
         "preseal_soak_duration_s": stage_durations.get("preseal_soak"),
         "positive_preseal_duration_s": stage_durations.get("positive_preseal_pressurization"),
+        "positive_preseal_vent_close_duration_s": stage_durations.get("positive_preseal_vent_close"),
+        "positive_preseal_vent_close_status": positive_preseal_vent_close_status,
         "positive_preseal_ready_pressure_hpa": positive_preseal_ready_pressure_hpa,
         "positive_preseal_seal_trigger_pressure_hpa": positive_preseal_seal_trigger_pressure_hpa,
         "positive_preseal_abort_pressure_hpa": positive_preseal_abort_pressure_hpa,
+        "temperature_chamber_settle_duration_s": stage_durations.get("temperature_chamber_settle"),
+        "analyzer_chamber_temperature_stability_duration_s": stage_durations.get(
+            "analyzer_chamber_temperature_stability"
+        ),
+        "ambient_reference_pressure_hpa": ambient_reference_pressure_hpa,
+        "positive_preseal_pressure_max_hpa": positive_preseal_pressure_max_hpa
+        if positive_preseal_pressure_max_hpa is not None
+        else (max(preseal_pressures) if preseal_pressures else None),
         "preseal_vent_tick_count": len(preseal_vent_ticks),
         "preseal_pressure_max_hpa": max(preseal_pressures) if preseal_pressures else None,
         "pressure_ready_durations_by_point": pressure_ready_durations,

@@ -51,25 +51,7 @@ class Co2RouteRunner:
                 message=f"CO2 route for point {point.index}",
             )
 
-            self.service._record_workflow_timing(
-                "temperature_stability_start",
-                "start",
-                stage="temperature_stability",
-                point=point,
-                expected_max_s=self.service._cfg_get("workflow.stability.temperature.timeout_s", None),
-                wait_reason="temperature_chamber_stability",
-            )
             temperature_wait = self.service.temperature_control_service.set_temperature_for_point(point, phase=phase)
-            self.service._record_workflow_timing(
-                "temperature_stability_end",
-                "end" if bool(getattr(temperature_wait, "ok", False)) else "warning",
-                stage="temperature_stability",
-                point=point,
-                expected_max_s=self.service._cfg_get("workflow.stability.temperature.timeout_s", None),
-                decision="ok" if bool(getattr(temperature_wait, "ok", False)) else "not_stable",
-                chamber_temperature_c=getattr(temperature_wait, "final_temp_c", None),
-                error_code=getattr(temperature_wait, "error", None),
-            )
             self.service.status_service.record_route_trace(
                 action="wait_temperature",
                 route=phase,

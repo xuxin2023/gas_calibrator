@@ -78,6 +78,118 @@ def test_timing_summary_warns_on_preseal_vent_tick_gap(monkeypatch, tmp_path) ->
     assert summary["repeated_sleep_warnings"][0]["warning_code"] == "preseal_vent_tick_gap_gt_2x_interval"
 
 
+def test_timing_summary_splits_temperature_chamber_and_analyzer_waits(monkeypatch, tmp_path) -> None:
+    clock = {"now": 0.0}
+    monkeypatch.setattr(timing_module.time, "monotonic", lambda: clock["now"])
+    monitor = TimingMonitorService(tmp_path, run_id="run-temp", no_write_guard_active=True)
+
+    monitor.record_event("run_start", "start", stage="run")
+    monitor.record_event(
+        "temperature_chamber_settle_start",
+        "start",
+        stage="temperature_chamber_settle",
+        expected_max_s=3600.0,
+    )
+    clock["now"] += 3500.0
+    monitor.record_event(
+        "temperature_chamber_settle_end",
+        "end",
+        stage="temperature_chamber_settle",
+        expected_max_s=3600.0,
+        decision="ok",
+    )
+    monitor.record_event(
+        "analyzer_chamber_temperature_stability_start",
+        "start",
+        stage="analyzer_chamber_temperature_stability",
+        expected_max_s=1800.0,
+    )
+    clock["now"] += 61.0
+    monitor.record_event(
+        "analyzer_chamber_temperature_stability_end",
+        "end",
+        stage="analyzer_chamber_temperature_stability",
+        expected_max_s=1800.0,
+        decision="pass",
+    )
+
+    summary = monitor.finalize_summary(final_decision="PASS", a2_final_decision="PASS")
+
+    assert summary["temperature_chamber_settle_duration_s"] == 3500.0
+    assert summary["analyzer_chamber_temperature_stability_duration_s"] == 61.0
+    assert "temperature_stability" not in summary["stage_durations"]
+    assert summary["abnormal_waits"] == []
+
+
+def test_timing_summary_flags_temperature_stages_separately(monkeypatch, tmp_path) -> None:
+    clock = {"now": 0.0}
+    monkeypatch.setattr(timing_module.time, "monotonic", lambda: clock["now"])
+    monitor = TimingMonitorService(tmp_path, run_id="run-temp-warn", no_write_guard_active=True)
+
+    monitor.record_event(
+        "temperature_chamber_settle_start",
+        "start",
+        stage="temperature_chamber_settle",
+        expected_max_s=3600.0,
+    )
+    clock["now"] += 3601.0
+    monitor.record_event(
+        "temperature_chamber_settle_end",
+        "end",
+        stage="temperature_chamber_settle",
+        expected_max_s=3600.0,
+    )
+    monitor.record_event(
+        "analyzer_chamber_temperature_stability_start",
+        "start",
+        stage="analyzer_chamber_temperature_stability",
+        expected_max_s=1800.0,
+    )
+    clock["now"] += 1801.0
+    monitor.record_event(
+        "analyzer_chamber_temperature_stability_timeout",
+        "timeout",
+        stage="analyzer_chamber_temperature_stability",
+        expected_max_s=1800.0,
+    )
+    summary = monitor.finalize_summary(final_decision="FAIL", a2_final_decision="FAIL")
+
+    stages = {item["stage"] for item in summary["abnormal_waits"]}
+    assert "temperature_chamber_settle" in stages
+    assert "analyzer_chamber_temperature_stability" in stages
+    assert "temperature_stability" not in stages
+
+
+def test_timing_summary_records_positive_preseal_vent_close(monkeypatch, tmp_path) -> None:
+    clock = {"now": 0.0}
+    monkeypatch.setattr(timing_module.time, "monotonic", lambda: clock["now"])
+    monitor = TimingMonitorService(tmp_path, run_id="run-vent-close", no_write_guard_active=True)
+
+    monitor.record_event(
+        "positive_preseal_vent_close_start",
+        "start",
+        stage="positive_preseal_vent_close",
+        expected_max_s=1.5,
+    )
+    clock["now"] += 0.4
+    monitor.record_event(
+        "positive_preseal_vent_close_end",
+        "end",
+        stage="positive_preseal_vent_close",
+        expected_max_s=1.5,
+    )
+    summary = monitor.finalize_summary(
+        final_decision="PASS",
+        a2_final_decision="PASS",
+        extra_context={"ambient_reference_pressure_hpa": 1009.0, "positive_preseal_pressure_max_hpa": 1110.5},
+    )
+
+    assert summary["positive_preseal_vent_close_duration_s"] == 0.4
+    assert summary["positive_preseal_vent_close_status"] == "PASS"
+    assert summary["ambient_reference_pressure_hpa"] == 1009.0
+    assert summary["positive_preseal_pressure_max_hpa"] == 1110.5
+
+
 def test_timing_monitor_does_not_send_device_commands(tmp_path) -> None:
     class Device:
         command_count = 0

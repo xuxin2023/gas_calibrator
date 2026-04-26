@@ -70,6 +70,15 @@ POSITIVE_PRESEAL_PRESSURIZATION_SAMPLE_FIELDS = [
     "stage",
     "target_pressure_hpa",
     "measured_atmospheric_pressure_hpa",
+    "measured_atmospheric_pressure_source",
+    "ambient_reference_pressure_hpa",
+    "ambient_reference_source",
+    "ambient_reference_timestamp",
+    "ambient_reference_age_s",
+    "current_line_pressure_hpa",
+    "positive_preseal_pressure_hpa",
+    "ready_pressure_hpa",
+    "abort_pressure_hpa",
     "preseal_ready_pressure_hpa",
     "preseal_abort_pressure_hpa",
     "preseal_ready_timeout_s",
@@ -81,6 +90,9 @@ POSITIVE_PRESEAL_PRESSURIZATION_SAMPLE_FIELDS = [
     "elapsed_s",
     "pressure_hpa",
     "pressure_rise_rate_hpa_per_s",
+    "pressure_samples_count",
+    "pressure_max_hpa",
+    "pressure_min_hpa",
     "ready_reached",
     "ready_reached_at_pressure_hpa",
     "seal_command_sent",
@@ -435,6 +447,8 @@ def _trace_elapsed_s(ts: Optional[datetime], start_ts: Optional[datetime]) -> Op
 def _trace_pressure_hpa(actual: Mapping[str, Any]) -> Optional[float]:
     for key in (
         "pressure_hpa",
+        "current_line_pressure_hpa",
+        "positive_preseal_pressure_hpa",
         "preseal_pressure_peak_hpa",
         "preseal_pressure_last_hpa",
         "preseal_trigger_pressure_hpa",
@@ -450,6 +464,74 @@ def _trace_pressure_hpa(actual: Mapping[str, Any]) -> Optional[float]:
             if value is not None:
                 return value
     return None
+
+
+def _positive_preseal_ambient_reference_from_trace(
+    trace_rows: list[Mapping[str, Any]],
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    start_ts: Optional[datetime] = None
+    candidates: list[dict[str, Any]] = []
+    for item in trace_rows:
+        action = str(item.get("action") or "").lower()
+        actual = item.get("actual")
+        actual = dict(actual) if isinstance(actual, Mapping) else {}
+        target = item.get("target")
+        target = dict(target) if isinstance(target, Mapping) else {}
+        ts_text = str(item.get("ts") or item.get("timestamp") or "")
+        ts = _parse_trace_ts(ts_text)
+        if action == "positive_preseal_pressurization_start" and start_ts is None:
+            start_ts = ts
+            for key in ("ambient_reference_pressure_hpa", "measured_atmospheric_pressure_hpa"):
+                value = _as_float(actual.get(key))
+                if value is not None and key == "ambient_reference_pressure_hpa":
+                    return {
+                        "ambient_reference_pressure_hpa": value,
+                        "ambient_reference_source": str(actual.get("ambient_reference_source") or "positive_preseal_start"),
+                        "ambient_reference_timestamp": str(actual.get("ambient_reference_timestamp") or ""),
+                        "ambient_reference_age_s": _as_float(actual.get("ambient_reference_age_s")),
+                        "measured_atmospheric_pressure_hpa": value,
+                        "measured_atmospheric_pressure_source": "deprecated_alias_of_ambient_reference_pressure_hpa",
+                    }
+            continue
+        if action != "set_vent" or target.get("vent_on") is not True:
+            continue
+        pressure = _as_float(actual.get("pressure_hpa"))
+        if pressure is None:
+            continue
+        if bool(actual.get("atmosphere_ready")) or actual.get("output_state") == 0 or actual.get("isolation_state") == 1:
+            candidates.append(
+                {
+                    "pressure": pressure,
+                    "timestamp": ts_text,
+                    "parsed_ts": ts,
+                    "source": "route_trace:set_vent_atmosphere_hold",
+                }
+            )
+    if candidates:
+        chosen = candidates[-1]
+        age_s = _trace_elapsed_s(start_ts, chosen.get("parsed_ts")) if start_ts and chosen.get("parsed_ts") else None
+        return {
+            "ambient_reference_pressure_hpa": chosen["pressure"],
+            "ambient_reference_source": chosen["source"],
+            "ambient_reference_timestamp": chosen["timestamp"],
+            "ambient_reference_age_s": age_s,
+            "measured_atmospheric_pressure_hpa": chosen["pressure"],
+            "measured_atmospheric_pressure_source": "deprecated_alias_of_ambient_reference_pressure_hpa",
+        }
+    payload_pressure = _as_float(payload.get("ambient_reference_pressure_hpa"))
+    return {
+        "ambient_reference_pressure_hpa": payload_pressure,
+        "ambient_reference_source": str(payload.get("ambient_reference_source") or "unavailable"),
+        "ambient_reference_timestamp": str(payload.get("ambient_reference_timestamp") or ""),
+        "ambient_reference_age_s": _as_float(payload.get("ambient_reference_age_s")),
+        "measured_atmospheric_pressure_hpa": payload_pressure,
+        "measured_atmospheric_pressure_source": (
+            "deprecated_alias_of_ambient_reference_pressure_hpa"
+            if payload_pressure is not None
+            else "deprecated_alias_unavailable"
+        ),
+    }
 
 
 def _build_preseal_atmosphere_hold_evidence(run_dir: str | Path, payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -582,6 +664,16 @@ def _build_positive_preseal_pressurization_evidence(
     payload: Mapping[str, Any],
 ) -> dict[str, Any]:
     trace_path = Path(run_dir) / "route_trace.jsonl"
+    trace_rows: list[dict[str, Any]] = []
+    if trace_path.exists():
+        for line in trace_path.read_text(encoding="utf-8").splitlines():
+            try:
+                item = json.loads(line)
+            except Exception:
+                continue
+            if isinstance(item, Mapping):
+                trace_rows.append(dict(item))
+    ambient_reference = _positive_preseal_ambient_reference_from_trace(trace_rows, payload)
     samples: list[dict[str, Any]] = []
     started = False
     vent_closed_at = ""
@@ -599,9 +691,11 @@ def _build_positive_preseal_pressurization_evidence(
     latest: dict[str, Any] = {
         "stage": "positive_preseal_pressurization",
         "target_pressure_hpa": payload.get("positive_preseal_target_pressure_hpa"),
-        "measured_atmospheric_pressure_hpa": payload.get("positive_preseal_measured_atmospheric_pressure_hpa"),
+        **ambient_reference,
         "preseal_ready_pressure_hpa": payload.get("positive_preseal_ready_pressure_hpa"),
+        "ready_pressure_hpa": payload.get("positive_preseal_ready_pressure_hpa"),
         "preseal_abort_pressure_hpa": payload.get("positive_preseal_abort_pressure_hpa"),
+        "abort_pressure_hpa": payload.get("positive_preseal_abort_pressure_hpa"),
         "preseal_ready_timeout_s": payload.get("positive_preseal_ready_timeout_s"),
         "preseal_pressure_poll_interval_s": payload.get("positive_preseal_pressure_poll_interval_s"),
         "vent_closed_at": "",
@@ -610,7 +704,12 @@ def _build_positive_preseal_pressurization_evidence(
         "isolation_state": None,
         "elapsed_s": None,
         "pressure_hpa": None,
+        "current_line_pressure_hpa": None,
+        "positive_preseal_pressure_hpa": None,
         "pressure_rise_rate_hpa_per_s": None,
+        "pressure_samples_count": 0,
+        "pressure_max_hpa": None,
+        "pressure_min_hpa": None,
         "ready_reached": False,
         "ready_reached_at_pressure_hpa": None,
         "seal_command_sent": False,
@@ -624,21 +723,25 @@ def _build_positive_preseal_pressurization_evidence(
 
     def update_latest(row: Mapping[str, Any], actual: Mapping[str, Any]) -> None:
         for key in POSITIVE_PRESEAL_PRESSURIZATION_SAMPLE_FIELDS:
+            if key == "measured_atmospheric_pressure_hpa" and "ambient_reference_pressure_hpa" not in actual:
+                continue
             if key in actual and actual.get(key) not in (None, ""):
                 latest[key] = actual.get(key)
+        for key, value in ambient_reference.items():
+            if value not in (None, ""):
+                latest[key] = value
         latest["timestamp"] = row.get("ts") or row.get("timestamp") or latest.get("timestamp", "")
         pressure = _trace_pressure_hpa(actual)
         if pressure is not None:
             latest["pressure_hpa"] = pressure
+            latest["current_line_pressure_hpa"] = actual.get("current_line_pressure_hpa", pressure)
+            latest["positive_preseal_pressure_hpa"] = actual.get("positive_preseal_pressure_hpa", pressure)
 
-    if trace_path.exists():
+    if trace_rows:
         previous_pressure: Optional[float] = None
         previous_elapsed: Optional[float] = None
-        for line in trace_path.read_text(encoding="utf-8").splitlines():
-            try:
-                item = json.loads(line)
-            except Exception:
-                continue
+        min_pressure: Optional[float] = None
+        for item in trace_rows:
             if not isinstance(item, Mapping):
                 continue
             action = str(item.get("action") or "").lower()
@@ -666,21 +769,30 @@ def _build_positive_preseal_pressurization_evidence(
                 "positive_preseal_pressure_check",
                 "positive_preseal_ready",
                 "positive_preseal_abort",
+            }:
+                update_latest(item, actual)
+            elif action in {
                 "seal_transition",
                 "seal_route",
                 "sealed_pressure_control_start",
                 "pressure_control_ready_gate",
                 "set_pressure",
             }:
-                update_latest(item, actual)
+                pass
             else:
                 continue
 
             pressure = _trace_pressure_hpa(actual)
             elapsed = _as_float(actual.get("elapsed_s"))
             rise_rate = _as_float(actual.get("pressure_rise_rate_hpa_per_s"))
-            if pressure is not None:
+            pressure_belongs_to_positive_preseal = action in {
+                "positive_preseal_pressure_check",
+                "positive_preseal_ready",
+                "positive_preseal_abort",
+            }
+            if pressure is not None and pressure_belongs_to_positive_preseal:
                 max_pressure = pressure if max_pressure is None else max(max_pressure, pressure)
+                min_pressure = pressure if min_pressure is None else min(min_pressure, pressure)
                 if rise_rate is None and previous_pressure is not None and previous_elapsed is not None and elapsed is not None:
                     delta_t = float(elapsed) - float(previous_elapsed)
                     if delta_t > 0:
@@ -708,13 +820,21 @@ def _build_positive_preseal_pressurization_evidence(
             if action == "set_pressure" and result == "ok":
                 pressure_control_started = True
             if action in {"positive_preseal_pressure_check", "positive_preseal_ready", "positive_preseal_abort"}:
+                pressure_sample_count = sum(
+                    1 for sample in samples if sample.get("pressure_hpa") not in (None, "")
+                ) + (1 if pressure is not None else 0)
                 row = {
                     **latest,
                     "timestamp": item.get("ts") or item.get("timestamp") or "",
                     "stage": "positive_preseal_pressurization",
                     "elapsed_s": elapsed,
                     "pressure_hpa": pressure,
+                    "current_line_pressure_hpa": actual.get("current_line_pressure_hpa", pressure),
+                    "positive_preseal_pressure_hpa": actual.get("positive_preseal_pressure_hpa", pressure),
                     "pressure_rise_rate_hpa_per_s": rise_rate,
+                    "pressure_samples_count": actual.get("pressure_samples_count", pressure_sample_count),
+                    "pressure_max_hpa": actual.get("pressure_max_hpa", max_pressure),
+                    "pressure_min_hpa": actual.get("pressure_min_hpa", min_pressure),
                     "ready_reached": ready_reached or bool(actual.get("ready_reached")),
                     "ready_reached_at_pressure_hpa": ready_reached_at_pressure_hpa,
                     "seal_command_sent": seal_command_sent,
@@ -747,6 +867,18 @@ def _build_positive_preseal_pressurization_evidence(
             "pressure_control_started": pressure_control_started,
             "abort_reason": abort_reason,
             "decision": decision,
+            "pressure_samples_count": sum(
+                1 for sample in samples if sample.get("pressure_hpa") not in (None, "")
+            ),
+            "pressure_max_hpa": max_pressure,
+            "pressure_min_hpa": min(
+                [
+                    float(sample["pressure_hpa"])
+                    for sample in samples
+                    if sample.get("pressure_hpa") not in (None, "")
+                ],
+                default=None,
+            ),
         }
     )
     return {
@@ -757,6 +889,15 @@ def _build_positive_preseal_pressurization_evidence(
         "stage": "positive_preseal_pressurization",
         "target_pressure_hpa": latest.get("target_pressure_hpa"),
         "measured_atmospheric_pressure_hpa": latest.get("measured_atmospheric_pressure_hpa"),
+        "measured_atmospheric_pressure_source": latest.get("measured_atmospheric_pressure_source"),
+        "ambient_reference_pressure_hpa": latest.get("ambient_reference_pressure_hpa"),
+        "ambient_reference_source": latest.get("ambient_reference_source"),
+        "ambient_reference_timestamp": latest.get("ambient_reference_timestamp"),
+        "ambient_reference_age_s": latest.get("ambient_reference_age_s"),
+        "current_line_pressure_hpa": latest.get("current_line_pressure_hpa"),
+        "positive_preseal_pressure_hpa": latest.get("positive_preseal_pressure_hpa"),
+        "ready_pressure_hpa": latest.get("ready_pressure_hpa", latest.get("preseal_ready_pressure_hpa")),
+        "abort_pressure_hpa": latest.get("abort_pressure_hpa", latest.get("preseal_abort_pressure_hpa")),
         "preseal_ready_pressure_hpa": latest.get("preseal_ready_pressure_hpa"),
         "preseal_abort_pressure_hpa": latest.get("preseal_abort_pressure_hpa"),
         "preseal_ready_timeout_s": latest.get("preseal_ready_timeout_s"),
@@ -768,6 +909,9 @@ def _build_positive_preseal_pressurization_evidence(
         "elapsed_s": latest.get("elapsed_s"),
         "pressure_hpa": latest.get("pressure_hpa"),
         "pressure_rise_rate_hpa_per_s": latest.get("pressure_rise_rate_hpa_per_s"),
+        "pressure_samples_count": latest.get("pressure_samples_count", len(samples)),
+        "pressure_max_hpa": latest.get("pressure_max_hpa", max_pressure),
+        "pressure_min_hpa": latest.get("pressure_min_hpa"),
         "ready_reached": ready_reached,
         "ready_reached_at_pressure_hpa": ready_reached_at_pressure_hpa,
         "seal_command_sent": seal_command_sent,
@@ -778,6 +922,8 @@ def _build_positive_preseal_pressurization_evidence(
         "abort_reason": abort_reason,
         "decision": decision,
         "max_measured_pressure_hpa": max_pressure,
+        "pressure_max_hpa": latest.get("pressure_max_hpa", max_pressure),
+        "pressure_min_hpa": latest.get("pressure_min_hpa"),
         "sample_count": len(samples),
         "samples": samples,
         "not_real_acceptance_evidence": True,
@@ -897,6 +1043,8 @@ def render_run001_a2_human_report(payload: Mapping[str, Any]) -> str:
     )
     longest_stage = timing_summary.get("longest_stage") if isinstance(timing_summary.get("longest_stage"), Mapping) else {}
     longest_wait = timing_summary.get("longest_wait") if isinstance(timing_summary.get("longest_wait"), Mapping) else {}
+    temperature_policy = payload.get("temperature_stability_policy")
+    temperature_policy = dict(temperature_policy) if isinstance(temperature_policy, Mapping) else {}
     return "\n".join(
         [
             "# Run-001 / A2 CO2 no-write pressure sweep evidence",
@@ -921,6 +1069,8 @@ def render_run001_a2_human_report(payload: Mapping[str, Any]) -> str:
             f"- all_enabled_analyzers_mode2_ready: {payload.get('all_enabled_analyzers_mode2_ready')}",
             f"- temperature_stability_tolerance_c: {payload.get('temperature_stability_tolerance_c')}",
             f"- temperature_stability_window_s: {payload.get('temperature_stability_window_s')}",
+            f"- temperature_chamber_settle_timeout_s: {temperature_policy.get('temperature_chamber_timeout_s')}",
+            f"- analyzer_chamber_temperature_stability_timeout_s: {temperature_policy.get('analyzer_chamber_temp_timeout_s')}",
             f"- preseal_atmosphere_hold_decision: {payload.get('preseal_atmosphere_hold_decision')}",
             f"- preseal_atmosphere_hold_pressure_limit_hpa: {payload.get('preseal_atmosphere_hold_pressure_limit_hpa')}",
             f"- preseal_atmosphere_hold_max_measured_pressure_hpa: {payload.get('preseal_atmosphere_hold_max_measured_pressure_hpa')}",
@@ -936,6 +1086,8 @@ def render_run001_a2_human_report(payload: Mapping[str, Any]) -> str:
             f"- positive_preseal_ready_reached: {payload.get('positive_preseal_ready_reached')}",
             f"- positive_preseal_seal_trigger_pressure_hpa: {payload.get('positive_preseal_seal_trigger_pressure_hpa')}",
             f"- positive_preseal_abort_reason: {payload.get('positive_preseal_abort_reason')}",
+            f"- ambient_reference_pressure_hpa: {payload.get('ambient_reference_pressure_hpa')}",
+            f"- ambient_reference_source: {payload.get('ambient_reference_source')}",
             f"- positive_preseal_evidence: {payload.get('positive_preseal_pressurization_evidence_artifact')}",
             f"- positive_preseal_samples: {payload.get('positive_preseal_pressurization_samples_artifact')}",
             "",
@@ -945,8 +1097,12 @@ def render_run001_a2_human_report(payload: Mapping[str, Any]) -> str:
             f"- total_duration_s: {timing_summary.get('total_duration_s')}",
             f"- longest_stage: {longest_stage.get('name')} ({longest_stage.get('duration_s')}s)",
             f"- longest_wait: {longest_wait.get('name')} ({longest_wait.get('duration_s')}s)",
+            f"- temperature_chamber_settle_duration_s: {timing_summary.get('temperature_chamber_settle_duration_s')}",
+            f"- analyzer_chamber_temperature_stability_duration_s: {timing_summary.get('analyzer_chamber_temperature_stability_duration_s')}",
             f"- preseal_soak_duration_s: {timing_summary.get('preseal_soak_duration_s')}",
             f"- positive_preseal_duration_s: {timing_summary.get('positive_preseal_duration_s')}",
+            f"- positive_preseal_vent_close_duration_s: {timing_summary.get('positive_preseal_vent_close_duration_s')}",
+            f"- positive_preseal_vent_close_status: {timing_summary.get('positive_preseal_vent_close_status')}",
             f"- preseal_vent_tick_count: {timing_summary.get('preseal_vent_tick_count')}",
             f"- timing_warning_count: {timing_warning_count}",
             "",
@@ -1058,6 +1214,13 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
                 "seal_trigger_elapsed_s"
             ),
             "positive_preseal_abort_reason": positive_preseal_payload.get("abort_reason"),
+            "ambient_reference_pressure_hpa": positive_preseal_payload.get("ambient_reference_pressure_hpa"),
+            "ambient_reference_source": positive_preseal_payload.get("ambient_reference_source"),
+            "ambient_reference_timestamp": positive_preseal_payload.get("ambient_reference_timestamp"),
+            "ambient_reference_age_s": positive_preseal_payload.get("ambient_reference_age_s"),
+            "positive_preseal_pressure_max_hpa": positive_preseal_payload.get("pressure_max_hpa")
+            or positive_preseal_payload.get("max_measured_pressure_hpa"),
+            "positive_preseal_pressure_min_hpa": positive_preseal_payload.get("pressure_min_hpa"),
             "vent_status_2_is_not_continuous_atmosphere_evidence": True,
         }
     )
@@ -1131,10 +1294,15 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
                 "positive_preseal_seal_trigger_pressure_hpa": enriched.get(
                     "positive_preseal_seal_trigger_pressure_hpa"
                 ),
-                "positive_preseal_abort_reason": enriched.get("positive_preseal_abort_reason"),
-                "a2_required_artifact_status": enriched.get("a2_required_artifact_status"),
-                "real_machine_acceptance_evidence": False,
-            },
+            "positive_preseal_abort_reason": enriched.get("positive_preseal_abort_reason"),
+            "ambient_reference_pressure_hpa": enriched.get("ambient_reference_pressure_hpa"),
+            "ambient_reference_source": enriched.get("ambient_reference_source"),
+            "ambient_reference_timestamp": enriched.get("ambient_reference_timestamp"),
+            "ambient_reference_age_s": enriched.get("ambient_reference_age_s"),
+            "positive_preseal_pressure_max_hpa": enriched.get("positive_preseal_pressure_max_hpa"),
+            "a2_required_artifact_status": enriched.get("a2_required_artifact_status"),
+            "real_machine_acceptance_evidence": False,
+        },
             ensure_ascii=False,
             indent=2,
         )
@@ -1174,6 +1342,9 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
                 "positive_preseal_seal_trigger_pressure_hpa"
             ),
             "positive_preseal_abort_reason": enriched.get("positive_preseal_abort_reason"),
+            "ambient_reference_pressure_hpa": enriched.get("ambient_reference_pressure_hpa"),
+            "ambient_reference_source": enriched.get("ambient_reference_source"),
+            "positive_preseal_pressure_max_hpa": enriched.get("positive_preseal_pressure_max_hpa"),
             "not_real_acceptance_evidence": True,
             "v2_replaces_v1_claim": False,
         }

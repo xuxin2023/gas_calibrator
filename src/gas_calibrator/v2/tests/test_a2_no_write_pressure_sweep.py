@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -315,6 +316,23 @@ def test_a2_artifacts_keep_preflight_distinct_from_execute_pass(tmp_path) -> Non
     assert "流程时序摘要" in report
 
 
+def test_a2_config_splits_temperature_chamber_and_analyzer_timeouts() -> None:
+    config_path = (
+        Path(__file__).resolve().parents[1]
+        / "configs"
+        / "validation"
+        / "run001_a2_co2_only_7_pressure_no_write_real_machine.json"
+    )
+    raw = json.loads(config_path.read_text(encoding="utf-8"))
+    temperature = raw["workflow"]["stability"]["temperature"]
+
+    assert temperature["timeout_s"] == 3600
+    assert temperature["require_chamber_settle_before_analyzer"] is True
+    assert temperature["analyzer_chamber_temp_timeout_s"] == 1800
+    assert temperature["analyzer_chamber_temp_span_c"] == 0.08
+    assert temperature["analyzer_chamber_temp_window_s"] == 60
+
+
 def test_a2_fail_artifacts_include_preseal_atmosphere_hold_evidence(tmp_path) -> None:
     truth = {
         "read_only": True,
@@ -473,6 +491,21 @@ def test_a2_artifacts_include_positive_preseal_pressurization_evidence(tmp_path)
         (artifact_dir / filename).write_text(content, encoding="utf-8")
     trace_rows = [
         {
+            "ts": "2026-04-26T04:10:55+00:00",
+            "action": "set_vent",
+            "route": "co2",
+            "point_index": 1,
+            "target": {"vent_on": True},
+            "actual": {
+                "pressure_hpa": 1009.0,
+                "atmosphere_ready": True,
+                "vent_status_raw": 1,
+                "output_state": 0,
+                "isolation_state": 1,
+            },
+            "result": "ok",
+        },
+        {
             "ts": "2026-04-26T04:11:00+00:00",
             "action": "positive_preseal_pressurization_start",
             "route": "co2",
@@ -480,7 +513,7 @@ def test_a2_artifacts_include_positive_preseal_pressurization_evidence(tmp_path)
             "actual": {
                 "stage": "positive_preseal_pressurization",
                 "target_pressure_hpa": 1100.0,
-                "measured_atmospheric_pressure_hpa": 1009.0,
+                "measured_atmospheric_pressure_hpa": 1246.758,
                 "preseal_ready_pressure_hpa": 1110.0,
                 "preseal_abort_pressure_hpa": 1150.0,
                 "preseal_ready_timeout_s": 30.0,
@@ -574,10 +607,17 @@ def test_a2_artifacts_include_positive_preseal_pressurization_evidence(tmp_path)
     assert evidence["seal_command_sent"] is True
     assert evidence["seal_trigger_pressure_hpa"] == 1110.5
     assert evidence["preseal_abort_pressure_hpa"] == 1150.0
+    assert evidence["ambient_reference_pressure_hpa"] == 1009.0
+    assert evidence["measured_atmospheric_pressure_hpa"] == 1009.0
+    assert evidence["measured_atmospheric_pressure_source"] == "deprecated_alias_of_ambient_reference_pressure_hpa"
+    assert evidence["current_line_pressure_hpa"] == 1110.5
+    assert evidence["pressure_samples_count"] == 2
     assert summary["positive_preseal_ready_reached"] is True
     assert summary["positive_preseal_seal_trigger_pressure_hpa"] == 1110.5
+    assert summary["ambient_reference_pressure_hpa"] == 1009.0
     assert timing_summary["positive_preseal_ready_pressure_hpa"] == 1110.5
     assert timing_summary["positive_preseal_abort_pressure_hpa"] == 1150.0
+    assert timing_summary["ambient_reference_pressure_hpa"] == 1009.0
     assert manifest["positive_preseal_pressurization_evidence_artifact"].endswith(
         "positive_preseal_pressurization_evidence.json"
     )
@@ -763,8 +803,61 @@ def test_positive_preseal_ready_closes_vent_and_seals_before_pressure_control() 
     assert actions.index("positive_preseal_ready") < actions.index("seal_route")
     assert not [row for row in status.rows if row["action"] == "set_vent" and row.get("target", {}).get("vent_on") is True]
     assert any(event["event_name"] == "positive_preseal_pressurization_start" for event in host._recorded_timing)
+    assert any(event["event_name"] == "positive_preseal_vent_close_start" for event in host._recorded_timing)
+    assert any(event["event_name"] == "positive_preseal_vent_close_end" for event in host._recorded_timing)
     assert any(event["event_name"] == "positive_preseal_ready" for event in host._recorded_timing)
     assert any(event["event_name"] == "positive_preseal_seal_end" for event in host._recorded_timing)
+
+
+def test_positive_preseal_vent_close_failure_hard_fails_before_pressure_polling() -> None:
+    service, host, controller, status = _positive_preseal_service(
+        [1009.0, 1110.5],
+        cfg_overrides={
+            "workflow.pressure.preseal_vent_close_verify_timeout_s": 0.05,
+            "workflow.pressure.preseal_vent_close_verify_poll_s": 0.05,
+        },
+    )
+
+    def stuck_vent(enabled: bool) -> bool:
+        controller.vent_on = bool(enabled)
+        controller.vent_status = 1
+        return True
+
+    controller.vent = stuck_vent
+    point = CalibrationPoint(index=1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=1100.0, route="co2")
+
+    result = service.pressurize_and_hold(point, route="co2")
+
+    assert result.ok is False
+    assert result.diagnostics["abort_reason"] == "preseal_vent_close_failed"
+    assert result.diagnostics["vent_command_result"] == "not_closed"
+    assert not any(row["action"] == "positive_preseal_pressure_check" for row in status.rows)
+    assert not any(row["action"] == "seal_route" for row in status.rows)
+    assert any(event["event_name"] == "positive_preseal_vent_close_fail" for event in host._recorded_timing)
+
+
+def test_positive_preseal_vent_close_accepts_blocking_command_return_status_with_lagged_status() -> None:
+    service, host, controller, status = _positive_preseal_service([1009.0, 1109.0, 1110.5, 1110.2])
+
+    def exit_atmosphere_mode(**kwargs) -> int:
+        controller.vent_on = False
+        controller.vent_status = 1
+        controller.output_state = 0
+        controller.isolation_state = 1
+        return 0
+
+    controller.exit_atmosphere_mode = exit_atmosphere_mode
+    point = CalibrationPoint(index=1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=1100.0, route="co2")
+
+    result = service.pressurize_and_hold(point, route="co2")
+
+    assert result.ok is True
+    set_vent_off = [
+        row for row in status.rows if row["action"] == "set_vent" and row.get("target", {}).get("vent_on") is False
+    ][-1]
+    assert set_vent_off["actual"]["vent_command_return_status"] == 0
+    assert any(row["action"] == "positive_preseal_pressure_check" for row in status.rows)
+    assert any(event["event_name"] == "positive_preseal_vent_close_end" for event in host._recorded_timing)
 
 
 def test_positive_preseal_abort_pressure_hard_fails_before_seal() -> None:

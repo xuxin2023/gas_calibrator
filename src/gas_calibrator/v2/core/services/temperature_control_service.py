@@ -52,23 +52,69 @@ class TemperatureControlService:
         self.run_state = run_state
         self.host = host
 
+    def _record_temperature_timing(self, event_name: str, event_type: str, **kwargs: Any) -> None:
+        recorder = getattr(self.host, "_record_workflow_timing", None)
+        if callable(recorder):
+            recorder(event_name, event_type, **kwargs)
+
+    def _mark_temperature_chamber_settle(
+        self,
+        status: str,
+        *,
+        timestamp: Optional[str] = None,
+    ) -> str:
+        recorded_at = timestamp or datetime.now(timezone.utc).isoformat()
+        self.run_state.temperature.chamber_settle_status = str(status or "")
+        if status in {"passed", "already_satisfied", "not_applicable", "skipped"}:
+            self.run_state.temperature.chamber_settle_passed_at = recorded_at
+            setattr(self.host, "_temperature_chamber_settle_passed_at", recorded_at)
+        setattr(self.host, "_temperature_chamber_settle_status", str(status or ""))
+        return recorded_at
+
     def set_temperature_for_point(self, point: CalibrationPoint, *, phase: str) -> WaitResult:
+        target_c = float(point.temp_chamber_c)
+        chamber_expected_max_s = float(self.host._cfg_get("workflow.stability.temperature.timeout_s", 3600.0))
         chamber = self.host._device("temperature_chamber")
         if chamber is None:
+            recorded_at = self._mark_temperature_chamber_settle("not_applicable")
+            self._record_temperature_timing(
+                "temperature_chamber_settle_start",
+                "start",
+                stage="temperature_chamber_settle",
+                point=point,
+                expected_max_s=chamber_expected_max_s,
+                wait_reason="temperature_chamber_not_applicable",
+            )
+            self._record_temperature_timing(
+                "temperature_chamber_settle_end",
+                "end",
+                stage="temperature_chamber_settle",
+                point=point,
+                duration_s=0.0,
+                expected_max_s=chamber_expected_max_s,
+                decision="not_applicable",
+                chamber_temperature_c=None,
+            )
             return self._store_result(
                 WaitResult(
                     ok=True,
-                    target_c=float(point.temp_chamber_c),
-                    diagnostics={"skipped": "temperature chamber unavailable"},
+                    target_c=target_c,
+                    diagnostics={
+                        "temperature_chamber_settle_status": "not_applicable",
+                        "temperature_chamber_settle_passed_at": recorded_at,
+                        "skipped": "temperature chamber unavailable",
+                    },
                 )
             )
 
-        target_c = float(point.temp_chamber_c)
         tol_c = abs(float(self.host._cfg_get("workflow.stability.temperature.tol", 0.2)))
-        timeout_s = float(self.host._cfg_get("workflow.stability.temperature.timeout_s", 1800.0))
+        timeout_s = chamber_expected_max_s
         command_offset_c = float(self.host._cfg_get("workflow.stability.temperature.command_offset_c", 0.0) or 0.0)
         wait_for_target_before_continue = bool(
             self.host._cfg_get("workflow.stability.temperature.wait_for_target_before_continue", True)
+        )
+        require_chamber_settle_before_analyzer = bool(
+            self.host._cfg_get("workflow.stability.temperature.require_chamber_settle_before_analyzer", False)
         )
         restart_on_target_change = bool(
             self.host._cfg_get("workflow.stability.temperature.restart_on_target_change", False)
@@ -142,6 +188,25 @@ class TemperatureControlService:
             and current_temp is not None
             and abs(current_temp - target_c) <= tol_c
         ):
+            recorded_at = self._mark_temperature_chamber_settle("already_satisfied")
+            self._record_temperature_timing(
+                "temperature_chamber_settle_start",
+                "start",
+                stage="temperature_chamber_settle",
+                point=point,
+                expected_max_s=timeout_s,
+                wait_reason="temperature_chamber_already_satisfied",
+            )
+            self._record_temperature_timing(
+                "temperature_chamber_settle_end",
+                "end",
+                stage="temperature_chamber_settle",
+                point=point,
+                duration_s=0.0,
+                expected_max_s=timeout_s,
+                decision="already_satisfied",
+                chamber_temperature_c=current_temp,
+            )
             self.host._log(
                 "Temperature chamber target unchanged; reuse current thermal state: "
                 f"temp={current_temp:.3f}C, target={target_c:g}C, run_state={current_run_state}"
@@ -154,7 +219,12 @@ class TemperatureControlService:
                     target_c=target_c,
                     final_temp_c=current_temp,
                     attempt_count=1,
-                    diagnostics={"reuse_previous": True, "tolerance_c": tol_c},
+                    diagnostics={
+                        "reuse_previous": True,
+                        "tolerance_c": tol_c,
+                        "temperature_chamber_settle_status": "already_satisfied",
+                        "temperature_chamber_settle_passed_at": recorded_at,
+                    },
                 )
             )
 
@@ -211,6 +281,25 @@ class TemperatureControlService:
                 )
 
         if wait_for_target_before_continue is False:
+            recorded_at = self._mark_temperature_chamber_settle("skipped")
+            self._record_temperature_timing(
+                "temperature_chamber_settle_start",
+                "start",
+                stage="temperature_chamber_settle",
+                point=point,
+                expected_max_s=timeout_s,
+                wait_reason="temperature_chamber_wait_skipped",
+            )
+            self._record_temperature_timing(
+                "temperature_chamber_settle_end",
+                "end",
+                stage="temperature_chamber_settle",
+                point=point,
+                duration_s=0.0,
+                expected_max_s=timeout_s,
+                decision="skipped",
+                chamber_temperature_c=current_temp,
+            )
             self.host._log(
                 "Temperature chamber wait skipped by configuration: "
                 f"target={target_c:g}C, command={command_target_c:g}C"
@@ -226,6 +315,8 @@ class TemperatureControlService:
                         "wait_skipped": True,
                         "command_target_c": command_target_c,
                         "wait_for_target_before_continue": False,
+                        "temperature_chamber_settle_status": "skipped",
+                        "temperature_chamber_settle_passed_at": recorded_at,
                         **command_diagnostics,
                     },
                 )
@@ -241,16 +332,38 @@ class TemperatureControlService:
             transition_min_delta_c=transition_min_delta_c,
         )
         monitored_reader = self._make_live_snapshot_reader(monitored_reader, reason="temperature_wait")
+        chamber_wait_started = time.time()
+        self._record_temperature_timing(
+            "temperature_chamber_settle_start",
+            "start",
+            stage="temperature_chamber_settle",
+            point=point,
+            expected_max_s=timeout_s,
+            wait_reason="temperature_chamber_settle",
+        )
         try:
             stability = self._wait_for_temperature_stability(
                 monitored_reader,
                 soak_s=soak_s,
                 timeout_s=timeout_s,
             )
+            chamber_elapsed_s = max(0.0, time.time() - chamber_wait_started)
             if bool(getattr(stability, "stopped", False)):
                 self.host._log("Temperature chamber wait interrupted by stop request")
                 self.host._check_stop()
             if not bool(getattr(stability, "stable", True)):
+                self._mark_temperature_chamber_settle("failed")
+                self._record_temperature_timing(
+                    "temperature_chamber_settle_end",
+                    "fail",
+                    stage="temperature_chamber_settle",
+                    point=point,
+                    duration_s=getattr(stability, "elapsed_s", chamber_elapsed_s),
+                    expected_max_s=timeout_s,
+                    decision="not_stable",
+                    chamber_temperature_c=self._safe_read(reader),
+                    error_code="temperature_chamber_not_stable",
+                )
                 self._set_ready_target(None)
                 self.run_state.temperature.last_soak_done = False
                 self.host._log("Temperature chamber did not stabilize")
@@ -265,10 +378,22 @@ class TemperatureControlService:
                             "stopped": bool(getattr(stability, "stopped", False)),
                             "timed_out": bool(getattr(stability, "timed_out", False)),
                             "soak_after_reach_s": soak_s,
+                            "temperature_chamber_settle_status": "failed",
                         },
                         error="Temperature chamber did not stabilize",
                     )
                 )
+            chamber_passed_at = self._mark_temperature_chamber_settle("passed")
+            self._record_temperature_timing(
+                "temperature_chamber_settle_end",
+                "end",
+                stage="temperature_chamber_settle",
+                point=point,
+                duration_s=getattr(stability, "elapsed_s", chamber_elapsed_s),
+                expected_max_s=timeout_s,
+                decision="ok",
+                chamber_temperature_c=self._safe_read(reader) or getattr(stability, "last_value", None),
+            )
             if not self._wait_analyzer_chamber_temp_stable(target_c):
                 self._set_ready_target(None)
                 self.run_state.temperature.last_soak_done = False
@@ -292,6 +417,8 @@ class TemperatureControlService:
                             ),
                             "failure_reason": failure_reason,
                             "soak_after_reach_s": soak_s,
+                            "temperature_chamber_settle_status": "passed",
+                            "temperature_chamber_settle_passed_at": chamber_passed_at,
                             "analyzer_chamber_temperature_stability": analyzer_evidence,
                         },
                         error=failure_reason,
@@ -309,11 +436,25 @@ class TemperatureControlService:
                         "soak_after_reach_s": soak_s,
                         "elapsed_s": getattr(stability, "elapsed_s", None),
                         "command_target_c": command_target_c,
+                        "temperature_chamber_settle_status": "passed",
+                        "temperature_chamber_settle_passed_at": chamber_passed_at,
                         **command_diagnostics,
                     },
                 )
             )
         except _TemperatureTransitionStalledError as exc:
+            self._mark_temperature_chamber_settle("failed")
+            self._record_temperature_timing(
+                "temperature_chamber_settle_end",
+                "fail",
+                stage="temperature_chamber_settle",
+                point=point,
+                duration_s=max(0.0, time.time() - chamber_wait_started),
+                expected_max_s=timeout_s,
+                decision="transition_stalled",
+                chamber_temperature_c=exc.current_temp_c,
+                error_code="temperature_chamber_transition_stalled",
+            )
             self._set_ready_target(None)
             self.run_state.temperature.last_soak_done = False
             self.host._log(str(exc))
@@ -334,7 +475,40 @@ class TemperatureControlService:
             )
         except StabilityTimeoutError as exc:
             final_temp = self._safe_read(reader)
+            self._record_temperature_timing(
+                "temperature_chamber_settle_timeout",
+                "timeout",
+                stage="temperature_chamber_settle",
+                point=point,
+                duration_s=max(0.0, time.time() - chamber_wait_started),
+                expected_max_s=timeout_s,
+                decision="timeout",
+                chamber_temperature_c=final_temp,
+                error_code="temperature_chamber_settle_timeout",
+            )
+            if require_chamber_settle_before_analyzer:
+                self._mark_temperature_chamber_settle("timeout")
+                self._set_ready_target(None)
+                self.run_state.temperature.last_soak_done = False
+                self.host._log(f"Temperature chamber stability timeout: {exc}")
+                return self._store_result(
+                    WaitResult(
+                        ok=False,
+                        timed_out=True,
+                        target_c=target_c,
+                        final_temp_c=final_temp,
+                        attempt_count=max(1, start_result.attempt_count),
+                        diagnostics={
+                            "stage": "temperature_chamber_settle",
+                            "temperature_chamber_settle_status": "timeout",
+                            "require_chamber_settle_before_analyzer": True,
+                            "tolerance_c": tol_c,
+                        },
+                        error=str(exc),
+                    )
+                )
             if final_temp is not None and abs(final_temp - target_c) <= tol_c:
+                chamber_passed_at = self._mark_temperature_chamber_settle("already_satisfied")
                 if self._wait_analyzer_chamber_temp_stable(target_c):
                     self._set_ready_target(target_c)
                     self.run_state.temperature.last_soak_done = True
@@ -349,7 +523,12 @@ class TemperatureControlService:
                             target_c=target_c,
                             final_temp_c=final_temp,
                             attempt_count=max(1, start_result.attempt_count),
-                            diagnostics={"timeout_recovered_in_band": True, "tolerance_c": tol_c},
+                            diagnostics={
+                                "timeout_recovered_in_band": True,
+                                "tolerance_c": tol_c,
+                                "temperature_chamber_settle_status": "already_satisfied",
+                                "temperature_chamber_settle_passed_at": chamber_passed_at,
+                            },
                         )
                     )
                 analyzer_evidence = dict(self.run_state.temperature.analyzer_chamber_temp_stability_evidence or {})
@@ -376,6 +555,8 @@ class TemperatureControlService:
                             "failure_reason": failure_reason,
                             "timeout_recovered_in_band": False,
                             "tolerance_c": tol_c,
+                            "temperature_chamber_settle_status": "already_satisfied",
+                            "temperature_chamber_settle_passed_at": chamber_passed_at,
                             "analyzer_chamber_temperature_stability": analyzer_evidence,
                         },
                         error=failure_reason,
@@ -383,6 +564,7 @@ class TemperatureControlService:
                 )
             self._set_ready_target(None)
             self.run_state.temperature.last_soak_done = False
+            self._mark_temperature_chamber_settle("timeout")
             self.host._log(f"Temperature chamber stability timeout: {exc}")
             return self._store_result(
                 WaitResult(
@@ -391,7 +573,10 @@ class TemperatureControlService:
                     target_c=target_c,
                     final_temp_c=final_temp,
                     attempt_count=max(1, start_result.attempt_count),
-                    diagnostics={"tolerance_c": tol_c},
+                    diagnostics={
+                        "tolerance_c": tol_c,
+                        "temperature_chamber_settle_status": "timeout",
+                    },
                     error=str(exc),
                 )
             )
@@ -792,6 +977,20 @@ class TemperatureControlService:
 
     def _wait_analyzer_chamber_temp_stable(self, target_c: float) -> bool:
         enabled = bool(self.host._cfg_get("workflow.stability.temperature.analyzer_chamber_temp_enabled", True))
+        started_at_iso = datetime.now(timezone.utc).isoformat()
+        started_at_monotonic = time.time()
+        self.run_state.temperature.analyzer_chamber_stability_started_at = started_at_iso
+        setattr(self.host, "_analyzer_chamber_stability_started_at", started_at_iso)
+        chamber_passed_at = str(
+            self.run_state.temperature.chamber_settle_passed_at
+            or getattr(self.host, "_temperature_chamber_settle_passed_at", "")
+            or ""
+        )
+        chamber_status = str(
+            self.run_state.temperature.chamber_settle_status
+            or getattr(self.host, "_temperature_chamber_settle_status", "")
+            or ""
+        )
         if not enabled:
             self._publish_analyzer_chamber_temp_evidence(
                 {
@@ -800,6 +999,10 @@ class TemperatureControlService:
                     "stage": "analyzer_chamber_temperature_stability",
                     "target_c": float(target_c),
                     "enabled": False,
+                    "temperature_chamber_settle_status": chamber_status,
+                    "temperature_chamber_settle_passed_at": chamber_passed_at,
+                    "analyzer_chamber_stability_started_at": started_at_iso,
+                    "analyzer_chamber_stability_elapsed_s": 0.0,
                     "decision": "SKIPPED",
                     "failure_stage": "",
                     "failure_reason": "",
@@ -812,7 +1015,7 @@ class TemperatureControlService:
 
         window_s = max(0.0, float(self.host._cfg_get("workflow.stability.temperature.analyzer_chamber_temp_window_s", 60.0)))
         span_tol_c = abs(float(self.host._cfg_get("workflow.stability.temperature.analyzer_chamber_temp_span_c", 0.03)))
-        timeout_raw = float(self.host._cfg_get("workflow.stability.temperature.analyzer_chamber_temp_timeout_s", 3600.0))
+        timeout_raw = float(self.host._cfg_get("workflow.stability.temperature.analyzer_chamber_temp_timeout_s", 1800.0))
         timeout_s: Optional[float] = timeout_raw if timeout_raw > 0 else None
         first_valid_timeout_default = 120.0 if timeout_s is None else min(timeout_s, 120.0)
         first_valid_timeout_raw = float(
@@ -827,12 +1030,23 @@ class TemperatureControlService:
         active_getter = getattr(self.host, "_active_gas_analyzers", None)
         active_analyzers = list(active_getter()) if callable(active_getter) else list(self.host._all_gas_analyzers())
         no_write_active = self._no_write_guard_active()
+        self._record_temperature_timing(
+            "analyzer_chamber_temperature_stability_start",
+            "start",
+            stage="analyzer_chamber_temperature_stability",
+            expected_max_s=timeout_s,
+            wait_reason="analyzer_chamber_temperature_rolling_span",
+        )
         evidence: dict[str, Any] = {
             "schema_version": "run001_a1.temperature_stability.1",
             "artifact_type": "temperature_stability_evidence",
             "stage": "analyzer_chamber_temperature_stability",
             "target_c": float(target_c),
             "enabled": True,
+            "temperature_chamber_settle_status": chamber_status,
+            "temperature_chamber_settle_passed_at": chamber_passed_at,
+            "analyzer_chamber_stability_started_at": started_at_iso,
+            "analyzer_chamber_stability_elapsed_s": 0.0,
             "temperature_source": "active_send_snapshot",
             "source_selection_policy": "first_active_analyzer_with_chamber_temp_c",
             "rolling_window_s": window_s,
@@ -859,6 +1073,7 @@ class TemperatureControlService:
         }
 
         def finish(decision: str, failure_reason: str = "") -> bool:
+            elapsed_s = max(0.0, time.time() - started_at_monotonic)
             values = [
                 float(sample["chamber_temperature_c"])
                 for sample in evidence["samples"]
@@ -872,8 +1087,27 @@ class TemperatureControlService:
             evidence["decision"] = decision
             evidence["failure_reason"] = failure_reason
             evidence["failure_stage"] = "" if decision == "PASS" else "analyzer_chamber_temperature_stability"
+            evidence["analyzer_chamber_stability_elapsed_s"] = elapsed_s
             evidence["completed_at"] = datetime.now(timezone.utc).isoformat()
             self._publish_analyzer_chamber_temp_evidence(evidence)
+            event_name = (
+                "analyzer_chamber_temperature_stability_end"
+                if decision in {"PASS", "SKIPPED"}
+                else "analyzer_chamber_temperature_stability_timeout"
+                if "timeout" in str(failure_reason).lower()
+                else "analyzer_chamber_temperature_stability_end"
+            )
+            event_type = "end" if decision in {"PASS", "SKIPPED"} else ("timeout" if "timeout" in str(failure_reason).lower() else "fail")
+            self._record_temperature_timing(
+                event_name,
+                event_type,
+                stage="analyzer_chamber_temperature_stability",
+                duration_s=elapsed_s,
+                expected_max_s=timeout_s,
+                decision=decision.lower(),
+                chamber_temperature_c=values[-1] if values else None,
+                error_code=failure_reason if decision not in {"PASS", "SKIPPED"} else None,
+            )
             return decision == "PASS"
 
         if not active_analyzers:
