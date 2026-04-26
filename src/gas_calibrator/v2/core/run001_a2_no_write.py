@@ -19,6 +19,12 @@ from .run001_a1_dry_run import (
     load_point_rows,
     write_run001_a1_artifacts,
 )
+from .services.timing_monitor_service import (
+    TIMING_EVENT_FIELDS,
+    WORKFLOW_TIMING_SUMMARY_FILENAME,
+    WORKFLOW_TIMING_TRACE_FILENAME,
+    ensure_workflow_timing_artifacts,
+)
 
 
 A2_AUTHORIZED_PRESSURE_POINTS_HPA = [1100.0, 1000.0, 900.0, 800.0, 700.0, 600.0, 500.0]
@@ -595,6 +601,20 @@ def render_run001_a2_human_report(payload: Mapping[str, Any]) -> str:
     reason_lines = "\n".join(f"- {item}" for item in reasons) if reasons else "- none"
     pressures = ", ".join(f"{float(value):g}" for value in list(payload.get("a2_authorized_pressure_points_hpa") or []))
     completed = ", ".join(f"{float(value):g}" for value in list(payload.get("planned_pressure_points_completed") or []))
+    timing_summary = payload.get("workflow_timing_summary")
+    timing_summary = dict(timing_summary) if isinstance(timing_summary, Mapping) else {}
+    timing_warning_count = sum(
+        len(list(timing_summary.get(key) or []))
+        for key in (
+            "abnormal_waits",
+            "timeout_events",
+            "repeated_sleep_warnings",
+            "missing_end_events",
+            "state_mismatch_warnings",
+        )
+    )
+    longest_stage = timing_summary.get("longest_stage") if isinstance(timing_summary.get("longest_stage"), Mapping) else {}
+    longest_wait = timing_summary.get("longest_wait") if isinstance(timing_summary.get("longest_wait"), Mapping) else {}
     return "\n".join(
         [
             "# Run-001 / A2 CO2 no-write pressure sweep evidence",
@@ -625,6 +645,16 @@ def render_run001_a2_human_report(payload: Mapping[str, Any]) -> str:
             f"- preseal_atmosphere_hold_pressure_limit_exceeded: {payload.get('preseal_atmosphere_hold_pressure_limit_exceeded')}",
             f"- preseal_atmosphere_hold_evidence: {payload.get('preseal_atmosphere_hold_evidence_artifact')}",
             f"- preseal_atmosphere_hold_samples: {payload.get('preseal_atmosphere_hold_samples_artifact')}",
+            "",
+            "## 流程时序摘要",
+            f"- workflow_timing_trace: {payload.get('workflow_timing_trace_artifact')}",
+            f"- workflow_timing_summary: {payload.get('workflow_timing_summary_artifact')}",
+            f"- total_duration_s: {timing_summary.get('total_duration_s')}",
+            f"- longest_stage: {longest_stage.get('name')} ({longest_stage.get('duration_s')}s)",
+            f"- longest_wait: {longest_wait.get('name')} ({longest_wait.get('duration_s')}s)",
+            f"- preseal_soak_duration_s: {timing_summary.get('preseal_soak_duration_s')}",
+            f"- preseal_vent_tick_count: {timing_summary.get('preseal_vent_tick_count')}",
+            f"- timing_warning_count: {timing_warning_count}",
             "",
             "## A2 decision reasons",
             reason_lines,
@@ -673,6 +703,10 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
     common_paths["pressure_gate_evidence"] = str(pressure_path)
     common_paths["preseal_atmosphere_hold_evidence"] = str(preseal_evidence_path)
     common_paths["preseal_atmosphere_hold_samples"] = str(preseal_samples_path)
+    timing_trace_path = directory / WORKFLOW_TIMING_TRACE_FILENAME
+    timing_summary_path = directory / WORKFLOW_TIMING_SUMMARY_FILENAME
+    common_paths["workflow_timing_trace"] = str(timing_trace_path)
+    common_paths["workflow_timing_summary"] = str(timing_summary_path)
     enriched["artifact_paths"] = dict(common_paths)
     pressure_payload = _build_pressure_gate_evidence(directory, enriched)
     pressure_path.write_text(json.dumps(pressure_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -702,6 +736,17 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
         }
     )
     enriched = _finalize_artifact_decision(enriched, directory)
+    timing_artifacts = ensure_workflow_timing_artifacts(directory, enriched)
+    timing_summary = dict(timing_artifacts.get("summary_payload") or {})
+    enriched.update(
+        {
+            "workflow_timing_trace_artifact": str(timing_trace_path),
+            "workflow_timing_summary_artifact": str(timing_summary_path),
+            "workflow_timing_summary": timing_summary,
+            "workflow_timing_event_fields": list(TIMING_EVENT_FIELDS),
+            "workflow_timing_artifacts_retrospective": bool(timing_summary.get("retrospective", False)),
+        }
+    )
 
     (directory / "summary.json").write_text(json.dumps(enriched, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (directory / "no_write_guard.json").write_text(
@@ -772,6 +817,9 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "pressure_gate_evidence_artifact": str(pressure_path),
             "preseal_atmosphere_hold_evidence_artifact": str(preseal_evidence_path),
             "preseal_atmosphere_hold_samples_artifact": str(preseal_samples_path),
+            "workflow_timing_trace_artifact": str(timing_trace_path),
+            "workflow_timing_summary_artifact": str(timing_summary_path),
+            "workflow_timing_summary": timing_summary,
             "preseal_atmosphere_hold_decision": enriched.get("preseal_atmosphere_hold_decision"),
             "preseal_atmosphere_hold_pressure_limit_hpa": enriched.get(
                 "preseal_atmosphere_hold_pressure_limit_hpa"
@@ -786,6 +834,21 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "v2_replaces_v1_claim": False,
         }
     )
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, dict):
+        artifacts = {}
+    output_files = list(artifacts.get("output_files") or [])
+    for path in (str(timing_trace_path), str(timing_summary_path)):
+        if path not in output_files:
+            output_files.append(path)
+    artifacts["output_files"] = output_files
+    manifest["artifacts"] = artifacts
+    manifest["workflow_timing_artifacts"] = {
+        "trace": str(timing_trace_path),
+        "summary": str(timing_summary_path),
+        "event_fields": list(TIMING_EVENT_FIELDS),
+        "not_real_acceptance_evidence": True,
+    }
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (directory / "human_readable_report.md").write_text(render_run001_a2_human_report(enriched), encoding="utf-8")
     return common_paths

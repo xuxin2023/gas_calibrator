@@ -51,7 +51,25 @@ class Co2RouteRunner:
                 message=f"CO2 route for point {point.index}",
             )
 
+            self.service._record_workflow_timing(
+                "temperature_stability_start",
+                "start",
+                stage="temperature_stability",
+                point=point,
+                expected_max_s=self.service._cfg_get("workflow.stability.temperature.timeout_s", None),
+                wait_reason="temperature_chamber_stability",
+            )
             temperature_wait = self.service.temperature_control_service.set_temperature_for_point(point, phase=phase)
+            self.service._record_workflow_timing(
+                "temperature_stability_end",
+                "end" if bool(getattr(temperature_wait, "ok", False)) else "warning",
+                stage="temperature_stability",
+                point=point,
+                expected_max_s=self.service._cfg_get("workflow.stability.temperature.timeout_s", None),
+                decision="ok" if bool(getattr(temperature_wait, "ok", False)) else "not_stable",
+                chamber_temperature_c=getattr(temperature_wait, "final_temp_c", None),
+                error_code=getattr(temperature_wait, "error", None),
+            )
             self.service.status_service.record_route_trace(
                 action="wait_temperature",
                 route=phase,
@@ -73,9 +91,13 @@ class Co2RouteRunner:
                 )
             self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": point, "stability_type": "temperature"})
             self.service.temperature_control_service.capture_temperature_calibration_snapshot(point, route_type=phase)
+            self.service._record_workflow_timing("route_baseline_start", "start", stage="route_baseline", point=point)
             self.service.valve_routing_service.set_co2_route_baseline(reason="before CO2 route conditioning")
+            self.service._record_workflow_timing("route_baseline_end", "end", stage="route_baseline", point=point)
             self.service.status_service.log("Pressure controller kept at atmosphere for CO2 route conditioning")
+            self.service._record_workflow_timing("co2_route_open_start", "start", stage="co2_route_open", point=point)
             self.service.valve_routing_service.set_valves_for_co2(point)
+            self.service._record_workflow_timing("co2_route_open_end", "end", stage="co2_route_open", point=point)
             route_soak_ok = self._wait_route_soak_before_seal(point)
             route_soak_actual = dict(getattr(self.service, "_last_co2_route_dewpoint_gate_summary", {}) or {})
             self.service.status_service.record_route_trace(
@@ -133,6 +155,13 @@ class Co2RouteRunner:
                     },
                 )
                 self.service.status_service.begin_point_timing(sample_point, phase=phase, point_tag=point_tag)
+                self.service._record_workflow_timing(
+                    "pressure_point_start",
+                    "start",
+                    stage="pressure_point",
+                    point=sample_point,
+                    target_pressure_hpa=sample_point.target_pressure_hpa,
+                )
                 pressure_ok = self.service.pressure_control_service.set_pressure_to_target(sample_point).ok
                 retry_done = 0
                 while not pressure_ok and retry_done < retry_total:
@@ -150,6 +179,14 @@ class Co2RouteRunner:
                         f"pressure did not stabilize"
                     )
                     self.service.status_service.clear_point_timing(sample_point, phase=phase, point_tag=point_tag)
+                    self.service._record_workflow_timing(
+                        "pressure_point_end",
+                        "warning",
+                        stage="pressure_point",
+                        point=sample_point,
+                        target_pressure_hpa=sample_point.target_pressure_hpa,
+                        decision="pressure_not_stable",
+                    )
                     skipped_point_indices.append(sample_point.index)
                     continue
                 self.service.event_bus.publish(EventType.STABILITY_PASSED, {"point": sample_point, "stability_type": "pressure"})
@@ -159,6 +196,14 @@ class Co2RouteRunner:
                         f"post-pressure hold before sampling interrupted"
                     )
                     self.service.status_service.clear_point_timing(sample_point, phase=phase, point_tag=point_tag)
+                    self.service._record_workflow_timing(
+                        "pressure_point_end",
+                        "warning",
+                        stage="pressure_point",
+                        point=sample_point,
+                        target_pressure_hpa=sample_point.target_pressure_hpa,
+                        decision="wait_gate_interrupted",
+                    )
                     skipped_point_indices.append(sample_point.index)
                     continue
                 self.service.status_service.mark_point_stable_for_sampling(sample_point, phase=phase, point_tag=point_tag)
@@ -166,6 +211,17 @@ class Co2RouteRunner:
                     phase=CalibrationPhase.SAMPLING,
                     current_point=sample_point,
                     message=f"CO2 sampling point {sample_point.index}",
+                )
+                sample_count_expected, sample_interval_s = self.service.sampling_service.sampling_params(phase)
+                sample_expected_max_s = max(5.0, float(sample_count_expected) * max(0.0, float(sample_interval_s)) + 30.0)
+                self.service._record_workflow_timing(
+                    "sample_start",
+                    "start",
+                    stage="sample",
+                    point=sample_point,
+                    target_pressure_hpa=sample_point.target_pressure_hpa,
+                    expected_max_s=sample_expected_max_s,
+                    sample_count=sample_count_expected,
                 )
                 self.service.status_service.record_route_trace(
                     action="sample_start",
@@ -178,6 +234,16 @@ class Co2RouteRunner:
                 )
                 results = self.service.sampling_service.sample_point(sample_point, phase=phase, point_tag=point_tag)
                 if not results:
+                    self.service._record_workflow_timing(
+                        "sample_end",
+                        "warning",
+                        stage="sample",
+                        point=sample_point,
+                        target_pressure_hpa=sample_point.target_pressure_hpa,
+                        expected_max_s=sample_expected_max_s,
+                        sample_count=0,
+                        decision="no_results",
+                    )
                     self.service.status_service.record_route_trace(
                         action="sample_end",
                         route=phase,
@@ -188,9 +254,27 @@ class Co2RouteRunner:
                     )
                     skipped_point_indices.append(sample_point.index)
                     self.service.status_service.clear_point_timing(sample_point, phase=phase, point_tag=point_tag)
+                    self.service._record_workflow_timing(
+                        "pressure_point_end",
+                        "warning",
+                        stage="pressure_point",
+                        point=sample_point,
+                        target_pressure_hpa=sample_point.target_pressure_hpa,
+                        decision="sample_no_results",
+                    )
                     continue
                 for result in results:
                     self.service.event_bus.publish(EventType.SAMPLE_COLLECTED, result)
+                self.service._record_workflow_timing(
+                    "sample_end",
+                    "end",
+                    stage="sample",
+                    point=sample_point,
+                    target_pressure_hpa=sample_point.target_pressure_hpa,
+                    expected_max_s=sample_expected_max_s,
+                    sample_count=len(results),
+                    decision="ok",
+                )
                 self.service.status_service.record_route_trace(
                     action="sample_end",
                     route=phase,
@@ -205,6 +289,14 @@ class Co2RouteRunner:
                 sampled_point_indices.append(sample_point.index)
                 completed_points.append(sample_point)
                 completed_point_indices.append(sample_point.index)
+                self.service._record_workflow_timing(
+                    "pressure_point_end",
+                    "end",
+                    stage="pressure_point",
+                    point=sample_point,
+                    target_pressure_hpa=sample_point.target_pressure_hpa,
+                    decision="ok",
+                )
 
             self.service.valve_routing_service.cleanup_co2_route(reason="after CO2 source complete")
             return RouteRunResult(

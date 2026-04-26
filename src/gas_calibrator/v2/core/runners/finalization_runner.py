@@ -25,9 +25,17 @@ class FinalizationRunner:
         error = final_error
         try:
             self._perform_safe_stop()
+            self._record_timing("artifact_finalize_start", "start", stage="artifact_finalize")
             try:
                 self.service._run_finalization()
             except Exception as exc:
+                self._record_timing(
+                    "artifact_finalize_end",
+                    "fail",
+                    stage="artifact_finalize",
+                    decision="failed",
+                    error_code=str(exc),
+                )
                 phase, message, error = self._handle_finalization_failure(
                     phase=phase,
                     message=message,
@@ -46,7 +54,21 @@ class FinalizationRunner:
                 self.service.session,
                 source_points_file=getattr(self.service, "_points_path", None),
             )
+            self._record_timing(
+                "artifact_finalize_end",
+                "end" if phase is CalibrationPhase.COMPLETED else "warning",
+                stage="artifact_finalize",
+                decision=phase.value,
+            )
             self._refresh_run001_a1_artifacts_after_terminal_summary()
+            self._refresh_run001_a2_artifacts_after_terminal_summary()
+            self._record_timing(
+                "run_end",
+                "end",
+                stage="run",
+                decision=phase.value,
+                error_code=error,
+            )
             self.service._generate_ai_outputs()
             self.service._sync_results_to_storage()
         except Exception as exc:
@@ -63,6 +85,13 @@ class FinalizationRunner:
             self.service.session.current_point = current_status.current_point
             if self.service.session.ended_at is None:
                 self.service.session.end(message)
+            self._record_timing(
+                "run_end",
+                "end",
+                stage="run",
+                decision=phase.value,
+                error_code=error,
+            )
         finally:
             self._publish_completion(phase=phase, error=error)
             self.service._done_event.set()
@@ -71,6 +100,7 @@ class FinalizationRunner:
         orchestrator = getattr(self.service, "orchestrator", None)
         if orchestrator is None:
             return
+        self._record_timing("safe_stop_start", "start", stage="safe_stop")
         restore_baseline = self._cfg_bool("workflow.restore_baseline_on_finish", True)
         summary: dict[str, Any] = {}
         baseline_done = False
@@ -111,6 +141,12 @@ class FinalizationRunner:
                 )
             except Exception:
                 orchestrator._log("Final safe stop summary available")
+        self._record_timing(
+            "safe_stop_end",
+            "end",
+            stage="safe_stop",
+            decision="ok",
+        )
 
     def _apply_terminal_state(
         self,
@@ -157,6 +193,30 @@ class FinalizationRunner:
                 self.service.orchestrator._log(f"Run-001/A1 terminal evidence refresh failed: {exc}")
             except Exception:
                 pass
+
+    def _refresh_run001_a2_artifacts_after_terminal_summary(self) -> None:
+        orchestrator = getattr(self.service, "orchestrator", None)
+        artifact_service = getattr(orchestrator, "artifact_service", None)
+        exporter = getattr(artifact_service, "_export_run001_a2_artifacts", None)
+        if not callable(exporter):
+            return
+        try:
+            exporter()
+        except Exception as exc:
+            try:
+                self.service.orchestrator._log(f"Run-001/A2 terminal evidence refresh failed: {exc}")
+            except Exception:
+                pass
+
+    def _record_timing(self, event_name: str, event_type: str, **kwargs: Any) -> None:
+        orchestrator = getattr(self.service, "orchestrator", None)
+        recorder = getattr(orchestrator, "_record_workflow_timing", None)
+        if not callable(recorder):
+            return
+        try:
+            recorder(event_name, event_type, **kwargs)
+        except Exception:
+            pass
 
     def _cfg_bool(self, path: str, default: bool) -> bool:
         orchestrator = getattr(self.service, "orchestrator", None)

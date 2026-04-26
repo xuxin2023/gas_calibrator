@@ -358,6 +358,13 @@ class CalibrationService:
         except WorkflowInterruptedError as exc:
             final_phase = CalibrationPhase.STOPPED
             final_message = str(exc) or "Calibration stopped"
+            self.orchestrator._record_workflow_timing(
+                "run_abort",
+                "abort",
+                stage="run",
+                decision="STOPPED",
+                error_code=str(exc) or "workflow_interrupted",
+            )
         except Exception as exc:
             final_phase = CalibrationPhase.ERROR
             final_message = f"Calibration failed: {exc}"
@@ -365,6 +372,13 @@ class CalibrationService:
             self.session.add_error(final_error)
             self.orchestrator._log(final_message)
             self.event_bus.publish(EventType.DEVICE_ERROR, {"error": final_error})
+            self.orchestrator._record_workflow_timing(
+                "run_fail",
+                "fail",
+                stage="run",
+                decision="ERROR",
+                error_code=final_error,
+            )
         finally:
             self.finalization_runner.run(
                 final_phase=final_phase,

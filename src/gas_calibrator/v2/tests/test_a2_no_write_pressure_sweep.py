@@ -154,13 +154,21 @@ def test_a2_artifacts_keep_preflight_distinct_from_execute_pass(tmp_path) -> Non
     written = write_run001_a2_artifacts(tmp_path / "artifacts", payload)
     summary = json.loads((tmp_path / "artifacts" / "summary.json").read_text(encoding="utf-8"))
     guard = json.loads((tmp_path / "artifacts" / "no_write_guard.json").read_text(encoding="utf-8"))
+    manifest = json.loads((tmp_path / "artifacts" / "run_manifest.json").read_text(encoding="utf-8"))
+    report = (tmp_path / "artifacts" / "human_readable_report.md").read_text(encoding="utf-8")
 
     assert written["pressure_gate_evidence"].endswith("pressure_gate_evidence.json")
+    assert written["workflow_timing_trace"].endswith("workflow_timing_trace.jsonl")
+    assert written["workflow_timing_summary"].endswith("workflow_timing_summary.json")
     assert summary["a2_final_decision"] == RUN001_NOT_EXECUTED
     assert summary["final_decision"] == RUN001_PASS
     assert guard["a2_final_decision"] == RUN001_NOT_EXECUTED
     assert summary["not_real_acceptance_evidence"] is True
     assert summary["v2_replaces_v1_claim"] is False
+    assert summary["workflow_timing_trace_artifact"].endswith("workflow_timing_trace.jsonl")
+    assert summary["workflow_timing_summary_artifact"].endswith("workflow_timing_summary.json")
+    assert "workflow_timing_artifacts" in manifest
+    assert "流程时序摘要" in report
 
 
 def test_a2_fail_artifacts_include_preseal_atmosphere_hold_evidence(tmp_path) -> None:
@@ -255,6 +263,14 @@ def test_a2_fail_artifacts_include_preseal_atmosphere_hold_evidence(tmp_path) ->
     summary = json.loads((artifact_dir / "summary.json").read_text(encoding="utf-8"))
     guard = json.loads((artifact_dir / "no_write_guard.json").read_text(encoding="utf-8"))
     evidence = json.loads((artifact_dir / "preseal_atmosphere_hold_evidence.json").read_text(encoding="utf-8"))
+    timing_summary = json.loads((artifact_dir / "workflow_timing_summary.json").read_text(encoding="utf-8"))
+    timing_events = [
+        json.loads(line)
+        for line in (artifact_dir / "workflow_timing_trace.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    manifest = json.loads((artifact_dir / "run_manifest.json").read_text(encoding="utf-8"))
+    report = (artifact_dir / "human_readable_report.md").read_text(encoding="utf-8")
     samples = (artifact_dir / "preseal_atmosphere_hold_samples.csv").read_text(encoding="utf-8")
 
     assert summary["a2_final_decision"] == "FAIL"
@@ -268,6 +284,14 @@ def test_a2_fail_artifacts_include_preseal_atmosphere_hold_evidence(tmp_path) ->
     assert guard["attempted_write_count"] == 0
     assert guard["identity_write_command_sent"] is False
     assert "pressure_limit_exceeded" in samples
+    assert timing_summary["a2_final_decision"] == "FAIL"
+    assert timing_summary["final_decision"] == "FAIL"
+    assert timing_summary["preseal_pressure_max_hpa"] == 1985.0
+    assert any(event["event_name"] == "preseal_pressure_check" for event in timing_events)
+    assert any(event["event_name"] == "run_fail" for event in timing_events)
+    assert all(event["no_write_guard_active"] is True for event in timing_events)
+    assert manifest["workflow_timing_artifacts"]["trace"].endswith("workflow_timing_trace.jsonl")
+    assert "流程时序摘要" in report
 
 
 def test_co2_preseal_soak_reasserts_pressure_atmosphere_hold(monkeypatch) -> None:

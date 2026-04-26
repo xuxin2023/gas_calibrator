@@ -119,6 +119,15 @@ class PressureControlService:
         command_method = ""
         command_error = ""
         diagnostics: dict[str, Any] = {}
+        timing_recorder = getattr(self.host, "_record_workflow_timing", None)
+        if vent_on and callable(timing_recorder):
+            timing_recorder(
+                "pressure_atmosphere_vent_start",
+                "start",
+                stage="pressure_atmosphere_vent",
+                wait_reason=reason or "pressure_controller_vent",
+                expected_max_s=self.host._cfg_get("workflow.pressure.vent_transition_timeout_s", None),
+            )
         try:
             if vent_on:
                 self.host._call_first(controller, ("set_output",), False)
@@ -166,6 +175,20 @@ class PressureControlService:
             if not bool(diagnostics.get("atmosphere_ready")) and trace_result == "ok":
                 trace_result = "fail"
                 trace_message = "pressure_controller_atmosphere_not_verified"
+        if vent_on and callable(timing_recorder):
+            timing_recorder(
+                "pressure_atmosphere_vent_end",
+                "end" if trace_result == "ok" else "fail",
+                stage="pressure_atmosphere_vent",
+                wait_reason=reason or "pressure_controller_vent",
+                expected_max_s=self.host._cfg_get("workflow.pressure.vent_transition_timeout_s", None),
+                decision=trace_result,
+                pressure_hpa=diagnostics.get("pressure_hpa"),
+                pace_output_state=diagnostics.get("output_state"),
+                pace_isolation_state=diagnostics.get("isolation_state"),
+                pace_vent_status=diagnostics.get("vent_status_raw"),
+                error_code=trace_message if trace_result != "ok" else None,
+            )
         self._record_route_trace(
             action="set_vent",
             target={"vent_on": bool(vent_on)},
@@ -621,12 +644,36 @@ class PressureControlService:
         if target is None:
             self.host._log("Missing target pressure, skipping pressure control.")
             return PressureWaitResult(ok=False, diagnostics={"missing_target": True}, error="Missing target pressure")
+        timing_recorder = getattr(self.host, "_record_workflow_timing", None)
+        pressure_timeout_s = float(self.host._cfg_get("workflow.pressure.stabilize_timeout_s", 120.0))
+        if callable(timing_recorder):
+            timing_recorder(
+                "pressure_setpoint_start",
+                "start",
+                stage="pressure_setpoint",
+                point=point,
+                target_pressure_hpa=target,
+                expected_max_s=pressure_timeout_s,
+                wait_reason="pressure_stabilize",
+            )
         seal_context = self._active_pressure_route_seal_context(point)
         if seal_context is None:
             self.host._set_pressure_controller_vent(False, reason="before setpoint control")
         else:
             control_ready = self._pressure_control_ready_gate(controller, point, seal_context=seal_context)
             if not control_ready.ok:
+                if callable(timing_recorder):
+                    timing_recorder(
+                        "pressure_timeout",
+                        "warning",
+                        stage="pressure_setpoint",
+                        point=point,
+                        target_pressure_hpa=target,
+                        expected_max_s=pressure_timeout_s,
+                        blocking_condition="pressure_control_ready_gate",
+                        decision="not_ready",
+                        error_code=control_ready.error,
+                    )
                 return control_ready
         setpoint_result = self._apply_pressure_setpoint(controller, target)
         if not bool(setpoint_result.get("accepted")):
@@ -644,6 +691,18 @@ class PressureControlService:
                 result="fail",
                 message="Pressure setpoint not accepted",
             )
+            if callable(timing_recorder):
+                timing_recorder(
+                    "pressure_timeout",
+                    "warning",
+                    stage="pressure_setpoint",
+                    point=point,
+                    target_pressure_hpa=target,
+                    expected_max_s=pressure_timeout_s,
+                    blocking_condition=str(setpoint_result.get("reason") or "setpoint_not_accepted"),
+                    decision="setpoint_not_accepted",
+                    error_code=result.error,
+                )
             return result
         self.host._enable_pressure_controller_output(reason="after setpoint update")
         output_enabled = self._pressure_output_enabled_for_control(controller)
@@ -666,8 +725,20 @@ class PressureControlService:
                 result="fail",
                 message="Pressure controller output not enabled",
             )
+            if callable(timing_recorder):
+                timing_recorder(
+                    "pressure_timeout",
+                    "warning",
+                    stage="pressure_setpoint",
+                    point=point,
+                    target_pressure_hpa=target,
+                    expected_max_s=pressure_timeout_s,
+                    blocking_condition="output_not_enabled",
+                    decision="output_not_enabled",
+                    error_code=result.error,
+                )
             return result
-        timeout_s = float(self.host._cfg_get("workflow.pressure.stabilize_timeout_s", 120.0))
+        timeout_s = pressure_timeout_s
         retry_count = int(self.host._cfg_get("workflow.pressure.restabilize_retries", 2))
         retry_interval_s = float(self.host._cfg_get("workflow.pressure.restabilize_retry_interval_s", 10.0))
         started_at = time.time()
@@ -697,6 +768,17 @@ class PressureControlService:
                     result="ok",
                     message="Pressure stabilized in limits",
                 )
+                if callable(timing_recorder):
+                    timing_recorder(
+                        "pressure_ready",
+                        "end",
+                        stage="pressure_setpoint",
+                        point=point,
+                        target_pressure_hpa=target,
+                        expected_max_s=timeout_s,
+                        pressure_hpa=final_pressure,
+                        decision="ok",
+                    )
                 return result
             if retries_done < retry_count and time.time() >= next_retry_at:
                 retries_done += 1
@@ -729,9 +811,32 @@ class PressureControlService:
             result="timeout",
             message=result.error or "Pressure stabilize timeout",
         )
+        if callable(timing_recorder):
+            timing_recorder(
+                "pressure_timeout",
+                "warning",
+                stage="pressure_setpoint",
+                point=point,
+                target_pressure_hpa=target,
+                expected_max_s=timeout_s,
+                pressure_hpa=final_pressure,
+                decision="timeout",
+                error_code=result.error,
+            )
         return result
 
     def pressurize_and_hold(self, point: CalibrationPoint, route: str = "co2") -> PressureWaitResult:
+        route_text = str(route or "").strip().lower()
+        timing_recorder = getattr(self.host, "_record_workflow_timing", None)
+        if callable(timing_recorder):
+            timing_recorder(
+                "seal_start",
+                "start",
+                stage="seal",
+                point=point,
+                target_pressure_hpa=point.target_pressure_hpa,
+                wait_reason=f"{route_text}_pressure_seal",
+            )
         controller = self.host._device("pressure_controller")
         if controller is None:
             self.host._log("Pressure controller unavailable, cannot seal route")
@@ -743,8 +848,17 @@ class PressureControlService:
                 result="fail",
                 message=result.error or "Pressure controller unavailable",
             )
+            if callable(timing_recorder):
+                timing_recorder(
+                    "seal_end",
+                    "fail",
+                    stage="seal",
+                    point=point,
+                    target_pressure_hpa=point.target_pressure_hpa,
+                    decision="missing_controller",
+                    error_code=result.error,
+                )
             return result
-        route_text = str(route or "").strip().lower()
         if route_text == "h2o":
             self.host._capture_preseal_dewpoint_snapshot()
         final_vent_off_command_sent = True
@@ -824,6 +938,16 @@ class PressureControlService:
                 final_vent_off_command_sent=final_vent_off_command_sent,
             )
             if not preseal_exit.ok:
+                if callable(timing_recorder):
+                    timing_recorder(
+                        "seal_end",
+                        "fail",
+                        stage="seal",
+                        point=point,
+                        target_pressure_hpa=point.target_pressure_hpa,
+                        decision="preseal_final_atmosphere_exit_failed",
+                        error_code=preseal_exit.error,
+                    )
                 return preseal_exit
             if route_text == "h2o":
                 self.host._set_h2o_path(False, point)
@@ -832,6 +956,16 @@ class PressureControlService:
                 relay_state = self.host._apply_valve_states([])
             seal_transition = self._seal_transition_gate(point, route=route_text, relay_state=relay_state)
             if not seal_transition.ok:
+                if callable(timing_recorder):
+                    timing_recorder(
+                        "seal_end",
+                        "fail",
+                        stage="seal",
+                        point=point,
+                        target_pressure_hpa=point.target_pressure_hpa,
+                        decision="seal_transition_failed",
+                        error_code=seal_transition.error,
+                    )
                 return PressureWaitResult(
                     ok=False,
                     diagnostics={**preseal_exit.diagnostics, **seal_transition.diagnostics},
@@ -896,6 +1030,16 @@ class PressureControlService:
                 result="ok",
                 message=f"{route_text.upper()} route sealed for pressure control",
             )
+            if callable(timing_recorder):
+                timing_recorder(
+                    "seal_end",
+                    "end",
+                    stage="seal",
+                    point=point,
+                    target_pressure_hpa=point.target_pressure_hpa,
+                    pressure_hpa=final_pressure,
+                    decision="ok",
+                )
             return result
         finally:
             if route_text != "h2o":
@@ -905,6 +1049,27 @@ class PressureControlService:
         if self.host._collect_only_fast_path_enabled():
             self.host._log("Collect-only mode: post-pressure sample hold skipped")
             result = PressureWaitResult(ok=True, diagnostics={"skipped": "collect_only_fast_path"})
+            timing_recorder = getattr(self.host, "_record_workflow_timing", None)
+            if callable(timing_recorder):
+                timing_recorder(
+                    "wait_gate_start",
+                    "start",
+                    stage="wait_gate",
+                    point=point,
+                    target_pressure_hpa=point.target_pressure_hpa,
+                    expected_max_s=0.0,
+                    wait_reason="collect_only_fast_path",
+                )
+                timing_recorder(
+                    "wait_gate_end",
+                    "end",
+                    stage="wait_gate",
+                    point=point,
+                    target_pressure_hpa=point.target_pressure_hpa,
+                    expected_max_s=0.0,
+                    wait_reason="collect_only_fast_path",
+                    decision="skipped",
+                )
             self._record_route_trace(
                 action="wait_post_pressure",
                 point=point,
@@ -923,6 +1088,27 @@ class PressureControlService:
         )
         if hold_s <= 0:
             result = PressureWaitResult(ok=True, diagnostics={"hold_s": hold_s})
+            timing_recorder = getattr(self.host, "_record_workflow_timing", None)
+            if callable(timing_recorder):
+                timing_recorder(
+                    "wait_gate_start",
+                    "start",
+                    stage="wait_gate",
+                    point=point,
+                    target_pressure_hpa=point.target_pressure_hpa,
+                    expected_max_s=0.0,
+                    wait_reason="post_pressure_hold_disabled",
+                )
+                timing_recorder(
+                    "wait_gate_end",
+                    "end",
+                    stage="wait_gate",
+                    point=point,
+                    target_pressure_hpa=point.target_pressure_hpa,
+                    expected_max_s=0.0,
+                    wait_reason="post_pressure_hold_disabled",
+                    decision="disabled",
+                )
             self._record_route_trace(
                 action="wait_post_pressure",
                 point=point,
@@ -932,10 +1118,34 @@ class PressureControlService:
             )
             return result
         started_at = time.time()
+        timing_recorder = getattr(self.host, "_record_workflow_timing", None)
+        expected_max_s = hold_s + max(5.0, hold_s * 0.1)
+        if callable(timing_recorder):
+            timing_recorder(
+                "wait_gate_start",
+                "start",
+                stage="wait_gate",
+                point=point,
+                target_pressure_hpa=point.target_pressure_hpa,
+                expected_max_s=expected_max_s,
+                wait_reason="post_pressure_hold",
+            )
         while time.time() - started_at < hold_s:
             self.host._check_stop()
             time.sleep(min(1.0, max(0.05, hold_s - (time.time() - started_at))))
         result = PressureWaitResult(ok=True, diagnostics={"hold_s": hold_s})
+        if callable(timing_recorder):
+            timing_recorder(
+                "wait_gate_end",
+                "end",
+                stage="wait_gate",
+                point=point,
+                target_pressure_hpa=point.target_pressure_hpa,
+                duration_s=max(0.0, time.time() - started_at),
+                expected_max_s=expected_max_s,
+                wait_reason="post_pressure_hold",
+                decision="ok",
+            )
         self._record_route_trace(
             action="wait_post_pressure",
             point=point,

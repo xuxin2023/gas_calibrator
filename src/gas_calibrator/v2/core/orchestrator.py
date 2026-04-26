@@ -41,6 +41,7 @@ from .services import (
     SamplingService,
     StatusService,
     TemperatureControlService,
+    TimingMonitorService,
     ValveRoutingService,
 )
 from .stability_checker import StabilityChecker, StabilityType
@@ -110,11 +111,107 @@ class WorkflowOrchestrator:
         self.dewpoint_alignment_service = DewpointAlignmentService(self.context, self.run_state, host=self)
         self.artifact_service = ArtifactService(self.context, self.run_state, host=self)
         self.ai_explanation_service = AIExplanationService(self.context, self.run_state, host=self)
+        self.timing_monitor_service = TimingMonitorService(
+            self.result_store.run_dir,
+            run_id=self.session.run_id,
+            enabled=False,
+        )
         self._startup_pressure_precheck_result: Optional[StartupPressurePrecheckResult] = None
         self._last_co2_route_dewpoint_gate_summary: Dict[str, Any] = {}
 
     def set_log_callback(self, callback: Optional[Callable[[str], None]]) -> None:
         self._log_callback = callback
+
+    def _workflow_timing_enabled(self) -> bool:
+        raw_cfg = getattr(self.service, "_raw_cfg", None)
+        if not isinstance(raw_cfg, dict):
+            return False
+        policy = raw_cfg.get("run001_a2")
+        if not isinstance(policy, dict):
+            return False
+        scope = str(policy.get("scope") or "").strip()
+        return scope == "run001_a2_co2_no_write_pressure_sweep"
+
+    def _workflow_no_write_guard_active(self) -> bool:
+        guard = getattr(self.service, "no_write_guard", None)
+        if guard is not None:
+            return True
+        raw_cfg = getattr(self.service, "_raw_cfg", None)
+        if not isinstance(raw_cfg, dict):
+            return False
+        policy = raw_cfg.get("run001_a2")
+        if isinstance(policy, dict) and bool(policy.get("no_write")):
+            return True
+        policy = raw_cfg.get("run001_a1")
+        return bool(isinstance(policy, dict) and policy.get("no_write"))
+
+    def _record_workflow_timing(
+        self,
+        event_name: str,
+        event_type: str = "info",
+        *,
+        stage: str = "",
+        point: Optional[CalibrationPoint] = None,
+        point_index: Any = None,
+        target_pressure_hpa: Any = None,
+        duration_s: Any = None,
+        expected_max_s: Any = None,
+        wait_reason: Any = None,
+        blocking_condition: Any = None,
+        decision: Any = None,
+        pressure_hpa: Any = None,
+        chamber_temperature_c: Any = None,
+        dewpoint_c: Any = None,
+        pace_output_state: Any = None,
+        pace_isolation_state: Any = None,
+        pace_vent_status: Any = None,
+        sample_count: Any = None,
+        warning_code: Any = None,
+        error_code: Any = None,
+    ) -> dict[str, Any]:
+        monitor = getattr(self, "timing_monitor_service", None)
+        recorder = getattr(monitor, "record_event", None)
+        if not callable(recorder):
+            return {}
+        resolved_point = point or getattr(self.route_context, "active_point", None) or getattr(self.route_context, "current_point", None)
+        resolved_point_index = point_index
+        if resolved_point_index is None and resolved_point is not None:
+            resolved_point_index = getattr(resolved_point, "index", None)
+        if target_pressure_hpa is None and resolved_point is not None:
+            target_pressure_hpa = getattr(resolved_point, "target_pressure_hpa", None)
+        pressure_state = getattr(self.run_state, "pressure", None)
+        route_state = {
+            "current_route": getattr(self.route_context, "current_route", ""),
+            "current_phase": str(getattr(getattr(self.route_context, "current_phase", None), "value", getattr(self.route_context, "current_phase", "")) or ""),
+            "point_tag": getattr(self.route_context, "point_tag", ""),
+            "retry": getattr(self.route_context, "retry", 0),
+            "route_state": dict(getattr(self.route_context, "route_state", {}) or {}),
+        }
+        return recorder(
+            event_name,
+            event_type,
+            stage=stage,
+            point_index=resolved_point_index,
+            target_pressure_hpa=target_pressure_hpa,
+            duration_s=duration_s,
+            expected_max_s=expected_max_s,
+            wait_reason=wait_reason,
+            blocking_condition=blocking_condition,
+            decision=decision,
+            route_state=route_state,
+            pressure_hpa=pressure_hpa
+            if pressure_hpa is not None
+            else getattr(pressure_state, "sealed_route_last_controlled_pressure_hpa", None),
+            chamber_temperature_c=chamber_temperature_c,
+            dewpoint_c=dewpoint_c,
+            pace_output_state=pace_output_state,
+            pace_isolation_state=pace_isolation_state,
+            pace_vent_status=pace_vent_status,
+            sample_count=sample_count,
+            warning_code=warning_code,
+            error_code=error_code,
+            no_write_guard_active=self._workflow_no_write_guard_active(),
+        )
 
     def _bind_run_state_aliases(self) -> None:
         self._output_files = self.run_state.artifacts.output_files
@@ -146,6 +243,12 @@ class WorkflowOrchestrator:
         self._bind_run_state_aliases()
         self.result_store._samples.clear()
         self.result_store._point_summaries.clear()
+        self.timing_monitor_service = TimingMonitorService(
+            self.result_store.run_dir,
+            run_id=self.session.run_id,
+            no_write_guard_active=self._workflow_no_write_guard_active(),
+            enabled=self._workflow_timing_enabled(),
+        )
 
     def get_results(self) -> list[SamplingResult]:
         return self.result_store.get_samples()
@@ -161,6 +264,7 @@ class WorkflowOrchestrator:
         points: list[CalibrationPoint],
         temperature_groups: Optional[list[TemperatureGroup]] = None,
     ) -> None:
+        self._record_workflow_timing("run_start", "start", stage="run")
         self.service._run_initialization()
         self.service._run_precheck()
         self._run_startup_pressure_precheck(points)
@@ -203,16 +307,21 @@ class WorkflowOrchestrator:
             phase=CalibrationPhase.INITIALIZING,
             message="Applying analyzer setup",
         )
+        self._record_workflow_timing("analyzer_setup_start", "start", stage="analyzer_setup")
         self.analyzer_fleet_service.apply_analyzer_setup()
+        self._record_workflow_timing("analyzer_setup_end", "end", stage="analyzer_setup")
         self._update_status(
             phase=CalibrationPhase.INITIALIZING,
             message="Running sensor precheck",
         )
+        self._record_workflow_timing("analyzer_precheck_start", "start", stage="analyzer_precheck")
         self.analyzer_fleet_service.run_sensor_precheck()
+        self._record_workflow_timing("analyzer_precheck_end", "end", stage="analyzer_precheck")
         self._configure_pressure_controller_in_limits()
 
     def _run_precheck_impl(self) -> None:
         self._check_stop()
+        self._record_workflow_timing("preflight_start", "start", stage="preflight")
         self._update_status(
             phase=CalibrationPhase.PRECHECK,
             message="Running precheck",
@@ -221,6 +330,7 @@ class WorkflowOrchestrator:
         precheck = self.config.workflow.precheck
         if not precheck.enabled:
             self._log("Precheck disabled by configuration")
+            self._record_workflow_timing("preflight_end", "end", stage="preflight", decision="skipped")
             return
 
         if precheck.device_connection:
@@ -250,6 +360,7 @@ class WorkflowOrchestrator:
             self._run_pressure_leak_test()
         if precheck.sensor_check:
             self._run_sensor_check()
+        self._record_workflow_timing("preflight_end", "end", stage="preflight", decision="ok")
 
     def _run_startup_pressure_precheck(self, points: list[CalibrationPoint]) -> None:
         self._check_stop()
@@ -1044,6 +1155,13 @@ class WorkflowOrchestrator:
         self._last_co2_route_dewpoint_gate_summary = {}
         if self._collect_only_fast_path_enabled():
             self._log("Collect-only mode: CO2 route pre-seal soak skipped")
+            self._record_workflow_timing(
+                "preseal_soak_end",
+                "warning",
+                stage="preseal_soak",
+                point=point,
+                decision="collect_only_skipped",
+            )
             return True
         special_flush = self._has_special_co2_zero_flush_pending() and self._is_zero_co2_point(point)
         soak_key = "workflow.stability.co2_route.preseal_soak_s"
@@ -1067,8 +1185,23 @@ class WorkflowOrchestrator:
         if soak_s <= 0:
             self.run_state.humidity.first_co2_route_soak_pending = False
             self._first_co2_route_soak_pending = False
+            self._record_workflow_timing(
+                "preseal_soak_end",
+                "warning",
+                stage="preseal_soak",
+                point=point,
+                decision="disabled",
+            )
             return True
         self._log(f"{log_context}; wait {int(soak_s)}s before pressure sealing (row {point.index})")
+        self._record_workflow_timing(
+            "preseal_soak_start",
+            "start",
+            stage="preseal_soak",
+            point=point,
+            expected_max_s=soak_s + max(5.0, soak_s * 0.1),
+            wait_reason=soak_key,
+        )
         start = time.time()
         continuous_atmosphere_hold = bool(self._cfg_get("workflow.pressure.continuous_atmosphere_hold", False))
         vent_hold_interval_s = max(0.1, float(self._cfg_get("workflow.pressure.vent_hold_interval_s", 2.0)))
@@ -1076,11 +1209,29 @@ class WorkflowOrchestrator:
         while time.time() - start < soak_s:
             self._check_stop()
             now = time.time()
+            self._record_workflow_timing(
+                "preseal_soak_tick",
+                "tick",
+                stage="preseal_soak",
+                point=point,
+                duration_s=now - start,
+                expected_max_s=soak_s,
+                wait_reason=soak_key,
+            )
             if continuous_atmosphere_hold and (now - last_atmosphere_hold_ts) >= vent_hold_interval_s:
                 self._set_pressure_controller_vent(
                     True,
                     reason="CO2 route pre-seal atmosphere hold",
                     wait_after_command=False,
+                )
+                self._record_workflow_timing(
+                    "preseal_vent_hold_tick",
+                    "tick",
+                    stage="preseal_soak",
+                    point=point,
+                    duration_s=now - start,
+                    expected_max_s=vent_hold_interval_s,
+                    wait_reason="continuous_atmosphere_hold",
                 )
                 self._verify_co2_preseal_atmosphere_hold_pressure(point)
                 last_atmosphere_hold_ts = now
@@ -1091,6 +1242,14 @@ class WorkflowOrchestrator:
             self._initial_co2_zero_flush_pending = False
         self.run_state.humidity.first_co2_route_soak_pending = False
         self._first_co2_route_soak_pending = False
+        self._record_workflow_timing(
+            "preseal_soak_end",
+            "end",
+            stage="preseal_soak",
+            point=point,
+            expected_max_s=soak_s + max(5.0, soak_s * 0.1),
+            decision="ok",
+        )
         return self._wait_co2_route_dewpoint_gate_before_seal(
             point,
             base_soak_s=soak_s,
@@ -1105,17 +1264,26 @@ class WorkflowOrchestrator:
         if pressure_hpa is None:
             return
         limit_hpa = self._as_float(self._cfg_get("workflow.pressure.preseal_atmosphere_hold_max_hpa"))
+        target_hpa = self._as_float(point.target_pressure_hpa)
         if limit_hpa is None:
             default_limit_hpa = self._as_float(
                 self._cfg_get("workflow.pressure.preseal_atmosphere_hold_default_max_hpa", 1110.0)
             )
-            target_hpa = self._as_float(point.target_pressure_hpa)
             if target_hpa is None:
                 return
             margin_hpa = self._as_float(self._cfg_get("workflow.pressure.preseal_atmosphere_hold_margin_hpa", 10.0))
             target_limit_hpa = target_hpa + abs(10.0 if margin_hpa is None else margin_hpa)
             limit_hpa = max(1110.0 if default_limit_hpa is None else default_limit_hpa, target_limit_hpa)
         if pressure_hpa <= float(limit_hpa):
+            self._record_workflow_timing(
+                "preseal_pressure_check",
+                "info",
+                stage="preseal_soak",
+                point=point,
+                pressure_hpa=pressure_hpa,
+                target_pressure_hpa=target_hpa,
+                decision="within_limit",
+            )
             return
         tagger = getattr(getattr(self, "route_planner", None), "co2_point_tag", None)
         point_tag = tagger(point) if callable(tagger) else ""
@@ -1136,6 +1304,16 @@ class WorkflowOrchestrator:
                 result="fail",
                 message="CO2 pre-seal atmosphere hold pressure exceeded limit",
             )
+        self._record_workflow_timing(
+            "preseal_pressure_check",
+            "fail",
+            stage="preseal_soak",
+            point=point,
+            pressure_hpa=pressure_hpa,
+            target_pressure_hpa=target_hpa,
+            decision="limit_exceeded",
+            error_code="co2_preseal_atmosphere_hold_pressure_exceeded",
+        )
         self._log(
             "CO2 pre-seal atmosphere hold pressure exceeded limit: "
             f"row={point.index} pressure={pressure_hpa:.3f}hPa limit={float(limit_hpa):.3f}hPa"
