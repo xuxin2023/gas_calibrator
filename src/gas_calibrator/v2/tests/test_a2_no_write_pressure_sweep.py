@@ -299,6 +299,9 @@ def test_a2_artifacts_keep_preflight_distinct_from_execute_pass(tmp_path) -> Non
     assert written["positive_preseal_pressurization_samples"].endswith(
         "positive_preseal_pressurization_samples.csv"
     )
+    assert written["positive_preseal_timing_diagnostics"].endswith(
+        "positive_preseal_timing_diagnostics.json"
+    )
     assert written["workflow_timing_trace"].endswith("workflow_timing_trace.jsonl")
     assert written["workflow_timing_summary"].endswith("workflow_timing_summary.json")
     assert summary["a2_final_decision"] == RUN001_NOT_EXECUTED
@@ -325,12 +328,21 @@ def test_a2_config_splits_temperature_chamber_and_analyzer_timeouts() -> None:
     )
     raw = json.loads(config_path.read_text(encoding="utf-8"))
     temperature = raw["workflow"]["stability"]["temperature"]
+    pressure = raw["workflow"]["pressure"]
 
     assert temperature["timeout_s"] == 3600
     assert temperature["require_chamber_settle_before_analyzer"] is True
     assert temperature["analyzer_chamber_temp_timeout_s"] == 1800
     assert temperature["analyzer_chamber_temp_span_c"] == 0.08
     assert temperature["analyzer_chamber_temp_window_s"] == 60
+    assert pressure["pressure_rise_detection_threshold_hpa"] == 2.0
+    assert pressure["expected_route_open_to_ready_max_s"] == 40.0
+    assert pressure["expected_positive_preseal_to_ready_max_s"] == 30.0
+    assert pressure["expected_ready_to_seal_command_max_s"] == 0.5
+    assert pressure["expected_ready_to_seal_confirm_max_s"] == 2.0
+    assert pressure["expected_max_pressure_increase_after_ready_hpa"] == 10.0
+    assert pressure["expected_vent_hold_tick_interval_s"] == 2.0
+    assert pressure["timing_warning_only"] is True
 
 
 def test_a2_fail_artifacts_include_preseal_atmosphere_hold_evidence(tmp_path) -> None:
@@ -476,6 +488,16 @@ def test_a2_artifacts_include_positive_preseal_pressurization_evidence(tmp_path)
         "preseal_abort_pressure_hpa": 1150.0,
         "preseal_ready_timeout_s": 30.0,
         "preseal_pressure_poll_interval_s": 0.2,
+        "pressure_rise_detection_threshold_hpa": 2.0,
+        "expected_route_open_to_first_pressure_rise_max_s": 10.0,
+        "expected_route_open_to_ready_max_s": 40.0,
+        "expected_positive_preseal_to_ready_max_s": 30.0,
+        "expected_ready_to_seal_command_max_s": 0.5,
+        "expected_ready_to_seal_confirm_max_s": 2.0,
+        "expected_max_pressure_increase_after_ready_hpa": 10.0,
+        "expected_vent_hold_tick_interval_s": 4.0,
+        "expected_vent_hold_pressure_rise_rate_max_hpa_per_s": 100.0,
+        "timing_warning_only": True,
         "fail_if_sealed_pressure_below_target": True,
     }
     artifact_dir = tmp_path / "artifacts"
@@ -490,6 +512,15 @@ def test_a2_artifacts_include_positive_preseal_pressurization_evidence(tmp_path)
     }.items():
         (artifact_dir / filename).write_text(content, encoding="utf-8")
     trace_rows = [
+        {
+            "ts": "2026-04-26T04:10:50+00:00",
+            "action": "set_co2_valves",
+            "route": "co2",
+            "point_index": 1,
+            "target": {"pressure_hpa": 1100.0},
+            "actual": {"pressure_hpa": 1009.0},
+            "result": "ok",
+        },
         {
             "ts": "2026-04-26T04:10:55+00:00",
             "action": "set_vent",
@@ -506,6 +537,32 @@ def test_a2_artifacts_include_positive_preseal_pressurization_evidence(tmp_path)
             "result": "ok",
         },
         {
+            "ts": "2026-04-26T04:10:58+00:00",
+            "action": "co2_preseal_atmosphere_hold_pressure_guard",
+            "route": "co2",
+            "point_index": 1,
+            "actual": {
+                "pressure_hpa": 1009.5,
+                "ready_pressure_hpa": 1110.0,
+                "abort_pressure_hpa": 1150.0,
+                "reason": "within_limit",
+            },
+            "result": "ok",
+        },
+        {
+            "ts": "2026-04-26T04:10:59+00:00",
+            "action": "preseal_atmosphere_flush_ready_handoff",
+            "route": "co2",
+            "point_index": 1,
+            "actual": {
+                "pressure_hpa": 1111.0,
+                "ready_pressure_hpa": 1110.0,
+                "abort_pressure_hpa": 1150.0,
+                "reason": "positive_preseal_ready_handoff",
+            },
+            "result": "ok",
+        },
+        {
             "ts": "2026-04-26T04:11:00+00:00",
             "action": "positive_preseal_pressurization_start",
             "route": "co2",
@@ -514,12 +571,28 @@ def test_a2_artifacts_include_positive_preseal_pressurization_evidence(tmp_path)
                 "stage": "positive_preseal_pressurization",
                 "target_pressure_hpa": 1100.0,
                 "measured_atmospheric_pressure_hpa": 1246.758,
+                "current_line_pressure_hpa": 1105.0,
                 "preseal_ready_pressure_hpa": 1110.0,
                 "preseal_abort_pressure_hpa": 1150.0,
                 "preseal_ready_timeout_s": 30.0,
                 "preseal_pressure_poll_interval_s": 0.2,
             },
             "result": "ok",
+        },
+        {
+            "ts": "2026-04-26T04:11:00.200000+00:00",
+            "action": "set_vent",
+            "route": "co2",
+            "point_index": 1,
+            "target": {"vent_on": False},
+            "actual": {
+                "pressure_hpa": 1105.0,
+                "vent_status_raw": 0,
+                "output_state": 0,
+                "isolation_state": 1,
+            },
+            "result": "ok",
+            "message": "positive CO2 preseal pressurization before route seal",
         },
         {
             "ts": "2026-04-26T04:11:01+00:00",
@@ -599,6 +672,9 @@ def test_a2_artifacts_include_positive_preseal_pressurization_evidence(tmp_path)
     evidence = json.loads(
         (artifact_dir / "positive_preseal_pressurization_evidence.json").read_text(encoding="utf-8")
     )
+    timing_diagnostics = json.loads(
+        (artifact_dir / "positive_preseal_timing_diagnostics.json").read_text(encoding="utf-8")
+    )
     timing_summary = json.loads((artifact_dir / "workflow_timing_summary.json").read_text(encoding="utf-8"))
     manifest = json.loads((artifact_dir / "run_manifest.json").read_text(encoding="utf-8"))
     report = (artifact_dir / "human_readable_report.md").read_text(encoding="utf-8")
@@ -618,10 +694,27 @@ def test_a2_artifacts_include_positive_preseal_pressurization_evidence(tmp_path)
     assert timing_summary["positive_preseal_ready_pressure_hpa"] == 1110.5
     assert timing_summary["positive_preseal_abort_pressure_hpa"] == 1150.0
     assert timing_summary["ambient_reference_pressure_hpa"] == 1009.0
+    assert timing_diagnostics["first_pressure_rise_detected_elapsed_s"] == 9.0
+    assert timing_diagnostics["time_from_route_open_to_ready_s"] == 9.0
+    assert timing_diagnostics["time_from_positive_preseal_start_to_ready_s"] == 2.0
+    assert timing_diagnostics["vent_hold_pressure_rise_rate_hpa_per_s"] == 25.5
+    assert timing_diagnostics["positive_preseal_pressure_rise_rate_hpa_per_s"] == 2.75
+    assert timing_diagnostics["warning_codes"] == []
+    assert timing_diagnostics["no_write_guard_active"] is True
+    assert timing_summary["route_open_to_first_pressure_rise_s"] == 9.0
+    assert timing_summary["route_open_to_ready_s"] == 9.0
+    assert timing_summary["positive_preseal_start_to_ready_s"] == 2.0
+    assert timing_summary["vent_hold_pressure_rise_rate_hpa_per_s"] == 25.5
+    assert timing_summary["positive_preseal_pressure_rise_rate_hpa_per_s"] == 2.75
     assert manifest["positive_preseal_pressurization_evidence_artifact"].endswith(
         "positive_preseal_pressurization_evidence.json"
     )
+    assert manifest["positive_preseal_timing_diagnostics_artifact"].endswith(
+        "positive_preseal_timing_diagnostics.json"
+    )
+    assert str(artifact_dir / "positive_preseal_timing_diagnostics.json") in manifest["artifacts"]["output_files"]
     assert "Positive preseal pressurization summary" in report
+    assert "正压封路升压时序诊断" in report
 
 
 def test_co2_preseal_soak_reasserts_pressure_atmosphere_hold(monkeypatch) -> None:

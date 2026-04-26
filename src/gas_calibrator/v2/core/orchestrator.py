@@ -1204,8 +1204,21 @@ class WorkflowOrchestrator:
         )
         start = time.time()
         continuous_atmosphere_hold = bool(self._cfg_get("workflow.pressure.continuous_atmosphere_hold", False))
+        positive_preseal_enabled = bool(
+            self._cfg_get("workflow.pressure.positive_preseal_pressurization_enabled", False)
+        )
         vent_hold_interval_s = max(0.1, float(self._cfg_get("workflow.pressure.vent_hold_interval_s", 2.0)))
         last_atmosphere_hold_ts = 0.0
+        if positive_preseal_enabled:
+            self._record_workflow_timing(
+                "preseal_atmosphere_flush_hold_start",
+                "start",
+                stage="preseal_atmosphere_flush_hold",
+                point=point,
+                pressure_hpa=getattr(self, "_a2_co2_route_open_pressure_hpa", None),
+                expected_max_s=soak_s,
+                wait_reason="continuous_atmosphere_hold",
+            )
         while time.time() - start < soak_s:
             self._check_stop()
             now = time.time()
@@ -1248,6 +1261,15 @@ class WorkflowOrchestrator:
             self._initial_co2_zero_flush_pending = False
         self.run_state.humidity.first_co2_route_soak_pending = False
         self._first_co2_route_soak_pending = False
+        if positive_preseal_enabled:
+            self._record_workflow_timing(
+                "preseal_atmosphere_flush_hold_end",
+                "end",
+                stage="preseal_atmosphere_flush_hold",
+                point=point,
+                expected_max_s=soak_s,
+                decision="ok",
+            )
         self._record_workflow_timing(
             "preseal_soak_end",
             "end",
@@ -1281,6 +1303,32 @@ class WorkflowOrchestrator:
         abort_hpa = self._as_float(self._cfg_get("workflow.pressure.preseal_atmosphere_flush_abort_pressure_hpa"))
         if abort_hpa is None:
             abort_hpa = self._as_float(self._cfg_get("workflow.pressure.preseal_abort_pressure_hpa"))
+        if positive_preseal_enabled:
+            route_open_pressure = self._as_float(getattr(self, "_a2_co2_route_open_pressure_hpa", None))
+            if route_open_pressure is None:
+                route_open_pressure = pressure_hpa
+                setattr(self, "_a2_co2_route_open_pressure_hpa", route_open_pressure)
+            rise_threshold = self._as_float(
+                self._cfg_get("workflow.pressure.pressure_rise_detection_threshold_hpa", 2.0)
+            )
+            rise_threshold = 2.0 if rise_threshold is None else float(rise_threshold)
+            pressure_delta = float(pressure_hpa) - float(route_open_pressure)
+            if not bool(getattr(self, "_a2_preseal_pressure_rise_detected", False)) and pressure_delta >= rise_threshold:
+                setattr(self, "_a2_preseal_pressure_rise_detected", True)
+                self._record_workflow_timing(
+                    "pressure_rise_detected",
+                    "info",
+                    stage="preseal_atmosphere_flush_hold",
+                    point=point,
+                    pressure_hpa=pressure_hpa,
+                    target_pressure_hpa=target_hpa,
+                    decision="rise_detected",
+                    route_state={
+                        "pressure_at_route_open_hpa": route_open_pressure,
+                        "pressure_delta_hpa": round(pressure_delta, 3),
+                        "pressure_rise_detection_threshold_hpa": rise_threshold,
+                    },
+                )
         if limit_hpa is None:
             default_limit_hpa = self._as_float(
                 self._cfg_get("workflow.pressure.preseal_atmosphere_hold_default_max_hpa", 1110.0)
@@ -1318,6 +1366,24 @@ class WorkflowOrchestrator:
                     message="CO2 atmosphere flush reached positive preseal ready pressure",
                 )
             self._record_workflow_timing(
+                "preseal_atmosphere_flush_pressure_check",
+                "tick",
+                stage="preseal_atmosphere_flush_hold",
+                point=point,
+                pressure_hpa=pressure_hpa,
+                target_pressure_hpa=target_hpa,
+                decision="positive_preseal_ready_handoff",
+            )
+            self._record_workflow_timing(
+                "preseal_atmosphere_flush_ready_handoff",
+                "info",
+                stage="preseal_atmosphere_flush_hold",
+                point=point,
+                pressure_hpa=pressure_hpa,
+                target_pressure_hpa=target_hpa,
+                decision="positive_preseal_ready_handoff",
+            )
+            self._record_workflow_timing(
                 "preseal_pressure_check",
                 "info",
                 stage="preseal_atmosphere_flush_hold",
@@ -1328,6 +1394,16 @@ class WorkflowOrchestrator:
             )
             return "positive_preseal_ready_handoff"
         if pressure_hpa <= effective_limit_hpa:
+            if positive_preseal_enabled:
+                self._record_workflow_timing(
+                    "preseal_atmosphere_flush_pressure_check",
+                    "tick",
+                    stage="preseal_atmosphere_flush_hold",
+                    point=point,
+                    pressure_hpa=pressure_hpa,
+                    target_pressure_hpa=target_hpa,
+                    decision="within_limit",
+                )
             self._record_workflow_timing(
                 "preseal_pressure_check",
                 "info",
@@ -1363,6 +1439,16 @@ class WorkflowOrchestrator:
                 result="fail",
                 message="CO2 pre-seal atmosphere hold pressure exceeded limit",
             )
+        self._record_workflow_timing(
+            "preseal_atmosphere_flush_pressure_check",
+            "fail",
+            stage="preseal_atmosphere_flush_hold" if positive_preseal_enabled else "preseal_soak",
+            point=point,
+            pressure_hpa=pressure_hpa,
+            target_pressure_hpa=target_hpa,
+            decision="limit_exceeded",
+            error_code=reason,
+        )
         self._record_workflow_timing(
             "preseal_pressure_check",
             "fail",

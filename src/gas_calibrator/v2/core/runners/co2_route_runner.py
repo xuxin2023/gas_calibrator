@@ -79,7 +79,22 @@ class Co2RouteRunner:
             self.service.status_service.log("Pressure controller kept at atmosphere for CO2 route conditioning")
             self.service._record_workflow_timing("co2_route_open_start", "start", stage="co2_route_open", point=point)
             self.service.valve_routing_service.set_valves_for_co2(point)
-            self.service._record_workflow_timing("co2_route_open_end", "end", stage="co2_route_open", point=point)
+            route_open_pressure = None
+            pressure_reader = getattr(getattr(self.service, "pressure_control_service", None), "_current_pressure", None)
+            if callable(pressure_reader):
+                try:
+                    route_open_pressure = self.service._as_float(pressure_reader())
+                except Exception:
+                    route_open_pressure = None
+            setattr(self.service, "_a2_co2_route_open_pressure_hpa", route_open_pressure)
+            setattr(self.service, "_a2_preseal_pressure_rise_detected", False)
+            self.service._record_workflow_timing(
+                "co2_route_open_end",
+                "end",
+                stage="co2_route_open",
+                point=point,
+                pressure_hpa=route_open_pressure,
+            )
             route_soak_ok = self._wait_route_soak_before_seal(point)
             route_soak_actual = dict(getattr(self.service, "_last_co2_route_dewpoint_gate_summary", {}) or {})
             self.service.status_service.record_route_trace(

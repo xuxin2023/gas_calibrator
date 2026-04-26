@@ -190,6 +190,108 @@ def test_timing_summary_records_positive_preseal_vent_close(monkeypatch, tmp_pat
     assert summary["positive_preseal_pressure_max_hpa"] == 1110.5
 
 
+def test_timing_summary_records_positive_preseal_pressure_rise_warnings(monkeypatch, tmp_path) -> None:
+    clock = {"now": 0.0}
+    monkeypatch.setattr(timing_module.time, "monotonic", lambda: clock["now"])
+    monitor = TimingMonitorService(tmp_path, run_id="run-preseal-timing", no_write_guard_active=True)
+
+    monitor.record_event("run_start", "start", stage="run")
+    monitor.record_event("co2_route_open_start", "start", stage="co2_route_open", point_index=1)
+    monitor.record_event("co2_route_open_end", "end", stage="co2_route_open", point_index=1, pressure_hpa=1000.0)
+    monitor.record_event("preseal_vent_hold_tick", "tick", stage="preseal_soak", point_index=1)
+    monitor.record_event(
+        "preseal_atmosphere_flush_pressure_check",
+        "tick",
+        stage="preseal_atmosphere_flush_hold",
+        point_index=1,
+        pressure_hpa=1000.0,
+    )
+    clock["now"] += 9.0
+    monitor.record_event("preseal_vent_hold_tick", "tick", stage="preseal_soak", point_index=1)
+    clock["now"] += 3.0
+    monitor.record_event(
+        "preseal_atmosphere_flush_pressure_check",
+        "tick",
+        stage="preseal_atmosphere_flush_hold",
+        point_index=1,
+        pressure_hpa=1120.0,
+    )
+    monitor.record_event(
+        "pressure_rise_detected",
+        "info",
+        stage="preseal_atmosphere_flush_hold",
+        point_index=1,
+        pressure_hpa=1120.0,
+    )
+    clock["now"] += 8.0
+    monitor.record_event(
+        "positive_preseal_pressurization_start",
+        "start",
+        stage="positive_preseal_pressurization",
+        point_index=1,
+        pressure_hpa=1100.0,
+    )
+    clock["now"] += 10.0
+    monitor.record_event(
+        "positive_preseal_ready",
+        "info",
+        stage="positive_preseal_pressurization",
+        point_index=1,
+        pressure_hpa=1110.0,
+    )
+    clock["now"] += 3.0
+    monitor.record_event(
+        "positive_preseal_seal_start",
+        "info",
+        stage="positive_preseal_pressurization",
+        point_index=1,
+        pressure_hpa=1110.0,
+    )
+    clock["now"] += 3.0
+    monitor.record_event(
+        "positive_preseal_seal_end",
+        "end",
+        stage="positive_preseal_pressurization",
+        point_index=1,
+        pressure_hpa=1130.0,
+    )
+    summary = monitor.finalize_summary(
+        final_decision="PASS",
+        a2_final_decision="PASS",
+        extra_context={
+            "expected_route_open_to_first_pressure_rise_max_s": 5.0,
+            "expected_route_open_to_ready_max_s": 20.0,
+            "expected_positive_preseal_to_ready_max_s": 5.0,
+            "expected_ready_to_seal_command_max_s": 1.0,
+            "expected_ready_to_seal_confirm_max_s": 2.0,
+            "expected_max_pressure_increase_after_ready_hpa": 5.0,
+            "expected_vent_hold_tick_interval_s": 2.0,
+            "expected_vent_hold_pressure_rise_rate_max_hpa_per_s": 5.0,
+            "timing_warning_only": True,
+        },
+    )
+
+    warning_codes = {item["warning_code"] for item in summary["preseal_timing_warnings"]}
+    assert summary["final_decision"] == "PASS"
+    assert summary["a2_final_decision"] == "PASS"
+    assert summary["route_open_to_first_pressure_rise_s"] == 12.0
+    assert summary["route_open_to_ready_s"] == 30.0
+    assert summary["positive_preseal_start_to_ready_s"] == 10.0
+    assert summary["vent_hold_pressure_rise_rate_hpa_per_s"] == 10.0
+    assert summary["positive_preseal_pressure_rise_rate_hpa_per_s"] == 1.0
+    assert summary["ready_to_seal_command_s"] == 3.0
+    assert summary["ready_to_seal_confirm_s"] == 6.0
+    assert summary["pressure_increase_after_ready_before_seal_hpa"] == 20.0
+    assert "route_open_to_first_pressure_rise_s_long" in warning_codes
+    assert "route_open_to_ready_s_long" in warning_codes
+    assert "positive_preseal_start_to_ready_s_long" in warning_codes
+    assert "vent_hold_pressure_rise_rate_high" in warning_codes
+    assert "ready_to_seal_command_s_long" in warning_codes
+    assert "ready_to_seal_confirm_s_long" in warning_codes
+    assert "pressure_increase_after_ready_before_seal_hpa_high" in warning_codes
+    assert "vent_hold_tick_count_interval_mismatch" in warning_codes
+
+
 def test_timing_monitor_does_not_send_device_commands(tmp_path) -> None:
     class Device:
         command_count = 0

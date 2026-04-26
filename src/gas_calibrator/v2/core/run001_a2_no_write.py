@@ -24,6 +24,7 @@ from .services.timing_monitor_service import (
     WORKFLOW_TIMING_SUMMARY_FILENAME,
     WORKFLOW_TIMING_TRACE_FILENAME,
     ensure_workflow_timing_artifacts,
+    load_workflow_timing_events,
 )
 
 
@@ -40,6 +41,7 @@ A2_REQUIRED_ARTIFACTS = {
     "preseal_atmosphere_hold_samples": "preseal_atmosphere_hold_samples.csv",
     "positive_preseal_pressurization_evidence": "positive_preseal_pressurization_evidence.json",
     "positive_preseal_pressurization_samples": "positive_preseal_pressurization_samples.csv",
+    "positive_preseal_timing_diagnostics": "positive_preseal_timing_diagnostics.json",
     "route_trace": "route_trace.jsonl",
     "points": "points.csv",
     "io_log": "io_log.csv",
@@ -182,6 +184,47 @@ def _workflow_pressure(raw_cfg: Mapping[str, Any]) -> dict[str, Any]:
     return dict(pressure) if isinstance(pressure, Mapping) else {}
 
 
+def _preseal_timing_thresholds(pressure_cfg: Mapping[str, Any]) -> dict[str, Any]:
+    ready_timeout = _as_float(pressure_cfg.get("preseal_ready_timeout_s"))
+    vent_interval = _as_float(pressure_cfg.get("vent_hold_interval_s"))
+    return {
+        "pressure_rise_detection_threshold_hpa": (
+            _as_float(pressure_cfg.get("pressure_rise_detection_threshold_hpa")) or 2.0
+        ),
+        "expected_route_open_to_first_pressure_rise_max_s": (
+            _as_float(pressure_cfg.get("expected_route_open_to_first_pressure_rise_max_s")) or 10.0
+        ),
+        "expected_route_open_to_ready_max_s": (
+            _as_float(pressure_cfg.get("expected_route_open_to_ready_max_s"))
+            or (ready_timeout + 10.0 if ready_timeout is not None else 40.0)
+        ),
+        "expected_positive_preseal_to_ready_max_s": (
+            _as_float(pressure_cfg.get("expected_positive_preseal_to_ready_max_s"))
+            or (ready_timeout if ready_timeout is not None else 30.0)
+        ),
+        "expected_ready_to_seal_command_max_s": (
+            _as_float(pressure_cfg.get("expected_ready_to_seal_command_max_s")) or 0.5
+        ),
+        "expected_ready_to_seal_confirm_max_s": (
+            _as_float(pressure_cfg.get("expected_ready_to_seal_confirm_max_s")) or 2.0
+        ),
+        "expected_max_pressure_increase_after_ready_hpa": (
+            _as_float(pressure_cfg.get("expected_max_pressure_increase_after_ready_hpa")) or 10.0
+        ),
+        "expected_vent_hold_tick_interval_s": (
+            _as_float(pressure_cfg.get("expected_vent_hold_tick_interval_s"))
+            or (vent_interval if vent_interval is not None else 2.0)
+        ),
+        "expected_vent_hold_pressure_rise_rate_max_hpa_per_s": (
+            _as_float(pressure_cfg.get("expected_vent_hold_pressure_rise_rate_max_hpa_per_s")) or 25.0
+        ),
+        "expected_abort_margin_min_hpa": (
+            _as_float(pressure_cfg.get("expected_abort_margin_min_hpa")) or 10.0
+        ),
+        "timing_warning_only": _as_bool(pressure_cfg.get("timing_warning_only", True)),
+    }
+
+
 def _preseal_atmosphere_hold_limit_hpa(
     raw_cfg: Mapping[str, Any],
     point_rows: list[dict[str, Any]],
@@ -274,6 +317,21 @@ def _load_json_dict(path: str | Path | None) -> dict[str, Any]:
     except Exception:
         return {}
     return dict(payload) if isinstance(payload, Mapping) else {}
+
+
+def _load_route_trace_rows(run_dir: str | Path) -> list[dict[str, Any]]:
+    trace_path = Path(run_dir) / "route_trace.jsonl"
+    rows: list[dict[str, Any]] = []
+    if not trace_path.exists():
+        return rows
+    for line in trace_path.read_text(encoding="utf-8").splitlines():
+        try:
+            item = json.loads(line)
+        except Exception:
+            continue
+        if isinstance(item, Mapping):
+            rows.append(dict(item))
+    return rows
 
 
 def _status_to_mapping(status: Any) -> dict[str, Any]:
@@ -931,6 +989,425 @@ def _build_positive_preseal_pressurization_evidence(
     }
 
 
+def _first_timing_event(events: list[Mapping[str, Any]], name: str) -> Optional[Mapping[str, Any]]:
+    return next((event for event in events if str(event.get("event_name") or "") == name), None)
+
+
+def _last_timing_event(events: list[Mapping[str, Any]], name: str) -> Optional[Mapping[str, Any]]:
+    return next((event for event in reversed(events) if str(event.get("event_name") or "") == name), None)
+
+
+def _event_ts(event: Optional[Mapping[str, Any]]) -> Optional[datetime]:
+    if not event:
+        return None
+    return _parse_trace_ts(event.get("timestamp_local"))
+
+
+def _event_pressure(event: Optional[Mapping[str, Any]]) -> Optional[float]:
+    if not event:
+        return None
+    return _as_float(event.get("pressure_hpa"))
+
+
+def _timing_duration(events: list[Mapping[str, Any]], start_name: str, end_name: str) -> Optional[float]:
+    start = _first_timing_event(events, start_name)
+    end = _first_timing_event(events, end_name)
+    explicit = _as_float((end or {}).get("duration_s"))
+    if explicit is not None:
+        return round(max(0.0, explicit), 3)
+    return _trace_elapsed_s(_event_ts(end), _event_ts(start))
+
+
+def _build_positive_preseal_timing_diagnostics(
+    run_dir: str | Path,
+    payload: Mapping[str, Any],
+    *,
+    timing_summary: Optional[Mapping[str, Any]] = None,
+) -> dict[str, Any]:
+    trace_rows = _load_route_trace_rows(run_dir)
+    timing_events = load_workflow_timing_events(Path(run_dir) / WORKFLOW_TIMING_TRACE_FILENAME)
+    thresholds = {
+        key: payload.get(key)
+        for key in (
+            "pressure_rise_detection_threshold_hpa",
+            "expected_route_open_to_first_pressure_rise_max_s",
+            "expected_route_open_to_ready_max_s",
+            "expected_positive_preseal_to_ready_max_s",
+            "expected_ready_to_seal_command_max_s",
+            "expected_ready_to_seal_confirm_max_s",
+            "expected_max_pressure_increase_after_ready_hpa",
+            "expected_vent_hold_tick_interval_s",
+            "expected_vent_hold_pressure_rise_rate_max_hpa_per_s",
+            "expected_abort_margin_min_hpa",
+            "timing_warning_only",
+        )
+    }
+    pressure_rise_threshold = _as_float(thresholds.get("pressure_rise_detection_threshold_hpa")) or 2.0
+    route_open_row: Optional[Mapping[str, Any]] = None
+    positive_start_row: Optional[Mapping[str, Any]] = None
+    positive_ready_row: Optional[Mapping[str, Any]] = None
+    handoff_ready_row: Optional[Mapping[str, Any]] = None
+    vent_close_row: Optional[Mapping[str, Any]] = None
+    seal_row: Optional[Mapping[str, Any]] = None
+    positive_abort_row: Optional[Mapping[str, Any]] = None
+    pressure_samples: list[dict[str, Any]] = []
+    vent_hold_samples: list[dict[str, Any]] = []
+    positive_samples: list[dict[str, Any]] = []
+
+    for row in trace_rows:
+        action = str(row.get("action") or "").lower()
+        actual = row.get("actual")
+        actual = dict(actual) if isinstance(actual, Mapping) else {}
+        target = row.get("target")
+        target = dict(target) if isinstance(target, Mapping) else {}
+        ts_text = str(row.get("ts") or row.get("timestamp") or "")
+        ts = _parse_trace_ts(ts_text)
+        pressure = _trace_pressure_hpa(actual)
+        if action == "set_co2_valves" and route_open_row is None:
+            route_open_row = row
+        if action == "positive_preseal_pressurization_start" and positive_start_row is None:
+            positive_start_row = row
+        if action == "positive_preseal_ready" and positive_ready_row is None:
+            positive_ready_row = row
+        if action == "preseal_atmosphere_flush_ready_handoff" and handoff_ready_row is None:
+            handoff_ready_row = row
+        if action == "set_vent" and target.get("vent_on") is False and vent_close_row is None:
+            message = str(row.get("message") or actual.get("reason") or "")
+            if "positive" in message.lower() and "preseal" in message.lower():
+                vent_close_row = row
+        if action == "seal_route" and seal_row is None:
+            seal_row = row
+        if action == "positive_preseal_abort" and positive_abort_row is None:
+            positive_abort_row = row
+        if pressure is not None:
+            sample = {
+                "timestamp": ts_text,
+                "parsed_ts": ts,
+                "action": action,
+                "pressure_hpa": pressure,
+                "elapsed_s": _as_float(actual.get("elapsed_s")),
+            }
+            pressure_samples.append(sample)
+            route_open_ts = _parse_trace_ts((route_open_row or {}).get("ts") or (route_open_row or {}).get("timestamp"))
+            positive_start_ts = _parse_trace_ts(
+                (positive_start_row or {}).get("ts") or (positive_start_row or {}).get("timestamp")
+            )
+            if route_open_ts is not None and ts is not None and (positive_start_ts is None or ts <= positive_start_ts):
+                if action == "set_vent" and target.get("vent_on") is True:
+                    vent_hold_samples.append(sample)
+                elif action in {
+                    "co2_preseal_atmosphere_hold_pressure_guard",
+                    "preseal_atmosphere_flush_ready_handoff",
+                }:
+                    vent_hold_samples.append(sample)
+            if action in {"positive_preseal_pressure_check", "positive_preseal_ready", "positive_preseal_abort"}:
+                positive_samples.append(sample)
+
+    route_open_start_event = _first_timing_event(timing_events, "co2_route_open_start")
+    route_open_end_event = _first_timing_event(timing_events, "co2_route_open_end")
+    positive_start_event = _first_timing_event(timing_events, "positive_preseal_pressurization_start")
+    positive_ready_event = _first_timing_event(timing_events, "positive_preseal_ready")
+    vent_close_start_event = _first_timing_event(timing_events, "positive_preseal_vent_close_start")
+    vent_close_end_event = _first_timing_event(timing_events, "positive_preseal_vent_close_end")
+    seal_start_event = _first_timing_event(timing_events, "positive_preseal_seal_start")
+    seal_end_event = _first_timing_event(timing_events, "positive_preseal_seal_end")
+
+    route_open_ts = _event_ts(route_open_end_event) or _parse_trace_ts(
+        (route_open_row or {}).get("ts") or (route_open_row or {}).get("timestamp")
+    )
+    route_opened_at = route_open_ts.isoformat() if route_open_ts is not None else ""
+    co2_route_open_elapsed_s = _timing_duration(timing_events, "co2_route_open_start", "co2_route_open_end")
+    route_open_actual = (route_open_row or {}).get("actual")
+    route_open_actual = dict(route_open_actual) if isinstance(route_open_actual, Mapping) else {}
+    pressure_at_route_open_hpa = _trace_pressure_hpa(route_open_actual) or _event_pressure(route_open_end_event)
+    if pressure_at_route_open_hpa is None and pressure_samples:
+        pressure_at_route_open_hpa = pressure_samples[0]["pressure_hpa"]
+
+    first_pressure_sample = pressure_samples[0] if pressure_samples else {}
+    first_pressure_sample_ts = first_pressure_sample.get("parsed_ts") if first_pressure_sample else None
+    baseline_pressure = pressure_at_route_open_hpa
+    rise_sample: dict[str, Any] = {}
+    if baseline_pressure is not None:
+        for sample in pressure_samples:
+            sample_ts = sample.get("parsed_ts")
+            if route_open_ts is not None and sample_ts is not None and sample_ts < route_open_ts:
+                continue
+            delta = float(sample["pressure_hpa"]) - float(baseline_pressure)
+            if delta >= pressure_rise_threshold:
+                rise_sample = {**sample, "delta_hpa": round(delta, 3)}
+                break
+    ready_candidates = [row for row in (handoff_ready_row, positive_ready_row) if row is not None]
+    ready_row = min(
+        ready_candidates,
+        key=lambda row: _parse_trace_ts(row.get("ts") or row.get("timestamp")) or datetime.max.replace(tzinfo=timezone.utc),
+    ) if ready_candidates else None
+    ready_actual = (ready_row or {}).get("actual")
+    ready_actual = dict(ready_actual) if isinstance(ready_actual, Mapping) else {}
+    positive_ready_actual = (positive_ready_row or {}).get("actual")
+    positive_ready_actual = dict(positive_ready_actual) if isinstance(positive_ready_actual, Mapping) else {}
+    ready_ts = _parse_trace_ts((ready_row or {}).get("ts") or (ready_row or {}).get("timestamp"))
+    positive_ready_ts = _event_ts(positive_ready_event) or _parse_trace_ts(
+        (positive_ready_row or {}).get("ts") or (positive_ready_row or {}).get("timestamp")
+    )
+    positive_start_ts = _event_ts(positive_start_event) or _parse_trace_ts(
+        (positive_start_row or {}).get("ts") or (positive_start_row or {}).get("timestamp")
+    )
+    positive_start_pressure = _trace_pressure_hpa(
+        dict((positive_start_row or {}).get("actual") or {}) if isinstance((positive_start_row or {}).get("actual"), Mapping) else {}
+    )
+    if positive_start_pressure is None and positive_samples:
+        positive_start_pressure = positive_samples[0]["pressure_hpa"]
+    ready_pressure_hpa = (
+        _as_float(ready_actual.get("ready_pressure_hpa"))
+        or _as_float(ready_actual.get("preseal_ready_pressure_hpa"))
+        or _as_float(payload.get("positive_preseal_ready_pressure_hpa"))
+    )
+    seal_trigger_pressure = _as_float(positive_ready_actual.get("seal_trigger_pressure_hpa")) or _trace_pressure_hpa(
+        positive_ready_actual
+    )
+    positive_ready_pressure = _trace_pressure_hpa(positive_ready_actual) or seal_trigger_pressure
+
+    vent_hold_start_ts = vent_hold_samples[0]["parsed_ts"] if vent_hold_samples else None
+    vent_hold_end_ts = vent_hold_samples[-1]["parsed_ts"] if vent_hold_samples else None
+    pressure_at_vent_hold_start_hpa = vent_hold_samples[0]["pressure_hpa"] if vent_hold_samples else None
+    pressure_at_vent_hold_end_hpa = vent_hold_samples[-1]["pressure_hpa"] if vent_hold_samples else None
+    vent_hold_duration_s = _trace_elapsed_s(vent_hold_end_ts, vent_hold_start_ts)
+    vent_hold_pressure_delta_hpa = (
+        round(float(pressure_at_vent_hold_end_hpa) - float(pressure_at_vent_hold_start_hpa), 3)
+        if pressure_at_vent_hold_start_hpa is not None and pressure_at_vent_hold_end_hpa is not None
+        else None
+    )
+    vent_hold_pressure_rise_rate_hpa_per_s = (
+        round(float(vent_hold_pressure_delta_hpa) / float(vent_hold_duration_s), 3)
+        if vent_hold_pressure_delta_hpa is not None and vent_hold_duration_s and vent_hold_duration_s > 0
+        else None
+    )
+    vent_hold_tick_count = len(
+        [
+            row
+            for row in trace_rows
+            if str(row.get("action") or "").lower() == "set_vent"
+            and isinstance(row.get("target"), Mapping)
+            and dict(row.get("target") or {}).get("vent_on") is True
+            and route_open_ts is not None
+            and (_parse_trace_ts(row.get("ts") or row.get("timestamp")) or route_open_ts) >= route_open_ts
+        ]
+    )
+
+    vent_close_command_ts = _event_ts(vent_close_start_event) or _parse_trace_ts(
+        (vent_close_row or {}).get("ts") or (vent_close_row or {}).get("timestamp")
+    )
+    vent_close_confirmed_ts = _event_ts(vent_close_end_event) or _parse_trace_ts(
+        (vent_close_row or {}).get("ts") or (vent_close_row or {}).get("timestamp")
+    )
+    vent_close_duration_s = (
+        _as_float((timing_summary or {}).get("positive_preseal_vent_close_duration_s"))
+        or _timing_duration(timing_events, "positive_preseal_vent_close_start", "positive_preseal_vent_close_end")
+        or _trace_elapsed_s(vent_close_confirmed_ts, vent_close_command_ts)
+    )
+    time_from_route_open_to_ready_s = _trace_elapsed_s(ready_ts, route_open_ts)
+    time_from_positive_preseal_start_to_ready_s = _trace_elapsed_s(positive_ready_ts, positive_start_ts)
+    positive_preseal_pressure_rise_rate_hpa_per_s = (
+        round((float(positive_ready_pressure) - float(positive_start_pressure)) / float(time_from_positive_preseal_start_to_ready_s), 3)
+        if positive_ready_pressure is not None
+        and positive_start_pressure is not None
+        and time_from_positive_preseal_start_to_ready_s
+        and time_from_positive_preseal_start_to_ready_s > 0
+        else None
+    )
+    seal_command_ts = _event_ts(seal_start_event) or _parse_trace_ts((seal_row or {}).get("ts") or (seal_row or {}).get("timestamp"))
+    seal_confirm_ts = _event_ts(seal_end_event) or _parse_trace_ts((seal_row or {}).get("ts") or (seal_row or {}).get("timestamp"))
+    seal_actual = (seal_row or {}).get("actual")
+    seal_actual = dict(seal_actual) if isinstance(seal_actual, Mapping) else {}
+    pressure_at_seal_confirm_hpa = _event_pressure(seal_end_event) or _trace_pressure_hpa(seal_actual)
+    seal_command_latency_after_ready_s = _trace_elapsed_s(seal_command_ts, positive_ready_ts)
+    seal_confirm_latency_after_ready_s = _trace_elapsed_s(seal_confirm_ts, positive_ready_ts)
+    pressure_max_before_seal_hpa: Optional[float] = None
+    for sample in pressure_samples:
+        sample_ts = sample.get("parsed_ts")
+        if seal_confirm_ts is not None and sample_ts is not None and sample_ts > seal_confirm_ts:
+            continue
+        pressure_max_before_seal_hpa = (
+            sample["pressure_hpa"]
+            if pressure_max_before_seal_hpa is None
+            else max(float(pressure_max_before_seal_hpa), float(sample["pressure_hpa"]))
+        )
+    if pressure_max_before_seal_hpa is None:
+        pressure_max_before_seal_hpa = _as_float(payload.get("positive_preseal_pressure_max_hpa"))
+    pressure_increase_after_ready_before_seal_hpa = None
+    if seal_trigger_pressure is not None:
+        if pressure_at_seal_confirm_hpa is not None:
+            pressure_increase_after_ready_before_seal_hpa = round(
+                float(pressure_at_seal_confirm_hpa) - float(seal_trigger_pressure),
+                3,
+            )
+        elif pressure_max_before_seal_hpa is not None:
+            pressure_increase_after_ready_before_seal_hpa = round(
+                float(pressure_max_before_seal_hpa) - float(seal_trigger_pressure),
+                3,
+            )
+    abort_pressure_hpa = _as_float(payload.get("positive_preseal_abort_pressure_hpa")) or _as_float(
+        ready_actual.get("abort_pressure_hpa")
+    )
+    abort_margin_min_hpa = (
+        round(float(abort_pressure_hpa) - float(pressure_max_before_seal_hpa), 3)
+        if abort_pressure_hpa is not None and pressure_max_before_seal_hpa is not None
+        else None
+    )
+
+    warnings: list[dict[str, Any]] = []
+
+    def add_warning(code: str, *, actual: Any = None, expected: Any = None, detail: str = "") -> None:
+        warnings.append(
+            {
+                "warning_code": code,
+                "actual": actual,
+                "expected": expected,
+                "detail": detail,
+                "warning_only": bool(thresholds.get("timing_warning_only", True)),
+            }
+        )
+
+    first_rise_elapsed_s = _trace_elapsed_s(rise_sample.get("parsed_ts"), route_open_ts) if rise_sample else None
+    checks = [
+        (
+            "route_open_to_first_pressure_rise_s_long",
+            first_rise_elapsed_s,
+            _as_float(thresholds.get("expected_route_open_to_first_pressure_rise_max_s")),
+        ),
+        (
+            "route_open_to_ready_s_long",
+            time_from_route_open_to_ready_s,
+            _as_float(thresholds.get("expected_route_open_to_ready_max_s")),
+        ),
+        (
+            "positive_preseal_start_to_ready_s_long",
+            time_from_positive_preseal_start_to_ready_s,
+            _as_float(thresholds.get("expected_positive_preseal_to_ready_max_s")),
+        ),
+        (
+            "vent_hold_pressure_rise_rate_high",
+            vent_hold_pressure_rise_rate_hpa_per_s,
+            _as_float(thresholds.get("expected_vent_hold_pressure_rise_rate_max_hpa_per_s")),
+        ),
+        (
+            "ready_to_seal_command_s_long",
+            seal_command_latency_after_ready_s,
+            _as_float(thresholds.get("expected_ready_to_seal_command_max_s")),
+        ),
+        (
+            "ready_to_seal_confirm_s_long",
+            seal_confirm_latency_after_ready_s,
+            _as_float(thresholds.get("expected_ready_to_seal_confirm_max_s")),
+        ),
+        (
+            "pressure_increase_after_ready_before_seal_hpa_high",
+            pressure_increase_after_ready_before_seal_hpa,
+            _as_float(thresholds.get("expected_max_pressure_increase_after_ready_hpa")),
+        ),
+    ]
+    for code, actual_value, expected_value in checks:
+        if actual_value is not None and expected_value is not None and float(actual_value) > float(expected_value):
+            add_warning(code, actual=actual_value, expected=expected_value)
+    if (
+        vent_hold_pressure_rise_rate_hpa_per_s is not None
+        and _as_float(thresholds.get("expected_vent_hold_pressure_rise_rate_max_hpa_per_s")) is not None
+        and float(vent_hold_pressure_rise_rate_hpa_per_s)
+        > float(_as_float(thresholds.get("expected_vent_hold_pressure_rise_rate_max_hpa_per_s")))
+        and (ready_ts is None or time_from_route_open_to_ready_s is None)
+    ):
+        add_warning(
+            "vent_hold_fast_pressure_rise_without_handoff",
+            actual=vent_hold_pressure_rise_rate_hpa_per_s,
+            expected=thresholds.get("expected_vent_hold_pressure_rise_rate_max_hpa_per_s"),
+        )
+    if abort_margin_min_hpa is not None and float(abort_margin_min_hpa) <= float(
+        _as_float(thresholds.get("expected_abort_margin_min_hpa")) or 10.0
+    ):
+        add_warning(
+            "pressure_max_before_seal_near_abort_threshold",
+            actual=abort_margin_min_hpa,
+            expected=thresholds.get("expected_abort_margin_min_hpa"),
+        )
+    expected_tick_interval = _as_float(thresholds.get("expected_vent_hold_tick_interval_s"))
+    if expected_tick_interval is not None and vent_hold_duration_s is not None and expected_tick_interval > 0:
+        expected_tick_count = int(vent_hold_duration_s / expected_tick_interval) + 1
+        if abs(vent_hold_tick_count - expected_tick_count) > 1:
+            add_warning(
+                "vent_hold_tick_count_interval_mismatch",
+                actual=vent_hold_tick_count,
+                expected=expected_tick_count,
+                detail=f"duration_s={vent_hold_duration_s} interval_s={expected_tick_interval}",
+            )
+    if ready_ts is not None and seal_start_event is None and seal_row is None:
+        add_warning("positive_preseal_ready_without_seal_start")
+    if seal_start_event is not None and seal_end_event is None and seal_row is None:
+        add_warning("positive_preseal_seal_start_without_seal_end")
+
+    abnormal_waits = list(warnings)
+    summary_abnormal = (timing_summary or {}).get("abnormal_waits")
+    if isinstance(summary_abnormal, list):
+        abnormal_waits.extend(item for item in summary_abnormal if isinstance(item, Mapping))
+    decision = str(
+        ((positive_abort_row or {}).get("actual") or {}).get("decision")
+        if isinstance((positive_abort_row or {}).get("actual"), Mapping)
+        else ""
+    ) or str(payload.get("positive_preseal_pressurization_decision") or payload.get("a2_final_decision") or "")
+    return {
+        "schema_version": "run001_a2.positive_preseal_timing_diagnostics.1",
+        "artifact_type": "run001_a2_positive_preseal_timing_diagnostics",
+        "run_id": payload.get("run_id"),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "co2_route_opened_at": route_opened_at,
+        "co2_route_open_elapsed_s": co2_route_open_elapsed_s,
+        "first_pressure_sample_at": str(first_pressure_sample.get("timestamp") or ""),
+        "first_pressure_sample_hpa": first_pressure_sample.get("pressure_hpa"),
+        "first_pressure_rise_detected_at": str(rise_sample.get("timestamp") or ""),
+        "first_pressure_rise_detected_elapsed_s": first_rise_elapsed_s,
+        "first_pressure_rise_delta_hpa": rise_sample.get("delta_hpa"),
+        "pressure_rise_detection_threshold_hpa": pressure_rise_threshold,
+        "pressure_at_route_open_hpa": pressure_at_route_open_hpa,
+        "pressure_at_vent_hold_start_hpa": pressure_at_vent_hold_start_hpa,
+        "pressure_at_vent_hold_end_hpa": pressure_at_vent_hold_end_hpa,
+        "vent_hold_duration_s": vent_hold_duration_s,
+        "vent_hold_pressure_delta_hpa": vent_hold_pressure_delta_hpa,
+        "vent_hold_pressure_rise_rate_hpa_per_s": vent_hold_pressure_rise_rate_hpa_per_s,
+        "vent_hold_pressure_max_hpa": max((sample["pressure_hpa"] for sample in vent_hold_samples), default=None),
+        "vent_hold_pressure_min_hpa": min((sample["pressure_hpa"] for sample in vent_hold_samples), default=None),
+        "vent_hold_tick_count": vent_hold_tick_count,
+        "vent_close_command_at": vent_close_command_ts.isoformat() if vent_close_command_ts else "",
+        "vent_close_confirmed_at": vent_close_confirmed_ts.isoformat() if vent_close_confirmed_ts else "",
+        "vent_close_duration_s": vent_close_duration_s,
+        "positive_preseal_started_at": positive_start_ts.isoformat() if positive_start_ts else "",
+        "positive_preseal_start_pressure_hpa": positive_start_pressure,
+        "ready_pressure_hpa": ready_pressure_hpa,
+        "ready_reached_at": ready_ts.isoformat() if ready_ts else "",
+        "ready_reached_elapsed_s": _as_float(positive_ready_actual.get("elapsed_s")),
+        "time_from_route_open_to_ready_s": time_from_route_open_to_ready_s,
+        "time_from_positive_preseal_start_to_ready_s": time_from_positive_preseal_start_to_ready_s,
+        "positive_preseal_pressure_rise_rate_hpa_per_s": positive_preseal_pressure_rise_rate_hpa_per_s,
+        "seal_command_sent_at": seal_command_ts.isoformat() if seal_command_ts else "",
+        "seal_confirmed_at": seal_confirm_ts.isoformat() if seal_confirm_ts else "",
+        "seal_command_latency_after_ready_s": seal_command_latency_after_ready_s,
+        "seal_confirm_latency_after_ready_s": seal_confirm_latency_after_ready_s,
+        "seal_trigger_pressure_hpa": seal_trigger_pressure,
+        "pressure_at_seal_confirm_hpa": pressure_at_seal_confirm_hpa,
+        "pressure_increase_after_ready_before_seal_hpa": pressure_increase_after_ready_before_seal_hpa,
+        "pressure_max_before_seal_hpa": pressure_max_before_seal_hpa,
+        "abort_pressure_hpa": abort_pressure_hpa,
+        "abort_margin_min_hpa": abort_margin_min_hpa,
+        "decision": decision,
+        "warning_codes": [str(item.get("warning_code") or "") for item in warnings],
+        "warning_count": len(warnings),
+        "abnormal_waits": abnormal_waits,
+        "warning_thresholds": thresholds,
+        "no_write_guard_active": bool(payload.get("no_write_guard_active", payload.get("no_write", False))),
+        "warning_only": bool(thresholds.get("timing_warning_only", True)),
+        "not_real_acceptance_evidence": True,
+        "v2_replaces_v1_claim": False,
+    }
+
+
 def build_run001_a2_evidence_payload(
     raw_cfg: Mapping[str, Any],
     *,
@@ -947,6 +1424,7 @@ def build_run001_a2_evidence_payload(
 ) -> dict[str, Any]:
     rows = list(point_rows if point_rows is not None else load_point_rows(config_path, raw_cfg))
     pressure_cfg = _workflow_pressure(raw_cfg)
+    preseal_timing_thresholds = _preseal_timing_thresholds(pressure_cfg)
     compat = _a1_compatible_raw_cfg(raw_cfg)
     payload = build_run001_a1_evidence_payload(
         compat,
@@ -1005,6 +1483,7 @@ def build_run001_a2_evidence_payload(
             "positive_preseal_pressure_poll_interval_s": _as_float(
                 pressure_cfg.get("preseal_pressure_poll_interval_s")
             ),
+            **preseal_timing_thresholds,
             "planned_pressure_points_completed": completed_pressures,
             "planned_pressure_point_count": len(A2_AUTHORIZED_PRESSURE_POINTS_HPA),
             "a2_final_decision": a2_decision,
@@ -1045,6 +1524,12 @@ def render_run001_a2_human_report(payload: Mapping[str, Any]) -> str:
     longest_wait = timing_summary.get("longest_wait") if isinstance(timing_summary.get("longest_wait"), Mapping) else {}
     temperature_policy = payload.get("temperature_stability_policy")
     temperature_policy = dict(temperature_policy) if isinstance(temperature_policy, Mapping) else {}
+    preseal_timing = payload.get("positive_preseal_timing_diagnostics")
+    preseal_timing = dict(preseal_timing) if isinstance(preseal_timing, Mapping) else {}
+    preseal_warning_codes = list(
+        preseal_timing.get("warning_codes") or payload.get("positive_preseal_timing_warning_codes") or []
+    )
+    preseal_warning_text = ", ".join(str(item) for item in preseal_warning_codes) if preseal_warning_codes else "none"
     return "\n".join(
         [
             "# Run-001 / A2 CO2 no-write pressure sweep evidence",
@@ -1091,6 +1576,24 @@ def render_run001_a2_human_report(payload: Mapping[str, Any]) -> str:
             f"- positive_preseal_evidence: {payload.get('positive_preseal_pressurization_evidence_artifact')}",
             f"- positive_preseal_samples: {payload.get('positive_preseal_pressurization_samples_artifact')}",
             "",
+            "## 正压封路升压时序诊断",
+            f"- positive_preseal_timing_diagnostics: {payload.get('positive_preseal_timing_diagnostics_artifact')}",
+            f"- route_open_to_first_pressure_rise_s: {preseal_timing.get('first_pressure_rise_detected_elapsed_s')}",
+            f"- route_open_to_ready_s: {preseal_timing.get('time_from_route_open_to_ready_s')}",
+            f"- vent_hold_pressure_delta_hpa: {preseal_timing.get('vent_hold_pressure_delta_hpa')}",
+            f"- vent_hold_pressure_rise_rate_hpa_per_s: {preseal_timing.get('vent_hold_pressure_rise_rate_hpa_per_s')}",
+            f"- vent_close_duration_s: {preseal_timing.get('vent_close_duration_s')}",
+            f"- positive_preseal_pressure_rise_rate_hpa_per_s: {preseal_timing.get('positive_preseal_pressure_rise_rate_hpa_per_s')}",
+            f"- ready_to_seal_command_s: {preseal_timing.get('seal_command_latency_after_ready_s')}",
+            f"- ready_to_seal_confirm_s: {preseal_timing.get('seal_confirm_latency_after_ready_s')}",
+            f"- pressure_increase_after_ready_before_seal_hpa: {preseal_timing.get('pressure_increase_after_ready_before_seal_hpa')}",
+            f"- pressure_max_before_seal_hpa: {preseal_timing.get('pressure_max_before_seal_hpa')}",
+            f"- abort_pressure_hpa: {preseal_timing.get('abort_pressure_hpa')}",
+            f"- abort_margin_min_hpa: {preseal_timing.get('abort_margin_min_hpa')}",
+            f"- timing_warning_only: {preseal_timing.get('warning_only')}",
+            f"- warning_codes: {preseal_warning_text}",
+            "",
+            "<!-- legacy_heading_marker: 娴佺▼鏃跺簭鎽樿 -->",
             "## 流程时序摘要",
             f"- workflow_timing_trace: {payload.get('workflow_timing_trace_artifact')}",
             f"- workflow_timing_summary: {payload.get('workflow_timing_summary_artifact')}",
@@ -1103,6 +1606,12 @@ def render_run001_a2_human_report(payload: Mapping[str, Any]) -> str:
             f"- positive_preseal_duration_s: {timing_summary.get('positive_preseal_duration_s')}",
             f"- positive_preseal_vent_close_duration_s: {timing_summary.get('positive_preseal_vent_close_duration_s')}",
             f"- positive_preseal_vent_close_status: {timing_summary.get('positive_preseal_vent_close_status')}",
+            f"- route_open_to_first_pressure_rise_s: {timing_summary.get('route_open_to_first_pressure_rise_s')}",
+            f"- route_open_to_ready_s: {timing_summary.get('route_open_to_ready_s')}",
+            f"- positive_preseal_start_to_ready_s: {timing_summary.get('positive_preseal_start_to_ready_s')}",
+            f"- ready_to_seal_command_s: {timing_summary.get('ready_to_seal_command_s')}",
+            f"- ready_to_seal_confirm_s: {timing_summary.get('ready_to_seal_confirm_s')}",
+            f"- preseal_timing_warning_count: {timing_summary.get('preseal_timing_warning_count')}",
             f"- preseal_vent_tick_count: {timing_summary.get('preseal_vent_tick_count')}",
             f"- timing_warning_count: {timing_warning_count}",
             "",
@@ -1152,11 +1661,13 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
     preseal_samples_path = directory / "preseal_atmosphere_hold_samples.csv"
     positive_preseal_evidence_path = directory / "positive_preseal_pressurization_evidence.json"
     positive_preseal_samples_path = directory / "positive_preseal_pressurization_samples.csv"
+    positive_preseal_timing_path = directory / "positive_preseal_timing_diagnostics.json"
     common_paths["pressure_gate_evidence"] = str(pressure_path)
     common_paths["preseal_atmosphere_hold_evidence"] = str(preseal_evidence_path)
     common_paths["preseal_atmosphere_hold_samples"] = str(preseal_samples_path)
     common_paths["positive_preseal_pressurization_evidence"] = str(positive_preseal_evidence_path)
     common_paths["positive_preseal_pressurization_samples"] = str(positive_preseal_samples_path)
+    common_paths["positive_preseal_timing_diagnostics"] = str(positive_preseal_timing_path)
     timing_trace_path = directory / WORKFLOW_TIMING_TRACE_FILENAME
     timing_summary_path = directory / WORKFLOW_TIMING_SUMMARY_FILENAME
     common_paths["workflow_timing_trace"] = str(timing_trace_path)
@@ -1224,9 +1735,17 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "vent_status_2_is_not_continuous_atmosphere_evidence": True,
         }
     )
-    enriched = _finalize_artifact_decision(enriched, directory)
     timing_artifacts = ensure_workflow_timing_artifacts(directory, enriched)
     timing_summary = dict(timing_artifacts.get("summary_payload") or {})
+    positive_preseal_timing_payload = _build_positive_preseal_timing_diagnostics(
+        directory,
+        enriched,
+        timing_summary=timing_summary,
+    )
+    positive_preseal_timing_path.write_text(
+        json.dumps(positive_preseal_timing_payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     enriched.update(
         {
             "workflow_timing_trace_artifact": str(timing_trace_path),
@@ -1234,8 +1753,29 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "workflow_timing_summary": timing_summary,
             "workflow_timing_event_fields": list(TIMING_EVENT_FIELDS),
             "workflow_timing_artifacts_retrospective": bool(timing_summary.get("retrospective", False)),
+            "positive_preseal_timing_diagnostics_artifact": str(positive_preseal_timing_path),
+            "positive_preseal_timing_diagnostics": positive_preseal_timing_payload,
+            "positive_preseal_timing_warning_codes": positive_preseal_timing_payload.get("warning_codes"),
+            "positive_preseal_timing_warning_count": positive_preseal_timing_payload.get("warning_count"),
+            "route_open_to_first_pressure_rise_s": positive_preseal_timing_payload.get(
+                "first_pressure_rise_detected_elapsed_s"
+            ),
+            "route_open_to_ready_s": positive_preseal_timing_payload.get("time_from_route_open_to_ready_s"),
+            "positive_preseal_start_to_ready_s": positive_preseal_timing_payload.get(
+                "time_from_positive_preseal_start_to_ready_s"
+            ),
+            "ready_to_seal_command_s": positive_preseal_timing_payload.get(
+                "seal_command_latency_after_ready_s"
+            ),
+            "ready_to_seal_confirm_s": positive_preseal_timing_payload.get(
+                "seal_confirm_latency_after_ready_s"
+            ),
+            "pressure_increase_after_ready_before_seal_hpa": positive_preseal_timing_payload.get(
+                "pressure_increase_after_ready_before_seal_hpa"
+            ),
         }
     )
+    enriched = _finalize_artifact_decision(enriched, directory)
 
     (directory / "summary.json").write_text(json.dumps(enriched, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     (directory / "no_write_guard.json").write_text(
@@ -1300,6 +1840,11 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "ambient_reference_timestamp": enriched.get("ambient_reference_timestamp"),
             "ambient_reference_age_s": enriched.get("ambient_reference_age_s"),
             "positive_preseal_pressure_max_hpa": enriched.get("positive_preseal_pressure_max_hpa"),
+            "positive_preseal_timing_diagnostics_artifact": enriched.get(
+                "positive_preseal_timing_diagnostics_artifact"
+            ),
+            "positive_preseal_timing_warning_codes": enriched.get("positive_preseal_timing_warning_codes"),
+            "positive_preseal_timing_warning_count": enriched.get("positive_preseal_timing_warning_count"),
             "a2_required_artifact_status": enriched.get("a2_required_artifact_status"),
             "real_machine_acceptance_evidence": False,
         },
@@ -1321,6 +1866,7 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "preseal_atmosphere_hold_samples_artifact": str(preseal_samples_path),
             "positive_preseal_pressurization_evidence_artifact": str(positive_preseal_evidence_path),
             "positive_preseal_pressurization_samples_artifact": str(positive_preseal_samples_path),
+            "positive_preseal_timing_diagnostics_artifact": str(positive_preseal_timing_path),
             "workflow_timing_trace_artifact": str(timing_trace_path),
             "workflow_timing_summary_artifact": str(timing_summary_path),
             "workflow_timing_summary": timing_summary,
@@ -1345,6 +1891,8 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "ambient_reference_pressure_hpa": enriched.get("ambient_reference_pressure_hpa"),
             "ambient_reference_source": enriched.get("ambient_reference_source"),
             "positive_preseal_pressure_max_hpa": enriched.get("positive_preseal_pressure_max_hpa"),
+            "positive_preseal_timing_warning_codes": enriched.get("positive_preseal_timing_warning_codes"),
+            "positive_preseal_timing_warning_count": enriched.get("positive_preseal_timing_warning_count"),
             "not_real_acceptance_evidence": True,
             "v2_replaces_v1_claim": False,
         }
@@ -1356,6 +1904,7 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
     for path in (
         str(positive_preseal_evidence_path),
         str(positive_preseal_samples_path),
+        str(positive_preseal_timing_path),
         str(timing_trace_path),
         str(timing_summary_path),
     ):
