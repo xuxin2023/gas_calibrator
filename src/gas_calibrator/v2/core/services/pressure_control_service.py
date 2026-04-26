@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from datetime import datetime, timezone
 import time
 from typing import Any, Callable, Optional
 
@@ -37,6 +38,391 @@ class StartupPressurePrecheckResult:
 
 class PressureControlService:
     """Pressure controller vent, seal, and stabilization helpers."""
+
+    def _positive_preseal_enabled(
+        self,
+        point: CalibrationPoint,
+        *,
+        route: str,
+        measured_atmospheric_pressure_hpa: Optional[float] = None,
+    ) -> bool:
+        if str(route or "").strip().lower() == "h2o":
+            return False
+        configured = self._coerce_bool(
+            self.host._cfg_get("workflow.pressure.positive_preseal_pressurization_enabled", None)
+        )
+        if configured is not None:
+            return bool(configured)
+        return False
+
+    def _positive_preseal_ready_pressure_hpa(self, point: CalibrationPoint) -> Optional[float]:
+        configured = self._coerce_float(self.host._cfg_get("workflow.pressure.preseal_ready_pressure_hpa", None))
+        if configured is not None:
+            return float(configured)
+        target = self.host._as_float(point.target_pressure_hpa)
+        if target is None:
+            return None
+        margin = self._coerce_float(
+            self.host._cfg_get("workflow.pressure.preseal_ready_margin_hpa", 0.0),
+            default=0.0,
+        )
+        return float(target) + float(margin or 0.0)
+
+    def _positive_preseal_abort_pressure_hpa(self, ready_pressure_hpa: Optional[float]) -> Optional[float]:
+        configured = self._coerce_float(self.host._cfg_get("workflow.pressure.preseal_abort_pressure_hpa", None))
+        if configured is not None:
+            return float(configured)
+        if ready_pressure_hpa is None:
+            return None
+        margin = self._coerce_float(
+            self.host._cfg_get("workflow.pressure.preseal_abort_margin_hpa", 40.0),
+            default=40.0,
+        )
+        return float(ready_pressure_hpa) + abs(float(margin or 0.0))
+
+    def _pressure_controller_state_snapshot(self, controller: Any) -> dict[str, Any]:
+        return {
+            "vent_on": self._pressure_controller_vent_on(),
+            "vent_status_raw": self._pressure_controller_vent_status(controller),
+            "output_state": self._pressure_controller_output_state(controller),
+            "isolation_state": self._pressure_controller_isolation_state(controller),
+        }
+
+    def _fail_positive_preseal(
+        self,
+        point: CalibrationPoint,
+        *,
+        route: str,
+        started_at: float,
+        target_pressure_hpa: Optional[float],
+        measured_atmospheric_pressure_hpa: Optional[float],
+        ready_pressure_hpa: Optional[float],
+        abort_pressure_hpa: Optional[float],
+        timeout_s: float,
+        poll_interval_s: float,
+        pressure_hpa: Optional[float],
+        pressure_peak_hpa: Optional[float],
+        pressure_last_hpa: Optional[float],
+        reason: str,
+        message: str,
+        extra: Optional[dict[str, Any]] = None,
+    ) -> PressureWaitResult:
+        elapsed_s = max(0.0, time.time() - started_at)
+        actual = {
+            "stage": "positive_preseal_pressurization",
+            "target_pressure_hpa": target_pressure_hpa,
+            "measured_atmospheric_pressure_hpa": measured_atmospheric_pressure_hpa,
+            "preseal_ready_pressure_hpa": ready_pressure_hpa,
+            "preseal_abort_pressure_hpa": abort_pressure_hpa,
+            "preseal_ready_timeout_s": timeout_s,
+            "preseal_pressure_poll_interval_s": poll_interval_s,
+            "elapsed_s": elapsed_s,
+            "pressure_hpa": pressure_hpa,
+            "preseal_pressure_peak_hpa": pressure_peak_hpa,
+            "preseal_pressure_last_hpa": pressure_last_hpa,
+            "ready_reached": False,
+            "seal_command_sent": False,
+            "sealed": False,
+            "pressure_control_started": False,
+            "abort_reason": reason,
+            "decision": "FAIL",
+            **dict(extra or {}),
+        }
+        self._record_route_trace(
+            action="positive_preseal_abort",
+            route=route,
+            point=point,
+            actual=actual,
+            result="fail",
+            message=message,
+        )
+        timing_recorder = getattr(self.host, "_record_workflow_timing", None)
+        if callable(timing_recorder):
+            timing_recorder(
+                "positive_preseal_abort",
+                "fail",
+                stage="positive_preseal_pressurization",
+                point=point,
+                target_pressure_hpa=target_pressure_hpa,
+                duration_s=elapsed_s,
+                expected_max_s=timeout_s,
+                pressure_hpa=pressure_hpa,
+                blocking_condition=reason,
+                decision="abort",
+                error_code=reason,
+            )
+        return PressureWaitResult(
+            ok=False,
+            timed_out=reason == "preseal_ready_timeout",
+            target_hpa=target_pressure_hpa,
+            final_pressure_hpa=pressure_hpa,
+            diagnostics=actual,
+            error=message,
+        )
+
+    def _positive_preseal_pressurization(
+        self,
+        controller: Any,
+        point: CalibrationPoint,
+        *,
+        route: str,
+        pressure_reader: Optional[Callable[[], Optional[float]]],
+        measured_atmospheric_pressure_hpa: Optional[float],
+    ) -> PressureWaitResult:
+        target_pressure_hpa = self.host._as_float(point.target_pressure_hpa)
+        ready_pressure_hpa = self._positive_preseal_ready_pressure_hpa(point)
+        abort_pressure_hpa = self._positive_preseal_abort_pressure_hpa(ready_pressure_hpa)
+        timeout_s = max(
+            0.1,
+            float(self.host._cfg_get("workflow.pressure.preseal_ready_timeout_s", 30.0)),
+        )
+        poll_interval_s = max(
+            0.05,
+            float(self.host._cfg_get("workflow.pressure.preseal_pressure_poll_interval_s", 0.2)),
+        )
+        started_at = time.time()
+        vent_closed_at = datetime.now(timezone.utc).isoformat()
+        timing_recorder = getattr(self.host, "_record_workflow_timing", None)
+        if callable(timing_recorder):
+            timing_recorder(
+                "positive_preseal_pressurization_start",
+                "start",
+                stage="positive_preseal_pressurization",
+                point=point,
+                target_pressure_hpa=target_pressure_hpa,
+                expected_max_s=timeout_s,
+                wait_reason="positive_preseal_pressurization",
+            )
+        self._record_route_trace(
+            action="positive_preseal_pressurization_start",
+            route=route,
+            point=point,
+            actual={
+                "stage": "positive_preseal_pressurization",
+                "target_pressure_hpa": target_pressure_hpa,
+                "measured_atmospheric_pressure_hpa": measured_atmospheric_pressure_hpa,
+                "preseal_ready_pressure_hpa": ready_pressure_hpa,
+                "preseal_abort_pressure_hpa": abort_pressure_hpa,
+                "preseal_ready_timeout_s": timeout_s,
+                "preseal_pressure_poll_interval_s": poll_interval_s,
+                "ready_reached": False,
+                "sealed": False,
+                "pressure_control_started": False,
+                "decision": "START",
+            },
+            result="ok",
+            message="Positive preseal pressurization started",
+        )
+        try:
+            self.set_pressure_controller_vent(
+                False,
+                reason="positive CO2 preseal pressurization before route seal",
+                wait_after_command=False,
+                capture_pressure=False,
+            )
+        except Exception as exc:
+            return self._fail_positive_preseal(
+                point,
+                route=route,
+                started_at=started_at,
+                target_pressure_hpa=target_pressure_hpa,
+                measured_atmospheric_pressure_hpa=measured_atmospheric_pressure_hpa,
+                ready_pressure_hpa=ready_pressure_hpa,
+                abort_pressure_hpa=abort_pressure_hpa,
+                timeout_s=timeout_s,
+                poll_interval_s=poll_interval_s,
+                pressure_hpa=None,
+                pressure_peak_hpa=None,
+                pressure_last_hpa=None,
+                reason="preseal_vent_close_failed",
+                message="Positive preseal pressurization failed: pressure controller vent close command failed",
+                extra={
+                    "vent_closed_at": vent_closed_at,
+                    "vent_command_result": "fail",
+                    "command_error": str(exc),
+                },
+            )
+        state_after_vent = self._pressure_controller_state_snapshot(controller)
+        if state_after_vent.get("vent_on") is True or state_after_vent.get("vent_status_raw") == 1:
+            return self._fail_positive_preseal(
+                point,
+                route=route,
+                started_at=started_at,
+                target_pressure_hpa=target_pressure_hpa,
+                measured_atmospheric_pressure_hpa=measured_atmospheric_pressure_hpa,
+                ready_pressure_hpa=ready_pressure_hpa,
+                abort_pressure_hpa=abort_pressure_hpa,
+                timeout_s=timeout_s,
+                poll_interval_s=poll_interval_s,
+                pressure_hpa=None,
+                pressure_peak_hpa=None,
+                pressure_last_hpa=None,
+                reason="preseal_vent_close_failed",
+                message="Positive preseal pressurization failed: pressure controller vent did not close",
+                extra={
+                    "vent_closed_at": vent_closed_at,
+                    "vent_command_result": "not_closed",
+                    **state_after_vent,
+                },
+            )
+
+        previous_pressure: Optional[float] = None
+        previous_elapsed: Optional[float] = None
+        pressure_peak_hpa: Optional[float] = None
+        pressure_last_hpa: Optional[float] = None
+        while True:
+            self.host._check_stop()
+            elapsed_s = max(0.0, time.time() - started_at)
+            pressure_hpa = None if pressure_reader is None else pressure_reader()
+            pressure_hpa = self._coerce_float(pressure_hpa)
+            pressure_rise_rate: Optional[float] = None
+            if pressure_hpa is not None:
+                pressure_last_hpa = float(pressure_hpa)
+                pressure_peak_hpa = (
+                    float(pressure_hpa)
+                    if pressure_peak_hpa is None
+                    else max(float(pressure_peak_hpa), float(pressure_hpa))
+                )
+                if previous_pressure is not None and previous_elapsed is not None and elapsed_s > previous_elapsed:
+                    pressure_rise_rate = (float(pressure_hpa) - float(previous_pressure)) / (
+                        float(elapsed_s) - float(previous_elapsed)
+                    )
+                previous_pressure = float(pressure_hpa)
+                previous_elapsed = float(elapsed_s)
+            check_payload = {
+                "stage": "positive_preseal_pressurization",
+                "target_pressure_hpa": target_pressure_hpa,
+                "measured_atmospheric_pressure_hpa": measured_atmospheric_pressure_hpa,
+                "preseal_ready_pressure_hpa": ready_pressure_hpa,
+                "preseal_abort_pressure_hpa": abort_pressure_hpa,
+                "preseal_ready_timeout_s": timeout_s,
+                "preseal_pressure_poll_interval_s": poll_interval_s,
+                "vent_closed_at": vent_closed_at,
+                "vent_command_result": "closed",
+                "elapsed_s": elapsed_s,
+                "pressure_hpa": pressure_hpa,
+                "pressure_rise_rate_hpa_per_s": pressure_rise_rate,
+                "ready_reached": False,
+                "seal_command_sent": False,
+                "sealed": False,
+                "pressure_control_started": False,
+                **state_after_vent,
+            }
+            self._record_route_trace(
+                action="positive_preseal_pressure_check",
+                route=route,
+                point=point,
+                actual=check_payload,
+                result="ok",
+                message="Positive preseal pressure check",
+            )
+            if callable(timing_recorder):
+                timing_recorder(
+                    "positive_preseal_pressure_check",
+                    "tick",
+                    stage="positive_preseal_pressurization",
+                    point=point,
+                    target_pressure_hpa=target_pressure_hpa,
+                    duration_s=elapsed_s,
+                    expected_max_s=timeout_s,
+                    wait_reason="positive_preseal_pressure_rise",
+                    pressure_hpa=pressure_hpa,
+                    pace_output_state=state_after_vent.get("output_state"),
+                    pace_isolation_state=state_after_vent.get("isolation_state"),
+                    pace_vent_status=state_after_vent.get("vent_status_raw"),
+                )
+            if (
+                pressure_hpa is not None
+                and abort_pressure_hpa is not None
+                and float(pressure_hpa) > float(abort_pressure_hpa)
+            ):
+                return self._fail_positive_preseal(
+                    point,
+                    route=route,
+                    started_at=started_at,
+                    target_pressure_hpa=target_pressure_hpa,
+                    measured_atmospheric_pressure_hpa=measured_atmospheric_pressure_hpa,
+                    ready_pressure_hpa=ready_pressure_hpa,
+                    abort_pressure_hpa=abort_pressure_hpa,
+                    timeout_s=timeout_s,
+                    poll_interval_s=poll_interval_s,
+                    pressure_hpa=float(pressure_hpa),
+                    pressure_peak_hpa=pressure_peak_hpa,
+                    pressure_last_hpa=pressure_last_hpa,
+                    reason="preseal_abort_pressure_exceeded",
+                    message="Positive preseal pressurization exceeded abort pressure",
+                    extra={**state_after_vent, "vent_closed_at": vent_closed_at, "vent_command_result": "closed"},
+                )
+            if (
+                pressure_hpa is not None
+                and ready_pressure_hpa is not None
+                and float(pressure_hpa) >= float(ready_pressure_hpa)
+            ):
+                ready_payload = {
+                    **check_payload,
+                    "ready_reached": True,
+                    "ready_reached_at_pressure_hpa": float(pressure_hpa),
+                    "seal_trigger_pressure_hpa": float(pressure_hpa),
+                    "seal_trigger_elapsed_s": elapsed_s,
+                    "decision": "READY",
+                }
+                self._record_route_trace(
+                    action="positive_preseal_ready",
+                    route=route,
+                    point=point,
+                    actual=ready_payload,
+                    result="ok",
+                    message="Positive preseal ready threshold reached",
+                )
+                if callable(timing_recorder):
+                    timing_recorder(
+                        "positive_preseal_ready",
+                        "info",
+                        stage="positive_preseal_pressurization",
+                        point=point,
+                        target_pressure_hpa=target_pressure_hpa,
+                        duration_s=elapsed_s,
+                        expected_max_s=timeout_s,
+                        wait_reason="positive_preseal_pressure_rise",
+                        pressure_hpa=pressure_hpa,
+                        decision="ready",
+                        pace_output_state=state_after_vent.get("output_state"),
+                        pace_isolation_state=state_after_vent.get("isolation_state"),
+                        pace_vent_status=state_after_vent.get("vent_status_raw"),
+                    )
+                return PressureWaitResult(
+                    ok=True,
+                    target_hpa=target_pressure_hpa,
+                    final_pressure_hpa=float(pressure_hpa),
+                    in_limits=True,
+                    diagnostics={
+                        **ready_payload,
+                        "preseal_pressure_peak_hpa": pressure_peak_hpa,
+                        "preseal_pressure_last_hpa": pressure_last_hpa,
+                        "preseal_trigger": "positive_preseal_ready",
+                        "preseal_trigger_pressure_hpa": float(pressure_hpa),
+                        "preseal_trigger_threshold_hpa": ready_pressure_hpa,
+                    },
+                )
+            if elapsed_s >= timeout_s:
+                return self._fail_positive_preseal(
+                    point,
+                    route=route,
+                    started_at=started_at,
+                    target_pressure_hpa=target_pressure_hpa,
+                    measured_atmospheric_pressure_hpa=measured_atmospheric_pressure_hpa,
+                    ready_pressure_hpa=ready_pressure_hpa,
+                    abort_pressure_hpa=abort_pressure_hpa,
+                    timeout_s=timeout_s,
+                    poll_interval_s=poll_interval_s,
+                    pressure_hpa=pressure_hpa,
+                    pressure_peak_hpa=pressure_peak_hpa,
+                    pressure_last_hpa=pressure_last_hpa,
+                    reason="preseal_ready_timeout",
+                    message="Positive preseal pressurization timed out before ready pressure",
+                    extra={**state_after_vent, "vent_closed_at": vent_closed_at, "vent_command_result": "closed"},
+                )
+            time.sleep(min(poll_interval_s, max(0.05, timeout_s - elapsed_s)))
 
     def __init__(self, context: OrchestrationContext, run_state: RunState, *, host: Any) -> None:
         self.context = context
@@ -109,6 +495,7 @@ class PressureControlService:
         reason: str = "",
         *,
         wait_after_command: bool = True,
+        capture_pressure: bool = True,
     ) -> None:
         controller = self.host._device("pressure_controller")
         if controller is None:
@@ -193,7 +580,7 @@ class PressureControlService:
             action="set_vent",
             target={"vent_on": bool(vent_on)},
             actual={
-                "pressure_hpa": self._current_pressure(),
+                "pressure_hpa": self._current_pressure() if capture_pressure else None,
                 **diagnostics,
             },
             result=trace_result,
@@ -673,8 +1060,54 @@ class PressureControlService:
                         blocking_condition="pressure_control_ready_gate",
                         decision="not_ready",
                         error_code=control_ready.error,
-                    )
+                        )
                 return control_ready
+            if (
+                str(seal_context.get("route") or "").strip().lower() == "co2"
+                and bool(self.host._cfg_get("workflow.pressure.fail_if_sealed_pressure_below_target", False))
+            ):
+                current_pressure = self._current_pressure()
+                margin_hpa = abs(
+                    float(self.host._cfg_get("workflow.pressure.sealed_pressure_min_margin_hpa", 0.0))
+                )
+                if current_pressure is not None and float(current_pressure) + margin_hpa < float(target):
+                    diagnostics = {
+                        **dict(seal_context),
+                        **dict(control_ready.diagnostics),
+                        "pressure_hpa": current_pressure,
+                        "target_pressure_hpa": target,
+                        "hard_blockers": ["sealed_pressure_below_target"],
+                        "pressure_control_started": False,
+                    }
+                    result = PressureWaitResult(
+                        ok=False,
+                        target_hpa=target,
+                        final_pressure_hpa=current_pressure,
+                        diagnostics=diagnostics,
+                        error="Sealed CO2 pressure is below target; refusing to re-pressurize from outside gas",
+                    )
+                    self._record_route_trace(
+                        action="set_pressure",
+                        point=point,
+                        target={"pressure_hpa": target},
+                        actual=diagnostics,
+                        result="fail",
+                        message=result.error,
+                    )
+                    if callable(timing_recorder):
+                        timing_recorder(
+                            "pressure_timeout",
+                            "warning",
+                            stage="pressure_setpoint",
+                            point=point,
+                            target_pressure_hpa=target,
+                            pressure_hpa=current_pressure,
+                            expected_max_s=pressure_timeout_s,
+                            blocking_condition="sealed_pressure_below_target",
+                            decision="sealed_pressure_below_target",
+                            error_code=result.error,
+                        )
+                    return result
         setpoint_result = self._apply_pressure_setpoint(controller, target)
         if not bool(setpoint_result.get("accepted")):
             result = PressureWaitResult(
@@ -862,7 +1295,6 @@ class PressureControlService:
         if route_text == "h2o":
             self.host._capture_preseal_dewpoint_snapshot()
         final_vent_off_command_sent = True
-        self.host._set_pressure_controller_vent(False, reason=f"before {route_text.upper()} pressure seal")
         wait_after_vent_off_s = float(self.host._cfg_get("workflow.pressure.pressurize_wait_after_vent_off_s", 5.0))
         if route_text != "h2o" and self.run_state.humidity.active_post_h2o_co2_zero_flush:
             wait_after_vent_off_s = float(
@@ -874,44 +1306,106 @@ class PressureControlService:
         preseal_trigger_pressure_hpa: Optional[float] = None
         preseal_trigger_threshold_hpa: Optional[float] = None
         pressure_reader: Optional[Callable[[], Optional[float]]] = None
+        positive_preseal = False
+        positive_preseal_diagnostics: dict[str, Any] = {}
+        measured_atmospheric_pressure_hpa: Optional[float] = None
         if route_text != "h2o":
             pressure_reader = self._make_preseal_observation_reader()
-            preseal_trigger_threshold_hpa = self._coerce_float(
-                self.host._cfg_get("workflow.pressure.co2_preseal_pressure_gauge_trigger_hpa", 1110.0)
+            positive_cfg = self._coerce_bool(
+                self.host._cfg_get("workflow.pressure.positive_preseal_pressurization_enabled", None)
             )
-        if wait_after_vent_off_s > 0:
-            start = time.time()
-            sample_interval_s = min(0.5, wait_after_vent_off_s)
-            while True:
-                self.host._check_stop()
-                pressure_now = None if pressure_reader is None else pressure_reader()
-                if pressure_now is not None:
-                    preseal_pressure_last = float(pressure_now)
-                    if preseal_pressure_peak is None or float(pressure_now) > preseal_pressure_peak:
-                        preseal_pressure_peak = float(pressure_now)
-                if (
-                    route_text != "h2o"
-                    and preseal_trigger_threshold_hpa is not None
-                    and pressure_now is not None
-                    and preseal_pressure_last is not None
-                    and preseal_pressure_last >= preseal_trigger_threshold_hpa
-                ):
-                    preseal_trigger_source = "pressure_gauge_threshold"
-                    preseal_trigger_pressure_hpa = preseal_pressure_last
-                    break
-                remain = wait_after_vent_off_s - (time.time() - start)
-                if remain <= 0:
-                    preseal_trigger_source = "timeout"
-                    break
-                time.sleep(min(sample_interval_s, remain))
-        elif route_text != "h2o":
-            preseal_trigger_source = "no_wait"
+            if positive_cfg:
+                measured_atmospheric_pressure_hpa = (
+                    None if pressure_reader is None else self._coerce_float(pressure_reader())
+                )
+                positive_preseal = self._positive_preseal_enabled(
+                    point,
+                    route=route_text,
+                    measured_atmospheric_pressure_hpa=measured_atmospheric_pressure_hpa,
+                )
+            if positive_preseal:
+                positive_result = self._positive_preseal_pressurization(
+                    controller,
+                    point,
+                    route=route_text,
+                    pressure_reader=pressure_reader,
+                    measured_atmospheric_pressure_hpa=measured_atmospheric_pressure_hpa,
+                )
+                if not positive_result.ok:
+                    if callable(timing_recorder):
+                        timing_recorder(
+                            "seal_end",
+                            "fail",
+                            stage="seal",
+                            point=point,
+                            target_pressure_hpa=point.target_pressure_hpa,
+                            pressure_hpa=positive_result.final_pressure_hpa,
+                            decision="positive_preseal_failed",
+                            error_code=positive_result.error,
+                        )
+                    return positive_result
+                positive_preseal_diagnostics = dict(positive_result.diagnostics)
+                preseal_pressure_peak = self._coerce_float(
+                    positive_preseal_diagnostics.get("preseal_pressure_peak_hpa")
+                )
+                preseal_pressure_last = self._coerce_float(
+                    positive_preseal_diagnostics.get("preseal_pressure_last_hpa")
+                )
+                preseal_trigger_source = str(
+                    positive_preseal_diagnostics.get("preseal_trigger") or "positive_preseal_ready"
+                )
+                preseal_trigger_pressure_hpa = self._coerce_float(
+                    positive_preseal_diagnostics.get("preseal_trigger_pressure_hpa")
+                )
+                preseal_trigger_threshold_hpa = self._coerce_float(
+                    positive_preseal_diagnostics.get("preseal_trigger_threshold_hpa")
+                )
+            else:
+                self.host._set_pressure_controller_vent(False, reason=f"before {route_text.upper()} pressure seal")
+                preseal_trigger_threshold_hpa = self._coerce_float(
+                    self.host._cfg_get("workflow.pressure.co2_preseal_pressure_gauge_trigger_hpa", 1110.0)
+                )
+        else:
+            self.host._set_pressure_controller_vent(False, reason=f"before {route_text.upper()} pressure seal")
+        if not positive_preseal:
+            if wait_after_vent_off_s > 0:
+                start = time.time()
+                sample_interval_s = min(0.5, wait_after_vent_off_s)
+                while True:
+                    self.host._check_stop()
+                    pressure_now = None if pressure_reader is None else pressure_reader()
+                    if pressure_now is not None:
+                        preseal_pressure_last = float(pressure_now)
+                        if preseal_pressure_peak is None or float(pressure_now) > preseal_pressure_peak:
+                            preseal_pressure_peak = float(pressure_now)
+                    if (
+                        route_text != "h2o"
+                        and preseal_trigger_threshold_hpa is not None
+                        and pressure_now is not None
+                        and preseal_pressure_last is not None
+                        and preseal_pressure_last >= preseal_trigger_threshold_hpa
+                    ):
+                        preseal_trigger_source = "pressure_gauge_threshold"
+                        preseal_trigger_pressure_hpa = preseal_pressure_last
+                        break
+                    remain = wait_after_vent_off_s - (time.time() - start)
+                    if remain <= 0:
+                        preseal_trigger_source = "timeout"
+                        break
+                    time.sleep(min(sample_interval_s, remain))
+            elif route_text != "h2o":
+                preseal_trigger_source = "no_wait"
         final_pressure: Optional[float] = None
         try:
             if route_text != "h2o":
                 if preseal_pressure_peak is not None:
                     trigger_detail = ""
-                    if (
+                    if positive_preseal:
+                        trigger_detail = (
+                            f"positive preseal ready={preseal_trigger_pressure_hpa} hPa "
+                            f"threshold={preseal_trigger_threshold_hpa} hPa; "
+                        )
+                    elif (
                         preseal_trigger_source == "pressure_gauge_threshold"
                         and preseal_trigger_pressure_hpa is not None
                         and preseal_trigger_threshold_hpa is not None
@@ -938,6 +1432,17 @@ class PressureControlService:
                 final_vent_off_command_sent=final_vent_off_command_sent,
             )
             if not preseal_exit.ok:
+                if positive_preseal and callable(timing_recorder):
+                    timing_recorder(
+                        "positive_preseal_abort",
+                        "fail",
+                        stage="positive_preseal_pressurization",
+                        point=point,
+                        target_pressure_hpa=point.target_pressure_hpa,
+                        pressure_hpa=preseal_pressure_last,
+                        decision="preseal_final_atmosphere_exit_failed",
+                        error_code=preseal_exit.error,
+                    )
                 if callable(timing_recorder):
                     timing_recorder(
                         "seal_end",
@@ -953,9 +1458,40 @@ class PressureControlService:
                 self.host._set_h2o_path(False, point)
                 relay_state = {}
             else:
+                if positive_preseal and callable(timing_recorder):
+                    timing_recorder(
+                        "positive_preseal_seal_start",
+                        "info",
+                        stage="positive_preseal_pressurization",
+                        point=point,
+                        target_pressure_hpa=point.target_pressure_hpa,
+                        pressure_hpa=preseal_trigger_pressure_hpa,
+                        wait_reason="close_co2_route_valves",
+                    )
                 relay_state = self.host._apply_valve_states([])
             seal_transition = self._seal_transition_gate(point, route=route_text, relay_state=relay_state)
             if not seal_transition.ok:
+                if positive_preseal and callable(timing_recorder):
+                    timing_recorder(
+                        "positive_preseal_abort",
+                        "fail",
+                        stage="positive_preseal_pressurization",
+                        point=point,
+                        target_pressure_hpa=point.target_pressure_hpa,
+                        pressure_hpa=preseal_pressure_last,
+                        decision="seal_transition_failed",
+                        error_code=seal_transition.error,
+                    )
+                    timing_recorder(
+                        "positive_preseal_seal_end",
+                        "fail",
+                        stage="positive_preseal_pressurization",
+                        point=point,
+                        target_pressure_hpa=point.target_pressure_hpa,
+                        pressure_hpa=preseal_pressure_last,
+                        decision="seal_transition_failed",
+                        error_code=seal_transition.error,
+                    )
                 if callable(timing_recorder):
                     timing_recorder(
                         "seal_end",
@@ -978,6 +1514,78 @@ class PressureControlService:
                 route=route_text,
                 final_vent_off_command_sent=final_vent_off_command_sent,
             )
+            if positive_preseal and callable(timing_recorder):
+                timing_recorder(
+                    "positive_preseal_seal_end",
+                    "end",
+                    stage="positive_preseal_pressurization",
+                    point=point,
+                    target_pressure_hpa=point.target_pressure_hpa,
+                    pressure_hpa=final_pressure,
+                    decision="sealed",
+                )
+            target_pressure_hpa = self.host._as_float(point.target_pressure_hpa)
+            sealed_pressure_guard_enabled = bool(
+                self.host._cfg_get("workflow.pressure.fail_if_sealed_pressure_below_target", False)
+            )
+            sealed_margin_hpa = float(
+                self.host._cfg_get("workflow.pressure.sealed_pressure_min_margin_hpa", 0.0)
+            )
+            if (
+                route_text != "h2o"
+                and positive_preseal
+                and sealed_pressure_guard_enabled
+                and final_pressure is not None
+                and target_pressure_hpa is not None
+                and float(final_pressure) + abs(sealed_margin_hpa) < float(target_pressure_hpa)
+            ):
+                diagnostics = {
+                    "route": route_text,
+                    **preseal_exit.diagnostics,
+                    **seal_transition.diagnostics,
+                    **positive_preseal_diagnostics,
+                    **watchlist,
+                    "pressure_hpa": final_pressure,
+                    "sealed_pressure_hpa": final_pressure,
+                    "target_pressure_hpa": target_pressure_hpa,
+                    "hard_blockers": ["sealed_pressure_below_target"],
+                    "pressure_control_started": False,
+                }
+                self._record_route_trace(
+                    action="sealed_pressure_control_start",
+                    route=route_text,
+                    point=point,
+                    actual=diagnostics,
+                    result="fail",
+                    message="Sealed CO2 pressure is below target before pressure control",
+                )
+                if callable(timing_recorder):
+                    timing_recorder(
+                        "positive_preseal_abort",
+                        "fail",
+                        stage="positive_preseal_pressurization",
+                        point=point,
+                        target_pressure_hpa=target_pressure_hpa,
+                        pressure_hpa=final_pressure,
+                        decision="sealed_pressure_below_target",
+                        error_code="sealed_pressure_below_target",
+                    )
+                    timing_recorder(
+                        "seal_end",
+                        "fail",
+                        stage="seal",
+                        point=point,
+                        target_pressure_hpa=target_pressure_hpa,
+                        pressure_hpa=final_pressure,
+                        decision="sealed_pressure_below_target",
+                        error_code="sealed_pressure_below_target",
+                    )
+                return PressureWaitResult(
+                    ok=False,
+                    final_pressure_hpa=final_pressure,
+                    diagnostics=diagnostics,
+                    error="Sealed CO2 pressure is below target before pressure control",
+                )
             if route_text != "h2o" and preseal_pressure_peak is not None:
                 self.host._log(
                     f"{route_text.upper()} route sealed for pressure control "
@@ -1006,6 +1614,9 @@ class PressureControlService:
                     "route": route_text,
                     **preseal_exit.diagnostics,
                     **seal_transition.diagnostics,
+                    **positive_preseal_diagnostics,
+                    "positive_preseal_pressurization_enabled": positive_preseal,
+                    "measured_atmospheric_pressure_hpa": measured_atmospheric_pressure_hpa,
                     "preseal_trigger": preseal_trigger_source,
                     "preseal_trigger_pressure_hpa": preseal_trigger_pressure_hpa,
                     "preseal_trigger_threshold_hpa": preseal_trigger_threshold_hpa,
@@ -1020,8 +1631,11 @@ class PressureControlService:
                     "pressure_hpa": final_pressure,
                     "preseal_pressure_peak_hpa": preseal_pressure_peak,
                     "preseal_pressure_last_hpa": preseal_pressure_last,
+                    "measured_atmospheric_pressure_hpa": measured_atmospheric_pressure_hpa,
+                    "positive_preseal_pressurization_enabled": positive_preseal,
                     **preseal_exit.diagnostics,
                     **seal_transition.diagnostics,
+                    **positive_preseal_diagnostics,
                     "preseal_trigger": preseal_trigger_source,
                     "preseal_trigger_pressure_hpa": preseal_trigger_pressure_hpa,
                     "preseal_trigger_threshold_hpa": preseal_trigger_threshold_hpa,

@@ -496,9 +496,86 @@ def synthesize_timing_events_from_route_trace(
                 decision=result,
                 error_code=actual.get("reason") if result == "fail" else None,
             )
+        elif action == "preseal_atmosphere_flush_ready_handoff":
+            add(
+                "preseal_pressure_check",
+                "info",
+                row=row,
+                stage="preseal_atmosphere_flush_hold",
+                decision="positive_preseal_ready_handoff",
+            )
+        elif action == "positive_preseal_pressurization_start":
+            add(
+                "positive_preseal_pressurization_start",
+                "start",
+                row=row,
+                stage="positive_preseal_pressurization",
+                target_pressure_hpa=actual.get("target_pressure_hpa"),
+            )
+        elif action == "positive_preseal_pressure_check":
+            add(
+                "positive_preseal_pressure_check",
+                "tick",
+                row=row,
+                stage="positive_preseal_pressurization",
+                target_pressure_hpa=actual.get("target_pressure_hpa"),
+                pressure_hpa=actual.get("pressure_hpa"),
+                wait_reason="positive_preseal_pressure_rise",
+            )
+        elif action == "positive_preseal_ready":
+            add(
+                "positive_preseal_ready",
+                "info",
+                row=row,
+                stage="positive_preseal_pressurization",
+                target_pressure_hpa=actual.get("target_pressure_hpa"),
+                pressure_hpa=actual.get("seal_trigger_pressure_hpa", actual.get("pressure_hpa")),
+                decision="ready",
+            )
+            add(
+                "positive_preseal_seal_start",
+                "info",
+                row=row,
+                stage="positive_preseal_pressurization",
+                target_pressure_hpa=actual.get("target_pressure_hpa"),
+                pressure_hpa=actual.get("seal_trigger_pressure_hpa", actual.get("pressure_hpa")),
+                wait_reason="close_co2_route_valves",
+            )
+        elif action == "positive_preseal_abort":
+            add(
+                "positive_preseal_abort",
+                "fail",
+                row=row,
+                stage="positive_preseal_pressurization",
+                target_pressure_hpa=actual.get("target_pressure_hpa"),
+                pressure_hpa=actual.get("pressure_hpa"),
+                decision="abort",
+                error_code=actual.get("abort_reason") or actual.get("reason"),
+            )
         elif action == "seal_route":
+            if bool(actual.get("positive_preseal_pressurization_enabled")) or str(actual.get("preseal_trigger") or "") == "positive_preseal_ready":
+                add(
+                    "positive_preseal_seal_end",
+                    "end" if result == "ok" else "fail",
+                    row=row,
+                    stage="positive_preseal_pressurization",
+                    target_pressure_hpa=actual.get("target_pressure_hpa"),
+                    pressure_hpa=actual.get("preseal_trigger_pressure_hpa", actual.get("pressure_hpa")),
+                    decision=result,
+                )
             add("seal_start", "start", row=row, stage="seal")
             add("seal_end", "end", row=row, stage="seal")
+        elif action == "sealed_pressure_control_start":
+            add(
+                "positive_preseal_abort",
+                "fail",
+                row=row,
+                stage="positive_preseal_pressurization",
+                target_pressure_hpa=actual.get("target_pressure_hpa"),
+                pressure_hpa=actual.get("pressure_hpa"),
+                decision="sealed_pressure_below_target",
+                error_code="sealed_pressure_below_target",
+            )
         elif action == "set_pressure":
             add("pressure_setpoint_start", "start", row=row, stage="pressure_setpoint")
             if result == "timeout":
@@ -553,6 +630,11 @@ def build_workflow_timing_summary(
     pressure_setpoint_started_by_point: set[str] = set()
     preseal_vent_ticks: list[dict[str, Any]] = []
     preseal_pressures: list[float] = []
+    positive_preseal_ready_pressure_hpa = _as_float(context.get("positive_preseal_ready_pressure_hpa"))
+    positive_preseal_abort_pressure_hpa = _as_float(context.get("positive_preseal_abort_pressure_hpa"))
+    positive_preseal_seal_trigger_pressure_hpa: Optional[float] = _as_float(
+        context.get("positive_preseal_seal_trigger_pressure_hpa")
+    )
 
     run_start = next((event for event in events if event.get("event_name") == "run_start"), events[0] if events else {})
     run_end = next((event for event in reversed(events) if event.get("event_name") == "run_end"), events[-1] if events else {})
@@ -589,9 +671,20 @@ def build_workflow_timing_summary(
             )
         if "timeout" in name or event_type == "timeout":
             timeout_events.append(_warning_payload(event, "timeout_event"))
-        if event_type == "start" or name.endswith(_START_SUFFIX):
+        if event_type == "start" or (
+            name.endswith(_START_SUFFIX) and event_type not in {"info", "tick", "warning"}
+        ):
             open_events[key] = event
             continue
+        if name == "positive_preseal_ready":
+            positive_preseal_ready_pressure_hpa = _as_float(event.get("pressure_hpa")) or positive_preseal_ready_pressure_hpa
+            positive_preseal_seal_trigger_pressure_hpa = (
+                _as_float(event.get("pressure_hpa")) or positive_preseal_seal_trigger_pressure_hpa
+            )
+        if name == "positive_preseal_seal_end":
+            positive_preseal_seal_trigger_pressure_hpa = positive_preseal_seal_trigger_pressure_hpa or _as_float(
+                event.get("pressure_hpa")
+            )
         terminal_for_stage = event_type in {"end", "fail", "abort"} or name.endswith(_END_SUFFIX) or name in {"pressure_ready", "pressure_timeout"}
         if not terminal_for_stage:
             continue
@@ -664,6 +757,7 @@ def build_workflow_timing_summary(
     longest_stage = _longest_from_mapping(stage_durations)
     wait_candidates = {
         "preseal_soak": stage_durations.get("preseal_soak"),
+        "positive_preseal_pressurization": stage_durations.get("positive_preseal_pressurization"),
         "safe_stop": stage_durations.get("safe_stop"),
         "artifact_finalize": stage_durations.get("artifact_finalize"),
     }
@@ -692,6 +786,10 @@ def build_workflow_timing_summary(
         "missing_end_events": missing_end_events,
         "state_mismatch_warnings": state_mismatch_warnings,
         "preseal_soak_duration_s": stage_durations.get("preseal_soak"),
+        "positive_preseal_duration_s": stage_durations.get("positive_preseal_pressurization"),
+        "positive_preseal_ready_pressure_hpa": positive_preseal_ready_pressure_hpa,
+        "positive_preseal_seal_trigger_pressure_hpa": positive_preseal_seal_trigger_pressure_hpa,
+        "positive_preseal_abort_pressure_hpa": positive_preseal_abort_pressure_hpa,
         "preseal_vent_tick_count": len(preseal_vent_ticks),
         "preseal_pressure_max_hpa": max(preseal_pressures) if preseal_pressures else None,
         "pressure_ready_durations_by_point": pressure_ready_durations,

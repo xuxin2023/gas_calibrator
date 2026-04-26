@@ -1233,7 +1233,13 @@ class WorkflowOrchestrator:
                     expected_max_s=vent_hold_interval_s,
                     wait_reason="continuous_atmosphere_hold",
                 )
-                self._verify_co2_preseal_atmosphere_hold_pressure(point)
+                pressure_decision = self._verify_co2_preseal_atmosphere_hold_pressure(point)
+                if pressure_decision == "positive_preseal_ready_handoff":
+                    self._log(
+                        "CO2 pre-seal atmosphere flush reached positive preseal ready pressure; "
+                        f"handoff to pressurization/seal (row {point.index})"
+                    )
+                    break
                 last_atmosphere_hold_ts = now
             self._refresh_live_analyzer_snapshots(reason="co2_route_preseal_soak")
             time.sleep(min(1.0, max(0.05, soak_s - (time.time() - start))))
@@ -1256,43 +1262,96 @@ class WorkflowOrchestrator:
             log_context=log_context,
         )
 
-    def _verify_co2_preseal_atmosphere_hold_pressure(self, point: CalibrationPoint) -> None:
+    def _verify_co2_preseal_atmosphere_hold_pressure(self, point: CalibrationPoint) -> str:
         reader = getattr(self.pressure_control_service, "_current_pressure", None)
         if not callable(reader):
-            return
+            return "unavailable"
         pressure_hpa = self._as_float(reader())
         if pressure_hpa is None:
-            return
+            return "unavailable"
         limit_hpa = self._as_float(self._cfg_get("workflow.pressure.preseal_atmosphere_hold_max_hpa"))
         target_hpa = self._as_float(point.target_pressure_hpa)
+        positive_preseal_enabled = bool(
+            self._cfg_get("workflow.pressure.positive_preseal_pressurization_enabled", False)
+        )
+        ready_hpa = self._as_float(self._cfg_get("workflow.pressure.preseal_ready_pressure_hpa"))
+        if ready_hpa is None and target_hpa is not None:
+            ready_margin_hpa = self._as_float(self._cfg_get("workflow.pressure.preseal_ready_margin_hpa", 0.0))
+            ready_hpa = target_hpa + float(0.0 if ready_margin_hpa is None else ready_margin_hpa)
+        abort_hpa = self._as_float(self._cfg_get("workflow.pressure.preseal_atmosphere_flush_abort_pressure_hpa"))
+        if abort_hpa is None:
+            abort_hpa = self._as_float(self._cfg_get("workflow.pressure.preseal_abort_pressure_hpa"))
         if limit_hpa is None:
             default_limit_hpa = self._as_float(
                 self._cfg_get("workflow.pressure.preseal_atmosphere_hold_default_max_hpa", 1110.0)
             )
             if target_hpa is None:
-                return
+                return "unavailable"
             margin_hpa = self._as_float(self._cfg_get("workflow.pressure.preseal_atmosphere_hold_margin_hpa", 10.0))
             target_limit_hpa = target_hpa + abs(10.0 if margin_hpa is None else margin_hpa)
             limit_hpa = max(1110.0 if default_limit_hpa is None else default_limit_hpa, target_limit_hpa)
-        if pressure_hpa <= float(limit_hpa):
+        effective_limit_hpa = float(abort_hpa if positive_preseal_enabled and abort_hpa is not None else limit_hpa)
+        if (
+            positive_preseal_enabled
+            and ready_hpa is not None
+            and pressure_hpa >= float(ready_hpa)
+            and pressure_hpa <= effective_limit_hpa
+        ):
+            tagger = getattr(getattr(self, "route_planner", None), "co2_point_tag", None)
+            point_tag = tagger(point) if callable(tagger) else ""
+            details = {
+                "pressure_hpa": pressure_hpa,
+                "ready_pressure_hpa": float(ready_hpa),
+                "abort_pressure_hpa": effective_limit_hpa,
+                "point_index": point.index,
+                "point_tag": point_tag,
+                "reason": "positive_preseal_ready_handoff",
+            }
+            recorder = getattr(getattr(self, "status_service", None), "record_route_trace", None)
+            if callable(recorder):
+                recorder(
+                    action="preseal_atmosphere_flush_ready_handoff",
+                    route="co2",
+                    point=point,
+                    actual=details,
+                    result="ok",
+                    message="CO2 atmosphere flush reached positive preseal ready pressure",
+                )
             self._record_workflow_timing(
                 "preseal_pressure_check",
                 "info",
-                stage="preseal_soak",
+                stage="preseal_atmosphere_flush_hold",
+                point=point,
+                pressure_hpa=pressure_hpa,
+                target_pressure_hpa=target_hpa,
+                decision="positive_preseal_ready_handoff",
+            )
+            return "positive_preseal_ready_handoff"
+        if pressure_hpa <= effective_limit_hpa:
+            self._record_workflow_timing(
+                "preseal_pressure_check",
+                "info",
+                stage="preseal_atmosphere_flush_hold" if positive_preseal_enabled else "preseal_soak",
                 point=point,
                 pressure_hpa=pressure_hpa,
                 target_pressure_hpa=target_hpa,
                 decision="within_limit",
             )
-            return
+            return "within_limit"
         tagger = getattr(getattr(self, "route_planner", None), "co2_point_tag", None)
         point_tag = tagger(point) if callable(tagger) else ""
+        reason = (
+            "co2_preseal_atmosphere_flush_abort_pressure_exceeded"
+            if positive_preseal_enabled
+            else "co2_preseal_atmosphere_hold_pressure_exceeded"
+        )
         details = {
             "pressure_hpa": pressure_hpa,
-            "limit_hpa": float(limit_hpa),
+            "limit_hpa": float(effective_limit_hpa),
+            "ready_pressure_hpa": ready_hpa,
             "point_index": point.index,
             "point_tag": point_tag,
-            "reason": "co2_preseal_atmosphere_hold_pressure_exceeded",
+            "reason": reason,
         }
         recorder = getattr(getattr(self, "status_service", None), "record_route_trace", None)
         if callable(recorder):
@@ -1312,11 +1371,11 @@ class WorkflowOrchestrator:
             pressure_hpa=pressure_hpa,
             target_pressure_hpa=target_hpa,
             decision="limit_exceeded",
-            error_code="co2_preseal_atmosphere_hold_pressure_exceeded",
+            error_code=reason,
         )
         self._log(
             "CO2 pre-seal atmosphere hold pressure exceeded limit: "
-            f"row={point.index} pressure={pressure_hpa:.3f}hPa limit={float(limit_hpa):.3f}hPa"
+            f"row={point.index} pressure={pressure_hpa:.3f}hPa limit={float(effective_limit_hpa):.3f}hPa"
         )
         raise WorkflowValidationError(
             "CO2 pre-seal atmosphere hold pressure exceeded limit",
@@ -1335,11 +1394,13 @@ class WorkflowOrchestrator:
         reason: str = "",
         *,
         wait_after_command: bool = True,
+        capture_pressure: bool = True,
     ) -> None:
         self.pressure_control_service.set_pressure_controller_vent(
             vent_on,
             reason=reason,
             wait_after_command=wait_after_command,
+            capture_pressure=capture_pressure,
         )
 
     def _enable_pressure_controller_output(self, reason: str = "") -> None:
