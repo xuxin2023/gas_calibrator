@@ -888,6 +888,7 @@ def test_a2_preseal_diagnostic_warnings_are_merged_into_workflow_summary(tmp_pat
     summary_codes = {item["warning_code"] for item in timing_summary["preseal_timing_warnings_all"]}
     assert diagnostic_codes
     assert diagnostic_codes.issubset(summary_codes)
+    assert timing_diagnostics["warning_count"] == timing_summary["preseal_timing_warning_count_total"]
     assert timing_summary["preseal_timing_warning_count_total"] == len(timing_summary["preseal_timing_warnings_all"])
     assert timing_summary["preseal_timing_warning_count"] == timing_summary["preseal_timing_warning_count_total"]
     assert timing_summary["severe_preseal_timing_warning_count"] == timing_summary["preseal_timing_warning_count_severe"]
@@ -927,12 +928,13 @@ def test_co2_preseal_soak_reasserts_pressure_atmosphere_hold(monkeypatch) -> Non
     def fake_sleep(seconds: float) -> None:
         clock["now"] += float(seconds)
 
-    def set_vent(vent_on: bool, reason: str = "", *, wait_after_command: bool = True) -> None:
+    def set_vent(vent_on: bool, reason: str = "", *, wait_after_command: bool = True, **kwargs) -> None:
         calls.append(
             {
                 "vent_on": vent_on,
                 "reason": reason,
                 "wait_after_command": wait_after_command,
+                **kwargs,
                 "at": clock["now"],
             }
         )
@@ -1054,12 +1056,14 @@ def test_co2_preseal_soak_handoffs_ready_pressure_without_hard_fail(monkeypatch)
 
     assert orchestrator._wait_co2_route_soak_before_seal(point) is True
 
-    assert route_traces[-1]["action"] == "preseal_atmosphere_flush_ready_handoff"
+    assert route_traces[-1]["action"] == "preseal_vent_close_arm_triggered"
     assert route_traces[-1]["result"] == "ok"
-    assert route_traces[-1]["actual"]["pressure_hpa"] == 1110.0
+    assert route_traces[-1]["actual"]["vent_close_arm_pressure_hpa"] == 1110.0
+    assert route_traces[-1]["actual"]["vent_close_arm_trigger"] == "arm_pressure"
+    assert route_traces[-1]["actual"]["late_arm_at_ready"] is True
     assert not any(row.get("result") == "fail" for row in route_traces)
-    assert [call["vent_on"] for call in vent_calls] == [True]
-    assert any(event["event_name"] == "preseal_pressure_check" for event in timing_events)
+    assert vent_calls == []
+    assert any(event["event_name"] == "preseal_vent_close_arm_triggered" for event in timing_events)
 
 
 def _preseal_arm_orchestrator(monkeypatch, pressures: list[float], *, cfg_overrides: dict | None = None):
@@ -1134,6 +1138,38 @@ def test_co2_preseal_soak_arms_vent_close_before_ready_pressure(monkeypatch) -> 
     assert route_traces[-1]["actual"]["vent_close_arm_pressure_hpa"] == 1082.0
     assert not any(row["action"] == "preseal_atmosphere_flush_ready_handoff" for row in route_traces)
     assert any(event["event_name"] == "preseal_vent_close_arm_triggered" for event in timing_events)
+    assert _vent_calls == []
+
+
+def test_co2_preseal_soak_arms_when_pressure_is_within_ready_margin(monkeypatch) -> None:
+    orchestrator, point, route_traces, _timing_events, _vent_calls = _preseal_arm_orchestrator(
+        monkeypatch,
+        [1000.0, 1081.0],
+        cfg_overrides={
+            "workflow.pressure.preseal_vent_close_arm_pressure_hpa": 1095.0,
+            "workflow.pressure.preseal_vent_close_arm_margin_hpa": 30.0,
+        },
+    )
+
+    assert orchestrator._wait_co2_route_soak_before_seal(point) is True
+
+    assert route_traces[-1]["action"] == "preseal_vent_close_arm_triggered"
+    assert route_traces[-1]["actual"]["vent_close_arm_trigger"] == "arm_margin"
+    assert route_traces[-1]["actual"]["vent_close_arm_pressure_hpa"] == 1081.0
+
+
+def test_co2_preseal_soak_prefers_arm_trigger_when_sample_is_already_ready(monkeypatch) -> None:
+    orchestrator, point, route_traces, _timing_events, _vent_calls = _preseal_arm_orchestrator(
+        monkeypatch,
+        [1112.0],
+    )
+
+    assert orchestrator._wait_co2_route_soak_before_seal(point) is True
+
+    actual = route_traces[-1]["actual"]
+    assert actual["vent_close_arm_trigger"] == "arm_pressure"
+    assert actual["late_arm_at_ready"] is True
+    assert actual["ready_reached_monotonic_s"] is not None
 
 
 def test_co2_preseal_soak_arms_when_predicted_time_to_ready_is_short(monkeypatch) -> None:
@@ -1183,6 +1219,59 @@ def test_positive_preseal_ready_closes_vent_and_seals_before_pressure_control() 
     assert seal_start_event["duration_s"] <= 0.5
 
 
+def test_positive_preseal_ready_arm_context_seals_without_extra_pressure_poll() -> None:
+    service, host, _controller, status = _positive_preseal_service([1110.5])
+    host._a2_preseal_vent_close_arm_context = {
+        "preseal_vent_close_arm_pressure_hpa": 1080.0,
+        "preseal_vent_close_arm_margin_hpa": 30.0,
+        "preseal_vent_close_arm_time_to_ready_s": 3.0,
+        "vent_close_arm_trigger": "arm_pressure",
+        "vent_close_arm_pressure_hpa": 1110.5,
+        "vent_close_arm_elapsed_s": 0.2,
+        "ready_pressure_hpa": 1110.0,
+        "abort_pressure_hpa": 1150.0,
+        "ready_reached_monotonic_s": 100.0,
+        "late_arm_at_ready": True,
+        "pressure_sample_source": "pressure_gauge",
+        "pressure_sample_timestamp": "2026-04-26T10:00:00+00:00",
+        "pressure_sample_age_s": 0.0,
+        "pressure_sample_is_stale": False,
+        "pressure_sample_sequence_id": 7,
+    }
+    point = CalibrationPoint(index=1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=1100.0, route="co2")
+
+    result = service.pressurize_and_hold(point, route="co2")
+
+    assert result.ok is True
+    actions = [row["action"] for row in status.rows]
+    assert "positive_preseal_ready" in actions
+    assert "seal_route" in actions
+    assert "positive_preseal_pressure_check" not in actions
+    ready = next(row for row in status.rows if row["action"] == "positive_preseal_ready")
+    assert ready["actual"]["pressure_sample_source"] == "pressure_gauge"
+    assert ready["actual"]["pressure_sample_sequence_id"] == 7
+
+
+def test_positive_preseal_vent_close_prefers_fast_direct_command_over_blocking_exit() -> None:
+    service, _host, controller, status = _positive_preseal_service([1009.0, 1110.5, 1110.5])
+
+    def exit_atmosphere_mode(**kwargs) -> int:
+        raise AssertionError("slow exit_atmosphere_mode should not be used for positive preseal")
+
+    controller.exit_atmosphere_mode = exit_atmosphere_mode
+    point = CalibrationPoint(index=1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=1100.0, route="co2")
+
+    result = service.pressurize_and_hold(point, route="co2")
+
+    assert result.ok is True
+    set_vent_off = [
+        row for row in status.rows if row["action"] == "set_vent" and row.get("target", {}).get("vent_on") is False
+    ][-1]
+    assert set_vent_off["actual"]["command_method"] == "set_output_false_vent_false_set_isolation_open_fast"
+    assert set_vent_off["actual"]["snapshot_after_command"] is False
+    assert set_vent_off["actual"]["vent_command_ack"] is True
+
+
 def test_positive_preseal_vent_close_failure_hard_fails_before_pressure_polling() -> None:
     service, host, controller, status = _positive_preseal_service(
         [1009.0, 1110.5],
@@ -1193,7 +1282,7 @@ def test_positive_preseal_vent_close_failure_hard_fails_before_pressure_polling(
     )
 
     def stuck_vent(enabled: bool) -> bool:
-        controller.vent_on = bool(enabled)
+        controller.vent_on = True
         controller.vent_status = 1
         return True
 
@@ -1245,6 +1334,61 @@ def test_positive_preseal_abort_pressure_hard_fails_before_seal() -> None:
     assert any(row["action"] == "positive_preseal_abort" for row in status.rows)
     assert not any(row["action"] == "seal_route" for row in status.rows)
     assert any(event["event_name"] == "positive_preseal_abort" for event in host._recorded_timing)
+
+
+def test_positive_preseal_ignores_stale_pressure_sample_for_abort() -> None:
+    service, host, controller, status = _positive_preseal_service([])
+
+    class StaleThenFreshGauge:
+        def __init__(self) -> None:
+            self.values = [
+                {
+                    "pressure_hpa": 1200.0,
+                    "pressure_sample_source": "pressure_gauge",
+                    "pressure_sample_timestamp": "2026-04-26T09:00:00+00:00",
+                    "pressure_sample_age_s": 99.0,
+                    "pressure_sample_is_stale": True,
+                    "pressure_sample_sequence_id": 1,
+                },
+                {
+                    "pressure_hpa": 1110.5,
+                    "pressure_sample_source": "pressure_gauge",
+                    "pressure_sample_age_s": 0.0,
+                    "pressure_sample_is_stale": False,
+                    "pressure_sample_sequence_id": 2,
+                },
+                1110.5,
+            ]
+
+        def read_pressure_hpa(self):
+            if self.values:
+                return self.values.pop(0)
+            return 1110.5
+
+    gauge = StaleThenFreshGauge()
+
+    def device(*names):
+        if "pressure_controller" in names or "pace" in names:
+            return controller
+        if "pressure_meter" in names or "pressure_gauge" in names:
+            return gauge
+        return None
+
+    host._device = device
+    host._make_pressure_reader = lambda: gauge.read_pressure_hpa
+    point = CalibrationPoint(index=1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=1100.0, route="co2")
+
+    result = service.pressurize_and_hold(point, route="co2")
+
+    assert result.ok is True
+    assert not any(row["action"] == "positive_preseal_abort" for row in status.rows)
+    stale_check = next(
+        row
+        for row in status.rows
+        if row["action"] == "positive_preseal_pressure_check"
+        and row["actual"].get("pressure_sample_is_stale") is True
+    )
+    assert stale_check["actual"]["pressure_hpa"] == 1200.0
 
 
 def test_positive_preseal_ready_timeout_hard_fails_before_sample() -> None:

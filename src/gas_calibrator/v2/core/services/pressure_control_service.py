@@ -90,6 +90,121 @@ class PressureControlService:
             "isolation_state": self._pressure_controller_isolation_state(controller),
         }
 
+    def _pressure_controller_fast_state_hint(self, controller: Any) -> dict[str, Any]:
+        """Return non-query state hints so preseal vent close can stay bounded."""
+        state: dict[str, Any] = {}
+        for key, names in {
+            "vent_on": ("vent_on", "atmosphere_mode", "is_vent_open"),
+            "vent_status_raw": ("vent_status", "pace_vent_status"),
+            "output_state": ("output_state", "output_enabled", "output"),
+            "isolation_state": ("isolation_state", "isolation_open", "isolation"),
+        }.items():
+            for name in names:
+                if not hasattr(controller, name):
+                    continue
+                value = getattr(controller, name)
+                if callable(value):
+                    continue
+                state[key] = value
+                break
+        vent_status = self._coerce_float(state.get("vent_status_raw"))
+        if vent_status is not None:
+            state["vent_status_raw"] = int(vent_status)
+            state["vent_status_interpreted"] = self._pressure_vent_status_interpretation(controller, int(vent_status))
+        return state
+
+    def _next_pressure_sample_sequence_id(self) -> int:
+        current = int(getattr(self, "_pressure_sample_sequence_id", 0) or 0) + 1
+        setattr(self, "_pressure_sample_sequence_id", current)
+        return current
+
+    def _pressure_sample_stale_max_s(self) -> float:
+        return max(
+            0.0,
+            float(self.host._cfg_get("workflow.pressure.pressure_sample_stale_max_s", 2.0)),
+        )
+
+    def _pressure_sample_payload(self, raw: Any, *, source: str) -> dict[str, Any]:
+        now = datetime.now(timezone.utc)
+        now_monotonic = time.monotonic()
+        data = dict(raw) if isinstance(raw, Mapping) else {}
+        pressure_hpa = (
+            self._coerce_float(data.get("pressure_hpa"))
+            or self._coerce_float(data.get("current_line_pressure_hpa"))
+            or self._coerce_float(data.get("positive_preseal_pressure_hpa"))
+            or self._coerce_float(data.get("pressure"))
+            if data
+            else self._coerce_float(raw)
+        )
+        sample_source = str(
+            data.get("pressure_sample_source")
+            or data.get("source")
+            or data.get("pressure_source")
+            or source
+            or "pressure_gauge"
+        )
+        timestamp = str(
+            data.get("pressure_sample_timestamp")
+            or data.get("timestamp")
+            or data.get("recorded_at")
+            or now.isoformat()
+        )
+        monotonic_s = self._coerce_float(
+            data.get("pressure_sample_monotonic_s")
+            if data.get("pressure_sample_monotonic_s") is not None
+            else data.get("monotonic_s")
+        )
+        age_s = self._coerce_float(data.get("pressure_sample_age_s"))
+        if age_s is None and monotonic_s is not None:
+            age_s = max(0.0, now_monotonic - float(monotonic_s))
+        if age_s is None:
+            try:
+                parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                age_s = max(0.0, (now - parsed.astimezone(timezone.utc)).total_seconds())
+            except Exception:
+                age_s = 0.0
+        explicit_stale = self._coerce_bool(data.get("pressure_sample_is_stale"))
+        stale = bool(explicit_stale) if explicit_stale is not None else bool(age_s > self._pressure_sample_stale_max_s())
+        sequence_id = self._coerce_float(data.get("pressure_sample_sequence_id"))
+        payload = {
+            "pressure_hpa": pressure_hpa,
+            "pressure_sample_source": sample_source,
+            "pressure_sample_timestamp": timestamp,
+            "pressure_sample_age_s": None if age_s is None else round(float(age_s), 3),
+            "pressure_sample_is_stale": stale,
+            "pressure_sample_sequence_id": (
+                int(sequence_id) if sequence_id is not None else self._next_pressure_sample_sequence_id()
+            ),
+        }
+        setattr(self, "_last_pressure_sample_metadata", payload)
+        return payload
+
+    def _read_pressure_sample(
+        self,
+        pressure_reader: Optional[Callable[[], Optional[float]]],
+        *,
+        source: str = "pressure_gauge",
+    ) -> dict[str, Any]:
+        if pressure_reader is None:
+            return self._pressure_sample_payload(None, source=source)
+        previous_sequence = None
+        previous = getattr(self, "_last_pressure_sample_metadata", None)
+        if isinstance(previous, Mapping):
+            previous_sequence = previous.get("pressure_sample_sequence_id")
+        try:
+            raw = pressure_reader()
+        except Exception:
+            return self._pressure_sample_payload(None, source=source)
+        latest = getattr(self, "_last_pressure_sample_metadata", None)
+        if isinstance(latest, Mapping) and latest.get("pressure_sample_sequence_id") != previous_sequence:
+            return dict(latest)
+        return self._pressure_sample_payload(raw, source=source)
+
+    def _current_pressure_sample(self, *, source: str = "pressure_gauge") -> dict[str, Any]:
+        return self._read_pressure_sample(self.host._make_pressure_reader(), source=source)
+
     def _remember_ambient_reference_pressure(
         self,
         pressure_hpa: Optional[float],
@@ -274,17 +389,140 @@ class PressureControlService:
         command_return_status = self._coerce_float(
             command.get("vent_command_return_status", command.get("command_return_status"))
         )
+        command_ack = bool(command.get("vent_command_ack")) or (
+            command_return_status is not None and not str(command.get("command_error") or "").strip()
+        )
         command_status_allows = (
             command_return_status is not None
             and self._pressure_vent_status_allows_control(controller, int(command_return_status))
         )
+        accept_command_ack = bool(
+            self.host._cfg_get("workflow.pressure.preseal_vent_close_accept_command_ack", True)
+        )
+        fast_verify = bool(self.host._cfg_get("workflow.pressure.preseal_vent_close_fast_verify", True))
         samples: list[dict[str, Any]] = []
         deadline = time.monotonic() + verify_timeout_s
         last: dict[str, Any] = {}
         accepted = False
         reason = "verification_window_expired"
+
+        def evaluate(state: Mapping[str, Any], *, allow_ack_accept: bool) -> tuple[bool, str, dict[str, Any]]:
+            vent_status = self._coerce_float(state.get("vent_status_raw"))
+            vent_status_allows = (
+                vent_status is not None
+                and self._pressure_vent_status_allows_control(controller, int(vent_status))
+            )
+            output_state = self._coerce_float(state.get("output_state"))
+            isolation_state = self._coerce_float(state.get("isolation_state"))
+            output_ok = output_state is None or int(output_state) == 0
+            isolation_ok = isolation_state is None or int(isolation_state) == 1
+            vent_on = state.get("vent_on")
+            vent_on_closed = vent_on is not True
+            status_lag_accepted = (
+                command_status_allows
+                and vent_status is not None
+                and int(vent_status) == 1
+            )
+            status_ok = bool(vent_status_allows or status_lag_accepted)
+            if vent_status is None:
+                status_ok = bool(command_status_allows or (allow_ack_accept and command_ack))
+            if not output_ok:
+                eval_reason = "output_state_not_idle_after_vent_close"
+            elif not isolation_ok:
+                eval_reason = "isolation_state_not_open_after_vent_close"
+            elif not vent_on_closed:
+                eval_reason = "atmosphere_mode_still_reported_open"
+            elif not status_ok:
+                eval_reason = "vent_status_not_control_ready_after_vent_close"
+            elif command_status_allows and not vent_status_allows:
+                eval_reason = "command_return_status_allows_control"
+            elif allow_ack_accept and command_ack and vent_status is None:
+                eval_reason = "immediate_command_ack_accepted"
+            else:
+                eval_reason = "vent_status_allows_control"
+            sample = {
+                **dict(state),
+                "pressure_hpa": None,
+                "current_line_pressure_hpa": None,
+                "positive_preseal_pressure_hpa": None,
+                "ambient_reference_pressure_hpa": ambient_pressure,
+                "pressure_delta_from_ambient_hpa": None,
+                "command_return_status": None if command_return_status is None else int(command_return_status),
+                "command_status_allows_control": bool(command_status_allows),
+                "vent_command_ack": bool(command_ack),
+                "vent_status_allows_control": bool(vent_status_allows),
+                "vent_status_lag_accepted": bool(status_lag_accepted),
+                "output_state_verified_idle": bool(output_ok),
+                "isolation_state_verified_open": bool(isolation_ok),
+                "vent_on_closed": bool(vent_on_closed),
+                "status_ok_for_positive_preseal": bool(status_ok),
+                "short_state_probe": bool(state.get("short_state_probe", False)),
+            }
+            return bool(output_ok and isolation_ok and vent_on_closed and status_ok), eval_reason, sample
+
+        command_state = {
+            key: command.get(key)
+            for key in (
+                "vent_on",
+                "vent_status_raw",
+                "vent_status_interpreted",
+                "output_state",
+                "isolation_state",
+                "command_method",
+                "command_error",
+                "vent_command_return_status",
+                "command_return_status",
+                "vent_command_ack",
+            )
+            if key in command
+        }
+        if command_state:
+            ok, evaluated_reason, sample = evaluate(command_state, allow_ack_accept=accept_command_ack)
+            samples.append(sample)
+            last = sample
+            if ok:
+                return {
+                    "ok": True,
+                    "vent_command_result": "closed",
+                    "vent_close_verification_status": "PASS",
+                    "vent_close_verification_reason": evaluated_reason,
+                    "vent_close_verify_timeout_s": verify_timeout_s,
+                    "vent_close_verify_poll_s": poll_s,
+                    "vent_close_verification_samples": samples,
+                    **command,
+                    **last,
+                }
+            if evaluated_reason in {
+                "output_state_not_idle_after_vent_close",
+                "isolation_state_not_open_after_vent_close",
+                "atmosphere_mode_still_reported_open",
+            }:
+                return {
+                    "ok": False,
+                    "vent_command_result": "not_closed",
+                    "vent_close_verification_status": "FAIL",
+                    "vent_close_verification_reason": evaluated_reason,
+                    "vent_close_verify_timeout_s": verify_timeout_s,
+                    "vent_close_verify_poll_s": poll_s,
+                    "vent_close_verification_samples": samples,
+                    **command,
+                    **last,
+                }
+            if fast_verify:
+                return {
+                    "ok": False,
+                    "vent_command_result": "not_closed",
+                    "vent_close_verification_status": "FAIL",
+                    "vent_close_verification_reason": evaluated_reason,
+                    "vent_close_verify_timeout_s": verify_timeout_s,
+                    "vent_close_verify_poll_s": poll_s,
+                    "vent_close_verification_samples": samples,
+                    **command,
+                    **last,
+                }
         while True:
             state = self._pressure_controller_state_snapshot(controller)
+            state["short_state_probe"] = True
             vent_status = self._coerce_float(state.get("vent_status_raw"))
             vent_status_allows = (
                 vent_status is not None
@@ -464,6 +702,10 @@ class PressureControlService:
                 wait_after_command=False,
                 capture_pressure=False,
                 transition_timeout_s=vent_close_command_timeout_s,
+                snapshot_after_command=False,
+                prefer_direct_command=bool(
+                    self.host._cfg_get("workflow.pressure.preseal_vent_close_prefer_direct_command", True)
+                ),
             )
         except Exception as exc:
             vent_fail_elapsed_s = max(0.0, time.time() - started_at)
@@ -637,9 +879,24 @@ class PressureControlService:
                 "vent_status_lag_accepted",
                 "status_ok_for_positive_preseal",
                 "pressure_delta_from_ambient_hpa",
+                "vent_command_ack",
+                "snapshot_after_command",
+                "prefer_direct_command",
+                "short_state_probe",
             )
         }
         pressure_at_arm = self._coerce_float(preseal_arm_context.get("vent_close_arm_pressure_hpa"))
+        arm_sample_meta = {
+            key: preseal_arm_context.get(key)
+            for key in (
+                "pressure_sample_source",
+                "pressure_sample_timestamp",
+                "pressure_sample_age_s",
+                "pressure_sample_is_stale",
+                "pressure_sample_sequence_id",
+            )
+            if key in preseal_arm_context
+        }
 
         previous_pressure: Optional[float] = None
         previous_elapsed: Optional[float] = None
@@ -647,31 +904,180 @@ class PressureControlService:
         pressure_last_hpa: Optional[float] = pressure_at_arm
         pressure_min_hpa: Optional[float] = pressure_at_arm
         pressure_samples_count = 0
+        if (
+            pressure_at_arm is not None
+            and ready_pressure_hpa is not None
+            and float(pressure_at_arm) >= float(ready_pressure_hpa)
+            and not bool(arm_sample_meta.get("pressure_sample_is_stale", False))
+        ):
+            if abort_pressure_hpa is not None and float(pressure_at_arm) > float(abort_pressure_hpa):
+                return self._fail_positive_preseal(
+                    point,
+                    route=route,
+                    started_at=started_at,
+                    target_pressure_hpa=target_pressure_hpa,
+                    measured_atmospheric_pressure_hpa=measured_atmospheric_pressure_hpa,
+                    ambient_reference=ambient_reference,
+                    ready_pressure_hpa=ready_pressure_hpa,
+                    abort_pressure_hpa=abort_pressure_hpa,
+                    timeout_s=timeout_s,
+                    poll_interval_s=poll_interval_s,
+                    pressure_hpa=float(pressure_at_arm),
+                    pressure_peak_hpa=pressure_peak_hpa,
+                    pressure_last_hpa=pressure_last_hpa,
+                    reason="preseal_abort_pressure_exceeded",
+                    message="Positive preseal pressurization exceeded abort pressure",
+                    extra={
+                        **preseal_arm_context,
+                        **state_after_vent,
+                        "vent_closed_at": vent_closed_at,
+                        "vent_command_result": "closed",
+                        "pressure_samples_count": 1,
+                        "pressure_max_hpa": pressure_peak_hpa,
+                        "pressure_min_hpa": pressure_min_hpa,
+                        "ready_reached_before_vent_close_completed": ready_before_vent_close_completed,
+                        "ready_reached_during_vent_close": ready_before_vent_close_completed,
+                        "seal_command_blocked_reason": "preseal_abort_pressure_exceeded",
+                    },
+                )
+            ready_monotonic_s = self._coerce_float(preseal_arm_context.get("ready_reached_monotonic_s"))
+            if ready_monotonic_s is None:
+                ready_monotonic_s = time.monotonic()
+            ready_elapsed_s = max(0.0, time.time() - started_at)
+            ready_payload = {
+                "stage": "positive_preseal_pressurization",
+                "target_pressure_hpa": target_pressure_hpa,
+                "measured_atmospheric_pressure_hpa": measured_atmospheric_pressure_hpa,
+                **dict(ambient_reference or {}),
+                "preseal_ready_pressure_hpa": ready_pressure_hpa,
+                "ready_pressure_hpa": ready_pressure_hpa,
+                "preseal_abort_pressure_hpa": abort_pressure_hpa,
+                "abort_pressure_hpa": abort_pressure_hpa,
+                "preseal_ready_timeout_s": timeout_s,
+                "preseal_pressure_poll_interval_s": poll_interval_s,
+                "vent_closed_at": vent_closed_at,
+                "vent_command_result": "closed",
+                **preseal_arm_context,
+                "ready_reached_before_vent_close_completed": ready_before_vent_close_completed,
+                "ready_reached_during_vent_close": ready_before_vent_close_completed,
+                "elapsed_s": ready_elapsed_s,
+                "pressure_hpa": float(pressure_at_arm),
+                "current_line_pressure_hpa": float(pressure_at_arm),
+                "positive_preseal_pressure_hpa": float(pressure_at_arm),
+                "pressure_samples_count": 1,
+                "pressure_max_hpa": pressure_peak_hpa,
+                "pressure_min_hpa": pressure_min_hpa,
+                "pressure_rise_rate_hpa_per_s": None,
+                "ready_reached": True,
+                "ready_reached_at_pressure_hpa": float(pressure_at_arm),
+                "seal_command_sent": False,
+                "sealed": False,
+                "pressure_control_started": False,
+                "seal_trigger_pressure_hpa": float(pressure_at_arm),
+                "seal_trigger_elapsed_s": ready_elapsed_s,
+                "ready_reached_monotonic_s": float(ready_monotonic_s),
+                "ready_reached_wall_time_s": time.time(),
+                "decision": "READY",
+                **state_after_vent,
+                **arm_sample_meta,
+            }
+            self._record_route_trace(
+                action="positive_preseal_ready",
+                route=route,
+                point=point,
+                actual=ready_payload,
+                result="ok",
+                message="Positive preseal ready threshold reached from armed pressure sample",
+            )
+            if callable(timing_recorder):
+                timing_recorder(
+                    "positive_preseal_ready",
+                    "info",
+                    stage="positive_preseal_pressurization",
+                    point=point,
+                    target_pressure_hpa=target_pressure_hpa,
+                    duration_s=ready_elapsed_s,
+                    expected_max_s=timeout_s,
+                    wait_reason="positive_preseal_pressure_rise",
+                    pressure_hpa=pressure_at_arm,
+                    decision="ready",
+                    route_state=arm_sample_meta,
+                    pace_output_state=state_after_vent.get("output_state"),
+                    pace_isolation_state=state_after_vent.get("isolation_state"),
+                    pace_vent_status=state_after_vent.get("vent_status_raw"),
+                )
+            return PressureWaitResult(
+                ok=True,
+                target_hpa=target_pressure_hpa,
+                final_pressure_hpa=float(pressure_at_arm),
+                in_limits=True,
+                diagnostics={
+                    **ready_payload,
+                    "preseal_pressure_peak_hpa": pressure_peak_hpa,
+                    "preseal_pressure_last_hpa": pressure_last_hpa,
+                    "pressure_samples_count": 1,
+                    "pressure_max_hpa": pressure_peak_hpa,
+                    "pressure_min_hpa": pressure_min_hpa,
+                    "preseal_trigger": "positive_preseal_ready",
+                    "preseal_trigger_pressure_hpa": float(pressure_at_arm),
+                    "preseal_trigger_threshold_hpa": ready_pressure_hpa,
+                    "positive_preseal_started_monotonic_s": started_monotonic_s,
+                    "ready_reached_monotonic_s": float(ready_monotonic_s),
+                    "ready_to_vent_close_start_s": (
+                        None
+                        if preseal_arm_context.get("ready_reached_monotonic_s") is None
+                        else max(
+                            0.0,
+                            started_monotonic_s - float(preseal_arm_context.get("ready_reached_monotonic_s")),
+                        )
+                    ),
+                    "ready_to_vent_close_end_s": (
+                        None
+                        if preseal_arm_context.get("ready_reached_monotonic_s") is None
+                        else max(
+                            0.0,
+                            time.monotonic() - float(preseal_arm_context.get("ready_reached_monotonic_s")),
+                        )
+                    ),
+                },
+            )
         while True:
             self.host._check_stop()
             elapsed_s = max(0.0, time.time() - started_at)
-            pressure_hpa = None if pressure_reader is None else pressure_reader()
-            pressure_hpa = self._coerce_float(pressure_hpa)
+            pressure_sample = self._read_pressure_sample(pressure_reader, source="pressure_gauge")
+            pressure_hpa = self._coerce_float(pressure_sample.get("pressure_hpa"))
+            sample_meta = {
+                key: pressure_sample.get(key)
+                for key in (
+                    "pressure_sample_source",
+                    "pressure_sample_timestamp",
+                    "pressure_sample_age_s",
+                    "pressure_sample_is_stale",
+                    "pressure_sample_sequence_id",
+                )
+            }
+            sample_is_stale = bool(sample_meta.get("pressure_sample_is_stale"))
             pressure_rise_rate: Optional[float] = None
             if pressure_hpa is not None:
                 pressure_samples_count += 1
-                pressure_last_hpa = float(pressure_hpa)
-                pressure_peak_hpa = (
-                    float(pressure_hpa)
-                    if pressure_peak_hpa is None
-                    else max(float(pressure_peak_hpa), float(pressure_hpa))
-                )
-                pressure_min_hpa = (
-                    float(pressure_hpa)
-                    if pressure_min_hpa is None
-                    else min(float(pressure_min_hpa), float(pressure_hpa))
-                )
-                if previous_pressure is not None and previous_elapsed is not None and elapsed_s > previous_elapsed:
-                    pressure_rise_rate = (float(pressure_hpa) - float(previous_pressure)) / (
-                        float(elapsed_s) - float(previous_elapsed)
+                if not sample_is_stale:
+                    pressure_last_hpa = float(pressure_hpa)
+                    pressure_peak_hpa = (
+                        float(pressure_hpa)
+                        if pressure_peak_hpa is None
+                        else max(float(pressure_peak_hpa), float(pressure_hpa))
                     )
-                previous_pressure = float(pressure_hpa)
-                previous_elapsed = float(elapsed_s)
+                    pressure_min_hpa = (
+                        float(pressure_hpa)
+                        if pressure_min_hpa is None
+                        else min(float(pressure_min_hpa), float(pressure_hpa))
+                    )
+                    if previous_pressure is not None and previous_elapsed is not None and elapsed_s > previous_elapsed:
+                        pressure_rise_rate = (float(pressure_hpa) - float(previous_pressure)) / (
+                            float(elapsed_s) - float(previous_elapsed)
+                        )
+                    previous_pressure = float(pressure_hpa)
+                    previous_elapsed = float(elapsed_s)
             check_payload = {
                 "stage": "positive_preseal_pressurization",
                 "target_pressure_hpa": target_pressure_hpa,
@@ -696,6 +1102,7 @@ class PressureControlService:
                 "pressure_max_hpa": pressure_peak_hpa,
                 "pressure_min_hpa": pressure_min_hpa,
                 "pressure_rise_rate_hpa_per_s": pressure_rise_rate,
+                **sample_meta,
                 "ready_reached": False,
                 "seal_command_sent": False,
                 "sealed": False,
@@ -724,7 +1131,54 @@ class PressureControlService:
                     pace_output_state=state_after_vent.get("output_state"),
                     pace_isolation_state=state_after_vent.get("isolation_state"),
                     pace_vent_status=state_after_vent.get("vent_status_raw"),
+                    route_state=sample_meta,
                 )
+            if sample_is_stale:
+                if callable(timing_recorder):
+                    timing_recorder(
+                        "positive_preseal_pressure_check",
+                        "warning",
+                        stage="positive_preseal_pressurization",
+                        point=point,
+                        target_pressure_hpa=target_pressure_hpa,
+                        duration_s=elapsed_s,
+                        expected_max_s=timeout_s,
+                        pressure_hpa=pressure_hpa,
+                        decision="stale_pressure_sample_ignored",
+                        warning_code="stale_pressure_sample_ignored",
+                        route_state=sample_meta,
+                    )
+                if elapsed_s >= timeout_s:
+                    return self._fail_positive_preseal(
+                        point,
+                        route=route,
+                        started_at=started_at,
+                        target_pressure_hpa=target_pressure_hpa,
+                        measured_atmospheric_pressure_hpa=measured_atmospheric_pressure_hpa,
+                        ambient_reference=ambient_reference,
+                        ready_pressure_hpa=ready_pressure_hpa,
+                        abort_pressure_hpa=abort_pressure_hpa,
+                        timeout_s=timeout_s,
+                        poll_interval_s=poll_interval_s,
+                        pressure_hpa=pressure_last_hpa,
+                        pressure_peak_hpa=pressure_peak_hpa,
+                        pressure_last_hpa=pressure_last_hpa,
+                        reason="preseal_ready_timeout",
+                        message="Positive preseal pressurization timed out before ready pressure",
+                        extra={
+                            **preseal_arm_context,
+                            **state_after_vent,
+                            **sample_meta,
+                            "vent_closed_at": vent_closed_at,
+                            "vent_command_result": "closed",
+                            "pressure_samples_count": pressure_samples_count,
+                            "pressure_max_hpa": pressure_peak_hpa,
+                            "pressure_min_hpa": pressure_min_hpa,
+                            "seal_command_blocked_reason": "preseal_ready_timeout",
+                        },
+                    )
+                time.sleep(min(poll_interval_s, max(0.05, timeout_s - elapsed_s)))
+                continue
             if (
                 pressure_hpa is not None
                 and abort_pressure_hpa is not None
@@ -749,6 +1203,7 @@ class PressureControlService:
                     extra={
                         **preseal_arm_context,
                         **state_after_vent,
+                        **sample_meta,
                         "vent_closed_at": vent_closed_at,
                         "vent_command_result": "closed",
                         "pressure_samples_count": pressure_samples_count,
@@ -854,6 +1309,7 @@ class PressureControlService:
                     extra={
                         **preseal_arm_context,
                         **state_after_vent,
+                        **sample_meta,
                         "vent_closed_at": vent_closed_at,
                         "vent_command_result": "closed",
                         "pressure_samples_count": pressure_samples_count,
@@ -937,6 +1393,8 @@ class PressureControlService:
         wait_after_command: bool = True,
         capture_pressure: bool = True,
         transition_timeout_s: Optional[float] = None,
+        snapshot_after_command: bool = True,
+        prefer_direct_command: bool = False,
     ) -> dict[str, Any]:
         controller = self.host._device("pressure_controller")
         if controller is None:
@@ -971,15 +1429,27 @@ class PressureControlService:
                             "TX",
                             "enter_atmosphere_mode(vent_on=True)",
                         )
+                        resolved_timeout_s = (
+                            float(transition_timeout_s)
+                            if transition_timeout_s is not None
+                            else float(self.host._cfg_get("workflow.pressure.vent_transition_timeout_s", 30.0))
+                        )
                         enter(
-                            timeout_s=float(self.host._cfg_get("workflow.pressure.vent_transition_timeout_s", 30.0)),
+                            timeout_s=resolved_timeout_s,
                             hold_open=bool(self.host._cfg_get("workflow.pressure.continuous_atmosphere_hold", True)),
                             hold_interval_s=float(self.host._cfg_get("workflow.pressure.vent_hold_interval_s", 2.0)),
                         )
                         self._log_pressure_controller_io("RX", "ok")
             else:
+                if prefer_direct_command:
+                    self.host._call_first(controller, ("set_output",), False)
+                    direct_vent_ok = bool(self.host._call_first(controller, ("vent",), False))
+                    self.host._call_first(controller, ("set_isolation_open",), True)
+                    if direct_vent_ok:
+                        command_method = "set_output_false_vent_false_set_isolation_open_fast"
+                        command_return_status = 0
                 exit_mode = getattr(controller, "exit_atmosphere_mode", None)
-                if callable(exit_mode):
+                if not command_method and callable(exit_mode):
                     command_method = "exit_atmosphere_mode"
                     self._log_pressure_controller_io("TX", "exit_atmosphere_mode(vent_on=False)")
                     resolved_timeout_s = (
@@ -993,11 +1463,13 @@ class PressureControlService:
                     coerced_return = self._coerce_float(command_return)
                     command_return_status = None if coerced_return is None else int(coerced_return)
                     self._log_pressure_controller_io("RX", "ok")
-                else:
+                elif not command_method:
                     self.host._call_first(controller, ("set_output",), False)
                     if self.host._call_first(controller, ("vent",), False):
                         command_method = "set_output_false_vent_false"
                     self.host._call_first(controller, ("set_isolation_open",), True)
+                    if command_method:
+                        command_return_status = 0
             self.host._log(f"Pressure controller vent={'ON' if vent_on else 'OFF'}{extra}")
         except Exception as exc:
             self.host._log(f"Pressure controller vent command failed: {exc}")
@@ -1014,12 +1486,19 @@ class PressureControlService:
                 trace_result = "fail"
                 trace_message = "pressure_controller_atmosphere_not_verified"
         if not vent_on and controller is not None:
-            state = self._pressure_controller_state_snapshot(controller)
+            state = (
+                self._pressure_controller_state_snapshot(controller)
+                if snapshot_after_command
+                else self._pressure_controller_fast_state_hint(controller)
+            )
             diagnostics = {
                 "command_method": command_method,
                 "command_error": command_error,
                 "vent_command_return_status": command_return_status,
                 "command_return_status": command_return_status,
+                "vent_command_ack": bool(trace_result == "ok" and command_method and not command_error),
+                "snapshot_after_command": bool(snapshot_after_command),
+                "prefer_direct_command": bool(prefer_direct_command),
                 **state,
             }
         current_pressure = self._current_pressure() if capture_pressure else None
@@ -3096,7 +3575,8 @@ class PressureControlService:
             if not callable(method):
                 continue
             try:
-                return self._coerce_float(method())
+                sample = self._pressure_sample_payload(method(), source=source)
+                return self._coerce_float(sample.get("pressure_hpa"))
             except Exception as exc:
                 self.host._log(f"Startup pressure precheck read failed ({source}): {exc}")
                 return None
@@ -3111,7 +3591,15 @@ class PressureControlService:
                 return None
             value = self._pick_numeric(snapshot, "pressure_hpa", "pressure")
             if value is not None:
-                return value
+                sample = self._pressure_sample_payload(
+                    {
+                        **snapshot,
+                        "pressure_hpa": value,
+                        "pressure_sample_source": source,
+                    },
+                    source=source,
+                )
+                return self._coerce_float(sample.get("pressure_hpa"))
         return None
 
     def _read_bool_state(self, device: Any, *names: str) -> Optional[bool]:
@@ -3204,11 +3692,8 @@ class PressureControlService:
         setattr(self.host, "_active_post_h2o_co2_zero_flush", flag)
 
     def _current_pressure(self) -> Optional[float]:
-        reader = self.host._make_pressure_reader()
-        try:
-            return None if reader is None else self.host._as_float(reader())
-        except Exception:
-            return None
+        sample = self._current_pressure_sample(source="pressure_gauge")
+        return self._coerce_float(sample.get("pressure_hpa"))
 
     def _record_route_trace(self, **kwargs: Any) -> None:
         status_service = getattr(self.host, "status_service", None)
