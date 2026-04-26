@@ -103,7 +103,13 @@ class PressureControlService:
     def _remember_startup_pressure_precheck_result(self, result: StartupPressurePrecheckResult) -> None:
         setattr(self.host, "_startup_pressure_precheck_result", result)
 
-    def set_pressure_controller_vent(self, vent_on: bool, reason: str = "") -> None:
+    def set_pressure_controller_vent(
+        self,
+        vent_on: bool,
+        reason: str = "",
+        *,
+        wait_after_command: bool = True,
+    ) -> None:
         controller = self.host._device("pressure_controller")
         if controller is None:
             return
@@ -184,7 +190,7 @@ class PressureControlService:
             )
         if vent_on and trace_result == "ok":
             self._clear_pressure_route_seal_state()
-        if vent_on:
+        if vent_on and wait_after_command:
             wait_s = max(0.0, float(self.host._cfg_get("workflow.pressure.vent_time_s", 0.0)))
             if wait_s > 0:
                 time.sleep(wait_s)

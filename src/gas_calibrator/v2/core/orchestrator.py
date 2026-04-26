@@ -1070,8 +1070,20 @@ class WorkflowOrchestrator:
             return True
         self._log(f"{log_context}; wait {int(soak_s)}s before pressure sealing (row {point.index})")
         start = time.time()
+        continuous_atmosphere_hold = bool(self._cfg_get("workflow.pressure.continuous_atmosphere_hold", False))
+        vent_hold_interval_s = max(0.1, float(self._cfg_get("workflow.pressure.vent_hold_interval_s", 2.0)))
+        last_atmosphere_hold_ts = 0.0
         while time.time() - start < soak_s:
             self._check_stop()
+            now = time.time()
+            if continuous_atmosphere_hold and (now - last_atmosphere_hold_ts) >= vent_hold_interval_s:
+                self._set_pressure_controller_vent(
+                    True,
+                    reason="CO2 route pre-seal atmosphere hold",
+                    wait_after_command=False,
+                )
+                self._verify_co2_preseal_atmosphere_hold_pressure(point)
+                last_atmosphere_hold_ts = now
             self._refresh_live_analyzer_snapshots(reason="co2_route_preseal_soak")
             time.sleep(min(1.0, max(0.05, soak_s - (time.time() - start))))
         if special_flush:
@@ -1085,14 +1097,72 @@ class WorkflowOrchestrator:
             log_context=log_context,
         )
 
+    def _verify_co2_preseal_atmosphere_hold_pressure(self, point: CalibrationPoint) -> None:
+        reader = getattr(self.pressure_control_service, "_current_pressure", None)
+        if not callable(reader):
+            return
+        pressure_hpa = self._as_float(reader())
+        if pressure_hpa is None:
+            return
+        limit_hpa = self._as_float(self._cfg_get("workflow.pressure.preseal_atmosphere_hold_max_hpa"))
+        if limit_hpa is None:
+            default_limit_hpa = self._as_float(
+                self._cfg_get("workflow.pressure.preseal_atmosphere_hold_default_max_hpa", 1110.0)
+            )
+            target_hpa = self._as_float(point.target_pressure_hpa)
+            if target_hpa is None:
+                return
+            margin_hpa = self._as_float(self._cfg_get("workflow.pressure.preseal_atmosphere_hold_margin_hpa", 10.0))
+            target_limit_hpa = target_hpa + abs(10.0 if margin_hpa is None else margin_hpa)
+            limit_hpa = max(1110.0 if default_limit_hpa is None else default_limit_hpa, target_limit_hpa)
+        if pressure_hpa <= float(limit_hpa):
+            return
+        tagger = getattr(getattr(self, "route_planner", None), "co2_point_tag", None)
+        point_tag = tagger(point) if callable(tagger) else ""
+        details = {
+            "pressure_hpa": pressure_hpa,
+            "limit_hpa": float(limit_hpa),
+            "point_index": point.index,
+            "point_tag": point_tag,
+            "reason": "co2_preseal_atmosphere_hold_pressure_exceeded",
+        }
+        recorder = getattr(getattr(self, "status_service", None), "record_route_trace", None)
+        if callable(recorder):
+            recorder(
+                action="co2_preseal_atmosphere_hold_pressure_guard",
+                route="co2",
+                point=point,
+                actual=details,
+                result="fail",
+                message="CO2 pre-seal atmosphere hold pressure exceeded limit",
+            )
+        self._log(
+            "CO2 pre-seal atmosphere hold pressure exceeded limit: "
+            f"row={point.index} pressure={pressure_hpa:.3f}hPa limit={float(limit_hpa):.3f}hPa"
+        )
+        raise WorkflowValidationError(
+            "CO2 pre-seal atmosphere hold pressure exceeded limit",
+            details=details,
+        )
+
     def _refresh_live_analyzer_snapshots(self, *, force: bool = False, reason: str = "") -> bool:
         refresher = getattr(self.analyzer_fleet_service, "refresh_live_snapshots", None)
         if not callable(refresher):
             return False
         return bool(refresher(force=force, reason=reason))
 
-    def _set_pressure_controller_vent(self, vent_on: bool, reason: str = "") -> None:
-        self.pressure_control_service.set_pressure_controller_vent(vent_on, reason=reason)
+    def _set_pressure_controller_vent(
+        self,
+        vent_on: bool,
+        reason: str = "",
+        *,
+        wait_after_command: bool = True,
+    ) -> None:
+        self.pressure_control_service.set_pressure_controller_vent(
+            vent_on,
+            reason=reason,
+            wait_after_command=wait_after_command,
+        )
 
     def _enable_pressure_controller_output(self, reason: str = "") -> None:
         self.pressure_control_service.enable_pressure_controller_output(reason=reason)

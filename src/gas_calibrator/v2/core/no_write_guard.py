@@ -128,6 +128,9 @@ def _normalize_bool(value: Any) -> bool:
 def _run001_policy(raw_cfg: Optional[Mapping[str, Any]]) -> dict[str, Any]:
     if not isinstance(raw_cfg, Mapping):
         return {}
+    candidate = raw_cfg.get("run001_a2")
+    if isinstance(candidate, Mapping):
+        return dict(candidate)
     candidate = raw_cfg.get("run001_a1")
     if isinstance(candidate, Mapping):
         return dict(candidate)
@@ -358,4 +361,5 @@ def build_no_write_guard_from_raw_config(raw_cfg: Optional[Mapping[str, Any]]) -
         no_write = raw_cfg.get("no_write")
     if not _normalize_bool(no_write):
         raise NoWriteConfigurationError("Run-001/A1 real_machine_dry_run requires no_write=true")
-    return NoWriteGuard(scope="run001_a1", enabled=True)
+    scope = str(policy.get("guard_scope") or policy.get("scope") or "run001_a1").strip() or "run001_a1"
+    return NoWriteGuard(scope=scope, enabled=True)
