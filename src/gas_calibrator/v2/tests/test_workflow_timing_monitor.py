@@ -292,6 +292,85 @@ def test_timing_summary_records_positive_preseal_pressure_rise_warnings(monkeypa
     assert "vent_hold_tick_count_interval_mismatch" in warning_codes
 
 
+def test_timing_summary_records_preseal_arm_and_ready_without_seal(monkeypatch, tmp_path) -> None:
+    clock = {"now": 0.0}
+    monkeypatch.setattr(timing_module.time, "monotonic", lambda: clock["now"])
+    monitor = TimingMonitorService(tmp_path, run_id="run-preseal-arm", no_write_guard_active=True)
+
+    monitor.record_event("co2_route_open_end", "end", stage="co2_route_open", point_index=1, pressure_hpa=1000.0)
+    clock["now"] += 1.0
+    monitor.record_event(
+        "preseal_vent_close_arm_triggered",
+        "info",
+        stage="preseal_atmosphere_flush_hold",
+        point_index=1,
+        pressure_hpa=1080.0,
+        route_state={"route_state": {"estimated_time_to_ready_s": 0.7}},
+    )
+    clock["now"] += 0.2
+    monitor.record_event(
+        "positive_preseal_arming_start",
+        "start",
+        stage="positive_preseal_arming",
+        point_index=1,
+        pressure_hpa=1080.0,
+    )
+    clock["now"] += 0.4
+    monitor.record_event(
+        "positive_preseal_arming_end",
+        "end",
+        stage="positive_preseal_arming",
+        point_index=1,
+        pressure_hpa=1095.0,
+    )
+    clock["now"] += 1.0
+    monitor.record_event(
+        "preseal_atmosphere_flush_ready_handoff",
+        "info",
+        stage="preseal_atmosphere_flush_hold",
+        point_index=1,
+        pressure_hpa=1110.0,
+    )
+    clock["now"] += 0.1
+    monitor.record_event(
+        "positive_preseal_pressurization_start",
+        "start",
+        stage="positive_preseal_pressurization",
+        point_index=1,
+        pressure_hpa=1095.0,
+    )
+    clock["now"] += 0.2
+    monitor.record_event(
+        "positive_preseal_abort",
+        "fail",
+        stage="positive_preseal_pressurization",
+        point_index=1,
+        pressure_hpa=1151.0,
+        error_code="preseal_abort_pressure_exceeded",
+    )
+    summary = monitor.finalize_summary(
+        final_decision="FAIL",
+        a2_final_decision="FAIL",
+        extra_context={
+            "positive_preseal_abort_pressure_hpa": 1150.0,
+            "expected_abort_margin_min_hpa": 10.0,
+            "timing_warning_only": True,
+        },
+    )
+
+    warning_codes = {item["warning_code"] for item in summary["preseal_timing_warnings_all"]}
+    assert summary["preseal_vent_close_arm_elapsed_s"] == 1.0
+    assert summary["preseal_vent_close_arm_pressure_hpa"] == 1080.0
+    assert summary["estimated_time_to_ready_s"] == 0.7
+    assert summary["ready_to_vent_close_start_s"] == 0.0
+    assert summary["ready_to_vent_close_end_s"] == 0.0
+    assert summary["pressure_delta_during_vent_close_hpa"] == 15.0
+    assert summary["ready_without_seal_reason"] == "preseal_abort_pressure_exceeded"
+    assert "positive_preseal_ready_without_seal_start" in warning_codes
+    assert summary["preseal_timing_warning_count_total"] == len(summary["preseal_timing_warnings_all"])
+    assert summary["severe_preseal_timing_warning_count"] == summary["preseal_timing_warning_count_severe"]
+
+
 def test_timing_monitor_does_not_send_device_commands(tmp_path) -> None:
     class Device:
         command_count = 0

@@ -85,6 +85,21 @@ POSITIVE_PRESEAL_PRESSURIZATION_SAMPLE_FIELDS = [
     "preseal_abort_pressure_hpa",
     "preseal_ready_timeout_s",
     "preseal_pressure_poll_interval_s",
+    "preseal_vent_close_arm_pressure_hpa",
+    "preseal_vent_close_arm_margin_hpa",
+    "preseal_vent_close_arm_time_to_ready_s",
+    "vent_close_arm_trigger",
+    "vent_close_arm_pressure_hpa",
+    "vent_close_arm_elapsed_s",
+    "estimated_time_to_ready_s",
+    "ready_reached_before_vent_close_completed",
+    "ready_reached_during_vent_close",
+    "ready_to_vent_close_start_s",
+    "ready_to_vent_close_end_s",
+    "ready_to_seal_command_s",
+    "ready_to_seal_confirm_s",
+    "pressure_delta_during_vent_close_hpa",
+    "pressure_delta_after_ready_before_seal_hpa",
     "vent_closed_at",
     "vent_command_result",
     "output_state",
@@ -100,6 +115,7 @@ POSITIVE_PRESEAL_PRESSURIZATION_SAMPLE_FIELDS = [
     "seal_command_sent",
     "seal_trigger_pressure_hpa",
     "seal_trigger_elapsed_s",
+    "seal_command_blocked_reason",
     "sealed",
     "pressure_control_started",
     "abort_reason",
@@ -220,6 +236,15 @@ def _preseal_timing_thresholds(pressure_cfg: Mapping[str, Any]) -> dict[str, Any
         ),
         "expected_abort_margin_min_hpa": (
             _as_float(pressure_cfg.get("expected_abort_margin_min_hpa")) or 10.0
+        ),
+        "preseal_vent_close_arm_pressure_hpa": _as_float(
+            pressure_cfg.get("preseal_vent_close_arm_pressure_hpa")
+        ),
+        "preseal_vent_close_arm_margin_hpa": (
+            _as_float(pressure_cfg.get("preseal_vent_close_arm_margin_hpa")) or 30.0
+        ),
+        "preseal_vent_close_arm_time_to_ready_s": (
+            _as_float(pressure_cfg.get("preseal_vent_close_arm_time_to_ready_s")) or 3.0
         ),
         "timing_warning_only": _as_bool(pressure_cfg.get("timing_warning_only", True)),
     }
@@ -756,6 +781,21 @@ def _build_positive_preseal_pressurization_evidence(
         "abort_pressure_hpa": payload.get("positive_preseal_abort_pressure_hpa"),
         "preseal_ready_timeout_s": payload.get("positive_preseal_ready_timeout_s"),
         "preseal_pressure_poll_interval_s": payload.get("positive_preseal_pressure_poll_interval_s"),
+        "preseal_vent_close_arm_pressure_hpa": payload.get("preseal_vent_close_arm_pressure_hpa"),
+        "preseal_vent_close_arm_margin_hpa": payload.get("preseal_vent_close_arm_margin_hpa"),
+        "preseal_vent_close_arm_time_to_ready_s": payload.get("preseal_vent_close_arm_time_to_ready_s"),
+        "vent_close_arm_trigger": "",
+        "vent_close_arm_pressure_hpa": None,
+        "vent_close_arm_elapsed_s": None,
+        "estimated_time_to_ready_s": None,
+        "ready_reached_before_vent_close_completed": False,
+        "ready_reached_during_vent_close": False,
+        "ready_to_vent_close_start_s": None,
+        "ready_to_vent_close_end_s": None,
+        "ready_to_seal_command_s": None,
+        "ready_to_seal_confirm_s": None,
+        "pressure_delta_during_vent_close_hpa": None,
+        "pressure_delta_after_ready_before_seal_hpa": None,
         "vent_closed_at": "",
         "vent_command_result": "",
         "output_state": None,
@@ -773,6 +813,7 @@ def _build_positive_preseal_pressurization_evidence(
         "seal_command_sent": False,
         "seal_trigger_pressure_hpa": None,
         "seal_trigger_elapsed_s": None,
+        "seal_command_blocked_reason": "",
         "sealed": False,
         "pressure_control_started": False,
         "abort_reason": "",
@@ -836,6 +877,8 @@ def _build_positive_preseal_pressurization_evidence(
                 "pressure_control_ready_gate",
                 "set_pressure",
             }:
+                if action == "seal_route":
+                    update_latest(item, actual)
                 pass
             else:
                 continue
@@ -960,6 +1003,23 @@ def _build_positive_preseal_pressurization_evidence(
         "preseal_abort_pressure_hpa": latest.get("preseal_abort_pressure_hpa"),
         "preseal_ready_timeout_s": latest.get("preseal_ready_timeout_s"),
         "preseal_pressure_poll_interval_s": latest.get("preseal_pressure_poll_interval_s"),
+        "preseal_vent_close_arm_pressure_hpa": latest.get("preseal_vent_close_arm_pressure_hpa"),
+        "preseal_vent_close_arm_margin_hpa": latest.get("preseal_vent_close_arm_margin_hpa"),
+        "preseal_vent_close_arm_time_to_ready_s": latest.get("preseal_vent_close_arm_time_to_ready_s"),
+        "vent_close_arm_trigger": latest.get("vent_close_arm_trigger"),
+        "vent_close_arm_pressure_hpa": latest.get("vent_close_arm_pressure_hpa"),
+        "vent_close_arm_elapsed_s": latest.get("vent_close_arm_elapsed_s"),
+        "estimated_time_to_ready_s": latest.get("estimated_time_to_ready_s"),
+        "ready_reached_before_vent_close_completed": bool(
+            latest.get("ready_reached_before_vent_close_completed")
+        ),
+        "ready_reached_during_vent_close": bool(latest.get("ready_reached_during_vent_close")),
+        "ready_to_vent_close_start_s": latest.get("ready_to_vent_close_start_s"),
+        "ready_to_vent_close_end_s": latest.get("ready_to_vent_close_end_s"),
+        "ready_to_seal_command_s": latest.get("ready_to_seal_command_s"),
+        "ready_to_seal_confirm_s": latest.get("ready_to_seal_confirm_s"),
+        "pressure_delta_during_vent_close_hpa": latest.get("pressure_delta_during_vent_close_hpa"),
+        "pressure_delta_after_ready_before_seal_hpa": latest.get("pressure_delta_after_ready_before_seal_hpa"),
         "vent_closed_at": vent_closed_at or latest.get("vent_closed_at"),
         "vent_command_result": vent_command_result or latest.get("vent_command_result"),
         "output_state": latest.get("output_state"),
@@ -975,6 +1035,7 @@ def _build_positive_preseal_pressurization_evidence(
         "seal_command_sent": seal_command_sent,
         "seal_trigger_pressure_hpa": seal_trigger_pressure_hpa,
         "seal_trigger_elapsed_s": seal_trigger_elapsed_s,
+        "seal_command_blocked_reason": latest.get("seal_command_blocked_reason"),
         "sealed": sealed,
         "pressure_control_started": pressure_control_started,
         "abort_reason": abort_reason,
@@ -1039,6 +1100,9 @@ def _build_positive_preseal_timing_diagnostics(
             "expected_vent_hold_tick_interval_s",
             "expected_vent_hold_pressure_rise_rate_max_hpa_per_s",
             "expected_abort_margin_min_hpa",
+            "preseal_vent_close_arm_pressure_hpa",
+            "preseal_vent_close_arm_margin_hpa",
+            "preseal_vent_close_arm_time_to_ready_s",
             "timing_warning_only",
         )
     }
@@ -1047,6 +1111,7 @@ def _build_positive_preseal_timing_diagnostics(
     positive_start_row: Optional[Mapping[str, Any]] = None
     positive_ready_row: Optional[Mapping[str, Any]] = None
     handoff_ready_row: Optional[Mapping[str, Any]] = None
+    arm_row: Optional[Mapping[str, Any]] = None
     vent_close_row: Optional[Mapping[str, Any]] = None
     seal_row: Optional[Mapping[str, Any]] = None
     positive_abort_row: Optional[Mapping[str, Any]] = None
@@ -1071,6 +1136,8 @@ def _build_positive_preseal_timing_diagnostics(
             positive_ready_row = row
         if action == "preseal_atmosphere_flush_ready_handoff" and handoff_ready_row is None:
             handoff_ready_row = row
+        if action == "preseal_vent_close_arm_triggered" and arm_row is None:
+            arm_row = row
         if action == "set_vent" and target.get("vent_on") is False and vent_close_row is None:
             message = str(row.get("message") or actual.get("reason") or "")
             if "positive" in message.lower() and "preseal" in message.lower():
@@ -1143,9 +1210,12 @@ def _build_positive_preseal_timing_diagnostics(
     ) if ready_candidates else None
     ready_actual = (ready_row or {}).get("actual")
     ready_actual = dict(ready_actual) if isinstance(ready_actual, Mapping) else {}
+    arm_actual = (arm_row or {}).get("actual")
+    arm_actual = dict(arm_actual) if isinstance(arm_actual, Mapping) else {}
     positive_ready_actual = (positive_ready_row or {}).get("actual")
     positive_ready_actual = dict(positive_ready_actual) if isinstance(positive_ready_actual, Mapping) else {}
     ready_ts = _parse_trace_ts((ready_row or {}).get("ts") or (ready_row or {}).get("timestamp"))
+    arm_ts = _parse_trace_ts((arm_row or {}).get("ts") or (arm_row or {}).get("timestamp"))
     positive_ready_ts = _event_ts(positive_ready_event) or _parse_trace_ts(
         (positive_ready_row or {}).get("ts") or (positive_ready_row or {}).get("timestamp")
     )
@@ -1205,6 +1275,7 @@ def _build_positive_preseal_timing_diagnostics(
         or _timing_duration(timing_events, "positive_preseal_vent_close_start", "positive_preseal_vent_close_end")
         or _trace_elapsed_s(vent_close_confirmed_ts, vent_close_command_ts)
     )
+    arm_elapsed_s = _trace_elapsed_s(arm_ts, route_open_ts)
     time_from_route_open_to_ready_s = _trace_elapsed_s(ready_ts, route_open_ts)
     time_from_positive_preseal_start_to_ready_s = _trace_elapsed_s(positive_ready_ts, positive_start_ts)
     positive_preseal_pressure_rise_rate_hpa_per_s = (
@@ -1222,6 +1293,8 @@ def _build_positive_preseal_timing_diagnostics(
     pressure_at_seal_confirm_hpa = _event_pressure(seal_end_event) or _trace_pressure_hpa(seal_actual)
     seal_command_latency_after_ready_s = _trace_elapsed_s(seal_command_ts, positive_ready_ts)
     seal_confirm_latency_after_ready_s = _trace_elapsed_s(seal_confirm_ts, positive_ready_ts)
+    ready_to_vent_close_start_s = _trace_elapsed_s(vent_close_command_ts, ready_ts)
+    ready_to_vent_close_end_s = _trace_elapsed_s(vent_close_confirmed_ts, ready_ts)
     pressure_max_before_seal_hpa: Optional[float] = None
     for sample in pressure_samples:
         sample_ts = sample.get("parsed_ts")
@@ -1254,6 +1327,30 @@ def _build_positive_preseal_timing_diagnostics(
         if abort_pressure_hpa is not None and pressure_max_before_seal_hpa is not None
         else None
     )
+    pressure_delta_during_vent_close_hpa = (
+        round(float(positive_start_pressure) - float(arm_actual.get("vent_close_arm_pressure_hpa")), 3)
+        if positive_start_pressure is not None and _as_float(arm_actual.get("vent_close_arm_pressure_hpa")) is not None
+        else None
+    )
+    pressure_delta_after_ready_before_seal_hpa = pressure_increase_after_ready_before_seal_hpa
+    ready_reached_before_vent_close_completed = (
+        ready_ts is not None
+        and vent_close_confirmed_ts is not None
+        and ready_ts <= vent_close_confirmed_ts
+    )
+    ready_reached_during_vent_close = (
+        ready_ts is not None
+        and vent_close_command_ts is not None
+        and vent_close_confirmed_ts is not None
+        and vent_close_command_ts <= ready_ts <= vent_close_confirmed_ts
+    )
+    seal_command_blocked_reason = ""
+    if ready_ts is not None and seal_start_event is None and seal_row is None:
+        seal_command_blocked_reason = (
+            str(((positive_abort_row or {}).get("actual") or {}).get("abort_reason") or "")
+            if isinstance((positive_abort_row or {}).get("actual"), Mapping)
+            else ""
+        ) or "ready_without_seal_start"
 
     warnings: list[dict[str, Any]] = []
 
@@ -1366,6 +1463,22 @@ def _build_positive_preseal_timing_diagnostics(
         "first_pressure_rise_detected_elapsed_s": first_rise_elapsed_s,
         "first_pressure_rise_delta_hpa": rise_sample.get("delta_hpa"),
         "pressure_rise_detection_threshold_hpa": pressure_rise_threshold,
+        "preseal_vent_close_arm_pressure_hpa": (
+            _as_float(arm_actual.get("preseal_vent_close_arm_pressure_hpa"))
+            or _as_float(thresholds.get("preseal_vent_close_arm_pressure_hpa"))
+        ),
+        "preseal_vent_close_arm_margin_hpa": (
+            _as_float(arm_actual.get("preseal_vent_close_arm_margin_hpa"))
+            or _as_float(thresholds.get("preseal_vent_close_arm_margin_hpa"))
+        ),
+        "preseal_vent_close_arm_time_to_ready_s": (
+            _as_float(arm_actual.get("preseal_vent_close_arm_time_to_ready_s"))
+            or _as_float(thresholds.get("preseal_vent_close_arm_time_to_ready_s"))
+        ),
+        "vent_close_arm_trigger": str(arm_actual.get("vent_close_arm_trigger") or ""),
+        "vent_close_arm_pressure_hpa": _as_float(arm_actual.get("vent_close_arm_pressure_hpa")),
+        "vent_close_arm_elapsed_s": arm_elapsed_s,
+        "estimated_time_to_ready_s": _as_float(arm_actual.get("estimated_time_to_ready_s")),
         "pressure_at_route_open_hpa": pressure_at_route_open_hpa,
         "pressure_at_vent_hold_start_hpa": pressure_at_vent_hold_start_hpa,
         "pressure_at_vent_hold_end_hpa": pressure_at_vent_hold_end_hpa,
@@ -1383,6 +1496,10 @@ def _build_positive_preseal_timing_diagnostics(
         "ready_pressure_hpa": ready_pressure_hpa,
         "ready_reached_at": ready_ts.isoformat() if ready_ts else "",
         "ready_reached_elapsed_s": _as_float(positive_ready_actual.get("elapsed_s")),
+        "ready_reached_before_vent_close_completed": ready_reached_before_vent_close_completed,
+        "ready_reached_during_vent_close": ready_reached_during_vent_close,
+        "ready_to_vent_close_start_s": ready_to_vent_close_start_s,
+        "ready_to_vent_close_end_s": ready_to_vent_close_end_s,
         "time_from_route_open_to_ready_s": time_from_route_open_to_ready_s,
         "time_from_positive_preseal_start_to_ready_s": time_from_positive_preseal_start_to_ready_s,
         "positive_preseal_pressure_rise_rate_hpa_per_s": positive_preseal_pressure_rise_rate_hpa_per_s,
@@ -1392,10 +1509,19 @@ def _build_positive_preseal_timing_diagnostics(
         "seal_confirm_latency_after_ready_s": seal_confirm_latency_after_ready_s,
         "seal_trigger_pressure_hpa": seal_trigger_pressure,
         "pressure_at_seal_confirm_hpa": pressure_at_seal_confirm_hpa,
+        "pressure_delta_during_vent_close_hpa": pressure_delta_during_vent_close_hpa,
+        "pressure_delta_after_ready_before_seal_hpa": pressure_delta_after_ready_before_seal_hpa,
         "pressure_increase_after_ready_before_seal_hpa": pressure_increase_after_ready_before_seal_hpa,
         "pressure_max_before_seal_hpa": pressure_max_before_seal_hpa,
         "abort_pressure_hpa": abort_pressure_hpa,
         "abort_margin_min_hpa": abort_margin_min_hpa,
+        "seal_command_sent": bool(seal_command_ts),
+        "seal_command_blocked_reason": seal_command_blocked_reason,
+        "abort_reason": (
+            str(((positive_abort_row or {}).get("actual") or {}).get("abort_reason") or "")
+            if isinstance((positive_abort_row or {}).get("actual"), Mapping)
+            else ""
+        ),
         "decision": decision,
         "warning_codes": [str(item.get("warning_code") or "") for item in warnings],
         "warning_count": len(warnings),
@@ -1406,6 +1532,69 @@ def _build_positive_preseal_timing_diagnostics(
         "not_real_acceptance_evidence": True,
         "v2_replaces_v1_claim": False,
     }
+
+
+def _merge_preseal_diagnostic_warnings(
+    timing_summary: Mapping[str, Any],
+    diagnostics: Mapping[str, Any],
+) -> dict[str, Any]:
+    summary = dict(timing_summary)
+    merged: list[dict[str, Any]] = []
+
+    def add_warning(item: Any) -> None:
+        if isinstance(item, Mapping):
+            code = str(item.get("warning_code") or "").strip()
+            payload = dict(item)
+        else:
+            code = str(item or "").strip()
+            payload = {"warning_code": code, "warning_only": True}
+        if not code:
+            return
+        if any(str(existing.get("warning_code") or "") == code for existing in merged):
+            return
+        payload["warning_code"] = code
+        merged.append(payload)
+
+    for item in list(diagnostics.get("abnormal_waits") or []):
+        add_warning(item)
+    for code in list(diagnostics.get("warning_codes") or []):
+        add_warning(code)
+    for item in list(summary.get("preseal_timing_warnings") or []):
+        add_warning(item)
+
+    severe_codes = {
+        "positive_preseal_ready_without_seal_start",
+        "positive_preseal_seal_start_without_seal_end",
+        "pressure_max_before_seal_near_abort_threshold",
+        "ready_to_seal_command_s_long",
+        "ready_to_seal_confirm_s_long",
+        "pressure_increase_after_ready_before_seal_hpa_high",
+    }
+    severe = [
+        item
+        for item in merged
+        if str(item.get("warning_code") or "") in severe_codes
+    ]
+    summary.update(
+        {
+            "preseal_timing_warnings": merged,
+            "preseal_timing_warning_count": len(merged),
+            "preseal_timing_warnings_all": merged,
+            "preseal_timing_warning_count_total": len(merged),
+            "preseal_timing_warnings_severe": severe,
+            "preseal_timing_warning_count_severe": len(severe),
+            "severe_preseal_timing_warning_count": len(severe),
+            "preseal_vent_close_arm_elapsed_s": diagnostics.get("vent_close_arm_elapsed_s"),
+            "preseal_vent_close_arm_pressure_hpa": diagnostics.get("vent_close_arm_pressure_hpa"),
+            "estimated_time_to_ready_s": diagnostics.get("estimated_time_to_ready_s"),
+            "ready_to_vent_close_start_s": diagnostics.get("ready_to_vent_close_start_s"),
+            "ready_to_vent_close_end_s": diagnostics.get("ready_to_vent_close_end_s"),
+            "ready_to_seal_command_s": diagnostics.get("seal_command_latency_after_ready_s"),
+            "pressure_delta_during_vent_close_hpa": diagnostics.get("pressure_delta_during_vent_close_hpa"),
+            "ready_without_seal_reason": diagnostics.get("seal_command_blocked_reason"),
+        }
+    )
+    return summary
 
 
 def build_run001_a2_evidence_payload(
@@ -1526,9 +1715,25 @@ def render_run001_a2_human_report(payload: Mapping[str, Any]) -> str:
     temperature_policy = dict(temperature_policy) if isinstance(temperature_policy, Mapping) else {}
     preseal_timing = payload.get("positive_preseal_timing_diagnostics")
     preseal_timing = dict(preseal_timing) if isinstance(preseal_timing, Mapping) else {}
-    preseal_warning_codes = list(
-        preseal_timing.get("warning_codes") or payload.get("positive_preseal_timing_warning_codes") or []
+    summary_warning_items = list(
+        timing_summary.get("preseal_timing_warnings_all")
+        or timing_summary.get("preseal_timing_warnings")
+        or []
     )
+    preseal_warning_codes = [
+        str(item.get("warning_code") or "")
+        for item in summary_warning_items
+        if isinstance(item, Mapping) and str(item.get("warning_code") or "")
+    ]
+    if not preseal_warning_codes:
+        preseal_warning_codes = list(
+            preseal_timing.get("warning_codes") or payload.get("positive_preseal_timing_warning_codes") or []
+        )
+    preseal_warning_count_total = timing_summary.get(
+        "preseal_timing_warning_count_total",
+        len(preseal_warning_codes),
+    )
+    preseal_warning_count_severe = timing_summary.get("preseal_timing_warning_count_severe")
     preseal_warning_text = ", ".join(str(item) for item in preseal_warning_codes) if preseal_warning_codes else "none"
     return "\n".join(
         [
@@ -1578,19 +1783,30 @@ def render_run001_a2_human_report(payload: Mapping[str, Any]) -> str:
             "",
             "## 正压封路升压时序诊断",
             f"- positive_preseal_timing_diagnostics: {payload.get('positive_preseal_timing_diagnostics_artifact')}",
+            f"- vent_close_arm_trigger: {preseal_timing.get('vent_close_arm_trigger')}",
+            f"- vent_close_arm_pressure_hpa: {preseal_timing.get('vent_close_arm_pressure_hpa')}",
+            f"- vent_close_arm_elapsed_s: {preseal_timing.get('vent_close_arm_elapsed_s')}",
+            f"- estimated_time_to_ready_s: {preseal_timing.get('estimated_time_to_ready_s')}",
             f"- route_open_to_first_pressure_rise_s: {preseal_timing.get('first_pressure_rise_detected_elapsed_s')}",
             f"- route_open_to_ready_s: {preseal_timing.get('time_from_route_open_to_ready_s')}",
             f"- vent_hold_pressure_delta_hpa: {preseal_timing.get('vent_hold_pressure_delta_hpa')}",
             f"- vent_hold_pressure_rise_rate_hpa_per_s: {preseal_timing.get('vent_hold_pressure_rise_rate_hpa_per_s')}",
             f"- vent_close_duration_s: {preseal_timing.get('vent_close_duration_s')}",
+            f"- ready_to_vent_close_start_s: {preseal_timing.get('ready_to_vent_close_start_s')}",
+            f"- ready_to_vent_close_end_s: {preseal_timing.get('ready_to_vent_close_end_s')}",
             f"- positive_preseal_pressure_rise_rate_hpa_per_s: {preseal_timing.get('positive_preseal_pressure_rise_rate_hpa_per_s')}",
             f"- ready_to_seal_command_s: {preseal_timing.get('seal_command_latency_after_ready_s')}",
             f"- ready_to_seal_confirm_s: {preseal_timing.get('seal_confirm_latency_after_ready_s')}",
+            f"- pressure_delta_during_vent_close_hpa: {preseal_timing.get('pressure_delta_during_vent_close_hpa')}",
             f"- pressure_increase_after_ready_before_seal_hpa: {preseal_timing.get('pressure_increase_after_ready_before_seal_hpa')}",
             f"- pressure_max_before_seal_hpa: {preseal_timing.get('pressure_max_before_seal_hpa')}",
             f"- abort_pressure_hpa: {preseal_timing.get('abort_pressure_hpa')}",
             f"- abort_margin_min_hpa: {preseal_timing.get('abort_margin_min_hpa')}",
+            f"- seal_command_sent: {preseal_timing.get('seal_command_sent')}",
+            f"- seal_command_blocked_reason: {preseal_timing.get('seal_command_blocked_reason')}",
             f"- timing_warning_only: {preseal_timing.get('warning_only')}",
+            f"- preseal_timing_warning_count_total: {preseal_warning_count_total}",
+            f"- preseal_timing_warning_count_severe: {preseal_warning_count_severe}",
             f"- warning_codes: {preseal_warning_text}",
             "",
             "<!-- legacy_heading_marker: 娴佺▼鏃跺簭鎽樿 -->",
@@ -1612,6 +1828,8 @@ def render_run001_a2_human_report(payload: Mapping[str, Any]) -> str:
             f"- ready_to_seal_command_s: {timing_summary.get('ready_to_seal_command_s')}",
             f"- ready_to_seal_confirm_s: {timing_summary.get('ready_to_seal_confirm_s')}",
             f"- preseal_timing_warning_count: {timing_summary.get('preseal_timing_warning_count')}",
+            f"- preseal_timing_warning_count_total: {timing_summary.get('preseal_timing_warning_count_total')}",
+            f"- preseal_timing_warning_count_severe: {timing_summary.get('preseal_timing_warning_count_severe')}",
             f"- preseal_vent_tick_count: {timing_summary.get('preseal_vent_tick_count')}",
             f"- timing_warning_count: {timing_warning_count}",
             "",
@@ -1742,6 +1960,8 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
         enriched,
         timing_summary=timing_summary,
     )
+    timing_summary = _merge_preseal_diagnostic_warnings(timing_summary, positive_preseal_timing_payload)
+    timing_summary_path.write_text(json.dumps(timing_summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     positive_preseal_timing_path.write_text(
         json.dumps(positive_preseal_timing_payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",

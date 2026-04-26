@@ -168,6 +168,7 @@ class WorkflowOrchestrator:
         sample_count: Any = None,
         warning_code: Any = None,
         error_code: Any = None,
+        route_state: Any = None,
     ) -> dict[str, Any]:
         monitor = getattr(self, "timing_monitor_service", None)
         recorder = getattr(monitor, "record_event", None)
@@ -180,13 +181,15 @@ class WorkflowOrchestrator:
         if target_pressure_hpa is None and resolved_point is not None:
             target_pressure_hpa = getattr(resolved_point, "target_pressure_hpa", None)
         pressure_state = getattr(self.run_state, "pressure", None)
-        route_state = {
+        resolved_route_state = {
             "current_route": getattr(self.route_context, "current_route", ""),
             "current_phase": str(getattr(getattr(self.route_context, "current_phase", None), "value", getattr(self.route_context, "current_phase", "")) or ""),
             "point_tag": getattr(self.route_context, "point_tag", ""),
             "retry": getattr(self.route_context, "retry", 0),
             "route_state": dict(getattr(self.route_context, "route_state", {}) or {}),
         }
+        if isinstance(route_state, dict):
+            resolved_route_state["route_state"].update(route_state)
         return recorder(
             event_name,
             event_type,
@@ -198,7 +201,7 @@ class WorkflowOrchestrator:
             wait_reason=wait_reason,
             blocking_condition=blocking_condition,
             decision=decision,
-            route_state=route_state,
+            route_state=resolved_route_state,
             pressure_hpa=pressure_hpa
             if pressure_hpa is not None
             else getattr(pressure_state, "sealed_route_last_controlled_pressure_hpa", None),
@@ -1202,13 +1205,25 @@ class WorkflowOrchestrator:
             expected_max_s=soak_s + max(5.0, soak_s * 0.1),
             wait_reason=soak_key,
         )
+        setattr(self, "_a2_preseal_last_pressure_hpa", None)
+        setattr(self, "_a2_preseal_last_pressure_monotonic_s", None)
+        setattr(self, "_a2_preseal_pressure_rise_detected", False)
+        setattr(self, "_a2_preseal_vent_close_arm_context", {})
+        setattr(self, "_a2_co2_route_open_pressure_hpa", None)
         start = time.time()
+        setattr(self, "_a2_co2_route_open_monotonic_s", time.monotonic())
         continuous_atmosphere_hold = bool(self._cfg_get("workflow.pressure.continuous_atmosphere_hold", False))
         positive_preseal_enabled = bool(
             self._cfg_get("workflow.pressure.positive_preseal_pressurization_enabled", False)
         )
         vent_hold_interval_s = max(0.1, float(self._cfg_get("workflow.pressure.vent_hold_interval_s", 2.0)))
+        preseal_pressure_poll_interval_s = max(
+            0.05,
+            float(self._cfg_get("workflow.pressure.preseal_pressure_poll_interval_s", 0.2)),
+        )
         last_atmosphere_hold_ts = 0.0
+        last_preseal_pressure_check_ts = 0.0
+        last_snapshot_refresh_ts = 0.0
         if positive_preseal_enabled:
             self._record_workflow_timing(
                 "preseal_atmosphere_flush_hold_start",
@@ -1219,6 +1234,7 @@ class WorkflowOrchestrator:
                 expected_max_s=soak_s,
                 wait_reason="continuous_atmosphere_hold",
             )
+        handoff_decision = ""
         while time.time() - start < soak_s:
             self._check_stop()
             now = time.time()
@@ -1231,6 +1247,7 @@ class WorkflowOrchestrator:
                 expected_max_s=soak_s,
                 wait_reason=soak_key,
             )
+            vent_reasserted = False
             if continuous_atmosphere_hold and (now - last_atmosphere_hold_ts) >= vent_hold_interval_s:
                 self._set_pressure_controller_vent(
                     True,
@@ -1246,16 +1263,30 @@ class WorkflowOrchestrator:
                     expected_max_s=vent_hold_interval_s,
                     wait_reason="continuous_atmosphere_hold",
                 )
+                last_atmosphere_hold_ts = now
+                last_preseal_pressure_check_ts = 0.0
+                vent_reasserted = True
+            if (
+                continuous_atmosphere_hold
+                and positive_preseal_enabled
+                and (now - last_preseal_pressure_check_ts) >= preseal_pressure_poll_interval_s
+            ):
                 pressure_decision = self._verify_co2_preseal_atmosphere_hold_pressure(point)
-                if pressure_decision == "positive_preseal_ready_handoff":
+                if pressure_decision in {"positive_preseal_ready_handoff", "positive_preseal_arm_handoff"}:
+                    handoff_decision = pressure_decision
                     self._log(
-                        "CO2 pre-seal atmosphere flush reached positive preseal ready pressure; "
+                        "CO2 pre-seal atmosphere flush reached positive preseal handoff pressure; "
                         f"handoff to pressurization/seal (row {point.index})"
                     )
                     break
-                last_atmosphere_hold_ts = now
-            self._refresh_live_analyzer_snapshots(reason="co2_route_preseal_soak")
-            time.sleep(min(1.0, max(0.05, soak_s - (time.time() - start))))
+                last_preseal_pressure_check_ts = now
+            elif continuous_atmosphere_hold and vent_reasserted:
+                self._verify_co2_preseal_atmosphere_hold_pressure(point)
+            if (now - last_snapshot_refresh_ts) >= 1.0:
+                self._refresh_live_analyzer_snapshots(reason="co2_route_preseal_soak")
+                last_snapshot_refresh_ts = now
+            sleep_ceiling_s = preseal_pressure_poll_interval_s if positive_preseal_enabled else 1.0
+            time.sleep(min(1.0, sleep_ceiling_s, max(0.05, soak_s - (time.time() - start))))
         if special_flush:
             self._post_h2o_co2_zero_flush_pending = False
             self._initial_co2_zero_flush_pending = False
@@ -1268,7 +1299,7 @@ class WorkflowOrchestrator:
                 stage="preseal_atmosphere_flush_hold",
                 point=point,
                 expected_max_s=soak_s,
-                decision="ok",
+                decision=handoff_decision or "ok",
             )
         self._record_workflow_timing(
             "preseal_soak_end",
@@ -1339,6 +1370,99 @@ class WorkflowOrchestrator:
             target_limit_hpa = target_hpa + abs(10.0 if margin_hpa is None else margin_hpa)
             limit_hpa = max(1110.0 if default_limit_hpa is None else default_limit_hpa, target_limit_hpa)
         effective_limit_hpa = float(abort_hpa if positive_preseal_enabled and abort_hpa is not None else limit_hpa)
+        if positive_preseal_enabled and ready_hpa is not None:
+            now_monotonic = time.monotonic()
+            arm_margin_hpa = self._as_float(self._cfg_get("workflow.pressure.preseal_vent_close_arm_margin_hpa", 30.0))
+            arm_margin_hpa = 30.0 if arm_margin_hpa is None else abs(float(arm_margin_hpa))
+            arm_pressure_hpa = self._as_float(self._cfg_get("workflow.pressure.preseal_vent_close_arm_pressure_hpa"))
+            if arm_pressure_hpa is None:
+                arm_pressure_hpa = float(ready_hpa) - arm_margin_hpa
+            arm_time_to_ready_s = self._as_float(
+                self._cfg_get("workflow.pressure.preseal_vent_close_arm_time_to_ready_s", 3.0)
+            )
+            arm_time_to_ready_s = 3.0 if arm_time_to_ready_s is None else max(0.0, float(arm_time_to_ready_s))
+            previous_pressure = self._as_float(getattr(self, "_a2_preseal_last_pressure_hpa", None))
+            previous_monotonic = self._as_float(getattr(self, "_a2_preseal_last_pressure_monotonic_s", None))
+            rise_rate_hpa_per_s = None
+            if previous_pressure is not None and previous_monotonic is not None:
+                delta_t = now_monotonic - float(previous_monotonic)
+                if delta_t > 0:
+                    rise_rate_hpa_per_s = (float(pressure_hpa) - float(previous_pressure)) / delta_t
+            estimated_time_to_ready_s = None
+            if rise_rate_hpa_per_s is not None and rise_rate_hpa_per_s > 0 and pressure_hpa < float(ready_hpa):
+                estimated_time_to_ready_s = max(0.0, (float(ready_hpa) - float(pressure_hpa)) / rise_rate_hpa_per_s)
+            route_open_monotonic = self._as_float(getattr(self, "_a2_co2_route_open_monotonic_s", None))
+            arm_elapsed_s = (
+                max(0.0, now_monotonic - float(route_open_monotonic))
+                if route_open_monotonic is not None
+                else None
+            )
+            setattr(self, "_a2_preseal_last_pressure_hpa", float(pressure_hpa))
+            setattr(self, "_a2_preseal_last_pressure_monotonic_s", now_monotonic)
+            trigger = ""
+            if pressure_hpa >= float(ready_hpa):
+                trigger = "ready_pressure"
+            elif arm_pressure_hpa is not None and pressure_hpa >= float(arm_pressure_hpa):
+                trigger = "arm_pressure"
+            elif (float(ready_hpa) - float(pressure_hpa)) <= arm_margin_hpa:
+                trigger = "arm_margin"
+            elif estimated_time_to_ready_s is not None and estimated_time_to_ready_s <= arm_time_to_ready_s:
+                trigger = "time_to_ready"
+            if trigger and pressure_hpa <= effective_limit_hpa:
+                point_tag = (
+                    self.route_planner.co2_point_tag(point)
+                    if callable(getattr(getattr(self, "route_planner", None), "co2_point_tag", None))
+                    else ""
+                )
+                arm_context = {
+                    "preseal_vent_close_arm_pressure_hpa": float(arm_pressure_hpa),
+                    "preseal_vent_close_arm_margin_hpa": arm_margin_hpa,
+                    "preseal_vent_close_arm_time_to_ready_s": arm_time_to_ready_s,
+                    "vent_close_arm_trigger": trigger,
+                    "vent_close_arm_pressure_hpa": float(pressure_hpa),
+                    "vent_close_arm_elapsed_s": None if arm_elapsed_s is None else round(float(arm_elapsed_s), 3),
+                    "estimated_time_to_ready_s": (
+                        None if estimated_time_to_ready_s is None else round(float(estimated_time_to_ready_s), 3)
+                    ),
+                    "ready_pressure_hpa": float(ready_hpa),
+                    "abort_pressure_hpa": effective_limit_hpa,
+                    "point_index": point.index,
+                    "point_tag": point_tag,
+                    "ready_reached_monotonic_s": now_monotonic if trigger == "ready_pressure" else None,
+                }
+                setattr(self, "_a2_preseal_vent_close_arm_context", arm_context)
+                self._record_workflow_timing(
+                    "preseal_vent_close_arm",
+                    "info",
+                    stage="preseal_atmosphere_flush_hold",
+                    point=point,
+                    pressure_hpa=pressure_hpa,
+                    target_pressure_hpa=target_hpa,
+                    decision=trigger,
+                    route_state=arm_context,
+                )
+                self._record_workflow_timing(
+                    "preseal_vent_close_arm_triggered",
+                    "info",
+                    stage="preseal_atmosphere_flush_hold",
+                    point=point,
+                    pressure_hpa=pressure_hpa,
+                    target_pressure_hpa=target_hpa,
+                    decision=trigger,
+                    route_state=arm_context,
+                )
+                if trigger != "ready_pressure":
+                    recorder = getattr(getattr(self, "status_service", None), "record_route_trace", None)
+                    if callable(recorder):
+                        recorder(
+                            action="preseal_vent_close_arm_triggered",
+                            route="co2",
+                            point=point,
+                            actual={**arm_context, "reason": "positive_preseal_arm_handoff"},
+                            result="ok",
+                            message="CO2 atmosphere flush reached positive preseal arm threshold",
+                        )
+                    return "positive_preseal_arm_handoff"
         if (
             positive_preseal_enabled
             and ready_hpa is not None

@@ -336,12 +336,19 @@ def test_a2_config_splits_temperature_chamber_and_analyzer_timeouts() -> None:
     assert temperature["analyzer_chamber_temp_span_c"] == 0.08
     assert temperature["analyzer_chamber_temp_window_s"] == 60
     assert pressure["pressure_rise_detection_threshold_hpa"] == 2.0
+    assert pressure["preseal_vent_close_arm_pressure_hpa"] == 1080.0
+    assert pressure["preseal_vent_close_arm_margin_hpa"] == 30.0
+    assert pressure["preseal_vent_close_arm_time_to_ready_s"] == 3.0
+    assert pressure["preseal_vent_close_command_timeout_s"] == 1.0
+    assert pressure["preseal_vent_close_verify_timeout_s"] == 1.0
+    assert pressure["preseal_vent_close_verify_capture_pressure"] is False
     assert pressure["expected_route_open_to_ready_max_s"] == 40.0
     assert pressure["expected_positive_preseal_to_ready_max_s"] == 30.0
     assert pressure["expected_ready_to_seal_command_max_s"] == 0.5
     assert pressure["expected_ready_to_seal_confirm_max_s"] == 2.0
     assert pressure["expected_max_pressure_increase_after_ready_hpa"] == 10.0
     assert pressure["expected_vent_hold_tick_interval_s"] == 2.0
+    assert pressure["preseal_abort_pressure_hpa"] == 1150.0
     assert pressure["timing_warning_only"] is True
 
 
@@ -625,7 +632,7 @@ def test_a2_artifacts_include_positive_preseal_pressurization_evidence(tmp_path)
             "result": "ok",
         },
         {
-            "ts": "2026-04-26T04:11:03+00:00",
+            "ts": "2026-04-26T04:11:02.200000+00:00",
             "action": "seal_route",
             "route": "co2",
             "point_index": 1,
@@ -686,7 +693,7 @@ def test_a2_artifacts_include_positive_preseal_pressurization_evidence(tmp_path)
     assert evidence["ambient_reference_pressure_hpa"] == 1009.0
     assert evidence["measured_atmospheric_pressure_hpa"] == 1009.0
     assert evidence["measured_atmospheric_pressure_source"] == "deprecated_alias_of_ambient_reference_pressure_hpa"
-    assert evidence["current_line_pressure_hpa"] == 1110.5
+    assert evidence["current_line_pressure_hpa"] == 1109.8
     assert evidence["pressure_samples_count"] == 2
     assert summary["positive_preseal_ready_reached"] is True
     assert summary["positive_preseal_seal_trigger_pressure_hpa"] == 1110.5
@@ -700,6 +707,8 @@ def test_a2_artifacts_include_positive_preseal_pressurization_evidence(tmp_path)
     assert timing_diagnostics["vent_hold_pressure_rise_rate_hpa_per_s"] == 25.5
     assert timing_diagnostics["positive_preseal_pressure_rise_rate_hpa_per_s"] == 2.75
     assert timing_diagnostics["warning_codes"] == []
+    assert timing_summary["preseal_timing_warning_count_total"] == timing_diagnostics["warning_count"]
+    assert timing_summary["preseal_timing_warnings_all"] == []
     assert timing_diagnostics["no_write_guard_active"] is True
     assert timing_summary["route_open_to_first_pressure_rise_s"] == 9.0
     assert timing_summary["route_open_to_ready_s"] == 9.0
@@ -715,6 +724,177 @@ def test_a2_artifacts_include_positive_preseal_pressurization_evidence(tmp_path)
     assert str(artifact_dir / "positive_preseal_timing_diagnostics.json") in manifest["artifacts"]["output_files"]
     assert "Positive preseal pressurization summary" in report
     assert "正压封路升压时序诊断" in report
+    assert "preseal_timing_warning_count_total: 0" in report
+
+
+def test_a2_preseal_diagnostic_warnings_are_merged_into_workflow_summary(tmp_path) -> None:
+    truth = {
+        "read_only": True,
+        "passive_listen_only": True,
+        "commands_sent": [],
+        "analyzers": [
+            _truth_row("COM35", "001"),
+            _truth_row("COM37", "029"),
+            _truth_row("COM41", "003"),
+            _truth_row("COM42", "004"),
+        ],
+    }
+    (tmp_path / "truth.json").write_text(json.dumps(truth), encoding="utf-8")
+    raw_cfg = _a2_raw_config("truth.json")
+    raw_cfg["workflow"]["pressure"] = {
+        "positive_preseal_pressurization_enabled": True,
+        "preseal_ready_pressure_hpa": 1110.0,
+        "preseal_abort_pressure_hpa": 1150.0,
+        "preseal_ready_timeout_s": 30.0,
+        "preseal_pressure_poll_interval_s": 0.2,
+        "pressure_rise_detection_threshold_hpa": 2.0,
+        "expected_ready_to_seal_command_max_s": 0.5,
+        "expected_ready_to_seal_confirm_max_s": 2.0,
+        "expected_vent_hold_pressure_rise_rate_max_hpa_per_s": 5.0,
+        "expected_abort_margin_min_hpa": 10.0,
+        "expected_vent_hold_tick_interval_s": 2.0,
+        "timing_warning_only": True,
+        "fail_if_sealed_pressure_below_target": True,
+    }
+    artifact_dir = tmp_path / "artifacts"
+    artifact_dir.mkdir()
+    for filename, content in {
+        "summary.json": "{}",
+        "run_manifest.json": "{}",
+        "points.csv": "timestamp,point_index,status\n",
+        "io_log.csv": "timestamp,device,direction,data\n",
+        "run.log": "aborted\n",
+        "samples.csv": "timestamp,point_index\n",
+    }.items():
+        (artifact_dir / filename).write_text(content, encoding="utf-8")
+    trace_rows = [
+        {
+            "ts": "2026-04-26T09:17:39+00:00",
+            "action": "set_co2_valves",
+            "route": "co2",
+            "point_index": 1,
+            "target": {"pressure_hpa": 1100.0},
+            "actual": {"pressure_hpa": 1020.0},
+            "result": "ok",
+        },
+        {
+            "ts": "2026-04-26T09:17:41+00:00",
+            "action": "set_vent",
+            "route": "co2",
+            "point_index": 1,
+            "target": {"vent_on": True},
+            "actual": {"pressure_hpa": 1020.0, "vent_status_raw": 1, "output_state": 0, "isolation_state": 1},
+            "result": "ok",
+        },
+        {
+            "ts": "2026-04-26T09:17:51+00:00",
+            "action": "preseal_atmosphere_flush_ready_handoff",
+            "route": "co2",
+            "point_index": 1,
+            "actual": {"pressure_hpa": 1114.249, "ready_pressure_hpa": 1110.0, "abort_pressure_hpa": 1150.0},
+            "result": "ok",
+        },
+        {
+            "ts": "2026-04-26T09:17:51.010000+00:00",
+            "action": "positive_preseal_pressurization_start",
+            "route": "co2",
+            "point_index": 1,
+            "actual": {
+                "target_pressure_hpa": 1100.0,
+                "ambient_reference_pressure_hpa": 1020.0,
+                "measured_atmospheric_pressure_hpa": 1020.0,
+                "preseal_ready_pressure_hpa": 1110.0,
+                "preseal_abort_pressure_hpa": 1150.0,
+                "vent_close_arm_trigger": "ready_pressure",
+                "vent_close_arm_pressure_hpa": 1114.249,
+            },
+            "result": "ok",
+        },
+        {
+            "ts": "2026-04-26T09:18:08.330000+00:00",
+            "action": "set_vent",
+            "route": "co2",
+            "point_index": 1,
+            "target": {"vent_on": False},
+            "actual": {
+                "vent_status_raw": 0,
+                "output_state": 0,
+                "isolation_state": 1,
+                "vent_close_arm_trigger": "ready_pressure",
+                "vent_close_arm_pressure_hpa": 1114.249,
+            },
+            "result": "ok",
+            "message": "positive CO2 preseal pressurization before route seal",
+        },
+        {
+            "ts": "2026-04-26T09:18:11+00:00",
+            "action": "positive_preseal_pressure_check",
+            "route": "co2",
+            "point_index": 1,
+            "actual": {
+                "target_pressure_hpa": 1100.0,
+                "pressure_hpa": 1170.772,
+                "preseal_ready_pressure_hpa": 1110.0,
+                "preseal_abort_pressure_hpa": 1150.0,
+            },
+            "result": "ok",
+        },
+        {
+            "ts": "2026-04-26T09:18:11.010000+00:00",
+            "action": "positive_preseal_abort",
+            "route": "co2",
+            "point_index": 1,
+            "actual": {
+                "target_pressure_hpa": 1100.0,
+                "pressure_hpa": 1170.772,
+                "preseal_ready_pressure_hpa": 1110.0,
+                "preseal_abort_pressure_hpa": 1150.0,
+                "abort_reason": "preseal_abort_pressure_exceeded",
+                "seal_command_blocked_reason": "preseal_abort_pressure_exceeded",
+                "vent_close_arm_trigger": "ready_pressure",
+                "vent_close_arm_pressure_hpa": 1114.249,
+                "decision": "FAIL",
+            },
+            "result": "fail",
+        },
+    ]
+    (artifact_dir / "route_trace.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in trace_rows) + "\n",
+        encoding="utf-8",
+    )
+    payload = build_run001_a2_evidence_payload(
+        raw_cfg,
+        config_path=tmp_path / "config.json",
+        run_dir=artifact_dir,
+        point_rows=_a2_points(),
+        guard=build_no_write_guard_from_raw_config(raw_cfg),
+        artifact_paths={
+            "summary": str(artifact_dir / "summary.json"),
+            "manifest": str(artifact_dir / "run_manifest.json"),
+            "trace": str(artifact_dir / "route_trace.jsonl"),
+        },
+        require_runtime_artifacts=True,
+        service_status={"phase": "failed", "completed_points": 0},
+    )
+
+    write_run001_a2_artifacts(artifact_dir, payload)
+    timing_diagnostics = json.loads(
+        (artifact_dir / "positive_preseal_timing_diagnostics.json").read_text(encoding="utf-8")
+    )
+    timing_summary = json.loads((artifact_dir / "workflow_timing_summary.json").read_text(encoding="utf-8"))
+    report = (artifact_dir / "human_readable_report.md").read_text(encoding="utf-8")
+
+    diagnostic_codes = set(timing_diagnostics["warning_codes"])
+    summary_codes = {item["warning_code"] for item in timing_summary["preseal_timing_warnings_all"]}
+    assert diagnostic_codes
+    assert diagnostic_codes.issubset(summary_codes)
+    assert timing_summary["preseal_timing_warning_count_total"] == len(timing_summary["preseal_timing_warnings_all"])
+    assert timing_summary["preseal_timing_warning_count"] == timing_summary["preseal_timing_warning_count_total"]
+    assert timing_summary["severe_preseal_timing_warning_count"] == timing_summary["preseal_timing_warning_count_severe"]
+    assert "preseal_timing_warning_count_total:" in report
+    assert "positive_preseal_ready_without_seal_start" in report
+    assert "vent_hold_pressure_rise_rate_high" in summary_codes
+    assert "pressure_max_before_seal_near_abort_threshold" in summary_codes
 
 
 def test_co2_preseal_soak_reasserts_pressure_atmosphere_hold(monkeypatch) -> None:
@@ -882,6 +1062,97 @@ def test_co2_preseal_soak_handoffs_ready_pressure_without_hard_fail(monkeypatch)
     assert any(event["event_name"] == "preseal_pressure_check" for event in timing_events)
 
 
+def _preseal_arm_orchestrator(monkeypatch, pressures: list[float], *, cfg_overrides: dict | None = None):
+    orchestrator = WorkflowOrchestrator.__new__(WorkflowOrchestrator)
+    route_traces: list[dict] = []
+    timing_events: list[dict] = []
+    vent_calls: list[dict] = []
+    pressure_values = list(pressures)
+    last_pressure = pressure_values[-1]
+    orchestrator.run_state = SimpleNamespace(humidity=SimpleNamespace(first_co2_route_soak_pending=True))
+    orchestrator._last_co2_route_dewpoint_gate_summary = {}
+    orchestrator._first_co2_route_soak_pending = True
+    orchestrator._post_h2o_co2_zero_flush_pending = False
+    orchestrator._initial_co2_zero_flush_pending = False
+    orchestrator._active_post_h2o_co2_zero_flush = False
+
+    def current_pressure() -> float:
+        nonlocal last_pressure
+        if pressure_values:
+            last_pressure = float(pressure_values.pop(0))
+        return last_pressure
+
+    orchestrator.pressure_control_service = SimpleNamespace(_current_pressure=current_pressure)
+    orchestrator.status_service = SimpleNamespace(record_route_trace=lambda **kwargs: route_traces.append(kwargs))
+    orchestrator.route_planner = SimpleNamespace(co2_point_tag=lambda point: "co2_groupa_100ppm_1100hpa")
+
+    values = {
+        "workflow.stability.co2_route.first_point_preseal_soak_s": 5.0,
+        "workflow.pressure.continuous_atmosphere_hold": True,
+        "workflow.pressure.vent_hold_interval_s": 2.0,
+        "workflow.pressure.positive_preseal_pressurization_enabled": True,
+        "workflow.pressure.preseal_ready_pressure_hpa": 1110.0,
+        "workflow.pressure.preseal_abort_pressure_hpa": 1150.0,
+        "workflow.pressure.preseal_pressure_poll_interval_s": 0.2,
+        "workflow.pressure.preseal_vent_close_arm_pressure_hpa": 1080.0,
+        "workflow.pressure.preseal_vent_close_arm_margin_hpa": 30.0,
+        "workflow.pressure.preseal_vent_close_arm_time_to_ready_s": 3.0,
+    }
+    values.update(cfg_overrides or {})
+    clock = {"now": 100.0}
+    monkeypatch.setattr(orchestrator_module.time, "time", lambda: clock["now"])
+    monkeypatch.setattr(orchestrator_module.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(orchestrator_module.time, "sleep", lambda seconds: clock.__setitem__("now", clock["now"] + float(seconds)))
+    orchestrator._collect_only_fast_path_enabled = lambda: False
+    orchestrator._has_special_co2_zero_flush_pending = lambda: False
+    orchestrator._is_zero_co2_point = lambda point: False
+    orchestrator._cfg_get = lambda path, default=None: values.get(path, default)
+    orchestrator._log = lambda message: None
+    orchestrator._check_stop = lambda: None
+    orchestrator._refresh_live_analyzer_snapshots = lambda **kwargs: True
+    orchestrator._record_workflow_timing = lambda event_name, event_type="info", **kwargs: timing_events.append(
+        {"event_name": event_name, "event_type": event_type, **kwargs}
+    )
+    orchestrator._set_pressure_controller_vent = lambda vent_on, **kwargs: vent_calls.append(
+        {"vent_on": vent_on, **kwargs}
+    )
+    orchestrator._wait_co2_route_dewpoint_gate_before_seal = lambda *args, **kwargs: True
+    point = CalibrationPoint(index=1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=1100.0, route="co2")
+    return orchestrator, point, route_traces, timing_events, vent_calls
+
+
+def test_co2_preseal_soak_arms_vent_close_before_ready_pressure(monkeypatch) -> None:
+    orchestrator, point, route_traces, timing_events, _vent_calls = _preseal_arm_orchestrator(
+        monkeypatch,
+        [1000.0, 1082.0],
+    )
+
+    assert orchestrator._wait_co2_route_soak_before_seal(point) is True
+
+    assert route_traces[-1]["action"] == "preseal_vent_close_arm_triggered"
+    assert route_traces[-1]["actual"]["vent_close_arm_trigger"] == "arm_pressure"
+    assert route_traces[-1]["actual"]["vent_close_arm_pressure_hpa"] == 1082.0
+    assert not any(row["action"] == "preseal_atmosphere_flush_ready_handoff" for row in route_traces)
+    assert any(event["event_name"] == "preseal_vent_close_arm_triggered" for event in timing_events)
+
+
+def test_co2_preseal_soak_arms_when_predicted_time_to_ready_is_short(monkeypatch) -> None:
+    orchestrator, point, route_traces, _timing_events, _vent_calls = _preseal_arm_orchestrator(
+        monkeypatch,
+        [1000.0, 1055.0],
+        cfg_overrides={
+            "workflow.pressure.preseal_vent_close_arm_pressure_hpa": 1090.0,
+            "workflow.pressure.preseal_vent_close_arm_margin_hpa": 10.0,
+        },
+    )
+
+    assert orchestrator._wait_co2_route_soak_before_seal(point) is True
+
+    assert route_traces[-1]["action"] == "preseal_vent_close_arm_triggered"
+    assert route_traces[-1]["actual"]["vent_close_arm_trigger"] == "time_to_ready"
+    assert route_traces[-1]["actual"]["estimated_time_to_ready_s"] <= 3.0
+
+
 def test_positive_preseal_ready_closes_vent_and_seals_before_pressure_control() -> None:
     service, host, controller, status = _positive_preseal_service([1009.0, 1109.0, 1110.5, 1110.2])
     point = CalibrationPoint(index=1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=1100.0, route="co2")
@@ -900,6 +1171,16 @@ def test_positive_preseal_ready_closes_vent_and_seals_before_pressure_control() 
     assert any(event["event_name"] == "positive_preseal_vent_close_end" for event in host._recorded_timing)
     assert any(event["event_name"] == "positive_preseal_ready" for event in host._recorded_timing)
     assert any(event["event_name"] == "positive_preseal_seal_end" for event in host._recorded_timing)
+    ready_event_index = next(
+        index for index, event in enumerate(host._recorded_timing) if event["event_name"] == "positive_preseal_ready"
+    )
+    seal_start_index = next(
+        index for index, event in enumerate(host._recorded_timing) if event["event_name"] == "positive_preseal_seal_start"
+    )
+    seal_start_event = host._recorded_timing[seal_start_index]
+    assert ready_event_index < seal_start_index
+    assert seal_start_event["duration_s"] is not None
+    assert seal_start_event["duration_s"] <= 0.5
 
 
 def test_positive_preseal_vent_close_failure_hard_fails_before_pressure_polling() -> None:
