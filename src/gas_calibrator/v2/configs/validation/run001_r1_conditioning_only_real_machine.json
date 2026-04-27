@@ -1,0 +1,186 @@
+{
+  "scope": "r1_conditioning_only",
+  "r0_full_query_only_output_dir": "D:/gas_calibrator_step3a_r0_full_query_only_real_probe_20260427_2017",
+  "co2_only": true,
+  "skip0": true,
+  "single_route": true,
+  "single_temperature": true,
+  "no_write": true,
+  "h2o_enabled": false,
+  "full_group_enabled": false,
+  "a1r_enabled": false,
+  "a2_enabled": false,
+  "a3_enabled": false,
+  "pressure_setpoint_enabled": false,
+  "vent_off_enabled": false,
+  "seal_enabled": false,
+  "high_pressure_enabled": false,
+  "sample_enabled": false,
+  "mode_switch_enabled": false,
+  "analyzer_id_write_enabled": false,
+  "senco_write_enabled": false,
+  "calibration_write_enabled": false,
+  "chamber_set_temperature_enabled": false,
+  "chamber_start_enabled": false,
+  "chamber_stop_enabled": false,
+  "real_primary_latest_refresh": false,
+  "r1_conditioning_only": {
+    "scope": "r1_conditioning_only",
+    "co2_only": true,
+    "skip0": true,
+    "single_route": true,
+    "single_temperature": true,
+    "no_write": true,
+    "full_group_enabled": false,
+    "a1r_enabled": false,
+    "a2_enabled": false,
+    "a3_enabled": false,
+    "pressure_setpoint_enabled": false,
+    "vent_off_enabled": false,
+    "seal_enabled": false,
+    "high_pressure_enabled": false,
+    "sample_enabled": false,
+    "mode_switch_enabled": false,
+    "analyzer_id_write_enabled": false,
+    "senco_write_enabled": false,
+    "calibration_write_enabled": false,
+    "chamber_set_temperature_enabled": false,
+    "chamber_start_enabled": false,
+    "chamber_stop_enabled": false,
+    "real_primary_latest_refresh": false,
+    "r0_full_query_only_output_dir": "D:/gas_calibrator_step3a_r0_full_query_only_real_probe_20260427_2017",
+    "conditioning": {
+      "target_co2_ppm": 1000,
+      "route_open_valves": [11, 7, 6],
+      "conditioning_duration_s": 6.0,
+      "vent_heartbeat_interval_s": 1.0,
+      "max_vent_heartbeat_gap_ms": 3000,
+      "route_open_to_first_vent_max_ms": 1000,
+      "pressure_freshness_max_age_ms": 1000,
+      "pressure_overlimit_hpa": 1150
+    }
+  },
+  "features": {
+    "use_v2": true,
+    "simulation_mode": false
+  },
+  "devices": {
+    "pressure_controller": {
+      "enabled": true,
+      "port": "COM31",
+      "baud": 9600,
+      "timeout": 1.0,
+      "line_ending": "LF",
+      "query_line_endings": ["LF", "CRLF", "CR"],
+      "pressure_queries": [":SENS:PRES:INL?", ":SENS:PRES:CONT?", ":SENS:PRES?", ":MEAS:PRES?"]
+    },
+    "pressure_gauge": {
+      "enabled": true,
+      "port": "COM30",
+      "baud": 9600,
+      "timeout": 1.0,
+      "response_timeout_s": 2.2,
+      "dest_id": "01"
+    },
+    "dewpoint_meter": {
+      "enabled": false,
+      "port": "COM25",
+      "baud": 9600,
+      "station": "001"
+    },
+    "humidity_generator": {
+      "enabled": false,
+      "port": "COM24",
+      "baud": 9600
+    },
+    "gas_analyzers": [
+      {"name": "ga01", "enabled": true, "port": "COM35", "baud": 115200, "device_id": "001"},
+      {"name": "ga02", "enabled": true, "port": "COM37", "baud": 115200, "device_id": "029"},
+      {"name": "ga03", "enabled": true, "port": "COM41", "baud": 115200, "device_id": "003"},
+      {"name": "ga04", "enabled": true, "port": "COM42", "baud": 115200, "device_id": "004"}
+    ],
+    "temperature_chamber": {
+      "enabled": true,
+      "port": "COM27",
+      "baud": 9600,
+      "addr": 1
+    },
+    "thermometer": {
+      "enabled": true,
+      "port": "COM26",
+      "baud": 2400,
+      "bytesize": 8,
+      "parity": "N",
+      "stopbits": 1,
+      "timeout": 1.2
+    },
+    "relay": {
+      "enabled": true,
+      "port": "COM28",
+      "baud": 38400,
+      "addr": 1
+    },
+    "relay_8": {
+      "enabled": true,
+      "port": "COM29",
+      "baud": 38400,
+      "addr": 1
+    }
+  },
+  "valves": {
+    "co2_path": 7,
+    "co2_path_group2": 16,
+    "gas_main": 11,
+    "h2o_path": 8,
+    "flow_switch": 10,
+    "hold": 9,
+    "relay_map": {
+      "1": {"device": "relay", "channel": 7},
+      "2": {"device": "relay", "channel": 8},
+      "3": {"device": "relay", "channel": 9},
+      "4": {"device": "relay", "channel": 10},
+      "5": {"device": "relay", "channel": 11},
+      "6": {"device": "relay", "channel": 12},
+      "7": {"device": "relay", "channel": 15},
+      "8": {"device": "relay_8", "channel": 8},
+      "9": {"device": "relay_8", "channel": 1},
+      "10": {"device": "relay_8", "channel": 2},
+      "11": {"device": "relay_8", "channel": 3},
+      "16": {"device": "relay", "channel": 16},
+      "21": {"device": "relay", "channel": 6},
+      "22": {"device": "relay", "channel": 5},
+      "23": {"device": "relay", "channel": 4},
+      "24": {"device": "relay", "channel": 3},
+      "25": {"device": "relay", "channel": 2},
+      "26": {"device": "relay", "channel": 1}
+    },
+    "co2_map": {
+      "0": 1,
+      "200": 2,
+      "400": 3,
+      "600": 4,
+      "800": 5,
+      "1000": 6
+    },
+    "co2_map_group2": {
+      "0": 21,
+      "100": 22,
+      "300": 23,
+      "500": 24,
+      "700": 25,
+      "900": 26
+    }
+  },
+  "workflow": {
+    "route_mode": "co2_only",
+    "selected_temps_c": [20.0],
+    "skip_co2_ppm": [0],
+    "pressure": {
+      "vent_hold_interval_s": 1.0,
+      "conditioning_pressure_abort_hpa": 1150.0
+    }
+  },
+  "paths": {
+    "output_dir": "../../output/run001_r1/conditioning_only"
+  }
+}
