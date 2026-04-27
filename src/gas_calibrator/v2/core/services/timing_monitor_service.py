@@ -570,14 +570,29 @@ def synthesize_timing_events_from_route_trace(
             route_open_pressure_hpa = _as_float(actual.get("pressure_hpa"))
             add("co2_route_open_start", "start", row=row, stage="co2_route_open")
             add("co2_route_open_end", "end", row=row, stage="co2_route_open")
+        elif action == "high_pressure_first_point_mode_enabled":
+            add(
+                "high_pressure_first_point_mode_enabled",
+                "info",
+                row=row,
+                stage="high_pressure_first_point",
+                target_pressure_hpa=target.get("pressure_hpa", actual.get("first_target_pressure_hpa")),
+                pressure_hpa=actual.get("baseline_pressure_hpa"),
+                decision="enabled" if bool(actual.get("enabled")) else "disabled",
+            )
         elif action == "wait_route_soak":
             add("preseal_soak_end", "end", row=row, stage="preseal_soak")
         elif action == "co2_preseal_atmosphere_hold_pressure_guard":
+            pressure_stage = (
+                "high_pressure_first_point"
+                if bool(actual.get("high_pressure_first_point_mode"))
+                else "preseal_atmosphere_flush_hold"
+            )
             add(
                 "preseal_atmosphere_flush_pressure_check",
                 "fail" if result == "fail" else "tick",
                 row=row,
-                stage="preseal_atmosphere_flush_hold",
+                stage=pressure_stage,
                 pressure_hpa=actual.get("pressure_hpa"),
                 decision=result,
                 error_code=actual.get("reason") if result == "fail" else None,
@@ -593,6 +608,16 @@ def synthesize_timing_events_from_route_trace(
                     decision="limit_exceeded",
                     error_code=actual.get("reason"),
                 )
+            if result == "fail" and bool(actual.get("high_pressure_first_point_mode")):
+                add(
+                    "high_pressure_abort",
+                    "fail",
+                    row=row,
+                    stage="high_pressure_first_point",
+                    pressure_hpa=actual.get("pressure_hpa"),
+                    decision="abort",
+                    error_code=actual.get("reason"),
+                )
             add(
                 "preseal_pressure_check",
                 "fail" if result == "fail" else "info",
@@ -602,13 +627,18 @@ def synthesize_timing_events_from_route_trace(
                 error_code=actual.get("reason") if result == "fail" else None,
             )
         elif action == "preseal_vent_close_arm_triggered":
+            pressure_stage = (
+                "high_pressure_first_point"
+                if bool(actual.get("high_pressure_first_point_mode"))
+                else "preseal_atmosphere_flush_hold"
+            )
             arm_pressure = actual.get("vent_close_arm_pressure_hpa", actual.get("pressure_hpa"))
             arm_decision = actual.get("vent_close_arm_trigger") or "positive_preseal_arm_handoff"
             add(
                 "preseal_atmosphere_flush_pressure_check",
                 "tick",
                 row=row,
-                stage="preseal_atmosphere_flush_hold",
+                stage=pressure_stage,
                 pressure_hpa=arm_pressure,
                 decision=arm_decision,
             )
@@ -617,7 +647,7 @@ def synthesize_timing_events_from_route_trace(
                 "preseal_vent_close_arm",
                 "info",
                 row=row,
-                stage="preseal_atmosphere_flush_hold",
+                stage=pressure_stage,
                 pressure_hpa=arm_pressure,
                 decision=arm_decision,
             )
@@ -625,10 +655,19 @@ def synthesize_timing_events_from_route_trace(
                 "preseal_vent_close_arm_triggered",
                 "info",
                 row=row,
-                stage="preseal_atmosphere_flush_hold",
+                stage=pressure_stage,
                 pressure_hpa=arm_pressure,
                 decision=arm_decision,
             )
+            if bool(actual.get("high_pressure_first_point_mode")):
+                add(
+                    "high_pressure_ready_detected",
+                    "info",
+                    row=row,
+                    stage="high_pressure_first_point",
+                    pressure_hpa=arm_pressure,
+                    decision=arm_decision,
+                )
             if preseal_flush_started:
                 add(
                     "preseal_atmosphere_flush_hold_end",
@@ -647,11 +686,16 @@ def synthesize_timing_events_from_route_trace(
                 decision="positive_preseal_arm_handoff",
             )
         elif action == "preseal_atmosphere_flush_ready_handoff":
+            pressure_stage = (
+                "high_pressure_first_point"
+                if bool(actual.get("high_pressure_first_point_mode"))
+                else "preseal_atmosphere_flush_hold"
+            )
             add(
                 "preseal_atmosphere_flush_pressure_check",
                 "tick",
                 row=row,
-                stage="preseal_atmosphere_flush_hold",
+                stage=pressure_stage,
                 pressure_hpa=actual.get("pressure_hpa"),
                 decision="positive_preseal_ready_handoff",
             )
@@ -660,10 +704,19 @@ def synthesize_timing_events_from_route_trace(
                 "preseal_atmosphere_flush_ready_handoff",
                 "info",
                 row=row,
-                stage="preseal_atmosphere_flush_hold",
+                stage=pressure_stage,
                 pressure_hpa=actual.get("pressure_hpa"),
                 decision="positive_preseal_ready_handoff",
             )
+            if bool(actual.get("high_pressure_first_point_mode")):
+                add(
+                    "high_pressure_ready_detected",
+                    "info",
+                    row=row,
+                    stage="high_pressure_first_point",
+                    pressure_hpa=actual.get("pressure_hpa"),
+                    decision="ready",
+                )
             if preseal_flush_started:
                 add(
                     "preseal_atmosphere_flush_hold_end",
@@ -743,6 +796,17 @@ def synthesize_timing_events_from_route_trace(
             )
         elif action == "seal_route":
             if bool(actual.get("positive_preseal_pressurization_enabled")) or str(actual.get("preseal_trigger") or "") == "positive_preseal_ready":
+                if bool(actual.get("high_pressure_first_point_mode")):
+                    add(
+                        "high_pressure_seal_command_sent",
+                        "info",
+                        row=row,
+                        stage="high_pressure_first_point",
+                        target_pressure_hpa=actual.get("target_pressure_hpa"),
+                        pressure_hpa=actual.get("preseal_trigger_pressure_hpa", actual.get("pressure_hpa")),
+                        wait_reason="close_co2_route_valves",
+                        decision="seal_command_sent",
+                    )
                 add(
                     "positive_preseal_seal_start",
                     "info",
@@ -761,6 +825,16 @@ def synthesize_timing_events_from_route_trace(
                     pressure_hpa=actual.get("preseal_trigger_pressure_hpa", actual.get("pressure_hpa")),
                     decision=result,
                 )
+                if bool(actual.get("high_pressure_first_point_mode")):
+                    add(
+                        "high_pressure_seal_confirmed",
+                        "end" if result == "ok" else "fail",
+                        row=row,
+                        stage="high_pressure_first_point",
+                        target_pressure_hpa=actual.get("target_pressure_hpa"),
+                        pressure_hpa=actual.get("preseal_trigger_pressure_hpa", actual.get("pressure_hpa")),
+                        decision=result,
+                    )
             add("seal_start", "start", row=row, stage="seal")
             add("seal_end", "end", row=row, stage="seal")
         elif action == "sealed_pressure_control_start":
@@ -994,8 +1068,22 @@ def build_workflow_timing_summary(
         nested = nested if isinstance(nested, Mapping) else route_state
         return _as_float(nested.get(key))
 
+    def route_state_of(event: Optional[Mapping[str, Any]]) -> dict[str, Any]:
+        if not event:
+            return {}
+        route_state = event.get("route_state")
+        route_state = route_state if isinstance(route_state, Mapping) else {}
+        nested = route_state.get("route_state")
+        return dict(nested if isinstance(nested, Mapping) else route_state)
+
     route_open_end = first_event("co2_route_open_end")
     pressure_rise_event = first_event("pressure_rise_detected")
+    route_open_pressure_request_events = [
+        event for event in events if str(event.get("event_name") or "") == "route_open_pressure_poll_request"
+    ]
+    route_open_pressure_response_events = [
+        event for event in events if str(event.get("event_name") or "") == "route_open_pressure_poll_response"
+    ]
     pressure_read_start_events = [
         event
         for event in events
@@ -1007,7 +1095,27 @@ def build_workflow_timing_summary(
         if str(event.get("event_name") or "") in {"pace_pressure_read_end", "gauge_pressure_read_end"}
     ]
     route_open_end_time = event_time(route_open_end)
-    first_pressure_request_event = next(
+    first_route_open_pressure_request_event = next(
+        (
+            event
+            for event in route_open_pressure_request_events
+            if route_open_end_time is None
+            or event_time(event) is None
+            or float(event_time(event) or 0.0) >= float(route_open_end_time)
+        ),
+        None,
+    )
+    first_route_open_pressure_response_event = next(
+        (
+            event
+            for event in route_open_pressure_response_events
+            if route_open_end_time is None
+            or event_time(event) is None
+            or float(event_time(event) or 0.0) >= float(route_open_end_time)
+        ),
+        None,
+    )
+    first_pressure_read_request_event = next(
         (
             event
             for event in pressure_read_start_events
@@ -1015,9 +1123,9 @@ def build_workflow_timing_summary(
             or event_time(event) is None
             or float(event_time(event) or 0.0) >= float(route_open_end_time)
         ),
-        pressure_read_start_events[0] if pressure_read_start_events else None,
+        None,
     )
-    first_pressure_response_event = next(
+    first_pressure_read_response_event = next(
         (
             event
             for event in pressure_read_end_events
@@ -1025,10 +1133,21 @@ def build_workflow_timing_summary(
             or event_time(event) is None
             or float(event_time(event) or 0.0) >= float(route_open_end_time)
         ),
-        pressure_read_end_events[0] if pressure_read_end_events else None,
+        None,
     )
+    first_pressure_request_event = first_route_open_pressure_request_event or first_pressure_read_request_event
+    first_pressure_response_event = first_route_open_pressure_response_event or first_pressure_read_response_event
     route_open_to_first_pressure_request_s = elapsed_between(route_open_end, first_pressure_request_event)
     route_open_to_first_pressure_response_s = elapsed_between(route_open_end, first_pressure_response_event)
+    first_pressure_read_latency_s = _as_float(
+        (first_pressure_response_event or {}).get("duration_s")
+        if first_pressure_response_event is not None
+        else None
+    )
+    if first_pressure_read_latency_s is None and first_pressure_response_event is not None:
+        state = first_pressure_response_event.get("route_state")
+        state = state if isinstance(state, Mapping) else {}
+        first_pressure_read_latency_s = _as_float(state.get("read_latency_s"))
     latency_values_by_source: dict[str, list[float]] = {"pace_controller": [], "digital_pressure_gauge": []}
     stale_pressure_sample_count = 0
     pressure_read_latency_warning_count = 0
@@ -1079,21 +1198,26 @@ def build_workflow_timing_summary(
     positive_preseal_ready = first_event("positive_preseal_ready")
     positive_arming_start = first_event("positive_preseal_arming_start")
     positive_arming_end = first_event("positive_preseal_arming_end")
-    seal_command_event = first_event("positive_preseal_seal_start")
-    seal_confirm_event = first_event("positive_preseal_seal_end")
+    seal_command_event = first_event("high_pressure_seal_command_sent") or first_event("positive_preseal_seal_start")
+    seal_confirm_event = first_event("high_pressure_seal_confirmed") or first_event("positive_preseal_seal_end")
     ready_candidates = [
         event
-        for event in (first_event("preseal_atmosphere_flush_ready_handoff"), positive_preseal_ready)
+        for event in (
+            first_event("high_pressure_ready_detected"),
+            first_event("preseal_atmosphere_flush_ready_handoff"),
+            positive_preseal_ready,
+        )
         if event is not None
     ]
     ready_event = min(ready_candidates, key=lambda event: event_time(event) or float("inf")) if ready_candidates else None
+    seal_ready_reference_event = positive_preseal_ready or first_event("high_pressure_ready_detected") or ready_event
     route_open_to_first_pressure_rise_s = elapsed_between(route_open_end, pressure_rise_event)
     preseal_vent_close_arm_elapsed_s = elapsed_between(route_open_end, preseal_arm_event)
     estimated_time_to_ready_s = route_state_value(preseal_arm_event, "estimated_time_to_ready_s")
     route_open_to_ready_s = elapsed_between(route_open_end, ready_event)
     positive_preseal_start_to_ready_s = elapsed_between(positive_preseal_start, positive_preseal_ready)
-    ready_to_seal_command_s = elapsed_between(positive_preseal_ready, seal_command_event)
-    ready_to_seal_confirm_s = elapsed_between(positive_preseal_ready, seal_confirm_event)
+    ready_to_seal_command_s = elapsed_between(seal_ready_reference_event, seal_command_event)
+    ready_to_seal_confirm_s = elapsed_between(seal_ready_reference_event, seal_confirm_event)
     ready_to_vent_close_start_s = elapsed_between(ready_event, positive_arming_start or first_event("positive_preseal_vent_close_start"))
     ready_to_vent_close_end_s = elapsed_between(ready_event, positive_arming_end or first_event("positive_preseal_vent_close_end"))
     vent_pressure_events = [
@@ -1247,6 +1371,96 @@ def build_workflow_timing_summary(
             or (abort_event or {}).get("blocking_condition")
             or "ready_without_seal_start"
         )
+    high_mode_event = first_event("high_pressure_first_point_mode_enabled")
+    high_mode_state = route_state_of(high_mode_event)
+    high_pressure_first_point_enabled = bool(
+        context.get("high_pressure_first_point_enabled")
+        or context.get("high_pressure_first_point_mode_enabled")
+        or high_mode_state.get("enabled")
+        or str((high_mode_event or {}).get("decision") or "").lower() == "enabled"
+        or any(
+            str(event.get("event_name") or "")
+            in {
+                "route_open_pressure_poll_request",
+                "route_open_pressure_poll_response",
+                "high_pressure_ready_detected",
+                "high_pressure_seal_command_sent",
+                "high_pressure_seal_confirmed",
+                "high_pressure_abort",
+            }
+            for event in events
+        )
+    )
+    high_pressure_first_point_warnings: list[dict[str, Any]] = []
+
+    def add_high_pressure_warning(code: str, *, actual: Any = None, expected: Any = None) -> None:
+        high_pressure_first_point_warnings.append(
+            {
+                "warning_code": code,
+                "actual": _round_s(actual),
+                "expected": _round_s(expected),
+                "warning_only": bool(context.get("pressure_latency_warning_only", True)),
+            }
+        )
+
+    if high_pressure_first_point_enabled:
+        request_expected = _as_float(
+            context.get("high_pressure_first_point_route_open_request_expected_max_s")
+            or context.get("route_open_first_pressure_request_expected_max_s")
+        )
+        response_expected = _as_float(
+            context.get("high_pressure_first_point_route_open_response_expected_max_s")
+            or context.get("route_open_first_pressure_response_expected_max_s")
+        )
+        latency_expected = _as_float(context.get("pressure_read_latency_warn_s"))
+        ready_to_seal_expected = _as_float(context.get("expected_ready_to_seal_command_max_s"))
+        if (
+            route_open_to_first_pressure_request_s is not None
+            and request_expected is not None
+            and route_open_to_first_pressure_request_s > request_expected
+        ):
+            add_high_pressure_warning(
+                "route_open_to_first_pressure_request_s_long",
+                actual=route_open_to_first_pressure_request_s,
+                expected=request_expected,
+            )
+        if (
+            route_open_to_first_pressure_response_s is not None
+            and response_expected is not None
+            and route_open_to_first_pressure_response_s > response_expected
+        ):
+            add_high_pressure_warning(
+                "route_open_to_first_pressure_response_s_long",
+                actual=route_open_to_first_pressure_response_s,
+                expected=response_expected,
+            )
+        if (
+            first_pressure_read_latency_s is not None
+            and latency_expected is not None
+            and first_pressure_read_latency_s > latency_expected
+        ):
+            add_high_pressure_warning(
+                "first_pressure_read_latency_s_long",
+                actual=first_pressure_read_latency_s,
+                expected=latency_expected,
+            )
+        first_response_state = route_state_of(first_pressure_response_event)
+        if bool(first_response_state.get("is_stale", first_response_state.get("pressure_sample_is_stale", False))):
+            add_high_pressure_warning("first_pressure_sample_stale")
+        if (
+            ready_to_seal_command_s is not None
+            and ready_to_seal_expected is not None
+            and ready_to_seal_command_s > ready_to_seal_expected
+        ):
+            add_high_pressure_warning(
+                "ready_to_seal_command_s_long",
+                actual=ready_to_seal_command_s,
+                expected=ready_to_seal_expected,
+            )
+        if first_pressure_request_event is None:
+            add_high_pressure_warning("route_open_pressure_poll_request_missing")
+        if first_pressure_response_event is None:
+            add_high_pressure_warning("route_open_pressure_poll_response_missing")
 
     longest_stage = _longest_from_mapping(stage_durations)
     wait_candidates = {
@@ -1294,9 +1508,13 @@ def build_workflow_timing_summary(
         "positive_preseal_ready_pressure_hpa": positive_preseal_ready_pressure_hpa,
         "positive_preseal_seal_trigger_pressure_hpa": positive_preseal_seal_trigger_pressure_hpa,
         "positive_preseal_abort_pressure_hpa": positive_preseal_abort_pressure_hpa,
+        "high_pressure_first_point_enabled": high_pressure_first_point_enabled,
         "route_open_to_first_pressure_rise_s": route_open_to_first_pressure_rise_s,
         "route_open_to_first_pressure_request_s": route_open_to_first_pressure_request_s,
         "route_open_to_first_pressure_response_s": route_open_to_first_pressure_response_s,
+        "first_pressure_read_latency_s": first_pressure_read_latency_s,
+        "high_pressure_first_point_warnings": high_pressure_first_point_warnings,
+        "high_pressure_first_point_warning_count": len(high_pressure_first_point_warnings),
         "pace_pressure_read_latency_max_s": latency_max("pace_controller"),
         "pace_pressure_read_latency_avg_s": latency_avg("pace_controller"),
         "gauge_pressure_read_latency_max_s": latency_max("digital_pressure_gauge"),

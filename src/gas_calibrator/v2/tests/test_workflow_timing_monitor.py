@@ -124,6 +124,81 @@ def test_timing_summary_records_pressure_read_latency_and_source_selection(monke
     assert summary["abort_decision_pressure_source"] == "digital_pressure_gauge"
 
 
+def test_timing_summary_records_high_pressure_first_point_polling(monkeypatch, tmp_path) -> None:
+    clock = {"now": 20.0}
+    monkeypatch.setattr(timing_module.time, "monotonic", lambda: clock["now"])
+    monitor = TimingMonitorService(tmp_path, run_id="run-high-first-point", no_write_guard_active=True)
+
+    monitor.record_event(
+        "high_pressure_first_point_mode_enabled",
+        "info",
+        stage="high_pressure_first_point",
+        point_index=1,
+        pressure_hpa=1009.0,
+        decision="enabled",
+        route_state={"enabled": True, "first_target_pressure_hpa": 1100.0},
+    )
+    monitor.record_event("co2_route_open_end", "end", stage="co2_route_open", point_index=1, pressure_hpa=1009.0)
+    monitor.record_event(
+        "route_open_pressure_poll_request",
+        "info",
+        stage="high_pressure_first_point",
+        point_index=1,
+        decision="request_sent",
+    )
+    clock["now"] += 0.02
+    monitor.record_event(
+        "route_open_pressure_poll_response",
+        "info",
+        stage="high_pressure_first_point",
+        point_index=1,
+        pressure_hpa=1111.0,
+        duration_s=0.02,
+        route_state={"source": "digital_pressure_gauge", "read_latency_s": 0.02, "is_stale": False},
+    )
+    monitor.record_event(
+        "high_pressure_ready_detected",
+        "info",
+        stage="high_pressure_first_point",
+        point_index=1,
+        pressure_hpa=1111.0,
+    )
+    clock["now"] += 0.001
+    monitor.record_event(
+        "high_pressure_seal_command_sent",
+        "info",
+        stage="high_pressure_first_point",
+        point_index=1,
+        pressure_hpa=1111.0,
+    )
+    clock["now"] += 0.04
+    monitor.record_event(
+        "high_pressure_seal_confirmed",
+        "end",
+        stage="high_pressure_first_point",
+        point_index=1,
+        pressure_hpa=1109.8,
+    )
+
+    summary = monitor.finalize_summary(
+        final_decision="PASS",
+        a2_final_decision="PASS",
+        extra_context={
+            "high_pressure_first_point_route_open_request_expected_max_s": 0.05,
+            "high_pressure_first_point_route_open_response_expected_max_s": 1.0,
+            "pressure_read_latency_warn_s": 0.5,
+            "expected_ready_to_seal_command_max_s": 0.5,
+        },
+    )
+
+    assert summary["high_pressure_first_point_enabled"] is True
+    assert summary["route_open_to_first_pressure_request_s"] == 0.0
+    assert summary["route_open_to_first_pressure_response_s"] == 0.02
+    assert summary["first_pressure_read_latency_s"] == 0.02
+    assert summary["ready_to_seal_command_s"] == 0.001
+    assert summary["high_pressure_first_point_warning_count"] == 0
+
+
 def test_timing_summary_warns_on_preseal_vent_tick_gap(monkeypatch, tmp_path) -> None:
     clock = {"now": 0.0}
     monkeypatch.setattr(timing_module.time, "monotonic", lambda: clock["now"])

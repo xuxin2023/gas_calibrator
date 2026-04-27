@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any, Sequence
 
 from ...exceptions import WorkflowInterruptedError
@@ -77,24 +78,56 @@ class Co2RouteRunner:
             self.service.valve_routing_service.set_co2_route_baseline(reason="before CO2 route conditioning")
             self.service._record_workflow_timing("route_baseline_end", "end", stage="route_baseline", point=point)
             self.service.status_service.log("Pressure controller kept at atmosphere for CO2 route conditioning")
+            prearm_high_pressure = getattr(self.service, "_prearm_a2_high_pressure_first_point_mode", None)
+            high_pressure_context = (
+                prearm_high_pressure(point, pressure_refs) if callable(prearm_high_pressure) else {}
+            )
+            high_pressure_first_point_mode = bool(
+                getattr(self.service, "_a2_high_pressure_first_point_mode_enabled", False)
+            )
+            if high_pressure_first_point_mode:
+                self.service.status_service.log(
+                    "A2 1100 hPa high-pressure first-point mode prearmed with fresh pressure baseline"
+                )
+                preclose_vent = getattr(self.service, "_preclose_a2_high_pressure_first_point_vent", None)
+                if callable(preclose_vent):
+                    preclose_vent(point)
             self.service._record_workflow_timing("co2_route_open_start", "start", stage="co2_route_open", point=point)
             self.service.valve_routing_service.set_valves_for_co2(point)
+            route_open_completed_monotonic_s = time.monotonic()
+            setattr(self.service, "_a2_co2_route_open_monotonic_s", route_open_completed_monotonic_s)
             route_open_pressure = None
-            pressure_reader = getattr(getattr(self.service, "pressure_control_service", None), "_current_pressure", None)
-            if callable(pressure_reader):
-                try:
-                    route_open_pressure = self.service._as_float(pressure_reader())
-                except Exception:
-                    route_open_pressure = None
+            if high_pressure_first_point_mode:
+                route_open_pressure = self.service._as_float(
+                    dict(high_pressure_context or {}).get("baseline_pressure_hpa")
+                    or getattr(self.service, "_a2_co2_route_open_pressure_hpa", None)
+                )
+            else:
+                pressure_reader = getattr(getattr(self.service, "pressure_control_service", None), "_current_pressure", None)
+                if callable(pressure_reader):
+                    try:
+                        route_open_pressure = self.service._as_float(pressure_reader())
+                    except Exception:
+                        route_open_pressure = None
             setattr(self.service, "_a2_co2_route_open_pressure_hpa", route_open_pressure)
             setattr(self.service, "_a2_preseal_pressure_rise_detected", False)
+            setattr(self.service, "_a2_route_open_pressure_first_sample_recorded", False)
             self.service._record_workflow_timing(
                 "co2_route_open_end",
                 "end",
                 stage="co2_route_open",
                 point=point,
                 pressure_hpa=route_open_pressure,
+                route_state={"high_pressure_first_point_mode": high_pressure_first_point_mode},
             )
+            if high_pressure_first_point_mode:
+                request_pressure = getattr(
+                    self.service,
+                    "_request_a2_high_pressure_route_open_pressure_sample",
+                    None,
+                )
+                if callable(request_pressure):
+                    request_pressure(point)
             route_soak_ok = self._wait_route_soak_before_seal(point)
             route_soak_actual = dict(getattr(self.service, "_last_co2_route_dewpoint_gate_summary", {}) or {})
             self.service.status_service.record_route_trace(

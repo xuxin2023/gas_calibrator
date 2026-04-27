@@ -45,6 +45,7 @@ A2_REQUIRED_ARTIFACTS = {
     "route_open_pressure_surge_evidence": "route_open_pressure_surge_evidence.json",
     "pressure_read_latency_diagnostics": "pressure_read_latency_diagnostics.json",
     "pressure_read_latency_samples": "pressure_read_latency_samples.csv",
+    "high_pressure_first_point_evidence": "high_pressure_first_point_evidence.json",
     "route_trace": "route_trace.jsonl",
     "points": "points.csv",
     "io_log": "io_log.csv",
@@ -323,6 +324,22 @@ def _preseal_timing_thresholds(pressure_cfg: Mapping[str, Any]) -> dict[str, Any
             _as_float(pressure_cfg.get("route_open_first_pressure_response_expected_max_s")) or 1.0
         ),
         "pressure_latency_warning_only": _as_bool(pressure_cfg.get("pressure_latency_warning_only", True)),
+        "high_pressure_first_point_mode_configured": _as_bool(
+            pressure_cfg.get("high_pressure_first_point_mode_enabled", True)
+        ),
+        "high_pressure_first_point_margin_hpa": (
+            _as_float(pressure_cfg.get("high_pressure_first_point_margin_hpa")) or 0.0
+        ),
+        "high_pressure_first_point_route_open_request_expected_max_s": (
+            _as_float(pressure_cfg.get("high_pressure_first_point_route_open_request_expected_max_s"))
+            or _as_float(pressure_cfg.get("route_open_first_pressure_request_expected_max_s"))
+            or 0.05
+        ),
+        "high_pressure_first_point_route_open_response_expected_max_s": (
+            _as_float(pressure_cfg.get("high_pressure_first_point_route_open_response_expected_max_s"))
+            or _as_float(pressure_cfg.get("route_open_first_pressure_response_expected_max_s"))
+            or 1.0
+        ),
         "preseal_vent_close_arm_pressure_hpa": _as_float(
             pressure_cfg.get("preseal_vent_close_arm_pressure_hpa")
         ),
@@ -1062,11 +1079,16 @@ def _build_pressure_read_latency_diagnostics(
     samples = _collect_pressure_read_latency_samples(run_dir, payload)
 
     def _is_decision_pressure_sample(sample: Mapping[str, Any]) -> bool:
+        if _as_float(sample.get("pressure_hpa")) is None:
+            return False
         stage = str(sample.get("stage") or "").lower()
         if stage in {
+            "high_pressure_first_point",
             "co2_preseal_atmosphere_hold_pressure_guard",
             "preseal_atmosphere_flush_pressure_check",
             "preseal_atmosphere_flush_ready_handoff",
+            "preseal_vent_close_arm_triggered",
+            "preseal_vent_close_arm",
             "positive_preseal_pressure_check",
             "positive_preseal_ready",
             "positive_preseal_abort",
@@ -1101,8 +1123,6 @@ def _build_pressure_read_latency_diagnostics(
         ):
             first_after_route = sample
             break
-    if first_after_route is None and samples:
-        first_after_route = next((sample for sample in samples if _is_decision_pressure_sample(sample)), samples[0])
     count_by_source: dict[str, int] = {}
     max_latency_by_source: dict[str, Optional[float]] = {}
     stale_count_by_source: dict[str, int] = {}
@@ -1134,6 +1154,8 @@ def _build_pressure_read_latency_diagnostics(
         if first_response_mono is not None and route_open_end_mono is not None
         else None
     )
+    if first_after_route is None:
+        warnings.append({"warning_code": "first_pressure_after_route_open_missing", "warning_only": True})
     if first_after_route and first_after_route.get("error") == "legacy_sample_missing_source_latency_metadata":
         warnings.append(
             {
@@ -1143,6 +1165,40 @@ def _build_pressure_read_latency_diagnostics(
         )
     if first_after_route and bool(first_after_route.get("is_stale")):
         warnings.append({"warning_code": "first_pressure_sample_stale", "warning_only": True})
+    request_expected = _as_float(
+        payload.get("high_pressure_first_point_route_open_request_expected_max_s")
+        or payload.get("route_open_first_pressure_request_expected_max_s")
+    )
+    response_expected = _as_float(
+        payload.get("high_pressure_first_point_route_open_response_expected_max_s")
+        or payload.get("route_open_first_pressure_response_expected_max_s")
+    )
+    if (
+        route_open_to_first_request_s is not None
+        and request_expected is not None
+        and float(route_open_to_first_request_s) > float(request_expected)
+    ):
+        warnings.append(
+            {
+                "warning_code": "route_open_to_first_pressure_request_s_long",
+                "actual": route_open_to_first_request_s,
+                "expected": request_expected,
+                "warning_only": True,
+            }
+        )
+    if (
+        route_open_to_first_response_s is not None
+        and response_expected is not None
+        and float(route_open_to_first_response_s) > float(response_expected)
+    ):
+        warnings.append(
+            {
+                "warning_code": "route_open_to_first_pressure_response_s_long",
+                "actual": route_open_to_first_response_s,
+                "expected": response_expected,
+                "warning_only": True,
+            }
+        )
     latency_warn = _as_float(payload.get("pressure_read_latency_warn_s"))
     for source, latency in max_latency_by_source.items():
         if latency_warn is not None and latency is not None and float(latency) > float(latency_warn):
@@ -1362,6 +1418,164 @@ def _build_route_open_pressure_surge_evidence(
             "confirm_exhaust_and_bypass_capacity",
             "keep_1150_hpa_abort_threshold_as_hard_fail",
         ],
+        "not_real_acceptance_evidence": True,
+        "v2_replaces_v1_claim": False,
+    }
+
+
+def _build_high_pressure_first_point_evidence(
+    run_dir: str | Path,
+    payload: Mapping[str, Any],
+    *,
+    latency_payload: Optional[Mapping[str, Any]] = None,
+    latency_samples: Optional[list[Mapping[str, Any]]] = None,
+    timing_summary: Optional[Mapping[str, Any]] = None,
+    positive_preseal_payload: Optional[Mapping[str, Any]] = None,
+) -> dict[str, Any]:
+    events = load_workflow_timing_events(Path(run_dir) / WORKFLOW_TIMING_TRACE_FILENAME)
+    latency = dict(latency_payload or {})
+    timing = dict(timing_summary or {})
+    positive = dict(positive_preseal_payload or {})
+    samples = [dict(sample) for sample in list(latency_samples or []) if isinstance(sample, Mapping)]
+
+    def event_state(event: Optional[Mapping[str, Any]]) -> dict[str, Any]:
+        if not event:
+            return {}
+        state = event.get("route_state")
+        state = state if isinstance(state, Mapping) else {}
+        nested = state.get("route_state")
+        return dict(nested if isinstance(nested, Mapping) else state)
+
+    mode_event = _first_timing_event(events, "high_pressure_first_point_mode_enabled")
+    mode_state = event_state(mode_event)
+    baseline_sample = next(
+        (
+            sample
+            for sample in samples
+            if str(sample.get("stage") or "") == "high_pressure_first_point_prearm"
+            and str(sample.get("source") or "") == "digital_pressure_gauge"
+        ),
+        None,
+    )
+    first_sample = next(
+        (
+            sample
+            for sample in samples
+            if str(sample.get("stage") or "") == "high_pressure_first_point"
+            and _as_float(sample.get("pressure_hpa")) is not None
+        ),
+        None,
+    )
+    route_open_start = _first_timing_event(events, "co2_route_open_start")
+    route_open_end = _first_timing_event(events, "co2_route_open_end")
+    ready_event = (
+        _first_timing_event(events, "high_pressure_ready_detected")
+        or _first_timing_event(events, "preseal_atmosphere_flush_ready_handoff")
+        or _first_timing_event(events, "positive_preseal_ready")
+    )
+    seal_command_event = _first_timing_event(events, "high_pressure_seal_command_sent") or _first_timing_event(
+        events,
+        "positive_preseal_seal_start",
+    )
+    seal_confirm_event = _first_timing_event(events, "high_pressure_seal_confirmed") or _first_timing_event(
+        events,
+        "positive_preseal_seal_end",
+    )
+    abort_event = (
+        _first_timing_event(events, "high_pressure_abort")
+        or _first_timing_event(events, "route_open_pressure_abort")
+        or _first_timing_event(events, "positive_preseal_abort")
+    )
+    enabled = bool(
+        timing.get("high_pressure_first_point_enabled")
+        or mode_state.get("enabled")
+        or str((mode_event or {}).get("decision") or "").lower() == "enabled"
+        or first_sample is not None
+    )
+    ambient_pressure = (
+        _as_float(mode_state.get("ambient_reference_pressure_hpa"))
+        or _as_float(mode_state.get("current_ambient_reference_pressure_hpa"))
+        or _as_float(mode_state.get("baseline_pressure_hpa"))
+        or _as_float(positive.get("ambient_reference_pressure_hpa"))
+    )
+    baseline_pressure = _as_float((baseline_sample or {}).get("pressure_hpa")) or _as_float(
+        mode_state.get("baseline_pressure_hpa")
+    )
+    first_pressure = _as_float(latency.get("first_pressure_hpa")) or _as_float(
+        (first_sample or {}).get("pressure_hpa")
+    )
+    abort_pressure = _as_float(payload.get("positive_preseal_abort_pressure_hpa")) or _as_float(
+        positive.get("preseal_abort_pressure_hpa")
+    )
+    abort_triggered = bool(abort_event is not None)
+    abort_reason = str(
+        (abort_event or {}).get("error_code")
+        or (abort_event or {}).get("blocking_condition")
+        or event_state(abort_event).get("abort_reason")
+        or event_state(abort_event).get("reason")
+        or ""
+    )
+    decision = "abort" if abort_triggered else ("sealed" if seal_confirm_event else str(payload.get("a2_final_decision") or ""))
+    return {
+        "schema_version": "run001_a2.high_pressure_first_point.1",
+        "artifact_type": "run001_a2_high_pressure_first_point_evidence",
+        "run_id": payload.get("run_id"),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "enabled": enabled,
+        "first_target_pressure_hpa": _as_float(
+            mode_state.get("first_target_pressure_hpa")
+            or payload.get("high_pressure_first_point_first_target_pressure_hpa")
+            or payload.get("positive_preseal_target_pressure_hpa")
+        ),
+        "ambient_reference_pressure_hpa": ambient_pressure,
+        "trigger_reason": str(mode_state.get("trigger_reason") or ("enabled_from_runtime_trace" if enabled else "disabled")),
+        "baseline_pressure_sample": baseline_sample or mode_state.get("baseline_pressure_sample"),
+        "baseline_pressure_source": (baseline_sample or {}).get("source")
+        or mode_state.get("baseline_pressure_source"),
+        "baseline_pressure_age_s": _as_float((baseline_sample or {}).get("sample_age_s"))
+        or _as_float(mode_state.get("baseline_pressure_age_s")),
+        "baseline_pressure_hpa": baseline_pressure,
+        "route_open_started_at": (route_open_start or {}).get("timestamp_local") or latency.get("route_open_started_at"),
+        "route_open_completed_at": (route_open_end or {}).get("timestamp_local")
+        or latency.get("route_open_completed_at"),
+        "first_pressure_request_at": latency.get("first_pressure_poll_requested_at")
+        or (first_sample or {}).get("request_sent_at"),
+        "first_pressure_response_at": latency.get("first_pressure_response_received_at")
+        or (first_sample or {}).get("response_received_at"),
+        "route_open_to_first_pressure_request_s": latency.get("route_open_to_first_pressure_request_s")
+        if latency.get("route_open_to_first_pressure_request_s") is not None
+        else timing.get("route_open_to_first_pressure_request_s"),
+        "route_open_to_first_pressure_response_s": latency.get("route_open_to_first_pressure_response_s")
+        if latency.get("route_open_to_first_pressure_response_s") is not None
+        else timing.get("route_open_to_first_pressure_response_s"),
+        "first_pressure_hpa": first_pressure,
+        "first_pressure_source": latency.get("first_pressure_source") or (first_sample or {}).get("source"),
+        "first_pressure_age_s": latency.get("first_pressure_age_s") if latency.get("first_pressure_age_s") is not None else (first_sample or {}).get("sample_age_s"),
+        "first_pressure_stale": bool(
+            latency.get("first_pressure_is_stale", (first_sample or {}).get("is_stale", False))
+        ),
+        "first_pressure_read_latency_s": latency.get("first_pressure_read_latency_s")
+        if latency.get("first_pressure_read_latency_s") is not None
+        else timing.get("first_pressure_read_latency_s"),
+        "ready_pressure_hpa": _as_float(payload.get("positive_preseal_ready_pressure_hpa"))
+        or _as_float(positive.get("preseal_ready_pressure_hpa")),
+        "ready_reached_at": (ready_event or {}).get("timestamp_local"),
+        "seal_command_sent_at": (seal_command_event or {}).get("timestamp_local")
+        or positive.get("seal_command_sent_at"),
+        "ready_to_seal_command_s": timing.get("ready_to_seal_command_s")
+        if timing.get("ready_to_seal_command_s") is not None
+        else positive.get("ready_to_seal_command_s"),
+        "seal_confirmed_at": (seal_confirm_event or {}).get("timestamp_local"),
+        "pressure_at_seal_hpa": _event_pressure(seal_confirm_event)
+        or _as_float(positive.get("current_line_pressure_hpa")),
+        "abort_pressure_hpa": abort_pressure,
+        "abort_triggered": abort_triggered,
+        "abort_reason": abort_reason,
+        "decision": decision,
+        "warnings": list(timing.get("high_pressure_first_point_warnings") or []),
+        "warning_count": timing.get("high_pressure_first_point_warning_count", 0),
+        "pace_pressure_role": "cross_check_only_not_safety_decision",
+        "primary_safety_pressure_source": "digital_pressure_gauge",
         "not_real_acceptance_evidence": True,
         "v2_replaces_v1_claim": False,
     }
@@ -2406,6 +2620,17 @@ def build_run001_a2_evidence_payload(
             "positive_preseal_pressure_poll_interval_s": _as_float(
                 pressure_cfg.get("preseal_pressure_poll_interval_s")
             ),
+            "high_pressure_first_point_mode_configured": _as_bool(
+                pressure_cfg.get("high_pressure_first_point_mode_enabled", True)
+            ),
+            "high_pressure_first_point_candidate": bool(
+                _as_bool(pressure_cfg.get("high_pressure_first_point_mode_enabled", True))
+                and 1100.0 in [round(float(value), 3) for value in _pressure_points_from_rows(rows)]
+            ),
+            "high_pressure_first_point_margin_hpa": (
+                _as_float(pressure_cfg.get("high_pressure_first_point_margin_hpa")) or 0.0
+            ),
+            "high_pressure_first_point_first_target_pressure_hpa": _first_pressure_hpa(rows),
             **preseal_timing_thresholds,
             "planned_pressure_points_completed": completed_pressures,
             "planned_pressure_point_count": len(A2_AUTHORIZED_PRESSURE_POINTS_HPA),
@@ -2453,6 +2678,8 @@ def render_run001_a2_human_report(payload: Mapping[str, Any]) -> str:
     route_surge = dict(route_surge) if isinstance(route_surge, Mapping) else {}
     pressure_latency = payload.get("pressure_read_latency_diagnostics")
     pressure_latency = dict(pressure_latency) if isinstance(pressure_latency, Mapping) else {}
+    high_pressure = payload.get("high_pressure_first_point_evidence")
+    high_pressure = dict(high_pressure) if isinstance(high_pressure, Mapping) else {}
     summary_warning_items = list(
         timing_summary.get("preseal_timing_warnings_all")
         or timing_summary.get("preseal_timing_warnings")
@@ -2565,6 +2792,29 @@ def render_run001_a2_human_report(payload: Mapping[str, Any]) -> str:
             f"- warning_codes: {', '.join(str(code) for code in list(route_surge.get('warning_codes') or [])) or 'none'}",
             "- next_run_recommendation: lower CO2 inlet flow/upstream pressure, confirm exhaust capacity, keep 1150 hPa hard abort.",
             "",
+            "## 1100 高压首点正压封路诊断",
+            f"- high_pressure_first_point_evidence: {payload.get('high_pressure_first_point_evidence_artifact')}",
+            f"- high_pressure_first_point_mode_enabled: {high_pressure.get('enabled')}",
+            f"- ambient_reference_pressure_hpa: {high_pressure.get('ambient_reference_pressure_hpa')}",
+            f"- first_target_pressure_hpa: {high_pressure.get('first_target_pressure_hpa')}",
+            f"- baseline_pressure_hpa: {high_pressure.get('baseline_pressure_hpa')}",
+            f"- baseline_pressure_source: {high_pressure.get('baseline_pressure_source')}",
+            f"- route_open_to_first_pressure_request_s: {high_pressure.get('route_open_to_first_pressure_request_s')}",
+            f"- route_open_to_first_pressure_response_s: {high_pressure.get('route_open_to_first_pressure_response_s')}",
+            f"- first_pressure_hpa: {high_pressure.get('first_pressure_hpa')}",
+            f"- first_pressure_source: {high_pressure.get('first_pressure_source')}",
+            f"- first_pressure_stale: {high_pressure.get('first_pressure_stale')}",
+            f"- ready_pressure_hpa: {high_pressure.get('ready_pressure_hpa')}",
+            f"- ready_reached_at: {high_pressure.get('ready_reached_at')}",
+            f"- seal_command_sent_at: {high_pressure.get('seal_command_sent_at')}",
+            f"- ready_to_seal_command_s: {high_pressure.get('ready_to_seal_command_s')}",
+            f"- seal_confirmed_at: {high_pressure.get('seal_confirmed_at')}",
+            f"- pressure_at_seal_hpa: {high_pressure.get('pressure_at_seal_hpa')}",
+            f"- missed_seal_window_due_to_pressure_latency: {bool(high_pressure.get('warning_count'))}",
+            f"- abort_triggered: {high_pressure.get('abort_triggered')}",
+            f"- abort_reason: {high_pressure.get('abort_reason')}",
+            "- field_recommendation: 降低流量/上游压力，保证数字压力计快速读取，确认阀门动作响应时间。",
+            "",
             "## 压力读取延迟与双压力源诊断",
             f"- pressure_read_latency_diagnostics: {payload.get('pressure_read_latency_diagnostics_artifact')}",
             f"- pressure_read_latency_samples: {payload.get('pressure_read_latency_samples_artifact')}",
@@ -2657,6 +2907,7 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
     route_open_surge_path = directory / "route_open_pressure_surge_evidence.json"
     pressure_latency_path = directory / "pressure_read_latency_diagnostics.json"
     pressure_latency_samples_path = directory / "pressure_read_latency_samples.csv"
+    high_pressure_first_point_path = directory / "high_pressure_first_point_evidence.json"
     common_paths["pressure_gate_evidence"] = str(pressure_path)
     common_paths["preseal_atmosphere_hold_evidence"] = str(preseal_evidence_path)
     common_paths["preseal_atmosphere_hold_samples"] = str(preseal_samples_path)
@@ -2666,6 +2917,7 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
     common_paths["route_open_pressure_surge_evidence"] = str(route_open_surge_path)
     common_paths["pressure_read_latency_diagnostics"] = str(pressure_latency_path)
     common_paths["pressure_read_latency_samples"] = str(pressure_latency_samples_path)
+    common_paths["high_pressure_first_point_evidence"] = str(high_pressure_first_point_path)
     timing_trace_path = directory / WORKFLOW_TIMING_TRACE_FILENAME
     timing_summary_path = directory / WORKFLOW_TIMING_SUMMARY_FILENAME
     common_paths["workflow_timing_trace"] = str(timing_trace_path)
@@ -2772,6 +3024,18 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
         pressure_latency_payload,
         route_open_surge_payload,
     )
+    high_pressure_first_point_payload = _build_high_pressure_first_point_evidence(
+        directory,
+        enriched,
+        latency_payload=pressure_latency_payload,
+        latency_samples=pressure_latency_samples,
+        timing_summary=timing_summary,
+        positive_preseal_payload=positive_preseal_payload,
+    )
+    high_pressure_first_point_path.write_text(
+        json.dumps(high_pressure_first_point_payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     timing_summary_path.write_text(json.dumps(timing_summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     positive_preseal_timing_path.write_text(
         json.dumps(positive_preseal_timing_payload, ensure_ascii=False, indent=2) + "\n",
@@ -2791,6 +3055,11 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "pressure_read_latency_diagnostics_artifact": str(pressure_latency_path),
             "pressure_read_latency_samples_artifact": str(pressure_latency_samples_path),
             "pressure_read_latency_diagnostics": pressure_latency_payload,
+            "high_pressure_first_point_evidence_artifact": str(high_pressure_first_point_path),
+            "high_pressure_first_point_evidence": high_pressure_first_point_payload,
+            "high_pressure_first_point_enabled": high_pressure_first_point_payload.get("enabled"),
+            "high_pressure_first_point_decision": high_pressure_first_point_payload.get("decision"),
+            "high_pressure_first_point_warning_count": high_pressure_first_point_payload.get("warning_count"),
             "primary_pressure_source": pressure_latency_payload.get("primary_pressure_source"),
             "abort_decision_pressure_source": pressure_latency_payload.get("pressure_source_used_for_abort"),
             "pressure_read_latency_warning_count": pressure_latency_payload.get("warning_count"),
@@ -2932,6 +3201,10 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
                 "pressure_read_latency_diagnostics_artifact"
             ),
             "pressure_read_latency_samples_artifact": enriched.get("pressure_read_latency_samples_artifact"),
+            "high_pressure_first_point_evidence_artifact": enriched.get(
+                "high_pressure_first_point_evidence_artifact"
+            ),
+            "high_pressure_first_point_enabled": enriched.get("high_pressure_first_point_enabled"),
             "primary_pressure_source": enriched.get("primary_pressure_source"),
             "abort_decision_pressure_source": enriched.get("abort_decision_pressure_source"),
             "a2_required_artifact_status": enriched.get("a2_required_artifact_status"),
@@ -2996,6 +3269,9 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "route_open_pressure_surge_evidence_artifact": str(route_open_surge_path),
             "pressure_read_latency_diagnostics_artifact": str(pressure_latency_path),
             "pressure_read_latency_samples_artifact": str(pressure_latency_samples_path),
+            "high_pressure_first_point_evidence_artifact": str(high_pressure_first_point_path),
+            "high_pressure_first_point_enabled": enriched.get("high_pressure_first_point_enabled"),
+            "high_pressure_first_point_decision": enriched.get("high_pressure_first_point_decision"),
             "primary_pressure_source": enriched.get("primary_pressure_source"),
             "abort_decision_pressure_source": enriched.get("abort_decision_pressure_source"),
             "not_real_acceptance_evidence": True,
@@ -3013,6 +3289,7 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
         str(route_open_surge_path),
         str(pressure_latency_path),
         str(pressure_latency_samples_path),
+        str(high_pressure_first_point_path),
         str(timing_trace_path),
         str(timing_summary_path),
     ):

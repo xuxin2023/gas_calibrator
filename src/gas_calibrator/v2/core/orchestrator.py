@@ -1166,11 +1166,19 @@ class WorkflowOrchestrator:
                 decision="collect_only_skipped",
             )
             return True
+        high_pressure_first_point_mode = bool(getattr(self, "_a2_high_pressure_first_point_mode_enabled", False))
+        stage_name = "high_pressure_first_point" if high_pressure_first_point_mode else "preseal_atmosphere_flush_hold"
         special_flush = self._has_special_co2_zero_flush_pending() and self._is_zero_co2_point(point)
         soak_key = "workflow.stability.co2_route.preseal_soak_s"
         soak_default = 180.0
         log_context = "CO2 route opened"
-        if special_flush:
+        if high_pressure_first_point_mode:
+            special_flush = False
+            soak_key = "workflow.pressure.preseal_ready_timeout_s"
+            soak_default = float(self._cfg_get("workflow.pressure.preseal_ready_timeout_s", 30.0))
+            log_context = "CO2 route opened for 1100 hPa high-pressure first-point positive build-up"
+            self._active_post_h2o_co2_zero_flush = False
+        elif special_flush:
             soak_key = "workflow.stability.co2_route.post_h2o_zero_ppm_soak_s"
             soak_default = 600.0
             if self._post_h2o_co2_zero_flush_pending:
@@ -1184,7 +1192,14 @@ class WorkflowOrchestrator:
             log_context = "CO2 route opened for first gas-point flush"
         else:
             self._active_post_h2o_co2_zero_flush = False
-        soak_s = float(self._cfg_get(soak_key, soak_default))
+        soak_s = float(
+            self._cfg_get(
+                "workflow.pressure.high_pressure_first_point_ready_timeout_s",
+                soak_default,
+            )
+            if high_pressure_first_point_mode
+            else self._cfg_get(soak_key, soak_default)
+        )
         if soak_s <= 0:
             self.run_state.humidity.first_co2_route_soak_pending = False
             self._first_co2_route_soak_pending = False
@@ -1196,7 +1211,12 @@ class WorkflowOrchestrator:
                 decision="disabled",
             )
             return True
-        self._log(f"{log_context}; wait {int(soak_s)}s before pressure sealing (row {point.index})")
+        if high_pressure_first_point_mode:
+            self._log(
+                f"{log_context}; poll pressure up to {int(soak_s)}s before immediate route seal (row {point.index})"
+            )
+        else:
+            self._log(f"{log_context}; wait {int(soak_s)}s before pressure sealing (row {point.index})")
         self._record_workflow_timing(
             "preseal_soak_start",
             "start",
@@ -1209,17 +1229,27 @@ class WorkflowOrchestrator:
         setattr(self, "_a2_preseal_last_pressure_monotonic_s", None)
         setattr(self, "_a2_preseal_pressure_rise_detected", False)
         setattr(self, "_a2_preseal_vent_close_arm_context", {})
-        setattr(self, "_a2_co2_route_open_pressure_hpa", None)
-        setattr(self, "_a2_route_open_pressure_first_sample_recorded", False)
+        if not high_pressure_first_point_mode:
+            setattr(self, "_a2_co2_route_open_pressure_hpa", None)
+            setattr(self, "_a2_route_open_pressure_first_sample_recorded", False)
         start = time.time()
-        setattr(self, "_a2_co2_route_open_monotonic_s", time.monotonic())
+        if not high_pressure_first_point_mode or self._as_float(
+            getattr(self, "_a2_co2_route_open_monotonic_s", None)
+        ) is None:
+            setattr(self, "_a2_co2_route_open_monotonic_s", time.monotonic())
         self._record_workflow_timing(
             "route_open_pressure_baseline",
             "info",
-            stage="preseal_atmosphere_flush_hold",
+            stage=stage_name,
             point=point,
-            decision="awaiting_first_dual_pressure_sample",
+            decision=(
+                "high_pressure_first_point_baseline_prearmed"
+                if high_pressure_first_point_mode
+                else "awaiting_first_dual_pressure_sample"
+            ),
             route_state={
+                "high_pressure_first_point_mode": high_pressure_first_point_mode,
+                "baseline_context": dict(getattr(self, "_a2_high_pressure_first_point_context", {}) or {}),
                 "primary_pressure_source": self._cfg_get(
                     "workflow.pressure.primary_pressure_source",
                     "digital_pressure_gauge",
@@ -1230,10 +1260,12 @@ class WorkflowOrchestrator:
                 ),
             },
         )
-        continuous_atmosphere_hold = bool(self._cfg_get("workflow.pressure.continuous_atmosphere_hold", False))
+        continuous_atmosphere_hold = bool(
+            self._cfg_get("workflow.pressure.continuous_atmosphere_hold", False)
+        ) and not high_pressure_first_point_mode
         positive_preseal_enabled = bool(
             self._cfg_get("workflow.pressure.positive_preseal_pressurization_enabled", False)
-        )
+        ) or high_pressure_first_point_mode
         vent_hold_interval_s = max(0.1, float(self._cfg_get("workflow.pressure.vent_hold_interval_s", 2.0)))
         preseal_pressure_poll_interval_s = max(
             0.05,
@@ -1246,16 +1278,33 @@ class WorkflowOrchestrator:
             self._record_workflow_timing(
                 "preseal_atmosphere_flush_hold_start",
                 "start",
-                stage="preseal_atmosphere_flush_hold",
+                stage=stage_name,
                 point=point,
                 pressure_hpa=getattr(self, "_a2_co2_route_open_pressure_hpa", None),
                 expected_max_s=soak_s,
-                wait_reason="continuous_atmosphere_hold",
+                wait_reason=(
+                    "high_pressure_first_point_positive_pressure_build_up"
+                    if high_pressure_first_point_mode
+                    else "continuous_atmosphere_hold"
+                ),
             )
-        handoff_decision = ""
+        handoff_decision = str(getattr(self, "_a2_high_pressure_first_point_initial_decision", "") or "")
+        if high_pressure_first_point_mode and handoff_decision in {
+            "positive_preseal_ready_handoff",
+            "positive_preseal_arm_handoff",
+        }:
+            self._log(
+                "A2 high-pressure first-point route-open pressure sample reached preseal handoff; "
+                f"skip atmosphere flush and seal route (row {point.index})"
+            )
         while time.time() - start < soak_s:
             self._check_stop()
             now = time.time()
+            if high_pressure_first_point_mode and handoff_decision in {
+                "positive_preseal_ready_handoff",
+                "positive_preseal_arm_handoff",
+            }:
+                break
             self._record_workflow_timing(
                 "preseal_soak_tick",
                 "tick",
@@ -1265,11 +1314,22 @@ class WorkflowOrchestrator:
                 expected_max_s=soak_s,
                 wait_reason=soak_key,
             )
-            if (
-                continuous_atmosphere_hold
-                and positive_preseal_enabled
-                and (now - last_preseal_pressure_check_ts) >= preseal_pressure_poll_interval_s
-            ):
+            if high_pressure_first_point_mode:
+                if (now - last_preseal_pressure_check_ts) >= preseal_pressure_poll_interval_s:
+                    pressure_decision = self._verify_co2_preseal_atmosphere_hold_pressure(point)
+                    if pressure_decision in {"positive_preseal_ready_handoff", "positive_preseal_arm_handoff"}:
+                        handoff_decision = pressure_decision
+                        self._log(
+                            "A2 high-pressure first-point reached positive preseal handoff pressure; "
+                            f"seal without atmosphere flush delay (row {point.index})"
+                        )
+                        break
+                    last_preseal_pressure_check_ts = time.time()
+                time.sleep(min(preseal_pressure_poll_interval_s, max(0.01, soak_s - (time.time() - start))))
+                continue
+            if continuous_atmosphere_hold and positive_preseal_enabled and (
+                now - last_preseal_pressure_check_ts
+            ) >= preseal_pressure_poll_interval_s:
                 pressure_decision = self._verify_co2_preseal_atmosphere_hold_pressure(point)
                 if pressure_decision in {"positive_preseal_ready_handoff", "positive_preseal_arm_handoff"}:
                     handoff_decision = pressure_decision
@@ -1321,10 +1381,38 @@ class WorkflowOrchestrator:
             self._record_workflow_timing(
                 "preseal_atmosphere_flush_hold_end",
                 "end",
-                stage="preseal_atmosphere_flush_hold",
+                stage=stage_name,
                 point=point,
                 expected_max_s=soak_s,
                 decision=handoff_decision or "ok",
+            )
+        if high_pressure_first_point_mode and handoff_decision not in {
+            "positive_preseal_ready_handoff",
+            "positive_preseal_arm_handoff",
+        }:
+            context = dict(getattr(self, "_a2_high_pressure_first_point_context", {}) or {})
+            context.update(
+                {
+                    "timeout_s": soak_s,
+                    "last_decision": handoff_decision or "timeout_before_ready",
+                    "pressure_hpa": getattr(self, "_a2_preseal_last_pressure_hpa", None),
+                    "abort_pressure_hpa": self._cfg_get("workflow.pressure.preseal_abort_pressure_hpa", None),
+                }
+            )
+            self._record_workflow_timing(
+                "high_pressure_abort",
+                "fail",
+                stage=stage_name,
+                point=point,
+                pressure_hpa=getattr(self, "_a2_preseal_last_pressure_hpa", None),
+                target_pressure_hpa=point.target_pressure_hpa,
+                decision="timeout_before_ready",
+                error_code="high_pressure_first_point_ready_timeout",
+                route_state=context,
+            )
+            raise WorkflowValidationError(
+                "A2 high-pressure first point did not reach preseal ready pressure before timeout",
+                details=context,
             )
         self._record_workflow_timing(
             "preseal_soak_end",
@@ -1332,8 +1420,10 @@ class WorkflowOrchestrator:
             stage="preseal_soak",
             point=point,
             expected_max_s=soak_s + max(5.0, soak_s * 0.1),
-            decision="ok",
+            decision=handoff_decision or "ok",
         )
+        if high_pressure_first_point_mode:
+            return True
         return self._wait_co2_route_dewpoint_gate_before_seal(
             point,
             base_soak_s=soak_s,
@@ -1348,8 +1438,8 @@ class WorkflowOrchestrator:
         stage: str,
     ) -> None:
         source_items = (
-            ("pace_pressure_sample", "pace"),
             ("digital_gauge_pressure_sample", "gauge"),
+            ("pace_pressure_sample", "pace"),
         )
         latency_warn_s = self._as_float(self._cfg_get("workflow.pressure.pressure_read_latency_warn_s", 0.5))
         for key, prefix in source_items:
@@ -1419,11 +1509,236 @@ class WorkflowOrchestrator:
                 route_state=sample,
             )
 
+    def _a2_high_pressure_pressure_values(
+        self,
+        point: CalibrationPoint,
+        pressure_points: Optional[Iterable[CalibrationPoint]] = None,
+    ) -> list[float]:
+        candidates = list(pressure_points or [point])
+        values: list[float] = []
+        for item in candidates:
+            value = self._as_float(getattr(item, "target_pressure_hpa", None))
+            if value is not None:
+                values.append(float(value))
+        if not values:
+            value = self._as_float(getattr(point, "target_pressure_hpa", None))
+            if value is not None:
+                values.append(float(value))
+        return values
+
+    def _prearm_a2_high_pressure_first_point_mode(
+        self,
+        point: CalibrationPoint,
+        pressure_points: Optional[Iterable[CalibrationPoint]] = None,
+    ) -> dict[str, Any]:
+        setattr(self, "_a2_high_pressure_first_point_mode_enabled", False)
+        setattr(self, "_a2_high_pressure_first_point_context", {})
+        setattr(self, "_a2_high_pressure_first_point_initial_decision", "")
+        setattr(self, "_a2_high_pressure_first_point_vent_preclosed", False)
+        pressure_cfg_enabled = bool(
+            self._cfg_get("workflow.pressure.high_pressure_first_point_mode_enabled", True)
+        )
+        pressure_values = self._a2_high_pressure_pressure_values(point, pressure_points)
+        first_target = pressure_values[0] if pressure_values else self._as_float(point.target_pressure_hpa)
+        contains_1100 = any(abs(float(value) - 1100.0) <= 0.001 for value in pressure_values)
+        candidate = bool(
+            pressure_cfg_enabled
+            and self._workflow_timing_enabled()
+            and self._workflow_no_write_guard_active()
+            and contains_1100
+            and first_target is not None
+        )
+        context: dict[str, Any] = {
+            "enabled": False,
+            "configured": pressure_cfg_enabled,
+            "candidate": candidate,
+            "planned_pressure_points_hpa": pressure_values,
+            "first_target_pressure_hpa": first_target,
+            "contains_1100_hpa": contains_1100,
+            "trigger_reason": "not_candidate",
+        }
+        if not candidate:
+            self._record_workflow_timing(
+                "high_pressure_first_point_mode_enabled",
+                "info",
+                stage="high_pressure_first_point",
+                point=point,
+                target_pressure_hpa=first_target,
+                decision="disabled",
+                route_state=context,
+            )
+            return context
+        sample_reader = getattr(self.pressure_control_service, "_current_high_pressure_first_point_sample", None)
+        sample = sample_reader(stage="high_pressure_first_point_prearm", point_index=point.index) if callable(sample_reader) else {}
+        sample = dict(sample) if isinstance(sample, Mapping) else {}
+        baseline_pressure = self._as_float(sample.get("pressure_hpa"))
+        baseline_stale = bool(sample.get("is_stale", sample.get("pressure_sample_is_stale")))
+        baseline_age = self._as_float(sample.get("sample_age_s", sample.get("pressure_sample_age_s")))
+        context.update(
+            {
+                "baseline_pressure_sample": sample,
+                "baseline_pressure_hpa": baseline_pressure,
+                "baseline_pressure_source": sample.get("pressure_sample_source") or sample.get("source"),
+                "baseline_pressure_age_s": baseline_age,
+                "baseline_pressure_stale": baseline_stale,
+            }
+        )
+        self._record_pressure_source_latency_events(sample, point=point, stage="high_pressure_first_point_prearm")
+        if baseline_pressure is None or baseline_stale:
+            context["trigger_reason"] = (
+                "baseline_pressure_sample_stale" if baseline_stale else "baseline_pressure_sample_unavailable"
+            )
+            self._record_workflow_timing(
+                "pressure_polling_prearmed",
+                "fail",
+                stage="high_pressure_first_point",
+                point=point,
+                target_pressure_hpa=first_target,
+                pressure_hpa=baseline_pressure,
+                decision=context["trigger_reason"],
+                error_code=context["trigger_reason"],
+                route_state=context,
+            )
+            raise WorkflowValidationError(
+                "A2 high-pressure first point requires a fresh baseline pressure sample before route open",
+                details=context,
+            )
+        margin = self._as_float(self._cfg_get("workflow.pressure.high_pressure_first_point_margin_hpa", 0.0))
+        margin = 0.0 if margin is None else float(margin)
+        if first_target is not None and float(first_target) >= float(baseline_pressure) + margin:
+            context["enabled"] = True
+            context["ambient_reference_pressure_hpa"] = baseline_pressure
+            context["current_ambient_reference_pressure_hpa"] = baseline_pressure
+            context["trigger_reason"] = (
+                "first_target_exceeds_ambient_reference_margin"
+                if margin > 0
+                else "first_target_above_ambient_reference"
+            )
+            context["ambient_reference_margin_hpa"] = margin
+        else:
+            context["trigger_reason"] = "first_target_not_above_ambient_reference"
+        setattr(self, "_a2_high_pressure_first_point_mode_enabled", bool(context["enabled"]))
+        setattr(self, "_a2_high_pressure_first_point_context", dict(context))
+        if context["enabled"]:
+            setattr(self, "_a2_co2_route_open_pressure_hpa", baseline_pressure)
+            remember = getattr(self.pressure_control_service, "_remember_ambient_reference_pressure", None)
+            if callable(remember):
+                remember(
+                    baseline_pressure,
+                    source=str(context.get("baseline_pressure_source") or "digital_pressure_gauge_pre_route_baseline"),
+                    timestamp=str(sample.get("sample_recorded_at") or sample.get("pressure_sample_timestamp") or ""),
+                    monotonic_s=self._as_float(
+                        sample.get("sample_recorded_monotonic_s", sample.get("pressure_sample_monotonic_s"))
+                    ),
+                )
+        self._record_workflow_timing(
+            "high_pressure_first_point_mode_enabled",
+            "info",
+            stage="high_pressure_first_point",
+            point=point,
+            target_pressure_hpa=first_target,
+            pressure_hpa=baseline_pressure,
+            decision="enabled" if context["enabled"] else "disabled",
+            route_state=context,
+        )
+        self._record_workflow_timing(
+            "pressure_polling_prearmed",
+            "info",
+            stage="high_pressure_first_point",
+            point=point,
+            target_pressure_hpa=first_target,
+            pressure_hpa=baseline_pressure,
+            decision="fresh_baseline_sample_ready",
+            route_state=context,
+        )
+        recorder = getattr(getattr(self, "status_service", None), "record_route_trace", None)
+        if callable(recorder):
+            recorder(
+                action="high_pressure_first_point_mode_enabled",
+                route="co2",
+                point=point,
+                target={"pressure_hpa": first_target},
+                actual=context,
+                result="ok" if context["enabled"] else "skip",
+                message="A2 1100 hPa high-pressure first-point mode evaluated",
+            )
+        return context
+
+    def _preclose_a2_high_pressure_first_point_vent(self, point: CalibrationPoint) -> dict[str, Any]:
+        if not bool(getattr(self, "_a2_high_pressure_first_point_mode_enabled", False)):
+            return {}
+        diagnostics = self.pressure_control_service.set_pressure_controller_vent(
+            False,
+            reason="A2 high-pressure first-point positive pressure build-up",
+            wait_after_command=False,
+            capture_pressure=False,
+            transition_timeout_s=self._cfg_get("workflow.pressure.preseal_vent_close_command_timeout_s", 1.0),
+            snapshot_after_command=False,
+            prefer_direct_command=bool(
+                self._cfg_get("workflow.pressure.preseal_vent_close_prefer_direct_command", True)
+            ),
+        )
+        setattr(self, "_a2_high_pressure_first_point_vent_preclosed", True)
+        context = dict(getattr(self, "_a2_high_pressure_first_point_context", {}) or {})
+        context["positive_pressure_build_up_vent_closed_before_route_open"] = True
+        context["vent_preclose_diagnostics"] = diagnostics
+        setattr(self, "_a2_high_pressure_first_point_context", context)
+        self._record_workflow_timing(
+            "high_pressure_positive_build_up_vent_preclosed",
+            "info",
+            stage="high_pressure_first_point",
+            point=point,
+            target_pressure_hpa=context.get("first_target_pressure_hpa"),
+            decision="vent_preclosed_before_route_open",
+            route_state=context,
+        )
+        return diagnostics
+
+    def _request_a2_high_pressure_route_open_pressure_sample(self, point: CalibrationPoint) -> str:
+        if not bool(getattr(self, "_a2_high_pressure_first_point_mode_enabled", False)):
+            return ""
+        context = dict(getattr(self, "_a2_high_pressure_first_point_context", {}) or {})
+        self._record_workflow_timing(
+            "route_open_pressure_poll_request",
+            "info",
+            stage="high_pressure_first_point",
+            point=point,
+            target_pressure_hpa=context.get("first_target_pressure_hpa"),
+            decision="request_sent",
+            route_state=context,
+        )
+        decision = self._verify_co2_preseal_atmosphere_hold_pressure(point)
+        setattr(self, "_a2_high_pressure_first_point_initial_decision", decision)
+        return decision
+
     def _verify_co2_preseal_atmosphere_hold_pressure(self, point: CalibrationPoint) -> str:
+        high_pressure_first_point_mode = bool(getattr(self, "_a2_high_pressure_first_point_mode_enabled", False))
+        stage_name = "high_pressure_first_point" if high_pressure_first_point_mode else "preseal_atmosphere_flush_hold"
         dual_sample_reader = getattr(self.pressure_control_service, "_current_dual_pressure_sample", None)
+        high_pressure_reader = getattr(
+            self.pressure_control_service,
+            "_current_high_pressure_first_point_sample",
+            None,
+        )
         sample_reader = getattr(self.pressure_control_service, "_current_pressure_sample", None)
         sample: dict[str, Any] = {}
-        if callable(dual_sample_reader):
+        if high_pressure_first_point_mode and callable(high_pressure_reader):
+            sample = high_pressure_reader(stage=stage_name, point_index=point.index)
+            pressure_hpa = self._as_float(sample.get("pressure_hpa") if isinstance(sample, dict) else None)
+            if isinstance(sample, Mapping):
+                self._record_pressure_source_latency_events(sample, point=point, stage=stage_name)
+                self._record_workflow_timing(
+                    "route_open_pressure_poll_response",
+                    "info",
+                    stage=stage_name,
+                    point=point,
+                    pressure_hpa=pressure_hpa,
+                    target_pressure_hpa=self._as_float(point.target_pressure_hpa),
+                    duration_s=sample.get("read_latency_s"),
+                    decision="response_received",
+                    route_state=sample,
+                )
+        elif callable(dual_sample_reader):
             sample = dual_sample_reader(stage="preseal_atmosphere_flush_hold", point_index=point.index)
             pressure_hpa = self._as_float(sample.get("pressure_hpa") if isinstance(sample, dict) else None)
             if isinstance(sample, Mapping):
@@ -1506,7 +1821,7 @@ class WorkflowOrchestrator:
             self._record_workflow_timing(
                 "preseal_atmosphere_flush_pressure_check",
                 "warning",
-                stage="preseal_atmosphere_flush_hold",
+                stage=stage_name,
                 point=point,
                 pressure_hpa=pressure_hpa,
                 decision="stale_pressure_sample_ignored",
@@ -1518,7 +1833,7 @@ class WorkflowOrchestrator:
         target_hpa = self._as_float(point.target_pressure_hpa)
         positive_preseal_enabled = bool(
             self._cfg_get("workflow.pressure.positive_preseal_pressurization_enabled", False)
-        )
+        ) or high_pressure_first_point_mode
         ready_hpa = self._as_float(self._cfg_get("workflow.pressure.preseal_ready_pressure_hpa"))
         if ready_hpa is None and target_hpa is not None:
             ready_margin_hpa = self._as_float(self._cfg_get("workflow.pressure.preseal_ready_margin_hpa", 0.0))
@@ -1536,7 +1851,7 @@ class WorkflowOrchestrator:
                 self._record_workflow_timing(
                     "route_open_pressure_first_sample",
                     "info",
-                    stage="preseal_atmosphere_flush_hold",
+                    stage=stage_name,
                     point=point,
                     pressure_hpa=pressure_hpa,
                     target_pressure_hpa=target_hpa,
@@ -1562,7 +1877,7 @@ class WorkflowOrchestrator:
                 self._record_workflow_timing(
                     "pressure_rise_detected",
                     "info",
-                    stage="preseal_atmosphere_flush_hold",
+                    stage=stage_name,
                     point=point,
                     pressure_hpa=pressure_hpa,
                     target_pressure_hpa=target_hpa,
@@ -1572,7 +1887,7 @@ class WorkflowOrchestrator:
                 self._record_workflow_timing(
                     "route_open_pressure_surge_detected",
                     "warning",
-                    stage="preseal_atmosphere_flush_hold",
+                    stage=stage_name,
                     point=point,
                     pressure_hpa=pressure_hpa,
                     target_pressure_hpa=target_hpa,
@@ -1619,7 +1934,9 @@ class WorkflowOrchestrator:
             setattr(self, "_a2_preseal_last_pressure_hpa", float(pressure_hpa))
             setattr(self, "_a2_preseal_last_pressure_monotonic_s", now_monotonic)
             trigger = ""
-            if arm_pressure_hpa is not None and pressure_hpa >= float(arm_pressure_hpa):
+            if high_pressure_first_point_mode and pressure_hpa >= float(ready_hpa):
+                trigger = "ready_pressure"
+            elif arm_pressure_hpa is not None and pressure_hpa >= float(arm_pressure_hpa):
                 trigger = "arm_pressure"
             elif (float(ready_hpa) - float(pressure_hpa)) <= arm_margin_hpa:
                 trigger = "arm_margin"
@@ -1656,7 +1973,7 @@ class WorkflowOrchestrator:
                 self._record_workflow_timing(
                     "preseal_vent_close_arm",
                     "info",
-                    stage="preseal_atmosphere_flush_hold",
+                    stage=stage_name,
                     point=point,
                     pressure_hpa=pressure_hpa,
                     target_pressure_hpa=target_hpa,
@@ -1666,7 +1983,7 @@ class WorkflowOrchestrator:
                 self._record_workflow_timing(
                     "preseal_vent_close_arm_triggered",
                     "info",
-                    stage="preseal_atmosphere_flush_hold",
+                    stage=stage_name,
                     point=point,
                     pressure_hpa=pressure_hpa,
                     target_pressure_hpa=target_hpa,
@@ -1712,10 +2029,21 @@ class WorkflowOrchestrator:
                     result="ok",
                     message="CO2 atmosphere flush reached positive preseal ready pressure",
                 )
+            if high_pressure_first_point_mode:
+                self._record_workflow_timing(
+                    "high_pressure_ready_detected",
+                    "info",
+                    stage=stage_name,
+                    point=point,
+                    pressure_hpa=pressure_hpa,
+                    target_pressure_hpa=target_hpa,
+                    decision="ready",
+                    route_state=details,
+                )
             self._record_workflow_timing(
                 "preseal_atmosphere_flush_pressure_check",
                 "tick",
-                stage="preseal_atmosphere_flush_hold",
+                stage=stage_name,
                 point=point,
                 pressure_hpa=pressure_hpa,
                 target_pressure_hpa=target_hpa,
@@ -1724,7 +2052,7 @@ class WorkflowOrchestrator:
             self._record_workflow_timing(
                 "preseal_atmosphere_flush_ready_handoff",
                 "info",
-                stage="preseal_atmosphere_flush_hold",
+                stage=stage_name,
                 point=point,
                 pressure_hpa=pressure_hpa,
                 target_pressure_hpa=target_hpa,
@@ -1733,7 +2061,7 @@ class WorkflowOrchestrator:
             self._record_workflow_timing(
                 "preseal_pressure_check",
                 "info",
-                stage="preseal_atmosphere_flush_hold",
+                stage=stage_name,
                 point=point,
                 pressure_hpa=pressure_hpa,
                 target_pressure_hpa=target_hpa,
@@ -1745,7 +2073,7 @@ class WorkflowOrchestrator:
                 self._record_workflow_timing(
                     "preseal_atmosphere_flush_pressure_check",
                     "tick",
-                    stage="preseal_atmosphere_flush_hold",
+                    stage=stage_name,
                     point=point,
                     pressure_hpa=pressure_hpa,
                     target_pressure_hpa=target_hpa,
@@ -1754,7 +2082,7 @@ class WorkflowOrchestrator:
             self._record_workflow_timing(
                 "preseal_pressure_check",
                 "info",
-                stage="preseal_atmosphere_flush_hold" if positive_preseal_enabled else "preseal_soak",
+                stage=stage_name if positive_preseal_enabled else "preseal_soak",
                 point=point,
                 pressure_hpa=pressure_hpa,
                 target_pressure_hpa=target_hpa,
@@ -1790,7 +2118,7 @@ class WorkflowOrchestrator:
         self._record_workflow_timing(
             "preseal_atmosphere_flush_pressure_check",
             "fail",
-            stage="preseal_atmosphere_flush_hold" if positive_preseal_enabled else "preseal_soak",
+            stage=stage_name if positive_preseal_enabled else "preseal_soak",
             point=point,
             pressure_hpa=pressure_hpa,
             target_pressure_hpa=target_hpa,
@@ -1801,7 +2129,7 @@ class WorkflowOrchestrator:
         self._record_workflow_timing(
             "route_open_pressure_abort",
             "fail",
-            stage="preseal_atmosphere_flush_hold" if positive_preseal_enabled else "preseal_soak",
+            stage=stage_name if positive_preseal_enabled else "preseal_soak",
             point=point,
             pressure_hpa=pressure_hpa,
             target_pressure_hpa=target_hpa,
@@ -1809,6 +2137,18 @@ class WorkflowOrchestrator:
             error_code=reason,
             route_state=details,
         )
+        if high_pressure_first_point_mode:
+            self._record_workflow_timing(
+                "high_pressure_abort",
+                "fail",
+                stage=stage_name,
+                point=point,
+                pressure_hpa=pressure_hpa,
+                target_pressure_hpa=target_hpa,
+                decision="abort",
+                error_code=reason,
+                route_state=details,
+            )
         self._record_workflow_timing(
             "preseal_pressure_check",
             "fail",
