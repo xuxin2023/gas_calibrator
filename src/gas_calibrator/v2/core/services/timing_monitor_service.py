@@ -1020,6 +1020,8 @@ def build_workflow_timing_summary(
         )
 
     vent_interval = _as_float(context.get("vent_hold_interval_s"))
+    conditioning_vent_interval = _as_float(context.get("atmosphere_vent_heartbeat_interval_s")) or vent_interval
+    conditioning_vent_max_gap = _as_float(context.get("atmosphere_vent_max_gap_s"))
     for left, right in zip(preseal_vent_ticks, preseal_vent_ticks[1:]):
         gap = _duration_between(left, right)
         if vent_interval is not None and gap is not None and gap > vent_interval * 2.0:
@@ -1033,12 +1035,18 @@ def build_workflow_timing_summary(
             )
     for left, right in zip(co2_conditioning_vent_ticks, co2_conditioning_vent_ticks[1:]):
         gap = _duration_between(left, right)
-        if vent_interval is not None and gap is not None and gap > vent_interval * 2.0:
+        conditioning_gap_limit = (
+            conditioning_vent_max_gap
+            if conditioning_vent_max_gap is not None
+            else (conditioning_vent_interval * 2.0 if conditioning_vent_interval is not None else None)
+        )
+        if conditioning_gap_limit is not None and gap is not None and gap > conditioning_gap_limit:
             repeated_sleep_warnings.append(
                 {
-                    "warning_code": "co2_route_conditioning_vent_tick_gap_gt_2x_interval",
+                    "warning_code": "co2_route_conditioning_vent_tick_gap_gt_max_gap",
                     "gap_s": gap,
-                    "vent_hold_interval_s": vent_interval,
+                    "vent_heartbeat_interval_s": conditioning_vent_interval,
+                    "atmosphere_vent_max_gap_s": conditioning_vent_max_gap,
                     "point_index": right.get("point_index"),
                 }
             )
@@ -1327,6 +1335,85 @@ def build_workflow_timing_summary(
         min(float(value) for value in co2_route_conditioning_pressure_values)
         if co2_route_conditioning_pressure_values
         else None
+    )
+    co2_conditioning_vent_gaps: list[float] = []
+    previous_conditioning_vent_time: Optional[float] = None
+    for event in co2_conditioning_vent_ticks:
+        state = route_state_of(event)
+        gap = _as_float(state.get("vent_heartbeat_gap_s", state.get("vent_tick_gap_s")))
+        current_time = event_time(event)
+        if gap is None and previous_conditioning_vent_time is not None and current_time is not None:
+            gap = _round_s(float(current_time) - float(previous_conditioning_vent_time))
+        if gap is not None:
+            co2_conditioning_vent_gaps.append(float(gap))
+        if current_time is not None:
+            previous_conditioning_vent_time = current_time
+    co2_route_conditioning_vent_tick_avg_gap_s = (
+        _round_s(sum(co2_conditioning_vent_gaps) / len(co2_conditioning_vent_gaps))
+        if co2_conditioning_vent_gaps
+        else None
+    )
+    co2_route_conditioning_vent_tick_max_gap_s = (
+        _round_s(max(co2_conditioning_vent_gaps)) if co2_conditioning_vent_gaps else None
+    )
+    first_conditioning_vent_after_route = next(
+        (
+            event
+            for event in co2_conditioning_vent_ticks
+            if route_open_end_time is None
+            or event_time(event) is None
+            or float(event_time(event) or 0.0) >= float(route_open_end_time)
+        ),
+        None,
+    )
+    route_open_to_first_vent_s = route_state_value(first_conditioning_vent_after_route, "route_open_to_first_vent_s")
+    if (
+        route_open_to_first_vent_s is None
+        and route_open_end_time is not None
+        and event_time(first_conditioning_vent_after_route) is not None
+    ):
+        route_open_to_first_vent_s = _round_s(float(event_time(first_conditioning_vent_after_route) or 0.0) - float(route_open_end_time))
+    co2_conditioning_guard_events = [
+        event
+        for event in events
+        if str(event.get("event_name") or "")
+        in {
+            "co2_route_conditioning_fail_closed",
+            "co2_route_conditioning_vent_heartbeat_gap",
+            "co2_route_conditioning_route_open_first_vent_gap",
+            "co2_route_conditioning_stream_stale",
+            "co2_route_conditioning_pressure_overlimit",
+            "co2_route_conditioning_vent_command_failed",
+        }
+    ]
+    co2_conditioning_states = [
+        route_state_of(event)
+        for event in co2_conditioning_vent_ticks + co2_conditioning_pressure_events + co2_conditioning_guard_events
+    ]
+    co2_route_conditioning_vent_heartbeat_gap_exceeded = any(
+        bool(state.get("vent_heartbeat_gap_exceeded")) for state in co2_conditioning_states
+    ) or any(
+        str(event.get("event_name") or "")
+        in {"co2_route_conditioning_vent_heartbeat_gap", "co2_route_conditioning_route_open_first_vent_gap"}
+        for event in co2_conditioning_guard_events
+    )
+    co2_route_conditioning_pressure_overlimit_seen = any(
+        bool(state.get("pressure_overlimit_seen")) or _as_float(state.get("pressure_overlimit_hpa")) is not None
+        for state in co2_conditioning_states
+    )
+    co2_route_conditioning_stream_stale = any(
+        bool(state.get("stream_stale") or state.get("digital_gauge_stream_stale"))
+        for state in co2_conditioning_states
+    ) or any(str(event.get("event_name") or "") == "co2_route_conditioning_stream_stale" for event in co2_conditioning_guard_events)
+    co2_route_conditioning_sequence_progress_values = [
+        state.get("digital_gauge_sequence_progress")
+        for state in co2_conditioning_states
+        if state.get("digital_gauge_sequence_progress") is not None
+    ]
+    co2_route_conditioning_digital_gauge_sequence_progress = (
+        None
+        if not co2_route_conditioning_sequence_progress_values
+        else all(bool(value) for value in co2_route_conditioning_sequence_progress_values)
     )
     conditioning_start_time = event_time(co2_conditioning_start)
     conditioning_end_time = event_time(co2_conditioning_end)
@@ -1652,6 +1739,13 @@ def build_workflow_timing_summary(
         "co2_route_conditioning_pressure_min_hpa": co2_route_conditioning_pressure_min_hpa,
         "co2_route_conditioning_pressure_warning_count": co2_conditioning_pressure_warning_count,
         "co2_route_conditioning_vent_tick_count": len(co2_conditioning_vent_ticks),
+        "co2_route_conditioning_vent_tick_avg_gap_s": co2_route_conditioning_vent_tick_avg_gap_s,
+        "co2_route_conditioning_vent_tick_max_gap_s": co2_route_conditioning_vent_tick_max_gap_s,
+        "route_open_to_first_vent_s": route_open_to_first_vent_s,
+        "co2_route_conditioning_vent_heartbeat_gap_exceeded": co2_route_conditioning_vent_heartbeat_gap_exceeded,
+        "co2_route_conditioning_pressure_overlimit_seen": co2_route_conditioning_pressure_overlimit_seen,
+        "co2_route_conditioning_stream_stale": co2_route_conditioning_stream_stale,
+        "co2_route_conditioning_digital_gauge_sequence_progress": co2_route_conditioning_digital_gauge_sequence_progress,
         "sealed_during_conditioning": sealed_during_conditioning,
         "seal_preparation_started_after_conditioning": seal_preparation_started_after_conditioning,
         "high_pressure_mode_started_after_conditioning": high_pressure_mode_started_after_conditioning,

@@ -365,6 +365,15 @@ class PressureControlService:
             "critical_window_uses_query",
             "critical_window_blocking_query_count",
             "critical_window_blocking_query_total_s",
+            "conditioning_pressure_abort_hpa",
+            "pressure_overlimit_seen",
+            "pressure_overlimit_source",
+            "pressure_overlimit_hpa",
+            "vent_heartbeat_gap_exceeded",
+            "digital_gauge_sequence_progress",
+            "digital_gauge_latest_age_s",
+            "stream_stale",
+            "fail_closed_before_vent_off",
         ):
             if extra_key in data:
                 payload[extra_key] = data.get(extra_key)

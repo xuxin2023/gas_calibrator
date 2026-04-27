@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from typing import Any, Sequence
 
-from ...exceptions import WorkflowInterruptedError
+from ...exceptions import WorkflowInterruptedError, WorkflowValidationError
 from ..event_bus import EventType
 from ..models import CalibrationPhase, CalibrationPoint
 from .route_run_result import RouteRunResult
@@ -81,11 +81,17 @@ class Co2RouteRunner:
             begin_conditioning = getattr(self.service, "_begin_a2_co2_route_conditioning_at_atmosphere", None)
             if callable(begin_conditioning):
                 begin_conditioning(point, pressure_refs)
+            confirm_conditioning_vent = getattr(self.service, "_confirm_a2_co2_conditioning_before_route_open", None)
+            if callable(confirm_conditioning_vent):
+                confirm_conditioning_vent(point)
             high_pressure_first_point_mode = False
             self.service._record_workflow_timing("co2_route_open_start", "start", stage="co2_route_open", point=point)
             self.service.valve_routing_service.set_valves_for_co2(point)
             route_open_completed_monotonic_s = time.monotonic()
             setattr(self.service, "_a2_co2_route_open_monotonic_s", route_open_completed_monotonic_s)
+            refresh_conditioning_vent = getattr(self.service, "_refresh_a2_co2_conditioning_after_route_open", None)
+            if callable(refresh_conditioning_vent):
+                refresh_conditioning_vent(point)
             route_open_pressure = None
             pressure_reader = getattr(getattr(self.service, "pressure_control_service", None), "_current_pressure", None)
             if callable(pressure_reader):
@@ -356,6 +362,21 @@ class Co2RouteRunner:
                 sampled_point_indices=sampled_point_indices,
                 skipped_point_indices=skipped_point_indices,
                 stopped=True,
+                error=str(exc),
+            )
+        except WorkflowValidationError as exc:
+            try:
+                self.service.valve_routing_service.cleanup_co2_route(reason="after CO2 route fail-closed")
+            except Exception:
+                pass
+            skipped_point_indices.extend(index for index in expected_indices if index not in skipped_point_indices)
+            return RouteRunResult(
+                success=False,
+                completed_points=completed_points,
+                completed_point_indices=completed_point_indices,
+                sampled_points=sampled_points,
+                sampled_point_indices=sampled_point_indices,
+                skipped_point_indices=skipped_point_indices,
                 error=str(exc),
             )
         finally:

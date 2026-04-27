@@ -136,6 +136,15 @@ PRESSURE_READ_LATENCY_SAMPLE_FIELDS = [
     "critical_window_blocking_query_total_s",
     "critical_window_uses_latest_frame",
     "critical_window_uses_query",
+    "conditioning_pressure_abort_hpa",
+    "pressure_overlimit_seen",
+    "pressure_overlimit_source",
+    "pressure_overlimit_hpa",
+    "vent_heartbeat_gap_exceeded",
+    "digital_gauge_sequence_progress",
+    "digital_gauge_latest_age_s",
+    "stream_stale",
+    "fail_closed_before_vent_off",
 ]
 
 POSITIVE_PRESEAL_PRESSURIZATION_SAMPLE_FIELDS = [
@@ -812,6 +821,37 @@ def _latency_sample_from_payload(
         ),
         "critical_window_uses_latest_frame": payload.get("critical_window_uses_latest_frame"),
         "critical_window_uses_query": payload.get("critical_window_uses_query"),
+        "conditioning_pressure_abort_hpa": _as_float(
+            payload.get("conditioning_pressure_abort_hpa")
+            if payload.get("conditioning_pressure_abort_hpa") is not None
+            else selection.get("conditioning_pressure_abort_hpa")
+        ),
+        "pressure_overlimit_seen": bool(
+            payload.get("pressure_overlimit_seen", selection.get("pressure_overlimit_seen", False))
+        ),
+        "pressure_overlimit_source": payload.get("pressure_overlimit_source")
+        or selection.get("pressure_overlimit_source"),
+        "pressure_overlimit_hpa": _as_float(
+            payload.get("pressure_overlimit_hpa")
+            if payload.get("pressure_overlimit_hpa") is not None
+            else selection.get("pressure_overlimit_hpa")
+        ),
+        "vent_heartbeat_gap_exceeded": bool(
+            payload.get("vent_heartbeat_gap_exceeded", selection.get("vent_heartbeat_gap_exceeded", False))
+        ),
+        "digital_gauge_sequence_progress": payload.get(
+            "digital_gauge_sequence_progress",
+            selection.get("digital_gauge_sequence_progress"),
+        ),
+        "digital_gauge_latest_age_s": _as_float(
+            payload.get("digital_gauge_latest_age_s")
+            if payload.get("digital_gauge_latest_age_s") is not None
+            else selection.get("digital_gauge_latest_age_s")
+        ),
+        "stream_stale": bool(payload.get("stream_stale", selection.get("stream_stale", False))),
+        "fail_closed_before_vent_off": bool(
+            payload.get("fail_closed_before_vent_off", selection.get("fail_closed_before_vent_off", False))
+        ),
     }
 
 
@@ -1166,6 +1206,9 @@ def _build_pressure_read_latency_diagnostics(
             "route_open_pressure_first_sample",
             "route_open_pressure_surge_detected",
             "route_open_pressure_abort",
+            "co2_route_conditioning_at_atmosphere",
+            "co2_route_conditioning_pressure_sample",
+            "co2_route_conditioning_pressure_warning",
         }:
             return True
         return str(sample.get("result") or "").lower() == "fail"
@@ -1778,6 +1821,19 @@ def _build_co2_route_conditioning_evidence(
         if str(event.get("event_name") or "")
         in {"co2_route_conditioning_pressure_sample", "co2_route_conditioning_pressure_warning"}
     ]
+    guard_events = [
+        event
+        for event in events
+        if str(event.get("event_name") or "")
+        in {
+            "co2_route_conditioning_fail_closed",
+            "co2_route_conditioning_vent_heartbeat_gap",
+            "co2_route_conditioning_route_open_first_vent_gap",
+            "co2_route_conditioning_stream_stale",
+            "co2_route_conditioning_pressure_overlimit",
+            "co2_route_conditioning_vent_command_failed",
+        }
+    ]
     pressure_values = [
         value
         for value in (_as_float(event.get("pressure_hpa")) for event in pressure_events)
@@ -1805,6 +1861,77 @@ def _build_co2_route_conditioning_evidence(
     def event_time(event: Optional[Mapping[str, Any]]) -> Optional[float]:
         return _as_float((event or {}).get("timestamp_monotonic_s"))
 
+    vent_tick_events = [
+        event for event in events if str(event.get("event_name") or "") == "co2_route_conditioning_vent_tick"
+    ]
+    vent_gaps: list[float] = []
+    previous_vent_time: Optional[float] = None
+    for event in vent_tick_events:
+        state = event_state(event)
+        gap = _as_float(state.get("vent_heartbeat_gap_s", state.get("vent_tick_gap_s")))
+        current_time = event_time(event)
+        if gap is None and previous_vent_time is not None and current_time is not None:
+            gap = round(float(current_time) - float(previous_vent_time), 3)
+        if gap is not None:
+            vent_gaps.append(float(gap))
+        if current_time is not None:
+            previous_vent_time = current_time
+    route_open_end_time = event_time(route_open_end)
+    first_vent_after_route = next(
+        (
+            event
+            for event in vent_tick_events
+            if route_open_end_time is None
+            or event_time(event) is None
+            or float(event_time(event) or 0.0) >= float(route_open_end_time)
+        ),
+        None,
+    )
+    route_open_to_first_vent_s = None
+    if first_vent_after_route is not None:
+        route_open_to_first_vent_s = _as_float(event_state(first_vent_after_route).get("route_open_to_first_vent_s"))
+        if route_open_to_first_vent_s is None and route_open_end_time is not None and event_time(first_vent_after_route) is not None:
+            route_open_to_first_vent_s = round(float(event_time(first_vent_after_route) or 0.0) - float(route_open_end_time), 3)
+    terminal_event = end_event or (guard_events[-1] if guard_events else None)
+    terminal_state = event_state(terminal_event)
+    all_conditioning_events = vent_tick_events + pressure_events + guard_events
+    all_conditioning_states = [event_state(event) for event in all_conditioning_events]
+    pressure_overlimit_states = [
+        state
+        for state in all_conditioning_states
+        if bool(state.get("pressure_overlimit_seen"))
+        or _as_float(state.get("pressure_overlimit_hpa")) is not None
+    ]
+    first_pressure_overlimit = pressure_overlimit_states[0] if pressure_overlimit_states else {}
+    stream_stale_seen = any(
+        bool(state.get("stream_stale") or state.get("digital_gauge_stream_stale"))
+        or str(event.get("event_name") or "") == "co2_route_conditioning_stream_stale"
+        for event, state in zip(all_conditioning_events, all_conditioning_states)
+    )
+    sequence_progress_values = [
+        state.get("digital_gauge_sequence_progress")
+        for state in all_conditioning_states
+        if state.get("digital_gauge_sequence_progress") is not None
+    ]
+    digital_gauge_sequence_progress = (
+        None if not sequence_progress_values else all(bool(value) for value in sequence_progress_values)
+    )
+    latest_age_candidates = [
+        _as_float(
+            state.get("digital_gauge_latest_age_s")
+            or state.get("latest_frame_age_s")
+            or state.get("pressure_sample_age_s")
+            or state.get("sample_age_s")
+        )
+        for state in all_conditioning_states
+    ]
+    latest_age_candidates = [value for value in latest_age_candidates if value is not None]
+    vent_gap_exceeded = any(
+        bool(state.get("vent_heartbeat_gap_exceeded"))
+        or str(event.get("event_name") or "")
+        in {"co2_route_conditioning_vent_heartbeat_gap", "co2_route_conditioning_route_open_first_vent_gap"}
+        for event, state in zip(all_conditioning_events, all_conditioning_states)
+    )
     sealed_during_conditioning = bool(timing.get("sealed_during_conditioning"))
     if not sealed_during_conditioning and seal_event and start_event:
         seal_time = event_time(seal_event)
@@ -1816,9 +1943,9 @@ def _build_co2_route_conditioning_evidence(
             and float(seal_time) >= float(start_time)
             and (end_time is None or float(seal_time) <= float(end_time))
         )
-    decision = str((end_event or {}).get("decision") or end_state.get("conditioning_decision") or "")
+    decision = str((end_event or {}).get("decision") or end_state.get("conditioning_decision") or terminal_state.get("conditioning_decision") or "")
     if not decision:
-        decision = "FAIL" if abnormal_events else ("PASS" if end_event else "NOT_EXECUTED")
+        decision = "FAIL" if abnormal_events or guard_events else ("PASS" if end_event else "NOT_EXECUTED")
     return {
         "schema_version": "run001_a2.co2_route_conditioning.1",
         "artifact_type": "run001_a2_co2_route_conditioning_evidence",
@@ -1833,7 +1960,7 @@ def _build_co2_route_conditioning_evidence(
         "conditioning_completed_at": (end_event or {}).get("timestamp_local") or end_state.get("conditioning_completed_at"),
         "conditioning_duration_s": timing.get("co2_route_conditioning_duration_s")
         if timing.get("co2_route_conditioning_duration_s") is not None
-        else end_state.get("conditioning_duration_s"),
+        else end_state.get("conditioning_duration_s", terminal_state.get("conditioning_duration_s")),
         "pressure_monitoring_enabled": bool(start_state.get("pressure_monitoring_enabled") or pressure_events),
         "pressure_max_during_conditioning_hpa": timing.get("co2_route_conditioning_pressure_max_hpa")
         if timing.get("co2_route_conditioning_pressure_max_hpa") is not None
@@ -1845,14 +1972,56 @@ def _build_co2_route_conditioning_evidence(
         "latest_frame_age_max_s": end_state.get("latest_frame_age_max_s")
         if end_state.get("latest_frame_age_max_s") is not None
         else (max(latest_frame_ages) if latest_frame_ages else None),
+        "digital_gauge_latest_age_s": terminal_state.get("digital_gauge_latest_age_s")
+        if terminal_state.get("digital_gauge_latest_age_s") is not None
+        else (latest_age_candidates[-1] if latest_age_candidates else None),
+        "digital_gauge_sequence_progress": digital_gauge_sequence_progress,
+        "conditioning_pressure_abort_hpa": (
+            terminal_state.get("conditioning_pressure_abort_hpa")
+            or end_state.get("conditioning_pressure_abort_hpa")
+            or start_state.get("conditioning_pressure_abort_hpa")
+        ),
+        "pressure_overlimit_seen": bool(pressure_overlimit_states),
+        "pressure_overlimit_source": first_pressure_overlimit.get("pressure_overlimit_source")
+        or first_pressure_overlimit.get("pressure_sample_source")
+        or first_pressure_overlimit.get("source"),
+        "pressure_overlimit_hpa": _as_float(
+            first_pressure_overlimit.get("pressure_overlimit_hpa", first_pressure_overlimit.get("pressure_hpa"))
+        )
+        if first_pressure_overlimit
+        else None,
         "abnormal_pressure_events": abnormal_events or list(end_state.get("abnormal_pressure_events") or []),
         "conditioning_decision": decision,
         "did_not_seal_during_conditioning": not sealed_during_conditioning,
         "sealed_during_conditioning": sealed_during_conditioning,
         "vent_ticks": vent_ticks,
         "vent_tick_count": len(vent_ticks),
+        "vent_tick_avg_gap_s": None if not vent_gaps else round(sum(vent_gaps) / len(vent_gaps), 3),
+        "vent_tick_max_gap_s": None if not vent_gaps else round(max(vent_gaps), 3),
+        "route_open_to_first_vent_s": route_open_to_first_vent_s
+        if route_open_to_first_vent_s is not None
+        else terminal_state.get("route_open_to_first_vent_s"),
+        "last_vent_command_age_s": terminal_state.get("last_vent_command_age_s")
+        or end_state.get("last_vent_command_age_s"),
+        "vent_heartbeat_interval_s": start_state.get("vent_heartbeat_interval_s")
+        or terminal_state.get("vent_heartbeat_interval_s"),
+        "vent_heartbeat_gap_exceeded": vent_gap_exceeded,
+        "pressure_monitor_interval_s": start_state.get("pressure_monitor_interval_s")
+        or terminal_state.get("pressure_monitor_interval_s"),
+        "fail_closed_before_vent_off": bool(
+            terminal_state.get("fail_closed_before_vent_off")
+            or end_state.get("fail_closed_before_vent_off")
+            or guard_events
+        ),
+        "vent_off_sent_at": terminal_state.get("vent_off_sent_at") or end_state.get("vent_off_sent_at") or "",
+        "seal_command_sent": bool(terminal_state.get("seal_command_sent") or end_state.get("seal_command_sent")),
+        "sample_count": int(terminal_state.get("sample_count") or end_state.get("sample_count") or payload.get("sample_count") or 0),
+        "points_completed": int(
+            terminal_state.get("points_completed") or end_state.get("points_completed") or payload.get("points_completed") or 0
+        ),
+        "stream_stale": stream_stale_seen,
         "periodic_vent_tick_evidence_present": bool(vent_ticks),
-        "route_open_allowed": bool(not sealed_during_conditioning and (not end_event or decision.upper() != "FAIL")),
+        "route_open_allowed": bool(not sealed_during_conditioning and decision.upper() != "FAIL"),
         "route_open_blocked_reason": "" if not sealed_during_conditioning else "sealed_during_conditioning",
         "workflow_summary": {
             "co2_route_conditioning_duration_s": timing.get("co2_route_conditioning_duration_s"),
@@ -1860,6 +2029,10 @@ def _build_co2_route_conditioning_evidence(
                 "co2_route_conditioning_pressure_warning_count"
             ),
             "co2_route_conditioning_vent_tick_count": timing.get("co2_route_conditioning_vent_tick_count"),
+            "co2_route_conditioning_vent_tick_avg_gap_s": timing.get("co2_route_conditioning_vent_tick_avg_gap_s"),
+            "co2_route_conditioning_vent_tick_max_gap_s": timing.get("co2_route_conditioning_vent_tick_max_gap_s"),
+            "route_open_to_first_vent_s": timing.get("route_open_to_first_vent_s"),
+            "vent_heartbeat_gap_exceeded": timing.get("co2_route_conditioning_vent_heartbeat_gap_exceeded"),
             "seal_preparation_started_after_conditioning": timing.get(
                 "seal_preparation_started_after_conditioning"
             ),
@@ -3045,6 +3218,31 @@ def build_run001_a2_evidence_payload(
             "a2_point_pressure_points_hpa": _pressure_points_from_rows(rows),
             "continuous_atmosphere_hold": _as_bool(pressure_cfg.get("continuous_atmosphere_hold")),
             "vent_hold_interval_s": _as_float(pressure_cfg.get("vent_hold_interval_s")),
+            "atmosphere_vent_heartbeat_interval_s": _as_float(
+                pressure_cfg.get("atmosphere_vent_heartbeat_interval_s")
+                if pressure_cfg.get("atmosphere_vent_heartbeat_interval_s") is not None
+                else pressure_cfg.get("conditioning_vent_heartbeat_interval_s", 1.0)
+            ),
+            "atmosphere_vent_max_gap_s": _as_float(
+                pressure_cfg.get("atmosphere_vent_max_gap_s")
+                if pressure_cfg.get("atmosphere_vent_max_gap_s") is not None
+                else pressure_cfg.get("conditioning_vent_max_gap_s", 3.0)
+            ),
+            "pressure_monitor_interval_s": _as_float(
+                pressure_cfg.get("pressure_monitor_interval_s")
+                if pressure_cfg.get("pressure_monitor_interval_s") is not None
+                else pressure_cfg.get("conditioning_pressure_monitor_interval_s", 0.5)
+            ),
+            "digital_gauge_max_age_s": _as_float(
+                pressure_cfg.get("conditioning_digital_gauge_max_age_s")
+                if pressure_cfg.get("conditioning_digital_gauge_max_age_s") is not None
+                else pressure_cfg.get("digital_gauge_max_age_s", 3.0)
+            ),
+            "conditioning_pressure_abort_hpa": _as_float(
+                pressure_cfg.get("conditioning_pressure_abort_hpa")
+                if pressure_cfg.get("conditioning_pressure_abort_hpa") is not None
+                else pressure_cfg.get("preseal_atmosphere_flush_abort_pressure_hpa", pressure_cfg.get("preseal_abort_pressure_hpa", 1150.0))
+            ),
             "preseal_atmosphere_hold_pressure_limit_hpa": _preseal_atmosphere_hold_limit_hpa(raw_cfg, rows),
             "positive_preseal_pressurization_enabled": _as_bool(
                 pressure_cfg.get("positive_preseal_pressurization_enabled")
@@ -3371,6 +3569,14 @@ def _finalize_artifact_decision(payload: dict[str, Any], run_dir: str | Path) ->
             reasons.append("a2_co2_route_conditioning_missing_vent_tick_evidence")
         if conditioning and bool(conditioning.get("sealed_during_conditioning")):
             reasons.append("a2_co2_route_conditioning_sealed_before_completion")
+        if conditioning and bool(conditioning.get("vent_heartbeat_gap_exceeded")):
+            reasons.append("a2_co2_route_conditioning_vent_heartbeat_gap_exceeded")
+        if conditioning and bool(conditioning.get("pressure_overlimit_seen")):
+            reasons.append("a2_co2_route_conditioning_pressure_overlimit")
+        if conditioning and bool(conditioning.get("stream_stale")):
+            reasons.append("a2_co2_route_conditioning_digital_gauge_stream_stale")
+        if conditioning and conditioning.get("digital_gauge_sequence_progress") is False:
+            reasons.append("a2_co2_route_conditioning_digital_gauge_sequence_not_progressing")
     deduped = list(dict.fromkeys(reasons))
     if payload.get("a2_final_decision") != RUN001_NOT_EXECUTED:
         payload["a2_final_decision"] = RUN001_PASS if not deduped else RUN001_FAIL
@@ -3639,6 +3845,22 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "co2_route_conditioning_evidence_artifact": str(co2_route_conditioning_path),
             "co2_route_conditioning_decision": co2_route_conditioning_payload.get("conditioning_decision"),
             "co2_route_conditioning_vent_tick_count": co2_route_conditioning_payload.get("vent_tick_count"),
+            "co2_route_conditioning_vent_tick_avg_gap_s": co2_route_conditioning_payload.get("vent_tick_avg_gap_s"),
+            "co2_route_conditioning_vent_tick_max_gap_s": co2_route_conditioning_payload.get("vent_tick_max_gap_s"),
+            "route_open_to_first_vent_s": co2_route_conditioning_payload.get("route_open_to_first_vent_s"),
+            "last_vent_command_age_s": co2_route_conditioning_payload.get("last_vent_command_age_s"),
+            "vent_heartbeat_interval_s": co2_route_conditioning_payload.get("vent_heartbeat_interval_s"),
+            "vent_heartbeat_gap_exceeded": co2_route_conditioning_payload.get("vent_heartbeat_gap_exceeded"),
+            "pressure_monitor_interval_s": co2_route_conditioning_payload.get("pressure_monitor_interval_s"),
+            "digital_gauge_latest_age_s": co2_route_conditioning_payload.get("digital_gauge_latest_age_s"),
+            "digital_gauge_sequence_progress": co2_route_conditioning_payload.get("digital_gauge_sequence_progress"),
+            "conditioning_pressure_abort_hpa": co2_route_conditioning_payload.get("conditioning_pressure_abort_hpa"),
+            "pressure_overlimit_seen": co2_route_conditioning_payload.get("pressure_overlimit_seen"),
+            "pressure_overlimit_source": co2_route_conditioning_payload.get("pressure_overlimit_source"),
+            "pressure_overlimit_hpa": co2_route_conditioning_payload.get("pressure_overlimit_hpa"),
+            "fail_closed_before_vent_off": co2_route_conditioning_payload.get("fail_closed_before_vent_off"),
+            "vent_off_sent_at": co2_route_conditioning_payload.get("vent_off_sent_at"),
+            "seal_command_sent": co2_route_conditioning_payload.get("seal_command_sent"),
             "co2_route_conditioning_pressure_max_hpa": co2_route_conditioning_payload.get(
                 "pressure_max_during_conditioning_hpa"
             ),
