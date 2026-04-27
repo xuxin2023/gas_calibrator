@@ -251,3 +251,49 @@ def test_query_only_execute_fails_closed_on_unavailable_query(tmp_path: Path) ->
     assert summary["valve_command_sent"] is False
     assert summary["pressure_setpoint_command_sent"] is False
     assert summary["sample_count"] == 0
+
+
+def test_relay_open_close_only_is_actuator_not_query_failure(tmp_path: Path) -> None:
+    class SilentSerial:
+        def write(self, _payload: bytes) -> None:
+            raise AssertionError("relay R0 must not send output/control bytes")
+
+        def readline(self) -> bytes:
+            return b""
+
+        def close(self) -> None:
+            return None
+
+    config = _base_config()
+    config["devices"]["pressure_gauge"]["enabled"] = False
+    config["devices"]["temperature_chamber"]["enabled"] = False
+    config["devices"]["thermometer"]["enabled"] = False
+    config["devices"]["pressure_controller"]["enabled"] = False
+    config["devices"]["gas_analyzers"] = []
+
+    summary = write_query_only_real_com_probe_artifacts(
+        config,
+        output_dir=tmp_path / "r0",
+        config_path=tmp_path / "r0_config.json",
+        cli_allow=True,
+        env={QUERY_ONLY_REAL_COM_ENV_VAR: "1"},
+        operator_confirmation_path=_operator_confirmation(tmp_path),
+        execute_query_only=True,
+        serial_factory=lambda _device: SilentSerial(),
+    )
+
+    assert summary["final_decision"] == "PASS"
+    assert summary["query_failure_seen"] is False
+    assert summary["attempted_write_count"] == 0
+    assert summary["relay_output_command_sent"] is False
+
+    inventory = json.loads(Path(summary["artifact_paths"]["device_inventory"]).read_text(encoding="utf-8"))
+    relay_entries = [item for item in inventory if item["device_name"] in {"relay", "relay_8"}]
+    assert {item["device_type"] for item in relay_entries} == {"actuator_only"}
+    assert {item["query_capability"] for item in relay_entries} == {"not_applicable"}
+
+    results = json.loads(Path(summary["artifact_paths"]["query_results"]).read_text(encoding="utf-8"))
+    relay_results = [item for item in results if item["device_name"] in {"relay", "relay_8"}]
+    assert {item["result"] for item in relay_results} == {"not_applicable"}
+    assert all(item["port_open_close_ok"] is True for item in relay_results)
+    assert all(item["control_command_sent"] is False for item in relay_results)

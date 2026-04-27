@@ -195,10 +195,11 @@ def _device_entries(raw_cfg: Mapping[str, Any]) -> list[dict[str, Any]]:
         enabled = _as_bool(device.get("enabled"))
         enabled = True if enabled is None else bool(enabled)
         is_h2o = name in H2O_DEVICE_NAMES
+        is_actuator_only = name in {"relay", "relay_8"}
         entries.append(
             {
                 "device_name": name,
-                "device_type": name,
+                "device_type": "actuator_only" if is_actuator_only else name,
                 "enabled": enabled,
                 "h2o_device": is_h2o,
                 "port": str(device.get("port") or ""),
@@ -206,6 +207,8 @@ def _device_entries(raw_cfg: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "timeout_s": device.get("timeout", device.get("response_timeout_s", 1.0)),
                 "will_open": bool(enabled and not is_h2o),
                 "read_only": True,
+                "query_capability": "not_applicable" if is_actuator_only else "read_only",
+                "control_command_sent": False if is_actuator_only else None,
             }
         )
     for item in devices.get("gas_analyzers") or []:
@@ -367,6 +370,7 @@ def evaluate_query_only_real_com_gate(
 
 def _safe_read_commands(device: Mapping[str, Any], raw_cfg: Mapping[str, Any]) -> list[dict[str, Any]]:
     device_type = str(device.get("device_type") or "")
+    device_name = str(device.get("device_name") or "")
     commands: list[str] = []
     if device_type == "pressure_controller":
         pressure_queries = _path_value(raw_cfg, "devices.pressure_controller.pressure_queries")
@@ -376,7 +380,7 @@ def _safe_read_commands(device: Mapping[str, Any], raw_cfg: Mapping[str, Any]) -
         commands.append("<read_frame>")
     elif device_type == "temperature_chamber":
         commands.extend(["PV?", "SV?"])
-    elif device_type in {"relay", "relay_8"}:
+    elif device_type == "actuator_only" or device_name in {"relay", "relay_8"}:
         commands.append("<open_close_only>")
     else:
         commands.append("<unsupported>")
@@ -392,6 +396,8 @@ def _safe_read_commands(device: Mapping[str, Any], raw_cfg: Mapping[str, Any]) -
                 "command": command_text,
                 "read_only": bool(safe),
                 "supported": bool(safe and command_text != "<unsupported>"),
+                "query_capability": "not_applicable" if command_text == "<open_close_only>" else "read_only",
+                "control_command_sent": False if command_text == "<open_close_only>" else None,
             }
         )
     return out
@@ -433,8 +439,11 @@ def _execute_device_query(
     trace: list[dict[str, Any]] = []
     results: list[dict[str, Any]] = []
     handle: Any = None
+    opened_ok = False
+    closed_ok = False
     try:
         handle = serial_factory(device)
+        opened_ok = True
         trace.append(_trace_row(device, action="open", result="ok"))
         for command in _safe_read_commands(device, raw_cfg):
             if not command.get("supported"):
@@ -445,7 +454,16 @@ def _execute_device_query(
             if command_text == "<read_frame>":
                 raw_response = handle.readline()
             elif command_text == "<open_close_only>":
-                raw_response = b""
+                results.append(
+                    {
+                        **dict(device),
+                        **command,
+                        "result": "not_applicable",
+                        "raw_response": "",
+                        "port_open_close_ok": None,
+                    }
+                )
+                continue
             else:
                 handle.write((command_text + "\n").encode("ascii"))
                 raw_response = handle.readline()
@@ -467,9 +485,13 @@ def _execute_device_query(
         if handle is not None:
             try:
                 handle.close()
+                closed_ok = True
                 trace.append(_trace_row(device, action="close", result="ok"))
             except Exception as exc:
                 trace.append(_trace_row(device, action="close", result="error", details={"error": str(exc)}))
+    for result in results:
+        if result.get("command") == "<open_close_only>":
+            result["port_open_close_ok"] = bool(opened_ok and closed_ok)
     return trace, results
 
 
