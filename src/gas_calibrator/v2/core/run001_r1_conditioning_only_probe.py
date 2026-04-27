@@ -304,9 +304,14 @@ def _build_timing_breakdown(
     *,
     route_open_to_first_vent_ms: Optional[float],
     max_vent_heartbeat_gap_ms: float,
+    max_vent_heartbeat_emit_start_gap_ms: float,
     vent_heartbeat_count: int,
     relay_route_action_count: int,
     route_open_to_first_vent_threshold_ms: float,
+    route_to_first_vent_emit_start_threshold_ms: float,
+    pressure_read_deferred_for_heartbeat_count: int = 0,
+    heartbeat_due_before_pressure_read_count: int = 0,
+    heartbeat_sent_before_pressure_read_count: int = 0,
 ) -> dict[str, Any]:
     latency_rows = _build_latency_breakdown(timing_rows)
     relay_durations = _duration_values(latency_rows, "relay_action")
@@ -330,66 +335,98 @@ def _build_timing_breakdown(
     route_open_completed_to_first_vent_ms = _ms_between(route_completed_ns, first_vent_start_ns)
     route_action_sequence_duration_ms = _ms_between(first_route_start_ns, last_route_end_ns)
     first_vent_emit_duration_ms = _ms_between(first_vent_start_ns, first_vent_end_ns)
+    vent_command_roundtrip_ms = first_vent_emit_duration_ms
     pressure_read_latency_ms = pressure_durations[0] if pressure_durations else None
     max_pressure_read_latency_ms = max(pressure_durations) if pressure_durations else None
     max_relay_action_duration_ms = max(relay_durations) if relay_durations else None
     evidence_write_latency_ms = evidence_durations[-1] if evidence_durations else None
 
-    diagnostic_decision = "NOT_APPLICABLE"
-    suspected_root_cause = ""
-    critical_path_suspect = "unknown"
-    old_metric_failed = (
+    legacy_route_open_to_first_vent_exceeded = (
         route_open_to_first_vent_ms is not None
         and route_open_to_first_vent_ms > float(route_open_to_first_vent_threshold_ms)
     )
-    if old_metric_failed:
-        if (
-            route_open_completed_to_first_vent_ms is not None
-            and last_route_action_end_to_first_vent_ms is not None
-            and route_open_completed_to_first_vent_ms <= 300.0
-            and last_route_action_end_to_first_vent_ms <= 300.0
-        ):
-            diagnostic_decision = "ANCHOR_REVIEW_REQUIRED"
-            suspected_root_cause = "threshold_anchor_too_early"
-            critical_path_suspect = "threshold_anchor_too_early"
-        elif route_open_completed_to_first_vent_ms is not None and route_open_completed_to_first_vent_ms > 1000.0:
-            diagnostic_decision = "HEARTBEAT_TOO_LATE"
-            suspected_root_cause = "heartbeat_scheduler_late_start"
-            critical_path_suspect = "heartbeat_scheduler_late_start"
-        elif (
-            (max_relay_action_duration_ms is not None and max_relay_action_duration_ms > 500.0)
-            or (route_action_sequence_duration_ms is not None and route_action_sequence_duration_ms > 1000.0)
-        ):
-            diagnostic_decision = "RELAY_ACTION_LATENCY_DOMINANT"
-            suspected_root_cause = "route_action_duration"
-            critical_path_suspect = "route_action_duration"
-        elif pressure_read_latency_ms is not None and pressure_read_latency_ms > 1000.0:
-            diagnostic_decision = "PRESSURE_READ_LATENCY_DOMINANT"
-            suspected_root_cause = "pressure_read_latency"
-            critical_path_suspect = "pressure_read_latency"
-        elif evidence_write_latency_ms is not None and evidence_write_latency_ms > 1000.0:
-            suspected_root_cause = "evidence_write_latency"
-            critical_path_suspect = "evidence_write_latency"
+    route_emit_gate_ok = (
+        route_open_completed_to_first_vent_ms is not None
+        and last_route_action_end_to_first_vent_ms is not None
+        and route_open_completed_to_first_vent_ms <= float(route_to_first_vent_emit_start_threshold_ms)
+        and last_route_action_end_to_first_vent_ms <= float(route_to_first_vent_emit_start_threshold_ms)
+    )
+    legacy_metric_superseded_by_emit_start_gate = bool(legacy_route_open_to_first_vent_exceeded and route_emit_gate_ok)
+    vent_command_roundtrip_slow = bool(vent_command_roundtrip_ms is not None and vent_command_roundtrip_ms > 1000.0)
+
+    diagnostic_decision = "NOT_APPLICABLE"
+    suspected_root_cause = ""
+    critical_path_suspect = "unknown"
+    secondary_diagnostic_decisions: list[str] = []
+    if legacy_metric_superseded_by_emit_start_gate:
+        diagnostic_decision = "LEGACY_ANCHOR_SUPERSEDED"
+        suspected_root_cause = "threshold_anchor_too_early"
+        critical_path_suspect = "threshold_anchor_too_early"
+    elif (
+        route_open_completed_to_first_vent_ms is not None
+        and route_open_completed_to_first_vent_ms > float(route_to_first_vent_emit_start_threshold_ms)
+    ):
+        diagnostic_decision = "HEARTBEAT_TOO_LATE"
+        suspected_root_cause = "heartbeat_scheduler_late_start"
+        critical_path_suspect = "heartbeat_scheduler_late_start"
+    elif (
+        last_route_action_end_to_first_vent_ms is not None
+        and last_route_action_end_to_first_vent_ms > float(route_to_first_vent_emit_start_threshold_ms)
+    ):
+        diagnostic_decision = "HEARTBEAT_TOO_LATE"
+        suspected_root_cause = "heartbeat_scheduler_late_start"
+        critical_path_suspect = "heartbeat_scheduler_late_start"
+    elif (
+        (max_relay_action_duration_ms is not None and max_relay_action_duration_ms > 500.0)
+        or (route_action_sequence_duration_ms is not None and route_action_sequence_duration_ms > 1000.0)
+    ):
+        diagnostic_decision = "RELAY_ACTION_LATENCY_DOMINANT"
+        suspected_root_cause = "route_action_duration"
+        critical_path_suspect = "route_action_duration"
+    elif pressure_read_latency_ms is not None and pressure_read_latency_ms > 1000.0:
+        diagnostic_decision = "PRESSURE_READ_LATENCY_DOMINANT"
+        suspected_root_cause = "pressure_read_latency"
+        critical_path_suspect = "pressure_read_latency"
+    elif evidence_write_latency_ms is not None and evidence_write_latency_ms > 1000.0:
+        suspected_root_cause = "evidence_write_latency"
+        critical_path_suspect = "evidence_write_latency"
+    if vent_command_roundtrip_slow:
+        if diagnostic_decision == "NOT_APPLICABLE":
+            diagnostic_decision = "VENT_COMMAND_ROUNDTRIP_SLOW"
+        else:
+            secondary_diagnostic_decisions.append("VENT_COMMAND_ROUNDTRIP_SLOW")
 
     return {
+        "legacy_route_open_to_first_vent_ms": route_open_to_first_vent_ms,
+        "legacy_route_open_to_first_vent_exceeded": bool(legacy_route_open_to_first_vent_exceeded),
+        "legacy_metric_superseded_by_emit_start_gate": legacy_metric_superseded_by_emit_start_gate,
         "route_start_to_first_vent_ms": route_start_to_first_vent_ms,
         "first_route_action_start_to_first_vent_ms": first_route_action_start_to_first_vent_ms,
         "first_route_action_end_to_first_vent_ms": first_route_action_end_to_first_vent_ms,
         "last_route_action_start_to_first_vent_ms": last_route_action_start_to_first_vent_ms,
         "last_route_action_end_to_first_vent_ms": last_route_action_end_to_first_vent_ms,
         "route_open_completed_to_first_vent_ms": route_open_completed_to_first_vent_ms,
+        "route_open_completed_to_first_vent_emit_start_ms": route_open_completed_to_first_vent_ms,
+        "last_route_action_end_to_first_vent_emit_start_ms": last_route_action_end_to_first_vent_ms,
         "route_action_sequence_duration_ms": route_action_sequence_duration_ms,
         "first_vent_emit_duration_ms": first_vent_emit_duration_ms,
+        "vent_command_roundtrip_ms": vent_command_roundtrip_ms,
+        "vent_command_roundtrip_slow": vent_command_roundtrip_slow,
+        "max_vent_heartbeat_emit_start_gap_ms": max_vent_heartbeat_emit_start_gap_ms,
         "max_vent_heartbeat_gap_ms": max_vent_heartbeat_gap_ms,
         "vent_heartbeat_count": int(vent_heartbeat_count),
         "pressure_read_latency_ms": pressure_read_latency_ms,
         "max_pressure_read_latency_ms": max_pressure_read_latency_ms,
+        "pressure_read_deferred_for_heartbeat_count": int(pressure_read_deferred_for_heartbeat_count),
+        "heartbeat_due_before_pressure_read_count": int(heartbeat_due_before_pressure_read_count),
+        "heartbeat_sent_before_pressure_read_count": int(heartbeat_sent_before_pressure_read_count),
         "relay_action_count": int(relay_route_action_count),
         "relay_action_durations_ms": relay_durations,
         "max_relay_action_duration_ms": max_relay_action_duration_ms,
         "evidence_write_latency_ms": evidence_write_latency_ms,
         "critical_path_suspect": critical_path_suspect,
         "diagnostic_decision": diagnostic_decision,
+        "secondary_diagnostic_decisions": secondary_diagnostic_decisions,
         "suspected_root_cause": suspected_root_cause,
         "latency_breakdown_rows": latency_rows,
     }
@@ -885,6 +922,12 @@ def _r1_runtime(raw_cfg: Mapping[str, Any]) -> dict[str, Any]:
         ),
         "max_vent_heartbeat_gap_ms": float(runtime.get("max_vent_heartbeat_gap_ms", 3000.0)),
         "route_open_to_first_vent_max_ms": float(runtime.get("route_open_to_first_vent_max_ms", 1000.0)),
+        "route_open_completed_to_first_vent_emit_start_max_ms": float(
+            runtime.get("route_open_completed_to_first_vent_emit_start_max_ms", 300.0)
+        ),
+        "last_route_action_end_to_first_vent_emit_start_max_ms": float(
+            runtime.get("last_route_action_end_to_first_vent_emit_start_max_ms", 300.0)
+        ),
         "pressure_freshness_max_age_ms": float(runtime.get("pressure_freshness_max_age_ms", 1000.0)),
         "pressure_overlimit_hpa": float(
             runtime.get(
@@ -1348,6 +1391,9 @@ def write_r1_conditioning_only_probe_artifacts(
     conditioning_started = False
     route_open_to_first_vent_ms: Optional[float] = None
     conditioning_duration_s = 0.0
+    pressure_read_deferred_for_heartbeat_count = 0
+    heartbeat_due_before_pressure_read_count = 0
+    heartbeat_sent_before_pressure_read_count = 0
     chamber_diag: dict[str, Any] = {}
     pace_status: dict[str, Any] = {}
     analyzer_status: dict[str, Any] = {}
@@ -1466,6 +1512,8 @@ def write_r1_conditioning_only_probe_artifacts(
                 error=pressure_error,
             )
             latency_ms = (read_end - read_start) * 1000.0
+            estimated_pressure_read_s = max(0.001, read_end - read_start)
+            last_pressure_receipt_monotonic: Optional[float] = read_end if pressure_latest_hpa is not None else None
             age_ms = 0.0 if pressure_latest_hpa is not None else latency_ms
             pressure_freshness_ok = pressure_latest_hpa is not None and age_ms <= runtime["pressure_freshness_max_age_ms"]
             pressure_overlimit_seen = bool(
@@ -1546,11 +1594,103 @@ def write_r1_conditioning_only_probe_artifacts(
                         if not vent_ok:
                             rejection_reasons.append("post_route_vent_heartbeat_failed")
                         if route_open_to_first_vent_ms > runtime["route_open_to_first_vent_max_ms"]:
-                            rejection_reasons.append("route_open_to_first_vent_exceeded")
+                            trace_rows.append(
+                                {
+                                    "timestamp": _now(),
+                                    "event": "legacy_route_open_to_first_vent_exceeded",
+                                    "legacy_route_open_to_first_vent_ms": route_open_to_first_vent_ms,
+                                    "legacy_threshold_ms": runtime["route_open_to_first_vent_max_ms"],
+                                    "result": "diagnostic_only",
+                                }
+                            )
 
-                        next_tick = time.monotonic()
+                        heartbeat_interval_s = max(0.001, float(runtime["vent_heartbeat_interval_s"]))
+                        pressure_freshness_window_s = max(0.0, float(runtime["pressure_freshness_max_age_ms"]) / 1000.0)
+                        last_heartbeat_emit_start_s = float(vent_rows[-1].get("monotonic_s") or time.monotonic())
+                        next_heartbeat_due_s = last_heartbeat_emit_start_s + heartbeat_interval_s
                         deadline = route_open_start + runtime["conditioning_duration_s"]
                         while not rejection_reasons and time.monotonic() < deadline:
+                            heartbeat_sent_this_cycle = False
+                            now_s = time.monotonic()
+                            if now_s >= next_heartbeat_due_s:
+                                heartbeat_due_before_pressure_read_count += 1
+                                heartbeat_sent_before_pressure_read_count += 1
+                                _timing_mark(
+                                    timing_rows,
+                                    "heartbeat_due_before_pressure_read",
+                                    stage="conditioning",
+                                    sequence_id=heartbeat_sent_before_pressure_read_count,
+                                )
+                                if not _send_vent_on(
+                                    pace,
+                                    vent_rows=vent_rows,
+                                    trace_rows=trace_rows,
+                                    timing_rows=timing_rows,
+                                    phase="conditioning_heartbeat",
+                                ):
+                                    rejection_reasons.append("conditioning_vent_heartbeat_failed")
+                                    break
+                                heartbeat_sent_this_cycle = True
+                                last_heartbeat_emit_start_s = float(vent_rows[-1].get("monotonic_s") or time.monotonic())
+                                next_heartbeat_due_s = last_heartbeat_emit_start_s + heartbeat_interval_s
+                                now_s = time.monotonic()
+
+                            time_to_heartbeat_s = max(0.0, next_heartbeat_due_s - now_s)
+                            pressure_age_s = (
+                                now_s - last_pressure_receipt_monotonic
+                                if last_pressure_receipt_monotonic is not None
+                                else pressure_freshness_window_s + 1.0
+                            )
+                            pressure_still_fresh = bool(
+                                last_pressure_receipt_monotonic is not None
+                                and pressure_age_s <= pressure_freshness_window_s
+                            )
+                            if (
+                                pressure_still_fresh
+                                and not heartbeat_sent_this_cycle
+                                and time_to_heartbeat_s <= estimated_pressure_read_s
+                            ):
+                                pressure_read_deferred_for_heartbeat_count += 1
+                                _timing_mark(
+                                    timing_rows,
+                                    "pressure_read_deferred_for_heartbeat",
+                                    stage="conditioning",
+                                    sequence_id=pressure_read_deferred_for_heartbeat_count,
+                                    estimated_pressure_read_s=round(estimated_pressure_read_s, 6),
+                                    time_to_heartbeat_s=round(time_to_heartbeat_s, 6),
+                                )
+                                remaining_sleep = max(0.0, min(time_to_heartbeat_s, deadline - time.monotonic()))
+                                if remaining_sleep:
+                                    sleep_fn(remaining_sleep)
+                                continue
+
+                            if (
+                                not heartbeat_sent_this_cycle
+                                and time_to_heartbeat_s <= estimated_pressure_read_s
+                                and time.monotonic() < deadline
+                            ):
+                                heartbeat_sent_before_pressure_read_count += 1
+                                _timing_mark(
+                                    timing_rows,
+                                    "heartbeat_sent_before_pressure_read",
+                                    stage="conditioning",
+                                    sequence_id=heartbeat_sent_before_pressure_read_count,
+                                    estimated_pressure_read_s=round(estimated_pressure_read_s, 6),
+                                    time_to_heartbeat_s=round(time_to_heartbeat_s, 6),
+                                )
+                                if not _send_vent_on(
+                                    pace,
+                                    vent_rows=vent_rows,
+                                    trace_rows=trace_rows,
+                                    timing_rows=timing_rows,
+                                    phase="conditioning_heartbeat",
+                                ):
+                                    rejection_reasons.append("conditioning_vent_heartbeat_failed")
+                                    break
+                                heartbeat_sent_this_cycle = True
+                                last_heartbeat_emit_start_s = float(vent_rows[-1].get("monotonic_s") or time.monotonic())
+                                next_heartbeat_due_s = last_heartbeat_emit_start_s + heartbeat_interval_s
+
                             read_start = time.monotonic()
                             pressure_sequence_id += 1
                             pressure_perf_start_ns = _timing_mark(
@@ -1572,6 +1712,9 @@ def write_r1_conditioning_only_probe_artifacts(
                                 error=pressure_error,
                             )
                             latency_ms = (read_end - read_start) * 1000.0
+                            estimated_pressure_read_s = max(0.001, read_end - read_start)
+                            if pressure_latest_hpa is not None:
+                                last_pressure_receipt_monotonic = read_end
                             age_ms = 0.0 if pressure_latest_hpa is not None else latency_ms
                             fresh = pressure_latest_hpa is not None and age_ms <= runtime["pressure_freshness_max_age_ms"]
                             pressure_freshness_ok = pressure_freshness_ok and fresh
@@ -1598,17 +1741,7 @@ def write_r1_conditioning_only_probe_artifacts(
                             if not fresh:
                                 rejection_reasons.append("pressure_freshness_lost")
                                 break
-                            if not _send_vent_on(
-                                pace,
-                                vent_rows=vent_rows,
-                                trace_rows=trace_rows,
-                                timing_rows=timing_rows,
-                                phase="conditioning_heartbeat",
-                            ):
-                                rejection_reasons.append("conditioning_vent_heartbeat_failed")
-                                break
-                            next_tick += runtime["vent_heartbeat_interval_s"]
-                            remaining_sleep = max(0.0, min(next_tick - time.monotonic(), deadline - time.monotonic()))
+                            remaining_sleep = max(0.0, min(next_heartbeat_due_s - time.monotonic(), deadline - time.monotonic()))
                             if remaining_sleep:
                                 sleep_fn(remaining_sleep)
 
@@ -1663,18 +1796,62 @@ def write_r1_conditioning_only_probe_artifacts(
     for previous, current in zip(vent_rows, vent_rows[1:]):
         vent_gaps_ms.append((float(current.get("monotonic_s") or 0.0) - float(previous.get("monotonic_s") or 0.0)) * 1000.0)
     max_vent_gap_ms = round(max(vent_gaps_ms), 3) if vent_gaps_ms else 0.0
+    vent_emit_start_ns = [
+        int(row.get("perf_counter_ns"))
+        for row in timing_rows
+        if row.get("event_name") == "each_vent_heartbeat_emit_start" and row.get("perf_counter_ns") is not None
+    ]
+    vent_emit_start_gaps_ms = [
+        (current - previous) / 1_000_000.0 for previous, current in zip(vent_emit_start_ns, vent_emit_start_ns[1:])
+    ]
+    max_vent_emit_start_gap_ms = round(max(vent_emit_start_gaps_ms), 3) if vent_emit_start_gaps_ms else 0.0
     vent_heartbeat_count = len(vent_rows)
+    route_emit_start_threshold_ms = min(
+        float(runtime["route_open_completed_to_first_vent_emit_start_max_ms"]),
+        float(runtime["last_route_action_end_to_first_vent_emit_start_max_ms"]),
+    )
+    timing_breakdown = _build_timing_breakdown(
+        timing_rows,
+        route_open_to_first_vent_ms=route_open_to_first_vent_ms,
+        max_vent_heartbeat_gap_ms=max_vent_gap_ms,
+        max_vent_heartbeat_emit_start_gap_ms=max_vent_emit_start_gap_ms,
+        vent_heartbeat_count=vent_heartbeat_count,
+        relay_route_action_count=relay_route_action_count,
+        route_open_to_first_vent_threshold_ms=runtime["route_open_to_first_vent_max_ms"],
+        route_to_first_vent_emit_start_threshold_ms=route_emit_start_threshold_ms,
+        pressure_read_deferred_for_heartbeat_count=pressure_read_deferred_for_heartbeat_count,
+        heartbeat_due_before_pressure_read_count=heartbeat_due_before_pressure_read_count,
+        heartbeat_sent_before_pressure_read_count=heartbeat_sent_before_pressure_read_count,
+    )
     if executed and vent_heartbeat_count == 0:
         rejection_reasons.append("missing_vent_heartbeat")
         final_decision = "FAIL_CLOSED"
     if executed and max_vent_gap_ms > runtime["max_vent_heartbeat_gap_ms"]:
         rejection_reasons.append("max_vent_heartbeat_gap_exceeded")
         final_decision = "FAIL_CLOSED"
+    if executed and max_vent_emit_start_gap_ms > runtime["max_vent_heartbeat_gap_ms"]:
+        rejection_reasons.append("max_vent_heartbeat_emit_start_gap_exceeded")
+        final_decision = "FAIL_CLOSED"
+    if executed and route_opened:
+        route_emit_delay_ms = timing_breakdown.get("route_open_completed_to_first_vent_emit_start_ms")
+        last_action_emit_delay_ms = timing_breakdown.get("last_route_action_end_to_first_vent_emit_start_ms")
+        if route_emit_delay_ms is None or float(route_emit_delay_ms) > float(
+            runtime["route_open_completed_to_first_vent_emit_start_max_ms"]
+        ):
+            rejection_reasons.append("route_open_completed_to_first_vent_emit_start_exceeded")
+            final_decision = "FAIL_CLOSED"
+        if last_action_emit_delay_ms is None or float(last_action_emit_delay_ms) > float(
+            runtime["last_route_action_end_to_first_vent_emit_start_max_ms"]
+        ):
+            rejection_reasons.append("last_route_action_end_to_first_vent_emit_start_exceeded")
+            final_decision = "FAIL_CLOSED"
     if executed and not pressure_freshness_ok:
         rejection_reasons.append("pressure_gauge_freshness_not_ok")
         final_decision = "FAIL_CLOSED"
     if pressure_overlimit_seen:
         final_decision = "FAIL_CLOSED"
+    if executed and not rejection_reasons and not pressure_overlimit_seen:
+        final_decision = "PASS"
     for row in device_rows:
         port = row.get("port")
         if port and row.get("result") not in {"unavailable", "error"}:
@@ -1691,14 +1868,6 @@ def write_r1_conditioning_only_probe_artifacts(
         "valve_command_sent": bool(relay_output_command_sent),
         "valve_command_scope": "authorized_r1_route_conditioning_only" if relay_output_command_sent else "",
     }
-    timing_breakdown = _build_timing_breakdown(
-        timing_rows,
-        route_open_to_first_vent_ms=route_open_to_first_vent_ms,
-        max_vent_heartbeat_gap_ms=max_vent_gap_ms,
-        vent_heartbeat_count=vent_heartbeat_count,
-        relay_route_action_count=relay_route_action_count,
-        route_open_to_first_vent_threshold_ms=runtime["route_open_to_first_vent_max_ms"],
-    )
     timing_summary_fields = {
         key: value
         for key, value in timing_breakdown.items()
@@ -1791,9 +1960,14 @@ def write_r1_conditioning_only_probe_artifacts(
         timing_rows,
         route_open_to_first_vent_ms=route_open_to_first_vent_ms,
         max_vent_heartbeat_gap_ms=max_vent_gap_ms,
+        max_vent_heartbeat_emit_start_gap_ms=max_vent_emit_start_gap_ms,
         vent_heartbeat_count=vent_heartbeat_count,
         relay_route_action_count=relay_route_action_count,
         route_open_to_first_vent_threshold_ms=runtime["route_open_to_first_vent_max_ms"],
+        route_to_first_vent_emit_start_threshold_ms=route_emit_start_threshold_ms,
+        pressure_read_deferred_for_heartbeat_count=pressure_read_deferred_for_heartbeat_count,
+        heartbeat_due_before_pressure_read_count=heartbeat_due_before_pressure_read_count,
+        heartbeat_sent_before_pressure_read_count=heartbeat_sent_before_pressure_read_count,
     )
     timing_summary_fields = {
         key: value

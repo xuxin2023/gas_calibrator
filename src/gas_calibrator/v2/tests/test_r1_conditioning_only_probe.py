@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import deque
 import json
 from pathlib import Path
+import time
 from typing import Any, Mapping
 
 from gas_calibrator.v2.core.run001_r1_conditioning_only_probe import (
@@ -267,6 +268,12 @@ class FakePace:
         self.vent_calls.append(bool(on))
 
 
+class SlowVentPace(FakePace):
+    def vent(self, on: bool = True) -> None:
+        time.sleep(1.05)
+        super().vent(on)
+
+
 class FakeRelay:
     def __init__(self, name: str) -> None:
         self.name = name
@@ -397,12 +404,22 @@ def test_r1_conditioning_writes_required_artifacts_and_no_forbidden_writes(tmp_p
     assert summary["vent_heartbeat_count"] >= 2
     assert summary["max_vent_heartbeat_gap_ms"] <= 3000
     assert summary["route_open_to_first_vent_ms"] <= 1000
+    assert summary["legacy_route_open_to_first_vent_ms"] == summary["route_open_to_first_vent_ms"]
+    assert summary["legacy_route_open_to_first_vent_exceeded"] is False
+    assert summary["legacy_metric_superseded_by_emit_start_gate"] is False
     assert summary["route_open_completed_to_first_vent_ms"] is not None
+    assert summary["route_open_completed_to_first_vent_emit_start_ms"] == summary["route_open_completed_to_first_vent_ms"]
     assert summary["last_route_action_end_to_first_vent_ms"] is not None
+    assert summary["last_route_action_end_to_first_vent_emit_start_ms"] == summary["last_route_action_end_to_first_vent_ms"]
     assert summary["route_action_sequence_duration_ms"] is not None
     assert summary["max_relay_action_duration_ms"] is not None
+    assert summary["vent_command_roundtrip_ms"] == summary["first_vent_emit_duration_ms"]
+    assert summary["max_vent_heartbeat_emit_start_gap_ms"] <= 3000
     assert summary["pressure_read_latency_ms"] is not None
     assert summary["max_pressure_read_latency_ms"] is not None
+    assert summary["pressure_read_deferred_for_heartbeat_count"] >= 0
+    assert summary["heartbeat_due_before_pressure_read_count"] >= 0
+    assert summary["heartbeat_sent_before_pressure_read_count"] >= 0
     assert summary["diagnostic_decision"] == "NOT_APPLICABLE"
     assert summary["critical_path_suspect"] == "unknown"
     assert summary["pressure_overlimit_seen"] is False
@@ -437,7 +454,7 @@ def test_r1_conditioning_writes_required_artifacts_and_no_forbidden_writes(tmp_p
     assert safety["pressure_setpoint_command_sent"] is False
     assert safety["non_authorized_relay_output_command_sent"] is False
     timing = json.loads(Path(summary["artifact_paths"]["r1_timing_breakdown"]).read_text(encoding="utf-8"))
-    assert timing["route_open_completed_to_first_vent_ms"] == summary["route_open_completed_to_first_vent_ms"]
+    assert timing["route_open_completed_to_first_vent_emit_start_ms"] == summary["route_open_completed_to_first_vent_emit_start_ms"]
     events_text = Path(summary["artifact_paths"]["r1_timing_events"]).read_text(encoding="utf-8")
     assert "vent_heartbeat_scheduler_started" in events_text
     assert "each_relay_action_start" in events_text
@@ -446,6 +463,39 @@ def test_r1_conditioning_writes_required_artifacts_and_no_forbidden_writes(tmp_p
     assert "relay_action" in latency_csv
     assert "vent_heartbeat_emit" in latency_csv
     assert "pressure_gauge_read" in latency_csv
+
+
+def test_r1_legacy_route_to_vent_roundtrip_is_diagnostic_only(tmp_path: Path) -> None:
+    config, config_path, op_path = _config_and_operator(tmp_path)
+
+    summary = write_r1_conditioning_only_probe_artifacts(
+        config,
+        output_dir=tmp_path / "r1_slow_vent",
+        config_path=config_path,
+        operator_confirmation_path=op_path,
+        branch="codex/run001-a1-no-write-dry-run",
+        head="9ff62135cb0fd7f3280218cd9ce1b45eb70c31c5",
+        cli_allow=True,
+        env={R1_ENV_VAR: "1"},
+        execute_conditioning_only=True,
+        pressure_gauge_factory=lambda _device: FakePressureGauge([1013.2]),
+        pace_factory=lambda _device: SlowVentPace(),
+        relay_factory=lambda device: FakeRelay(str(device.get("device_name"))),
+        thermometer_factory=lambda _device: FakeThermometer(),
+        analyzer_serial_factory=lambda _device: FakeAnalyzerSerial(),
+        chamber_client_factory=lambda _device: ReadOnlyChamberClient(),
+        sleep_fn=lambda _seconds: None,
+    )
+
+    assert summary["final_decision"] == "PASS"
+    assert summary["legacy_route_open_to_first_vent_exceeded"] is True
+    assert summary["legacy_metric_superseded_by_emit_start_gate"] is True
+    assert summary["diagnostic_decision"] == "LEGACY_ANCHOR_SUPERSEDED"
+    assert "VENT_COMMAND_ROUNDTRIP_SLOW" in summary["secondary_diagnostic_decisions"]
+    assert summary["route_open_completed_to_first_vent_emit_start_ms"] <= 300
+    assert summary["last_route_action_end_to_first_vent_emit_start_ms"] <= 300
+    assert summary["vent_command_roundtrip_slow"] is True
+    assert "route_open_to_first_vent_exceeded" not in summary["rejection_reasons"]
 
 
 def test_r1_pressure_overlimit_fails_closed_without_downstream_actions(tmp_path: Path) -> None:
@@ -491,7 +541,7 @@ def test_r1_pressure_overlimit_fails_closed_without_downstream_actions(tmp_path:
     assert summary["a3_allowed"] is False
 
 
-def test_r1_timing_breakdown_flags_anchor_review_without_promoting() -> None:
+def test_r1_timing_breakdown_supersedes_legacy_anchor_without_promoting() -> None:
     ns = 1_000_000
     rows = [
         {"event_name": "route_conditioning_start", "perf_counter_ns": 0},
@@ -517,13 +567,17 @@ def test_r1_timing_breakdown_flags_anchor_review_without_promoting() -> None:
         rows,
         route_open_to_first_vent_ms=1089.685,
         max_vent_heartbeat_gap_ms=1202.694,
+        max_vent_heartbeat_emit_start_gap_ms=1202.694,
         vent_heartbeat_count=2,
         relay_route_action_count=2,
         route_open_to_first_vent_threshold_ms=1000.0,
+        route_to_first_vent_emit_start_threshold_ms=300.0,
     )
 
-    assert breakdown["diagnostic_decision"] == "ANCHOR_REVIEW_REQUIRED"
+    assert breakdown["diagnostic_decision"] == "LEGACY_ANCHOR_SUPERSEDED"
     assert breakdown["suspected_root_cause"] == "threshold_anchor_too_early"
     assert breakdown["critical_path_suspect"] == "threshold_anchor_too_early"
-    assert breakdown["route_open_completed_to_first_vent_ms"] == 60.0
-    assert breakdown["last_route_action_end_to_first_vent_ms"] == 90.0
+    assert breakdown["legacy_route_open_to_first_vent_exceeded"] is True
+    assert breakdown["legacy_metric_superseded_by_emit_start_gate"] is True
+    assert breakdown["route_open_completed_to_first_vent_emit_start_ms"] == 60.0
+    assert breakdown["last_route_action_end_to_first_vent_emit_start_ms"] == 90.0
