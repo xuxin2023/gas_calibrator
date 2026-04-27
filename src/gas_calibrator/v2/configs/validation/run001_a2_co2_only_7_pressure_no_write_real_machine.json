@@ -33,6 +33,32 @@
     "duplicate_device_id_ports": [],
     "duplicate_device_id_policy": "not_applicable"
   },
+  "a2_co2_7_pressure_no_write_probe": {
+    "scope": "a2_co2_7_pressure_no_write",
+    "a1r_output_dir": "D:/gas_calibrator_step3a_a1r_minimal_no_write_sampling_probe_20260427_2243",
+    "co2_only": true,
+    "skip0": true,
+    "single_route": true,
+    "single_temperature": true,
+    "no_write": true,
+    "v1_fallback_required": true,
+    "pressure_points_hpa": [1100, 1000, 900, 800, 700, 600, 500],
+    "sample_min_count_per_pressure": 4,
+    "pressure_cache_max_age_ms": 2000,
+    "authorized_pressure_control_scope": "A2 CO2-only seven-pressure transient pressure readiness/control only",
+    "a3_enabled": false,
+    "h2o_enabled": false,
+    "full_group_enabled": false,
+    "multi_temperature_enabled": false,
+    "mode_switch_enabled": false,
+    "analyzer_id_write_enabled": false,
+    "senco_write_enabled": false,
+    "calibration_write_enabled": false,
+    "chamber_set_temperature_enabled": false,
+    "chamber_start_enabled": false,
+    "chamber_stop_enabled": false,
+    "real_primary_latest_refresh": false
+  },
   "features": {
     "use_v2": true,
     "simulation_mode": false
