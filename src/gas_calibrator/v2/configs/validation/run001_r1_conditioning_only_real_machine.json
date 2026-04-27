@@ -56,7 +56,15 @@
       "vent_heartbeat_interval_s": 1.0,
       "max_vent_heartbeat_gap_ms": 3000,
       "route_open_to_first_vent_max_ms": 1000,
+      "route_open_completed_to_first_vent_emit_start_max_ms": 300,
+      "last_route_action_end_to_first_vent_emit_start_max_ms": 300,
       "pressure_freshness_max_age_ms": 1000,
+      "heartbeat_scheduler_enabled": true,
+      "heartbeat_deadline_priority_enabled": true,
+      "pressure_read_budget_enabled": true,
+      "pressure_read_min_interval_ms": 3000,
+      "pressure_read_timeout_budget_ms": 1000,
+      "pressure_cache_max_age_ms": 8000,
       "pressure_overlimit_hpa": 1150
     }
   },

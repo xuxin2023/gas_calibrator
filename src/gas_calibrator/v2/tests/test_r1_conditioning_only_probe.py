@@ -239,6 +239,12 @@ class FakePressureGauge:
         return 1013.25
 
 
+class SlowPressureGauge(FakePressureGauge):
+    def read_pressure_fast(self, **_kwargs) -> float:
+        time.sleep(0.08)
+        return super().read_pressure_fast(**_kwargs)
+
+
 class FakePace:
     def __init__(self) -> None:
         self.vent_calls: list[bool] = []
@@ -271,6 +277,12 @@ class FakePace:
 class SlowVentPace(FakePace):
     def vent(self, on: bool = True) -> None:
         time.sleep(1.05)
+        super().vent(on)
+
+
+class BudgetVentPace(FakePace):
+    def vent(self, on: bool = True) -> None:
+        time.sleep(0.005)
         super().vent(on)
 
 
@@ -417,7 +429,15 @@ def test_r1_conditioning_writes_required_artifacts_and_no_forbidden_writes(tmp_p
     assert summary["max_vent_heartbeat_emit_start_gap_ms"] <= 3000
     assert summary["pressure_read_latency_ms"] is not None
     assert summary["max_pressure_read_latency_ms"] is not None
+    assert summary["heartbeat_scheduler_enabled"] is True
+    assert summary["heartbeat_deadline_priority_enabled"] is True
+    assert summary["pressure_read_budget_enabled"] is True
+    assert summary["pressure_read_min_interval_ms"] >= 0
+    assert summary["pressure_read_timeout_budget_ms"] >= 0
+    assert summary["pressure_cache_max_age_ms"] >= 0
+    assert summary["pressure_cache_age_ms"] is not None
     assert summary["pressure_read_deferred_for_heartbeat_count"] >= 0
+    assert summary["pressure_read_skipped_due_to_cache_fresh_count"] >= 0
     assert summary["heartbeat_due_before_pressure_read_count"] >= 0
     assert summary["heartbeat_sent_before_pressure_read_count"] >= 0
     assert summary["diagnostic_decision"] == "NOT_APPLICABLE"
@@ -496,6 +516,52 @@ def test_r1_legacy_route_to_vent_roundtrip_is_diagnostic_only(tmp_path: Path) ->
     assert summary["last_route_action_end_to_first_vent_emit_start_ms"] <= 300
     assert summary["vent_command_roundtrip_slow"] is True
     assert "route_open_to_first_vent_exceeded" not in summary["rejection_reasons"]
+
+
+def test_r1_heartbeat_scheduler_defers_pressure_read_when_cache_is_fresh(tmp_path: Path) -> None:
+    config, config_path, op_path = _config_and_operator(tmp_path)
+    conditioning = config["r1_conditioning_only"]["conditioning"]
+    conditioning.update(
+        {
+            "conditioning_duration_s": 0.18,
+            "vent_heartbeat_interval_s": 0.03,
+            "max_vent_heartbeat_gap_ms": 250,
+            "pressure_read_min_interval_ms": 10,
+            "pressure_read_timeout_budget_ms": 60,
+            "pressure_cache_max_age_ms": 1000,
+        }
+    )
+
+    summary = write_r1_conditioning_only_probe_artifacts(
+        config,
+        output_dir=tmp_path / "r1_scheduler_budget",
+        config_path=config_path,
+        operator_confirmation_path=op_path,
+        branch="codex/run001-a1-no-write-dry-run",
+        head="9ff62135cb0fd7f3280218cd9ce1b45eb70c31c5",
+        cli_allow=True,
+        env={R1_ENV_VAR: "1"},
+        execute_conditioning_only=True,
+        pressure_gauge_factory=lambda _device: SlowPressureGauge([1013.2]),
+        pace_factory=lambda _device: BudgetVentPace(),
+        relay_factory=lambda device: FakeRelay(str(device.get("device_name"))),
+        thermometer_factory=lambda _device: FakeThermometer(),
+        analyzer_serial_factory=lambda _device: FakeAnalyzerSerial(),
+        chamber_client_factory=lambda _device: ReadOnlyChamberClient(),
+        sleep_fn=time.sleep,
+    )
+
+    assert summary["final_decision"] == "PASS"
+    assert summary["heartbeat_scheduler_enabled"] is True
+    assert summary["pressure_read_budget_enabled"] is True
+    assert summary["pressure_read_deferred_for_heartbeat_count"] >= 1
+    assert summary["pressure_read_skipped_due_to_cache_fresh_count"] >= 1
+    assert summary["heartbeat_sent_before_pressure_read_count"] >= 1
+    assert summary["max_vent_heartbeat_emit_start_gap_ms"] <= 250
+    assert summary["pressure_gauge_freshness_ok"] is True
+    assert summary["pressure_cache_age_ms"] <= summary["pressure_cache_max_age_ms"]
+    events_text = Path(summary["artifact_paths"]["r1_timing_events"]).read_text(encoding="utf-8")
+    assert "pressure_read_deferred_for_heartbeat" in events_text
 
 
 def test_r1_pressure_overlimit_fails_closed_without_downstream_actions(tmp_path: Path) -> None:

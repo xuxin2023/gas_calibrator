@@ -312,9 +312,18 @@ def _build_timing_breakdown(
     pressure_read_deferred_for_heartbeat_count: int = 0,
     heartbeat_due_before_pressure_read_count: int = 0,
     heartbeat_sent_before_pressure_read_count: int = 0,
+    heartbeat_scheduler_enabled: bool = True,
+    heartbeat_deadline_priority_enabled: bool = True,
+    pressure_read_budget_enabled: bool = True,
+    pressure_read_min_interval_ms: float = 0.0,
+    pressure_read_timeout_budget_ms: float = 0.0,
+    pressure_cache_max_age_ms: float = 0.0,
+    pressure_cache_age_ms: Optional[float] = None,
+    pressure_read_skipped_due_to_cache_fresh_count: int = 0,
 ) -> dict[str, Any]:
     latency_rows = _build_latency_breakdown(timing_rows)
     relay_durations = _duration_values(latency_rows, "relay_action")
+    vent_durations = _duration_values(latency_rows, "vent_heartbeat_emit")
     pressure_durations = _duration_values(latency_rows, "pressure_gauge_read")
     evidence_durations = _duration_values(latency_rows, "evidence_write")
 
@@ -338,6 +347,7 @@ def _build_timing_breakdown(
     vent_command_roundtrip_ms = first_vent_emit_duration_ms
     pressure_read_latency_ms = pressure_durations[0] if pressure_durations else None
     max_pressure_read_latency_ms = max(pressure_durations) if pressure_durations else None
+    max_vent_command_roundtrip_ms = max(vent_durations) if vent_durations else None
     max_relay_action_duration_ms = max(relay_durations) if relay_durations else None
     evidence_write_latency_ms = evidence_durations[-1] if evidence_durations else None
 
@@ -411,6 +421,7 @@ def _build_timing_breakdown(
         "route_action_sequence_duration_ms": route_action_sequence_duration_ms,
         "first_vent_emit_duration_ms": first_vent_emit_duration_ms,
         "vent_command_roundtrip_ms": vent_command_roundtrip_ms,
+        "max_vent_command_roundtrip_ms": max_vent_command_roundtrip_ms,
         "vent_command_roundtrip_slow": vent_command_roundtrip_slow,
         "max_vent_heartbeat_emit_start_gap_ms": max_vent_heartbeat_emit_start_gap_ms,
         "max_vent_heartbeat_gap_ms": max_vent_heartbeat_gap_ms,
@@ -418,8 +429,16 @@ def _build_timing_breakdown(
         "pressure_read_latency_ms": pressure_read_latency_ms,
         "max_pressure_read_latency_ms": max_pressure_read_latency_ms,
         "pressure_read_deferred_for_heartbeat_count": int(pressure_read_deferred_for_heartbeat_count),
+        "pressure_read_skipped_due_to_cache_fresh_count": int(pressure_read_skipped_due_to_cache_fresh_count),
         "heartbeat_due_before_pressure_read_count": int(heartbeat_due_before_pressure_read_count),
         "heartbeat_sent_before_pressure_read_count": int(heartbeat_sent_before_pressure_read_count),
+        "heartbeat_scheduler_enabled": bool(heartbeat_scheduler_enabled),
+        "heartbeat_deadline_priority_enabled": bool(heartbeat_deadline_priority_enabled),
+        "pressure_read_budget_enabled": bool(pressure_read_budget_enabled),
+        "pressure_read_min_interval_ms": float(pressure_read_min_interval_ms),
+        "pressure_read_timeout_budget_ms": float(pressure_read_timeout_budget_ms),
+        "pressure_cache_max_age_ms": float(pressure_cache_max_age_ms),
+        "pressure_cache_age_ms": pressure_cache_age_ms,
         "relay_action_count": int(relay_route_action_count),
         "relay_action_durations_ms": relay_durations,
         "max_relay_action_duration_ms": max_relay_action_duration_ms,
@@ -910,6 +929,7 @@ def _r1_runtime(raw_cfg: Mapping[str, Any]) -> dict[str, Any]:
     r1 = _r1_cfg(raw_cfg)
     runtime = _section(r1, "conditioning") or r1
     pressure_cfg = _section(_section(raw_cfg, "workflow"), "pressure")
+    pressure_freshness_max_age_ms = float(runtime.get("pressure_freshness_max_age_ms", 1000.0))
     return {
         "target_co2_ppm": float(runtime.get("target_co2_ppm", runtime.get("co2_ppm", 1000.0))),
         "conditioning_duration_s": float(runtime.get("conditioning_duration_s", 6.0)),
@@ -928,7 +948,13 @@ def _r1_runtime(raw_cfg: Mapping[str, Any]) -> dict[str, Any]:
         "last_route_action_end_to_first_vent_emit_start_max_ms": float(
             runtime.get("last_route_action_end_to_first_vent_emit_start_max_ms", 300.0)
         ),
-        "pressure_freshness_max_age_ms": float(runtime.get("pressure_freshness_max_age_ms", 1000.0)),
+        "pressure_freshness_max_age_ms": pressure_freshness_max_age_ms,
+        "heartbeat_scheduler_enabled": _as_bool(runtime.get("heartbeat_scheduler_enabled", True)) is not False,
+        "heartbeat_deadline_priority_enabled": _as_bool(runtime.get("heartbeat_deadline_priority_enabled", True)) is not False,
+        "pressure_read_budget_enabled": _as_bool(runtime.get("pressure_read_budget_enabled", True)) is not False,
+        "pressure_read_min_interval_ms": float(runtime.get("pressure_read_min_interval_ms", 3000.0)),
+        "pressure_read_timeout_budget_ms": float(runtime.get("pressure_read_timeout_budget_ms", 1000.0)),
+        "pressure_cache_max_age_ms": float(runtime.get("pressure_cache_max_age_ms", max(5000.0, pressure_freshness_max_age_ms))),
         "pressure_overlimit_hpa": float(
             runtime.get(
                 "pressure_overlimit_hpa",
@@ -1392,8 +1418,13 @@ def write_r1_conditioning_only_probe_artifacts(
     route_open_to_first_vent_ms: Optional[float] = None
     conditioning_duration_s = 0.0
     pressure_read_deferred_for_heartbeat_count = 0
+    pressure_read_skipped_due_to_cache_fresh_count = 0
     heartbeat_due_before_pressure_read_count = 0
     heartbeat_sent_before_pressure_read_count = 0
+    pressure_cache_age_ms: Optional[float] = None
+    estimated_pressure_read_s = 0.001
+    last_pressure_receipt_monotonic: Optional[float] = None
+    last_pressure_read_start_monotonic: Optional[float] = None
     chamber_diag: dict[str, Any] = {}
     pace_status: dict[str, Any] = {}
     analyzer_status: dict[str, Any] = {}
@@ -1500,6 +1531,7 @@ def write_r1_conditioning_only_probe_artifacts(
                 device_name="pressure_gauge",
             )
             read_start = time.monotonic()
+            last_pressure_read_start_monotonic = read_start
             pressure_latest_hpa, pressure_error = _read_pressure_once(gauge, timeout_s=pressure_timeout_s)
             read_end = time.monotonic()
             pressure_perf_end_ns = _timing_mark(
@@ -1513,7 +1545,7 @@ def write_r1_conditioning_only_probe_artifacts(
             )
             latency_ms = (read_end - read_start) * 1000.0
             estimated_pressure_read_s = max(0.001, read_end - read_start)
-            last_pressure_receipt_monotonic: Optional[float] = read_end if pressure_latest_hpa is not None else None
+            last_pressure_receipt_monotonic = read_end if pressure_latest_hpa is not None else None
             age_ms = 0.0 if pressure_latest_hpa is not None else latency_ms
             pressure_freshness_ok = pressure_latest_hpa is not None and age_ms <= runtime["pressure_freshness_max_age_ms"]
             pressure_overlimit_seen = bool(
@@ -1605,14 +1637,42 @@ def write_r1_conditioning_only_probe_artifacts(
                             )
 
                         heartbeat_interval_s = max(0.001, float(runtime["vent_heartbeat_interval_s"]))
-                        pressure_freshness_window_s = max(0.0, float(runtime["pressure_freshness_max_age_ms"]) / 1000.0)
+                        pressure_read_min_interval_s = max(0.0, float(runtime["pressure_read_min_interval_ms"]) / 1000.0)
+                        pressure_read_timeout_budget_s = max(0.0, float(runtime["pressure_read_timeout_budget_ms"]) / 1000.0)
+                        pressure_cache_max_age_s = max(0.0, float(runtime["pressure_cache_max_age_ms"]) / 1000.0)
                         last_heartbeat_emit_start_s = float(vent_rows[-1].get("monotonic_s") or time.monotonic())
                         next_heartbeat_due_s = last_heartbeat_emit_start_s + heartbeat_interval_s
                         deadline = route_open_start + runtime["conditioning_duration_s"]
                         while not rejection_reasons and time.monotonic() < deadline:
-                            heartbeat_sent_this_cycle = False
                             now_s = time.monotonic()
-                            if now_s >= next_heartbeat_due_s:
+                            pressure_age_s = (
+                                now_s - last_pressure_receipt_monotonic
+                                if last_pressure_receipt_monotonic is not None
+                                else pressure_cache_max_age_s + 1.0
+                            )
+                            pressure_cache_age_ms = round(max(0.0, pressure_age_s) * 1000.0, 3)
+                            pressure_cache_fresh = bool(
+                                last_pressure_receipt_monotonic is not None
+                                and pressure_age_s <= pressure_cache_max_age_s
+                            )
+                            if not pressure_cache_fresh:
+                                pressure_freshness_ok = False
+                                pressure_rows.append(
+                                    {
+                                        "timestamp": _now(),
+                                        "stage": "conditioning",
+                                        "action": "pressure_cache_stale_fail_closed",
+                                        "pressure_hpa": pressure_latest_hpa,
+                                        "freshness_age_ms": pressure_cache_age_ms,
+                                        "freshness_ok": False,
+                                        "pressure_overlimit_seen": pressure_overlimit_seen,
+                                        "error": "pressure_cache_stale",
+                                    }
+                                )
+                                rejection_reasons.append("pressure_cache_stale")
+                                break
+
+                            if runtime["heartbeat_deadline_priority_enabled"] and now_s >= next_heartbeat_due_s:
                                 heartbeat_due_before_pressure_read_count += 1
                                 heartbeat_sent_before_pressure_read_count += 1
                                 _timing_mark(
@@ -1630,27 +1690,60 @@ def write_r1_conditioning_only_probe_artifacts(
                                 ):
                                     rejection_reasons.append("conditioning_vent_heartbeat_failed")
                                     break
-                                heartbeat_sent_this_cycle = True
                                 last_heartbeat_emit_start_s = float(vent_rows[-1].get("monotonic_s") or time.monotonic())
                                 next_heartbeat_due_s = last_heartbeat_emit_start_s + heartbeat_interval_s
-                                now_s = time.monotonic()
+                                continue
 
+                            now_s = time.monotonic()
                             time_to_heartbeat_s = max(0.0, next_heartbeat_due_s - now_s)
-                            pressure_age_s = (
-                                now_s - last_pressure_receipt_monotonic
-                                if last_pressure_receipt_monotonic is not None
-                                else pressure_freshness_window_s + 1.0
+                            pressure_read_due = bool(
+                                last_pressure_read_start_monotonic is None
+                                or (now_s - last_pressure_read_start_monotonic) >= pressure_read_min_interval_s
                             )
-                            pressure_still_fresh = bool(
-                                last_pressure_receipt_monotonic is not None
-                                and pressure_age_s <= pressure_freshness_window_s
+                            if not pressure_read_due:
+                                pressure_read_skipped_due_to_cache_fresh_count += 1
+                                _timing_mark(
+                                    timing_rows,
+                                    "pressure_read_skipped_due_to_cache_fresh",
+                                    stage="conditioning",
+                                    sequence_id=pressure_read_skipped_due_to_cache_fresh_count,
+                                    pressure_cache_age_ms=pressure_cache_age_ms,
+                                )
+                                pressure_rows.append(
+                                    {
+                                        "timestamp": _now(),
+                                        "stage": "conditioning",
+                                        "action": "skip_pressure_read_cache_fresh",
+                                        "pressure_hpa": pressure_latest_hpa,
+                                        "freshness_age_ms": pressure_cache_age_ms,
+                                        "freshness_ok": True,
+                                        "pressure_overlimit_seen": pressure_overlimit_seen,
+                                        "error": "",
+                                    }
+                                )
+                                next_pressure_due_s = (
+                                    last_pressure_read_start_monotonic + pressure_read_min_interval_s
+                                    if last_pressure_read_start_monotonic is not None
+                                    else now_s
+                                )
+                                remaining_sleep = max(
+                                    0.0,
+                                    min(next_heartbeat_due_s - now_s, next_pressure_due_s - now_s, deadline - now_s),
+                                )
+                                if remaining_sleep:
+                                    sleep_fn(remaining_sleep)
+                                continue
+
+                            pressure_budget_too_small = bool(
+                                runtime["pressure_read_budget_enabled"]
+                                and (
+                                    time_to_heartbeat_s * 1000.0 < float(runtime["pressure_read_timeout_budget_ms"])
+                                    or time_to_heartbeat_s <= estimated_pressure_read_s
+                                )
                             )
-                            if (
-                                pressure_still_fresh
-                                and not heartbeat_sent_this_cycle
-                                and time_to_heartbeat_s <= estimated_pressure_read_s
-                            ):
+                            if pressure_budget_too_small:
                                 pressure_read_deferred_for_heartbeat_count += 1
+                                pressure_read_skipped_due_to_cache_fresh_count += 1
                                 _timing_mark(
                                     timing_rows,
                                     "pressure_read_deferred_for_heartbeat",
@@ -1658,40 +1751,27 @@ def write_r1_conditioning_only_probe_artifacts(
                                     sequence_id=pressure_read_deferred_for_heartbeat_count,
                                     estimated_pressure_read_s=round(estimated_pressure_read_s, 6),
                                     time_to_heartbeat_s=round(time_to_heartbeat_s, 6),
+                                    pressure_cache_age_ms=pressure_cache_age_ms,
+                                )
+                                pressure_rows.append(
+                                    {
+                                        "timestamp": _now(),
+                                        "stage": "conditioning",
+                                        "action": "defer_pressure_read_for_heartbeat",
+                                        "pressure_hpa": pressure_latest_hpa,
+                                        "freshness_age_ms": pressure_cache_age_ms,
+                                        "freshness_ok": True,
+                                        "pressure_overlimit_seen": pressure_overlimit_seen,
+                                        "error": "",
+                                    }
                                 )
                                 remaining_sleep = max(0.0, min(time_to_heartbeat_s, deadline - time.monotonic()))
                                 if remaining_sleep:
                                     sleep_fn(remaining_sleep)
                                 continue
 
-                            if (
-                                not heartbeat_sent_this_cycle
-                                and time_to_heartbeat_s <= estimated_pressure_read_s
-                                and time.monotonic() < deadline
-                            ):
-                                heartbeat_sent_before_pressure_read_count += 1
-                                _timing_mark(
-                                    timing_rows,
-                                    "heartbeat_sent_before_pressure_read",
-                                    stage="conditioning",
-                                    sequence_id=heartbeat_sent_before_pressure_read_count,
-                                    estimated_pressure_read_s=round(estimated_pressure_read_s, 6),
-                                    time_to_heartbeat_s=round(time_to_heartbeat_s, 6),
-                                )
-                                if not _send_vent_on(
-                                    pace,
-                                    vent_rows=vent_rows,
-                                    trace_rows=trace_rows,
-                                    timing_rows=timing_rows,
-                                    phase="conditioning_heartbeat",
-                                ):
-                                    rejection_reasons.append("conditioning_vent_heartbeat_failed")
-                                    break
-                                heartbeat_sent_this_cycle = True
-                                last_heartbeat_emit_start_s = float(vent_rows[-1].get("monotonic_s") or time.monotonic())
-                                next_heartbeat_due_s = last_heartbeat_emit_start_s + heartbeat_interval_s
-
                             read_start = time.monotonic()
+                            last_pressure_read_start_monotonic = read_start
                             pressure_sequence_id += 1
                             pressure_perf_start_ns = _timing_mark(
                                 timing_rows,
@@ -1806,6 +1886,11 @@ def write_r1_conditioning_only_probe_artifacts(
     ]
     max_vent_emit_start_gap_ms = round(max(vent_emit_start_gaps_ms), 3) if vent_emit_start_gaps_ms else 0.0
     vent_heartbeat_count = len(vent_rows)
+    if executed and last_pressure_receipt_monotonic is not None:
+        pressure_cache_age_ms = round(max(0.0, time.monotonic() - last_pressure_receipt_monotonic) * 1000.0, 3)
+        if pressure_cache_age_ms > float(runtime["pressure_cache_max_age_ms"]):
+            pressure_freshness_ok = False
+            rejection_reasons.append("pressure_cache_stale")
     route_emit_start_threshold_ms = min(
         float(runtime["route_open_completed_to_first_vent_emit_start_max_ms"]),
         float(runtime["last_route_action_end_to_first_vent_emit_start_max_ms"]),
@@ -1822,6 +1907,14 @@ def write_r1_conditioning_only_probe_artifacts(
         pressure_read_deferred_for_heartbeat_count=pressure_read_deferred_for_heartbeat_count,
         heartbeat_due_before_pressure_read_count=heartbeat_due_before_pressure_read_count,
         heartbeat_sent_before_pressure_read_count=heartbeat_sent_before_pressure_read_count,
+        heartbeat_scheduler_enabled=runtime["heartbeat_scheduler_enabled"],
+        heartbeat_deadline_priority_enabled=runtime["heartbeat_deadline_priority_enabled"],
+        pressure_read_budget_enabled=runtime["pressure_read_budget_enabled"],
+        pressure_read_min_interval_ms=runtime["pressure_read_min_interval_ms"],
+        pressure_read_timeout_budget_ms=runtime["pressure_read_timeout_budget_ms"],
+        pressure_cache_max_age_ms=runtime["pressure_cache_max_age_ms"],
+        pressure_cache_age_ms=pressure_cache_age_ms,
+        pressure_read_skipped_due_to_cache_fresh_count=pressure_read_skipped_due_to_cache_fresh_count,
     )
     if executed and vent_heartbeat_count == 0:
         rejection_reasons.append("missing_vent_heartbeat")
@@ -1968,6 +2061,14 @@ def write_r1_conditioning_only_probe_artifacts(
         pressure_read_deferred_for_heartbeat_count=pressure_read_deferred_for_heartbeat_count,
         heartbeat_due_before_pressure_read_count=heartbeat_due_before_pressure_read_count,
         heartbeat_sent_before_pressure_read_count=heartbeat_sent_before_pressure_read_count,
+        heartbeat_scheduler_enabled=runtime["heartbeat_scheduler_enabled"],
+        heartbeat_deadline_priority_enabled=runtime["heartbeat_deadline_priority_enabled"],
+        pressure_read_budget_enabled=runtime["pressure_read_budget_enabled"],
+        pressure_read_min_interval_ms=runtime["pressure_read_min_interval_ms"],
+        pressure_read_timeout_budget_ms=runtime["pressure_read_timeout_budget_ms"],
+        pressure_cache_max_age_ms=runtime["pressure_cache_max_age_ms"],
+        pressure_cache_age_ms=pressure_cache_age_ms,
+        pressure_read_skipped_due_to_cache_fresh_count=pressure_read_skipped_due_to_cache_fresh_count,
     )
     timing_summary_fields = {
         key: value
