@@ -1167,7 +1167,12 @@ class WorkflowOrchestrator:
             )
             return True
         high_pressure_first_point_mode = bool(getattr(self, "_a2_high_pressure_first_point_mode_enabled", False))
-        stage_name = "high_pressure_first_point" if high_pressure_first_point_mode else "preseal_atmosphere_flush_hold"
+        conditioning_at_atmosphere = bool(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_active", False))
+        stage_name = (
+            "co2_route_conditioning_at_atmosphere"
+            if conditioning_at_atmosphere
+            else ("high_pressure_first_point" if high_pressure_first_point_mode else "preseal_atmosphere_flush_hold")
+        )
         special_flush = self._has_special_co2_zero_flush_pending() and self._is_zero_co2_point(point)
         soak_key = "workflow.stability.co2_route.preseal_soak_s"
         soak_default = 180.0
@@ -1314,6 +1319,7 @@ class WorkflowOrchestrator:
                 expected_max_s=soak_s,
                 wait_reason=soak_key,
             )
+            self._maybe_reassert_a2_conditioning_vent(point)
             if high_pressure_first_point_mode:
                 if (now - last_preseal_pressure_check_ts) >= preseal_pressure_poll_interval_s:
                     pressure_decision = self._verify_co2_preseal_atmosphere_hold_pressure(point)
@@ -1331,7 +1337,10 @@ class WorkflowOrchestrator:
                 now - last_preseal_pressure_check_ts
             ) >= preseal_pressure_poll_interval_s:
                 pressure_decision = self._verify_co2_preseal_atmosphere_hold_pressure(point)
-                if pressure_decision in {"positive_preseal_ready_handoff", "positive_preseal_arm_handoff"}:
+                if (
+                    not conditioning_at_atmosphere
+                    and pressure_decision in {"positive_preseal_ready_handoff", "positive_preseal_arm_handoff"}
+                ):
                     handoff_decision = pressure_decision
                     self._log(
                         "CO2 pre-seal atmosphere flush reached positive preseal handoff pressure; "
@@ -1339,7 +1348,11 @@ class WorkflowOrchestrator:
                     )
                     break
                 last_preseal_pressure_check_ts = time.time()
-            if continuous_atmosphere_hold and (time.time() - last_atmosphere_hold_ts) >= vent_hold_interval_s:
+            if (
+                continuous_atmosphere_hold
+                and not conditioning_at_atmosphere
+                and (time.time() - last_atmosphere_hold_ts) >= vent_hold_interval_s
+            ):
                 vent_started = time.time()
                 self._set_pressure_controller_vent(
                     True,
@@ -1526,6 +1539,367 @@ class WorkflowOrchestrator:
                 values.append(float(value))
         return values
 
+    def _a2_co2_route_conditioning_required(
+        self,
+        point: CalibrationPoint,
+        pressure_points: Optional[Iterable[CalibrationPoint]] = None,
+    ) -> bool:
+        enabled = bool(self._cfg_get("workflow.pressure.co2_route_conditioning_atmosphere_required", True))
+        pressure_values = self._a2_high_pressure_pressure_values(point, pressure_points)
+        contains_1100 = any(abs(float(value) - 1100.0) <= 0.001 for value in pressure_values)
+        return bool(
+            enabled
+            and contains_1100
+            and self._workflow_timing_enabled()
+            and self._workflow_no_write_guard_active()
+        )
+
+    def _co2_conditioning_soak_s(self, point: CalibrationPoint) -> float:
+        if self._has_special_co2_zero_flush_pending() and self._is_zero_co2_point(point):
+            return float(self._cfg_get("workflow.stability.co2_route.post_h2o_zero_ppm_soak_s", 600.0))
+        if getattr(self, "_first_co2_route_soak_pending", False):
+            return float(self._cfg_get("workflow.stability.co2_route.first_point_preseal_soak_s", 300.0))
+        return float(self._cfg_get("workflow.stability.co2_route.preseal_soak_s", 180.0))
+
+    def _begin_a2_co2_route_conditioning_at_atmosphere(
+        self,
+        point: CalibrationPoint,
+        pressure_points: Optional[Iterable[CalibrationPoint]] = None,
+    ) -> dict[str, Any]:
+        setattr(self, "_a2_high_pressure_first_point_mode_enabled", False)
+        setattr(self, "_a2_high_pressure_first_point_context", {})
+        setattr(self, "_a2_high_pressure_first_point_initial_decision", "")
+        setattr(self, "_a2_high_pressure_first_point_vent_preclosed", False)
+        setattr(self, "_a2_co2_route_conditioning_completed", False)
+        setattr(self, "_a2_co2_route_conditioning_completed_at", "")
+        if not self._a2_co2_route_conditioning_required(point, pressure_points):
+            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_active", False)
+            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {})
+            return {}
+        stream_state: dict[str, Any] = {}
+        stream_starter = getattr(self.pressure_control_service, "_start_a2_high_pressure_digital_gauge_stream", None)
+        if callable(stream_starter):
+            stream_state = dict(
+                stream_starter(stage="co2_route_conditioning_at_atmosphere", point_index=point.index) or {}
+            )
+        now = datetime.now(timezone.utc).isoformat()
+        started_monotonic_s = time.monotonic()
+        context = {
+            "route_open_started_at": "",
+            "route_open_completed_at": "",
+            "atmosphere_vent_enabled": True,
+            "vent_command_before_route_open": True,
+            "conditioning_soak_s": self._co2_conditioning_soak_s(point),
+            "conditioning_started_at": now,
+            "conditioning_started_monotonic_s": started_monotonic_s,
+            "conditioning_completed_at": "",
+            "conditioning_duration_s": None,
+            "pressure_monitoring_enabled": True,
+            "pressure_max_during_conditioning_hpa": None,
+            "pressure_min_during_conditioning_hpa": None,
+            "pressure_source": "digital_pressure_gauge_continuous",
+            "latest_frame_age_max_s": None,
+            "abnormal_pressure_events": [],
+            "vent_ticks": [],
+            "pressure_samples": [],
+            "conditioning_decision": "START",
+            "did_not_seal_during_conditioning": True,
+            "stream_state_at_start": stream_state,
+        }
+        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_active", True)
+        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        self._record_workflow_timing(
+            "co2_route_conditioning_start",
+            "start",
+            stage="co2_route_conditioning_at_atmosphere",
+            point=point,
+            expected_max_s=context["conditioning_soak_s"],
+            wait_reason="co2_route_conditioning_atmosphere",
+            route_state=context,
+        )
+        self._record_a2_co2_conditioning_vent_tick(point, phase="before_route_open")
+        return dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+
+    def _a2_conditioning_stream_snapshot(self) -> dict[str, Any]:
+        snapshotter = getattr(self.pressure_control_service, "digital_gauge_continuous_stream_snapshot", None)
+        if not callable(snapshotter):
+            return {}
+        snapshot = snapshotter()
+        return dict(snapshot) if isinstance(snapshot, Mapping) else {}
+
+    def _record_a2_co2_conditioning_vent_tick(self, point: CalibrationPoint, *, phase: str) -> dict[str, Any]:
+        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        if not context:
+            return {}
+        tick_started_s = time.time()
+        tick_started_monotonic_s = time.monotonic()
+        diagnostics: dict[str, Any] = {}
+        command_result = "ok"
+        command_error = ""
+        try:
+            diagnostics = self.pressure_control_service.set_pressure_controller_vent(
+                True,
+                reason="A2 CO2 route conditioning atmosphere hold",
+                wait_after_command=False,
+                capture_pressure=False,
+                transition_timeout_s=self._cfg_get(
+                    "workflow.pressure.preseal_atmosphere_hold_reassert_timeout_s",
+                    min(0.5, float(self._cfg_get("workflow.pressure.vent_hold_interval_s", 2.0))),
+                ),
+            )
+        except Exception as exc:
+            command_result = "fail"
+            command_error = str(exc)
+            diagnostics = {"command_error": command_error}
+        snapshot = self._a2_conditioning_stream_snapshot()
+        latest = snapshot.get("latest_frame")
+        latest = dict(latest) if isinstance(latest, Mapping) else {}
+        pressure_hpa = self._as_float(latest.get("pressure_hpa"))
+        latest_age_s = self._as_float(
+            snapshot.get("latest_frame_age_s")
+            or latest.get("latest_frame_age_s")
+            or latest.get("pressure_sample_age_s")
+            or latest.get("sample_age_s")
+        )
+        abort_hpa = self._as_float(
+            self._cfg_get(
+                "workflow.pressure.preseal_atmosphere_flush_abort_pressure_hpa",
+                self._cfg_get("workflow.pressure.preseal_abort_pressure_hpa", None),
+            )
+        )
+        pressure_abnormal = bool(pressure_hpa is not None and abort_hpa is not None and pressure_hpa > abort_hpa)
+        sample_stale = bool(snapshot.get("latest_frame_stale") or latest.get("pressure_sample_is_stale"))
+        elapsed_s = max(0.0, time.monotonic() - float(context.get("conditioning_started_monotonic_s") or tick_started_monotonic_s))
+        tick = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "phase": phase,
+            "elapsed_s": round(elapsed_s, 3),
+            "command_result": command_result,
+            "command_error": command_error,
+            "output_state": diagnostics.get("output_state"),
+            "isolation_state": diagnostics.get("isolation_state"),
+            "vent_status": diagnostics.get("vent_status_raw"),
+            "digital_gauge_pressure_hpa": pressure_hpa,
+            "pressure_sample_age_s": latest_age_s,
+            "pressure_sample_stale": sample_stale,
+            "pressure_abnormal": pressure_abnormal,
+            "abort_pressure_hpa": abort_hpa,
+            "latest_frame_sequence_id": snapshot.get("latest_frame_sequence_id")
+            or latest.get("sequence_id")
+            or latest.get("pressure_sample_sequence_id"),
+            "latest_frame_interval_s": latest.get("latest_frame_interval_s"),
+            "stream_frame_count": snapshot.get("stream_frame_count"),
+        }
+        ticks = [item for item in list(context.get("vent_ticks") or []) if isinstance(item, Mapping)]
+        ticks.append(tick)
+        context["vent_ticks"] = ticks
+        context["last_vent_tick_monotonic_s"] = tick_started_monotonic_s
+        samples = [item for item in list(context.get("pressure_samples") or []) if isinstance(item, Mapping)]
+        samples.append(tick)
+        context["pressure_samples"] = samples
+        pressure_values = [
+            self._as_float(item.get("digital_gauge_pressure_hpa"))
+            for item in samples
+            if isinstance(item, Mapping) and self._as_float(item.get("digital_gauge_pressure_hpa")) is not None
+        ]
+        if pressure_values:
+            context["pressure_max_during_conditioning_hpa"] = max(float(value) for value in pressure_values if value is not None)
+            context["pressure_min_during_conditioning_hpa"] = min(float(value) for value in pressure_values if value is not None)
+        if latest_age_s is not None:
+            previous_max = self._as_float(context.get("latest_frame_age_max_s"))
+            context["latest_frame_age_max_s"] = (
+                latest_age_s if previous_max is None else max(float(previous_max), float(latest_age_s))
+            )
+        if pressure_abnormal or command_result != "ok":
+            abnormal_events = list(context.get("abnormal_pressure_events") or [])
+            abnormal_events.append(tick)
+            context["abnormal_pressure_events"] = abnormal_events
+        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        self._record_workflow_timing(
+            "co2_route_conditioning_vent_tick",
+            "fail" if command_result != "ok" else "tick",
+            stage="co2_route_conditioning_at_atmosphere",
+            point=point,
+            duration_s=tick["elapsed_s"],
+            expected_max_s=self._cfg_get("workflow.pressure.vent_hold_interval_s", 2.0),
+            wait_reason=phase,
+            decision=command_result,
+            pressure_hpa=pressure_hpa,
+            pace_output_state=diagnostics.get("output_state"),
+            pace_isolation_state=diagnostics.get("isolation_state"),
+            pace_vent_status=diagnostics.get("vent_status_raw"),
+            route_state=tick,
+            warning_code="co2_route_conditioning_pressure_abnormal" if pressure_abnormal else None,
+            error_code=command_error or ("preseal_abort_pressure_exceeded" if pressure_abnormal else None),
+        )
+        self._record_workflow_timing(
+            "co2_route_conditioning_pressure_warning" if pressure_abnormal else "co2_route_conditioning_pressure_sample",
+            "fail" if pressure_abnormal else "tick",
+            stage="co2_route_conditioning_at_atmosphere",
+            point=point,
+            duration_s=tick["elapsed_s"],
+            pressure_hpa=pressure_hpa,
+            decision="abort_pressure_exceeded" if pressure_abnormal else "monitor_only_no_seal",
+            route_state=tick,
+            warning_code="conditioning_pressure_above_abort_threshold" if pressure_abnormal else None,
+            error_code="preseal_abort_pressure_exceeded" if pressure_abnormal else None,
+        )
+        if command_result != "ok":
+            raise WorkflowValidationError("A2 CO2 route conditioning atmosphere vent reassert failed", details=tick)
+        if pressure_abnormal:
+            raise WorkflowValidationError("A2 CO2 route conditioning pressure exceeded abort threshold", details=tick)
+        return tick
+
+    def _maybe_reassert_a2_conditioning_vent(self, point: CalibrationPoint) -> None:
+        if not bool(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_active", False)):
+            return
+        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        if not context:
+            return
+        interval_s = max(0.1, float(self._cfg_get("workflow.pressure.vent_hold_interval_s", 2.0)))
+        last_tick = self._as_float(context.get("last_vent_tick_monotonic_s"))
+        if last_tick is None or (time.monotonic() - float(last_tick)) >= interval_s:
+            self._record_a2_co2_conditioning_vent_tick(point, phase="conditioning_hold")
+
+    def _end_a2_co2_route_conditioning_at_atmosphere(
+        self,
+        point: CalibrationPoint,
+        *,
+        route_soak_ok: bool,
+        route_soak_actual: Optional[Mapping[str, Any]] = None,
+    ) -> dict[str, Any]:
+        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        if not context:
+            return {}
+        completed_at = datetime.now(timezone.utc).isoformat()
+        started = self._as_float(context.get("conditioning_started_monotonic_s"))
+        duration_s = max(0.0, time.monotonic() - float(started)) if started is not None else None
+        context.update(
+            {
+                "conditioning_completed_at": completed_at,
+                "conditioning_duration_s": None if duration_s is None else round(float(duration_s), 3),
+                "conditioning_decision": "PASS" if route_soak_ok else "FAIL",
+                "route_soak_actual": dict(route_soak_actual or {}),
+                "did_not_seal_during_conditioning": True,
+            }
+        )
+        setattr(self, "_a2_co2_route_conditioning_completed", bool(route_soak_ok))
+        setattr(self, "_a2_co2_route_conditioning_completed_at", completed_at if route_soak_ok else "")
+        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_active", False)
+        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        self._record_workflow_timing(
+            "co2_route_conditioning_end",
+            "end" if route_soak_ok else "fail",
+            stage="co2_route_conditioning_at_atmosphere",
+            point=point,
+            duration_s=duration_s,
+            expected_max_s=context.get("conditioning_soak_s"),
+            decision=context["conditioning_decision"],
+            route_state=context,
+        )
+        return context
+
+    def _preseal_analyzer_gate_after_conditioning(
+        self,
+        point: CalibrationPoint,
+        *,
+        route_soak_ok: bool,
+        route_soak_actual: Optional[Mapping[str, Any]] = None,
+    ) -> bool:
+        self._record_workflow_timing(
+            "preseal_analyzer_gate_start",
+            "start",
+            stage="preseal_analyzer_gate",
+            point=point,
+            route_state={"conditioning_completed": bool(getattr(self, "_a2_co2_route_conditioning_completed", False))},
+        )
+        passed = bool(route_soak_ok)
+        if bool(getattr(self, "_gas_route_dewpoint_gate_enabled", lambda: False)()):
+            self.status_service.log("CO2 preseal dewpoint gate passed")
+        else:
+            self.status_service.log("CO2 preseal analyzer stability check skipped")
+        self._record_workflow_timing(
+            "preseal_analyzer_gate_end",
+            "end" if passed else "fail",
+            stage="preseal_analyzer_gate",
+            point=point,
+            decision="PASS" if passed else "FAIL",
+            route_state={
+                "preseal_analyzer_gate_passed": passed,
+                "conditioning_completed": bool(getattr(self, "_a2_co2_route_conditioning_completed", False)),
+                "route_soak_actual": dict(route_soak_actual or {}),
+            },
+        )
+        setattr(self, "_a2_preseal_analyzer_gate_passed", passed)
+        return passed
+
+    def _prepare_a2_high_pressure_first_point_after_conditioning(
+        self,
+        point: CalibrationPoint,
+        pressure_points: Optional[Iterable[CalibrationPoint]] = None,
+    ) -> dict[str, Any]:
+        if not self._a2_co2_route_conditioning_required(point, pressure_points):
+            return {}
+        if not bool(getattr(self, "_a2_co2_route_conditioning_completed", False)):
+            details = {"conditioning_completed": False, "seal_preparation_blocked_reason": "conditioning_not_completed"}
+            self._record_workflow_timing(
+                "seal_preparation_after_conditioning_start",
+                "fail",
+                stage="seal_preparation_after_conditioning",
+                point=point,
+                decision="conditioning_not_completed",
+                error_code="conditioning_not_completed",
+                route_state=details,
+            )
+            raise WorkflowValidationError("A2 high-pressure first point requires completed CO2 route conditioning", details=details)
+        conditioning_completed_at = str(getattr(self, "_a2_co2_route_conditioning_completed_at", "") or "")
+        self._record_workflow_timing(
+            "seal_preparation_after_conditioning_start",
+            "start",
+            stage="seal_preparation_after_conditioning",
+            point=point,
+            route_state={
+                "conditioning_completed_before_high_pressure_mode": True,
+                "conditioning_completed_at": conditioning_completed_at,
+                "preseal_analyzer_gate_passed": bool(getattr(self, "_a2_preseal_analyzer_gate_passed", False)),
+            },
+        )
+        context = self._prearm_a2_high_pressure_first_point_mode(point, pressure_points)
+        if not bool(context.get("enabled")):
+            return context
+        context = dict(context)
+        context.update(
+            {
+                "conditioning_completed_before_high_pressure_mode": True,
+                "conditioning_completed_at": conditioning_completed_at,
+                "preseal_analyzer_gate_passed": bool(getattr(self, "_a2_preseal_analyzer_gate_passed", False)),
+                "sealed_after_conditioning": False,
+            }
+        )
+        setattr(self, "_a2_high_pressure_first_point_context", context)
+        self._record_workflow_timing(
+            "high_pressure_first_point_mode_start",
+            "start",
+            stage="high_pressure_first_point",
+            point=point,
+            target_pressure_hpa=context.get("first_target_pressure_hpa"),
+            pressure_hpa=context.get("baseline_pressure_hpa"),
+            decision="enabled_after_conditioning",
+            route_state=context,
+        )
+        self._preclose_a2_high_pressure_first_point_vent(point)
+        self._record_workflow_timing(
+            "high_pressure_ready_wait_started_after_conditioning",
+            "start",
+            stage="high_pressure_first_point",
+            point=point,
+            target_pressure_hpa=context.get("first_target_pressure_hpa"),
+            decision="wait_for_ready_pressure_after_conditioning",
+            route_state=dict(getattr(self, "_a2_high_pressure_first_point_context", {}) or context),
+        )
+        self._request_a2_high_pressure_route_open_pressure_sample(point)
+        return dict(getattr(self, "_a2_high_pressure_first_point_context", {}) or context)
+
     def _prearm_a2_high_pressure_first_point_mode(
         self,
         point: CalibrationPoint,
@@ -1605,7 +1979,16 @@ class WorkflowOrchestrator:
             )
         margin = self._as_float(self._cfg_get("workflow.pressure.high_pressure_first_point_margin_hpa", 0.0))
         margin = 0.0 if margin is None else float(margin)
-        if first_target is not None and float(first_target) >= float(baseline_pressure) + margin:
+        conditioning_completed = bool(getattr(self, "_a2_co2_route_conditioning_completed", False))
+        if conditioning_completed and first_target is not None and contains_1100:
+            context["enabled"] = True
+            context["ambient_reference_pressure_hpa"] = baseline_pressure
+            context["current_ambient_reference_pressure_hpa"] = baseline_pressure
+            context["trigger_reason"] = "conditioning_completed_first_1100_point"
+            context["ambient_reference_margin_hpa"] = margin
+            context["conditioning_completed_before_high_pressure_mode"] = True
+            context["conditioning_completed_at"] = str(getattr(self, "_a2_co2_route_conditioning_completed_at", "") or "")
+        elif first_target is not None and float(first_target) >= float(baseline_pressure) + margin:
             context["enabled"] = True
             context["ambient_reference_pressure_hpa"] = baseline_pressure
             context["current_ambient_reference_pressure_hpa"] = baseline_pressure
@@ -1667,9 +2050,31 @@ class WorkflowOrchestrator:
     def _preclose_a2_high_pressure_first_point_vent(self, point: CalibrationPoint) -> dict[str, Any]:
         if not bool(getattr(self, "_a2_high_pressure_first_point_mode_enabled", False)):
             return {}
+        context = dict(getattr(self, "_a2_high_pressure_first_point_context", {}) or {})
+        context.update(
+            {
+                "conditioning_completed_before_high_pressure_mode": bool(
+                    getattr(self, "_a2_co2_route_conditioning_completed", False)
+                ),
+                "conditioning_completed_at": str(getattr(self, "_a2_co2_route_conditioning_completed_at", "") or ""),
+                "preseal_analyzer_gate_passed": bool(getattr(self, "_a2_preseal_analyzer_gate_passed", False)),
+                "seal_preparation_started_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        setattr(self, "_a2_high_pressure_first_point_context", context)
+        self._record_workflow_timing(
+            "seal_preparation_vent_off",
+            "info",
+            stage="seal_preparation_after_conditioning",
+            point=point,
+            target_pressure_hpa=context.get("first_target_pressure_hpa"),
+            pressure_hpa=context.get("baseline_pressure_hpa"),
+            decision="vent_off_requested_after_conditioning",
+            route_state=context,
+        )
         diagnostics = self.pressure_control_service.set_pressure_controller_vent(
             False,
-            reason="A2 high-pressure first-point positive pressure build-up",
+            reason="A2 high-pressure first-point positive pressure build-up after CO2 conditioning",
             wait_after_command=False,
             capture_pressure=False,
             transition_timeout_s=self._cfg_get("workflow.pressure.preseal_vent_close_command_timeout_s", 1.0),
@@ -1678,9 +2083,35 @@ class WorkflowOrchestrator:
                 self._cfg_get("workflow.pressure.preseal_vent_close_prefer_direct_command", True)
             ),
         )
+        vent_off_sent_at = datetime.now(timezone.utc).isoformat()
+        settle_s = max(0.0, float(self._cfg_get("workflow.pressure.seal_preparation_vent_off_settle_s", 0.0)))
+        self._record_workflow_timing(
+            "seal_preparation_vent_off_settle_start",
+            "start",
+            stage="seal_preparation_after_conditioning",
+            point=point,
+            target_pressure_hpa=context.get("first_target_pressure_hpa"),
+            wait_reason="vent_off_settle",
+            route_state={**context, "vent_off_sent_at": vent_off_sent_at, "vent_off_settle_s": settle_s},
+        )
+        if settle_s > 0:
+            time.sleep(settle_s)
+        self._record_workflow_timing(
+            "seal_preparation_vent_off_settle_end",
+            "end",
+            stage="seal_preparation_after_conditioning",
+            point=point,
+            target_pressure_hpa=context.get("first_target_pressure_hpa"),
+            duration_s=settle_s,
+            decision="settled",
+            route_state={**context, "vent_off_settle_s": settle_s},
+        )
         setattr(self, "_a2_high_pressure_first_point_vent_preclosed", True)
         context = dict(getattr(self, "_a2_high_pressure_first_point_context", {}) or {})
-        context["positive_pressure_build_up_vent_closed_before_route_open"] = True
+        context["positive_pressure_build_up_vent_closed_before_route_open"] = False
+        context["positive_pressure_build_up_vent_closed_after_conditioning"] = True
+        context["vent_off_sent_at"] = vent_off_sent_at
+        context["vent_off_settle_s"] = settle_s
         context["vent_preclose_diagnostics"] = diagnostics
         setattr(self, "_a2_high_pressure_first_point_context", context)
         self._record_workflow_timing(
@@ -1689,7 +2120,7 @@ class WorkflowOrchestrator:
             stage="high_pressure_first_point",
             point=point,
             target_pressure_hpa=context.get("first_target_pressure_hpa"),
-            decision="vent_preclosed_before_route_open",
+            decision="vent_preclosed_after_conditioning",
             route_state=context,
         )
         return diagnostics
@@ -1713,7 +2144,12 @@ class WorkflowOrchestrator:
 
     def _verify_co2_preseal_atmosphere_hold_pressure(self, point: CalibrationPoint) -> str:
         high_pressure_first_point_mode = bool(getattr(self, "_a2_high_pressure_first_point_mode_enabled", False))
-        stage_name = "high_pressure_first_point" if high_pressure_first_point_mode else "preseal_atmosphere_flush_hold"
+        conditioning_at_atmosphere = bool(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_active", False))
+        stage_name = (
+            "co2_route_conditioning_at_atmosphere"
+            if conditioning_at_atmosphere
+            else ("high_pressure_first_point" if high_pressure_first_point_mode else "preseal_atmosphere_flush_hold")
+        )
         dual_sample_reader = getattr(self.pressure_control_service, "_current_dual_pressure_sample", None)
         high_pressure_reader = getattr(
             self.pressure_control_service,
@@ -1739,13 +2175,13 @@ class WorkflowOrchestrator:
                     route_state=sample,
                 )
         elif callable(dual_sample_reader):
-            sample = dual_sample_reader(stage="preseal_atmosphere_flush_hold", point_index=point.index)
+            sample = dual_sample_reader(stage=stage_name, point_index=point.index)
             pressure_hpa = self._as_float(sample.get("pressure_hpa") if isinstance(sample, dict) else None)
             if isinstance(sample, Mapping):
                 self._record_pressure_source_latency_events(
                     sample,
                     point=point,
-                    stage="preseal_atmosphere_flush_hold",
+                    stage=stage_name,
                 )
         elif callable(sample_reader):
             sample = sample_reader(source="pressure_gauge")
@@ -1872,6 +2308,17 @@ class WorkflowOrchestrator:
             if isinstance(sample, dict) and key in sample
         }
         if bool(sample_meta.get("pressure_sample_is_stale")) or bool(sample_meta.get("is_stale")):
+            if conditioning_at_atmosphere:
+                self._record_workflow_timing(
+                    "co2_route_conditioning_pressure_warning",
+                    "warning",
+                    stage=stage_name,
+                    point=point,
+                    pressure_hpa=pressure_hpa,
+                    decision="stale_pressure_sample_ignored",
+                    warning_code="stale_pressure_sample_ignored",
+                    route_state=sample_meta,
+                )
             self._record_workflow_timing(
                 "preseal_atmosphere_flush_pressure_check",
                 "warning",
@@ -1958,6 +2405,39 @@ class WorkflowOrchestrator:
             target_limit_hpa = target_hpa + abs(10.0 if margin_hpa is None else margin_hpa)
             limit_hpa = max(1110.0 if default_limit_hpa is None else default_limit_hpa, target_limit_hpa)
         effective_limit_hpa = float(abort_hpa if positive_preseal_enabled and abort_hpa is not None else limit_hpa)
+        if conditioning_at_atmosphere:
+            conditioning_state = {
+                "pressure_hpa": pressure_hpa,
+                "ready_pressure_hpa": ready_hpa,
+                "abort_pressure_hpa": effective_limit_hpa,
+                "conditioning_completed": False,
+                "did_not_seal_during_conditioning": True,
+                "pressure_abnormal": bool(pressure_hpa > effective_limit_hpa),
+                **sample_meta,
+            }
+            event_name = (
+                "co2_route_conditioning_pressure_warning"
+                if pressure_hpa > effective_limit_hpa
+                else "co2_route_conditioning_pressure_sample"
+            )
+            self._record_workflow_timing(
+                event_name,
+                "fail" if pressure_hpa > effective_limit_hpa else "tick",
+                stage=stage_name,
+                point=point,
+                pressure_hpa=pressure_hpa,
+                target_pressure_hpa=target_hpa,
+                decision="abort_pressure_exceeded" if pressure_hpa > effective_limit_hpa else "monitor_only_no_seal",
+                warning_code="conditioning_pressure_above_abort_threshold" if pressure_hpa > effective_limit_hpa else None,
+                error_code=(
+                    "co2_preseal_atmosphere_flush_abort_pressure_exceeded"
+                    if pressure_hpa > effective_limit_hpa
+                    else None
+                ),
+                route_state=conditioning_state,
+            )
+            if pressure_hpa <= effective_limit_hpa:
+                return "conditioning_pressure_monitor_ok"
         if positive_preseal_enabled and ready_hpa is not None:
             now_monotonic = time.monotonic()
             arm_margin_hpa = self._as_float(self._cfg_get("workflow.pressure.preseal_vent_close_arm_margin_hpa", 30.0))
@@ -2094,6 +2574,23 @@ class WorkflowOrchestrator:
                     decision="ready",
                     route_state=details,
                 )
+                if bool(getattr(self, "_a2_co2_route_conditioning_completed", False)):
+                    self._record_workflow_timing(
+                        "high_pressure_ready_detected_after_conditioning",
+                        "info",
+                        stage=stage_name,
+                        point=point,
+                        pressure_hpa=pressure_hpa,
+                        target_pressure_hpa=target_hpa,
+                        decision="ready_after_conditioning",
+                        route_state={
+                            **details,
+                            "conditioning_completed_before_high_pressure_mode": True,
+                            "conditioning_completed_at": str(
+                                getattr(self, "_a2_co2_route_conditioning_completed_at", "") or ""
+                            ),
+                        },
+                    )
             self._record_workflow_timing(
                 "preseal_atmosphere_flush_pressure_check",
                 "tick",

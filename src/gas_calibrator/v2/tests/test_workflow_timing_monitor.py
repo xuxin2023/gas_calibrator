@@ -279,6 +279,109 @@ def test_timing_summary_records_high_pressure_first_point_polling(monkeypatch, t
     assert summary["pressure_freshness_warning_count"] == 0
 
 
+def test_timing_summary_records_co2_conditioning_and_seal_order(monkeypatch, tmp_path) -> None:
+    clock = {"now": 50.0}
+    monkeypatch.setattr(timing_module.time, "monotonic", lambda: clock["now"])
+    monitor = TimingMonitorService(tmp_path, run_id="run-co2-conditioning", no_write_guard_active=True)
+
+    monitor.record_event(
+        "co2_route_conditioning_start",
+        "start",
+        stage="co2_route_conditioning_at_atmosphere",
+        point_index=1,
+        expected_max_s=10.0,
+        route_state={"conditioning_soak_s": 10.0, "atmosphere_vent_enabled": True},
+    )
+    monitor.record_event(
+        "co2_route_conditioning_vent_tick",
+        "tick",
+        stage="co2_route_conditioning_at_atmosphere",
+        point_index=1,
+        pressure_hpa=1009.0,
+        route_state={"phase": "before_route_open", "digital_gauge_pressure_hpa": 1009.0},
+    )
+    clock["now"] += 2.0
+    monitor.record_event(
+        "co2_route_conditioning_vent_tick",
+        "tick",
+        stage="co2_route_conditioning_at_atmosphere",
+        point_index=1,
+        pressure_hpa=1112.0,
+        route_state={"phase": "conditioning_hold", "digital_gauge_pressure_hpa": 1112.0},
+    )
+    monitor.record_event(
+        "co2_route_conditioning_pressure_sample",
+        "tick",
+        stage="co2_route_conditioning_at_atmosphere",
+        point_index=1,
+        pressure_hpa=1112.0,
+        decision="monitor_only_no_seal",
+    )
+    clock["now"] += 8.0
+    monitor.record_event(
+        "co2_route_conditioning_end",
+        "end",
+        stage="co2_route_conditioning_at_atmosphere",
+        point_index=1,
+        decision="PASS",
+    )
+    monitor.record_event(
+        "preseal_analyzer_gate_start",
+        "start",
+        stage="preseal_analyzer_gate",
+        point_index=1,
+    )
+    monitor.record_event(
+        "preseal_analyzer_gate_end",
+        "end",
+        stage="preseal_analyzer_gate",
+        point_index=1,
+        decision="PASS",
+    )
+    monitor.record_event(
+        "seal_preparation_after_conditioning_start",
+        "start",
+        stage="seal_preparation_after_conditioning",
+        point_index=1,
+    )
+    monitor.record_event(
+        "high_pressure_first_point_mode_start",
+        "start",
+        stage="high_pressure_first_point",
+        point_index=1,
+    )
+    monitor.record_event(
+        "high_pressure_ready_detected_after_conditioning",
+        "info",
+        stage="high_pressure_first_point",
+        point_index=1,
+        pressure_hpa=1110.5,
+    )
+    clock["now"] += 0.1
+    monitor.record_event(
+        "high_pressure_seal_command_sent",
+        "info",
+        stage="high_pressure_first_point",
+        point_index=1,
+        pressure_hpa=1110.5,
+    )
+
+    summary = monitor.finalize_summary(
+        final_decision="PASS",
+        a2_final_decision="PASS",
+        extra_context={"vent_hold_interval_s": 2.0},
+    )
+
+    assert summary["co2_route_conditioning_duration_s"] == 10.0
+    assert summary["co2_route_conditioning_pressure_max_hpa"] == 1112.0
+    assert summary["co2_route_conditioning_pressure_warning_count"] == 0
+    assert summary["co2_route_conditioning_vent_tick_count"] == 2
+    assert summary["sealed_during_conditioning"] is False
+    assert summary["seal_preparation_started_after_conditioning"] is True
+    assert summary["high_pressure_mode_started_after_conditioning"] is True
+    assert summary["high_pressure_ready_to_seal_command_s"] == 0.1
+
+
 def test_timing_summary_counts_critical_window_blocking_query_once(tmp_path) -> None:
     monitor = TimingMonitorService(tmp_path, run_id="run-critical-blocking", no_write_guard_active=True)
 

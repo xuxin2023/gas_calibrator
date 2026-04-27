@@ -42,6 +42,7 @@ A2_REQUIRED_ARTIFACTS = {
     "positive_preseal_pressurization_evidence": "positive_preseal_pressurization_evidence.json",
     "positive_preseal_pressurization_samples": "positive_preseal_pressurization_samples.csv",
     "positive_preseal_timing_diagnostics": "positive_preseal_timing_diagnostics.json",
+    "co2_route_conditioning_evidence": "co2_route_conditioning_evidence.json",
     "route_open_pressure_surge_evidence": "route_open_pressure_surge_evidence.json",
     "pressure_read_latency_diagnostics": "pressure_read_latency_diagnostics.json",
     "pressure_read_latency_samples": "pressure_read_latency_samples.csv",
@@ -1589,8 +1590,15 @@ def _build_high_pressure_first_point_evidence(
     )
     route_open_start = _first_timing_event(events, "co2_route_open_start")
     route_open_end = _first_timing_event(events, "co2_route_open_end")
+    conditioning_end = _first_timing_event(events, "co2_route_conditioning_end")
+    preseal_gate_end = _first_timing_event(events, "preseal_analyzer_gate_end")
+    seal_preparation_start = _first_timing_event(events, "seal_preparation_after_conditioning_start")
+    vent_off_event = _first_timing_event(events, "seal_preparation_vent_off")
+    vent_off_settle_end = _first_timing_event(events, "seal_preparation_vent_off_settle_end")
+    ready_wait_start = _first_timing_event(events, "high_pressure_ready_wait_started_after_conditioning")
     ready_event = (
-        _first_timing_event(events, "high_pressure_ready_detected")
+        _first_timing_event(events, "high_pressure_ready_detected_after_conditioning")
+        or _first_timing_event(events, "high_pressure_ready_detected")
         or _first_timing_event(events, "preseal_atmosphere_flush_ready_handoff")
         or _first_timing_event(events, "positive_preseal_ready")
     )
@@ -1637,6 +1645,29 @@ def _build_high_pressure_first_point_evidence(
         or ""
     )
     decision = "abort" if abort_triggered else ("sealed" if seal_confirm_event else str(payload.get("a2_final_decision") or ""))
+    conditioning_completed_at = (conditioning_end or {}).get("timestamp_local") or event_state(conditioning_end).get(
+        "conditioning_completed_at"
+    )
+    conditioning_completed_before_high_pressure_mode = bool(
+        conditioning_completed_at
+        and (
+            not mode_event
+            or (
+                _as_float((conditioning_end or {}).get("timestamp_monotonic_s")) is not None
+                and _as_float((mode_event or {}).get("timestamp_monotonic_s")) is not None
+                and float(_as_float((mode_event or {}).get("timestamp_monotonic_s")) or 0.0)
+                >= float(_as_float((conditioning_end or {}).get("timestamp_monotonic_s")) or 0.0)
+            )
+        )
+    )
+    sealed_after_conditioning = bool(
+        seal_command_event
+        and conditioning_end
+        and _as_float((seal_command_event or {}).get("timestamp_monotonic_s")) is not None
+        and _as_float((conditioning_end or {}).get("timestamp_monotonic_s")) is not None
+        and float(_as_float((seal_command_event or {}).get("timestamp_monotonic_s")) or 0.0)
+        >= float(_as_float((conditioning_end or {}).get("timestamp_monotonic_s")) or 0.0)
+    )
     return {
         "schema_version": "run001_a2.high_pressure_first_point.1",
         "artifact_type": "run001_a2_high_pressure_first_point_evidence",
@@ -1656,6 +1687,14 @@ def _build_high_pressure_first_point_evidence(
         "baseline_pressure_age_s": _as_float((baseline_sample or {}).get("sample_age_s"))
         or _as_float(mode_state.get("baseline_pressure_age_s")),
         "baseline_pressure_hpa": baseline_pressure,
+        "conditioning_completed_before_high_pressure_mode": conditioning_completed_before_high_pressure_mode,
+        "conditioning_completed_at": conditioning_completed_at,
+        "preseal_analyzer_gate_passed": str((preseal_gate_end or {}).get("decision") or "").upper() in {"PASS", "OK"},
+        "seal_preparation_started_at": (seal_preparation_start or {}).get("timestamp_local"),
+        "vent_off_sent_at": event_state(vent_off_event).get("vent_off_sent_at") or (vent_off_event or {}).get("timestamp_local"),
+        "vent_off_settle_s": event_state(vent_off_settle_end).get("vent_off_settle_s")
+        or (vent_off_settle_end or {}).get("duration_s"),
+        "high_pressure_ready_wait_started_at": (ready_wait_start or {}).get("timestamp_local"),
         "route_open_started_at": (route_open_start or {}).get("timestamp_local") or latency.get("route_open_started_at"),
         "route_open_completed_at": (route_open_end or {}).get("timestamp_local")
         or latency.get("route_open_completed_at"),
@@ -1683,6 +1722,7 @@ def _build_high_pressure_first_point_evidence(
         "ready_reached_at": (ready_event or {}).get("timestamp_local"),
         "seal_command_sent_at": (seal_command_event or {}).get("timestamp_local")
         or positive.get("seal_command_sent_at"),
+        "sealed_after_conditioning": sealed_after_conditioning,
         "ready_to_seal_command_s": timing.get("ready_to_seal_command_s")
         if timing.get("ready_to_seal_command_s") is not None
         else positive.get("ready_to_seal_command_s"),
@@ -1697,6 +1737,136 @@ def _build_high_pressure_first_point_evidence(
         "warning_count": timing.get("high_pressure_first_point_warning_count", 0),
         "pace_pressure_role": "cross_check_only_not_safety_decision",
         "primary_safety_pressure_source": "digital_pressure_gauge",
+        "not_real_acceptance_evidence": True,
+        "v2_replaces_v1_claim": False,
+    }
+
+
+def _build_co2_route_conditioning_evidence(
+    run_dir: str | Path,
+    payload: Mapping[str, Any],
+    *,
+    timing_summary: Optional[Mapping[str, Any]] = None,
+) -> dict[str, Any]:
+    events = load_workflow_timing_events(Path(run_dir) / WORKFLOW_TIMING_TRACE_FILENAME)
+    timing = dict(timing_summary or {})
+
+    def event_state(event: Optional[Mapping[str, Any]]) -> dict[str, Any]:
+        if not event:
+            return {}
+        state = event.get("route_state")
+        state = state if isinstance(state, Mapping) else {}
+        nested = state.get("route_state")
+        return dict(nested if isinstance(nested, Mapping) else state)
+
+    start_event = _first_timing_event(events, "co2_route_conditioning_start")
+    end_event = _first_timing_event(events, "co2_route_conditioning_end")
+    route_open_start = _first_timing_event(events, "co2_route_open_start")
+    route_open_end = _first_timing_event(events, "co2_route_open_end")
+    seal_event = _first_timing_event(events, "high_pressure_seal_command_sent") or _first_timing_event(
+        events,
+        "positive_preseal_seal_start",
+    )
+    vent_ticks = [
+        {**event_state(event), "timestamp": event.get("timestamp_local") or event_state(event).get("timestamp")}
+        for event in events
+        if str(event.get("event_name") or "") == "co2_route_conditioning_vent_tick"
+    ]
+    pressure_events = [
+        event
+        for event in events
+        if str(event.get("event_name") or "")
+        in {"co2_route_conditioning_pressure_sample", "co2_route_conditioning_pressure_warning"}
+    ]
+    pressure_values = [
+        value
+        for value in (_as_float(event.get("pressure_hpa")) for event in pressure_events)
+        if value is not None
+    ]
+    pressure_values.extend(
+        value
+        for value in (_as_float(item.get("digital_gauge_pressure_hpa")) for item in vent_ticks)
+        if value is not None
+    )
+    start_state = event_state(start_event)
+    end_state = event_state(end_event)
+    latest_frame_ages = [
+        value
+        for value in (_as_float(item.get("pressure_sample_age_s") or item.get("latest_frame_age_s")) for item in vent_ticks)
+        if value is not None
+    ]
+    abnormal_events = [
+        {**event_state(event), "timestamp": event.get("timestamp_local")}
+        for event in pressure_events
+        if str(event.get("event_name") or "") == "co2_route_conditioning_pressure_warning"
+        or str(event.get("event_type") or "") in {"fail", "warning"}
+    ]
+
+    def event_time(event: Optional[Mapping[str, Any]]) -> Optional[float]:
+        return _as_float((event or {}).get("timestamp_monotonic_s"))
+
+    sealed_during_conditioning = bool(timing.get("sealed_during_conditioning"))
+    if not sealed_during_conditioning and seal_event and start_event:
+        seal_time = event_time(seal_event)
+        start_time = event_time(start_event)
+        end_time = event_time(end_event)
+        sealed_during_conditioning = bool(
+            seal_time is not None
+            and start_time is not None
+            and float(seal_time) >= float(start_time)
+            and (end_time is None or float(seal_time) <= float(end_time))
+        )
+    decision = str((end_event or {}).get("decision") or end_state.get("conditioning_decision") or "")
+    if not decision:
+        decision = "FAIL" if abnormal_events else ("PASS" if end_event else "NOT_EXECUTED")
+    return {
+        "schema_version": "run001_a2.co2_route_conditioning.1",
+        "artifact_type": "run001_a2_co2_route_conditioning_evidence",
+        "run_id": payload.get("run_id"),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "route_open_started_at": (route_open_start or {}).get("timestamp_local"),
+        "route_open_completed_at": (route_open_end or {}).get("timestamp_local"),
+        "atmosphere_vent_enabled": bool(start_state.get("atmosphere_vent_enabled") or vent_ticks),
+        "vent_command_before_route_open": any(str(item.get("phase") or "") == "before_route_open" for item in vent_ticks),
+        "conditioning_soak_s": _as_float(start_state.get("conditioning_soak_s") or end_state.get("conditioning_soak_s")),
+        "conditioning_started_at": (start_event or {}).get("timestamp_local") or start_state.get("conditioning_started_at"),
+        "conditioning_completed_at": (end_event or {}).get("timestamp_local") or end_state.get("conditioning_completed_at"),
+        "conditioning_duration_s": timing.get("co2_route_conditioning_duration_s")
+        if timing.get("co2_route_conditioning_duration_s") is not None
+        else end_state.get("conditioning_duration_s"),
+        "pressure_monitoring_enabled": bool(start_state.get("pressure_monitoring_enabled") or pressure_events),
+        "pressure_max_during_conditioning_hpa": timing.get("co2_route_conditioning_pressure_max_hpa")
+        if timing.get("co2_route_conditioning_pressure_max_hpa") is not None
+        else (max(pressure_values) if pressure_values else None),
+        "pressure_min_during_conditioning_hpa": timing.get("co2_route_conditioning_pressure_min_hpa")
+        if timing.get("co2_route_conditioning_pressure_min_hpa") is not None
+        else (min(pressure_values) if pressure_values else None),
+        "pressure_source": start_state.get("pressure_source") or "digital_pressure_gauge_continuous",
+        "latest_frame_age_max_s": end_state.get("latest_frame_age_max_s")
+        if end_state.get("latest_frame_age_max_s") is not None
+        else (max(latest_frame_ages) if latest_frame_ages else None),
+        "abnormal_pressure_events": abnormal_events or list(end_state.get("abnormal_pressure_events") or []),
+        "conditioning_decision": decision,
+        "did_not_seal_during_conditioning": not sealed_during_conditioning,
+        "sealed_during_conditioning": sealed_during_conditioning,
+        "vent_ticks": vent_ticks,
+        "vent_tick_count": len(vent_ticks),
+        "periodic_vent_tick_evidence_present": bool(vent_ticks),
+        "route_open_allowed": bool(not sealed_during_conditioning and (not end_event or decision.upper() != "FAIL")),
+        "route_open_blocked_reason": "" if not sealed_during_conditioning else "sealed_during_conditioning",
+        "workflow_summary": {
+            "co2_route_conditioning_duration_s": timing.get("co2_route_conditioning_duration_s"),
+            "co2_route_conditioning_pressure_warning_count": timing.get(
+                "co2_route_conditioning_pressure_warning_count"
+            ),
+            "co2_route_conditioning_vent_tick_count": timing.get("co2_route_conditioning_vent_tick_count"),
+            "seal_preparation_started_after_conditioning": timing.get(
+                "seal_preparation_started_after_conditioning"
+            ),
+            "high_pressure_mode_started_after_conditioning": timing.get(
+                "high_pressure_mode_started_after_conditioning"
+            ),
+        },
         "not_real_acceptance_evidence": True,
         "v2_replaces_v1_claim": False,
     }
@@ -2942,6 +3112,8 @@ def render_run001_a2_human_report(payload: Mapping[str, Any]) -> str:
     preseal_timing = dict(preseal_timing) if isinstance(preseal_timing, Mapping) else {}
     route_surge = payload.get("route_open_pressure_surge_evidence")
     route_surge = dict(route_surge) if isinstance(route_surge, Mapping) else {}
+    co2_conditioning = payload.get("co2_route_conditioning_evidence")
+    co2_conditioning = dict(co2_conditioning) if isinstance(co2_conditioning, Mapping) else {}
     pressure_latency = payload.get("pressure_read_latency_diagnostics")
     pressure_latency = dict(pressure_latency) if isinstance(pressure_latency, Mapping) else {}
     high_pressure = payload.get("high_pressure_first_point_evidence")
@@ -3000,6 +3172,25 @@ def render_run001_a2_human_report(payload: Mapping[str, Any]) -> str:
             f"- preseal_atmosphere_hold_pressure_limit_exceeded: {payload.get('preseal_atmosphere_hold_pressure_limit_exceeded')}",
             f"- preseal_atmosphere_hold_evidence: {payload.get('preseal_atmosphere_hold_evidence_artifact')}",
             f"- preseal_atmosphere_hold_samples: {payload.get('preseal_atmosphere_hold_samples_artifact')}",
+            "",
+            "## CO2 通大气洗刷与封路时序审计",
+            f"- co2_route_conditioning_evidence: {payload.get('co2_route_conditioning_evidence_artifact')}",
+            f"- conditioning_at_atmosphere: {co2_conditioning.get('atmosphere_vent_enabled')}",
+            f"- conditioning_soak_s: {co2_conditioning.get('conditioning_soak_s')}",
+            f"- conditioning_duration_s: {co2_conditioning.get('conditioning_duration_s')}",
+            f"- vent_on_during_conditioning: {co2_conditioning.get('atmosphere_vent_enabled')}",
+            f"- vent_tick_count: {co2_conditioning.get('vent_tick_count')}",
+            f"- pressure_max_during_conditioning_hpa: {co2_conditioning.get('pressure_max_during_conditioning_hpa')}",
+            f"- pressure_min_during_conditioning_hpa: {co2_conditioning.get('pressure_min_during_conditioning_hpa')}",
+            f"- pressure_warning_count: {timing_summary.get('co2_route_conditioning_pressure_warning_count')}",
+            f"- sealed_during_conditioning: {co2_conditioning.get('sealed_during_conditioning')}",
+            f"- did_not_seal_during_conditioning: {co2_conditioning.get('did_not_seal_during_conditioning')}",
+            f"- preseal_analyzer_gate_passed: {high_pressure.get('preseal_analyzer_gate_passed')}",
+            f"- vent_off_sent_at_after_conditioning: {high_pressure.get('vent_off_sent_at')}",
+            f"- high_pressure_ready_wait_started_at: {high_pressure.get('high_pressure_ready_wait_started_at')}",
+            f"- ready_to_seal_command_s: {high_pressure.get('ready_to_seal_command_s')}",
+            f"- v1_order_contract_aligned: {co2_conditioning.get('did_not_seal_during_conditioning') and high_pressure.get('conditioning_completed_before_high_pressure_mode')}",
+            "- next_run_recommendation: only rerun A2 after explicit human authorization; conditioning must show periodic vent tick evidence and no pre-conditioning seal.",
             "",
             "## Positive preseal pressurization summary",
             f"- positive_preseal_pressurization_enabled: {payload.get('positive_preseal_pressurization_enabled')}",
@@ -3174,6 +3365,12 @@ def _finalize_artifact_decision(payload: dict[str, Any], run_dir: str | Path) ->
         for key, item in status.items():
             if not bool(item.get("exists")):
                 reasons.append(f"a2_required_artifact_missing_{key}")
+        conditioning = payload.get("co2_route_conditioning_evidence")
+        conditioning = dict(conditioning) if isinstance(conditioning, Mapping) else {}
+        if conditioning and int(conditioning.get("vent_tick_count") or 0) <= 0:
+            reasons.append("a2_co2_route_conditioning_missing_vent_tick_evidence")
+        if conditioning and bool(conditioning.get("sealed_during_conditioning")):
+            reasons.append("a2_co2_route_conditioning_sealed_before_completion")
     deduped = list(dict.fromkeys(reasons))
     if payload.get("a2_final_decision") != RUN001_NOT_EXECUTED:
         payload["a2_final_decision"] = RUN001_PASS if not deduped else RUN001_FAIL
@@ -3196,6 +3393,7 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
     positive_preseal_evidence_path = directory / "positive_preseal_pressurization_evidence.json"
     positive_preseal_samples_path = directory / "positive_preseal_pressurization_samples.csv"
     positive_preseal_timing_path = directory / "positive_preseal_timing_diagnostics.json"
+    co2_route_conditioning_path = directory / "co2_route_conditioning_evidence.json"
     route_open_surge_path = directory / "route_open_pressure_surge_evidence.json"
     pressure_latency_path = directory / "pressure_read_latency_diagnostics.json"
     pressure_latency_samples_path = directory / "pressure_read_latency_samples.csv"
@@ -3207,6 +3405,7 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
     common_paths["positive_preseal_pressurization_evidence"] = str(positive_preseal_evidence_path)
     common_paths["positive_preseal_pressurization_samples"] = str(positive_preseal_samples_path)
     common_paths["positive_preseal_timing_diagnostics"] = str(positive_preseal_timing_path)
+    common_paths["co2_route_conditioning_evidence"] = str(co2_route_conditioning_path)
     common_paths["route_open_pressure_surge_evidence"] = str(route_open_surge_path)
     common_paths["pressure_read_latency_diagnostics"] = str(pressure_latency_path)
     common_paths["pressure_read_latency_samples"] = str(pressure_latency_samples_path)
@@ -3318,6 +3517,15 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
         pressure_latency_payload,
         route_open_surge_payload,
     )
+    co2_route_conditioning_payload = _build_co2_route_conditioning_evidence(
+        directory,
+        enriched,
+        timing_summary=timing_summary,
+    )
+    co2_route_conditioning_path.write_text(
+        json.dumps(co2_route_conditioning_payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     high_pressure_first_point_payload = _build_high_pressure_first_point_evidence(
         directory,
         enriched,
@@ -3355,6 +3563,8 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "workflow_timing_artifacts_retrospective": bool(timing_summary.get("retrospective", False)),
             "positive_preseal_timing_diagnostics_artifact": str(positive_preseal_timing_path),
             "positive_preseal_timing_diagnostics": positive_preseal_timing_payload,
+            "co2_route_conditioning_evidence_artifact": str(co2_route_conditioning_path),
+            "co2_route_conditioning_evidence": co2_route_conditioning_payload,
             "route_open_pressure_surge_evidence_artifact": str(route_open_surge_path),
             "route_open_pressure_surge_evidence": route_open_surge_payload,
             "pressure_read_latency_diagnostics_artifact": str(pressure_latency_path),
@@ -3426,6 +3636,13 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             ),
             "critical_window_uses_latest_frame": pressure_latency_payload.get("critical_window_uses_latest_frame"),
             "critical_window_uses_query": pressure_latency_payload.get("critical_window_uses_query"),
+            "co2_route_conditioning_evidence_artifact": str(co2_route_conditioning_path),
+            "co2_route_conditioning_decision": co2_route_conditioning_payload.get("conditioning_decision"),
+            "co2_route_conditioning_vent_tick_count": co2_route_conditioning_payload.get("vent_tick_count"),
+            "co2_route_conditioning_pressure_max_hpa": co2_route_conditioning_payload.get(
+                "pressure_max_during_conditioning_hpa"
+            ),
+            "sealed_during_conditioning": co2_route_conditioning_payload.get("sealed_during_conditioning"),
         }
     )
     enriched = _finalize_artifact_decision(enriched, directory)
@@ -3501,6 +3718,9 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "positive_preseal_timing_diagnostics_artifact": enriched.get(
                 "positive_preseal_timing_diagnostics_artifact"
             ),
+            "co2_route_conditioning_evidence_artifact": enriched.get(
+                "co2_route_conditioning_evidence_artifact"
+            ),
             "positive_preseal_timing_warning_codes": enriched.get("positive_preseal_timing_warning_codes"),
             "positive_preseal_timing_warning_count": enriched.get("positive_preseal_timing_warning_count"),
             "positive_preseal_timing_warning_count_total": enriched.get(
@@ -3547,6 +3767,7 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "positive_preseal_pressurization_evidence_artifact": str(positive_preseal_evidence_path),
             "positive_preseal_pressurization_samples_artifact": str(positive_preseal_samples_path),
             "positive_preseal_timing_diagnostics_artifact": str(positive_preseal_timing_path),
+            "co2_route_conditioning_evidence_artifact": str(co2_route_conditioning_path),
             "workflow_timing_trace_artifact": str(timing_trace_path),
             "workflow_timing_summary_artifact": str(timing_summary_path),
             "workflow_timing_summary": timing_summary,
@@ -3584,6 +3805,9 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "positive_preseal_timing_warning_count_severe": enriched.get(
                 "positive_preseal_timing_warning_count_severe"
             ),
+            "co2_route_conditioning_decision": enriched.get("co2_route_conditioning_decision"),
+            "co2_route_conditioning_vent_tick_count": enriched.get("co2_route_conditioning_vent_tick_count"),
+            "sealed_during_conditioning": enriched.get("sealed_during_conditioning"),
             "route_open_pressure_surge_evidence_artifact": str(route_open_surge_path),
             "pressure_read_latency_diagnostics_artifact": str(pressure_latency_path),
             "pressure_read_latency_samples_artifact": str(pressure_latency_samples_path),
@@ -3605,6 +3829,7 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
         str(positive_preseal_evidence_path),
         str(positive_preseal_samples_path),
         str(positive_preseal_timing_path),
+        str(co2_route_conditioning_path),
         str(route_open_surge_path),
         str(pressure_latency_path),
         str(pressure_latency_samples_path),

@@ -901,7 +901,10 @@ def build_workflow_timing_summary(
     pressure_ready_seen_by_point: set[str] = set()
     pressure_setpoint_started_by_point: set[str] = set()
     preseal_vent_ticks: list[dict[str, Any]] = []
+    co2_conditioning_vent_ticks: list[dict[str, Any]] = []
+    co2_conditioning_pressure_events: list[dict[str, Any]] = []
     preseal_pressures: list[float] = []
+    co2_conditioning_pressure_warning_count = 0
     positive_preseal_ready_pressure_hpa = _as_float(context.get("positive_preseal_ready_pressure_hpa"))
     positive_preseal_abort_pressure_hpa = _as_float(context.get("positive_preseal_abort_pressure_hpa"))
     positive_preseal_seal_trigger_pressure_hpa: Optional[float] = _as_float(
@@ -932,6 +935,16 @@ def build_workflow_timing_summary(
             preseal_pressures.append(float(pressure))
         if name == "preseal_vent_hold_tick":
             preseal_vent_ticks.append(event)
+        if name == "co2_route_conditioning_vent_tick":
+            co2_conditioning_vent_ticks.append(event)
+        if name in {"co2_route_conditioning_pressure_sample", "co2_route_conditioning_pressure_warning"}:
+            co2_conditioning_pressure_events.append(event)
+            if pressure is not None:
+                preseal_pressures.append(float(pressure))
+            if name == "co2_route_conditioning_pressure_warning":
+                co2_conditioning_pressure_warning_count += 1
+        if name == "co2_route_conditioning_vent_tick" and pressure is not None:
+            preseal_pressures.append(float(pressure))
         if name == "positive_preseal_vent_close_end":
             positive_preseal_vent_close_status = "PASS"
         if name == "positive_preseal_vent_close_fail":
@@ -1013,6 +1026,17 @@ def build_workflow_timing_summary(
             repeated_sleep_warnings.append(
                 {
                     "warning_code": "preseal_vent_tick_gap_gt_2x_interval",
+                    "gap_s": gap,
+                    "vent_hold_interval_s": vent_interval,
+                    "point_index": right.get("point_index"),
+                }
+            )
+    for left, right in zip(co2_conditioning_vent_ticks, co2_conditioning_vent_ticks[1:]):
+        gap = _duration_between(left, right)
+        if vent_interval is not None and gap is not None and gap > vent_interval * 2.0:
+            repeated_sleep_warnings.append(
+                {
+                    "warning_code": "co2_route_conditioning_vent_tick_gap_gt_2x_interval",
                     "gap_s": gap,
                     "vent_hold_interval_s": vent_interval,
                     "point_index": right.get("point_index"),
@@ -1258,11 +1282,17 @@ def build_workflow_timing_summary(
     positive_preseal_ready = first_event("positive_preseal_ready")
     positive_arming_start = first_event("positive_preseal_arming_start")
     positive_arming_end = first_event("positive_preseal_arming_end")
+    co2_conditioning_start = first_event("co2_route_conditioning_start")
+    co2_conditioning_end = first_event("co2_route_conditioning_end")
+    seal_preparation_start = first_event("seal_preparation_after_conditioning_start")
+    high_pressure_mode_start = first_event("high_pressure_first_point_mode_start")
+    high_pressure_ready_after_conditioning = first_event("high_pressure_ready_detected_after_conditioning")
     seal_command_event = first_event("high_pressure_seal_command_sent") or first_event("positive_preseal_seal_start")
     seal_confirm_event = first_event("high_pressure_seal_confirmed") or first_event("positive_preseal_seal_end")
     ready_candidates = [
         event
         for event in (
+            first_event("high_pressure_ready_detected_after_conditioning"),
             first_event("high_pressure_ready_detected"),
             first_event("preseal_atmosphere_flush_ready_handoff"),
             positive_preseal_ready,
@@ -1280,11 +1310,59 @@ def build_workflow_timing_summary(
     ready_to_seal_confirm_s = elapsed_between(seal_ready_reference_event, seal_confirm_event)
     ready_to_vent_close_start_s = elapsed_between(ready_event, positive_arming_start or first_event("positive_preseal_vent_close_start"))
     ready_to_vent_close_end_s = elapsed_between(ready_event, positive_arming_end or first_event("positive_preseal_vent_close_end"))
+    co2_route_conditioning_duration_s = elapsed_between(co2_conditioning_start, co2_conditioning_end)
+    if co2_route_conditioning_duration_s is None:
+        co2_route_conditioning_duration_s = stage_durations.get("co2_route_conditioning_at_atmosphere")
+    co2_route_conditioning_pressure_values = [
+        value
+        for value in (_as_float(event.get("pressure_hpa")) for event in co2_conditioning_pressure_events + co2_conditioning_vent_ticks)
+        if value is not None
+    ]
+    co2_route_conditioning_pressure_max_hpa = (
+        max(float(value) for value in co2_route_conditioning_pressure_values)
+        if co2_route_conditioning_pressure_values
+        else None
+    )
+    co2_route_conditioning_pressure_min_hpa = (
+        min(float(value) for value in co2_route_conditioning_pressure_values)
+        if co2_route_conditioning_pressure_values
+        else None
+    )
+    conditioning_start_time = event_time(co2_conditioning_start)
+    conditioning_end_time = event_time(co2_conditioning_end)
+    seal_command_time = event_time(seal_command_event)
+    sealed_during_conditioning = bool(
+        seal_command_time is not None
+        and conditioning_start_time is not None
+        and (conditioning_end_time is None or float(seal_command_time) <= float(conditioning_end_time))
+        and float(seal_command_time) >= float(conditioning_start_time)
+    )
+    seal_preparation_started_after_conditioning = bool(
+        event_time(seal_preparation_start) is not None
+        and conditioning_end_time is not None
+        and float(event_time(seal_preparation_start) or 0.0) >= float(conditioning_end_time)
+    )
+    high_pressure_mode_started_after_conditioning = bool(
+        event_time(high_pressure_mode_start) is not None
+        and conditioning_end_time is not None
+        and float(event_time(high_pressure_mode_start) or 0.0) >= float(conditioning_end_time)
+    )
+    high_pressure_ready_to_seal_command_s = elapsed_between(
+        high_pressure_ready_after_conditioning or first_event("high_pressure_ready_detected"),
+        seal_command_event,
+    )
     vent_pressure_events = [
         event
         for event in events
         if str(event.get("event_name") or "")
-        in {"preseal_atmosphere_flush_pressure_check", "preseal_vent_hold_tick", "pressure_atmosphere_vent_end"}
+        in {
+            "preseal_atmosphere_flush_pressure_check",
+            "preseal_vent_hold_tick",
+            "pressure_atmosphere_vent_end",
+            "co2_route_conditioning_pressure_sample",
+            "co2_route_conditioning_pressure_warning",
+            "co2_route_conditioning_vent_tick",
+        }
         and _as_float(event.get("pressure_hpa")) is not None
     ]
     positive_pressure_events = [
@@ -1444,6 +1522,7 @@ def build_workflow_timing_summary(
                 "route_open_pressure_poll_request",
                 "route_open_pressure_poll_response",
                 "high_pressure_ready_detected",
+                "high_pressure_ready_detected_after_conditioning",
                 "high_pressure_seal_command_sent",
                 "high_pressure_seal_confirmed",
                 "high_pressure_abort",
@@ -1568,6 +1647,15 @@ def build_workflow_timing_summary(
         "positive_preseal_ready_pressure_hpa": positive_preseal_ready_pressure_hpa,
         "positive_preseal_seal_trigger_pressure_hpa": positive_preseal_seal_trigger_pressure_hpa,
         "positive_preseal_abort_pressure_hpa": positive_preseal_abort_pressure_hpa,
+        "co2_route_conditioning_duration_s": co2_route_conditioning_duration_s,
+        "co2_route_conditioning_pressure_max_hpa": co2_route_conditioning_pressure_max_hpa,
+        "co2_route_conditioning_pressure_min_hpa": co2_route_conditioning_pressure_min_hpa,
+        "co2_route_conditioning_pressure_warning_count": co2_conditioning_pressure_warning_count,
+        "co2_route_conditioning_vent_tick_count": len(co2_conditioning_vent_ticks),
+        "sealed_during_conditioning": sealed_during_conditioning,
+        "seal_preparation_started_after_conditioning": seal_preparation_started_after_conditioning,
+        "high_pressure_mode_started_after_conditioning": high_pressure_mode_started_after_conditioning,
+        "high_pressure_ready_to_seal_command_s": high_pressure_ready_to_seal_command_s,
         "high_pressure_first_point_enabled": high_pressure_first_point_enabled,
         "route_open_to_first_pressure_rise_s": route_open_to_first_pressure_rise_s,
         "route_open_to_first_pressure_request_s": route_open_to_first_pressure_request_s,

@@ -642,7 +642,89 @@ def test_a2_high_pressure_first_point_rejects_stale_baseline_sample() -> None:
     )
 
 
-def test_co2_runner_prearms_high_pressure_polling_before_route_open() -> None:
+def test_co2_conditioning_pressure_ready_does_not_trigger_handoff(monkeypatch) -> None:
+    orchestrator, point, route_traces, timing_events, _vent_calls = _preseal_arm_orchestrator(
+        monkeypatch,
+        [1112.0],
+    )
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_active = True
+
+    decision = orchestrator._verify_co2_preseal_atmosphere_hold_pressure(point)
+
+    assert decision == "conditioning_pressure_monitor_ok"
+    assert not any(row["action"] == "preseal_atmosphere_flush_ready_handoff" for row in route_traces)
+    assert not any(row["action"] == "preseal_vent_close_arm_triggered" for row in route_traces)
+    assert any(event["event_name"] == "co2_route_conditioning_pressure_sample" for event in timing_events)
+    assert not any(event["event_name"] == "high_pressure_seal_command_sent" for event in timing_events)
+
+
+def test_co2_conditioning_pressure_above_abort_remains_hard_fail(monkeypatch) -> None:
+    orchestrator, point, route_traces, timing_events, _vent_calls = _preseal_arm_orchestrator(
+        monkeypatch,
+        [1155.0],
+    )
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_active = True
+
+    with pytest.raises(WorkflowValidationError):
+        orchestrator._verify_co2_preseal_atmosphere_hold_pressure(point)
+
+    assert route_traces[-1]["action"] == "co2_preseal_atmosphere_hold_pressure_guard"
+    assert route_traces[-1]["actual"]["pressure_hpa"] == 1155.0
+    assert not any(row["action"] == "preseal_atmosphere_flush_ready_handoff" for row in route_traces)
+    assert any(event["event_name"] == "co2_route_conditioning_pressure_warning" for event in timing_events)
+
+
+def test_co2_conditioning_vent_tick_records_atmosphere_reassert(monkeypatch) -> None:
+    orchestrator = WorkflowOrchestrator.__new__(WorkflowOrchestrator)
+    timing_events: list[dict] = []
+    monkeypatch.setattr(orchestrator_module.time, "sleep", lambda seconds: (_ for _ in ()).throw(AssertionError("vent tick must not sleep")))
+    orchestrator._cfg_get = lambda path, default=None: {
+        "workflow.pressure.vent_hold_interval_s": 2.0,
+        "workflow.pressure.preseal_abort_pressure_hpa": 1150.0,
+    }.get(path, default)
+    orchestrator._as_float = lambda value: None if value in (None, "") else float(value)
+    orchestrator._record_workflow_timing = lambda event_name, event_type="info", **kwargs: timing_events.append(
+        {"event_name": event_name, "event_type": event_type, **kwargs}
+    )
+    orchestrator.pressure_control_service = SimpleNamespace(
+        set_pressure_controller_vent=lambda *args, **kwargs: {
+            "output_state": 0,
+            "isolation_state": 1,
+            "vent_status_raw": 1,
+        },
+        digital_gauge_continuous_stream_snapshot=lambda: {
+            "stream_frame_count": 4,
+            "latest_frame_age_s": 0.1,
+            "latest_frame_sequence_id": 4,
+            "latest_frame_stale": False,
+            "latest_frame": {
+                "pressure_hpa": 1009.5,
+                "sample_age_s": 0.1,
+                "sequence_id": 4,
+                "latest_frame_interval_s": 0.05,
+            },
+        },
+    )
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_context = {
+        "conditioning_started_monotonic_s": orchestrator_module.time.monotonic(),
+        "vent_ticks": [],
+        "pressure_samples": [],
+    }
+    point = CalibrationPoint(index=1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=1100.0, route="co2")
+
+    tick = orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="conditioning_hold")
+
+    assert tick["command_result"] == "ok"
+    assert tick["output_state"] == 0
+    assert tick["isolation_state"] == 1
+    assert tick["vent_status"] == 1
+    assert tick["digital_gauge_pressure_hpa"] == 1009.5
+    assert tick["pressure_sample_age_s"] == 0.1
+    assert tick["pressure_abnormal"] is False
+    assert any(event["event_name"] == "co2_route_conditioning_vent_tick" for event in timing_events)
+
+
+def test_co2_runner_defers_high_pressure_until_after_conditioning() -> None:
     point = CalibrationPoint(index=1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=1100.0, route="co2")
     pressure_points = [
         CalibrationPoint(index=index + 1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=pressure, route="co2")
@@ -653,9 +735,11 @@ def test_co2_runner_prearms_high_pressure_polling_before_route_open() -> None:
 
     class SlowPressure:
         def _current_pressure(self):
-            raise AssertionError("route-open high-pressure mode must not block on slow current pressure read")
+            order.append("route_open_pressure_snapshot")
+            return 1009.0
 
         def pressurize_and_hold(self, point, route):
+            order.append("pressurize")
             return SimpleNamespace(ok=False)
 
     service = SimpleNamespace()
@@ -687,10 +771,23 @@ def test_co2_runner_prearms_high_pressure_polling_before_route_open() -> None:
     service.pressure_control_service = SlowPressure()
     service._record_workflow_timing = lambda event_name, event_type="info", **kwargs: order.append(event_name)
 
+    def begin_conditioning(point, pressure_refs):
+        order.append("conditioning_start")
+        service._a2_high_pressure_first_point_mode_enabled = False
+
+    def end_conditioning(point, **kwargs):
+        order.append("conditioning_end")
+        service._a2_co2_route_conditioning_completed = True
+
+    def preseal_gate(point, **kwargs):
+        order.append("preseal_gate")
+        service._a2_preseal_analyzer_gate_passed = True
+        return True
+
     def prearm(point, pressure_refs):
         order.append("prearm")
         service._a2_high_pressure_first_point_mode_enabled = True
-        return {"enabled": True, "baseline_pressure_hpa": 1009.0}
+        return {"enabled": True, "baseline_pressure_hpa": 1009.0, "first_target_pressure_hpa": 1100.0}
 
     def preclose(point):
         order.append("preclose_vent")
@@ -706,17 +803,26 @@ def test_co2_runner_prearms_high_pressure_polling_before_route_open() -> None:
         )
         return "positive_preseal_ready_handoff"
 
-    service._prearm_a2_high_pressure_first_point_mode = prearm
-    service._preclose_a2_high_pressure_first_point_vent = preclose
-    service._request_a2_high_pressure_route_open_pressure_sample = request
-    service._wait_co2_route_soak_before_seal = lambda point: True
+    def prepare_after_conditioning(point, pressure_refs):
+        order.append("seal_preparation")
+        prearm(point, pressure_refs)
+        preclose(point)
+        request(point)
+
+    service._begin_a2_co2_route_conditioning_at_atmosphere = begin_conditioning
+    service._end_a2_co2_route_conditioning_at_atmosphere = end_conditioning
+    service._preseal_analyzer_gate_after_conditioning = preseal_gate
+    service._prepare_a2_high_pressure_first_point_after_conditioning = prepare_after_conditioning
+    service._wait_co2_route_soak_before_seal = lambda point: order.append("wait_route_soak") or True
 
     result = Co2RouteRunner(service, point, pressure_points).execute()
 
     assert result.success is False
-    assert order.index("prearm") < order.index("preclose_vent") < order.index("route_open")
-    assert order.index("co2_route_open_end") < order.index("first_pressure_request")
-    assert order.index("first_pressure_request") < order.index("route_open_pressure_poll_request")
+    assert order.index("conditioning_start") < order.index("co2_route_open_start") < order.index("route_open")
+    assert order.index("route_open") < order.index("wait_route_soak") < order.index("conditioning_end")
+    assert order.index("conditioning_end") < order.index("preseal_gate") < order.index("seal_preparation")
+    assert order.index("seal_preparation") < order.index("prearm") < order.index("preclose_vent")
+    assert order.index("preclose_vent") < order.index("first_pressure_request") < order.index("pressurize")
 
 
 def test_a2_readiness_locks_no_write_fleet_and_pressure_points(tmp_path) -> None:
@@ -792,6 +898,7 @@ def test_a2_artifacts_keep_preflight_distinct_from_execute_pass(tmp_path) -> Non
     assert written["positive_preseal_timing_diagnostics"].endswith(
         "positive_preseal_timing_diagnostics.json"
     )
+    assert written["co2_route_conditioning_evidence"].endswith("co2_route_conditioning_evidence.json")
     assert written["route_open_pressure_surge_evidence"].endswith("route_open_pressure_surge_evidence.json")
     assert written["pressure_read_latency_diagnostics"].endswith("pressure_read_latency_diagnostics.json")
     assert written["pressure_read_latency_samples"].endswith("pressure_read_latency_samples.csv")
@@ -809,6 +916,9 @@ def test_a2_artifacts_keep_preflight_distinct_from_execute_pass(tmp_path) -> Non
     assert summary["positive_preseal_pressurization_evidence_artifact"].endswith(
         "positive_preseal_pressurization_evidence.json"
     )
+    assert summary["co2_route_conditioning_evidence_artifact"].endswith(
+        "co2_route_conditioning_evidence.json"
+    )
     assert summary["high_pressure_first_point_evidence_artifact"].endswith(
         "high_pressure_first_point_evidence.json"
     )
@@ -823,11 +933,190 @@ def test_a2_artifacts_keep_preflight_distinct_from_execute_pass(tmp_path) -> Non
     )
     assert "workflow_timing_artifacts" in manifest
     assert "Positive preseal pressurization summary" in report
+    assert "CO2 通大气洗刷与封路时序审计" in report
     assert "流程时序摘要" in report or "workflow_timing_trace" in report
     assert "route_open_pressure_surge_evidence" in report
     assert "high_pressure_first_point_evidence" in report
     assert "关键压力取数新鲜度诊断" in report
     assert "stale pressure samples are not usable" in report
+
+
+def test_a2_artifacts_include_co2_conditioning_evidence_and_vent_ticks(tmp_path) -> None:
+    truth = {
+        "read_only": True,
+        "passive_listen_only": True,
+        "commands_sent": [],
+        "analyzers": [
+            _truth_row("COM35", "001"),
+            _truth_row("COM37", "029"),
+            _truth_row("COM41", "003"),
+            _truth_row("COM42", "004"),
+        ],
+    }
+    (tmp_path / "truth.json").write_text(json.dumps(truth), encoding="utf-8")
+    raw_cfg = _a2_raw_config("truth.json")
+    raw_cfg["workflow"]["pressure"] = {
+        "co2_route_conditioning_atmosphere_required": True,
+        "vent_hold_interval_s": 2.0,
+        "positive_preseal_pressurization_enabled": True,
+        "preseal_ready_pressure_hpa": 1110.0,
+        "preseal_abort_pressure_hpa": 1150.0,
+    }
+    artifact_dir = tmp_path / "artifacts"
+    artifact_dir.mkdir()
+    for filename, content in {
+        "summary.json": "{}",
+        "run_manifest.json": "{}",
+        "points.csv": "timestamp,point_index,status\n",
+        "io_log.csv": "timestamp,device,direction,data\n",
+        "run.log": "conditioning evidence\n",
+        "samples.csv": "timestamp,point_index\n",
+        "route_trace.jsonl": "",
+    }.items():
+        (artifact_dir / filename).write_text(content, encoding="utf-8")
+
+    def timing_event(name, event_type, mono, *, stage, pressure=None, route_state=None, decision=None):
+        return {
+            "event_name": name,
+            "event_type": event_type,
+            "timestamp_local": "2026-04-26T10:00:00+00:00",
+            "timestamp_monotonic_s": mono,
+            "elapsed_from_run_start_s": mono - 100.0,
+            "stage": stage,
+            "point_index": 1,
+            "target_pressure_hpa": 1100.0,
+            "duration_s": None,
+            "expected_max_s": None,
+            "wait_reason": None,
+            "blocking_condition": None,
+            "decision": decision,
+            "route_state": route_state,
+            "pressure_hpa": pressure,
+            "chamber_temperature_c": None,
+            "dewpoint_c": None,
+            "pace_output_state": None,
+            "pace_isolation_state": None,
+            "pace_vent_status": None,
+            "sample_count": None,
+            "warning_code": None,
+            "error_code": None,
+            "no_write_guard_active": True,
+        }
+
+    timing_rows = [
+        timing_event(
+            "co2_route_conditioning_start",
+            "start",
+            100.0,
+            stage="co2_route_conditioning_at_atmosphere",
+            route_state={"conditioning_soak_s": 10.0, "atmosphere_vent_enabled": True},
+        ),
+        timing_event("co2_route_open_start", "start", 100.1, stage="co2_route_open"),
+        timing_event("co2_route_open_end", "end", 100.2, stage="co2_route_open", pressure=1009.0),
+        timing_event(
+            "co2_route_conditioning_vent_tick",
+            "tick",
+            100.3,
+            stage="co2_route_conditioning_at_atmosphere",
+            pressure=1009.0,
+            route_state={
+                "phase": "before_route_open",
+                "command_result": "ok",
+                "output_state": 0,
+                "isolation_state": 1,
+                "vent_status": 1,
+                "digital_gauge_pressure_hpa": 1009.0,
+                "pressure_sample_age_s": 0.05,
+            },
+        ),
+        timing_event(
+            "co2_route_conditioning_vent_tick",
+            "tick",
+            102.3,
+            stage="co2_route_conditioning_at_atmosphere",
+            pressure=1112.0,
+            route_state={
+                "phase": "conditioning_hold",
+                "command_result": "ok",
+                "output_state": 0,
+                "isolation_state": 1,
+                "vent_status": 1,
+                "digital_gauge_pressure_hpa": 1112.0,
+                "pressure_sample_age_s": 0.06,
+            },
+        ),
+        timing_event(
+            "co2_route_conditioning_pressure_sample",
+            "tick",
+            102.3,
+            stage="co2_route_conditioning_at_atmosphere",
+            pressure=1112.0,
+            decision="monitor_only_no_seal",
+        ),
+        timing_event(
+            "co2_route_conditioning_end",
+            "end",
+            110.0,
+            stage="co2_route_conditioning_at_atmosphere",
+            decision="PASS",
+        ),
+        timing_event("preseal_analyzer_gate_start", "start", 110.1, stage="preseal_analyzer_gate"),
+        timing_event("preseal_analyzer_gate_end", "end", 110.2, stage="preseal_analyzer_gate", decision="PASS"),
+        timing_event("seal_preparation_after_conditioning_start", "start", 110.3, stage="seal_preparation_after_conditioning"),
+        timing_event("high_pressure_first_point_mode_start", "start", 110.4, stage="high_pressure_first_point"),
+        timing_event(
+            "high_pressure_ready_detected_after_conditioning",
+            "info",
+            111.0,
+            stage="high_pressure_first_point",
+            pressure=1110.5,
+        ),
+        timing_event(
+            "high_pressure_seal_command_sent",
+            "info",
+            111.1,
+            stage="high_pressure_first_point",
+            pressure=1110.5,
+            route_state={"conditioning_completed_before_high_pressure_mode": True},
+        ),
+    ]
+    (artifact_dir / "workflow_timing_trace.jsonl").write_text(
+        "\n".join(json.dumps(row) for row in timing_rows) + "\n",
+        encoding="utf-8",
+    )
+    payload = build_run001_a2_evidence_payload(
+        raw_cfg,
+        config_path=tmp_path / "config.json",
+        run_dir=artifact_dir,
+        point_rows=_a2_points(),
+        guard=build_no_write_guard_from_raw_config(raw_cfg),
+        artifact_paths={
+            "summary": str(artifact_dir / "summary.json"),
+            "manifest": str(artifact_dir / "run_manifest.json"),
+            "trace": str(artifact_dir / "route_trace.jsonl"),
+        },
+        require_runtime_artifacts=True,
+        service_status={"phase": "failed", "completed_points": 0},
+    )
+
+    written = write_run001_a2_artifacts(artifact_dir, payload)
+    evidence = json.loads((artifact_dir / "co2_route_conditioning_evidence.json").read_text(encoding="utf-8"))
+    high_pressure = json.loads((artifact_dir / "high_pressure_first_point_evidence.json").read_text(encoding="utf-8"))
+    summary = json.loads((artifact_dir / "summary.json").read_text(encoding="utf-8"))
+    guard = json.loads((artifact_dir / "no_write_guard.json").read_text(encoding="utf-8"))
+    report = (artifact_dir / "human_readable_report.md").read_text(encoding="utf-8")
+
+    assert written["co2_route_conditioning_evidence"].endswith("co2_route_conditioning_evidence.json")
+    assert evidence["vent_command_before_route_open"] is True
+    assert evidence["vent_tick_count"] == 2
+    assert evidence["pressure_max_during_conditioning_hpa"] == 1112.0
+    assert evidence["did_not_seal_during_conditioning"] is True
+    assert high_pressure["conditioning_completed_before_high_pressure_mode"] is True
+    assert summary["co2_route_conditioning_vent_tick_count"] == 2
+    assert guard["attempted_write_count"] == 0
+    assert guard["identity_write_command_sent"] is False
+    assert guard["persistent_write_command_sent"] is False
+    assert "co2_route_conditioning_evidence" in report
 
 
 def test_a2_config_splits_temperature_chamber_and_analyzer_timeouts() -> None:
@@ -853,6 +1142,8 @@ def test_a2_config_splits_temperature_chamber_and_analyzer_timeouts() -> None:
     assert pressure["preseal_vent_close_command_timeout_s"] == 1.0
     assert pressure["preseal_vent_close_verify_timeout_s"] == 1.0
     assert pressure["preseal_vent_close_verify_capture_pressure"] is False
+    assert pressure["co2_route_conditioning_atmosphere_required"] is True
+    assert pressure["seal_preparation_vent_off_settle_s"] == 0.1
     assert pressure["primary_pressure_source"] == "digital_pressure_gauge"
     assert pressure["pressure_source_cross_check_enabled"] is True
     assert pressure["pressure_source_disagreement_warn_hpa"] == 10.0

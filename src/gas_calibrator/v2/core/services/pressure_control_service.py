@@ -1854,6 +1854,11 @@ class PressureControlService:
             high_pressure_first_point_mode
             and getattr(self.host, "_a2_high_pressure_first_point_vent_preclosed", False)
         )
+        conditioning_completed_before_high_pressure_mode = bool(
+            high_pressure_first_point_mode
+            and getattr(self.host, "_a2_co2_route_conditioning_completed", False)
+        )
+        conditioning_completed_at = str(getattr(self.host, "_a2_co2_route_conditioning_completed_at", "") or "")
         vent_closed_at = ""
         timing_recorder = getattr(self.host, "_record_workflow_timing", None)
         if callable(timing_recorder):
@@ -1916,10 +1921,15 @@ class PressureControlService:
                 pressure_hpa=preseal_arm_context.get("vent_close_arm_pressure_hpa"),
             )
         if high_pressure_vent_preclosed:
+            vent_preclosed_reason = (
+                "high_pressure_first_point_preclosed_after_conditioning"
+                if conditioning_completed_before_high_pressure_mode
+                else "high_pressure_first_point_preclosed_before_route_open"
+            )
             vent_command_diagnostics = {
                 "vent_command_result": "already_closed",
                 "vent_close_verification_status": "PASS",
-                "vent_close_verification_reason": "high_pressure_first_point_preclosed_before_route_open",
+                "vent_close_verification_reason": vent_preclosed_reason,
                 "high_pressure_first_point_mode": True,
                 "vent_command_ack": True,
                 **self._pressure_controller_fast_state_hint(controller),
@@ -1928,7 +1938,7 @@ class PressureControlService:
                 "ok": True,
                 "vent_command_result": "already_closed",
                 "vent_close_verification_status": "PASS",
-                "vent_close_verification_reason": "high_pressure_first_point_preclosed_before_route_open",
+                "vent_close_verification_reason": vent_preclosed_reason,
                 **vent_command_diagnostics,
             }
         else:
@@ -2265,6 +2275,23 @@ class PressureControlService:
                         decision="ready",
                         route_state=arm_sample_meta,
                     )
+                    if conditioning_completed_before_high_pressure_mode:
+                        timing_recorder(
+                            "high_pressure_ready_detected_after_conditioning",
+                            "info",
+                            stage="high_pressure_first_point",
+                            point=point,
+                            target_pressure_hpa=target_pressure_hpa,
+                            duration_s=ready_elapsed_s,
+                            expected_max_s=timeout_s,
+                            pressure_hpa=pressure_at_arm,
+                            decision="ready_after_conditioning",
+                            route_state={
+                                **arm_sample_meta,
+                                "conditioning_completed_before_high_pressure_mode": True,
+                                "conditioning_completed_at": conditioning_completed_at,
+                            },
+                        )
                 timing_recorder(
                     "positive_preseal_ready",
                     "info",
@@ -2621,6 +2648,23 @@ class PressureControlService:
                             decision="ready",
                             route_state=sample_meta,
                         )
+                        if conditioning_completed_before_high_pressure_mode:
+                            timing_recorder(
+                                "high_pressure_ready_detected_after_conditioning",
+                                "info",
+                                stage="high_pressure_first_point",
+                                point=point,
+                                target_pressure_hpa=target_pressure_hpa,
+                                duration_s=elapsed_s,
+                                expected_max_s=timeout_s,
+                                pressure_hpa=pressure_hpa,
+                                decision="ready_after_conditioning",
+                                route_state={
+                                    **sample_meta,
+                                    "conditioning_completed_before_high_pressure_mode": True,
+                                    "conditioning_completed_at": conditioning_completed_at,
+                                },
+                            )
                     timing_recorder(
                         "positive_preseal_ready",
                         "info",
@@ -3646,6 +3690,11 @@ class PressureControlService:
         high_pressure_first_point_mode = bool(
             route_text == "co2" and getattr(self.host, "_a2_high_pressure_first_point_mode_enabled", False)
         )
+        conditioning_completed_before_high_pressure_mode = bool(
+            high_pressure_first_point_mode
+            and getattr(self.host, "_a2_co2_route_conditioning_completed", False)
+        )
+        conditioning_completed_at = str(getattr(self.host, "_a2_co2_route_conditioning_completed_at", "") or "")
         measured_atmospheric_pressure_hpa: Optional[float] = None
         ambient_reference: dict[str, Any] = {}
         if route_text != "h2o":
@@ -3796,6 +3845,9 @@ class PressureControlService:
                         route_state={
                             "high_pressure_first_point_mode": True,
                             "seal_command_sent_at": seal_started_at,
+                            "conditioning_completed_before_high_pressure_mode": conditioning_completed_before_high_pressure_mode,
+                            "conditioning_completed_at": conditioning_completed_at,
+                            "sealed_after_conditioning": conditioning_completed_before_high_pressure_mode,
                             **positive_preseal_diagnostics,
                         },
                     )
