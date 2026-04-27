@@ -46,6 +46,7 @@ A2_REQUIRED_ARTIFACTS = {
     "pressure_read_latency_diagnostics": "pressure_read_latency_diagnostics.json",
     "pressure_read_latency_samples": "pressure_read_latency_samples.csv",
     "high_pressure_first_point_evidence": "high_pressure_first_point_evidence.json",
+    "critical_pressure_freshness_evidence": "critical_pressure_freshness_evidence.json",
     "route_trace": "route_trace.jsonl",
     "points": "points.csv",
     "io_log": "io_log.csv",
@@ -125,6 +126,15 @@ PRESSURE_READ_LATENCY_SAMPLE_FIELDS = [
     "source_selection_reason",
     "source_disagreement_hpa",
     "source_disagreement_warning",
+    "digital_gauge_mode",
+    "digital_gauge_continuous_active",
+    "latest_frame_age_s",
+    "latest_frame_interval_s",
+    "latest_frame_sequence_id",
+    "critical_window_blocking_query_count",
+    "critical_window_blocking_query_total_s",
+    "critical_window_uses_latest_frame",
+    "critical_window_uses_query",
 ]
 
 POSITIVE_PRESEAL_PRESSURIZATION_SAMPLE_FIELDS = [
@@ -324,6 +334,21 @@ def _preseal_timing_thresholds(pressure_cfg: Mapping[str, Any]) -> dict[str, Any
             _as_float(pressure_cfg.get("route_open_first_pressure_response_expected_max_s")) or 1.0
         ),
         "pressure_latency_warning_only": _as_bool(pressure_cfg.get("pressure_latency_warning_only", True)),
+        "digital_gauge_continuous_enabled": _as_bool(
+            pressure_cfg.get("digital_gauge_continuous_enabled", True)
+        ),
+        "digital_gauge_continuous_mode": str(pressure_cfg.get("digital_gauge_continuous_mode") or "P4"),
+        "digital_gauge_latest_frame_stale_max_s": (
+            _as_float(pressure_cfg.get("digital_gauge_latest_frame_stale_max_s"))
+            or _as_float(pressure_cfg.get("critical_pressure_latest_frame_stale_max_s"))
+            or 0.5
+        ),
+        "pace_aux_enabled": _as_bool(pressure_cfg.get("pace_aux_enabled", True)),
+        "pace_aux_disagreement_warn_hpa": (
+            _as_float(pressure_cfg.get("pace_aux_disagreement_warn_hpa"))
+            or _as_float(pressure_cfg.get("pressure_source_disagreement_warn_hpa"))
+            or 10.0
+        ),
         "high_pressure_first_point_mode_configured": _as_bool(
             pressure_cfg.get("high_pressure_first_point_mode_enabled", True)
         ),
@@ -713,6 +738,20 @@ def _pressure_sample_meta(actual: Mapping[str, Any], *, fallback_source: str = "
         "source_selection_reason": actual.get("source_selection_reason"),
         "pressure_source_disagreement_hpa": _as_float(actual.get("pressure_source_disagreement_hpa")),
         "pressure_source_disagreement_warning": bool(actual.get("pressure_source_disagreement_warning", False)),
+        "digital_gauge_mode": actual.get("digital_gauge_mode"),
+        "digital_gauge_continuous_active": actual.get("digital_gauge_continuous_active"),
+        "digital_gauge_continuous_mode": actual.get("digital_gauge_continuous_mode"),
+        "latest_frame_age_s": _as_float(actual.get("latest_frame_age_s")),
+        "latest_frame_sequence_id": actual.get("latest_frame_sequence_id"),
+        "critical_window_uses_latest_frame": actual.get("critical_window_uses_latest_frame"),
+        "critical_window_uses_query": actual.get("critical_window_uses_query"),
+        "critical_window_blocking_query_count": actual.get("critical_window_blocking_query_count"),
+        "critical_window_blocking_query_total_s": _as_float(
+            actual.get("critical_window_blocking_query_total_s")
+        ),
+        "pace_aux_enabled": actual.get("pace_aux_enabled"),
+        "pace_digital_overlap_samples": actual.get("pace_digital_overlap_samples"),
+        "pace_digital_max_diff_hpa": _as_float(actual.get("pace_digital_max_diff_hpa")),
     }
 
 
@@ -761,6 +800,17 @@ def _latency_sample_from_payload(
         "source_selection_reason": selection.get("source_selection_reason"),
         "source_disagreement_hpa": selection.get("pressure_source_disagreement_hpa"),
         "source_disagreement_warning": selection.get("pressure_source_disagreement_warning"),
+        "digital_gauge_mode": payload.get("digital_gauge_mode") or selection.get("digital_gauge_mode"),
+        "digital_gauge_continuous_active": payload.get("digital_gauge_continuous_active"),
+        "latest_frame_age_s": _as_float(payload.get("latest_frame_age_s")),
+        "latest_frame_interval_s": _as_float(payload.get("latest_frame_interval_s")),
+        "latest_frame_sequence_id": payload.get("latest_frame_sequence_id"),
+        "critical_window_blocking_query_count": payload.get("critical_window_blocking_query_count"),
+        "critical_window_blocking_query_total_s": _as_float(
+            payload.get("critical_window_blocking_query_total_s")
+        ),
+        "critical_window_uses_latest_frame": payload.get("critical_window_uses_latest_frame"),
+        "critical_window_uses_query": payload.get("critical_window_uses_query"),
     }
 
 
@@ -773,11 +823,18 @@ def _collect_pressure_read_latency_samples(run_dir: str | Path, payload: Mapping
     events = load_workflow_timing_events(Path(run_dir) / WORKFLOW_TIMING_TRACE_FILENAME)
     for event in events:
         name = str(event.get("event_name") or "")
-        if name not in {"pace_pressure_read_end", "gauge_pressure_read_end", "pressure_source_selected"}:
+        if name not in {
+            "pace_pressure_read_end",
+            "gauge_pressure_read_end",
+            "pressure_source_selected",
+            "pressure_source_selection",
+            "digital_gauge_latest_frame_used",
+            "digital_gauge_latest_frame_stale",
+        }:
             continue
         state = event.get("route_state")
         state = state if isinstance(state, Mapping) else {}
-        if name == "pressure_source_selected":
+        if name in {"pressure_source_selected", "pressure_source_selection"}:
             for key in ("pace_pressure_sample", "digital_gauge_pressure_sample"):
                 sample = state.get(key)
                 if isinstance(sample, Mapping):
@@ -791,6 +848,18 @@ def _collect_pressure_read_latency_samples(run_dir: str | Path, payload: Mapping
                             selection=state,
                         )
                     )
+            continue
+        if name in {"digital_gauge_latest_frame_used", "digital_gauge_latest_frame_stale"}:
+            samples.append(
+                _latency_sample_from_payload(
+                    state,
+                    run_id=run_id,
+                    timestamp=event.get("timestamp_local") or event.get("timestamp"),
+                    stage=event.get("stage"),
+                    point_index=event.get("point_index"),
+                    selection=state,
+                )
+            )
             continue
         samples.append(
             _latency_sample_from_payload(
@@ -1142,6 +1211,37 @@ def _build_pressure_read_latency_diagnostics(
         disagreement = _as_float(sample.get("source_disagreement_hpa"))
         if disagreement is not None:
             disagreement_max = disagreement if disagreement_max is None else max(float(disagreement_max), disagreement)
+    digital_samples = [
+        sample
+        for sample in samples
+        if str(sample.get("source") or "") in {"digital_pressure_gauge", "digital_pressure_gauge_continuous"}
+    ]
+    digital_first = next((sample for sample in digital_samples if _as_float(sample.get("pressure_hpa")) is not None), {})
+    latest_frame_ages = [
+        _as_float(sample.get("latest_frame_age_s", sample.get("sample_age_s")))
+        for sample in digital_samples
+        if _as_float(sample.get("latest_frame_age_s", sample.get("sample_age_s"))) is not None
+    ]
+    latest_frame_intervals = [
+        _as_float(sample.get("latest_frame_interval_s"))
+        for sample in digital_samples
+        if _as_float(sample.get("latest_frame_interval_s")) is not None
+    ]
+    critical_window_blocking_events = [
+        event for event in events if str(event.get("event_name") or "") == "critical_window_blocking_query"
+    ]
+    critical_window_blocking_query_count = len(critical_window_blocking_events)
+    critical_window_blocking_query_total_s = round(
+        sum(float(_as_float(event.get("duration_s")) or 0.0) for event in critical_window_blocking_events),
+        3,
+    )
+    for sample in samples:
+        count = _as_float(sample.get("critical_window_blocking_query_count"))
+        if count is not None:
+            critical_window_blocking_query_count = max(critical_window_blocking_query_count, int(count))
+        total = _as_float(sample.get("critical_window_blocking_query_total_s"))
+        if total is not None:
+            critical_window_blocking_query_total_s = max(critical_window_blocking_query_total_s, round(total, 3))
     first_request_mono = _as_float((first_after_route or {}).get("request_sent_monotonic_s"))
     first_response_mono = _as_float((first_after_route or {}).get("response_received_monotonic_s"))
     route_open_to_first_request_s = (
@@ -1229,12 +1329,33 @@ def _build_pressure_read_latency_diagnostics(
         "first_pressure_hpa": first.get("pressure_hpa"),
         "first_pressure_age_s": first.get("sample_age_s"),
         "first_pressure_is_stale": first.get("is_stale"),
+        "digital_gauge_mode": first.get("digital_gauge_mode")
+        or digital_first.get("digital_gauge_mode")
+        or ("continuous" if str(first.get("source") or "") == "digital_pressure_gauge_continuous" else "query"),
+        "digital_gauge_continuous_active": bool(
+            first.get("digital_gauge_continuous_active", digital_first.get("digital_gauge_continuous_active", False))
+        ),
+        "latest_frame_age_s": first.get("latest_frame_age_s")
+        if first.get("latest_frame_age_s") is not None
+        else first.get("sample_age_s"),
+        "latest_frame_interval_s": first.get("latest_frame_interval_s"),
+        "latest_frame_sequence_id": first.get("latest_frame_sequence_id")
+        or first.get("sequence_id"),
+        "critical_window_blocking_query_count": critical_window_blocking_query_count,
+        "critical_window_blocking_query_total_s": critical_window_blocking_query_total_s,
+        "critical_window_uses_latest_frame": bool(first.get("critical_window_uses_latest_frame"))
+        or str(first.get("source") or "") == "digital_pressure_gauge_continuous",
+        "critical_window_uses_query": bool(first.get("critical_window_uses_query"))
+        or critical_window_blocking_query_count > 0,
+        "source_selection_reason": first.get("source_selection_reason"),
         "pace_pressure_hpa": next((sample.get("pressure_hpa") for sample in samples if sample.get("source") == "pace_controller"), None),
         "pace_pressure_latency_s": next((sample.get("read_latency_s") for sample in samples if sample.get("source") == "pace_controller"), None),
         "pace_pressure_age_s": next((sample.get("sample_age_s") for sample in samples if sample.get("source") == "pace_controller"), None),
-        "digital_gauge_pressure_hpa": next((sample.get("pressure_hpa") for sample in samples if sample.get("source") == "digital_pressure_gauge"), None),
-        "digital_gauge_latency_s": next((sample.get("read_latency_s") for sample in samples if sample.get("source") == "digital_pressure_gauge"), None),
-        "digital_gauge_age_s": next((sample.get("sample_age_s") for sample in samples if sample.get("source") == "digital_pressure_gauge"), None),
+        "digital_gauge_pressure_hpa": digital_first.get("pressure_hpa"),
+        "digital_gauge_latency_s": digital_first.get("read_latency_s"),
+        "digital_gauge_age_s": digital_first.get("sample_age_s"),
+        "digital_gauge_latest_frame_age_max_s": max(latest_frame_ages) if latest_frame_ages else None,
+        "digital_gauge_latest_frame_interval_max_s": max(latest_frame_intervals) if latest_frame_intervals else None,
         "source_disagreement_hpa": disagreement_max,
         "primary_pressure_source": primary,
         "pressure_source_used_for_abort": first.get("pressure_source_used_for_decision") or first.get("source"),
@@ -1576,6 +1697,151 @@ def _build_high_pressure_first_point_evidence(
         "warning_count": timing.get("high_pressure_first_point_warning_count", 0),
         "pace_pressure_role": "cross_check_only_not_safety_decision",
         "primary_safety_pressure_source": "digital_pressure_gauge",
+        "not_real_acceptance_evidence": True,
+        "v2_replaces_v1_claim": False,
+    }
+
+
+def _build_critical_pressure_freshness_evidence(
+    run_dir: str | Path,
+    payload: Mapping[str, Any],
+    *,
+    pressure_latency_payload: Optional[Mapping[str, Any]] = None,
+    timing_summary: Optional[Mapping[str, Any]] = None,
+    high_pressure_payload: Optional[Mapping[str, Any]] = None,
+) -> dict[str, Any]:
+    events = load_workflow_timing_events(Path(run_dir) / WORKFLOW_TIMING_TRACE_FILENAME)
+    latency = dict(pressure_latency_payload or {})
+    timing = dict(timing_summary or {})
+    high_pressure = dict(high_pressure_payload or {})
+
+    def event_state(event: Optional[Mapping[str, Any]]) -> dict[str, Any]:
+        if not event:
+            return {}
+        state = event.get("route_state")
+        state = state if isinstance(state, Mapping) else {}
+        nested = state.get("route_state")
+        return dict(nested if isinstance(nested, Mapping) else state)
+
+    def latest_age_from(event: Optional[Mapping[str, Any]]) -> Optional[float]:
+        state = event_state(event)
+        return _as_float(
+            state.get("latest_frame_age_s")
+            or state.get("pressure_sample_age_s")
+            or state.get("sample_age_s")
+        )
+
+    def latest_sequence_from(event: Optional[Mapping[str, Any]]) -> Any:
+        state = event_state(event)
+        return (
+            state.get("latest_frame_sequence_id")
+            or state.get("pressure_sample_sequence_id")
+            or state.get("sequence_id")
+        )
+
+    stream_start = _first_timing_event(events, "digital_gauge_stream_start")
+    stream_first = _first_timing_event(events, "digital_gauge_stream_first_frame")
+    route_open_end = _first_timing_event(events, "co2_route_open_end")
+    ready_event = (
+        _first_timing_event(events, "high_pressure_ready_detected")
+        or _first_timing_event(events, "positive_preseal_ready")
+        or _first_timing_event(events, "preseal_atmosphere_flush_ready_handoff")
+    )
+    abort_event = (
+        _first_timing_event(events, "high_pressure_abort")
+        or _first_timing_event(events, "positive_preseal_abort")
+        or _first_timing_event(events, "route_open_pressure_abort")
+    )
+    seal_command_event = _first_timing_event(events, "high_pressure_seal_command_sent")
+    seal_confirm_event = _first_timing_event(events, "high_pressure_seal_confirmed")
+    source_event = _first_timing_event(events, "pressure_source_selection") or _first_timing_event(
+        events,
+        "pressure_source_selected",
+    )
+    stream_state = event_state(stream_first) or event_state(stream_start)
+    route_open_state = event_state(route_open_end)
+    route_stream_state = route_open_state.get("digital_gauge_stream")
+    route_stream_state = route_stream_state if isinstance(route_stream_state, Mapping) else {}
+    latest_before_route = (
+        route_stream_state.get("latest_frame")
+        if isinstance(route_stream_state.get("latest_frame"), Mapping)
+        else high_pressure.get("baseline_pressure_sample")
+    )
+    source_state = event_state(source_event)
+    ready_state = event_state(ready_event)
+    abort_state = event_state(abort_event)
+    seal_state = event_state(seal_command_event) or event_state(seal_confirm_event)
+    stale_count = len(
+        [
+            event
+            for event in events
+            if str(event.get("event_name") or "")
+            in {"digital_gauge_latest_frame_stale", "pressure_sample_stale"}
+        ]
+    )
+    stale_count = max(stale_count, int(timing.get("stale_pressure_sample_count") or 0))
+    blocking_query_count = int(timing.get("critical_window_blocking_query_count") or 0)
+    blocking_query_count = max(
+        blocking_query_count,
+        len([event for event in events if str(event.get("event_name") or "") == "critical_window_blocking_query"]),
+    )
+    decision = "abort" if abort_event else ("sealed" if seal_confirm_event else str(payload.get("a2_final_decision") or ""))
+    return {
+        "schema_version": "run001_a2.critical_pressure_freshness.1",
+        "artifact_type": "run001_a2_critical_pressure_freshness_evidence",
+        "run_id": payload.get("run_id"),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "digital_gauge_continuous_enabled": bool(
+            stream_state.get("digital_gauge_continuous_enabled")
+            or route_stream_state.get("digital_gauge_continuous_enabled")
+            or latency.get("digital_gauge_continuous_active")
+            or payload.get("digital_gauge_continuous_enabled")
+        ),
+        "digital_gauge_continuous_mode": (
+            stream_state.get("digital_gauge_continuous_mode")
+            or route_stream_state.get("digital_gauge_continuous_mode")
+            or payload.get("digital_gauge_continuous_mode")
+            or "P4"
+        ),
+        "stream_started_at": (stream_start or {}).get("timestamp_local") or stream_state.get("stream_started_at"),
+        "stream_first_frame_at": (stream_first or {}).get("timestamp_local") or stream_state.get("stream_first_frame_at"),
+        "stream_latest_frame_before_route_open": latest_before_route,
+        "latest_frame_age_at_route_open_s": _as_float(route_stream_state.get("latest_frame_age_s"))
+        if route_stream_state
+        else _as_float(high_pressure.get("baseline_pressure_age_s")),
+        "latest_frame_age_at_ready_s": latest_age_from(ready_event),
+        "latest_frame_age_at_abort_s": latest_age_from(abort_event),
+        "latest_frame_age_at_seal_s": latest_age_from(seal_command_event) or latest_age_from(seal_confirm_event),
+        "latest_frame_sequence_at_route_open": route_stream_state.get("latest_frame_sequence_id")
+        if route_stream_state
+        else (latest_before_route or {}).get("pressure_sample_sequence_id")
+        if isinstance(latest_before_route, Mapping)
+        else None,
+        "latest_frame_sequence_at_ready": latest_sequence_from(ready_event),
+        "latest_frame_sequence_at_abort": latest_sequence_from(abort_event),
+        "pressure_source_used_for_ready": ready_state.get("pressure_source_used_for_ready")
+        or timing.get("pressure_source_used_for_ready")
+        or source_state.get("pressure_source_used_for_ready"),
+        "pressure_source_used_for_abort": abort_state.get("pressure_source_used_for_abort")
+        or timing.get("pressure_source_used_for_abort")
+        or latency.get("pressure_source_used_for_abort"),
+        "pressure_source_used_for_seal": seal_state.get("pressure_source_used_for_seal")
+        or timing.get("pressure_source_used_for_seal")
+        or source_state.get("pressure_source_used_for_seal"),
+        "pace_aux_enabled": bool(source_state.get("pace_aux_enabled", payload.get("pace_aux_enabled", True))),
+        "pace_aux_pressure_hpa": source_state.get("pace_pressure_hpa") or latency.get("pace_pressure_hpa"),
+        "pace_aux_latency_s": source_state.get("pace_pressure_latency_s") or latency.get("pace_pressure_latency_s"),
+        "pace_digital_overlap_samples": source_state.get("pace_digital_overlap_samples"),
+        "pace_digital_max_diff_hpa": source_state.get("pace_digital_max_diff_hpa")
+        or timing.get("pace_digital_disagreement_max_hpa")
+        or latency.get("source_disagreement_hpa"),
+        "source_selection_decision": source_state.get("source_selection_reason")
+        or latency.get("source_selection_reason"),
+        "stale_frame_count": stale_count,
+        "blocking_query_count_in_critical_window": blocking_query_count,
+        "critical_window_blocking_query_total_s": timing.get("critical_window_blocking_query_total_s")
+        or latency.get("critical_window_blocking_query_total_s"),
+        "decision": decision,
         "not_real_acceptance_evidence": True,
         "v2_replaces_v1_claim": False,
     }
@@ -2680,6 +2946,8 @@ def render_run001_a2_human_report(payload: Mapping[str, Any]) -> str:
     pressure_latency = dict(pressure_latency) if isinstance(pressure_latency, Mapping) else {}
     high_pressure = payload.get("high_pressure_first_point_evidence")
     high_pressure = dict(high_pressure) if isinstance(high_pressure, Mapping) else {}
+    critical_freshness = payload.get("critical_pressure_freshness_evidence")
+    critical_freshness = dict(critical_freshness) if isinstance(critical_freshness, Mapping) else {}
     summary_warning_items = list(
         timing_summary.get("preseal_timing_warnings_all")
         or timing_summary.get("preseal_timing_warnings")
@@ -2835,6 +3103,30 @@ def render_run001_a2_human_report(payload: Mapping[str, Any]) -> str:
             "",
             "<!-- legacy_heading_marker: 娴佺▼鏃跺簭鎽樿 -->",
             "## 流程时序摘要",
+            "## 关键压力取数新鲜度诊断",
+            f"- critical_pressure_freshness_evidence: {payload.get('critical_pressure_freshness_evidence_artifact')}",
+            f"- digital_gauge_mode: {pressure_latency.get('digital_gauge_mode') or critical_freshness.get('digital_gauge_mode')}",
+            f"- digital_gauge_continuous_enabled: {critical_freshness.get('digital_gauge_continuous_enabled')}",
+            f"- digital_gauge_continuous_mode: {critical_freshness.get('digital_gauge_continuous_mode')}",
+            f"- route_open_has_fresh_latest_frame: {critical_freshness.get('latest_frame_age_at_route_open_s') is not None and not bool(high_pressure.get('baseline_pressure_stale'))}",
+            f"- decision_uses_latest_frame: {pressure_latency.get('critical_window_uses_latest_frame')}",
+            f"- latest_frame_age_s: {pressure_latency.get('latest_frame_age_s')}",
+            f"- latest_frame_age_at_route_open_s: {critical_freshness.get('latest_frame_age_at_route_open_s')}",
+            f"- latest_frame_age_at_ready_s: {critical_freshness.get('latest_frame_age_at_ready_s')}",
+            f"- latest_frame_age_at_abort_s: {critical_freshness.get('latest_frame_age_at_abort_s')}",
+            f"- latest_frame_age_at_seal_s: {critical_freshness.get('latest_frame_age_at_seal_s')}",
+            f"- critical_window_blocking_query_count: {critical_freshness.get('blocking_query_count_in_critical_window')}",
+            f"- critical_window_blocking_query_total_s: {critical_freshness.get('critical_window_blocking_query_total_s')}",
+            f"- pace_aux_enabled: {critical_freshness.get('pace_aux_enabled')}",
+            f"- pace_aux_pressure_hpa: {critical_freshness.get('pace_aux_pressure_hpa')}",
+            f"- pace_digital_overlap_samples: {critical_freshness.get('pace_digital_overlap_samples')}",
+            f"- pace_digital_max_diff_hpa: {critical_freshness.get('pace_digital_max_diff_hpa')}",
+            f"- source_selection_decision: {critical_freshness.get('source_selection_decision')}",
+            "- pace_substitution_policy: PACE can assist only when fresh, topology-connected, and consistent with recent digital-gauge frames; large disagreement is warning/fail-closed only.",
+            f"- failure_likely_due_to: {'pressure_data_path_latency_or_unavailable_latest_frame' if critical_freshness.get('blocking_query_count_in_critical_window') or bool(pressure_latency.get('critical_window_uses_query')) or bool(pressure_latency.get('first_pressure_is_stale')) else 'physical_pressure_rise_or_field_condition'}",
+            "- next_run_recommendation: lower CO2 flow/upstream pressure, verify digital-gauge continuous output latency, and confirm valve actuation response time.",
+            "",
+            "## 流程时序摘要",
             f"- workflow_timing_trace: {payload.get('workflow_timing_trace_artifact')}",
             f"- workflow_timing_summary: {payload.get('workflow_timing_summary_artifact')}",
             f"- total_duration_s: {timing_summary.get('total_duration_s')}",
@@ -2908,6 +3200,7 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
     pressure_latency_path = directory / "pressure_read_latency_diagnostics.json"
     pressure_latency_samples_path = directory / "pressure_read_latency_samples.csv"
     high_pressure_first_point_path = directory / "high_pressure_first_point_evidence.json"
+    critical_pressure_freshness_path = directory / "critical_pressure_freshness_evidence.json"
     common_paths["pressure_gate_evidence"] = str(pressure_path)
     common_paths["preseal_atmosphere_hold_evidence"] = str(preseal_evidence_path)
     common_paths["preseal_atmosphere_hold_samples"] = str(preseal_samples_path)
@@ -2918,6 +3211,7 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
     common_paths["pressure_read_latency_diagnostics"] = str(pressure_latency_path)
     common_paths["pressure_read_latency_samples"] = str(pressure_latency_samples_path)
     common_paths["high_pressure_first_point_evidence"] = str(high_pressure_first_point_path)
+    common_paths["critical_pressure_freshness_evidence"] = str(critical_pressure_freshness_path)
     timing_trace_path = directory / WORKFLOW_TIMING_TRACE_FILENAME
     timing_summary_path = directory / WORKFLOW_TIMING_SUMMARY_FILENAME
     common_paths["workflow_timing_trace"] = str(timing_trace_path)
@@ -3036,6 +3330,17 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
         json.dumps(high_pressure_first_point_payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+    critical_pressure_freshness_payload = _build_critical_pressure_freshness_evidence(
+        directory,
+        enriched,
+        pressure_latency_payload=pressure_latency_payload,
+        timing_summary=timing_summary,
+        high_pressure_payload=high_pressure_first_point_payload,
+    )
+    critical_pressure_freshness_path.write_text(
+        json.dumps(critical_pressure_freshness_payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     timing_summary_path.write_text(json.dumps(timing_summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     positive_preseal_timing_path.write_text(
         json.dumps(positive_preseal_timing_payload, ensure_ascii=False, indent=2) + "\n",
@@ -3057,6 +3362,8 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "pressure_read_latency_diagnostics": pressure_latency_payload,
             "high_pressure_first_point_evidence_artifact": str(high_pressure_first_point_path),
             "high_pressure_first_point_evidence": high_pressure_first_point_payload,
+            "critical_pressure_freshness_evidence_artifact": str(critical_pressure_freshness_path),
+            "critical_pressure_freshness_evidence": critical_pressure_freshness_payload,
             "high_pressure_first_point_enabled": high_pressure_first_point_payload.get("enabled"),
             "high_pressure_first_point_decision": high_pressure_first_point_payload.get("decision"),
             "high_pressure_first_point_warning_count": high_pressure_first_point_payload.get("warning_count"),
@@ -3111,6 +3418,14 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "pressure_increase_after_ready_before_seal_hpa": positive_preseal_timing_payload.get(
                 "pressure_increase_after_ready_before_seal_hpa"
             ),
+            "digital_gauge_mode": pressure_latency_payload.get("digital_gauge_mode"),
+            "digital_gauge_continuous_active": pressure_latency_payload.get("digital_gauge_continuous_active"),
+            "latest_frame_age_s": pressure_latency_payload.get("latest_frame_age_s"),
+            "critical_window_blocking_query_count": pressure_latency_payload.get(
+                "critical_window_blocking_query_count"
+            ),
+            "critical_window_uses_latest_frame": pressure_latency_payload.get("critical_window_uses_latest_frame"),
+            "critical_window_uses_query": pressure_latency_payload.get("critical_window_uses_query"),
         }
     )
     enriched = _finalize_artifact_decision(enriched, directory)
@@ -3204,6 +3519,9 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "high_pressure_first_point_evidence_artifact": enriched.get(
                 "high_pressure_first_point_evidence_artifact"
             ),
+            "critical_pressure_freshness_evidence_artifact": enriched.get(
+                "critical_pressure_freshness_evidence_artifact"
+            ),
             "high_pressure_first_point_enabled": enriched.get("high_pressure_first_point_enabled"),
             "primary_pressure_source": enriched.get("primary_pressure_source"),
             "abort_decision_pressure_source": enriched.get("abort_decision_pressure_source"),
@@ -3270,6 +3588,7 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "pressure_read_latency_diagnostics_artifact": str(pressure_latency_path),
             "pressure_read_latency_samples_artifact": str(pressure_latency_samples_path),
             "high_pressure_first_point_evidence_artifact": str(high_pressure_first_point_path),
+            "critical_pressure_freshness_evidence_artifact": str(critical_pressure_freshness_path),
             "high_pressure_first_point_enabled": enriched.get("high_pressure_first_point_enabled"),
             "high_pressure_first_point_decision": enriched.get("high_pressure_first_point_decision"),
             "primary_pressure_source": enriched.get("primary_pressure_source"),
@@ -3290,6 +3609,7 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
         str(pressure_latency_path),
         str(pressure_latency_samples_path),
         str(high_pressure_first_point_path),
+        str(critical_pressure_freshness_path),
         str(timing_trace_path),
         str(timing_summary_path),
     ):

@@ -112,13 +112,26 @@ class Co2RouteRunner:
             setattr(self.service, "_a2_co2_route_open_pressure_hpa", route_open_pressure)
             setattr(self.service, "_a2_preseal_pressure_rise_detected", False)
             setattr(self.service, "_a2_route_open_pressure_first_sample_recorded", False)
+            route_open_state = {"high_pressure_first_point_mode": high_pressure_first_point_mode}
+            if high_pressure_first_point_mode:
+                stream_snapshot = getattr(
+                    getattr(self.service, "pressure_control_service", None),
+                    "digital_gauge_continuous_stream_snapshot",
+                    None,
+                )
+                if callable(stream_snapshot):
+                    route_open_state.update(
+                        {
+                            "digital_gauge_stream": stream_snapshot(),
+                        }
+                    )
             self.service._record_workflow_timing(
                 "co2_route_open_end",
                 "end",
                 stage="co2_route_open",
                 point=point,
                 pressure_hpa=route_open_pressure,
-                route_state={"high_pressure_first_point_mode": high_pressure_first_point_mode},
+                route_state=route_open_state,
             )
             if high_pressure_first_point_mode:
                 request_pressure = getattr(

@@ -1152,6 +1152,15 @@ def build_workflow_timing_summary(
     stale_pressure_sample_count = 0
     pressure_read_latency_warning_count = 0
     pressure_source_disagreement_max_hpa: Optional[float] = None
+    digital_gauge_stream_started = False
+    digital_gauge_stream_frame_count = 0
+    digital_gauge_latest_frame_age_max_s: Optional[float] = None
+    critical_window_blocking_query_count = 0
+    critical_window_blocking_query_total_s = 0.0
+    pressure_source_used_for_ready = ""
+    pressure_source_used_for_seal = ""
+    pace_digital_disagreement_max_hpa: Optional[float] = None
+    pressure_freshness_warning_count = 0
     primary_pressure_source = str(context.get("primary_pressure_source") or "")
     abort_decision_pressure_source = str(context.get("abort_decision_pressure_source") or "")
     for event in events:
@@ -1161,6 +1170,46 @@ def build_workflow_timing_summary(
         nested = route_state.get("route_state")
         if isinstance(nested, Mapping):
             route_state = nested
+        if name == "digital_gauge_stream_start":
+            digital_gauge_stream_started = True
+        if name == "digital_gauge_stream_first_frame":
+            digital_gauge_stream_started = True
+        stream_count = _as_int(route_state.get("stream_frame_count"))
+        if stream_count is not None:
+            digital_gauge_stream_frame_count = max(digital_gauge_stream_frame_count, int(stream_count))
+        latest_age = _as_float(
+            route_state.get("latest_frame_age_s", route_state.get("pressure_sample_age_s"))
+        )
+        if name in {"digital_gauge_latest_frame_used", "digital_gauge_latest_frame_stale"} and latest_age is not None:
+            digital_gauge_latest_frame_age_max_s = (
+                latest_age
+                if digital_gauge_latest_frame_age_max_s is None
+                else max(float(digital_gauge_latest_frame_age_max_s), latest_age)
+            )
+        blocking_count = _as_int(route_state.get("critical_window_blocking_query_count"))
+        if blocking_count is not None:
+            critical_window_blocking_query_count = max(critical_window_blocking_query_count, int(blocking_count))
+        blocking_total = _as_float(route_state.get("critical_window_blocking_query_total_s"))
+        if blocking_total is not None:
+            critical_window_blocking_query_total_s = max(critical_window_blocking_query_total_s, float(blocking_total))
+        if name == "critical_window_blocking_query":
+            if blocking_count is None:
+                critical_window_blocking_query_count += 1
+            event_duration = _as_float(event.get("duration_s"))
+            if event_duration is not None and blocking_total is None:
+                critical_window_blocking_query_total_s += event_duration
+            pressure_freshness_warning_count += 1
+        if name == "digital_gauge_latest_frame_stale":
+            pressure_freshness_warning_count += 1
+        pace_diff = _as_float(route_state.get("pace_digital_max_diff_hpa"))
+        if pace_diff is None:
+            pace_diff = _as_float(route_state.get("pressure_source_disagreement_hpa"))
+        if pace_diff is not None:
+            pace_digital_disagreement_max_hpa = (
+                pace_diff
+                if pace_digital_disagreement_max_hpa is None
+                else max(float(pace_digital_disagreement_max_hpa), pace_diff)
+            )
         if name in {"pace_pressure_read_end", "gauge_pressure_read_end"}:
             source = str(
                 route_state.get("source")
@@ -1186,10 +1235,21 @@ def build_workflow_timing_summary(
                     if pressure_source_disagreement_max_hpa is None
                     else max(pressure_source_disagreement_max_hpa, disagreement)
                 )
-        elif name == "pressure_source_selected":
+            pressure_freshness_warning_count += 1
+        elif name in {"pressure_source_selected", "pressure_source_selection"}:
             primary_pressure_source = primary_pressure_source or str(route_state.get("primary_pressure_source") or "")
             abort_decision_pressure_source = abort_decision_pressure_source or str(
                 route_state.get("pressure_source_used_for_abort")
+                or route_state.get("pressure_source_used_for_decision")
+                or ""
+            )
+            pressure_source_used_for_ready = pressure_source_used_for_ready or str(
+                route_state.get("pressure_source_used_for_ready")
+                or route_state.get("pressure_source_used_for_decision")
+                or ""
+            )
+            pressure_source_used_for_seal = pressure_source_used_for_seal or str(
+                route_state.get("pressure_source_used_for_seal")
                 or route_state.get("pressure_source_used_for_decision")
                 or ""
             )
@@ -1524,6 +1584,16 @@ def build_workflow_timing_summary(
         "pressure_source_disagreement_max_hpa": pressure_source_disagreement_max_hpa,
         "primary_pressure_source": primary_pressure_source,
         "abort_decision_pressure_source": abort_decision_pressure_source,
+        "digital_gauge_stream_started": digital_gauge_stream_started,
+        "digital_gauge_stream_frame_count": digital_gauge_stream_frame_count,
+        "digital_gauge_latest_frame_age_max_s": _round_s(digital_gauge_latest_frame_age_max_s),
+        "critical_window_blocking_query_count": critical_window_blocking_query_count,
+        "critical_window_blocking_query_total_s": _round_s(critical_window_blocking_query_total_s),
+        "pressure_source_used_for_abort": abort_decision_pressure_source,
+        "pressure_source_used_for_ready": pressure_source_used_for_ready,
+        "pressure_source_used_for_seal": pressure_source_used_for_seal,
+        "pace_digital_disagreement_max_hpa": _round_s(pace_digital_disagreement_max_hpa),
+        "pressure_freshness_warning_count": pressure_freshness_warning_count,
         "preseal_vent_close_arm_elapsed_s": preseal_vent_close_arm_elapsed_s,
         "preseal_vent_close_arm_pressure_hpa": pressure_at_arm,
         "estimated_time_to_ready_s": estimated_time_to_ready_s,

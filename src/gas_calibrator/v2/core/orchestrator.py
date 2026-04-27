@@ -1765,6 +1765,41 @@ class WorkflowOrchestrator:
                     "pressure_sample_sequence_id": None,
                 }
         if pressure_hpa is None:
+            if high_pressure_first_point_mode:
+                details = dict(sample) if isinstance(sample, Mapping) else {}
+                reason = str(details.get("error") or "critical_pressure_sample_unavailable")
+                details.update(
+                    {
+                        "reason": reason,
+                        "high_pressure_first_point_mode": True,
+                        "pressure_source_used_for_decision": "",
+                        "critical_window_fail_closed": True,
+                    }
+                )
+                recorder = getattr(getattr(self, "status_service", None), "record_route_trace", None)
+                if callable(recorder):
+                    recorder(
+                        action="critical_pressure_sample_unavailable",
+                        route="co2",
+                        point=point,
+                        actual=details,
+                        result="fail",
+                        message="A2 high-pressure first-point critical pressure sample unavailable",
+                    )
+                self._record_workflow_timing(
+                    "high_pressure_abort",
+                    "fail",
+                    stage=stage_name,
+                    point=point,
+                    target_pressure_hpa=self._as_float(point.target_pressure_hpa),
+                    decision="critical_pressure_sample_unavailable",
+                    error_code=reason,
+                    route_state=details,
+                )
+                raise WorkflowValidationError(
+                    "A2 high-pressure first point requires a fresh continuous digital-gauge latest frame",
+                    details=details,
+                )
             return "unavailable"
         sample_meta = {
             key: sample.get(key)
@@ -1804,6 +1839,25 @@ class WorkflowOrchestrator:
                 "pressure_source_disagreement_hpa",
                 "pressure_source_disagreement_warning",
                 "pressure_source_disagreement_warn_hpa",
+                "digital_gauge_mode",
+                "digital_gauge_continuous_active",
+                "digital_gauge_continuous_enabled",
+                "digital_gauge_continuous_mode",
+                "latest_frame_age_s",
+                "latest_frame_interval_s",
+                "latest_frame_sequence_id",
+                "frame_received_at",
+                "monotonic_timestamp",
+                "raw_line",
+                "critical_window_uses_latest_frame",
+                "critical_window_uses_query",
+                "critical_window_blocking_query_count",
+                "critical_window_blocking_query_total_s",
+                "pace_aux_enabled",
+                "pace_aux_topology_connected",
+                "pace_aux_trigger_candidate",
+                "pace_digital_overlap_samples",
+                "pace_digital_max_diff_hpa",
                 "pace_pressure_hpa",
                 "pace_pressure_latency_s",
                 "pace_pressure_age_s",

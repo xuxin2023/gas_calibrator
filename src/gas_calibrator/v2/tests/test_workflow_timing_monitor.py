@@ -138,7 +138,43 @@ def test_timing_summary_records_high_pressure_first_point_polling(monkeypatch, t
         decision="enabled",
         route_state={"enabled": True, "first_target_pressure_hpa": 1100.0},
     )
-    monitor.record_event("co2_route_open_end", "end", stage="co2_route_open", point_index=1, pressure_hpa=1009.0)
+    monitor.record_event(
+        "digital_gauge_stream_start",
+        "info",
+        stage="high_pressure_first_point",
+        point_index=1,
+        route_state={
+            "digital_gauge_continuous_enabled": True,
+            "digital_gauge_continuous_active": True,
+            "digital_gauge_continuous_mode": "P4",
+        },
+    )
+    monitor.record_event(
+        "digital_gauge_stream_first_frame",
+        "info",
+        stage="high_pressure_first_point",
+        point_index=1,
+        pressure_hpa=1009.0,
+        route_state={
+            "stream_frame_count": 1,
+            "latest_frame_age_s": 0.01,
+            "digital_gauge_continuous_mode": "P4",
+        },
+    )
+    monitor.record_event(
+        "co2_route_open_end",
+        "end",
+        stage="co2_route_open",
+        point_index=1,
+        pressure_hpa=1009.0,
+        route_state={
+            "digital_gauge_stream": {
+                "stream_frame_count": 1,
+                "latest_frame_age_s": 0.01,
+                "latest_frame_sequence_id": 1,
+            }
+        },
+    )
     monitor.record_event(
         "route_open_pressure_poll_request",
         "info",
@@ -154,7 +190,42 @@ def test_timing_summary_records_high_pressure_first_point_polling(monkeypatch, t
         point_index=1,
         pressure_hpa=1111.0,
         duration_s=0.02,
-        route_state={"source": "digital_pressure_gauge", "read_latency_s": 0.02, "is_stale": False},
+        route_state={
+            "source": "digital_pressure_gauge_continuous",
+            "read_latency_s": 0.02,
+            "is_stale": False,
+            "latest_frame_age_s": 0.02,
+            "latest_frame_sequence_id": 2,
+        },
+    )
+    monitor.record_event(
+        "digital_gauge_latest_frame_used",
+        "info",
+        stage="high_pressure_first_point",
+        point_index=1,
+        pressure_hpa=1111.0,
+        route_state={
+            "source": "digital_pressure_gauge_continuous",
+            "latest_frame_age_s": 0.02,
+            "latest_frame_sequence_id": 2,
+            "stream_frame_count": 2,
+            "critical_window_blocking_query_count": 0,
+            "critical_window_blocking_query_total_s": 0.0,
+        },
+    )
+    monitor.record_event(
+        "pressure_source_selection",
+        "info",
+        stage="high_pressure_first_point",
+        point_index=1,
+        pressure_hpa=1111.0,
+        route_state={
+            "primary_pressure_source": "digital_pressure_gauge_continuous",
+            "pressure_source_used_for_abort": "digital_pressure_gauge_continuous",
+            "pressure_source_used_for_ready": "digital_pressure_gauge_continuous",
+            "pressure_source_used_for_seal": "digital_pressure_gauge_continuous",
+            "pace_digital_max_diff_hpa": 1.0,
+        },
     )
     monitor.record_event(
         "high_pressure_ready_detected",
@@ -197,6 +268,37 @@ def test_timing_summary_records_high_pressure_first_point_polling(monkeypatch, t
     assert summary["first_pressure_read_latency_s"] == 0.02
     assert summary["ready_to_seal_command_s"] == 0.001
     assert summary["high_pressure_first_point_warning_count"] == 0
+    assert summary["digital_gauge_stream_started"] is True
+    assert summary["digital_gauge_stream_frame_count"] == 2
+    assert summary["digital_gauge_latest_frame_age_max_s"] == 0.02
+    assert summary["critical_window_blocking_query_count"] == 0
+    assert summary["critical_window_blocking_query_total_s"] == 0.0
+    assert summary["pressure_source_used_for_ready"] == "digital_pressure_gauge_continuous"
+    assert summary["pressure_source_used_for_seal"] == "digital_pressure_gauge_continuous"
+    assert summary["pace_digital_disagreement_max_hpa"] == 1.0
+    assert summary["pressure_freshness_warning_count"] == 0
+
+
+def test_timing_summary_counts_critical_window_blocking_query_once(tmp_path) -> None:
+    monitor = TimingMonitorService(tmp_path, run_id="run-critical-blocking", no_write_guard_active=True)
+
+    monitor.record_event(
+        "critical_window_blocking_query",
+        "warning",
+        stage="high_pressure_first_point",
+        point_index=1,
+        duration_s=0.123,
+        route_state={
+            "critical_window_blocking_query_count": 1,
+            "critical_window_blocking_query_total_s": 0.123,
+        },
+    )
+
+    summary = monitor.finalize_summary(final_decision="FAIL", a2_final_decision="FAIL")
+
+    assert summary["critical_window_blocking_query_count"] == 1
+    assert summary["critical_window_blocking_query_total_s"] == 0.123
+    assert summary["pressure_freshness_warning_count"] == 1
 
 
 def test_timing_summary_warns_on_preseal_vent_tick_gap(monkeypatch, tmp_path) -> None:

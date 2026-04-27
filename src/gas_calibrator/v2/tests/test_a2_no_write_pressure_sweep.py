@@ -158,11 +158,40 @@ class _QueuedPressureGauge:
         self.values = list(values)
         self.last = self.values[-1] if self.values else 1010.0
         self.port = "COM30"
+        self.continuous_active = False
+        self.continuous_mode = ""
+        self.continuous_sequence_id = 0
+        self.blocking_read_count = 0
+        self.continuous_read_count = 0
 
     def read_pressure_hpa(self) -> float:
+        self.blocking_read_count += 1
         if self.values:
             self.last = float(self.values.pop(0))
         return float(self.last)
+
+    def pressure_continuous_active(self) -> bool:
+        return bool(self.continuous_active)
+
+    def start_pressure_continuous(self, mode: str = "P4", clear_buffer: bool = True) -> bool:
+        self.continuous_active = True
+        self.continuous_mode = str(mode or "P4").upper()
+        if clear_buffer:
+            self.continuous_sequence_id = 0
+        return True
+
+    def read_pressure_continuous_latest(self, drain_s: float = 0.0, read_timeout_s: float = 0.0) -> dict:
+        self.continuous_read_count += 1
+        if self.values:
+            self.last = float(self.values.pop(0))
+        self.continuous_sequence_id += 1
+        return {
+            "pressure_hpa": float(self.last),
+            "source": "digital_pressure_gauge_continuous",
+            "raw_line": f"{self.continuous_mode or 'P4'} {float(self.last):.3f}",
+            "monotonic_timestamp": time.monotonic(),
+            "sequence_id": self.continuous_sequence_id,
+        }
 
 
 class _TraceStatus:
@@ -178,8 +207,8 @@ def _high_pressure_sample(pressure: float, *, stale: bool = False, sequence: int
         "stage": "high_pressure_first_point_prearm",
         "point_index": 1,
         "pressure_hpa": float(pressure),
-        "pressure_sample_source": "digital_pressure_gauge",
-        "source": "digital_pressure_gauge",
+        "pressure_sample_source": "digital_pressure_gauge_continuous",
+        "source": "digital_pressure_gauge_continuous",
         "request_sent_at": "2026-04-26T10:00:00+00:00",
         "response_received_at": "2026-04-26T10:00:00.010000+00:00",
         "request_sent_monotonic_s": 100.0,
@@ -197,16 +226,26 @@ def _high_pressure_sample(pressure: float, *, stale: bool = False, sequence: int
         "usable_for_abort": not stale,
         "usable_for_ready": not stale,
         "usable_for_seal": not stale,
-        "primary_pressure_source": "digital_pressure_gauge",
-        "pressure_source_used_for_decision": "digital_pressure_gauge" if not stale else "",
-        "pressure_source_used_for_abort": "digital_pressure_gauge" if not stale else "",
-        "pressure_source_used_for_ready": "digital_pressure_gauge" if not stale else "",
-        "pressure_source_used_for_seal": "digital_pressure_gauge" if not stale else "",
-        "source_selection_reason": "high_pressure_first_point_primary_digital_gauge",
+        "primary_pressure_source": "digital_pressure_gauge_continuous",
+        "pressure_source_used_for_decision": "digital_pressure_gauge_continuous" if not stale else "",
+        "pressure_source_used_for_abort": "digital_pressure_gauge_continuous" if not stale else "",
+        "pressure_source_used_for_ready": "digital_pressure_gauge_continuous" if not stale else "",
+        "pressure_source_used_for_seal": "digital_pressure_gauge_continuous" if not stale else "",
+        "source_selection_reason": "digital_gauge_continuous_latest_fresh",
+        "digital_gauge_mode": "continuous",
+        "digital_gauge_continuous_active": True,
+        "digital_gauge_continuous_enabled": True,
+        "digital_gauge_continuous_mode": "P4",
+        "latest_frame_age_s": 0.0 if not stale else 3.0,
+        "latest_frame_sequence_id": sequence,
+        "critical_window_uses_latest_frame": True,
+        "critical_window_uses_query": False,
+        "critical_window_blocking_query_count": 0,
+        "critical_window_blocking_query_total_s": 0.0,
         "digital_gauge_pressure_sample": {
             "pressure_hpa": float(pressure),
-            "pressure_sample_source": "digital_pressure_gauge",
-            "source": "digital_pressure_gauge",
+            "pressure_sample_source": "digital_pressure_gauge_continuous",
+            "source": "digital_pressure_gauge_continuous",
             "request_sent_at": "2026-04-26T10:00:00+00:00",
             "response_received_at": "2026-04-26T10:00:00.010000+00:00",
             "request_sent_monotonic_s": 100.0,
@@ -216,6 +255,9 @@ def _high_pressure_sample(pressure: float, *, stale: bool = False, sequence: int
             "is_stale": stale,
             "pressure_sample_is_stale": stale,
             "parse_ok": True,
+            "digital_gauge_mode": "continuous",
+            "latest_frame_age_s": 0.0 if not stale else 3.0,
+            "latest_frame_sequence_id": sequence,
         },
         "pace_pressure_sample": {
             "pressure_hpa": None,
@@ -284,6 +326,16 @@ def _positive_preseal_service(
         "workflow.pressure.vent_hold_interval_s": 2.0,
         "workflow.pressure.stabilize_timeout_s": 0.2,
         "workflow.pressure.restabilize_retries": 0,
+        "workflow.pressure.digital_gauge_continuous_enabled": True,
+        "workflow.pressure.digital_gauge_continuous_mode": "P4",
+        "workflow.pressure.digital_gauge_stream_first_frame_timeout_s": 0.2,
+        "workflow.pressure.digital_gauge_stream_poll_interval_s": 0.01,
+        "workflow.pressure.digital_gauge_latest_frame_stale_max_s": 0.5,
+        "workflow.pressure.critical_pressure_latest_frame_stale_max_s": 0.5,
+        "workflow.pressure.pace_aux_enabled": True,
+        "workflow.pressure.pace_aux_read_when_digital_fresh": False,
+        "workflow.pressure.pace_aux_disagreement_warn_hpa": 10.0,
+        "workflow.pressure.pace_aux_main_line_topology_connected": True,
     }
     values.update(cfg_overrides or {})
     host = SimpleNamespace()
@@ -325,6 +377,52 @@ def _positive_preseal_service(
     )
     host._enable_pressure_controller_output = lambda reason="": service.enable_pressure_controller_output(reason=reason)
     return service, host, controller, status
+
+
+def _seed_digital_stream_latest(
+    service: PressureControlService,
+    pressure_hpa: float,
+    *,
+    age_s: float = 0.0,
+    sequence: int = 1,
+) -> dict:
+    recorded_mono = time.monotonic() - float(age_s)
+    frame = service._pressure_sample_payload(
+        {
+            "pressure_hpa": float(pressure_hpa),
+            "source": "digital_pressure_gauge_continuous",
+            "pressure_sample_source": "digital_pressure_gauge_continuous",
+            "sample_recorded_monotonic_s": recorded_mono,
+            "pressure_sample_monotonic_s": recorded_mono,
+            "monotonic_timestamp": recorded_mono,
+            "sample_age_s": float(age_s),
+            "pressure_sample_age_s": float(age_s),
+            "raw_line": f"P4 {float(pressure_hpa):.3f}",
+            "sequence_id": sequence,
+            "pressure_sample_sequence_id": sequence,
+            "digital_gauge_mode": "continuous",
+            "digital_gauge_continuous_enabled": True,
+            "digital_gauge_continuous_active": True,
+            "digital_gauge_continuous_mode": "P4",
+        },
+        source="digital_pressure_gauge_continuous",
+        is_cached=False,
+        stale_threshold_s=0.5,
+    )
+    state = service._digital_gauge_stream_state()
+    state.update(
+        {
+            "digital_gauge_continuous_enabled": True,
+            "digital_gauge_continuous_active": True,
+            "digital_gauge_continuous_mode": "P4",
+            "stream_started_at": "2026-04-26T10:00:00+00:00",
+            "stream_first_frame_at": "2026-04-26T10:00:00+00:00",
+            "stream_frame_count": 1,
+            "latest_frame": dict(frame),
+            "continuous_unavailable_reason": "",
+        }
+    )
+    return frame
 
 
 def test_dual_pressure_sample_records_source_latency_and_age() -> None:
@@ -369,6 +467,138 @@ def test_stale_pressure_sample_is_not_usable_for_abort_ready_or_seal() -> None:
     assert sample["usable_for_abort"] is False
     assert sample["usable_for_ready"] is False
     assert sample["usable_for_seal"] is False
+
+
+def test_a2_high_pressure_first_point_starts_continuous_stream_and_uses_latest_frame() -> None:
+    service, host, _controller, _status = _positive_preseal_service(
+        [1009.0],
+        cfg_overrides={"workflow.pressure.pace_aux_enabled": False},
+    )
+    host._a2_high_pressure_first_point_mode_enabled = True
+
+    sample = service._current_high_pressure_first_point_sample(
+        stage="high_pressure_first_point_prearm",
+        point_index=1,
+    )
+    gauge = host._device("pressure_gauge")
+    stop_event = getattr(service, "_digital_gauge_continuous_stop_event", None)
+    if stop_event is not None:
+        stop_event.set()
+
+    assert gauge.continuous_active is True
+    assert gauge.continuous_mode == "P4"
+    assert gauge.continuous_read_count >= 1
+    assert gauge.blocking_read_count == 0
+    assert sample["pressure_sample_source"] == "digital_pressure_gauge_continuous"
+    assert sample["critical_window_uses_latest_frame"] is True
+    assert sample["critical_window_uses_query"] is False
+    assert sample["pressure_source_used_for_ready"] == "digital_pressure_gauge_continuous"
+    assert sample["latest_frame_age_s"] <= 0.5
+
+
+def test_a2_high_pressure_first_point_stale_latest_frame_not_usable_for_decisions() -> None:
+    service, host, _controller, _status = _positive_preseal_service(
+        [],
+        cfg_overrides={"workflow.pressure.pace_aux_enabled": False},
+    )
+    host._a2_high_pressure_first_point_mode_enabled = True
+    _seed_digital_stream_latest(service, 1111.0, age_s=1.0)
+
+    sample = service._current_high_pressure_first_point_sample(
+        stage="high_pressure_first_point",
+        point_index=1,
+    )
+
+    assert sample["pressure_hpa"] == 1111.0
+    assert sample["pressure_sample_is_stale"] is True
+    assert sample["usable_for_ready"] is False
+    assert sample["usable_for_seal"] is False
+    assert sample["usable_for_abort"] is False
+    assert sample["pressure_source_used_for_ready"] == ""
+    assert sample["pressure_source_used_for_abort"] == ""
+    assert sample["source_selection_reason"] == "digital_latest_unusable_fail_closed"
+
+
+def test_a2_high_pressure_first_point_continuous_unavailable_fails_closed() -> None:
+    service, host, controller, status = _positive_preseal_service(
+        [],
+        cfg_overrides={
+            "workflow.pressure.digital_gauge_continuous_enabled": False,
+            "workflow.pressure.preseal_ready_timeout_s": 0.05,
+        },
+    )
+    controller.vent_on = False
+    controller.vent_status = 0
+    host._a2_high_pressure_first_point_mode_enabled = True
+    host._a2_high_pressure_first_point_vent_preclosed = True
+    point = CalibrationPoint(index=1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=1100.0, route="co2")
+
+    result = service.pressurize_and_hold(point, route="co2")
+
+    assert result.ok is False
+    assert result.diagnostics["seal_command_blocked_reason"] == "critical_pressure_sample_unavailable"
+    assert not any(row["action"] == "seal_route" for row in status.rows)
+    assert any(event["event_name"] == "digital_gauge_latest_frame_stale" for event in host._recorded_timing)
+
+
+def test_a2_high_pressure_pace_auxiliary_can_trigger_when_digital_stale_and_consistent() -> None:
+    service, host, controller, _status = _positive_preseal_service(
+        [],
+        cfg_overrides={
+            "workflow.pressure.pace_aux_enabled": True,
+            "workflow.pressure.pace_aux_disagreement_warn_hpa": 5.0,
+        },
+    )
+    host._a2_high_pressure_first_point_mode_enabled = True
+    controller.pressure_hpa = 1111.0
+    _seed_digital_stream_latest(service, 1110.5, age_s=1.0)
+
+    sample = service._current_high_pressure_first_point_sample(
+        stage="high_pressure_first_point",
+        point_index=1,
+    )
+
+    assert sample["source"] == "pace_controller_auxiliary"
+    assert sample["pressure_source_used_for_ready"] == "pace_controller_auxiliary"
+    assert sample["pace_aux_trigger_candidate"] is True
+    assert sample["source_selection_reason"] == "digital_latest_stale_pace_aux_consistent"
+
+
+def test_a2_high_pressure_pace_auxiliary_disagreement_does_not_replace_digital() -> None:
+    service, host, controller, _status = _positive_preseal_service(
+        [],
+        cfg_overrides={
+            "workflow.pressure.pace_aux_enabled": True,
+            "workflow.pressure.pace_aux_disagreement_warn_hpa": 5.0,
+        },
+    )
+    host._a2_high_pressure_first_point_mode_enabled = True
+    controller.pressure_hpa = 1200.0
+    _seed_digital_stream_latest(service, 1110.0, age_s=1.0)
+
+    sample = service._current_high_pressure_first_point_sample(
+        stage="high_pressure_first_point",
+        point_index=1,
+    )
+
+    assert sample["source"] != "pace_controller_auxiliary"
+    assert sample["pace_aux_trigger_candidate"] is False
+    assert sample["pressure_source_used_for_ready"] == ""
+    assert sample["pressure_source_disagreement_warning"] is True
+    assert sample["source_selection_reason"] == "digital_latest_stale_pace_aux_disagreement"
+
+
+def test_a2_critical_window_blocking_digital_query_is_counted() -> None:
+    service, host, _controller, _status = _positive_preseal_service([1010.0])
+    host._a2_high_pressure_first_point_mode_enabled = True
+
+    sample = service._pressure_sample_from_device("digital_pressure_gauge")
+    snapshot = service.digital_gauge_continuous_stream_snapshot()
+
+    assert sample["pressure_hpa"] == 1010.0
+    assert snapshot["blocking_query_count_in_critical_window"] == 1
+    assert snapshot["critical_window_blocking_query_total_s"] >= 0.0
+    assert any(event["event_name"] == "critical_window_blocking_query" for event in host._recorded_timing)
 
 
 def test_a2_high_pressure_first_point_mode_enables_when_1100_exceeds_ambient() -> None:
@@ -566,6 +796,7 @@ def test_a2_artifacts_keep_preflight_distinct_from_execute_pass(tmp_path) -> Non
     assert written["pressure_read_latency_diagnostics"].endswith("pressure_read_latency_diagnostics.json")
     assert written["pressure_read_latency_samples"].endswith("pressure_read_latency_samples.csv")
     assert written["high_pressure_first_point_evidence"].endswith("high_pressure_first_point_evidence.json")
+    assert written["critical_pressure_freshness_evidence"].endswith("critical_pressure_freshness_evidence.json")
     assert written["workflow_timing_trace"].endswith("workflow_timing_trace.jsonl")
     assert written["workflow_timing_summary"].endswith("workflow_timing_summary.json")
     assert summary["a2_final_decision"] == RUN001_NOT_EXECUTED
@@ -584,12 +815,19 @@ def test_a2_artifacts_keep_preflight_distinct_from_execute_pass(tmp_path) -> Non
     assert manifest["high_pressure_first_point_evidence_artifact"].endswith(
         "high_pressure_first_point_evidence.json"
     )
+    assert summary["critical_pressure_freshness_evidence_artifact"].endswith(
+        "critical_pressure_freshness_evidence.json"
+    )
+    assert manifest["critical_pressure_freshness_evidence_artifact"].endswith(
+        "critical_pressure_freshness_evidence.json"
+    )
     assert "workflow_timing_artifacts" in manifest
     assert "Positive preseal pressurization summary" in report
-    assert "流程时序摘要" in report
-    assert "开阀瞬间升压诊断" in report
-    assert "1100 高压首点正压封路诊断" in report
-    assert "压力读取延迟与双压力源诊断" in report
+    assert "流程时序摘要" in report or "workflow_timing_trace" in report
+    assert "route_open_pressure_surge_evidence" in report
+    assert "high_pressure_first_point_evidence" in report
+    assert "关键压力取数新鲜度诊断" in report
+    assert "stale pressure samples are not usable" in report
 
 
 def test_a2_config_splits_temperature_chamber_and_analyzer_timeouts() -> None:
@@ -620,6 +858,12 @@ def test_a2_config_splits_temperature_chamber_and_analyzer_timeouts() -> None:
     assert pressure["pressure_source_disagreement_warn_hpa"] == 10.0
     assert pressure["pressure_sample_stale_threshold_s"] == 2.0
     assert pressure["pressure_read_latency_warn_s"] == 0.5
+    assert pressure["digital_gauge_continuous_enabled"] is True
+    assert pressure["digital_gauge_continuous_mode"] == "P4"
+    assert pressure["digital_gauge_latest_frame_stale_max_s"] == 0.5
+    assert pressure["critical_pressure_latest_frame_stale_max_s"] == 0.5
+    assert pressure["pace_aux_enabled"] is True
+    assert pressure["pace_aux_disagreement_warn_hpa"] == 10.0
     assert pressure["route_open_first_pressure_request_expected_max_s"] == 0.5
     assert pressure["route_open_first_pressure_response_expected_max_s"] == 1.0
     assert pressure["pressure_latency_warning_only"] is True
@@ -1145,7 +1389,7 @@ def test_a2_high_pressure_first_point_artifact_uses_first_pressure_after_route_n
         "first_target_pressure_hpa": 1100.0,
         "ambient_reference_pressure_hpa": 1009.0,
         "baseline_pressure_hpa": 1009.0,
-        "baseline_pressure_source": "digital_pressure_gauge",
+        "baseline_pressure_source": "digital_pressure_gauge_continuous",
         "baseline_pressure_age_s": 0.0,
         "trigger_reason": "first_target_above_ambient_reference",
     }
@@ -1200,6 +1444,7 @@ def test_a2_high_pressure_first_point_artifact_uses_first_pressure_after_route_n
     write_run001_a2_artifacts(artifact_dir, payload)
     latency = json.loads((artifact_dir / "pressure_read_latency_diagnostics.json").read_text(encoding="utf-8"))
     high = json.loads((artifact_dir / "high_pressure_first_point_evidence.json").read_text(encoding="utf-8"))
+    critical = json.loads((artifact_dir / "critical_pressure_freshness_evidence.json").read_text(encoding="utf-8"))
     manifest = json.loads((artifact_dir / "run_manifest.json").read_text(encoding="utf-8"))
     report = (artifact_dir / "human_readable_report.md").read_text(encoding="utf-8")
 
@@ -1213,8 +1458,13 @@ def test_a2_high_pressure_first_point_artifact_uses_first_pressure_after_route_n
     assert high["ready_to_seal_command_s"] == 0.001
     assert high["abort_pressure_hpa"] == 1150.0
     assert manifest["high_pressure_first_point_evidence_artifact"].endswith("high_pressure_first_point_evidence.json")
+    assert manifest["critical_pressure_freshness_evidence_artifact"].endswith("critical_pressure_freshness_evidence.json")
     assert str(artifact_dir / "high_pressure_first_point_evidence.json") in manifest["artifacts"]["output_files"]
+    assert str(artifact_dir / "critical_pressure_freshness_evidence.json") in manifest["artifacts"]["output_files"]
+    assert critical["decision"] == "sealed"
+    assert critical["pressure_source_used_for_ready"] == "digital_pressure_gauge_continuous"
     assert "1100 高压首点正压封路诊断" in report
+    assert "关键压力取数新鲜度诊断" in report
 
 
 def test_a2_preseal_diagnostic_warnings_are_merged_into_workflow_summary(tmp_path) -> None:

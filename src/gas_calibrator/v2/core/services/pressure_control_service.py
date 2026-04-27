@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import json
+import threading
 import time
 from typing import Any, Callable, Mapping, Optional
 
@@ -247,6 +248,7 @@ class PressureControlService:
         raw_response: Any = None,
         error: Optional[str] = None,
         is_cached: Optional[bool] = None,
+        stale_threshold_s: Optional[float] = None,
     ) -> dict[str, Any]:
         now = datetime.now(timezone.utc)
         now_monotonic = time.monotonic()
@@ -302,7 +304,14 @@ class PressureControlService:
                 age_s = max(0.0, (now - parsed.astimezone(timezone.utc)).total_seconds())
             except Exception:
                 age_s = 0.0
-        stale_threshold = self._pressure_sample_stale_max_s()
+        stale_threshold = self._coerce_float(
+            data.get(
+                "pressure_sample_stale_threshold_s",
+                data.get("stale_threshold_s", stale_threshold_s),
+            )
+        )
+        if stale_threshold is None:
+            stale_threshold = self._pressure_sample_stale_max_s()
         explicit_stale = self._coerce_bool(data.get("pressure_sample_is_stale", data.get("is_stale")))
         stale = bool(explicit_stale) if explicit_stale is not None else bool(age_s > stale_threshold)
         sequence_id = self._coerce_float(data.get("pressure_sample_sequence_id", data.get("sequence_id")))
@@ -338,9 +347,575 @@ class PressureControlService:
             usable_for_seal=self._coerce_pressure_bool(data.get("usable_for_seal"), default=usable_default),
         )
         payload = sample.as_payload()
+        for extra_key in (
+            "stage",
+            "point_index",
+            "digital_gauge_mode",
+            "digital_gauge_continuous_active",
+            "digital_gauge_continuous_enabled",
+            "digital_gauge_continuous_mode",
+            "latest_frame_age_s",
+            "latest_frame_interval_s",
+            "latest_frame_sequence_id",
+            "frame_received_at",
+            "monotonic_timestamp",
+            "raw_line",
+            "source_selection_reason",
+            "critical_window_uses_latest_frame",
+            "critical_window_uses_query",
+            "critical_window_blocking_query_count",
+            "critical_window_blocking_query_total_s",
+        ):
+            if extra_key in data:
+                payload[extra_key] = data.get(extra_key)
         setattr(self, "_last_pressure_sample_metadata", payload)
         self._remember_pressure_sample_payload(payload)
         return payload
+
+    def _digital_gauge_continuous_enabled(self) -> bool:
+        value = self._coerce_bool(
+            self.host._cfg_get(
+                "workflow.pressure.digital_gauge_continuous_enabled",
+                self.host._cfg_get(
+                    "workflow.pressure.pressure_gauge_continuous_enabled",
+                    True,
+                ),
+            )
+        )
+        return True if value is None else bool(value)
+
+    def _digital_gauge_continuous_mode(self) -> str:
+        mode = str(
+            self.host._cfg_get(
+                "workflow.pressure.digital_gauge_continuous_mode",
+                self.host._cfg_get(
+                    "workflow.pressure.pressure_gauge_continuous_mode",
+                    "P4",
+                ),
+            )
+            or "P4"
+        ).strip().upper()
+        return mode or "P4"
+
+    def _digital_gauge_continuous_drain_s(self) -> float:
+        return max(
+            0.005,
+            float(
+                self.host._cfg_get(
+                    "workflow.pressure.digital_gauge_continuous_drain_s",
+                    self.host._cfg_get("workflow.pressure.pressure_gauge_continuous_drain_s", 0.02),
+                )
+                or 0.02
+            ),
+        )
+
+    def _digital_gauge_continuous_read_timeout_s(self) -> float:
+        return max(
+            0.001,
+            float(
+                self.host._cfg_get(
+                    "workflow.pressure.digital_gauge_continuous_read_timeout_s",
+                    self.host._cfg_get("workflow.pressure.pressure_gauge_continuous_read_timeout_s", 0.01),
+                )
+                or 0.01
+            ),
+        )
+
+    def _digital_gauge_stream_poll_interval_s(self) -> float:
+        return max(
+            0.005,
+            float(self.host._cfg_get("workflow.pressure.digital_gauge_stream_poll_interval_s", 0.02) or 0.02),
+        )
+
+    def _digital_gauge_stream_first_frame_timeout_s(self) -> float:
+        return max(
+            0.05,
+            float(self.host._cfg_get("workflow.pressure.digital_gauge_stream_first_frame_timeout_s", 2.5) or 2.5),
+        )
+
+    def _digital_gauge_latest_frame_stale_max_s(self) -> float:
+        return max(
+            0.01,
+            float(
+                self.host._cfg_get(
+                    "workflow.pressure.digital_gauge_latest_frame_stale_max_s",
+                    self.host._cfg_get("workflow.pressure.critical_pressure_latest_frame_stale_max_s", 0.5),
+                )
+                or 0.5
+            ),
+        )
+
+    def _digital_gauge_stream_lock(self) -> threading.RLock:
+        lock = getattr(self, "_digital_gauge_stream_lock_obj", None)
+        if lock is None:
+            lock = threading.RLock()
+            setattr(self, "_digital_gauge_stream_lock_obj", lock)
+        return lock
+
+    def _digital_gauge_stream_state(self) -> dict[str, Any]:
+        state = getattr(self, "_digital_gauge_continuous_stream_state", None)
+        if not isinstance(state, dict):
+            state = {
+                "digital_gauge_continuous_enabled": False,
+                "digital_gauge_continuous_active": False,
+                "digital_gauge_continuous_mode": "",
+                "stream_started_at": "",
+                "stream_started_monotonic_s": None,
+                "stream_first_frame_at": "",
+                "stream_first_frame_monotonic_s": None,
+                "stream_frame_count": 0,
+                "latest_frame": None,
+                "latest_frame_age_max_s": None,
+                "stale_frame_count": 0,
+                "blocking_query_count_in_critical_window": 0,
+                "critical_window_blocking_query_total_s": 0.0,
+                "continuous_unavailable_reason": "",
+            }
+            setattr(self, "_digital_gauge_continuous_stream_state", state)
+        return state
+
+    def _record_pressure_timing_event(
+        self,
+        event_name: str,
+        event_type: str = "info",
+        *,
+        stage: str = "high_pressure_first_point",
+        point_index: Any = None,
+        target_pressure_hpa: Any = None,
+        pressure_hpa: Any = None,
+        duration_s: Any = None,
+        expected_max_s: Any = None,
+        decision: Any = None,
+        warning_code: Any = None,
+        error_code: Any = None,
+        route_state: Any = None,
+    ) -> None:
+        recorder = getattr(self.host, "_record_workflow_timing", None)
+        if not callable(recorder):
+            return
+        recorder(
+            event_name,
+            event_type,
+            stage=stage,
+            point_index=point_index,
+            target_pressure_hpa=target_pressure_hpa,
+            pressure_hpa=pressure_hpa,
+            duration_s=duration_s,
+            expected_max_s=expected_max_s,
+            decision=decision,
+            warning_code=warning_code,
+            error_code=error_code,
+            route_state=route_state,
+        )
+
+    def _call_pressure_method(self, method: Callable[..., Any], **kwargs: Any) -> Any:
+        try:
+            return method(**kwargs)
+        except TypeError:
+            return method()
+
+    def _record_critical_window_blocking_query(
+        self,
+        *,
+        source: str,
+        command: str,
+        duration_s: Optional[float],
+        reason: str,
+    ) -> None:
+        state = self._digital_gauge_stream_state()
+        state["blocking_query_count_in_critical_window"] = int(
+            state.get("blocking_query_count_in_critical_window") or 0
+        ) + 1
+        state["critical_window_blocking_query_total_s"] = round(
+            float(state.get("critical_window_blocking_query_total_s") or 0.0) + float(duration_s or 0.0),
+            6,
+        )
+        self._record_pressure_timing_event(
+            "critical_window_blocking_query",
+            "warning",
+            duration_s=duration_s,
+            warning_code="critical_window_blocking_query",
+            decision=reason,
+            route_state={
+                "source": source,
+                "command": command,
+                "duration_s": duration_s,
+                "reason": reason,
+                "critical_window_blocking_query_count": state.get("blocking_query_count_in_critical_window"),
+                "critical_window_blocking_query_total_s": state.get("critical_window_blocking_query_total_s"),
+            },
+        )
+
+    def _continuous_frame_payload(
+        self,
+        raw: Any,
+        *,
+        request_at: datetime,
+        response_at: datetime,
+        request_monotonic: float,
+        response_monotonic: float,
+        serial_port: str,
+        command: str,
+        mode: str,
+        stage: str,
+        point_index: Any = None,
+    ) -> dict[str, Any]:
+        data = dict(raw) if isinstance(raw, Mapping) else {}
+        pressure_hpa = self._pressure_value_from_payload(data, raw)
+        sequence = int(getattr(self, "_digital_gauge_continuous_frame_sequence_id", 0) or 0) + 1
+        setattr(self, "_digital_gauge_continuous_frame_sequence_id", sequence)
+        frame_received_at = str(
+            data.get("frame_received_at")
+            or data.get("pressure_sample_timestamp")
+            or data.get("sample_recorded_at")
+            or data.get("timestamp")
+            or response_at.isoformat()
+        )
+        frame_monotonic = self._coerce_float(
+            data.get("monotonic_timestamp")
+            if data.get("monotonic_timestamp") is not None
+            else data.get("sample_recorded_monotonic_s", data.get("pressure_sample_monotonic_s"))
+        )
+        if frame_monotonic is None:
+            frame_monotonic = response_monotonic
+        raw_line = str(data.get("raw_line") or data.get("raw_response") or self._safe_pressure_raw_response(raw))
+        return self._pressure_sample_payload(
+            {
+                **data,
+                "stage": stage,
+                "point_index": point_index,
+                "pressure_hpa": pressure_hpa,
+                "source": "digital_pressure_gauge_continuous",
+                "pressure_sample_source": "digital_pressure_gauge_continuous",
+                "pressure_sample_timestamp": frame_received_at,
+                "sample_recorded_at": frame_received_at,
+                "sample_recorded_monotonic_s": frame_monotonic,
+                "pressure_sample_monotonic_s": frame_monotonic,
+                "request_sent_at": request_at.isoformat(),
+                "response_received_at": response_at.isoformat(),
+                "request_sent_monotonic_s": request_monotonic,
+                "response_received_monotonic_s": response_monotonic,
+                "read_latency_s": max(0.0, response_monotonic - request_monotonic),
+                "is_cached": False,
+                "stale_threshold_s": self._digital_gauge_latest_frame_stale_max_s(),
+                "pressure_sample_stale_threshold_s": self._digital_gauge_latest_frame_stale_max_s(),
+                "frame_received_at": frame_received_at,
+                "monotonic_timestamp": frame_monotonic,
+                "raw_line": raw_line,
+                "raw_response": raw_line,
+                "sequence_id": sequence,
+                "pressure_sample_sequence_id": sequence,
+                "serial_port": serial_port,
+                "command": command,
+                "parse_ok": pressure_hpa is not None,
+                "digital_gauge_mode": "continuous",
+                "digital_gauge_continuous_enabled": True,
+                "digital_gauge_continuous_active": True,
+                "digital_gauge_continuous_mode": mode,
+            },
+            source="digital_pressure_gauge_continuous",
+            request_sent_at=request_at.isoformat(),
+            response_received_at=response_at.isoformat(),
+            request_sent_monotonic_s=request_monotonic,
+            response_received_monotonic_s=response_monotonic,
+            serial_port=serial_port,
+            command=command,
+            raw_response=raw_line,
+            is_cached=False,
+            stale_threshold_s=self._digital_gauge_latest_frame_stale_max_s(),
+        )
+
+    def _digital_gauge_stream_worker(
+        self,
+        *,
+        device: Any,
+        mode: str,
+        serial_port: str,
+        point_index: Any = None,
+    ) -> None:
+        stop_event = getattr(self, "_digital_gauge_continuous_stop_event", None)
+        reader = getattr(device, "read_pressure_continuous_latest", None)
+        if not callable(reader):
+            return
+        while stop_event is not None and not stop_event.is_set():
+            request_at = datetime.now(timezone.utc)
+            request_monotonic = time.monotonic()
+            try:
+                raw = self._call_pressure_method(
+                    reader,
+                    drain_s=self._digital_gauge_continuous_drain_s(),
+                    read_timeout_s=self._digital_gauge_continuous_read_timeout_s(),
+                )
+                response_at = datetime.now(timezone.utc)
+                response_monotonic = time.monotonic()
+            except Exception as exc:
+                with self._digital_gauge_stream_lock():
+                    self._digital_gauge_stream_state()["continuous_unavailable_reason"] = str(exc)
+                time.sleep(self._digital_gauge_stream_poll_interval_s())
+                continue
+            if raw is None:
+                time.sleep(self._digital_gauge_stream_poll_interval_s())
+                continue
+            frame = self._continuous_frame_payload(
+                raw,
+                request_at=request_at,
+                response_at=response_at,
+                request_monotonic=request_monotonic,
+                response_monotonic=response_monotonic,
+                serial_port=serial_port,
+                command="read_pressure_continuous_latest",
+                mode=mode,
+                stage="digital_gauge_stream",
+                point_index=point_index,
+            )
+            with self._digital_gauge_stream_lock():
+                state = self._digital_gauge_stream_state()
+                previous = state.get("latest_frame")
+                previous_mono = self._coerce_float(
+                    (previous or {}).get("sample_recorded_monotonic_s")
+                    if isinstance(previous, Mapping)
+                    else None
+                )
+                frame_mono = self._coerce_float(frame.get("sample_recorded_monotonic_s"))
+                if previous_mono is not None and frame_mono is not None:
+                    frame["latest_frame_interval_s"] = round(max(0.0, frame_mono - previous_mono), 3)
+                state["latest_frame"] = dict(frame)
+                state["stream_frame_count"] = int(state.get("stream_frame_count") or 0) + 1
+                if not state.get("stream_first_frame_at"):
+                    state["stream_first_frame_at"] = frame.get("frame_received_at") or frame.get("sample_recorded_at")
+                    state["stream_first_frame_monotonic_s"] = frame.get("sample_recorded_monotonic_s")
+                    self._record_pressure_timing_event(
+                        "digital_gauge_stream_first_frame",
+                        "info",
+                        point_index=point_index,
+                        pressure_hpa=frame.get("pressure_hpa"),
+                        decision="frame_received",
+                        route_state=dict(state),
+                    )
+            time.sleep(self._digital_gauge_stream_poll_interval_s())
+
+    def _start_a2_high_pressure_digital_gauge_stream(
+        self,
+        *,
+        stage: str = "high_pressure_first_point_prearm",
+        point_index: Any = None,
+    ) -> dict[str, Any]:
+        state = self._digital_gauge_stream_state()
+        if not self._digital_gauge_continuous_enabled():
+            state.update(
+                {
+                    "digital_gauge_continuous_enabled": False,
+                    "digital_gauge_continuous_active": False,
+                    "continuous_unavailable_reason": "digital_gauge_continuous_disabled",
+                }
+            )
+            return dict(state)
+        with self._digital_gauge_stream_lock():
+            state = self._digital_gauge_stream_state()
+            if bool(state.get("digital_gauge_continuous_active")):
+                return dict(state)
+            device = self._pressure_device_for_source("digital_pressure_gauge")
+            if device is None:
+                state.update(
+                    {
+                        "digital_gauge_continuous_enabled": True,
+                        "digital_gauge_continuous_active": False,
+                        "continuous_unavailable_reason": "pressure_device_unavailable",
+                    }
+                )
+                return dict(state)
+            starter = getattr(device, "start_pressure_continuous", None)
+            reader = getattr(device, "read_pressure_continuous_latest", None)
+            active = getattr(device, "pressure_continuous_active", None)
+            if not callable(starter) or not callable(reader):
+                state.update(
+                    {
+                        "digital_gauge_continuous_enabled": True,
+                        "digital_gauge_continuous_active": False,
+                        "digital_gauge_continuous_mode": self._digital_gauge_continuous_mode(),
+                        "continuous_unavailable_reason": "continuous_pressure_methods_unavailable",
+                    }
+                )
+                return dict(state)
+            mode = self._digital_gauge_continuous_mode()
+            started_at = datetime.now(timezone.utc)
+            started_monotonic = time.monotonic()
+            try:
+                started_raw = self._call_pressure_method(starter, mode=mode, clear_buffer=True)
+                started = True if started_raw is None else bool(started_raw)
+            except Exception as exc:
+                state.update(
+                    {
+                        "digital_gauge_continuous_enabled": True,
+                        "digital_gauge_continuous_active": False,
+                        "digital_gauge_continuous_mode": mode,
+                        "continuous_unavailable_reason": str(exc),
+                    }
+                )
+                return dict(state)
+            active_now = bool(started)
+            if callable(active):
+                try:
+                    active_now = bool(active())
+                except Exception:
+                    active_now = bool(started)
+            elif active is not None:
+                active_now = bool(active)
+            state.update(
+                {
+                    "digital_gauge_continuous_enabled": True,
+                    "digital_gauge_continuous_active": active_now,
+                    "digital_gauge_continuous_mode": mode,
+                    "stream_started_at": started_at.isoformat(),
+                    "stream_started_monotonic_s": started_monotonic,
+                    "stream_first_frame_at": "",
+                    "stream_first_frame_monotonic_s": None,
+                    "stream_frame_count": 0,
+                    "latest_frame": None,
+                    "stale_frame_count": 0,
+                    "continuous_unavailable_reason": "" if active_now else "continuous_start_not_active",
+                }
+            )
+            self._record_pressure_timing_event(
+                "digital_gauge_stream_start",
+                "info" if active_now else "fail",
+                stage=stage,
+                point_index=point_index,
+                decision="started" if active_now else state.get("continuous_unavailable_reason"),
+                route_state=dict(state),
+            )
+            if not active_now:
+                return dict(state)
+            stop_event = threading.Event()
+            setattr(self, "_digital_gauge_continuous_stop_event", stop_event)
+            thread = threading.Thread(
+                target=self._digital_gauge_stream_worker,
+                kwargs={
+                    "device": device,
+                    "mode": mode,
+                    "serial_port": self._pressure_device_port(device),
+                    "point_index": point_index,
+                },
+                name="a2-digital-gauge-pressure-stream",
+                daemon=True,
+            )
+            setattr(self, "_digital_gauge_continuous_thread", thread)
+            thread.start()
+        deadline = time.monotonic() + self._digital_gauge_stream_first_frame_timeout_s()
+        while time.monotonic() < deadline:
+            with self._digital_gauge_stream_lock():
+                snapshot = dict(self._digital_gauge_stream_state())
+                if isinstance(snapshot.get("latest_frame"), Mapping):
+                    return snapshot
+            time.sleep(min(0.01, self._digital_gauge_stream_poll_interval_s()))
+        with self._digital_gauge_stream_lock():
+            state = self._digital_gauge_stream_state()
+            if not isinstance(state.get("latest_frame"), Mapping):
+                state["continuous_unavailable_reason"] = "digital_gauge_continuous_first_frame_timeout"
+            return dict(state)
+
+    def _digital_gauge_continuous_latest_sample(
+        self,
+        *,
+        stage: str,
+        point_index: Any = None,
+    ) -> dict[str, Any]:
+        state = self._digital_gauge_stream_state()
+        if not bool(state.get("digital_gauge_continuous_active")):
+            state = self._start_a2_high_pressure_digital_gauge_stream(stage=stage, point_index=point_index)
+        latest = state.get("latest_frame")
+        if not isinstance(latest, Mapping):
+            sample = self._pressure_sample_payload(
+                {
+                    "stage": stage,
+                    "point_index": point_index,
+                    "source": "digital_pressure_gauge_continuous",
+                    "pressure_sample_source": "digital_pressure_gauge_continuous",
+                    "digital_gauge_mode": "continuous",
+                    "digital_gauge_continuous_enabled": bool(state.get("digital_gauge_continuous_enabled")),
+                    "digital_gauge_continuous_active": bool(state.get("digital_gauge_continuous_active")),
+                    "digital_gauge_continuous_mode": state.get("digital_gauge_continuous_mode"),
+                    "critical_window_uses_latest_frame": True,
+                    "critical_window_uses_query": False,
+                    "critical_window_blocking_query_count": state.get("blocking_query_count_in_critical_window", 0),
+                    "critical_window_blocking_query_total_s": state.get("critical_window_blocking_query_total_s", 0.0),
+                    "parse_ok": False,
+                    "is_cached": True,
+                    "is_stale": True,
+                    "pressure_sample_is_stale": True,
+                    "stale_threshold_s": self._digital_gauge_latest_frame_stale_max_s(),
+                    "error": state.get("continuous_unavailable_reason") or "digital_gauge_continuous_latest_unavailable",
+                    "usable_for_abort": False,
+                    "usable_for_ready": False,
+                    "usable_for_seal": False,
+                },
+                source="digital_pressure_gauge_continuous",
+                is_cached=True,
+                stale_threshold_s=self._digital_gauge_latest_frame_stale_max_s(),
+            )
+            self._record_pressure_timing_event(
+                "digital_gauge_latest_frame_stale",
+                "warning",
+                stage=stage,
+                point_index=point_index,
+                decision="latest_frame_unavailable",
+                warning_code="digital_gauge_latest_frame_unavailable",
+                route_state=sample,
+            )
+            return sample
+        now_monotonic = time.monotonic()
+        frame_mono = self._coerce_float(latest.get("sample_recorded_monotonic_s", latest.get("monotonic_timestamp")))
+        age_s = max(0.0, now_monotonic - float(frame_mono)) if frame_mono is not None else None
+        threshold = self._digital_gauge_latest_frame_stale_max_s()
+        stale = bool(age_s is None or age_s > threshold)
+        data = {
+            **dict(latest),
+            "stage": stage,
+            "point_index": point_index,
+            "is_cached": True,
+            "pressure_sample_age_s": age_s,
+            "sample_age_s": age_s,
+            "latest_frame_age_s": age_s,
+            "is_stale": stale,
+            "pressure_sample_is_stale": stale,
+            "stale_threshold_s": threshold,
+            "pressure_sample_stale_threshold_s": threshold,
+            "critical_window_uses_latest_frame": True,
+            "critical_window_uses_query": False,
+            "critical_window_blocking_query_count": state.get("blocking_query_count_in_critical_window", 0),
+            "critical_window_blocking_query_total_s": state.get("critical_window_blocking_query_total_s", 0.0),
+            "latest_frame_sequence_id": latest.get("sequence_id", latest.get("pressure_sample_sequence_id")),
+            "usable_for_abort": not stale and self._coerce_float(latest.get("pressure_hpa")) is not None,
+            "usable_for_ready": not stale and self._coerce_float(latest.get("pressure_hpa")) is not None,
+            "usable_for_seal": not stale and self._coerce_float(latest.get("pressure_hpa")) is not None,
+        }
+        sample = self._pressure_sample_payload(
+            data,
+            source="digital_pressure_gauge_continuous",
+            is_cached=True,
+            stale_threshold_s=threshold,
+        )
+        with self._digital_gauge_stream_lock():
+            state = self._digital_gauge_stream_state()
+            if age_s is not None:
+                current_max = self._coerce_float(state.get("latest_frame_age_max_s"))
+                state["latest_frame_age_max_s"] = round(
+                    float(age_s if current_max is None else max(float(current_max), float(age_s))),
+                    3,
+                )
+            if stale:
+                state["stale_frame_count"] = int(state.get("stale_frame_count") or 0) + 1
+        self._record_pressure_timing_event(
+            "digital_gauge_latest_frame_stale" if stale else "digital_gauge_latest_frame_used",
+            "warning" if stale else "info",
+            stage=stage,
+            point_index=point_index,
+            pressure_hpa=sample.get("pressure_hpa"),
+            decision="stale" if stale else "used",
+            warning_code="digital_gauge_latest_frame_stale" if stale else None,
+            route_state=sample,
+        )
+        return sample
 
     def _read_pressure_sample(
         self,
@@ -436,6 +1011,18 @@ class PressureControlService:
                 raw = method()
                 response_at = datetime.now(timezone.utc)
                 response_monotonic = time.monotonic()
+                latency_s = max(0.0, response_monotonic - request_monotonic)
+                if (
+                    bool(getattr(self.host, "_a2_high_pressure_first_point_mode_enabled", False))
+                    and str(source or "").strip().lower()
+                    in {"digital_pressure_gauge", "pressure_gauge", "gauge"}
+                ):
+                    self._record_critical_window_blocking_query(
+                        source=source,
+                        command=method_name,
+                        duration_s=latency_s,
+                        reason="digital_gauge_query_called_while_high_pressure_first_point_active",
+                    )
                 return self._pressure_sample_payload(
                     raw,
                     source=source,
@@ -450,6 +1037,18 @@ class PressureControlService:
             except Exception as exc:
                 response_at = datetime.now(timezone.utc)
                 response_monotonic = time.monotonic()
+                latency_s = max(0.0, response_monotonic - request_monotonic)
+                if (
+                    bool(getattr(self.host, "_a2_high_pressure_first_point_mode_enabled", False))
+                    and str(source or "").strip().lower()
+                    in {"digital_pressure_gauge", "pressure_gauge", "gauge"}
+                ):
+                    self._record_critical_window_blocking_query(
+                        source=source,
+                        command=method_name,
+                        duration_s=latency_s,
+                        reason="digital_gauge_query_failed_while_high_pressure_first_point_active",
+                    )
                 return self._pressure_sample_payload(
                     None,
                     source=source,
@@ -471,6 +1070,18 @@ class PressureControlService:
                 raw = method()
                 response_at = datetime.now(timezone.utc)
                 response_monotonic = time.monotonic()
+                latency_s = max(0.0, response_monotonic - request_monotonic)
+                if (
+                    bool(getattr(self.host, "_a2_high_pressure_first_point_mode_enabled", False))
+                    and str(source or "").strip().lower()
+                    in {"digital_pressure_gauge", "pressure_gauge", "gauge"}
+                ):
+                    self._record_critical_window_blocking_query(
+                        source=source,
+                        command=method_name,
+                        duration_s=latency_s,
+                        reason="digital_gauge_status_query_called_while_high_pressure_first_point_active",
+                    )
                 snapshot = self._normalize_snapshot(raw)
                 return self._pressure_sample_payload(
                     snapshot,
@@ -486,6 +1097,18 @@ class PressureControlService:
             except Exception as exc:
                 response_at = datetime.now(timezone.utc)
                 response_monotonic = time.monotonic()
+                latency_s = max(0.0, response_monotonic - request_monotonic)
+                if (
+                    bool(getattr(self.host, "_a2_high_pressure_first_point_mode_enabled", False))
+                    and str(source or "").strip().lower()
+                    in {"digital_pressure_gauge", "pressure_gauge", "gauge"}
+                ):
+                    self._record_critical_window_blocking_query(
+                        source=source,
+                        command=method_name,
+                        duration_s=latency_s,
+                        reason="digital_gauge_status_query_failed_while_high_pressure_first_point_active",
+                    )
                 return self._pressure_sample_payload(
                     None,
                     source=source,
@@ -606,44 +1229,179 @@ class PressureControlService:
         return result
 
     def _current_high_pressure_first_point_sample(self, *, stage: str = "", point_index: Any = None) -> dict[str, Any]:
-        digital_sample = self._pressure_sample_from_device("digital_pressure_gauge")
-        selected_pressure = self._coerce_float(digital_sample.get("pressure_hpa"))
-        selected_is_stale = bool(digital_sample.get("is_stale", digital_sample.get("pressure_sample_is_stale")))
-        selected_usable = bool(selected_pressure is not None and not selected_is_stale)
-        pace_sample = self._pressure_sample_payload(
-            None,
-            source="pace_controller",
-            error="pace_cross_check_deferred_for_high_pressure_first_point",
+        digital_sample = self._digital_gauge_continuous_latest_sample(stage=stage, point_index=point_index)
+        digital_pressure = self._coerce_float(digital_sample.get("pressure_hpa"))
+        digital_is_stale = bool(digital_sample.get("is_stale", digital_sample.get("pressure_sample_is_stale")))
+        digital_usable = bool(digital_pressure is not None and not digital_is_stale)
+        pace_aux_enabled = bool(self.host._cfg_get("workflow.pressure.pace_aux_enabled", True))
+        pace_read_when_digital_fresh = bool(
+            self.host._cfg_get("workflow.pressure.pace_aux_read_when_digital_fresh", False)
         )
-        return {
-            **dict(digital_sample),
+        pace_sample: dict[str, Any]
+        if pace_aux_enabled and (pace_read_when_digital_fresh or not digital_usable):
+            self._record_pressure_timing_event(
+                "pace_aux_pressure_read_start",
+                "start",
+                stage=stage,
+                point_index=point_index,
+                decision="pace_aux_read",
+            )
+            pace_sample = self._pressure_sample_from_device("pace_controller")
+            self._record_pressure_timing_event(
+                "pace_aux_pressure_read_end",
+                "end",
+                stage=stage,
+                point_index=point_index,
+                pressure_hpa=pace_sample.get("pressure_hpa"),
+                duration_s=pace_sample.get("read_latency_s"),
+                decision="ok" if pace_sample.get("parse_ok") else "unavailable",
+                route_state=pace_sample,
+            )
+        else:
+            pace_sample = self._pressure_sample_payload(
+                None,
+                source="pace_controller",
+                error="pace_aux_not_read_digital_latest_fresh"
+                if pace_aux_enabled
+                else "pace_aux_disabled_for_high_pressure_first_point",
+            )
+        pace_pressure = self._coerce_float(pace_sample.get("pressure_hpa"))
+        pace_is_stale = bool(pace_sample.get("is_stale", pace_sample.get("pressure_sample_is_stale")))
+        pace_usable = bool(pace_pressure is not None and not pace_is_stale)
+        disagreement = (
+            abs(float(digital_pressure) - float(pace_pressure))
+            if digital_pressure is not None and pace_pressure is not None
+            else None
+        )
+        disagreement_warn_hpa = self._coerce_float(
+            self.host._cfg_get(
+                "workflow.pressure.pace_aux_disagreement_warn_hpa",
+                self.host._cfg_get("workflow.pressure.pressure_source_disagreement_warn_hpa", 10.0),
+            )
+        )
+        disagreement_warning = bool(
+            disagreement is not None
+            and disagreement_warn_hpa is not None
+            and float(disagreement) > float(disagreement_warn_hpa)
+        )
+        pace_overlap_samples = 1 if disagreement is not None else 0
+        topology_connected = bool(
+            self.host._cfg_get("workflow.pressure.pace_aux_main_line_topology_connected", True)
+        )
+        pace_aux_candidate = bool(
+            not digital_usable
+            and pace_aux_enabled
+            and pace_usable
+            and topology_connected
+            and pace_overlap_samples > 0
+            and not disagreement_warning
+        )
+        selected_sample: Mapping[str, Any] = digital_sample
+        selected_source = "digital_pressure_gauge_continuous"
+        selection_reason = "digital_gauge_continuous_latest_fresh"
+        if not digital_usable and pace_aux_candidate:
+            selected_sample = pace_sample
+            selected_source = "pace_controller_auxiliary"
+            selection_reason = "digital_latest_stale_pace_aux_consistent"
+        elif not digital_usable:
+            selected_source = ""
+            selection_reason = (
+                "digital_latest_stale_pace_aux_disagreement"
+                if disagreement_warning
+                else "digital_latest_unusable_fail_closed"
+            )
+        elif disagreement_warning:
+            selection_reason = "digital_latest_fresh_pace_aux_disagreement_ignored"
+        selected_pressure = self._coerce_float(selected_sample.get("pressure_hpa"))
+        selected_is_stale = bool(selected_sample.get("is_stale", selected_sample.get("pressure_sample_is_stale")))
+        selected_usable = bool(selected_pressure is not None and not selected_is_stale)
+        result: dict[str, Any] = {
+            **dict(selected_sample),
+            "source": selected_source or selected_sample.get("source"),
+            "pressure_sample_source": selected_source or selected_sample.get("pressure_sample_source"),
             "stage": stage,
             "point_index": point_index,
-            "primary_pressure_source": "digital_pressure_gauge",
+            "primary_pressure_source": "digital_pressure_gauge_continuous",
             "pressure_source_cross_check_enabled": self._pressure_source_cross_check_enabled(),
-            "pressure_source_cross_check_role": "pace_controller_cross_check_only_not_safety_decision",
-            "pressure_source_used_for_decision": "digital_pressure_gauge" if selected_usable else "",
-            "source_selection_reason": "high_pressure_first_point_primary_digital_gauge",
-            "pressure_source_used_for_abort": "digital_pressure_gauge" if self._pressure_sample_usable(digital_sample, "abort") else "",
-            "pressure_source_used_for_ready": "digital_pressure_gauge" if self._pressure_sample_usable(digital_sample, "ready") else "",
-            "pressure_source_used_for_seal": "digital_pressure_gauge" if self._pressure_sample_usable(digital_sample, "seal") else "",
-            "pressure_source_disagreement_hpa": None,
-            "pressure_source_disagreement_warning": False,
-            "pressure_source_disagreement_warn_hpa": self._coerce_float(
-                self.host._cfg_get("workflow.pressure.pressure_source_disagreement_warn_hpa", 10.0)
-            ),
+            "pressure_source_cross_check_role": "pace_controller_auxiliary_cross_check_only_unless_digital_latest_stale_and_consistent",
+            "pressure_source_used_for_decision": selected_source if selected_usable else "",
+            "source_selection_reason": selection_reason,
+            "pressure_source_used_for_abort": selected_source if selected_usable and self._pressure_sample_usable(selected_sample, "abort") else "",
+            "pressure_source_used_for_ready": selected_source if selected_usable and self._pressure_sample_usable(selected_sample, "ready") else "",
+            "pressure_source_used_for_seal": selected_source if selected_usable and self._pressure_sample_usable(selected_sample, "seal") else "",
+            "pressure_source_disagreement_hpa": None if disagreement is None else round(float(disagreement), 3),
+            "pressure_source_disagreement_warning": bool(disagreement_warning),
+            "pressure_source_disagreement_warn_hpa": disagreement_warn_hpa,
+            "pace_aux_enabled": pace_aux_enabled,
+            "pace_aux_topology_connected": topology_connected,
+            "pace_aux_trigger_candidate": pace_aux_candidate,
+            "pace_digital_overlap_samples": pace_overlap_samples,
+            "pace_digital_max_diff_hpa": None if disagreement is None else round(float(disagreement), 3),
             "pace_pressure_sample": dict(pace_sample),
             "digital_gauge_pressure_sample": dict(digital_sample),
-            "pace_pressure_hpa": None,
-            "pace_pressure_latency_s": None,
-            "pace_pressure_age_s": None,
-            "pace_pressure_stale": False,
-            "digital_gauge_pressure_hpa": selected_pressure,
+            "pace_pressure_hpa": pace_pressure,
+            "pace_pressure_latency_s": pace_sample.get("read_latency_s"),
+            "pace_pressure_age_s": pace_sample.get("sample_age_s"),
+            "pace_pressure_stale": pace_is_stale,
+            "digital_gauge_pressure_hpa": digital_pressure,
             "digital_gauge_latency_s": digital_sample.get("read_latency_s"),
             "digital_gauge_age_s": digital_sample.get("sample_age_s"),
-            "digital_gauge_stale": selected_is_stale,
+            "digital_gauge_stale": digital_is_stale,
+            "digital_gauge_mode": "continuous",
+            "digital_gauge_continuous_active": digital_sample.get("digital_gauge_continuous_active"),
+            "digital_gauge_continuous_mode": digital_sample.get("digital_gauge_continuous_mode"),
+            "latest_frame_age_s": digital_sample.get("latest_frame_age_s", digital_sample.get("sample_age_s")),
+            "latest_frame_interval_s": digital_sample.get("latest_frame_interval_s"),
+            "latest_frame_sequence_id": digital_sample.get(
+                "latest_frame_sequence_id",
+                digital_sample.get("sequence_id", digital_sample.get("pressure_sample_sequence_id")),
+            ),
+            "critical_window_uses_latest_frame": True,
+            "critical_window_uses_query": False,
             "high_pressure_first_point_mode": True,
         }
+        self._record_pressure_timing_event(
+            "pressure_source_selection",
+            "info" if selected_usable else "warning",
+            stage=stage,
+            point_index=point_index,
+            pressure_hpa=selected_pressure,
+            decision=selection_reason,
+            warning_code=None if selected_usable else "critical_pressure_source_unusable",
+            route_state=result,
+        )
+        if selected_source == "pace_controller_auxiliary":
+            self._record_pressure_timing_event(
+                "seal_trigger_source_selected",
+                "info",
+                stage=stage,
+                point_index=point_index,
+                pressure_hpa=selected_pressure,
+                decision="pace_controller_auxiliary",
+                route_state=result,
+            )
+        return result
+
+    def digital_gauge_continuous_stream_snapshot(self) -> dict[str, Any]:
+        with self._digital_gauge_stream_lock():
+            state = dict(self._digital_gauge_stream_state())
+            latest = state.get("latest_frame")
+            latest = dict(latest) if isinstance(latest, Mapping) else None
+            if latest is not None:
+                frame_mono = self._coerce_float(
+                    latest.get("sample_recorded_monotonic_s", latest.get("monotonic_timestamp"))
+                )
+                age_s = max(0.0, time.monotonic() - float(frame_mono)) if frame_mono is not None else None
+                state["latest_frame"] = latest
+                state["latest_frame_age_s"] = None if age_s is None else round(float(age_s), 3)
+                state["latest_frame_sequence_id"] = latest.get(
+                    "sequence_id",
+                    latest.get("pressure_sample_sequence_id"),
+                )
+                state["latest_frame_stale"] = bool(
+                    age_s is None or age_s > self._digital_gauge_latest_frame_stale_max_s()
+                )
+            return state
 
     def _remember_ambient_reference_pressure(
         self,
@@ -1602,9 +2360,72 @@ class PressureControlService:
                     "pressure_source_used_for_abort",
                     "pressure_source_used_for_ready",
                     "pressure_source_used_for_seal",
+                    "pressure_source_cross_check_enabled",
+                    "pressure_source_cross_check_role",
+                    "pressure_source_disagreement_hpa",
+                    "pressure_source_disagreement_warning",
+                    "pressure_source_disagreement_warn_hpa",
+                    "digital_gauge_mode",
+                    "digital_gauge_continuous_active",
+                    "digital_gauge_continuous_enabled",
+                    "digital_gauge_continuous_mode",
+                    "latest_frame_age_s",
+                    "latest_frame_interval_s",
+                    "latest_frame_sequence_id",
+                    "frame_received_at",
+                    "monotonic_timestamp",
+                    "raw_line",
+                    "critical_window_uses_latest_frame",
+                    "critical_window_uses_query",
+                    "critical_window_blocking_query_count",
+                    "critical_window_blocking_query_total_s",
+                    "pace_aux_enabled",
+                    "pace_aux_topology_connected",
+                    "pace_aux_trigger_candidate",
+                    "pace_digital_overlap_samples",
+                    "pace_digital_max_diff_hpa",
+                    "pace_pressure_hpa",
+                    "pace_pressure_latency_s",
+                    "pace_pressure_age_s",
+                    "pace_pressure_stale",
+                    "digital_gauge_pressure_hpa",
+                    "digital_gauge_latency_s",
+                    "digital_gauge_age_s",
+                    "digital_gauge_stale",
+                    "pace_pressure_sample",
+                    "digital_gauge_pressure_sample",
                 )
             }
             sample_is_stale = bool(sample_meta.get("pressure_sample_is_stale"))
+            if high_pressure_first_point_mode and pressure_hpa is None:
+                return self._fail_positive_preseal(
+                    point,
+                    route=route,
+                    started_at=started_at,
+                    target_pressure_hpa=target_pressure_hpa,
+                    measured_atmospheric_pressure_hpa=measured_atmospheric_pressure_hpa,
+                    ambient_reference=ambient_reference,
+                    ready_pressure_hpa=ready_pressure_hpa,
+                    abort_pressure_hpa=abort_pressure_hpa,
+                    timeout_s=timeout_s,
+                    poll_interval_s=poll_interval_s,
+                    pressure_hpa=pressure_last_hpa,
+                    pressure_peak_hpa=pressure_peak_hpa,
+                    pressure_last_hpa=pressure_last_hpa,
+                    reason=str(sample_meta.get("error") or "critical_pressure_sample_unavailable"),
+                    message="A2 high-pressure first point continuous pressure latest frame unavailable",
+                    extra={
+                        **preseal_arm_context,
+                        **state_after_vent,
+                        **sample_meta,
+                        "vent_closed_at": vent_closed_at,
+                        "vent_command_result": "closed",
+                        "pressure_samples_count": pressure_samples_count,
+                        "pressure_max_hpa": pressure_peak_hpa,
+                        "pressure_min_hpa": pressure_min_hpa,
+                        "seal_command_blocked_reason": "critical_pressure_sample_unavailable",
+                    },
+                )
             pressure_rise_rate: Optional[float] = None
             if pressure_hpa is not None:
                 pressure_samples_count += 1
