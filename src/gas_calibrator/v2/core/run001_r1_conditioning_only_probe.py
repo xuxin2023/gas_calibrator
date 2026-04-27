@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
@@ -85,6 +86,18 @@ R1_SAFETY_ASSERTION_DEFAULTS = {
     "chamber_stop_command_sent": False,
     "real_primary_latest_refresh": False,
 }
+R1_LATENCY_BREAKDOWN_FIELDS = (
+    "component",
+    "sequence_id",
+    "duration_ms",
+    "start_event",
+    "end_event",
+    "scope",
+    "stage",
+    "action",
+    "relay",
+    "channel",
+)
 
 
 @dataclass(frozen=True)
@@ -125,8 +138,261 @@ def _jsonl_dump(path: Path, rows: list[Mapping[str, Any]]) -> None:
     )
 
 
+def _csv_dump(path: Path, rows: list[Mapping[str, Any]]) -> None:
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(R1_LATENCY_BREAKDOWN_FIELDS), extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+def _perf_ns() -> int:
+    return time.perf_counter_ns()
+
+
+def _timing_mark(
+    rows: list[dict[str, Any]],
+    event_name: str,
+    *,
+    perf_counter_ns: Optional[int] = None,
+    **details: Any,
+) -> int:
+    now_ns = _perf_ns() if perf_counter_ns is None else int(perf_counter_ns)
+    rows.append(
+        {
+            "timestamp": _now(),
+            "event_name": str(event_name),
+            "perf_counter_ns": now_ns,
+            **details,
+        }
+    )
+    return now_ns
+
+
+def _ms_between(start_ns: Optional[int], end_ns: Optional[int]) -> Optional[float]:
+    if start_ns is None or end_ns is None:
+        return None
+    return round((int(end_ns) - int(start_ns)) / 1_000_000.0, 3)
+
+
+def _first_event(rows: list[Mapping[str, Any]], name: str) -> Optional[Mapping[str, Any]]:
+    return next((row for row in rows if row.get("event_name") == name), None)
+
+
+def _last_event(rows: list[Mapping[str, Any]], name: str) -> Optional[Mapping[str, Any]]:
+    return next((row for row in reversed(rows) if row.get("event_name") == name), None)
+
+
+def _event_ns(rows: list[Mapping[str, Any]], name: str, *, last: bool = False) -> Optional[int]:
+    row = _last_event(rows, name) if last else _first_event(rows, name)
+    if row is None:
+        return None
+    try:
+        return int(row.get("perf_counter_ns"))
+    except Exception:
+        return None
+
+
+def _paired_latency_rows(
+    rows: list[Mapping[str, Any]],
+    *,
+    start_name: str,
+    end_name: str,
+    component: str,
+) -> list[dict[str, Any]]:
+    starts = [row for row in rows if row.get("event_name") == start_name]
+    ends = [row for row in rows if row.get("event_name") == end_name]
+    out: list[dict[str, Any]] = []
+    for index, (start, end) in enumerate(zip(starts, ends), start=1):
+        out.append(
+            {
+                "component": component,
+                "sequence_id": start.get("sequence_id", index),
+                "duration_ms": _ms_between(
+                    int(start.get("perf_counter_ns")),
+                    int(end.get("perf_counter_ns")),
+                ),
+                "start_event": start_name,
+                "end_event": end_name,
+                "scope": start.get("scope", end.get("scope", "")),
+                "stage": start.get("stage", end.get("stage", "")),
+                "action": start.get("action", end.get("action", "")),
+                "relay": start.get("relay", end.get("relay", "")),
+                "channel": start.get("channel", end.get("channel", "")),
+            }
+        )
+    return out
+
+
+def _duration_values(rows: list[Mapping[str, Any]], component: str) -> list[float]:
+    values: list[float] = []
+    for row in rows:
+        if row.get("component") != component:
+            continue
+        value = _as_float(row.get("duration_ms"))
+        if value is not None:
+            values.append(float(value))
+    return values
+
+
+def _build_latency_breakdown(rows: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    latency_rows: list[dict[str, Any]] = []
+    latency_rows.extend(
+        _paired_latency_rows(
+            rows,
+            start_name="each_relay_action_start",
+            end_name="each_relay_action_end",
+            component="relay_action",
+        )
+    )
+    latency_rows.extend(
+        _paired_latency_rows(
+            rows,
+            start_name="each_vent_heartbeat_emit_start",
+            end_name="each_vent_heartbeat_emit_end",
+            component="vent_heartbeat_emit",
+        )
+    )
+    latency_rows.extend(
+        _paired_latency_rows(
+            rows,
+            start_name="pressure_gauge_read_start",
+            end_name="pressure_gauge_read_end",
+            component="pressure_gauge_read",
+        )
+    )
+    latency_rows.extend(
+        _paired_latency_rows(
+            rows,
+            start_name="temperature_chamber_read_start",
+            end_name="temperature_chamber_read_end",
+            component="temperature_chamber_read",
+        )
+    )
+    latency_rows.extend(
+        _paired_latency_rows(
+            rows,
+            start_name="thermometer_read_start",
+            end_name="thermometer_read_end",
+            component="thermometer_read",
+        )
+    )
+    latency_rows.extend(
+        _paired_latency_rows(
+            rows,
+            start_name="analyzer_read_start",
+            end_name="analyzer_read_end",
+            component="analyzer_read",
+        )
+    )
+    latency_rows.extend(
+        _paired_latency_rows(
+            rows,
+            start_name="evidence_write_start",
+            end_name="evidence_write_end",
+            component="evidence_write",
+        )
+    )
+    return latency_rows
+
+
+def _build_timing_breakdown(
+    timing_rows: list[Mapping[str, Any]],
+    *,
+    route_open_to_first_vent_ms: Optional[float],
+    max_vent_heartbeat_gap_ms: float,
+    vent_heartbeat_count: int,
+    relay_route_action_count: int,
+    route_open_to_first_vent_threshold_ms: float,
+) -> dict[str, Any]:
+    latency_rows = _build_latency_breakdown(timing_rows)
+    relay_durations = _duration_values(latency_rows, "relay_action")
+    pressure_durations = _duration_values(latency_rows, "pressure_gauge_read")
+    evidence_durations = _duration_values(latency_rows, "evidence_write")
+
+    route_start_ns = _event_ns(timing_rows, "route_conditioning_start")
+    first_route_start_ns = _event_ns(timing_rows, "first_route_action_start")
+    first_route_end_ns = _event_ns(timing_rows, "first_route_action_end")
+    last_route_start_ns = _event_ns(timing_rows, "last_route_action_start")
+    last_route_end_ns = _event_ns(timing_rows, "last_route_action_end")
+    route_completed_ns = _event_ns(timing_rows, "route_open_completed")
+    first_vent_start_ns = _event_ns(timing_rows, "first_vent_heartbeat_emit_start")
+    first_vent_end_ns = _event_ns(timing_rows, "first_vent_heartbeat_emit_end")
+
+    route_start_to_first_vent_ms = _ms_between(route_start_ns, first_vent_start_ns)
+    first_route_action_start_to_first_vent_ms = _ms_between(first_route_start_ns, first_vent_start_ns)
+    first_route_action_end_to_first_vent_ms = _ms_between(first_route_end_ns, first_vent_start_ns)
+    last_route_action_start_to_first_vent_ms = _ms_between(last_route_start_ns, first_vent_start_ns)
+    last_route_action_end_to_first_vent_ms = _ms_between(last_route_end_ns, first_vent_start_ns)
+    route_open_completed_to_first_vent_ms = _ms_between(route_completed_ns, first_vent_start_ns)
+    route_action_sequence_duration_ms = _ms_between(first_route_start_ns, last_route_end_ns)
+    first_vent_emit_duration_ms = _ms_between(first_vent_start_ns, first_vent_end_ns)
+    pressure_read_latency_ms = pressure_durations[0] if pressure_durations else None
+    max_pressure_read_latency_ms = max(pressure_durations) if pressure_durations else None
+    max_relay_action_duration_ms = max(relay_durations) if relay_durations else None
+    evidence_write_latency_ms = evidence_durations[-1] if evidence_durations else None
+
+    diagnostic_decision = "NOT_APPLICABLE"
+    suspected_root_cause = ""
+    critical_path_suspect = "unknown"
+    old_metric_failed = (
+        route_open_to_first_vent_ms is not None
+        and route_open_to_first_vent_ms > float(route_open_to_first_vent_threshold_ms)
+    )
+    if old_metric_failed:
+        if (
+            route_open_completed_to_first_vent_ms is not None
+            and last_route_action_end_to_first_vent_ms is not None
+            and route_open_completed_to_first_vent_ms <= 300.0
+            and last_route_action_end_to_first_vent_ms <= 300.0
+        ):
+            diagnostic_decision = "ANCHOR_REVIEW_REQUIRED"
+            suspected_root_cause = "threshold_anchor_too_early"
+            critical_path_suspect = "threshold_anchor_too_early"
+        elif route_open_completed_to_first_vent_ms is not None and route_open_completed_to_first_vent_ms > 1000.0:
+            diagnostic_decision = "HEARTBEAT_TOO_LATE"
+            suspected_root_cause = "heartbeat_scheduler_late_start"
+            critical_path_suspect = "heartbeat_scheduler_late_start"
+        elif (
+            (max_relay_action_duration_ms is not None and max_relay_action_duration_ms > 500.0)
+            or (route_action_sequence_duration_ms is not None and route_action_sequence_duration_ms > 1000.0)
+        ):
+            diagnostic_decision = "RELAY_ACTION_LATENCY_DOMINANT"
+            suspected_root_cause = "route_action_duration"
+            critical_path_suspect = "route_action_duration"
+        elif pressure_read_latency_ms is not None and pressure_read_latency_ms > 1000.0:
+            diagnostic_decision = "PRESSURE_READ_LATENCY_DOMINANT"
+            suspected_root_cause = "pressure_read_latency"
+            critical_path_suspect = "pressure_read_latency"
+        elif evidence_write_latency_ms is not None and evidence_write_latency_ms > 1000.0:
+            suspected_root_cause = "evidence_write_latency"
+            critical_path_suspect = "evidence_write_latency"
+
+    return {
+        "route_start_to_first_vent_ms": route_start_to_first_vent_ms,
+        "first_route_action_start_to_first_vent_ms": first_route_action_start_to_first_vent_ms,
+        "first_route_action_end_to_first_vent_ms": first_route_action_end_to_first_vent_ms,
+        "last_route_action_start_to_first_vent_ms": last_route_action_start_to_first_vent_ms,
+        "last_route_action_end_to_first_vent_ms": last_route_action_end_to_first_vent_ms,
+        "route_open_completed_to_first_vent_ms": route_open_completed_to_first_vent_ms,
+        "route_action_sequence_duration_ms": route_action_sequence_duration_ms,
+        "first_vent_emit_duration_ms": first_vent_emit_duration_ms,
+        "max_vent_heartbeat_gap_ms": max_vent_heartbeat_gap_ms,
+        "vent_heartbeat_count": int(vent_heartbeat_count),
+        "pressure_read_latency_ms": pressure_read_latency_ms,
+        "max_pressure_read_latency_ms": max_pressure_read_latency_ms,
+        "relay_action_count": int(relay_route_action_count),
+        "relay_action_durations_ms": relay_durations,
+        "max_relay_action_duration_ms": max_relay_action_duration_ms,
+        "evidence_write_latency_ms": evidence_write_latency_ms,
+        "critical_path_suspect": critical_path_suspect,
+        "diagnostic_decision": diagnostic_decision,
+        "suspected_root_cause": suspected_root_cause,
+        "latency_breakdown_rows": latency_rows,
+    }
 
 
 def _as_bool(value: Any) -> Optional[bool]:
@@ -704,8 +970,32 @@ def _send_vent_on(
     *,
     vent_rows: list[dict[str, Any]],
     trace_rows: list[dict[str, Any]],
+    timing_rows: list[dict[str, Any]],
     phase: str,
 ) -> bool:
+    heartbeat_index = len(vent_rows) + 1
+    start_ns = _perf_ns()
+    _timing_mark(
+        timing_rows,
+        "each_vent_heartbeat_emit_start",
+        perf_counter_ns=start_ns,
+        sequence_id=heartbeat_index,
+        phase=phase,
+        scope="authorized_r1_atmosphere_safe_vent_heartbeat",
+    )
+    route_protective_first = phase != "before_route_open" and _event_ns(
+        timing_rows,
+        "first_vent_heartbeat_emit_start",
+    ) is None
+    if route_protective_first:
+        _timing_mark(
+            timing_rows,
+            "first_vent_heartbeat_emit_start",
+            perf_counter_ns=start_ns,
+            sequence_id=heartbeat_index,
+            phase=phase,
+            scope="authorized_r1_atmosphere_safe_vent_heartbeat",
+        )
     sent_at = time.monotonic()
     try:
         vent = getattr(pace, "vent", None)
@@ -717,10 +1007,32 @@ def _send_vent_on(
     except Exception as exc:
         ok = False
         error = str(exc)
+    end_ns = _perf_ns()
+    if route_protective_first:
+        _timing_mark(
+            timing_rows,
+            "first_vent_heartbeat_emit_end",
+            perf_counter_ns=end_ns,
+            sequence_id=heartbeat_index,
+            phase=phase,
+            scope="authorized_r1_atmosphere_safe_vent_heartbeat",
+        )
+    _timing_mark(
+        timing_rows,
+        "each_vent_heartbeat_emit_end",
+        perf_counter_ns=end_ns,
+        sequence_id=heartbeat_index,
+        phase=phase,
+        scope="authorized_r1_atmosphere_safe_vent_heartbeat",
+        result="ok" if ok else "error",
+    )
     row = {
         "timestamp": _now(),
         "phase": phase,
         "monotonic_s": sent_at,
+        "emit_start_perf_counter_ns": start_ns,
+        "emit_end_perf_counter_ns": end_ns,
+        "emit_duration_ms": _ms_between(start_ns, end_ns),
         "vent_on": True,
         "vent_off": False,
         "result": "ok" if ok else "error",
@@ -867,11 +1179,45 @@ def _apply_relay_states(
     *,
     route_rows: list[dict[str, Any]],
     trace_rows: list[dict[str, Any]],
+    timing_rows: list[dict[str, Any]],
     action: str,
 ) -> tuple[int, bool]:
     count = 0
     ok = True
-    for (relay_name, channel), desired in sorted(states.items()):
+    ordered_states = list(sorted(states.items()))
+    for index, ((relay_name, channel), desired) in enumerate(ordered_states, start=1):
+        route_open_action = action == "set_co2_route_conditioning"
+        start_ns = _perf_ns()
+        if route_open_action and index == 1:
+            _timing_mark(
+                timing_rows,
+                "first_route_action_start",
+                perf_counter_ns=start_ns,
+                sequence_id=index,
+                action=action,
+                relay=relay_name,
+                channel=int(channel),
+            )
+        if route_open_action and index == len(ordered_states):
+            _timing_mark(
+                timing_rows,
+                "last_route_action_start",
+                perf_counter_ns=start_ns,
+                sequence_id=index,
+                action=action,
+                relay=relay_name,
+                channel=int(channel),
+            )
+        _timing_mark(
+            timing_rows,
+            "each_relay_action_start",
+            perf_counter_ns=start_ns,
+            sequence_id=index,
+            action=action,
+            relay=relay_name,
+            channel=int(channel),
+            scope="authorized_r1_route_conditioning_only",
+        )
         relay = relays.get(relay_name)
         row = {
             "timestamp": _now(),
@@ -896,6 +1242,43 @@ def _apply_relay_states(
             ok = False
             row["result"] = "error"
             row["error"] = str(exc)
+        end_ns = _perf_ns()
+        _timing_mark(
+            timing_rows,
+            "each_relay_action_end",
+            perf_counter_ns=end_ns,
+            sequence_id=index,
+            action=action,
+            relay=relay_name,
+            channel=int(channel),
+            scope="authorized_r1_route_conditioning_only",
+            result=row["result"],
+        )
+        if route_open_action and index == 1:
+            _timing_mark(
+                timing_rows,
+                "first_route_action_end",
+                perf_counter_ns=end_ns,
+                sequence_id=index,
+                action=action,
+                relay=relay_name,
+                channel=int(channel),
+                result=row["result"],
+            )
+        if route_open_action and index == len(ordered_states):
+            _timing_mark(
+                timing_rows,
+                "last_route_action_end",
+                perf_counter_ns=end_ns,
+                sequence_id=index,
+                action=action,
+                relay=relay_name,
+                channel=int(channel),
+                result=row["result"],
+            )
+        row["action_start_perf_counter_ns"] = start_ns
+        row["action_end_perf_counter_ns"] = end_ns
+        row["action_duration_ms"] = _ms_between(start_ns, end_ns)
         route_rows.append(row)
         trace_rows.append({"timestamp": row["timestamp"], "event": "relay_route_action", **row})
     return count, ok
@@ -940,6 +1323,9 @@ def write_r1_conditioning_only_probe_artifacts(
         "device_readings": str(run_dir / "device_readings.jsonl"),
         "vent_heartbeat_trace": str(run_dir / "vent_heartbeat_trace.jsonl"),
         "pressure_freshness_trace": str(run_dir / "pressure_freshness_trace.jsonl"),
+        "r1_timing_breakdown": str(run_dir / "r1_timing_breakdown.json"),
+        "r1_timing_events": str(run_dir / "r1_timing_events.jsonl"),
+        "r1_latency_breakdown": str(run_dir / "r1_latency_breakdown.csv"),
         "safety_assertions": str(run_dir / "safety_assertions.json"),
         "operator_confirmation_record": str(run_dir / "operator_confirmation_record.json"),
     }
@@ -949,6 +1335,7 @@ def write_r1_conditioning_only_probe_artifacts(
     device_rows: list[dict[str, Any]] = []
     vent_rows: list[dict[str, Any]] = []
     pressure_rows: list[dict[str, Any]] = []
+    timing_rows: list[dict[str, Any]] = []
     rejection_reasons = list(admission.reasons)
     executed = bool(admission.approved and execute_conditioning_only)
     opened_ports: set[str] = set()
@@ -987,20 +1374,66 @@ def write_r1_conditioning_only_probe_artifacts(
     else:
         start_monotonic = time.monotonic()
         try:
+            _timing_mark(timing_rows, "r1_conditioning_start", stage="r1_conditioning")
             trace_rows.append({"timestamp": _now(), "event": "r1_conditioning_start", "result": "started"})
 
+            chamber_read_start_ns = _timing_mark(
+                timing_rows,
+                "temperature_chamber_read_start",
+                stage="pre_route_reference_read",
+                device_name="temperature_chamber",
+            )
             chamber_diag, chamber_trace = read_temperature_chamber_read_only(
                 raw_cfg,
                 client_factory=chamber_client_factory or _default_chamber_client_factory,
+            )
+            chamber_read_end_ns = _perf_ns()
+            _timing_mark(
+                timing_rows,
+                "temperature_chamber_read_end",
+                stage="pre_route_reference_read",
+                device_name="temperature_chamber",
+                perf_counter_ns=chamber_read_end_ns,
+                duration_ms=_ms_between(chamber_read_start_ns, chamber_read_end_ns),
             )
             for row in chamber_trace:
                 device_rows.append({**dict(row), "read_only": True})
                 if row.get("result") == "ok" and row.get("port"):
                     opened_ports.add(str(row.get("port")))
 
+            thermometer_read_start_ns = _timing_mark(
+                timing_rows,
+                "thermometer_read_start",
+                stage="pre_route_reference_read",
+                device_name="thermometer",
+            )
             thermometer_temp_c = _read_thermometer(raw_cfg, device_rows, thermometer_factory or _default_thermometer_factory)
+            thermometer_read_end_ns = _perf_ns()
+            _timing_mark(
+                timing_rows,
+                "thermometer_read_end",
+                stage="pre_route_reference_read",
+                device_name="thermometer",
+                perf_counter_ns=thermometer_read_end_ns,
+                duration_ms=_ms_between(thermometer_read_start_ns, thermometer_read_end_ns),
+            )
 
+            analyzer_read_start_ns = _timing_mark(
+                timing_rows,
+                "analyzer_read_start",
+                stage="pre_route_reference_read",
+                device_name="gas_analyzers",
+            )
             analyzer_status = _read_analyzers(raw_cfg, device_rows, analyzer_serial_factory or _default_analyzer_serial_factory)
+            analyzer_read_end_ns = _perf_ns()
+            _timing_mark(
+                timing_rows,
+                "analyzer_read_end",
+                stage="pre_route_reference_read",
+                device_name="gas_analyzers",
+                perf_counter_ns=analyzer_read_end_ns,
+                duration_ms=_ms_between(analyzer_read_start_ns, analyzer_read_end_ns),
+            )
 
             pace = (pace_factory or _default_pace_factory)(_pace_device(raw_cfg))
             _open_device(pace)
@@ -1012,9 +1445,26 @@ def write_r1_conditioning_only_probe_artifacts(
             opened_ports.add(_pressure_device(raw_cfg)["port"])
 
             pressure_timeout_s = float(_pressure_device(raw_cfg).get("response_timeout_s") or 2.2)
+            pressure_sequence_id = 1
+            pressure_perf_start_ns = _timing_mark(
+                timing_rows,
+                "pressure_gauge_read_start",
+                sequence_id=pressure_sequence_id,
+                stage="pre_route",
+                device_name="pressure_gauge",
+            )
             read_start = time.monotonic()
             pressure_latest_hpa, pressure_error = _read_pressure_once(gauge, timeout_s=pressure_timeout_s)
             read_end = time.monotonic()
+            pressure_perf_end_ns = _timing_mark(
+                timing_rows,
+                "pressure_gauge_read_end",
+                sequence_id=pressure_sequence_id,
+                stage="pre_route",
+                device_name="pressure_gauge",
+                pressure_hpa=pressure_latest_hpa,
+                error=pressure_error,
+            )
             latency_ms = (read_end - read_start) * 1000.0
             age_ms = 0.0 if pressure_latest_hpa is not None else latency_ms
             pressure_freshness_ok = pressure_latest_hpa is not None and age_ms <= runtime["pressure_freshness_max_age_ms"]
@@ -1037,10 +1487,17 @@ def write_r1_conditioning_only_probe_artifacts(
                 rejection_reasons.append("pre_route_pressure_not_safe_or_fresh")
                 final_decision = "FAIL_CLOSED"
             else:
-                if not _send_vent_on(pace, vent_rows=vent_rows, trace_rows=trace_rows, phase="before_route_open"):
+                if not _send_vent_on(
+                    pace,
+                    vent_rows=vent_rows,
+                    trace_rows=trace_rows,
+                    timing_rows=timing_rows,
+                    phase="before_route_open",
+                ):
                     rejection_reasons.append("pre_route_vent_heartbeat_failed")
                     final_decision = "FAIL_CLOSED"
                 else:
+                    _timing_mark(timing_rows, "route_conditioning_start", stage="route_conditioning")
                     for name, device in _relay_devices(raw_cfg).items():
                         relay = (relay_factory or _default_relay_factory)(device)
                         _open_device(relay)
@@ -1052,6 +1509,7 @@ def write_r1_conditioning_only_probe_artifacts(
                         route_states,
                         route_rows=route_rows,
                         trace_rows=trace_rows,
+                        timing_rows=timing_rows,
                         action="set_co2_route_conditioning",
                     )
                     relay_route_action_count += count
@@ -1063,10 +1521,25 @@ def write_r1_conditioning_only_probe_artifacts(
                     else:
                         conditioning_started = bool(route_opened)
                         route_open_end = time.monotonic()
+                        route_completed_ns = _timing_mark(
+                            timing_rows,
+                            "route_open_completed",
+                            stage="route_conditioning",
+                            route="co2",
+                        )
+                        _timing_mark(
+                            timing_rows,
+                            "vent_heartbeat_scheduler_started",
+                            stage="route_conditioning",
+                            route="co2",
+                            anchor_event="route_open_completed",
+                            anchor_perf_counter_ns=route_completed_ns,
+                        )
                         vent_ok = _send_vent_on(
                             pace,
                             vent_rows=vent_rows,
                             trace_rows=trace_rows,
+                            timing_rows=timing_rows,
                             phase="after_route_open",
                         )
                         route_open_to_first_vent_ms = round((time.monotonic() - route_open_end) * 1000.0, 3)
@@ -1079,8 +1552,25 @@ def write_r1_conditioning_only_probe_artifacts(
                         deadline = route_open_start + runtime["conditioning_duration_s"]
                         while not rejection_reasons and time.monotonic() < deadline:
                             read_start = time.monotonic()
+                            pressure_sequence_id += 1
+                            pressure_perf_start_ns = _timing_mark(
+                                timing_rows,
+                                "pressure_gauge_read_start",
+                                sequence_id=pressure_sequence_id,
+                                stage="conditioning",
+                                device_name="pressure_gauge",
+                            )
                             pressure_latest_hpa, pressure_error = _read_pressure_once(gauge, timeout_s=pressure_timeout_s)
                             read_end = time.monotonic()
+                            pressure_perf_end_ns = _timing_mark(
+                                timing_rows,
+                                "pressure_gauge_read_end",
+                                sequence_id=pressure_sequence_id,
+                                stage="conditioning",
+                                device_name="pressure_gauge",
+                                pressure_hpa=pressure_latest_hpa,
+                                error=pressure_error,
+                            )
                             latency_ms = (read_end - read_start) * 1000.0
                             age_ms = 0.0 if pressure_latest_hpa is not None else latency_ms
                             fresh = pressure_latest_hpa is not None and age_ms <= runtime["pressure_freshness_max_age_ms"]
@@ -1112,6 +1602,7 @@ def write_r1_conditioning_only_probe_artifacts(
                                 pace,
                                 vent_rows=vent_rows,
                                 trace_rows=trace_rows,
+                                timing_rows=timing_rows,
                                 phase="conditioning_heartbeat",
                             ):
                                 rejection_reasons.append("conditioning_vent_heartbeat_failed")
@@ -1129,6 +1620,16 @@ def write_r1_conditioning_only_probe_artifacts(
             rejection_reasons.append(f"execution_error:{exc}")
             final_decision = "FAIL_CLOSED"
         finally:
+            if _event_ns(timing_rows, "route_conditioning_start") is not None and _event_ns(
+                timing_rows,
+                "route_conditioning_end",
+            ) is None:
+                _timing_mark(
+                    timing_rows,
+                    "route_conditioning_end",
+                    stage="route_conditioning",
+                    result=final_decision,
+                )
             if route_opened and relays:
                 close_states = {key: False for key in route_states}
                 count, cleanup_ok = _apply_relay_states(
@@ -1136,6 +1637,7 @@ def write_r1_conditioning_only_probe_artifacts(
                     close_states,
                     route_rows=route_rows,
                     trace_rows=trace_rows,
+                    timing_rows=timing_rows,
                     action="cleanup_r1_route_conditioning",
                 )
                 relay_route_action_count += count
@@ -1154,6 +1656,7 @@ def write_r1_conditioning_only_probe_artifacts(
                         _close_device(device)
                     except Exception:
                         pass
+            _timing_mark(timing_rows, "r1_conditioning_end", stage="r1_conditioning", result=final_decision)
             trace_rows.append({"timestamp": _now(), "event": "r1_conditioning_end", "result": final_decision})
 
     vent_gaps_ms: list[float] = []
@@ -1187,6 +1690,19 @@ def write_r1_conditioning_only_probe_artifacts(
         "non_authorized_relay_output_command_sent": False,
         "valve_command_sent": bool(relay_output_command_sent),
         "valve_command_scope": "authorized_r1_route_conditioning_only" if relay_output_command_sent else "",
+    }
+    timing_breakdown = _build_timing_breakdown(
+        timing_rows,
+        route_open_to_first_vent_ms=route_open_to_first_vent_ms,
+        max_vent_heartbeat_gap_ms=max_vent_gap_ms,
+        vent_heartbeat_count=vent_heartbeat_count,
+        relay_route_action_count=relay_route_action_count,
+        route_open_to_first_vent_threshold_ms=runtime["route_open_to_first_vent_max_ms"],
+    )
+    timing_summary_fields = {
+        key: value
+        for key, value in timing_breakdown.items()
+        if key != "latency_breakdown_rows"
     }
     chamber_unavailable = bool(chamber_diag.get("temperature_chamber_unavailable"))
     summary = {
@@ -1227,8 +1743,32 @@ def write_r1_conditioning_only_probe_artifacts(
         "pressure_overlimit_fail_closed": bool(pressure_overlimit_fail_closed),
         "opened_ports": sorted(opened_ports),
         "artifact_paths": artifact_paths,
+        **timing_summary_fields,
         **safety_assertions,
     }
+    operator_record = {
+        "schema_version": R1_SCHEMA_VERSION,
+        "record_type": "r1_operator_confirmation_record",
+        "operator_confirmation_path": str(Path(operator_confirmation_path).expanduser().resolve()) if operator_confirmation_path else "",
+        "validation": admission.operator_validation,
+        "payload": admission.operator_confirmation,
+        "not_real_acceptance_evidence": True,
+        "acceptance_level": "engineering_probe_only",
+        "promotion_state": "blocked",
+        "real_primary_latest_refresh": False,
+    }
+    timing_payload = {
+        "schema_version": R1_SCHEMA_VERSION,
+        **R1_EVIDENCE_MARKERS,
+        **timing_breakdown,
+    }
+
+    _timing_mark(
+        timing_rows,
+        "evidence_write_start",
+        stage="artifact_write",
+        artifact_count=len(artifact_paths),
+    )
     _json_dump(run_dir / "summary.json", summary)
     _jsonl_dump(run_dir / "r1_conditioning_trace.jsonl", trace_rows)
     _jsonl_dump(run_dir / "route_trace.jsonl", route_rows)
@@ -1236,18 +1776,38 @@ def write_r1_conditioning_only_probe_artifacts(
     _jsonl_dump(run_dir / "vent_heartbeat_trace.jsonl", vent_rows)
     _jsonl_dump(run_dir / "pressure_freshness_trace.jsonl", pressure_rows)
     _json_dump(run_dir / "safety_assertions.json", safety_assertions)
-    _json_dump(
-        run_dir / "operator_confirmation_record.json",
-        {
-            "schema_version": R1_SCHEMA_VERSION,
-            "record_type": "r1_operator_confirmation_record",
-            "operator_confirmation_path": str(Path(operator_confirmation_path).expanduser().resolve()) if operator_confirmation_path else "",
-            "validation": admission.operator_validation,
-            "payload": admission.operator_confirmation,
-            "not_real_acceptance_evidence": True,
-            "acceptance_level": "engineering_probe_only",
-            "promotion_state": "blocked",
-            "real_primary_latest_refresh": False,
-        },
+    _json_dump(run_dir / "operator_confirmation_record.json", operator_record)
+    _json_dump(run_dir / "r1_timing_breakdown.json", timing_payload)
+    _jsonl_dump(run_dir / "r1_timing_events.jsonl", timing_rows)
+    _csv_dump(run_dir / "r1_latency_breakdown.csv", timing_breakdown["latency_breakdown_rows"])
+    _timing_mark(
+        timing_rows,
+        "evidence_write_end",
+        stage="artifact_write",
+        artifact_count=len(artifact_paths),
     )
+
+    timing_breakdown = _build_timing_breakdown(
+        timing_rows,
+        route_open_to_first_vent_ms=route_open_to_first_vent_ms,
+        max_vent_heartbeat_gap_ms=max_vent_gap_ms,
+        vent_heartbeat_count=vent_heartbeat_count,
+        relay_route_action_count=relay_route_action_count,
+        route_open_to_first_vent_threshold_ms=runtime["route_open_to_first_vent_max_ms"],
+    )
+    timing_summary_fields = {
+        key: value
+        for key, value in timing_breakdown.items()
+        if key != "latency_breakdown_rows"
+    }
+    summary.update(timing_summary_fields)
+    timing_payload = {
+        "schema_version": R1_SCHEMA_VERSION,
+        **R1_EVIDENCE_MARKERS,
+        **timing_breakdown,
+    }
+    _json_dump(run_dir / "summary.json", summary)
+    _json_dump(run_dir / "r1_timing_breakdown.json", timing_payload)
+    _jsonl_dump(run_dir / "r1_timing_events.jsonl", timing_rows)
+    _csv_dump(run_dir / "r1_latency_breakdown.csv", timing_breakdown["latency_breakdown_rows"])
     return summary
