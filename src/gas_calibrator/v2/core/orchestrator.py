@@ -1717,6 +1717,67 @@ class WorkflowOrchestrator:
         updated["vent_tick_max_gap_s"] = None if not gaps else round(max(float(item) for item in gaps), 3)
         return updated
 
+    def _a2_conditioning_heartbeat_gap_state(
+        self,
+        context: Mapping[str, Any],
+        *,
+        now_mono: float,
+    ) -> dict[str, Any]:
+        max_gap_s = self._a2_conditioning_vent_max_gap_s()
+        interval_s = self._a2_conditioning_vent_heartbeat_interval_s()
+        previous_start = self._as_float(
+            context.get("last_vent_heartbeat_started_monotonic_s")
+            or context.get("last_vent_tick_monotonic_s")
+        )
+        previous_completed = self._as_float(
+            context.get("last_vent_heartbeat_completed_monotonic_s")
+            or context.get("last_vent_tick_completed_monotonic_s")
+            or context.get("last_vent_tick_monotonic_s")
+        )
+        observed_gap_s = None if previous_start is None else max(0.0, float(now_mono) - float(previous_start))
+        emission_gap_s = None if previous_completed is None else max(0.0, float(now_mono) - float(previous_completed))
+        blocking_started = self._as_float(context.get("last_blocking_operation_started_monotonic_s"))
+        blocking_completed = self._as_float(context.get("last_blocking_operation_completed_monotonic_s"))
+        blocking_duration = self._as_float(context.get("last_blocking_operation_duration_s"))
+        blocking_name = str(context.get("last_blocking_operation_name") or "")
+        blocking_safe = bool(context.get("last_blocking_operation_safe_to_continue", True))
+        if (
+            emission_gap_s is not None
+            and blocking_started is not None
+            and blocking_completed is not None
+            and previous_completed is not None
+            and float(blocking_completed) >= float(previous_completed)
+            and float(blocking_completed) <= float(now_mono)
+            and blocking_safe
+        ):
+            emission_gap_s = max(0.0, float(now_mono) - float(blocking_completed))
+        blocking_explains_gap = bool(
+            observed_gap_s is not None
+            and observed_gap_s > max_gap_s
+            and emission_gap_s is not None
+            and emission_gap_s <= max_gap_s
+            and blocking_duration is not None
+            and float(blocking_duration) > 0.0
+            and blocking_safe
+        )
+        return {
+            "heartbeat_gap_threshold_ms": round(max_gap_s * 1000.0, 3),
+            "heartbeat_interval_ms": round(interval_s * 1000.0, 3),
+            "heartbeat_gap_observed_ms": None if observed_gap_s is None else round(float(observed_gap_s) * 1000.0, 3),
+            "heartbeat_emission_gap_ms": None if emission_gap_s is None else round(float(emission_gap_s) * 1000.0, 3),
+            "vent_heartbeat_gap_s": None if observed_gap_s is None else round(float(observed_gap_s), 3),
+            "heartbeat_emission_gap_s": None if emission_gap_s is None else round(float(emission_gap_s), 3),
+            "heartbeat_gap_explained_by_blocking_operation": blocking_explains_gap,
+            "blocking_operation_name": blocking_name,
+            "blocking_operation_duration_ms": (
+                None if blocking_duration is None else round(float(blocking_duration) * 1000.0, 3)
+            ),
+            "blocking_operation_safe_to_continue": blocking_safe,
+            "whether_safe_to_continue": bool(
+                emission_gap_s is None or (emission_gap_s <= max_gap_s and blocking_safe)
+            ),
+        }
+
     def _a2_conditioning_failure_context(
         self,
         point: CalibrationPoint,
@@ -1932,10 +1993,13 @@ class WorkflowOrchestrator:
         if not context:
             return {}
         now_mono = time.monotonic()
+        monitor_started_monotonic_s = now_mono
         last_vent = self._as_float(context.get("last_vent_tick_monotonic_s"))
         if last_vent is not None:
             context["last_vent_command_age_s"] = round(max(0.0, now_mono - float(last_vent)), 3)
         sample = self._a2_conditioning_pressure_sample(point, phase=phase)
+        monitor_completed_monotonic_s = time.monotonic()
+        monitor_duration_s = max(0.0, monitor_completed_monotonic_s - monitor_started_monotonic_s)
         snapshot = self._a2_conditioning_stream_snapshot()
         details = self._a2_conditioning_pressure_details(sample, snapshot, context=context)
         elapsed_s = max(0.0, now_mono - float(context.get("conditioning_started_monotonic_s") or now_mono))
@@ -1946,6 +2010,8 @@ class WorkflowOrchestrator:
             "vent_command_sent": False,
             "pressure_monitor_interval_s": self._a2_conditioning_pressure_monitor_interval_s(),
             "last_vent_command_age_s": context.get("last_vent_command_age_s"),
+            "blocking_operation_name": "a2_conditioning_pressure_monitor",
+            "blocking_operation_duration_ms": round(monitor_duration_s * 1000.0, 3),
             **{key: value for key, value in details.items() if key not in {"sample", "digital_sample"}},
         }
         contextual_sample = {**sample, **monitor_state}
@@ -1979,6 +2045,13 @@ class WorkflowOrchestrator:
         if details.get("pressure_overlimit_seen"):
             context["pressure_overlimit_source"] = details.get("pressure_overlimit_source")
             context["pressure_overlimit_hpa"] = details.get("pressure_overlimit_hpa")
+        context["last_blocking_operation_name"] = "a2_conditioning_pressure_monitor"
+        context["last_blocking_operation_started_monotonic_s"] = monitor_started_monotonic_s
+        context["last_blocking_operation_completed_monotonic_s"] = monitor_completed_monotonic_s
+        context["last_blocking_operation_duration_s"] = monitor_duration_s
+        context["last_blocking_operation_safe_to_continue"] = bool(
+            not details.get("digital_gauge_stream_stale") and not details.get("pressure_overlimit_seen")
+        )
         context = self._a2_conditioning_context_with_counts(context)
         setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
         self._record_pressure_source_latency_events(contextual_sample, point=point, stage="co2_route_conditioning_at_atmosphere")
@@ -2026,21 +2099,24 @@ class WorkflowOrchestrator:
             return {}
         tick_started_monotonic_s = time.monotonic()
         max_gap_s = self._a2_conditioning_vent_max_gap_s()
-        previous_tick = self._as_float(context.get("last_vent_tick_monotonic_s"))
-        vent_gap_s = None
-        if previous_tick is not None:
-            vent_gap_s = max(0.0, tick_started_monotonic_s - float(previous_tick))
-            if vent_gap_s > max_gap_s:
+        gap_state = self._a2_conditioning_heartbeat_gap_state(context, now_mono=tick_started_monotonic_s)
+        vent_gap_s = self._as_float(gap_state.get("vent_heartbeat_gap_s"))
+        emission_gap_s = self._as_float(gap_state.get("heartbeat_emission_gap_s"))
+        if emission_gap_s is not None:
+            if emission_gap_s > max_gap_s:
                 self._fail_a2_co2_route_conditioning_closed(
                     point,
                     reason="atmosphere_vent_heartbeat_gap_exceeded",
                     details={
                         "phase": phase,
-                        "vent_heartbeat_gap_s": round(float(vent_gap_s), 3),
+                        **gap_state,
+                        "vent_heartbeat_gap_s": round(float(vent_gap_s or emission_gap_s), 3),
                         "vent_heartbeat_interval_s": self._a2_conditioning_vent_heartbeat_interval_s(),
                         "atmosphere_vent_max_gap_s": max_gap_s,
                         "vent_heartbeat_gap_exceeded": True,
-                        "last_vent_command_age_s": round(float(vent_gap_s), 3),
+                        "last_vent_command_age_s": round(float(emission_gap_s), 3),
+                        "fail_closed_reason": "atmosphere_vent_heartbeat_gap_exceeded",
+                        "whether_safe_to_continue": False,
                     },
                     event_name="co2_route_conditioning_vent_heartbeat_gap",
                     route_trace_action="co2_route_conditioning_vent_heartbeat_gap",
@@ -2086,6 +2162,8 @@ class WorkflowOrchestrator:
         sample = self._a2_conditioning_pressure_sample(point, phase=phase)
         snapshot = self._a2_conditioning_stream_snapshot()
         details = self._a2_conditioning_pressure_details(sample, snapshot, context=context)
+        tick_completed_monotonic_s = time.monotonic()
+        blocking_duration_s = max(0.0, tick_completed_monotonic_s - tick_started_monotonic_s)
         pressure_hpa = details.get("pressure_hpa")
         latest_age_s = details.get("digital_gauge_latest_age_s")
         abort_hpa = details.get("conditioning_pressure_abort_hpa")
@@ -2123,6 +2201,15 @@ class WorkflowOrchestrator:
             "atmosphere_vent_max_gap_s": max_gap_s,
             "vent_heartbeat_gap_s": None if vent_gap_s is None else round(float(vent_gap_s), 3),
             "vent_heartbeat_gap_exceeded": False,
+            "heartbeat_gap_threshold_ms": gap_state.get("heartbeat_gap_threshold_ms"),
+            "heartbeat_gap_observed_ms": gap_state.get("heartbeat_gap_observed_ms"),
+            "heartbeat_emission_gap_ms": gap_state.get("heartbeat_emission_gap_ms"),
+            "heartbeat_gap_explained_by_blocking_operation": gap_state.get(
+                "heartbeat_gap_explained_by_blocking_operation"
+            ),
+            "blocking_operation_name": "a2_conditioning_vent_tick",
+            "blocking_operation_duration_ms": round(blocking_duration_s * 1000.0, 3),
+            "whether_safe_to_continue": bool(command_result == "ok" and not pressure_abnormal and not sample_stale),
             "route_open_to_first_vent_s": (
                 None if route_open_to_first_vent_s is None else round(float(route_open_to_first_vent_s), 3)
             ),
@@ -2132,8 +2219,19 @@ class WorkflowOrchestrator:
         ticks.append(tick)
         context["vent_ticks"] = ticks
         context["last_vent_tick_monotonic_s"] = tick_started_monotonic_s
-        context["last_pressure_monitor_monotonic_s"] = tick_started_monotonic_s
+        context["last_vent_heartbeat_started_monotonic_s"] = tick_started_monotonic_s
+        context["last_vent_heartbeat_completed_monotonic_s"] = tick_completed_monotonic_s
+        context["last_vent_tick_completed_monotonic_s"] = tick_completed_monotonic_s
+        context["last_pressure_monitor_monotonic_s"] = tick_completed_monotonic_s
         context["last_vent_command_age_s"] = 0.0
+        context["last_vent_command_duration_s"] = blocking_duration_s
+        context["last_blocking_operation_name"] = "a2_conditioning_vent_tick"
+        context["last_blocking_operation_started_monotonic_s"] = tick_started_monotonic_s
+        context["last_blocking_operation_completed_monotonic_s"] = tick_completed_monotonic_s
+        context["last_blocking_operation_duration_s"] = blocking_duration_s
+        context["last_blocking_operation_safe_to_continue"] = bool(
+            command_result == "ok" and not pressure_abnormal and not sample_stale
+        )
         context["vent_heartbeat_interval_s"] = self._a2_conditioning_vent_heartbeat_interval_s()
         context["atmosphere_vent_max_gap_s"] = max_gap_s
         context["pressure_monitor_interval_s"] = self._a2_conditioning_pressure_monitor_interval_s()
@@ -2240,16 +2338,21 @@ class WorkflowOrchestrator:
         max_gap_s = self._a2_conditioning_vent_max_gap_s()
         now_mono = time.monotonic()
         last_tick = self._as_float(context.get("last_vent_tick_monotonic_s"))
-        if last_tick is not None and (now_mono - float(last_tick)) > max_gap_s:
+        gap_state = self._a2_conditioning_heartbeat_gap_state(context, now_mono=now_mono)
+        emission_gap_s = self._as_float(gap_state.get("heartbeat_emission_gap_s"))
+        if emission_gap_s is not None and emission_gap_s > max_gap_s:
             self._fail_a2_co2_route_conditioning_closed(
                 point,
                 reason="atmosphere_vent_heartbeat_gap_exceeded",
                 details={
-                    "vent_heartbeat_gap_s": round(now_mono - float(last_tick), 3),
+                    **gap_state,
+                    "vent_heartbeat_gap_s": round(float(emission_gap_s), 3),
                     "vent_heartbeat_interval_s": interval_s,
                     "atmosphere_vent_max_gap_s": max_gap_s,
                     "vent_heartbeat_gap_exceeded": True,
-                    "last_vent_command_age_s": round(now_mono - float(last_tick), 3),
+                    "last_vent_command_age_s": round(float(emission_gap_s), 3),
+                    "fail_closed_reason": "atmosphere_vent_heartbeat_gap_exceeded",
+                    "whether_safe_to_continue": False,
                 },
                 event_name="co2_route_conditioning_vent_heartbeat_gap",
                 route_trace_action="co2_route_conditioning_vent_heartbeat_gap",

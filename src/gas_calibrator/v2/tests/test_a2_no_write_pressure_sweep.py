@@ -726,6 +726,66 @@ def test_co2_conditioning_vent_tick_records_atmosphere_reassert(monkeypatch) -> 
     assert any(event["event_name"] == "co2_route_conditioning_vent_tick" for event in timing_events)
 
 
+def test_co2_conditioning_blocking_vent_tick_completion_gap_does_not_fail(monkeypatch) -> None:
+    orchestrator, point, clock, timing_events, route_traces, vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [
+            {"pressure_hpa": 1009.0, "age_s": 0.1, "sequence_id": 2},
+            {"pressure_hpa": 1009.1, "age_s": 0.1, "sequence_id": 3},
+        ],
+    )
+
+    def blocking_vent(vent_on, **kwargs):
+        vent_calls.append({"vent_on": vent_on, **kwargs})
+        clock["now"] += 8.5
+        return {"output_state": 0, "isolation_state": 1, "vent_status_raw": 1}
+
+    orchestrator.pressure_control_service.set_pressure_controller_vent = blocking_vent
+
+    first = orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="before_route_open")
+    second = orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="before_route_open_confirm")
+
+    assert first["blocking_operation_duration_ms"] == 8500.0
+    assert second["heartbeat_gap_observed_ms"] == 8500.0
+    assert second["heartbeat_emission_gap_ms"] == 0.0
+    assert second["heartbeat_gap_explained_by_blocking_operation"] is True
+    assert second["vent_heartbeat_gap_exceeded"] is False
+    assert route_traces == []
+    assert not any(event["event_name"] == "co2_route_conditioning_vent_heartbeat_gap" for event in timing_events)
+
+
+def test_co2_conditioning_pressure_read_blocking_span_does_not_trip_heartbeat(monkeypatch) -> None:
+    orchestrator, point, clock, timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [
+            {"pressure_hpa": 1009.0, "age_s": 0.1, "sequence_id": 2},
+            {"pressure_hpa": 1009.1, "age_s": 0.1, "sequence_id": 3},
+            {"pressure_hpa": 1009.2, "age_s": 0.1, "sequence_id": 4},
+        ],
+    )
+    original_sample = orchestrator.pressure_control_service._current_high_pressure_first_point_sample
+
+    def blocking_sample(**kwargs):
+        clock["now"] += 2.4
+        return original_sample(**kwargs)
+
+    orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="conditioning_hold")
+    clock["now"] += 0.5
+    orchestrator.pressure_control_service._current_high_pressure_first_point_sample = blocking_sample
+    monitor = orchestrator._record_a2_co2_conditioning_pressure_monitor(
+        point,
+        phase="conditioning_pressure_monitor",
+    )
+
+    assert monitor["blocking_operation_name"] == "a2_conditioning_pressure_monitor"
+    assert monitor["blocking_operation_duration_ms"] == 2400.0
+
+    orchestrator._maybe_reassert_a2_conditioning_vent(point)
+
+    assert route_traces == []
+    assert not any(event["event_name"] == "co2_route_conditioning_vent_heartbeat_gap" for event in timing_events)
+
+
 def _conditioning_guard_orchestrator(monkeypatch, frames: list[dict], *, cfg_overrides: dict | None = None):
     orchestrator = WorkflowOrchestrator.__new__(WorkflowOrchestrator)
     clock = {"now": 100.0}
@@ -849,6 +909,10 @@ def test_co2_conditioning_vent_gap_exceeding_max_fails_closed(monkeypatch) -> No
     context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
     assert context["fail_closed_before_vent_off"] is True
     assert context["vent_heartbeat_gap_exceeded"] is True
+    assert context["heartbeat_gap_threshold_ms"] == 3000.0
+    assert context["heartbeat_gap_observed_ms"] == 3500.0
+    assert context["fail_closed_reason"] == "atmosphere_vent_heartbeat_gap_exceeded"
+    assert context["whether_safe_to_continue"] is False
     assert context["vent_off_sent_at"] == ""
     assert context["seal_command_sent"] is False
     assert vent_calls == []
