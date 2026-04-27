@@ -7,6 +7,12 @@ import os
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional
 
+from gas_calibrator.v2.core.run001_r0_1_reference_read_probe import (
+    _default_chamber_client_factory,
+    read_pressure_gauge_raw_capture,
+    read_temperature_chamber_read_only,
+)
+
 
 QUERY_ONLY_REAL_COM_ENV_VAR = "GAS_CAL_V2_QUERY_ONLY_REAL_COM"
 QUERY_ONLY_REAL_COM_ENV_VALUE = "1"
@@ -19,6 +25,9 @@ QUERY_ONLY_EVIDENCE_MARKERS = {
     "promotion_state": "blocked",
     "real_primary_latest_refresh": False,
     "attempted_write_count": 0,
+    "any_write_command_sent": False,
+    "persistent_config_write_sent": False,
+    "pressure_gauge_setting_write_sent": False,
     "identity_write_command_sent": False,
     "calibration_write_command_sent": False,
     "senco_write_command_sent": False,
@@ -26,11 +35,23 @@ QUERY_ONLY_EVIDENCE_MARKERS = {
     "relay_output_command_sent": False,
     "valve_command_sent": False,
     "pressure_setpoint_command_sent": False,
+    "vent_off_command_sent": False,
     "vent_off_sent": False,
     "seal_command_sent": False,
+    "high_pressure_command_sent": False,
     "high_pressure_started": False,
+    "sample_started": False,
     "sample_count": 0,
     "points_completed": 0,
+    "mode_switch_command_sent": False,
+    "chamber_write_register_command_sent": False,
+    "chamber_set_temperature_command_sent": False,
+    "chamber_start_command_sent": False,
+    "chamber_stop_command_sent": False,
+    "r1_allowed": False,
+    "a1r_allowed": False,
+    "a2_allowed": False,
+    "a3_allowed": False,
 }
 REQUIRED_OPERATOR_FIELDS = (
     "operator_name",
@@ -52,9 +73,19 @@ REQUIRED_OPERATOR_ACKS = (
     "no_vent_off",
     "no_high_pressure",
     "no_sample",
+    "no_mode_switch",
+    "no_id_write",
+    "no_senco_write",
+    "no_calibration_write",
+    "no_chamber_write_register",
+    "no_chamber_set_temperature",
+    "no_chamber_start",
+    "no_chamber_stop",
     "not_real_acceptance",
+    "engineering_probe_only",
     "v1_fallback_required",
 )
+REQUIRED_OPERATOR_FALSE_ACKS = ("real_primary_latest_refresh",)
 BLOCKED_COMMAND_TOKENS = (
     "SENCO",
     "COEFF",
@@ -111,6 +142,13 @@ def load_json_mapping(path: str | Path) -> dict[str, Any]:
 
 def _json_dump(path: Path, payload: Mapping[str, Any] | list[dict[str, Any]]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def _jsonl_dump(path: Path, rows: list[Mapping[str, Any]]) -> None:
+    path.write_text(
+        "\n".join(json.dumps(dict(row), ensure_ascii=False) for row in rows) + ("\n" if rows else ""),
+        encoding="utf-8",
+    )
 
 
 def _as_bool(value: Any) -> Optional[bool]:
@@ -204,7 +242,14 @@ def _device_entries(raw_cfg: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "h2o_device": is_h2o,
                 "port": str(device.get("port") or ""),
                 "baud": device.get("baud"),
+                "baudrate": device.get("baudrate", device.get("baud")),
+                "parity": device.get("parity", "N"),
+                "stopbits": device.get("stopbits", 1),
+                "bytesize": device.get("bytesize", 8),
                 "timeout_s": device.get("timeout", device.get("response_timeout_s", 1.0)),
+                "response_timeout_s": device.get("response_timeout_s"),
+                "dest_id": str(device.get("dest_id") or "") if name == "pressure_gauge" else None,
+                "addr": device.get("addr", device.get("unit_id", device.get("slave"))) if name == "temperature_chamber" else None,
                 "will_open": bool(enabled and not is_h2o),
                 "read_only": True,
                 "query_capability": "not_applicable" if is_actuator_only else "read_only",
@@ -260,6 +305,9 @@ def _validate_operator_confirmation(
     for ack in REQUIRED_OPERATOR_ACKS:
         if _as_bool(acks.get(ack)) is not True:
             reasons.append(f"operator_ack_missing_{ack}")
+    for ack in REQUIRED_OPERATOR_FALSE_ACKS:
+        if _as_bool(acks.get(ack)) is not False:
+            reasons.append(f"operator_ack_not_false_{ack}")
     if expected_branch and str(payload.get("branch") or "") != expected_branch:
         reasons.append("operator_confirmation_branch_mismatch")
     if expected_head and str(payload.get("HEAD") or "") != expected_head:
@@ -373,13 +421,13 @@ def _safe_read_commands(device: Mapping[str, Any], raw_cfg: Mapping[str, Any]) -
     device_name = str(device.get("device_name") or "")
     commands: list[str] = []
     if device_type == "pressure_controller":
-        pressure_queries = _path_value(raw_cfg, "devices.pressure_controller.pressure_queries")
-        commands.extend(str(item) for item in pressure_queries or [])
-        commands.insert(0, "*IDN?")
-    elif device_type in {"pressure_gauge", "gas_analyzer", "thermometer"}:
+        commands.append("*IDN?")
+    elif device_type == "pressure_gauge":
+        commands.append("<paroscientific_p3_readonly>")
+    elif device_type in {"gas_analyzer", "thermometer"}:
         commands.append("<read_frame>")
     elif device_type == "temperature_chamber":
-        commands.extend(["PV?", "SV?"])
+        commands.append("<temperature_chamber_modbus_readonly>")
     elif device_type == "actuator_only" or device_name in {"relay", "relay_8"}:
         commands.append("<open_close_only>")
     else:
@@ -435,9 +483,48 @@ def _execute_device_query(
     device: Mapping[str, Any],
     raw_cfg: Mapping[str, Any],
     serial_factory: Callable[[Mapping[str, Any]], Any],
+    chamber_client_factory: Callable[[Mapping[str, Any]], Any],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     trace: list[dict[str, Any]] = []
     results: list[dict[str, Any]] = []
+    device_type = str(device.get("device_type") or "")
+    if device_type == "pressure_gauge":
+        pressure_diag, pressure_trace = read_pressure_gauge_raw_capture(raw_cfg, serial_factory=serial_factory)
+        pressure_diag = {
+            **pressure_diag,
+            "pressure_gauge_protocol_profile": "paroscientific_p3_readonly",
+            "command": "ParoscientificGauge.read_pressure",
+            "read_only": True,
+            "supported": True,
+            "result": "available" if not pressure_diag.get("pressure_gauge_unavailable") else "unavailable",
+            "raw_response": "",
+        }
+        trace.extend(pressure_trace)
+        results.append(pressure_diag)
+        return trace, results
+    if device_type == "temperature_chamber":
+        chamber_diag, chamber_trace = read_temperature_chamber_read_only(
+            raw_cfg,
+            client_factory=chamber_client_factory,
+        )
+        chamber_ok = not bool(chamber_diag.get("temperature_chamber_unavailable"))
+        chamber_diag = {
+            **chamber_diag,
+            "known_driver_readonly_attempted": True,
+            "command": "TemperatureChamber.read_temp_c/read_set_temp_c/read_run_state",
+            "read_only": True,
+            "supported": True,
+            "result": "available" if chamber_ok else "unavailable",
+            "raw_response": "",
+            "chamber_write_register_command_sent": False,
+            "chamber_set_temperature_command_sent": False,
+            "chamber_start_command_sent": False,
+            "chamber_stop_command_sent": False,
+        }
+        trace.extend(chamber_trace)
+        results.append(chamber_diag)
+        return trace, results
+
     handle: Any = None
     opened_ok = False
     closed_ok = False
@@ -507,6 +594,7 @@ def write_query_only_real_com_probe_artifacts(
     head: str = "",
     execute_query_only: bool = False,
     serial_factory: Optional[Callable[[Mapping[str, Any]], Any]] = None,
+    chamber_client_factory: Optional[Callable[[Mapping[str, Any]], Any]] = None,
 ) -> dict[str, Any]:
     admission = evaluate_query_only_real_com_gate(
         raw_cfg,
@@ -525,13 +613,18 @@ def write_query_only_real_com_probe_artifacts(
 
     if admission.approved and execute_query_only:
         factory = serial_factory or _open_serial_default
+        chamber_factory = chamber_client_factory or _default_chamber_client_factory
         for device in admission.device_inventory:
             if not device.get("will_open"):
                 continue
-            device_trace, device_results = _execute_device_query(device, raw_cfg, factory)
+            device_trace, device_results = _execute_device_query(device, raw_cfg, factory, chamber_factory)
             trace_rows.extend(device_trace)
             query_results.extend(device_results)
-        opened_any = any(row.get("action") == "open" and row.get("result") == "ok" for row in trace_rows)
+        opened_any = any(
+            (row.get("action") == "open" or str(row.get("action") or "").endswith("_open"))
+            and row.get("result") == "ok"
+            for row in trace_rows
+        )
     else:
         for device in admission.device_inventory:
             if not device.get("will_open"):
@@ -561,6 +654,33 @@ def write_query_only_real_com_probe_artifacts(
         "query_results": str(run_dir / "query_results.json"),
         "port_open_close_trace": str(run_dir / "port_open_close_trace.jsonl"),
         "operator_confirmation_record": str(run_dir / "operator_confirmation_record.json"),
+        "safety_assertions": str(run_dir / "safety_assertions.json"),
+    }
+    pressure_result = next((row for row in query_results if row.get("device_type") == "pressure_gauge"), {})
+    chamber_result = next((row for row in query_results if row.get("device_type") == "temperature_chamber"), {})
+    opened_ports = sorted(
+        {
+            str(row.get("port") or "")
+            for row in trace_rows
+            if (row.get("action") == "open" or str(row.get("action") or "").endswith("_open"))
+            and row.get("result") == "ok"
+            and row.get("port")
+        }
+    )
+    safety_assertions = {
+        **QUERY_ONLY_EVIDENCE_MARKERS,
+        "opened_ports": opened_ports,
+        "query_only": True,
+        "no_write": True,
+        "route_open_command_sent": False,
+        "relay_output_command_sent": False,
+        "valve_command_sent": False,
+        "pressure_setpoint_command_sent": False,
+        "vent_off_command_sent": False,
+        "seal_command_sent": False,
+        "high_pressure_command_sent": False,
+        "sample_started": False,
+        "real_primary_latest_refresh": False,
     }
     summary = {
         "schema_version": QUERY_ONLY_SCHEMA_VERSION,
@@ -571,11 +691,23 @@ def write_query_only_real_com_probe_artifacts(
         "real_com_opened": bool(opened_any),
         "real_probe_executed": bool(opened_any),
         "operator_confirmation_recorded": bool(admission.operator_confirmation),
+        "opened_ports": opened_ports,
         "rejection_reasons": list(admission.reasons),
         "occupied_port_seen": bool(occupied_ports),
         "occupied_ports": occupied_ports,
         "query_failure_seen": bool(query_failures),
         "query_failures": query_failures,
+        "pressure_gauge_protocol_profile": pressure_result.get("pressure_gauge_protocol_profile"),
+        "pressure_gauge_probe_status": pressure_result.get("pressure_gauge_probe_status"),
+        "pressure_gauge_unavailable": bool(pressure_result.get("pressure_gauge_unavailable")),
+        "pressure_gauge_blocks_r1": bool(pressure_result.get("pressure_gauge_blocks_r1")),
+        "parsed_pressure_hpa": pressure_result.get("parsed_pressure_hpa"),
+        "temperature_chamber_protocol_status": chamber_result.get("protocol_status"),
+        "temperature_chamber_readonly_driver_probe_status": chamber_result.get("chamber_readonly_driver_probe_status"),
+        "temperature_chamber_unavailable": bool(chamber_result.get("temperature_chamber_unavailable")),
+        "pv_temperature_c": chamber_result.get("pv_temperature_c"),
+        "sv_temperature_c": chamber_result.get("sv_temperature_c"),
+        "status_value": chamber_result.get("status_value"),
         "device_count": len(admission.device_inventory),
         "query_result_count": len(query_results),
         "artifact_paths": artifact_paths,
@@ -583,9 +715,17 @@ def write_query_only_real_com_probe_artifacts(
     _json_dump(run_dir / "summary.json", summary)
     _json_dump(run_dir / "device_inventory.json", admission.device_inventory)
     _json_dump(run_dir / "query_results.json", query_results)
-    (run_dir / "port_open_close_trace.jsonl").write_text(
-        "\n".join(json.dumps(row, ensure_ascii=False) for row in trace_rows) + ("\n" if trace_rows else ""),
-        encoding="utf-8",
+    _jsonl_dump(run_dir / "port_open_close_trace.jsonl", trace_rows)
+    _json_dump(
+        run_dir / "operator_confirmation_record.json",
+        {
+            "schema_version": QUERY_ONLY_SCHEMA_VERSION,
+            "record_type": "r0_operator_confirmation_record",
+            "operator_confirmation": admission.operator_confirmation,
+            "not_real_acceptance_evidence": True,
+            "acceptance_level": "engineering_probe_only",
+            "real_primary_latest_refresh": False,
+        },
     )
-    _json_dump(run_dir / "operator_confirmation_record.json", admission.operator_confirmation)
+    _json_dump(run_dir / "safety_assertions.json", safety_assertions)
     return summary
