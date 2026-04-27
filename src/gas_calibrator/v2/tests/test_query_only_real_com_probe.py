@@ -219,3 +219,35 @@ def test_query_only_evidence_markers_and_no_write_counts(tmp_path: Path) -> None
     assert Path(artifact_paths["query_results"]).exists()
     assert Path(artifact_paths["port_open_close_trace"]).exists()
     assert Path(artifact_paths["operator_confirmation_record"]).exists()
+
+
+def test_query_only_execute_fails_closed_on_unavailable_query(tmp_path: Path) -> None:
+    class SilentSerial:
+        def write(self, _payload: bytes) -> None:
+            return None
+
+        def readline(self) -> bytes:
+            return b""
+
+        def close(self) -> None:
+            return None
+
+    summary = write_query_only_real_com_probe_artifacts(
+        _base_config(),
+        output_dir=tmp_path / "r0",
+        config_path=tmp_path / "r0_config.json",
+        cli_allow=True,
+        env={QUERY_ONLY_REAL_COM_ENV_VAR: "1"},
+        operator_confirmation_path=_operator_confirmation(tmp_path),
+        execute_query_only=True,
+        serial_factory=lambda _device: SilentSerial(),
+    )
+
+    assert summary["final_decision"] == "FAIL_CLOSED"
+    assert summary["query_failure_seen"] is True
+    assert summary["attempted_write_count"] == 0
+    assert summary["route_open_command_sent"] is False
+    assert summary["relay_output_command_sent"] is False
+    assert summary["valve_command_sent"] is False
+    assert summary["pressure_setpoint_command_sent"] is False
+    assert summary["sample_count"] == 0

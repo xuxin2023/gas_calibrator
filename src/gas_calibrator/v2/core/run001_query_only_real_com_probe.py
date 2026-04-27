@@ -28,6 +28,7 @@ QUERY_ONLY_EVIDENCE_MARKERS = {
     "pressure_setpoint_command_sent": False,
     "vent_off_sent": False,
     "seal_command_sent": False,
+    "high_pressure_started": False,
     "sample_count": 0,
     "points_completed": 0,
 }
@@ -518,7 +519,20 @@ def write_query_only_real_com_probe_artifacts(
                 query_results.append({**dict(device), **command, "result": "admission_only_not_queried", "raw_response": ""})
 
     occupied_ports = [row for row in query_results if row.get("result") == "occupied_port"]
-    final_decision = "FAIL_CLOSED" if admission.reasons or occupied_ports else ("PASS" if execute_query_only else "ADMISSION_APPROVED")
+    query_failures = [
+        row
+        for row in query_results
+        if execute_query_only
+        and (
+            row.get("result") in {"unsupported", "unavailable"}
+            and row.get("command") != "<open_close_only>"
+        )
+    ]
+    final_decision = (
+        "FAIL_CLOSED"
+        if admission.reasons or occupied_ports or query_failures
+        else ("PASS" if execute_query_only else "ADMISSION_APPROVED")
+    )
     artifact_paths = {
         "summary": str(run_dir / "summary.json"),
         "device_inventory": str(run_dir / "device_inventory.json"),
@@ -538,6 +552,8 @@ def write_query_only_real_com_probe_artifacts(
         "rejection_reasons": list(admission.reasons),
         "occupied_port_seen": bool(occupied_ports),
         "occupied_ports": occupied_ports,
+        "query_failure_seen": bool(query_failures),
+        "query_failures": query_failures,
         "device_count": len(admission.device_inventory),
         "query_result_count": len(query_results),
         "artifact_paths": artifact_paths,
