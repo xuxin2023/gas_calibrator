@@ -32,6 +32,13 @@ def create_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", required=True, help="R0.1 reference read probe config JSON")
     parser.add_argument("--output-dir", default="", help="Artifact output directory")
     parser.add_argument(
+        "--operator-confirmation",
+        default="",
+        help="UTF-8 no-BOM operator confirmation JSON for R0.1 COM30/COM27 read-only execution.",
+    )
+    parser.add_argument("--branch", default="", help="Expected git branch recorded in the operator confirmation")
+    parser.add_argument("--head", default="", help="Expected git HEAD recorded in the operator confirmation")
+    parser.add_argument(
         "--allow-v2-query-only-real-com",
         action="store_true",
         help="Required R0.1 CLI unlock. It does not execute by itself.",
@@ -51,6 +58,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         raw_cfg,
         output_dir=args.output_dir or None,
         config_path=str(Path(args.config).resolve()),
+        operator_confirmation_path=args.operator_confirmation or None,
+        branch=args.branch,
+        head=args.head,
         cli_allow=bool(args.allow_v2_query_only_real_com),
         execute_read_only=bool(args.execute_read_only),
     )
