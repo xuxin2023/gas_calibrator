@@ -41,6 +41,33 @@ The following are not part of the current default workflow:
 
 Any simulated, replay, suite, parity, resilience, workbench, or offline-review result is not real acceptance evidence.
 
+## Step 3A Controlled Real-COM Engineering Probe Exception
+
+Step 3A does not open V2 real-machine validation by default. It only defines a narrow, double-unlocked, no-write engineering probe exception while preserving V1 as the production fallback.
+
+The default workflow still prohibits V2 from opening real COM ports. Step 3A probes are not real acceptance, must not refresh `real_primary_latest`, must not claim V2 can replace V1, and must not switch the default entrypoint or modify `run_app.py`.
+
+Allowed Step 3A ladder:
+
+- R0: query-only real-COM device inventory probe
+- R1: conditioning-only real-COM probe
+- R2: A1R CO2-only + skip0 + single route + single temperature + one non-zero point + no-write minimal sampling closure
+- R3: A2 CO2-only + skip0 + single route + single temperature + 7 pressure points + no-write
+- R4: V1/V2 real comparison audit
+
+Still prohibited in Step 3A:
+
+- H2O full route
+- 0 ppm formal acceptance
+- full group
+- multi-temperature
+- ID write, SENCO write, or calibration coefficient write
+- `real_primary_latest` refresh
+- default entry switch
+- disabling V1 fallback
+
+Any Step 3A real-COM engineering probe must be locked behind an explicit CLI flag, an explicit environment variable, a valid operator confirmation record, no-write evidence, and evidence markers `acceptance_level=engineering_probe_only`, `promotion_state=blocked`, and `not_real_acceptance_evidence=true`.
+
 ## Recommended Entrypoints
 
 ### V2 safe simulation

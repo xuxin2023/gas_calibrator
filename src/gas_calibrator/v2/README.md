@@ -83,6 +83,42 @@ python -m gas_calibrator.v2.scripts.build_offline_governance_artifacts --suite-d
 - 脚本里预留了 future real bench 双重解锁接口，但当前项目规则下不允许使用。
 - `run_validation_replay` 与 `run_simulated_compare` 默认不会把离线回放写成真实验收证据。
 
+## Step 3A: V2 受控真实 COM 工程探针例外
+
+Step 3A 不是 V2 默认真机开放。它只允许在极窄范围内、双重解锁、no-write、operator confirmation record 齐备时，执行工程探针级别的真实 COM 接触。
+
+基础原则：
+- V1 仍是生产 fallback。
+- `run_app.py` 不得修改。
+- 默认仍禁止 V2 打开真实 COM。
+- Step 3A 不是 real acceptance，不得刷新 `real_primary_latest`，不得宣称 V2 替代 V1，不得切默认入口。
+
+允许的逐级范围：
+- R0: query-only real-COM device inventory probe
+- R1: conditioning-only real-COM probe
+- R2: A1R CO2-only + skip0 + single route + single temperature + one non-zero point + no-write minimal sampling closure
+- R3: A2 CO2-only + skip0 + single route + single temperature + 7 pressure points + no-write
+- R4: V1/V2 real comparison audit
+
+继续禁止：
+- H2O full route
+- 0 ppm formal acceptance
+- full group
+- multi-temperature
+- ID write
+- SENCO write
+- calibration coefficient write
+- `real_primary_latest` refresh
+- default entry switch
+- disabling V1 fallback
+
+Step 3A evidence 必须固定标记：
+- `evidence_source=real_probe_conditioning_only`（R1 conditioning-only）
+- `not_real_acceptance_evidence=true`
+- `acceptance_level=engineering_probe_only`
+- `promotion_state=blocked`
+- `real_primary_latest_refresh=false`
+
 ## 当前代码地图
 
 | 目录 | 角色 |
