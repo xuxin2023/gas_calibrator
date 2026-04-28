@@ -2364,6 +2364,39 @@ def _build_co2_route_conditioning_evidence(
         "route_conditioning_diagnostic_blocked_vent_scheduler": bool(
             latest_state_value("route_conditioning_diagnostic_blocked_vent_scheduler", diagnostic_blocked_scheduler)
         ),
+        "vent_scheduler_priority_mode": bool(latest_state_value("vent_scheduler_priority_mode", False)),
+        "vent_scheduler_checked_before_diagnostic": bool(
+            latest_state_value("vent_scheduler_checked_before_diagnostic", False)
+        ),
+        "diagnostic_deferred_for_vent_priority": bool(
+            latest_state_value("diagnostic_deferred_for_vent_priority", False)
+        ),
+        "diagnostic_deferred_count": int(latest_state_value("diagnostic_deferred_count", 0) or 0),
+        "diagnostic_budget_ms": latest_state_value("diagnostic_budget_ms"),
+        "diagnostic_budget_exceeded": bool(latest_state_value("diagnostic_budget_exceeded", False)),
+        "diagnostic_blocking_component": latest_state_value("diagnostic_blocking_component", ""),
+        "diagnostic_blocking_operation": latest_state_value("diagnostic_blocking_operation", ""),
+        "diagnostic_blocking_duration_ms": latest_state_value("diagnostic_blocking_duration_ms"),
+        "pressure_monitor_nonblocking": bool(latest_state_value("pressure_monitor_nonblocking", False)),
+        "pressure_monitor_deferred_for_vent_priority": bool(
+            latest_state_value("pressure_monitor_deferred_for_vent_priority", False)
+        ),
+        "pressure_monitor_budget_ms": latest_state_value("pressure_monitor_budget_ms"),
+        "pressure_monitor_duration_ms": latest_state_value("pressure_monitor_duration_ms"),
+        "pressure_monitor_blocked_vent_scheduler": bool(
+            latest_state_value("pressure_monitor_blocked_vent_scheduler", False)
+        ),
+        "conditioning_monitor_pressure_deferred": bool(
+            latest_state_value("conditioning_monitor_pressure_deferred", False)
+        ),
+        "trace_write_budget_ms": latest_state_value("trace_write_budget_ms"),
+        "trace_write_duration_ms": latest_state_value("trace_write_duration_ms"),
+        "trace_write_blocked_vent_scheduler": bool(
+            latest_state_value("trace_write_blocked_vent_scheduler", False)
+        ),
+        "trace_write_deferred_for_vent_priority": bool(
+            latest_state_value("trace_write_deferred_for_vent_priority", False)
+        ),
         "route_open_transition_started": bool(latest_state_value("route_open_transition_started", False)),
         "route_open_transition_started_at": latest_state_value("route_open_transition_started_at", ""),
         "route_open_transition_started_monotonic_s": latest_state_value(
@@ -4389,6 +4422,45 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             ),
             "route_conditioning_diagnostic_blocked_vent_scheduler": co2_route_conditioning_payload.get(
                 "route_conditioning_diagnostic_blocked_vent_scheduler"
+            ),
+            "vent_scheduler_priority_mode": co2_route_conditioning_payload.get("vent_scheduler_priority_mode"),
+            "vent_scheduler_checked_before_diagnostic": co2_route_conditioning_payload.get(
+                "vent_scheduler_checked_before_diagnostic"
+            ),
+            "diagnostic_deferred_for_vent_priority": co2_route_conditioning_payload.get(
+                "diagnostic_deferred_for_vent_priority"
+            ),
+            "diagnostic_deferred_count": co2_route_conditioning_payload.get("diagnostic_deferred_count"),
+            "diagnostic_budget_ms": co2_route_conditioning_payload.get("diagnostic_budget_ms"),
+            "diagnostic_budget_exceeded": co2_route_conditioning_payload.get("diagnostic_budget_exceeded"),
+            "diagnostic_blocking_component": co2_route_conditioning_payload.get(
+                "diagnostic_blocking_component"
+            ),
+            "diagnostic_blocking_operation": co2_route_conditioning_payload.get(
+                "diagnostic_blocking_operation"
+            ),
+            "diagnostic_blocking_duration_ms": co2_route_conditioning_payload.get(
+                "diagnostic_blocking_duration_ms"
+            ),
+            "pressure_monitor_nonblocking": co2_route_conditioning_payload.get("pressure_monitor_nonblocking"),
+            "pressure_monitor_deferred_for_vent_priority": co2_route_conditioning_payload.get(
+                "pressure_monitor_deferred_for_vent_priority"
+            ),
+            "pressure_monitor_budget_ms": co2_route_conditioning_payload.get("pressure_monitor_budget_ms"),
+            "pressure_monitor_duration_ms": co2_route_conditioning_payload.get("pressure_monitor_duration_ms"),
+            "pressure_monitor_blocked_vent_scheduler": co2_route_conditioning_payload.get(
+                "pressure_monitor_blocked_vent_scheduler"
+            ),
+            "conditioning_monitor_pressure_deferred": co2_route_conditioning_payload.get(
+                "conditioning_monitor_pressure_deferred"
+            ),
+            "trace_write_budget_ms": co2_route_conditioning_payload.get("trace_write_budget_ms"),
+            "trace_write_duration_ms": co2_route_conditioning_payload.get("trace_write_duration_ms"),
+            "trace_write_blocked_vent_scheduler": co2_route_conditioning_payload.get(
+                "trace_write_blocked_vent_scheduler"
+            ),
+            "trace_write_deferred_for_vent_priority": co2_route_conditioning_payload.get(
+                "trace_write_deferred_for_vent_priority"
             ),
             "route_open_transition_started": co2_route_conditioning_payload.get("route_open_transition_started"),
             "route_open_transition_started_at": co2_route_conditioning_payload.get(

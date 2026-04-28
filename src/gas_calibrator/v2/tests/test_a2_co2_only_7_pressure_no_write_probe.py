@@ -621,7 +621,7 @@ def test_a2_probe_summary_records_a2_3_v1_aligned_pressure_source_fields(tmp_pat
     )
 
     assert summary["a2_3_v1_pressure_gauge_read_policy_present"] is True
-    assert summary["evidence_source"] == "real_probe_a2_6_co2_7_pressure_no_write"
+    assert summary["evidence_source"] == "real_probe_a2_7_co2_7_pressure_no_write"
     assert summary["a2_3_pressure_source_strategy"] == "v1_aligned"
     assert summary["a2_4_v1_pressure_gauge_read_policy_present"] is True
     assert summary["a2_4_pressure_source_strategy"] == "v1_aligned"
@@ -758,6 +758,21 @@ def test_a2_probe_fails_closed_on_route_conditioning_vent_gap_gate(tmp_path: Pat
                 "route_conditioning_fast_vent_not_supported": False,
                 "route_conditioning_diagnostic_blocked_vent_scheduler": True,
                 "diagnostic_duration_ms": 2400.0,
+                "route_conditioning_vent_gap_exceeded_source": "pressure_monitor",
+                "vent_scheduler_priority_mode": True,
+                "vent_scheduler_checked_before_diagnostic": True,
+                "diagnostic_budget_ms": 100.0,
+                "diagnostic_budget_exceeded": True,
+                "diagnostic_blocking_component": "pressure_monitor",
+                "diagnostic_blocking_operation": "stream_snapshot",
+                "diagnostic_blocking_duration_ms": 2400.0,
+                "pressure_monitor_nonblocking": True,
+                "pressure_monitor_budget_ms": 100.0,
+                "pressure_monitor_duration_ms": 2400.0,
+                "pressure_monitor_blocked_vent_scheduler": True,
+                "conditioning_monitor_pressure_deferred": False,
+                "trace_write_budget_ms": 50.0,
+                "trace_write_blocked_vent_scheduler": False,
             },
             "a2_route_conditioning_diagnostic_blocked_vent_scheduler",
         ),
@@ -828,6 +843,11 @@ def test_a2_probe_fails_closed_on_a2_5_fast_vent_gates(
     assert summary["vent_command_confirm_transition_enabled"] is False
     assert summary["selected_pressure_source_for_pressure_gate"] == "digital_pressure_gauge_p3"
     assert summary["a2_conditioning_pressure_source_strategy"] == "v1_aligned"
+    if expected_reason == "a2_route_conditioning_diagnostic_blocked_vent_scheduler":
+        assert summary["route_conditioning_vent_gap_exceeded_source"] == "pressure_monitor"
+        assert summary["diagnostic_blocking_component"] == "pressure_monitor"
+        assert summary["diagnostic_blocking_operation"] == "stream_snapshot"
+        assert summary["pressure_monitor_blocked_vent_scheduler"] is True
     assert summary["a3_allowed"] is False
 
 

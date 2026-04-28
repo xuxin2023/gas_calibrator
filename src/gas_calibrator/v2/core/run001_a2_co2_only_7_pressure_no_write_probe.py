@@ -29,7 +29,7 @@ A2_ENV_VALUE = "1"
 A2_CLI_FLAG = "--allow-v2-a2-co2-7-pressure-no-write-real-com"
 A2_ALLOWED_PRESSURE_POINTS_HPA = (1100.0, 1000.0, 900.0, 800.0, 700.0, 600.0, 500.0)
 A2_EVIDENCE_MARKERS = {
-    "evidence_source": "real_probe_a2_6_co2_7_pressure_no_write",
+    "evidence_source": "real_probe_a2_7_co2_7_pressure_no_write",
     "legacy_evidence_source": "real_probe_a2_5_co2_7_pressure_no_write",
     "acceptance_level": "engineering_probe_only",
     "not_real_acceptance_evidence": True,
@@ -678,6 +678,9 @@ def prepare_a2_downstream_points_config(
     pressure_cfg.setdefault("route_conditioning_vent_maintenance_max_gap_s", 2.0)
     pressure_cfg.setdefault("route_conditioning_fast_vent_max_duration_s", 0.5)
     pressure_cfg.setdefault("route_conditioning_scheduler_sleep_step_s", 0.1)
+    pressure_cfg.setdefault("route_conditioning_diagnostic_budget_ms", 100.0)
+    pressure_cfg.setdefault("route_conditioning_pressure_monitor_budget_ms", 100.0)
+    pressure_cfg.setdefault("route_conditioning_trace_write_budget_ms", 50.0)
     stability_cfg = workflow.setdefault("stability", {})
     if not isinstance(stability_cfg, dict):
         stability_cfg = {}
@@ -1714,6 +1717,46 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "route_conditioning_fast_vent_command_timeout": route_conditioning_fast_vent_timeout,
         "route_conditioning_fast_vent_not_supported": route_conditioning_fast_vent_not_supported,
         "route_conditioning_diagnostic_blocked_vent_scheduler": route_conditioning_diagnostic_blocked,
+        "vent_scheduler_priority_mode": _as_bool(metric_or_summary("vent_scheduler_priority_mode")) is True,
+        "vent_scheduler_checked_before_diagnostic": _as_bool(
+            metric_or_summary("vent_scheduler_checked_before_diagnostic")
+        )
+        is True,
+        "diagnostic_deferred_for_vent_priority": _as_bool(
+            metric_or_summary("diagnostic_deferred_for_vent_priority")
+        )
+        is True,
+        "diagnostic_deferred_count": int(metric_or_summary("diagnostic_deferred_count") or 0),
+        "diagnostic_budget_ms": metric_or_summary("diagnostic_budget_ms"),
+        "diagnostic_budget_exceeded": _as_bool(metric_or_summary("diagnostic_budget_exceeded")) is True,
+        "diagnostic_blocking_component": metric_or_summary("diagnostic_blocking_component") or "",
+        "diagnostic_blocking_operation": metric_or_summary("diagnostic_blocking_operation") or "",
+        "diagnostic_blocking_duration_ms": metric_or_summary("diagnostic_blocking_duration_ms"),
+        "pressure_monitor_nonblocking": _as_bool(metric_or_summary("pressure_monitor_nonblocking")) is True,
+        "pressure_monitor_deferred_for_vent_priority": _as_bool(
+            metric_or_summary("pressure_monitor_deferred_for_vent_priority")
+        )
+        is True,
+        "pressure_monitor_budget_ms": metric_or_summary("pressure_monitor_budget_ms"),
+        "pressure_monitor_duration_ms": metric_or_summary("pressure_monitor_duration_ms"),
+        "pressure_monitor_blocked_vent_scheduler": _as_bool(
+            metric_or_summary("pressure_monitor_blocked_vent_scheduler")
+        )
+        is True,
+        "conditioning_monitor_pressure_deferred": _as_bool(
+            metric_or_summary("conditioning_monitor_pressure_deferred")
+        )
+        is True,
+        "trace_write_budget_ms": metric_or_summary("trace_write_budget_ms"),
+        "trace_write_duration_ms": metric_or_summary("trace_write_duration_ms"),
+        "trace_write_blocked_vent_scheduler": _as_bool(
+            metric_or_summary("trace_write_blocked_vent_scheduler")
+        )
+        is True,
+        "trace_write_deferred_for_vent_priority": _as_bool(
+            metric_or_summary("trace_write_deferred_for_vent_priority")
+        )
+        is True,
         "route_open_transition_started": _as_bool(metric_or_summary("route_open_transition_started")) is True,
         "route_open_transition_started_at": metric_or_summary("route_open_transition_started_at") or "",
         "route_open_transition_started_monotonic_s": metric_or_summary(

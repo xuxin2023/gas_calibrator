@@ -1093,7 +1093,7 @@ def test_co2_conditioning_blocking_vent_tick_completion_gap_fails_closed(monkeyp
     assert any(event["event_name"] == "co2_route_conditioning_fast_vent_command_timeout" for event in timing_events)
 
 
-def test_co2_conditioning_pressure_read_blocking_span_fails_before_silent_vent_starvation(monkeypatch) -> None:
+def test_co2_conditioning_pressure_read_blocking_span_is_deferred_before_silent_vent_starvation(monkeypatch) -> None:
     orchestrator, point, clock, timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
         monkeypatch,
         [
@@ -1102,30 +1102,120 @@ def test_co2_conditioning_pressure_read_blocking_span_fails_before_silent_vent_s
             {"pressure_hpa": 1009.2, "age_s": 0.1, "sequence_id": 4},
         ],
     )
-    original_sample = orchestrator.pressure_control_service._current_high_pressure_first_point_sample
+    blocking_reader_called = {"count": 0}
 
     def blocking_sample(**kwargs):
-        clock["now"] += 2.4
-        return original_sample(**kwargs)
+        blocking_reader_called["count"] += 1
+        clock["now"] += 3.8
+        raise AssertionError("high-frequency pressure monitor must not run blocking diagnostics")
 
     orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="conditioning_hold")
-    clock["now"] += 0.5
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_context["route_open_completed_monotonic_s"] = clock["now"]
+    clock["now"] += 0.4
     orchestrator.pressure_control_service._current_high_pressure_first_point_sample = blocking_sample
-    with pytest.raises(WorkflowValidationError):
-        orchestrator._record_a2_co2_conditioning_pressure_monitor(
-            point,
-            phase="conditioning_pressure_monitor",
-        )
+    monitor = orchestrator._record_a2_co2_conditioning_pressure_monitor(
+        point,
+        phase="conditioning_pressure_monitor",
+    )
 
     context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
-    assert context["route_conditioning_diagnostic_blocked_vent_scheduler"] is True
+    assert blocking_reader_called["count"] == 0
+    assert monitor["pressure_monitor_nonblocking"] is True
+    assert monitor["critical_window_uses_latest_frame"] is True
+    assert monitor["critical_window_uses_query"] is False
+    assert monitor["pressure_monitor_duration_ms"] <= monitor["pressure_monitor_budget_ms"]
+    assert context["vent_scheduler_checked_before_diagnostic"] is True
+    assert context["pressure_monitor_blocked_vent_scheduler"] is False
+    assert context["route_conditioning_diagnostic_blocked_vent_scheduler"] is False
     assert context["route_conditioning_vent_gap_exceeded"] is False
-    assert context["fail_closed_reason"] == "route_conditioning_diagnostic_blocked_vent_scheduler"
-    assert context["route_conditioning_vent_gap_exceeded_source"] == "diagnostic"
-    assert context["terminal_vent_write_age_ms_at_gap_gate"] >= 2400.0
-    assert context["max_vent_pulse_write_gap_ms_including_terminal_gap"] >= 2400.0
-    assert route_traces[-1]["action"] == "co2_route_conditioning_diagnostic_blocked_vent_scheduler"
-    assert any(event["event_name"] == "co2_route_conditioning_diagnostic_blocked_vent_scheduler" for event in timing_events)
+    assert route_traces == []
+    assert not any(event["event_name"] == "co2_route_conditioning_diagnostic_blocked_vent_scheduler" for event in timing_events)
+
+
+def test_co2_conditioning_stale_monitor_defers_p3_fallback_in_high_frequency_window(monkeypatch) -> None:
+    orchestrator, point, clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [{"pressure_hpa": 1009.0, "age_s": 4.0, "sequence_id": 2, "is_stale": True}],
+        cfg_overrides={"workflow.pressure.a2_conditioning_pressure_source": "v1_aligned"},
+    )
+
+    def forbidden_p3_fallback(**_kwargs):
+        raise AssertionError("P3 fallback must be deferred while high-frequency vent has priority")
+
+    orchestrator.pressure_control_service._a2_v1_aligned_pressure_gauge_sample = forbidden_p3_fallback
+    orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="after_route_open")
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_context["route_open_completed_monotonic_s"] = clock["now"]
+    clock["now"] += 0.2
+
+    monitor = orchestrator._record_a2_co2_conditioning_pressure_monitor(
+        point,
+        phase="conditioning_pressure_monitor",
+    )
+
+    context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
+    assert monitor["pressure_monitor_deferred_for_vent_priority"] is True
+    assert context["conditioning_monitor_pressure_deferred"] is True
+    assert context["pressure_monitor_blocked_vent_scheduler"] is False
+    assert context["route_conditioning_diagnostic_blocked_vent_scheduler"] is False
+    assert context["diagnostic_blocking_component"] == "pressure_monitor"
+    assert context["diagnostic_blocking_operation"] == "selected_pressure_sample_stale"
+    assert context["diagnostic_deferred_count"] == 1
+    assert route_traces == []
+
+
+def test_co2_conditioning_near_gap_budget_vents_before_diagnostic(monkeypatch) -> None:
+    orchestrator, point, clock, _timing_events, route_traces, vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [{"pressure_hpa": 1009.0, "age_s": 0.1, "sequence_id": 2}],
+        cfg_overrides={
+            "workflow.pressure.route_conditioning_high_frequency_vent_interval_s": 0.95,
+            "workflow.pressure.route_conditioning_high_frequency_max_gap_s": 1.0,
+            "workflow.pressure.pressure_monitor_interval_s": 0.5,
+            "workflow.pressure.route_conditioning_pressure_monitor_budget_ms": 100.0,
+        },
+    )
+    orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="after_route_open")
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_context["route_open_completed_monotonic_s"] = clock["now"]
+    clock["now"] += 0.86
+
+    orchestrator._maybe_reassert_a2_conditioning_vent(point)
+
+    context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
+    assert len(vent_calls) == 2
+    assert context["diagnostic_deferred_for_vent_priority"] is True
+    assert context["diagnostic_deferred_count"] == 1
+    assert context["vent_pulse_count"] == 2
+    assert context["max_vent_pulse_write_gap_ms"] <= 1000.0
+    assert context["route_conditioning_vent_gap_exceeded"] is False
+    assert route_traces == []
+
+
+def test_co2_conditioning_trace_write_is_deferred_in_high_frequency_window(monkeypatch) -> None:
+    orchestrator, point, clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [{"pressure_hpa": 1009.0, "age_s": 0.1, "sequence_id": 2}],
+    )
+
+    def blocking_trace_write(*_args, **_kwargs):
+        clock["now"] += 3.8
+        raise AssertionError("high-frequency trace write must be deferred")
+
+    orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="after_route_open")
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_context["route_open_completed_monotonic_s"] = clock["now"]
+    orchestrator._record_workflow_timing = blocking_trace_write
+    clock["now"] += 0.2
+
+    monitor = orchestrator._record_a2_co2_conditioning_pressure_monitor(
+        point,
+        phase="conditioning_pressure_monitor",
+    )
+
+    context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
+    assert monitor["trace_write_deferred_for_vent_priority"] is True
+    assert context["trace_write_deferred_for_vent_priority"] is True
+    assert context["trace_write_blocked_vent_scheduler"] is False
+    assert context["route_conditioning_vent_gap_exceeded"] is False
+    assert route_traces == []
 
 
 def _start_a2_route_open_transition(orchestrator, point, clock, *, command_duration_s: float = 0.01) -> None:
@@ -1362,7 +1452,7 @@ def _conditioning_guard_orchestrator(monkeypatch, frames: list[dict], *, cfg_ove
         return sample
 
     def snapshot() -> dict:
-        frame = dict(last_frame)
+        frame = dict(next_frame())
         pressure_raw = frame.get("pressure_hpa")
         pressure = None if pressure_raw is None else float(pressure_raw)
         age = float(frame.get("age_s", 0.1))
@@ -1645,7 +1735,7 @@ def test_co2_conditioning_gauge_sequence_stop_fails_inside_conditioning(monkeypa
         monkeypatch,
         [
             {"pressure_hpa": 1009.0, "age_s": 0.1, "sequence_id": 4},
-            {"pressure_hpa": 1009.2, "age_s": 0.1, "sequence_id": 4},
+            {"pressure_hpa": 1009.2, "age_s": 0.1, "sequence_id": 4, "hold_sequence": True},
         ],
     )
     first = orchestrator._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")

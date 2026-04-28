@@ -1675,6 +1675,25 @@ class WorkflowOrchestrator:
             "route_conditioning_fast_vent_command_timeout": False,
             "route_conditioning_fast_vent_not_supported": False,
             "route_conditioning_diagnostic_blocked_vent_scheduler": False,
+            "vent_scheduler_priority_mode": True,
+            "vent_scheduler_checked_before_diagnostic": False,
+            "diagnostic_deferred_for_vent_priority": False,
+            "diagnostic_deferred_count": 0,
+            "diagnostic_budget_ms": self._a2_conditioning_diagnostic_budget_ms(),
+            "diagnostic_budget_exceeded": False,
+            "diagnostic_blocking_component": "",
+            "diagnostic_blocking_operation": "",
+            "diagnostic_blocking_duration_ms": None,
+            "pressure_monitor_nonblocking": True,
+            "pressure_monitor_deferred_for_vent_priority": False,
+            "pressure_monitor_budget_ms": self._a2_conditioning_pressure_monitor_budget_ms(),
+            "pressure_monitor_duration_ms": None,
+            "pressure_monitor_blocked_vent_scheduler": False,
+            "conditioning_monitor_pressure_deferred": False,
+            "trace_write_budget_ms": self._a2_conditioning_trace_write_budget_ms(),
+            "trace_write_duration_ms": None,
+            "trace_write_blocked_vent_scheduler": False,
+            "trace_write_deferred_for_vent_priority": False,
             "route_open_transition_started": False,
             "route_open_transition_started_at": "",
             "route_open_transition_started_monotonic_s": None,
@@ -1853,6 +1872,36 @@ class WorkflowOrchestrator:
         )
         return max(0.05, float(0.5 if value is None else value))
 
+    def _a2_conditioning_diagnostic_budget_ms(self) -> float:
+        value = self._as_float(
+            self._cfg_get(
+                "workflow.pressure.route_conditioning_diagnostic_budget_ms",
+                self._cfg_get("workflow.pressure.conditioning_diagnostic_budget_ms", 100.0),
+            )
+        )
+        return min(200.0, max(10.0, float(100.0 if value is None else value)))
+
+    def _a2_conditioning_pressure_monitor_budget_ms(self) -> float:
+        value = self._as_float(
+            self._cfg_get(
+                "workflow.pressure.route_conditioning_pressure_monitor_budget_ms",
+                self._cfg_get(
+                    "workflow.pressure.conditioning_pressure_monitor_budget_ms",
+                    self._a2_conditioning_diagnostic_budget_ms(),
+                ),
+            )
+        )
+        return min(200.0, max(10.0, float(self._a2_conditioning_diagnostic_budget_ms() if value is None else value)))
+
+    def _a2_conditioning_trace_write_budget_ms(self) -> float:
+        value = self._as_float(
+            self._cfg_get(
+                "workflow.pressure.route_conditioning_trace_write_budget_ms",
+                self._cfg_get("workflow.pressure.conditioning_trace_write_budget_ms", 50.0),
+            )
+        )
+        return min(200.0, max(5.0, float(50.0 if value is None else value)))
+
     def _a2_conditioning_digital_gauge_max_age_s(self) -> float:
         value = self._as_float(
             self._cfg_get(
@@ -2002,6 +2051,321 @@ class WorkflowOrchestrator:
         updated["last_vent_scheduler_tick_monotonic_s"] = float(now_mono)
         updated["vent_scheduler_tick_count"] = int(updated.get("vent_scheduler_tick_count") or 0) + 1
         return updated
+
+    def _a2_conditioning_last_vent_write_monotonic_s(self, context: Mapping[str, Any]) -> Optional[float]:
+        return self._as_float(
+            context.get("last_vent_command_write_sent_monotonic_s")
+            or context.get("last_vent_tick_monotonic_s")
+            or context.get("last_vent_heartbeat_started_monotonic_s")
+        )
+
+    def _a2_conditioning_scheduler_evidence(self, context: Mapping[str, Any]) -> dict[str, Any]:
+        keys = (
+            "vent_scheduler_priority_mode",
+            "vent_scheduler_checked_before_diagnostic",
+            "diagnostic_deferred_for_vent_priority",
+            "diagnostic_deferred_count",
+            "diagnostic_budget_ms",
+            "diagnostic_budget_exceeded",
+            "diagnostic_blocking_component",
+            "diagnostic_blocking_operation",
+            "diagnostic_blocking_duration_ms",
+            "pressure_monitor_nonblocking",
+            "pressure_monitor_deferred_for_vent_priority",
+            "pressure_monitor_budget_ms",
+            "pressure_monitor_duration_ms",
+            "pressure_monitor_blocked_vent_scheduler",
+            "conditioning_monitor_pressure_deferred",
+            "trace_write_budget_ms",
+            "trace_write_duration_ms",
+            "trace_write_blocked_vent_scheduler",
+            "trace_write_deferred_for_vent_priority",
+        )
+        return {key: context.get(key) for key in keys if key in context}
+
+    def _a2_conditioning_diagnostic_source(self, context: Mapping[str, Any], fallback: str = "unknown") -> str:
+        component = str(context.get("diagnostic_blocking_component") or "").strip()
+        if component:
+            return component
+        operation = str(context.get("diagnostic_blocking_operation") or "").strip().lower()
+        if "pressure" in operation:
+            return "pressure_monitor"
+        if "stream" in operation or "snapshot" in operation:
+            return "stream_snapshot"
+        if "p3" in operation:
+            return "p3_fallback"
+        if "heartbeat" in operation:
+            return "heartbeat_diagnostic"
+        if "trace" in operation:
+            return "trace_write"
+        if "route" in operation:
+            return "route_diagnostic"
+        return str(fallback or "unknown")
+
+    def _a2_conditioning_update_diagnostic_budget(
+        self,
+        context: Mapping[str, Any],
+        *,
+        component: str,
+        operation: str,
+        duration_ms: Any,
+        budget_ms: Any = None,
+        blocked_scheduler: bool = False,
+        deferred: bool = False,
+    ) -> dict[str, Any]:
+        updated = dict(context)
+        duration_value = self._as_float(duration_ms)
+        budget_value = self._as_float(budget_ms)
+        if budget_value is None:
+            budget_value = self._a2_conditioning_diagnostic_budget_ms()
+        budget_exceeded = bool(duration_value is not None and float(duration_value) > float(budget_value))
+        updated.update(
+            {
+                "vent_scheduler_priority_mode": True,
+                "diagnostic_budget_ms": round(float(budget_value), 3),
+                "diagnostic_budget_exceeded": bool(updated.get("diagnostic_budget_exceeded", False) or budget_exceeded),
+                "diagnostic_blocking_component": str(component or "unknown"),
+                "diagnostic_blocking_operation": str(operation or "unknown"),
+                "diagnostic_blocking_duration_ms": None
+                if duration_value is None
+                else round(float(duration_value), 3),
+                "diagnostic_deferred_for_vent_priority": bool(
+                    updated.get("diagnostic_deferred_for_vent_priority", False) or deferred
+                ),
+                "route_conditioning_diagnostic_blocked_vent_scheduler": bool(
+                    updated.get("route_conditioning_diagnostic_blocked_vent_scheduler", False)
+                    or blocked_scheduler
+                ),
+            }
+        )
+        return updated
+
+    def _a2_conditioning_defer_diagnostic_for_vent_priority(
+        self,
+        context: Mapping[str, Any],
+        *,
+        point: CalibrationPoint,
+        component: str,
+        operation: str,
+        now_mono: float,
+        pressure_monitor: bool = False,
+    ) -> dict[str, Any]:
+        updated = dict(context)
+        updated.update(
+            {
+                "vent_scheduler_priority_mode": True,
+                "vent_scheduler_checked_before_diagnostic": True,
+                "diagnostic_deferred_for_vent_priority": True,
+                "diagnostic_deferred_count": int(updated.get("diagnostic_deferred_count") or 0) + 1,
+                "diagnostic_budget_ms": self._a2_conditioning_diagnostic_budget_ms(),
+                "diagnostic_budget_exceeded": bool(updated.get("diagnostic_budget_exceeded", False)),
+                "diagnostic_blocking_component": str(component or "unknown"),
+                "diagnostic_blocking_operation": str(operation or "deferred_for_vent_priority"),
+                "diagnostic_blocking_duration_ms": 0.0,
+                "last_pressure_monitor_monotonic_s": float(now_mono),
+                "route_conditioning_diagnostic_blocked_vent_scheduler": False,
+                "route_conditioning_vent_gap_exceeded": bool(
+                    updated.get("route_conditioning_vent_gap_exceeded", False)
+                ),
+            }
+        )
+        if pressure_monitor:
+            updated.update(
+                {
+                    "pressure_monitor_nonblocking": True,
+                    "pressure_monitor_deferred_for_vent_priority": True,
+                    "pressure_monitor_budget_ms": self._a2_conditioning_pressure_monitor_budget_ms(),
+                    "pressure_monitor_duration_ms": 0.0,
+                    "pressure_monitor_blocked_vent_scheduler": False,
+                    "conditioning_monitor_pressure_deferred": True,
+                    "selected_pressure_source_for_conditioning_monitor": (
+                        updated.get("selected_pressure_source_for_conditioning_monitor")
+                        or "digital_pressure_gauge_continuous"
+                    ),
+                }
+            )
+        state = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "phase": str(updated.get("vent_phase") or "conditioning_pressure_monitor"),
+            "route_conditioning_phase": updated.get("route_conditioning_phase", "route_conditioning_flush_phase"),
+            "vent_command_sent": False,
+            "whether_safe_to_continue": True,
+            "fail_closed_reason": "",
+            **self._a2_conditioning_scheduler_evidence(updated),
+        }
+        deferred = [item for item in list(updated.get("diagnostic_deferred_events") or []) if isinstance(item, Mapping)]
+        deferred.append(dict(state))
+        updated["diagnostic_deferred_events"] = deferred
+        samples = [item for item in list(updated.get("pressure_samples") or []) if isinstance(item, Mapping)]
+        samples.append(dict(state))
+        updated["pressure_samples"] = samples
+        updated = self._a2_conditioning_context_with_counts(updated)
+        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", updated)
+        return updated
+
+    def _a2_conditioning_defer_if_diagnostic_budget_unsafe(
+        self,
+        point: CalibrationPoint,
+        context: Mapping[str, Any],
+        *,
+        now_mono: float,
+        max_gap_s: float,
+        budget_ms: float,
+        component: str,
+        operation: str,
+        pressure_monitor: bool = False,
+    ) -> Optional[dict[str, Any]]:
+        last_write = self._a2_conditioning_last_vent_write_monotonic_s(context)
+        if last_write is None:
+            return None
+        age_ms = max(0.0, float(now_mono) - float(last_write)) * 1000.0
+        remaining_ms = max(0.0, float(max_gap_s) * 1000.0 - age_ms)
+        safety_margin_ms = min(100.0, max(25.0, float(budget_ms)))
+        if remaining_ms > float(budget_ms) + safety_margin_ms:
+            return None
+        return self._a2_conditioning_defer_diagnostic_for_vent_priority(
+            context,
+            point=point,
+            component=component,
+            operation=operation,
+            now_mono=now_mono,
+            pressure_monitor=pressure_monitor,
+        )
+
+    def _a2_conditioning_pressure_sample_from_snapshot(
+        self,
+        snapshot: Mapping[str, Any],
+        point: CalibrationPoint,
+        *,
+        phase: str,
+    ) -> dict[str, Any]:
+        latest = snapshot.get("latest_frame")
+        latest = dict(latest) if isinstance(latest, Mapping) else {}
+        pressure_hpa = self._a2_conditioning_first_float(
+            latest.get("pressure_hpa"),
+            snapshot.get("pressure_hpa"),
+        )
+        age_s = self._a2_conditioning_first_float(
+            snapshot.get("latest_frame_age_s"),
+            latest.get("latest_frame_age_s"),
+            latest.get("sample_age_s"),
+            latest.get("pressure_sample_age_s"),
+        )
+        sequence_id = (
+            snapshot.get("latest_frame_sequence_id")
+            or snapshot.get("digital_gauge_latest_sequence_id")
+            or latest.get("sequence_id")
+            or latest.get("pressure_sample_sequence_id")
+        )
+        stale = bool(snapshot.get("latest_frame_stale") or latest.get("is_stale"))
+        parse_ok = bool(pressure_hpa is not None and not bool(latest.get("parse_ok") is False))
+        return {
+            "stage": "co2_route_conditioning_at_atmosphere",
+            "phase": phase,
+            "point_index": point.index,
+            "pressure_hpa": pressure_hpa,
+            "digital_gauge_pressure_hpa": pressure_hpa,
+            "source": "digital_pressure_gauge_continuous",
+            "pressure_sample_source": "digital_pressure_gauge_continuous",
+            "pressure_source_selected": "digital_pressure_gauge_continuous" if parse_ok and not stale else "",
+            "pressure_source_selection_reason": "digital_gauge_continuous_snapshot_nonblocking",
+            "source_selection_reason": "digital_gauge_continuous_snapshot_nonblocking",
+            "pressure_source_used_for_decision": "digital_pressure_gauge_continuous" if parse_ok and not stale else "",
+            "pressure_source_used_for_abort": "digital_pressure_gauge_continuous" if parse_ok and not stale else "",
+            "sample_age_s": age_s,
+            "pressure_sample_age_s": age_s,
+            "latest_frame_age_s": age_s,
+            "sequence_id": sequence_id,
+            "pressure_sample_sequence_id": sequence_id,
+            "latest_frame_sequence_id": sequence_id,
+            "is_stale": stale,
+            "pressure_sample_is_stale": stale,
+            "parse_ok": parse_ok,
+            "error": "" if parse_ok else "continuous_snapshot_unavailable",
+            "digital_gauge_mode": "continuous",
+            "a2_3_pressure_source_strategy": self._a2_conditioning_pressure_source_mode(),
+            "critical_window_uses_latest_frame": True,
+            "critical_window_uses_query": False,
+            "p3_fast_fallback_attempted": False,
+            "p3_fast_fallback_result": "deferred_for_vent_priority" if not parse_ok or stale else "",
+            "normal_p3_fallback_attempted": False,
+            "normal_p3_fallback_result": "",
+            "digital_gauge_pressure_sample": {
+                "pressure_hpa": pressure_hpa,
+                "source": "digital_pressure_gauge_continuous",
+                "pressure_sample_source": "digital_pressure_gauge_continuous",
+                "sample_age_s": age_s,
+                "pressure_sample_age_s": age_s,
+                "latest_frame_age_s": age_s,
+                "sequence_id": sequence_id,
+                "pressure_sample_sequence_id": sequence_id,
+                "latest_frame_sequence_id": sequence_id,
+                "is_stale": stale,
+                "pressure_sample_is_stale": stale,
+                "parse_ok": parse_ok,
+            },
+        }
+
+    def _record_a2_conditioning_workflow_timing(
+        self,
+        context: Mapping[str, Any],
+        event_name: str,
+        event_type: str = "info",
+        *,
+        route_state: Optional[dict[str, Any]] = None,
+        force: bool = False,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        updated = dict(context)
+        now_mono = time.monotonic()
+        schedule = self._a2_conditioning_vent_schedule(updated, now_mono=now_mono)
+        updated.update(schedule)
+        trace_budget_ms = self._a2_conditioning_trace_write_budget_ms()
+        high_frequency = bool(schedule.get("route_conditioning_high_frequency_window_active"))
+        if high_frequency and not force and event_type not in {"fail", "abort"}:
+            updated.update(
+                {
+                    "trace_write_budget_ms": trace_budget_ms,
+                    "trace_write_duration_ms": 0.0,
+                    "trace_write_deferred_for_vent_priority": True,
+                    "trace_write_blocked_vent_scheduler": False,
+                }
+            )
+            if isinstance(route_state, dict):
+                route_state.update(self._a2_conditioning_scheduler_evidence(updated))
+            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", updated)
+            return {}
+        started = time.monotonic()
+        record = self._record_workflow_timing(
+            event_name,
+            event_type,
+            route_state=route_state,
+            **kwargs,
+        )
+        completed = time.monotonic()
+        duration_ms = round(max(0.0, completed - started) * 1000.0, 3)
+        blocked = bool(high_frequency and duration_ms > trace_budget_ms)
+        updated.update(
+            {
+                "trace_write_budget_ms": trace_budget_ms,
+                "trace_write_duration_ms": duration_ms,
+                "trace_write_deferred_for_vent_priority": False,
+                "trace_write_blocked_vent_scheduler": blocked,
+            }
+        )
+        if blocked:
+            updated = self._a2_conditioning_update_diagnostic_budget(
+                updated,
+                component="trace_write",
+                operation=str(event_name or "workflow_timing_trace_write"),
+                duration_ms=duration_ms,
+                budget_ms=trace_budget_ms,
+                blocked_scheduler=True,
+            )
+        if isinstance(route_state, dict):
+            route_state.update(self._a2_conditioning_scheduler_evidence(updated))
+        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", updated)
+        return record
 
     def _a2_conditioning_unsafe_vent_reason(self, context: Mapping[str, Any]) -> str:
         phase = str(context.get("route_conditioning_phase") or "route_conditioning_flush_phase")
@@ -2323,18 +2687,29 @@ class WorkflowOrchestrator:
             details["route_open_transition_blocked_vent_scheduler"] = True
         elif terminal_exceeded and source_text == "route_open_settle_wait":
             details["route_open_settle_wait_blocked_vent_scheduler"] = True
-        elif terminal_exceeded and source_text == "diagnostic":
+        elif terminal_exceeded and source_text in {
+            "diagnostic",
+            "pressure_monitor",
+            "stream_snapshot",
+            "p3_fallback",
+            "route_diagnostic",
+            "heartbeat_diagnostic",
+            "trace_write",
+            "unknown",
+        }:
             details["route_conditioning_diagnostic_blocked_vent_scheduler"] = True
         return details
 
     def _a2_conditioning_vent_gap_source(self, context: Mapping[str, Any]) -> str:
         blocking_name = str(context.get("last_blocking_operation_name") or "")
         if bool(context.get("route_conditioning_diagnostic_blocked_vent_scheduler")):
-            return "diagnostic"
+            return self._a2_conditioning_diagnostic_source(context, fallback="unknown")
         if bool(context.get("route_open_settle_wait_blocked_vent_scheduler")):
             return "route_open_settle_wait"
-        if blocking_name in {"a2_conditioning_pressure_monitor", "route_open_diagnostic"}:
-            return "diagnostic"
+        if blocking_name == "a2_conditioning_pressure_monitor":
+            return "pressure_monitor"
+        if blocking_name == "route_open_diagnostic":
+            return "route_diagnostic"
         if bool(context.get("route_open_transition_started")) and not bool(
             context.get("route_open_transition_completed", False)
         ):
@@ -3056,16 +3431,71 @@ class WorkflowOrchestrator:
         context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
         if not context:
             return {}
+        context.setdefault("route_conditioning_diagnostic_blocked_vent_scheduler", False)
+        context.setdefault("route_conditioning_vent_gap_exceeded", False)
+        context.setdefault("pressure_monitor_blocked_vent_scheduler", False)
+        context.setdefault("trace_write_blocked_vent_scheduler", False)
         now_mono = time.monotonic()
         monitor_started_monotonic_s = now_mono
+        schedule = self._a2_conditioning_vent_schedule(context, now_mono=now_mono)
+        context.update(schedule)
+        context["vent_scheduler_priority_mode"] = True
+        context["vent_scheduler_checked_before_diagnostic"] = True
+        context["diagnostic_budget_ms"] = self._a2_conditioning_diagnostic_budget_ms()
+        context["pressure_monitor_budget_ms"] = self._a2_conditioning_pressure_monitor_budget_ms()
+        context["trace_write_budget_ms"] = self._a2_conditioning_trace_write_budget_ms()
+        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        monitor_budget_ms = self._a2_conditioning_pressure_monitor_budget_ms()
+        high_frequency_window = bool(schedule.get("route_conditioning_high_frequency_window_active"))
+        deferred = self._a2_conditioning_defer_if_diagnostic_budget_unsafe(
+            point,
+            context,
+            now_mono=now_mono,
+            max_gap_s=float(schedule["route_conditioning_effective_max_gap_s"]),
+            budget_ms=monitor_budget_ms,
+            component="pressure_monitor",
+            operation="conditioning_pressure_monitor_budget_check",
+            pressure_monitor=True,
+        )
+        if deferred is not None:
+            return dict(deferred)
         last_vent = self._as_float(context.get("last_vent_tick_monotonic_s"))
         if last_vent is not None:
             context["last_vent_command_age_s"] = round(max(0.0, now_mono - float(last_vent)), 3)
-        sample = self._a2_conditioning_pressure_sample(point, phase=phase)
-        snapshot = self._a2_conditioning_stream_snapshot()
+        if high_frequency_window:
+            snapshot_started = time.monotonic()
+            snapshot = self._a2_conditioning_stream_snapshot()
+            snapshot_completed = time.monotonic()
+            snapshot_duration_ms = round(max(0.0, snapshot_completed - snapshot_started) * 1000.0, 3)
+            sample = self._a2_conditioning_pressure_sample_from_snapshot(snapshot, point, phase=phase)
+            sample["pressure_monitor_nonblocking"] = True
+            sample["conditioning_monitor_pressure_deferred"] = False
+            sample["pressure_monitor_deferred_for_vent_priority"] = False
+            sample["pressure_monitor_budget_ms"] = monitor_budget_ms
+        else:
+            sample = self._a2_conditioning_pressure_sample(point, phase=phase)
+            snapshot_started = time.monotonic()
+            snapshot = self._a2_conditioning_stream_snapshot()
+            snapshot_completed = time.monotonic()
+            snapshot_duration_ms = round(max(0.0, snapshot_completed - snapshot_started) * 1000.0, 3)
+        snapshot_budget_exceeded = bool(high_frequency_window and snapshot_duration_ms > monitor_budget_ms)
         monitor_completed_monotonic_s = time.monotonic()
         monitor_duration_s = max(0.0, monitor_completed_monotonic_s - monitor_started_monotonic_s)
         details = self._a2_conditioning_pressure_details(sample, snapshot, context=context)
+        if high_frequency_window and not bool(details.get("selected_pressure_freshness_ok")):
+            deferred_context = self._a2_conditioning_defer_diagnostic_for_vent_priority(
+                {
+                    **context,
+                    **details,
+                    "pressure_monitor_duration_ms": round(monitor_duration_s * 1000.0, 3),
+                },
+                point=point,
+                component="pressure_monitor",
+                operation=str(details.get("selected_pressure_fail_closed_reason") or "continuous_snapshot_not_fresh"),
+                now_mono=monitor_completed_monotonic_s,
+                pressure_monitor=True,
+            )
+            return dict(deferred_context)
         elapsed_s = max(0.0, now_mono - float(context.get("conditioning_started_monotonic_s") or now_mono))
         context = self._a2_conditioning_update_pressure_metrics(
             context,
@@ -3105,6 +3535,37 @@ class WorkflowOrchestrator:
             "blocking_operation_name": "a2_conditioning_pressure_monitor",
             "blocking_operation_duration_ms": round(monitor_duration_s * 1000.0, 3),
             "diagnostic_duration_ms": round(monitor_duration_s * 1000.0, 3),
+            "vent_scheduler_priority_mode": True,
+            "vent_scheduler_checked_before_diagnostic": True,
+            "diagnostic_deferred_for_vent_priority": bool(
+                context.get("diagnostic_deferred_for_vent_priority", False)
+            ),
+            "diagnostic_deferred_count": int(context.get("diagnostic_deferred_count") or 0),
+            "diagnostic_budget_ms": self._a2_conditioning_diagnostic_budget_ms(),
+            "diagnostic_budget_exceeded": bool(
+                context.get("diagnostic_budget_exceeded", False)
+                or (round(monitor_duration_s * 1000.0, 3) > self._a2_conditioning_diagnostic_budget_ms())
+                or snapshot_budget_exceeded
+            ),
+            "diagnostic_blocking_component": "pressure_monitor",
+            "diagnostic_blocking_operation": (
+                "stream_snapshot"
+                if high_frequency_window
+                else str(details.get("pressure_source_selection_reason") or "pressure_monitor")
+            ),
+            "diagnostic_blocking_duration_ms": round(monitor_duration_s * 1000.0, 3),
+            "pressure_monitor_nonblocking": bool(high_frequency_window),
+            "pressure_monitor_deferred_for_vent_priority": False,
+            "pressure_monitor_budget_ms": monitor_budget_ms,
+            "pressure_monitor_duration_ms": round(monitor_duration_s * 1000.0, 3),
+            "pressure_monitor_blocked_vent_scheduler": False,
+            "conditioning_monitor_pressure_deferred": False,
+            "trace_write_budget_ms": self._a2_conditioning_trace_write_budget_ms(),
+            "trace_write_duration_ms": context.get("trace_write_duration_ms"),
+            "trace_write_blocked_vent_scheduler": bool(context.get("trace_write_blocked_vent_scheduler", False)),
+            "trace_write_deferred_for_vent_priority": bool(
+                context.get("trace_write_deferred_for_vent_priority", False)
+            ),
             "route_conditioning_diagnostic_blocked_vent_scheduler": bool(
                 context.get("route_conditioning_diagnostic_blocked_vent_scheduler", False)
             ),
@@ -3211,6 +3672,24 @@ class WorkflowOrchestrator:
         if details.get("pressure_overlimit_seen"):
             context["pressure_overlimit_source"] = details.get("pressure_overlimit_source")
             context["pressure_overlimit_hpa"] = details.get("pressure_overlimit_hpa")
+        context.update(
+            {
+                "vent_scheduler_priority_mode": True,
+                "vent_scheduler_checked_before_diagnostic": True,
+                "diagnostic_budget_ms": monitor_state["diagnostic_budget_ms"],
+                "diagnostic_budget_exceeded": monitor_state["diagnostic_budget_exceeded"],
+                "diagnostic_blocking_component": monitor_state["diagnostic_blocking_component"],
+                "diagnostic_blocking_operation": monitor_state["diagnostic_blocking_operation"],
+                "diagnostic_blocking_duration_ms": monitor_state["diagnostic_blocking_duration_ms"],
+                "pressure_monitor_nonblocking": monitor_state["pressure_monitor_nonblocking"],
+                "pressure_monitor_deferred_for_vent_priority": False,
+                "pressure_monitor_budget_ms": monitor_state["pressure_monitor_budget_ms"],
+                "pressure_monitor_duration_ms": monitor_state["pressure_monitor_duration_ms"],
+                "pressure_monitor_blocked_vent_scheduler": False,
+                "conditioning_monitor_pressure_deferred": False,
+                "trace_write_budget_ms": monitor_state["trace_write_budget_ms"],
+            }
+        )
         context["last_blocking_operation_name"] = "a2_conditioning_pressure_monitor"
         context["last_blocking_operation_started_monotonic_s"] = monitor_started_monotonic_s
         context["last_blocking_operation_completed_monotonic_s"] = monitor_completed_monotonic_s
@@ -3223,20 +3702,31 @@ class WorkflowOrchestrator:
         schedule = self._a2_conditioning_vent_schedule(context, now_mono=monitor_completed_monotonic_s)
         diagnostic_max_gap_s = float(schedule.get("route_conditioning_effective_max_gap_s") or 0.0)
         if diagnostic_max_gap_s > 0.0 and monitor_duration_s > diagnostic_max_gap_s:
+            source = self._a2_conditioning_diagnostic_source(context, fallback="pressure_monitor")
             terminal = self._a2_conditioning_terminal_gap_details(
                 context,
                 now_mono=monitor_completed_monotonic_s,
                 max_gap_s=diagnostic_max_gap_s,
-                source="diagnostic",
+                source=source,
             )
             monitor_state["route_conditioning_diagnostic_blocked_vent_scheduler"] = True
+            monitor_state["pressure_monitor_blocked_vent_scheduler"] = True
+            monitor_state["diagnostic_blocking_component"] = source
+            monitor_state["diagnostic_blocking_operation"] = context.get(
+                "diagnostic_blocking_operation",
+                "pressure_monitor",
+            )
             monitor_state.update(terminal)
             monitor_state["fail_closed_reason"] = "route_conditioning_diagnostic_blocked_vent_scheduler"
             context.update(
                 {
                     **terminal,
                     "route_conditioning_diagnostic_blocked_vent_scheduler": True,
+                    "pressure_monitor_blocked_vent_scheduler": True,
                     "diagnostic_duration_ms": monitor_state["diagnostic_duration_ms"],
+                    "diagnostic_blocking_component": monitor_state["diagnostic_blocking_component"],
+                    "diagnostic_blocking_operation": monitor_state["diagnostic_blocking_operation"],
+                    "diagnostic_blocking_duration_ms": monitor_state["diagnostic_blocking_duration_ms"],
                     "fail_closed_reason": "route_conditioning_diagnostic_blocked_vent_scheduler",
                 }
             )
@@ -3248,14 +3738,39 @@ class WorkflowOrchestrator:
                 event_name="co2_route_conditioning_diagnostic_blocked_vent_scheduler",
                 route_trace_action="co2_route_conditioning_diagnostic_blocked_vent_scheduler",
             )
-        self._record_pressure_source_latency_events(contextual_sample, point=point, stage="co2_route_conditioning_at_atmosphere")
+        if high_frequency_window:
+            context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+            context.update(
+                {
+                    "trace_write_budget_ms": self._a2_conditioning_trace_write_budget_ms(),
+                    "trace_write_duration_ms": 0.0,
+                    "trace_write_blocked_vent_scheduler": False,
+                    "trace_write_deferred_for_vent_priority": True,
+                }
+            )
+            monitor_state.update(
+                {
+                    "trace_write_budget_ms": context["trace_write_budget_ms"],
+                    "trace_write_duration_ms": 0.0,
+                    "trace_write_blocked_vent_scheduler": False,
+                    "trace_write_deferred_for_vent_priority": True,
+                }
+            )
+            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        else:
+            self._record_pressure_source_latency_events(
+                contextual_sample,
+                point=point,
+                stage="co2_route_conditioning_at_atmosphere",
+            )
         event_type = "fail" if details.get("pressure_overlimit_seen") else "tick"
         event_name = (
             "co2_route_conditioning_pressure_warning"
             if details.get("pressure_overlimit_seen")
             else "co2_route_conditioning_pressure_sample"
         )
-        self._record_workflow_timing(
+        self._record_a2_conditioning_workflow_timing(
+            context,
             event_name,
             event_type,
             stage="co2_route_conditioning_at_atmosphere",
@@ -3573,6 +4088,10 @@ class WorkflowOrchestrator:
         max_gap_s = float(schedule["route_conditioning_effective_max_gap_s"])
         active_interval_s = float(schedule["route_conditioning_effective_vent_interval_s"])
         context.update(schedule)
+        context.setdefault("vent_scheduler_priority_mode", True)
+        context.setdefault("diagnostic_budget_ms", self._a2_conditioning_diagnostic_budget_ms())
+        context.setdefault("pressure_monitor_budget_ms", self._a2_conditioning_pressure_monitor_budget_ms())
+        context.setdefault("trace_write_budget_ms", self._a2_conditioning_trace_write_budget_ms())
         context["route_conditioning_vent_maintenance_active"] = True
         route_open_monotonic = self._as_float(
             context.get("route_open_completed_monotonic_s")
@@ -3969,6 +4488,7 @@ class WorkflowOrchestrator:
                 "a2_conditioning_pressure_source_strategy",
                 self._a2_conditioning_pressure_source_mode(),
             ),
+            **self._a2_conditioning_scheduler_evidence(context),
             **self._a2_conditioning_digital_gauge_evidence(context),
         }
         ticks = [item for item in list(context.get("vent_ticks") or []) if isinstance(item, Mapping)]
@@ -4053,7 +4573,8 @@ class WorkflowOrchestrator:
         )
         setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
         self._record_pressure_source_latency_events(tick, point=point, stage="co2_route_conditioning_at_atmosphere")
-        self._record_workflow_timing(
+        self._record_a2_conditioning_workflow_timing(
+            context,
             "co2_route_conditioning_vent_tick",
             "fail" if command_result != "ok" else "tick",
             stage="co2_route_conditioning_at_atmosphere",
@@ -4207,6 +4728,25 @@ class WorkflowOrchestrator:
                 phase=str(schedule.get("vent_phase") or "route_conditioning_vent_maintenance"),
             )
             return
+        context["vent_scheduler_priority_mode"] = True
+        context["vent_scheduler_checked_before_diagnostic"] = True
+        deferred = self._a2_conditioning_defer_if_diagnostic_budget_unsafe(
+            point,
+            context,
+            now_mono=now_mono,
+            max_gap_s=max_gap_s,
+            budget_ms=self._a2_conditioning_pressure_monitor_budget_ms(),
+            component="pressure_monitor",
+            operation="conditioning_pressure_monitor_pre_loop_budget_check",
+            pressure_monitor=True,
+        )
+        if deferred is not None:
+            self._record_a2_co2_conditioning_vent_tick(
+                point,
+                phase=str(schedule.get("vent_phase") or "route_conditioning_vent_priority"),
+            )
+            return
+        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
         last_pressure = self._as_float(context.get("last_pressure_monitor_monotonic_s"))
         pressure_interval_s = self._a2_conditioning_pressure_monitor_interval_s()
         if last_pressure is None or (now_mono - float(last_pressure)) >= pressure_interval_s:
@@ -4221,16 +4761,21 @@ class WorkflowOrchestrator:
             if diagnostic_duration_s is not None:
                 diagnostic_duration_s = float(diagnostic_duration_s) / 1000.0
             if diagnostic_duration_s is not None and diagnostic_duration_s > max_gap_s:
+                source = self._a2_conditioning_diagnostic_source(context, fallback="pressure_monitor")
                 terminal = self._a2_conditioning_terminal_gap_details(
                     context,
                     now_mono=time.monotonic(),
                     max_gap_s=max_gap_s,
-                    source="diagnostic",
+                    source=source,
                 )
                 details = {
                     **context,
                     **terminal,
                     "route_conditioning_diagnostic_blocked_vent_scheduler": True,
+                    "pressure_monitor_blocked_vent_scheduler": True,
+                    "diagnostic_blocking_component": source,
+                    "diagnostic_blocking_operation": context.get("diagnostic_blocking_operation", "pressure_monitor"),
+                    "diagnostic_blocking_duration_ms": round(float(diagnostic_duration_s) * 1000.0, 3),
                     "diagnostic_duration_ms": round(float(diagnostic_duration_s) * 1000.0, 3),
                     "vent_heartbeat_interval_s": interval_s,
                     "atmosphere_vent_max_gap_s": max_gap_s,
