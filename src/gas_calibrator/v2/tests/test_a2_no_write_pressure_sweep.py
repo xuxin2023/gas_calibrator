@@ -766,6 +766,10 @@ def test_co2_conditioning_pressure_ready_does_not_trigger_handoff(monkeypatch) -
     assert decision == "conditioning_pressure_monitor_ok"
     assert not any(row["action"] == "preseal_atmosphere_flush_ready_handoff" for row in route_traces)
     assert not any(row["action"] == "preseal_vent_close_arm_triggered" for row in route_traces)
+    assert orchestrator._a2_co2_route_conditioning_at_atmosphere_context["seal_command_sent"] is False
+    assert orchestrator._a2_co2_route_conditioning_at_atmosphere_context["route_conditioning_phase"] == (
+        "route_conditioning_flush_phase"
+    )
     assert any(event["event_name"] == "co2_route_conditioning_pressure_sample" for event in timing_events)
     assert not any(event["event_name"] == "high_pressure_seal_command_sent" for event in timing_events)
 
@@ -782,6 +786,9 @@ def test_co2_conditioning_pressure_above_abort_remains_hard_fail(monkeypatch) ->
 
     assert route_traces[-1]["action"] == "co2_preseal_atmosphere_hold_pressure_guard"
     assert route_traces[-1]["actual"]["pressure_hpa"] == 1155.0
+    assert route_traces[-1]["actual"]["fail_closed_reason"] == "route_conditioning_pressure_overlimit"
+    assert route_traces[-1]["actual"]["vent_off_sent_at"] == ""
+    assert route_traces[-1]["actual"]["seal_command_sent"] is False
     assert not any(row["action"] == "preseal_atmosphere_flush_ready_handoff" for row in route_traces)
     assert any(event["event_name"] == "co2_route_conditioning_pressure_warning" for event in timing_events)
 
@@ -834,6 +841,87 @@ def test_co2_conditioning_vent_tick_records_atmosphere_reassert(monkeypatch) -> 
     assert tick["pressure_sample_age_s"] == 0.1
     assert tick["pressure_abnormal"] is False
     assert any(event["event_name"] == "co2_route_conditioning_vent_tick" for event in timing_events)
+
+
+def test_co2_conditioning_flush_records_vent_pulse_drop_and_blocks_seal(monkeypatch) -> None:
+    orchestrator, point, clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [
+            {"pressure_hpa": 1010.0, "age_s": 0.1, "sequence_id": 2},
+            {"pressure_hpa": 1008.0, "age_s": 0.1, "sequence_id": 3},
+        ],
+    )
+
+    first = orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="before_route_open")
+    clock["now"] += 0.2
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_context["route_open_completed_monotonic_s"] = clock["now"]
+    second = orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="after_route_open")
+
+    assert first["vent_pulse_count"] == 1
+    assert second["vent_pulse_count"] == 2
+    assert second["pressure_drop_after_vent_hpa"] == 2.0
+    assert second["route_open_to_first_pressure_read_ms"] == 0.0
+    assert second["route_conditioning_pressure_before_route_open_hpa"] == 1010.0
+    assert second["route_conditioning_pressure_after_route_open_hpa"] == 1008.0
+    assert second["vent_off_blocked_during_flush"] is True
+    assert second["seal_blocked_during_flush"] is True
+    assert second["pressure_setpoint_blocked_during_flush"] is True
+    assert second["sample_blocked_during_flush"] is True
+    assert second["vent_off_command_sent"] is False
+    assert second["seal_command_sent"] is False
+    assert second["pressure_setpoint_command_sent"] is False
+    assert route_traces == []
+
+
+def test_co2_conditioning_begin_initializes_flush_phase_boundaries(monkeypatch) -> None:
+    orchestrator, point, _clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [{"pressure_hpa": 1009.0, "age_s": 0.1, "sequence_id": 2}],
+    )
+    orchestrator._a2_co2_route_conditioning_required = lambda point, pressure_points=None: True
+    orchestrator._co2_conditioning_soak_s = lambda point: 180.0
+
+    context = orchestrator._begin_a2_co2_route_conditioning_at_atmosphere(point, [point])
+
+    assert context["route_conditioning_phase"] == "route_conditioning_flush_phase"
+    assert context["ready_to_seal_phase_started"] is False
+    assert context["route_conditioning_flush_min_time_completed"] is False
+    assert context["vent_off_command_sent"] is False
+    assert context["seal_command_sent"] is False
+    assert context["pressure_setpoint_command_sent"] is False
+    assert context["vent_pulse_count"] == 1
+    assert route_traces == []
+
+
+def test_co2_conditioning_flush_pressure_rise_triggers_repeat_vent_pulse(monkeypatch) -> None:
+    orchestrator, point, clock, _timing_events, route_traces, vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [
+            {"pressure_hpa": 1000.0, "age_s": 0.1, "sequence_id": 2},
+            {"pressure_hpa": 1003.0, "age_s": 0.1, "sequence_id": 3},
+            {"pressure_hpa": 1002.0, "age_s": 0.1, "sequence_id": 4},
+        ],
+        cfg_overrides={
+            "workflow.pressure.atmosphere_vent_heartbeat_interval_s": 5.0,
+            "workflow.pressure.atmosphere_vent_max_gap_s": 10.0,
+            "workflow.pressure.route_conditioning_high_frequency_vent_interval_s": 5.0,
+            "workflow.pressure.pressure_monitor_interval_s": 0.5,
+            "workflow.pressure.route_conditioning_pressure_rise_vent_trigger_hpa": 2.0,
+            "workflow.pressure.route_conditioning_pressure_rise_vent_min_interval_s": 0.1,
+        },
+    )
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_context["route_open_completed_monotonic_s"] = clock["now"]
+    orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="after_route_open")
+    clock["now"] += 0.6
+
+    orchestrator._maybe_reassert_a2_conditioning_vent(point)
+
+    context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
+    assert len(vent_calls) == 2
+    assert context["vent_ticks"][-1]["phase"] == "pressure_rise_vent_pulse"
+    assert context["pressure_rise_since_last_vent_hpa"] == 2.0
+    assert context["vent_pulse_count"] == 2
+    assert route_traces == []
 
 
 def test_co2_conditioning_blocking_vent_tick_completion_gap_does_not_fail(monkeypatch) -> None:
@@ -1167,9 +1255,12 @@ def test_co2_route_open_first_vent_delay_fails_closed(monkeypatch) -> None:
 
 
 def test_co2_conditioning_fresh_gauge_over_abort_fails_closed(monkeypatch) -> None:
-    orchestrator, point, _clock, timing_events, route_traces, vent_calls = _conditioning_guard_orchestrator(
+    orchestrator, point, clock, timing_events, route_traces, vent_calls = _conditioning_guard_orchestrator(
         monkeypatch,
         [{"pressure_hpa": 1155.0, "age_s": 0.1, "sequence_id": 2}],
+    )
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_context["route_open_completed_monotonic_s"] = (
+        clock["now"] - 1.0
     )
 
     with pytest.raises(WorkflowValidationError):
@@ -1180,6 +1271,11 @@ def test_co2_conditioning_fresh_gauge_over_abort_fails_closed(monkeypatch) -> No
     assert context["pressure_overlimit_hpa"] == 1155.0
     assert context["conditioning_pressure_abort_hpa"] == 1150.0
     assert context["fail_closed_before_vent_off"] is True
+    assert context["fail_closed_reason"] == "route_conditioning_pressure_overlimit"
+    assert context["route_conditioning_pressure_overlimit"] is True
+    assert context["route_open_to_first_pressure_read_ms"] == 1000.0
+    assert context["route_open_to_overlimit_ms"] == 1000.0
+    assert context["fail_closed_vent_pulse_sent"] is True
     assert vent_calls[-1]["vent_on"] is True
     assert route_traces[-1]["action"] == "co2_preseal_atmosphere_hold_pressure_guard"
     assert any(event["event_name"] == "co2_route_conditioning_pressure_overlimit" for event in timing_events)
@@ -1622,6 +1718,64 @@ def test_final_safe_stop_warning_records_stop_state_mismatch(tmp_path) -> None:
     assert evidence["final_safe_stop_chamber_stop_command_sent"] is True
 
 
+def test_a2_no_write_final_safe_stop_blocks_chamber_stop_command(tmp_path) -> None:
+    route_traces: list[dict] = []
+    logs: list[str] = []
+    stop_calls: list[str] = []
+
+    class Chamber:
+        def read_run_state(self) -> str:
+            return "RUN"
+
+    chamber = Chamber()
+
+    def device(name: str):
+        return chamber if name == "temperature_chamber" else None
+
+    def call_first(_device, _methods, *args):
+        stop_calls.append("stop")
+
+    host = SimpleNamespace(
+        service=SimpleNamespace(
+            no_write_guard=SimpleNamespace(enabled=True),
+            _raw_cfg={
+                "run001_a2": {
+                    "scope": "run001_a2_co2_no_write_pressure_sweep",
+                    "no_write": True,
+                    "chamber_stop_enabled": False,
+                }
+            },
+        ),
+        _device=device,
+        _call_first=call_first,
+        _log=logs.append,
+        _cfg_get=lambda path, default=None: {
+            "run001_a2.chamber_stop_enabled": False,
+            "a2_co2_7_pressure_no_write_probe.chamber_stop_enabled": False,
+            "chamber_stop_enabled": False,
+        }.get(path, default),
+        _as_int=lambda value: None if value in (None, "") else int(value),
+        status_service=SimpleNamespace(record_route_trace=lambda **kwargs: route_traces.append(kwargs)),
+    )
+    service = ValveRoutingService(SimpleNamespace(), RunState(), host=host)
+
+    summary = service.safe_stop_after_run(baseline_already_restored=True, reason="test")
+
+    assert stop_calls == []
+    assert summary["final_safe_stop_chamber_stop_attempted"] is True
+    assert summary["final_safe_stop_chamber_stop_command_sent"] is False
+    assert summary["final_safe_stop_chamber_stop_blocked_by_no_write"] is True
+    assert summary["final_safe_stop_chamber_stop_result"] == "blocked_by_no_write"
+    assert route_traces[-1]["actual"]["final_safe_stop_chamber_stop_command_sent"] is False
+    assert route_traces[-1]["actual"]["final_safe_stop_chamber_stop_blocked_by_no_write"] is True
+
+    trace_path = tmp_path / "route_trace.jsonl"
+    trace_path.write_text(json.dumps(route_traces[-1]) + "\n", encoding="utf-8")
+    evidence = _final_safe_stop_evidence(tmp_path)
+    assert evidence["final_safe_stop_chamber_stop_command_sent"] is False
+    assert evidence["final_safe_stop_chamber_stop_blocked_by_no_write"] is True
+
+
 def test_co2_runner_conditioning_fail_closed_does_not_vent_off_seal_or_sample() -> None:
     point = CalibrationPoint(index=1, temperature_c=20.0, co2_ppm=100.0, pressure_hpa=1100.0, route="co2")
     order: list[str] = []
@@ -1845,6 +1999,20 @@ def test_conditioning_overlimit_evidence_matches_latency_samples_and_route_trace
         "pressure_overlimit_seen": True,
         "pressure_overlimit_source": "digital_pressure_gauge_continuous",
         "pressure_overlimit_hpa": 1155.0,
+        "route_conditioning_phase": "route_conditioning_flush_phase",
+        "ready_to_seal_phase_started": False,
+        "route_conditioning_flush_min_time_completed": False,
+        "vent_pulse_count": 2,
+        "vent_pulse_interval_ms": [500.0],
+        "pressure_drop_after_vent_hpa": [None, -145.0],
+        "route_open_to_first_pressure_read_ms": 500.0,
+        "route_open_to_overlimit_ms": 500.0,
+        "route_conditioning_pressure_before_route_open_hpa": 1010.0,
+        "route_conditioning_pressure_after_route_open_hpa": 1155.0,
+        "route_conditioning_pressure_rise_rate_hpa_per_s": 290.0,
+        "route_conditioning_peak_pressure_hpa": 1155.0,
+        "route_conditioning_pressure_overlimit": True,
+        "fail_closed_reason": "route_conditioning_pressure_overlimit",
         "fail_closed_before_vent_off": True,
         "vent_off_sent_at": "",
         "seal_command_sent": False,
@@ -1949,6 +2117,12 @@ def test_conditioning_overlimit_evidence_matches_latency_samples_and_route_trace
     assert conditioning["pressure_overlimit_hpa"] == 1155.0
     assert conditioning["fail_closed_before_vent_off"] is True
     assert conditioning["route_open_to_first_vent_s"] == 0.5
+    assert conditioning["vent_pulse_count"] == 2
+    assert conditioning["route_open_to_first_pressure_read_ms"] == 500.0
+    assert conditioning["route_open_to_overlimit_ms"] == 500.0
+    assert conditioning["route_conditioning_pressure_rise_rate_hpa_per_s"] == 290.0
+    assert conditioning["route_conditioning_pressure_overlimit"] is True
+    assert conditioning["fail_closed_reason"] == "route_conditioning_pressure_overlimit"
     assert any(sample["pressure_overlimit_seen"] is True for sample in latency_samples)
     assert route_trace["actual"]["pressure_overlimit_seen"] is True
     assert route_trace["actual"]["fail_closed_before_vent_off"] is True

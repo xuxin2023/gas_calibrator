@@ -530,6 +530,7 @@ def _final_safe_stop_evidence(run_dir: str | Path) -> dict[str, Any]:
         "final_safe_stop_chamber_stop_attempted": False,
         "final_safe_stop_chamber_stop_command_sent": False,
         "final_safe_stop_chamber_stop_result": "not_observed",
+        "final_safe_stop_chamber_stop_blocked_by_no_write": False,
     }
     for row in reversed(_load_route_trace_rows(run_dir)):
         if str(row.get("action") or "") != "final_safe_stop_routes":
@@ -558,6 +559,9 @@ def _final_safe_stop_evidence(run_dir: str | Path) -> dict[str, Any]:
                 ),
                 "final_safe_stop_chamber_stop_result": str(
                     actual.get("final_safe_stop_chamber_stop_result") or "not_observed"
+                ),
+                "final_safe_stop_chamber_stop_blocked_by_no_write": bool(
+                    actual.get("final_safe_stop_chamber_stop_blocked_by_no_write", False)
                 ),
             }
         )
@@ -2054,6 +2058,17 @@ def _build_co2_route_conditioning_evidence(
         "route_open_completed_at": (route_open_end or {}).get("timestamp_local"),
         "atmosphere_vent_enabled": bool(start_state.get("atmosphere_vent_enabled") or vent_ticks),
         "vent_command_before_route_open": any(str(item.get("phase") or "") == "before_route_open" for item in vent_ticks),
+        "route_conditioning_phase": latest_state_value("route_conditioning_phase", "route_conditioning_flush_phase"),
+        "ready_to_seal_phase_started": bool(latest_state_value("ready_to_seal_phase_started", False)),
+        "route_conditioning_flush_min_time_completed": bool(
+            latest_state_value("route_conditioning_flush_min_time_completed", False)
+        ),
+        "vent_off_blocked_during_flush": bool(latest_state_value("vent_off_blocked_during_flush", True)),
+        "seal_blocked_during_flush": bool(latest_state_value("seal_blocked_during_flush", True)),
+        "pressure_setpoint_blocked_during_flush": bool(
+            latest_state_value("pressure_setpoint_blocked_during_flush", True)
+        ),
+        "sample_blocked_during_flush": bool(latest_state_value("sample_blocked_during_flush", True)),
         "conditioning_soak_s": _as_float(start_state.get("conditioning_soak_s") or end_state.get("conditioning_soak_s")),
         "conditioning_started_at": (start_event or {}).get("timestamp_local") or start_state.get("conditioning_started_at"),
         "conditioning_completed_at": (end_event or {}).get("timestamp_local") or end_state.get("conditioning_completed_at"),
@@ -2171,6 +2186,25 @@ def _build_co2_route_conditioning_evidence(
         "sealed_during_conditioning": sealed_during_conditioning,
         "vent_ticks": vent_ticks,
         "vent_tick_count": len(vent_ticks),
+        "vent_pulse_count": int(latest_state_value("vent_pulse_count", len(vent_ticks)) or 0),
+        "vent_pulse_interval_ms": latest_state_value("vent_pulse_interval_ms", []),
+        "pressure_drop_after_vent_hpa": latest_state_value("pressure_drop_after_vent_hpa", []),
+        "route_open_to_first_pressure_read_ms": latest_state_value("route_open_to_first_pressure_read_ms"),
+        "route_open_to_overlimit_ms": latest_state_value("route_open_to_overlimit_ms"),
+        "route_conditioning_pressure_before_route_open_hpa": latest_state_value(
+            "route_conditioning_pressure_before_route_open_hpa"
+        ),
+        "route_conditioning_pressure_after_route_open_hpa": latest_state_value(
+            "route_conditioning_pressure_after_route_open_hpa"
+        ),
+        "route_conditioning_pressure_rise_rate_hpa_per_s": latest_state_value(
+            "route_conditioning_pressure_rise_rate_hpa_per_s"
+        ),
+        "route_conditioning_peak_pressure_hpa": latest_state_value("route_conditioning_peak_pressure_hpa"),
+        "route_conditioning_pressure_overlimit": bool(
+            latest_state_value("route_conditioning_pressure_overlimit", bool(pressure_overlimit_states))
+        ),
+        "fail_closed_reason": latest_state_value("fail_closed_reason", ""),
         "vent_tick_avg_gap_s": None if not vent_gaps else round(sum(vent_gaps) / len(vent_gaps), 3),
         "vent_tick_max_gap_s": None if not vent_gaps else round(max(vent_gaps), 3),
         "route_open_to_first_vent_s": route_open_to_first_vent_s
@@ -4031,6 +4065,37 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
             "co2_route_conditioning_vent_tick_count": co2_route_conditioning_payload.get("vent_tick_count"),
             "co2_route_conditioning_vent_tick_avg_gap_s": co2_route_conditioning_payload.get("vent_tick_avg_gap_s"),
             "co2_route_conditioning_vent_tick_max_gap_s": co2_route_conditioning_payload.get("vent_tick_max_gap_s"),
+            "co2_route_conditioning_vent_pulse_count": co2_route_conditioning_payload.get("vent_pulse_count"),
+            "co2_route_conditioning_vent_pulse_interval_ms": co2_route_conditioning_payload.get(
+                "vent_pulse_interval_ms"
+            ),
+            "co2_route_conditioning_pressure_drop_after_vent_hpa": co2_route_conditioning_payload.get(
+                "pressure_drop_after_vent_hpa"
+            ),
+            "route_open_to_first_pressure_read_ms": co2_route_conditioning_payload.get(
+                "route_open_to_first_pressure_read_ms"
+            ),
+            "route_open_to_overlimit_ms": co2_route_conditioning_payload.get("route_open_to_overlimit_ms"),
+            "route_conditioning_pressure_before_route_open_hpa": co2_route_conditioning_payload.get(
+                "route_conditioning_pressure_before_route_open_hpa"
+            ),
+            "route_conditioning_pressure_after_route_open_hpa": co2_route_conditioning_payload.get(
+                "route_conditioning_pressure_after_route_open_hpa"
+            ),
+            "route_conditioning_pressure_rise_rate_hpa_per_s": co2_route_conditioning_payload.get(
+                "route_conditioning_pressure_rise_rate_hpa_per_s"
+            ),
+            "route_conditioning_peak_pressure_hpa": co2_route_conditioning_payload.get(
+                "route_conditioning_peak_pressure_hpa"
+            ),
+            "route_conditioning_pressure_overlimit": co2_route_conditioning_payload.get(
+                "route_conditioning_pressure_overlimit"
+            ),
+            "route_conditioning_phase": co2_route_conditioning_payload.get("route_conditioning_phase"),
+            "ready_to_seal_phase_started": co2_route_conditioning_payload.get("ready_to_seal_phase_started"),
+            "route_conditioning_flush_min_time_completed": co2_route_conditioning_payload.get(
+                "route_conditioning_flush_min_time_completed"
+            ),
             "route_open_to_first_vent_s": co2_route_conditioning_payload.get("route_open_to_first_vent_s"),
             "last_vent_command_age_s": co2_route_conditioning_payload.get("last_vent_command_age_s"),
             "vent_heartbeat_interval_s": co2_route_conditioning_payload.get("vent_heartbeat_interval_s"),
@@ -4098,6 +4163,9 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
                     "final_safe_stop_chamber_stop_command_sent"
                 ),
                 "final_safe_stop_chamber_stop_result": enriched.get("final_safe_stop_chamber_stop_result"),
+                "final_safe_stop_chamber_stop_blocked_by_no_write": enriched.get(
+                    "final_safe_stop_chamber_stop_blocked_by_no_write"
+                ),
                 "readiness_result": enriched.get("readiness_result"),
                 "a2_final_decision": enriched.get("a2_final_decision"),
                 "a2_execution_result": enriched.get("a2_execution_result"),
@@ -4137,6 +4205,9 @@ def write_run001_a2_artifacts(run_dir: str | Path, payload: Mapping[str, Any]) -
                     "final_safe_stop_chamber_stop_command_sent"
                 ),
                 "final_safe_stop_chamber_stop_result": enriched.get("final_safe_stop_chamber_stop_result"),
+                "final_safe_stop_chamber_stop_blocked_by_no_write": enriched.get(
+                    "final_safe_stop_chamber_stop_blocked_by_no_write"
+                ),
                 "effective_analyzer_mapping_status": enriched.get("effective_analyzer_mapping_status"),
                 "all_enabled_analyzers_mode2_ready": enriched.get("all_enabled_analyzers_mode2_ready"),
                 "preseal_atmosphere_hold_decision": enriched.get("preseal_atmosphere_hold_decision"),

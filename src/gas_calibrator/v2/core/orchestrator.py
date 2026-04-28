@@ -1591,6 +1591,13 @@ class WorkflowOrchestrator:
             "route_open_completed_monotonic_s": None,
             "atmosphere_vent_enabled": True,
             "vent_command_before_route_open": True,
+            "route_conditioning_phase": "route_conditioning_flush_phase",
+            "ready_to_seal_phase_started": False,
+            "route_conditioning_flush_min_time_completed": False,
+            "vent_off_blocked_during_flush": True,
+            "seal_blocked_during_flush": True,
+            "pressure_setpoint_blocked_during_flush": True,
+            "sample_blocked_during_flush": True,
             "conditioning_soak_s": self._co2_conditioning_soak_s(point),
             "conditioning_started_at": now,
             "conditioning_started_monotonic_s": started_monotonic_s,
@@ -1626,13 +1633,25 @@ class WorkflowOrchestrator:
             "pressure_overlimit_hpa": None,
             "fail_closed_before_vent_off": False,
             "vent_off_sent_at": "",
+            "vent_off_command_sent": False,
             "seal_command_sent": False,
+            "pressure_setpoint_command_sent": False,
             "sample_count": 0,
             "points_completed": 0,
             "latest_frame_age_max_s": None,
             "abnormal_pressure_events": [],
             "vent_ticks": [],
+            "vent_pulse_count": 0,
+            "vent_pulse_interval_ms": [],
+            "pressure_drop_after_vent_hpa": [],
             "pressure_samples": [],
+            "route_open_to_first_pressure_read_ms": None,
+            "route_open_to_overlimit_ms": None,
+            "route_conditioning_pressure_before_route_open_hpa": None,
+            "route_conditioning_pressure_after_route_open_hpa": None,
+            "route_conditioning_pressure_rise_rate_hpa_per_s": None,
+            "route_conditioning_peak_pressure_hpa": None,
+            "route_conditioning_pressure_overlimit": False,
             "conditioning_decision": "START",
             "did_not_seal_during_conditioning": True,
             "stream_state_at_start": stream_state,
@@ -1727,12 +1746,136 @@ class WorkflowOrchestrator:
         )
         return float(1150.0 if value is None else value)
 
+    def _a2_conditioning_high_frequency_vent_window_s(self) -> float:
+        value = self._as_float(
+            self._cfg_get(
+                "workflow.pressure.route_conditioning_high_frequency_vent_window_s",
+                self._cfg_get("workflow.pressure.conditioning_high_frequency_vent_window_s", 20.0),
+            )
+        )
+        return max(0.0, float(20.0 if value is None else value))
+
+    def _a2_conditioning_high_frequency_vent_interval_s(self) -> float:
+        value = self._as_float(
+            self._cfg_get(
+                "workflow.pressure.route_conditioning_high_frequency_vent_interval_s",
+                self._cfg_get("workflow.pressure.conditioning_high_frequency_vent_interval_s", 0.5),
+            )
+        )
+        return max(0.1, float(0.5 if value is None else value))
+
+    def _a2_conditioning_pressure_rise_vent_trigger_hpa(self) -> float:
+        value = self._as_float(
+            self._cfg_get(
+                "workflow.pressure.route_conditioning_pressure_rise_vent_trigger_hpa",
+                self._cfg_get("workflow.pressure.pressure_rise_detection_threshold_hpa", 2.0),
+            )
+        )
+        return max(0.1, float(2.0 if value is None else value))
+
+    def _a2_conditioning_pressure_rise_vent_min_interval_s(self) -> float:
+        value = self._as_float(
+            self._cfg_get(
+                "workflow.pressure.route_conditioning_pressure_rise_vent_min_interval_s",
+                self._a2_conditioning_high_frequency_vent_interval_s(),
+            )
+        )
+        return max(0.1, float(self._a2_conditioning_high_frequency_vent_interval_s() if value is None else value))
+
     def _a2_conditioning_first_float(self, *values: Any) -> Optional[float]:
         for value in values:
             parsed = self._as_float(value)
             if parsed is not None:
                 return float(parsed)
         return None
+
+    def _a2_conditioning_update_pressure_metrics(
+        self,
+        context: Mapping[str, Any],
+        *,
+        phase: str,
+        pressure_hpa: Any,
+        event_monotonic_s: float,
+        vent_command_sent: bool,
+    ) -> dict[str, Any]:
+        updated = dict(context)
+        pressure_value = self._as_float(pressure_hpa)
+        route_open_monotonic = self._as_float(
+            updated.get("route_open_completed_monotonic_s")
+            or getattr(self, "_a2_co2_route_open_monotonic_s", None)
+        )
+        phase_text = str(phase or "")
+        before_route_open = bool(
+            phase_text.startswith("before_route_open")
+            or route_open_monotonic is None
+            or float(event_monotonic_s) < float(route_open_monotonic)
+        )
+        if route_open_monotonic is not None and updated.get("route_open_completed_monotonic_s") in (None, ""):
+            updated["route_open_completed_monotonic_s"] = float(route_open_monotonic)
+        if pressure_value is not None:
+            if before_route_open:
+                updated["route_conditioning_pressure_before_route_open_hpa"] = round(float(pressure_value), 3)
+            else:
+                if updated.get("route_conditioning_pressure_after_route_open_hpa") in (None, ""):
+                    updated["route_conditioning_pressure_after_route_open_hpa"] = round(float(pressure_value), 3)
+                if updated.get("route_open_to_first_pressure_read_ms") in (None, "") and route_open_monotonic is not None:
+                    updated["route_open_to_first_pressure_read_ms"] = round(
+                        max(0.0, float(event_monotonic_s) - float(route_open_monotonic)) * 1000.0,
+                        3,
+                    )
+                baseline_hpa = self._as_float(
+                    updated.get("route_conditioning_pressure_before_route_open_hpa")
+                    or updated.get("route_open_pressure_hpa")
+                    or getattr(self, "_a2_co2_route_open_pressure_hpa", None)
+                    or updated.get("route_conditioning_pressure_after_route_open_hpa")
+                )
+                if baseline_hpa is not None and route_open_monotonic is not None:
+                    elapsed_s = max(0.0, float(event_monotonic_s) - float(route_open_monotonic))
+                    if elapsed_s > 0.0:
+                        updated["route_conditioning_pressure_rise_rate_hpa_per_s"] = round(
+                            (float(pressure_value) - float(baseline_hpa)) / elapsed_s,
+                            3,
+                        )
+            previous_peak = self._as_float(updated.get("route_conditioning_peak_pressure_hpa"))
+            updated["route_conditioning_peak_pressure_hpa"] = round(
+                float(pressure_value) if previous_peak is None else max(float(previous_peak), float(pressure_value)),
+                3,
+            )
+            abort_hpa = self._as_float(updated.get("conditioning_pressure_abort_hpa"))
+            if abort_hpa is not None and float(pressure_value) > float(abort_hpa):
+                updated["route_conditioning_pressure_overlimit"] = True
+                if updated.get("route_open_to_overlimit_ms") in (None, "") and route_open_monotonic is not None:
+                    updated["route_open_to_overlimit_ms"] = round(
+                        max(0.0, float(event_monotonic_s) - float(route_open_monotonic)) * 1000.0,
+                        3,
+                    )
+            last_vent_pressure = self._as_float(updated.get("last_vent_pressure_hpa"))
+            if last_vent_pressure is not None:
+                updated["pressure_rise_since_last_vent_hpa"] = round(
+                    float(pressure_value) - float(last_vent_pressure),
+                    3,
+                )
+            updated["last_conditioning_pressure_hpa"] = round(float(pressure_value), 3)
+            updated["last_conditioning_pressure_monotonic_s"] = float(event_monotonic_s)
+        if vent_command_sent:
+            previous_vent_start = self._as_float(
+                updated.get("last_vent_heartbeat_started_monotonic_s")
+                or updated.get("last_vent_tick_monotonic_s")
+            )
+            if previous_vent_start is not None:
+                intervals = list(updated.get("vent_pulse_interval_ms") or [])
+                intervals.append(round(max(0.0, float(event_monotonic_s) - float(previous_vent_start)) * 1000.0, 3))
+                updated["vent_pulse_interval_ms"] = intervals
+            previous_pressure = self._as_float(updated.get("last_vent_pressure_hpa"))
+            if pressure_value is not None:
+                drop = None if previous_pressure is None else round(float(previous_pressure) - float(pressure_value), 3)
+                drops = list(updated.get("pressure_drop_after_vent_hpa") or [])
+                drops.append(drop)
+                updated["pressure_drop_after_vent_hpa"] = drops
+                updated["last_pressure_drop_after_vent_hpa"] = drop
+                updated["last_vent_pressure_hpa"] = round(float(pressure_value), 3)
+            updated["vent_pulse_count"] = int(updated.get("vent_pulse_count") or 0) + 1
+        return updated
 
     def _a2_conditioning_context_with_counts(self, context: Mapping[str, Any]) -> dict[str, Any]:
         updated = dict(context)
@@ -1854,6 +1997,24 @@ class WorkflowOrchestrator:
         pressure_hpa: Any = None,
     ) -> None:
         context = self._a2_conditioning_failure_context(point, reason=reason, details=details)
+        if reason == "route_conditioning_pressure_overlimit":
+            try:
+                self.pressure_control_service.set_pressure_controller_vent(
+                    True,
+                    reason="A2 CO2 route conditioning pressure overlimit fail-closed",
+                    wait_after_command=False,
+                    capture_pressure=False,
+                    transition_timeout_s=self._cfg_get(
+                        "workflow.pressure.preseal_atmosphere_hold_reassert_timeout_s",
+                        0.1,
+                    ),
+                )
+                context["fail_closed_vent_pulse_sent"] = True
+                context["fail_closed_vent_pulse_result"] = "ok"
+            except Exception as exc:
+                context["fail_closed_vent_pulse_sent"] = False
+                context["fail_closed_vent_pulse_result"] = f"failed: {exc}"
+            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
         self._record_workflow_timing(
             event_name,
             "fail",
@@ -2423,15 +2584,47 @@ class WorkflowOrchestrator:
         snapshot = self._a2_conditioning_stream_snapshot()
         details = self._a2_conditioning_pressure_details(sample, snapshot, context=context)
         elapsed_s = max(0.0, now_mono - float(context.get("conditioning_started_monotonic_s") or now_mono))
+        context = self._a2_conditioning_update_pressure_metrics(
+            context,
+            phase=phase,
+            pressure_hpa=details.get("pressure_hpa"),
+            event_monotonic_s=monitor_completed_monotonic_s,
+            vent_command_sent=False,
+        )
         monitor_state = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "phase": phase,
             "elapsed_s": round(elapsed_s, 3),
+            "route_conditioning_phase": context.get("route_conditioning_phase", "route_conditioning_flush_phase"),
+            "ready_to_seal_phase_started": bool(context.get("ready_to_seal_phase_started", False)),
+            "vent_off_blocked_during_flush": bool(context.get("vent_off_blocked_during_flush", True)),
+            "seal_blocked_during_flush": bool(context.get("seal_blocked_during_flush", True)),
+            "pressure_setpoint_blocked_during_flush": bool(
+                context.get("pressure_setpoint_blocked_during_flush", True)
+            ),
+            "sample_blocked_during_flush": bool(context.get("sample_blocked_during_flush", True)),
+            "vent_off_command_sent": bool(context.get("vent_off_command_sent", False)),
+            "seal_command_sent": bool(context.get("seal_command_sent", False)),
+            "pressure_setpoint_command_sent": bool(context.get("pressure_setpoint_command_sent", False)),
             "vent_command_sent": False,
             "pressure_monitor_interval_s": self._a2_conditioning_pressure_monitor_interval_s(),
             "last_vent_command_age_s": context.get("last_vent_command_age_s"),
             "blocking_operation_name": "a2_conditioning_pressure_monitor",
             "blocking_operation_duration_ms": round(monitor_duration_s * 1000.0, 3),
+            "route_open_to_first_pressure_read_ms": context.get("route_open_to_first_pressure_read_ms"),
+            "route_open_to_overlimit_ms": context.get("route_open_to_overlimit_ms"),
+            "route_conditioning_pressure_before_route_open_hpa": context.get(
+                "route_conditioning_pressure_before_route_open_hpa"
+            ),
+            "route_conditioning_pressure_after_route_open_hpa": context.get(
+                "route_conditioning_pressure_after_route_open_hpa"
+            ),
+            "route_conditioning_pressure_rise_rate_hpa_per_s": context.get(
+                "route_conditioning_pressure_rise_rate_hpa_per_s"
+            ),
+            "route_conditioning_peak_pressure_hpa": context.get("route_conditioning_peak_pressure_hpa"),
+            "route_conditioning_pressure_overlimit": bool(context.get("route_conditioning_pressure_overlimit", False)),
+            "pressure_rise_since_last_vent_hpa": context.get("pressure_rise_since_last_vent_hpa"),
             **{key: value for key, value in details.items() if key not in {"sample", "digital_sample"}},
         }
         contextual_sample = {**sample, **monitor_state}
@@ -2491,7 +2684,7 @@ class WorkflowOrchestrator:
             pressure_hpa=details.get("pressure_hpa"),
             decision="abort_pressure_exceeded" if details.get("pressure_overlimit_seen") else "monitor_only_no_seal",
             warning_code="conditioning_pressure_above_abort_threshold" if details.get("pressure_overlimit_seen") else None,
-            error_code="conditioning_pressure_abort_hpa_exceeded" if details.get("pressure_overlimit_seen") else None,
+            error_code="route_conditioning_pressure_overlimit" if details.get("pressure_overlimit_seen") else None,
             route_state=monitor_state,
         )
         if not bool(details.get("selected_pressure_freshness_ok")):
@@ -2515,7 +2708,7 @@ class WorkflowOrchestrator:
         if details.get("pressure_overlimit_seen"):
             self._fail_a2_co2_route_conditioning_closed(
                 point,
-                reason="conditioning_pressure_abort_hpa_exceeded",
+                reason="route_conditioning_pressure_overlimit",
                 details=monitor_state,
                 event_name="co2_route_conditioning_pressure_overlimit",
                 route_trace_action="co2_preseal_atmosphere_hold_pressure_guard",
@@ -2602,11 +2795,36 @@ class WorkflowOrchestrator:
         selected_freshness_ok = bool(details.get("selected_pressure_freshness_ok"))
         sample_stale = bool(details.get("selected_pressure_sample_is_stale"))
         elapsed_s = max(0.0, time.monotonic() - float(context.get("conditioning_started_monotonic_s") or tick_started_monotonic_s))
+        context = self._a2_conditioning_update_pressure_metrics(
+            context,
+            phase=phase,
+            pressure_hpa=pressure_hpa,
+            event_monotonic_s=tick_started_monotonic_s,
+            vent_command_sent=True,
+        )
         tick = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "phase": phase,
             "elapsed_s": round(elapsed_s, 3),
+            "route_conditioning_phase": context.get("route_conditioning_phase", "route_conditioning_flush_phase"),
+            "ready_to_seal_phase_started": bool(context.get("ready_to_seal_phase_started", False)),
+            "route_conditioning_flush_min_time_completed": bool(
+                context.get("route_conditioning_flush_min_time_completed", False)
+            ),
+            "vent_off_blocked_during_flush": bool(context.get("vent_off_blocked_during_flush", True)),
+            "seal_blocked_during_flush": bool(context.get("seal_blocked_during_flush", True)),
+            "pressure_setpoint_blocked_during_flush": bool(
+                context.get("pressure_setpoint_blocked_during_flush", True)
+            ),
+            "sample_blocked_during_flush": bool(context.get("sample_blocked_during_flush", True)),
+            "vent_off_command_sent": bool(context.get("vent_off_command_sent", False)),
+            "seal_command_sent": bool(context.get("seal_command_sent", False)),
+            "pressure_setpoint_command_sent": bool(context.get("pressure_setpoint_command_sent", False)),
             "vent_command_sent": True,
+            "vent_pulse_count": context.get("vent_pulse_count"),
+            "vent_pulse_interval_ms": context.get("vent_pulse_interval_ms"),
+            "pressure_drop_after_vent_hpa": context.get("last_pressure_drop_after_vent_hpa"),
+            "pressure_drop_after_vent_hpa_all": context.get("pressure_drop_after_vent_hpa"),
             "command_result": command_result,
             "command_error": command_error,
             "output_state": diagnostics.get("output_state"),
@@ -2646,6 +2864,20 @@ class WorkflowOrchestrator:
             "route_open_to_first_vent_s": (
                 None if route_open_to_first_vent_s is None else round(float(route_open_to_first_vent_s), 3)
             ),
+            "route_open_to_first_pressure_read_ms": context.get("route_open_to_first_pressure_read_ms"),
+            "route_open_to_overlimit_ms": context.get("route_open_to_overlimit_ms"),
+            "route_conditioning_pressure_before_route_open_hpa": context.get(
+                "route_conditioning_pressure_before_route_open_hpa"
+            ),
+            "route_conditioning_pressure_after_route_open_hpa": context.get(
+                "route_conditioning_pressure_after_route_open_hpa"
+            ),
+            "route_conditioning_pressure_rise_rate_hpa_per_s": context.get(
+                "route_conditioning_pressure_rise_rate_hpa_per_s"
+            ),
+            "route_conditioning_peak_pressure_hpa": context.get("route_conditioning_peak_pressure_hpa"),
+            "route_conditioning_pressure_overlimit": bool(context.get("route_conditioning_pressure_overlimit", False)),
+            "pressure_rise_since_last_vent_hpa": context.get("pressure_rise_since_last_vent_hpa"),
             "pressure_monitor_interval_s": self._a2_conditioning_pressure_monitor_interval_s(),
             **self._a2_conditioning_digital_gauge_evidence(details),
         }
@@ -2720,7 +2952,7 @@ class WorkflowOrchestrator:
             pace_vent_status=diagnostics.get("vent_status_raw"),
             route_state=tick,
             warning_code="co2_route_conditioning_pressure_abnormal" if pressure_abnormal else None,
-            error_code=command_error or ("preseal_abort_pressure_exceeded" if pressure_abnormal else None),
+            error_code=command_error or ("route_conditioning_pressure_overlimit" if pressure_abnormal else None),
         )
         self._record_workflow_timing(
             "co2_route_conditioning_pressure_warning" if pressure_abnormal else "co2_route_conditioning_pressure_sample",
@@ -2732,7 +2964,7 @@ class WorkflowOrchestrator:
             decision="abort_pressure_exceeded" if pressure_abnormal else "monitor_only_no_seal",
             route_state=tick,
             warning_code="conditioning_pressure_above_abort_threshold" if pressure_abnormal else None,
-            error_code="preseal_abort_pressure_exceeded" if pressure_abnormal else None,
+            error_code="route_conditioning_pressure_overlimit" if pressure_abnormal else None,
         )
         if command_result != "ok":
             self._fail_a2_co2_route_conditioning_closed(
@@ -2764,7 +2996,7 @@ class WorkflowOrchestrator:
         if pressure_abnormal:
             self._fail_a2_co2_route_conditioning_closed(
                 point,
-                reason="conditioning_pressure_abort_hpa_exceeded",
+                reason="route_conditioning_pressure_overlimit",
                 details=tick,
                 event_name="co2_route_conditioning_pressure_overlimit",
                 route_trace_action="co2_preseal_atmosphere_hold_pressure_guard",
@@ -2821,13 +3053,45 @@ class WorkflowOrchestrator:
                 event_name="co2_route_conditioning_route_open_first_vent_gap",
                 route_trace_action="co2_route_conditioning_route_open_first_vent_gap",
             )
-        if last_tick is None or (now_mono - float(last_tick)) >= interval_s:
-            self._record_a2_co2_conditioning_vent_tick(point, phase="conditioning_hold")
+        active_interval_s = interval_s
+        high_frequency_window = False
+        if route_open_monotonic is not None:
+            route_open_elapsed_s = max(0.0, now_mono - float(route_open_monotonic))
+            high_frequency_window = route_open_elapsed_s <= self._a2_conditioning_high_frequency_vent_window_s()
+            if high_frequency_window:
+                active_interval_s = min(interval_s, self._a2_conditioning_high_frequency_vent_interval_s())
+        if last_tick is None or (now_mono - float(last_tick)) >= active_interval_s:
+            self._record_a2_co2_conditioning_vent_tick(
+                point,
+                phase="route_conditioning_high_frequency_vent_pulse"
+                if high_frequency_window
+                else "conditioning_hold",
+            )
             return
         last_pressure = self._as_float(context.get("last_pressure_monitor_monotonic_s"))
         pressure_interval_s = self._a2_conditioning_pressure_monitor_interval_s()
         if last_pressure is None or (now_mono - float(last_pressure)) >= pressure_interval_s:
-            self._record_a2_co2_conditioning_pressure_monitor(point, phase="conditioning_pressure_monitor")
+            monitor = self._record_a2_co2_conditioning_pressure_monitor(
+                point,
+                phase="conditioning_pressure_monitor",
+            )
+            context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+            pressure_rise_hpa = self._as_float(
+                monitor.get("pressure_rise_since_last_vent_hpa")
+                if isinstance(monitor, Mapping)
+                else context.get("pressure_rise_since_last_vent_hpa")
+            )
+            last_tick = self._as_float(context.get("last_vent_tick_monotonic_s"))
+            if (
+                pressure_rise_hpa is not None
+                and pressure_rise_hpa >= self._a2_conditioning_pressure_rise_vent_trigger_hpa()
+                and (
+                    last_tick is None
+                    or (time.monotonic() - float(last_tick))
+                    >= self._a2_conditioning_pressure_rise_vent_min_interval_s()
+                )
+            ):
+                self._record_a2_co2_conditioning_vent_tick(point, phase="pressure_rise_vent_pulse")
 
     def _confirm_a2_co2_conditioning_before_route_open(self, point: CalibrationPoint) -> dict[str, Any]:
         if not bool(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_active", False)):
@@ -2867,6 +3131,11 @@ class WorkflowOrchestrator:
                 "conditioning_completed_at": completed_at,
                 "conditioning_duration_s": None if duration_s is None else round(float(duration_s), 3),
                 "conditioning_decision": "PASS" if route_soak_ok else "FAIL",
+                "route_conditioning_phase": "ready_to_seal_phase"
+                if route_soak_ok
+                else "route_conditioning_flush_phase",
+                "ready_to_seal_phase_started": bool(route_soak_ok),
+                "route_conditioning_flush_min_time_completed": bool(route_soak_ok),
                 "route_soak_actual": dict(route_soak_actual or {}),
                 "did_not_seal_during_conditioning": True,
             }
@@ -3515,11 +3784,53 @@ class WorkflowOrchestrator:
             limit_hpa = max(1110.0 if default_limit_hpa is None else default_limit_hpa, target_limit_hpa)
         effective_limit_hpa = float(abort_hpa if positive_preseal_enabled and abort_hpa is not None else limit_hpa)
         if conditioning_at_atmosphere:
+            conditioning_context = dict(
+                getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {}
+            )
+            conditioning_context = self._a2_conditioning_update_pressure_metrics(
+                conditioning_context,
+                phase="preseal_atmosphere_hold_pressure_check",
+                pressure_hpa=pressure_hpa,
+                event_monotonic_s=time.monotonic(),
+                vent_command_sent=False,
+            )
             conditioning_state = {
                 "pressure_hpa": pressure_hpa,
                 "ready_pressure_hpa": ready_hpa,
                 "abort_pressure_hpa": effective_limit_hpa,
                 "conditioning_pressure_abort_hpa": effective_limit_hpa,
+                "route_conditioning_phase": conditioning_context.get(
+                    "route_conditioning_phase",
+                    "route_conditioning_flush_phase",
+                ),
+                "ready_to_seal_phase_started": bool(conditioning_context.get("ready_to_seal_phase_started", False)),
+                "route_conditioning_flush_min_time_completed": bool(
+                    conditioning_context.get("route_conditioning_flush_min_time_completed", False)
+                ),
+                "vent_off_blocked_during_flush": True,
+                "seal_blocked_during_flush": True,
+                "pressure_setpoint_blocked_during_flush": True,
+                "sample_blocked_during_flush": True,
+                "route_open_to_first_pressure_read_ms": conditioning_context.get(
+                    "route_open_to_first_pressure_read_ms"
+                ),
+                "route_open_to_overlimit_ms": conditioning_context.get("route_open_to_overlimit_ms"),
+                "route_conditioning_pressure_before_route_open_hpa": conditioning_context.get(
+                    "route_conditioning_pressure_before_route_open_hpa"
+                ),
+                "route_conditioning_pressure_after_route_open_hpa": conditioning_context.get(
+                    "route_conditioning_pressure_after_route_open_hpa"
+                ),
+                "route_conditioning_pressure_rise_rate_hpa_per_s": conditioning_context.get(
+                    "route_conditioning_pressure_rise_rate_hpa_per_s"
+                ),
+                "route_conditioning_peak_pressure_hpa": conditioning_context.get(
+                    "route_conditioning_peak_pressure_hpa"
+                ),
+                "route_conditioning_pressure_overlimit": bool(
+                    pressure_hpa > effective_limit_hpa
+                    or conditioning_context.get("route_conditioning_pressure_overlimit", False)
+                ),
                 "conditioning_completed": False,
                 "did_not_seal_during_conditioning": True,
                 "pressure_abnormal": bool(pressure_hpa > effective_limit_hpa),
@@ -3530,11 +3841,15 @@ class WorkflowOrchestrator:
                 "pressure_overlimit_hpa": pressure_hpa if pressure_hpa > effective_limit_hpa else None,
                 "fail_closed_before_vent_off": bool(pressure_hpa > effective_limit_hpa),
                 "vent_off_sent_at": "",
+                "vent_off_command_sent": False,
                 "seal_command_sent": False,
+                "pressure_setpoint_command_sent": False,
                 "sample_count": 0,
                 "points_completed": 0,
                 **sample_meta,
             }
+            conditioning_context.update(conditioning_state)
+            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", conditioning_context)
             event_name = (
                 "co2_route_conditioning_pressure_warning"
                 if pressure_hpa > effective_limit_hpa
@@ -3550,7 +3865,7 @@ class WorkflowOrchestrator:
                 decision="abort_pressure_exceeded" if pressure_hpa > effective_limit_hpa else "monitor_only_no_seal",
                 warning_code="conditioning_pressure_above_abort_threshold" if pressure_hpa > effective_limit_hpa else None,
                 error_code=(
-                    "co2_preseal_atmosphere_flush_abort_pressure_exceeded"
+                    "route_conditioning_pressure_overlimit"
                     if pressure_hpa > effective_limit_hpa
                     else None
                 ),
@@ -3558,10 +3873,13 @@ class WorkflowOrchestrator:
             )
             if pressure_hpa <= effective_limit_hpa:
                 return "conditioning_pressure_monitor_ok"
-            self._a2_conditioning_failure_context(
+            self._fail_a2_co2_route_conditioning_closed(
                 point,
-                reason="conditioning_pressure_abort_hpa_exceeded",
+                reason="route_conditioning_pressure_overlimit",
                 details=conditioning_state,
+                event_name="co2_route_conditioning_pressure_overlimit",
+                route_trace_action="co2_preseal_atmosphere_hold_pressure_guard",
+                pressure_hpa=pressure_hpa,
             )
         if positive_preseal_enabled and ready_hpa is not None:
             now_monotonic = time.monotonic()

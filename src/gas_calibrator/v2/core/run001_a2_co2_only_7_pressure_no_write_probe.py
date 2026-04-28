@@ -85,6 +85,7 @@ A2_SAFETY_ASSERTION_DEFAULTS = {
     "chamber_set_temperature_command_sent": False,
     "chamber_start_command_sent": False,
     "chamber_stop_command_sent": False,
+    "final_safe_stop_chamber_stop_blocked_by_no_write": False,
     "real_primary_latest_refresh": False,
     "v1_fallback_required": True,
     "run_app_py_untouched": True,
@@ -1293,6 +1294,10 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
             "final_safe_stop_chamber_stop_result",
             "not_observed",
         ),
+        "final_safe_stop_chamber_stop_blocked_by_no_write": _as_bool(
+            service_summary.get("final_safe_stop_chamber_stop_blocked_by_no_write")
+        )
+        is True,
         "high_pressure_1100_hpa_prearm_recorded": any(
             str(row.get("action") or "") == "high_pressure_first_point_mode_enabled" for row in route_rows
         ),

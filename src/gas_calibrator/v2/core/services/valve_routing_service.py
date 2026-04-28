@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Mapping, Optional
 
 from ..models import CalibrationPoint
 from ..orchestration_context import OrchestrationContext
@@ -345,6 +345,46 @@ class ValveRoutingService:
         )
         return summary
 
+    def _final_chamber_stop_authorized(self) -> bool:
+        no_write_active = False
+        service = getattr(self.host, "service", None)
+        for owner in (self.host, service):
+            if owner is None:
+                continue
+            guard = getattr(owner, "no_write_guard", None)
+            if guard is not None and bool(getattr(guard, "enabled", True)):
+                no_write_active = True
+        workflow_guard = getattr(self.host, "_workflow_no_write_guard_active", None)
+        if callable(workflow_guard):
+            try:
+                no_write_active = no_write_active or bool(workflow_guard())
+            except Exception:
+                pass
+        raw_cfg = getattr(service, "_raw_cfg", None)
+        if isinstance(raw_cfg, Mapping):
+            for section in ("run001_a2", "a2_co2_7_pressure_no_write_probe", "run001_a1r", "run001_r1"):
+                policy = raw_cfg.get(section)
+                if isinstance(policy, Mapping) and bool(policy.get("no_write")):
+                    no_write_active = True
+        if not no_write_active:
+            return True
+        cfg_getter = getattr(self.host, "_cfg_get", None)
+        chamber_stop_paths = (
+            "workflow.safety.allow_final_chamber_stop",
+            "workflow.safety.final_safe_stop_chamber_stop_enabled",
+            "chamber_stop_enabled",
+            "run001_a2.chamber_stop_enabled",
+            "a2_co2_7_pressure_no_write_probe.chamber_stop_enabled",
+            "run001_a1r.chamber_stop_enabled",
+            "r1_conditioning_only.chamber_stop_enabled",
+            "run001_r1.chamber_stop_enabled",
+        )
+        for path in chamber_stop_paths:
+            value = cfg_getter(path, None) if callable(cfg_getter) else None
+            if value is True or (isinstance(value, str) and value.strip().lower() in {"1", "true", "yes", "on"}):
+                return True
+        return False
+
     def safe_stop_after_run(self, *, baseline_already_restored: bool = False, reason: str = "") -> dict[str, Any]:
         summary: dict[str, Any] = {
             "final_safe_stop_warning_count": 0,
@@ -353,6 +393,7 @@ class ValveRoutingService:
             "final_safe_stop_chamber_stop_attempted": False,
             "final_safe_stop_chamber_stop_command_sent": False,
             "final_safe_stop_chamber_stop_result": "not_attempted",
+            "final_safe_stop_chamber_stop_blocked_by_no_write": False,
         }
         safe_stop_warnings: list[str] = []
         relay_state = {} if baseline_already_restored else self.apply_valve_states([])
@@ -368,16 +409,25 @@ class ValveRoutingService:
         chamber = self.host._device("temperature_chamber")
         if chamber is not None:
             summary["final_safe_stop_chamber_stop_attempted"] = True
-            try:
-                summary["final_safe_stop_chamber_stop_command_sent"] = True
-                self.host._call_first(chamber, ("stop",))
-                summary["final_safe_stop_chamber_stop_result"] = "success"
-            except Exception as exc:
-                warning = f"chamber stop failed: {exc}"
+            if not self._final_chamber_stop_authorized():
+                warning = "chamber stop blocked by A2 no-write final safe stop policy"
                 summary["final_safe_stop_chamber_stop_warning"] = warning
-                summary["final_safe_stop_chamber_stop_result"] = "failed"
+                summary["final_safe_stop_chamber_stop_command_sent"] = False
+                summary["final_safe_stop_chamber_stop_blocked_by_no_write"] = True
+                summary["final_safe_stop_chamber_stop_result"] = "blocked_by_no_write"
                 safe_stop_warnings.append(warning)
                 self.host._log(f"Final safe stop warning: {warning}")
+            else:
+                try:
+                    summary["final_safe_stop_chamber_stop_command_sent"] = True
+                    self.host._call_first(chamber, ("stop",))
+                    summary["final_safe_stop_chamber_stop_result"] = "success"
+                except Exception as exc:
+                    warning = f"chamber stop failed: {exc}"
+                    summary["final_safe_stop_chamber_stop_warning"] = warning
+                    summary["final_safe_stop_chamber_stop_result"] = "failed"
+                    safe_stop_warnings.append(warning)
+                    self.host._log(f"Final safe stop warning: {warning}")
             chamber_state = self._chamber_state(chamber)
             if chamber_state:
                 summary["chamber"] = chamber_state
