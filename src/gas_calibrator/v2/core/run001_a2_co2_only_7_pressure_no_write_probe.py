@@ -20,6 +20,7 @@ from gas_calibrator.v2.core.run001_r1_conditioning_only_probe import (
 
 
 A2_SCHEMA_VERSION = "v2.run001.a2_co2_7_pressure_no_write_probe.1"
+A2_1_HEARTBEAT_GAP_ACCOUNTING_FIX_PRESENT = True
 A2_ENV_VAR = "GAS_CAL_V2_A2_CO2_7_PRESSURE_NO_WRITE_REAL_COM"
 A2_ENV_VALUE = "1"
 A2_CLI_FLAG = "--allow-v2-a2-co2-7-pressure-no-write-real-com"
@@ -554,6 +555,7 @@ def execute_existing_v2_a2_pressure_sweep(config_path: str | Path) -> dict[str, 
         "execution_run_dir": str(run_dir),
         "service_summary": summary,
         "route_trace_rows": _load_jsonl(run_dir / "route_trace.jsonl"),
+        "timing_trace_rows": _load_jsonl(run_dir / "workflow_timing_trace.jsonl"),
         "sample_rows": _load_csv_dicts(run_dir / "samples.csv"),
     }
 
@@ -678,6 +680,17 @@ def _extract_pressure_hpa(actual: Mapping[str, Any]) -> Optional[float]:
     return None
 
 
+def _first_metric_from_rows(rows: list[dict[str, Any]], *keys: str) -> Any:
+    for row in reversed(rows):
+        for source in (row.get("actual"), row.get("route_state"), row):
+            if not isinstance(source, Mapping):
+                continue
+            for key in keys:
+                if key in source:
+                    return source.get(key)
+    return None
+
+
 def _sample_count_by_pressure(sample_rows: list[dict[str, Any]]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for row in sample_rows:
@@ -719,6 +732,9 @@ def _coerce_point_result(row: Mapping[str, Any], raw_cfg: Mapping[str, Any]) -> 
         "pressure_ready_gate_result": pressure_ready,
         "pressure_ready_gate_latency_ms": row.get("pressure_ready_gate_latency_ms"),
         "heartbeat_ready_before_sample": _as_bool(row.get("heartbeat_ready_before_sample")) is True,
+        "heartbeat_gap_observed_ms": row.get("heartbeat_gap_observed_ms"),
+        "heartbeat_emission_gap_ms": row.get("heartbeat_emission_gap_ms"),
+        "blocking_operation_duration_ms": row.get("blocking_operation_duration_ms"),
         "route_conditioning_ready_before_sample": _as_bool(row.get("route_conditioning_ready_before_sample")) is True,
         "sample_count": sample_count,
         "valid_frame_count": valid_count,
@@ -749,6 +765,9 @@ def _point_results_from_execution(
     route_rows = [dict(row) for row in execution.get("route_trace_rows") or [] if isinstance(row, Mapping)]
     if not route_rows and run_dir:
         route_rows = _load_jsonl(Path(str(run_dir)) / "route_trace.jsonl")
+    timing_rows = [dict(row) for row in execution.get("timing_trace_rows") or [] if isinstance(row, Mapping)]
+    if not timing_rows and run_dir:
+        timing_rows = _load_jsonl(Path(str(run_dir)) / "workflow_timing_trace.jsonl")
     sample_rows = [dict(row) for row in execution.get("sample_rows") or [] if isinstance(row, Mapping)]
     if not sample_rows and run_dir:
         sample_rows = _load_csv_dicts(Path(str(run_dir)) / "samples.csv")
@@ -764,6 +783,8 @@ def _point_results_from_execution(
     pressure_trace_rows: list[dict[str, Any]] = []
     for index, pressure in enumerate(A2_ALLOWED_PRESSURE_POINTS_HPA, start=1):
         rows = _route_rows_for_pressure(route_rows, pressure, index)
+        timing_for_point = _route_rows_for_pressure(timing_rows, pressure, index)
+        metric_rows = rows + timing_for_point
         ready_row = next((row for row in rows if row.get("action") == "pressure_control_ready_gate"), {})
         ready_actual = _extract_actual(ready_row)
         sample_count = sample_counts.get(_pressure_key(pressure), 0)
@@ -795,6 +816,16 @@ def _point_results_from_execution(
             "pressure_ready_gate_result": pressure_ready,
             "pressure_ready_gate_latency_ms": None,
             "heartbeat_ready_before_sample": heartbeat_ready,
+            "heartbeat_gap_observed_ms": _first_metric_from_rows(
+                metric_rows,
+                "heartbeat_gap_observed_ms",
+                "vent_heartbeat_gap_ms",
+            ),
+            "heartbeat_emission_gap_ms": _first_metric_from_rows(metric_rows, "heartbeat_emission_gap_ms"),
+            "blocking_operation_duration_ms": _first_metric_from_rows(
+                metric_rows,
+                "blocking_operation_duration_ms",
+            ),
             "route_conditioning_ready_before_sample": route_ready,
             "sample_count": int(sample_count),
             "valid_frame_count": int(sample_count),
@@ -832,6 +863,9 @@ def _write_point_results_csv(path: Path, point_results: list[Mapping[str, Any]])
         "pressure_ready_gate_result",
         "pressure_gauge_freshness_ok_before_sample",
         "pressure_age_ms_before_sample",
+        "heartbeat_gap_observed_ms",
+        "heartbeat_emission_gap_ms",
+        "blocking_operation_duration_ms",
         "sample_count",
         "valid_frame_count",
         "point_completed",
@@ -916,6 +950,9 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
                 "pressure_ready_gate_result": "FAIL_CLOSED",
                 "pressure_ready_gate_latency_ms": None,
                 "heartbeat_ready_before_sample": False,
+                "heartbeat_gap_observed_ms": None,
+                "heartbeat_emission_gap_ms": None,
+                "blocking_operation_duration_ms": None,
                 "route_conditioning_ready_before_sample": False,
                 "sample_count": 0,
                 "valid_frame_count": 0,
@@ -998,6 +1035,9 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
             "pressure_gauge_hpa_before_sample": point.get("pressure_gauge_hpa_before_sample"),
             "pressure_age_ms_before_sample": point.get("pressure_age_ms_before_sample"),
             "pressure_gauge_freshness_ok_before_sample": point.get("pressure_gauge_freshness_ok_before_sample"),
+            "heartbeat_gap_observed_ms": point.get("heartbeat_gap_observed_ms"),
+            "heartbeat_emission_gap_ms": point.get("heartbeat_emission_gap_ms"),
+            "blocking_operation_duration_ms": point.get("blocking_operation_duration_ms"),
         }
         for point in point_results
     ]
@@ -1008,6 +1048,9 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
             "target_pressure_hpa": point.get("target_pressure_hpa"),
             "pressure_point_index": point.get("pressure_point_index"),
             "heartbeat_ready_before_sample": point.get("heartbeat_ready_before_sample"),
+            "heartbeat_gap_observed_ms": point.get("heartbeat_gap_observed_ms"),
+            "heartbeat_emission_gap_ms": point.get("heartbeat_emission_gap_ms"),
+            "blocking_operation_duration_ms": point.get("blocking_operation_duration_ms"),
             "route_conditioning_ready_before_sample": point.get("route_conditioning_ready_before_sample"),
         }
         for point in point_results
@@ -1038,6 +1081,7 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "v1_fallback_required": True,
         "v1_untouched": True,
         "run_app_py_untouched": bool(run_app_py_untouched),
+        "a2_1_heartbeat_gap_accounting_fix_present": A2_1_HEARTBEAT_GAP_ACCOUNTING_FIX_PRESENT,
         "a2_pressure_sweep_executed": bool(executed),
         "real_probe_executed": bool(executed),
         "underlying_execution_dir": str(execution.get("execution_run_dir") or ""),

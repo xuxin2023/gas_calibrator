@@ -185,6 +185,9 @@ def _passing_executor(_config_path: str | Path) -> dict[str, Any]:
                 "pressure_ready_gate_result": "PASS",
                 "pressure_ready_gate_latency_ms": 120.0,
                 "heartbeat_ready_before_sample": True,
+                "heartbeat_gap_observed_ms": 1200.0,
+                "heartbeat_emission_gap_ms": 20.0,
+                "blocking_operation_duration_ms": 1180.0,
                 "route_conditioning_ready_before_sample": True,
                 "sample_count": 4,
                 "valid_frame_count": 4,
@@ -279,6 +282,7 @@ def test_a2_probe_writes_required_artifacts_and_passes_with_complete_points(tmp_
     assert summary["sample_count_total"] == 28
     assert summary["all_pressure_points_have_fresh_pressure_before_sample"] is True
     assert summary["all_pressure_points_have_samples"] is True
+    assert summary["a2_1_heartbeat_gap_accounting_fix_present"] is True
     assert summary["a3_allowed"] is False
     assert summary["attempted_write_count"] == 0
     assert summary["any_write_command_sent"] is False
@@ -297,6 +301,9 @@ def test_a2_probe_writes_required_artifacts_and_passes_with_complete_points(tmp_
     assert len(points) == 7
     assert all(point["pressure_ready_gate_result"] == "PASS" for point in points)
     assert all(point["pressure_gauge_freshness_ok_before_sample"] is True for point in points)
+    assert all(point["heartbeat_gap_observed_ms"] == 1200.0 for point in points)
+    assert all(point["heartbeat_emission_gap_ms"] == 20.0 for point in points)
+    assert all(point["blocking_operation_duration_ms"] == 1180.0 for point in points)
 
 
 def test_a2_probe_fails_closed_on_stale_pressure_and_downstream_execution(tmp_path: Path) -> None:
