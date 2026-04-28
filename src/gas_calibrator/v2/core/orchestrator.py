@@ -4577,7 +4577,26 @@ class WorkflowOrchestrator:
             }
         )
         setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
-        self._record_pressure_source_latency_events(tick, point=point, stage="co2_route_conditioning_at_atmosphere")
+        if bool(schedule.get("route_conditioning_high_frequency_window_active")):
+            context.update(
+                {
+                    "trace_write_budget_ms": self._a2_conditioning_trace_write_budget_ms(),
+                    "trace_write_duration_ms": 0.0,
+                    "trace_write_blocked_vent_scheduler": False,
+                    "trace_write_deferred_for_vent_priority": True,
+                }
+            )
+            tick.update(
+                {
+                    "trace_write_budget_ms": context["trace_write_budget_ms"],
+                    "trace_write_duration_ms": 0.0,
+                    "trace_write_blocked_vent_scheduler": False,
+                    "trace_write_deferred_for_vent_priority": True,
+                }
+            )
+            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        else:
+            self._record_pressure_source_latency_events(tick, point=point, stage="co2_route_conditioning_at_atmosphere")
         self._record_a2_conditioning_workflow_timing(
             context,
             "co2_route_conditioning_vent_tick",

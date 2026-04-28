@@ -1218,6 +1218,30 @@ def test_co2_conditioning_trace_write_is_deferred_in_high_frequency_window(monke
     assert route_traces == []
 
 
+def test_co2_conditioning_vent_tick_defers_latency_timing_in_high_frequency_window(monkeypatch) -> None:
+    orchestrator, point, clock, _timing_events, route_traces, vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [{"pressure_hpa": 1009.0, "age_s": 0.1, "sequence_id": 2}],
+    )
+    orchestrator._a2_co2_route_open_monotonic_s = clock["now"]
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_context["route_open_completed_monotonic_s"] = clock["now"]
+
+    def blocking_trace_write(*_args, **_kwargs):
+        clock["now"] += 3.8
+        raise AssertionError("high-frequency vent tick timing writes must be deferred")
+
+    orchestrator._record_workflow_timing = blocking_trace_write
+    tick_context = orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="after_route_open")
+
+    context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
+    assert tick_context["trace_write_deferred_for_vent_priority"] is True
+    assert context["trace_write_deferred_for_vent_priority"] is True
+    assert context["trace_write_blocked_vent_scheduler"] is False
+    assert context["route_conditioning_vent_gap_exceeded"] is False
+    assert len(vent_calls) == 1
+    assert route_traces == []
+
+
 def _start_a2_route_open_transition(orchestrator, point, clock, *, command_duration_s: float = 0.01) -> None:
     orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="before_route_open")
     orchestrator._begin_a2_co2_route_open_transition(point)
