@@ -666,6 +666,9 @@ def test_a2_probe_fails_closed_on_route_conditioning_vent_gap_gate(tmp_path: Pat
             "vent_pulse_count": 4,
             "vent_pulse_interval_ms": [500.0, 11438.41],
             "max_vent_pulse_gap_ms": 11438.41,
+            "terminal_vent_write_age_ms_at_gap_gate": 2218.567,
+            "max_vent_pulse_write_gap_ms_including_terminal_gap": 11438.41,
+            "route_conditioning_vent_gap_exceeded_source": "terminal_gap",
             "max_vent_pulse_gap_limit_ms": 1000.0,
             "vent_scheduler_tick_count": 20,
             "vent_scheduler_loop_gap_ms": [100.0, 100.0],
@@ -703,6 +706,9 @@ def test_a2_probe_fails_closed_on_route_conditioning_vent_gap_gate(tmp_path: Pat
     assert "a2_route_conditioning_vent_gap_exceeded" in summary["rejection_reasons"]
     assert summary["route_conditioning_vent_maintenance_active"] is True
     assert summary["max_vent_pulse_gap_ms"] == 11438.41
+    assert summary["terminal_vent_write_age_ms_at_gap_gate"] == 2218.567
+    assert summary["max_vent_pulse_write_gap_ms_including_terminal_gap"] == 11438.41
+    assert summary["route_conditioning_vent_gap_exceeded_source"] == "terminal_gap"
     assert summary["max_vent_pulse_gap_limit_ms"] == 1000.0
     assert summary["vent_scheduler_tick_count"] == 20
     assert summary["route_open_to_first_vent_ms"] == 998.0
@@ -754,6 +760,19 @@ def test_a2_probe_fails_closed_on_route_conditioning_vent_gap_gate(tmp_path: Pat
                 "diagnostic_duration_ms": 2400.0,
             },
             "a2_route_conditioning_diagnostic_blocked_vent_scheduler",
+        ),
+        (
+            {
+                "fast_vent_reassert_supported": True,
+                "fast_vent_reassert_used": True,
+                "route_open_transition_started": True,
+                "route_open_command_write_duration_ms": 1200.0,
+                "route_open_transition_blocked_vent_scheduler": True,
+                "route_conditioning_vent_gap_exceeded_source": "route_open_transition",
+                "terminal_vent_write_age_ms_at_gap_gate": 0.0,
+                "max_vent_pulse_write_gap_ms_including_terminal_gap": 500.0,
+            },
+            "a2_route_open_transition_blocked_vent_scheduler",
         ),
     ],
 )

@@ -1121,8 +1121,100 @@ def test_co2_conditioning_pressure_read_blocking_span_fails_before_silent_vent_s
     assert context["route_conditioning_diagnostic_blocked_vent_scheduler"] is True
     assert context["route_conditioning_vent_gap_exceeded"] is False
     assert context["fail_closed_reason"] == "route_conditioning_diagnostic_blocked_vent_scheduler"
+    assert context["route_conditioning_vent_gap_exceeded_source"] == "diagnostic"
+    assert context["terminal_vent_write_age_ms_at_gap_gate"] >= 2400.0
+    assert context["max_vent_pulse_write_gap_ms_including_terminal_gap"] >= 2400.0
     assert route_traces[-1]["action"] == "co2_route_conditioning_diagnostic_blocked_vent_scheduler"
     assert any(event["event_name"] == "co2_route_conditioning_diagnostic_blocked_vent_scheduler" for event in timing_events)
+
+
+def _start_a2_route_open_transition(orchestrator, point, clock, *, command_duration_s: float = 0.01) -> None:
+    orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="before_route_open")
+    orchestrator._begin_a2_co2_route_open_transition(point)
+    orchestrator._mark_a2_co2_route_open_command_write_started(point)
+    clock["now"] += command_duration_s
+    orchestrator._mark_a2_co2_route_open_command_write_completed(point)
+    orchestrator._refresh_a2_co2_conditioning_after_route_open(point)
+
+
+def test_co2_conditioning_route_open_settle_wait_is_sliced_and_keeps_terminal_gap_under_one_second(
+    monkeypatch,
+) -> None:
+    orchestrator, point, clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [{"pressure_hpa": 1009.0, "age_s": 0.1, "sequence_id": 2}],
+        cfg_overrides={
+            "workflow.pressure.route_open_settle_wait_s": 2.2,
+            "workflow.pressure.route_open_settle_wait_slice_s": 0.1,
+            "workflow.pressure.route_conditioning_high_frequency_vent_interval_s": 0.5,
+            "workflow.pressure.route_conditioning_high_frequency_max_gap_s": 1.0,
+            "workflow.pressure.route_conditioning_scheduler_sleep_step_s": 0.1,
+        },
+    )
+
+    _start_a2_route_open_transition(orchestrator, point, clock)
+    orchestrator._wait_a2_co2_route_open_settle_before_conditioning(point)
+    orchestrator._complete_a2_co2_route_open_transition(point)
+
+    context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
+    assert context["route_open_settle_wait_sliced"] is True
+    assert context["route_open_settle_wait_slice_count"] >= 20
+    assert context["vent_ticks_during_route_open_transition"] >= 2
+    assert context["route_open_to_first_vent_write_ms"] == 0.0
+    assert context["route_open_transition_max_vent_write_gap_ms"] <= 1000.0
+    assert context["max_vent_pulse_write_gap_ms_including_terminal_gap"] <= 1000.0
+    assert context["terminal_vent_write_age_ms_at_gap_gate"] <= 1000.0
+    assert context["route_conditioning_vent_gap_exceeded"] is False
+    assert route_traces == []
+
+
+def test_co2_conditioning_terminal_gap_enters_including_terminal_gate(monkeypatch) -> None:
+    orchestrator, point, clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [{"pressure_hpa": 1009.0, "age_s": 0.1, "sequence_id": 2}],
+    )
+    orchestrator._record_a2_co2_conditioning_vent_tick(point, phase="before_route_open")
+    clock["now"] += 0.01
+    orchestrator._a2_co2_route_open_monotonic_s = clock["now"]
+    orchestrator._a2_co2_route_conditioning_at_atmosphere_context["route_open_completed_monotonic_s"] = clock["now"]
+    orchestrator._refresh_a2_co2_conditioning_after_route_open(point)
+    clock["now"] += 2.2
+
+    with pytest.raises(WorkflowValidationError):
+        orchestrator._maybe_reassert_a2_conditioning_vent(point)
+
+    context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
+    assert context["route_conditioning_vent_gap_exceeded"] is True
+    assert context["route_conditioning_vent_gap_exceeded_source"] == "terminal_gap"
+    assert context["terminal_vent_write_age_ms_at_gap_gate"] == 2200.0
+    assert context["max_vent_pulse_write_gap_ms_including_terminal_gap"] == 2200.0
+    assert context["max_vent_scheduler_loop_gap_ms"] is not None
+    assert route_traces[-1]["action"] == "co2_route_conditioning_vent_heartbeat_gap"
+
+
+def test_co2_conditioning_route_open_command_block_reports_transition_block_not_pulse_gap(
+    monkeypatch,
+) -> None:
+    orchestrator, point, clock, _timing_events, route_traces, _vent_calls = _conditioning_guard_orchestrator(
+        monkeypatch,
+        [{"pressure_hpa": 1009.0, "age_s": 0.1, "sequence_id": 2}],
+        cfg_overrides={
+            "workflow.pressure.route_open_transition_blocked_vent_scheduler_threshold_s": 1.0,
+        },
+    )
+
+    _start_a2_route_open_transition(orchestrator, point, clock, command_duration_s=1.2)
+    with pytest.raises(WorkflowValidationError):
+        orchestrator._fail_a2_route_open_transition_if_blocked(point)
+
+    context = orchestrator._a2_co2_route_conditioning_at_atmosphere_context
+    assert context["fail_closed_reason"] == "route_open_transition_blocked_vent_scheduler"
+    assert context["route_open_transition_blocked_vent_scheduler"] is True
+    assert context["route_conditioning_vent_gap_exceeded"] is True
+    assert context["route_conditioning_vent_gap_exceeded_source"] == "route_open_transition"
+    assert context["route_open_command_write_duration_ms"] == 1200.0
+    assert context["route_open_to_first_vent_write_ms"] == 0.0
+    assert route_traces[-1]["action"] == "co2_route_open_transition_blocked_vent_scheduler"
 
 
 def _conditioning_guard_orchestrator(monkeypatch, frames: list[dict], *, cfg_overrides: dict | None = None):
@@ -2138,11 +2230,13 @@ def test_co2_runner_defers_high_pressure_until_after_conditioning() -> None:
 
     def begin_conditioning(point, pressure_refs):
         order.append("conditioning_start")
+        service._a2_co2_route_conditioning_at_atmosphere_active = True
         service._a2_high_pressure_first_point_mode_enabled = False
 
     def end_conditioning(point, **kwargs):
         order.append("conditioning_end")
         service._a2_co2_route_conditioning_completed = True
+        service._a2_co2_route_conditioning_at_atmosphere_active = False
 
     def preseal_gate(point, **kwargs):
         order.append("preseal_gate")
@@ -2188,6 +2282,7 @@ def test_co2_runner_defers_high_pressure_until_after_conditioning() -> None:
     assert order.index("conditioning_end") < order.index("preseal_gate") < order.index("seal_preparation")
     assert order.index("seal_preparation") < order.index("prearm") < order.index("preclose_vent")
     assert order.index("preclose_vent") < order.index("first_pressure_request") < order.index("pressurize")
+    assert "route_open_pressure_snapshot" not in order
 
 
 def test_a2_readiness_locks_no_write_fleet_and_pressure_points(tmp_path) -> None:

@@ -1675,6 +1675,26 @@ class WorkflowOrchestrator:
             "route_conditioning_fast_vent_command_timeout": False,
             "route_conditioning_fast_vent_not_supported": False,
             "route_conditioning_diagnostic_blocked_vent_scheduler": False,
+            "route_open_transition_started": False,
+            "route_open_transition_started_at": "",
+            "route_open_transition_started_monotonic_s": None,
+            "route_open_command_write_started_at": "",
+            "route_open_command_write_completed_at": "",
+            "route_open_command_write_started_monotonic_s": None,
+            "route_open_command_write_completed_monotonic_s": None,
+            "route_open_command_write_duration_ms": None,
+            "route_open_settle_wait_sliced": False,
+            "route_open_settle_wait_slice_count": 0,
+            "route_open_settle_wait_total_ms": 0.0,
+            "route_open_transition_total_duration_ms": None,
+            "vent_ticks_during_route_open_transition": 0,
+            "route_open_transition_max_vent_write_gap_ms": None,
+            "route_open_transition_terminal_vent_write_age_ms": None,
+            "route_open_transition_blocked_vent_scheduler": False,
+            "route_open_settle_wait_blocked_vent_scheduler": False,
+            "terminal_vent_write_age_ms_at_gap_gate": None,
+            "max_vent_pulse_write_gap_ms_including_terminal_gap": None,
+            "route_conditioning_vent_gap_exceeded_source": "",
             "route_open_high_frequency_vent_phase_started": False,
             "max_vent_pulse_write_gap_ms": None,
             "max_vent_command_total_duration_ms": None,
@@ -1880,6 +1900,33 @@ class WorkflowOrchestrator:
             )
         )
         return max(0.05, float(0.5 if value is None else value))
+
+    def _a2_route_open_transition_block_threshold_s(self) -> float:
+        value = self._as_float(
+            self._cfg_get(
+                "workflow.pressure.route_open_transition_blocked_vent_scheduler_threshold_s",
+                self._a2_conditioning_high_frequency_vent_max_gap_s(),
+            )
+        )
+        return max(0.1, float(self._a2_conditioning_high_frequency_vent_max_gap_s() if value is None else value))
+
+    def _a2_route_open_settle_wait_s(self) -> float:
+        value = self._as_float(
+            self._cfg_get(
+                "workflow.pressure.route_open_settle_wait_s",
+                self._cfg_get("workflow.pressure.co2_route_open_settle_wait_s", 0.0),
+            )
+        )
+        return max(0.0, float(0.0 if value is None else value))
+
+    def _a2_route_open_settle_wait_slice_s(self) -> float:
+        value = self._as_float(
+            self._cfg_get(
+                "workflow.pressure.route_open_settle_wait_slice_s",
+                self._a2_conditioning_scheduler_sleep_step_s(),
+            )
+        )
+        return min(0.2, max(0.01, float(self._a2_conditioning_scheduler_sleep_step_s() if value is None else value)))
 
     def _a2_conditioning_pressure_rise_vent_trigger_hpa(self) -> float:
         value = self._as_float(
@@ -2179,8 +2226,33 @@ class WorkflowOrchestrator:
             None if not pulse_gaps_ms else round(max(float(item) for item in pulse_gaps_ms), 3)
         )
         updated["max_vent_pulse_write_gap_ms"] = updated["max_vent_pulse_gap_ms"]
+        terminal_gap_ms = self._as_float(updated.get("terminal_vent_write_age_ms_at_gap_gate"))
+        existing_including_terminal_ms = self._as_float(
+            updated.get("max_vent_pulse_write_gap_ms_including_terminal_gap")
+        )
+        including_terminal_candidates = [
+            value
+            for value in (
+                self._as_float(updated.get("max_vent_pulse_write_gap_ms")),
+                terminal_gap_ms,
+                existing_including_terminal_ms,
+            )
+            if value is not None
+        ]
+        updated["max_vent_pulse_write_gap_ms_including_terminal_gap"] = (
+            None
+            if not including_terminal_candidates
+            else round(max(float(value) for value in including_terminal_candidates), 3)
+        )
+        computed_scheduler_gap_ms = None if not scheduler_gaps_ms else round(max(float(item) for item in scheduler_gaps_ms), 3)
+        existing_scheduler_gap_ms = self._as_float(updated.get("max_vent_scheduler_loop_gap_ms"))
+        scheduler_candidates = [
+            value
+            for value in (computed_scheduler_gap_ms, existing_scheduler_gap_ms)
+            if value is not None
+        ]
         updated["max_vent_scheduler_loop_gap_ms"] = (
-            None if not scheduler_gaps_ms else round(max(float(item) for item in scheduler_gaps_ms), 3)
+            None if not scheduler_candidates else round(max(float(value) for value in scheduler_candidates), 3)
         )
         command_durations_ms = [
             self._as_float(item.get("vent_command_total_duration_ms"))
@@ -2201,6 +2273,73 @@ class WorkflowOrchestrator:
         if updated.get("route_open_to_first_vent_write_ms") in (None, ""):
             updated["route_open_to_first_vent_write_ms"] = updated.get("route_open_to_first_vent_ms")
         return updated
+
+    def _a2_conditioning_terminal_gap_details(
+        self,
+        context: Mapping[str, Any],
+        *,
+        now_mono: float,
+        max_gap_s: float,
+        source: str,
+    ) -> dict[str, Any]:
+        updated = dict(context)
+        last_write = self._as_float(
+            updated.get("last_vent_command_write_sent_monotonic_s")
+            or updated.get("last_vent_tick_monotonic_s")
+            or updated.get("last_vent_heartbeat_started_monotonic_s")
+        )
+        terminal_gap_ms = None
+        if last_write is not None:
+            terminal_gap_ms = round(max(0.0, float(now_mono) - float(last_write)) * 1000.0, 3)
+        pulse_gap_ms = self._as_float(updated.get("max_vent_pulse_write_gap_ms"))
+        if pulse_gap_ms is None:
+            pulse_gap_ms = self._as_float(updated.get("max_vent_pulse_gap_ms"))
+        existing_including = self._as_float(updated.get("max_vent_pulse_write_gap_ms_including_terminal_gap"))
+        including_candidates = [
+            value
+            for value in (pulse_gap_ms, terminal_gap_ms, existing_including)
+            if value is not None
+        ]
+        including_gap_ms = None if not including_candidates else round(max(float(value) for value in including_candidates), 3)
+        scheduler_gap_ms = self._as_float(updated.get("max_vent_scheduler_loop_gap_ms"))
+        if terminal_gap_ms is not None:
+            scheduler_gap_ms = (
+                terminal_gap_ms
+                if scheduler_gap_ms is None
+                else max(float(scheduler_gap_ms), float(terminal_gap_ms))
+            )
+        source_text = str(source or "terminal_gap")
+        details = {
+            "terminal_vent_write_age_ms_at_gap_gate": terminal_gap_ms,
+            "max_vent_pulse_write_gap_ms_including_terminal_gap": including_gap_ms,
+            "route_conditioning_vent_gap_exceeded_source": source_text,
+            "max_vent_scheduler_loop_gap_ms": None if scheduler_gap_ms is None else round(float(scheduler_gap_ms), 3),
+            "max_vent_pulse_gap_limit_ms": round(float(max_gap_s) * 1000.0, 3),
+        }
+        terminal_exceeded = bool(
+            terminal_gap_ms is not None and float(terminal_gap_ms) > float(max_gap_s) * 1000.0
+        )
+        if terminal_exceeded and source_text == "route_open_transition":
+            details["route_open_transition_blocked_vent_scheduler"] = True
+        elif terminal_exceeded and source_text == "route_open_settle_wait":
+            details["route_open_settle_wait_blocked_vent_scheduler"] = True
+        elif terminal_exceeded and source_text == "diagnostic":
+            details["route_conditioning_diagnostic_blocked_vent_scheduler"] = True
+        return details
+
+    def _a2_conditioning_vent_gap_source(self, context: Mapping[str, Any]) -> str:
+        blocking_name = str(context.get("last_blocking_operation_name") or "")
+        if bool(context.get("route_conditioning_diagnostic_blocked_vent_scheduler")):
+            return "diagnostic"
+        if bool(context.get("route_open_settle_wait_blocked_vent_scheduler")):
+            return "route_open_settle_wait"
+        if blocking_name in {"a2_conditioning_pressure_monitor", "route_open_diagnostic"}:
+            return "diagnostic"
+        if bool(context.get("route_open_transition_started")) and not bool(
+            context.get("route_open_transition_completed", False)
+        ):
+            return "route_open_transition"
+        return "terminal_gap"
 
     def _a2_conditioning_heartbeat_gap_state(
         self,
@@ -2298,6 +2437,8 @@ class WorkflowOrchestrator:
                         "route_conditioning_vent_gap_exceeded",
                         "atmosphere_vent_heartbeat_gap_exceeded",
                         "route_open_to_first_vent_heartbeat_exceeded",
+                        "route_open_transition_blocked_vent_scheduler",
+                        "route_open_settle_wait_blocked_vent_scheduler",
                     }
                 ),
                 "vent_off_sent_at": str(context.get("vent_off_sent_at") or ""),
@@ -2921,9 +3062,9 @@ class WorkflowOrchestrator:
         if last_vent is not None:
             context["last_vent_command_age_s"] = round(max(0.0, now_mono - float(last_vent)), 3)
         sample = self._a2_conditioning_pressure_sample(point, phase=phase)
+        snapshot = self._a2_conditioning_stream_snapshot()
         monitor_completed_monotonic_s = time.monotonic()
         monitor_duration_s = max(0.0, monitor_completed_monotonic_s - monitor_started_monotonic_s)
-        snapshot = self._a2_conditioning_stream_snapshot()
         details = self._a2_conditioning_pressure_details(sample, snapshot, context=context)
         elapsed_s = max(0.0, now_mono - float(context.get("conditioning_started_monotonic_s") or now_mono))
         context = self._a2_conditioning_update_pressure_metrics(
@@ -2966,6 +3107,43 @@ class WorkflowOrchestrator:
             "diagnostic_duration_ms": round(monitor_duration_s * 1000.0, 3),
             "route_conditioning_diagnostic_blocked_vent_scheduler": bool(
                 context.get("route_conditioning_diagnostic_blocked_vent_scheduler", False)
+            ),
+            "route_open_transition_started": bool(context.get("route_open_transition_started", False)),
+            "route_open_transition_started_at": context.get("route_open_transition_started_at", ""),
+            "route_open_transition_started_monotonic_s": context.get(
+                "route_open_transition_started_monotonic_s"
+            ),
+            "route_open_command_write_started_at": context.get("route_open_command_write_started_at", ""),
+            "route_open_command_write_completed_at": context.get("route_open_command_write_completed_at", ""),
+            "route_open_command_write_duration_ms": context.get("route_open_command_write_duration_ms"),
+            "route_open_settle_wait_sliced": bool(context.get("route_open_settle_wait_sliced", False)),
+            "route_open_settle_wait_slice_count": int(context.get("route_open_settle_wait_slice_count") or 0),
+            "route_open_settle_wait_total_ms": context.get("route_open_settle_wait_total_ms"),
+            "route_open_transition_total_duration_ms": context.get("route_open_transition_total_duration_ms"),
+            "vent_ticks_during_route_open_transition": int(
+                context.get("vent_ticks_during_route_open_transition") or 0
+            ),
+            "route_open_transition_max_vent_write_gap_ms": context.get(
+                "route_open_transition_max_vent_write_gap_ms"
+            ),
+            "route_open_transition_terminal_vent_write_age_ms": context.get(
+                "route_open_transition_terminal_vent_write_age_ms"
+            ),
+            "route_open_transition_blocked_vent_scheduler": bool(
+                context.get("route_open_transition_blocked_vent_scheduler", False)
+            ),
+            "route_open_settle_wait_blocked_vent_scheduler": bool(
+                context.get("route_open_settle_wait_blocked_vent_scheduler", False)
+            ),
+            "terminal_vent_write_age_ms_at_gap_gate": context.get(
+                "terminal_vent_write_age_ms_at_gap_gate"
+            ),
+            "max_vent_pulse_write_gap_ms_including_terminal_gap": context.get(
+                "max_vent_pulse_write_gap_ms_including_terminal_gap"
+            ),
+            "route_conditioning_vent_gap_exceeded_source": context.get(
+                "route_conditioning_vent_gap_exceeded_source",
+                "",
             ),
             "route_open_to_first_pressure_read_ms": context.get("route_open_to_first_pressure_read_ms"),
             "route_open_to_overlimit_ms": context.get("route_open_to_overlimit_ms"),
@@ -3045,10 +3223,18 @@ class WorkflowOrchestrator:
         schedule = self._a2_conditioning_vent_schedule(context, now_mono=monitor_completed_monotonic_s)
         diagnostic_max_gap_s = float(schedule.get("route_conditioning_effective_max_gap_s") or 0.0)
         if diagnostic_max_gap_s > 0.0 and monitor_duration_s > diagnostic_max_gap_s:
+            terminal = self._a2_conditioning_terminal_gap_details(
+                context,
+                now_mono=monitor_completed_monotonic_s,
+                max_gap_s=diagnostic_max_gap_s,
+                source="diagnostic",
+            )
             monitor_state["route_conditioning_diagnostic_blocked_vent_scheduler"] = True
+            monitor_state.update(terminal)
             monitor_state["fail_closed_reason"] = "route_conditioning_diagnostic_blocked_vent_scheduler"
             context.update(
                 {
+                    **terminal,
                     "route_conditioning_diagnostic_blocked_vent_scheduler": True,
                     "diagnostic_duration_ms": monitor_state["diagnostic_duration_ms"],
                     "fail_closed_reason": "route_conditioning_diagnostic_blocked_vent_scheduler",
@@ -3110,6 +3296,274 @@ class WorkflowOrchestrator:
             )
         return monitor_state
 
+    def _begin_a2_co2_route_open_transition(self, point: CalibrationPoint) -> dict[str, Any]:
+        if not bool(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_active", False)):
+            return {}
+        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        if not context:
+            return {}
+        now_mono = time.monotonic()
+        now_at = datetime.now(timezone.utc).isoformat()
+        context.update(
+            {
+                "route_open_transition_started": True,
+                "route_open_transition_completed": False,
+                "route_open_transition_started_at": now_at,
+                "route_open_transition_started_monotonic_s": now_mono,
+                "route_open_settle_wait_sliced": False,
+                "route_open_settle_wait_slice_count": 0,
+                "route_open_settle_wait_total_ms": 0.0,
+                "vent_ticks_during_route_open_transition": 0,
+                "route_open_transition_max_vent_write_gap_ms": None,
+                "route_open_transition_terminal_vent_write_age_ms": None,
+                "route_open_transition_blocked_vent_scheduler": False,
+                "route_open_settle_wait_blocked_vent_scheduler": False,
+                "route_conditioning_vent_gap_exceeded_source": "",
+                "_route_open_transition_last_vent_write_sent_monotonic_s": None,
+            }
+        )
+        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        self._record_workflow_timing(
+            "co2_route_open_transition_start",
+            "start",
+            stage="co2_route_open_transition",
+            point=point,
+            route_state=context,
+        )
+        return context
+
+    def _mark_a2_co2_route_open_command_write_started(self, point: CalibrationPoint) -> dict[str, Any]:
+        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        if not context:
+            return {}
+        now_mono = time.monotonic()
+        now_at = datetime.now(timezone.utc).isoformat()
+        context.update(
+            {
+                "route_open_command_write_started_at": now_at,
+                "route_open_command_write_started_monotonic_s": now_mono,
+                "route_open_started_at": now_at,
+            }
+        )
+        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        self._record_workflow_timing(
+            "co2_route_open_command_write_start",
+            "start",
+            stage="co2_route_open_transition",
+            point=point,
+            route_state=context,
+        )
+        return context
+
+    def _mark_a2_co2_route_open_command_write_completed(self, point: CalibrationPoint) -> dict[str, Any]:
+        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        if not context:
+            return {}
+        now_mono = time.monotonic()
+        now_at = datetime.now(timezone.utc).isoformat()
+        started = self._as_float(context.get("route_open_command_write_started_monotonic_s"))
+        duration_ms = None if started is None else round(max(0.0, now_mono - float(started)) * 1000.0, 3)
+        context.update(
+            {
+                "route_open_command_write_completed_at": now_at,
+                "route_open_command_write_completed_monotonic_s": now_mono,
+                "route_open_command_write_duration_ms": duration_ms,
+                "route_open_completed_at": now_at,
+                "route_open_completed_monotonic_s": now_mono,
+            }
+        )
+        setattr(self, "_a2_co2_route_open_monotonic_s", now_mono)
+        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        self._record_workflow_timing(
+            "co2_route_open_command_write_end",
+            "end",
+            stage="co2_route_open_transition",
+            point=point,
+            duration_s=None if duration_ms is None else round(float(duration_ms) / 1000.0, 3),
+            route_state=context,
+        )
+        return context
+
+    def _fail_a2_route_open_transition_if_blocked(self, point: CalibrationPoint) -> None:
+        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        if not context:
+            return
+        duration_ms = self._as_float(context.get("route_open_command_write_duration_ms"))
+        threshold_s = self._a2_route_open_transition_block_threshold_s()
+        if duration_ms is None or float(duration_ms) <= threshold_s * 1000.0:
+            return
+        now_mono = time.monotonic()
+        details = {
+            **context,
+            **self._a2_conditioning_terminal_gap_details(
+                context,
+                now_mono=now_mono,
+                max_gap_s=threshold_s,
+                source="route_open_transition",
+            ),
+            "route_open_transition_blocked_vent_scheduler": True,
+            "route_open_command_write_duration_ms": round(float(duration_ms), 3),
+            "fail_closed_reason": "route_open_transition_blocked_vent_scheduler",
+            "whether_safe_to_continue": False,
+        }
+        self._fail_a2_co2_route_conditioning_closed(
+            point,
+            reason="route_open_transition_blocked_vent_scheduler",
+            details=details,
+            event_name="co2_route_open_transition_blocked_vent_scheduler",
+            route_trace_action="co2_route_open_transition_blocked_vent_scheduler",
+        )
+
+    def _wait_a2_co2_route_open_settle_before_conditioning(self, point: CalibrationPoint) -> dict[str, Any]:
+        if not bool(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_active", False)):
+            return {}
+        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        if not context:
+            return {}
+        total_s = self._a2_route_open_settle_wait_s()
+        if total_s <= 0.0:
+            context.update(
+                {
+                    "route_open_settle_wait_sliced": False,
+                    "route_open_settle_wait_slice_count": 0,
+                    "route_open_settle_wait_total_ms": 0.0,
+                }
+            )
+            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+            return context
+        slice_s = min(self._a2_route_open_settle_wait_slice_s(), self._a2_conditioning_scheduler_sleep_step_s())
+        start_mono = time.monotonic()
+        deadline = start_mono + total_s
+        slice_count = 0
+        context.update({"route_open_settle_wait_sliced": True})
+        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        while True:
+            now_mono = time.monotonic()
+            if now_mono >= deadline:
+                break
+            self._maybe_reassert_a2_conditioning_vent(point)
+            now_mono = time.monotonic()
+            if now_mono >= deadline:
+                break
+            sleep_s = min(slice_s, max(0.0, deadline - now_mono))
+            if sleep_s <= 0.0:
+                continue
+            time.sleep(sleep_s)
+            slice_count += 1
+        completed_mono = time.monotonic()
+        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        context.update(
+            {
+                "route_open_settle_wait_sliced": True,
+                "route_open_settle_wait_slice_count": slice_count,
+                "route_open_settle_wait_total_ms": round(max(0.0, completed_mono - start_mono) * 1000.0, 3),
+            }
+        )
+        schedule = self._a2_conditioning_vent_schedule(context, now_mono=completed_mono)
+        terminal = self._a2_conditioning_terminal_gap_details(
+            context,
+            now_mono=completed_mono,
+            max_gap_s=float(schedule["route_conditioning_effective_max_gap_s"]),
+            source="route_open_settle_wait",
+        )
+        context["route_open_transition_terminal_vent_write_age_ms"] = terminal.get(
+            "terminal_vent_write_age_ms_at_gap_gate"
+        )
+        context.update(
+            {
+                key: value
+                for key, value in terminal.items()
+                if key
+                in {
+                    "terminal_vent_write_age_ms_at_gap_gate",
+                    "max_vent_pulse_write_gap_ms_including_terminal_gap",
+                    "max_vent_scheduler_loop_gap_ms",
+                }
+            }
+        )
+        terminal_age_ms = self._as_float(terminal.get("terminal_vent_write_age_ms_at_gap_gate"))
+        max_gap_ms = float(schedule["route_conditioning_effective_max_gap_s"]) * 1000.0
+        if terminal_age_ms is not None and float(terminal_age_ms) > max_gap_ms:
+            context.update(
+                {
+                    **terminal,
+                    "route_open_settle_wait_blocked_vent_scheduler": True,
+                    "route_conditioning_vent_gap_exceeded": True,
+                    "route_conditioning_vent_gap_exceeded_source": "route_open_settle_wait",
+                    "fail_closed_reason": "route_conditioning_vent_gap_exceeded",
+                    "whether_safe_to_continue": False,
+                }
+            )
+            setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+            self._fail_a2_co2_route_conditioning_closed(
+                point,
+                reason="route_conditioning_vent_gap_exceeded",
+                details=context,
+                event_name="co2_route_open_settle_wait_blocked_vent_scheduler",
+                route_trace_action="co2_route_open_settle_wait_blocked_vent_scheduler",
+            )
+        context = self._a2_conditioning_context_with_counts(context)
+        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        self._record_workflow_timing(
+            "co2_route_open_settle_wait",
+            "end",
+            stage="co2_route_open_transition",
+            point=point,
+            duration_s=round(max(0.0, completed_mono - start_mono), 3),
+            route_state=context,
+        )
+        return context
+
+    def _complete_a2_co2_route_open_transition(self, point: CalibrationPoint) -> dict[str, Any]:
+        context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
+        if not context:
+            return {}
+        now_mono = time.monotonic()
+        started = self._as_float(context.get("route_open_transition_started_monotonic_s"))
+        if started is not None:
+            context["route_open_transition_total_duration_ms"] = round(
+                max(0.0, now_mono - float(started)) * 1000.0,
+                3,
+            )
+        schedule = self._a2_conditioning_vent_schedule(context, now_mono=now_mono)
+        terminal = self._a2_conditioning_terminal_gap_details(
+            context,
+            now_mono=now_mono,
+            max_gap_s=float(schedule["route_conditioning_effective_max_gap_s"]),
+            source="route_open_transition",
+        )
+        context["route_open_transition_terminal_vent_write_age_ms"] = terminal.get(
+            "terminal_vent_write_age_ms_at_gap_gate"
+        )
+        context.update(
+            {
+                key: value
+                for key, value in terminal.items()
+                if key
+                in {
+                    "terminal_vent_write_age_ms_at_gap_gate",
+                    "max_vent_pulse_write_gap_ms_including_terminal_gap",
+                    "max_vent_scheduler_loop_gap_ms",
+                }
+            }
+        )
+        context["route_open_transition_completed"] = True
+        context = self._a2_conditioning_context_with_counts(context)
+        setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+        self._record_workflow_timing(
+            "co2_route_open_transition_end",
+            "end",
+            stage="co2_route_open_transition",
+            point=point,
+            duration_s=(
+                None
+                if context.get("route_open_transition_total_duration_ms") is None
+                else round(float(context["route_open_transition_total_duration_ms"]) / 1000.0, 3)
+            ),
+            route_state=context,
+        )
+        return context
+
     def _record_a2_co2_conditioning_vent_tick(self, point: CalibrationPoint, *, phase: str) -> dict[str, Any]:
         context = dict(getattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", {}) or {})
         if not context:
@@ -3153,9 +3607,21 @@ class WorkflowOrchestrator:
         vent_gap_s = self._as_float(gap_state.get("vent_heartbeat_gap_s"))
         emission_gap_s = self._as_float(gap_state.get("heartbeat_emission_gap_s"))
         effective_gap_s = vent_gap_s if vent_gap_s is not None else emission_gap_s
-        if route_open_monotonic is not None and effective_gap_s is not None:
+        first_after_route_vent = bool(
+            route_open_monotonic is not None
+            and context.get("route_open_to_first_vent_s") in (None, "")
+            and str(phase or "") == "after_route_open"
+        )
+        if route_open_monotonic is not None and effective_gap_s is not None and not first_after_route_vent:
             if effective_gap_s > max_gap_s:
                 gap_ms = round(float(effective_gap_s) * 1000.0, 3)
+                source = self._a2_conditioning_vent_gap_source(context)
+                terminal = self._a2_conditioning_terminal_gap_details(
+                    context,
+                    now_mono=tick_started_monotonic_s,
+                    max_gap_s=max_gap_s,
+                    source=source,
+                )
                 self._fail_a2_co2_route_conditioning_closed(
                     point,
                     reason="route_conditioning_vent_gap_exceeded",
@@ -3169,6 +3635,7 @@ class WorkflowOrchestrator:
                         "route_conditioning_vent_gap_exceeded": True,
                         "max_vent_pulse_gap_ms": gap_ms,
                         "max_vent_pulse_gap_limit_ms": round(max_gap_s * 1000.0, 3),
+                        **terminal,
                         "last_vent_command_age_s": round(float(effective_gap_s), 3),
                         "fail_closed_reason": "route_conditioning_vent_gap_exceeded",
                         "whether_safe_to_continue": False,
@@ -3182,6 +3649,13 @@ class WorkflowOrchestrator:
             route_open_to_first_vent_s = max(0.0, tick_started_monotonic_s - float(route_open_monotonic))
             if route_open_to_first_vent_s > max_gap_s:
                 gap_ms = round(float(route_open_to_first_vent_s) * 1000.0, 3)
+                source = self._a2_conditioning_vent_gap_source(context)
+                terminal = self._a2_conditioning_terminal_gap_details(
+                    context,
+                    now_mono=tick_started_monotonic_s,
+                    max_gap_s=max_gap_s,
+                    source=source,
+                )
                 self._fail_a2_co2_route_conditioning_closed(
                     point,
                     reason="route_conditioning_vent_gap_exceeded",
@@ -3194,6 +3668,7 @@ class WorkflowOrchestrator:
                         "route_conditioning_vent_gap_exceeded": True,
                         "max_vent_pulse_gap_ms": gap_ms,
                         "max_vent_pulse_gap_limit_ms": round(max_gap_s * 1000.0, 3),
+                        **terminal,
                         **schedule,
                     },
                     event_name="co2_route_conditioning_route_open_first_vent_gap",
@@ -3265,6 +3740,29 @@ class WorkflowOrchestrator:
         if route_open_monotonic is None:
             context["pre_route_fast_vent_sent"] = bool(command_result == "ok")
             context["pre_route_fast_vent_duration_ms"] = diagnostics.get("vent_command_total_duration_ms")
+        if bool(context.get("route_open_transition_started")) and not bool(
+            context.get("route_open_transition_completed", False)
+        ):
+            previous_transition_write = self._as_float(
+                context.get("_route_open_transition_last_vent_write_sent_monotonic_s")
+            )
+            if previous_transition_write is not None and write_sent_monotonic_s is not None:
+                transition_gap_ms = round(
+                    max(0.0, float(write_sent_monotonic_s) - float(previous_transition_write)) * 1000.0,
+                    3,
+                )
+                previous_transition_max = self._as_float(context.get("route_open_transition_max_vent_write_gap_ms"))
+                context["route_open_transition_max_vent_write_gap_ms"] = (
+                    transition_gap_ms
+                    if previous_transition_max is None
+                    else max(float(previous_transition_max), transition_gap_ms)
+                )
+            if write_sent_monotonic_s is not None:
+                context["_route_open_transition_last_vent_write_sent_monotonic_s"] = float(write_sent_monotonic_s)
+            context["vent_ticks_during_route_open_transition"] = (
+                int(context.get("vent_ticks_during_route_open_transition") or 0) + 1
+            )
+            context["route_open_transition_terminal_vent_write_age_ms"] = 0.0
         context.update(
             {
                 "fast_vent_reassert_supported": bool(diagnostics.get("fast_vent_reassert_supported")),
@@ -3369,6 +3867,43 @@ class WorkflowOrchestrator:
             ),
             "route_conditioning_diagnostic_blocked_vent_scheduler": bool(
                 context.get("route_conditioning_diagnostic_blocked_vent_scheduler", False)
+            ),
+            "route_open_transition_started": bool(context.get("route_open_transition_started", False)),
+            "route_open_transition_started_at": context.get("route_open_transition_started_at", ""),
+            "route_open_transition_started_monotonic_s": context.get(
+                "route_open_transition_started_monotonic_s"
+            ),
+            "route_open_command_write_started_at": context.get("route_open_command_write_started_at", ""),
+            "route_open_command_write_completed_at": context.get("route_open_command_write_completed_at", ""),
+            "route_open_command_write_duration_ms": context.get("route_open_command_write_duration_ms"),
+            "route_open_settle_wait_sliced": bool(context.get("route_open_settle_wait_sliced", False)),
+            "route_open_settle_wait_slice_count": int(context.get("route_open_settle_wait_slice_count") or 0),
+            "route_open_settle_wait_total_ms": context.get("route_open_settle_wait_total_ms"),
+            "route_open_transition_total_duration_ms": context.get("route_open_transition_total_duration_ms"),
+            "vent_ticks_during_route_open_transition": int(
+                context.get("vent_ticks_during_route_open_transition") or 0
+            ),
+            "route_open_transition_max_vent_write_gap_ms": context.get(
+                "route_open_transition_max_vent_write_gap_ms"
+            ),
+            "route_open_transition_terminal_vent_write_age_ms": context.get(
+                "route_open_transition_terminal_vent_write_age_ms"
+            ),
+            "route_open_transition_blocked_vent_scheduler": bool(
+                context.get("route_open_transition_blocked_vent_scheduler", False)
+            ),
+            "route_open_settle_wait_blocked_vent_scheduler": bool(
+                context.get("route_open_settle_wait_blocked_vent_scheduler", False)
+            ),
+            "terminal_vent_write_age_ms_at_gap_gate": context.get(
+                "terminal_vent_write_age_ms_at_gap_gate"
+            ),
+            "max_vent_pulse_write_gap_ms_including_terminal_gap": context.get(
+                "max_vent_pulse_write_gap_ms_including_terminal_gap"
+            ),
+            "route_conditioning_vent_gap_exceeded_source": context.get(
+                "route_conditioning_vent_gap_exceeded_source",
+                "",
             ),
             "route_open_high_frequency_vent_phase_started": bool(
                 context.get("route_open_high_frequency_vent_phase_started", False)
@@ -3499,6 +4034,23 @@ class WorkflowOrchestrator:
             abnormal_events.append(tick)
             context["abnormal_pressure_events"] = abnormal_events
         context = self._a2_conditioning_context_with_counts(context)
+        tick.update(
+            {
+                "max_vent_pulse_gap_ms": context.get("max_vent_pulse_gap_ms"),
+                "max_vent_pulse_write_gap_ms": context.get("max_vent_pulse_write_gap_ms"),
+                "max_vent_pulse_write_gap_ms_including_terminal_gap": context.get(
+                    "max_vent_pulse_write_gap_ms_including_terminal_gap"
+                ),
+                "max_vent_scheduler_loop_gap_ms": context.get("max_vent_scheduler_loop_gap_ms"),
+                "max_vent_command_total_duration_ms": context.get("max_vent_command_total_duration_ms"),
+                "route_open_transition_max_vent_write_gap_ms": context.get(
+                    "route_open_transition_max_vent_write_gap_ms"
+                ),
+                "route_open_transition_terminal_vent_write_age_ms": context.get(
+                    "route_open_transition_terminal_vent_write_age_ms"
+                ),
+            }
+        )
         setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
         self._record_pressure_source_latency_events(tick, point=point, stage="co2_route_conditioning_at_atmosphere")
         self._record_workflow_timing(
@@ -3591,6 +4143,13 @@ class WorkflowOrchestrator:
         )
         if route_open_monotonic is not None and effective_gap_s is not None and effective_gap_s > max_gap_s:
             gap_ms = round(float(effective_gap_s) * 1000.0, 3)
+            source = self._a2_conditioning_vent_gap_source(context)
+            terminal = self._a2_conditioning_terminal_gap_details(
+                context,
+                now_mono=now_mono,
+                max_gap_s=max_gap_s,
+                source=source,
+            )
             self._fail_a2_co2_route_conditioning_closed(
                 point,
                 reason="route_conditioning_vent_gap_exceeded",
@@ -3603,6 +4162,7 @@ class WorkflowOrchestrator:
                     "route_conditioning_vent_gap_exceeded": True,
                     "max_vent_pulse_gap_ms": gap_ms,
                     "max_vent_pulse_gap_limit_ms": round(max_gap_s * 1000.0, 3),
+                    **terminal,
                     "last_vent_command_age_s": round(float(effective_gap_s), 3),
                     "fail_closed_reason": "route_conditioning_vent_gap_exceeded",
                     "whether_safe_to_continue": False,
@@ -3617,6 +4177,13 @@ class WorkflowOrchestrator:
             and (now_mono - float(route_open_monotonic)) > max_gap_s
         ):
             gap_ms = round((now_mono - float(route_open_monotonic)) * 1000.0, 3)
+            source = self._a2_conditioning_vent_gap_source(context)
+            terminal = self._a2_conditioning_terminal_gap_details(
+                context,
+                now_mono=now_mono,
+                max_gap_s=max_gap_s,
+                source=source,
+            )
             self._fail_a2_co2_route_conditioning_closed(
                 point,
                 reason="route_conditioning_vent_gap_exceeded",
@@ -3628,6 +4195,7 @@ class WorkflowOrchestrator:
                     "route_conditioning_vent_gap_exceeded": True,
                     "max_vent_pulse_gap_ms": gap_ms,
                     "max_vent_pulse_gap_limit_ms": round(max_gap_s * 1000.0, 3),
+                    **terminal,
                     **schedule,
                 },
                 event_name="co2_route_conditioning_route_open_first_vent_gap",
@@ -3653,8 +4221,15 @@ class WorkflowOrchestrator:
             if diagnostic_duration_s is not None:
                 diagnostic_duration_s = float(diagnostic_duration_s) / 1000.0
             if diagnostic_duration_s is not None and diagnostic_duration_s > max_gap_s:
+                terminal = self._a2_conditioning_terminal_gap_details(
+                    context,
+                    now_mono=time.monotonic(),
+                    max_gap_s=max_gap_s,
+                    source="diagnostic",
+                )
                 details = {
                     **context,
+                    **terminal,
                     "route_conditioning_diagnostic_blocked_vent_scheduler": True,
                     "diagnostic_duration_ms": round(float(diagnostic_duration_s) * 1000.0, 3),
                     "vent_heartbeat_interval_s": interval_s,
@@ -3721,6 +4296,47 @@ class WorkflowOrchestrator:
         last_vent = self._as_float(context.get("last_vent_tick_monotonic_s"))
         if last_vent is not None:
             context["last_vent_command_age_s"] = round(max(0.0, now_monotonic - float(last_vent)), 3)
+        if route_soak_ok:
+            schedule = self._a2_conditioning_vent_schedule(context, now_mono=now_monotonic)
+            terminal = self._a2_conditioning_terminal_gap_details(
+                context,
+                now_mono=now_monotonic,
+                max_gap_s=float(schedule["route_conditioning_effective_max_gap_s"]),
+                source="terminal_gap",
+            )
+            context.update(
+                {
+                    key: value
+                    for key, value in terminal.items()
+                    if key
+                    in {
+                        "terminal_vent_write_age_ms_at_gap_gate",
+                        "max_vent_pulse_write_gap_ms_including_terminal_gap",
+                        "max_vent_scheduler_loop_gap_ms",
+                    }
+                }
+            )
+            terminal_age_ms = self._as_float(terminal.get("terminal_vent_write_age_ms_at_gap_gate"))
+            if terminal_age_ms is not None and float(terminal_age_ms) > float(
+                schedule["route_conditioning_effective_max_gap_s"]
+            ) * 1000.0:
+                context.update(
+                    {
+                        **terminal,
+                        "route_conditioning_vent_gap_exceeded": True,
+                        "route_conditioning_vent_gap_exceeded_source": "terminal_gap",
+                        "fail_closed_reason": "route_conditioning_vent_gap_exceeded",
+                        "whether_safe_to_continue": False,
+                    }
+                )
+                setattr(self, "_a2_co2_route_conditioning_at_atmosphere_context", context)
+                self._fail_a2_co2_route_conditioning_closed(
+                    point,
+                    reason="route_conditioning_vent_gap_exceeded",
+                    details=context,
+                    event_name="co2_route_conditioning_terminal_vent_gap",
+                    route_trace_action="co2_route_conditioning_terminal_vent_gap",
+                )
         context.update(
             {
                 "conditioning_completed_at": completed_at,

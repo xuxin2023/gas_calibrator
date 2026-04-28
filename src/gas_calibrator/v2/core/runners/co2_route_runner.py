@@ -88,36 +88,86 @@ class Co2RouteRunner:
             if callable(confirm_conditioning_vent):
                 confirm_conditioning_vent(point)
             high_pressure_first_point_mode = False
+            begin_route_open_transition = getattr(self.service, "_begin_a2_co2_route_open_transition", None)
+            if callable(begin_route_open_transition):
+                begin_route_open_transition(point)
             self.service._record_workflow_timing("co2_route_open_start", "start", stage="co2_route_open", point=point)
+            mark_route_open_started = getattr(self.service, "_mark_a2_co2_route_open_command_write_started", None)
+            if callable(mark_route_open_started):
+                mark_route_open_started(point)
             self.service.valve_routing_service.set_valves_for_co2(point)
-            route_open_completed_monotonic_s = time.monotonic()
+            mark_route_open_completed = getattr(self.service, "_mark_a2_co2_route_open_command_write_completed", None)
+            if callable(mark_route_open_completed):
+                mark_route_open_completed(point)
+                route_open_completed_monotonic_s = getattr(self.service, "_a2_co2_route_open_monotonic_s", None)
+                if route_open_completed_monotonic_s is None:
+                    route_open_completed_monotonic_s = time.monotonic()
+            else:
+                route_open_completed_monotonic_s = time.monotonic()
             setattr(self.service, "_a2_co2_route_open_monotonic_s", route_open_completed_monotonic_s)
             refresh_conditioning_vent = getattr(self.service, "_refresh_a2_co2_conditioning_after_route_open", None)
             if callable(refresh_conditioning_vent):
                 refresh_conditioning_vent(point)
+            fail_route_open_transition = getattr(self.service, "_fail_a2_route_open_transition_if_blocked", None)
+            if callable(fail_route_open_transition):
+                fail_route_open_transition(point)
+            wait_route_open_settle = getattr(self.service, "_wait_a2_co2_route_open_settle_before_conditioning", None)
+            if callable(wait_route_open_settle):
+                wait_route_open_settle(point)
             route_open_pressure = None
-            pressure_reader = getattr(getattr(self.service, "pressure_control_service", None), "_current_pressure", None)
-            if callable(pressure_reader):
-                try:
-                    route_open_pressure = self.service._as_float(pressure_reader())
-                except Exception:
-                    route_open_pressure = None
+            conditioning_active = bool(getattr(self.service, "_a2_co2_route_conditioning_at_atmosphere_active", False))
+            if not conditioning_active:
+                pressure_reader = getattr(getattr(self.service, "pressure_control_service", None), "_current_pressure", None)
+                if callable(pressure_reader):
+                    try:
+                        route_open_pressure = self.service._as_float(pressure_reader())
+                    except Exception:
+                        route_open_pressure = None
             setattr(self.service, "_a2_co2_route_open_pressure_hpa", route_open_pressure)
             setattr(self.service, "_a2_preseal_pressure_rise_detected", False)
             setattr(self.service, "_a2_route_open_pressure_first_sample_recorded", False)
+            complete_route_open_transition = getattr(self.service, "_complete_a2_co2_route_open_transition", None)
+            route_open_transition_state = {}
+            if callable(complete_route_open_transition):
+                route_open_transition_state = complete_route_open_transition(point) or {}
             route_open_state = {
                 "high_pressure_first_point_mode": False,
                 "co2_route_conditioning_at_atmosphere": bool(
                     getattr(self.service, "_a2_co2_route_conditioning_at_atmosphere_active", False)
                 ),
             }
-            stream_snapshot = getattr(
-                getattr(self.service, "pressure_control_service", None),
-                "digital_gauge_continuous_stream_snapshot",
-                None,
-            )
-            if callable(stream_snapshot):
-                route_open_state["digital_gauge_stream"] = stream_snapshot()
+            if route_open_transition_state:
+                route_open_state["route_open_transition"] = {
+                    key: route_open_transition_state.get(key)
+                    for key in (
+                        "route_open_transition_started",
+                        "route_open_transition_started_at",
+                        "route_open_transition_started_monotonic_s",
+                        "route_open_command_write_started_at",
+                        "route_open_command_write_completed_at",
+                        "route_open_command_write_duration_ms",
+                        "route_open_settle_wait_sliced",
+                        "route_open_settle_wait_slice_count",
+                        "route_open_settle_wait_total_ms",
+                        "route_open_transition_total_duration_ms",
+                        "vent_ticks_during_route_open_transition",
+                        "route_open_transition_max_vent_write_gap_ms",
+                        "route_open_transition_terminal_vent_write_age_ms",
+                        "route_open_transition_blocked_vent_scheduler",
+                        "route_open_settle_wait_blocked_vent_scheduler",
+                        "terminal_vent_write_age_ms_at_gap_gate",
+                        "max_vent_pulse_write_gap_ms_including_terminal_gap",
+                        "route_conditioning_vent_gap_exceeded_source",
+                    )
+                }
+            if not conditioning_active:
+                stream_snapshot = getattr(
+                    getattr(self.service, "pressure_control_service", None),
+                    "digital_gauge_continuous_stream_snapshot",
+                    None,
+                )
+                if callable(stream_snapshot):
+                    route_open_state["digital_gauge_stream"] = stream_snapshot()
             self.service._record_workflow_timing(
                 "co2_route_open_end",
                 "end",

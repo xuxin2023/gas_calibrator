@@ -1384,6 +1384,9 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
     ) is True
     max_vent_pulse_gap_ms = _as_float(metric_or_summary("max_vent_pulse_gap_ms"))
     max_vent_pulse_write_gap_ms = _as_float(metric_or_summary("max_vent_pulse_write_gap_ms"))
+    max_vent_pulse_write_gap_ms_including_terminal_gap = _as_float(
+        metric_or_summary("max_vent_pulse_write_gap_ms_including_terminal_gap")
+    )
     max_vent_pulse_gap_limit_ms = _as_float(metric_or_summary("max_vent_pulse_gap_limit_ms"))
     if (
         max_vent_pulse_gap_ms is not None
@@ -1397,6 +1400,12 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         and float(max_vent_pulse_write_gap_ms) > float(max_vent_pulse_gap_limit_ms)
     ):
         route_conditioning_vent_gap_exceeded = True
+    if (
+        max_vent_pulse_write_gap_ms_including_terminal_gap is not None
+        and max_vent_pulse_gap_limit_ms is not None
+        and float(max_vent_pulse_write_gap_ms_including_terminal_gap) > float(max_vent_pulse_gap_limit_ms)
+    ):
+        route_conditioning_vent_gap_exceeded = True
     route_conditioning_fast_vent_timeout = _as_bool(
         metric_or_summary("route_conditioning_fast_vent_command_timeout", "pre_route_fast_vent_timeout")
     ) is True
@@ -1405,6 +1414,12 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
     ) is True
     route_conditioning_diagnostic_blocked = _as_bool(
         metric_or_summary("route_conditioning_diagnostic_blocked_vent_scheduler")
+    ) is True
+    route_open_transition_blocked = _as_bool(
+        metric_or_summary("route_open_transition_blocked_vent_scheduler")
+    ) is True
+    route_open_settle_wait_blocked = _as_bool(
+        metric_or_summary("route_open_settle_wait_blocked_vent_scheduler")
     ) is True
     route_conditioning_vent_command_failed = _as_bool(
         metric_or_summary("vent_command_failed_during_flush")
@@ -1439,6 +1454,10 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         rejection_reasons.append("a2_route_conditioning_fast_vent_not_supported")
     if route_conditioning_diagnostic_blocked:
         rejection_reasons.append("a2_route_conditioning_diagnostic_blocked_vent_scheduler")
+    if route_open_transition_blocked:
+        rejection_reasons.append("a2_route_open_transition_blocked_vent_scheduler")
+    if route_open_settle_wait_blocked:
+        rejection_reasons.append("a2_route_open_settle_wait_blocked_vent_scheduler")
     if unsafe_flush_action_seen:
         rejection_reasons.append("a2_route_conditioning_unsafe_action_before_flush_completed")
     if unsafe_vent_command_sent:
@@ -1695,6 +1714,39 @@ def write_a2_co2_7_pressure_no_write_probe_artifacts(
         "route_conditioning_fast_vent_command_timeout": route_conditioning_fast_vent_timeout,
         "route_conditioning_fast_vent_not_supported": route_conditioning_fast_vent_not_supported,
         "route_conditioning_diagnostic_blocked_vent_scheduler": route_conditioning_diagnostic_blocked,
+        "route_open_transition_started": _as_bool(metric_or_summary("route_open_transition_started")) is True,
+        "route_open_transition_started_at": metric_or_summary("route_open_transition_started_at") or "",
+        "route_open_transition_started_monotonic_s": metric_or_summary(
+            "route_open_transition_started_monotonic_s"
+        ),
+        "route_open_command_write_started_at": metric_or_summary("route_open_command_write_started_at") or "",
+        "route_open_command_write_completed_at": metric_or_summary("route_open_command_write_completed_at") or "",
+        "route_open_command_write_duration_ms": metric_or_summary("route_open_command_write_duration_ms"),
+        "route_open_settle_wait_sliced": _as_bool(metric_or_summary("route_open_settle_wait_sliced")) is True,
+        "route_open_settle_wait_slice_count": int(metric_or_summary("route_open_settle_wait_slice_count") or 0),
+        "route_open_settle_wait_total_ms": metric_or_summary("route_open_settle_wait_total_ms"),
+        "route_open_transition_total_duration_ms": metric_or_summary("route_open_transition_total_duration_ms"),
+        "vent_ticks_during_route_open_transition": int(
+            metric_or_summary("vent_ticks_during_route_open_transition") or 0
+        ),
+        "route_open_transition_max_vent_write_gap_ms": metric_or_summary(
+            "route_open_transition_max_vent_write_gap_ms"
+        ),
+        "route_open_transition_terminal_vent_write_age_ms": metric_or_summary(
+            "route_open_transition_terminal_vent_write_age_ms"
+        ),
+        "route_open_transition_blocked_vent_scheduler": route_open_transition_blocked,
+        "route_open_settle_wait_blocked_vent_scheduler": route_open_settle_wait_blocked,
+        "terminal_vent_write_age_ms_at_gap_gate": metric_or_summary(
+            "terminal_vent_write_age_ms_at_gap_gate"
+        ),
+        "max_vent_pulse_write_gap_ms_including_terminal_gap": (
+            max_vent_pulse_write_gap_ms_including_terminal_gap
+        ),
+        "route_conditioning_vent_gap_exceeded_source": metric_or_summary(
+            "route_conditioning_vent_gap_exceeded_source"
+        )
+        or "",
         "route_open_high_frequency_vent_phase_started": _as_bool(
             metric_or_summary("route_open_high_frequency_vent_phase_started")
         )
